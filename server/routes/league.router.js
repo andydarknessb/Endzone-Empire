@@ -45,3 +45,18 @@ router.put('/:id', (req, res) => {
         res.sendStatus(500);
       });
   });
+
+  // This route deletes a league
+router.delete('/:id', (req, res) => {
+    const queryText = 'DELETE FROM "league" WHERE "id" = $1 AND "owner_id" = $2';
+    pool.query(queryText, [req.params.id, req.user.id])
+      .then(() => {
+        res.sendStatus(200);
+      })
+      .catch((error) => {
+        console.log('Error on DELETE league query', error);
+        res.sendStatus(500);
+      });
+  });
+  
+  module.exports = router;
