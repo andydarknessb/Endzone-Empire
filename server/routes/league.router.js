@@ -29,3 +29,19 @@ router.post('/', (req, res) => {
         res.sendStatus(500);
       });
   });
+
+  // This route updates a league's name
+router.put('/:id', (req, res) => {
+    const updatedLeague = req.body;
+    const queryText = `UPDATE "league"
+                       SET "name" = $1
+                       WHERE "id" = $2 AND "owner_id" = $3`;
+    pool.query(queryText, [updatedLeague.name, req.params.id, req.user.id])
+      .then(() => {
+        res.sendStatus(200);
+      })
+      .catch((error) => {
+        console.log('Error on PUT league query', error);
+        res.sendStatus(500);
+      });
+  });
