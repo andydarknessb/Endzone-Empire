@@ -14,6 +14,25 @@ router.get('/', rejectUnauthenticated, (req, res) => {
   res.send(req.user);
 });
 
+// Fetch specific user by their id
+router.get('/:id', rejectUnauthenticated, async (req, res) => {
+  try {
+    const id = req.params.id;
+    const queryText = 'SELECT * FROM "user" WHERE id=$1';
+    const { rows } = await pool.query(queryText, [id]);
+    const user = rows[0];
+
+    if (user) {
+      res.json(user);
+    } else {
+      res.status(404).send('User not found');
+    }
+  } catch (error) {
+    console.error('Error getting user:', error);
+    res.status(500).send('Internal server error');
+  }
+});
+
 // Handles POST request with new user data
 // The only thing different from this and every other post we've seen
 // is that the password gets encrypted before being inserted
