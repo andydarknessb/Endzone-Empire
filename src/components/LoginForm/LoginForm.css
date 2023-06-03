@@ -1,0 +1,47 @@
+.formPanel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    margin: auto;
+    width: 300px;
+    padding: 20px;
+    border-radius: 5px;
+    background-color: #212121;
+    color: #FFF;
+    box-shadow: 0px 0px 10px #000;
+  }
+  
+  .formPanel h2 {
+    margin-bottom: 20px;
+    color: #FF9800;
+  }
+  
+  .formPanel label {
+    align-self: flex-start;
+    margin: 10px 0;
+    color: #FF9800;
+  }
+  
+  .formPanel input[type='text'], .formPanel input[type='password'] {
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 10px;
+    border: none;
+    border-radius: 5px;
+  }
+  
+  .alert {
+    color: green;
+  }
+  
+  .btn {
+    background-color: #FF9800;
+    border: none;
+    border-radius: 5px;
+    padding: 10px 20px;
+    cursor: pointer;
+    transition: background 0.3s ease;
+  }
+  
+ 

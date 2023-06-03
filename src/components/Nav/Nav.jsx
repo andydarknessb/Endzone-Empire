@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import LogOutButton from '../LogOutButton/LogOutButton';
 import './Nav.css';
 import { useSelector } from 'react-redux';
-import logo from '/logo.jpeg'
 
 function Nav() {
   const user = useSelector((store) => store.user);
@@ -11,7 +10,6 @@ function Nav() {
   return (
     <div className="nav">
       <Link to="/home">
-      <img src={logo} alt="Endzone Empire Logo" className="logo" />
         <h2 className="nav-title">Endzone Empire</h2>
       </Link>
       <div>
