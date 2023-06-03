@@ -14,13 +14,14 @@ function LandingPage() {
   };
 
   return (
+    <div className="landing-page">
     <div className="container">
       <h2>{heading}</h2>
 
       <div className="grid">
         <div className="grid-col grid-col_8">
           <p>
-          Welcome to Endzone Empire, the application that turns armchair quarterbacks into legendary 
+          Endzone Empire, the application that turns armchair quarterbacks into legendary 
           league managers! Our mission is to make your fantasy football experience more fun, exciting,
           and competitive than ever before. With our easy-to-use platform, you'll be able to create, join, 
           and manage your own fantasy football leagues with just a few clicks. 
@@ -52,6 +53,7 @@ function LandingPage() {
           </center>
         </div>
       </div>
+    </div>
     </div>
   );
 }
