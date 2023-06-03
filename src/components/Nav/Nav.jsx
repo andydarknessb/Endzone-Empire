@@ -27,11 +27,21 @@ function Nav() {
             <Link className="navLink" to="/user">
               Home
             </Link>
-
-            <Link className="navLink" to="/info">
-              Info Page
+            <Link className="navLink" to="/dashboard">
+              Dashboard
             </Link>
-
+            <Link className="navLink" to="/league">
+              League Management
+            </Link>
+            <Link className="navLink" to="/team">
+              Team Management
+            </Link>
+            <Link className="navLink" to="/player">
+              Player Management
+            </Link>
+            <Link className="navLink" to="/rankings">
+              Rankings
+            </Link>
             <LogOutButton className="navLink" />
           </>
         )}
