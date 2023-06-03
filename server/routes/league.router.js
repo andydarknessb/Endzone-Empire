@@ -4,7 +4,7 @@ const router = express.Router();
 
 // This route gets all leagues
 router.get('/', (req, res) => {
-  const queryText = 'SELECT * FROM "league"';
+  const queryText = 'SELECT * FROM "leagues"';
   pool.query(queryText)
     .then((result) => {
       res.send(result.rows);
@@ -18,7 +18,7 @@ router.get('/', (req, res) => {
 // Create a league
 router.post('/create', async (req, res) => {
     const newLeague = req.body;
-    const queryText = `INSERT INTO "league" ("name", "owner_id") VALUES ($1, $2)`;
+    const queryText = `INSERT INTO "leagues" ("name", "owner_id") VALUES ($1, $2)`;
     try {
         await pool.query(queryText, [newLeague.name, req.user.id]);
         res.sendStatus(201);
@@ -44,7 +44,7 @@ router.post('/join/:id', async (req, res) => {
   // This route updates a league's name
 router.put('/:id', (req, res) => {
     const updatedLeague = req.body;
-    const queryText = `UPDATE "league"
+    const queryText = `UPDATE "leagues"
                        SET "name" = $1
                        WHERE "id" = $2 AND "owner_id" = $3`;
     pool.query(queryText, [updatedLeague.name, req.params.id, req.user.id])
@@ -59,7 +59,7 @@ router.put('/:id', (req, res) => {
 
   // This route deletes a league
 router.delete('/:id', (req, res) => {
-    const queryText = 'DELETE FROM "league" WHERE "id" = $1 AND "owner_id" = $2';
+    const queryText = 'DELETE FROM "leagues" WHERE "id" = $1 AND "owner_id" = $2';
     pool.query(queryText, [req.params.id, req.user.id])
       .then(() => {
         res.sendStatus(200);
@@ -117,5 +117,18 @@ router.post('/team/:team_id/draft/:player_id', async (req, res) => {
         res.sendStatus(500);
     }
 });
+
+router.get('/team/roster', async (req, res) => {
+  const userId = req.user.id;
+  const queryText = `SELECT * FROM "roster" WHERE "user_id" = $1`;
+  try {
+      const result = await pool.query(queryText, [userId]);
+      res.send(result.rows);
+  } catch (error) {
+      console.log('Error on GET roster query', error);
+      res.sendStatus(500);
+  }
+});
+
 
   module.exports = router;

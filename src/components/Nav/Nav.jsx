@@ -27,9 +27,7 @@ function Nav() {
             <Link className="navLink" to="/user">
               Home
             </Link>
-            <Link className="navLink" to="/dashboard">
-              Dashboard
-            </Link>
+            
             <Link className="navLink" to="/league">
               League Management
             </Link>

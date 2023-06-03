@@ -20,7 +20,7 @@ import LandingPage from '../LandingPage/LandingPage';
 import LoginPage from '../LoginPage/LoginPage';
 import RegisterPage from '../RegisterPage/RegisterPage';
 
-import Dashboard from '../Dashboard/Dashboard';
+
 import LeagueManagement from '../LeagueManagement/LeagueManagement';
 import TeamManagement from '../TeamManagement/TeamManagement';
 import PlayerManagement from '../PlayerManagement/PlayerManagement';
@@ -42,7 +42,6 @@ function App() {
       <div>
         <Nav />
         <Switch>
-        <ProtectedRoute exact path="/dashboard" component={Dashboard} />
           <ProtectedRoute exact path="/league" component={LeagueManagement} />
           <ProtectedRoute exact path="/team" component={TeamManagement} />
           <ProtectedRoute exact path="/player" component={PlayerManagement} />
