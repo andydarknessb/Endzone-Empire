@@ -37,7 +37,7 @@ img {
 }
 
 .btn:hover {
-  background-color: black; /* Changed to match LandingPage */
+  background-color: #F57C00; /* Changed to match LandingPage */
   text-decoration: none;
 }
 

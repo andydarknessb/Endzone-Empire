@@ -20,6 +20,12 @@ import LandingPage from '../LandingPage/LandingPage';
 import LoginPage from '../LoginPage/LoginPage';
 import RegisterPage from '../RegisterPage/RegisterPage';
 
+import Dashboard from '../Dashboard/Dashboard';
+import LeagueManagement from '../LeagueManagement/LeagueManagement';
+import TeamManagement from '../TeamManagement/TeamManagement';
+import PlayerManagement from '../PlayerManagement/PlayerManagement';
+import Rankings from '../Rankings/Rankings';
+
 import './App.css';
 
 function App() {
@@ -36,6 +42,11 @@ function App() {
       <div>
         <Nav />
         <Switch>
+        <ProtectedRoute exact path="/dashboard" component={Dashboard} />
+          <ProtectedRoute exact path="/league" component={LeagueManagement} />
+          <ProtectedRoute exact path="/team" component={TeamManagement} />
+          <ProtectedRoute exact path="/player" component={PlayerManagement} />
+          <ProtectedRoute exact path="/rankings" component={Rankings} />
           {/* Visiting localhost:3000 will redirect to localhost:3000/home */}
           <Redirect exact from="/" to="/home" />
 
