@@ -20,35 +20,24 @@ function LandingPage() {
       <div className="grid">
         <div className="grid-col grid-col_8">
           <p>
-            Lorem ipsum dolor sit amet, consectetur adipiscing elit. Curabitur
-            id felis metus. Vestibulum et pulvinar tortor. Morbi pharetra lacus
-            ut ex molestie blandit. Etiam et turpis sit amet risus mollis
-            interdum. Suspendisse et justo vitae metus bibendum fringilla sed
-            sed justo. Aliquam sollicitudin dapibus lectus, vitae consequat odio
-            elementum eget. Praesent efficitur eros vitae nunc interdum, eu
-            interdum justo facilisis. Sed pulvinar nulla ac dignissim efficitur.
-            Quisque eget eros metus. Vestibulum bibendum fringilla nibh a
-            luctus. Duis a sapien metus.
+          Welcome to Endzone Empire, the application that turns armchair quarterbacks into legendary 
+          league managers! Our mission is to make your fantasy football experience more fun, exciting,
+          and competitive than ever before. With our easy-to-use platform, you'll be able to create, join, 
+          and manage your own fantasy football leagues with just a few clicks. 
           </p>
 
           <p>
-            Praesent consectetur orci dui, id elementum eros facilisis id. Sed
-            id dolor in augue porttitor faucibus eget sit amet ante. Nunc
-            consectetur placerat pharetra. Aenean gravida ex ut erat commodo, ut
-            finibus metus facilisis. Nullam eget lectus non urna rhoncus
-            accumsan quis id massa. Curabitur sit amet dolor nisl. Proin
-            euismod, augue at condimentum rhoncus, massa lorem semper lacus, sed
-            lobortis augue mi vel felis. Duis ultrices sapien at est convallis
-            congue.
+          Get ready to become a draft day guru as you build your dream team of gridiron greats. Keep 
+          track of player performance, strategize your lineup, and cheer on your team as they rack up
+          points in head-to-head matchups. Our user-friendly interface, real-time updates, and 
+          comprehensive ranking and scoring systems ensure you'll stay engaged and entertained 
+          throughout the entire football season.
           </p>
 
           <p>
-            Fusce porta diam ac tortor elementum, ut imperdiet metus volutpat.
-            Suspendisse posuere dapibus maximus. Aliquam vitae felis libero. In
-            vehicula sapien at semper ultrices. Vivamus sed feugiat libero. Sed
-            sagittis neque id diam euismod, ut egestas felis ultricies. Nullam
-            non fermentum mauris. Sed in enim ac turpis faucibus pretium in sit
-            amet nisi.
+          So, gather your friends, family, or co-workers, and embark on an epic journey of fantasy football 
+          triumphs and heartbreaks. Are you ready for the challenge? Join Endzone Empire and find out!
+           
           </p>
         </div>
         <div className="grid-col grid-col_4">
@@ -56,6 +45,7 @@ function LandingPage() {
 
           <center>
             <h4>Already a Member?</h4>
+            <div style={{ marginTop: '20px' }}></div>
             <button className="btn btn_sizeSm" onClick={onLogin}>
               Login
             </button>
