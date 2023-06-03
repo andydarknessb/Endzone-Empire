@@ -69,5 +69,53 @@ router.delete('/:id', (req, res) => {
         res.sendStatus(500);
       });
   });
-  
+
+  router.post('/team/create', async (req, res) => {
+    const newTeam = req.body;
+    const queryText = `INSERT INTO "teams" ("name", "owner_id", "league_id") VALUES ($1, $2, $3)`;
+    try {
+        await pool.query(queryText, [newTeam.name, req.user.id, newTeam.league_id]);
+        res.sendStatus(201);
+    } catch (error) {
+        console.log('Error on POST team create query', error);
+        res.sendStatus(500);
+    }
+});
+
+router.put('/team/:id', async (req, res) => {
+    const updatedTeam = req.body;
+    const queryText = `UPDATE "team" SET "name" = $1 WHERE "id" = $2 AND "owner_id" = $3`;
+    try {
+        await pool.query(queryText, [updatedTeam.name, req.params.id, req.user.id]);
+        res.sendStatus(200);
+    } catch (error) {
+        console.log('Error on PUT team update query', error);
+        res.sendStatus(500);
+    }
+});
+
+router.get('/players/search/:name', async (req, res) => {
+    const playerName = req.params.name;
+    const queryText = `SELECT * FROM "player" WHERE "name" LIKE $1`;
+    try {
+        const result = await pool.query(queryText, [`%${playerName}%`]);
+        res.send(result.rows);
+    } catch (error) {
+        console.log('Error on GET player search query', error);
+        res.sendStatus(500);
+    }
+});
+
+router.post('/team/:team_id/draft/:player_id', async (req, res) => {
+    const { team_id, player_id } = req.params;
+    const queryText = `INSERT INTO "team_players" ("team_id", "player_id") VALUES ($1, $2)`;
+    try {
+        await pool.query(queryText, [team_id, player_id]);
+        res.sendStatus(201);
+    } catch (error) {
+        console.log('Error on POST draft player query', error);
+        res.sendStatus(500);
+    }
+});
+
   module.exports = router;
