@@ -27,35 +27,41 @@ const scoringRules = {
 // Route to calculate player scores for a particular game
 router.post('/calculate_scores', async (req, res) => {
   try {
-    // Retrieve player stats for the game
-    const gameID = req.body.gameID;
-    const playerStatsQuery = `
-      SELECT * FROM player_stats
-      WHERE game_id = $1
-    `;
-    const playerStatsResult = await pool.query(playerStatsQuery, [gameID]);
-    const playerStats = playerStatsResult.rows;
+    // Retrieve all teams
+    const teamsQuery = 'SELECT * FROM teams';
+    const teamsResult = await pool.query(teamsQuery);
+    const teams = teamsResult.rows;
 
-    // Calculate player scores
-    const playerScores = playerStats.map(stats => ({
-      playerID: stats.player_id,
-      score: calculateScore(stats),
-    }));
-
-    // Update player scores in the database
-    for (const { playerID, score } of playerScores) {
-      const updateScoreQuery = `
-        UPDATE player_stats
-        SET score = $1
-        WHERE game_id = $2 AND player_id = $3
+    // Calculate and update score for each team
+    for (const team of teams) {
+      const teamScoreQuery = `
+        SELECT SUM(score) as total_score FROM player_stats
+        JOIN players_teams ON players_teams.player_id = player_stats.player_id
+        WHERE players_teams.team_id = $1
       `;
-      await pool.query(updateScoreQuery, [score, gameID, playerID]);
+      const teamScoreResult = await pool.query(teamScoreQuery, [team.id]);
+      const teamScore = teamScoreResult.rows[0].total_score || 0;
+
+      const updateTeamScoreQuery = 'UPDATE teams SET score = $1 WHERE id = $2';
+      await pool.query(updateTeamScoreQuery, [teamScore, team.id]);
     }
 
     // Send success status
     res.sendStatus(200);
   } catch (error) {
-    console.error('Error calculating scores:', error);
+    console.error('Error calculating team scores:', error);
+    res.sendStatus(500);
+  }
+});
+
+// Route to get team rankings
+router.get('/rankings', async (req, res) => {
+  try {
+    const rankingsQuery = 'SELECT * FROM teams ORDER BY score DESC';
+    const rankingsResult = await pool.query(rankingsQuery);
+    res.send(rankingsResult.rows);
+  } catch (error) {
+    console.error('Error getting team rankings:', error);
     res.sendStatus(500);
   }
 });
