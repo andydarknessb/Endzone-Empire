@@ -38,3 +38,10 @@
   background-color: #424242;
   color: #FF9800;
 }
+
+.logo {
+  height: 50px; 
+  width: auto; 
+  margin-right: 10px; 
+}
+
