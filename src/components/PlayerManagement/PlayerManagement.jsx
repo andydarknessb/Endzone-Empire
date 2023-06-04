@@ -1,9 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Button } from '@material-ui/core';
+import { makeStyles, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Button } from '@material-ui/core';
+
+const useStyles = makeStyles({
+  table: {
+    minWidth: 650,
+  },
+});
 
 function PlayerManagement() {
   const [players, setPlayers] = useState([]);
+  const classes = useStyles();
 
   useEffect(() => {
     fetchPlayers();
@@ -13,13 +20,13 @@ function PlayerManagement() {
     const options = {
       method: 'GET',
       url: 'https://api-american-football.p.rapidapi.com/players',
-      params: { id: '1' },
+      
       headers: {
         'X-RapidAPI-Key': process.env.REACT_APP_RAPID_API_KEY,
         'X-RapidAPI-Host': process.env.REACT_APP_RAPID_API_HOST
       }
     };
-
+  
     try {
       const response = await axios.request(options);
       console.log(response.data);
@@ -29,21 +36,25 @@ function PlayerManagement() {
     }
   };
 
-  const addToRoster = (player) => {
-    // TODO: Implement add to roster function
-    console.log('Adding player to roster:', player);
+  const addToRoster = async (player) => {
+    try {
+      await axios.post(`/api/draft/${player.id}`); // Update to use your server route
+      console.log(`Added player ${player.name} to roster.`);
+    } catch (error) {
+      console.error(`Error adding player to roster: ${error}`);
+    }
   };
 
   return (
     <TableContainer component={Paper}>
-      <Table>
+      <Table className={classes.table}>
         <TableHead>
           <TableRow>
             <TableCell>Name</TableCell>
             <TableCell align="right">Position</TableCell>
             <TableCell align="right">Team</TableCell>
             <TableCell align="right">Opponent</TableCell>
-            <TableCell align="right">Manager or Free Agent</TableCell>
+            <TableCell align="right">Manager</TableCell>
             <TableCell align="right">Statistics</TableCell>
             <TableCell align="right">Actions</TableCell>
           </TableRow>
@@ -51,9 +62,7 @@ function PlayerManagement() {
         <TableBody>
           {players.map((player) => (
             <TableRow key={player.id}>
-              <TableCell component="th" scope="row">
-                {player.name}
-              </TableCell>
+              <TableCell component="th" scope="row">{player.name}</TableCell>
               <TableCell align="right">{player.position}</TableCell>
               <TableCell align="right">{player.team}</TableCell>
               <TableCell align="right">{player.opponent}</TableCell>

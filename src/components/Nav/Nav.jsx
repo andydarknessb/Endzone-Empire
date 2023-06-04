@@ -29,13 +29,13 @@ function Nav() {
             </Link>
             
             <Link className="navLink" to="/league">
-              League Management
+              League
             </Link>
             <Link className="navLink" to="/team">
-              Team Management
+              My Team
             </Link>
             <Link className="navLink" to="/player">
-              Player Management
+              Players
             </Link>
             <Link className="navLink" to="/rankings">
               Rankings

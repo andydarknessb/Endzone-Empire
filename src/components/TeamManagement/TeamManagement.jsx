@@ -2,28 +2,22 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Typography, makeStyles, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper } from '@material-ui/core';
 
-const useStyles = makeStyles((theme) => ({
-  root: {
-    '& > *': {
-      margin: theme.spacing(1),
-    },
-  },
+const useStyles = makeStyles({
   table: {
     minWidth: 650,
   },
-}));
+});
 
 function TeamManagement() {
   const classes = useStyles();
   const [roster, setRoster] = useState([]);
 
   useEffect(() => {
-    // Fetch roster on component mount
     fetchRoster();
   }, []);
 
   const fetchRoster = async () => {
-    const response = await axios.get('/api/league/team/roster');  
+    const response = await axios.get('/api/league/team/roster');  // Update to use your server route
     setRoster(response.data);
   }
 
@@ -31,7 +25,7 @@ function TeamManagement() {
     <div className={classes.root}>
       <Typography variant="h4">Team Management</Typography>
       <TableContainer component={Paper}>
-        <Table className={classes.table} aria-label="simple table">
+        <Table className={classes.table}>
           <TableHead>
             <TableRow>
               <TableCell>POS</TableCell>
