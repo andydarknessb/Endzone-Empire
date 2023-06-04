@@ -40,6 +40,9 @@ function Nav() {
             <Link className="navLink" to="/rankings">
               Rankings
             </Link>
+            <Link className="navLink" to="/draft">
+              Draft
+            </Link>
             <LogOutButton className="navLink" />
           </>
         )}

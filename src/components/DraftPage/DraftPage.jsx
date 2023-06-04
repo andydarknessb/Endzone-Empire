@@ -11,13 +11,13 @@ function Draft() {
   }, []);
 
   const fetchPlayers = async () => {
-    const response = await axios.get('/api/players'); 
+    const response = await axios.get('/api/players'); // Replace with your backend endpoint
     setPlayers(response.data);
   }
 
   const draftPlayer = async () => {
     if (selectedPlayerId) {
-      await axios.post(`/api/draftedplayers/${selectedPlayerId}`); 
+      await axios.post(`/api/draft/${selectedPlayerId}`); // Replace with your backend endpoint
       fetchPlayers();
     }
   }

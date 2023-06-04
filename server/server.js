@@ -25,7 +25,7 @@ app.use(passport.session());
 
 /* Routes */
 app.use('/api/user', userRouter);
-app.use('/api/leagues', leagueRouter);
+app.use('/api/league', leagueRouter);
 app.use('/api/draft', draftRouter);
 
 // Serve static files

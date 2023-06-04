@@ -22,7 +22,8 @@ function PlayerManagement() {
 
     try {
       const response = await axios.request(options);
-      setPlayers(response.data);
+      console.log(response.data);
+      setPlayers(response.data.response);
     } catch (error) {
       console.error(error);
     }

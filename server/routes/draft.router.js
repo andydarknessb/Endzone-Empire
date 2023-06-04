@@ -1,13 +1,15 @@
 const express = require('express');
-const axios = require('axios');
-const pool = require('../modules/pool');
 const router = express.Router();
+const pool = require('../modules/pool'); // Your PostgreSQL pool setup
+const axios = require('axios');
 
+// Add route for getting players from third-party API
 router.get('/players', async (req, res) => {
   try {
     const response = await axios({
       method: 'GET',
       url: 'https://api-american-football.p.rapidapi.com/players',
+      params: {id: '1'},
       headers: {
         'X-RapidAPI-Key': process.env.RAPID_API_KEY,
         'X-RapidAPI-Host': process.env.RAPID_API_HOST,
@@ -20,10 +22,12 @@ router.get('/players', async (req, res) => {
   }
 });
 
+// Add route for drafting a player
 router.post('/:playerId', async (req, res) => {
   const playerId = req.params.playerId;
-  const queryText = `INSERT INTO team_players (player_id, team_id) VALUES ($1, $2);`;
 
+  // Replace with your own logic to add player to team
+  const queryText = `INSERT INTO draftedplayers (player_id, team_id) VALUES ($1, $2);`;
   try {
     await pool.query(queryText, [playerId, req.user.team_id]);
     res.sendStatus(200);
