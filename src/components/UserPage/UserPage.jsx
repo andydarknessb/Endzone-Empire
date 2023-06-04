@@ -12,6 +12,11 @@ function UserPage() {
   const [openJoinDialog, setOpenJoinDialog] = useState(false);
   const [leagueName, setLeagueName] = useState("");
   const [leagueDescription, setLeagueDescription] = useState("");
+  const [teamName, setTeamName] = useState("");
+  const [teamDescription, setTeamDescription] = useState("");
+  const [openCreateTeamDialog, setOpenCreateTeamDialog] = useState(false);
+  
+
 
   useEffect(() => {
     // Fetch user's leagues
@@ -36,9 +41,11 @@ function UserPage() {
       headers: {
         'Content-Type': 'application/json',
       },
+
       body: JSON.stringify({
         name: leagueName,
         description: leagueDescription,
+        team: teamName,
       }),
     })
     .then((response) => {
@@ -63,7 +70,7 @@ function UserPage() {
   };
 
   const handleJoinLeague = () => {
-    fetch(`/api/league/join/${leagueId}`, { // You need to define leagueId somewhere
+    fetch(`/api/league/join/${leagueId}`, { 
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -80,6 +87,19 @@ function UserPage() {
     })
     .catch((error) => console.error('Error:', error));
   };
+
+  // Functions to handle create team dialog
+const handleOpenCreateTeamDialog = () => {
+  setOpenCreateTeamDialog(true);
+};
+
+const handleCloseCreateTeamDialog = () => {
+  setOpenCreateTeamDialog(false);
+};
+
+const handleCreateTeam = () => {
+ 
+};
 
   return (
     <div className="container">
@@ -126,11 +146,29 @@ function UserPage() {
           <Button onClick={handleCloseJoinDialog} color="primary">
             Cancel
           </Button>
-          <Button onClick={handleJoinLeague} color="primary">
-            Join
+          <Button variant="contained" color="primary" onClick={handleOpenCreateTeamDialog}>
+          Create Team
           </Button>
+
         </DialogActions>
       </Dialog>
+      <Dialog open={openCreateTeamDialog} onClose={handleCloseCreateTeamDialog} className="dialogContainer">
+      <DialogTitle className="dialogTitle">Create a New Team</DialogTitle>
+      <DialogContent>
+      <TextField className="dialogTextField" autoFocus margin="dense" label="Team Name" fullWidth onChange={(event) => setTeamName(event.target.value)} />
+      <TextField className="dialogTextField" margin="dense" label="Team Description" fullWidth onChange={(event) => setTeamDescription(event.target.value)} />
+      </DialogContent>
+      <DialogActions>
+      <Button onClick={handleCloseCreateTeamDialog} color="primary">
+      Cancel
+    </Button>
+    <Button onClick={handleCreateTeam} color="primary">
+      Create
+    </Button>
+    </DialogActions>
+    </Dialog>
+
+
       <LogOutButton className="logoutButton" />
     </div>
   );

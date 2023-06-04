@@ -17,16 +17,24 @@ router.get('/', (req, res) => {
 
 // Create a league
 router.post('/create', async (req, res) => {
-    const newLeague = req.body;
-    const queryText = `INSERT INTO "leagues" ("name", "owner_id") VALUES ($1, $2)`;
-    try {
-        await pool.query(queryText, [newLeague.name, req.user.id]);
-        res.sendStatus(201);
-    } catch (error) {
-        console.log('Error on POST league query', error);
-        res.sendStatus(500);
-    }
+  const newLeague = req.body;
+  const leagueQueryText = `INSERT INTO "leagues" ("name", "owner_id") VALUES ($1, $2) RETURNING id`;
+  const teamQueryText = `INSERT INTO "teams" ("name", "owner_id", "league_id") VALUES ($1, $2, $3)`;
+
+  try {
+      await pool.query('BEGIN');
+      const leagueResult = await pool.query(leagueQueryText, [newLeague.name, req.user.id]);
+      const leagueId = leagueResult.rows[0].id;  // Get the ID of the newly created league
+      await pool.query(teamQueryText, [newLeague.team, req.user.id, leagueId]);
+      await pool.query('COMMIT');
+      res.sendStatus(201);
+  } catch (error) {
+      await pool.query('ROLLBACK');
+      console.log('Error on POST league query', error);
+      res.sendStatus(500);
+  }
 });
+
 
 // Join a league
 router.post('/join/:id', async (req, res) => {
