@@ -19,6 +19,7 @@ import InfoPage from '../InfoPage/InfoPage';
 import LandingPage from '../LandingPage/LandingPage';
 import LoginPage from '../LoginPage/LoginPage';
 import RegisterPage from '../RegisterPage/RegisterPage';
+import DraftPage from '../DraftPage/DraftPage';
 
 
 import LeagueManagement from '../LeagueManagement/LeagueManagement';
@@ -46,6 +47,7 @@ function App() {
           <ProtectedRoute exact path="/team" component={TeamManagement} />
           <ProtectedRoute exact path="/player" component={PlayerManagement} />
           <ProtectedRoute exact path="/rankings" component={Rankings} />
+          <ProtectedRoute exact path="/draft" component={Draft}/>
           {/* Visiting localhost:3000 will redirect to localhost:3000/home */}
           <Redirect exact from="/" to="/home" />
 
