@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Typography, TextField, Button, makeStyles, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper } from '@material-ui/core';
+import { Typography, TextField, Button, makeStyles, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Dialog, DialogTitle, DialogContent, DialogActions } from '@material-ui/core';
 
 const useStyles = makeStyles((theme) => ({
   root: {
@@ -12,82 +12,88 @@ const useStyles = makeStyles((theme) => ({
 
 function LeagueManagement() {
   const classes = useStyles();
-  const [leagueId, setLeagueId] = useState('');
   const [leagueName, setLeagueName] = useState('');
   const [leagues, setLeagues] = useState([]);
-  const [leagueDetails, setLeagueDetails] = useState(null);
+  const [leagueDetails, setLeagueDetails] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [selectedLeagueId, setSelectedLeagueId] = useState(null);
 
   useEffect(() => {
-    // Fetch leagues on component mount
     fetchLeagues();
   }, []);
+
+  useEffect(() => {
+    if (selectedLeagueId) {
+      fetchLeagueDetails(selectedLeagueId);
+    }
+  }, [selectedLeagueId]);
 
   const fetchLeagues = async () => {
     const response = await axios.get('/api/league');
     setLeagues(response.data);
   }
 
-  const createLeague = async () => {
-    await axios.post('/api/league/create', { name: leagueName });
-    fetchLeagues(); // Refresh the list of leagues
+  const fetchLeagueDetails = async (id) => {
+    const response = await axios.get(`/api/league/${id}/details`);
+    setLeagueDetails(response.data);
   }
 
-  const fetchLeagueDetails = async (id) => {
-    const response = await axios.get(`/api/league/${id}`);
-    setLeagueDetails(response.data);
+  const createLeague = async () => {
+    await axios.post('/api/league/create', { name: leagueName });
+    fetchLeagues();
   }
 
   const updateLeague = async (id, name) => {
     await axios.put(`/api/league/${id}`, { name });
-    fetchLeagues(); // Refresh the list of leagues
+    fetchLeagues();
   }
 
   const deleteLeague = async (id) => {
     await axios.delete(`/api/league/${id}`);
-    fetchLeagues(); // Refresh the list of leagues
+    fetchLeagues();
   }
 
   const joinLeague = async (id) => {
     await axios.post(`/api/league/join/${id}`);
-    fetchLeagues(); // Refresh the list of leagues
+    fetchLeagues();
   }
+
+  const handleClickOpen = (id) => {
+    setSelectedLeagueId(id);
+    setOpen(true);
+  };
+
+  const handleClose = () => {
+    setOpen(false);
+  };
 
   return (
     <div className={classes.root}>
       <Typography variant="h4">League Management</Typography>
-      <TableContainer component={Paper}>
-        <Table className={classes.table} aria-label="simple table">
-          <TableHead>
-            <TableRow>
-              <TableCell>League Name</TableCell>
-              <TableCell align="right">Action</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {leagues.map((league) => (
-              <TableRow key={league.id}>
-                <TableCell component="th" scope="row">
-                  {league.name}
-                </TableCell>
-                <TableCell align="right">
-                  <Button onClick={() => fetchLeagueDetails(league.id)}>View Details</Button>
-                  <Button onClick={() => deleteLeague(league.id)}>Delete</Button>
-                  <Button onClick={() => joinLeague(league.id)}>Join</Button>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
+      {/* previous code */}
+      {leagues.map((league) => (
+        <div key={league.id}>
+          <Typography variant="h6">{league.name}</Typography>
+          <Button variant="outlined" color="primary" onClick={() => handleClickOpen(league.id)}>
+            View Details
+          </Button>
+        </div>
+      ))}
+      <Dialog open={open} onClose={handleClose} aria-labelledby="form-dialog-title">
+        <DialogTitle id="form-dialog-title">League Managers</DialogTitle>
+        <DialogContent>
+          {leagueDetails && leagueDetails.map((detail) => (
+            <Typography>{detail.name} - Rank: {detail.ranking}</Typography>
+          ))}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleClose} color="primary">
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
       <TextField label="League Name" value={leagueName} onChange={(e) => setLeagueName(e.target.value)} />
       <Button onClick={createLeague}>Create League</Button>
-      {leagueDetails && (
-        <div>
-          <Typography variant="h5">League Details</Typography>
-          <TextField label="League Name" value={leagueDetails.name} onChange={(e) => setLeagueName(e.target.value)} />
-          <Button onClick={() => updateLeague(leagueDetails.id, leagueName)}>Update</Button>
-        </div>
-      )}
     </div>
   );
 }

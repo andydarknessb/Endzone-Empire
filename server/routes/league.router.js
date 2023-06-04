@@ -45,8 +45,8 @@ router.post('/join/:id', async (req, res) => {
 router.put('/:id', (req, res) => {
     const updatedLeague = req.body;
     const queryText = `UPDATE "leagues"
-                       SET "name" = $1
-                       WHERE "id" = $2 AND "owner_id" = $3`;
+    SET "name" = $1
+    WHERE "id" = $2 AND "owner_id" = $3`;
     pool.query(queryText, [updatedLeague.name, req.params.id, req.user.id])
       .then(() => {
         res.sendStatus(200);
@@ -126,6 +126,25 @@ router.get('/team/roster', async (req, res) => {
       res.send(result.rows);
   } catch (error) {
       console.log('Error on GET roster query', error);
+      res.sendStatus(500);
+  }
+});
+
+router.get('/:id/details', async (req, res) => {
+  const leagueId = req.params.id;
+  const queryText = `
+  SELECT "leagueteams"."user_id", "username", "leagueteams"."ranking" 
+  FROM "leagueteams"
+  JOIN "user" ON "leagueteams"."user_id" = "user"."id"
+  WHERE "league_id" = $1
+  ORDER BY "ranking" DESC
+  `;
+
+  try {
+      const result = await pool.query(queryText, [leagueId]);
+      res.send(result.rows);
+  } catch (error) {
+      console.log('Error on GET league details query', error);
       res.sendStatus(500);
   }
 });

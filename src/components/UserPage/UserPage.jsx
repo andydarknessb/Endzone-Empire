@@ -31,9 +31,26 @@ function UserPage() {
   };
 
   const handleCreateLeague = () => {
-    // Logic to create a league goes here
-    // After creating the league, close the dialog
-    handleCloseCreateDialog();
+    fetch('/api/league/create', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: leagueName,
+        description: leagueDescription,
+      }),
+    })
+    .then((response) => {
+      if (!response.ok) throw new Error(response.status);
+      else return response.json();
+    })
+    .then(() => {
+      handleCloseCreateDialog();
+      // Fetch user's leagues again
+      dispatch({ type: 'FETCH_USER_LEAGUES', payload: user.id });
+    })
+    .catch((error) => console.error('Error:', error));
   };
 
   // Functions to handle join dialog
@@ -46,9 +63,22 @@ function UserPage() {
   };
 
   const handleJoinLeague = () => {
-    // Logic to join a league goes here
-    // After joining the league, close the dialog
-    handleCloseJoinDialog();
+    fetch(`/api/league/join/${leagueId}`, { // You need to define leagueId somewhere
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    })
+    .then((response) => {
+      if (!response.ok) throw new Error(response.status);
+      else return response.json();
+    })
+    .then(() => {
+      handleCloseJoinDialog();
+      // Fetch user's leagues again
+      dispatch({ type: 'FETCH_USER_LEAGUES', payload: user.id });
+    })
+    .catch((error) => console.error('Error:', error));
   };
 
   return (

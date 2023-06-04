@@ -1,61 +1,48 @@
 /* UserPage.css */
 
-body {
-    background-image: url('/logo.jpeg');
-    background-size: cover;
-    background-repeat: no-repeat;
-    background-position: center;
-    height: 100vh;
-    margin: 0;
-    background-attachment: fixed;
-  }
-  
-
 .container {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 20px;
-    
-  }
-  
-  .title {
-    font-size: 24px;
-    margin-bottom: 20px;
-  }
-  
-  .leagueContainer {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    margin-bottom: 20px;
-  }
-  
-  .leagueItem {
-    margin-bottom: 10px;
-  }
-  
-  .buttonContainer {
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: 20px;
-  }
-  
-  .dialogContainer {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-  }
-  
-  .dialogTitle {
-    font-size: 20px;
-  }
-  
-  .dialogTextField {
-    margin-top: 20px;
-  }
-  
-  .logoutButton {
-    margin-top: 20px;
-  }
-  
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px;
+}
+
+.title {
+  font-size: 24px;
+  margin-bottom: 20px;
+}
+
+.leagueContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.leagueItem {
+  margin-bottom: 10px;
+}
+
+.buttonContainer {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.dialogContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.dialogTitle {
+  font-size: 20px;
+}
+
+.dialogTextField {
+  margin-top: 20px;
+}
+
+.logoutButton {
+  margin-top: 20px;
+}
