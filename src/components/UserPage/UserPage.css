@@ -1,48 +1,95 @@
 /* UserPage.css */
 
-.container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 20px;
-}
-
-.title {
-  font-size: 24px;
-  margin-bottom: 20px;
-}
-
-.leagueContainer {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  margin-bottom: 20px;
-}
-
-.leagueItem {
-  margin-bottom: 10px;
-}
-
-.buttonContainer {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 20px;
-}
-
-.dialogContainer {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.dialogTitle {
-  font-size: 20px;
-}
-
-.dialogTextField {
-  margin-top: 20px;
-}
-
-.logoutButton {
-  margin-top: 20px;
-}
+body {
+    font-family: Arial, sans-serif;
+    color: orange;
+    line-height: 1.6;
+    margin: 0;
+    padding: 0;
+  }
+  
+  .user-page {
+    background: url('/endzone.jpeg') no-repeat center center fixed;
+    background-size: cover;
+    position: relative;
+    width: 100%;
+    height: 100vh;
+  }
+  
+  .user-page:before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: 0;
+    left: 0;
+    background: rgba(0, 0, 0, 0.7);
+  }
+  
+  .container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+    position: relative;
+    z-index: 1;
+    color: black;
+    background: rgba(0, 0, 0, 0.7);
+    border-radius: 10px;
+    box-shadow: 0px 10px 20px rgba(0, 0, 0, 0.5);
+    width: 80%;
+    max-width: 1200px;
+    margin: auto;
+    height: fit-content;
+  }
+  
+  .title {
+    font-size: 2em;
+    color: #FF9800;
+    margin-bottom: 10px;
+  }
+  
+  .welcomeText {
+    font-size: 1em;
+    color: #f8f8f8;
+  }
+  
+  .btn {
+    display: inline-block;
+    background: #FF9800;
+    color: #FAFAFA;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 5px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 0.3s ease;
+  }
+  
+  .btn:hover {
+    background: #F57C00;
+  }
+  
+  .RegisterForm {
+    background: #424242;
+    padding: 20px;
+    border-radius: 5px;
+    box-shadow: 1px 1px 3px rgba(0, 0, 0, 0.3);
+  }
+  
+  /* Responsive styles */
+  
+  @media screen and (max-width: 768px) {
+    .container {
+      width: 90%;
+    }
+    
+    .title {
+      font-size: 1.5em;
+    }
+    
+    .welcomeText {
+      font-size: 0.9em;
+    }
+  }
+  

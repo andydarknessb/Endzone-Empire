@@ -102,10 +102,11 @@ const handleCreateTeam = () => {
 };
 
   return (
+    <div className="user-page">
     <div className="container">
       <Typography variant="h4" className="title">Endzone Empire</Typography>
-      <Typography variant="h6">Welcome, {user.username}! Your ID is: {user.id}</Typography>
-      <Typography variant="h6">Your Leagues:</Typography>
+      <Typography variant="h6" className="welcomeText">Welcome, {user.username}!</Typography>
+     
       <div className="leagueContainer">
         {leagues && leagues.map((league) => (
           <div key={league.id} className="leagueItem">
@@ -127,16 +128,17 @@ const handleCreateTeam = () => {
         <DialogContent>
           <TextField className="dialogTextField" autoFocus margin="dense" label="League Name" fullWidth onChange={(event) => setLeagueName(event.target.value)} />
           <TextField className="dialogTextField" margin="dense" label="League Description" fullWidth onChange={(event) => setLeagueDescription(event.target.value)} />
-        </DialogContent>
-        <DialogActions>
+          <TextField className="dialogTextField" margin="dense" label="Team Name" fullWidth onChange={(event) => setTeamName(event.target.value)} />
+          </DialogContent>
+          <DialogActions>
           <Button onClick={handleCloseCreateDialog} color="primary">
-            Cancel
+           Cancel
           </Button>
           <Button onClick={handleCreateLeague} color="primary">
-            Create
+           Create
           </Button>
-        </DialogActions>
-      </Dialog>
+          </DialogActions>
+          </Dialog>
       <Dialog open={openJoinDialog} onClose={handleCloseJoinDialog} className="dialogContainer">
         <DialogTitle className="dialogTitle">Join an Existing League</DialogTitle>
         <DialogContent>
@@ -170,6 +172,7 @@ const handleCreateTeam = () => {
 
 
       <LogOutButton className="logoutButton" />
+    </div>
     </div>
   );
 }
