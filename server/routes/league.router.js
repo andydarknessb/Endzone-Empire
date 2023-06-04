@@ -70,6 +70,18 @@ router.delete('/:id', (req, res) => {
       });
   });
 
+  router.delete('/:id/withdraw', (req, res) => {
+    const queryText = 'DELETE FROM "leagueteams" WHERE "league_id" = $1 AND "user_id" = $2';
+    pool.query(queryText, [req.params.id, req.user.id])
+      .then(() => {
+        res.sendStatus(200);
+      })
+      .catch((error) => {
+        console.log('Error on DELETE league membership query', error);
+        res.sendStatus(500);
+      });
+  });
+
   router.post('/team/create', async (req, res) => {
     const newTeam = req.body;
     const queryText = `INSERT INTO "teams" ("name", "owner_id", "league_id") VALUES ($1, $2, $3)`;

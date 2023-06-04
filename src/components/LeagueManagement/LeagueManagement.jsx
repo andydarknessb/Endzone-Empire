@@ -52,6 +52,11 @@ function LeagueManagement() {
     await axios.delete(`/api/league/${id}`);
     fetchLeagues();
   }
+  
+  const withdrawFromLeague = async (id) => {
+    await axios.delete(`/api/league/${id}/withdraw`);
+    fetchLeagues();
+  }
 
   const joinLeague = async (id) => {
     await axios.post(`/api/league/join/${id}`);
@@ -89,6 +94,12 @@ function LeagueManagement() {
         <DialogActions>
           <Button onClick={handleClose} color="primary">
             Close
+          </Button>
+          <Button variant="outlined" color="secondary" onClick={() => withdrawFromLeague(selectedLeagueId)}>
+           Withdraw
+          </Button>
+          <Button variant="outlined" color="secondary" onClick={() => deleteLeague(selectedLeagueId)}>
+           Delete
           </Button>
         </DialogActions>
       </Dialog>
