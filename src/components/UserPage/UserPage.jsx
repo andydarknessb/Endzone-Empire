@@ -16,7 +16,9 @@ function UserPage() {
   const [teamNumber, setTeamNumber] = useState(2);
   const [numTeams, setNumTeams] = useState(2);
   const [availableLeagues, setAvailableLeagues] = useState([]);
+  const [selectedTeam, setSelectedTeam] = useState('');
   const [selectedLeague, setSelectedLeague] = useState('');
+  const [availableTeams, setAvailableTeams] = useState([]);
 
   
   useEffect(() => {
@@ -48,6 +50,7 @@ function UserPage() {
         name: leagueName,
         team: teamName,
         numTeams: numTeams, 
+        userId: user.id,
       }),
        
     })
@@ -65,42 +68,57 @@ function UserPage() {
 
   // Functions to handle join dialog
   const handleOpenJoinDialog = () => {
-    fetch('/api/league') 
-  .then(response => {
-    if (!response.ok) throw new Error(`Error: ${response.statusText}`);
-    return response.json();
-  })
-  .then(data => {
-    console.log('Fetched leagues:', data);  // Log fetched data
-    if (!data.length) console.log('No leagues available');
-    setAvailableLeagues(data)
-  })
-  .catch(error => console.error('Error:', error));
-  setOpenJoinDialog(true);
-};
+    fetch('/api/league/available')
+      .then(response => {
+        if (!response.ok) throw new Error(`Error: ${response.statusText}`);
+        return response.json();
+      })
+      .then(data => {
+        console.log('Fetched leagues:', data);  // Log fetched data
+        if (!data.length) console.log('No leagues available');
+        setAvailableLeagues(data);
+      })
+      .catch(error => console.error('Error:', error));
+    setOpenJoinDialog(true);
+  };
+  
 
   const handleCloseJoinDialog = () => {
     setOpenJoinDialog(false);
   };
 
   const handleJoinLeague = () => {
-    fetch(`/api/league/join/${selectedLeague}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    })
-    .then((response) => {
-      if (!response.ok) throw new Error(response.status);
-      else return response.json();
-    })
-    .then(() => {
-      handleCloseJoinDialog();
-      // Fetch user's leagues again
-      dispatch({ type: 'FETCH_USER_LEAGUES', payload: user.id });
-    })
-    .catch((error) => console.error('Error:', error));
+    fetch(`/api/league/${selectedLeague}/teams`)  // Assuming you have an endpoint that fetches teams for a league
+      .then(response => response.json())
+      .then(data => {
+        const teamExists = data.some(team => team.id === selectedTeam);
+        if (!teamExists) {
+          throw new Error('Team does not exist in this league');
+        }
+  
+        return fetch(`/api/league/join/${selectedLeague}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            teamId: selectedTeam,
+          }),
+        });
+      })
+      .then((response) => {
+        if (!response.ok) throw new Error(response.status);
+        else return response.json();
+      })
+      .then(() => {
+        handleCloseJoinDialog();
+        // Fetch user's leagues again
+        dispatch({ type: 'FETCH_USER_LEAGUES', payload: user.id });
+      })
+      .catch((error) => console.error('Error:', error));
   };
+  
+  
 
   // Functions to handle create team dialog
 const handleOpenCreateTeamDialog = () => {
@@ -132,6 +150,10 @@ const handleCreateTeam = () => {
     dispatch({ type: 'FETCH_USER_LEAGUES', payload: user.id });
   })
   .catch((error) => console.error('Error:', error));
+};
+
+const handleTeamSelection = (event) => {
+  setSelectedTeam(event.target.value);
 };
 
   return (
@@ -190,19 +212,20 @@ const handleCreateTeam = () => {
       <Dialog open={openJoinDialog} onClose={handleCloseJoinDialog} className="dialogContainer">
         <DialogTitle className="dialogTitle">Join an Existing League</DialogTitle>
         <DialogContent>
-        <InputLabel id="league-label">League</InputLabel>
-                  <Select
-                    labelId="league-label"
-                    value={selectedLeague}
-                    onChange={(event) => setSelectedLeague(event.target.value)}
-                  >
-                    {availableLeagues.map((league) => (
-                      <MenuItem key={league.id} value={league.id}>
-                        {league.name}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </DialogContent>
+  <InputLabel id="league-label">League</InputLabel>
+  <Select
+    labelId="league-label"
+    value={selectedLeague}
+    onChange={(event) => setSelectedLeague(event.target.value)}
+  >
+    {availableLeagues.map((league) => (
+      <MenuItem key={league.id} value={league.id}>
+        {league.name}
+      </MenuItem>
+    ))}
+  </Select>
+  
+</DialogContent>
                 <DialogActions>
                   <Button onClick={handleCloseJoinDialog} color="primary">
                     Cancel
