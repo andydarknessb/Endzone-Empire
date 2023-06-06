@@ -27,16 +27,16 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.post('/draft/:player_id', async (req, res) => {
-  const { player_id } = req.params;
-  const queryText = `INSERT INTO "drafted_players" ("team_id", "player_id") VALUES ($1, $2)`;
-  try {
-    await pool.query(queryText, [req.user.team_id, player_id]);
-    res.sendStatus(201);
-  } catch (error) {
-    console.log('Error on POST draft player query', error);
-    res.sendStatus(500);
-  }
-});
-
-module.exports = router;
+router.post('/draft/:playerId', async (req, res) => {
+    const playerId = req.params.playerId;
+    const queryText = `INSERT INTO draftedplayers (player_id, team_id) VALUES ($1, $2);`;
+    try {
+      await pool.query(queryText, [playerId, req.user.team_id]);
+      res.sendStatus(200);
+    } catch (error) {
+      console.error('Error drafting player', error);
+      res.sendStatus(500);
+    }
+  });
+  
+  module.exports = router;

@@ -2,7 +2,7 @@ html,
 body,
 #react-root {
   height: 100%;
-  background: #000; /* Changed to match LandingPage */
+  background: whitesmoke; /* Changed to match LandingPage */
   color: #f8f8f8; /* Changed to match LandingPage */
 }
 
@@ -18,7 +18,7 @@ img {
 
 .container {
   padding: 20px;
-  background: rgba(0, 0, 0, 0.7); /* Changed to match LandingPage */
+  background: rgba(0, 0, 0, 0.2); /* Changed to match LandingPage */
   border-radius: 10px; /* Changed to match LandingPage */
   box-shadow: 0px 10px 20px rgba(0, 0, 0, 0.5); /* Changed to match LandingPage */
 }

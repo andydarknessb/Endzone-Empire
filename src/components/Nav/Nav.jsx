@@ -31,25 +31,17 @@ function Nav() {
             <Link className="navLink" to="/league">
               League
             </Link>
-            <Link className="navLink" to="/team">
-              My Team
-            </Link>
+           
             <Link className="navLink" to="/player">
               Players
             </Link>
-            <Link className="navLink" to="/rankings">
-              Rankings
-            </Link>
-            <Link className="navLink" to="/draft">
-              Draft
-            </Link>
+
+            
             <LogOutButton className="navLink" />
           </>
         )}
 
-        <Link className="navLink" to="/about">
-          About
-        </Link>
+      
       </div>
     </div>
   );

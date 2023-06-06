@@ -44,7 +44,7 @@ function UserPage() {
 
   const handleCreateLeague = () => {
     console.log('numTeams:', numTeams);
-    fetch('api/league/create', {
+    fetch('/api/league/create', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -145,7 +145,7 @@ const handleCloseCreateTeamDialog = () => {
 };
 
 const handleCreateTeam = () => {
-  fetch('api/teamName/create', {
+  fetch('/api/teamName/create', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -208,9 +208,7 @@ const handleCloseSnackbar = (event, reason) => {
         <Button variant="contained" color="primary" onClick={handleOpenCreateDialog}>
           Create League
         </Button>
-        <Button variant="contained" color="primary" onClick={handleOpenJoinDialog}>
-          Join League
-        </Button>
+      
       </div>
       <Dialog open={openCreateDialog} onClose={handleCloseCreateDialog} className="dialogContainer">
         <DialogTitle className="dialogTitle">Create a New League</DialogTitle>

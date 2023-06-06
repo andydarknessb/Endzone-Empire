@@ -124,8 +124,8 @@ function LeagueManagement() {
           </Button>
         </DialogActions>
       </Dialog>
-      <TextField label="League Name" value={leagueName} onChange={(e) => setLeagueName(e.target.value)} />
-      <Button onClick={createLeague}>Create League</Button>
+     
+     
     </div>
     </div>
     </div>

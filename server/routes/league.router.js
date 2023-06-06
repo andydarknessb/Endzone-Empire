@@ -3,35 +3,9 @@ const pool = require('../modules/pool');
 const router = express.Router();
 
 // This route gets leagues for a specific user
-router.get('/available', async (req, res) => {
-  console.log("req.user: ", req.user);
-  const userId = req.user.id;
-  const queryText = `
-    SELECT "leagues"."id", "leagues"."name", COUNT("league_teams"."id") AS "current_members"
-    FROM "leagues"
-    LEFT JOIN "league_teams" ON "league_teams"."league_id" = "leagues"."id"
-    WHERE "leagues"."id" NOT IN (
-      SELECT "league_teams"."league_id"
-      FROM "league_teams"
-      WHERE "league_teams"."user_id" = $1
-    )
-    GROUP BY "leagues"."id"
-    HAVING COUNT("league_teams"."id") < "leagues"."num_teams"
-  `;
-  try {
-    const result = await pool.query(queryText, [userId]);
-    res.json(result.rows);
-  } catch (error) {
-    console.log('Error on GET available leagues query', error);
-    res.sendStatus(500);
-  }
-});
-
-
-// Create a league
 router.post('/create', async (req, res) => {
   const newLeague = req.body;
-  const numTeams = newLeague.numTeams; 
+  const numTeams = newLeague.numTeams;
   const userId = newLeague.userId;
 
   const leagueQueryText = `INSERT INTO "leagues" ("name", "owner_id", "num_teams") VALUES ($1, $2, $3) RETURNING id`;
@@ -46,10 +20,55 @@ router.post('/create', async (req, res) => {
     }
     const leagueId = leagueResult.rows[0].id;
 
+    // Create teams and add the user to the first team only
     for (let i = 0; i < numTeams; i++) {
       const teamResult = await pool.query(teamQueryText, [`Team ${i + 1}`, userId, leagueId]);
       let teamId;
-      if (teamResult.rows[0]) {
+      if (teamResult.rows.length > 0) {
+        teamId = teamResult.rows[0].id;
+        // Add user to the first team only
+        if (i === 0) {
+          await pool.query(memberQueryText, [userId, leagueId, teamId]);
+        }
+      } else {
+        throw new Error('Team creation failed: no rows returned');
+      }
+    }
+
+    await pool.query('COMMIT');
+    res.sendStatus(201);
+  } catch (error) {
+    await pool.query('ROLLBACK');
+    console.log('Error on POST league query', error);
+    res.sendStatus(500);
+  }
+});
+
+
+
+// Create a league
+router.post('/create', async (req, res) => {
+  const newLeague = req.body;
+  const numTeams = newLeague.numTeams;
+  const userId = newLeague.userId;
+
+  const leagueQueryText = `INSERT INTO "leagues" ("name", "owner_id", "num_teams") VALUES ($1, $2, $3) RETURNING id`;
+  const teamQueryText = `INSERT INTO "teams" ("name", "owner_id", "league_id") VALUES ($1, $2, $3) RETURNING id`;
+  const memberQueryText = `INSERT INTO "league_teams" ("user_id", "league_id", "team_id") VALUES ($1, $2, $3)`;
+
+  try {
+    await pool.query('BEGIN');
+    const leagueResult = await pool.query(leagueQueryText, [newLeague.name, userId, numTeams]);
+    if (leagueResult.rows.length === 0) {
+      throw new Error('League creation failed: no rows returned');
+    }
+    const leagueId = leagueResult.rows[0].id;
+
+    // Create teams and add the user to the teams
+    for (let i = 0; i < numTeams; i++) {
+      const teamResult = await pool.query(teamQueryText, [`Team ${i + 1}`, userId, leagueId]);
+      let teamId;
+      if (teamResult.rows.length > 0) {
         teamId = teamResult.rows[0].id;
       } else {
         throw new Error('Team creation failed: no rows returned');
@@ -66,6 +85,7 @@ router.post('/create', async (req, res) => {
     res.sendStatus(500);
   }
 });
+
 
 
 // Join a league
@@ -216,6 +236,7 @@ router.post('/team/:team_id/draft/:player_id', async (req, res) => {
 });
 
 router.get('/team/roster', async (req, res) => {
+  const { leagueId } = req.params;
   const userId = req.user.id;
   const queryText = `SELECT * FROM "roster" WHERE "user_id" = $1`;
   try {
@@ -246,6 +267,7 @@ router.get('/:id/details', async (req, res) => {
   }
 });
 
+// This route gets all the leagues that the user is a part of
 router.get('/myLeagues', async (req, res) => {
   const userId = req.user.id;
   const queryText = `
@@ -253,7 +275,6 @@ router.get('/myLeagues', async (req, res) => {
     FROM "leagues"
     JOIN "league_teams" ON "league_teams"."league_id" = "leagues"."id"
     WHERE "league_teams"."user_id" = $1
-    GROUP BY "leagues"."id"
   `;
   try {
     const result = await pool.query(queryText, [userId]);

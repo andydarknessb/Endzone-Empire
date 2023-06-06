@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Typography, makeStyles, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper } from '@material-ui/core';
+import { Select, MenuItem } from '@material-ui/core';
 
 const useStyles = makeStyles({
   table: {
@@ -10,20 +11,45 @@ const useStyles = makeStyles({
 
 function TeamManagement() {
   const classes = useStyles();
+  const [leagues, setLeagues] = useState([]);
+  const [selectedLeague, setSelectedLeague] = useState(null);
   const [roster, setRoster] = useState([]);
 
   useEffect(() => {
-    fetchRoster();
+    fetchLeagues();
   }, []);
 
+  const fetchLeagues = async () => {
+    const response = await axios.get('/api/league/myLeagues');
+    setLeagues(response.data);
+  };
+
+  useEffect(() => {
+    if (selectedLeague) {
+      fetchRoster();
+    }
+  }, [selectedLeague]);
+
+  const handleSelectChange = (event) => {
+    setSelectedLeague(event.target.value);
+  };
+
   const fetchRoster = async () => {
-    const response = await axios.get('/api/league/team/roster');  // Update to use your server route
+    const response = await axios.get(`/api/league/team/roster/${selectedLeague}`);
     setRoster(response.data);
-  }
+  };
+  
 
   return (
     <div className={classes.root}>
       <Typography variant="h4">Team Management</Typography>
+      <Select value={selectedLeague} onChange={handleSelectChange}>
+        {leagues.map((league) => (
+          <MenuItem key={league.id} value={league.id}>
+            {league.name}
+          </MenuItem>
+        ))}
+      </Select>
       <TableContainer component={Paper}>
         <Table className={classes.table}>
           <TableHead>
