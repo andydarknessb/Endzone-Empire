@@ -35,6 +35,7 @@ function UserPage() {
   };
 
   const handleCreateLeague = () => {
+    console.log('numTeams:', numTeams);
     fetch('api/league/create', {
       method: 'POST',
       headers: {

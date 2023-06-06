@@ -18,13 +18,16 @@ router.get('/', (req, res) => {
 // Create a league
 router.post('/create', async (req, res) => {
   const newLeague = req.body;
-  const numTeams = newLeague.num_teams;  
+  const numTeams = newLeague.numTeams; 
+  
+  console.log('numTeams:', numTeams); 
+
   const leagueQueryText = `INSERT INTO "leagues" ("name", "owner_id", "num_teams") VALUES ($1, $2, $3) RETURNING id`;
   const teamQueryText = `INSERT INTO "teams" ("name", "owner_id", "league_id") VALUES ($1, $2, $3)`;
 
   try {
       await pool.query('BEGIN');
-      const leagueResult = await pool.query(leagueQueryText, [newLeague.name, req.user.id, newLeague.num_teams]);
+      const leagueResult = await pool.query(leagueQueryText, [newLeague.name, req.user.id, numTeams]);
       const leagueId = leagueResult.rows[0].id;  // Get the ID of the newly created league
       await pool.query(teamQueryText, [newLeague.team, req.user.id, leagueId]);
       await pool.query('COMMIT');
@@ -167,6 +170,23 @@ router.get('/:id/details', async (req, res) => {
   } catch (error) {
       console.log('Error on GET league details query', error);
       res.sendStatus(500);
+  }
+});
+
+router.get('/available', async (req, res) => {
+  const queryText = `
+    SELECT "leagues"."id", "leagues"."name", COUNT("league_members"."id") AS "current_members"
+    FROM "leagues"
+    LEFT JOIN "league_members" ON "league_members"."league_id" = "leagues"."id"
+    GROUP BY "leagues"."id"
+    HAVING COUNT("league_members"."id") < "leagues"."num_teams"
+  `;
+  try {
+    const result = await pool.query(queryText);
+    res.send(result.rows);
+  } catch (error) {
+    console.log('Error on GET available leagues query', error);
+    res.sendStatus(500);
   }
 });
 
