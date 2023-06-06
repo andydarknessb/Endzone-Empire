@@ -15,6 +15,8 @@ function UserPage() {
   const [openCreateTeamDialog, setOpenCreateTeamDialog] = useState(false);
   const [teamNumber, setTeamNumber] = useState(2);
   const [numTeams, setNumTeams] = useState(2);
+  const [availableLeagues, setAvailableLeagues] = useState([]);
+  const [selectedLeague, setSelectedLeague] = useState('');
 
   
   useEffect(() => {
@@ -47,8 +49,7 @@ function UserPage() {
         team: teamName,
         numTeams: numTeams, 
       }),
-
-      
+       
     })
     .then((response) => {
       if (!response.ok) throw new Error(response.status);
@@ -64,15 +65,26 @@ function UserPage() {
 
   // Functions to handle join dialog
   const handleOpenJoinDialog = () => {
-    setOpenJoinDialog(true);
-  };
+    fetch('/api/league') 
+  .then(response => {
+    if (!response.ok) throw new Error(`Error: ${response.statusText}`);
+    return response.json();
+  })
+  .then(data => {
+    console.log('Fetched leagues:', data);  // Log fetched data
+    if (!data.length) console.log('No leagues available');
+    setAvailableLeagues(data)
+  })
+  .catch(error => console.error('Error:', error));
+  setOpenJoinDialog(true);
+};
 
   const handleCloseJoinDialog = () => {
     setOpenJoinDialog(false);
   };
 
   const handleJoinLeague = () => {
-    fetch(`/api/league/join/${leagueId}`, { 
+    fetch(`/api/league/join/${selectedLeague}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -100,7 +112,26 @@ const handleCloseCreateTeamDialog = () => {
 };
 
 const handleCreateTeam = () => {
- 
+  fetch('api/team/create', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      name: teamName,
+      // Add more data here as necessary
+    }),  
+  })
+  .then((response) => {
+    if (!response.ok) throw new Error(response.status);
+    else return response.json();
+  })
+  .then(() => {
+    handleCloseCreateTeamDialog();
+    // Fetch user's leagues again
+    dispatch({ type: 'FETCH_USER_LEAGUES', payload: user.id });
+  })
+  .catch((error) => console.error('Error:', error));
 };
 
   return (
@@ -159,18 +190,28 @@ const handleCreateTeam = () => {
       <Dialog open={openJoinDialog} onClose={handleCloseJoinDialog} className="dialogContainer">
         <DialogTitle className="dialogTitle">Join an Existing League</DialogTitle>
         <DialogContent>
-          <TextField className="dialogTextField" autoFocus margin="dense" label="League Name" fullWidth onChange={(event) => setLeagueName(event.target.value)} />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseJoinDialog} color="primary">
-            Cancel
-          </Button>
-          <Button variant="contained" color="primary" onClick={handleOpenCreateTeamDialog}>
-          Create Team
-          </Button>
-
-        </DialogActions>
-      </Dialog>
+        <InputLabel id="league-label">League</InputLabel>
+                  <Select
+                    labelId="league-label"
+                    value={selectedLeague}
+                    onChange={(event) => setSelectedLeague(event.target.value)}
+                  >
+                    {availableLeagues.map((league) => (
+                      <MenuItem key={league.id} value={league.id}>
+                        {league.name}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </DialogContent>
+                <DialogActions>
+                  <Button onClick={handleCloseJoinDialog} color="primary">
+                    Cancel
+                  </Button>
+                  <Button onClick={handleJoinLeague} color="primary">
+                    Join
+                  </Button>
+                </DialogActions>
+              </Dialog>
       <Dialog open={openCreateTeamDialog} onClose={handleCloseCreateTeamDialog} className="dialogContainer">
       <DialogTitle className="dialogTitle">Create a New Team</DialogTitle>
       <DialogContent>

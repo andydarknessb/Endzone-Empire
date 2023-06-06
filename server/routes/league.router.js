@@ -2,10 +2,15 @@ const express = require('express');
 const pool = require('../modules/pool');
 const router = express.Router();
 
-// This route gets all leagues
+// This route gets leagues for a specific user
 router.get('/', (req, res) => {
-  const queryText = 'SELECT * FROM "leagues"';
-  pool.query(queryText)
+  const queryText = `
+    SELECT "leagues".* 
+    FROM "leagues" 
+    JOIN "league_members" ON "leagues"."id" = "league_members"."league_id" 
+    WHERE "league_members"."user_id" = $1
+  `;
+  pool.query(queryText, [req.user.id])
     .then((result) => {
       res.send(result.rows);
     })
@@ -15,22 +20,22 @@ router.get('/', (req, res) => {
     });
 });
 
+
 // Create a league
 router.post('/create', async (req, res) => {
   const newLeague = req.body;
   const numTeams = newLeague.numTeams; 
-  
-  console.log('numTeams:', numTeams); 
-
   const leagueQueryText = `INSERT INTO "leagues" ("name", "owner_id", "num_teams") VALUES ($1, $2, $3) RETURNING id`;
   const teamQueryText = `INSERT INTO "teams" ("name", "owner_id", "league_id") VALUES ($1, $2, $3)`;
-
+  const memberQueryText = `INSERT INTO "league_members" ("user_id", "league_id") VALUES ($1, $2)`;
+  
   try {
       await pool.query('BEGIN');
       const leagueResult = await pool.query(leagueQueryText, [newLeague.name, req.user.id, numTeams]);
       const leagueId = leagueResult.rows[0].id;  // Get the ID of the newly created league
       await pool.query(teamQueryText, [newLeague.team, req.user.id, leagueId]);
       await pool.query('COMMIT');
+      await pool.query(memberQueryText, [req.user.id, leagueId]);
       res.sendStatus(201);
   } catch (error) {
       await pool.query('ROLLBACK');
