@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import { Typography, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField } from '@material-ui/core';
-import LogOutButton from '../LogOutButton/LogOutButton';
+import { Typography, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Select, MenuItem, InputLabel } from '@material-ui/core';
 import './UserPage.css';
 
 
@@ -11,13 +10,13 @@ function UserPage() {
   const [openCreateDialog, setOpenCreateDialog] = useState(false);
   const [openJoinDialog, setOpenJoinDialog] = useState(false);
   const [leagueName, setLeagueName] = useState("");
-  const [leagueDescription, setLeagueDescription] = useState("");
   const [teamName, setTeamName] = useState("");
   const [teamDescription, setTeamDescription] = useState("");
   const [openCreateTeamDialog, setOpenCreateTeamDialog] = useState(false);
+  const [teamNumber, setTeamNumber] = useState(2);
+  const [numTeams, setNumTeams] = useState(2);
+
   
-
-
   useEffect(() => {
     // Fetch user's leagues
     dispatch({ type: 'FETCH_USER_LEAGUES', payload: user.id });
@@ -36,7 +35,7 @@ function UserPage() {
   };
 
   const handleCreateLeague = () => {
-    fetch('/api/league/create', {
+    fetch('api/league/create', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -44,9 +43,11 @@ function UserPage() {
 
       body: JSON.stringify({
         name: leagueName,
-        description: leagueDescription,
         team: teamName,
+        numTeams: numTeams, 
       }),
+
+      
     })
     .then((response) => {
       if (!response.ok) throw new Error(response.status);
@@ -104,6 +105,9 @@ const handleCreateTeam = () => {
   return (
     <div className="user-page">
     <div className="container">
+    <div className="btn">
+    <div className="user-page">
+    <div className="RegisterForm">
       <Typography variant="h4" className="title">Endzone Empire</Typography>
       <Typography variant="h6" className="welcomeText">Welcome, {user.username}!</Typography>
      
@@ -127,8 +131,20 @@ const handleCreateTeam = () => {
         <DialogTitle className="dialogTitle">Create a New League</DialogTitle>
         <DialogContent>
           <TextField className="dialogTextField" autoFocus margin="dense" label="League Name" fullWidth onChange={(event) => setLeagueName(event.target.value)} />
-          <TextField className="dialogTextField" margin="dense" label="League Description" fullWidth onChange={(event) => setLeagueDescription(event.target.value)} />
           <TextField className="dialogTextField" margin="dense" label="Team Name" fullWidth onChange={(event) => setTeamName(event.target.value)} />
+          <InputLabel id="numTeams-label"></InputLabel>
+          <div style={{display: 'flex', alignItems: 'center', marginTop: '1em'}}>
+          <Typography variant="body1" style={{marginRight: '1em', color: '#000', fontWeight: 'bold', fontSize: '1.2em'}}>Teams:</Typography>
+        <Select
+            value={numTeams}
+            onChange={(event) => setNumTeams(event.target.value)}
+            style={{minWidth: 120}}
+        >
+            {Array.from({length: 19}, (_, i) => i+2).map((number) => (
+            <MenuItem key={number} value={number}>{number}</MenuItem>
+            ))}
+        </Select>
+      </div>
           </DialogContent>
           <DialogActions>
           <Button onClick={handleCloseCreateDialog} color="primary">
@@ -158,7 +174,6 @@ const handleCreateTeam = () => {
       <DialogTitle className="dialogTitle">Create a New Team</DialogTitle>
       <DialogContent>
       <TextField className="dialogTextField" autoFocus margin="dense" label="Team Name" fullWidth onChange={(event) => setTeamName(event.target.value)} />
-      <TextField className="dialogTextField" margin="dense" label="Team Description" fullWidth onChange={(event) => setTeamDescription(event.target.value)} />
       </DialogContent>
       <DialogActions>
       <Button onClick={handleCloseCreateTeamDialog} color="primary">
@@ -171,7 +186,9 @@ const handleCreateTeam = () => {
     </Dialog>
 
 
-      <LogOutButton className="logoutButton" />
+    </div>
+    </div>
+    </div>
     </div>
     </div>
   );

@@ -23,7 +23,7 @@ body {
     bottom: 0;
     right: 0;
     left: 0;
-    background: rgba(0, 0, 0, 0.7);
+    background: rgba(0, 0, 0, 0.2);
   }
   
   .container {
@@ -47,14 +47,17 @@ body {
     font-size: 2em;
     color: #FF9800;
     margin-bottom: 10px;
+    text-align: center;
+    
   }
   
   .welcomeText {
     font-size: 1em;
     color: #f8f8f8;
+    text-align: center;
   }
   
-  .btn {
+  button{
     display: inline-block;
     background: #FF9800;
     color: #FAFAFA;
@@ -71,11 +74,41 @@ body {
   }
   
   .RegisterForm {
-    background: #424242;
+    background: lightgray;
     padding: 20px;
     border-radius: 5px;
     box-shadow: 1px 1px 3px rgba(0, 0, 0, 0.3);
   }
+
+  .buttonContainer {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    padding: 10px;
+  }
+  
+  .buttonContainer button {
+    background: #FF9800;
+    color: #fff;
+    border: none;
+    border-radius: 25px;
+    font-size: 1em;
+    font-weight: bold;
+    padding: 15px 30px;
+    text-transform: uppercase;
+    box-shadow: 0px 8px 15px rgba(0, 0, 0, 0.1);
+    transition: all 0.3s ease 0s;
+    cursor: pointer;
+    outline: none;
+  }
+  
+  .buttonContainer button:hover {
+    background: #F57C00;
+    box-shadow: 0px 15px 20px rgba(46, 229, 157, 0.4);
+    color: #fff;
+    transform: translateY(-7px);
+  }
+  
   
   /* Responsive styles */
   
