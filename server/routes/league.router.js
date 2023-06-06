@@ -4,6 +4,7 @@ const router = express.Router();
 
 // This route gets leagues for a specific user
 router.get('/available', async (req, res) => {
+  console.log("req.user: ", req.user);
   const userId = req.user.id;
   const queryText = `
     SELECT "leagues"."id", "leagues"."name", COUNT("league_teams"."id") AS "current_members"
@@ -19,7 +20,7 @@ router.get('/available', async (req, res) => {
   `;
   try {
     const result = await pool.query(queryText, [userId]);
-    res.send(result.rows);
+    res.json(result.rows);
   } catch (error) {
     console.log('Error on GET available leagues query', error);
     res.sendStatus(500);
@@ -98,17 +99,35 @@ router.put('/:id', (req, res) => {
   });
 
   // This route deletes a league
-router.delete('/:id', (req, res) => {
-    const queryText = 'DELETE FROM "leagues" WHERE "id" = $1 AND "owner_id" = $2';
-    pool.query(queryText, [req.params.id, req.user.id])
-      .then(() => {
-        res.sendStatus(200);
-      })
-      .catch((error) => {
-        console.log('Error on DELETE league query', error);
-        res.sendStatus(500);
-      });
+  router.delete('/:id', async (req, res) => {
+    const leagueId = req.params.id;
+    const userId = req.user.id;
+  
+    // Check if the user is the creator of the league
+    const checkQuery = `SELECT "owner_id" FROM "leagues" WHERE "id" = $1`;
+    const deleteQuery = 'DELETE FROM "leagues" WHERE "id" = $1 AND "owner_id" = $2';
+  
+    try {
+      const ownerCheckResult = await pool.query(checkQuery, [leagueId]);
+  
+      if (ownerCheckResult.rows.length === 0) {
+        throw new Error('League does not exist');
+      }
+  
+      if (ownerCheckResult.rows[0].owner_id !== userId) {
+        throw new Error('User is not the owner of the league');
+      }
+  
+      // If the user is indeed the league's creator, proceed with deletion
+      await pool.query(deleteQuery, [leagueId, userId]);
+  
+      res.sendStatus(200);
+    } catch (error) {
+      console.log('Error on DELETE league query', error);
+      res.sendStatus(500);
+    }
   });
+  
 
   router.delete('/:id/withdraw', (req, res) => {
     const queryText = 'DELETE FROM "league_teams" WHERE "league_id" = $1 AND "user_id" = $2';
@@ -147,16 +166,41 @@ router.put('/team/:id', async (req, res) => {
     }
 });
 
-router.get('/players/search/:name', async (req, res) => {
-    const playerName = req.params.name;
-    const queryText = `SELECT * FROM "player" WHERE "name" LIKE $1`;
-    try {
-        const result = await pool.query(queryText, [`%${playerName}%`]);
-        res.send(result.rows);
-    } catch (error) {
-        console.log('Error on GET player search query', error);
-        res.sendStatus(500);
-    }
+router.get('/players', async (req, res) => {
+  const pageNumber = parseInt(req.query.page) || 1;
+  const positionFilter = req.query.position || 'All';
+  const limit = 25;  // Assume you want to return 10 records per page
+  const offset = (pageNumber - 1) * limit;
+  let queryText;
+  
+  if(positionFilter === 'All'){
+    queryText = `SELECT * FROM "players" ORDER BY "id" LIMIT $1 OFFSET $2`;
+    params = [limit, offset];
+  } else {
+    queryText = `SELECT * FROM "players" WHERE "position" = $1 ORDER BY "id" LIMIT $2 OFFSET $3`;
+    params = [positionFilter, limit, offset];
+  }
+
+  try {
+    const result = await pool.query(queryText, params);
+    res.send(result.rows);
+  } catch (error) {
+    console.log('Error on GET players query', error);
+    res.sendStatus(500);
+  }
+});
+
+router.post('/players', async (req, res) => {
+  const { name, position } = req.body;
+  const queryText = 'INSERT INTO players (name, position) VALUES ($1, $2)';
+
+  try {
+    await pool.query(queryText, [name, position]);
+    res.sendStatus(201);
+  } catch (error) {
+    console.log('Error on POST players query', error);
+    res.sendStatus(500);
+  }
 });
 
 router.post('/team/:team_id/draft/:player_id', async (req, res) => {
@@ -202,22 +246,24 @@ router.get('/:id/details', async (req, res) => {
   }
 });
 
-router.get('/available', async (req, res) => {
+router.get('/myLeagues', async (req, res) => {
+  const userId = req.user.id;
   const queryText = `
-    SELECT "leagues"."id", "leagues"."name", COUNT("league_members"."id") AS "current_members"
+    SELECT "leagues"."id", "leagues"."name"
     FROM "leagues"
-    LEFT JOIN "league_teams" ON "league_teams"."league_id" = "leagues"."id"
+    JOIN "league_teams" ON "league_teams"."league_id" = "leagues"."id"
+    WHERE "league_teams"."user_id" = $1
     GROUP BY "leagues"."id"
-    HAVING COUNT("league_teams"."id") < "leagues"."num_teams"
   `;
   try {
-    const result = await pool.query(queryText);
+    const result = await pool.query(queryText, [userId]);
     res.send(result.rows);
   } catch (error) {
-    console.log('Error on GET available leagues query', error);
+    console.log('Error on GET my leagues query', error);
     res.sendStatus(500);
   }
 });
+
 
 
   module.exports = router;

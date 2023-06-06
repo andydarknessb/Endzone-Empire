@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { makeStyles, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Button } from '@material-ui/core';
+import Pagination from '@material-ui/lab/Pagination';
 
 const useStyles = makeStyles({
   table: {
@@ -10,27 +11,19 @@ const useStyles = makeStyles({
 
 function PlayerManagement() {
   const [players, setPlayers] = useState([]);
+  const [positionFilter, setPositionFilter] = useState('All');
+  const [pageNumber, setPageNumber] = useState(1);
   const classes = useStyles();
 
   useEffect(() => {
     fetchPlayers();
-  }, []);
+  }, [positionFilter, pageNumber]);
 
   const fetchPlayers = async () => {
-    const options = {
-      method: 'GET',
-      url: 'https://api-american-football.p.rapidapi.com/players',
-      
-      headers: {
-        'X-RapidAPI-Key': process.env.REACT_APP_RAPID_API_KEY,
-        'X-RapidAPI-Host': process.env.REACT_APP_RAPID_API_HOST
-      }
-    };
-  
     try {
-      const response = await axios.request(options);
+      const response = await axios.get(`/api/players?page=${pageNumber}&position=${positionFilter}`);
       console.log(response.data);
-      setPlayers(response.data.response);
+      setPlayers(response.data);
     } catch (error) {
       console.error(error);
     }
@@ -46,36 +39,41 @@ function PlayerManagement() {
   };
 
   return (
-    <TableContainer component={Paper}>
-      <Table className={classes.table}>
-        <TableHead>
-          <TableRow>
-            <TableCell>Name</TableCell>
-            <TableCell align="right">Position</TableCell>
-            <TableCell align="right">Team</TableCell>
-            <TableCell align="right">Opponent</TableCell>
-            <TableCell align="right">Manager</TableCell>
-            <TableCell align="right">Statistics</TableCell>
-            <TableCell align="right">Actions</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {players.map((player) => (
-            <TableRow key={player.id}>
-              <TableCell component="th" scope="row">{player.name}</TableCell>
-              <TableCell align="right">{player.position}</TableCell>
-              <TableCell align="right">{player.team}</TableCell>
-              <TableCell align="right">{player.opponent}</TableCell>
-              <TableCell align="right">{player.manager}</TableCell>
-              <TableCell align="right">{JSON.stringify(player.statistics)}</TableCell>
-              <TableCell align="right">
-                <Button onClick={() => addToRoster(player)}>Add to Roster</Button>
-              </TableCell>
+    <div>
+      <select onChange={(e) => setPositionFilter(e.target.value)}>
+        <option>All</option>
+        <option>QB</option>
+        <option>RB</option>
+        <option>WR</option>
+        <option>TE</option>
+        <option>K</option>
+        <option>DST</option>
+        {/* Add all positions here */}
+      </select>
+      <Pagination count={10} page={pageNumber} onChange={(event, value) => setPageNumber(value)} />
+      <TableContainer component={Paper}>
+        <Table className={classes.table}>
+          <TableHead>
+            <TableRow>
+              <TableCell>Name</TableCell>
+              <TableCell align="right">Position</TableCell>
+              <TableCell align="right">Actions</TableCell>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </TableContainer>
+          </TableHead>
+          <TableBody>
+            {players.map((player) => (
+              <TableRow key={player.id}>
+                <TableCell component="th" scope="row">{player.name}</TableCell>
+                <TableCell align="right">{player.position}</TableCell>
+                <TableCell align="right">
+                  <Button onClick={() => addToRoster(player)}>Add to Roster</Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
+    </div>
   );
 }
 

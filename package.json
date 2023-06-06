@@ -8,6 +8,9 @@
   },
   "dependencies": {
     "@material-ui/core": "^4.12.4",
+    "@material-ui/lab": "^4.0.0-alpha.61",
+    "@mui/lab": "^5.0.0-alpha.133",
+    "@mui/material": "^5.13.4",
     "axios": "^0.21.1",
     "bcryptjs": "^2.4.3",
     "body-parser": "^1.20.2",
