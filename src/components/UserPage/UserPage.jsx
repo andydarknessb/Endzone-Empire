@@ -1,9 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import { Typography, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Select, MenuItem, InputLabel,Snackbar} from '@material-ui/core';
-import Alert from '@material-ui/lab/Alert';
+import { Typography, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Select, MenuItem, InputLabel } from '@material-ui/core';
 import './UserPage.css';
-
 
 function UserPage() {
   const dispatch = useDispatch();
@@ -20,8 +18,6 @@ function UserPage() {
   const [selectedTeam, setSelectedTeam] = useState('');
   const [selectedLeague, setSelectedLeague] = useState('');
   const [availableTeams, setAvailableTeams] = useState([]);
-  const [openSnackbar, setOpenSnackbar] = useState(false);
-  const [snackbarMessage, setSnackbarMessage] = useState("");
 
 
   
@@ -49,33 +45,30 @@ function UserPage() {
       headers: {
         'Content-Type': 'application/json',
       },
-
       body: JSON.stringify({
         name: leagueName,
         team: teamName,
         numTeams: numTeams, 
         userId: user.id,
-      }),
-       
+      }),  
     })
     .then((response) => {
       if (!response.ok) throw new Error(response.status);
       else return response.json();
     })
     .then(() => {
-      handleCloseCreateDialog();
       // Fetch user's leagues again
-
-      setSnackbarMessage("League successfully created!");
-      setOpenSnackbar(true);
-
       dispatch({ type: 'FETCH_USER_LEAGUES', payload: user.id });
     })
     .catch((error) => {
-      setSnackbarMessage(`Error creating league: ${error.message}`);
-      setOpenSnackbar(true);
+      console.error(`Error creating league: ${error}`);
+    })
+    .finally(() => {
+      // Whether the fetch was successful or there was an error, close the dialog.
+      handleCloseCreateDialog();
     });
   };
+  
 
   // Functions to handle join dialog
   const handleOpenJoinDialog = () => {
@@ -121,16 +114,6 @@ function UserPage() {
         if (!response.ok) throw new Error(response.status);
         else return response.json();
       })
-      .then(() => {
-        handleCloseJoinDialog(); // This will close the dialog box after successfully joining the league
-        setSnackbarMessage("Successfully joined the league!");
-        setOpenSnackbar(true);
-        dispatch({ type: 'FETCH_USER_LEAGUES', payload: user.id });
-      })
-      .catch((error) => {
-        setSnackbarMessage(`Error joining league: ${error.message}`);
-        setOpenSnackbar(true);
-      });
   };
   
   
@@ -145,7 +128,7 @@ const handleCloseCreateTeamDialog = () => {
 };
 
 const handleCreateTeam = () => {
-  fetch('/api/teamName/create', {
+  fetch('api/teamName/create', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -176,17 +159,7 @@ const handleTeamSelection = (event) => {
   setSelectedTeam(event.target.value);
 };
 
-const handleOpenSnackbar = () => {
-  setOpenSnackbar(true);
-};
 
-const handleCloseSnackbar = (event, reason) => {
-  if (reason === 'clickaway') {
-    return;
-  }
-
-  setOpenSnackbar(false);
-};
   return (
     <div className="user-page">
     <div className="container">
@@ -282,16 +255,7 @@ const handleCloseSnackbar = (event, reason) => {
         </div>
       </div>
     </div>
-    <Snackbar 
-      open={openSnackbar} 
-      autoHideDuration={6000} 
-      onClose={handleCloseSnackbar}
-      anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-    >
-      <Alert onClose={handleCloseSnackbar} severity="success" sx={{ width: '100%' }}>
-        {snackbarMessage}
-      </Alert>
-    </Snackbar>
+    
   </div>
   );
 }

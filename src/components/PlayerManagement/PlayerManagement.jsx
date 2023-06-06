@@ -96,8 +96,17 @@ function PlayerManagement() {
   };
 
   const addToRoster = (player) => {
-    const updatedRoster = [...roster, player];
-    setRoster(updatedRoster);
+    // Calculate the number of players in the roster with the same position as the player being added
+    const positionCount = roster.filter(p => p.position === player.position).length;
+    
+    // If the position count is less than the position limit, add the player to the roster
+    if (positionCount < positionLimits[player.position]) {
+      const updatedRoster = [...roster, player];
+      setRoster(updatedRoster);
+    } else {
+      // If the position limit has been reached, show an alert to the user
+      alert(`Position limit reached for ${player.position}. You cannot add more players in this position.`);
+    }
   };
   
 
@@ -160,13 +169,14 @@ function PlayerManagement() {
                 <TableCell component="th" scope="row" className={classes.name}>{player.name}</TableCell>
                 <TableCell align="right" className={classes.position}>{player.position}</TableCell>
                 <TableCell align="right">
-                  <Button
-                    className={classes.button}
-                    onClick={() => addToRoster(player)}
-                    disabled={isPlayerInRoster(player.id)}
-                  >
-                    {isPlayerInRoster(player.id) ? 'Added' : 'Add to Roster'}
-                  </Button>
+                <Button
+                className={classes.button}
+                onClick={() => addToRoster(player)}
+                disabled={isPlayerInRoster(player.id) || roster.filter(p => p.position === player.position).length >= positionLimits[player.position]}
+>
+                {isPlayerInRoster(player.id) ? 'Added' : 'Add to Roster'}
+                </Button>
+
                 </TableCell>
               </TableRow>
             ))}
