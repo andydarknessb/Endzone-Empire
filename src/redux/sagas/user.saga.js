@@ -1,26 +1,21 @@
-import axios from 'axios';
 import { put, takeLatest } from 'redux-saga/effects';
+import apiClient, { getToken, clearToken } from '../../api/apiClient';
 
-// worker Saga: will be fired on "FETCH_USER" actions
+// worker Saga: fired on "FETCH_USER" actions
 function* fetchUser() {
+  // No stored token → nobody is logged in; skip the request entirely
+  if (!getToken()) return;
   try {
-    const config = {
-      headers: { 'Content-Type': 'application/json' },
-      withCredentials: true,
-    };
-
-    // the config includes credentials which
-    // allow the server session to recognize the user
-    // If a user is logged in, this will return their information
-    // from the server session (req.user)
-    const response = yield axios.get('/api/user', config);
-
-    // now that the session has given us a user object
-    // with an id and username set the client-side user object to let
-    // the client-side code know the user is logged in
+    const response = yield apiClient.get('/api/user');
     yield put({ type: 'SET_USER', payload: response.data });
   } catch (error) {
-    console.log('User get request failed', error);
+    if (error.response && error.response.status === 401) {
+      // Token expired or invalid — clear it so the app returns to logged-out state
+      clearToken();
+      yield put({ type: 'UNSET_USER' });
+    } else {
+      console.log('User get request failed', error);
+    }
   }
 }
 

@@ -36,6 +36,10 @@ function Nav() {
               Players
             </Link>
 
+            <Link className="navLink" to="/team">
+              My Team
+            </Link>
+
             
             <LogOutButton className="navLink" />
           </>

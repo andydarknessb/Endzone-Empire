@@ -1,204 +1,171 @@
-import React, { useEffect, useState } from 'react';
-import axios from 'axios';
-import { Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Button } from '@material-ui/core';
-import Pagination from '@material-ui/lab/Pagination';
-import { makeStyles } from '@material-ui/core/styles';
+import React, { useEffect, useState, useCallback } from 'react';
+import {
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper,
+  Button, Pagination, Alert, Typography, Select, MenuItem, FormControl, InputLabel,
+} from '@mui/material';
+import apiClient from '../../api/apiClient';
 
-const useStyles = makeStyles((theme) => ({
-  table: {
-    minWidth: 650,
-    margin: '0 auto', // centers the table horizontally
-  },
-  select: {
-    margin: theme.spacing(1),
-    minWidth: 120,
-    backgroundColor: '#f4a261', // sandy brown
-    color: theme.palette.text.primary,
-  },
-  tableContainer: {
-    borderRadius: 15,
-    margin: '10px 10px',
-    maxWidth: 900,
-    backgroundColor: '#e0e0e0', // green color
-  },
-  tableHeaderCell: {
-    fontWeight: 'bold',
-    backgroundColor: '#ff9100', // orange color
-    color: theme.palette.getContrastText('#e76f51'),
-  },
-  name: {
-    fontWeight: 'bold',
-    color: '#264653', // dark blue color
-  },
-  position: {
-    fontStyle: 'italic',
-  },
-  button: {
-    backgroundColor: '#ff9100', // orange color
-    color: theme.palette.text.primary,
-    '&:hover': {
-      backgroundColor: '#e76f51', // darkens the color a bit
-    },
-  },
-  rosterTableContainer: {
-    borderRadius: 15,
-    margin: '10px 10px',
-    maxWidth: 900,
-    backgroundColor: '#e0e0e0',
-    marginTop: 30,
-  },
-  parentContainer: {
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center', // vertically center the select and pagination
-    flexDirection: 'column', // align elements vertically
-  },
-  filtersContainer: {
-    display: 'flex',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  pagination: {
-    marginTop: 10,
-  },
-}));
+const POSITIONS = ['All', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
+
+const headCellSx = { fontWeight: 'bold', backgroundColor: '#ff9100', color: '#000' };
 
 function PlayerManagement() {
+  const [leagues, setLeagues] = useState([]);
+  const [selectedLeague, setSelectedLeague] = useState('');
   const [players, setPlayers] = useState([]);
+  const [totalPages, setTotalPages] = useState(1);
   const [positionFilter, setPositionFilter] = useState('All');
   const [pageNumber, setPageNumber] = useState(1);
-  const classes = useStyles();
   const [roster, setRoster] = useState([]);
+  const [error, setError] = useState(null);
+
+  const report = (err) => setError(err.response?.data?.error || err.message);
 
   useEffect(() => {
-    fetchPlayers();
-    fetchRoster();
-  }, [positionFilter, pageNumber]);
+    (async () => {
+      try {
+        const response = await apiClient.get('/api/league');
+        setLeagues(response.data);
+        if (response.data.length > 0) setSelectedLeague(response.data[0].id);
+      } catch (err) {
+        report(err);
+      }
+    })();
+  }, []);
 
-  const fetchPlayers = async () => {
+  const fetchPlayers = useCallback(async () => {
     try {
-      const response = await axios.get(`/api/players?page=${pageNumber}&position=${positionFilter}`);
-      console.log(response.data);
-      setPlayers(response.data);
-    } catch (error) {
-      console.error(error);
+      const response = await apiClient.get('/api/players', {
+        params: { page: pageNumber, position: positionFilter },
+      });
+      setPlayers(response.data.players);
+      setTotalPages(response.data.totalPages);
+    } catch (err) {
+      report(err);
     }
-  };
+  }, [pageNumber, positionFilter]);
 
-  const fetchRoster = async () => {
+  const fetchRoster = useCallback(async () => {
+    if (!selectedLeague) return;
     try {
-      const response = await axios.get('/api/team/roster'); // Update to use your server route
-      console.log(response.data);
+      const response = await apiClient.get(`/api/team/roster?leagueId=${selectedLeague}`);
       setRoster(response.data);
-    } catch (error) {
-      console.error(error);
+    } catch (err) {
+      report(err);
+    }
+  }, [selectedLeague]);
+
+  useEffect(() => { fetchPlayers(); }, [fetchPlayers]);
+  useEffect(() => { fetchRoster(); }, [fetchRoster]);
+
+  const addToRoster = async (player) => {
+    setError(null);
+    try {
+      await apiClient.post(`/api/team/roster/${player.id}`, {
+        leagueId: Number(selectedLeague),
+      });
+      fetchRoster();
+    } catch (err) {
+      report(err);
     }
   };
-
-  const addToRoster = (player) => {
-    // Calculate the number of players in the roster with the same position as the player being added
-    const positionCount = roster.filter(p => p.position === player.position).length;
-    
-    // If the position count is less than the position limit, add the player to the roster
-    if (positionCount < positionLimits[player.position]) {
-      const updatedRoster = [...roster, player];
-      setRoster(updatedRoster);
-    } else {
-      // If the position limit has been reached, show an alert to the user
-      alert(`Position limit reached for ${player.position}. You cannot add more players in this position.`);
-    }
-  };
-  
-
 
   const removeFromRoster = async (playerId) => {
+    setError(null);
     try {
-      await axios.delete(`/api/team/roster/${playerId}`); // Update to use your server route
-      console.log(`Removed player ${playerId} from roster.`);
-      fetchRoster(); // Refresh roster after removing player
-    } catch (error) {
-      console.error(`Error removing player from roster: ${error}`);
+      await apiClient.delete(`/api/team/roster/${playerId}?leagueId=${selectedLeague}`);
+      fetchRoster();
+    } catch (err) {
+      report(err);
     }
   };
 
-  const isPlayerInRoster = (playerId) => {
-    return roster.some((player) => player.id === playerId);
-  };
-
-  const positionLimits = {
-    'QB': 1,
-    'RB': 2,
-    'WR': 2,
-    'TE': 1,
-    'K': 1,
-    'DST': 1
-  };
+  const isPlayerInRoster = (playerId) => roster.some((player) => player.id === playerId);
 
   return (
-    <div className={classes.parentContainer}>
-      <div className={classes.filtersContainer}>
-        <select className={classes.select} onChange={(e) => setPositionFilter(e.target.value)}>
-          <option>All</option>
-          <option>QB</option>
-          <option>RB</option>
-          <option>WR</option>
-          <option>TE</option>
-          <option>K</option>
-          <option>DST</option>
-          {/* Add all positions here */}
-        </select>
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flexDirection: 'column' }}>
+      {error && <Alert severity="error" onClose={() => setError(null)} sx={{ m: 1 }}>{error}</Alert>}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 10, flexWrap: 'wrap' }}>
+        <FormControl size="small" sx={{ minWidth: 200 }}>
+          <InputLabel id="pm-league-label">League</InputLabel>
+          <Select labelId="pm-league-label" label="League" value={selectedLeague}
+            onChange={(e) => setSelectedLeague(e.target.value)}>
+            {leagues.map((league) => (
+              <MenuItem key={league.id} value={league.id}>{league.name}</MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+        <FormControl size="small" sx={{ minWidth: 120 }}>
+          <InputLabel id="pm-pos-label">Position</InputLabel>
+          <Select labelId="pm-pos-label" label="Position" value={positionFilter}
+            onChange={(e) => { setPositionFilter(e.target.value); setPageNumber(1); }}>
+            {POSITIONS.map((pos) => <MenuItem key={pos} value={pos}>{pos}</MenuItem>)}
+          </Select>
+        </FormControl>
         <Pagination
-          className={classes.pagination}
-          count={10}
+          count={totalPages}
           page={pageNumber}
           onChange={(event, value) => setPageNumber(value)}
         />
       </div>
-      <TableContainer component={Paper} className={classes.tableContainer}>
-        <Table className={classes.table}>
+
+      <TableContainer component={Paper} sx={{ borderRadius: 2, m: 1, maxWidth: 900 }}>
+        <Table sx={{ minWidth: 650 }}>
           <TableHead>
             <TableRow>
-              <TableCell className={classes.tableHeaderCell}>Name</TableCell>
-              <TableCell className={classes.tableHeaderCell} align="right">Position</TableCell>
-              <TableCell className={classes.tableHeaderCell} align="right">Actions</TableCell>
+              <TableCell sx={headCellSx}>Name</TableCell>
+              <TableCell sx={headCellSx} align="right">Position</TableCell>
+              <TableCell sx={headCellSx} align="right">NFL Team</TableCell>
+              <TableCell sx={headCellSx} align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {players.map((player) => (
               <TableRow key={player.id}>
-                <TableCell component="th" scope="row" className={classes.name}>{player.name}</TableCell>
-                <TableCell align="right" className={classes.position}>{player.position}</TableCell>
+                <TableCell component="th" scope="row" sx={{ fontWeight: 'bold', color: '#264653' }}>
+                  {player.name}
+                </TableCell>
+                <TableCell align="right" sx={{ fontStyle: 'italic' }}>{player.position}</TableCell>
+                <TableCell align="right">{player.nfl_team}</TableCell>
                 <TableCell align="right">
-                <Button
-                className={classes.button}
-                onClick={() => addToRoster(player)}
-                disabled={isPlayerInRoster(player.id) || roster.filter(p => p.position === player.position).length >= positionLimits[player.position]}
->
-                {isPlayerInRoster(player.id) ? 'Added' : 'Add to Roster'}
-                </Button>
-
+                  <Button
+                    sx={{ backgroundColor: '#ff9100', color: '#000', '&:hover': { backgroundColor: '#e76f51' } }}
+                    onClick={() => addToRoster(player)}
+                    disabled={!selectedLeague || isPlayerInRoster(player.id)}
+                  >
+                    {isPlayerInRoster(player.id) ? 'Added' : 'Add to Roster'}
+                  </Button>
                 </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
       </TableContainer>
-      <TableContainer component={Paper} className={classes.rosterTableContainer}>
-        <Table className={classes.table}>
+
+      <Typography variant="h6" sx={{ mt: 3 }}>My Roster</Typography>
+      <TableContainer component={Paper} sx={{ borderRadius: 2, m: 1, maxWidth: 900 }}>
+        <Table sx={{ minWidth: 650 }}>
           <TableHead>
             <TableRow>
-              <TableCell className={classes.tableHeaderCell}>Name</TableCell>
-              <TableCell className={classes.tableHeaderCell} align="right">Position</TableCell>
-              <TableCell className={classes.tableHeaderCell} align="right">Actions</TableCell>
+              <TableCell sx={headCellSx}>Name</TableCell>
+              <TableCell sx={headCellSx} align="right">Position</TableCell>
+              <TableCell sx={headCellSx} align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {roster.map((player) => (
               <TableRow key={player.id}>
-                <TableCell component="th" scope="row" className={classes.name}>{player.name}</TableCell>
-                <TableCell align="right" className={classes.position}>{player.position}</TableCell>
+                <TableCell component="th" scope="row" sx={{ fontWeight: 'bold', color: '#264653' }}>
+                  {player.name}
+                </TableCell>
+                <TableCell align="right" sx={{ fontStyle: 'italic' }}>{player.position}</TableCell>
                 <TableCell align="right">
-                  <Button className={classes.button} onClick={() => removeFromRoster(player.id)}>Remove</Button>
+                  <Button
+                    sx={{ backgroundColor: '#ff9100', color: '#000', '&:hover': { backgroundColor: '#e76f51' } }}
+                    onClick={() => removeFromRoster(player.id)}
+                  >
+                    Remove
+                  </Button>
                 </TableCell>
               </TableRow>
             ))}
@@ -207,7 +174,6 @@ function PlayerManagement() {
       </TableContainer>
     </div>
   );
-  
-  }
-  export default PlayerManagement;
-  
+}
+
+export default PlayerManagement;

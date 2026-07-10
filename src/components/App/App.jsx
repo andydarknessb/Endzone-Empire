@@ -1,9 +1,9 @@
 import React, { useEffect } from 'react';
 import {
   HashRouter as Router,
-  Redirect,
+  Navigate,
   Route,
-  Switch,
+  Routes,
 } from 'react-router-dom';
 
 import { useDispatch, useSelector } from 'react-redux';
@@ -19,12 +19,13 @@ import InfoPage from '../InfoPage/InfoPage';
 import LandingPage from '../LandingPage/LandingPage';
 import LoginPage from '../LoginPage/LoginPage';
 import RegisterPage from '../RegisterPage/RegisterPage';
-import DraftPage from '../DraftPage/DraftPage';
-
 
 import LeagueManagement from '../LeagueManagement/LeagueManagement';
 import TeamManagement from '../TeamManagement/TeamManagement';
 import PlayerManagement from '../PlayerManagement/PlayerManagement';
+import LeagueDashboard from '../LeagueDashboard/LeagueDashboard';
+import MatchupScreen from '../MatchupScreen/MatchupScreen';
+import DraftBoard from '../DraftBoard/DraftBoard';
 
 
 import './App.css';
@@ -42,90 +43,81 @@ function App() {
     <Router>
       <div>
         <Nav />
-        <Switch>
-          <ProtectedRoute exact path="/league" component={LeagueManagement} />
-          <ProtectedRoute exact path="/team" component={TeamManagement} />
-          <ProtectedRoute exact path="/player" component={PlayerManagement} />
-          <ProtectedRoute exact path="/draft" component={DraftPage} />
+        <Routes>
+          <Route path="/league" element={<ProtectedRoute><LeagueManagement /></ProtectedRoute>} />
+          <Route path="/team" element={<ProtectedRoute><TeamManagement /></ProtectedRoute>} />
+          <Route path="/player" element={<ProtectedRoute><PlayerManagement /></ProtectedRoute>} />
+          <Route path="/league/:leagueId" element={<ProtectedRoute><LeagueDashboard /></ProtectedRoute>} />
+          <Route path="/league/:leagueId/matchups" element={<ProtectedRoute><MatchupScreen /></ProtectedRoute>} />
+          <Route path="/league/:leagueId/draft" element={<ProtectedRoute><DraftBoard /></ProtectedRoute>} />
           {/* Visiting localhost:3000 will redirect to localhost:3000/home */}
-          <Redirect exact from="/" to="/home" />
+          <Route path="/" element={<Navigate to="/home" replace />} />
 
           {/* Visiting localhost:3000/about will show the about page. */}
           <Route
             // shows AboutPage at all times (logged in or not)
-            exact
             path="/about"
-          >
-            <AboutPage />
-          </Route>
+            element={<AboutPage />}
+          />
 
           {/* For protected routes, the view could show one of several things on the same route.
             Visiting localhost:3000/user will show the UserPage if the user is logged in.
             If the user is not logged in, the ProtectedRoute will show the LoginPage (component).
             Even though it seems like they are different pages, the user is always on localhost:3000/user */}
-          <ProtectedRoute
+          <Route
             // logged in shows UserPage else shows LoginPage
-            exact
             path="/user"
-          >
-            <UserPage />
-          </ProtectedRoute>
+            element={<ProtectedRoute><UserPage /></ProtectedRoute>}
+          />
 
-          <ProtectedRoute
+          <Route
             // logged in shows InfoPage else shows LoginPage
-            exact
             path="/info"
-          >
-            <InfoPage />
-          </ProtectedRoute>
+            element={<ProtectedRoute><InfoPage /></ProtectedRoute>}
+          />
 
           <Route
-            exact
             path="/login"
-          >
-            {user.id ?
-              // If the user is already logged in, 
-              // redirect to the /user page
-              <Redirect to="/user" />
-              :
-              // Otherwise, show the login page
-              <LoginPage />
+            element={
+              user.id ?
+                // If the user is already logged in,
+                // redirect to the /user page
+                <Navigate to="/user" replace />
+                :
+                // Otherwise, show the login page
+                <LoginPage />
             }
-          </Route>
+          />
 
           <Route
-            exact
             path="/registration"
-          >
-            {user.id ?
-              // If the user is already logged in, 
-              // redirect them to the /user page
-              <Redirect to="/user" />
-              :
-              // Otherwise, show the registration page
-              <RegisterPage />
+            element={
+              user.id ?
+                // If the user is already logged in,
+                // redirect them to the /user page
+                <Navigate to="/user" replace />
+                :
+                // Otherwise, show the registration page
+                <RegisterPage />
             }
-          </Route>
+          />
 
           <Route
-            exact
             path="/home"
-          >
-            {user.id ?
-              // If the user is already logged in, 
-              // redirect them to the /user page
-              <Redirect to="/user" />
-              :
-              // Otherwise, show the Landing page
-              <LandingPage />
+            element={
+              user.id ?
+                // If the user is already logged in,
+                // redirect them to the /user page
+                <Navigate to="/user" replace />
+                :
+                // Otherwise, show the Landing page
+                <LandingPage />
             }
-          </Route>
+          />
 
           {/* If none of the other routes matched, we will show a 404. */}
-          <Route>
-            <h1>404</h1>
-          </Route>
-        </Switch>
+          <Route path="*" element={<h1>404</h1>} />
+        </Routes>
         <Footer />
       </div>
     </Router>

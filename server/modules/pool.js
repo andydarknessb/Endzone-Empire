@@ -1,35 +1,20 @@
-/* the only line you likely need to change is
-
- database: 'prime_app',
-
- change `prime_app` to the name of your database, and you should be all set!
-*/
-
 const pg = require('pg');
-let pool;
+const { sslForConnection } = require('./dbSsl');
 
-// When our app is deployed to the internet 
-// we'll use the DATABASE_URL environment variable
-// to set the connection info: web address, username/password, db name
-// eg: 
-//  DATABASE_URL=postgresql://jDoe354:secretPw123@some.db.com/prime_app
-if (process.env.DATABASE_URL) {
-    pool = new pg.Pool({
-        connectionString: process.env.DATABASE_URL,
-        ssl: {
-            rejectUnauthorized: false
-        }
+// Connection settings come from the environment only — see .env.example.
+// DATABASE_URL wins (production); otherwise the standard PG* variables are
+// read by the pg driver itself, with sensible local defaults.
+const pool = process.env.DATABASE_URL
+  ? new pg.Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: sslForConnection(process.env.DATABASE_URL),
+    })
+  : new pg.Pool({
+      host: process.env.PGHOST || 'localhost',
+      port: Number(process.env.PGPORT) || 5432,
+      database: process.env.PGDATABASE || 'endzone_empire',
+      user: process.env.PGUSER,
+      password: process.env.PGPASSWORD,
     });
-}
-// When we're running this app on our own computer
-// we'll connect to the postgres database that is 
-// also running on our computer (localhost)
-else {
-    pool = new pg.Pool({
-        host: 'localhost',
-        port: 5432,
-        database: 'Endzone_Empire',   // 	💥 Change this to the name of your database!
-    });
-}
 
-module.exports = pool;
+module.

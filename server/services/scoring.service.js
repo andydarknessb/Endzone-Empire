@@ -1,0 +1,220 @@
+const axios = require('axios');
+const pool = require('../modules/pool');
+
+// Standard fantasy scoring rules (points per unit of each stat)
+const SCORING_RULES = {
+  passingYards: 0.04,
+  rushingYards: 0.1,
+  receivingYards: 0.1,
+  passingTDs: 4,
+  rushingTDs: 6,
+  receivingTDs: 6,
+  receptions: 0.5, // half-PPR
+  fumbles: -2,
+  interceptions: -2,
+  passingTwoPt: 2,
+  rushingTwoPt: 2,
+  receivingTwoPt: 2,
+  sack: 1,
+  interceptionReturn: 2,
+  fumbleRecovery: 2,
+  defensiveTD: 6,
+  fieldGoal: 3,
+  extraPoint: 1,
+};
+
+/** Pure function: stats object -> fantasy points, per SCORING_RULES. */
+function calculateFantasyPoints(stats) {
+  let score = 0;
+  for (const [stat, value] of Object.entries(stats || {})) {
+    const pointsPerStat = SCORING_RULES[stat];
+    if (pointsPerStat !== undefined && Number.isFinite(Number(value))) {
+      score += Number(value) * pointsPerStat;
+    }
+  }
+  return Math.round(score * 100) / 100;
+}
+
+function rapidApiClient() {
+  if (!process.env.RAPID_API_KEY || !process.env.RAPID_API_HOST) {
+    const err = new Error('RAPID_API_KEY / RAPID_API_HOST not configured');
+    err.statusCode = 503;
+    throw err;
+  }
+  return axios.create({
+    baseURL: `https://${process.env.RAPID_API_HOST}`,
+    headers: {
+      'X-RapidAPI-Key': process.env.RAPID_API_KEY,
+      'X-RapidAPI-Host': process.env.RAPID_API_HOST,
+    },
+    timeout: 15000,
+  });
+}
+
+/**
+ * Map one entry of the RapidAPI player-statistics payload to our flat stat
+ * names. The API groups stats by category; unknown categories are ignored.
+ */
+function normalizeApiStats(groups) {
+  const find = (categoryName, statName) => {
+    const cat = (groups || []).find(
+      (g) => g.name && g.name.toLowerCase() === categoryName
+    );
+    const stat = cat && (cat.statistics || []).find(
+      (s) => s.name && s.name.toLowerCase() === statName
+    );
+    const value = stat && Number(String(stat.value).replace(/,/g, ''));
+    return Number.isFinite(value) ? value : 0;
+  };
+  return {
+    passingYards: find('passing', 'yards'),
+    passingTDs: find('passing', 'passing touch downs'),
+    interceptions: find('passing', 'interceptions'),
+    rushingYards: find('rushing', 'yards'),
+    rushingTDs: find('rushing', 'rushing touch downs'),
+    receivingYards: find('receiving', 'yards'),
+    receivingTDs: find('receiving', 'receiving touch downs'),
+    receptions: find('receiving', 'receptions'),
+    fumbles: find('fumbles', 'fumbles lost'),
+  };
+}
+
+/**
+ * Fetch weekly real-world stats from RapidAPI for every player that has an
+ * external_id, compute fantasy points, and upsert into player_stats.
+ */
+async function syncWeekStats({ season, week }) {
+  const api = rapidApiClient();
+  const playersResult = await pool.query(
+    `SELECT "id", "external_id" FROM "players" WHERE "external_id" IS NOT NULL`
+  );
+  let updated = 0;
+  for (const player of playersResult.rows) {
+    try {
+      const response = await api.get('/players/statistics', {
+        params: { id: player.external_id, season },
+      });
+      const entry = (response.data && response.data.response) || [];
+      const groups = entry[0] && entry[0].teams && entry[0].teams[0]
+        ? entry[0].teams[0].groups
+        : entry[0] && entry[0].groups;
+      const stats = normalizeApiStats(groups);
+      const points = calculateFantasyPoints(stats);
+      await pool.query(
+        `INSERT INTO "player_stats" ("player_id", "season", "week", "stats", "fantasy_points")
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT ("player_id", "season", "week")
+         DO UPDATE SET "stats" = EXCLUDED."stats", "fantasy_points" = EXCLUDED."fantasy_points"`,
+        [player.id, season, week, JSON.stringify(stats), points]
+      );
+      updated += 1;
+    } catch (err) {
+      console.error(`Stat sync failed for player ${player.id}:`, err.message);
+    }
+  }
+  return { season, week, playersUpdated: updated };
+}
+
+/**
+ * Generate round-robin head-to-head pairings for a league week (idempotent —
+ * skips if matchups already exist). Odd team counts give one team a bye.
+ */
+async function generateMatchups({ leagueId, season, week }) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const existing = await client.query(
+      `SELECT 1 FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 LIMIT 1`,
+      [leagueId, season, week]
+    );
+    if (existing.rows[0]) {
+      await client.query('ROLLBACK');
+      return { created: 0, reason: 'matchups already exist for this week' };
+    }
+    const teamsResult = await client.query(
+      `SELECT "id" FROM "teams" WHERE "league_id" = $1 ORDER BY "id"`,
+      [leagueId]
+    );
+    const ids = teamsResult.rows.map((r) => r.id);
+    if (ids.length < 2) {
+      await client.query('ROLLBACK');
+      return { created: 0, reason: 'need at least 2 teams' };
+    }
+    // Circle-method round robin, rotated by week for variety
+    const rotation = week % Math.max(1, ids.length - 1);
+    const fixed = ids[0];
+    const rest = ids.slice(1);
+    const rotated = rest.slice(rotation).concat(rest.slice(0, rotation));
+    const order = [fixed, ...rotated];
+    let created = 0;
+    for (let i = 0; i < Math.floor(order.length / 2); i++) {
+      const home = order[i];
+      const away = order[order.length - 1 - i];
+      await client.query(
+        `INSERT INTO "matchups" ("league_id", "season", "week", "home_team_id", "away_team_id")
+         VALUES ($1, $2, $3, $4, $5)`,
+        [leagueId, season, week, home, away]
+      );
+      created += 1;
+    }
+    await client.query('COMMIT');
+    return { created };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Score every matchup for a league week: each team's score is the sum of its
+ * rostered players' fantasy_points for that week. Transactional per league.
+ */
+async function scoreMatchups({ leagueId, season, week }) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const matchupsResult = await client.query(
+      `SELECT * FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 FOR UPDATE`,
+      [leagueId, season, week]
+    );
+    const teamScore = async (teamId) => {
+      const r = await client.query(
+        `SELECT COALESCE(SUM("player_stats"."fantasy_points"), 0) AS total
+         FROM "team_players"
+         JOIN "player_stats" ON "player_stats"."player_id" = "team_players"."player_id"
+           AND "player_stats"."season" = $2 AND "player_stats"."week" = $3
+         WHERE "team_players"."team_id" = $1`,
+        [teamId, season, week]
+      );
+      return Number(r.rows[0].total);
+    };
+    const scored = [];
+    for (const matchup of matchupsResult.rows) {
+      const homeScore = await teamScore(matchup.home_team_id);
+      const awayScore = await teamScore(matchup.away_team_id);
+      await client.query(
+        `UPDATE "matchups" SET "home_score" = $1, "away_score" = $2 WHERE "id" = $3`,
+        [homeScore, awayScore, matchup.id]
+      );
+      scored.push({ matchupId: matchup.id, homeScore, awayScore });
+    }
+    await client.query('COMMIT');
+    return { scored };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+module.exports = {
+  SCORING_RULES,
+  calculateFantasyPoints,
+  normalizeApiStats,
+  syncWeekStats,
+  generateMatchups,
+  scoreMatchups,
+};

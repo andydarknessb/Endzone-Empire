@@ -1,81 +1,86 @@
 const express = require('express');
 const pool = require('../modules/pool');
+const { requireAuth } = require('../modules/auth');
+const scoring = require('../services/scoring.service');
+
 const router = express.Router();
+router.use(requireAuth);
 
-// Define scoring rules
-const scoringRules = {
-    passingYards: 0.04,   // 1 point per 25 yards
-    rushingYards: 0.1,    // 1 point per 10 yards
-    receivingYards: 0.1,  // 1 point per 10 yards
-    passingTDs: 4,
-    rushingTDs: 6,
-    receivingTDs: 6,
-    fumbles: -2,
-    interceptions: -2,   // Thrown interceptions
-    passingTwoPt: 2,     // 2pt conversion (pass)
-    rushingTwoPt: 2,     // 2pt conversion (rush)
-    receivingTwoPt: 2,   // 2pt conversion (receive)
-    sack: 1,             // For defensive players
-    interceptionReturn: 2, // For defensive players
-    fumbleRecovery: 2,   // For defensive players
-    defensiveTD: 6,      // For defensive players
-    fieldGoal: 3,        // For kickers, might vary depending on distance
-    extraPoint: 1,       // For kickers
-  };
-  
-
-// Route to calculate player scores for a particular game
-router.post('/calculate_scores', async (req, res) => {
-  try {
-    // Retrieve all teams
-    const teamsQuery = 'SELECT * FROM teams';
-    const teamsResult = await pool.query(teamsQuery);
-    const teams = teamsResult.rows;
-
-    // Calculate and update score for each team
-    for (const team of teams) {
-      const teamScoreQuery = `
-        SELECT SUM(score) as total_score FROM player_stats
-        JOIN players_teams ON players_teams.player_id = player_stats.player_id
-        WHERE players_teams.team_id = $1
-      `;
-      const teamScoreResult = await pool.query(teamScoreQuery, [team.id]);
-      const teamScore = teamScoreResult.rows[0].total_score || 0;
-
-      const updateTeamScoreQuery = 'UPDATE teams SET score = $1 WHERE id = $2';
-      await pool.query(updateTeamScoreQuery, [teamScore, team.id]);
-    }
-
-    // Send success status
-    res.sendStatus(200);
-  } catch (error) {
-    console.error('Error calculating team scores:', error);
-    res.sendStatus(500);
+function validSeasonWeek(req, res) {
+  const season = Number(req.body && req.body.season);
+  const week = Number(req.body && req.body.week);
+  if (!Number.isInteger(season) || season < 2000 || season > 2100) {
+    res.status(400).json({ error: 'season (integer year) is required' });
+    return null;
   }
-});
-
-// Route to get team rankings
-router.get('/rankings', async (req, res) => {
-  try {
-    const rankingsQuery = 'SELECT * FROM teams ORDER BY score DESC';
-    const rankingsResult = await pool.query(rankingsQuery);
-    res.send(rankingsResult.rows);
-  } catch (error) {
-    console.error('Error getting team rankings:', error);
-    res.sendStatus(500);
+  if (!Number.isInteger(week) || week < 1 || week > 25) {
+    res.status(400).json({ error: 'week must be an integer between 1 and 25' });
+    return null;
   }
-});
-
-// Function to calculate a player's score based on their stats
-function calculateScore(stats) {
-  let score = 0;
-  for (const [stat, value] of Object.entries(stats)) {
-    const pointsPerStat = scoringRules[stat];
-    if (pointsPerStat !== undefined) {
-      score += value * pointsPerStat;
-    }
-  }
-  return score;
+  return { season, week };
 }
+
+// POST /api/scoring/sync — pull weekly stats from RapidAPI into player_stats
+router.post('/sync', async (req, res) => {
+  const sw = validSeasonWeek(req, res);
+  if (!sw) return;
+  try {
+    const result = await scoring.syncWeekStats(sw);
+    res.json(result);
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    console.error('Stat sync failed:', error);
+    res.status(500).json({ error: 'stat sync failed' });
+  }
+});
+
+// POST /api/scoring/league/:id/matchups — generate this week's pairings (owner only)
+router.post('/league/:id/matchups', async (req, res) => {
+  if (!/^\d+$/.test(req.params.id)) {
+    return res.status(400).json({ error: 'league id must be a positive integer' });
+  }
+  const sw = validSeasonWeek(req, res);
+  if (!sw) return;
+  const leagueId = Number(req.params.id);
+  try {
+    const owner = await pool.query(
+      `SELECT 1 FROM "leagues" WHERE "id" = $1 AND "owner_id" = $2`,
+      [leagueId, req.user.id]
+    );
+    if (!owner.rows[0]) return res.status(403).json({ error: 'only the league owner can do this' });
+    const result = await scoring.generateMatchups({ leagueId, ...sw });
+    res.status(201).json(result);
+  } catch (error) {
+    console.error('Matchup generation failed:', error);
+    res.status(500).json({ error: 'matchup generation failed' });
+  }
+});
+
+// POST /api/scoring/league/:id/score — compute head-to-head scores for the week
+router.post('/league/:id/score', async (req, res) => {
+  if (!/^\d+$/.test(req.params.id)) {
+    return res.status(400).json({ error: 'league id must be a positive integer' });
+  }
+  const sw = validSeasonWeek(req, res);
+  if (!sw) return;
+  const leagueId = Number(req.params.id);
+  try {
+    const owner = await pool.query(
+      `SELECT 1 FROM "leagues" WHERE "id" = $1 AND "owner_id" = $2`,
+      [leagueId, req.user.id]
+    );
+    if (!owner.rows[0]) return res.status(403).json({ error: 'only the league owner can do this' });
+    const result = await scoring.scoreMatchups({ leagueId, ...sw });
+    res.json(result);
+  } catch (error) {
+    console.error('Matchup scoring failed:', error);
+    res.status(500).json({ error: 'matchup scoring failed' });
+  }
+});
+
+// GET /api/scoring/rules — expose the scoring rules to the UI
+router.get('/rules', (req, res) => {
+  res.json(scoring.SCORING_RULES);
+});
 
 module.exports = router;

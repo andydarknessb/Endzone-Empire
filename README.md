@@ -1,73 +1,96 @@
-# Player Management System
+# Endzone Empire
 
-This is a player management system built with React, Express, and PostgreSQL. The application allows a user to view players based on their positions, add them to a roster, and remove them from the roster.
+A full-stack fantasy football application: create private leagues, invite friends,
+run a live snake draft in real time, manage rosters, and score weekly head-to-head
+matchups using real-world NFL statistics.
 
-## Features
-- Filter players by their positions.
-- Add players to the roster and manage the team.
-- Pagination feature for ease of navigation.
+## Stack
 
-## Getting Started
+- **Frontend:** React 18, react-router v6, Redux + redux-saga, MUI v5, socket.io-client
+- **Backend:** Node.js (20+), Express, Socket.io, JWT auth (`jsonwebtoken` + `bcryptjs`)
+- **Database:** PostgreSQL via `pg` (parameterized queries + explicit transactions), Knex migrations
 
-These instructions will get you a copy of the project up and running on your local machine for development and testing purposes.
+## Prerequisites
 
-### Prerequisites
+- Node.js 20+ (24 LTS recommended)
+- PostgreSQL 14+
 
-Before you begin, ensure you have installed:
-- Node.js
-- npm
-- PostgreSQL
+## Setup
 
-### Installing
+1. **Install dependencies**
 
-1. Clone the repository to your local machine.
+   ```sh
+   npm install
+   ```
+
+2. **Configure environment** — copy `.env.example` to `.env` and fill in values:
+
+   ```sh
+   # generate a JWT secret:
+   node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+   ```
+
+   `RAPID_API_KEY` / `RAPID_API_HOST` are only needed for the real-stats sync
+   (`POST /api/scoring/sync`); everything else works without them.
+
+3. **Create the database and run migrations**
+
+   ```sh
+   createdb endzone_empire
+   npm run migrate     # creates all tables (Knex)
+   npm run seed        # loads a sample player pool
+   ```
+
+4. **Run the app**
+
+   ```sh
+   npm run server      # Express + Socket.io on :5000 (nodemon)
+   npm run client      # React dev server on :3000 (proxies /api to :5000)
+   ```
+
+## Tests
+
+```sh
+npm run test:server   # node:test unit tests (scoring + draft-order logic)
+npm run build         # production build of the frontend
 ```
-git clone https://github.com/your-username/player-management-system.git
-```
-2. Install the dependencies.
-```
-npm install
-```
-3. Create a `.env` file in your root directory and add the following variables:
-```shell
-RAPID_API_KEY=your_rapidapi_key
-RAPID_API_HOST=your_rapidapi_host
-```
-4. Run the app in the development mode.
-```
-npm start
-```
-Open [http://localhost:3000](http://localhost:3000) to view it in the browser. 
 
-### Database Setup
+## API overview
 
-1. Create a new PostgreSQL database named `player_management_system`.
+All routes except `/api/auth/*` require `Authorization: Bearer <jwt>`.
 
-2. Run the SQL commands in the `database.sql` file in the root directory to create the necessary tables and insert test data.
+| Method | Route | Purpose |
+|---|---|---|
+| POST | `/api/auth/register` | Create account → `{ token, user }` |
+| POST | `/api/auth/login` | Login → `{ token, user }` |
+| GET | `/api/user` | Current user profile |
+| GET | `/api/players?page=N&position=QB&leagueId=N&available=true` | Paginated player pool (25/page, strict integer validation) |
+| POST | `/api/players/draft/:playerId` | Draft a player (transactional; body `{ leagueId }`) |
+| POST | `/api/league` | Create league (invite code, roster limit, max teams) |
+| POST | `/api/league/join` | Join by invite code |
+| GET | `/api/league` / `/api/league/:id` | My leagues / league detail + standings |
+| PUT | `/api/league/:id` | Owner: rename / set roster limit (pre-draft) |
+| POST | `/api/league/:id/start-draft` | Owner: open the live draft |
+| GET | `/api/league/:id/matchups?week=N` | Head-to-head matchups |
+| GET | `/api/team/roster?leagueId=N` | My roster |
+| POST/DELETE | `/api/team/roster/:playerId` | Add / drop a player (transactional) |
+| POST | `/api/scoring/sync` | Pull weekly stats from RapidAPI |
+| POST | `/api/scoring/league/:id/matchups` | Owner: generate weekly pairings |
+| POST | `/api/scoring/league/:id/score` | Owner: score the week from player stats |
 
-### Built With
+### Live draft (Socket.io)
 
-- React.js
-- Node.js
-- Express.js
-- PostgreSQL
-- Material-UI
-- Axios
+Connect with `io('/', { auth: { token } })`, then:
 
-## API Reference
+- `draft:join { leagueId }` → server replies with full `draft:state`
+- `draft:pick { leagueId, playerId }` → room broadcast `draft:picked` (snake order
+  enforced server-side inside a database transaction)
+- `draft:complete` fires when every roster is full
 
-The API has two endpoints:
+## Notes
 
-1. `/api/players?page={pageNumber}&position={positionFilter}` - Returns a paginated list of players. You can filter by position.
-
-2. `/api/players/draft/{playerId}` - Adds a player to the roster.
-
-3. `/api/team/roster/{playerId}` - Removes a player from the roster.
-
-## Contributing
-
-We love contributions! Please refer to our [Contribution Guide](CONTRIBUTING.md) for details on how to contribute.
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details.
+- Passwords are bcrypt-hashed; JWTs expire after 7 days.
+- A player can be rostered by only one team per league (database unique constraint,
+  not just application logic).
+- Draft picks lock the league row (`SELECT … FOR UPDATE`) so simultaneous picks
+  can't double-draft or skip turns.

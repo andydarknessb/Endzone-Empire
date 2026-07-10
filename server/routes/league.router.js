@@ -1,290 +1,262 @@
 const express = require('express');
+const crypto = require('crypto');
 const pool = require('../modules/pool');
+const { requireAuth } = require('../modules/auth');
+
 const router = express.Router();
+router.use(requireAuth);
 
-// This route gets leagues for a specific user
-router.post('/create', async (req, res) => {
-  const newLeague = req.body;
-  const numTeams = newLeague.numTeams;
-  const userId = newLeague.userId;
+function intParam(value) {
+  return /^\d+$/.test(String(value)) ? Number(value) : null;
+}
 
-  const leagueQueryText = `INSERT INTO "leagues" ("name", "owner_id", "num_teams") VALUES ($1, $2, $3) RETURNING id`;
-  const teamQueryText = `INSERT INTO "teams" ("name", "owner_id", "league_id") VALUES ($1, $2, $3) RETURNING id`;
-  const memberQueryText = `INSERT INTO "league_teams" ("user_id", "league_id", "team_id") VALUES ($1, $2, $3)`;
+// POST /api/league — create a private league (plus the owner's team) atomically
+router.post('/', async (req, res) => {
+  const { name, rosterLimit, maxTeams, teamName } = req.body || {};
+  if (!name || typeof name !== 'string') {
+    return res.status(400).json({ error: 'league name is required' });
+  }
+  const limit = rosterLimit === undefined ? 15 : Number(rosterLimit);
+  const teams = maxTeams === undefined ? 10 : Number(maxTeams);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 30) {
+    return res.status(400).json({ error: 'rosterLimit must be an integer between 1 and 30' });
+  }
+  if (!Number.isInteger(teams) || teams < 2 || teams > 20) {
+    return res.status(400).json({ error: 'maxTeams must be an integer between 2 and 20' });
+  }
 
+  const inviteCode = crypto.randomBytes(4).toString('hex');
+  const client = await pool.connect();
   try {
-    await pool.query('BEGIN');
-    const leagueResult = await pool.query(leagueQueryText, [newLeague.name, userId, numTeams]);
-    if (leagueResult.rows.length === 0) {
-      throw new Error('League creation failed: no rows returned');
-    }
-    const leagueId = leagueResult.rows[0].id;
-
-    // Create teams and add the user to the first team only
-    for (let i = 0; i < numTeams; i++) {
-      const teamResult = await pool.query(teamQueryText, [`Team ${i + 1}`, userId, leagueId]);
-      let teamId;
-      if (teamResult.rows.length > 0) {
-        teamId = teamResult.rows[0].id;
-        // Add user to the first team only
-        if (i === 0) {
-          await pool.query(memberQueryText, [userId, leagueId, teamId]);
-        }
-      } else {
-        throw new Error('Team creation failed: no rows returned');
-      }
-    }
-
-    await pool.query('COMMIT');
-    res.sendStatus(201);
+    await client.query('BEGIN');
+    const leagueResult = await client.query(
+      `INSERT INTO "leagues" ("name", "owner_id", "invite_code", "roster_limit", "max_teams")
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [name, req.user.id, inviteCode, limit, teams]
+    );
+    const league = leagueResult.rows[0];
+    await client.query(
+      `INSERT INTO "teams" ("league_id", "owner_id", "name", "draft_position")
+       VALUES ($1, $2, $3, 1)`,
+      [league.id, req.user.id, teamName || `${req.user.username}'s Team`]
+    );
+    await client.query('COMMIT');
+    res.status(201).json(league);
   } catch (error) {
-    await pool.query('ROLLBACK');
-    console.log('Error on POST league query', error);
-    res.sendStatus(500);
+    await client.query('ROLLBACK');
+    console.error('Error creating league', error);
+    res.status(500).json({ error: 'failed to create league' });
+  } finally {
+    client.release();
   }
 });
 
+// POST /api/league/join — join a league by invite code (creates your team)
+router.post('/join', async (req, res) => {
+  const { inviteCode, teamName } = req.body || {};
+  if (!inviteCode) return res.status(400).json({ error: 'inviteCode is required' });
 
-
-// Create a league
-router.post('/create', async (req, res) => {
-  const newLeague = req.body;
-  const numTeams = newLeague.numTeams;
-  const userId = newLeague.userId;
-
-  const leagueQueryText = `INSERT INTO "leagues" ("name", "owner_id", "num_teams") VALUES ($1, $2, $3) RETURNING id`;
-  const teamQueryText = `INSERT INTO "teams" ("name", "owner_id", "league_id") VALUES ($1, $2, $3) RETURNING id`;
-  const memberQueryText = `INSERT INTO "league_teams" ("user_id", "league_id", "team_id") VALUES ($1, $2, $3)`;
-
+  const client = await pool.connect();
   try {
-    await pool.query('BEGIN');
-    const leagueResult = await pool.query(leagueQueryText, [newLeague.name, userId, numTeams]);
-    if (leagueResult.rows.length === 0) {
-      throw new Error('League creation failed: no rows returned');
+    await client.query('BEGIN');
+    const leagueResult = await client.query(
+      `SELECT * FROM "leagues" WHERE "invite_code" = $1 FOR UPDATE`,
+      [inviteCode]
+    );
+    const league = leagueResult.rows[0];
+    if (!league) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'no league with that invite code' });
     }
-    const leagueId = leagueResult.rows[0].id;
-
-    // Create teams and add the user to the teams
-    for (let i = 0; i < numTeams; i++) {
-      const teamResult = await pool.query(teamQueryText, [`Team ${i + 1}`, userId, leagueId]);
-      let teamId;
-      if (teamResult.rows.length > 0) {
-        teamId = teamResult.rows[0].id;
-      } else {
-        throw new Error('Team creation failed: no rows returned');
-      }
-
-      await pool.query(memberQueryText, [userId, leagueId, teamId]);
+    if (league.draft_status !== 'pending') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'league draft already started' });
     }
-
-    await pool.query('COMMIT');
-    res.sendStatus(201);
+    const countResult = await client.query(
+      `SELECT COUNT(*)::int AS n FROM "teams" WHERE "league_id" = $1`,
+      [league.id]
+    );
+    if (countResult.rows[0].n >= league.max_teams) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'league is full' });
+    }
+    const teamResult = await client.query(
+      `INSERT INTO "teams" ("league_id", "owner_id", "name", "draft_position")
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [league.id, req.user.id, teamName || `${req.user.username}'s Team`, countResult.rows[0].n + 1]
+    );
+    await client.query('COMMIT');
+    res.status(201).json({ league, team: teamResult.rows[0] });
   } catch (error) {
-    await pool.query('ROLLBACK');
-    console.log('Error on POST league query', error);
-    res.sendStatus(500);
+    await client.query('ROLLBACK');
+    if (error.code === '23505') {
+      return res.status(409).json({ error: 'you already have a team in this league' });
+    }
+    console.error('Error joining league', error);
+    res.status(500).json({ error: 'failed to join league' });
+  } finally {
+    client.release();
   }
 });
 
-
-
-// Join a league
-router.post('/join/:id', async (req, res) => {
-    const leagueId = req.params.id;
-    const teamId = req.body.teamId;  // New team_id to join a specific team
-    const queryText = `INSERT INTO "league_teams" ("user_id", "league_id", "team_id", "role") VALUES ($1, $2, $3, 'member')`;
-    try {
-        await pool.query(queryText, [req.user.id, leagueId, teamId]);
-        res.sendStatus(200);
-    } catch (error) {
-        console.log('Error on POST join league query', error);
-        res.sendStatus(500);
-    }
-});
-
-  // This route updates a league's name
-router.put('/:id', (req, res) => {
-    const updatedLeague = req.body;
-    const queryText = `UPDATE "leagues"
-    SET "name" = $1
-    WHERE "id" = $2 AND "owner_id" = $3`;
-    pool.query(queryText, [updatedLeague.name, req.params.id, req.user.id])
-      .then(() => {
-        res.sendStatus(200);
-      })
-      .catch((error) => {
-        console.log('Error on PUT league query', error);
-        res.sendStatus(500);
-      });
-  });
-
-  // This route deletes a league
-  router.delete('/:id', async (req, res) => {
-    const leagueId = req.params.id;
-    const userId = req.user.id;
-  
-    // Check if the user is the creator of the league
-    const checkQuery = `SELECT "owner_id" FROM "leagues" WHERE "id" = $1`;
-    const deleteQuery = 'DELETE FROM "leagues" WHERE "id" = $1 AND "owner_id" = $2';
-  
-    try {
-      const ownerCheckResult = await pool.query(checkQuery, [leagueId]);
-  
-      if (ownerCheckResult.rows.length === 0) {
-        throw new Error('League does not exist');
-      }
-  
-      if (ownerCheckResult.rows[0].owner_id !== userId) {
-        throw new Error('User is not the owner of the league');
-      }
-  
-      // If the user is indeed the league's creator, proceed with deletion
-      await pool.query(deleteQuery, [leagueId, userId]);
-  
-      res.sendStatus(200);
-    } catch (error) {
-      console.log('Error on DELETE league query', error);
-      res.sendStatus(500);
-    }
-  });
-  
-
-  router.delete('/:id/withdraw', (req, res) => {
-    const queryText = 'DELETE FROM "league_teams" WHERE "league_id" = $1 AND "user_id" = $2';
-    pool.query(queryText, [req.params.id, req.user.id])
-      .then(() => {
-        res.sendStatus(200);
-      })
-      .catch((error) => {
-        console.log('Error on DELETE league membership query', error);
-        res.sendStatus(500);
-      });
-  });
-
-  router.post('/team/create', async (req, res) => {
-    const newTeam = req.body;
-    const queryText = `INSERT INTO "teams" ("name", "owner_id", "league_id") VALUES ($1, $2, $3)`;
-    
-    try {
-        await pool.query(queryText, [newTeam.name, req.user.id, newTeam.league_id]);
-        res.sendStatus(201);
-    } catch (error) {
-        console.log('Error on POST team create query', error);
-        res.sendStatus(500);
-    }
-});
-
-router.put('/team/:id', async (req, res) => {
-    const updatedTeam = req.body;
-    const queryText = `UPDATE "teams" SET "name" = $1 WHERE "id" = $2 AND "owner_id" = $3`;
-    try {
-        await pool.query(queryText, [updatedTeam.name, req.params.id, req.user.id]);
-        res.sendStatus(200);
-    } catch (error) {
-        console.log('Error on PUT team update query', error);
-        res.sendStatus(500);
-    }
-});
-
-router.get('/players', async (req, res) => {
-  const pageNumber = parseInt(req.query.page) || 1;
-  const positionFilter = req.query.position || 'All';
-  const limit = 25;  // Assume you want to return 10 records per page
-  const offset = (pageNumber - 1) * limit;
-  let queryText;
-  
-  if(positionFilter === 'All'){
-    queryText = `SELECT * FROM "players" ORDER BY "id" LIMIT $1 OFFSET $2`;
-    params = [limit, offset];
-  } else {
-    queryText = `SELECT * FROM "players" WHERE "position" = $1 ORDER BY "id" LIMIT $2 OFFSET $3`;
-    params = [positionFilter, limit, offset];
-  }
-
+// GET /api/league — leagues the caller belongs to
+router.get('/', async (req, res) => {
   try {
-    const result = await pool.query(queryText, params);
-    res.send(result.rows);
+    const result = await pool.query(
+      `SELECT "leagues".*, "teams"."id" AS "my_team_id", "teams"."name" AS "my_team_name"
+       FROM "leagues"
+       JOIN "teams" ON "teams"."league_id" = "leagues"."id"
+       WHERE "teams"."owner_id" = $1
+       ORDER BY "leagues"."created_at" DESC`,
+      [req.user.id]
+    );
+    res.json(result.rows);
   } catch (error) {
-    console.log('Error on GET players query', error);
-    res.sendStatus(500);
+    console.error('Error fetching leagues', error);
+    res.status(500).json({ error: 'failed to fetch leagues' });
   }
 });
 
-router.post('/players', async (req, res) => {
-  const { name, position } = req.body;
-  const queryText = 'INSERT INTO players (name, position) VALUES ($1, $2)';
-
+// GET /api/league/:id — league detail: teams, owners, roster counts
+router.get('/:id', async (req, res) => {
+  const leagueId = intParam(req.params.id);
+  if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
   try {
-    await pool.query(queryText, [name, position]);
-    res.sendStatus(201);
+    const leagueResult = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
+    const league = leagueResult.rows[0];
+    if (!league) return res.status(404).json({ error: 'league not found' });
+
+    const membership = await pool.query(
+      `SELECT 1 FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
+      [leagueId, req.user.id]
+    );
+    if (!membership.rows[0]) return res.status(403).json({ error: 'not a member of this league' });
+
+    const teamsResult = await pool.query(
+      `SELECT "teams"."id", "teams"."name", "teams"."draft_position",
+              "users"."username" AS "owner",
+              COUNT("team_players"."id")::int AS "roster_count",
+              COALESCE(SUM(CASE WHEN "matchups"."home_team_id" = "teams"."id" THEN "matchups"."home_score"
+                                WHEN "matchups"."away_team_id" = "teams"."id" THEN "matchups"."away_score"
+                                ELSE 0 END), 0) AS "total_points"
+       FROM "teams"
+       JOIN "users" ON "users"."id" = "teams"."owner_id"
+       LEFT JOIN "team_players" ON "team_players"."team_id" = "teams"."id"
+       LEFT JOIN "matchups" ON "matchups"."league_id" = "teams"."league_id"
+         AND ("matchups"."home_team_id" = "teams"."id" OR "matchups"."away_team_id" = "teams"."id")
+       WHERE "teams"."league_id" = $1
+       GROUP BY "teams"."id", "users"."username"
+       ORDER BY "total_points" DESC, "teams"."draft_position"`,
+      [leagueId]
+    );
+    // Only the owner should see the invite code
+    if (league.owner_id !== req.user.id) delete league.invite_code;
+    res.json({ league, teams: teamsResult.rows });
   } catch (error) {
-    console.log('Error on POST players query', error);
-    res.sendStatus(500);
+    console.error('Error fetching league details', error);
+    res.status(500).json({ error: 'failed to fetch league details' });
   }
 });
 
-router.post('/team/:team_id/draft/:player_id', async (req, res) => {
-    const { team_id, player_id } = req.params;
-    const queryText = `INSERT INTO "drafted_players" ("team_id", "player_id") VALUES ($1, $2)`;
-    try {
-        await pool.query(queryText, [team_id, player_id]);
-        res.sendStatus(201);
-    } catch (error) {
-        console.log('Error on POST draft player query', error);
-        res.sendStatus(500);
+// PUT /api/league/:id — owner updates name / roster limit (before draft)
+router.put('/:id', async (req, res) => {
+  const leagueId = intParam(req.params.id);
+  if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
+  const { name, rosterLimit } = req.body || {};
+  const limit = rosterLimit === undefined ? null : Number(rosterLimit);
+  if (limit !== null && (!Number.isInteger(limit) || limit < 1 || limit > 30)) {
+    return res.status(400).json({ error: 'rosterLimit must be an integer between 1 and 30' });
+  }
+  try {
+    const result = await pool.query(
+      `UPDATE "leagues"
+       SET "name" = COALESCE($1, "name"),
+           "roster_limit" = COALESCE($2, "roster_limit"),
+           "updated_at" = now()
+       WHERE "id" = $3 AND "owner_id" = $4 AND "draft_status" = 'pending'
+       RETURNING *`,
+      [name || null, limit, leagueId, req.user.id]
+    );
+    if (!result.rows[0]) {
+      return res.status(403).json({ error: 'league not found, not owner, or draft already started' });
     }
-});
-
-router.get('/team/roster', async (req, res) => {
-  const { leagueId } = req.params;
-  const userId = req.user.id;
-  const queryText = `SELECT * FROM "roster" WHERE "user_id" = $1`;
-  try {
-      const result = await pool.query(queryText, [userId]);
-      res.send(result.rows);
+    res.json(result.rows[0]);
   } catch (error) {
-      console.log('Error on GET roster query', error);
-      res.sendStatus(500);
+    console.error('Error updating league', error);
+    res.status(500).json({ error: 'failed to update league' });
   }
 });
 
-router.get('/:id/details', async (req, res) => {
-  const leagueId = req.params.id;
-  const queryText = `
-  SELECT "league_teams"."user_id", "username", "league_teams"."ranking" 
-  FROM "league_teams"
-  JOIN "user" ON "league_teams"."user_id" = "user"."id"
-  WHERE "league_id" = $1
-  ORDER BY "ranking" DESC
-  `;
-
+// POST /api/league/:id/start-draft — owner starts the live draft
+router.post('/:id/start-draft', async (req, res) => {
+  const leagueId = intParam(req.params.id);
+  if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
   try {
-      const result = await pool.query(queryText, [leagueId]);
-      res.send(result.rows);
+    const result = await pool.query(
+      `UPDATE "leagues" SET "draft_status" = 'active', "current_pick" = 0, "updated_at" = now()
+       WHERE "id" = $1 AND "owner_id" = $2 AND "draft_status" = 'pending'
+       RETURNING *`,
+      [leagueId, req.user.id]
+    );
+    if (!result.rows[0]) {
+      return res.status(403).json({ error: 'league not found, not owner, or draft already started' });
+    }
+    res.json(result.rows[0]);
   } catch (error) {
-      console.log('Error on GET league details query', error);
-      res.sendStatus(500);
+    console.error('Error starting draft', error);
+    res.status(500).json({ error: 'failed to start draft' });
   }
 });
 
-// This route gets all the leagues that the user is a part of
-router.get('/myLeagues', async (req, res) => {
-  const userId = req.user.id;
-  const queryText = `
-    SELECT "leagues"."id", "leagues"."name"
-    FROM "leagues"
-    JOIN "league_teams" ON "league_teams"."league_id" = "leagues"."id"
-    WHERE "league_teams"."user_id" = $1
-  `;
+// DELETE /api/league/:id — owner deletes the league
+router.delete('/:id', async (req, res) => {
+  const leagueId = intParam(req.params.id);
+  if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
   try {
-    const result = await pool.query(queryText, [userId]);
-    res.send(result.rows);
+    const result = await pool.query(
+      `DELETE FROM "leagues" WHERE "id" = $1 AND "owner_id" = $2 RETURNING "id"`,
+      [leagueId, req.user.id]
+    );
+    if (result.rowCount === 0) {
+      return res.status(403).json({ error: 'league not found or you are not the owner' });
+    }
+    res.sendStatus(204);
   } catch (error) {
-    console.log('Error on GET my leagues query', error);
-    res.sendStatus(500);
+    console.error('Error deleting league', error);
+    res.status(500).json({ error: 'failed to delete league' });
   }
 });
 
+// GET /api/league/:id/matchups?week=N — head-to-head results
+router.get('/:id/matchups', async (req, res) => {
+  const leagueId = intParam(req.params.id);
+  if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
+  const week = req.query.week === undefined ? null : intParam(req.query.week);
+  if (req.query.week !== undefined && !week) {
+    return res.status(400).json({ error: 'week must be a positive integer' });
+  }
+  try {
+    const params = [leagueId];
+    let weekSql = '';
+    if (week) {
+      params.push(week);
+      weekSql = `AND "matchups"."week" = $2`;
+    }
+    const result = await pool.query(
+      `SELECT "matchups".*,
+              home."name" AS "home_team_name", away."name" AS "away_team_name"
+       FROM "matchups"
+       JOIN "teams" home ON home."id" = "matchups"."home_team_id"
+       JOIN "teams" away ON away."id" = "matchups"."away_team_id"
+       WHERE "matchups"."league_id" = $1 ${weekSql}
+       ORDER BY "matchups"."season" DESC, "matchups"."week" DESC, "matchups"."id"`,
+      params
+    );
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching matchups', error);
+    res.status(500).json({ error: 'failed to fetch matchups' });
+  }
+});
 
-
-  module.exports = router;
+module.exports = router;
