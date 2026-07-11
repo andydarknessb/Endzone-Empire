@@ -94,6 +94,9 @@ async function draftPlayer({ leagueId, userId, playerId }) {
     let nextTeamId = null;
 
     if (league.draft_status === 'active') {
+      if (league.draft_paused) {
+        throw new DraftError(409, 'the draft is paused by the commissioner');
+      }
       const onTheClock = teams[teamIndexForPick(league.current_pick, teams.length)];
       if (onTheClock.id !== myTeam.id) {
         throw new DraftError(409, 'it is not your turn to pick');
@@ -108,9 +111,14 @@ async function draftPlayer({ leagueId, userId, playerId }) {
       const totalPicks = teams.length * league.roster_limit;
       draftComplete = pickNumber >= totalPicks;
       await client.query(
-        `UPDATE "leagues" SET "current_pick" = $1, "draft_status" = $2, "updated_at" = now()
+        `UPDATE "leagues"
+         SET "current_pick" = $1, "draft_status" = $2, "updated_at" = now(),
+             "pick_deadline_at" = CASE
+               WHEN $4 OR "pick_time_seconds" <= 0 THEN NULL
+               ELSE now() + make_interval(secs => "pick_time_seconds")
+             END
          WHERE "id" = $3`,
-        [pickNumber, draftComplete ? 'complete' : 'active', leagueId]
+        [pickNumber, draftComplete ? 'complete' : 'active', leagueId, draftComplete]
       );
       if (draftComplete) {
         // All undrafted players start on waivers for one waiver period

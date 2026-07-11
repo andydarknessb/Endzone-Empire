@@ -9,6 +9,7 @@ const leagueRouter = require('./routes/league.router');
 const teamRouter = require('./routes/team.router');
 const scoringRouter = require('./routes/scoring.router');
 const waiversRouter = require('./routes/waivers.router');
+const draftRouter = require('./routes/draft.router');
 const tradesRouter = require('./routes/trades.router');
 const notificationsRouter = require('./routes/notifications.router');
 const { attachDraftSocket } = require('./modules/draftSocket');
@@ -27,6 +28,7 @@ app.use('/api/league', leagueRouter);
 app.use('/api/team', teamRouter);
 app.use('/api/scoring', scoringRouter);
 app.use('/api/waivers', waiversRouter);
+app.use('/api/draft', draftRouter);
 app.use('/api/trades', tradesRouter);
 app.use('/api/notifications', notificationsRouter);
 

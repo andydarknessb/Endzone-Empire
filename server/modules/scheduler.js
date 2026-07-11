@@ -1,6 +1,7 @@
 const pool = require('./pool');
 const { processAllDueWaivers } = require('../services/waiver.service');
 const { processDueTrades } = require('../services/trade.service');
+const { processExpiredPickClocks } = require('../services/autopick.service');
 
 /**
  * In-process job runner for time-based league mechanics (waiver clearing,
@@ -9,10 +10,13 @@ const { processDueTrades } = require('../services/trade.service');
  * schedule is safe.
  */
 const INTERVAL_MS = 5 * 60 * 1000;
+const DRAFT_CLOCK_MS = 10 * 1000; // pick timers need much finer granularity
 const SYNC_EVERY_TICKS = 6; // stat sync at most every ~30 min
 
 let timer = null;
+let draftTimer = null;
 let running = false;
+let draftRunning = false;
 let ticksSinceSync = SYNC_EVERY_TICKS; // sync on the first eligible tick
 
 async function tick() {
@@ -84,17 +88,35 @@ async function syncAndScoreLiveWeeks() {
   return ranAny;
 }
 
+/** Fast loop: expired draft pick clocks -> server-side auto-pick. */
+async function draftTick() {
+  if (draftRunning) return;
+  draftRunning = true;
+  try {
+    const picks = await processExpiredPickClocks();
+    if (picks.length > 0) console.log(`scheduler: auto-picked for ${picks.length} league(s)`);
+  } catch (err) {
+    console.error('draft clock tick failed:', err.message);
+  } finally {
+    draftRunning = false;
+  }
+}
+
 function startScheduler() {
   if (timer) return timer;
   timer = setInterval(tick, INTERVAL_MS);
   timer.unref(); // never keep the process alive just for the scheduler
+  draftTimer = setInterval(draftTick, DRAFT_CLOCK_MS);
+  draftTimer.unref();
   setTimeout(tick, 15 * 1000).unref(); // first pass shortly after boot
   return timer;
 }
 
 function stopScheduler() {
   if (timer) clearInterval(timer);
+  if (draftTimer) clearInterval(draftTimer);
   timer = null;
+  draftTimer = null;
 }
 
-module.exports = { startScheduler, stopScheduler, tick, INTERVAL_MS };
+module.exports = { startScheduler, stopScheduler, tick, draftTick, INTERVAL_MS, DRAFT_CLOCK_MS };

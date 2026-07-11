@@ -8,7 +8,7 @@ import DraftBoard from './DraftBoard';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
-  default: { get: jest.fn() },
+  default: { get: jest.fn(), put: jest.fn(), post: jest.fn() },
 }));
 
 jest.mock('../../api/socket', () => ({
@@ -34,10 +34,11 @@ const playersPage = (players = [{ id: 1, name: 'Patrick Mahomes', position: 'QB'
   data: { players, totalPages: 1 },
 });
 
-const renderBoard = (leagueId = 1) =>
+const renderBoard = (leagueId = 1, state) =>
   renderWithProviders(<DraftBoard />, {
     path: '/league/:leagueId/draft',
     route: `/league/${leagueId}/draft`,
+    state,
   });
 
 let fakeSocket;
@@ -46,10 +47,13 @@ beforeEach(() => {
   fakeSocket = makeFakeSocket();
   createDraftSocket.mockReturnValue(fakeSocket);
   apiClient.get.mockResolvedValue(playersPage());
+  apiClient.put.mockResolvedValue({});
+  apiClient.post.mockResolvedValue({});
 });
 
 afterEach(() => {
   jest.clearAllMocks();
+  jest.useRealTimers();
 });
 
 test('creates a socket and joins the league draft room once connected', async () => {
@@ -228,4 +232,194 @@ test('disconnects the socket on unmount', async () => {
   unmount();
 
   expect(fakeSocket.disconnect).toHaveBeenCalled();
+});
+
+// --- Phase 4: pick timer, queue, commissioner controls ---
+
+const activeLeague = (overrides = {}) => ({
+  name: 'Sunday Ballers',
+  draft_status: 'active',
+  pick_time_seconds: 90,
+  draft_paused: false,
+  pick_deadline_at: null,
+  owner_id: 99,
+  ...overrides,
+});
+
+const stateEvent = (league, extra = {}) => ({
+  league,
+  teams: [{ id: 1, name: 'Team A', owner: 'alice' }],
+  picks: [],
+  onTheClock: { id: 1, name: 'Team A', owner: 'alice' },
+  ...extra,
+});
+
+/** URL-keyed GET mock so the queue and player fetches can differ. */
+const mockGets = ({ players = playersPage(), queue = [] } = {}) => {
+  apiClient.get.mockImplementation((url) =>
+    url === '/api/draft/queue'
+      ? Promise.resolve({ data: queue })
+      : Promise.resolve(players)
+  );
+};
+
+test('countdown chip renders from pick_deadline_at and ticks down', async () => {
+  jest.useFakeTimers();
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+
+  act(() =>
+    fakeSocket.trigger('draft:state', stateEvent(activeLeague({
+      pick_deadline_at: new Date(Date.now() + 30000).toISOString(),
+    })))
+  );
+  expect(screen.getByText('⏱ 30s')).toBeInTheDocument();
+
+  act(() => {
+    jest.advanceTimersByTime(3000);
+  });
+  expect(screen.getByText('⏱ 27s')).toBeInTheDocument();
+});
+
+test('the countdown resets to pick_time_seconds on each draft:picked', async () => {
+  jest.useFakeTimers();
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+
+  act(() =>
+    fakeSocket.trigger('draft:state', stateEvent(activeLeague({
+      pick_deadline_at: new Date(Date.now() + 5000).toISOString(),
+    }), {
+      teams: [
+        { id: 1, name: 'Team A', owner: 'alice' },
+        { id: 2, name: 'Team B', owner: 'bob' },
+      ],
+    }))
+  );
+  expect(screen.getByText('⏱ 5s')).toBeInTheDocument();
+
+  act(() =>
+    fakeSocket.trigger('draft:picked', {
+      pickNumber: 1,
+      teamId: 1,
+      player: { id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'KC' },
+      nextTeamId: 2,
+      draftComplete: false,
+      by: { username: 'alice' },
+    })
+  );
+  expect(screen.getByText('⏱ 90s')).toBeInTheDocument();
+});
+
+test('a paused draft shows the paused chip and disables drafting', async () => {
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+
+  act(() =>
+    fakeSocket.trigger('draft:state', stateEvent(activeLeague({ draft_paused: true })))
+  );
+
+  expect(screen.getByText('Draft Paused')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Draft' })).toBeDisabled();
+});
+
+test('the queue loads on mount and renders players in rank order', async () => {
+  mockGets({
+    queue: [
+      { id: 2, name: 'Bijan Robinson', position: 'RB', nfl_team: 'ATL', rank: 1 },
+      { id: 3, name: 'Justin Jefferson', position: 'WR', nfl_team: 'MIN', rank: 2 },
+    ],
+  });
+  renderBoard(1);
+
+  expect(await screen.findByText('1. Bijan Robinson (RB)')).toBeInTheDocument();
+  expect(screen.getByText('2. Justin Jefferson (WR)')).toBeInTheDocument();
+  expect(apiClient.get).toHaveBeenCalledWith('/api/draft/queue', { params: { leagueId: 1 } });
+});
+
+test('clicking Queue on an available player persists the updated ordered list', async () => {
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+
+  await userEvent.click(screen.getByRole('button', { name: 'Queue' }));
+
+  await waitFor(() =>
+    expect(apiClient.put).toHaveBeenCalledWith('/api/draft/queue', {
+      leagueId: 1,
+      playerIds: [1],
+    })
+  );
+  expect(screen.getByText('1. Patrick Mahomes (QB)')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Queue' })).toBeDisabled();
+});
+
+test('move up and remove reorder the queue and persist it', async () => {
+  mockGets({
+    queue: [
+      { id: 2, name: 'Bijan Robinson', position: 'RB', nfl_team: 'ATL', rank: 1 },
+      { id: 3, name: 'Justin Jefferson', position: 'WR', nfl_team: 'MIN', rank: 2 },
+    ],
+  });
+  renderBoard(1);
+  await screen.findByText('1. Bijan Robinson (RB)');
+
+  await userEvent.click(screen.getAllByLabelText('Move up')[1]);
+  await waitFor(() =>
+    expect(apiClient.put).toHaveBeenCalledWith('/api/draft/queue', {
+      leagueId: 1,
+      playerIds: [3, 2],
+    })
+  );
+  expect(screen.getByText('1. Justin Jefferson (WR)')).toBeInTheDocument();
+
+  apiClient.put.mockClear();
+  await userEvent.click(screen.getAllByLabelText('Remove from queue')[0]);
+  await waitFor(() =>
+    expect(apiClient.put).toHaveBeenCalledWith('/api/draft/queue', {
+      leagueId: 1,
+      playerIds: [2],
+    })
+  );
+});
+
+test('Randomize Draft Order shows only for the commissioner pre-draft and POSTs', async () => {
+  const { unmount } = renderBoard(1, { user: { id: 7, username: 'commish' } });
+  await screen.findByText('Patrick Mahomes');
+  act(() =>
+    fakeSocket.trigger('draft:state', stateEvent(activeLeague({
+      draft_status: 'pending',
+      owner_id: 7,
+    }), { onTheClock: null }))
+  );
+
+  await userEvent.click(screen.getByRole('button', { name: 'Randomize Draft Order' }));
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/draft/league/1/order', { randomize: true })
+  );
+  expect(await screen.findByText('Draft order randomized')).toBeInTheDocument();
+  unmount();
+
+  // Non-owner never sees the button
+  renderBoard(1, { user: { id: 8, username: 'notcommish' } });
+  await screen.findByText('Patrick Mahomes');
+  act(() =>
+    fakeSocket.trigger('draft:state', stateEvent(activeLeague({
+      draft_status: 'pending',
+      owner_id: 7,
+    }), { onTheClock: null }))
+  );
+  expect(screen.queryByRole('button', { name: 'Randomize Draft Order' })).not.toBeInTheDocument();
+});
+
+test('Pause Draft POSTs the toggled paused flag for the commissioner during an active draft', async () => {
+  renderBoard(1, { user: { id: 7, username: 'commish' } });
+  await screen.findByText('Patrick Mahomes');
+  act(() =>
+    fakeSocket.trigger('draft:state', stateEvent(activeLeague({ owner_id: 7 })))
+  );
+
+  await userEvent.click(screen.getByRole('button', { name: 'Pause Draft' }));
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/draft/league/1/pause', { paused: true })
+  );
 });

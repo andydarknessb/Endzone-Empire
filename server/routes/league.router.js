@@ -167,6 +167,7 @@ router.put('/:id', async (req, res) => {
     waiverType, waiverPeriodHours, faabBudget,
     tradeDeadlineWeek, tradeReviewHours, tradeVetoVotes,
     scoringPreset, scoringRules, regularSeasonWeeks, playoffTeams, playoffConsolation,
+    pickTimeSeconds,
   } = req.body || {};
   const limit = rosterLimit === undefined ? null : Number(rosterLimit);
   if (limit !== null && (!Number.isInteger(limit) || limit < 1 || limit > 30)) {
@@ -229,6 +230,9 @@ router.put('/:id', async (req, res) => {
   if (playoffConsolation !== undefined && typeof playoffConsolation !== 'boolean') {
     return res.status(400).json({ error: 'playoffConsolation must be a boolean' });
   }
+  if (pickTimeSeconds !== undefined && !intInRange(pickTimeSeconds, 0, 3600)) {
+    return res.status(400).json({ error: 'pickTimeSeconds must be an integer between 0 and 3600 (0 = untimed)' });
+  }
   // A preset is just a prefilled full rule set; explicit scoringRules win
   const effectiveRules = scoringRules !== undefined
     ? scoringRules
@@ -253,8 +257,9 @@ router.put('/:id', async (req, res) => {
            "regular_season_weeks" = COALESCE($13, "regular_season_weeks"),
            "playoff_teams" = COALESCE($14, "playoff_teams"),
            "playoff_consolation" = COALESCE($15, "playoff_consolation"),
+           "pick_time_seconds" = COALESCE($16, "pick_time_seconds"),
            "updated_at" = now()
-       WHERE "id" = $16 AND "owner_id" = $17 AND "draft_status" = 'pending'
+       WHERE "id" = $17 AND "owner_id" = $18 AND "draft_status" = 'pending'
        RETURNING *`,
       [
         name || null,
@@ -272,6 +277,7 @@ router.put('/:id', async (req, res) => {
         regularSeasonWeeks === undefined ? null : regularSeasonWeeks,
         playoffTeams === undefined ? null : playoffTeams,
         playoffConsolation === undefined ? null : playoffConsolation,
+        pickTimeSeconds === undefined ? null : pickTimeSeconds,
         leagueId,
         req.user.id,
       ]
@@ -292,7 +298,10 @@ router.post('/:id/start-draft', async (req, res) => {
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
   try {
     const result = await pool.query(
-      `UPDATE "leagues" SET "draft_status" = 'active', "current_pick" = 0, "updated_at" = now()
+      `UPDATE "leagues"
+       SET "draft_status" = 'active', "current_pick" = 0, "updated_at" = now(),
+           "pick_deadline_at" = CASE WHEN "pick_time_seconds" > 0
+             THEN now() + make_interval(secs => "pick_time_seconds") ELSE NULL END
        WHERE "id" = $1 AND "owner_id" = $2 AND "draft_status" = 'pending'
        RETURNING *`,
       [leagueId, req.user.id]
