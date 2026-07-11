@@ -1,5 +1,6 @@
 const { Server } = require('socket.io');
 const pool = require('./pool');
+const { setIo } = require('./io');
 const { requireSocketAuth } = require('./auth');
 const { draftPlayer, teamIndexForPick, DraftError } = require('../services/draft.service');
 
@@ -16,8 +17,30 @@ function attachDraftSocket(httpServer) {
     cors: { origin: true, credentials: true },
   });
   io.use(requireSocketAuth);
+  setIo(io); // let scoring/scheduler broadcast without a circular require
 
   io.on('connection', (socket) => {
+    // Generic league room join (live scores, chat) — no draft state attached
+    socket.on('league:join', async ({ leagueId } = {}, ack) => {
+      if (!Number.isInteger(leagueId)) {
+        return ack && ack({ error: 'leagueId (integer) required' });
+      }
+      try {
+        const membership = await pool.query(
+          `SELECT 1 FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
+          [leagueId, socket.user.id]
+        );
+        if (!membership.rows[0]) {
+          return ack && ack({ error: 'you are not in this league' });
+        }
+        socket.join(`league:${leagueId}`);
+        ack && ack({ ok: true });
+      } catch (error) {
+        console.error('league:join failed', error);
+        ack && ack({ error: 'failed to join league room' });
+      }
+    });
+
     socket.on('draft:join', async ({ leagueId } = {}, ack) => {
       if (!Number.isInteger(leagueId)) {
         return ack && ack({ error: 'leagueId (integer) required' });

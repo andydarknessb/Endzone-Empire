@@ -1,15 +1,19 @@
+const pool = require('./pool');
 const { processAllDueWaivers } = require('../services/waiver.service');
 const { processDueTrades } = require('../services/trade.service');
 
 /**
  * In-process job runner for time-based league mechanics (waiver clearing,
- * trade review windows). Each job's DB work is transactional with row locks,
- * so a manual commissioner trigger racing the schedule is safe.
+ * trade review windows, live stat sync + scoring). Each job's DB work is
+ * transactional with row locks, so a manual commissioner trigger racing the
+ * schedule is safe.
  */
 const INTERVAL_MS = 5 * 60 * 1000;
+const SYNC_EVERY_TICKS = 6; // stat sync at most every ~30 min
 
 let timer = null;
 let running = false;
+let ticksSinceSync = SYNC_EVERY_TICKS; // sync on the first eligible tick
 
 async function tick() {
   if (running) return; // don't overlap slow runs
@@ -19,11 +23,65 @@ async function tick() {
     if (waivers.length > 0) console.log(`scheduler: processed waivers for ${waivers.length} league(s)`);
     const trades = await processDueTrades();
     if (trades.length > 0) console.log(`scheduler: settled ${trades.length} trade(s)`);
+    ticksSinceSync += 1;
+    if (ticksSinceSync >= SYNC_EVERY_TICKS) {
+      const synced = await syncAndScoreLiveWeeks();
+      if (synced) ticksSinceSync = 0;
+    }
   } catch (err) {
     console.error('scheduler tick failed:', err.message);
   } finally {
     running = false;
   }
+}
+
+/**
+ * Live scoring: if we're inside a game window (an NFL game kicked off within
+ * the last 8 hours), pull fresh stats for each active (season, week) and
+ * re-score every league sitting on that week. Requires RapidAPI credentials;
+ * silently skipped otherwise (the commissioner manual trigger still works).
+ * Returns true if a sync ran.
+ */
+async function syncAndScoreLiveWeeks() {
+  if (!process.env.RAPID_API_KEY || !process.env.RAPID_API_HOST) return false;
+  const scoring = require('../services/scoring.service');
+  const leaguesResult = await pool.query(
+    `SELECT "id", "current_season", "current_week" FROM "leagues"
+     WHERE "season_status" != 'complete' AND "draft_status" = 'complete'`
+  );
+  if (leaguesResult.rows.length === 0) return false;
+
+  const weeks = new Map(); // 'season:week' -> { season, week, leagueIds: [] }
+  for (const league of leaguesResult.rows) {
+    const key = `${league.current_season}:${league.current_week}`;
+    if (!weeks.has(key)) {
+      weeks.set(key, { season: league.current_season, week: league.current_week, leagueIds: [] });
+    }
+    weeks.get(key).leagueIds.push(league.id);
+  }
+
+  let ranAny = false;
+  for (const { season, week, leagueIds } of weeks.values()) {
+    const live = await pool.query(
+      `SELECT 1 FROM "nfl_games"
+       WHERE "season" = $1 AND "week" = $2
+         AND "kickoff_at" BETWEEN now() - interval '8 hours' AND now()
+       LIMIT 1`,
+      [season, week]
+    );
+    if (!live.rows[0]) continue; // no game window right now
+    ranAny = true;
+    try {
+      await scoring.syncWeekStats({ season, week });
+      for (const leagueId of leagueIds) {
+        await scoring.scoreMatchups({ leagueId, season, week }); // emits scores:updated
+      }
+      console.log(`scheduler: live-scored ${leagueIds.length} league(s) for ${season} week ${week}`);
+    } catch (err) {
+      console.error(`live scoring failed for ${season} week ${week}:`, err.message);
+    }
+  }
+  return ranAny;
 }
 
 function startScheduler() {

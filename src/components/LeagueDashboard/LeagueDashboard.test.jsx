@@ -34,6 +34,57 @@ const leagueResponse = (overrides = {}) => ({
   },
 });
 
+const userResponse = (overrides = {}) => ({
+  data: { id: 1, username: 'alice', ...overrides },
+});
+
+const standingsResponse = (overrides = {}) => ({
+  data: {
+    league: {
+      playoff_teams: 4,
+      regular_season_weeks: 14,
+      season_status: 'regular',
+      current_week: 3,
+      ...(overrides.league || {}),
+    },
+    standings: overrides.standings || [
+      {
+        teamId: 1,
+        name: "Alice's Team",
+        owner: 'alice',
+        wins: 2,
+        losses: 1,
+        ties: 0,
+        pf: 312.5,
+        pa: 280.1,
+        streak: 'W2',
+        winPct: 0.667,
+        rank: 1,
+        playoffSeed: 1,
+      },
+    ],
+  },
+});
+
+/**
+ * Build a URL-keyed apiClient.get mock. `overrides` maps URL substrings to
+ * either a resolved value or a { reject: <error> } marker. Falls back to a
+ * generic empty response for unmatched URLs.
+ */
+const mockGetByUrl = (overrides = {}) => {
+  apiClient.get.mockImplementation((url) => {
+    for (const [key, value] of Object.entries(overrides)) {
+      if (url.includes(key)) {
+        if (value && value.reject) {
+          return Promise.reject(value.reject);
+        }
+        return Promise.resolve(value);
+      }
+    }
+    return Promise.resolve({ data: [] });
+  });
+};
+
 afterEach(() => {
   jest.clearAllMocks();
 });
@@ -45,9 +96,11 @@ test('shows a loading spinner before data arrives', () => {
 });
 
 test('renders league name, status chips, and the standings table', async () => {
-  apiClient.get
-    .mockResolvedValueOnce(leagueResponse())
-    .mockResolvedValueOnce({ data: { id: 1, username: 'alice' } });
+  mockGetByUrl({
+    '/api/league/1': leagueResponse(),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
 
   renderDashboard();
 
@@ -57,7 +110,23 @@ test('renders league name, status chips, and the standings table', async () => {
   expect(screen.getByText('Teams: 1/10')).toBeInTheDocument();
   expect(screen.getByText("Alice's Team")).toBeInTheDocument();
   expect(screen.getByText('alice')).toBeInTheDocument();
-  expect(screen.getByText('42.5')).toBeInTheDocument();
+});
+
+test('standings table renders W-L-T, PF, PA, streak and the playoff seed chip', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse({ draft_status: 'complete' }),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
+
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  expect(screen.getByText('2-1-0')).toBeInTheDocument();
+  expect(screen.getByText('312.5')).toBeInTheDocument();
+  expect(screen.getByText('280.1')).toBeInTheDocument();
+  expect(screen.getByText('W2')).toBeInTheDocument();
+  expect(screen.getByText('#1')).toBeInTheDocument();
 });
 
 test('shows the specific server error message when the initial fetch fails', async () => {
@@ -76,11 +145,26 @@ test('falls back to a generic message if the initial fetch fails with no error d
   expect(await screen.findByText('League or user data not available')).toBeInTheDocument();
 });
 
+test('keeps the page alive and shows an error alert when the standings fetch fails', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse(),
+    '/api/user': userResponse(),
+    '/standings': { reject: { response: { data: { error: 'standings unavailable' } } } },
+  });
+
+  renderDashboard();
+
+  expect(await screen.findByText('Sunday Ballers')).toBeInTheDocument();
+  expect(await screen.findByText('standings unavailable')).toBeInTheDocument();
+});
+
 test('shows the invite code and copies it to the clipboard', async () => {
   Object.assign(navigator, { clipboard: { writeText: jest.fn().mockResolvedValue() } });
-  apiClient.get
-    .mockResolvedValueOnce(leagueResponse())
-    .mockResolvedValueOnce({ data: { id: 1, username: 'alice' } });
+  mockGetByUrl({
+    '/api/league/1': leagueResponse(),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
 
   renderDashboard();
   await screen.findByText('Sunday Ballers');
@@ -93,9 +177,11 @@ test('shows the invite code and copies it to the clipboard', async () => {
 });
 
 test('does not render an invite code section when none is present', async () => {
-  apiClient.get
-    .mockResolvedValueOnce(leagueResponse({ invite_code: undefined }))
-    .mockResolvedValueOnce({ data: { id: 1, username: 'alice' } });
+  mockGetByUrl({
+    '/api/league/1': leagueResponse({ invite_code: undefined }),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
 
   renderDashboard();
   await screen.findByText('Sunday Ballers');
@@ -104,11 +190,11 @@ test('does not render an invite code section when none is present', async () => 
 });
 
 test('shows "Start Draft" only for the owner while the draft is pending, and starting it refetches', async () => {
-  apiClient.get
-    .mockResolvedValueOnce(leagueResponse())
-    .mockResolvedValueOnce({ data: { id: 1, username: 'alice' } }) // owner
-    .mockResolvedValueOnce(leagueResponse({ draft_status: 'active' }))
-    .mockResolvedValueOnce({ data: { id: 1, username: 'alice' } });
+  mockGetByUrl({
+    '/api/league/1': leagueResponse(),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
   apiClient.post.mockResolvedValue({});
 
   renderDashboard();
@@ -122,9 +208,11 @@ test('shows "Start Draft" only for the owner while the draft is pending, and sta
 });
 
 test('does not show "Start Draft" for a non-owner', async () => {
-  apiClient.get
-    .mockResolvedValueOnce(leagueResponse({ owner_id: 99 }))
-    .mockResolvedValueOnce({ data: { id: 1, username: 'alice' } });
+  mockGetByUrl({
+    '/api/league/1': leagueResponse({ owner_id: 99 }),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
 
   renderDashboard();
   await screen.findByText('Sunday Ballers');
@@ -133,9 +221,11 @@ test('does not show "Start Draft" for a non-owner', async () => {
 });
 
 test('does not show "Start Draft" once the draft is no longer pending', async () => {
-  apiClient.get
-    .mockResolvedValueOnce(leagueResponse({ draft_status: 'active', owner_id: 1 }))
-    .mockResolvedValueOnce({ data: { id: 1, username: 'alice' } });
+  mockGetByUrl({
+    '/api/league/1': leagueResponse({ draft_status: 'active', owner_id: 1 }),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
 
   renderDashboard();
   await screen.findByText('Sunday Ballers');
@@ -144,9 +234,11 @@ test('does not show "Start Draft" once the draft is no longer pending', async ()
 });
 
 test('links to the Draft Room, Matchups, and Set Lineup pages for this league', async () => {
-  apiClient.get
-    .mockResolvedValueOnce(leagueResponse())
-    .mockResolvedValueOnce({ data: { id: 1, username: 'alice' } });
+  mockGetByUrl({
+    '/api/league/7': leagueResponse(),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
 
   renderDashboard(7);
   await screen.findByText('Sunday Ballers');
@@ -157,4 +249,79 @@ test('links to the Draft Room, Matchups, and Set Lineup pages for this league', 
   expect(screen.getByRole('link', { name: 'Waivers' })).toHaveAttribute('href', '/league/7/waivers');
   expect(screen.getByRole('link', { name: 'Trades' })).toHaveAttribute('href', '/league/7/trades');
   expect(screen.getByRole('link', { name: 'Activity' })).toHaveAttribute('href', '/league/7/activity');
+});
+
+test('week and season-status chips render when draft is complete', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse({ draft_status: 'complete' }),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse({ league: { season_status: 'playoffs', current_week: 12 } }),
+  });
+
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  expect(screen.getByText('Week 12')).toBeInTheDocument();
+  expect(screen.getByText('Playoffs')).toBeInTheDocument();
+});
+
+test('Advance Week is visible for the owner when draft is complete and season is not complete, posts, and refetches on click', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse({ draft_status: 'complete', owner_id: 1 }),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse({ league: { season_status: 'regular', current_week: 3 } }),
+  });
+  apiClient.post.mockResolvedValue({});
+
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  const advanceButton = screen.getByRole('button', { name: 'Advance Week' });
+  await userEvent.click(advanceButton);
+
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/scoring/league/1/advance-week')
+  );
+  expect(await screen.findByText('Week advanced!')).toBeInTheDocument();
+  // refetch: league + user + standings called at least twice each (initial + refetch)
+  expect(apiClient.get.mock.calls.filter((c) => c[0].includes('/standings')).length).toBeGreaterThanOrEqual(2);
+});
+
+test('Advance Week is absent for non-owners', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse({ draft_status: 'complete', owner_id: 99 }),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse({ league: { season_status: 'regular', current_week: 3 } }),
+  });
+
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  expect(screen.queryByRole('button', { name: 'Advance Week' })).not.toBeInTheDocument();
+});
+
+test('Advance Week is absent when draft_status is pending', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse({ draft_status: 'pending', owner_id: 1 }),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
+
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  expect(screen.queryByRole('button', { name: 'Advance Week' })).not.toBeInTheDocument();
+});
+
+test('Advance Week is absent once the season is complete', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse({ draft_status: 'complete', owner_id: 1 }),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse({ league: { season_status: 'complete', current_week: 14 } }),
+  });
+
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  expect(screen.queryByRole('button', { name: 'Advance Week' })).not.toBeInTheDocument();
 });

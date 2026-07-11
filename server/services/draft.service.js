@@ -119,6 +119,9 @@ async function draftPlayer({ leagueId, userId, playerId }) {
            WHERE "id" = $2`,
           [league.waiver_period_hours, leagueId]
         );
+        // The season schedule exists the moment the draft ends
+        const { generateRegularSeason } = require('./season.service');
+        await generateRegularSeason({ leagueId }, client);
       } else {
         nextTeamId = teams[teamIndexForPick(pickNumber, teams.length)].id;
       }

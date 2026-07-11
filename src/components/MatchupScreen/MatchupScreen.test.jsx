@@ -1,13 +1,18 @@
 import React from 'react';
-import { screen, waitFor, within } from '@testing-library/react';
+import { screen, waitFor, within, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
+import { createDraftSocket } from '../../api/socket';
 import MatchupScreen from './MatchupScreen';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
   default: { get: jest.fn(), post: jest.fn() },
+}));
+
+jest.mock('../../api/socket', () => ({
+  createDraftSocket: jest.fn(),
 }));
 
 const renderScreen = (leagueId = 1) =>
@@ -34,6 +39,21 @@ function mockApi({ matchups = [], league = { id: 1, name: 'Sunday Ballers', owne
     return Promise.resolve({ data: { league } });
   });
 }
+
+let mockSocket;
+let socketHandlers;
+
+beforeEach(() => {
+  socketHandlers = {};
+  mockSocket = {
+    on: jest.fn((event, cb) => {
+      socketHandlers[event] = cb;
+    }),
+    emit: jest.fn(),
+    disconnect: jest.fn(),
+  };
+  createDraftSocket.mockReturnValue(mockSocket);
+});
 
 afterEach(() => {
   jest.clearAllMocks();
@@ -150,4 +170,56 @@ test('shows an error alert when the initial fetch fails', async () => {
   renderScreen();
 
   expect(await screen.findByText('matchups unavailable')).toBeInTheDocument();
+});
+
+test('joins the league room over the socket on mount and disconnects on unmount', async () => {
+  mockApi({ matchups: [] });
+
+  const { unmount } = renderScreen(42);
+  await screen.findByText(/Sunday Ballers/);
+
+  expect(createDraftSocket).toHaveBeenCalled();
+  expect(mockSocket.emit).toHaveBeenCalledWith('league:join', { leagueId: 42 });
+
+  unmount();
+  expect(mockSocket.disconnect).toHaveBeenCalled();
+});
+
+test('receiving scores:updated for a rendered matchup updates the displayed scores', async () => {
+  mockApi({ matchups: [matchup({ id: 5, home_score: 0, away_score: 0 })] });
+
+  renderScreen();
+  await screen.findByText('Home Team (0)');
+
+  act(() => {
+    socketHandlers['scores:updated']({
+      leagueId: 1,
+      season: 2025,
+      week: 1,
+      scored: [{ matchupId: 5, homeTeamId: 1, awayTeamId: 2, homeScore: 21, awayScore: 14 }],
+    });
+  });
+
+  expect(await screen.findByText('Home Team (21)')).toBeInTheDocument();
+  expect(screen.getByText('Away Team (14)')).toBeInTheDocument();
+  expect(screen.getByText('LIVE')).toBeInTheDocument();
+});
+
+test('scores:updated for an unknown matchupId leaves the list unchanged', async () => {
+  mockApi({ matchups: [matchup({ id: 5, home_score: 3, away_score: 7 })] });
+
+  renderScreen();
+  await screen.findByText('Home Team (3)');
+
+  act(() => {
+    socketHandlers['scores:updated']({
+      leagueId: 1,
+      season: 2025,
+      week: 1,
+      scored: [{ matchupId: 999, homeTeamId: 1, awayTeamId: 2, homeScore: 50, awayScore: 50 }],
+    });
+  });
+
+  expect(screen.getByText('Home Team (3)')).toBeInTheDocument();
+  expect(screen.getByText('Away Team (7)')).toBeInTheDocument();
 });

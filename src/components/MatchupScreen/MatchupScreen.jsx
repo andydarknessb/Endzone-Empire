@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Container,
@@ -14,8 +14,12 @@ import {
   CircularProgress,
   Box,
   Grid,
+  Chip,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
+import { createDraftSocket } from '../../api/socket';
+
+const LIVE_INDICATOR_MS = 10000;
 
 function MatchupScreen() {
   const { leagueId } = useParams();
@@ -29,9 +33,49 @@ function MatchupScreen() {
   const [weeks, setWeeks] = useState([]);
   const [season, setSeason] = useState('2025');
   const [week, setWeek] = useState('1');
+  const [showLive, setShowLive] = useState(false);
+  const socketRef = useRef(null);
+  const liveTimeoutRef = useRef(null);
 
   useEffect(() => {
     fetchData();
+  }, [leagueId]);
+
+  useEffect(() => {
+    // Socket lives for the lifetime of this view; a ref avoids stale closures
+    // in the cleanup function below.
+    const newSocket = createDraftSocket();
+    socketRef.current = newSocket;
+
+    newSocket.emit('league:join', { leagueId: Number(leagueId) });
+
+    newSocket.on('scores:updated', (data) => {
+      setMatchups((prevMatchups) =>
+        prevMatchups.map((m) => {
+          const scored = data.scored.find((s) => s.matchupId === m.id);
+          if (!scored) return m;
+          return { ...m, home_score: scored.homeScore, away_score: scored.awayScore };
+        })
+      );
+
+      if (liveTimeoutRef.current) {
+        clearTimeout(liveTimeoutRef.current);
+      }
+      setShowLive(true);
+      liveTimeoutRef.current = setTimeout(() => {
+        setShowLive(false);
+        liveTimeoutRef.current = null;
+      }, LIVE_INDICATOR_MS);
+    });
+
+    return () => {
+      if (liveTimeoutRef.current) {
+        clearTimeout(liveTimeoutRef.current);
+        liveTimeoutRef.current = null;
+      }
+      socketRef.current.disconnect();
+      socketRef.current = null;
+    };
   }, [leagueId]);
 
   const fetchData = async () => {
@@ -117,9 +161,12 @@ function MatchupScreen() {
         </Alert>
       )}
 
-      <Typography variant="h4" sx={{ mb: 3 }}>
-        Matchups {league && `— ${league.name}`}
-      </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
+        <Typography variant="h4">
+          Matchups {league && `— ${league.name}`}
+        </Typography>
+        {showLive && <Chip label="LIVE" color="error" size="small" />}
+      </Box>
 
       <Box sx={{ mb: 3, display: 'flex', gap: 2, alignItems: 'center' }}>
         <FormControl sx={{ minWidth: 150 }}>

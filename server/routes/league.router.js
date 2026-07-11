@@ -166,6 +166,7 @@ router.put('/:id', async (req, res) => {
     name, rosterLimit, lineupSlots, positionCaps, irSlots,
     waiverType, waiverPeriodHours, faabBudget,
     tradeDeadlineWeek, tradeReviewHours, tradeVetoVotes,
+    scoringPreset, scoringRules, regularSeasonWeeks, playoffTeams, playoffConsolation,
   } = req.body || {};
   const limit = rosterLimit === undefined ? null : Number(rosterLimit);
   if (limit !== null && (!Number.isInteger(limit) || limit < 1 || limit > 30)) {
@@ -206,6 +207,34 @@ router.put('/:id', async (req, res) => {
   if (tradeVetoVotes !== undefined && !intInRange(tradeVetoVotes, 0, 20)) {
     return res.status(400).json({ error: 'tradeVetoVotes must be an integer between 0 and 20' });
   }
+  const { SCORING_PRESETS, SCORING_RULES } = require('../services/scoring.service');
+  if (scoringPreset !== undefined && !SCORING_PRESETS[scoringPreset]) {
+    return res.status(400).json({ error: `scoringPreset must be one of ${Object.keys(SCORING_PRESETS).join(', ')}` });
+  }
+  if (scoringRules !== undefined) {
+    const valid = scoringRules && typeof scoringRules === 'object' && !Array.isArray(scoringRules) &&
+      Object.entries(scoringRules).every(
+        ([key, value]) => key in SCORING_RULES && Number.isFinite(Number(value)) && Math.abs(Number(value)) <= 50
+      );
+    if (!valid) {
+      return res.status(400).json({ error: 'scoringRules must map known stat names to numbers (|value| <= 50)' });
+    }
+  }
+  if (regularSeasonWeeks !== undefined && !intInRange(regularSeasonWeeks, 1, 17)) {
+    return res.status(400).json({ error: 'regularSeasonWeeks must be an integer between 1 and 17' });
+  }
+  if (playoffTeams !== undefined && !intInRange(playoffTeams, 2, 8)) {
+    return res.status(400).json({ error: 'playoffTeams must be an integer between 2 and 8' });
+  }
+  if (playoffConsolation !== undefined && typeof playoffConsolation !== 'boolean') {
+    return res.status(400).json({ error: 'playoffConsolation must be a boolean' });
+  }
+  // A preset is just a prefilled full rule set; explicit scoringRules win
+  const effectiveRules = scoringRules !== undefined
+    ? scoringRules
+    : scoringPreset !== undefined
+      ? SCORING_PRESETS[scoringPreset]
+      : undefined;
   try {
     const result = await pool.query(
       `UPDATE "leagues"
@@ -220,8 +249,12 @@ router.put('/:id', async (req, res) => {
            "trade_deadline_week" = COALESCE($9, "trade_deadline_week"),
            "trade_review_hours" = COALESCE($10, "trade_review_hours"),
            "trade_veto_votes" = COALESCE($11, "trade_veto_votes"),
+           "scoring_rules" = COALESCE($12, "scoring_rules"),
+           "regular_season_weeks" = COALESCE($13, "regular_season_weeks"),
+           "playoff_teams" = COALESCE($14, "playoff_teams"),
+           "playoff_consolation" = COALESCE($15, "playoff_consolation"),
            "updated_at" = now()
-       WHERE "id" = $12 AND "owner_id" = $13 AND "draft_status" = 'pending'
+       WHERE "id" = $16 AND "owner_id" = $17 AND "draft_status" = 'pending'
        RETURNING *`,
       [
         name || null,
@@ -235,6 +268,10 @@ router.put('/:id', async (req, res) => {
         tradeDeadlineWeek === undefined ? null : tradeDeadlineWeek,
         tradeReviewHours === undefined ? null : tradeReviewHours,
         tradeVetoVotes === undefined ? null : tradeVetoVotes,
+        effectiveRules === undefined ? null : JSON.stringify(effectiveRules),
+        regularSeasonWeeks === undefined ? null : regularSeasonWeeks,
+        playoffTeams === undefined ? null : playoffTeams,
+        playoffConsolation === undefined ? null : playoffConsolation,
         leagueId,
         req.user.id,
       ]

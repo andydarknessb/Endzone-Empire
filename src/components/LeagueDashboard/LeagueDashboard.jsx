@@ -18,10 +18,18 @@ import {
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
 
+const SEASON_STATUS_CHIP = {
+  regular: { label: 'Regular Season', color: 'default' },
+  playoffs: { label: 'Playoffs', color: 'warning' },
+  complete: { label: 'Season Complete', color: 'success' },
+};
+
 function LeagueDashboard() {
   const { leagueId } = useParams();
   const [league, setLeague] = useState(null);
   const [teams, setTeams] = useState([]);
+  const [standings, setStandings] = useState([]);
+  const [standingsLeague, setStandingsLeague] = useState(null);
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -41,6 +49,19 @@ function LeagueDashboard() {
 
       const userRes = await apiClient.get('/api/user');
       setUser(userRes.data);
+
+      try {
+        const standingsRes = await apiClient.get(`/api/scoring/league/${leagueId}/standings`);
+        const standingsData = Array.isArray(standingsRes.data?.standings)
+          ? standingsRes.data.standings
+          : [];
+        setStandings(standingsData);
+        setStandingsLeague(standingsRes.data?.league || null);
+      } catch (standingsErr) {
+        setStandings([]);
+        setStandingsLeague(null);
+        setError(standingsErr.response?.data?.error || standingsErr.message);
+      }
     } catch (err) {
       setError(err.response?.data?.error || err.message);
     } finally {
@@ -54,6 +75,18 @@ function LeagueDashboard() {
       setSuccessMessage(null);
       await apiClient.post(`/api/league/${leagueId}/start-draft`);
       setSuccessMessage('Draft started successfully!');
+      fetchLeagueAndUser();
+    } catch (err) {
+      setError(err.response?.data?.error || err.message);
+    }
+  };
+
+  const handleAdvanceWeek = async () => {
+    try {
+      setError(null);
+      setSuccessMessage(null);
+      await apiClient.post(`/api/scoring/league/${leagueId}/advance-week`);
+      setSuccessMessage('Week advanced!');
       fetchLeagueAndUser();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
@@ -115,6 +148,18 @@ function LeagueDashboard() {
         />
         <Chip label={`Roster Limit: ${league.roster_limit}`} />
         <Chip label={`Teams: ${teams.length}/${league.max_teams}`} />
+        {league.draft_status === 'complete' && standingsLeague && (
+          <>
+            <Chip label={`Week ${standingsLeague.current_week}`} />
+            <Chip
+              label={
+                (SEASON_STATUS_CHIP[standingsLeague.season_status] || {}).label ||
+                standingsLeague.season_status
+              }
+              color={(SEASON_STATUS_CHIP[standingsLeague.season_status] || {}).color || 'default'}
+            />
+          </>
+        )}
       </Box>
 
       {league.invite_code && (
@@ -141,21 +186,36 @@ function LeagueDashboard() {
               <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Team</TableCell>
               <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Owner</TableCell>
               <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="right">
-                Roster
+                W-L-T
               </TableCell>
               <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="right">
-                Points
+                PF
+              </TableCell>
+              <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="right">
+                PA
+              </TableCell>
+              <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="right">
+                Streak
               </TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {teams.map((team, index) => (
-              <TableRow key={team.id}>
-                <TableCell>{index + 1}</TableCell>
-                <TableCell>{team.name}</TableCell>
+            {standings.map((team) => (
+              <TableRow key={team.teamId}>
+                <TableCell>{team.rank}</TableCell>
+                <TableCell>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    {team.name}
+                    {team.playoffSeed != null && (
+                      <Chip label={`#${team.playoffSeed}`} size="small" color="success" />
+                    )}
+                  </Box>
+                </TableCell>
                 <TableCell>{team.owner}</TableCell>
-                <TableCell align="right">{team.roster_count}</TableCell>
-                <TableCell align="right">{team.total_points}</TableCell>
+                <TableCell align="right">{`${team.wins}-${team.losses}-${team.ties}`}</TableCell>
+                <TableCell align="right">{team.pf}</TableCell>
+                <TableCell align="right">{team.pa}</TableCell>
+                <TableCell align="right">{team.streak}</TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -168,6 +228,14 @@ function LeagueDashboard() {
             Start Draft
           </Button>
         )}
+        {isOwner &&
+          league.draft_status === 'complete' &&
+          standingsLeague &&
+          standingsLeague.season_status !== 'complete' && (
+            <Button variant="contained" color="secondary" onClick={handleAdvanceWeek}>
+              Advance Week
+            </Button>
+          )}
         <Link to={`/league/${leagueId}/draft`} style={{ textDecoration: 'none' }}>
           <Button variant="outlined" color="primary">
             Draft Room

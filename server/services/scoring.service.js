@@ -1,8 +1,9 @@
 const axios = require('axios');
 const pool = require('../modules/pool');
 const { materializeLineup } = require('./lineup.service');
+const { getIo } = require('../modules/io');
 
-// Standard fantasy scoring rules (points per unit of each stat)
+// Default fantasy scoring rules (points per unit of each stat) — half-PPR
 const SCORING_RULES = {
   passingYards: 0.04,
   rushingYards: 0.1,
@@ -24,11 +25,35 @@ const SCORING_RULES = {
   extraPoint: 1,
 };
 
-/** Pure function: stats object -> fantasy points, per SCORING_RULES. */
-function calculateFantasyPoints(stats) {
+// League-selectable presets; each is a full rule set based on the defaults
+const SCORING_PRESETS = {
+  standard: { ...SCORING_RULES, receptions: 0 },
+  half_ppr: { ...SCORING_RULES, receptions: 0.5 },
+  ppr: { ...SCORING_RULES, receptions: 1 },
+};
+
+/**
+ * A league's effective scoring rules: its scoring_rules jsonb merged over
+ * the defaults (null/missing column = defaults). Unknown keys are dropped.
+ */
+function rulesForLeague(league) {
+  let custom = league && league.scoring_rules;
+  if (typeof custom === 'string') {
+    try { custom = JSON.parse(custom); } catch { custom = null; }
+  }
+  if (!custom || typeof custom !== 'object') return SCORING_RULES;
+  const rules = { ...SCORING_RULES };
+  for (const [key, value] of Object.entries(custom)) {
+    if (key in rules && Number.isFinite(Number(value))) rules[key] = Number(value);
+  }
+  return rules;
+}
+
+/** Pure function: stats object -> fantasy points under the given rules. */
+function calculateFantasyPoints(stats, rules = SCORING_RULES) {
   let score = 0;
   for (const [stat, value] of Object.entries(stats || {})) {
-    const pointsPerStat = SCORING_RULES[stat];
+    const pointsPerStat = rules[stat];
     if (pointsPerStat !== undefined && Number.isFinite(Number(value))) {
       score += Number(value) * pointsPerStat;
     }
@@ -117,6 +142,42 @@ async function syncWeekStats({ season, week }) {
 }
 
 /**
+ * Pull the real NFL schedule for a season from RapidAPI into nfl_games —
+ * one row per team per week — powering lineup locks and bye detection.
+ * Unparseable entries are skipped; the sync is idempotent (upsert).
+ */
+async function syncSchedule({ season }) {
+  const api = rapidApiClient();
+  const response = await api.get('/games', { params: { league: 1, season } });
+  const games = (response.data && response.data.response) || [];
+  let upserted = 0;
+  for (const entry of games) {
+    try {
+      const week = Number(String(entry.game && entry.game.week || '').replace(/\D/g, ''));
+      const kickoff = entry.game && entry.game.date && entry.game.date.timestamp
+        ? new Date(entry.game.date.timestamp * 1000)
+        : null;
+      const home = entry.teams && entry.teams.home && entry.teams.home.name;
+      const away = entry.teams && entry.teams.away && entry.teams.away.name;
+      if (!Number.isInteger(week) || week < 1 || !kickoff || !home || !away) continue;
+      for (const [team, opponent] of [[home, away], [away, home]]) {
+        await pool.query(
+          `INSERT INTO "nfl_games" ("season", "week", "nfl_team", "opponent", "kickoff_at")
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT ("season", "week", "nfl_team")
+           DO UPDATE SET "opponent" = EXCLUDED."opponent", "kickoff_at" = EXCLUDED."kickoff_at"`,
+          [season, week, team, opponent, kickoff]
+        );
+        upserted += 1;
+      }
+    } catch (err) {
+      console.error('schedule sync: skipping malformed entry:', err.message);
+    }
+  }
+  return { season, gamesUpserted: upserted };
+}
+
+/**
  * Generate round-robin head-to-head pairings for a league week (idempotent —
  * skips if matchups already exist). Odd team counts give one team a bye.
  */
@@ -170,14 +231,20 @@ async function generateMatchups({ leagueId, season, week }) {
 
 /**
  * Score every matchup for a league week: each team's score is the sum of its
- * STARTERS' fantasy_points for that week (bench and IR don't count). Lineups
- * are materialized first so teams that never touched theirs still get their
- * carried-forward (or default-bench) lineup. Transactional per league.
+ * STARTERS' fantasy points for that week (bench and IR don't count), computed
+ * from raw stats under the LEAGUE'S scoring rules. Lineups are materialized
+ * first so teams that never touched theirs still get their carried-forward
+ * (or default-bench) lineup. Transactional per league.
  */
 async function scoreMatchups({ leagueId, season, week }) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    const leagueResult = await client.query(
+      `SELECT * FROM "leagues" WHERE "id" = $1`,
+      [leagueId]
+    );
+    const rules = rulesForLeague(leagueResult.rows[0]);
     const matchupsResult = await client.query(
       `SELECT * FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 FOR UPDATE`,
       [leagueId, season, week]
@@ -185,7 +252,7 @@ async function scoreMatchups({ leagueId, season, week }) {
     const teamScore = async (teamId) => {
       await materializeLineup(client, { leagueId, teamId, season, week });
       const r = await client.query(
-        `SELECT COALESCE(SUM("player_stats"."fantasy_points"), 0) AS total
+        `SELECT "player_stats"."stats"
          FROM "lineup_entries"
          JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
            AND "team_players"."player_id" = "lineup_entries"."player_id"
@@ -196,7 +263,8 @@ async function scoreMatchups({ leagueId, season, week }) {
            AND "lineup_entries"."slot" NOT IN ('BENCH', 'IR')`,
         [teamId, season, week]
       );
-      return Number(r.rows[0].total);
+      const total = r.rows.reduce((sum, row) => sum + calculateFantasyPoints(row.stats, rules), 0);
+      return Math.round(total * 100) / 100;
     };
     const scored = [];
     for (const matchup of matchupsResult.rows) {
@@ -206,9 +274,18 @@ async function scoreMatchups({ leagueId, season, week }) {
         `UPDATE "matchups" SET "home_score" = $1, "away_score" = $2 WHERE "id" = $3`,
         [homeScore, awayScore, matchup.id]
       );
-      scored.push({ matchupId: matchup.id, homeScore, awayScore });
+      scored.push({
+        matchupId: matchup.id,
+        homeTeamId: matchup.home_team_id,
+        awayTeamId: matchup.away_team_id,
+        homeScore,
+        awayScore,
+      });
     }
     await client.query('COMMIT');
+    // Live scoring: push fresh scores to anyone watching this league
+    const io = getIo();
+    if (io) io.to(`league:${leagueId}`).emit('scores:updated', { leagueId, season, week, scored });
     return { scored };
   } catch (error) {
     await client.query('ROLLBACK');
@@ -220,9 +297,12 @@ async function scoreMatchups({ leagueId, season, week }) {
 
 module.exports = {
   SCORING_RULES,
+  SCORING_PRESETS,
+  rulesForLeague,
   calculateFantasyPoints,
   normalizeApiStats,
   syncWeekStats,
+  syncSchedule,
   generateMatchups,
   scoreMatchups,
 };
