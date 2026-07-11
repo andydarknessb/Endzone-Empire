@@ -17,4 +17,4 @@ const pool = process.env.DATABASE_URL
       password: process.env.PGPASSWORD,
     });
 
-module.
+module.exports = pool;

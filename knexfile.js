@@ -11,4 +11,16 @@ const connection = process.env.DATABASE_URL
       port: Number(process.env.PGPORT) || 5432,
       database: process.env.PGDATABASE || 'endzone_empire',
       user: process.env.PGUSER,
-      pa
+      password: process.env.PGPASSWORD,
+    };
+
+module.exports = {
+  client: 'pg',
+  connection,
+  migrations: {
+    directory: './server/db/migrations',
+  },
+  seeds: {
+    directory: './server/db/seeds',
+  },
+};
