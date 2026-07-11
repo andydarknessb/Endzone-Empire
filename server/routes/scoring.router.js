@@ -112,6 +112,22 @@ router.post('/sync-schedule', async (req, res) => {
   }
 });
 
+// POST /api/scoring/sync-players — discover/refresh the NFL player pool
+router.post('/sync-players', async (req, res) => {
+  const seasonYear = Number(req.body && req.body.season);
+  if (!Number.isInteger(seasonYear) || seasonYear < 2000 || seasonYear > 2100) {
+    return res.status(400).json({ error: 'season (integer year) is required' });
+  }
+  try {
+    const result = await scoring.syncPlayers({ season: seasonYear });
+    res.json(result);
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    console.error('Player sync failed:', error);
+    res.status(500).json({ error: 'player sync failed' });
+  }
+});
+
 // POST /api/scoring/sync-injuries — refresh player injury designations
 router.post('/sync-injuries', async (req, res) => {
   try {

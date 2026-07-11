@@ -217,6 +217,67 @@ async function syncSchedule({ season }) {
 }
 
 /**
+ * Normalize one entry from the RapidAPI /players response into our player
+ * shape. Tolerant of a combined `name` field or separate firstname/lastname
+ * (API-SPORTS has used both across its sports APIs). Returns null for
+ * entries missing an id, name, or position — nothing to upsert.
+ */
+function normalizePlayerEntry(entry) {
+  const externalId = entry && entry.id;
+  const name = entry && (
+    entry.name || [entry.firstname, entry.lastname].filter(Boolean).join(' ').trim()
+  );
+  const position = entry && entry.position && String(entry.position).toUpperCase();
+  if (!externalId || !name || !position) return null;
+  return { externalId, name, position };
+}
+
+/**
+ * Discover and refresh the NFL player pool from RapidAPI. The /players
+ * endpoint is filtered by team, so this first lists teams for the season,
+ * then pulls each team's roster and upserts by external_id (safe to re-run;
+ * existing players get their name/position/team refreshed, new ones are
+ * inserted). Not run on the scheduler — a full 32-team crawl every tick
+ * would waste API calls — so pair with a manual trigger or a low-frequency
+ * cron of your own.
+ */
+async function syncPlayers({ season }) {
+  const api = rapidApiClient();
+  const teamsResponse = await api.get('/teams', { params: { league: 1, season } });
+  const teams = (teamsResponse.data && teamsResponse.data.response) || [];
+  let upserted = 0;
+  for (const teamEntry of teams) {
+    const teamId = teamEntry && teamEntry.id;
+    const teamName = teamEntry && teamEntry.name;
+    if (!teamId || !teamName) continue;
+    try {
+      const playersResponse = await api.get('/players', { params: { team: teamId, season } });
+      const players = (playersResponse.data && playersResponse.data.response) || [];
+      for (const raw of players) {
+        const parsed = normalizePlayerEntry(raw);
+        if (!parsed) continue;
+        try {
+          await pool.query(
+            `INSERT INTO "players" ("external_id", "name", "position", "nfl_team")
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT ("external_id")
+             DO UPDATE SET "name" = EXCLUDED."name", "position" = EXCLUDED."position",
+                           "nfl_team" = EXCLUDED."nfl_team"`,
+            [parsed.externalId, parsed.name, parsed.position, teamName]
+          );
+          upserted += 1;
+        } catch (err) {
+          console.error(`player sync: upsert failed for external_id ${parsed.externalId}:`, err.message);
+        }
+      }
+    } catch (err) {
+      console.error(`Player sync failed for team ${teamId} (${teamName}):`, err.message);
+    }
+  }
+  return { season, playersUpserted: upserted };
+}
+
+/**
  * Generate round-robin head-to-head pairings for a league week (idempotent —
  * skips if matchups already exist). Odd team counts give one team a bye.
  */
@@ -341,9 +402,11 @@ module.exports = {
   calculateFantasyPoints,
   normalizeApiStats,
   normalizeInjuryStatus,
+  normalizePlayerEntry,
   syncWeekStats,
   syncSchedule,
   syncInjuries,
+  syncPlayers,
   generateMatchups,
   scoreMatchups,
 };
