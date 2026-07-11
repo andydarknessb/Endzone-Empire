@@ -113,15 +113,15 @@ function DraftBoard() {
     }
   };
 
-  const fetchAvailablePlayers = async (pageNum) => {
+  const fetchAvailablePlayers = async (pageNum, positionOverride = positionFilter) => {
     try {
       const params = {
         page: pageNum + 1,
         leagueId: Number(leagueId),
         available: true,
       };
-      if (positionFilter !== 'All') {
-        params.position = positionFilter;
+      if (positionOverride !== 'All') {
+        params.position = positionOverride;
       }
 
       const res = await apiClient.get('/api/players', { params });
@@ -145,9 +145,10 @@ function DraftBoard() {
   };
 
   const handlePositionFilterChange = (e) => {
-    setPositionFilter(e.target.value);
+    const newPosition = e.target.value;
+    setPositionFilter(newPosition);
     setPage(0);
-    fetchAvailablePlayers(0);
+    fetchAvailablePlayers(0, newPosition);
   };
 
   if (loading) {
@@ -201,8 +202,9 @@ function DraftBoard() {
             <Box sx={{ mb: 2, display: 'flex', gap: 2, alignItems: 'center' }}>
               <Typography variant="h6">Available Players</Typography>
               <FormControl sx={{ minWidth: 120 }}>
-                <InputLabel>Position</InputLabel>
+                <InputLabel id="draft-position-filter-label">Position</InputLabel>
                 <Select
+                  labelId="draft-position-filter-label"
                   value={positionFilter}
                   label="Position"
                   onChange={handlePositionFilterChange}

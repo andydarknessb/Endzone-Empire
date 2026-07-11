@@ -123,8 +123,9 @@ function MatchupScreen() {
 
       <Box sx={{ mb: 3, display: 'flex', gap: 2, alignItems: 'center' }}>
         <FormControl sx={{ minWidth: 150 }}>
-          <InputLabel>Week</InputLabel>
+          <InputLabel id="week-filter-label">Week</InputLabel>
           <Select
+            labelId="week-filter-label"
             value={weekFilter}
             label="Week"
             onChange={(e) => setWeekFilter(e.target.value)}

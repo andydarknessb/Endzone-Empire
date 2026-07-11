@@ -2,7 +2,7 @@ import { put, takeLatest } from 'redux-saga/effects';
 import apiClient, { setToken, clearToken } from '../../api/apiClient';
 
 // worker Saga: fired on "LOGIN" actions
-function* loginUser(action) {
+export function* loginUser(action) {
   try {
     yield put({ type: 'CLEAR_LOGIN_ERROR' });
 
@@ -23,7 +23,7 @@ function* loginUser(action) {
 }
 
 // worker Saga: fired on "LOGOUT" actions — JWT logout is client-side
-function* logoutUser() {
+export function* logoutUser() {
   clearToken();
   yield put({ type: 'UNSET_USER' });
 }

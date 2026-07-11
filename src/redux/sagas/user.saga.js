@@ -2,7 +2,7 @@ import { put, takeLatest } from 'redux-saga/effects';
 import apiClient, { getToken, clearToken } from '../../api/apiClient';
 
 // worker Saga: fired on "FETCH_USER" actions
-function* fetchUser() {
+export function* fetchUser() {
   // No stored token → nobody is logged in; skip the request entirely
   if (!getToken()) return;
   try {

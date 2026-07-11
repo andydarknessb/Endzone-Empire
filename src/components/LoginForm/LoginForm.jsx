@@ -37,6 +37,7 @@ function LoginForm() {
         <label htmlFor="username">
           Username:
           <input
+            id="username"
             type="text"
             name="username"
             required
@@ -49,6 +50,7 @@ function LoginForm() {
         <label htmlFor="password">
           Password:
           <input
+            id="password"
             type="password"
             name="password"
             required

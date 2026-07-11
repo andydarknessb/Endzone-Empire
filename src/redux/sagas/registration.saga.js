@@ -2,7 +2,7 @@ import { put, takeLatest } from 'redux-saga/effects';
 import apiClient, { setToken } from '../../api/apiClient';
 
 // worker Saga: fired on "REGISTER" actions
-function* registerUser(action) {
+export function* registerUser(action) {
   try {
     yield put({ type: 'CLEAR_REGISTRATION_ERROR' });
 

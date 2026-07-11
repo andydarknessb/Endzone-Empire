@@ -42,7 +42,12 @@
     "test:server": "node --test server/test/**/*.test.js"
   },
   "devDependencies": {
-    "nodemon": "^3.1.9"
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^14.3.1",
+    "@testing-library/user-event": "^14.6.1",
+    "axios-mock-adapter": "^2.1.0",
+    "nodemon": "^3.1.9",
+    "redux-mock-store": "^1.5.5"
   },
   "browserslist": {
     "production": [

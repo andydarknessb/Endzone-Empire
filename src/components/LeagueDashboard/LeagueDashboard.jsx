@@ -81,7 +81,7 @@ function LeagueDashboard() {
   if (!league || !user) {
     return (
       <Container sx={{ py: 4 }}>
-        <Alert severity="error">League or user data not available</Alert>
+        <Alert severity="error">{error || 'League or user data not available'}</Alert>
       </Container>
     );
   }

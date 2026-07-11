@@ -34,6 +34,7 @@ function RegisterForm() {
         <label htmlFor="username">
           Username:
           <input
+            id="username"
             type="text"
             name="username"
             value={username}
@@ -46,6 +47,7 @@ function RegisterForm() {
         <label htmlFor="email"> {/* Added email input field */}
           Email:
           <input
+            id="email"
             type="email"
             name="email"
             value={email}
@@ -58,6 +60,7 @@ function RegisterForm() {
         <label htmlFor="password">
           Password:
           <input
+            id="password"
             type="password"
             name="password"
             value={password}

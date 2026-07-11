@@ -1,0 +1,181 @@
+import React from 'react';
+import { render, screen } from '@testing-library/react';
+import { Provider } from 'react-redux';
+import configureMockStore from 'redux-mock-store';
+import App from './App';
+import apiClient from '../../api/apiClient';
+import { createDraftSocket } from '../../api/socket';
+
+// App's routes mount real page components (LeagueManagement, UserPage,
+// DraftBoard, ...); every one of them fetches via apiClient (and DraftBoard
+// opens a socket) as soon as it mounts. Mock both broadly here so routing
+// tests don't trigger real network/socket activity — each page's own
+// fetch/render behavior already has dedicated coverage in its own test file.
+jest.mock('../../api/apiClient', () => ({
+  __esModule: true,
+  default: { get: jest.fn(), post: jest.fn(), delete: jest.fn(), put: jest.fn() },
+}));
+jest.mock('../../api/socket', () => ({
+  createDraftSocket: jest.fn(),
+}));
+
+const mockStore = configureMockStore([]);
+
+function renderApp(hash, state = {}, configureApi) {
+  window.location.hash = hash;
+  apiClient.get.mockResolvedValue({ data: [] });
+  createDraftSocket.mockReturnValue({ on: jest.fn(), emit: jest.fn(), disconnect: jest.fn() });
+  if (configureApi) configureApi(); // runs after the defaults, before mount
+  const store = mockStore({
+    user: {},
+    errors: { loginMessage: '', registrationMessage: '' },
+    ...state,
+  });
+  return { ...render(<Provider store={store}><App /></Provider>), store };
+}
+
+afterEach(() => {
+  window.location.hash = '';
+  jest.clearAllMocks();
+});
+
+const loggedOut = {};
+const loggedIn = { id: 1, username: 'alice' };
+
+test('"/" redirects to "/home", showing the Landing page when logged out', async () => {
+  renderApp('#/', { user: loggedOut });
+  expect(await screen.findByRole('heading', { name: 'Welcome' })).toBeInTheDocument();
+});
+
+test('"/home" redirects to "/user" when already logged in', async () => {
+  renderApp('#/home', { user: loggedIn });
+  expect(await screen.findByText('Welcome, alice!')).toBeInTheDocument();
+});
+
+test('"/login" shows the login form when logged out', async () => {
+  renderApp('#/login', { user: loggedOut });
+  expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();
+});
+
+test('"/login" redirects to "/user" when already logged in', async () => {
+  renderApp('#/login', { user: loggedIn });
+  expect(await screen.findByText('Welcome, alice!')).toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: 'Login' })).not.toBeInTheDocument();
+});
+
+test('"/registration" shows the registration form when logged out', async () => {
+  renderApp('#/registration', { user: loggedOut });
+  expect(await screen.findByRole('heading', { name: /build your dream team today/i })).toBeInTheDocument();
+});
+
+test('"/registration" redirects to "/user" when already logged in', async () => {
+  renderApp('#/registration', { user: loggedIn });
+  expect(await screen.findByText('Welcome, alice!')).toBeInTheDocument();
+});
+
+test('"/about" is visible whether logged out or in', async () => {
+  renderApp('#/about', { user: loggedOut });
+  expect(await screen.findByText('This about page is for anyone to read!')).toBeInTheDocument();
+});
+
+test('"/user" shows LoginPage (via ProtectedRoute) when logged out', async () => {
+  renderApp('#/user', { user: loggedOut });
+  expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();
+});
+
+test('"/user" shows UserPage when logged in', async () => {
+  renderApp('#/user', { user: loggedIn });
+  expect(await screen.findByText('Welcome, alice!')).toBeInTheDocument();
+});
+
+test('"/info" is protected: LoginPage when logged out, InfoPage when logged in', async () => {
+  const { unmount } = renderApp('#/info', { user: loggedOut });
+  expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();
+  unmount();
+
+  renderApp('#/info', { user: loggedIn });
+  expect(await screen.findByText('Info Page')).toBeInTheDocument();
+});
+
+test('"/league" is protected: LoginPage when logged out, LeagueManagement when logged in', async () => {
+  const { unmount } = renderApp('#/league', { user: loggedOut });
+  expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();
+  unmount();
+
+  renderApp('#/league', { user: loggedIn });
+  expect(await screen.findByRole('heading', { name: 'My Leagues' })).toBeInTheDocument();
+});
+
+test('"/team" is protected: LoginPage when logged out, TeamManagement when logged in', async () => {
+  const { unmount } = renderApp('#/team', { user: loggedOut });
+  expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();
+  unmount();
+
+  renderApp('#/team', { user: loggedIn });
+  expect(await screen.findByRole('heading', { name: 'Team Management' })).toBeInTheDocument();
+});
+
+test('"/player" is protected: LoginPage when logged out, PlayerManagement when logged in', async () => {
+  const { unmount } = renderApp('#/player', { user: loggedOut });
+  expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();
+  unmount();
+
+  renderApp('#/player', { user: loggedIn }, () => {
+    apiClient.get.mockResolvedValue({ data: { players: [], totalPages: 1 } });
+  });
+  expect(await screen.findByRole('heading', { name: 'My Roster' })).toBeInTheDocument();
+});
+
+test('"/league/:leagueId" is protected: LoginPage when logged out, LeagueDashboard when logged in', async () => {
+  const { unmount } = renderApp('#/league/1', { user: loggedOut });
+  expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();
+  unmount();
+
+  renderApp('#/league/1', { user: loggedIn }, () => {
+    apiClient.get
+      .mockResolvedValueOnce({ data: { league: { id: 1, name: 'Sunday Ballers', draft_status: 'pending', owner_id: 1, roster_limit: 15, max_teams: 10 }, teams: [] } })
+      .mockResolvedValueOnce({ data: { id: 1, username: 'alice' } });
+  });
+  expect(await screen.findByText('Sunday Ballers')).toBeInTheDocument();
+});
+
+test('"/league/:leagueId/matchups" is protected and renders MatchupScreen when logged in', async () => {
+  const { unmount } = renderApp('#/league/1/matchups', { user: loggedOut });
+  expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();
+  unmount();
+
+  renderApp('#/league/1/matchups', { user: loggedIn }, () => {
+    apiClient.get
+      .mockResolvedValueOnce({ data: [] })
+      .mockResolvedValueOnce({ data: { league: { id: 1, name: 'Sunday Ballers', owner_id: 99 } } })
+      .mockResolvedValueOnce({ data: { id: 1, username: 'alice' } });
+  });
+  expect(await screen.findByText(/Matchups/)).toBeInTheDocument();
+});
+
+test('"/league/:leagueId/draft" is protected and renders DraftBoard when logged in', async () => {
+  const { unmount } = renderApp('#/league/1/draft', { user: loggedOut });
+  expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();
+  unmount();
+
+  renderApp('#/league/1/draft', { user: loggedIn }, () => {
+    apiClient.get.mockResolvedValue({ data: { players: [], totalPages: 1 } });
+  });
+  expect(await screen.findByText('Draft Board')).toBeInTheDocument();
+});
+
+test('an unmatched route shows the 404 page', async () => {
+  renderApp('#/this-route-does-not-exist', { user: loggedOut });
+  expect(await screen.findByRole('heading', { name: '404' })).toBeInTheDocument();
+});
+
+test('always renders the Nav and Footer around the routed page', async () => {
+  renderApp('#/about', { user: loggedOut });
+  expect(await screen.findByRole('link', { name: 'Endzone Empire' })).toBeInTheDocument();
+  expect(screen.getByText('© Endzone Empire')).toBeInTheDocument();
+});
+
+test('dispatches FETCH_USER on mount', () => {
+  const { store } = renderApp('#/about', { user: loggedOut });
+  expect(store.getActions()).toContainEqual({ type: 'FETCH_USER' });
+});

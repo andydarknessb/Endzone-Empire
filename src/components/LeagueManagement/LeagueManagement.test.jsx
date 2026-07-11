@@ -1,0 +1,135 @@
+import React from 'react';
+import { screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import renderWithProviders from '../../test-utils/renderWithProviders';
+import apiClient from '../../api/apiClient';
+import LeagueManagement from './LeagueManagement';
+
+jest.mock('../../api/apiClient', () => ({
+  __esModule: true,
+  default: { get: jest.fn(), post: jest.fn(), delete: jest.fn() },
+}));
+
+const league = (overrides = {}) => ({
+  id: 1,
+  name: 'Sunday Ballers',
+  draft_status: 'pending',
+  owner_id: 1,
+  my_team_name: "alice's Team",
+  ...overrides,
+});
+
+afterEach(() => {
+  jest.clearAllMocks();
+});
+
+test('fetches and renders the user\'s leagues on mount', async () => {
+  apiClient.get.mockResolvedValue({ data: [league()] });
+
+  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+
+  expect(await screen.findByText('Sunday Ballers')).toBeInTheDocument();
+  expect(apiClient.get).toHaveBeenCalledWith('/api/league');
+});
+
+test('shows a friendly message when the user has no leagues', async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+
+  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+
+  expect(await screen.findByText(/you aren't in any leagues yet/i)).toBeInTheDocument();
+});
+
+test('shows an error alert when fetching leagues fails', async () => {
+  apiClient.get.mockRejectedValue({ response: { data: { error: 'server exploded' } } });
+
+  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+
+  expect(await screen.findByText('server exploded')).toBeInTheDocument();
+});
+
+test('the Delete button only appears for leagues the user owns', async () => {
+  apiClient.get.mockResolvedValue({
+    data: [league({ id: 1, name: 'Mine', owner_id: 1 }), league({ id: 2, name: 'Not Mine', owner_id: 99 })],
+  });
+
+  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+
+  await screen.findByText('Mine');
+  const deleteButtons = screen.getAllByRole('button', { name: 'Delete' });
+  expect(deleteButtons).toHaveLength(1);
+});
+
+test('creating a league posts the form data and shows the returned invite code', async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+  apiClient.post.mockResolvedValue({ data: { invite_code: 'abc123' } });
+
+  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+  await screen.findByText(/you aren't in any leagues yet/i);
+
+  await userEvent.type(screen.getByLabelText(/League name/), 'Monday Mayhem');
+  await userEvent.click(screen.getByRole('button', { name: 'Create League' }));
+
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/league', {
+      name: 'Monday Mayhem',
+      rosterLimit: 15,
+      maxTeams: 10,
+    })
+  );
+  expect(await screen.findByText(/Invite code: abc123/)).toBeInTheDocument();
+  expect(apiClient.get).toHaveBeenCalledTimes(2); // initial fetch + refetch after create
+});
+
+test('creating a league surfaces the server error on failure', async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+  apiClient.post.mockRejectedValue({ response: { data: { error: 'name already taken' } } });
+
+  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+  await screen.findByText(/you aren't in any leagues yet/i);
+
+  await userEvent.type(screen.getByLabelText(/League name/), 'Dup League');
+  await userEvent.click(screen.getByRole('button', { name: 'Create League' }));
+
+  expect(await screen.findByText('name already taken')).toBeInTheDocument();
+});
+
+test('joining a league posts the trimmed invite code', async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+  apiClient.post.mockResolvedValue({});
+
+  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+  await screen.findByText(/you aren't in any leagues yet/i);
+
+  await userEvent.type(screen.getByLabelText(/Invite code/), '  xyz789  ');
+  await userEvent.click(screen.getByRole('button', { name: 'Join League' }));
+
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/league/join', { inviteCode: 'xyz789' })
+  );
+  expect(await screen.findByText('Joined league!')).toBeInTheDocument();
+});
+
+test('deleting a league calls the delete endpoint and refetches', async () => {
+  apiClient.get.mockResolvedValue({ data: [league({ id: 7, owner_id: 1 })] });
+  apiClient.delete.mockResolvedValue({});
+
+  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+  await screen.findByText('Sunday Ballers');
+
+  await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+  await waitFor(() => expect(apiClient.delete).toHaveBeenCalledWith('/api/league/7'));
+  expect(apiClient.get).toHaveBeenCalledTimes(2);
+});
+
+test('renders Dashboard/Draft Room/Matchups links pointing at the correct league id', async () => {
+  apiClient.get.mockResolvedValue({ data: [league({ id: 42 })] });
+
+  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+  await screen.findByText('Sunday Ballers');
+
+  expect(screen.getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/league/42');
+  expect(screen.getByRole('link', { name: 'Draft Room' })).toHaveAttribute('href', '/league/42/draft');
+  expect(screen.getByRole('link', { name: 'Matchups' })).toHaveAttribute('href', '/league/42/matchups');
+});
