@@ -153,6 +153,24 @@ test('"/league/:leagueId/matchups" is protected and renders MatchupScreen when l
   expect(await screen.findByText(/Matchups/)).toBeInTheDocument();
 });
 
+test('"/league/:leagueId/lineup" is protected and renders LineupScreen when logged in', async () => {
+  const { unmount } = renderApp('#/league/1/lineup', { user: loggedOut });
+  expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();
+  unmount();
+
+  renderApp('#/league/1/lineup', { user: loggedIn }, () => {
+    apiClient.get.mockResolvedValue({
+      data: {
+        leagueId: 1, teamId: 10, season: 2026, week: 1, currentWeek: 1,
+        lineupSlots: { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DEF: 1 },
+        irSlots: 1,
+        entries: [],
+      },
+    });
+  });
+  expect(await screen.findByText('Set Lineup')).toBeInTheDocument();
+});
+
 test('"/league/:leagueId/draft" is protected and renders DraftBoard when logged in', async () => {
   const { unmount } = renderApp('#/league/1/draft', { user: loggedOut });
   expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();

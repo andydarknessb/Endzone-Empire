@@ -158,24 +158,51 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// PUT /api/league/:id — owner updates name / roster limit (before draft)
+// PUT /api/league/:id — owner updates name / roster limit / lineup config (before draft)
 router.put('/:id', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
-  const { name, rosterLimit } = req.body || {};
+  const { name, rosterLimit, lineupSlots, positionCaps, irSlots } = req.body || {};
   const limit = rosterLimit === undefined ? null : Number(rosterLimit);
   if (limit !== null && (!Number.isInteger(limit) || limit < 1 || limit > 30)) {
     return res.status(400).json({ error: 'rosterLimit must be an integer between 1 and 30' });
+  }
+  const validSlotMap = (map, allowedKeys) =>
+    map && typeof map === 'object' && !Array.isArray(map) &&
+    Object.entries(map).every(
+      ([key, count]) => allowedKeys.includes(key) && Number.isInteger(count) && count >= 0 && count <= 10
+    );
+  const slotKeys = ['QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF'];
+  const positionKeys = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
+  if (lineupSlots !== undefined && !validSlotMap(lineupSlots, slotKeys)) {
+    return res.status(400).json({ error: `lineupSlots must map ${slotKeys.join('/')} to integers 0-10` });
+  }
+  if (positionCaps !== undefined && !validSlotMap(positionCaps, positionKeys)) {
+    return res.status(400).json({ error: `positionCaps must map ${positionKeys.join('/')} to integers 0-10` });
+  }
+  if (irSlots !== undefined && (!Number.isInteger(irSlots) || irSlots < 0 || irSlots > 5)) {
+    return res.status(400).json({ error: 'irSlots must be an integer between 0 and 5' });
   }
   try {
     const result = await pool.query(
       `UPDATE "leagues"
        SET "name" = COALESCE($1, "name"),
            "roster_limit" = COALESCE($2, "roster_limit"),
+           "lineup_slots" = COALESCE($3, "lineup_slots"),
+           "position_caps" = COALESCE($4, "position_caps"),
+           "ir_slots" = COALESCE($5, "ir_slots"),
            "updated_at" = now()
-       WHERE "id" = $3 AND "owner_id" = $4 AND "draft_status" = 'pending'
+       WHERE "id" = $6 AND "owner_id" = $7 AND "draft_status" = 'pending'
        RETURNING *`,
-      [name || null, limit, leagueId, req.user.id]
+      [
+        name || null,
+        limit,
+        lineupSlots === undefined ? null : JSON.stringify(lineupSlots),
+        positionCaps === undefined ? null : JSON.stringify(positionCaps),
+        irSlots === undefined ? null : irSlots,
+        leagueId,
+        req.user.id,
+      ]
     );
     if (!result.rows[0]) {
       return res.status(403).json({ error: 'league not found, not owner, or draft already started' });

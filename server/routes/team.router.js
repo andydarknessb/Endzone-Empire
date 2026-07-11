@@ -2,6 +2,7 @@ const express = require('express');
 const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
 const { draftPlayer, dropPlayer } = require('../services/draft.service');
+const { getLineup, setLineup } = require('../services/lineup.service');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -72,6 +73,51 @@ router.delete('/roster/:playerId', async (req, res) => {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     console.error('Error dropping player', error);
     res.status(500).json({ error: 'failed to drop player' });
+  }
+});
+
+// GET /api/team/lineup?leagueId=N&week=W — the caller's weekly lineup
+// (materialized on first view; carries forward from the previous week)
+router.get('/lineup', async (req, res) => {
+  const leagueId = req.query.leagueId;
+  if (!/^\d+$/.test(String(leagueId))) {
+    return res.status(400).json({ error: 'leagueId query param (integer) is required' });
+  }
+  const week = req.query.week === undefined ? undefined : req.query.week;
+  if (week !== undefined && !/^\d+$/.test(String(week))) {
+    return res.status(400).json({ error: 'week must be a positive integer' });
+  }
+  try {
+    const lineup = await getLineup({
+      leagueId: Number(leagueId),
+      userId: req.user.id,
+      week: week === undefined ? undefined : Number(week),
+    });
+    res.json(lineup);
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    console.error('Error fetching lineup', error);
+    res.status(500).json({ error: 'failed to fetch lineup' });
+  }
+});
+
+// PUT /api/team/lineup — move players between slots; the whole batch is
+// validated and applied atomically (slot counts, eligibility, lineup locks)
+router.put('/lineup', async (req, res) => {
+  const { leagueId, week, moves } = req.body || {};
+  if (!Number.isInteger(leagueId) || leagueId < 1) {
+    return res.status(400).json({ error: 'leagueId (integer) is required in the body' });
+  }
+  if (week !== undefined && (!Number.isInteger(week) || week < 1)) {
+    return res.status(400).json({ error: 'week must be a positive integer' });
+  }
+  try {
+    const outcome = await setLineup({ leagueId, userId: req.user.id, week, moves });
+    res.json(outcome);
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    console.error('Error setting lineup', error);
+    res.status(500).json({ error: 'failed to set lineup' });
   }
 });
 

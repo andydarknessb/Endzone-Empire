@@ -26,6 +26,7 @@ import PlayerManagement from '../PlayerManagement/PlayerManagement';
 import LeagueDashboard from '../LeagueDashboard/LeagueDashboard';
 import MatchupScreen from '../MatchupScreen/MatchupScreen';
 import DraftBoard from '../DraftBoard/DraftBoard';
+import LineupScreen from '../LineupScreen/LineupScreen';
 
 
 import './App.css';
@@ -50,6 +51,7 @@ function App() {
           <Route path="/league/:leagueId" element={<ProtectedRoute><LeagueDashboard /></ProtectedRoute>} />
           <Route path="/league/:leagueId/matchups" element={<ProtectedRoute><MatchupScreen /></ProtectedRoute>} />
           <Route path="/league/:leagueId/draft" element={<ProtectedRoute><DraftBoard /></ProtectedRoute>} />
+          <Route path="/league/:leagueId/lineup" element={<ProtectedRoute><LineupScreen /></ProtectedRoute>} />
           {/* Visiting localhost:3000 will redirect to localhost:3000/home */}
           <Route path="/" element={<Navigate to="/home" replace />} />
 

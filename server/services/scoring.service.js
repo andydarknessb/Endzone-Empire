@@ -1,5 +1,6 @@
 const axios = require('axios');
 const pool = require('../modules/pool');
+const { materializeLineup } = require('./lineup.service');
 
 // Standard fantasy scoring rules (points per unit of each stat)
 const SCORING_RULES = {
@@ -169,7 +170,9 @@ async function generateMatchups({ leagueId, season, week }) {
 
 /**
  * Score every matchup for a league week: each team's score is the sum of its
- * rostered players' fantasy_points for that week. Transactional per league.
+ * STARTERS' fantasy_points for that week (bench and IR don't count). Lineups
+ * are materialized first so teams that never touched theirs still get their
+ * carried-forward (or default-bench) lineup. Transactional per league.
  */
 async function scoreMatchups({ leagueId, season, week }) {
   const client = await pool.connect();
@@ -180,12 +183,17 @@ async function scoreMatchups({ leagueId, season, week }) {
       [leagueId, season, week]
     );
     const teamScore = async (teamId) => {
+      await materializeLineup(client, { leagueId, teamId, season, week });
       const r = await client.query(
         `SELECT COALESCE(SUM("player_stats"."fantasy_points"), 0) AS total
-         FROM "team_players"
-         JOIN "player_stats" ON "player_stats"."player_id" = "team_players"."player_id"
+         FROM "lineup_entries"
+         JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
+           AND "team_players"."player_id" = "lineup_entries"."player_id"
+         JOIN "player_stats" ON "player_stats"."player_id" = "lineup_entries"."player_id"
            AND "player_stats"."season" = $2 AND "player_stats"."week" = $3
-         WHERE "team_players"."team_id" = $1`,
+         WHERE "lineup_entries"."team_id" = $1 AND "lineup_entries"."season" = $2
+           AND "lineup_entries"."week" = $3
+           AND "lineup_entries"."slot" NOT IN ('BENCH', 'IR')`,
         [teamId, season, week]
       );
       return Number(r.rows[0].total);

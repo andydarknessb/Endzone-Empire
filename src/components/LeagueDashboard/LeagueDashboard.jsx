@@ -178,6 +178,11 @@ function LeagueDashboard() {
             Matchups
           </Button>
         </Link>
+        <Link to={`/league/${leagueId}/lineup`} style={{ textDecoration: 'none' }}>
+          <Button variant="outlined" color="primary">
+            Set Lineup
+          </Button>
+        </Link>
       </Box>
     </Container>
   );

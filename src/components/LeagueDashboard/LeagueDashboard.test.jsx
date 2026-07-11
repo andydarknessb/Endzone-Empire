@@ -143,7 +143,7 @@ test('does not show "Start Draft" once the draft is no longer pending', async ()
   expect(screen.queryByRole('button', { name: 'Start Draft' })).not.toBeInTheDocument();
 });
 
-test('links to the Draft Room and Matchups pages for this league', async () => {
+test('links to the Draft Room, Matchups, and Set Lineup pages for this league', async () => {
   apiClient.get
     .mockResolvedValueOnce(leagueResponse())
     .mockResolvedValueOnce({ data: { id: 1, username: 'alice' } });
@@ -153,4 +153,5 @@ test('links to the Draft Room and Matchups pages for this league', async () => {
 
   expect(screen.getByRole('link', { name: 'Draft Room' })).toHaveAttribute('href', '/league/7/draft');
   expect(screen.getByRole('link', { name: 'Matchups' })).toHaveAttribute('href', '/league/7/matchups');
+  expect(screen.getByRole('link', { name: 'Set Lineup' })).toHaveAttribute('href', '/league/7/lineup');
 });

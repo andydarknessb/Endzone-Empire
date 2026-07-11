@@ -62,6 +62,24 @@ async function draftPlayer({ leagueId, userId, playerId }) {
       throw new DraftError(409, `roster limit of ${league.roster_limit} reached`);
     }
 
+    // Per-position roster caps (league.position_caps jsonb, e.g. {"RB":4})
+    const caps = typeof league.position_caps === 'string'
+      ? JSON.parse(league.position_caps)
+      : league.position_caps || {};
+    const position = playerResult.rows[0].position;
+    const cap = caps[position];
+    if (Number.isInteger(cap)) {
+      const positionCountResult = await client.query(
+        `SELECT COUNT(*)::int AS n FROM "team_players"
+         JOIN "players" ON "players"."id" = "team_players"."player_id"
+         WHERE "team_players"."team_id" = $1 AND "players"."position" = $2`,
+        [myTeam.id, position]
+      );
+      if (positionCountResult.rows[0].n >= cap) {
+        throw new DraftError(409, `position cap reached: max ${cap} ${position}`);
+      }
+    }
+
     let pickNumber = null;
     let draftComplete = false;
     let nextTeamId = null;
