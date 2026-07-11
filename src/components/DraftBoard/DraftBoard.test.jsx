@@ -423,3 +423,26 @@ test('Pause Draft POSTs the toggled paused flag for the commissioner during an a
     expect(apiClient.post).toHaveBeenCalledWith('/api/draft/league/1/pause', { paused: true })
   );
 });
+
+test('shows projected points and injury badges in the available players table', async () => {
+  apiClient.get.mockResolvedValue(
+    playersPage([
+      {
+        id: 1,
+        name: 'Patrick Mahomes',
+        position: 'QB',
+        nfl_team: 'Kansas City Chiefs',
+        projected_points: 21.5,
+        injury_status: 'Q',
+      },
+      { id: 2, name: 'Josh Allen', position: 'QB', nfl_team: 'Buffalo Bills', projected_points: null },
+    ])
+  );
+  renderBoard(1);
+
+  await screen.findByText('Patrick Mahomes');
+  expect(screen.getByText('21.5')).toBeInTheDocument();
+  expect(screen.getByText('Q')).toBeInTheDocument();
+  expect(screen.getByText('—')).toBeInTheDocument(); // missing projection
+  expect(screen.getByRole('link', { name: 'Patrick Mahomes' })).toHaveAttribute('href', '/players/1');
+});

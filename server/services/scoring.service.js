@@ -141,6 +141,45 @@ async function syncWeekStats({ season, week }) {
   return { season, week, playersUpdated: updated };
 }
 
+/** Map a RapidAPI injury designation to our badge codes (Q/D/O/IR). */
+function normalizeInjuryStatus(raw) {
+  const s = String(raw || '').toLowerCase();
+  if (!s) return null;
+  if (s.includes('injured reserve') || /\bir\b/.test(s)) return 'IR';
+  if (s.includes('question')) return 'Q';
+  if (s.includes('doubt')) return 'D';
+  if (s.includes('out')) return 'O';
+  return null;
+}
+
+/**
+ * Best-effort injury sync from RapidAPI for players with an external_id.
+ * Players with no current injury entry are cleared back to healthy.
+ */
+async function syncInjuries() {
+  const api = rapidApiClient();
+  const playersResult = await pool.query(
+    `SELECT "id", "external_id" FROM "players" WHERE "external_id" IS NOT NULL`
+  );
+  let updated = 0;
+  for (const player of playersResult.rows) {
+    try {
+      const response = await api.get('/injuries', { params: { player: player.external_id } });
+      const entry = ((response.data && response.data.response) || [])[0];
+      const status = entry ? normalizeInjuryStatus(entry.status) : null;
+      const detail = entry && entry.description ? String(entry.description).slice(0, 255) : null;
+      await pool.query(
+        `UPDATE "players" SET "injury_status" = $1, "injury_detail" = $2 WHERE "id" = $3`,
+        [status, detail, player.id]
+      );
+      updated += 1;
+    } catch (err) {
+      console.error(`Injury sync failed for player ${player.id}:`, err.message);
+    }
+  }
+  return { playersUpdated: updated };
+}
+
 /**
  * Pull the real NFL schedule for a season from RapidAPI into nfl_games —
  * one row per team per week — powering lineup locks and bye detection.
@@ -301,8 +340,10 @@ module.exports = {
   rulesForLeague,
   calculateFantasyPoints,
   normalizeApiStats,
+  normalizeInjuryStatus,
   syncWeekStats,
   syncSchedule,
+  syncInjuries,
   generateMatchups,
   scoreMatchups,
 };

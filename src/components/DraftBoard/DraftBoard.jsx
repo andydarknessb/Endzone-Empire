@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import {
   Container,
@@ -26,6 +26,7 @@ import {
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import { createDraftSocket } from '../../api/socket';
+import InjuryBadge from '../InjuryBadge/InjuryBadge';
 
 function DraftBoard() {
   const { leagueId } = useParams();
@@ -386,6 +387,9 @@ function DraftBoard() {
                     <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>
                       NFL Team
                     </TableCell>
+                    <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="right">
+                      Proj
+                    </TableCell>
                     <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="center">
                       Action
                     </TableCell>
@@ -394,9 +398,19 @@ function DraftBoard() {
                 <TableBody>
                   {availablePlayers.map((player) => (
                     <TableRow key={player.id}>
-                      <TableCell>{player.name}</TableCell>
+                      <TableCell>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Link to={`/players/${player.id}`} style={{ color: 'inherit' }}>
+                            {player.name}
+                          </Link>
+                          <InjuryBadge status={player.injury_status} detail={player.injury_detail} />
+                        </Box>
+                      </TableCell>
                       <TableCell>{player.position}</TableCell>
                       <TableCell>{player.nfl_team}</TableCell>
+                      <TableCell align="right">
+                        {player.projected_points != null ? player.projected_points : '—'}
+                      </TableCell>
                       <TableCell align="center">
                         <Button
                           variant="contained"

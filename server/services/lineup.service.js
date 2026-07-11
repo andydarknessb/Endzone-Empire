@@ -176,7 +176,10 @@ async function getLineup({ leagueId, userId, week }) {
 
     const entriesResult = await client.query(
       `SELECT "players"."id", "players"."name", "players"."position", "players"."nfl_team",
-              "lineup_entries"."slot"
+              "players"."injury_status", "lineup_entries"."slot",
+              (SELECT ROUND(AVG("fantasy_points"), 1) FROM "player_stats"
+               WHERE "player_stats"."player_id" = "players"."id"
+                 AND "player_stats"."season" = $2) AS "projected_points"
        FROM "lineup_entries"
        JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
          AND "team_players"."player_id" = "lineup_entries"."player_id"

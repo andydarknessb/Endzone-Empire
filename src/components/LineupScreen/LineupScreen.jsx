@@ -16,6 +16,7 @@ import {
   Chip,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
+import InjuryBadge from '../InjuryBadge/InjuryBadge';
 
 const STARTER_SLOT_ORDER = ['QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF'];
 const FLEX_ELIGIBLE_POSITIONS = ['RB', 'WR', 'TE'];
@@ -149,8 +150,10 @@ function LineupScreen() {
                 <Typography variant="body1">{entry.name}</Typography>
                 <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                   {entry.position} — {entry.nfl_team}
+                  {entry.projected_points != null && ` — proj ${entry.projected_points}`}
                 </Typography>
               </Box>
+              <InjuryBadge status={entry.injury_status} />
               {entry.onBye && <Chip label="BYE" size="small" color="warning" />}
               {entry.locked && <Chip label="LOCKED" size="small" color="error" />}
             </>

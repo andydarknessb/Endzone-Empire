@@ -30,6 +30,7 @@ import LineupScreen from '../LineupScreen/LineupScreen';
 import WaiverWire from '../WaiverWire/WaiverWire';
 import TradeCenter from '../TradeCenter/TradeCenter';
 import TransactionLog from '../TransactionLog/TransactionLog';
+import PlayerDetail from '../PlayerDetail/PlayerDetail';
 
 
 import './App.css';
@@ -58,6 +59,7 @@ function App() {
           <Route path="/league/:leagueId/waivers" element={<ProtectedRoute><WaiverWire /></ProtectedRoute>} />
           <Route path="/league/:leagueId/trades" element={<ProtectedRoute><TradeCenter /></ProtectedRoute>} />
           <Route path="/league/:leagueId/activity" element={<ProtectedRoute><TransactionLog /></ProtectedRoute>} />
+          <Route path="/players/:playerId" element={<ProtectedRoute><PlayerDetail /></ProtectedRoute>} />
           {/* Visiting localhost:3000 will redirect to localhost:3000/home */}
           <Route path="/" element={<Navigate to="/home" replace />} />
 

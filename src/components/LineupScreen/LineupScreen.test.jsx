@@ -214,3 +214,15 @@ test('shows an error alert when the initial fetch fails', async () => {
 
   expect(await screen.findByText('lineup unavailable')).toBeInTheDocument();
 });
+
+test('shows injury badges and projected points on lineup rows', async () => {
+  const response = lineupResponse();
+  response.entries[0].injury_status = 'Q';
+  response.entries[0].projected_points = 21.5;
+  apiClient.get.mockResolvedValue({ data: response });
+  renderScreen();
+
+  await screen.findByText('Patrick Mahomes');
+  expect(screen.getByText('Q')).toBeInTheDocument();
+  expect(screen.getByText(/proj 21\.5/)).toBeInTheDocument();
+});

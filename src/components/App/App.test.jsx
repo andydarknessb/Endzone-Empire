@@ -241,6 +241,28 @@ test('"/league/:leagueId/activity" is protected and renders TransactionLog when 
   expect(await screen.findByText('League Activity')).toBeInTheDocument();
 });
 
+test('"/players/:playerId" is protected and renders PlayerDetail when logged in', async () => {
+  const { unmount } = renderApp('#/players/5', { user: loggedOut });
+  expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();
+  unmount();
+
+  renderApp('#/players/5', { user: loggedIn }, () => {
+    apiClient.get.mockImplementation((url) => {
+      if (url === '/api/players/5') {
+        return Promise.resolve({
+          data: {
+            player: { id: 5, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'KC' },
+            weekly: [],
+            seasonTotals: null,
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+  });
+  expect(await screen.findByText('Patrick Mahomes')).toBeInTheDocument();
+});
+
 test('an unmatched route shows the 404 page', async () => {
   renderApp('#/this-route-does-not-exist', { user: loggedOut });
   expect(await screen.findByRole('heading', { name: '404' })).toBeInTheDocument();

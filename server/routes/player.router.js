@@ -45,8 +45,16 @@ router.get('/', requireAuth, async (req, res) => {
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
   params.push(PAGE_SIZE, offset);
+  // projected_points = per-game fantasy average over the player's most
+  // recent synced season (null until stats exist)
   const queryText = `
-    SELECT *, COUNT(*) OVER() AS total_count FROM "players"
+    SELECT "players".*, COUNT(*) OVER() AS total_count,
+           (SELECT ROUND(AVG("fantasy_points"), 1) FROM "player_stats"
+            WHERE "player_stats"."player_id" = "players"."id"
+              AND "player_stats"."season" = (SELECT MAX("season") FROM "player_stats"
+                                             WHERE "player_id" = "players"."id")
+           ) AS "projected_points"
+    FROM "players"
     ${whereSql}
     ORDER BY "id"
     LIMIT $${params.length - 1} OFFSET $${params.length}
@@ -65,6 +73,46 @@ router.get('/', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('Error on GET players query', error);
     res.status(500).json({ error: 'failed to fetch players' });
+  }
+});
+
+// GET /api/players/:id — player detail: weekly stat lines, fantasy points by
+// week, season totals, and a per-game projection (season average)
+router.get('/:id', requireAuth, async (req, res) => {
+  if (!/^\d+$/.test(req.params.id)) {
+    return res.status(400).json({ error: 'player id must be a positive integer' });
+  }
+  const playerId = Number(req.params.id);
+  try {
+    const playerResult = await pool.query(`SELECT * FROM "players" WHERE "id" = $1`, [playerId]);
+    const player = playerResult.rows[0];
+    if (!player) return res.status(404).json({ error: 'player not found' });
+
+    const weeklyResult = await pool.query(
+      `SELECT "season", "week", "stats", "fantasy_points"
+       FROM "player_stats" WHERE "player_id" = $1
+       ORDER BY "season" DESC, "week"`,
+      [playerId]
+    );
+    const weekly = weeklyResult.rows.map((r) => ({ ...r, fantasy_points: Number(r.fantasy_points) }));
+    const latestSeason = weekly.length > 0 ? weekly[0].season : null;
+    const seasonWeeks = weekly.filter((w) => w.season === latestSeason);
+    const totalPoints = seasonWeeks.reduce((sum, w) => sum + w.fantasy_points, 0);
+    res.json({
+      player,
+      weekly,
+      seasonTotals: latestSeason === null ? null : {
+        season: latestSeason,
+        games: seasonWeeks.length,
+        points: Math.round(totalPoints * 100) / 100,
+        projectedPoints: seasonWeeks.length > 0
+          ? Math.round((totalPoints / seasonWeeks.length) * 10) / 10
+          : null,
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching player detail', error);
+    res.status(500).json({ error: 'failed to fetch player' });
   }
 });
 

@@ -112,6 +112,18 @@ router.post('/sync-schedule', async (req, res) => {
   }
 });
 
+// POST /api/scoring/sync-injuries — refresh player injury designations
+router.post('/sync-injuries', async (req, res) => {
+  try {
+    const result = await scoring.syncInjuries();
+    res.json(result);
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    console.error('Injury sync failed:', error);
+    res.status(500).json({ error: 'injury sync failed' });
+  }
+});
+
 // GET /api/scoring/league/:id/standings — record, PF/PA, streak, ranks
 router.get('/league/:id/standings', async (req, res) => {
   if (!/^\d+$/.test(req.params.id)) {
