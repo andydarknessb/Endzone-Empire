@@ -1,33 +1,47 @@
 import React, { useState, useEffect } from 'react';
-import { useSelector, useDispatch } from 'react-redux';
-import { Typography, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Select, MenuItem, InputLabel } from '@mui/material';
+import { useSelector } from 'react-redux';
+import {
+  Typography, Button, Dialog, DialogTitle, DialogContent, DialogActions,
+  TextField, Select, MenuItem, InputLabel, Alert,
+} from '@mui/material';
+import apiClient from '../../api/apiClient';
 import './UserPage.css';
 
 function UserPage() {
-  const dispatch = useDispatch();
   const user = useSelector((store) => store.user);
+
+  const [myLeagues, setMyLeagues] = useState([]);
+  const [error, setError] = useState(null);
+  const [notice, setNotice] = useState(null);
+
+  // Create League dialog
   const [openCreateDialog, setOpenCreateDialog] = useState(false);
-  const [openJoinDialog, setOpenJoinDialog] = useState(false);
-  const [leagueName, setLeagueName] = useState("");
-  const [teamName, setTeamName] = useState("");
-  const [teamDescription, setTeamDescription] = useState("");
-  const [openCreateTeamDialog, setOpenCreateTeamDialog] = useState(false);
-  const [teamNumber, setTeamNumber] = useState(2);
+  const [leagueName, setLeagueName] = useState('');
+  const [teamName, setTeamName] = useState('');
   const [numTeams, setNumTeams] = useState(2);
-  const [availableLeagues, setAvailableLeagues] = useState([]);
-  const [selectedTeam, setSelectedTeam] = useState('');
-  const [selectedLeague, setSelectedLeague] = useState('');
-  const [availableTeams, setAvailableTeams] = useState([]);
 
+  // Join League dialog — leagues are private, so joining is always by invite code
+  const [openJoinDialog, setOpenJoinDialog] = useState(false);
+  const [inviteCode, setInviteCode] = useState('');
 
-  
+  // Rename Team dialog — a team can't exist outside a league, so renaming
+  // (not standalone creation) is the real operation here
+  const [openRenameTeamDialog, setOpenRenameTeamDialog] = useState(false);
+  const [renameLeagueId, setRenameLeagueId] = useState('');
+  const [newTeamName, setNewTeamName] = useState('');
+
+  const fetchMyLeagues = async () => {
+    try {
+      const response = await apiClient.get('/api/league');
+      setMyLeagues(response.data);
+    } catch (err) {
+      setError(err.response?.data?.error || err.message);
+    }
+  };
+
   useEffect(() => {
-    // Fetch user's leagues
-    dispatch({ type: 'FETCH_USER_LEAGUES', payload: user.id });
-  }, [dispatch, user.id]);
-
-  // List of user's leagues
-  const leagues = useSelector((store) => store.leagues);
+    fetchMyLeagues();
+  }, []);
 
   // Functions to handle create dialog
   const handleOpenCreateDialog = () => {
@@ -38,127 +52,72 @@ function UserPage() {
     setOpenCreateDialog(false);
   };
 
-  const handleCreateLeague = () => {
-    console.log('numTeams:', numTeams);
-    fetch('/api/league/create', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
+  const handleCreateLeague = async () => {
+    setError(null);
+    try {
+      await apiClient.post('/api/league', {
         name: leagueName,
-        team: teamName,
-        numTeams: numTeams, 
-        userId: user.id,
-      }),  
-    })
-    .then((response) => {
-      if (!response.ok) throw new Error(response.status);
-      else return response.json();
-    })
-    .then(() => {
-      // Fetch user's leagues again
-      dispatch({ type: 'FETCH_USER_LEAGUES', payload: user.id });
-    })
-    .catch((error) => {
-      console.error(`Error creating league: ${error}`);
-    })
-    .finally(() => {
-      // Whether the fetch was successful or there was an error, close the dialog.
+        teamName: teamName || undefined,
+        maxTeams: numTeams,
+      });
+      setNotice('League created!');
+      setLeagueName('');
+      setTeamName('');
+      fetchMyLeagues();
+    } catch (err) {
+      setError(err.response?.data?.error || err.message);
+    } finally {
       handleCloseCreateDialog();
-    });
+    }
   };
-  
 
   // Functions to handle join dialog
   const handleOpenJoinDialog = () => {
-    fetch('/api/league/available')
-      .then(response => {
-        if (!response.ok) throw new Error(`Error: ${response.statusText}`);
-        return response.json();
-      })
-      .then(data => {
-        console.log(data);
-        setAvailableLeagues(data);
-        setOpenJoinDialog(true);
-      })
-      .catch(error => {
-        console.error('Error fetching available leagues:', error);
-    });
+    setOpenJoinDialog(true);
   };
 
   const handleCloseJoinDialog = () => {
     setOpenJoinDialog(false);
   };
 
-  const handleJoinLeague = () => {
-    fetch(`/api/league/${selectedLeague}/teams`)
-      .then(response => response.json())
-      .then(data => {
-        const teamExists = data.some(team => team.id === selectedTeam);
-        if (!teamExists) {
-          throw new Error('Team does not exist in this league');
-        }
-  
-        return fetch(`/api/league/join/${selectedLeague}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            teamId: selectedTeam,
-          }),
-        });
-      })
-      .then((response) => {
-        if (!response.ok) throw new Error(response.status);
-        else return response.json();
-      })
+  const handleJoinLeague = async () => {
+    setError(null);
+    try {
+      await apiClient.post('/api/league/join', { inviteCode: inviteCode.trim() });
+      setNotice('Joined league!');
+      setInviteCode('');
+      fetchMyLeagues();
+    } catch (err) {
+      setError(err.response?.data?.error || err.message);
+    } finally {
+      handleCloseJoinDialog();
+    }
   };
-  
-  
 
-  // Functions to handle create team dialog
-const handleOpenCreateTeamDialog = () => {
-  setOpenCreateTeamDialog(true);
-};
+  // Functions to handle rename team dialog
+  const handleOpenRenameTeamDialog = () => {
+    setOpenRenameTeamDialog(true);
+  };
 
-const handleCloseCreateTeamDialog = () => {
-  setOpenCreateTeamDialog(false);
-};
+  const handleCloseRenameTeamDialog = () => {
+    setOpenRenameTeamDialog(false);
+  };
 
-const handleCreateTeam = () => {
-  fetch('api/teamName/create', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      name: teamName,
-      // Add more data here as necessary
-    }),  
-  })
-  .then((response) => {
-    if (!response.ok) throw new Error(response.status);
-    else return response.json();
-  })
-  .then(() => {
-    handleCloseCreateTeamDialog();
-    setSnackbarMessage("Team successfully created!");
-    setOpenSnackbar(true);
-    dispatch({ type: 'FETCH_USER_LEAGUES', payload: user.id });
-  })
-  .catch((error) => {
-    setSnackbarMessage(`Error creating team: ${error.message}`);
-    setOpenSnackbar(true);
-  });
-
-};
-
-const handleTeamSelection = (event) => {
-  setSelectedTeam(event.target.value);
-};
-
+  const handleRenameTeam = async () => {
+    setError(null);
+    try {
+      const league = myLeagues.find((l) => l.id === renameLeagueId);
+      if (!league) throw new Error('Select a league first');
+      await apiClient.put(`/api/team/${league.my_team_id}`, { name: newTeamName });
+      setNotice('Team renamed!');
+      setNewTeamName('');
+      fetchMyLeagues();
+    } catch (err) {
+      setError(err.response?.data?.error || err.message);
+    } finally {
+      handleCloseRenameTeamDialog();
+    }
+  };
 
   return (
     <div className="user-page">
@@ -168,12 +127,15 @@ const handleTeamSelection = (event) => {
     <div className="RegisterForm">
       <Typography variant="h4" className="title">Endzone Empire</Typography>
       <Typography variant="h6" className="welcomeText">Welcome, {user.username}!</Typography>
-     
+
+      {error && <Alert severity="error" onClose={() => setError(null)} sx={{ my: 1 }}>{error}</Alert>}
+      {notice && <Alert severity="success" onClose={() => setNotice(null)} sx={{ my: 1 }}>{notice}</Alert>}
+
       <div className="leagueContainer">
-        {leagues && leagues.map((league) => (
+        {myLeagues.map((league) => (
           <div key={league.id} className="leagueItem">
             <Typography variant="body1">{league.name}</Typography>
-            <Typography variant="body2">{league.description}</Typography>
+            <Typography variant="body2">Team: {league.my_team_name}</Typography>
           </div>
         ))}
       </div>
@@ -181,17 +143,28 @@ const handleTeamSelection = (event) => {
         <Button variant="contained" color="primary" onClick={handleOpenCreateDialog}>
           Create League
         </Button>
-      
+        <Button variant="outlined" color="primary" onClick={handleOpenJoinDialog}>
+          Join League
+        </Button>
+        <Button
+          variant="outlined"
+          color="primary"
+          onClick={handleOpenRenameTeamDialog}
+          disabled={myLeagues.length === 0}
+        >
+          Rename Team
+        </Button>
       </div>
       <Dialog open={openCreateDialog} onClose={handleCloseCreateDialog} className="dialogContainer">
         <DialogTitle className="dialogTitle">Create a New League</DialogTitle>
         <DialogContent>
-          <TextField className="dialogTextField" autoFocus margin="dense" label="League Name" fullWidth onChange={(event) => setLeagueName(event.target.value)} />
-          <TextField className="dialogTextField" margin="dense" label="Team Name" fullWidth onChange={(event) => setTeamName(event.target.value)} />
+          <TextField className="dialogTextField" autoFocus margin="dense" label="League Name" fullWidth value={leagueName} onChange={(event) => setLeagueName(event.target.value)} />
+          <TextField className="dialogTextField" margin="dense" label="Team Name" fullWidth value={teamName} onChange={(event) => setTeamName(event.target.value)} />
           <InputLabel id="numTeams-label"></InputLabel>
           <div style={{display: 'flex', alignItems: 'center', marginTop: '1em'}}>
           <Typography variant="body1" style={{marginRight: '1em', color: '#000', fontWeight: 'bold', fontSize: '1.2em'}}>Teams:</Typography>
         <Select
+            labelId="numTeams-label"
             value={numTeams}
             onChange={(event) => setNumTeams(event.target.value)}
             style={{minWidth: 120}}
@@ -206,7 +179,7 @@ const handleTeamSelection = (event) => {
           <Button onClick={handleCloseCreateDialog} color="primary">
            Cancel
           </Button>
-          <Button onClick={handleCreateLeague} color="primary">
+          <Button onClick={handleCreateLeague} color="primary" disabled={!leagueName.trim()}>
            Create
           </Button>
           </DialogActions>
@@ -214,40 +187,49 @@ const handleTeamSelection = (event) => {
       <Dialog open={openJoinDialog} onClose={handleCloseJoinDialog} className="dialogContainer">
         <DialogTitle className="dialogTitle">Join an Existing League</DialogTitle>
         <DialogContent>
-        <InputLabel id="league-select-label">League</InputLabel>
-        <Select
-        labelId="league-select-label"
-        value={selectedLeague}
-        onChange={(event) => setSelectedLeague(event.target.value)}
-  >
-        {availableLeagues.map((league) => (
-        <MenuItem key={league.id} value={league.id}>
-        {league.name}
-        </MenuItem>
-        ))}
-        </Select>
-  
+          <TextField
+            className="dialogTextField"
+            autoFocus
+            margin="dense"
+            label="Invite Code"
+            fullWidth
+            value={inviteCode}
+            onChange={(event) => setInviteCode(event.target.value)}
+          />
         </DialogContent>
                 <DialogActions>
                   <Button onClick={handleCloseJoinDialog} color="primary">
                     Cancel
                   </Button>
-                  <Button onClick={handleJoinLeague} color="primary">
+                  <Button onClick={handleJoinLeague} color="primary" disabled={!inviteCode.trim()}>
                     Join
                   </Button>
                 </DialogActions>
               </Dialog>
-      <Dialog open={openCreateTeamDialog} onClose={handleCloseCreateTeamDialog} className="dialogContainer">
-      <DialogTitle className="dialogTitle">Create a New Team</DialogTitle>
+      <Dialog open={openRenameTeamDialog} onClose={handleCloseRenameTeamDialog} className="dialogContainer">
+      <DialogTitle className="dialogTitle">Rename Team</DialogTitle>
       <DialogContent>
-      <TextField className="dialogTextField" autoFocus margin="dense" label="Team Name" fullWidth onChange={(event) => setTeamName(event.target.value)} />
+      <InputLabel id="rename-league-label">League</InputLabel>
+      <Select
+        labelId="rename-league-label"
+        fullWidth
+        value={renameLeagueId}
+        onChange={(event) => setRenameLeagueId(event.target.value)}
+      >
+        {myLeagues.map((league) => (
+          <MenuItem key={league.id} value={league.id}>
+            {league.name} ({league.my_team_name})
+          </MenuItem>
+        ))}
+      </Select>
+      <TextField className="dialogTextField" margin="dense" label="New Team Name" fullWidth value={newTeamName} onChange={(event) => setNewTeamName(event.target.value)} />
       </DialogContent>
       <DialogActions>
-      <Button onClick={handleCloseCreateTeamDialog} color="primary">
+      <Button onClick={handleCloseRenameTeamDialog} color="primary">
       Cancel
     </Button>
-    <Button onClick={handleCreateTeam} color="primary">
-                  Create
+    <Button onClick={handleRenameTeam} color="primary" disabled={!renameLeagueId || !newTeamName.trim()}>
+                  Rename
                 </Button>
               </DialogActions>
             </Dialog>
@@ -255,7 +237,7 @@ const handleTeamSelection = (event) => {
         </div>
       </div>
     </div>
-    
+
   </div>
   );
 }
