@@ -93,6 +93,43 @@ function LeagueDashboard() {
     }
   };
 
+  const handleToggleTransactionsLock = async () => {
+    try {
+      setError(null);
+      setSuccessMessage(null);
+      const locked = !league.transactions_locked;
+      await apiClient.put(`/api/commissioner/league/${leagueId}/transactions-lock`, { locked });
+      setSuccessMessage(locked ? 'Transactions locked' : 'Transactions unlocked');
+      fetchLeagueAndUser();
+    } catch (err) {
+      setError(err.response?.data?.error || err.message);
+    }
+  };
+
+  const handleRemoveTeam = async (teamId) => {
+    try {
+      setError(null);
+      setSuccessMessage(null);
+      await apiClient.delete(`/api/commissioner/league/${leagueId}/teams/${teamId}`);
+      setSuccessMessage('Team removed');
+      fetchLeagueAndUser();
+    } catch (err) {
+      setError(err.response?.data?.error || err.message);
+    }
+  };
+
+  const handleRollover = async () => {
+    try {
+      setError(null);
+      setSuccessMessage(null);
+      await apiClient.post(`/api/commissioner/league/${leagueId}/rollover`, {});
+      setSuccessMessage('New season started!');
+      fetchLeagueAndUser();
+    } catch (err) {
+      setError(err.response?.data?.error || err.message);
+    }
+  };
+
   const handleCopyInviteCode = async () => {
     try {
       await navigator.clipboard.writeText(league.invite_code);
@@ -267,6 +304,42 @@ function LeagueDashboard() {
           </Button>
         </Link>
       </Box>
+
+      {isOwner && (
+        <Paper sx={{ p: 2, mt: 3 }}>
+          <Typography variant="h6" sx={{ mb: 2 }}>
+            Commissioner Tools
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+            <Button variant="outlined" color="warning" onClick={handleToggleTransactionsLock}>
+              {league.transactions_locked ? 'Unlock Transactions' : 'Lock Transactions'}
+            </Button>
+            {standingsLeague && standingsLeague.season_status === 'complete' && (
+              <Button variant="contained" color="secondary" onClick={handleRollover}>
+                Start New Season
+              </Button>
+            )}
+          </Box>
+          <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
+            Remove a team
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            {teams
+              .filter((team) => team.owner !== user.username)
+              .map((team) => (
+                <Button
+                  key={team.id}
+                  size="small"
+                  variant="outlined"
+                  color="error"
+                  onClick={() => handleRemoveTeam(team.id)}
+                >
+                  Remove {team.name}
+                </Button>
+              ))}
+          </Box>
+        </Paper>
+      )}
     </Container>
   );
 }

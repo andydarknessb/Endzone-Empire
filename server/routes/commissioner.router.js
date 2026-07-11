@@ -1,0 +1,108 @@
+const express = require('express');
+const { requireAuth } = require('../modules/auth');
+const commissioner = require('../services/commissioner.service');
+
+const router = express.Router();
+router.use(requireAuth);
+
+function intOrNull(value) {
+  return /^\d+$/.test(String(value)) ? Number(value) : null;
+}
+
+function handle(res, error, fallback) {
+  if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+  console.error(fallback, error);
+  return res.status(500).json({ error: fallback });
+}
+
+// DELETE /api/commissioner/league/:id/teams/:teamId — remove a team
+router.delete('/league/:id/teams/:teamId', async (req, res) => {
+  const leagueId = intOrNull(req.params.id);
+  const teamId = intOrNull(req.params.teamId);
+  if (!leagueId || !teamId) {
+    return res.status(400).json({ error: 'league id and team id must be positive integers' });
+  }
+  try {
+    res.json(await commissioner.removeTeam({ leagueId, userId: req.user.id, teamId }));
+  } catch (error) {
+    handle(res, error, 'failed to remove team');
+  }
+});
+
+// PUT /api/commissioner/league/:id/teams/:teamId/lineup — force-set a lineup
+// { week?, moves: [{ playerId, slot }] }
+router.put('/league/:id/teams/:teamId/lineup', async (req, res) => {
+  const leagueId = intOrNull(req.params.id);
+  const teamId = intOrNull(req.params.teamId);
+  if (!leagueId || !teamId) {
+    return res.status(400).json({ error: 'league id and team id must be positive integers' });
+  }
+  const { week, moves } = req.body || {};
+  if (week !== undefined && (!Number.isInteger(week) || week < 1)) {
+    return res.status(400).json({ error: 'week must be a positive integer' });
+  }
+  try {
+    res.json(await commissioner.forceSetLineup({ leagueId, userId: req.user.id, teamId, week, moves }));
+  } catch (error) {
+    handle(res, error, 'failed to set lineup');
+  }
+});
+
+// PUT /api/commissioner/league/:id/matchups/:matchupId — adjust scores
+// { homeScore, awayScore }
+router.put('/league/:id/matchups/:matchupId', async (req, res) => {
+  const leagueId = intOrNull(req.params.id);
+  const matchupId = intOrNull(req.params.matchupId);
+  if (!leagueId || !matchupId) {
+    return res.status(400).json({ error: 'league id and matchup id must be positive integers' });
+  }
+  const { homeScore, awayScore } = req.body || {};
+  const validScore = (s) => Number.isFinite(Number(s)) && Number(s) >= 0 && Number(s) <= 1000;
+  if (!validScore(homeScore) || !validScore(awayScore)) {
+    return res.status(400).json({ error: 'homeScore and awayScore must be numbers between 0 and 1000' });
+  }
+  try {
+    res.json(await commissioner.adjustMatchupScore({
+      leagueId,
+      userId: req.user.id,
+      matchupId,
+      homeScore: Number(homeScore),
+      awayScore: Number(awayScore),
+    }));
+  } catch (error) {
+    handle(res, error, 'failed to adjust score');
+  }
+});
+
+// PUT /api/commissioner/league/:id/transactions-lock — { locked: true|false }
+router.put('/league/:id/transactions-lock', async (req, res) => {
+  const leagueId = intOrNull(req.params.id);
+  if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
+  const { locked } = req.body || {};
+  if (typeof locked !== 'boolean') {
+    return res.status(400).json({ error: 'locked (boolean) is required' });
+  }
+  try {
+    res.json(await commissioner.setTransactionsLocked({ leagueId, userId: req.user.id, locked }));
+  } catch (error) {
+    handle(res, error, 'failed to update transaction lock');
+  }
+});
+
+// POST /api/commissioner/league/:id/rollover — archive season and reset
+// { keepers?: [{ teamId, playerIds: [] }] }
+router.post('/league/:id/rollover', async (req, res) => {
+  const leagueId = intOrNull(req.params.id);
+  if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
+  const { keepers } = req.body || {};
+  if (keepers !== undefined && !Array.isArray(keepers)) {
+    return res.status(400).json({ error: 'keepers must be an array of { teamId, playerIds }' });
+  }
+  try {
+    res.json(await commissioner.rolloverSeason({ leagueId, userId: req.user.id, keepers: keepers || [] }));
+  } catch (error) {
+    handle(res, error, 'failed to roll over season');
+  }
+});
+
+module.exports = router;

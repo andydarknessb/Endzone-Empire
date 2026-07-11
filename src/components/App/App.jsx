@@ -31,6 +31,9 @@ import WaiverWire from '../WaiverWire/WaiverWire';
 import TradeCenter from '../TradeCenter/TradeCenter';
 import TransactionLog from '../TransactionLog/TransactionLog';
 import PlayerDetail from '../PlayerDetail/PlayerDetail';
+import ForgotPassword from '../ForgotPassword/ForgotPassword';
+import ResetPassword from '../ResetPassword/ResetPassword';
+import VerifyEmail from '../VerifyEmail/VerifyEmail';
 
 
 import './App.css';
@@ -60,6 +63,9 @@ function App() {
           <Route path="/league/:leagueId/trades" element={<ProtectedRoute><TradeCenter /></ProtectedRoute>} />
           <Route path="/league/:leagueId/activity" element={<ProtectedRoute><TransactionLog /></ProtectedRoute>} />
           <Route path="/players/:playerId" element={<ProtectedRoute><PlayerDetail /></ProtectedRoute>} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/verify-email" element={<VerifyEmail />} />
           {/* Visiting localhost:3000 will redirect to localhost:3000/home */}
           <Route path="/" element={<Navigate to="/home" replace />} />
 

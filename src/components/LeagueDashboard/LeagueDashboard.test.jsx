@@ -7,7 +7,7 @@ import LeagueDashboard from './LeagueDashboard';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
-  default: { get: jest.fn(), post: jest.fn() },
+  default: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn() },
 }));
 
 const renderDashboard = (leagueId = 1) =>
@@ -324,4 +324,78 @@ test('Advance Week is absent once the season is complete', async () => {
   await screen.findByText('Sunday Ballers');
 
   expect(screen.queryByRole('button', { name: 'Advance Week' })).not.toBeInTheDocument();
+});
+
+// --- Commissioner tools ---
+
+test('Commissioner Tools panel shows only for the owner', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse({ owner_id: 99 }),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  expect(screen.queryByText('Commissioner Tools')).not.toBeInTheDocument();
+});
+
+test('Lock Transactions toggles via the commissioner endpoint', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse(),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
+  apiClient.put.mockResolvedValue({});
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  await userEvent.click(screen.getByRole('button', { name: 'Lock Transactions' }));
+
+  await waitFor(() =>
+    expect(apiClient.put).toHaveBeenCalledWith('/api/commissioner/league/1/transactions-lock', {
+      locked: true,
+    })
+  );
+  expect(await screen.findByText('Transactions locked')).toBeInTheDocument();
+});
+
+test('removing another owner\'s team calls the commissioner endpoint', async () => {
+  const withOtherTeam = leagueResponse();
+  withOtherTeam.data.teams.push({ id: 2, name: "Bob's Team", owner: 'bob', roster_count: 0, total_points: 0 });
+  mockGetByUrl({
+    '/api/league/1': withOtherTeam,
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
+  apiClient.delete.mockResolvedValue({});
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  // Own team has no remove button; Bob's does
+  expect(screen.queryByRole('button', { name: "Remove Alice's Team" })).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: "Remove Bob's Team" }));
+
+  await waitFor(() =>
+    expect(apiClient.delete).toHaveBeenCalledWith('/api/commissioner/league/1/teams/2')
+  );
+  expect(await screen.findByText('Team removed')).toBeInTheDocument();
+});
+
+test('Start New Season appears only when the season is complete and POSTs the rollover', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse({ draft_status: 'complete' }),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse({ league: { season_status: 'complete' } }),
+  });
+  apiClient.post.mockResolvedValue({});
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  await userEvent.click(screen.getByRole('button', { name: 'Start New Season' }));
+
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/commissioner/league/1/rollover', {})
+  );
+  expect(await screen.findByText('New season started!')).toBeInTheDocument();
 });

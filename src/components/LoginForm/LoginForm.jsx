@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useDispatch } from 'react-redux';
 import {useSelector} from 'react-redux';
+import { Link } from 'react-router-dom';
 import './LoginForm.css';
 
 function LoginForm() {
@@ -61,6 +62,9 @@ function LoginForm() {
       </div>
       <div>
         <input className="btn" type="submit" name="submit" value="Log In" />
+      </div>
+      <div>
+        <Link to="/forgot-password">Forgot password?</Link>
       </div>
     </form>
   );

@@ -12,6 +12,7 @@ const waiversRouter = require('./routes/waivers.router');
 const draftRouter = require('./routes/draft.router');
 const tradesRouter = require('./routes/trades.router');
 const notificationsRouter = require('./routes/notifications.router');
+const commissionerRouter = require('./routes/commissioner.router');
 const { attachDraftSocket } = require('./modules/draftSocket');
 const { startScheduler } = require('./modules/scheduler');
 
@@ -31,6 +32,7 @@ app.use('/api/waivers', waiversRouter);
 app.use('/api/draft', draftRouter);
 app.use('/api/trades', tradesRouter);
 app.use('/api/notifications', notificationsRouter);
+app.use('/api/commissioner', commissionerRouter);
 
 // Serve the built React app
 app.use(express.static('build'));

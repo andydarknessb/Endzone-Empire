@@ -1,0 +1,310 @@
+const pool = require('../modules/pool');
+const { logTransaction, notify, notifyLeague } = require('./activity.service');
+const {
+  materializeLineup,
+  parseLineupSettings,
+  validateLineup,
+} = require('./lineup.service');
+const { computeStandings } = require('./season.service');
+
+class CommissionerError extends Error {
+  constructor(statusCode, message) {
+    super(message);
+    this.statusCode = statusCode;
+  }
+}
+
+async function requireCommissioner(client, { leagueId, userId, forUpdate = false }) {
+  const result = await client.query(
+    `SELECT * FROM "leagues" WHERE "id" = $1${forUpdate ? ' FOR UPDATE' : ''}`,
+    [leagueId]
+  );
+  const league = result.rows[0];
+  if (!league) throw new CommissionerError(404, 'league not found');
+  if (league.owner_id !== userId) {
+    throw new CommissionerError(403, 'only the commissioner can do this');
+  }
+  return league;
+}
+
+/**
+ * Remove a team from the league. Before the draft this is clean; later it
+ * also cascades the team's roster, lineups, and matchups (history rewrites
+ * are on the commissioner). The commissioner's own team can't be removed.
+ */
+async function removeTeam({ leagueId, userId, teamId }) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const league = await requireCommissioner(client, { leagueId, userId, forUpdate: true });
+    const teamResult = await client.query(
+      `SELECT * FROM "teams" WHERE "id" = $1 AND "league_id" = $2`,
+      [teamId, leagueId]
+    );
+    const team = teamResult.rows[0];
+    if (!team) throw new CommissionerError(404, 'team not found in this league');
+    if (team.owner_id === league.owner_id) {
+      throw new CommissionerError(409, "the commissioner's own team can't be removed");
+    }
+    await client.query(`DELETE FROM "teams" WHERE "id" = $1`, [teamId]);
+    await logTransaction(client, {
+      leagueId,
+      teamId: null,
+      type: 'commissioner',
+      detail: { action: 'remove_team', teamId, teamName: team.name },
+    });
+    await notify(client, {
+      userId: team.owner_id,
+      leagueId,
+      type: 'league',
+      message: `Your team was removed from ${league.name} by the commissioner`,
+    });
+    await client.query('COMMIT');
+    return { leagueId, removedTeamId: teamId };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Commissioner force-sets any team's lineup for a week. Bypasses ownership
+ * and lineup locks, but still validates slot counts and eligibility so the
+ * result is a legal lineup.
+ */
+async function forceSetLineup({ leagueId, userId, teamId, week, moves }) {
+  if (!Array.isArray(moves) || moves.length === 0) {
+    throw new CommissionerError(400, 'moves must be a non-empty array of { playerId, slot }');
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const league = await requireCommissioner(client, { leagueId, userId });
+    const teamResult = await client.query(
+      `SELECT * FROM "teams" WHERE "id" = $1 AND "league_id" = $2 FOR UPDATE`,
+      [teamId, leagueId]
+    );
+    if (!teamResult.rows[0]) throw new CommissionerError(404, 'team not found in this league');
+    const season = league.current_season;
+    const targetWeek = week || league.current_week;
+
+    await materializeLineup(client, { leagueId, teamId, season, week: targetWeek });
+    const entriesResult = await client.query(
+      `SELECT "lineup_entries"."player_id", "lineup_entries"."slot", "players"."position"
+       FROM "lineup_entries"
+       JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
+       JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
+         AND "team_players"."player_id" = "lineup_entries"."player_id"
+       WHERE "lineup_entries"."team_id" = $1 AND "lineup_entries"."season" = $2
+         AND "lineup_entries"."week" = $3`,
+      [teamId, season, targetWeek]
+    );
+    const byPlayer = new Map(entriesResult.rows.map((r) => [r.player_id, r]));
+    const changed = [];
+    for (const move of moves) {
+      const entry = byPlayer.get(move.playerId);
+      if (!entry) throw new CommissionerError(404, `player ${move.playerId} is not on that roster`);
+      if (entry.slot === move.slot) continue;
+      entry.slot = move.slot;
+      changed.push(entry);
+    }
+    const errors = validateLineup(
+      Array.from(byPlayer.values()).map((e) => ({ playerId: e.player_id, position: e.position, slot: e.slot })),
+      parseLineupSettings(league)
+    );
+    if (errors.length > 0) throw new CommissionerError(400, errors.join('; '));
+    for (const entry of changed) {
+      await client.query(
+        `UPDATE "lineup_entries" SET "slot" = $1, "updated_at" = now()
+         WHERE "team_id" = $2 AND "season" = $3 AND "week" = $4 AND "player_id" = $5`,
+        [entry.slot, teamId, season, targetWeek, entry.player_id]
+      );
+    }
+    await logTransaction(client, {
+      leagueId,
+      teamId,
+      type: 'commissioner',
+      detail: { action: 'force_set_lineup', teamId, week: targetWeek, updated: changed.length },
+    });
+    await client.query('COMMIT');
+    return { leagueId, teamId, week: targetWeek, updated: changed.length };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+/** Manually override a matchup's scores (logged to the transaction log). */
+async function adjustMatchupScore({ leagueId, userId, matchupId, homeScore, awayScore }) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await requireCommissioner(client, { leagueId, userId });
+    const result = await client.query(
+      `UPDATE "matchups" SET "home_score" = $1, "away_score" = $2
+       WHERE "id" = $3 AND "league_id" = $4 RETURNING *`,
+      [homeScore, awayScore, matchupId, leagueId]
+    );
+    if (!result.rows[0]) throw new CommissionerError(404, 'matchup not found in this league');
+    await logTransaction(client, {
+      leagueId,
+      teamId: null,
+      type: 'commissioner',
+      detail: { action: 'adjust_score', matchupId, homeScore, awayScore },
+    });
+    await client.query('COMMIT');
+    return result.rows[0];
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+/** Freeze or unfreeze all roster transactions (adds, drops, waivers, trades). */
+async function setTransactionsLocked({ leagueId, userId, locked }) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await requireCommissioner(client, { leagueId, userId });
+    await client.query(
+      `UPDATE "leagues" SET "transactions_locked" = $1, "updated_at" = now() WHERE "id" = $2`,
+      [locked, leagueId]
+    );
+    await logTransaction(client, {
+      leagueId,
+      teamId: null,
+      type: 'commissioner',
+      detail: { action: locked ? 'lock_transactions' : 'unlock_transactions' },
+    });
+    await client.query('COMMIT');
+    return { leagueId, transactionsLocked: locked };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Season rollover: archive final standings and the champion into
+ * league_history, then reset the league for a new season. Optional keepers
+ * ([{ teamId, playerIds }]) survive the roster wipe; everything else —
+ * draft picks, waivers, pending claims and trades — is cleared. Historical
+ * matchups, lineups, and stats stay (they're keyed by season).
+ */
+async function rolloverSeason({ leagueId, userId, keepers = [] }) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const league = await requireCommissioner(client, { leagueId, userId, forUpdate: true });
+    if (league.season_status !== 'complete') {
+      throw new CommissionerError(409, 'the season must be complete before rolling over');
+    }
+
+    const teamsResult = await client.query(
+      `SELECT "id", "name" FROM "teams" WHERE "league_id" = $1`,
+      [leagueId]
+    );
+    const matchupsResult = await client.query(
+      `SELECT * FROM "matchups" WHERE "league_id" = $1 AND "season" = $2`,
+      [leagueId, league.current_season]
+    );
+    const standings = computeStandings(teamsResult.rows, matchupsResult.rows);
+
+    // Champion: winner of the last final, non-consolation playoff game
+    const playoffFinals = matchupsResult.rows
+      .filter((m) => m.is_playoff && !m.is_consolation && m.final)
+      .sort((a, b) => b.week - a.week);
+    const decider = playoffFinals[0];
+    const championTeamId = decider
+      ? (Number(decider.home_score) >= Number(decider.away_score)
+        ? decider.home_team_id
+        : decider.away_team_id)
+      : (standings[0] ? standings[0].teamId : null);
+
+    await client.query(
+      `INSERT INTO "league_history" ("league_id", "season", "champion_team_id", "standings")
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT ("league_id", "season")
+       DO UPDATE SET "champion_team_id" = EXCLUDED."champion_team_id",
+                     "standings" = EXCLUDED."standings"`,
+      [leagueId, league.current_season, championTeamId, JSON.stringify(standings)]
+    );
+
+    // Roster wipe with keeper exceptions
+    const keeperPairs = [];
+    for (const k of keepers) {
+      if (!Number.isInteger(k.teamId) || !Array.isArray(k.playerIds)) {
+        throw new CommissionerError(400, 'keepers must be [{ teamId, playerIds }]');
+      }
+      for (const pid of k.playerIds) keeperPairs.push([k.teamId, pid]);
+    }
+    if (keeperPairs.length > 0) {
+      await client.query(
+        `DELETE FROM "team_players"
+         WHERE "league_id" = $1 AND ("team_id", "player_id") NOT IN
+           (${keeperPairs.map((_, i) => `($${i * 2 + 2}, $${i * 2 + 3})`).join(', ')})`,
+        [leagueId, ...keeperPairs.flat()]
+      );
+    } else {
+      await client.query(`DELETE FROM "team_players" WHERE "league_id" = $1`, [leagueId]);
+    }
+
+    await client.query(`DELETE FROM "draft_picks" WHERE "league_id" = $1`, [leagueId]);
+    await client.query(`DELETE FROM "waiver_players" WHERE "league_id" = $1`, [leagueId]);
+    await client.query(
+      `UPDATE "waiver_claims" SET "status" = 'cancelled', "updated_at" = now()
+       WHERE "league_id" = $1 AND "status" = 'pending'`,
+      [leagueId]
+    );
+    await client.query(
+      `UPDATE "trades" SET "status" = 'cancelled', "updated_at" = now()
+       WHERE "league_id" = $1 AND "status" IN ('pending', 'accepted')`,
+      [leagueId]
+    );
+    const newSeason = league.current_season + 1;
+    await client.query(
+      `UPDATE "leagues"
+       SET "current_season" = $1, "current_week" = 1, "season_status" = 'regular',
+           "draft_status" = 'pending', "current_pick" = 0, "draft_paused" = false,
+           "pick_deadline_at" = NULL, "waivers_clear_at" = NULL,
+           "transactions_locked" = false, "updated_at" = now()
+       WHERE "id" = $2`,
+      [newSeason, leagueId]
+    );
+    await logTransaction(client, {
+      leagueId,
+      teamId: null,
+      type: 'commissioner',
+      detail: { action: 'season_rollover', archivedSeason: league.current_season, championTeamId },
+    });
+    await notifyLeague(client, {
+      leagueId,
+      type: 'season',
+      message: `A new season has begun! ${keeperPairs.length > 0 ? 'Keepers are locked in — ' : ''}the draft is open to be scheduled.`,
+    });
+    await client.query('COMMIT');
+    return { leagueId, archivedSeason: league.current_season, newSeason, championTeamId };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+module.exports = {
+  CommissionerError,
+  removeTeam,
+  forceSetLineup,
+  adjustMatchupScore,
+  setTransactionsLocked,
+  rolloverSeason,
+};

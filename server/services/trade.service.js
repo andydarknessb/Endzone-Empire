@@ -50,6 +50,9 @@ async function proposeTrade({ leagueId, userId, receivingTeamId, playerIds, coun
     const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
     const league = leagueResult.rows[0];
     if (!league) throw new TradeError(404, 'league not found');
+    if (league.transactions_locked) {
+      throw new TradeError(409, 'transactions are locked by the commissioner');
+    }
     assertBeforeDeadline(league);
 
     const myTeamResult = await client.query(

@@ -240,6 +240,27 @@ router.put('/:id', async (req, res) => {
       ? SCORING_PRESETS[scoringPreset]
       : undefined;
   try {
+    // Game-integrity settings freeze once the draft starts; administrative
+    // ones (name, waivers, trades) stay editable all season.
+    const preDraftOnly = {
+      rosterLimit, lineupSlots, positionCaps, irSlots,
+      scoringRules: effectiveRules, regularSeasonWeeks, playoffTeams,
+      playoffConsolation, pickTimeSeconds,
+    };
+    const frozenRequested = Object.entries(preDraftOnly)
+      .filter(([, v]) => v !== undefined)
+      .map(([k]) => k);
+    if (frozenRequested.length > 0) {
+      const statusResult = await pool.query(
+        `SELECT "draft_status" FROM "leagues" WHERE "id" = $1 AND "owner_id" = $2`,
+        [leagueId, req.user.id]
+      );
+      if (statusResult.rows[0] && statusResult.rows[0].draft_status !== 'pending') {
+        return res.status(409).json({
+          error: `these settings are locked once the draft starts: ${frozenRequested.join(', ')}`,
+        });
+      }
+    }
     const result = await pool.query(
       `UPDATE "leagues"
        SET "name" = COALESCE($1, "name"),
@@ -259,7 +280,7 @@ router.put('/:id', async (req, res) => {
            "playoff_consolation" = COALESCE($15, "playoff_consolation"),
            "pick_time_seconds" = COALESCE($16, "pick_time_seconds"),
            "updated_at" = now()
-       WHERE "id" = $17 AND "owner_id" = $18 AND "draft_status" = 'pending'
+       WHERE "id" = $17 AND "owner_id" = $18
        RETURNING *`,
       [
         name || null,
@@ -283,7 +304,7 @@ router.put('/:id', async (req, res) => {
       ]
     );
     if (!result.rows[0]) {
-      return res.status(403).json({ error: 'league not found, not owner, or draft already started' });
+      return res.status(403).json({ error: 'league not found or you are not the owner' });
     }
     res.json(result.rows[0]);
   } catch (error) {

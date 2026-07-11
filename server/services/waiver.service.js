@@ -73,6 +73,9 @@ async function submitClaim({ leagueId, userId, playerId, dropPlayerId, bid = 0 }
     const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
     const league = leagueResult.rows[0];
     if (!league) throw new WaiverError(404, 'league not found');
+    if (league.transactions_locked) {
+      throw new WaiverError(409, 'transactions are locked by the commissioner');
+    }
 
     const teamResult = await client.query(
       `SELECT * FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
