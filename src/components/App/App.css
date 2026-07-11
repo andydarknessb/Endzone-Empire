@@ -3,7 +3,6 @@ body,
 #react-root {
   height: 100%;
   background: whitesmoke; /* Changed to match LandingPage */
-  color: #f8f8f8; /* Changed to match LandingPage */
 }
 
 body {

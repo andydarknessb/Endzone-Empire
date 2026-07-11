@@ -1,13 +1,5 @@
 /* LandingPage.css */
 
-body {
-  font-family: Arial, sans-serif;
-  color: orange;
-  line-height: 1.6;
-  margin: 0;
-  padding: 0;
-}
-
 .landing-page {
   background: url('/footballplayer.jpeg') no-repeat center center fixed;
   background-size: cover;
@@ -61,7 +53,7 @@ h2 {
   background: #F57C00;
 }
 
-p {
+.landing-page p {
   font-size: 1em;
   line-height: 1.8;
   color: #f8f8f8;

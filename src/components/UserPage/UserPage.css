@@ -1,14 +1,6 @@
 /* UserPage.css */
 
-body {
-    font-family: Arial, sans-serif;
-    color: orange;
-    line-height: 1.6;
-    margin: 0;
-    padding: 0;
-  }
-  
-  .user-page {
+.user-page {
     background: url('/endzone.jpeg') no-repeat center center fixed;
     background-size: cover;
     position: relative;
