@@ -27,6 +27,9 @@ import LeagueDashboard from '../LeagueDashboard/LeagueDashboard';
 import MatchupScreen from '../MatchupScreen/MatchupScreen';
 import DraftBoard from '../DraftBoard/DraftBoard';
 import LineupScreen from '../LineupScreen/LineupScreen';
+import WaiverWire from '../WaiverWire/WaiverWire';
+import TradeCenter from '../TradeCenter/TradeCenter';
+import TransactionLog from '../TransactionLog/TransactionLog';
 
 
 import './App.css';
@@ -52,6 +55,9 @@ function App() {
           <Route path="/league/:leagueId/matchups" element={<ProtectedRoute><MatchupScreen /></ProtectedRoute>} />
           <Route path="/league/:leagueId/draft" element={<ProtectedRoute><DraftBoard /></ProtectedRoute>} />
           <Route path="/league/:leagueId/lineup" element={<ProtectedRoute><LineupScreen /></ProtectedRoute>} />
+          <Route path="/league/:leagueId/waivers" element={<ProtectedRoute><WaiverWire /></ProtectedRoute>} />
+          <Route path="/league/:leagueId/trades" element={<ProtectedRoute><TradeCenter /></ProtectedRoute>} />
+          <Route path="/league/:leagueId/activity" element={<ProtectedRoute><TransactionLog /></ProtectedRoute>} />
           {/* Visiting localhost:3000 will redirect to localhost:3000/home */}
           <Route path="/" element={<Navigate to="/home" replace />} />
 

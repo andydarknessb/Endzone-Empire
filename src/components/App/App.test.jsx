@@ -132,9 +132,14 @@ test('"/league/:leagueId" is protected: LoginPage when logged out, LeagueDashboa
   unmount();
 
   renderApp('#/league/1', { user: loggedIn }, () => {
-    apiClient.get
-      .mockResolvedValueOnce({ data: { league: { id: 1, name: 'Sunday Ballers', draft_status: 'pending', owner_id: 1, roster_limit: 15, max_teams: 10 }, teams: [] } })
-      .mockResolvedValueOnce({ data: { id: 1, username: 'alice' } });
+    // URL-keyed (not ordered) because the Nav's NotificationBell also fetches
+    apiClient.get.mockImplementation((url) => {
+      if (url === '/api/league/1') {
+        return Promise.resolve({ data: { league: { id: 1, name: 'Sunday Ballers', draft_status: 'pending', owner_id: 1, roster_limit: 15, max_teams: 10 }, teams: [] } });
+      }
+      if (url === '/api/user') return Promise.resolve({ data: { id: 1, username: 'alice' } });
+      return Promise.resolve({ data: [] });
+    });
   });
   expect(await screen.findByText('Sunday Ballers')).toBeInTheDocument();
 });
@@ -145,10 +150,13 @@ test('"/league/:leagueId/matchups" is protected and renders MatchupScreen when l
   unmount();
 
   renderApp('#/league/1/matchups', { user: loggedIn }, () => {
-    apiClient.get
-      .mockResolvedValueOnce({ data: [] })
-      .mockResolvedValueOnce({ data: { league: { id: 1, name: 'Sunday Ballers', owner_id: 99 } } })
-      .mockResolvedValueOnce({ data: { id: 1, username: 'alice' } });
+    apiClient.get.mockImplementation((url) => {
+      if (url === '/api/league/1') {
+        return Promise.resolve({ data: { league: { id: 1, name: 'Sunday Ballers', owner_id: 99 } } });
+      }
+      if (url === '/api/user') return Promise.resolve({ data: { id: 1, username: 'alice' } });
+      return Promise.resolve({ data: [] });
+    });
   });
   expect(await screen.findByText(/Matchups/)).toBeInTheDocument();
 });
@@ -180,6 +188,57 @@ test('"/league/:leagueId/draft" is protected and renders DraftBoard when logged 
     apiClient.get.mockResolvedValue({ data: { players: [], totalPages: 1 } });
   });
   expect(await screen.findByText('Draft Board')).toBeInTheDocument();
+});
+
+test('"/league/:leagueId/waivers" is protected and renders WaiverWire when logged in', async () => {
+  const { unmount } = renderApp('#/league/1/waivers', { user: loggedOut });
+  expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();
+  unmount();
+
+  renderApp('#/league/1/waivers', { user: loggedIn }, () => {
+    apiClient.get.mockImplementation((url) => {
+      if (String(url).startsWith('/api/waivers')) {
+        return Promise.resolve({
+          data: {
+            league: { waiver_type: 'priority', waiver_period_hours: 24, faab_budget: 100 },
+            myTeam: { id: 10, waiver_priority: 1, faab_remaining: 100 },
+            onWaivers: [],
+            myClaims: [],
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+  });
+  expect(await screen.findByText('Waiver Wire')).toBeInTheDocument();
+});
+
+test('"/league/:leagueId/trades" is protected and renders TradeCenter when logged in', async () => {
+  const { unmount } = renderApp('#/league/1/trades', { user: loggedOut });
+  expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();
+  unmount();
+
+  renderApp('#/league/1/trades', { user: loggedIn }, () => {
+    apiClient.get.mockImplementation((url) => {
+      if (String(url).startsWith('/api/trades')) {
+        return Promise.resolve({ data: { myTeamId: 10, trades: [] } });
+      }
+      if (url === '/api/league/1') {
+        return Promise.resolve({ data: { league: { id: 1, name: 'Sunday Ballers', owner_id: 99 }, teams: [] } });
+      }
+      return Promise.resolve({ data: [] });
+    });
+  });
+  expect(await screen.findByText('Trade Center')).toBeInTheDocument();
+});
+
+test('"/league/:leagueId/activity" is protected and renders TransactionLog when logged in', async () => {
+  const { unmount } = renderApp('#/league/1/activity', { user: loggedOut });
+  expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();
+  unmount();
+
+  renderApp('#/league/1/activity', { user: loggedIn });
+  expect(await screen.findByText('League Activity')).toBeInTheDocument();
 });
 
 test('an unmatched route shows the 404 page', async () => {

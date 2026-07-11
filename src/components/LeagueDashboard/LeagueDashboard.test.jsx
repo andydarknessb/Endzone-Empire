@@ -154,4 +154,7 @@ test('links to the Draft Room, Matchups, and Set Lineup pages for this league', 
   expect(screen.getByRole('link', { name: 'Draft Room' })).toHaveAttribute('href', '/league/7/draft');
   expect(screen.getByRole('link', { name: 'Matchups' })).toHaveAttribute('href', '/league/7/matchups');
   expect(screen.getByRole('link', { name: 'Set Lineup' })).toHaveAttribute('href', '/league/7/lineup');
+  expect(screen.getByRole('link', { name: 'Waivers' })).toHaveAttribute('href', '/league/7/waivers');
+  expect(screen.getByRole('link', { name: 'Trades' })).toHaveAttribute('href', '/league/7/trades');
+  expect(screen.getByRole('link', { name: 'Activity' })).toHaveAttribute('href', '/league/7/activity');
 });

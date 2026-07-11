@@ -1,4 +1,6 @@
 const pool = require('../modules/pool');
+const { placeOnWaivers, isOnWaivers } = require('./waiver.service');
+const { logTransaction } = require('./activity.service');
 
 class DraftError extends Error {
   constructor(statusCode, message) {
@@ -80,6 +82,13 @@ async function draftPlayer({ leagueId, userId, playerId }) {
       }
     }
 
+    // Post-draft pickups are free agency: players still on waivers must be
+    // claimed through the waiver process instead.
+    if (league.draft_status === 'complete' &&
+        await isOnWaivers(client, { league, playerId })) {
+      throw new DraftError(409, 'player is on waivers — submit a waiver claim instead');
+    }
+
     let pickNumber = null;
     let draftComplete = false;
     let nextTeamId = null;
@@ -103,7 +112,14 @@ async function draftPlayer({ leagueId, userId, playerId }) {
          WHERE "id" = $3`,
         [pickNumber, draftComplete ? 'complete' : 'active', leagueId]
       );
-      if (!draftComplete) {
+      if (draftComplete) {
+        // All undrafted players start on waivers for one waiver period
+        await client.query(
+          `UPDATE "leagues" SET "waivers_clear_at" = now() + make_interval(hours => $1)
+           WHERE "id" = $2`,
+          [league.waiver_period_hours, leagueId]
+        );
+      } else {
         nextTeamId = teams[teamIndexForPick(pickNumber, teams.length)].id;
       }
     }
@@ -113,6 +129,16 @@ async function draftPlayer({ leagueId, userId, playerId }) {
        VALUES ($1, $2, $3)`,
       [leagueId, myTeam.id, playerId]
     );
+
+    // Free-agent pickups go in the league transaction log (draft picks don't)
+    if (league.draft_status === 'complete') {
+      await logTransaction(client, {
+        leagueId,
+        teamId: myTeam.id,
+        type: 'add',
+        detail: { playerId, playerName: playerResult.rows[0].name },
+      });
+    }
 
     await client.query('COMMIT');
     return {
@@ -157,6 +183,24 @@ async function dropPlayer({ leagueId, userId, playerId }) {
     if (deleted.rowCount === 0) {
       throw new DraftError(404, 'player is not on your roster');
     }
+
+    // Dropped players pass through waivers before returning to free agency
+    const leagueResult = await client.query(
+      `SELECT "waiver_period_hours" FROM "leagues" WHERE "id" = $1`,
+      [leagueId]
+    );
+    await placeOnWaivers(client, {
+      leagueId,
+      playerId,
+      waiverPeriodHours: leagueResult.rows[0].waiver_period_hours,
+    });
+    await logTransaction(client, {
+      leagueId,
+      teamId: team.id,
+      type: 'drop',
+      detail: { playerId },
+    });
+
     await client.query('COMMIT');
     return { leagueId, teamId: team.id, playerId };
   } catch (error) {

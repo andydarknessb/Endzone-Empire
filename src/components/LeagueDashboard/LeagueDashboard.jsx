@@ -183,6 +183,21 @@ function LeagueDashboard() {
             Set Lineup
           </Button>
         </Link>
+        <Link to={`/league/${leagueId}/waivers`} style={{ textDecoration: 'none' }}>
+          <Button variant="outlined" color="primary">
+            Waivers
+          </Button>
+        </Link>
+        <Link to={`/league/${leagueId}/trades`} style={{ textDecoration: 'none' }}>
+          <Button variant="outlined" color="primary">
+            Trades
+          </Button>
+        </Link>
+        <Link to={`/league/${leagueId}/activity`} style={{ textDecoration: 'none' }}>
+          <Button variant="outlined" color="primary">
+            Activity
+          </Button>
+        </Link>
       </Box>
     </Container>
   );

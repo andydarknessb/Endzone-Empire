@@ -162,7 +162,11 @@ router.get('/:id', async (req, res) => {
 router.put('/:id', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
-  const { name, rosterLimit, lineupSlots, positionCaps, irSlots } = req.body || {};
+  const {
+    name, rosterLimit, lineupSlots, positionCaps, irSlots,
+    waiverType, waiverPeriodHours, faabBudget,
+    tradeDeadlineWeek, tradeReviewHours, tradeVetoVotes,
+  } = req.body || {};
   const limit = rosterLimit === undefined ? null : Number(rosterLimit);
   if (limit !== null && (!Number.isInteger(limit) || limit < 1 || limit > 30)) {
     return res.status(400).json({ error: 'rosterLimit must be an integer between 1 and 30' });
@@ -183,6 +187,25 @@ router.put('/:id', async (req, res) => {
   if (irSlots !== undefined && (!Number.isInteger(irSlots) || irSlots < 0 || irSlots > 5)) {
     return res.status(400).json({ error: 'irSlots must be an integer between 0 and 5' });
   }
+  if (waiverType !== undefined && !['priority', 'faab'].includes(waiverType)) {
+    return res.status(400).json({ error: "waiverType must be 'priority' or 'faab'" });
+  }
+  const intInRange = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
+  if (waiverPeriodHours !== undefined && !intInRange(waiverPeriodHours, 0, 168)) {
+    return res.status(400).json({ error: 'waiverPeriodHours must be an integer between 0 and 168' });
+  }
+  if (faabBudget !== undefined && !intInRange(faabBudget, 0, 1000)) {
+    return res.status(400).json({ error: 'faabBudget must be an integer between 0 and 1000' });
+  }
+  if (tradeDeadlineWeek !== undefined && tradeDeadlineWeek !== null && !intInRange(tradeDeadlineWeek, 1, 18)) {
+    return res.status(400).json({ error: 'tradeDeadlineWeek must be an integer between 1 and 18 (or null)' });
+  }
+  if (tradeReviewHours !== undefined && !intInRange(tradeReviewHours, 0, 168)) {
+    return res.status(400).json({ error: 'tradeReviewHours must be an integer between 0 and 168' });
+  }
+  if (tradeVetoVotes !== undefined && !intInRange(tradeVetoVotes, 0, 20)) {
+    return res.status(400).json({ error: 'tradeVetoVotes must be an integer between 0 and 20' });
+  }
   try {
     const result = await pool.query(
       `UPDATE "leagues"
@@ -191,8 +214,14 @@ router.put('/:id', async (req, res) => {
            "lineup_slots" = COALESCE($3, "lineup_slots"),
            "position_caps" = COALESCE($4, "position_caps"),
            "ir_slots" = COALESCE($5, "ir_slots"),
+           "waiver_type" = COALESCE($6, "waiver_type"),
+           "waiver_period_hours" = COALESCE($7, "waiver_period_hours"),
+           "faab_budget" = COALESCE($8, "faab_budget"),
+           "trade_deadline_week" = COALESCE($9, "trade_deadline_week"),
+           "trade_review_hours" = COALESCE($10, "trade_review_hours"),
+           "trade_veto_votes" = COALESCE($11, "trade_veto_votes"),
            "updated_at" = now()
-       WHERE "id" = $6 AND "owner_id" = $7 AND "draft_status" = 'pending'
+       WHERE "id" = $12 AND "owner_id" = $13 AND "draft_status" = 'pending'
        RETURNING *`,
       [
         name || null,
@@ -200,6 +229,12 @@ router.put('/:id', async (req, res) => {
         lineupSlots === undefined ? null : JSON.stringify(lineupSlots),
         positionCaps === undefined ? null : JSON.stringify(positionCaps),
         irSlots === undefined ? null : irSlots,
+        waiverType === undefined ? null : waiverType,
+        waiverPeriodHours === undefined ? null : waiverPeriodHours,
+        faabBudget === undefined ? null : faabBudget,
+        tradeDeadlineWeek === undefined ? null : tradeDeadlineWeek,
+        tradeReviewHours === undefined ? null : tradeReviewHours,
+        tradeVetoVotes === undefined ? null : tradeVetoVotes,
         leagueId,
         req.user.id,
       ]
@@ -251,6 +286,74 @@ router.delete('/:id', async (req, res) => {
   } catch (error) {
     console.error('Error deleting league', error);
     res.status(500).json({ error: 'failed to delete league' });
+  }
+});
+
+// GET /api/league/:id/rosters — every team's roster (for trade building, matchup views)
+router.get('/:id/rosters', async (req, res) => {
+  const leagueId = intParam(req.params.id);
+  if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
+  try {
+    const membership = await pool.query(
+      `SELECT 1 FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
+      [leagueId, req.user.id]
+    );
+    if (!membership.rows[0]) return res.status(403).json({ error: 'not a member of this league' });
+
+    const result = await pool.query(
+      `SELECT "teams"."id" AS "team_id", "teams"."name" AS "team_name", "teams"."owner_id",
+              "players"."id", "players"."name", "players"."position", "players"."nfl_team"
+       FROM "teams"
+       LEFT JOIN "team_players" ON "team_players"."team_id" = "teams"."id"
+       LEFT JOIN "players" ON "players"."id" = "team_players"."player_id"
+       WHERE "teams"."league_id" = $1
+       ORDER BY "teams"."id", "players"."position", "players"."name"`,
+      [leagueId]
+    );
+    const teams = new Map();
+    for (const row of result.rows) {
+      if (!teams.has(row.team_id)) {
+        teams.set(row.team_id, { teamId: row.team_id, teamName: row.team_name, ownerId: row.owner_id, players: [] });
+      }
+      if (row.id) {
+        teams.get(row.team_id).players.push({
+          id: row.id, name: row.name, position: row.position, nfl_team: row.nfl_team,
+        });
+      }
+    }
+    res.json(Array.from(teams.values()));
+  } catch (error) {
+    console.error('Error fetching league rosters', error);
+    res.status(500).json({ error: 'failed to fetch rosters' });
+  }
+});
+
+// GET /api/league/:id/transactions — league-wide activity log (adds, drops, waivers, trades)
+router.get('/:id/transactions', async (req, res) => {
+  const leagueId = intParam(req.params.id);
+  if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
+  try {
+    const membership = await pool.query(
+      `SELECT 1 FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
+      [leagueId, req.user.id]
+    );
+    if (!membership.rows[0]) return res.status(403).json({ error: 'not a member of this league' });
+
+    const result = await pool.query(
+      `SELECT "transactions".*, "teams"."name" AS "team_name",
+              "players"."name" AS "player_name"
+       FROM "transactions"
+       LEFT JOIN "teams" ON "teams"."id" = "transactions"."team_id"
+       LEFT JOIN "players" ON "players"."id" = ("transactions"."detail"->>'playerId')::int
+       WHERE "transactions"."league_id" = $1
+       ORDER BY "transactions"."created_at" DESC
+       LIMIT 100`,
+      [leagueId]
+    );
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching transactions', error);
+    res.status(500).json({ error: 'failed to fetch transactions' });
   }
 });
 

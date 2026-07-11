@@ -1,7 +1,21 @@
 import React from 'react';
 import { screen } from '@testing-library/react';
 import renderWithProviders from '../../test-utils/renderWithProviders';
+import apiClient from '../../api/apiClient';
 import Nav from './Nav';
+
+jest.mock('../../api/apiClient', () => ({
+  __esModule: true,
+  default: { get: jest.fn(), put: jest.fn() },
+}));
+
+beforeEach(() => {
+  apiClient.get.mockResolvedValue({ data: { notifications: [], unread: 0 } });
+});
+
+afterEach(() => {
+  jest.clearAllMocks();
+});
 
 test('shows a "Login / Register" link when no user is logged in', () => {
   renderWithProviders(<Nav />, { state: { user: {} } });
@@ -25,4 +39,14 @@ test('shows the full authenticated nav when a user is logged in', () => {
 test('the brand link always points at the home route', () => {
   renderWithProviders(<Nav />, { state: { user: {} } });
   expect(screen.getByRole('link', { name: 'Endzone Empire' })).toHaveAttribute('href', '/home');
+});
+
+test('shows the notification bell when a user is logged in', () => {
+  renderWithProviders(<Nav />, { state: { user: { id: 1, username: 'alice' } } });
+  expect(screen.getByRole('button', { name: /notifications/i })).toBeInTheDocument();
+});
+
+test('hides the notification bell when no user is logged in', () => {
+  renderWithProviders(<Nav />, { state: { user: {} } });
+  expect(screen.queryByRole('button', { name: /notifications/i })).not.toBeInTheDocument();
 });
