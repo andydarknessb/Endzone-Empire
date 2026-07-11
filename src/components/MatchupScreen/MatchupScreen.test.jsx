@@ -205,6 +205,18 @@ test('receiving scores:updated for a rendered matchup updates the displayed scor
   expect(screen.getByText('LIVE')).toBeInTheDocument();
 });
 
+test('each matchup links to its details page', async () => {
+  mockApi({ matchups: [matchup({ id: 5 })] });
+
+  renderScreen(3);
+  await screen.findByText('Home Team (0)');
+
+  expect(screen.getByRole('link', { name: 'Details' })).toHaveAttribute(
+    'href',
+    '/league/3/matchups/5'
+  );
+});
+
 test('scores:updated for an unknown matchupId leaves the list unchanged', async () => {
   mockApi({ matchups: [matchup({ id: 5, home_score: 3, away_score: 7 })] });
 

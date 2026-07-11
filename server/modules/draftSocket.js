@@ -68,6 +68,37 @@ function attachDraftSocket(httpServer) {
       }
     });
 
+    // League chat: sender must be in the league room (i.e. passed league:join
+    // or draft:join membership checks); messages persist and broadcast.
+    socket.on('chat:send', async ({ leagueId, message } = {}, ack) => {
+      if (!Number.isInteger(leagueId) || typeof message !== 'string' || !message.trim()) {
+        return ack && ack({ error: 'leagueId (integer) and message (string) required' });
+      }
+      if (!socket.rooms.has(`league:${leagueId}`)) {
+        return ack && ack({ error: 'join the league room first' });
+      }
+      const text = message.trim().slice(0, 500);
+      try {
+        const result = await pool.query(
+          `INSERT INTO "chat_messages" ("league_id", "user_id", "message")
+           VALUES ($1, $2, $3) RETURNING "id", "created_at"`,
+          [leagueId, socket.user.id, text]
+        );
+        io.to(`league:${leagueId}`).emit('chat:message', {
+          id: result.rows[0].id,
+          leagueId,
+          userId: socket.user.id,
+          username: socket.user.username,
+          message: text,
+          created_at: result.rows[0].created_at,
+        });
+        ack && ack({ ok: true });
+      } catch (error) {
+        console.error('chat:send failed', error);
+        ack && ack({ error: 'failed to send message' });
+      }
+    });
+
     socket.on('draft:pick', async ({ leagueId, playerId } = {}, ack) => {
       if (!Number.isInteger(leagueId) || !Number.isInteger(playerId)) {
         return ack && ack({ error: 'leagueId and playerId (integers) required' });

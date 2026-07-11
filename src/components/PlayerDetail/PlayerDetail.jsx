@@ -12,8 +12,8 @@ import {
   TableRow,
   Chip,
   Alert,
-  CircularProgress,
   Box,
+  Skeleton,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import InjuryBadge from '../InjuryBadge/InjuryBadge';
@@ -61,8 +61,17 @@ function PlayerDetail() {
 
   if (loading) {
     return (
-      <Container sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-        <CircularProgress />
+      <Container maxWidth="md" sx={{ py: 4 }} data-testid="page-skeleton">
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+          <Skeleton variant="text" width={220} height={48} />
+          <Skeleton variant="rounded" width={70} height={32} />
+          <Skeleton variant="rounded" width={120} height={32} />
+        </Box>
+        <Skeleton variant="rectangular" height={80} sx={{ mb: 3, borderRadius: 1 }} />
+        <Skeleton variant="text" width={160} height={36} sx={{ mb: 2 }} />
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} variant="rectangular" height={40} sx={{ mb: 1, borderRadius: 1 }} />
+        ))}
       </Container>
     );
   }

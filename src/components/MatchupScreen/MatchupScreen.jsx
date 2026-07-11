@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import {
   Container,
   Paper,
@@ -217,6 +217,16 @@ function MatchupScreen() {
                   >
                     {matchup.away_team_name} ({awayScore})
                   </Typography>
+                </Box>
+                <Box sx={{ mt: 1, textAlign: 'right' }}>
+                  <Link
+                    to={`/league/${leagueId}/matchups/${matchup.id}`}
+                    style={{ textDecoration: 'none' }}
+                  >
+                    <Button size="small" variant="outlined">
+                      Details
+                    </Button>
+                  </Link>
                 </Box>
               </Paper>
             </Grid>

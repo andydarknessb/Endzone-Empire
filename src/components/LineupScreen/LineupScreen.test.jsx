@@ -70,10 +70,10 @@ afterEach(() => {
   jest.clearAllMocks();
 });
 
-test('shows a loading spinner before data arrives', () => {
+test('shows skeleton placeholders before data arrives', () => {
   apiClient.get.mockReturnValue(new Promise(() => {}));
   renderScreen();
-  expect(screen.getByRole('progressbar')).toBeInTheDocument();
+  expect(screen.getByTestId('page-skeleton')).toBeInTheDocument();
 });
 
 test('renders starters grouped by slot, bench section, and empty slot rows', async () => {

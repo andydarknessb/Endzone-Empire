@@ -456,4 +456,110 @@ router.get('/:id/matchups', async (req, res) => {
   }
 });
 
+// GET /api/league/:id/chat — last 50 chat messages, oldest first
+router.get('/:id/chat', async (req, res) => {
+  const leagueId = intParam(req.params.id);
+  if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
+  try {
+    const membership = await pool.query(
+      `SELECT 1 FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
+      [leagueId, req.user.id]
+    );
+    if (!membership.rows[0]) return res.status(403).json({ error: 'not a member of this league' });
+    const result = await pool.query(
+      `SELECT * FROM (
+         SELECT "chat_messages"."id", "chat_messages"."message", "chat_messages"."created_at",
+                "chat_messages"."user_id", "users"."username"
+         FROM "chat_messages" JOIN "users" ON "users"."id" = "chat_messages"."user_id"
+         WHERE "chat_messages"."league_id" = $1
+         ORDER BY "chat_messages"."created_at" DESC
+         LIMIT 50
+       ) recent ORDER BY "created_at" ASC`,
+      [leagueId]
+    );
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching chat', error);
+    res.status(500).json({ error: 'failed to fetch chat' });
+  }
+});
+
+// GET /api/league/:id/matchups/:matchupId — matchup detail: both starting
+// lineups with per-player points under the league's scoring rules
+router.get('/:id/matchups/:matchupId', async (req, res) => {
+  const leagueId = intParam(req.params.id);
+  const matchupId = intParam(req.params.matchupId);
+  if (!leagueId || !matchupId) {
+    return res.status(400).json({ error: 'league id and matchup id must be positive integers' });
+  }
+  const client = await pool.connect();
+  try {
+    const membership = await client.query(
+      `SELECT 1 FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
+      [leagueId, req.user.id]
+    );
+    if (!membership.rows[0]) return res.status(403).json({ error: 'not a member of this league' });
+
+    const matchupResult = await client.query(
+      `SELECT "matchups".*,
+              home."name" AS "home_team_name", away."name" AS "away_team_name"
+       FROM "matchups"
+       JOIN "teams" home ON home."id" = "matchups"."home_team_id"
+       JOIN "teams" away ON away."id" = "matchups"."away_team_id"
+       WHERE "matchups"."id" = $1 AND "matchups"."league_id" = $2`,
+      [matchupId, leagueId]
+    );
+    const matchup = matchupResult.rows[0];
+    if (!matchup) return res.status(404).json({ error: 'matchup not found in this league' });
+
+    const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
+    const { rulesForLeague, calculateFantasyPoints } = require('../services/scoring.service');
+    const { materializeLineup } = require('../services/lineup.service');
+    const rules = rulesForLeague(leagueResult.rows[0]);
+
+    await client.query('BEGIN');
+    const teamLineup = async (teamId) => {
+      await materializeLineup(client, {
+        leagueId, teamId, season: matchup.season, week: matchup.week,
+      });
+      const rows = await client.query(
+        `SELECT "players"."id", "players"."name", "players"."position",
+                "players"."nfl_team", "players"."injury_status",
+                "lineup_entries"."slot", "player_stats"."stats"
+         FROM "lineup_entries"
+         JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
+           AND "team_players"."player_id" = "lineup_entries"."player_id"
+         JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
+         LEFT JOIN "player_stats" ON "player_stats"."player_id" = "lineup_entries"."player_id"
+           AND "player_stats"."season" = $2 AND "player_stats"."week" = $3
+         WHERE "lineup_entries"."team_id" = $1 AND "lineup_entries"."season" = $2
+           AND "lineup_entries"."week" = $3
+           AND "lineup_entries"."slot" NOT IN ('BENCH', 'IR')
+         ORDER BY "lineup_entries"."slot", "players"."name"`,
+        [teamId, matchup.season, matchup.week]
+      );
+      return rows.rows.map((row) => ({
+        ...row,
+        stats: undefined,
+        points: row.stats ? calculateFantasyPoints(row.stats, rules) : 0,
+      }));
+    };
+    const homeStarters = await teamLineup(matchup.home_team_id);
+    const awayStarters = await teamLineup(matchup.away_team_id);
+    await client.query('COMMIT');
+
+    res.json({
+      matchup,
+      home: { teamId: matchup.home_team_id, name: matchup.home_team_name, starters: homeStarters },
+      away: { teamId: matchup.away_team_id, name: matchup.away_team_name, starters: awayStarters },
+    });
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error fetching matchup detail', error);
+    res.status(500).json({ error: 'failed to fetch matchup detail' });
+  } finally {
+    client.release();
+  }
+});
+
 module.exports = router;

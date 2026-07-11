@@ -25,6 +25,7 @@ import TeamManagement from '../TeamManagement/TeamManagement';
 import PlayerManagement from '../PlayerManagement/PlayerManagement';
 import LeagueDashboard from '../LeagueDashboard/LeagueDashboard';
 import MatchupScreen from '../MatchupScreen/MatchupScreen';
+import MatchupDetail from '../MatchupDetail/MatchupDetail';
 import DraftBoard from '../DraftBoard/DraftBoard';
 import LineupScreen from '../LineupScreen/LineupScreen';
 import WaiverWire from '../WaiverWire/WaiverWire';
@@ -34,6 +35,7 @@ import PlayerDetail from '../PlayerDetail/PlayerDetail';
 import ForgotPassword from '../ForgotPassword/ForgotPassword';
 import ResetPassword from '../ResetPassword/ResetPassword';
 import VerifyEmail from '../VerifyEmail/VerifyEmail';
+import AppThemeProvider from '../../theme/AppThemeProvider';
 
 
 import './App.css';
@@ -48,6 +50,7 @@ function App() {
   }, [dispatch]);
 
   return (
+    <AppThemeProvider>
     <Router>
       <div>
         <Nav />
@@ -57,6 +60,7 @@ function App() {
           <Route path="/player" element={<ProtectedRoute><PlayerManagement /></ProtectedRoute>} />
           <Route path="/league/:leagueId" element={<ProtectedRoute><LeagueDashboard /></ProtectedRoute>} />
           <Route path="/league/:leagueId/matchups" element={<ProtectedRoute><MatchupScreen /></ProtectedRoute>} />
+          <Route path="/league/:leagueId/matchups/:matchupId" element={<ProtectedRoute><MatchupDetail /></ProtectedRoute>} />
           <Route path="/league/:leagueId/draft" element={<ProtectedRoute><DraftBoard /></ProtectedRoute>} />
           <Route path="/league/:leagueId/lineup" element={<ProtectedRoute><LineupScreen /></ProtectedRoute>} />
           <Route path="/league/:leagueId/waivers" element={<ProtectedRoute><WaiverWire /></ProtectedRoute>} />
@@ -137,6 +141,7 @@ function App() {
         <Footer />
       </div>
     </Router>
+    </AppThemeProvider>
   );
 }
 

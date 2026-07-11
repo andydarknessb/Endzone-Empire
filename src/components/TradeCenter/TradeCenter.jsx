@@ -64,7 +64,6 @@ function TradeCenter() {
 
   useEffect(() => {
     fetchAll();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leagueId]);
 
   const fetchTrades = async () => {

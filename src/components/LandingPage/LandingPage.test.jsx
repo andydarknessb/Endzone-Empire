@@ -1,18 +1,7 @@
 import React from 'react';
 import { screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import LandingPage from './LandingPage';
-
-const mockNavigate = jest.fn();
-jest.mock('react-router-dom', () => ({
-  ...jest.requireActual('react-router-dom'),
-  useNavigate: () => mockNavigate,
-}));
-
-afterEach(() => {
-  mockNavigate.mockClear();
-});
 
 test('renders the Welcome heading and the marketing copy', () => {
   renderWithProviders(<LandingPage />);
@@ -20,15 +9,31 @@ test('renders the Welcome heading and the marketing copy', () => {
   expect(screen.getByText(/turns armchair quarterbacks into legendary/i)).toBeInTheDocument();
 });
 
-test('renders the embedded RegisterForm', () => {
+test('"Get Started" links to the registration page', () => {
   renderWithProviders(<LandingPage />);
-  expect(screen.getByRole('heading', { name: /build your dream team today/i })).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Get Started' })).toHaveAttribute(
+    'href',
+    '/registration'
+  );
 });
 
-test('clicking "Login" navigates to /login', async () => {
+test('"Log In" links to the login page', () => {
   renderWithProviders(<LandingPage />);
+  expect(screen.getByRole('link', { name: 'Log In' })).toHaveAttribute('href', '/login');
+});
 
-  await userEvent.click(screen.getByRole('button', { name: 'Login' }));
-
-  expect(mockNavigate).toHaveBeenCalledWith('/login');
+test('renders the feature grid covering the core product areas', () => {
+  renderWithProviders(<LandingPage />);
+  [
+    'Live Snake Drafts',
+    'Weekly Lineups',
+    'Waiver Wire',
+    'Trades',
+    'Live Scoring',
+    'Playoffs & Standings',
+    'League Chat',
+    'Commissioner Tools',
+  ].forEach((title) => {
+    expect(screen.getByRole('heading', { name: title })).toBeInTheDocument();
+  });
 });

@@ -3,12 +3,25 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
+import { createDraftSocket } from '../../api/socket';
 import LeagueDashboard from './LeagueDashboard';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn() },
 }));
+
+jest.mock('../../api/socket', () => ({
+  createDraftSocket: jest.fn(),
+}));
+
+beforeEach(() => {
+  createDraftSocket.mockReturnValue({
+    on: jest.fn(),
+    emit: jest.fn(),
+    disconnect: jest.fn(),
+  });
+});
 
 const renderDashboard = (leagueId = 1) =>
   renderWithProviders(<LeagueDashboard />, {
@@ -67,14 +80,18 @@ const standingsResponse = (overrides = {}) => ({
 });
 
 /**
- * Build a URL-keyed apiClient.get mock. `overrides` maps URL substrings to
- * either a resolved value or a { reject: <error> } marker. Falls back to a
- * generic empty response for unmatched URLs.
+ * Build a URL-keyed apiClient.get mock. `overrides` maps a URL (matched
+ * exactly or as a trailing path segment via endsWith) to either a resolved
+ * value or a { reject: <error> } marker. Falls back to a generic empty
+ * response for unmatched URLs — e.g. ChatPanel's `/chat` fetch, which no
+ * test needs to override. Exact/suffix matching (rather than a generic
+ * substring `includes`) keeps a key like '/api/league/1' from also
+ * matching nested requests such as '/api/league/1/chat'.
  */
 const mockGetByUrl = (overrides = {}) => {
   apiClient.get.mockImplementation((url) => {
     for (const [key, value] of Object.entries(overrides)) {
-      if (url.includes(key)) {
+      if (url === key || url.endsWith(key)) {
         if (value && value.reject) {
           return Promise.reject(value.reject);
         }
@@ -380,6 +397,20 @@ test('removing another owner\'s team calls the commissioner endpoint', async () 
     expect(apiClient.delete).toHaveBeenCalledWith('/api/commissioner/league/1/teams/2')
   );
   expect(await screen.findByText('Team removed')).toBeInTheDocument();
+});
+
+test('renders the League Chat panel at the bottom of the page', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse(),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
+
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  expect(await screen.findByText('League Chat')).toBeInTheDocument();
+  expect(screen.getByText('No messages yet')).toBeInTheDocument();
 });
 
 test('Start New Season appears only when the season is complete and POSTs the rollover', async () => {

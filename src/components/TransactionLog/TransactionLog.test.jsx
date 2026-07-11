@@ -29,10 +29,10 @@ afterEach(() => {
   jest.clearAllMocks();
 });
 
-test('shows a loading spinner before data arrives', () => {
+test('shows skeleton placeholders before data arrives', () => {
   apiClient.get.mockReturnValue(new Promise(() => {}));
   renderScreen();
-  expect(screen.getByRole('progressbar')).toBeInTheDocument();
+  expect(screen.getByTestId('page-skeleton')).toBeInTheDocument();
 });
 
 test('fetches transactions for the league on mount', async () => {

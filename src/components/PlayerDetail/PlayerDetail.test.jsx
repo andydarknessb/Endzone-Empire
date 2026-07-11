@@ -52,10 +52,10 @@ afterEach(() => {
   jest.clearAllMocks();
 });
 
-test('shows a loading spinner before data arrives', () => {
+test('shows skeleton placeholders before data arrives', () => {
   apiClient.get.mockReturnValue(new Promise(() => {}));
   renderDetail();
-  expect(screen.getByRole('progressbar')).toBeInTheDocument();
+  expect(screen.getByTestId('page-skeleton')).toBeInTheDocument();
 });
 
 test('renders the player header, season totals, and weekly stat lines', async () => {

@@ -134,7 +134,6 @@ function DraftBoard() {
       newSocket.disconnect();
       socketRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leagueId]);
 
   // Ticks the on-the-clock countdown once a second based on deadlineRef,

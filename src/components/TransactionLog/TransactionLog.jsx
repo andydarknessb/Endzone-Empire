@@ -11,8 +11,9 @@ import {
   TableHead,
   TableRow,
   Alert,
-  CircularProgress,
   Chip,
+  Box,
+  Skeleton,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
 
@@ -51,7 +52,6 @@ function TransactionLog() {
 
   useEffect(() => {
     fetchTransactions();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leagueId]);
 
   const fetchTransactions = async () => {
@@ -69,8 +69,13 @@ function TransactionLog() {
 
   if (loading && !transactions) {
     return (
-      <Container sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-        <CircularProgress />
+      <Container maxWidth="md" sx={{ py: 4 }} data-testid="page-skeleton">
+        <Skeleton variant="text" width={220} height={48} sx={{ mb: 3 }} />
+        {Array.from({ length: 6 }).map((_, i) => (
+          <Box key={i} sx={{ display: 'flex', gap: 2, mb: 1.5 }}>
+            <Skeleton variant="rectangular" height={40} sx={{ flex: 1, borderRadius: 1 }} />
+          </Box>
+        ))}
       </Container>
     );
   }

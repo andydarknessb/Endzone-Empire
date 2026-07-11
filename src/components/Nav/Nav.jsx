@@ -1,12 +1,15 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { IconButton, Tooltip } from '@mui/material';
 import LogOutButton from '../LogOutButton/LogOutButton';
 import NotificationBell from '../NotificationBell/NotificationBell';
+import { useThemeMode } from '../../theme/AppThemeProvider';
 import './Nav.css';
 import { useSelector } from 'react-redux';
 
 function Nav() {
   const user = useSelector((store) => store.user);
+  const { mode, toggleMode } = useThemeMode();
 
   return (
     <div className="nav">
@@ -47,7 +50,11 @@ function Nav() {
           </>
         )}
 
-      
+        <Tooltip title={mode === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}>
+          <IconButton aria-label="Toggle theme" onClick={toggleMode} size="small">
+            <span role="img" aria-hidden="true">{mode === 'light' ? '🌙' : '☀️'}</span>
+          </IconButton>
+        </Tooltip>
       </div>
     </div>
   );

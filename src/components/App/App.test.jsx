@@ -179,6 +179,32 @@ test('"/league/:leagueId/lineup" is protected and renders LineupScreen when logg
   expect(await screen.findByText('Set Lineup')).toBeInTheDocument();
 });
 
+test('"/league/:leagueId/matchups/:matchupId" is protected and renders MatchupDetail when logged in', async () => {
+  const { unmount } = renderApp('#/league/1/matchups/9', { user: loggedOut });
+  expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();
+  unmount();
+
+  renderApp('#/league/1/matchups/9', { user: loggedIn }, () => {
+    apiClient.get.mockImplementation((url) => {
+      if (url === '/api/league/1/matchups/9') {
+        return Promise.resolve({
+          data: {
+            matchup: {
+              id: 9, week: 3, season: 2026, home_score: '10', away_score: '8',
+              final: false, is_playoff: false,
+              home_team_name: 'Team A', away_team_name: 'Team B',
+            },
+            home: { teamId: 1, name: 'Team A', starters: [] },
+            away: { teamId: 2, name: 'Team B', starters: [] },
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+  });
+  expect(await screen.findByText(/Week 3 Matchup/)).toBeInTheDocument();
+});
+
 test('"/league/:leagueId/draft" is protected and renders DraftBoard when logged in', async () => {
   const { unmount } = renderApp('#/league/1/draft', { user: loggedOut });
   expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();

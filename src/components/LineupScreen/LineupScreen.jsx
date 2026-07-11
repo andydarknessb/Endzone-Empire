@@ -9,11 +9,11 @@ import {
   FormControl,
   InputLabel,
   Alert,
-  CircularProgress,
   Box,
   List,
   ListItemButton,
   Chip,
+  Skeleton,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import InjuryBadge from '../InjuryBadge/InjuryBadge';
@@ -39,7 +39,6 @@ function LineupScreen() {
 
   useEffect(() => {
     fetchLineup();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leagueId, selectedWeek]);
 
   const fetchLineup = async () => {
@@ -167,8 +166,18 @@ function LineupScreen() {
 
   if (loading && !lineup) {
     return (
-      <Container sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-        <CircularProgress />
+      <Container maxWidth="md" sx={{ py: 4 }} data-testid="page-skeleton">
+        <Skeleton variant="text" width={220} height={48} sx={{ mb: 1 }} />
+        <Skeleton variant="text" width={120} sx={{ mb: 3 }} />
+        <Skeleton variant="rectangular" width={150} height={56} sx={{ mb: 3, borderRadius: 1 }} />
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Skeleton
+            key={i}
+            variant="rectangular"
+            height={140}
+            sx={{ mb: 3, borderRadius: 1 }}
+          />
+        ))}
       </Container>
     );
   }

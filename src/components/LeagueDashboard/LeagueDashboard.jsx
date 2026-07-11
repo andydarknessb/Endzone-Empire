@@ -17,6 +17,7 @@ import {
   Box,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
+import ChatPanel from '../ChatPanel/ChatPanel';
 
 const SEASON_STATUS_CHIP = {
   regular: { label: 'Regular Season', color: 'default' },
@@ -340,6 +341,8 @@ function LeagueDashboard() {
           </Box>
         </Paper>
       )}
+
+      <ChatPanel leagueId={leagueId} />
     </Container>
   );
 }

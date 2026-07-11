@@ -12,9 +12,9 @@ import {
   TableRow,
   Button,
   Alert,
-  CircularProgress,
   Box,
   Chip,
+  Skeleton,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -47,7 +47,6 @@ function WaiverWire() {
 
   useEffect(() => {
     fetchAll();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leagueId]);
 
   const fetchAll = async () => {
@@ -111,8 +110,15 @@ function WaiverWire() {
 
   if (loading && !data) {
     return (
-      <Container sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-        <CircularProgress />
+      <Container maxWidth="md" sx={{ py: 4 }} data-testid="page-skeleton">
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+          <Skeleton variant="text" width={200} height={48} />
+          <Skeleton variant="rounded" width={140} height={32} />
+        </Box>
+        <Skeleton variant="text" width={140} height={32} sx={{ mb: 1 }} />
+        <Skeleton variant="rectangular" height={160} sx={{ mb: 3, borderRadius: 1 }} />
+        <Skeleton variant="text" width={140} height={32} sx={{ mb: 1 }} />
+        <Skeleton variant="rectangular" height={120} sx={{ borderRadius: 1 }} />
       </Container>
     );
   }
