@@ -78,67 +78,103 @@ function rapidApiClient() {
 }
 
 /**
- * Map one entry of the RapidAPI player-statistics payload to our flat stat
- * names. The API groups stats by category; unknown categories are ignored.
+ * Unwrap a Tank01 response. Every endpoint answers with
+ * { statusCode, body } — the payload lives in `body`. Tolerates a raw
+ * payload too, in case the envelope ever disappears.
  */
-function normalizeApiStats(groups) {
-  const find = (categoryName, statName) => {
-    const cat = (groups || []).find(
-      (g) => g.name && g.name.toLowerCase() === categoryName
-    );
-    const stat = cat && (cat.statistics || []).find(
-      (s) => s.name && s.name.toLowerCase() === statName
-    );
-    const value = stat && Number(String(stat.value).replace(/,/g, ''));
-    return Number.isFinite(value) ? value : 0;
+function tank01Body(data) {
+  if (data && typeof data === 'object' && 'body' in data) return data.body;
+  return data;
+}
+
+/**
+ * Map one Tank01 box-score playerStats entry to our flat stat names.
+ * Tank01 groups stats into Passing/Rushing/Receiving/Kicking/Defense
+ * category objects with string values; missing categories mean zero.
+ */
+function normalizeTank01Stats(entry) {
+  const num = (...values) => {
+    for (const value of values) {
+      const parsed = Number(String(value ?? '').replace(/,/g, ''));
+      if (Number.isFinite(parsed) && String(value ?? '') !== '') return parsed;
+    }
+    return 0;
   };
+  const e = entry || {};
+  const passing = e.Passing || {};
+  const rushing = e.Rushing || {};
+  const receiving = e.Receiving || {};
+  const kicking = e.Kicking || {};
+  const defense = e.Defense || {};
   return {
-    passingYards: find('passing', 'yards'),
-    passingTDs: find('passing', 'passing touch downs'),
-    interceptions: find('passing', 'interceptions'),
-    rushingYards: find('rushing', 'yards'),
-    rushingTDs: find('rushing', 'rushing touch downs'),
-    receivingYards: find('receiving', 'yards'),
-    receivingTDs: find('receiving', 'receiving touch downs'),
-    receptions: find('receiving', 'receptions'),
-    fumbles: find('fumbles', 'fumbles lost'),
+    passingYards: num(passing.passYds),
+    passingTDs: num(passing.passTD),
+    interceptions: num(passing.int),
+    rushingYards: num(rushing.rushYds),
+    rushingTDs: num(rushing.rushTD),
+    receivingYards: num(receiving.recYds),
+    receivingTDs: num(receiving.recTD),
+    receptions: num(receiving.receptions),
+    // Tank01 has reported fumblesLost under Defense and at the top level
+    // across versions — accept either.
+    fumbles: num(defense.fumblesLost, e.fumblesLost),
+    fieldGoal: num(kicking.fgMade),
+    extraPoint: num(kicking.xpMade),
   };
 }
 
 /**
- * Fetch weekly real-world stats from RapidAPI for every player that has an
- * external_id, compute fantasy points, and upsert into player_stats.
+ * Fetch a week's real-world stats from Tank01: one getNFLGamesForWeek call,
+ * then a box score per game (~16 calls) — every player in those games whose
+ * external_id we know gets a player_stats upsert.
  */
 async function syncWeekStats({ season, week }) {
   const api = rapidApiClient();
-  const playersResult = await pool.query(
+  const gamesResponse = await api.get('/getNFLGamesForWeek', {
+    params: { week, seasonType: 'reg', season },
+  });
+  const games = tank01Body(gamesResponse.data) || [];
+  if (!Array.isArray(games) || games.length === 0) {
+    return { season, week, playersUpdated: 0, gamesProcessed: 0 };
+  }
+
+  const knownPlayers = await pool.query(
     `SELECT "id", "external_id" FROM "players" WHERE "external_id" IS NOT NULL`
   );
+  const idByExternal = new Map(
+    knownPlayers.rows.map((r) => [String(r.external_id), r.id])
+  );
+
   let updated = 0;
-  for (const player of playersResult.rows) {
+  let gamesProcessed = 0;
+  for (const game of games) {
+    if (!game || !game.gameID) continue;
     try {
-      const response = await api.get('/players/statistics', {
-        params: { id: player.external_id, season },
+      const boxResponse = await api.get('/getNFLBoxScore', {
+        params: { gameID: game.gameID, playByPlay: 'false', fantasyPoints: 'false' },
       });
-      const entry = (response.data && response.data.response) || [];
-      const groups = entry[0] && entry[0].teams && entry[0].teams[0]
-        ? entry[0].teams[0].groups
-        : entry[0] && entry[0].groups;
-      const stats = normalizeApiStats(groups);
-      const points = calculateFantasyPoints(stats);
-      await pool.query(
-        `INSERT INTO "player_stats" ("player_id", "season", "week", "stats", "fantasy_points")
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT ("player_id", "season", "week")
-         DO UPDATE SET "stats" = EXCLUDED."stats", "fantasy_points" = EXCLUDED."fantasy_points"`,
-        [player.id, season, week, JSON.stringify(stats), points]
-      );
-      updated += 1;
+      const box = tank01Body(boxResponse.data) || {};
+      const playerStats = box.playerStats || {};
+      gamesProcessed += 1;
+      for (const entry of Object.values(playerStats)) {
+        const playerId = idByExternal.get(String(entry && entry.playerID));
+        if (!playerId) continue; // not in our pool
+        const stats = normalizeTank01Stats(entry);
+        const points = calculateFantasyPoints(stats);
+        await pool.query(
+          `INSERT INTO "player_stats" ("player_id", "season", "week", "stats", "fantasy_points")
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT ("player_id", "season", "week")
+           DO UPDATE SET "stats" = EXCLUDED."stats", "fantasy_points" = EXCLUDED."fantasy_points"`,
+          [playerId, season, week, JSON.stringify(stats), points]
+        );
+        updated += 1;
+      }
     } catch (err) {
-      console.error(`Stat sync failed for player ${player.id}:`, err.message);
+      console.error(`Stat sync failed for game ${game.gameID}:`, err.message);
     }
   }
-  return { season, week, playersUpdated: updated };
+  return { season, week, playersUpdated: updated, gamesProcessed };
 }
 
 /** Map a RapidAPI injury designation to our badge codes (Q/D/O/IR). */
@@ -153,24 +189,40 @@ function normalizeInjuryStatus(raw) {
 }
 
 /**
- * Best-effort injury sync from RapidAPI for players with an external_id.
- * Players with no current injury entry are cleared back to healthy.
+ * Injury sync: Tank01's player list carries each player's current injury
+ * designation, so one getNFLPlayerList call refreshes everyone. Players with
+ * no current designation are cleared back to healthy.
  */
 async function syncInjuries() {
   const api = rapidApiClient();
+  const response = await api.get('/getNFLPlayerList');
+  const entries = tank01Body(response.data) || [];
+  if (!Array.isArray(entries)) {
+    const err = new Error('unexpected getNFLPlayerList response shape');
+    err.statusCode = 502;
+    throw err;
+  }
+  const injuryByExternal = new Map();
+  for (const entry of entries) {
+    if (!entry || entry.playerID == null) continue;
+    const injury = entry.injury || {};
+    injuryByExternal.set(String(entry.playerID), {
+      status: normalizeInjuryStatus(injury.designation),
+      detail: injury.description ? String(injury.description).slice(0, 255) : null,
+    });
+  }
+
   const playersResult = await pool.query(
     `SELECT "id", "external_id" FROM "players" WHERE "external_id" IS NOT NULL`
   );
   let updated = 0;
   for (const player of playersResult.rows) {
+    const injury = injuryByExternal.get(String(player.external_id));
+    if (!injury) continue; // not in the feed — leave untouched
     try {
-      const response = await api.get('/injuries', { params: { player: player.external_id } });
-      const entry = ((response.data && response.data.response) || [])[0];
-      const status = entry ? normalizeInjuryStatus(entry.status) : null;
-      const detail = entry && entry.description ? String(entry.description).slice(0, 255) : null;
       await pool.query(
         `UPDATE "players" SET "injury_status" = $1, "injury_detail" = $2 WHERE "id" = $3`,
-        [status, detail, player.id]
+        [injury.status, injury.detail, player.id]
       );
       updated += 1;
     } catch (err) {
@@ -181,100 +233,116 @@ async function syncInjuries() {
 }
 
 /**
- * Pull the real NFL schedule for a season from RapidAPI into nfl_games —
- * one row per team per week — powering lineup locks and bye detection.
- * Unparseable entries are skipped; the sync is idempotent (upsert).
+ * Pure: one Tank01 game entry -> { home, away, kickoffAt } (team
+ * abbreviations; null when the entry is missing anything load-bearing).
+ */
+function normalizeTank01Game(entry) {
+  if (!entry || !entry.home || !entry.away) return null;
+  const epoch = Number(entry.gameTime_epoch);
+  if (!Number.isFinite(epoch) || epoch <= 0) return null;
+  return { home: entry.home, away: entry.away, kickoffAt: new Date(epoch * 1000) };
+}
+
+/**
+ * Pull the real NFL schedule into nfl_games — one row per team per week,
+ * keyed by Tank01 team abbreviations (matching players.nfl_team from
+ * syncPlayers) — powering lineup locks and bye detection. One
+ * getNFLGamesForWeek call per regular-season week; idempotent upserts.
  */
 async function syncSchedule({ season }) {
   const api = rapidApiClient();
-  const response = await api.get('/games', { params: { league: 1, season } });
-  const games = (response.data && response.data.response) || [];
   let upserted = 0;
-  for (const entry of games) {
+  for (let week = 1; week <= 18; week++) {
     try {
-      const week = Number(String(entry.game && entry.game.week || '').replace(/\D/g, ''));
-      const kickoff = entry.game && entry.game.date && entry.game.date.timestamp
-        ? new Date(entry.game.date.timestamp * 1000)
-        : null;
-      const home = entry.teams && entry.teams.home && entry.teams.home.name;
-      const away = entry.teams && entry.teams.away && entry.teams.away.name;
-      if (!Number.isInteger(week) || week < 1 || !kickoff || !home || !away) continue;
-      for (const [team, opponent] of [[home, away], [away, home]]) {
-        await pool.query(
-          `INSERT INTO "nfl_games" ("season", "week", "nfl_team", "opponent", "kickoff_at")
-           VALUES ($1, $2, $3, $4, $5)
-           ON CONFLICT ("season", "week", "nfl_team")
-           DO UPDATE SET "opponent" = EXCLUDED."opponent", "kickoff_at" = EXCLUDED."kickoff_at"`,
-          [season, week, team, opponent, kickoff]
-        );
-        upserted += 1;
+      const response = await api.get('/getNFLGamesForWeek', {
+        params: { week, seasonType: 'reg', season },
+      });
+      const games = tank01Body(response.data) || [];
+      if (!Array.isArray(games)) continue;
+      for (const entry of games) {
+        const game = normalizeTank01Game(entry);
+        if (!game) continue;
+        for (const [team, opponent] of [[game.home, game.away], [game.away, game.home]]) {
+          await pool.query(
+            `INSERT INTO "nfl_games" ("season", "week", "nfl_team", "opponent", "kickoff_at")
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT ("season", "week", "nfl_team")
+             DO UPDATE SET "opponent" = EXCLUDED."opponent", "kickoff_at" = EXCLUDED."kickoff_at"`,
+            [season, week, team, opponent, game.kickoffAt]
+          );
+          upserted += 1;
+        }
       }
     } catch (err) {
-      console.error('schedule sync: skipping malformed entry:', err.message);
+      console.error(`schedule sync failed for week ${week}:`, err.message);
     }
   }
   return { season, gamesUpserted: upserted };
 }
 
+// Fantasy-relevant positions — Tank01's full player list includes every
+// position (OL, LB, ...); only these are useful in a lineup.
+const FANTASY_POSITIONS = new Set(['QB', 'RB', 'WR', 'TE', 'K', 'PK', 'DEF']);
+
 /**
- * Normalize one entry from the RapidAPI /players response into our player
- * shape. Tolerant of a combined `name` field or separate firstname/lastname
- * (API-SPORTS has used both across its sports APIs). Returns null for
- * entries missing an id, name, or position — nothing to upsert.
+ * Normalize one entry from Tank01's getNFLPlayerList into our player shape.
+ * Returns null for entries missing an id, name, or position, and for
+ * non-fantasy positions. Tank01 calls kickers 'PK' — stored as 'K' to match
+ * our slot eligibility.
  */
 function normalizePlayerEntry(entry) {
-  const externalId = entry && entry.id;
-  const name = entry && (
-    entry.name || [entry.firstname, entry.lastname].filter(Boolean).join(' ').trim()
-  );
-  const position = entry && entry.position && String(entry.position).toUpperCase();
-  if (!externalId || !name || !position) return null;
-  return { externalId, name, position };
+  const externalId = entry && entry.playerID;
+  const name = entry && entry.longName;
+  let position = entry && entry.pos && String(entry.pos).toUpperCase();
+  if (position === 'PK') position = 'K';
+  if (!externalId || !name || !position || !FANTASY_POSITIONS.has(position)) return null;
+  return {
+    externalId: String(externalId),
+    name,
+    position,
+    nflTeam: entry.team ? String(entry.team) : null,
+  };
 }
 
 /**
- * Discover and refresh the NFL player pool from RapidAPI. The /players
- * endpoint is filtered by team, so this first lists teams for the season,
- * then pulls each team's roster and upserts by external_id (safe to re-run;
- * existing players get their name/position/team refreshed, new ones are
- * inserted). Not run on the scheduler — a full 32-team crawl every tick
- * would waste API calls — so pair with a manual trigger or a low-frequency
- * cron of your own.
+ * Discover and refresh the NFL player pool from Tank01's getNFLPlayerList —
+ * a single call covering the whole league. Upserts by external_id (safe to
+ * re-run; existing players get their name/position/team refreshed, new ones
+ * are inserted). Not on the scheduler — trigger from the admin dashboard or
+ * POST /api/scoring/sync-players.
  */
 async function syncPlayers({ season }) {
   const api = rapidApiClient();
-  const teamsResponse = await api.get('/teams', { params: { league: 1, season } });
-  const teams = (teamsResponse.data && teamsResponse.data.response) || [];
+  const response = await api.get('/getNFLPlayerList');
+  const entries = tank01Body(response.data) || [];
+  if (!Array.isArray(entries)) {
+    const err = new Error('unexpected getNFLPlayerList response shape');
+    err.statusCode = 502;
+    throw err;
+  }
   let upserted = 0;
-  for (const teamEntry of teams) {
-    const teamId = teamEntry && teamEntry.id;
-    const teamName = teamEntry && teamEntry.name;
-    if (!teamId || !teamName) continue;
+  let skipped = 0;
+  for (const raw of entries) {
+    const parsed = normalizePlayerEntry(raw);
+    if (!parsed) {
+      skipped += 1;
+      continue;
+    }
     try {
-      const playersResponse = await api.get('/players', { params: { team: teamId, season } });
-      const players = (playersResponse.data && playersResponse.data.response) || [];
-      for (const raw of players) {
-        const parsed = normalizePlayerEntry(raw);
-        if (!parsed) continue;
-        try {
-          await pool.query(
-            `INSERT INTO "players" ("external_id", "name", "position", "nfl_team")
-             VALUES ($1, $2, $3, $4)
-             ON CONFLICT ("external_id")
-             DO UPDATE SET "name" = EXCLUDED."name", "position" = EXCLUDED."position",
-                           "nfl_team" = EXCLUDED."nfl_team"`,
-            [parsed.externalId, parsed.name, parsed.position, teamName]
-          );
-          upserted += 1;
-        } catch (err) {
-          console.error(`player sync: upsert failed for external_id ${parsed.externalId}:`, err.message);
-        }
-      }
+      await pool.query(
+        `INSERT INTO "players" ("external_id", "name", "position", "nfl_team")
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT ("external_id")
+         DO UPDATE SET "name" = EXCLUDED."name", "position" = EXCLUDED."position",
+                       "nfl_team" = EXCLUDED."nfl_team"`,
+        [parsed.externalId, parsed.name, parsed.position, parsed.nflTeam]
+      );
+      upserted += 1;
     } catch (err) {
-      console.error(`Player sync failed for team ${teamId} (${teamName}):`, err.message);
+      console.error(`player sync: upsert failed for external_id ${parsed.externalId}:`, err.message);
     }
   }
-  return { season, playersUpserted: upserted };
+  return { season, playersUpserted: upserted, skippedNonFantasy: skipped };
 }
 
 /**
@@ -439,7 +507,9 @@ module.exports = {
   SCORING_PRESETS,
   rulesForLeague,
   calculateFantasyPoints,
-  normalizeApiStats,
+  tank01Body,
+  normalizeTank01Stats,
+  normalizeTank01Game,
   normalizeInjuryStatus,
   normalizePlayerEntry,
   syncWeekStats,

@@ -2,7 +2,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   calculateFantasyPoints,
-  normalizeApiStats,
+  tank01Body,
+  normalizeTank01Stats,
+  normalizeTank01Game,
   SCORING_RULES,
 } = require('../services/scoring.service');
 
@@ -69,117 +71,65 @@ test('calculateFantasyPoints: mixed valid and invalid values', () => {
   assert.equal(calculateFantasyPoints(stats), 9);
 });
 
-test('normalizeApiStats with valid groups array', () => {
-  const groups = [
-    {
-      name: 'Passing',
-      statistics: [
-        { name: 'Yards', value: '1,250' },
-        { name: 'Passing Touch Downs', value: '9' },
-      ],
-    },
-  ];
-  const result = normalizeApiStats(groups);
+// --- Tank01 response handling ------------------------------------------------
+
+test('tank01Body unwraps the { statusCode, body } envelope', () => {
+  assert.deepEqual(tank01Body({ statusCode: 200, body: [1, 2] }), [1, 2]);
+});
+
+test('tank01Body passes through raw payloads and null', () => {
+  assert.deepEqual(tank01Body([{ a: 1 }]), [{ a: 1 }]);
+  assert.equal(tank01Body(null), null);
+});
+
+test('normalizeTank01Stats maps a full box-score entry', () => {
+  const entry = {
+    playerID: '3915511',
+    Passing: { passYds: '312', passTD: '2', int: '1' },
+    Rushing: { carries: '4', rushYds: '22', rushTD: '1' },
+    Receiving: { targets: '1', receptions: '1', recYds: '8', recTD: '0' },
+    Kicking: { fgMade: '2', xpMade: '3' },
+    Defense: { fumblesLost: '1' },
+  };
+  assert.deepEqual(normalizeTank01Stats(entry), {
+    passingYards: 312,
+    passingTDs: 2,
+    interceptions: 1,
+    rushingYards: 22,
+    rushingTDs: 1,
+    receivingYards: 8,
+    receivingTDs: 0,
+    receptions: 1,
+    fumbles: 1,
+    fieldGoal: 2,
+    extraPoint: 3,
+  });
+});
+
+test('normalizeTank01Stats: missing categories mean zeros; top-level fumblesLost accepted', () => {
+  const result = normalizeTank01Stats({ fumblesLost: '2' });
+  assert.equal(result.fumbles, 2);
+  assert.equal(result.passingYards, 0);
+  assert.equal(result.receptions, 0);
+  assert.deepEqual(normalizeTank01Stats(null).passingYards, 0);
+});
+
+test('normalizeTank01Stats strips comma separators', () => {
+  const result = normalizeTank01Stats({ Passing: { passYds: '1,250' } });
   assert.equal(result.passingYards, 1250);
-  assert.equal(result.passingTDs, 9);
-  assert.equal(result.interceptions, 0);
-  assert.equal(result.rushingYards, 0);
-  assert.equal(result.rushingTDs, 0);
-  assert.equal(result.receivingYards, 0);
-  assert.equal(result.receivingTDs, 0);
-  assert.equal(result.receptions, 0);
-  assert.equal(result.fumbles, 0);
 });
 
-test('normalizeApiStats with undefined returns all zeros', () => {
-  const result = normalizeApiStats(undefined);
-  assert.equal(result.passingYards, 0);
-  assert.equal(result.passingTDs, 0);
-  assert.equal(result.interceptions, 0);
-  assert.equal(result.rushingYards, 0);
-  assert.equal(result.rushingTDs, 0);
-  assert.equal(result.receivingYards, 0);
-  assert.equal(result.receivingTDs, 0);
-  assert.equal(result.receptions, 0);
-  assert.equal(result.fumbles, 0);
-});
-
-test('normalizeApiStats with empty array returns all zeros', () => {
-  const result = normalizeApiStats([]);
-  assert.equal(result.passingYards, 0);
-  assert.equal(result.passingTDs, 0);
-  assert.equal(result.interceptions, 0);
-  assert.equal(result.rushingYards, 0);
-  assert.equal(result.rushingTDs, 0);
-  assert.equal(result.receivingYards, 0);
-  assert.equal(result.receivingTDs, 0);
-  assert.equal(result.receptions, 0);
-  assert.equal(result.fumbles, 0);
-});
-
-test('normalizeApiStats with mixed groups', () => {
-  const groups = [
-    {
-      name: 'Passing',
-      statistics: [
-        { name: 'Yards', value: '300' },
-        { name: 'Passing Touch Downs', value: '2' },
-        { name: 'Interceptions', value: '1' },
-      ],
-    },
-    {
-      name: 'Rushing',
-      statistics: [
-        { name: 'Yards', value: '100' },
-        { name: 'Rushing Touch Downs', value: '1' },
-      ],
-    },
-    {
-      name: 'Receiving',
-      statistics: [
-        { name: 'Yards', value: '50' },
-        { name: 'Receptions', value: '5' },
-        { name: 'Receiving Touch Downs', value: '0' },
-      ],
-    },
-  ];
-  const result = normalizeApiStats(groups);
-  assert.equal(result.passingYards, 300);
-  assert.equal(result.passingTDs, 2);
-  assert.equal(result.interceptions, 1);
-  assert.equal(result.rushingYards, 100);
-  assert.equal(result.rushingTDs, 1);
-  assert.equal(result.receivingYards, 50);
-  assert.equal(result.receivingTDs, 0);
-  assert.equal(result.receptions, 5);
-});
-
-test('normalizeApiStats is case-insensitive for category names', () => {
-  const groups = [
-    {
-      name: 'PASSING',
-      statistics: [
-        { name: 'Yards', value: '200' },
-        { name: 'Passing Touch Downs', value: '1' },
-      ],
-    },
-  ];
-  const result = normalizeApiStats(groups);
-  assert.equal(result.passingYards, 200);
-  assert.equal(result.passingTDs, 1);
-});
-
-test('normalizeApiStats handles comma-separated values', () => {
-  const groups = [
-    {
-      name: 'Passing',
-      statistics: [
-        { name: 'Yards', value: '1,234,567' },
-        { name: 'Passing Touch Downs', value: '12' },
-      ],
-    },
-  ];
-  const result = normalizeApiStats(groups);
-  assert.equal(result.passingYards, 1234567);
-  assert.equal(result.passingTDs, 12);
+test('normalizeTank01Game builds kickoff from epoch and requires both teams', () => {
+  const game = normalizeTank01Game({
+    gameID: '20250907_BUF@NYJ',
+    away: 'BUF',
+    home: 'NYJ',
+    gameTime_epoch: '1757266200.0',
+  });
+  assert.equal(game.home, 'NYJ');
+  assert.equal(game.away, 'BUF');
+  assert.equal(game.kickoffAt.getTime(), 1757266200000);
+  assert.equal(normalizeTank01Game({ home: 'NYJ', gameTime_epoch: '1' }), null);
+  assert.equal(normalizeTank01Game({ home: 'NYJ', away: 'BUF' }), null);
+  assert.equal(normalizeTank01Game(null), null);
 });

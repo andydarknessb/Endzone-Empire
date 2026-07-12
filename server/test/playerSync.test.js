@@ -2,31 +2,49 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { normalizePlayerEntry } = require('../services/scoring.service');
 
-test('normalizePlayerEntry: uses a combined name field when present', () => {
-  const parsed = normalizePlayerEntry({ id: 42, name: 'Patrick Mahomes', position: 'qb' });
-  assert.deepEqual(parsed, { externalId: 42, name: 'Patrick Mahomes', position: 'QB' });
+// Tank01 getNFLPlayerList entry shape: { playerID, longName, pos, team, ... }
+
+test('normalizePlayerEntry maps a Tank01 player entry', () => {
+  const parsed = normalizePlayerEntry({
+    playerID: '3915511',
+    longName: 'Josh Allen',
+    pos: 'QB',
+    team: 'BUF',
+  });
+  assert.deepEqual(parsed, {
+    externalId: '3915511',
+    name: 'Josh Allen',
+    position: 'QB',
+    nflTeam: 'BUF',
+  });
 });
 
-test('normalizePlayerEntry: falls back to firstname + lastname', () => {
-  const parsed = normalizePlayerEntry({ id: 7, firstname: 'Josh', lastname: 'Allen', position: 'QB' });
-  assert.deepEqual(parsed, { externalId: 7, name: 'Josh Allen', position: 'QB' });
-});
-
-test('normalizePlayerEntry: uppercases position', () => {
-  const parsed = normalizePlayerEntry({ id: 1, name: 'A Player', position: 'rb' });
+test('normalizePlayerEntry uppercases position and stringifies numeric ids', () => {
+  const parsed = normalizePlayerEntry({ playerID: 42, longName: 'A Player', pos: 'rb', team: 'KC' });
   assert.equal(parsed.position, 'RB');
+  assert.equal(parsed.externalId, '42');
 });
 
-test('normalizePlayerEntry: missing id returns null', () => {
-  assert.equal(normalizePlayerEntry({ name: 'No Id', position: 'WR' }), null);
+test("normalizePlayerEntry translates Tank01's PK to our K", () => {
+  const parsed = normalizePlayerEntry({ playerID: '9', longName: 'A Kicker', pos: 'PK', team: 'DAL' });
+  assert.equal(parsed.position, 'K');
 });
 
-test('normalizePlayerEntry: missing name/firstname/lastname returns null', () => {
-  assert.equal(normalizePlayerEntry({ id: 1, position: 'WR' }), null);
+test('normalizePlayerEntry drops non-fantasy positions', () => {
+  assert.equal(
+    normalizePlayerEntry({ playerID: '1', longName: 'A Lineman', pos: 'OT', team: 'SF' }),
+    null
+  );
+  assert.equal(
+    normalizePlayerEntry({ playerID: '2', longName: 'A Backer', pos: 'LB', team: 'SF' }),
+    null
+  );
 });
 
-test('normalizePlayerEntry: missing position returns null', () => {
-  assert.equal(normalizePlayerEntry({ id: 1, name: 'No Position' }), null);
+test('normalizePlayerEntry: missing id, name, or position returns null', () => {
+  assert.equal(normalizePlayerEntry({ longName: 'No Id', pos: 'WR' }), null);
+  assert.equal(normalizePlayerEntry({ playerID: '1', pos: 'WR' }), null);
+  assert.equal(normalizePlayerEntry({ playerID: '1', longName: 'No Position' }), null);
 });
 
 test('normalizePlayerEntry: null/undefined entry returns null', () => {
@@ -34,7 +52,7 @@ test('normalizePlayerEntry: null/undefined entry returns null', () => {
   assert.equal(normalizePlayerEntry(undefined), null);
 });
 
-test('normalizePlayerEntry: only a lastname (no firstname) still builds a name', () => {
-  const parsed = normalizePlayerEntry({ id: 3, lastname: 'Defense', position: 'DEF' });
-  assert.deepEqual(parsed, { externalId: 3, name: 'Defense', position: 'DEF' });
+test('normalizePlayerEntry tolerates a missing team (free agents)', () => {
+  const parsed = normalizePlayerEntry({ playerID: '5', longName: 'Free Agent', pos: 'WR' });
+  assert.equal(parsed.nflTeam, null);
 });
