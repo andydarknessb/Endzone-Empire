@@ -2,6 +2,7 @@ const express = require('express');
 const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
 const trades = require('../services/trade.service');
+const { analyzeTrade } = require('../services/decision.service');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -76,6 +77,41 @@ router.post('/', async (req, res) => {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     console.error('Error proposing trade', error);
     res.status(500).json({ error: 'failed to propose trade' });
+  }
+});
+
+// POST /api/trades/analyze — evaluate a potential trade before proposing it
+// { leagueId, receivingTeamId, offeredPlayerIds, requestedPlayerIds }
+router.post('/analyze', async (req, res) => {
+  const { leagueId, receivingTeamId, offeredPlayerIds, requestedPlayerIds } = req.body || {};
+  if (!Number.isInteger(leagueId) || !Number.isInteger(receivingTeamId)) {
+    return res.status(400).json({ error: 'leagueId and receivingTeamId (integers) are required' });
+  }
+  if (!Array.isArray(offeredPlayerIds) || offeredPlayerIds.some((id) => !Number.isInteger(id))) {
+    return res.status(400).json({ error: 'offeredPlayerIds must be an array of integers' });
+  }
+  if (!Array.isArray(requestedPlayerIds) || requestedPlayerIds.some((id) => !Number.isInteger(id))) {
+    return res.status(400).json({ error: 'requestedPlayerIds must be an array of integers' });
+  }
+  try {
+    const teamResult = await pool.query(
+      `SELECT "id" FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
+      [leagueId, req.user.id]
+    );
+    if (!teamResult.rows[0]) return res.status(403).json({ error: 'you do not have a team in this league' });
+
+    const analysis = await analyzeTrade({
+      leagueId,
+      proposingTeamId: teamResult.rows[0].id,
+      receivingTeamId,
+      offeredPlayerIds,
+      requestedPlayerIds,
+    });
+    res.json(analysis);
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    console.error('Error analyzing trade', error);
+    res.status(500).json({ error: 'failed to analyze trade' });
   }
 });
 

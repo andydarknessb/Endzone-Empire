@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
@@ -42,8 +42,24 @@ const rosterResponse = () => [
   { id: 21, name: 'Tyreek Hill', position: 'WR', nfl_team: 'Miami Dolphins' },
 ];
 
-const setupGet = ({ waivers, roster }) => {
+const suggestionsResponse = (overrides = {}) => ({
+  suggestions: [
+    {
+      playerId: 7,
+      name: 'Breece Hall',
+      position: 'RB',
+      nflTeam: 'New York Jets',
+      projection: 14.2,
+      weakestStarterProjection: 8.9,
+      upgradeDelta: 5.3,
+    },
+  ],
+  ...overrides,
+});
+
+const setupGet = ({ waivers, roster, suggestions = { suggestions: [] } }) => {
   apiClient.get.mockImplementation((url) => {
+    if (url.startsWith('/api/waivers/suggestions')) return Promise.resolve({ data: suggestions });
     if (url.startsWith('/api/waivers')) return Promise.resolve({ data: waivers });
     if (url.startsWith('/api/team/roster')) return Promise.resolve({ data: roster });
     return Promise.reject(new Error(`unexpected url ${url}`));
@@ -113,8 +129,14 @@ test('submitting a claim with no drop player posts the correct body and refetche
     })
   );
   expect(await screen.findByText('Claim submitted')).toBeInTheDocument();
-  // 2 GETs on mount + 2 GETs on refetch after the claim.
-  await waitFor(() => expect(apiClient.get).toHaveBeenCalledTimes(4));
+  // Waiver list refetches after the claim (suggestions calls don't count):
+  // one on mount, one after.
+  await waitFor(() => {
+    const waiverGets = apiClient.get.mock.calls.filter(([url]) =>
+      url.startsWith('/api/waivers?')
+    );
+    expect(waiverGets).toHaveLength(2);
+  });
 });
 
 test('selecting a drop player includes its id in the claim request', async () => {
@@ -216,4 +238,87 @@ test('shows an error alert when the initial fetch fails', async () => {
   renderScreen();
 
   expect(await screen.findByText('waivers unavailable')).toBeInTheDocument();
+});
+
+test('renders an Upgrade badge for a player with a suggested pickup', async () => {
+  setupGet({ waivers: waiversResponse(), roster: rosterResponse(), suggestions: suggestionsResponse() });
+  renderScreen();
+
+  await screen.findByText('Breece Hall');
+  expect(screen.getByText('+5.3')).toBeInTheDocument();
+});
+
+test('does not show an upgrade badge for a player without a suggestion', async () => {
+  setupGet({ waivers: waiversResponse(), roster: rosterResponse(), suggestions: { suggestions: [] } });
+  renderScreen();
+
+  await screen.findByText('Breece Hall');
+  expect(screen.queryByText(/^\+\d/)).not.toBeInTheDocument();
+});
+
+test('a failed suggestions fetch is silently ignored (no badges, no error)', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url.startsWith('/api/waivers/suggestions')) return Promise.reject(new Error('boom'));
+    if (url.startsWith('/api/waivers')) return Promise.resolve({ data: waiversResponse() });
+    if (url.startsWith('/api/team/roster')) return Promise.resolve({ data: rosterResponse() });
+    return Promise.reject(new Error(`unexpected url ${url}`));
+  });
+  renderScreen();
+
+  await screen.findByText('Breece Hall');
+  expect(screen.queryByText(/^\+\d/)).not.toBeInTheDocument();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+
+test('clicking the Upgrade column header sorts the on-waivers table by upgrade delta', async () => {
+  setupGet({
+    waivers: waiversResponse({
+      onWaivers: [
+        {
+          id: 7,
+          name: 'Breece Hall',
+          position: 'RB',
+          nfl_team: 'New York Jets',
+          available_at: '2026-07-12T15:00:00.000Z',
+        },
+        {
+          id: 8,
+          name: 'Jaylen Warren',
+          position: 'RB',
+          nfl_team: 'Pittsburgh Steelers',
+          available_at: '2026-07-12T15:00:00.000Z',
+        },
+      ],
+    }),
+    roster: rosterResponse(),
+    suggestions: {
+      suggestions: [
+        {
+          playerId: 7,
+          name: 'Breece Hall',
+          position: 'RB',
+          nflTeam: 'New York Jets',
+          projection: 14.2,
+          weakestStarterProjection: 8.9,
+          upgradeDelta: 2.1,
+        },
+        {
+          playerId: 8,
+          name: 'Jaylen Warren',
+          position: 'RB',
+          nflTeam: 'Pittsburgh Steelers',
+          projection: 15.0,
+          weakestStarterProjection: 8.9,
+          upgradeDelta: 6.1,
+        },
+      ],
+    },
+  });
+  renderScreen();
+
+  await screen.findByText('Breece Hall');
+  await userEvent.click(screen.getByText('Upgrade'));
+
+  const rows = screen.getAllByRole('row').slice(1); // drop the header row
+  expect(within(rows[0]).getByText('Jaylen Warren')).toBeInTheDocument();
 });

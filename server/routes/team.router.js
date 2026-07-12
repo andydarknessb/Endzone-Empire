@@ -3,6 +3,7 @@ const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
 const { draftPlayer, dropPlayer } = require('../services/draft.service');
 const { getLineup, setLineup } = require('../services/lineup.service');
+const { startSitAdvice, weekHindsight, seasonHindsight } = require('../services/decision.service');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -118,6 +119,73 @@ router.put('/lineup', async (req, res) => {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     console.error('Error setting lineup', error);
     res.status(500).json({ error: 'failed to set lineup' });
+  }
+});
+
+// GET /api/team/lineup/advice?leagueId=N&season=S&week=W — start/sit suggestions
+// for the caller's team (season/week optional — default to the current lineup)
+router.get('/lineup/advice', async (req, res) => {
+  const leagueId = req.query.leagueId;
+  if (!/^\d+$/.test(String(leagueId))) {
+    return res.status(400).json({ error: 'leagueId query param (integer) is required' });
+  }
+  const season = req.query.season === undefined ? undefined : req.query.season;
+  if (season !== undefined && !/^\d+$/.test(String(season))) {
+    return res.status(400).json({ error: 'season must be a positive integer' });
+  }
+  const week = req.query.week === undefined ? undefined : req.query.week;
+  if (week !== undefined && !/^\d+$/.test(String(week))) {
+    return res.status(400).json({ error: 'week must be a positive integer' });
+  }
+  try {
+    const advice = await startSitAdvice({
+      leagueId: Number(leagueId),
+      userId: req.user.id,
+      season: season === undefined ? undefined : Number(season),
+      week: week === undefined ? undefined : Number(week),
+    });
+    res.json(advice);
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    console.error('Error fetching lineup advice', error);
+    res.status(500).json({ error: 'failed to fetch lineup advice' });
+  }
+});
+
+// GET /api/team/hindsight?leagueId=N&teamId=N&season=S&week=W — actual vs.
+// optimal lineup for a team; omit week for the full-season summary. Any
+// league member may view any team's hindsight (matchup recaps show it).
+router.get('/hindsight', async (req, res) => {
+  const leagueId = req.query.leagueId;
+  const teamId = req.query.teamId;
+  if (!/^\d+$/.test(String(leagueId)) || !/^\d+$/.test(String(teamId))) {
+    return res.status(400).json({ error: 'leagueId and teamId query params (integers) are required' });
+  }
+  const season = req.query.season;
+  if (!/^\d+$/.test(String(season))) {
+    return res.status(400).json({ error: 'season query param (integer) is required' });
+  }
+  const week = req.query.week === undefined ? undefined : req.query.week;
+  if (week !== undefined && !/^\d+$/.test(String(week))) {
+    return res.status(400).json({ error: 'week must be a positive integer' });
+  }
+  try {
+    const membership = await pool.query(
+      `SELECT 1 FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
+      [Number(leagueId), req.user.id]
+    );
+    if (!membership.rows[0]) return res.status(403).json({ error: 'not a member of this league' });
+
+    const result = week === undefined
+      ? await seasonHindsight({ leagueId: Number(leagueId), teamId: Number(teamId), season: Number(season) })
+      : await weekHindsight({
+          leagueId: Number(leagueId), teamId: Number(teamId), season: Number(season), week: Number(week),
+        });
+    res.json(result);
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    console.error('Error fetching hindsight', error);
+    res.status(500).json({ error: 'failed to fetch hindsight' });
   }
 });
 

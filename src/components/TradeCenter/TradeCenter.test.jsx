@@ -231,3 +231,105 @@ test('shows an error alert when the initial fetch fails', async () => {
 
   expect(await screen.findByText('trades unavailable')).toBeInTheDocument();
 });
+
+test('Analyze Trade in the compose dialog posts the correct body and renders the verdict + per-player rows', async () => {
+  mockGetSequence({ trades: [] });
+  apiClient.post.mockImplementation((url) => {
+    if (url === '/api/trades/analyze') {
+      return Promise.resolve({
+        data: {
+          verdict: 'favors_proposer',
+          proposerGives: 20,
+          proposerGets: 32,
+          receiverGives: 32,
+          receiverGets: 20,
+          players: [
+            { playerId: 101, name: 'Stefon Diggs', position: 'WR', rosValue: 18, fitAdjustedValue: 20, direction: 'out' },
+            { playerId: 200, name: 'Tyreek Hill', position: 'WR', rosValue: 30, fitAdjustedValue: 32, direction: 'in' },
+          ],
+        },
+      });
+    }
+    return Promise.resolve({});
+  });
+
+  renderScreen();
+  await screen.findByText('No trades yet');
+
+  await userEvent.click(screen.getByRole('button', { name: 'Propose Trade' }));
+  await userEvent.click(screen.getByLabelText('Trade with'));
+  await userEvent.click(await screen.findByRole('option', { name: 'Bob Squad' }));
+  await userEvent.click(await screen.findByLabelText('Stefon Diggs (WR)'));
+  await userEvent.click(await screen.findByLabelText('Tyreek Hill (WR)'));
+
+  await userEvent.click(screen.getByRole('button', { name: 'Analyze Trade' }));
+
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/trades/analyze', {
+      leagueId: 1,
+      receivingTeamId: 20,
+      offeredPlayerIds: [101],
+      requestedPlayerIds: [200],
+    })
+  );
+
+  expect(await screen.findByText('Favors Proposer')).toBeInTheDocument();
+  expect(screen.getByText(/Proposer: gives 20 · gets 32/)).toBeInTheDocument();
+  expect(screen.getByText(/Receiver: gives 32 · gets 20/)).toBeInTheDocument();
+  expect(screen.getByText(/Stefon Diggs \(WR\): 18 → 20/)).toBeInTheDocument();
+  expect(screen.getByText(/Tyreek Hill \(WR\): 30 → 32/)).toBeInTheDocument();
+});
+
+test('Analyze Trade surfaces an error message when the analyze request fails', async () => {
+  mockGetSequence({ trades: [] });
+  apiClient.post.mockRejectedValue({ response: { data: { error: 'trade not eligible for analysis' } } });
+
+  renderScreen();
+  await screen.findByText('No trades yet');
+
+  await userEvent.click(screen.getByRole('button', { name: 'Propose Trade' }));
+  await userEvent.click(screen.getByLabelText('Trade with'));
+  await userEvent.click(await screen.findByRole('option', { name: 'Bob Squad' }));
+  await userEvent.click(await screen.findByLabelText('Stefon Diggs (WR)'));
+  await userEvent.click(await screen.findByLabelText('Tyreek Hill (WR)'));
+
+  await userEvent.click(screen.getByRole('button', { name: 'Analyze Trade' }));
+
+  expect(await screen.findByText('trade not eligible for analysis')).toBeInTheDocument();
+});
+
+test('Analyze Trade on an existing trade card posts the trade items and renders a fair verdict chip', async () => {
+  mockGetSequence({ trades: [pendingTrade()] });
+  apiClient.post.mockImplementation((url) => {
+    if (url === '/api/trades/analyze') {
+      return Promise.resolve({
+        data: {
+          verdict: 'fair',
+          proposerGives: 20,
+          proposerGets: 20,
+          receiverGives: 20,
+          receiverGets: 20,
+          players: [],
+        },
+      });
+    }
+    return Promise.resolve({});
+  });
+
+  renderScreen();
+  await screen.findByText('Alice Squad ⇄ Bob Squad');
+
+  await userEvent.click(
+    within(screen.getByTestId('trade-5')).getByRole('button', { name: 'Analyze Trade' })
+  );
+
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/trades/analyze', {
+      leagueId: 1,
+      receivingTeamId: 20,
+      offeredPlayerIds: [101],
+      requestedPlayerIds: [200],
+    })
+  );
+  expect(await screen.findByText('Fair')).toBeInTheDocument();
+});

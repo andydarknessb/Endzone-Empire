@@ -293,6 +293,44 @@ async function setLineup({ leagueId, userId, week, moves }) {
   }
 }
 
+/**
+ * Pure: the best legal starting lineup for a set of players given per-player
+ * points (actual or projected). Slots are filled most-restrictive first
+ * (fewest eligible positions), each taking its best remaining players — with
+ * the standard slot shapes (dedicated positions + FLEX as a superset) this
+ * greedy order is provably optimal.
+ *
+ * players: [{ playerId, position }]; pointsFor: Map playerId -> points.
+ * Returns { starters: [{ playerId, position, slot, points }], total }.
+ */
+function optimalLineup(players, lineupSlots = DEFAULT_LINEUP_SLOTS, pointsFor = new Map()) {
+  const slots = Object.entries(lineupSlots)
+    .filter(([, count]) => count > 0)
+    .sort(
+      ([a], [b]) =>
+        (SLOT_ELIGIBILITY[a] || []).length - (SLOT_ELIGIBILITY[b] || []).length
+    );
+  const available = [...players].sort(
+    (a, b) => (Number(pointsFor.get(b.playerId)) || 0) - (Number(pointsFor.get(a.playerId)) || 0)
+  );
+  const taken = new Set();
+  const starters = [];
+  let total = 0;
+  for (const [slot, count] of slots) {
+    for (let i = 0; i < count; i++) {
+      const pick = available.find(
+        (p) => !taken.has(p.playerId) && slotEligible(slot, p.position)
+      );
+      if (!pick) continue; // roster can't fill this slot — leave it empty
+      taken.add(pick.playerId);
+      const points = Number(pointsFor.get(pick.playerId)) || 0;
+      starters.push({ playerId: pick.playerId, position: pick.position, slot, points });
+      total += points;
+    }
+  }
+  return { starters, total: Math.round(total * 100) / 100 };
+}
+
 module.exports = {
   LineupError,
   DEFAULT_LINEUP_SLOTS,
@@ -304,4 +342,5 @@ module.exports = {
   lockedNflTeams,
   getLineup,
   setLineup,
+  optimalLineup,
 };

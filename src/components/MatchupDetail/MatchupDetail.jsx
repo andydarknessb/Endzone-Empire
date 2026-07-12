@@ -16,15 +16,20 @@ import apiClient from '../../api/apiClient';
 import { createDraftSocket, onReconnect } from '../../api/socket';
 import InjuryBadge from '../InjuryBadge/InjuryBadge';
 
-function TeamColumn({ team, teamName, score }) {
+function TeamColumn({ team, teamName, score, benchLeft }) {
   const starters = team?.starters || [];
   return (
     <Grid item xs={12} md={6}>
       <Paper sx={{ p: 2 }}>
         <Typography variant="h6">{teamName}</Typography>
-        <Typography variant="h5" sx={{ mb: 2 }}>
+        <Typography variant="h5" sx={{ mb: benchLeft != null ? 0.5 : 2 }}>
           {score}
         </Typography>
+        {benchLeft != null && (
+          <Typography variant="body2" sx={{ mb: 2, color: 'text.secondary' }}>
+            Left {benchLeft} on the bench
+          </Typography>
+        )}
         <List disablePadding>
           {starters.map((player) => (
             <ListItem key={player.id} sx={{ px: 0 }}>
@@ -58,6 +63,8 @@ function MatchupDetail() {
   const [away, setAway] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [homeBenchLeft, setHomeBenchLeft] = useState(null);
+  const [awayBenchLeft, setAwayBenchLeft] = useState(null);
   const socketRef = useRef(null);
 
   useEffect(() => {
@@ -102,11 +109,38 @@ function MatchupDetail() {
       setMatchup(res.data.matchup);
       setHome(res.data.home);
       setAway(res.data.away);
+      if (res.data.matchup?.final) {
+        fetchBenchLeft(res.data.matchup, res.data.home, res.data.away);
+      }
     } catch (err) {
       setError(err.response?.data?.error || err.message);
     } finally {
       setLoading(false);
     }
+  };
+
+  // Points left on the bench only makes sense once a week is final. Fetched
+  // per-team from the hindsight endpoint; skipped silently on 404/error since
+  // it's a supplementary stat, not core matchup data.
+  const fetchBenchLeft = async (matchupData, homeData, awayData) => {
+    const [homeResult, awayResult] = await Promise.allSettled([
+      apiClient.get(
+        `/api/team/hindsight?leagueId=${leagueId}&teamId=${homeData.teamId}&season=${matchupData.season}&week=${matchupData.week}`
+      ),
+      apiClient.get(
+        `/api/team/hindsight?leagueId=${leagueId}&teamId=${awayData.teamId}&season=${matchupData.season}&week=${matchupData.week}`
+      ),
+    ]);
+    setHomeBenchLeft(
+      homeResult.status === 'fulfilled' && typeof homeResult.value.data?.pointsLeftOnBench === 'number'
+        ? homeResult.value.data.pointsLeftOnBench
+        : null
+    );
+    setAwayBenchLeft(
+      awayResult.status === 'fulfilled' && typeof awayResult.value.data?.pointsLeftOnBench === 'number'
+        ? awayResult.value.data.pointsLeftOnBench
+        : null
+    );
   };
 
   if (loading) {
@@ -138,11 +172,13 @@ function MatchupDetail() {
               team={home}
               teamName={matchup.home_team_name}
               score={Number(matchup.home_score)}
+              benchLeft={matchup.final ? homeBenchLeft : null}
             />
             <TeamColumn
               team={away}
               teamName={matchup.away_team_name}
               score={Number(matchup.away_score)}
+              benchLeft={matchup.final ? awayBenchLeft : null}
             />
           </Grid>
         </>

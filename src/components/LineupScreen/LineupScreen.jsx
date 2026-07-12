@@ -14,6 +14,8 @@ import {
   ListItemButton,
   Chip,
   Skeleton,
+  Button,
+  Collapse,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import InjuryBadge from '../InjuryBadge/InjuryBadge';
@@ -36,10 +38,22 @@ function LineupScreen() {
   const [successMessage, setSuccessMessage] = useState(null);
   const [selectedWeek, setSelectedWeek] = useState(null);
   const [selectedEntry, setSelectedEntry] = useState(null);
+  const [advice, setAdvice] = useState(null);
+  const [adviceExpanded, setAdviceExpanded] = useState(true);
+  const [benchSeasonTotal, setBenchSeasonTotal] = useState(null);
 
   useEffect(() => {
     fetchLineup();
   }, [leagueId, selectedWeek]);
+
+  // Once the lineup for this week is known, load the decision-support
+  // panels that ride alongside it. Re-runs whenever `lineup` changes (week
+  // switch or a post-save refetch) so suggestions/bench stats stay in sync.
+  useEffect(() => {
+    if (!lineup) return;
+    fetchAdvice();
+    fetchSeasonBenchTotal();
+  }, [lineup]);
 
   const fetchLineup = async () => {
     try {
@@ -56,6 +70,43 @@ function LineupScreen() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchAdvice = async () => {
+    try {
+      const res = await apiClient.get(
+        `/api/team/lineup/advice?leagueId=${leagueId}&season=${lineup.season}&week=${lineup.week}`
+      );
+      setAdvice(res.data);
+    } catch (err) {
+      // Suggestions are supplementary — hide the panel rather than surface an error.
+      setAdvice(null);
+    }
+  };
+
+  const fetchSeasonBenchTotal = async () => {
+    try {
+      const res = await apiClient.get(
+        `/api/team/hindsight?leagueId=${leagueId}&teamId=${lineup.teamId}&season=${lineup.season}`
+      );
+      setBenchSeasonTotal(
+        typeof res.data?.totalPointsLeftOnBench === 'number' ? res.data.totalPointsLeftOnBench : null
+      );
+    } catch (err) {
+      setBenchSeasonTotal(null);
+    }
+  };
+
+  const handleApplySuggestion = (suggestion) => {
+    const list = lineup?.entries || [];
+    const suggestedEntry = list.find((e) => e.id === suggestion.suggested.playerId);
+    const currentEntry = list.find((e) => e.id === suggestion.current.playerId);
+    if (!suggestedEntry || !currentEntry) return;
+    // Same two-move payload a manual click-click swap would produce.
+    performMove([
+      { playerId: currentEntry.id, slot: suggestedEntry.slot },
+      { playerId: suggestedEntry.id, slot: currentEntry.slot },
+    ]);
   };
 
   const handleWeekChange = (e) => {
@@ -244,9 +295,18 @@ function LineupScreen() {
           <Typography variant="h4" sx={{ mb: 1 }}>
             Set Lineup
           </Typography>
-          <Typography variant="subtitle1" sx={{ mb: 3, color: 'text.secondary' }}>
+          <Typography variant="subtitle1" sx={{ mb: 1, color: 'text.secondary' }}>
             Week {lineup.week}
           </Typography>
+          {benchSeasonTotal != null && (
+            <Typography
+              variant="body2"
+              sx={{ mb: 3, color: 'text.secondary' }}
+              data-testid="season-bench-stat"
+            >
+              Bench points this season: {benchSeasonTotal}
+            </Typography>
+          )}
 
           <Box sx={{ mb: 3 }}>
             <FormControl sx={{ minWidth: 150 }}>
@@ -266,6 +326,57 @@ function LineupScreen() {
               </Select>
             </FormControl>
           </Box>
+
+          {Array.isArray(advice?.suggestions) && (
+            <Paper sx={{ p: 2, mb: 3 }} data-testid="lineup-advice-panel">
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Typography variant="h6">Start/Sit Suggestions</Typography>
+                <Button size="small" onClick={() => setAdviceExpanded((prev) => !prev)}>
+                  {adviceExpanded ? 'Hide' : 'Show'}
+                </Button>
+              </Box>
+              <Collapse in={adviceExpanded}>
+                <Box sx={{ mt: 2 }}>
+                  <Typography variant="body2" sx={{ mb: 2, color: 'text.secondary' }}>
+                    Projected {advice.projectedTotal} pts — Optimal {advice.optimalTotal} pts
+                  </Typography>
+                  {advice.suggestions.length === 0 ? (
+                    <Typography sx={{ color: 'text.secondary' }}>
+                      Your lineup is already optimal
+                    </Typography>
+                  ) : (
+                    advice.suggestions.map((s) => (
+                      <Box
+                        key={s.slot}
+                        data-testid={`suggestion-row-${s.slot}`}
+                        sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}
+                      >
+                        <Chip label={s.slot} size="small" sx={{ minWidth: 56 }} />
+                        <Box sx={{ flexGrow: 1 }}>
+                          <Typography variant="body2">
+                            Start {s.suggested.name} ({s.suggested.projection} proj) over{' '}
+                            {s.current.name} ({s.current.projection} proj)
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                            vs {s.suggested.opponent}, {s.suggested.opponentPointsAllowed} pts
+                            allowed to {s.slot}
+                          </Typography>
+                        </Box>
+                        <Chip label={`+${s.gain}`} size="small" color="success" />
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() => handleApplySuggestion(s)}
+                        >
+                          Apply
+                        </Button>
+                      </Box>
+                    ))
+                  )}
+                </Box>
+              </Collapse>
+            </Paper>
+          )}
 
           <Paper sx={{ p: 2, mb: 3 }} data-testid="lineup-starters">
             <Typography variant="h6" sx={{ mb: 2 }}>

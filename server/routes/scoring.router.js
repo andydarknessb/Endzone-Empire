@@ -4,6 +4,7 @@ const { requireAuth } = require('../modules/auth');
 const scoring = require('../services/scoring.service');
 const season = require('../services/season.service');
 const correction = require('../services/correction.service');
+const montecarlo = require('../services/montecarlo.service');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -195,6 +196,45 @@ router.get('/league/:id/standings', async (req, res) => {
   }
 });
 
+// GET /api/scoring/league/:id/power-rankings — latest Monte Carlo run:
+// rankings with playoff/title odds. 404 until the first run has stored one.
+router.get('/league/:id/power-rankings', async (req, res) => {
+  if (!/^\d+$/.test(req.params.id)) {
+    return res.status(400).json({ error: 'league id must be a positive integer' });
+  }
+  const leagueId = Number(req.params.id);
+  try {
+    const membership = await pool.query(
+      `SELECT 1 FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
+      [leagueId, req.user.id]
+    );
+    if (!membership.rows[0]) return res.status(403).json({ error: 'not a member of this league' });
+    const latest = await montecarlo.getLatestPowerRankings({ leagueId });
+    if (!latest) return res.status(404).json({ error: 'no power rankings computed yet' });
+    res.json(latest);
+  } catch (error) {
+    console.error('Power rankings fetch failed:', error);
+    res.status(500).json({ error: 'failed to fetch power rankings' });
+  }
+});
+
+// POST /api/scoring/league/:id/power-rankings — owner recomputes on demand
+router.post('/league/:id/power-rankings', async (req, res) => {
+  if (!/^\d+$/.test(req.params.id)) {
+    return res.status(400).json({ error: 'league id must be a positive integer' });
+  }
+  const leagueId = Number(req.params.id);
+  try {
+    if (!(await requireLeagueOwner(req, res, leagueId))) return;
+    const data = await montecarlo.computeLeagueOdds({ leagueId });
+    if (!data) return res.status(409).json({ error: 'league is not ready for simulations' });
+    res.json(data);
+  } catch (error) {
+    console.error('Power rankings compute failed:', error);
+    res.status(500).json({ error: 'failed to compute power rankings' });
+  }
+});
+
 // POST /api/scoring/league/:id/schedule — owner generates the full regular season
 router.post('/league/:id/schedule', async (req, res) => {
   if (!/^\d+$/.test(req.params.id)) {
@@ -233,6 +273,11 @@ router.post('/league/:id/advance-week', async (req, res) => {
       week: current_week,
     });
     const advance = await season.finalizeWeekAndAdvance({ leagueId });
+    // Refresh playoff odds / power rankings in the background — display data,
+    // never worth failing (or delaying) the week advance over.
+    montecarlo.computeLeagueOdds({ leagueId }).catch((err) => {
+      console.error(`power rankings failed for league ${leagueId}:`, err.message);
+    });
     res.json({ scored: scoredResult.scored, ...advance });
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });

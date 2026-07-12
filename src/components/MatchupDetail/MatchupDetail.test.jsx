@@ -159,6 +159,54 @@ test('shows an error alert when the fetch fails', async () => {
   expect(await screen.findByText('matchup not found')).toBeInTheDocument();
 });
 
+test('shows points left on bench for each team when the matchup is final', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/league/1/matchups/9') {
+      return Promise.resolve(matchupResponse({ matchup: { final: true } }));
+    }
+    if (url.includes('teamId=1')) {
+      return Promise.resolve({
+        data: { teamId: 1, week: 3, actualPoints: 101.5, optimalPoints: 113.9, pointsLeftOnBench: 12.4 },
+      });
+    }
+    if (url.includes('teamId=2')) {
+      return Promise.resolve({
+        data: { teamId: 2, week: 3, actualPoints: 88, optimalPoints: 90.2, pointsLeftOnBench: 2.2 },
+      });
+    }
+    return Promise.reject(new Error(`unexpected url ${url}`));
+  });
+
+  renderDetail();
+
+  await screen.findByText('Team A');
+  expect(await screen.findByText('Left 12.4 on the bench')).toBeInTheDocument();
+  expect(await screen.findByText('Left 2.2 on the bench')).toBeInTheDocument();
+});
+
+test('does not show bench points when the matchup is not final', async () => {
+  apiClient.get.mockResolvedValue(matchupResponse());
+
+  renderDetail();
+  await screen.findByText('Team A');
+
+  expect(screen.queryByText(/on the bench/)).not.toBeInTheDocument();
+});
+
+test('silently skips bench points on a 404/error from the hindsight endpoint', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/league/1/matchups/9') {
+      return Promise.resolve(matchupResponse({ matchup: { final: true } }));
+    }
+    return Promise.reject({ response: { status: 404 } });
+  });
+
+  renderDetail();
+  await screen.findByText('Team A');
+
+  expect(screen.queryByText(/on the bench/)).not.toBeInTheDocument();
+});
+
 test('joins the league room on mount and disconnects on unmount', async () => {
   apiClient.get.mockResolvedValue(matchupResponse());
 

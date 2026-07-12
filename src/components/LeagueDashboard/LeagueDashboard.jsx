@@ -304,6 +304,11 @@ function LeagueDashboard() {
             Activity
           </Button>
         </Link>
+        <Link to={`/league/${leagueId}/power-rankings`} style={{ textDecoration: 'none' }}>
+          <Button variant="outlined" color="primary">
+            Power Rankings
+          </Button>
+        </Link>
       </Box>
 
       {isOwner && (

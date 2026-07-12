@@ -44,6 +44,79 @@ function toggleInSet(set, id) {
   return next;
 }
 
+const VERDICT_LABEL = {
+  fair: 'Fair',
+  favors_proposer: 'Favors Proposer',
+  favors_receiver: 'Favors Receiver',
+};
+
+// Self-contained "Analyze trade" control: posts to /api/trades/analyze and
+// renders the verdict + per-player breakdown. Used both in the compose
+// dialog and on each existing trade card, so it owns its own request state.
+function TradeAnalysisPanel({ leagueId, receivingTeamId, offeredPlayerIds, requestedPlayerIds }) {
+  const [result, setResult] = useState(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeError, setAnalyzeError] = useState(null);
+
+  const handleAnalyze = async () => {
+    try {
+      setAnalyzing(true);
+      setAnalyzeError(null);
+      const res = await apiClient.post('/api/trades/analyze', {
+        leagueId: Number(leagueId),
+        receivingTeamId,
+        offeredPlayerIds,
+        requestedPlayerIds,
+      });
+      setResult(res.data);
+    } catch (err) {
+      setAnalyzeError(err.response?.data?.error || err.message);
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  return (
+    <Box sx={{ mt: 2 }}>
+      <Button size="small" variant="outlined" onClick={handleAnalyze} disabled={analyzing}>
+        {analyzing ? 'Analyzing…' : 'Analyze Trade'}
+      </Button>
+      {analyzeError && (
+        <Alert severity="error" sx={{ mt: 1 }}>
+          {analyzeError}
+        </Alert>
+      )}
+      {result && (
+        <Box sx={{ mt: 1 }}>
+          <Chip
+            label={VERDICT_LABEL[result.verdict] || result.verdict}
+            color={result.verdict === 'fair' ? 'success' : 'warning'}
+            size="small"
+            sx={{ mb: 1 }}
+          />
+          <Grid container spacing={2} sx={{ mb: 1 }}>
+            <Grid item xs={6}>
+              <Typography variant="body2">
+                Proposer: gives {result.proposerGives} · gets {result.proposerGets}
+              </Typography>
+            </Grid>
+            <Grid item xs={6}>
+              <Typography variant="body2">
+                Receiver: gives {result.receiverGives} · gets {result.receiverGets}
+              </Typography>
+            </Grid>
+          </Grid>
+          {(result.players || []).map((p) => (
+            <Typography key={p.playerId} variant="body2">
+              {p.name} ({p.position}): {p.rosValue} → {p.fitAdjustedValue}
+            </Typography>
+          ))}
+        </Box>
+      )}
+    </Box>
+  );
+}
+
 function TradeCenter() {
   const { leagueId } = useParams();
   const user = useSelector((store) => store.user);
@@ -266,6 +339,13 @@ function TradeCenter() {
                 </>
               )}
             </Box>
+
+            <TradeAnalysisPanel
+              leagueId={leagueId}
+              receivingTeamId={trade.receiving_team_id}
+              offeredPlayerIds={itemsFromProposing.map((i) => i.player_id)}
+              requestedPlayerIds={itemsFromReceiving.map((i) => i.player_id)}
+            />
           </Paper>
         );
       })}
@@ -327,6 +407,15 @@ function TradeCenter() {
                 ))}
               </Grid>
             </Grid>
+          )}
+
+          {selectedTeamId !== '' && sendIds.size > 0 && receiveIds.size > 0 && (
+            <TradeAnalysisPanel
+              leagueId={leagueId}
+              receivingTeamId={selectedTeamId}
+              offeredPlayerIds={[...sendIds]}
+              requestedPlayerIds={[...receiveIds]}
+            />
           )}
         </DialogContent>
         <DialogActions>

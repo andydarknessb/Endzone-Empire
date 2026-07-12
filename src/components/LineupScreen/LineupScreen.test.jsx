@@ -66,8 +66,152 @@ const lineupResponse = (overrides = {}) => ({
   ...overrides,
 });
 
+// URL-keyed mock covering the three GETs LineupScreen now issues per week:
+// the lineup itself, start/sit advice, and the season-long hindsight tally.
+// `advice`/`hindsight` may be omitted (defaults to an empty/undefined
+// response, which the component must tolerate silently) or passed as
+// `{ reject: <error> }` to simulate an endpoint failure.
+const setupGet = ({ lineup, advice, hindsight } = {}) => {
+  apiClient.get.mockImplementation((url) => {
+    if (url.startsWith('/api/team/lineup/advice')) {
+      return advice && advice.reject ? Promise.reject(advice.reject) : Promise.resolve({ data: advice });
+    }
+    if (url.startsWith('/api/team/lineup')) {
+      return Promise.resolve({ data: lineup ?? lineupResponse() });
+    }
+    if (url.startsWith('/api/team/hindsight')) {
+      return hindsight && hindsight.reject
+        ? Promise.reject(hindsight.reject)
+        : Promise.resolve({ data: hindsight });
+    }
+    return Promise.reject(new Error(`unexpected url ${url}`));
+  });
+};
+
+const adviceResponse = (overrides = {}) => ({
+  week: 3,
+  season: 2026,
+  projectedTotal: 110.4,
+  optimalTotal: 118.2,
+  suggestions: [
+    {
+      slot: 'FLEX',
+      current: {
+        playerId: 10,
+        name: 'Justin Jefferson',
+        projection: 10.2,
+        opponent: 'DAL',
+        opponentPointsAllowed: 14.5,
+      },
+      suggested: {
+        playerId: 11,
+        name: 'Saquon Barkley',
+        projection: 17.9,
+        opponent: 'NYG',
+        opponentPointsAllowed: 22.1,
+      },
+      gain: 7.7,
+    },
+  ],
+  ...overrides,
+});
+
+const flexBenchEntries = [
+  {
+    id: 10,
+    name: 'Justin Jefferson',
+    position: 'WR',
+    nfl_team: 'Minnesota Vikings',
+    slot: 'FLEX',
+    locked: false,
+    onBye: false,
+  },
+  {
+    id: 11,
+    name: 'Saquon Barkley',
+    position: 'RB',
+    nfl_team: 'Philadelphia Eagles',
+    slot: 'BENCH',
+    locked: false,
+    onBye: false,
+  },
+];
+
+const hindsightSeasonResponse = (overrides = {}) => ({
+  teamId: 10,
+  weeks: [],
+  totalActual: 200,
+  totalOptimal: 230,
+  totalPointsLeftOnBench: 30,
+  ...overrides,
+});
+
 afterEach(() => {
   jest.clearAllMocks();
+});
+
+test('suggestions panel shows projected vs optimal totals and a suggestion with opponent context', async () => {
+  setupGet({ lineup: lineupResponse({ entries: flexBenchEntries }), advice: adviceResponse() });
+
+  renderScreen();
+
+  await screen.findByText('Justin Jefferson');
+  expect(screen.getByText(/Projected 110\.4 pts/)).toBeInTheDocument();
+  expect(screen.getByText(/Optimal 118\.2 pts/)).toBeInTheDocument();
+  expect(
+    screen.getByText(/Start Saquon Barkley \(17\.9 proj\) over\s*Justin Jefferson \(10\.2 proj\)/)
+  ).toBeInTheDocument();
+  expect(screen.getByText(/vs NYG, 22\.1 pts\s*allowed to FLEX/)).toBeInTheDocument();
+  expect(screen.getByText('+7.7')).toBeInTheDocument();
+});
+
+test('clicking Apply on a suggestion swaps the two players and saves via the normal lineup save path', async () => {
+  setupGet({ lineup: lineupResponse({ entries: flexBenchEntries }), advice: adviceResponse() });
+  apiClient.put.mockResolvedValue({});
+
+  renderScreen();
+  await screen.findByText('Justin Jefferson');
+
+  await userEvent.click(screen.getByRole('button', { name: 'Apply' }));
+
+  await waitFor(() =>
+    expect(apiClient.put).toHaveBeenCalledWith('/api/team/lineup', {
+      leagueId: 1,
+      week: 3,
+      moves: [
+        { playerId: 10, slot: 'BENCH' },
+        { playerId: 11, slot: 'FLEX' },
+      ],
+    })
+  );
+  expect(await screen.findByText('Lineup saved')).toBeInTheDocument();
+});
+
+test('shows an "already optimal" empty state when advice returns no suggestions', async () => {
+  setupGet({ advice: adviceResponse({ suggestions: [] }) });
+
+  renderScreen();
+  await screen.findByText('Patrick Mahomes');
+
+  expect(await screen.findByText('Your lineup is already optimal')).toBeInTheDocument();
+});
+
+test('silently hides the suggestions panel when the advice endpoint fails', async () => {
+  setupGet({ advice: { reject: new Error('boom') } });
+
+  renderScreen();
+  await screen.findByText('Patrick Mahomes');
+
+  expect(screen.queryByTestId('lineup-advice-panel')).not.toBeInTheDocument();
+});
+
+test('shows a season bench-points stat sourced from the no-week hindsight response', async () => {
+  setupGet({ hindsight: hindsightSeasonResponse() });
+
+  renderScreen();
+  await screen.findByText('Patrick Mahomes');
+
+  expect(await screen.findByText('Bench points this season: 30')).toBeInTheDocument();
 });
 
 test('shows skeleton placeholders before data arrives', () => {
@@ -121,7 +265,11 @@ test('clicking bench player then empty eligible slot PUTs one move and refetches
   );
 
   expect(await screen.findByText('Lineup saved')).toBeInTheDocument();
-  expect(apiClient.get).toHaveBeenCalledTimes(2);
+  // The lineup itself refetches after a save (advice/hindsight calls don't count)
+  const lineupGets = apiClient.get.mock.calls.filter(([url]) =>
+    url.startsWith('/api/team/lineup?')
+  );
+  expect(lineupGets).toHaveLength(2);
 });
 
 test('swapping two players PUTs two moves', async () => {
@@ -204,7 +352,11 @@ test('server error on PUT surfaces the error message', async () => {
   await userEvent.click(screen.getByTestId('slot-row-WR-0'));
 
   expect(await screen.findByText('Player is on bye and cannot start')).toBeInTheDocument();
-  expect(apiClient.get).toHaveBeenCalledTimes(1);
+  // No lineup refetch on a failed save (advice/hindsight calls don't count)
+  const lineupGets = apiClient.get.mock.calls.filter(([url]) =>
+    url.startsWith('/api/team/lineup?')
+  );
+  expect(lineupGets).toHaveLength(1);
 });
 
 test('shows an error alert when the initial fetch fails', async () => {

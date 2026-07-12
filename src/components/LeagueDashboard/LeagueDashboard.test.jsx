@@ -268,6 +268,10 @@ test('links to the Draft Room, Matchups, and Set Lineup pages for this league', 
   expect(screen.getByRole('link', { name: 'Waivers' })).toHaveAttribute('href', '/league/7/waivers');
   expect(screen.getByRole('link', { name: 'Trades' })).toHaveAttribute('href', '/league/7/trades');
   expect(screen.getByRole('link', { name: 'Activity' })).toHaveAttribute('href', '/league/7/activity');
+  expect(screen.getByRole('link', { name: 'Power Rankings' })).toHaveAttribute(
+    'href',
+    '/league/7/power-rankings'
+  );
 });
 
 test('week and season-status chips render when draft is complete', async () => {

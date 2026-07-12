@@ -24,6 +24,7 @@ import {
   FormControl,
   InputLabel,
   TextField,
+  TableSortLabel,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
 
@@ -45,6 +46,10 @@ function WaiverWire() {
   const [dropPlayerId, setDropPlayerId] = useState('');
   const [bid, setBid] = useState(0);
 
+  const [suggestions, setSuggestions] = useState([]);
+  const [sortByUpgrade, setSortByUpgrade] = useState(false);
+  const [sortDir, setSortDir] = useState('desc');
+
   useEffect(() => {
     fetchAll();
   }, [leagueId]);
@@ -64,7 +69,37 @@ function WaiverWire() {
     } finally {
       setLoading(false);
     }
+
+    try {
+      const suggestionsRes = await apiClient.get(`/api/waivers/suggestions?leagueId=${leagueId}`);
+      setSuggestions(
+        Array.isArray(suggestionsRes.data?.suggestions) ? suggestionsRes.data.suggestions : []
+      );
+    } catch (err) {
+      // Suggestions are supplementary — fail silently and just skip the badges.
+      setSuggestions([]);
+    }
   };
+
+  const upgradeByPlayerId = new Map(suggestions.map((s) => [s.playerId, s.upgradeDelta]));
+
+  const handleSortUpgrade = () => {
+    if (!sortByUpgrade) {
+      setSortByUpgrade(true);
+      setSortDir('desc');
+    } else {
+      setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'));
+    }
+  };
+
+  const sortedOnWaivers = data
+    ? [...data.onWaivers].sort((a, b) => {
+        if (!sortByUpgrade) return 0;
+        const av = upgradeByPlayerId.has(a.id) ? upgradeByPlayerId.get(a.id) : -Infinity;
+        const bv = upgradeByPlayerId.has(b.id) ? upgradeByPlayerId.get(b.id) : -Infinity;
+        return sortDir === 'desc' ? bv - av : av - bv;
+      })
+    : [];
 
   const isFaab = data?.league?.waiver_type === 'faab';
 
@@ -162,27 +197,48 @@ function WaiverWire() {
                       <TableCell>Position</TableCell>
                       <TableCell>NFL Team</TableCell>
                       <TableCell>Clears</TableCell>
+                      <TableCell align="center">
+                        <TableSortLabel
+                          active={sortByUpgrade}
+                          direction={sortDir}
+                          onClick={handleSortUpgrade}
+                        >
+                          Upgrade
+                        </TableSortLabel>
+                      </TableCell>
                       <TableCell align="center">Action</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {data.onWaivers.map((player) => (
-                      <TableRow key={player.id}>
-                        <TableCell>{player.name}</TableCell>
-                        <TableCell>{player.position}</TableCell>
-                        <TableCell>{player.nfl_team}</TableCell>
-                        <TableCell>{new Date(player.available_at).toLocaleString()}</TableCell>
-                        <TableCell align="center">
-                          <Button
-                            variant="contained"
-                            size="small"
-                            onClick={() => handleOpenClaim(player)}
-                          >
-                            Claim
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {sortedOnWaivers.map((player) => {
+                      const delta = upgradeByPlayerId.get(player.id);
+                      return (
+                        <TableRow key={player.id}>
+                          <TableCell>{player.name}</TableCell>
+                          <TableCell>{player.position}</TableCell>
+                          <TableCell>{player.nfl_team}</TableCell>
+                          <TableCell>{new Date(player.available_at).toLocaleString()}</TableCell>
+                          <TableCell align="center">
+                            {delta != null && (
+                              <Chip
+                                label={`${delta >= 0 ? '+' : ''}${delta.toFixed(1)}`}
+                                size="small"
+                                color={delta > 0 ? 'success' : 'default'}
+                              />
+                            )}
+                          </TableCell>
+                          <TableCell align="center">
+                            <Button
+                              variant="contained"
+                              size="small"
+                              onClick={() => handleOpenClaim(player)}
+                            >
+                              Claim
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </TableContainer>

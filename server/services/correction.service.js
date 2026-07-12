@@ -152,6 +152,14 @@ async function resyncPriorWeeks() {
       console.error(`stat correction: sync failed for ${season} week ${week}:`, err.message);
       continue; // don't re-score leagues from stale stats
     }
+    // Corrected stats shift season averages — rebuild the following week's
+    // cached projections so start/sit advice and simulations see fresh data.
+    try {
+      const projection = require('./projection.service');
+      await projection.getWeekProjections({ season, week: week + 1, refresh: true });
+    } catch (err) {
+      console.error(`stat correction: projection refresh failed for ${season} week ${week + 1}:`, err.message);
+    }
     for (const leagueId of leagueIds) {
       try {
         const outcome = await correctLeagueWeek({ leagueId, season, week });
