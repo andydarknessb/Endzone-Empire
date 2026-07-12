@@ -112,6 +112,17 @@ test('"/league" is protected: LoginPage when logged out, LeagueManagement when l
   expect(await screen.findByRole('heading', { name: 'My Leagues' })).toBeInTheDocument();
 });
 
+test('"/discover" is protected: LoginPage when logged out, LeagueDiscovery when logged in', async () => {
+  const { unmount } = renderApp('#/discover', { user: loggedOut });
+  expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();
+  unmount();
+
+  renderApp('#/discover', { user: loggedIn }, () => {
+    apiClient.get.mockResolvedValue({ data: [] });
+  });
+  expect(await screen.findByRole('heading', { name: 'Discover Leagues' })).toBeInTheDocument();
+});
+
 test('"/team" is protected: LoginPage when logged out, TeamManagement when logged in', async () => {
   const { unmount } = renderApp('#/team', { user: loggedOut });
   expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();

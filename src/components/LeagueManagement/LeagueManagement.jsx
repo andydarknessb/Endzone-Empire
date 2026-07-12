@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import {
   Typography, TextField, Button, Paper, Stack, Chip, Alert, Divider,
+  Switch, FormControlLabel, Select, MenuItem, InputLabel, FormControl,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import './LeagueManagement.css';
@@ -16,6 +17,14 @@ function LeagueManagement() {
   const [inviteCode, setInviteCode] = useState('');
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
+
+  // New league-creation options — all optional, sent only when the user
+  // actually sets them (see createLeague).
+  const [isPublic, setIsPublic] = useState(false);
+  const [joinApproval, setJoinApproval] = useState(false);
+  const [bestBall, setBestBall] = useState(false);
+  const [scoringPreset, setScoringPreset] = useState('');
+  const [draftDate, setDraftDate] = useState('');
 
   useEffect(() => {
     fetchLeagues();
@@ -36,13 +45,25 @@ function LeagueManagement() {
     event.preventDefault();
     setError(null);
     try {
-      const response = await apiClient.post('/api/league', {
+      const payload = {
         name: leagueName,
         rosterLimit: Number(rosterLimit),
         maxTeams: Number(maxTeams),
-      });
+      };
+      if (isPublic) payload.isPublic = true;
+      if (isPublic && joinApproval) payload.joinApproval = true;
+      if (bestBall) payload.bestBall = true;
+      if (scoringPreset) payload.scoringPreset = scoringPreset;
+      if (draftDate) payload.draftDate = new Date(draftDate).toISOString();
+
+      const response = await apiClient.post('/api/league', payload);
       setNotice(`League created! Invite code: ${response.data.invite_code}`);
       setLeagueName('');
+      setIsPublic(false);
+      setJoinApproval(false);
+      setBestBall(false);
+      setScoringPreset('');
+      setDraftDate('');
       fetchLeagues();
     } catch (err) {
       report(err);
@@ -90,6 +111,69 @@ function LeagueManagement() {
             <TextField label="Max teams" size="small" type="number"
               inputProps={{ min: 2, max: 20 }}
               value={maxTeams} onChange={(e) => setMaxTeams(e.target.value)} />
+
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={isPublic}
+                  onChange={(e) => setIsPublic(e.target.checked)}
+                />
+              }
+              label="Public league"
+            />
+            {isPublic && (
+              <FormControlLabel
+                sx={{ ml: 2 }}
+                control={
+                  <Switch
+                    checked={joinApproval}
+                    onChange={(e) => setJoinApproval(e.target.checked)}
+                  />
+                }
+                label="Require commissioner approval to join"
+              />
+            )}
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={bestBall}
+                  onChange={(e) => setBestBall(e.target.checked)}
+                />
+              }
+              label="Best ball mode"
+            />
+            {bestBall && (
+              <Typography variant="caption" color="text.secondary">
+                Best ball: an optimal lineup is set automatically each week — no manual lineup edits.
+              </Typography>
+            )}
+
+            <FormControl size="small">
+              <InputLabel id="scoring-preset-label">Scoring</InputLabel>
+              <Select
+                labelId="scoring-preset-label"
+                id="scoring-preset-select"
+                label="Scoring"
+                value={scoringPreset}
+                onChange={(e) => setScoringPreset(e.target.value)}
+              >
+                {/* No preset sent = the built-in default rules, which are half-PPR */}
+                <MenuItem value="">League default (Half PPR)</MenuItem>
+                <MenuItem value="standard">Standard</MenuItem>
+                <MenuItem value="half_ppr">Half PPR</MenuItem>
+                <MenuItem value="ppr">PPR</MenuItem>
+              </Select>
+            </FormControl>
+
+            <TextField
+              label="Draft date"
+              type="datetime-local"
+              size="small"
+              InputLabelProps={{ shrink: true }}
+              value={draftDate}
+              onChange={(e) => setDraftDate(e.target.value)}
+            />
+
             <Button type="submit" variant="contained">Create League</Button>
           </Stack>
         </Paper>

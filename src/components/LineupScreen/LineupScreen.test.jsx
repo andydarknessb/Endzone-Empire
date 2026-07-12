@@ -66,12 +66,14 @@ const lineupResponse = (overrides = {}) => ({
   ...overrides,
 });
 
-// URL-keyed mock covering the three GETs LineupScreen now issues per week:
-// the lineup itself, start/sit advice, and the season-long hindsight tally.
-// `advice`/`hindsight` may be omitted (defaults to an empty/undefined
-// response, which the component must tolerate silently) or passed as
-// `{ reject: <error> }` to simulate an endpoint failure.
-const setupGet = ({ lineup, advice, hindsight } = {}) => {
+// URL-keyed mock covering the GETs LineupScreen now issues per week: the
+// lineup itself, start/sit advice, the season-long hindsight tally, and a
+// one-time league fetch (used only for the best_ball flag — see the
+// component for why). `advice`/`hindsight` may be omitted (defaults to an
+// empty/undefined response, which the component must tolerate silently) or
+// passed as `{ reject: <error> }` to simulate an endpoint failure. `league`
+// defaults to a non-best-ball league.
+const setupGet = ({ lineup, advice, hindsight, league } = {}) => {
   apiClient.get.mockImplementation((url) => {
     if (url.startsWith('/api/team/lineup/advice')) {
       return advice && advice.reject ? Promise.reject(advice.reject) : Promise.resolve({ data: advice });
@@ -83,6 +85,9 @@ const setupGet = ({ lineup, advice, hindsight } = {}) => {
       return hindsight && hindsight.reject
         ? Promise.reject(hindsight.reject)
         : Promise.resolve({ data: hindsight });
+    }
+    if (url.startsWith('/api/league/')) {
+      return Promise.resolve({ data: { league: league ?? { id: 1, best_ball: false } } });
     }
     return Promise.reject(new Error(`unexpected url ${url}`));
   });
@@ -365,6 +370,37 @@ test('shows an error alert when the initial fetch fails', async () => {
   renderScreen();
 
   expect(await screen.findByText('lineup unavailable')).toBeInTheDocument();
+});
+
+// --- Best ball ---
+
+test('best ball: hides the suggestions panel, skips the advice fetch, shows the info alert, and disables row clicks', async () => {
+  setupGet({ league: { id: 1, best_ball: true } });
+
+  renderScreen();
+  await screen.findByText('Patrick Mahomes');
+
+  expect(screen.getByTestId('best-ball-alert')).toHaveTextContent(
+    'Best ball: your optimal lineup is computed automatically each week.'
+  );
+  expect(screen.queryByTestId('lineup-advice-panel')).not.toBeInTheDocument();
+  expect(apiClient.get.mock.calls.some(([url]) => url.startsWith('/api/team/lineup/advice'))).toBe(
+    false
+  );
+
+  expect(screen.getByTestId('slot-row-BENCH-4')).toHaveAttribute('aria-disabled', 'true');
+  expect(screen.getByTestId('slot-row-WR-0')).toHaveAttribute('aria-disabled', 'true');
+  expect(apiClient.put).not.toHaveBeenCalled();
+});
+
+test('a non-best-ball league still shows the suggestions panel and no info alert', async () => {
+  setupGet({ lineup: lineupResponse({ entries: flexBenchEntries }), advice: adviceResponse() });
+
+  renderScreen();
+  await screen.findByText('Justin Jefferson');
+
+  expect(screen.queryByTestId('best-ball-alert')).not.toBeInTheDocument();
+  expect(screen.getByTestId('lineup-advice-panel')).toBeInTheDocument();
 });
 
 test('shows injury badges and projected points on lineup rows', async () => {

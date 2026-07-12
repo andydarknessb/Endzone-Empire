@@ -41,19 +41,46 @@ function LineupScreen() {
   const [advice, setAdvice] = useState(null);
   const [adviceExpanded, setAdviceExpanded] = useState(true);
   const [benchSeasonTotal, setBenchSeasonTotal] = useState(null);
+  const [bestBall, setBestBall] = useState(false);
 
   useEffect(() => {
     fetchLineup();
   }, [leagueId, selectedWeek]);
 
+  // GET /api/team/lineup doesn't carry the league's best_ball flag, and no
+  // league object is otherwise available to this screen (it's reached
+  // directly at /league/:leagueId/lineup with no league context passed
+  // in). Rather than growing the lineup payload, fetch the league once per
+  // mount — the same GET /api/league/:id LeagueDashboard already uses — and
+  // read best_ball off of it. This is a small one-time request, not tied to
+  // week switches.
+  useEffect(() => {
+    fetchLeagueBestBall();
+  }, [leagueId]);
+
+  const fetchLeagueBestBall = async () => {
+    try {
+      const res = await apiClient.get(`/api/league/${leagueId}`);
+      setBestBall(!!res.data?.league?.best_ball);
+    } catch (err) {
+      setBestBall(false);
+    }
+  };
+
   // Once the lineup for this week is known, load the decision-support
   // panels that ride alongside it. Re-runs whenever `lineup` changes (week
   // switch or a post-save refetch) so suggestions/bench stats stay in sync.
+  // Best ball leagues set their optimal lineup automatically, so the
+  // start/sit advice panel is skipped entirely — no need to even fetch it.
   useEffect(() => {
     if (!lineup) return;
-    fetchAdvice();
+    if (!bestBall) {
+      fetchAdvice();
+    } else {
+      setAdvice(null);
+    }
     fetchSeasonBenchTotal();
-  }, [lineup]);
+  }, [lineup, bestBall]);
 
   const fetchLineup = async () => {
     try {
@@ -133,6 +160,8 @@ function LineupScreen() {
   };
 
   const handleRowClick = (entry, slotType) => {
+    if (bestBall) return; // best ball lineups are set automatically — no manual moves
+
     if (entry && entry.locked) {
       setError("Locked players can't be moved");
       setSuccessMessage(null);
@@ -189,6 +218,7 @@ function LineupScreen() {
         key={key}
         data-testid={testId}
         selected={isSelected}
+        disabled={bestBall}
         onClick={() => handleRowClick(entry, slotType)}
         sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, mb: 1 }}
       >
@@ -298,6 +328,11 @@ function LineupScreen() {
           <Typography variant="subtitle1" sx={{ mb: 1, color: 'text.secondary' }}>
             Week {lineup.week}
           </Typography>
+          {bestBall && (
+            <Alert severity="info" sx={{ mb: 2 }} data-testid="best-ball-alert">
+              Best ball: your optimal lineup is computed automatically each week.
+            </Alert>
+          )}
           {benchSeasonTotal != null && (
             <Typography
               variant="body2"

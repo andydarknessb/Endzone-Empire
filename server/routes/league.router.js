@@ -2,6 +2,15 @@ const express = require('express');
 const crypto = require('crypto');
 const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
+const {
+  VALID_SCORING_PRESETS,
+  VALID_DISCOVER_SORTS,
+  validateCreateOptions,
+  discoverLeagues,
+  joinPublicLeague,
+  listJoinRequests,
+  decideJoinRequest,
+} = require('../services/discovery.service');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -12,7 +21,10 @@ function intParam(value) {
 
 // POST /api/league — create a private league (plus the owner's team) atomically
 router.post('/', async (req, res) => {
-  const { name, rosterLimit, maxTeams, teamName } = req.body || {};
+  const {
+    name, rosterLimit, maxTeams, teamName,
+    isPublic, joinApproval, bestBall, scoringPreset, draftDate,
+  } = req.body || {};
   if (!name || typeof name !== 'string') {
     return res.status(400).json({ error: 'league name is required' });
   }
@@ -24,15 +36,26 @@ router.post('/', async (req, res) => {
   if (!Number.isInteger(teams) || teams < 2 || teams > 20) {
     return res.status(400).json({ error: 'maxTeams must be an integer between 2 and 20' });
   }
+  const optionsResult = validateCreateOptions({ isPublic, joinApproval, bestBall, scoringPreset, draftDate });
+  if (optionsResult.error) return res.status(400).json({ error: optionsResult.error });
+  const options = optionsResult.value;
 
   const inviteCode = crypto.randomBytes(4).toString('hex');
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const leagueResult = await client.query(
-      `INSERT INTO "leagues" ("name", "owner_id", "invite_code", "roster_limit", "max_teams")
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [name, req.user.id, inviteCode, limit, teams]
+      `INSERT INTO "leagues" (
+         "name", "owner_id", "invite_code", "roster_limit", "max_teams",
+         "is_public", "join_approval", "best_ball", "scoring_preset", "scoring_rules", "draft_date"
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+      [
+        name, req.user.id, inviteCode, limit, teams,
+        options.isPublic, options.joinApproval, options.bestBall,
+        options.scoringPreset, options.scoringRules ? JSON.stringify(options.scoringRules) : null,
+        options.draftDate,
+      ]
     );
     const league = leagueResult.rows[0];
     await client.query(
@@ -96,6 +119,83 @@ router.post('/join', async (req, res) => {
     res.status(500).json({ error: 'failed to join league' });
   } finally {
     client.release();
+  }
+});
+
+// POST /api/league/:id/join-public — join a public league without an invite
+// code. When the league requires approval this files a join_requests row
+// instead of creating a team immediately.
+router.post('/:id/join-public', async (req, res) => {
+  const leagueId = intParam(req.params.id);
+  if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
+  const { teamName } = req.body || {};
+  try {
+    const result = await joinPublicLeague({
+      leagueId, userId: req.user.id, username: req.user.username, teamName,
+    });
+    if (result.pending) return res.status(202).json({ status: 'pending' });
+    res.status(201).json({ league: result.league, team: result.team });
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    console.error('Error joining public league', error);
+    res.status(500).json({ error: 'failed to join league' });
+  }
+});
+
+// GET /api/league/:id/join-requests — commissioner queue of pending public joins
+router.get('/:id/join-requests', async (req, res) => {
+  const leagueId = intParam(req.params.id);
+  if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
+  try {
+    const rows = await listJoinRequests({ leagueId, ownerId: req.user.id });
+    res.json(rows);
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    console.error('Error fetching join requests', error);
+    res.status(500).json({ error: 'failed to fetch join requests' });
+  }
+});
+
+// POST /api/league/:id/join-requests/:requestId/decide — owner approves/denies
+router.post('/:id/join-requests/:requestId/decide', async (req, res) => {
+  const leagueId = intParam(req.params.id);
+  const requestId = intParam(req.params.requestId);
+  if (!leagueId || !requestId) {
+    return res.status(400).json({ error: 'league id and request id must be positive integers' });
+  }
+  const { approve } = req.body || {};
+  if (typeof approve !== 'boolean') return res.status(400).json({ error: 'approve must be a boolean' });
+  try {
+    const result = await decideJoinRequest({ leagueId, ownerId: req.user.id, requestId, approve });
+    res.status(200).json(result);
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    console.error('Error deciding join request', error);
+    res.status(500).json({ error: 'failed to decide join request' });
+  }
+});
+
+// GET /api/league/discover — public league browser (must precede GET /:id)
+router.get('/discover', async (req, res) => {
+  const { search, scoring, openSlots, sort } = req.query;
+  if (scoring !== undefined && !VALID_SCORING_PRESETS.includes(scoring)) {
+    return res.status(400).json({ error: `scoring must be one of ${VALID_SCORING_PRESETS.join(', ')}` });
+  }
+  if (sort !== undefined && !VALID_DISCOVER_SORTS.includes(sort)) {
+    return res.status(400).json({ error: `sort must be one of ${VALID_DISCOVER_SORTS.join(', ')}` });
+  }
+  try {
+    const rows = await discoverLeagues({
+      userId: req.user.id,
+      search: typeof search === 'string' && search.length > 0 ? search : undefined,
+      scoring,
+      openSlots: openSlots === 'true',
+      sort,
+    });
+    res.json(rows);
+  } catch (error) {
+    console.error('Error discovering leagues', error);
+    res.status(500).json({ error: 'failed to discover leagues' });
   }
 });
 
@@ -239,6 +339,13 @@ router.put('/:id', async (req, res) => {
     : scoringPreset !== undefined
       ? SCORING_PRESETS[scoringPreset]
       : undefined;
+  // Keep the display/filter label in step with the actual rules: custom
+  // rules mark the league 'custom', a preset stores its own name.
+  const effectivePreset = scoringRules !== undefined
+    ? 'custom'
+    : scoringPreset !== undefined
+      ? scoringPreset
+      : undefined;
   try {
     // Game-integrity settings freeze once the draft starts; administrative
     // ones (name, waivers, trades) stay editable all season.
@@ -279,6 +386,7 @@ router.put('/:id', async (req, res) => {
            "playoff_teams" = COALESCE($14, "playoff_teams"),
            "playoff_consolation" = COALESCE($15, "playoff_consolation"),
            "pick_time_seconds" = COALESCE($16, "pick_time_seconds"),
+           "scoring_preset" = COALESCE($19, "scoring_preset"),
            "updated_at" = now()
        WHERE "id" = $17 AND "owner_id" = $18
        RETURNING *`,
@@ -301,6 +409,7 @@ router.put('/:id', async (req, res) => {
         pickTimeSeconds === undefined ? null : pickTimeSeconds,
         leagueId,
         req.user.id,
+        effectivePreset === undefined ? null : effectivePreset,
       ]
     );
     if (!result.rows[0]) {

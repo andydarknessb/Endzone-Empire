@@ -55,6 +55,7 @@ function WaiverWire() {
   }, [leagueId]);
 
   const fetchAll = async () => {
+    let waiversData = null;
     try {
       setLoading(true);
       setError(null);
@@ -62,12 +63,20 @@ function WaiverWire() {
         apiClient.get(`/api/waivers?leagueId=${leagueId}`),
         apiClient.get(`/api/team/roster?leagueId=${leagueId}`),
       ]);
+      waiversData = waiversRes.data;
       setData(waiversRes.data);
       setRoster(rosterRes.data);
     } catch (err) {
       setError(err.response?.data?.error || err.message);
     } finally {
       setLoading(false);
+    }
+
+    // Best ball leagues manage their own optimal lineup — the upgrade
+    // suggestions strip doesn't apply, so skip fetching it entirely.
+    if (waiversData?.league?.best_ball) {
+      setSuggestions([]);
+      return;
     }
 
     try {
@@ -102,6 +111,7 @@ function WaiverWire() {
     : [];
 
   const isFaab = data?.league?.waiver_type === 'faab';
+  const isBestBall = !!data?.league?.best_ball;
 
   const handleOpenClaim = (player) => {
     setError(null);
@@ -197,15 +207,17 @@ function WaiverWire() {
                       <TableCell>Position</TableCell>
                       <TableCell>NFL Team</TableCell>
                       <TableCell>Clears</TableCell>
-                      <TableCell align="center">
-                        <TableSortLabel
-                          active={sortByUpgrade}
-                          direction={sortDir}
-                          onClick={handleSortUpgrade}
-                        >
-                          Upgrade
-                        </TableSortLabel>
-                      </TableCell>
+                      {!isBestBall && (
+                        <TableCell align="center">
+                          <TableSortLabel
+                            active={sortByUpgrade}
+                            direction={sortDir}
+                            onClick={handleSortUpgrade}
+                          >
+                            Upgrade
+                          </TableSortLabel>
+                        </TableCell>
+                      )}
                       <TableCell align="center">Action</TableCell>
                     </TableRow>
                   </TableHead>
@@ -218,15 +230,17 @@ function WaiverWire() {
                           <TableCell>{player.position}</TableCell>
                           <TableCell>{player.nfl_team}</TableCell>
                           <TableCell>{new Date(player.available_at).toLocaleString()}</TableCell>
-                          <TableCell align="center">
-                            {delta != null && (
-                              <Chip
-                                label={`${delta >= 0 ? '+' : ''}${delta.toFixed(1)}`}
-                                size="small"
-                                color={delta > 0 ? 'success' : 'default'}
-                              />
-                            )}
-                          </TableCell>
+                          {!isBestBall && (
+                            <TableCell align="center">
+                              {delta != null && (
+                                <Chip
+                                  label={`${delta >= 0 ? '+' : ''}${delta.toFixed(1)}`}
+                                  size="small"
+                                  color={delta > 0 ? 'success' : 'default'}
+                                />
+                              )}
+                            </TableCell>
+                          )}
                           <TableCell align="center">
                             <Button
                               variant="contained"

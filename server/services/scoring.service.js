@@ -1,6 +1,6 @@
 const axios = require('axios');
 const pool = require('../modules/pool');
-const { materializeLineup } = require('./lineup.service');
+const { materializeLineup, optimalLineup, parseLineupSettings } = require('./lineup.service');
 const { getIo } = require('../modules/io');
 
 // Default fantasy scoring rules (points per unit of each stat) — half-PPR
@@ -343,6 +343,10 @@ async function generateMatchups({ leagueId, season, week }) {
  * - Final weeks score straight from that week's lineup_entries, the
  *   historical record: a player traded or dropped SINCE then still counts,
  *   and the lineup is never re-materialized against today's roster.
+ *
+ * Best-ball leagues ignore the slots owners set: the score is the OPTIMAL
+ * legal lineup over that week's players (same live/final population rules),
+ * computed server-side every time — there is no lineup to manage.
  */
 async function scoreMatchups({ leagueId, season, week }) {
   const client = await pool.connect();
@@ -352,7 +356,8 @@ async function scoreMatchups({ leagueId, season, week }) {
       `SELECT * FROM "leagues" WHERE "id" = $1`,
       [leagueId]
     );
-    const rules = rulesForLeague(leagueResult.rows[0]);
+    const league = leagueResult.rows[0];
+    const rules = rulesForLeague(league);
     const matchupsResult = await client.query(
       `SELECT * FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 FOR UPDATE`,
       [leagueId, season, week]
@@ -365,6 +370,27 @@ async function scoreMatchups({ leagueId, season, week }) {
         ? ''
         : `JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
            AND "team_players"."player_id" = "lineup_entries"."player_id"`;
+      if (league.best_ball) {
+        // Best ball: every rostered player counts as a candidate; the score
+        // is the best legal lineup regardless of the slots stored.
+        const r = await client.query(
+          `SELECT "lineup_entries"."player_id", "players"."position", "player_stats"."stats"
+           FROM "lineup_entries"
+           ${currentRosterJoin}
+           JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
+           LEFT JOIN "player_stats" ON "player_stats"."player_id" = "lineup_entries"."player_id"
+             AND "player_stats"."season" = $2 AND "player_stats"."week" = $3
+           WHERE "lineup_entries"."team_id" = $1 AND "lineup_entries"."season" = $2
+             AND "lineup_entries"."week" = $3`,
+          [teamId, season, week]
+        );
+        const candidates = r.rows.map((row) => ({ playerId: row.player_id, position: row.position }));
+        const pointsFor = new Map(
+          r.rows.map((row) => [row.player_id, calculateFantasyPoints(row.stats, rules)])
+        );
+        const { lineupSlots } = parseLineupSettings(league);
+        return optimalLineup(candidates, lineupSlots, pointsFor).total;
+      }
       const r = await client.query(
         `SELECT "player_stats"."stats"
          FROM "lineup_entries"

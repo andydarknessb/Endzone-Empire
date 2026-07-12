@@ -35,7 +35,11 @@ function Nav() {
             <Link className="navLink" to="/league">
               League
             </Link>
-           
+
+            <Link className="navLink" to="/discover">
+              Discover Leagues
+            </Link>
+
             <Link className="navLink" to="/player">
               Players
             </Link>

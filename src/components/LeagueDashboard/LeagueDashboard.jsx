@@ -35,10 +35,41 @@ function LeagueDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState(null);
+  const [joinRequests, setJoinRequests] = useState([]);
 
   useEffect(() => {
     fetchLeagueAndUser();
   }, [leagueId]);
+
+  // Commissioner-only join-request queue: only relevant for public leagues
+  // that require approval, and only once we know the viewer is the owner.
+  useEffect(() => {
+    if (league && user && league.is_public && league.join_approval && user.id === league.owner_id) {
+      fetchJoinRequests();
+    }
+  }, [league, user]);
+
+  const fetchJoinRequests = async () => {
+    try {
+      const res = await apiClient.get(`/api/league/${leagueId}/join-requests`);
+      setJoinRequests(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      // The queue is supplementary to the main dashboard — fail silently.
+      setJoinRequests([]);
+    }
+  };
+
+  const handleDecideJoinRequest = async (requestId, approve) => {
+    try {
+      setError(null);
+      setSuccessMessage(null);
+      await apiClient.post(`/api/league/${leagueId}/join-requests/${requestId}/decide`, { approve });
+      setJoinRequests((prev) => prev.filter((r) => r.id !== requestId));
+      setSuccessMessage(approve ? 'Join request approved' : 'Join request denied');
+    } catch (err) {
+      setError(err.response?.data?.error || err.message);
+    }
+  };
 
   const fetchLeagueAndUser = async () => {
     try {
@@ -186,6 +217,7 @@ function LeagueDashboard() {
         />
         <Chip label={`Roster Limit: ${league.roster_limit}`} />
         <Chip label={`Teams: ${teams.length}/${league.max_teams}`} />
+        {league.best_ball && <Chip label="Best Ball" color="secondary" />}
         {league.draft_status === 'complete' && standingsLeague && (
           <>
             <Chip label={`Week ${standingsLeague.current_week}`} />
@@ -344,6 +376,50 @@ function LeagueDashboard() {
                 </Button>
               ))}
           </Box>
+
+          {league.is_public && league.join_approval && (
+            <Box sx={{ mt: 3 }} data-testid="join-requests-section">
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                <Typography variant="subtitle2">Join Requests</Typography>
+                <Chip size="small" label={joinRequests.length} color={joinRequests.length > 0 ? 'primary' : 'default'} />
+              </Box>
+              {joinRequests.length === 0 ? (
+                <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                  No pending join requests
+                </Typography>
+              ) : (
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  {joinRequests.map((request) => (
+                    <Box
+                      key={request.id}
+                      sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}
+                    >
+                      <Typography sx={{ flexGrow: 1 }}>
+                        {request.username} — {request.team_name} —{' '}
+                        {new Date(request.created_at).toLocaleString()}
+                      </Typography>
+                      <Button
+                        size="small"
+                        variant="contained"
+                        color="success"
+                        onClick={() => handleDecideJoinRequest(request.id, true)}
+                      >
+                        Approve
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="error"
+                        onClick={() => handleDecideJoinRequest(request.id, false)}
+                      >
+                        Deny
+                      </Button>
+                    </Box>
+                  ))}
+                </Box>
+              )}
+            </Box>
+          )}
         </Paper>
       )}
 

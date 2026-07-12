@@ -94,6 +94,77 @@ test('creating a league surfaces the server error on failure', async () => {
   expect(await screen.findByText('name already taken')).toBeInTheDocument();
 });
 
+test('the "Require commissioner approval" toggle only appears once "Public league" is on', async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+  await screen.findByText(/you aren't in any leagues yet/i);
+
+  expect(screen.queryByLabelText('Require commissioner approval to join')).not.toBeInTheDocument();
+
+  await userEvent.click(screen.getByLabelText('Public league'));
+  expect(screen.getByLabelText('Require commissioner approval to join')).toBeInTheDocument();
+});
+
+test('the best-ball helper text only appears once "Best ball mode" is on', async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+  await screen.findByText(/you aren't in any leagues yet/i);
+
+  expect(screen.queryByText(/optimal lineup is set automatically/i)).not.toBeInTheDocument();
+
+  await userEvent.click(screen.getByLabelText('Best ball mode'));
+  expect(screen.getByText(/optimal lineup is set automatically/i)).toBeInTheDocument();
+});
+
+test('creating a league only sends the new optional fields the user actually set', async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+  apiClient.post.mockResolvedValue({ data: { invite_code: 'abc123' } });
+
+  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+  await screen.findByText(/you aren't in any leagues yet/i);
+
+  await userEvent.type(screen.getByLabelText(/League name/), 'Plain League');
+  await userEvent.click(screen.getByRole('button', { name: 'Create League' }));
+
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/league', {
+      name: 'Plain League',
+      rosterLimit: 15,
+      maxTeams: 10,
+    })
+  );
+});
+
+test('creating a public, approval-required, best-ball, PPR league with a draft date sends all the fields', async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+  apiClient.post.mockResolvedValue({ data: { invite_code: 'abc123' } });
+
+  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+  await screen.findByText(/you aren't in any leagues yet/i);
+
+  await userEvent.type(screen.getByLabelText(/League name/), 'Full Featured League');
+  await userEvent.click(screen.getByLabelText('Public league'));
+  await userEvent.click(screen.getByLabelText('Require commissioner approval to join'));
+  await userEvent.click(screen.getByLabelText('Best ball mode'));
+  await userEvent.click(screen.getByLabelText('Scoring'));
+  await userEvent.click(await screen.findByRole('option', { name: 'PPR' }));
+  await userEvent.type(screen.getByLabelText('Draft date'), '2026-09-04T13:00');
+  await userEvent.click(screen.getByRole('button', { name: 'Create League' }));
+
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/league', {
+      name: 'Full Featured League',
+      rosterLimit: 15,
+      maxTeams: 10,
+      isPublic: true,
+      joinApproval: true,
+      bestBall: true,
+      scoringPreset: 'ppr',
+      draftDate: new Date('2026-09-04T13:00').toISOString(),
+    })
+  );
+});
+
 test('joining a league posts the trimmed invite code', async () => {
   apiClient.get.mockResolvedValue({ data: [] });
   apiClient.post.mockResolvedValue({});

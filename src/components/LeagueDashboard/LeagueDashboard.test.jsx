@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
@@ -403,6 +403,145 @@ test('removing another owner\'s team calls the commissioner endpoint', async () 
     expect(apiClient.delete).toHaveBeenCalledWith('/api/commissioner/league/1/teams/2')
   );
   expect(await screen.findByText('Team removed')).toBeInTheDocument();
+});
+
+// --- Best ball chip ---
+
+test('shows a Best Ball chip near the league name when the league is best-ball', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse({ best_ball: true }),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  expect(screen.getByText('Best Ball')).toBeInTheDocument();
+});
+
+test('does not show a Best Ball chip for a non-best-ball league', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse({ best_ball: false }),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  expect(screen.queryByText('Best Ball')).not.toBeInTheDocument();
+});
+
+// --- Commissioner join-request queue ---
+
+test('loads and shows pending join requests for a public, approval-required league, with a count badge', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse({ is_public: true, join_approval: true }),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+    '/join-requests': {
+      data: [
+        { id: 5, username: 'bob', team_name: "Bob's Team", created_at: '2026-07-10T12:00:00.000Z' },
+      ],
+    },
+  });
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  expect(await screen.findByText(/bob/)).toBeInTheDocument();
+  expect(screen.getByText(/Bob's Team/)).toBeInTheDocument();
+  const section = screen.getByTestId('join-requests-section');
+  expect(within(section).getByText('1')).toBeInTheDocument();
+});
+
+test('shows "No pending join requests" when the queue is empty', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse({ is_public: true, join_approval: true }),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+    '/join-requests': { data: [] },
+  });
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  expect(await screen.findByText('No pending join requests')).toBeInTheDocument();
+});
+
+test('approving a join request POSTs decide with approve:true and removes the row', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse({ is_public: true, join_approval: true }),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+    '/join-requests': {
+      data: [
+        { id: 5, username: 'bob', team_name: "Bob's Team", created_at: '2026-07-10T12:00:00.000Z' },
+      ],
+    },
+  });
+  apiClient.post.mockResolvedValue({ data: { status: 'approved' } });
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+  await screen.findByText(/bob/);
+
+  await userEvent.click(screen.getByRole('button', { name: 'Approve' }));
+
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/league/1/join-requests/5/decide', {
+      approve: true,
+    })
+  );
+  await waitFor(() => expect(screen.queryByText(/bob/)).not.toBeInTheDocument());
+});
+
+test('denying a join request POSTs decide with approve:false and removes the row', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse({ is_public: true, join_approval: true }),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+    '/join-requests': {
+      data: [
+        { id: 5, username: 'bob', team_name: "Bob's Team", created_at: '2026-07-10T12:00:00.000Z' },
+      ],
+    },
+  });
+  apiClient.post.mockResolvedValue({ data: { status: 'denied' } });
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+  await screen.findByText(/bob/);
+
+  await userEvent.click(screen.getByRole('button', { name: 'Deny' }));
+
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/league/1/join-requests/5/decide', {
+      approve: false,
+    })
+  );
+  await waitFor(() => expect(screen.queryByText(/bob/)).not.toBeInTheDocument());
+});
+
+test('does not show the join-request queue for a private league', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse({ is_public: false, join_approval: false }),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  expect(screen.queryByTestId('join-requests-section')).not.toBeInTheDocument();
+  expect(apiClient.get.mock.calls.some(([url]) => url.includes('/join-requests'))).toBe(false);
+});
+
+test('does not show the join-request queue for a non-owner even on a public approval league', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse({ is_public: true, join_approval: true, owner_id: 99 }),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  expect(screen.queryByTestId('join-requests-section')).not.toBeInTheDocument();
+  expect(apiClient.get.mock.calls.some(([url]) => url.includes('/join-requests'))).toBe(false);
 });
 
 test('renders the League Chat panel at the bottom of the page', async () => {

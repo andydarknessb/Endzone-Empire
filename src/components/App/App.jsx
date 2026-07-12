@@ -21,6 +21,7 @@ import LoginPage from '../LoginPage/LoginPage';
 import RegisterPage from '../RegisterPage/RegisterPage';
 
 import LeagueManagement from '../LeagueManagement/LeagueManagement';
+import LeagueDiscovery from '../LeagueDiscovery/LeagueDiscovery';
 import TeamManagement from '../TeamManagement/TeamManagement';
 import PlayerManagement from '../PlayerManagement/PlayerManagement';
 import LeagueDashboard from '../LeagueDashboard/LeagueDashboard';
@@ -57,6 +58,7 @@ function App() {
         <Nav />
         <Routes>
           <Route path="/league" element={<ProtectedRoute><LeagueManagement /></ProtectedRoute>} />
+          <Route path="/discover" element={<ProtectedRoute><LeagueDiscovery /></ProtectedRoute>} />
           <Route path="/team" element={<ProtectedRoute><TeamManagement /></ProtectedRoute>} />
           <Route path="/player" element={<ProtectedRoute><PlayerManagement /></ProtectedRoute>} />
           <Route path="/league/:leagueId" element={<ProtectedRoute><LeagueDashboard /></ProtectedRoute>} />

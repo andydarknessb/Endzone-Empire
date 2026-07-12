@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useSelector } from 'react-redux';
 import {
   Typography, Button, Dialog, DialogTitle, DialogContent, DialogActions,
-  TextField, Select, MenuItem, InputLabel, Alert,
+  TextField, Select, MenuItem, InputLabel, Alert, Switch, FormControlLabel,
+  FormControl,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import './UserPage.css';
@@ -19,6 +20,14 @@ function UserPage() {
   const [leagueName, setLeagueName] = useState('');
   const [teamName, setTeamName] = useState('');
   const [numTeams, setNumTeams] = useState(2);
+
+  // New league-creation options — all optional, sent only when the user
+  // actually sets them (see handleCreateLeague).
+  const [isPublic, setIsPublic] = useState(false);
+  const [joinApproval, setJoinApproval] = useState(false);
+  const [bestBall, setBestBall] = useState(false);
+  const [scoringPreset, setScoringPreset] = useState('');
+  const [draftDate, setDraftDate] = useState('');
 
   // Join League dialog — leagues are private, so joining is always by invite code
   const [openJoinDialog, setOpenJoinDialog] = useState(false);
@@ -55,14 +64,26 @@ function UserPage() {
   const handleCreateLeague = async () => {
     setError(null);
     try {
-      await apiClient.post('/api/league', {
+      const payload = {
         name: leagueName,
         teamName: teamName || undefined,
         maxTeams: numTeams,
-      });
+      };
+      if (isPublic) payload.isPublic = true;
+      if (isPublic && joinApproval) payload.joinApproval = true;
+      if (bestBall) payload.bestBall = true;
+      if (scoringPreset) payload.scoringPreset = scoringPreset;
+      if (draftDate) payload.draftDate = new Date(draftDate).toISOString();
+
+      await apiClient.post('/api/league', payload);
       setNotice('League created!');
       setLeagueName('');
       setTeamName('');
+      setIsPublic(false);
+      setJoinApproval(false);
+      setBestBall(false);
+      setScoringPreset('');
+      setDraftDate('');
       fetchMyLeagues();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
@@ -174,6 +195,70 @@ function UserPage() {
             ))}
         </Select>
       </div>
+
+          <FormControlLabel
+            control={
+              <Switch
+                checked={isPublic}
+                onChange={(event) => setIsPublic(event.target.checked)}
+              />
+            }
+            label="Public league"
+          />
+          {isPublic && (
+            <FormControlLabel
+              sx={{ ml: 2 }}
+              control={
+                <Switch
+                  checked={joinApproval}
+                  onChange={(event) => setJoinApproval(event.target.checked)}
+                />
+              }
+              label="Require commissioner approval to join"
+            />
+          )}
+          <FormControlLabel
+            control={
+              <Switch
+                checked={bestBall}
+                onChange={(event) => setBestBall(event.target.checked)}
+              />
+            }
+            label="Best ball mode"
+          />
+          {bestBall && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+              Best ball: an optimal lineup is set automatically each week — no manual lineup edits.
+            </Typography>
+          )}
+
+          <FormControl fullWidth margin="dense" size="small">
+            <InputLabel id="scoring-preset-label">Scoring</InputLabel>
+            <Select
+              labelId="scoring-preset-label"
+              id="scoring-preset-select"
+              label="Scoring"
+              value={scoringPreset}
+              onChange={(event) => setScoringPreset(event.target.value)}
+            >
+              {/* No preset sent = the built-in default rules, which are half-PPR */}
+              <MenuItem value="">League default (Half PPR)</MenuItem>
+              <MenuItem value="standard">Standard</MenuItem>
+              <MenuItem value="half_ppr">Half PPR</MenuItem>
+              <MenuItem value="ppr">PPR</MenuItem>
+            </Select>
+          </FormControl>
+
+          <TextField
+            className="dialogTextField"
+            margin="dense"
+            label="Draft date"
+            type="datetime-local"
+            fullWidth
+            InputLabelProps={{ shrink: true }}
+            value={draftDate}
+            onChange={(event) => setDraftDate(event.target.value)}
+          />
           </DialogContent>
           <DialogActions>
           <Button onClick={handleCloseCreateDialog} color="primary">

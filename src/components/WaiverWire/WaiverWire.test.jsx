@@ -270,6 +270,44 @@ test('a failed suggestions fetch is silently ignored (no badges, no error)', asy
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });
 
+test('a best-ball league hides the Upgrade column and skips the suggestions fetch', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url.startsWith('/api/waivers/suggestions')) {
+      throw new Error('suggestions should not be fetched for a best-ball league');
+    }
+    if (url.startsWith('/api/waivers')) {
+      return Promise.resolve({
+        data: waiversResponse({
+          league: {
+            waiver_type: 'priority',
+            waiver_period_hours: 24,
+            faab_budget: 100,
+            waivers_clear_at: null,
+            best_ball: true,
+          },
+        }),
+      });
+    }
+    if (url.startsWith('/api/team/roster')) return Promise.resolve({ data: rosterResponse() });
+    return Promise.reject(new Error(`unexpected url ${url}`));
+  });
+  renderScreen();
+
+  await screen.findByText('Breece Hall');
+  expect(screen.queryByText('Upgrade')).not.toBeInTheDocument();
+  expect(
+    apiClient.get.mock.calls.some(([url]) => url.startsWith('/api/waivers/suggestions'))
+  ).toBe(false);
+});
+
+test('a non-best-ball league still shows the Upgrade column', async () => {
+  setupGet({ waivers: waiversResponse(), roster: rosterResponse() });
+  renderScreen();
+
+  await screen.findByText('Breece Hall');
+  expect(screen.getByText('Upgrade')).toBeInTheDocument();
+});
+
 test('clicking the Upgrade column header sorts the on-waivers table by upgrade delta', async () => {
   setupGet({
     waivers: waiversResponse({

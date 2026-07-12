@@ -235,6 +235,9 @@ async function setLineup({ leagueId, userId, week, moves }) {
   try {
     await client.query('BEGIN');
     const { league, team } = await loadLeagueAndTeam(client, { leagueId, userId, forUpdate: true });
+    if (league.best_ball) {
+      throw new LineupError(409, 'best-ball leagues set lineups automatically — nothing to manage');
+    }
     const season = league.current_season;
     const targetWeek = week || league.current_week;
     if (targetWeek < league.current_week) {

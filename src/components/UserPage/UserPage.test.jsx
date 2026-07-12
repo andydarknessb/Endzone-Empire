@@ -92,6 +92,60 @@ test('creating a league posts the form data, shows a notice, and refetches leagu
   await waitFor(() => expect(apiClient.get).toHaveBeenCalledTimes(2));
 });
 
+test('the approval toggle only appears once Public league is on, and only the fields the user sets are sent', async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+  apiClient.post.mockResolvedValue({ data: { id: 2 } });
+
+  renderWithProviders(<UserPage />, { state: baseState });
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledTimes(1));
+
+  await userEvent.click(screen.getByRole('button', { name: 'Create League' }));
+  expect(screen.queryByLabelText('Require commissioner approval to join')).not.toBeInTheDocument();
+
+  await userEvent.type(screen.getByLabelText('League Name'), 'Plain League');
+  await userEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/league', {
+      name: 'Plain League',
+      teamName: undefined,
+      maxTeams: 2,
+    })
+  );
+});
+
+test('creating a public, approval-required, best-ball, half-PPR league with a draft date sends all the fields', async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+  apiClient.post.mockResolvedValue({ data: { id: 2 } });
+
+  renderWithProviders(<UserPage />, { state: baseState });
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledTimes(1));
+
+  await userEvent.click(screen.getByRole('button', { name: 'Create League' }));
+  await userEvent.type(screen.getByLabelText('League Name'), 'Full League');
+  await userEvent.click(screen.getByLabelText('Public league'));
+  await userEvent.click(screen.getByLabelText('Require commissioner approval to join'));
+  await userEvent.click(screen.getByLabelText('Best ball mode'));
+  expect(screen.getByText(/optimal lineup is set automatically/i)).toBeInTheDocument();
+  await userEvent.click(screen.getByLabelText('Scoring'));
+  await userEvent.click(await screen.findByRole('option', { name: 'Half PPR' }));
+  await userEvent.type(screen.getByLabelText('Draft date'), '2026-09-04T13:00');
+  await userEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/league', {
+      name: 'Full League',
+      teamName: undefined,
+      maxTeams: 2,
+      isPublic: true,
+      joinApproval: true,
+      bestBall: true,
+      scoringPreset: 'half_ppr',
+      draftDate: new Date('2026-09-04T13:00').toISOString(),
+    })
+  );
+});
+
 test('the Create button is disabled until a league name is entered', async () => {
   apiClient.get.mockResolvedValue({ data: [] });
   renderWithProviders(<UserPage />, { state: baseState });
