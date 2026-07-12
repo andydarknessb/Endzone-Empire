@@ -34,7 +34,25 @@ async function tick() {
   running = true;
   try {
     const waivers = await processAllDueWaivers();
-    if (waivers.length > 0) console.log(`scheduler: processed waivers for ${waivers.length} league(s)`);
+    if (waivers.length > 0) {
+      console.log(`scheduler: processed waivers for ${waivers.length} league(s)`);
+      // Owners get an email summary of their just-resolved claims
+      const digest = require('../services/digest.service');
+      for (const processed of waivers) {
+        const leagueId = processed.leagueId != null ? processed.leagueId : processed;
+        try {
+          await digest.sendWaiverResultsDigest({ leagueId });
+        } catch (err) {
+          console.error(`waiver digest failed for league ${leagueId}:`, err.message);
+        }
+      }
+    }
+    try {
+      const digest = require('../services/digest.service');
+      await digest.sendLineupReminders(); // self-limits to the pre-kickoff window
+    } catch (err) {
+      console.error('lineup reminders failed:', err.message);
+    }
     const trades = await processDueTrades();
     if (trades.length > 0) console.log(`scheduler: settled ${trades.length} trade(s)`);
     ticksSinceSync += 1;

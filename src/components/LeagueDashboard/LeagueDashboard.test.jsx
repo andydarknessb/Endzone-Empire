@@ -100,6 +100,18 @@ const mockGetByUrl = (overrides = {}) => {
         return Promise.resolve(value);
       }
     }
+    // RecapCard and DraftGradesCard hide themselves on 404 ("not generated
+    // yet"); TrophyCase hides on an empty list. Default the new dashboard
+    // GETs to those "nothing to show" shapes so tests that don't care about
+    // these cards don't have to think about them — each card has its own
+    // dedicated test file, and the integration tests below override these
+    // keys explicitly to verify the cards render when data is present.
+    if (url.endsWith('/recap') || url.endsWith('/draft-grades')) {
+      return Promise.reject({ response: { status: 404 } });
+    }
+    if (url.endsWith('/trophies')) {
+      return Promise.resolve({ data: [] });
+    }
     return Promise.resolve({ data: [] });
   });
 };
@@ -556,6 +568,88 @@ test('renders the League Chat panel at the bottom of the page', async () => {
 
   expect(await screen.findByText('League Chat')).toBeInTheDocument();
   expect(screen.getByText('No messages yet')).toBeInTheDocument();
+});
+
+// --- Recap / Trophy Case / Draft Grades / History integration ---
+
+test('links to the League History page', async () => {
+  mockGetByUrl({
+    '/api/league/7': leagueResponse(),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
+
+  renderDashboard(7);
+  await screen.findByText('Sunday Ballers');
+
+  expect(screen.getByRole('link', { name: 'History' })).toHaveAttribute(
+    'href',
+    '/league/7/history'
+  );
+});
+
+test('renders the Recap, Trophy Case, and Draft Grades cards when their data is available', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse(),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+    '/recap': {
+      data: {
+        season: 2026,
+        week: 5,
+        data: {
+          generatedAt: '2026-07-10T00:00:00.000Z',
+          narrative: 'A wild week of fantasy football.',
+          facts: { highestScorer: { team: "Alice's Team", points: 130.2 } },
+        },
+      },
+    },
+    '/trophies': {
+      data: [
+        {
+          id: 1,
+          type: 'weekly_high',
+          label: 'Weekly High Score',
+          week: 5,
+          season: 2026,
+          team_id: 1,
+          team_name: "Alice's Team",
+          data: {},
+          awarded_at: '2026-07-10T00:00:00.000Z',
+        },
+      ],
+    },
+    '/draft-grades': {
+      data: {
+        computedAt: '2026-07-01T00:00:00.000Z',
+        grades: [{ teamId: 1, name: "Alice's Team", grade: 'A', rosterValue: 250, rank: 1 }],
+      },
+    },
+  });
+
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  expect(await screen.findByTestId('recap-card')).toBeInTheDocument();
+  expect(screen.getByText('A wild week of fantasy football.')).toBeInTheDocument();
+  expect(await screen.findByTestId('trophy-case')).toBeInTheDocument();
+  expect(screen.getByText(/Weekly High Score/)).toBeInTheDocument();
+  expect(await screen.findByTestId('draft-grades-card')).toBeInTheDocument();
+});
+
+test('hides the Recap, Trophy Case, and Draft Grades cards when their endpoints have nothing to show', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse(),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
+
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  expect(screen.queryByTestId('recap-card')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('trophy-case')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('draft-grades-card')).not.toBeInTheDocument();
 });
 
 test('Start New Season appears only when the season is complete and POSTs the rollover', async () => {

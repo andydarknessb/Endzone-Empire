@@ -218,6 +218,28 @@ router.get('/league/:id/power-rankings', async (req, res) => {
   }
 });
 
+// GET /api/scoring/league/:id/recap — latest stored weekly recap (member only)
+router.get('/league/:id/recap', async (req, res) => {
+  if (!/^\d+$/.test(req.params.id)) {
+    return res.status(400).json({ error: 'league id must be a positive integer' });
+  }
+  const leagueId = Number(req.params.id);
+  try {
+    const membership = await pool.query(
+      `SELECT 1 FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
+      [leagueId, req.user.id]
+    );
+    if (!membership.rows[0]) return res.status(403).json({ error: 'not a member of this league' });
+    const recap = require('../services/recap.service');
+    const latest = await recap.getLatestRecap({ leagueId });
+    if (!latest) return res.status(404).json({ error: 'no recap generated yet' });
+    res.json(latest);
+  } catch (error) {
+    console.error('Recap fetch failed:', error);
+    res.status(500).json({ error: 'failed to fetch recap' });
+  }
+});
+
 // POST /api/scoring/league/:id/power-rankings — owner recomputes on demand
 router.post('/league/:id/power-rankings', async (req, res) => {
   if (!/^\d+$/.test(req.params.id)) {
@@ -273,11 +295,39 @@ router.post('/league/:id/advance-week', async (req, res) => {
       week: current_week,
     });
     const advance = await season.finalizeWeekAndAdvance({ leagueId });
-    // Refresh playoff odds / power rankings in the background — display data,
-    // never worth failing (or delaying) the week advance over.
-    montecarlo.computeLeagueOdds({ leagueId }).catch((err) => {
-      console.error(`power rankings failed for league ${leagueId}:`, err.message);
-    });
+    // Post-week analytics in the background — display data, never worth
+    // failing (or delaying) the week advance over. Odds first so the recap
+    // reads fresh playoff numbers.
+    montecarlo
+      .computeLeagueOdds({ leagueId })
+      .catch((err) => {
+        console.error(`power rankings failed for league ${leagueId}:`, err.message);
+      })
+      .then(() => {
+        const recap = require('../services/recap.service');
+        return recap.generateWeeklyRecap({
+          leagueId,
+          season: current_season,
+          week: current_week, // the week just finalized
+        });
+      })
+      .catch((err) => {
+        console.error(`weekly recap failed for league ${leagueId}:`, err.message);
+      })
+      .then(() => {
+        const trophies = require('../services/trophy.service');
+        return trophies.awardWeeklyTrophies({ leagueId, season: current_season, week: current_week });
+      })
+      .catch((err) => {
+        console.error(`trophy awards failed for league ${leagueId}:`, err.message);
+      })
+      .then(() => {
+        const digest = require('../services/digest.service');
+        return digest.sendWeeklyRecapDigest({ leagueId, season: current_season, week: current_week });
+      })
+      .catch((err) => {
+        console.error(`recap digest failed for league ${leagueId}:`, err.message);
+      });
     res.json({ scored: scoredResult.scored, ...advance });
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });

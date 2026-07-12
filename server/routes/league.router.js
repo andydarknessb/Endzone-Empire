@@ -671,4 +671,93 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
   }
 });
 
+/** Shared member gate for the engagement read endpoints below. */
+async function requireMember(req, res, leagueId) {
+  const membership = await pool.query(
+    `SELECT 1 FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
+    [leagueId, req.user.id]
+  );
+  if (!membership.rows[0]) {
+    res.status(403).json({ error: 'not a member of this league' });
+    return false;
+  }
+  return true;
+}
+
+// GET /api/league/:id/trophies?season= — the league's trophy case
+router.get('/:id/trophies', async (req, res) => {
+  const leagueId = intParam(req.params.id);
+  if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
+  const season = req.query.season !== undefined ? intParam(req.query.season) : null;
+  if (req.query.season !== undefined && !season) {
+    return res.status(400).json({ error: 'season must be a positive integer' });
+  }
+  try {
+    if (!(await requireMember(req, res, leagueId))) return;
+    const trophies = require('../services/trophy.service');
+    res.json(await trophies.getLeagueTrophies({ leagueId, season }));
+  } catch (error) {
+    console.error('Error fetching trophies', error);
+    res.status(500).json({ error: 'failed to fetch trophies' });
+  }
+});
+
+// GET /api/league/:id/draft-grades — A–F per team (computed lazily post-draft)
+router.get('/:id/draft-grades', async (req, res) => {
+  const leagueId = intParam(req.params.id);
+  if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
+  try {
+    if (!(await requireMember(req, res, leagueId))) return;
+    const draftgrade = require('../services/draftgrade.service');
+    const grades = await draftgrade.getOrComputeDraftGrades({ leagueId });
+    if (!grades) return res.status(404).json({ error: 'draft grades not available yet' });
+    res.json(grades);
+  } catch (error) {
+    console.error('Error fetching draft grades', error);
+    res.status(500).json({ error: 'failed to fetch draft grades' });
+  }
+});
+
+// GET /api/league/:id/history — archived seasons: standings, champion,
+// trophies, and draft grades per completed season
+router.get('/:id/history', async (req, res) => {
+  const leagueId = intParam(req.params.id);
+  if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
+  try {
+    if (!(await requireMember(req, res, leagueId))) return;
+    const historyResult = await pool.query(
+      `SELECT "league_history"."season", "league_history"."standings",
+              "league_history"."champion_team_id", "teams"."name" AS "champion_name"
+       FROM "league_history"
+       LEFT JOIN "teams" ON "teams"."id" = "league_history"."champion_team_id"
+       WHERE "league_history"."league_id" = $1
+       ORDER BY "league_history"."season" DESC`,
+      [leagueId]
+    );
+    const trophies = require('../services/trophy.service');
+    const seasons = [];
+    for (const row of historyResult.rows) {
+      const seasonTrophies = await trophies.getLeagueTrophies({ leagueId, season: row.season });
+      const gradesResult = await pool.query(
+        `SELECT "data" FROM "league_analytics"
+         WHERE "league_id" = $1 AND "season" = $2 AND "type" = 'draft_grades'`,
+        [leagueId, row.season]
+      );
+      seasons.push({
+        season: row.season,
+        champion: row.champion_team_id
+          ? { teamId: row.champion_team_id, name: row.champion_name }
+          : null,
+        standings: row.standings,
+        trophies: seasonTrophies.filter((t) => t.week === 0),
+        draftGrades: gradesResult.rows[0] ? gradesResult.rows[0].data.grades : null,
+      });
+    }
+    res.json({ seasons });
+  } catch (error) {
+    console.error('Error fetching league history', error);
+    res.status(500).json({ error: 'failed to fetch league history' });
+  }
+});
+
 module.exports = router;

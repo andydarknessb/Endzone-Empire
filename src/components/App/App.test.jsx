@@ -306,6 +306,30 @@ test('"/players/:playerId" is protected and renders PlayerDetail when logged in'
   expect(await screen.findByText('Patrick Mahomes')).toBeInTheDocument();
 });
 
+test('"/league/:leagueId/history" is protected and renders LeagueHistory when logged in', async () => {
+  const { unmount } = renderApp('#/league/1/history', { user: loggedOut });
+  expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();
+  unmount();
+
+  renderApp('#/league/1/history', { user: loggedIn }, () => {
+    apiClient.get.mockResolvedValue({ data: { seasons: [] } });
+  });
+  expect(await screen.findByText('League History')).toBeInTheDocument();
+});
+
+test('"/settings/notifications" is protected and renders NotificationPrefs when logged in', async () => {
+  const { unmount } = renderApp('#/settings/notifications', { user: loggedOut });
+  expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();
+  unmount();
+
+  renderApp('#/settings/notifications', { user: loggedIn }, () => {
+    apiClient.get.mockResolvedValue({
+      data: { lineupReminder: true, waiverResults: false, weeklyRecap: true, tradeOffers: false },
+    });
+  });
+  expect(await screen.findByRole('heading', { name: 'Notification Settings' })).toBeInTheDocument();
+});
+
 test('an unmatched route shows the 404 page', async () => {
   renderApp('#/this-route-does-not-exist', { user: loggedOut });
   expect(await screen.findByRole('heading', { name: '404' })).toBeInTheDocument();

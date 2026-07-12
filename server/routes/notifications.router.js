@@ -24,6 +24,30 @@ router.get('/', async (req, res) => {
   }
 });
 
+// GET /api/notifications/prefs — the caller's delivery preferences (defaults filled in)
+router.get('/prefs', async (req, res) => {
+  try {
+    const prefs = require('../services/prefs.service');
+    res.json(await prefs.getPrefs({ userId: req.user.id }));
+  } catch (error) {
+    console.error('Error fetching notification prefs', error);
+    res.status(500).json({ error: 'failed to fetch notification preferences' });
+  }
+});
+
+// PUT /api/notifications/prefs — partial update { prefs: { weeklyRecap: false, ... } }
+router.put('/prefs', async (req, res) => {
+  try {
+    const prefs = require('../services/prefs.service');
+    const updated = await prefs.setPrefs({ userId: req.user.id, prefs: (req.body || {}).prefs });
+    res.json(updated);
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    console.error('Error updating notification prefs', error);
+    res.status(500).json({ error: 'failed to update notification preferences' });
+  }
+});
+
 // PUT /api/notifications/read — mark some ({ ids: [] }) or all (no body) as read
 router.put('/read', async (req, res) => {
   const { ids } = req.body || {};

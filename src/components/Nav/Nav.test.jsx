@@ -23,6 +23,7 @@ test('shows a "Login / Register" link when no user is logged in', () => {
   expect(screen.getByRole('link', { name: /login \/ register/i })).toBeInTheDocument();
   expect(screen.queryByRole('link', { name: 'League' })).not.toBeInTheDocument();
   expect(screen.queryByRole('link', { name: 'Discover Leagues' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'Notification Settings' })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Log Out' })).not.toBeInTheDocument();
 });
 
@@ -34,6 +35,10 @@ test('shows the full authenticated nav when a user is logged in', () => {
   expect(screen.getByRole('link', { name: 'Discover Leagues' })).toHaveAttribute('href', '/discover');
   expect(screen.getByRole('link', { name: 'Players' })).toHaveAttribute('href', '/player');
   expect(screen.getByRole('link', { name: 'My Team' })).toHaveAttribute('href', '/team');
+  expect(screen.getByRole('link', { name: 'Notification Settings' })).toHaveAttribute(
+    'href',
+    '/settings/notifications'
+  );
   expect(screen.getByRole('button', { name: 'Log Out' })).toBeInTheDocument();
   expect(screen.queryByRole('link', { name: /login \/ register/i })).not.toBeInTheDocument();
 });

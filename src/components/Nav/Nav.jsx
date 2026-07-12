@@ -48,7 +48,10 @@ function Nav() {
               My Team
             </Link>
 
-            
+            <Link className="navLink" to="/settings/notifications">
+              Notification Settings
+            </Link>
+
             <LogOutButton className="navLink" />
             <NotificationBell />
           </>

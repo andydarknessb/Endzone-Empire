@@ -33,6 +33,8 @@ import WaiverWire from '../WaiverWire/WaiverWire';
 import TradeCenter from '../TradeCenter/TradeCenter';
 import TransactionLog from '../TransactionLog/TransactionLog';
 import PowerRankings from '../PowerRankings/PowerRankings';
+import LeagueHistory from '../LeagueHistory/LeagueHistory';
+import NotificationPrefs from '../NotificationPrefs/NotificationPrefs';
 import PlayerDetail from '../PlayerDetail/PlayerDetail';
 import ForgotPassword from '../ForgotPassword/ForgotPassword';
 import ResetPassword from '../ResetPassword/ResetPassword';
@@ -70,6 +72,8 @@ function App() {
           <Route path="/league/:leagueId/trades" element={<ProtectedRoute><TradeCenter /></ProtectedRoute>} />
           <Route path="/league/:leagueId/activity" element={<ProtectedRoute><TransactionLog /></ProtectedRoute>} />
           <Route path="/league/:leagueId/power-rankings" element={<ProtectedRoute><PowerRankings /></ProtectedRoute>} />
+          <Route path="/league/:leagueId/history" element={<ProtectedRoute><LeagueHistory /></ProtectedRoute>} />
+          <Route path="/settings/notifications" element={<ProtectedRoute><NotificationPrefs /></ProtectedRoute>} />
           <Route path="/players/:playerId" element={<ProtectedRoute><PlayerDetail /></ProtectedRoute>} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />

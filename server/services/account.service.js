@@ -170,6 +170,7 @@ async function verifyEmail({ token }) {
 module.exports = {
   AccountError,
   hashToken,
+  deliverEmail,
   requestPasswordReset,
   resetPassword,
   requestEmailVerification,

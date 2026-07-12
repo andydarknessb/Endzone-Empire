@@ -18,6 +18,9 @@ import {
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import ChatPanel from '../ChatPanel/ChatPanel';
+import RecapCard from '../RecapCard/RecapCard';
+import TrophyCase from '../TrophyCase/TrophyCase';
+import DraftGradesCard from '../DraftGradesCard/DraftGradesCard';
 
 const SEASON_STATUS_CHIP = {
   regular: { label: 'Regular Season', color: 'default' },
@@ -203,6 +206,8 @@ function LeagueDashboard() {
         </Alert>
       )}
 
+      <RecapCard leagueId={leagueId} />
+
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
         <Typography variant="h4">{league.name}</Typography>
         <Chip
@@ -292,7 +297,16 @@ function LeagueDashboard() {
         </Table>
       </TableContainer>
 
-      <Box sx={{ display: 'flex', gap: 2 }}>
+      <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+        <Box sx={{ flex: '1 1 300px' }}>
+          <TrophyCase leagueId={leagueId} />
+        </Box>
+        <Box sx={{ flex: '1 1 300px' }}>
+          <DraftGradesCard leagueId={leagueId} />
+        </Box>
+      </Box>
+
+      <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
         {isOwner && league.draft_status === 'pending' && (
           <Button variant="contained" color="primary" onClick={handleStartDraft}>
             Start Draft
@@ -339,6 +353,11 @@ function LeagueDashboard() {
         <Link to={`/league/${leagueId}/power-rankings`} style={{ textDecoration: 'none' }}>
           <Button variant="outlined" color="primary">
             Power Rankings
+          </Button>
+        </Link>
+        <Link to={`/league/${leagueId}/history`} style={{ textDecoration: 'none' }}>
+          <Button variant="outlined" color="primary">
+            History
           </Button>
         </Link>
       </Box>
