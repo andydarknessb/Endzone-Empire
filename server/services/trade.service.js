@@ -112,6 +112,21 @@ async function proposeTrade({ leagueId, userId, receivingTeamId, playerIds, coun
       data: { tradeId: trade.id },
     });
     await client.query('COMMIT');
+    // Web push after commit, best-effort, pref-gated
+    try {
+      const { usersWanting } = require('./prefs.service');
+      const wanting = await usersWanting([otherTeam.owner_id], 'tradeOffers');
+      if (wanting.length > 0) {
+        const push = require('./push.service');
+        await push.sendPushToUsers(wanting, {
+          title: 'New trade offer',
+          body: `${myTeam.name} sent you a trade offer`,
+          url: `/#/league/${leagueId}/trades`,
+        });
+      }
+    } catch (err) {
+      console.error('trade offer push failed:', err.message);
+    }
     return trade;
   } catch (error) {
     await client.query('ROLLBACK');

@@ -18,6 +18,12 @@ export function* loginUser(action) {
     setToken(response.data.token);
     if (response.data.refreshToken) setRefreshToken(response.data.refreshToken);
 
+    // A fresh login may be a different account on this device — drop any
+    // offline-cached league data from the previous session.
+    if (typeof caches !== 'undefined') {
+      caches.delete('api-cache-v1').catch(() => {});
+    }
+
     yield put({ type: 'SET_USER', payload: response.data.user });
   } catch (error) {
     console.log('Error with user login:', error);
@@ -34,6 +40,11 @@ export function* loginUser(action) {
 export function* logoutUser() {
   const refreshToken = getRefreshToken();
   clearToken();
+  // Drop offline-cached league data so a different user on this device
+  // can't see the previous account's cached responses.
+  if (typeof caches !== 'undefined') {
+    caches.delete('api-cache-v1').catch(() => {});
+  }
   if (refreshToken) {
     try {
       yield apiClient.post('/api/auth/logout', { refreshToken });

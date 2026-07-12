@@ -5,6 +5,7 @@ import { Provider } from 'react-redux';
 import store from './redux/store';
 
 import App from './components/App/App';
+import { register as registerServiceWorker } from './serviceWorkerRegistration';
 
 // apiClient fires this when a token refresh fails — the session is dead, so
 // drop the user back to the login screen.
@@ -20,3 +21,7 @@ root.render(
     </Provider>
   </React.StrictMode>
 );
+
+// Enables offline viewing of cached league data + web push; no-op outside
+// of a production build (see serviceWorkerRegistration.js).
+registerServiceWorker();

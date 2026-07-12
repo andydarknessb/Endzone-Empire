@@ -16,6 +16,7 @@ const DEFAULT_PREFS = {
   waiverResults: true,
   weeklyRecap: true,
   tradeOffers: true,
+  closeMatchups: true,
 };
 
 /** Pure: merge a stored prefs object onto the defaults. Unknown stored keys are ignored. */

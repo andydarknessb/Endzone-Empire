@@ -110,7 +110,8 @@ async function syncAndScoreLiveWeeks() {
     try {
       await scoring.syncWeekStats({ season, week });
       for (const leagueId of leagueIds) {
-        await scoring.scoreMatchups({ leagueId, season, week }); // emits scores:updated
+        const { scored } = await scoring.scoreMatchups({ leagueId, season, week }); // emits scores:updated
+        await alertCloseMatchups({ leagueId, week, scored });
       }
       console.log(`scheduler: live-scored ${leagueIds.length} league(s) for ${season} week ${week}`);
     } catch (err) {
@@ -140,6 +141,44 @@ async function runDailyStatCorrections() {
   lastCorrectionDay = today;
   if (result.corrected && result.corrected.length > 0) {
     console.log(`scheduler: stat corrections changed scores in ${result.corrected.length} league(s)`);
+  }
+}
+
+// "Your matchup is close" alerts: at most one per matchup per week (in-process
+// set — a restart may re-alert once, acceptable for best-effort nudges).
+const closeAlertedMatchups = new Set();
+const CLOSE_MARGIN = 10;
+
+/**
+ * During live scoring windows, push-alert both owners of any matchup within
+ * CLOSE_MARGIN points — but only late in the window (both teams have points
+ * on the board), so week-opening 0-0 "ties" don't fire.
+ */
+async function alertCloseMatchups({ leagueId, week, scored }) {
+  const push = require('../services/push.service');
+  for (const m of scored || []) {
+    const key = `${m.matchupId}:${week}`;
+    if (closeAlertedMatchups.has(key)) continue;
+    const margin = Math.abs(Number(m.homeScore) - Number(m.awayScore));
+    if (m.homeScore <= 0 || m.awayScore <= 0 || margin > CLOSE_MARGIN) continue;
+    closeAlertedMatchups.add(key);
+    try {
+      const owners = await pool.query(
+        `SELECT "owner_id" FROM "teams" WHERE "id" = ANY($1::int[])`,
+        [[m.homeTeamId, m.awayTeamId]]
+      );
+      const { usersWanting } = require('../services/prefs.service');
+      await push.sendPushToUsers(
+        await usersWanting(owners.rows.map((r) => r.owner_id), 'closeMatchups'),
+        {
+          title: 'Your matchup is close!',
+          body: `Week ${week}: separated by just ${Math.round(margin * 10) / 10} points — keep watching.`,
+          url: `/#/league/${leagueId}/matchups`,
+        }
+      );
+    } catch (err) {
+      console.error('close matchup alert failed:', err.message);
+    }
   }
 }
 

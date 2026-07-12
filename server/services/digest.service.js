@@ -136,6 +136,16 @@ async function sendWaiverResultsDigest({ leagueId }) {
       subject: `Waiver results — ${leagueName}`,
       text: `Your waiver claims cleared:\n\n${lines.join('\n')}\n\n${appOrigin()}/#/league/${leagueId}/waivers`,
     });
+    try {
+      const push = require('./push.service');
+      await push.sendPushToUsers([ownerId], {
+        title: `Waiver results — ${leagueName}`,
+        body: lines.join(' · '),
+        url: `/#/league/${leagueId}/waivers`,
+      });
+    } catch (err) {
+      console.error('waiver results push failed:', err.message);
+    }
     sent += 1;
   }
   return { sent };
@@ -211,6 +221,16 @@ async function sendLineupReminders() {
       remindedTeamWeeks.add(key);
       remindersSent += 1;
       const message = `Lineup check for week ${week}: ${problems.join('; ')}`;
+      try {
+        const push = require('./push.service');
+        await push.sendPushToUsers([team.owner_id], {
+          title: 'Set your lineup — kickoff soon',
+          body: message,
+          url: `/#/league/${leagueId}/lineup`,
+        });
+      } catch (err) {
+        console.error('lineup reminder push failed:', err.message);
+      }
       const client = await pool.connect();
       try {
         await client.query('BEGIN');

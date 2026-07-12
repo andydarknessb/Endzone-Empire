@@ -40,6 +40,7 @@ import ForgotPassword from '../ForgotPassword/ForgotPassword';
 import ResetPassword from '../ResetPassword/ResetPassword';
 import VerifyEmail from '../VerifyEmail/VerifyEmail';
 import AppThemeProvider from '../../theme/AppThemeProvider';
+import OfflineBanner from '../OfflineBanner/OfflineBanner';
 
 
 import './App.css';
@@ -55,6 +56,7 @@ function App() {
 
   return (
     <AppThemeProvider>
+    <OfflineBanner />
     <Router>
       <div>
         <Nav />
