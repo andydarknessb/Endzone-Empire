@@ -13,11 +13,13 @@ jest.mock('../../api/apiClient', () => ({
 
 jest.mock('../../api/socket', () => ({
   createDraftSocket: jest.fn(),
+  onReconnect: jest.fn((socket, handler) => socket.io.on('reconnect', handler)),
 }));
 
 beforeEach(() => {
   createDraftSocket.mockReturnValue({
     on: jest.fn(),
+    io: { on: jest.fn() },
     emit: jest.fn(),
     disconnect: jest.fn(),
   });

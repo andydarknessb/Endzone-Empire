@@ -100,6 +100,12 @@ async function resetPassword({ token, newPassword }) {
       `UPDATE "auth_tokens" SET "used" = true, "updated_at" = now() WHERE "id" = $1`,
       [row.id]
     );
+    // A password reset invalidates every refresh session for the account
+    await client.query(
+      `UPDATE "refresh_tokens" SET "revoked" = true, "updated_at" = now()
+       WHERE "user_id" = $1 AND "revoked" = false`,
+      [row.user_id]
+    );
     await client.query('COMMIT');
     return { ok: true };
   } catch (error) {

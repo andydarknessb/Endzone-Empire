@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Paper, Typography, Box, TextField, Button, Alert } from '@mui/material';
 import apiClient from '../../api/apiClient';
-import { createDraftSocket } from '../../api/socket';
+import { createDraftSocket, onReconnect } from '../../api/socket';
 
 function ChatPanel({ leagueId }) {
   const [messages, setMessages] = useState([]);
@@ -9,11 +9,15 @@ function ChatPanel({ leagueId }) {
   const [error, setError] = useState(null);
   const socketRef = useRef(null);
 
-  useEffect(() => {
+  const fetchHistory = () => {
     apiClient
       .get(`/api/league/${leagueId}/chat`)
       .then((res) => setMessages(Array.isArray(res.data) ? res.data : []))
       .catch(() => {});
+  };
+
+  useEffect(() => {
+    fetchHistory();
   }, [leagueId]);
 
   useEffect(() => {
@@ -26,7 +30,15 @@ function ChatPanel({ leagueId }) {
       setMessages((prev) => [...prev, data]);
     });
 
+    // On reconnect: re-join the room (server re-adds us) and re-fetch chat
+    // history via REST so any messages sent while we were offline appear.
+    const offReconnect = onReconnect(newSocket, () => {
+      newSocket.emit('league:join', { leagueId: Number(leagueId) });
+      fetchHistory();
+    });
+
     return () => {
+      offReconnect?.(); // reconnect listener lives on the manager, which outlives the socket
       socketRef.current.disconnect();
       socketRef.current = null;
     };

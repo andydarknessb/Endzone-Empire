@@ -3,7 +3,7 @@ import { screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
-import { createDraftSocket } from '../../api/socket';
+import { createDraftSocket, onReconnect } from '../../api/socket';
 import ChatPanel from './ChatPanel';
 
 jest.mock('../../api/apiClient', () => ({
@@ -13,6 +13,7 @@ jest.mock('../../api/apiClient', () => ({
 
 jest.mock('../../api/socket', () => ({
   createDraftSocket: jest.fn(),
+  onReconnect: jest.fn(),
 }));
 
 const chatMessage = (overrides = {}) => ({
@@ -26,17 +27,25 @@ const chatMessage = (overrides = {}) => ({
 
 let mockSocket;
 let socketHandlers;
+let reconnectHandlers;
 
 beforeEach(() => {
   socketHandlers = {};
+  reconnectHandlers = [];
   mockSocket = {
     on: jest.fn((event, cb) => {
       socketHandlers[event] = cb;
     }),
+    io: {
+      on: jest.fn((event, cb) => {
+        reconnectHandlers.push(cb);
+      }),
+    },
     emit: jest.fn(),
     disconnect: jest.fn(),
   };
   createDraftSocket.mockReturnValue(mockSocket);
+  onReconnect.mockImplementation((socket, handler) => socket.io.on('reconnect', handler));
 });
 
 afterEach(() => {
@@ -141,4 +150,25 @@ test('joins the league room on mount and disconnects on unmount', async () => {
 
   unmount();
   expect(mockSocket.disconnect).toHaveBeenCalled();
+});
+
+test('re-joins the league room and re-fetches chat history on reconnect', async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+
+  renderWithProviders(<ChatPanel leagueId={7} />);
+  await screen.findByText('No messages yet');
+
+  mockSocket.emit.mockClear();
+  apiClient.get.mockClear();
+  apiClient.get.mockResolvedValue({
+    data: [chatMessage({ id: 9, username: 'carl', message: 'missed while offline' })],
+  });
+
+  act(() => {
+    reconnectHandlers.forEach((cb) => cb());
+  });
+
+  expect(mockSocket.emit).toHaveBeenCalledWith('league:join', { leagueId: 7 });
+  expect(apiClient.get).toHaveBeenCalledWith('/api/league/7/chat');
+  expect(await screen.findByText('missed while offline')).toBeInTheDocument();
 });

@@ -3,7 +3,7 @@ import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
-import { createDraftSocket } from '../../api/socket';
+import { createDraftSocket, onReconnect } from '../../api/socket';
 import DraftBoard from './DraftBoard';
 
 jest.mock('../../api/apiClient', () => ({
@@ -13,19 +13,29 @@ jest.mock('../../api/apiClient', () => ({
 
 jest.mock('../../api/socket', () => ({
   createDraftSocket: jest.fn(),
+  onReconnect: jest.fn(),
 }));
 
 /** A controllable fake socket: captures .on() handlers so tests can fire them. */
 function makeFakeSocket() {
   const handlers = {};
+  const managerHandlers = {};
   return {
     on: jest.fn((event, cb) => {
       handlers[event] = cb;
     }),
+    io: {
+      on: jest.fn((event, cb) => {
+        managerHandlers[event] = cb;
+      }),
+    },
     emit: jest.fn(),
     disconnect: jest.fn(),
     trigger(event, payload) {
       if (handlers[event]) handlers[event](payload);
+    },
+    triggerManager(event, payload) {
+      if (managerHandlers[event]) managerHandlers[event](payload);
     },
   };
 }
@@ -46,6 +56,7 @@ let fakeSocket;
 beforeEach(() => {
   fakeSocket = makeFakeSocket();
   createDraftSocket.mockReturnValue(fakeSocket);
+  onReconnect.mockImplementation((socket, handler) => socket.io.on('reconnect', handler));
   apiClient.get.mockResolvedValue(playersPage());
   apiClient.put.mockResolvedValue({});
   apiClient.post.mockResolvedValue({});
@@ -232,6 +243,33 @@ test('disconnects the socket on unmount', async () => {
   unmount();
 
   expect(fakeSocket.disconnect).toHaveBeenCalled();
+});
+
+test('shows a reconnecting indicator on disconnect and hides it once reconnected', async () => {
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+
+  act(() => fakeSocket.trigger('disconnect'));
+  expect(screen.getByText('Reconnecting…')).toBeInTheDocument();
+
+  act(() => fakeSocket.trigger('connect'));
+  expect(screen.queryByText('Reconnecting…')).not.toBeInTheDocument();
+});
+
+test('re-joins the draft room (and gets a fresh draft:state) when the manager reconnects', async () => {
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+
+  act(() => fakeSocket.trigger('disconnect'));
+  fakeSocket.emit.mockClear();
+
+  act(() => fakeSocket.triggerManager('reconnect'));
+
+  expect(fakeSocket.emit).toHaveBeenCalledWith(
+    'draft:join',
+    { leagueId: 1 },
+    expect.any(Function)
+  );
 });
 
 // --- Phase 4: pick timer, queue, commissioner controls ---

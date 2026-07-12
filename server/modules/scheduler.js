@@ -19,6 +19,12 @@ let running = false;
 let draftRunning = false;
 let ticksSinceSync = SYNC_EVERY_TICKS; // sync on the first eligible tick
 
+// Minimal health-check state for /api/health — updated by tick() and
+// syncAndScoreLiveWeeks() below, read via getSchedulerStatus().
+let lastTickAt = null;
+let lastTickError = null;
+let lastSyncAt = null;
+
 async function tick() {
   if (running) return; // don't overlap slow runs
   running = true;
@@ -32,9 +38,12 @@ async function tick() {
       const synced = await syncAndScoreLiveWeeks();
       if (synced) ticksSinceSync = 0;
     }
+    lastTickError = null;
   } catch (err) {
     console.error('scheduler tick failed:', err.message);
+    lastTickError = err.message;
   } finally {
+    lastTickAt = new Date().toISOString();
     running = false;
   }
 }
@@ -85,6 +94,7 @@ async function syncAndScoreLiveWeeks() {
       console.error(`live scoring failed for ${season} week ${week}:`, err.message);
     }
   }
+  if (ranAny) lastSyncAt = new Date().toISOString();
   return ranAny;
 }
 
@@ -119,4 +129,17 @@ function stopScheduler() {
   draftTimer = null;
 }
 
-module.exports = { startScheduler, stopScheduler, tick, draftTick, INTERVAL_MS, DRAFT_CLOCK_MS };
+/** Snapshot of scheduler health for the /api/health endpoint. */
+function getSchedulerStatus() {
+  return { lastTickAt, lastTickError, lastSyncAt };
+}
+
+module.exports = {
+  startScheduler,
+  stopScheduler,
+  tick,
+  draftTick,
+  getSchedulerStatus,
+  INTERVAL_MS,
+  DRAFT_CLOCK_MS,
+};

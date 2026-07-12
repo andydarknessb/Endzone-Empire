@@ -1,6 +1,8 @@
 const jwt = require('jsonwebtoken');
 
-const TOKEN_TTL = '7d';
+// Short-lived by design: clients transparently renew via /api/auth/refresh
+// using their rotating refresh token (see token.service).
+const TOKEN_TTL = '15m';
 
 function getSecret() {
   if (!process.env.JWT_SECRET) {

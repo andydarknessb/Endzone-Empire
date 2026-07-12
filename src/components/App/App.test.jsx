@@ -17,6 +17,7 @@ jest.mock('../../api/apiClient', () => ({
 }));
 jest.mock('../../api/socket', () => ({
   createDraftSocket: jest.fn(),
+  onReconnect: jest.fn((socket, handler) => socket.io.on('reconnect', handler)),
 }));
 
 const mockStore = configureMockStore([]);
@@ -24,7 +25,12 @@ const mockStore = configureMockStore([]);
 function renderApp(hash, state = {}, configureApi) {
   window.location.hash = hash;
   apiClient.get.mockResolvedValue({ data: [] });
-  createDraftSocket.mockReturnValue({ on: jest.fn(), emit: jest.fn(), disconnect: jest.fn() });
+  createDraftSocket.mockReturnValue({
+    on: jest.fn(),
+    io: { on: jest.fn() },
+    emit: jest.fn(),
+    disconnect: jest.fn(),
+  });
   if (configureApi) configureApi(); // runs after the defaults, before mount
   const store = mockStore({
     user: {},

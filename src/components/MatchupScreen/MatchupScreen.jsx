@@ -17,7 +17,7 @@ import {
   Chip,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
-import { createDraftSocket } from '../../api/socket';
+import { createDraftSocket, onReconnect } from '../../api/socket';
 
 const LIVE_INDICATOR_MS = 10000;
 
@@ -47,7 +47,15 @@ function MatchupScreen() {
     const newSocket = createDraftSocket();
     socketRef.current = newSocket;
 
-    newSocket.emit('league:join', { leagueId: Number(leagueId) });
+    const joinLeagueRoom = () => {
+      newSocket.emit('league:join', { leagueId: Number(leagueId) });
+    };
+
+    joinLeagueRoom();
+
+    // Re-join on reconnect so the server re-adds us to the room — otherwise
+    // a dropped connection would silently stop delivering scores:updated.
+    const offReconnect = onReconnect(newSocket, joinLeagueRoom);
 
     newSocket.on('scores:updated', (data) => {
       setMatchups((prevMatchups) =>
@@ -73,6 +81,7 @@ function MatchupScreen() {
         clearTimeout(liveTimeoutRef.current);
         liveTimeoutRef.current = null;
       }
+      offReconnect?.(); // reconnect listener lives on the manager, which outlives the socket
       socketRef.current.disconnect();
       socketRef.current = null;
     };

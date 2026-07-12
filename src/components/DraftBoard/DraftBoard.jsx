@@ -25,7 +25,7 @@ import {
   Pagination,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
-import { createDraftSocket } from '../../api/socket';
+import { createDraftSocket, onReconnect } from '../../api/socket';
 import InjuryBadge from '../InjuryBadge/InjuryBadge';
 
 function DraftBoard() {
@@ -41,6 +41,7 @@ function DraftBoard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState(null);
+  const [reconnecting, setReconnecting] = useState(false);
   const socketRef = useRef(null);
   const teamsRef = useRef([]);
   const leagueRef = useRef(null);
@@ -54,13 +55,30 @@ function DraftBoard() {
     const newSocket = createDraftSocket();
     socketRef.current = newSocket;
 
-    newSocket.on('connect', () => {
+    // Shared by the initial connect and every reconnect: re-joins the draft
+    // room, which also makes the server push a fresh 'draft:state' snapshot
+    // (the resync mechanism for whatever happened while we were offline).
+    const joinDraftRoom = () => {
       newSocket.emit('draft:join', { leagueId: Number(leagueId) }, (resp) => {
         if (resp?.error) {
           setError(resp.error);
         }
       });
+    };
+
+    newSocket.on('connect', () => {
+      setReconnecting(false);
+      joinDraftRoom();
     });
+
+    newSocket.on('disconnect', () => {
+      setReconnecting(true);
+    });
+
+    // Manager-level: fires after socket.io has re-established a dropped
+    // connection (e.g. a phone locking mid-draft). Re-join so we don't miss
+    // picks that happened while disconnected.
+    const offReconnect = onReconnect(newSocket, joinDraftRoom);
 
     newSocket.on('draft:state', (data) => {
       const lg = data.league;
@@ -131,6 +149,7 @@ function DraftBoard() {
     fetchInitialData();
 
     return () => {
+      offReconnect?.(); // reconnect listener lives on the manager, which outlives the socket
       newSocket.disconnect();
       socketRef.current = null;
     };
@@ -309,6 +328,9 @@ function DraftBoard() {
           {league?.name || 'Draft Board'}
         </Typography>
         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+          {reconnecting && (
+            <Chip label="Reconnecting…" color="default" size="small" variant="outlined" />
+          )}
           {onTheClock ? (
             <Chip
               label={`On the clock: ${onTheClock.name} (${onTheClock.owner})`}

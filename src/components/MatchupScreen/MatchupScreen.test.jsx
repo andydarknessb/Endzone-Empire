@@ -3,7 +3,7 @@ import { screen, waitFor, within, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
-import { createDraftSocket } from '../../api/socket';
+import { createDraftSocket, onReconnect } from '../../api/socket';
 import MatchupScreen from './MatchupScreen';
 
 jest.mock('../../api/apiClient', () => ({
@@ -13,6 +13,7 @@ jest.mock('../../api/apiClient', () => ({
 
 jest.mock('../../api/socket', () => ({
   createDraftSocket: jest.fn(),
+  onReconnect: jest.fn(),
 }));
 
 const renderScreen = (leagueId = 1) =>
@@ -42,17 +43,25 @@ function mockApi({ matchups = [], league = { id: 1, name: 'Sunday Ballers', owne
 
 let mockSocket;
 let socketHandlers;
+let reconnectHandlers;
 
 beforeEach(() => {
   socketHandlers = {};
+  reconnectHandlers = [];
   mockSocket = {
     on: jest.fn((event, cb) => {
       socketHandlers[event] = cb;
     }),
+    io: {
+      on: jest.fn((event, cb) => {
+        reconnectHandlers.push(cb);
+      }),
+    },
     emit: jest.fn(),
     disconnect: jest.fn(),
   };
   createDraftSocket.mockReturnValue(mockSocket);
+  onReconnect.mockImplementation((socket, handler) => socket.io.on('reconnect', handler));
 });
 
 afterEach(() => {
@@ -183,6 +192,20 @@ test('joins the league room over the socket on mount and disconnects on unmount'
 
   unmount();
   expect(mockSocket.disconnect).toHaveBeenCalled();
+});
+
+test('re-joins the league room when the manager reconnects', async () => {
+  mockApi({ matchups: [] });
+
+  renderScreen(42);
+  await screen.findByText(/Sunday Ballers/);
+  mockSocket.emit.mockClear();
+
+  act(() => {
+    reconnectHandlers.forEach((cb) => cb());
+  });
+
+  expect(mockSocket.emit).toHaveBeenCalledWith('league:join', { leagueId: 42 });
 });
 
 test('receiving scores:updated for a rendered matchup updates the displayed scores', async () => {

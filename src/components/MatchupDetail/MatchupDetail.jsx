@@ -13,7 +13,7 @@ import {
   ListItem,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
-import { createDraftSocket } from '../../api/socket';
+import { createDraftSocket, onReconnect } from '../../api/socket';
 import InjuryBadge from '../InjuryBadge/InjuryBadge';
 
 function TeamColumn({ team, teamName, score }) {
@@ -68,7 +68,15 @@ function MatchupDetail() {
     const newSocket = createDraftSocket();
     socketRef.current = newSocket;
 
-    newSocket.emit('league:join', { leagueId: Number(leagueId) });
+    const joinLeagueRoom = () => {
+      newSocket.emit('league:join', { leagueId: Number(leagueId) });
+    };
+
+    joinLeagueRoom();
+
+    // Re-join on reconnect so the server re-adds us to the room — otherwise
+    // a dropped connection would silently stop delivering scores:updated.
+    const offReconnect = onReconnect(newSocket, joinLeagueRoom);
 
     newSocket.on('scores:updated', (data) => {
       const scored = data.scored.find((s) => s.matchupId === Number(matchupId));
@@ -80,6 +88,7 @@ function MatchupDetail() {
     });
 
     return () => {
+      offReconnect?.(); // reconnect listener lives on the manager, which outlives the socket
       socketRef.current.disconnect();
       socketRef.current = null;
     };

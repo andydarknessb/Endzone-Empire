@@ -1,5 +1,10 @@
 import { put, takeLatest } from 'redux-saga/effects';
-import apiClient, { setToken, clearToken } from '../../api/apiClient';
+import apiClient, {
+  setToken,
+  setRefreshToken,
+  getRefreshToken,
+  clearToken,
+} from '../../api/apiClient';
 
 // worker Saga: fired on "LOGIN" actions
 export function* loginUser(action) {
@@ -8,8 +13,10 @@ export function* loginUser(action) {
 
     const response = yield apiClient.post('/api/auth/login', action.payload);
 
-    // Persist the JWT; every subsequent request sends it as a Bearer token
+    // Persist both tokens; the access JWT rides every request, the refresh
+    // token silently renews it when it expires (~15 min)
     setToken(response.data.token);
+    if (response.data.refreshToken) setRefreshToken(response.data.refreshToken);
 
     yield put({ type: 'SET_USER', payload: response.data.user });
   } catch (error) {
@@ -22,9 +29,19 @@ export function* loginUser(action) {
   }
 }
 
-// worker Saga: fired on "LOGOUT" actions — JWT logout is client-side
+// worker Saga: fired on "LOGOUT" actions — also revokes the refresh session
+// server-side so the token family can't be replayed later
 export function* logoutUser() {
+  const refreshToken = getRefreshToken();
   clearToken();
+  if (refreshToken) {
+    try {
+      yield apiClient.post('/api/auth/logout', { refreshToken });
+    } catch (error) {
+      // Best effort: local logout already happened
+      console.log('Server-side logout failed:', error);
+    }
+  }
   yield put({ type: 'UNSET_USER' });
 }
 
