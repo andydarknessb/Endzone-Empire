@@ -52,6 +52,12 @@ function Nav() {
               Notification Settings
             </Link>
 
+            {user.isPlatformAdmin === true && (
+              <Link className="navLink" to="/admin">
+                Admin
+              </Link>
+            )}
+
             <LogOutButton className="navLink" />
             <NotificationBell />
           </>

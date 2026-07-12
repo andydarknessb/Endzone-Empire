@@ -57,3 +57,18 @@ test('hides the notification bell when no user is logged in', () => {
   renderWithProviders(<Nav />, { state: { user: {} } });
   expect(screen.queryByRole('button', { name: /notifications/i })).not.toBeInTheDocument();
 });
+
+test('shows the Admin link when the logged-in user is a platform admin', () => {
+  renderWithProviders(<Nav />, { state: { user: { id: 1, username: 'alice', isPlatformAdmin: true } } });
+  expect(screen.getByRole('link', { name: 'Admin' })).toHaveAttribute('href', '/admin');
+});
+
+test('hides the Admin link when the logged-in user is not a platform admin', () => {
+  renderWithProviders(<Nav />, { state: { user: { id: 1, username: 'alice', isPlatformAdmin: false } } });
+  expect(screen.queryByRole('link', { name: 'Admin' })).not.toBeInTheDocument();
+});
+
+test('hides the Admin link when isPlatformAdmin is undefined', () => {
+  renderWithProviders(<Nav />, { state: { user: { id: 1, username: 'alice' } } });
+  expect(screen.queryByRole('link', { name: 'Admin' })).not.toBeInTheDocument();
+});

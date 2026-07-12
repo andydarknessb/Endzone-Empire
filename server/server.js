@@ -14,6 +14,7 @@ const tradesRouter = require('./routes/trades.router');
 const notificationsRouter = require('./routes/notifications.router');
 const commissionerRouter = require('./routes/commissioner.router');
 const healthRouter = require('./routes/health.router');
+const adminRouter = require('./routes/admin.router');
 const { attachDraftSocket } = require('./modules/draftSocket');
 const { startScheduler } = require('./modules/scheduler');
 const { createRateLimiter } = require('./modules/rateLimit');
@@ -60,6 +61,7 @@ app.use('/api/draft', draftRouter);
 app.use('/api/trades', tradesRouter);
 app.use('/api/notifications', notificationsRouter);
 app.use('/api/commissioner', commissionerRouter);
+app.use('/api/admin', adminRouter);
 
 // Serve the built React app
 app.use(express.static('build'));

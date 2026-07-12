@@ -1,6 +1,6 @@
 const express = require('express');
 const pool = require('../modules/pool');
-const { requireAuth } = require('../modules/auth');
+const { requireAuth, isPlatformAdmin } = require('../modules/auth');
 
 const router = express.Router();
 
@@ -12,7 +12,8 @@ router.get('/', requireAuth, async (req, res) => {
       [req.user.id]
     );
     if (!result.rows[0]) return res.status(404).json({ error: 'user not found' });
-    res.json(result.rows[0]);
+    // Display hint only — every /api/admin route re-checks server-side
+    res.json({ ...result.rows[0], isPlatformAdmin: isPlatformAdmin(req.user.id) });
   } catch (error) {
     console.error('Error getting user:', error);
     res.status(500).json({ error: 'internal server error' });

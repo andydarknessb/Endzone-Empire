@@ -33,6 +33,28 @@ function requireAuth(req, res, next) {
   }
 }
 
+/**
+ * Is this user a platform administrator? Admins are designated by the
+ * PLATFORM_ADMIN_IDS env var (comma-separated user ids) — no admin flag in
+ * the database means no way to grant it through any API surface.
+ */
+function isPlatformAdmin(userId) {
+  const raw = process.env.PLATFORM_ADMIN_IDS || '';
+  return raw
+    .split(',')
+    .map((s) => Number(s.trim()))
+    .filter(Number.isInteger)
+    .includes(Number(userId));
+}
+
+/** Express middleware: requireAuth first, then platform-admin designation. */
+function requirePlatformAdmin(req, res, next) {
+  if (!req.user || !isPlatformAdmin(req.user.id)) {
+    return res.status(403).json({ error: 'platform admin access required' });
+  }
+  next();
+}
+
 /** Socket.io middleware: token comes in the connection handshake auth object. */
 function requireSocketAuth(socket, next) {
   const token = socket.handshake.auth && socket.handshake.auth.token;
@@ -46,4 +68,10 @@ function requireSocketAuth(socket, next) {
   }
 }
 
-module.exports = { signToken, requireAuth, requireSocketAuth };
+module.exports = {
+  signToken,
+  requireAuth,
+  requireSocketAuth,
+  isPlatformAdmin,
+  requirePlatformAdmin,
+};

@@ -330,6 +330,35 @@ test('"/settings/notifications" is protected and renders NotificationPrefs when 
   expect(await screen.findByRole('heading', { name: 'Notification Settings' })).toBeInTheDocument();
 });
 
+test('"/admin" is protected: LoginPage when logged out, AdminDashboard when logged in', async () => {
+  const { unmount } = renderApp('#/admin', { user: loggedOut });
+  expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();
+  unmount();
+
+  renderApp('#/admin', { user: loggedIn }, () => {
+    apiClient.get.mockImplementation((url) => {
+      if (url === '/api/admin/overview') {
+        return Promise.resolve({
+          data: {
+            users: { total: 5, signupsLast7Days: 1, signupsLast30Days: 2 },
+            leagues: [],
+            recentSignups: [],
+            sync: {
+              scheduler: { lastTickAt: null, lastTickError: null, lastSyncAt: null },
+              statsCoverage: { season: null, week: null, rows: 0 },
+              rapidApiConfigured: true,
+            },
+            errors: { sentryConfigured: true, errorsSinceBoot: 0, lastErrorAt: null, lastErrorMessage: null },
+            uptimeSec: 100,
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+  });
+  expect(await screen.findByRole('heading', { name: 'Admin Dashboard' })).toBeInTheDocument();
+});
+
 test('an unmatched route shows the 404 page', async () => {
   renderApp('#/this-route-does-not-exist', { user: loggedOut });
   expect(await screen.findByRole('heading', { name: '404' })).toBeInTheDocument();
