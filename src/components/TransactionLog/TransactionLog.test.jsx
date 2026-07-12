@@ -97,6 +97,26 @@ test('renders trade and commissioner transaction descriptions', async () => {
   expect(screen.getByText('commissioner')).toBeInTheDocument();
 });
 
+test('renders a stat-correction row with the changed-matchup count and week', async () => {
+  apiClient.get.mockResolvedValue({
+    data: [
+      txn({
+        id: 6,
+        type: 'stat_correction',
+        team_name: null,
+        player_name: null,
+        detail: { season: 2026, week: 4, changes: [{ matchupId: 9 }, { matchupId: 11 }] },
+      }),
+    ],
+  });
+  renderScreen();
+
+  expect(
+    await screen.findByText('NFL stat correction updated 2 matchup scores in week 4')
+  ).toBeInTheDocument();
+  expect(screen.getByText('stat_correction')).toBeInTheDocument();
+});
+
 test('shows an empty state when there is no activity', async () => {
   apiClient.get.mockResolvedValue({ data: [] });
   renderScreen();

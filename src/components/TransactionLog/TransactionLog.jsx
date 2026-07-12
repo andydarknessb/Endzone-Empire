@@ -23,6 +23,7 @@ const TYPE_COLORS = {
   waiver: 'info',
   trade: 'warning',
   commissioner: 'secondary',
+  stat_correction: 'error',
 };
 
 function describeTransaction(txn) {
@@ -39,6 +40,13 @@ function describeTransaction(txn) {
       return 'completed a trade';
     case 'commissioner':
       return 'commissioner action';
+    case 'stat_correction': {
+      const changed = Array.isArray(txn.detail?.changes) ? txn.detail.changes.length : 0;
+      const week = txn.detail?.week;
+      return `NFL stat correction updated ${changed} matchup score${changed === 1 ? '' : 's'}${
+        week ? ` in week ${week}` : ''
+      }`;
+    }
     default:
       return '';
   }

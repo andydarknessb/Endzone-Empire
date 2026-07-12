@@ -3,6 +3,7 @@ const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
 const scoring = require('../services/scoring.service');
 const season = require('../services/season.service');
+const correction = require('../services/correction.service');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -88,6 +89,29 @@ router.post('/league/:id/score', async (req, res) => {
   } catch (error) {
     console.error('Matchup scoring failed:', error);
     res.status(500).json({ error: 'matchup scoring failed' });
+  }
+});
+
+// POST /api/scoring/league/:id/correct-week — owner re-syncs a past week's
+// stats and re-scores it (stat corrections). Settled matchups are re-scored
+// too; changed scores are logged to the activity feed. Never re-runs waivers
+// or rewrites playoff brackets — flipped playoff results alert the owner.
+router.post('/league/:id/correct-week', async (req, res) => {
+  if (!/^\d+$/.test(req.params.id)) {
+    return res.status(400).json({ error: 'league id must be a positive integer' });
+  }
+  const sw = validSeasonWeek(req, res);
+  if (!sw) return;
+  const leagueId = Number(req.params.id);
+  try {
+    if (!(await requireLeagueOwner(req, res, leagueId))) return;
+    await scoring.syncWeekStats(sw);
+    const result = await correction.correctLeagueWeek({ leagueId, ...sw });
+    res.json(result);
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    console.error('Stat correction failed:', error);
+    res.status(500).json({ error: 'stat correction failed' });
   }
 });
 

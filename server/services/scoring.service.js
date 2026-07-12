@@ -335,6 +335,14 @@ async function generateMatchups({ leagueId, season, week }) {
  * from raw stats under the LEAGUE'S scoring rules. Lineups are materialized
  * first so teams that never touched theirs still get their carried-forward
  * (or default-bench) lineup. Transactional per league.
+ *
+ * Finality changes the semantics so re-scoring is idempotent (stat
+ * corrections re-run this for settled weeks):
+ * - Live weeks join against team_players, the CURRENT roster — a player
+ *   dropped mid-week stops scoring immediately.
+ * - Final weeks score straight from that week's lineup_entries, the
+ *   historical record: a player traded or dropped SINCE then still counts,
+ *   and the lineup is never re-materialized against today's roster.
  */
 async function scoreMatchups({ leagueId, season, week }) {
   const client = await pool.connect();
@@ -349,13 +357,18 @@ async function scoreMatchups({ leagueId, season, week }) {
       `SELECT * FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 FOR UPDATE`,
       [leagueId, season, week]
     );
-    const teamScore = async (teamId) => {
-      await materializeLineup(client, { leagueId, teamId, season, week });
+    const teamScore = async (teamId, isFinal) => {
+      if (!isFinal) {
+        await materializeLineup(client, { leagueId, teamId, season, week });
+      }
+      const currentRosterJoin = isFinal
+        ? ''
+        : `JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
+           AND "team_players"."player_id" = "lineup_entries"."player_id"`;
       const r = await client.query(
         `SELECT "player_stats"."stats"
          FROM "lineup_entries"
-         JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
-           AND "team_players"."player_id" = "lineup_entries"."player_id"
+         ${currentRosterJoin}
          JOIN "player_stats" ON "player_stats"."player_id" = "lineup_entries"."player_id"
            AND "player_stats"."season" = $2 AND "player_stats"."week" = $3
          WHERE "lineup_entries"."team_id" = $1 AND "lineup_entries"."season" = $2
@@ -368,8 +381,8 @@ async function scoreMatchups({ leagueId, season, week }) {
     };
     const scored = [];
     for (const matchup of matchupsResult.rows) {
-      const homeScore = await teamScore(matchup.home_team_id);
-      const awayScore = await teamScore(matchup.away_team_id);
+      const homeScore = await teamScore(matchup.home_team_id, matchup.final);
+      const awayScore = await teamScore(matchup.away_team_id, matchup.final);
       await client.query(
         `UPDATE "matchups" SET "home_score" = $1, "away_score" = $2 WHERE "id" = $3`,
         [homeScore, awayScore, matchup.id]

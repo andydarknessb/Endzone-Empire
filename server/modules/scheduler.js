@@ -24,6 +24,10 @@ let ticksSinceSync = SYNC_EVERY_TICKS; // sync on the first eligible tick
 let lastTickAt = null;
 let lastTickError = null;
 let lastSyncAt = null;
+// Stat-correction pass runs once per calendar day on Tue/Wed (the NFL's
+// correction window). In-process only: a restart may repeat the pass the
+// same day, which is safe — the whole pipeline is idempotent.
+let lastCorrectionDay = null;
 
 async function tick() {
   if (running) return; // don't overlap slow runs
@@ -38,6 +42,7 @@ async function tick() {
       const synced = await syncAndScoreLiveWeeks();
       if (synced) ticksSinceSync = 0;
     }
+    await runDailyStatCorrections();
     lastTickError = null;
   } catch (err) {
     console.error('scheduler tick failed:', err.message);
@@ -96,6 +101,28 @@ async function syncAndScoreLiveWeeks() {
   }
   if (ranAny) lastSyncAt = new Date().toISOString();
   return ranAny;
+}
+
+/**
+ * Tue/Wed stat-correction pass: re-pull last week's stats and re-score any
+ * league whose scores moved (see correction.service). Runs at most once per
+ * calendar day; no-ops without RapidAPI credentials.
+ */
+async function runDailyStatCorrections() {
+  const correction = require('../services/correction.service');
+  if (!correction.isCorrectionDay()) return;
+  // Local calendar date, matching isCorrectionDay's local day-of-week — a
+  // UTC date key could double-run within one local Tue/Wed in TZs ahead of UTC.
+  const today = new Date().toLocaleDateString('en-CA');
+  if (lastCorrectionDay === today) return;
+  const result = await correction.resyncPriorWeeks();
+  // Stamp the day only after a successful pass: a transient failure (bubbling
+  // to tick()'s catch) retries on the next 5-minute tick instead of silently
+  // skipping the rest of a correction day.
+  lastCorrectionDay = today;
+  if (result.corrected && result.corrected.length > 0) {
+    console.log(`scheduler: stat corrections changed scores in ${result.corrected.length} league(s)`);
+  }
 }
 
 /** Fast loop: expired draft pick clocks -> server-side auto-pick. */
