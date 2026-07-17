@@ -126,10 +126,10 @@ function PlayerDetail() {
         <Table size="small">
           <TableHead>
             <TableRow sx={{ bgcolor: 'primary.main' }}>
-              <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Season</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Week</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Stat Line</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="right">
+              <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>Season</TableCell>
+              <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>Week</TableCell>
+              <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>Stat Line</TableCell>
+              <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }} align="right">
                 Fantasy Pts
               </TableCell>
             </TableRow>

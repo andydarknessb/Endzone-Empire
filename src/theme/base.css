@@ -1,0 +1,48 @@
+/**
+ * Global element resets and defaults, driven entirely by the design tokens that
+ * AppThemeProvider injects onto <html>. Imported once from src/index.js before
+ * any component CSS, so component styles can still override where needed.
+ *
+ * Fallback values after each var() cover the first paint before the theme
+ * effect runs (and any render outside AppThemeProvider, e.g. isolated tests).
+ */
+
+:root {
+  color-scheme: light dark;
+}
+
+html,
+body,
+#react-root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg-page, #f4f6f8);
+  color: var(--text-primary, #1a2129);
+  font-family: 'Inter', 'Roboto', 'Helvetica', 'Arial', sans-serif;
+  transition: background-color var(--transition-base, 200ms) ease,
+    color var(--transition-base, 200ms) ease;
+}
+
+img {
+  display: inline-block;
+  max-width: 100%;
+}
+
+/* Kill default browser anchor colors (the login "Forgot password?" blue). */
+a {
+  color: var(--accent, #1e5bb8);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* One consistent, visible focus ring for keyboard users across both themes. */
+:focus-visible {
+  outline: 2px solid var(--focus-ring, rgba(30, 91, 184, 0.55));
+  outline-offset: 2px;
+}

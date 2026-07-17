@@ -7,7 +7,7 @@ import apiClient from '../../api/apiClient';
 
 const POSITIONS = ['All', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
 
-const headCellSx = { fontWeight: 'bold', backgroundColor: '#ff9100', color: '#000' };
+const headCellSx = { fontWeight: 'bold', backgroundColor: 'primary.main', color: 'primary.contrastText' };
 
 function PlayerManagement() {
   const [leagues, setLeagues] = useState([]);
@@ -122,14 +122,14 @@ function PlayerManagement() {
           <TableBody>
             {players.map((player) => (
               <TableRow key={player.id}>
-                <TableCell component="th" scope="row" sx={{ fontWeight: 'bold', color: '#264653' }}>
+                <TableCell component="th" scope="row" sx={{ fontWeight: 'bold', color: 'text.primary' }}>
                   {player.name}
                 </TableCell>
                 <TableCell align="right" sx={{ fontStyle: 'italic' }}>{player.position}</TableCell>
                 <TableCell align="right">{player.nfl_team}</TableCell>
                 <TableCell align="right">
                   <Button
-                    sx={{ backgroundColor: '#ff9100', color: '#000', '&:hover': { backgroundColor: '#e76f51' } }}
+                    sx={{ backgroundColor: 'primary.main', color: 'primary.contrastText', '&:hover': { backgroundColor: 'primary.dark' } }}
                     onClick={() => addToRoster(player)}
                     disabled={!selectedLeague || isPlayerInRoster(player.id)}
                   >
@@ -155,13 +155,13 @@ function PlayerManagement() {
           <TableBody>
             {roster.map((player) => (
               <TableRow key={player.id}>
-                <TableCell component="th" scope="row" sx={{ fontWeight: 'bold', color: '#264653' }}>
+                <TableCell component="th" scope="row" sx={{ fontWeight: 'bold', color: 'text.primary' }}>
                   {player.name}
                 </TableCell>
                 <TableCell align="right" sx={{ fontStyle: 'italic' }}>{player.position}</TableCell>
                 <TableCell align="right">
                   <Button
-                    sx={{ backgroundColor: '#ff9100', color: '#000', '&:hover': { backgroundColor: '#e76f51' } }}
+                    sx={{ backgroundColor: 'primary.main', color: 'primary.contrastText', '&:hover': { backgroundColor: 'primary.dark' } }}
                     onClick={() => removeFromRoster(player.id)}
                   >
                     Remove

@@ -399,19 +399,19 @@ function DraftBoard() {
               <Table>
                 <TableHead>
                   <TableRow sx={{ bgcolor: 'primary.main' }}>
-                    <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>
+                    <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>
                       Name
                     </TableCell>
-                    <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>
+                    <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>
                       Position
                     </TableCell>
-                    <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>
+                    <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>
                       NFL Team
                     </TableCell>
-                    <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="right">
+                    <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }} align="right">
                       Proj
                     </TableCell>
-                    <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="center">
+                    <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }} align="center">
                       Action
                     </TableCell>
                   </TableRow>

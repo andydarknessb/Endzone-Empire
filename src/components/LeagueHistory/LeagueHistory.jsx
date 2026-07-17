@@ -116,7 +116,7 @@ function SeasonPanel({ season, defaultExpanded }) {
                             width: 28,
                             height: 28,
                             borderRadius: '50%',
-                            color: '#fff',
+                            color: 'common.white',
                             bgcolor: GRADE_COLORS[row.grade] || 'grey.500',
                             fontWeight: 'bold',
                             fontSize: '0.85rem',

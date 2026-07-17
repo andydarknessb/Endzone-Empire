@@ -4,7 +4,8 @@
   align-items: center;
 
   margin: 0 0 30px;
-  background-color: #212121;
+  background-color: var(--surface-raised);
+  border-bottom: 1px solid var(--border-subtle);
   overflow: hidden;
 }
 
@@ -15,15 +16,15 @@
 .nav-title {
   font-size: 24px;
   font-weight: 700;
-  color: #FF9800;
+  color: var(--accent);
   padding-left: 10px;
   margin: 0;
 }
 
 .navLink {
   display: inline-block;
-  color: #BDBDBD;
-  background-color: #212121;
+  color: var(--text-muted);
+  background-color: transparent;
   text-align: center;
   padding: 24px 10px;
   text-decoration: none;
@@ -31,17 +32,17 @@
   border: none;
   cursor: pointer;
   outline: 0;
-  transition: background 0.3s ease;
+  transition: background-color var(--transition-base) ease,
+    color var(--transition-base) ease;
 }
 
 .navLink:hover {
-  background-color: #424242;
-  color: #FF9800;
+  background-color: var(--accent-soft);
+  color: var(--accent);
 }
 
 .logo {
-  height: 50px; 
-  width: auto; 
-  margin-right: 10px; 
+  height: 50px;
+  width: auto;
+  margin-right: 10px;
 }
-

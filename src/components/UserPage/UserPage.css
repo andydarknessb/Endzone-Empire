@@ -7,7 +7,7 @@
     width: 100%;
     height: 100vh;
   }
-  
+
   .user-page:before {
     content: "";
     position: absolute;
@@ -15,9 +15,9 @@
     bottom: 0;
     right: 0;
     left: 0;
-    background: rgba(0, 0, 0, 0.2);
+    background: var(--scrim);
   }
-  
+
   .container {
     display: flex;
     flex-direction: column;
@@ -25,51 +25,51 @@
     padding: 20px;
     position: relative;
     z-index: 1;
-    color: black;
-    background: rgba(0, 0, 0, 0.7);
-    border-radius: 10px;
-    box-shadow: 0px 10px 20px rgba(0, 0, 0, 0.5);
+    color: var(--on-overlay);
+    background: var(--scrim);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-3);
     width: 80%;
     max-width: 1200px;
     margin: auto;
     height: fit-content;
   }
-  
+
   .title {
     font-size: 2em;
-    color: #FF9800;
+    color: var(--on-overlay);
     margin-bottom: 10px;
     text-align: center;
-    
+
   }
-  
+
   .welcomeText {
     font-size: 1em;
-    color: #f8f8f8;
+    color: var(--on-overlay);
     text-align: center;
   }
-  
+
   button{
     display: inline-block;
-    background: #FF9800;
-    color: #FAFAFA;
+    background: var(--accent);
+    color: var(--on-accent);
     padding: 10px 20px;
     border: none;
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
     text-transform: uppercase;
     cursor: pointer;
-    transition: background 0.3s ease;
+    transition: background-color var(--transition-base) ease;
   }
-  
+
   .btn:hover {
-    background: #F57C00;
+    background: var(--accent-hover);
   }
-  
+
   .RegisterForm {
-    background: lightgray;
+    background: var(--surface);
     padding: 20px;
-    border-radius: 5px;
-    box-shadow: 1px 1px 3px rgba(0, 0, 0, 0.3);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-1);
   }
 
   .buttonContainer {
@@ -78,43 +78,42 @@
     gap: 20px;
     padding: 10px;
   }
-  
+
   .buttonContainer button {
-    background: #FF9800;
-    color: #fff;
+    background: var(--accent);
+    color: var(--on-accent);
     border: none;
-    border-radius: 25px;
+    border-radius: var(--radius-pill);
     font-size: 1em;
     font-weight: bold;
     padding: 15px 30px;
     text-transform: uppercase;
-    box-shadow: 0px 8px 15px rgba(0, 0, 0, 0.1);
-    transition: all 0.3s ease 0s;
+    box-shadow: var(--shadow-2);
+    transition: all var(--transition-base) ease 0s;
     cursor: pointer;
     outline: none;
   }
-  
+
   .buttonContainer button:hover {
-    background: #F57C00;
-    box-shadow: 0px 15px 20px rgba(46, 229, 157, 0.4);
-    color: #fff;
+    background: var(--accent-hover);
+    box-shadow: var(--shadow-3);
+    color: var(--on-accent);
     transform: translateY(-7px);
   }
-  
-  
+
+
   /* Responsive styles */
-  
+
   @media screen and (max-width: 768px) {
     .container {
       width: 90%;
     }
-    
+
     .title {
       font-size: 1.5em;
     }
-    
+
     .welcomeText {
       font-size: 0.9em;
     }
   }
-  

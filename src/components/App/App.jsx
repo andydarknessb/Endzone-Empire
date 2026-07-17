@@ -42,6 +42,7 @@ import ResetPassword from '../ResetPassword/ResetPassword';
 import VerifyEmail from '../VerifyEmail/VerifyEmail';
 import AppThemeProvider from '../../theme/AppThemeProvider';
 import OfflineBanner from '../OfflineBanner/OfflineBanner';
+import NotFound from '../NotFound/NotFound';
 
 
 import './App.css';
@@ -148,7 +149,7 @@ function App() {
           />
 
           {/* If none of the other routes matched, we will show a 404. */}
-          <Route path="*" element={<h1>404</h1>} />
+          <Route path="*" element={<NotFound />} />
         </Routes>
         <Footer />
       </div>

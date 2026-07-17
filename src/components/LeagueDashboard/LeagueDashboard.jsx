@@ -257,19 +257,19 @@ function LeagueDashboard() {
         <Table>
           <TableHead>
             <TableRow sx={{ bgcolor: 'primary.main' }}>
-              <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Rank</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Team</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Owner</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="right">
+              <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>Rank</TableCell>
+              <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>Team</TableCell>
+              <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>Owner</TableCell>
+              <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }} align="right">
                 W-L-T
               </TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="right">
+              <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }} align="right">
                 PF
               </TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="right">
+              <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }} align="right">
                 PA
               </TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="right">
+              <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }} align="right">
                 Streak
               </TableCell>
             </TableRow>

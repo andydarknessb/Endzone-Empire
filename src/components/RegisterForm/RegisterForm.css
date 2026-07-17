@@ -1,5 +1,5 @@
-/* -------------------- 
-Register Form 
+/* --------------------
+Register Form
 --------------------- */
 .formPanel {
     display: flex;
@@ -8,78 +8,81 @@ Register Form
     align-items: center;
     margin-top: 50px;
     padding: 30px;
-    border-radius: 5px;
-    box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.2);
-    background-color: #424242;
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-2);
+    background-color: var(--surface);
+    color: var(--text-primary);
+    border: 1px solid var(--border-subtle);
     max-width: 500px; /* Added max-width for responsive design */
     margin: 0 auto; /* Centers the form in its container */
   }
-  
+
   .formPanel h2 {
     text-align: center;
-    color: goldenrod;
+    color: var(--text-primary);
     margin-bottom: 20px;
     font-size: 2.5em;
     font-weight: bold;
-    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
   }
-  
-  /* -------------------- 
-  Labels and Input Fields 
+
+  /* --------------------
+  Labels and Input Fields
   --------------------- */
   .formPanel label {
     display: block;
     width: 100%;
-    color: #FAFAFA;
+    color: var(--text-primary);
     margin-top: 20px;
   }
-  
+
   .formPanel input {
     display: block;
     width: 100%;
     padding: 10px;
-    border-radius: 5px;
-    border: none;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    background-color: var(--surface);
+    color: var(--text-primary);
     margin-top: 10px;
   }
-  
-  /* -------------------- 
-  Alert 
+
+  /* --------------------
+  Alert
   --------------------- */
   .alert {
     width: 100%;
     padding: 15px;
     margin-top: 20px;
-    background-color: #e01616;
-    color: #FAFAFA;
+    background-color: var(--danger);
+    color: var(--text-inverse);
     text-align: center;
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
   }
-  
-  /* -------------------- 
-  Submit Button 
+
+  /* --------------------
+  Submit Button
   --------------------- */
   .btn {
     display: block;
     width: 100%;
     padding: 15px;
     border: none;
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
     margin-top: 20px;
-    background-color: #FF9800;
-    color: #FAFAFA;
+    background-color: var(--accent);
+    color: var(--on-accent);
     cursor: pointer;
     text-transform: uppercase;
+    transition: background-color var(--transition-base) ease;
   }
-  
+
   .btn:hover {
-    background-color: #F57C00;
+    background-color: var(--accent-hover);
   }
-  
+
   /* Responsive Design */
   @media only screen and (max-width: 600px) {
     .formPanel {
       padding: 20px;
     }
   }
-  

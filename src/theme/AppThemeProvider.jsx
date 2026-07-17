@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useMemo, useState, useEffect } from 'react';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
+import { colorTokens, cssVarsForMode, BORDER_RADIUS } from './tokens';
 
 const THEME_KEY = 'endzone_theme';
 
@@ -20,20 +21,24 @@ export function initialMode() {
 }
 
 /**
- * Design tokens live here — spacing, radii, type scale, and both palettes.
- * Components inherit through the MUI theme; no per-component color forks.
+ * The MUI theme is derived entirely from the shared design tokens (see
+ * ./tokens.js) so the component library and the plain-CSS layer never diverge.
  */
 export function buildTheme(mode) {
+  const c = colorTokens[mode];
   return createTheme({
     palette: {
       mode,
-      primary: { main: mode === 'dark' ? '#4f8cff' : '#1e5bb8' },
-      secondary: { main: mode === 'dark' ? '#7ee2a8' : '#1b7d4f' },
-      background: mode === 'dark'
-        ? { default: '#0f1419', paper: '#1a2129' }
-        : { default: '#f4f6f8', paper: '#ffffff' },
+      primary: { main: c.accent, contrastText: c['on-accent'] },
+      secondary: { main: c.secondary },
+      error: { main: c.danger },
+      success: { main: c.success },
+      warning: { main: c.warning },
+      background: { default: c['bg-page'], paper: c.surface },
+      text: { primary: c['text-primary'], secondary: c['text-muted'] },
+      divider: c['border-subtle'],
     },
-    shape: { borderRadius: 10 },
+    shape: { borderRadius: BORDER_RADIUS },
     typography: {
       fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
       h4: { fontWeight: 700 },
@@ -50,8 +55,24 @@ export function buildTheme(mode) {
       MuiButton: {
         defaultProps: { disableElevation: true },
       },
+      MuiCssBaseline: {
+        styleOverrides: {
+          body: {
+            transition: 'background-color 200ms ease, color 200ms ease',
+          },
+        },
+      },
     },
   });
+}
+
+/** Write every token for `mode` onto <html> as a CSS custom property. */
+function applyCssVariables(mode) {
+  const root = document.documentElement;
+  const vars = cssVarsForMode(mode);
+  for (const [name, value] of Object.entries(vars)) {
+    root.style.setProperty(name, value);
+  }
 }
 
 function AppThemeProvider({ children }) {
@@ -63,6 +84,8 @@ function AppThemeProvider({ children }) {
     } catch (err) { /* storage unavailable */ }
     // Plain-CSS files key off this attribute for their dark variants
     document.documentElement.setAttribute('data-theme', mode);
+    // ...and read the actual values through injected CSS custom properties.
+    applyCssVariables(mode);
   }, [mode]);
 
   const value = useMemo(

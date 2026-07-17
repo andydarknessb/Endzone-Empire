@@ -6,42 +6,48 @@
     margin: auto;
     width: 300px;
     padding: 20px;
-    border-radius: 5px;
-    background-color: #212121;
-    color: #FFF;
-    box-shadow: 0px 0px 10px #000;
+    border-radius: var(--radius-md);
+    background-color: var(--surface);
+    color: var(--text-primary);
+    border: 1px solid var(--border-subtle);
+    box-shadow: var(--shadow-2);
   }
-  
+
   .formPanel h2 {
     margin-bottom: 20px;
-    color: #FF9800;
+    color: var(--text-primary);
   }
-  
+
   .formPanel label {
     align-self: flex-start;
     margin: 10px 0;
-    color: #FF9800;
+    color: var(--text-primary);
   }
-  
+
   .formPanel input[type='text'], .formPanel input[type='password'] {
     width: 100%;
     padding: 10px;
     margin-bottom: 10px;
-    border: none;
-    border-radius: 5px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    background-color: var(--surface);
+    color: var(--text-primary);
   }
-  
+
   .alert {
-    color: green;
+    color: var(--danger);
   }
-  
+
   .btn {
-    background-color: #FF9800;
+    background-color: var(--accent);
+    color: var(--on-accent);
     border: none;
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
     padding: 10px 20px;
     cursor: pointer;
-    transition: background 0.3s ease;
+    transition: background-color var(--transition-base) ease;
   }
-  
- 
+
+  .btn:hover {
+    background-color: var(--accent-hover);
+  }

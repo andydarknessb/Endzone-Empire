@@ -83,7 +83,7 @@ function DraftGradesCard({ leagueId }) {
                       width: 32,
                       height: 32,
                       borderRadius: '50%',
-                      color: '#fff',
+                      color: 'common.white',
                       bgcolor: GRADE_COLORS[row.grade] || 'grey.500',
                       fontWeight: 'bold',
                     }}
