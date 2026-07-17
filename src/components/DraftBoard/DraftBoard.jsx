@@ -481,7 +481,7 @@ function DraftBoard() {
                 picks.map((pick) => (
                   <Paper
                     key={`${pick.pick_number}-${pick.player_id}`}
-                    sx={{ p: 1.5, mb: 1, bgcolor: 'grey.50' }}
+                    sx={{ p: 1.5, mb: 1, bgcolor: 'action.hover' }}
                   >
                     <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
                       #{pick.pick_number}

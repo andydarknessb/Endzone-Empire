@@ -15,6 +15,8 @@ import {
   Alert,
   CircularProgress,
   Box,
+  Tooltip,
+  TextField,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import ChatPanel from '../ChatPanel/ChatPanel';
@@ -39,6 +41,8 @@ function LeagueDashboard() {
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState(null);
   const [joinRequests, setJoinRequests] = useState([]);
+  const [sizeMin, setSizeMin] = useState('');
+  const [sizeMax, setSizeMax] = useState('');
 
   useEffect(() => {
     fetchLeagueAndUser();
@@ -81,6 +85,8 @@ function LeagueDashboard() {
       const leagueRes = await apiClient.get(`/api/league/${leagueId}`);
       setLeague(leagueRes.data.league);
       setTeams(leagueRes.data.teams);
+      if (leagueRes.data.league.min_teams != null) setSizeMin(leagueRes.data.league.min_teams);
+      if (leagueRes.data.league.max_teams != null) setSizeMax(leagueRes.data.league.max_teams);
 
       const userRes = await apiClient.get('/api/user');
       setUser(userRes.data);
@@ -110,6 +116,21 @@ function LeagueDashboard() {
       setSuccessMessage(null);
       await apiClient.post(`/api/league/${leagueId}/start-draft`);
       setSuccessMessage('Draft started successfully!');
+      fetchLeagueAndUser();
+    } catch (err) {
+      setError(err.response?.data?.error || err.message);
+    }
+  };
+
+  const handleSaveLimits = async () => {
+    try {
+      setError(null);
+      setSuccessMessage(null);
+      await apiClient.put(`/api/league/${leagueId}`, {
+        minTeams: Number(sizeMin),
+        maxTeams: Number(sizeMax),
+      });
+      setSuccessMessage('Team limits updated');
       fetchLeagueAndUser();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
@@ -192,6 +213,9 @@ function LeagueDashboard() {
   }
 
   const isOwner = user.id === league.owner_id;
+  // Below the configured minimum, the draft can't start yet (min_teams may be
+  // absent in older data — treat that as no gate).
+  const belowMin = league.min_teams != null && teams.length < league.min_teams;
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
@@ -221,7 +245,13 @@ function LeagueDashboard() {
           }
         />
         <Chip label={`Roster Limit: ${league.roster_limit}`} />
-        <Chip label={`Teams: ${teams.length}/${league.max_teams}`} />
+        <Chip
+          label={`Teams: ${teams.length}/${league.max_teams}`}
+          color={belowMin ? 'warning' : 'default'}
+        />
+        {league.draft_status === 'pending' && league.min_teams != null && (
+          <Chip variant="outlined" label={`Min to start: ${league.min_teams}`} />
+        )}
         {league.best_ball && <Chip label="Best Ball" color="secondary" />}
         {league.draft_status === 'complete' && standingsLeague && (
           <>
@@ -238,7 +268,7 @@ function LeagueDashboard() {
       </Box>
 
       {league.invite_code && (
-        <Paper sx={{ p: 2, mb: 3, bgcolor: 'grey.100' }}>
+        <Paper sx={{ p: 2, mb: 3, bgcolor: 'action.hover' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
             <Typography variant="body1">
               <strong>Invite code:</strong> {league.invite_code}
@@ -308,9 +338,24 @@ function LeagueDashboard() {
 
       <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
         {isOwner && league.draft_status === 'pending' && (
-          <Button variant="contained" color="primary" onClick={handleStartDraft}>
-            Start Draft
-          </Button>
+          <Tooltip
+            title={
+              belowMin
+                ? `Need at least ${league.min_teams} teams to start the draft (currently ${teams.length})`
+                : ''
+            }
+          >
+            <span>
+              <Button
+                variant="contained"
+                color="primary"
+                onClick={handleStartDraft}
+                disabled={belowMin}
+              >
+                Start Draft
+              </Button>
+            </span>
+          </Tooltip>
         )}
         {isOwner &&
           league.draft_status === 'complete' &&
@@ -377,6 +422,37 @@ function LeagueDashboard() {
               </Button>
             )}
           </Box>
+
+          {league.draft_status === 'pending' && (
+            <Box sx={{ mt: 2 }}>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                Team limits (editable until the draft starts)
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+                <TextField
+                  label="Min teams"
+                  type="number"
+                  size="small"
+                  inputProps={{ min: 2, max: 20 }}
+                  value={sizeMin}
+                  onChange={(e) => setSizeMin(e.target.value)}
+                  sx={{ width: 130 }}
+                />
+                <TextField
+                  label="Max teams"
+                  type="number"
+                  size="small"
+                  inputProps={{ min: 2, max: 20 }}
+                  value={sizeMax}
+                  onChange={(e) => setSizeMax(e.target.value)}
+                  sx={{ width: 130 }}
+                />
+                <Button variant="outlined" onClick={handleSaveLimits}>
+                  Save Limits
+                </Button>
+              </Box>
+            </Box>
+          )}
           <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
             Remove a team
           </Typography>

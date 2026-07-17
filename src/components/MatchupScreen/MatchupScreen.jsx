@@ -244,7 +244,7 @@ function MatchupScreen() {
       </Grid>
 
       {isOwner && (
-        <Paper sx={{ p: 3, bgcolor: 'grey.50' }}>
+        <Paper sx={{ p: 3, bgcolor: 'action.hover' }}>
           <Typography variant="h6" sx={{ mb: 2 }}>
             Owner Tools
           </Typography>

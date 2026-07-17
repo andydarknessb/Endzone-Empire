@@ -238,6 +238,33 @@ test('shows "Start Draft" only for the owner while the draft is pending, and sta
   expect(await screen.findByText('Draft started successfully!')).toBeInTheDocument();
 });
 
+test('disables "Start Draft" until the minimum team count is reached', async () => {
+  // One team in the league (see leagueResponse), minimum of 8 required.
+  mockGetByUrl({
+    '/api/league/1': leagueResponse({ min_teams: 8 }),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
+
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  expect(screen.getByRole('button', { name: 'Start Draft' })).toBeDisabled();
+});
+
+test('enables "Start Draft" once the minimum team count is met', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse({ min_teams: 1 }),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
+
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  expect(screen.getByRole('button', { name: 'Start Draft' })).toBeEnabled();
+});
+
 test('does not show "Start Draft" for a non-owner', async () => {
   mockGetByUrl({
     '/api/league/1': leagueResponse({ owner_id: 99 }),

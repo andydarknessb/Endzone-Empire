@@ -14,6 +14,7 @@ function LeagueManagement() {
   const [leagueName, setLeagueName] = useState('');
   const [rosterLimit, setRosterLimit] = useState(15);
   const [maxTeams, setMaxTeams] = useState(10);
+  const [minTeams, setMinTeams] = useState(8);
   const [inviteCode, setInviteCode] = useState('');
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
@@ -49,6 +50,7 @@ function LeagueManagement() {
         name: leagueName,
         rosterLimit: Number(rosterLimit),
         maxTeams: Number(maxTeams),
+        minTeams: Number(minTeams),
       };
       if (isPublic) payload.isPublic = true;
       if (isPublic && joinApproval) payload.joinApproval = true;
@@ -108,6 +110,9 @@ function LeagueManagement() {
             <TextField label="Roster limit" size="small" type="number"
               inputProps={{ min: 1, max: 30 }}
               value={rosterLimit} onChange={(e) => setRosterLimit(e.target.value)} />
+            <TextField label="Min teams (draft won't start below this)" size="small" type="number"
+              inputProps={{ min: 2, max: 20 }}
+              value={minTeams} onChange={(e) => setMinTeams(e.target.value)} />
             <TextField label="Max teams" size="small" type="number"
               inputProps={{ min: 2, max: 20 }}
               value={maxTeams} onChange={(e) => setMaxTeams(e.target.value)} />
@@ -202,6 +207,9 @@ function LeagueManagement() {
             <Chip size="small" label={`Draft: ${league.draft_status}`}
               color={league.draft_status === 'active' ? 'warning' : league.draft_status === 'complete' ? 'success' : 'default'} />
             <Chip size="small" label={`Team: ${league.my_team_name}`} />
+            {league.team_count != null && (
+              <Chip size="small" label={`Teams: ${league.team_count}/${league.max_teams}`} />
+            )}
             <Button component={Link} to={`/league/${league.id}`} variant="outlined">Dashboard</Button>
             <Button component={Link} to={`/league/${league.id}/draft`} variant="outlined">Draft Room</Button>
             <Button component={Link} to={`/league/${league.id}/matchups`} variant="outlined">Matchups</Button>

@@ -11,6 +11,12 @@ const {
   listJoinRequests,
   decideJoinRequest,
 } = require('../services/discovery.service');
+const {
+  resolveMinTeams,
+  createSizeError,
+  editSizeError,
+  meetsMinimum,
+} = require('../services/leagueSize');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -22,7 +28,7 @@ function intParam(value) {
 // POST /api/league — create a private league (plus the owner's team) atomically
 router.post('/', async (req, res) => {
   const {
-    name, rosterLimit, maxTeams, teamName,
+    name, rosterLimit, maxTeams, minTeams, teamName,
     isPublic, joinApproval, bestBall, scoringPreset, draftDate,
   } = req.body || {};
   if (!name || typeof name !== 'string') {
@@ -30,12 +36,13 @@ router.post('/', async (req, res) => {
   }
   const limit = rosterLimit === undefined ? 15 : Number(rosterLimit);
   const teams = maxTeams === undefined ? 10 : Number(maxTeams);
+  // Default the floor to a sensible 8, but never above the league's own cap.
+  const minimum = resolveMinTeams(minTeams, teams);
   if (!Number.isInteger(limit) || limit < 1 || limit > 30) {
     return res.status(400).json({ error: 'rosterLimit must be an integer between 1 and 30' });
   }
-  if (!Number.isInteger(teams) || teams < 2 || teams > 20) {
-    return res.status(400).json({ error: 'maxTeams must be an integer between 2 and 20' });
-  }
+  const sizeError = createSizeError({ minTeams: minimum, maxTeams: teams });
+  if (sizeError) return res.status(400).json({ error: sizeError });
   const optionsResult = validateCreateOptions({ isPublic, joinApproval, bestBall, scoringPreset, draftDate });
   if (optionsResult.error) return res.status(400).json({ error: optionsResult.error });
   const options = optionsResult.value;
@@ -46,12 +53,12 @@ router.post('/', async (req, res) => {
     await client.query('BEGIN');
     const leagueResult = await client.query(
       `INSERT INTO "leagues" (
-         "name", "owner_id", "invite_code", "roster_limit", "max_teams",
+         "name", "owner_id", "invite_code", "roster_limit", "max_teams", "min_teams",
          "is_public", "join_approval", "best_ball", "scoring_preset", "scoring_rules", "draft_date"
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
       [
-        name, req.user.id, inviteCode, limit, teams,
+        name, req.user.id, inviteCode, limit, teams, minimum,
         options.isPublic, options.joinApproval, options.bestBall,
         options.scoringPreset, options.scoringRules ? JSON.stringify(options.scoringRules) : null,
         options.draftDate,
@@ -203,7 +210,8 @@ router.get('/discover', async (req, res) => {
 router.get('/', async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT "leagues".*, "teams"."id" AS "my_team_id", "teams"."name" AS "my_team_name"
+      `SELECT "leagues".*, "teams"."id" AS "my_team_id", "teams"."name" AS "my_team_name",
+              (SELECT COUNT(*)::int FROM "teams" "t" WHERE "t"."league_id" = "leagues"."id") AS "team_count"
        FROM "leagues"
        JOIN "teams" ON "teams"."league_id" = "leagues"."id"
        WHERE "teams"."owner_id" = $1
@@ -267,12 +275,16 @@ router.put('/:id', async (req, res) => {
     waiverType, waiverPeriodHours, faabBudget,
     tradeDeadlineWeek, tradeReviewHours, tradeVetoVotes,
     scoringPreset, scoringRules, regularSeasonWeeks, playoffTeams, playoffConsolation,
-    pickTimeSeconds,
+    pickTimeSeconds, minTeams, maxTeams,
   } = req.body || {};
   const limit = rosterLimit === undefined ? null : Number(rosterLimit);
   if (limit !== null && (!Number.isInteger(limit) || limit < 1 || limit > 30)) {
     return res.status(400).json({ error: 'rosterLimit must be an integer between 1 and 30' });
   }
+  // Validated against the league's current teams/limits inside the handler
+  // (see editSizeError below), since it needs the live team count.
+  const newMax = maxTeams === undefined ? null : Number(maxTeams);
+  const newMin = minTeams === undefined ? null : Number(minTeams);
   const validSlotMap = (map, allowedKeys) =>
     map && typeof map === 'object' && !Array.isArray(map) &&
     Object.entries(map).every(
@@ -352,20 +364,34 @@ router.put('/:id', async (req, res) => {
     const preDraftOnly = {
       rosterLimit, lineupSlots, positionCaps, irSlots,
       scoringRules: effectiveRules, regularSeasonWeeks, playoffTeams,
-      playoffConsolation, pickTimeSeconds,
+      playoffConsolation, pickTimeSeconds, minTeams, maxTeams,
     };
     const frozenRequested = Object.entries(preDraftOnly)
       .filter(([, v]) => v !== undefined)
       .map(([k]) => k);
     if (frozenRequested.length > 0) {
       const statusResult = await pool.query(
-        `SELECT "draft_status" FROM "leagues" WHERE "id" = $1 AND "owner_id" = $2`,
+        `SELECT "draft_status", "min_teams", "max_teams",
+                (SELECT COUNT(*)::int FROM "teams" WHERE "teams"."league_id" = "leagues"."id") AS "team_count"
+         FROM "leagues" WHERE "id" = $1 AND "owner_id" = $2`,
         [leagueId, req.user.id]
       );
-      if (statusResult.rows[0] && statusResult.rows[0].draft_status !== 'pending') {
+      const current = statusResult.rows[0];
+      if (current && current.draft_status !== 'pending') {
         return res.status(409).json({
           error: `these settings are locked once the draft starts: ${frozenRequested.join(', ')}`,
         });
+      }
+      // Size-limit invariants: valid bounds, min ≤ max, and the cap can't drop
+      // below the teams already in the league.
+      if (current && (newMin !== null || newMax !== null)) {
+        const sizeError = editSizeError({
+          newMin, newMax,
+          currentMin: current.min_teams,
+          currentMax: current.max_teams,
+          teamCount: current.team_count,
+        });
+        if (sizeError) return res.status(400).json({ error: sizeError });
       }
     }
     const result = await pool.query(
@@ -387,6 +413,8 @@ router.put('/:id', async (req, res) => {
            "playoff_consolation" = COALESCE($15, "playoff_consolation"),
            "pick_time_seconds" = COALESCE($16, "pick_time_seconds"),
            "scoring_preset" = COALESCE($19, "scoring_preset"),
+           "min_teams" = COALESCE($20, "min_teams"),
+           "max_teams" = COALESCE($21, "max_teams"),
            "updated_at" = now()
        WHERE "id" = $17 AND "owner_id" = $18
        RETURNING *`,
@@ -410,6 +438,8 @@ router.put('/:id', async (req, res) => {
         leagueId,
         req.user.id,
         effectivePreset === undefined ? null : effectivePreset,
+        newMin,
+        newMax,
       ]
     );
     if (!result.rows[0]) {
@@ -422,27 +452,50 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// POST /api/league/:id/start-draft — owner starts the live draft
+// POST /api/league/:id/start-draft — owner starts the live draft (once the
+// league has reached its minimum team count)
 router.post('/:id/start-draft', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
+  const client = await pool.connect();
   try {
-    const result = await pool.query(
+    await client.query('BEGIN');
+    // Lock the league row so a concurrent join can't slip the count under the
+    // minimum between the check and the status flip.
+    const leagueResult = await client.query(
+      `SELECT "owner_id", "draft_status", "min_teams",
+              (SELECT COUNT(*)::int FROM "teams" WHERE "teams"."league_id" = "leagues"."id") AS "team_count"
+       FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
+      [leagueId]
+    );
+    const league = leagueResult.rows[0];
+    if (!league || league.owner_id !== req.user.id || league.draft_status !== 'pending') {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'league not found, not owner, or draft already started' });
+    }
+    if (!meetsMinimum(league.team_count, league.min_teams)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: `need at least ${league.min_teams} teams to start the draft (currently ${league.team_count})`,
+      });
+    }
+    const result = await client.query(
       `UPDATE "leagues"
        SET "draft_status" = 'active', "current_pick" = 0, "updated_at" = now(),
            "pick_deadline_at" = CASE WHEN "pick_time_seconds" > 0
              THEN now() + make_interval(secs => "pick_time_seconds") ELSE NULL END
-       WHERE "id" = $1 AND "owner_id" = $2 AND "draft_status" = 'pending'
+       WHERE "id" = $1
        RETURNING *`,
-      [leagueId, req.user.id]
+      [leagueId]
     );
-    if (!result.rows[0]) {
-      return res.status(403).json({ error: 'league not found, not owner, or draft already started' });
-    }
+    await client.query('COMMIT');
     res.json(result.rows[0]);
   } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
     console.error('Error starting draft', error);
     res.status(500).json({ error: 'failed to start draft' });
+  } finally {
+    client.release();
   }
 });
 
