@@ -156,7 +156,8 @@ async function getDraftState(leagueId) {
   delete league.invite_code;
 
   const teamsResult = await pool.query(
-    `SELECT "teams"."id", "teams"."name", "teams"."draft_position", "users"."username" AS "owner"
+    `SELECT "teams"."id", "teams"."name", "teams"."draft_position", "teams"."autodraft",
+            "teams"."owner_id", "users"."username" AS "owner"
      FROM "teams" JOIN "users" ON "users"."id" = "teams"."owner_id"
      WHERE "league_id" = $1 ORDER BY "draft_position" NULLS LAST, "teams"."id"`,
     [leagueId]

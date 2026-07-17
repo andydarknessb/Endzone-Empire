@@ -275,7 +275,7 @@ router.put('/:id', async (req, res) => {
     waiverType, waiverPeriodHours, faabBudget,
     tradeDeadlineWeek, tradeReviewHours, tradeVetoVotes,
     scoringPreset, scoringRules, regularSeasonWeeks, playoffTeams, playoffConsolation,
-    pickTimeSeconds, minTeams, maxTeams, draftDate,
+    pickTimeSeconds, minTeams, maxTeams, draftDate, autodraftDelaySeconds,
   } = req.body || {};
   // draftDate: undefined = leave as-is, null = clear, string = (re)schedule.
   const draftDateProvided = draftDate !== undefined;
@@ -355,6 +355,9 @@ router.put('/:id', async (req, res) => {
   if (pickTimeSeconds !== undefined && !intInRange(pickTimeSeconds, 0, 3600)) {
     return res.status(400).json({ error: 'pickTimeSeconds must be an integer between 0 and 3600 (0 = untimed)' });
   }
+  if (autodraftDelaySeconds !== undefined && !intInRange(autodraftDelaySeconds, 1, 60)) {
+    return res.status(400).json({ error: 'autodraftDelaySeconds must be an integer between 1 and 60' });
+  }
   // A preset is just a prefilled full rule set; explicit scoringRules win
   const effectiveRules = scoringRules !== undefined
     ? scoringRules
@@ -375,7 +378,7 @@ router.put('/:id', async (req, res) => {
     const preDraftOnly = {
       rosterLimit, lineupSlots, positionCaps, irSlots,
       scoringRules: effectiveRules, regularSeasonWeeks, playoffTeams,
-      playoffConsolation, pickTimeSeconds, minTeams, maxTeams,
+      playoffConsolation, pickTimeSeconds, minTeams, maxTeams, autodraftDelaySeconds,
       draftDate: draftDateProvided ? draftDate : undefined,
     };
     const frozenRequested = Object.entries(preDraftOnly)
@@ -428,6 +431,7 @@ router.put('/:id', async (req, res) => {
            "scoring_preset" = COALESCE($19, "scoring_preset"),
            "min_teams" = COALESCE($20, "min_teams"),
            "max_teams" = COALESCE($21, "max_teams"),
+           "autodraft_delay_seconds" = COALESCE($24, "autodraft_delay_seconds"),
            "draft_date" = CASE WHEN $22 THEN $23 ELSE "draft_date" END,
            -- Rescheduling resets the reminder/auto-start bookkeeping so the
            -- new time gets a fresh set of reminders.
@@ -460,6 +464,7 @@ router.put('/:id', async (req, res) => {
         newMax,
         draftDateProvided,
         draftDateValue,
+        autodraftDelaySeconds === undefined ? null : autodraftDelaySeconds,
       ]
     );
     if (!result.rows[0]) {

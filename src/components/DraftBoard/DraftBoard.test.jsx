@@ -96,6 +96,66 @@ test('renders league state (name, on-the-clock, pick history) from a draft:state
   expect(screen.getByText('Josh Allen (QB)')).toBeInTheDocument();
 });
 
+test('shows the prominent on-clock timer with "Your pick!" for the active user', async () => {
+  renderBoard(1, { user: { id: 5 } });
+  await screen.findByText('Patrick Mahomes');
+
+  act(() =>
+    fakeSocket.trigger('draft:state', {
+      league: {
+        name: 'Sunday Ballers',
+        draft_status: 'active',
+        owner_id: 99,
+        pick_time_seconds: 90,
+        pick_deadline_at: new Date(Date.now() + 30000).toISOString(),
+      },
+      teams: [{ id: 5, name: "Bob's Team", owner: 'bob', owner_id: 5, draft_position: 1, autodraft: false }],
+      picks: [],
+      onTheClock: { id: 5, name: "Bob's Team", owner: 'bob', owner_id: 5 },
+    })
+  );
+
+  expect(screen.getByText('Your pick!')).toBeInTheDocument();
+  expect(screen.getByTestId('draft-clock')).toBeInTheDocument();
+});
+
+test('shows an AUTO badge and a checked autodraft switch for an autodrafting team', async () => {
+  renderBoard(1, { user: { id: 5 } });
+  await screen.findByText('Patrick Mahomes');
+
+  act(() =>
+    fakeSocket.trigger('draft:state', {
+      league: { name: 'Sunday Ballers', draft_status: 'active', owner_id: 99 },
+      teams: [{ id: 5, name: "Bob's Team", owner: 'bob', owner_id: 5, draft_position: 1, autodraft: true }],
+      picks: [],
+      onTheClock: null,
+    })
+  );
+
+  expect(screen.getByText('AUTO')).toBeInTheDocument();
+  expect(screen.getByRole('checkbox', { name: /Autodraft for Bob's Team/ })).toBeChecked();
+});
+
+test('toggling a team\'s autodraft posts to the autodraft endpoint', async () => {
+  renderBoard(1, { user: { id: 5 } });
+  await screen.findByText('Patrick Mahomes');
+
+  act(() =>
+    fakeSocket.trigger('draft:state', {
+      league: { name: 'Sunday Ballers', draft_status: 'active', owner_id: 99 },
+      teams: [{ id: 5, name: "Bob's Team", owner: 'bob', owner_id: 5, draft_position: 1, autodraft: false }],
+      picks: [],
+      onTheClock: null,
+    })
+  );
+
+  await userEvent.click(screen.getByRole('checkbox', { name: /Autodraft for Bob's Team/ }));
+
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/draft/league/1/teams/5/autodraft', { enabled: true })
+  );
+});
+
 test('shows "No picks yet" when the pick history is empty', async () => {
   renderBoard(1);
   await screen.findByText('Patrick Mahomes');

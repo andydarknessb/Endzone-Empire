@@ -16,6 +16,24 @@ function teamIndexForPick(pickNumber, teamCount) {
   return round % 2 === 0 ? slot : teamCount - 1 - slot;
 }
 
+const AUTO_ENABLE_TIMEOUTS = 2;
+
+/**
+ * Pure: seconds on the clock for the next pick. Returns null for "no clock".
+ * An autodrafting team always gets the short autodraft delay (even in an
+ * otherwise untimed draft); everyone else gets the league pick clock.
+ */
+function nextPickClockSeconds({ draftComplete, nextTeamAutodraft, pickTimeSeconds, autodraftDelaySeconds }) {
+  if (draftComplete) return null;
+  if (nextTeamAutodraft) return Math.max(1, autodraftDelaySeconds || 1);
+  return pickTimeSeconds > 0 ? pickTimeSeconds : null;
+}
+
+/** Pure: a team hitting this many consecutive timeouts gets autodraft turned on. */
+function shouldAutoEnableAutodraft(consecutiveTimeouts) {
+  return consecutiveTimeouts >= AUTO_ENABLE_TIMEOUTS;
+}
+
 /**
  * Draft a player onto the caller's team inside a single database transaction.
  * The league row is locked (SELECT ... FOR UPDATE) so concurrent picks in the
@@ -26,7 +44,7 @@ function teamIndexForPick(pickNumber, teamCount) {
  *  - draft_status = 'active': enforces snake-draft turn order and records a pick
  *  - draft_status = 'complete': free-agent pickup (roster insert only)
  */
-async function draftPlayer({ leagueId, userId, playerId }) {
+async function draftPlayer({ leagueId, userId, playerId, auto = false }) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -42,7 +60,7 @@ async function draftPlayer({ leagueId, userId, playerId }) {
     }
 
     const teamsResult = await client.query(
-      `SELECT "id", "owner_id", "draft_position" FROM "teams"
+      `SELECT "id", "owner_id", "draft_position", "autodraft" FROM "teams"
        WHERE "league_id" = $1 ORDER BY "draft_position" NULLS LAST, "id"`,
       [leagueId]
     );
@@ -92,6 +110,7 @@ async function draftPlayer({ leagueId, userId, playerId }) {
     let pickNumber = null;
     let draftComplete = false;
     let nextTeamId = null;
+    let pickDeadlineAt = null;
 
     if (league.draft_status === 'active') {
       if (league.draft_paused) {
@@ -110,16 +129,34 @@ async function draftPlayer({ leagueId, userId, playerId }) {
 
       const totalPicks = teams.length * league.roster_limit;
       draftComplete = pickNumber >= totalPicks;
-      await client.query(
+      const nextTeam = draftComplete ? null : teams[teamIndexForPick(pickNumber, teams.length)];
+      // The next team's clock: short autodraft delay if it autodrafts, else the
+      // league pick clock (null = untimed / draft over).
+      const clockSeconds = nextPickClockSeconds({
+        draftComplete,
+        nextTeamAutodraft: nextTeam ? nextTeam.autodraft : false,
+        pickTimeSeconds: league.pick_time_seconds,
+        autodraftDelaySeconds: league.autodraft_delay_seconds,
+      });
+      const leagueUpdate = await client.query(
         `UPDATE "leagues"
          SET "current_pick" = $1, "draft_status" = $2, "updated_at" = now(),
              "pick_deadline_at" = CASE
-               WHEN $4 OR "pick_time_seconds" <= 0 THEN NULL
-               ELSE now() + make_interval(secs => "pick_time_seconds")
+               WHEN $4::int IS NULL THEN NULL
+               ELSE now() + make_interval(secs => $4::int)
              END
-         WHERE "id" = $3`,
-        [pickNumber, draftComplete ? 'complete' : 'active', leagueId, draftComplete]
+         WHERE "id" = $3
+         RETURNING "pick_deadline_at"`,
+        [pickNumber, draftComplete ? 'complete' : 'active', leagueId, clockSeconds]
       );
+      pickDeadlineAt = leagueUpdate.rows[0].pick_deadline_at;
+      // A present owner making their own pick clears any timeout streak.
+      if (!auto) {
+        await client.query(
+          `UPDATE "teams" SET "consecutive_timeouts" = 0 WHERE "id" = $1`,
+          [myTeam.id]
+        );
+      }
       if (draftComplete) {
         // All undrafted players start on waivers for one waiver period
         await client.query(
@@ -131,7 +168,7 @@ async function draftPlayer({ leagueId, userId, playerId }) {
         const { generateRegularSeason } = require('./season.service');
         await generateRegularSeason({ leagueId }, client);
       } else {
-        nextTeamId = teams[teamIndexForPick(pickNumber, teams.length)].id;
+        nextTeamId = nextTeam.id;
       }
     }
 
@@ -159,6 +196,7 @@ async function draftPlayer({ leagueId, userId, playerId }) {
       pickNumber,
       nextTeamId,
       draftComplete,
+      pickDeadlineAt,
     };
   } catch (error) {
     await client.query('ROLLBACK');
@@ -222,4 +260,12 @@ async function dropPlayer({ leagueId, userId, playerId }) {
   }
 }
 
-module.exports = { draftPlayer, dropPlayer, teamIndexForPick, DraftError };
+module.exports = {
+  draftPlayer,
+  dropPlayer,
+  teamIndexForPick,
+  nextPickClockSeconds,
+  shouldAutoEnableAutodraft,
+  AUTO_ENABLE_TIMEOUTS,
+  DraftError,
+};

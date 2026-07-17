@@ -3,6 +3,7 @@ const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
 const { getIo } = require('../modules/io');
 const { getDraftState } = require('../modules/draftSocket');
+const { teamIndexForPick } = require('../services/draft.service');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -182,6 +183,87 @@ router.post('/league/:id/pause', async (req, res) => {
   } catch (error) {
     console.error('Error pausing draft', error);
     res.status(500).json({ error: 'failed to pause draft' });
+  }
+});
+
+// POST /api/draft/league/:id/teams/:teamId/autodraft — enable/disable autodraft
+// for one team. The team's own owner or the league commissioner may toggle it.
+// { enabled: boolean }
+router.post('/league/:id/teams/:teamId/autodraft', async (req, res) => {
+  const leagueId = intOrNull(req.params.id);
+  const teamId = intOrNull(req.params.teamId);
+  if (!leagueId || !teamId) {
+    return res.status(400).json({ error: 'league id and team id must be positive integers' });
+  }
+  const { enabled } = req.body || {};
+  if (typeof enabled !== 'boolean') {
+    return res.status(400).json({ error: 'enabled (boolean) is required' });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const leagueResult = await client.query(
+      `SELECT "owner_id", "draft_status", "current_pick", "draft_paused", "autodraft_delay_seconds"
+       FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
+      [leagueId]
+    );
+    const league = leagueResult.rows[0];
+    if (!league) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'league not found' });
+    }
+    const teamResult = await client.query(
+      `SELECT "id", "owner_id" FROM "teams" WHERE "id" = $1 AND "league_id" = $2`,
+      [teamId, leagueId]
+    );
+    const team = teamResult.rows[0];
+    if (!team) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'team not found in this league' });
+    }
+    const isCommissioner = league.owner_id === req.user.id;
+    const isTeamOwner = team.owner_id === req.user.id;
+    if (!isCommissioner && !isTeamOwner) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'only the team owner or commissioner can change autodraft' });
+    }
+    // Turning autodraft off (the owner is back) clears any timeout streak.
+    await client.query(
+      `UPDATE "teams" SET "autodraft" = $1,
+              "consecutive_timeouts" = CASE WHEN $1 THEN "consecutive_timeouts" ELSE 0 END,
+              "updated_at" = now()
+       WHERE "id" = $2`,
+      [enabled, teamId]
+    );
+    // Enabling for the team currently on the clock applies the short autodraft
+    // delay right away, so an absent owner's pick fires promptly.
+    if (enabled && league.draft_status === 'active' && !league.draft_paused) {
+      const teams = await client.query(
+        `SELECT "id" FROM "teams" WHERE "league_id" = $1 ORDER BY "draft_position" NULLS LAST, "id"`,
+        [leagueId]
+      );
+      const onClock = teams.rows[teamIndexForPick(league.current_pick, teams.rows.length)];
+      if (onClock && onClock.id === teamId) {
+        await client.query(
+          `UPDATE "leagues"
+           SET "pick_deadline_at" = now() + make_interval(secs => GREATEST(1, "autodraft_delay_seconds"))
+           WHERE "id" = $1`,
+          [leagueId]
+        );
+      }
+    }
+    await client.query('COMMIT');
+    const io = getIo();
+    if (io) {
+      io.to(`league:${leagueId}`).emit('draft:state', await getDraftState(leagueId));
+    }
+    res.json({ leagueId, teamId, autodraft: enabled });
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error toggling autodraft', error);
+    res.status(500).json({ error: 'failed to toggle autodraft' });
+  } finally {
+    client.release();
   }
 });
 
