@@ -143,8 +143,6 @@ function UserPage() {
   return (
     <div className="user-page">
     <div className="container">
-    <div className="btn">
-    <div className="user-page">
     <div className="RegisterForm">
       <Typography variant="h4" className="title">Endzone Empire</Typography>
       <Typography variant="h6" className="welcomeText">Welcome, {user.username}!</Typography>
@@ -183,7 +181,7 @@ function UserPage() {
           <TextField className="dialogTextField" margin="dense" label="Team Name" fullWidth value={teamName} onChange={(event) => setTeamName(event.target.value)} />
           <InputLabel id="numTeams-label"></InputLabel>
           <div style={{display: 'flex', alignItems: 'center', marginTop: '1em'}}>
-          <Typography variant="body1" style={{marginRight: '1em', color: 'var(--on-overlay)', fontWeight: 'bold', fontSize: '1.2em'}}>Teams:</Typography>
+          <Typography variant="body1" style={{marginRight: '1em', color: 'var(--text-primary)', fontWeight: 'bold', fontSize: '1.2em'}}>Teams:</Typography>
         <Select
             labelId="numTeams-label"
             value={numTeams}
@@ -320,8 +318,6 @@ function UserPage() {
             </Dialog>
           </div>
         </div>
-      </div>
-    </div>
 
   </div>
   );
