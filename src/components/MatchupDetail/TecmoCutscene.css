@@ -1,0 +1,191 @@
+/* Tecmo scoring cutscene. Deliberately theme-independent — it's a night game in
+   both light and dark app themes — so colors are fixed here, not tokenized.
+   Every animated property is transform or opacity (compositor-friendly). */
+
+.tecmo-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20000; /* above the nav and everything else */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #05070d;
+  cursor: pointer;
+  overflow: hidden;
+  animation: tecmo-fade-in 160ms ease-out;
+  font-family: 'Press Start 2P', 'Courier New', ui-monospace, monospace;
+}
+
+.tecmo-scene {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+/* Night sky with a faint pixel "crowd" band via repeating gradients. */
+.tecmo-sky {
+  position: absolute;
+  inset: 0 0 42% 0;
+  background:
+    repeating-linear-gradient(90deg, #10131c 0 6px, #141826 6px 12px),
+    linear-gradient(#0a0d16, #10131c);
+  box-shadow: inset 0 -8px 0 #05070d;
+}
+.tecmo-sky::after {
+  /* sprinkled crowd/stadium-light pixels */
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(1px 1px at 12% 30%, #cfd4e0 99%, transparent),
+    radial-gradient(1px 1px at 34% 60%, #aeb4c4 99%, transparent),
+    radial-gradient(1px 1px at 58% 22%, #e8ecf5 99%, transparent),
+    radial-gradient(1px 1px at 76% 50%, #aeb4c4 99%, transparent),
+    radial-gradient(1px 1px at 90% 34%, #cfd4e0 99%, transparent);
+  opacity: 0.7;
+}
+
+/* Striped green field filling the lower portion. */
+.tecmo-field {
+  position: absolute;
+  inset: 58% 0 0 0;
+  background: repeating-linear-gradient(90deg, #1f7a3d 0 40px, #1b6d37 40px 80px);
+  box-shadow: inset 0 6px 0 #ffffff33;
+  overflow: hidden;
+}
+
+/* Red end zone at the right edge. */
+.tecmo-endzone {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 16%;
+  background: repeating-linear-gradient(90deg, #b3251f 0 40px, #a11f1a 40px 80px);
+  box-shadow: inset 6px 0 0 #ffffff55;
+}
+
+/* Runner + defender group sprints left -> right, then holds in the end zone. */
+.tecmo-runner {
+  position: absolute;
+  bottom: 14%;
+  left: 0;
+  width: 72px;
+  height: 72px;
+  transform: translateX(-80px);
+  animation: tecmo-run 2.6s steps(20) forwards;
+}
+
+.tecmo-sprite {
+  position: absolute;
+  bottom: 0;
+  width: 64px;
+  height: 64px;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+.tecmo-sprite--runner { left: 8px; filter: drop-shadow(0 3px 0 #00000055); }
+/* Defender chases a step behind and slightly smaller. */
+.tecmo-sprite--defender {
+  left: -20px;
+  width: 58px;
+  height: 58px;
+  opacity: 0.92;
+}
+
+/* "TOUCHDOWN" slams in with a hard stepped scale. */
+.tecmo-title {
+  position: absolute;
+  top: 24%;
+  left: 0;
+  right: 0;
+  text-align: center;
+  color: #ffd23f;
+  font-size: clamp(20px, 8vw, 52px);
+  letter-spacing: 2px;
+  text-shadow: 3px 3px 0 #b3251f, 6px 6px 0 #00000066;
+  transform: scale(0);
+  opacity: 0;
+  animation: tecmo-slam 420ms steps(6) 2.5s forwards;
+}
+.tecmo-title--static {
+  position: static;
+  transform: none;
+  opacity: 1;
+  animation: none;
+  margin-bottom: 16px;
+}
+
+.tecmo-caption {
+  position: absolute;
+  top: 42%;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: #f2f4f8;
+  opacity: 0;
+  animation: tecmo-fade-in 300ms ease-out 2.9s forwards;
+}
+.tecmo-name { font-size: clamp(12px, 4.5vw, 22px); color: #ffffff; }
+.tecmo-play { font-size: clamp(8px, 2.6vw, 12px); color: #9fe6bb; text-transform: uppercase; }
+.tecmo-points { font-size: clamp(14px, 5vw, 26px); color: #ffd23f; }
+
+/* CRT scanlines + vignette overlays. */
+.tecmo-scanlines {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.18) 0 1px,
+    rgba(0, 0, 0, 0) 1px 3px
+  );
+  mix-blend-mode: multiply;
+}
+.tecmo-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 45%, transparent 45%, rgba(0, 0, 0, 0.55) 100%);
+}
+
+/* Reduced-motion static card. */
+.tecmo-overlay--static { background: #05070d; }
+.tecmo-static-card {
+  text-align: center;
+  padding: 32px;
+}
+.tecmo-static-card .tecmo-name { display: block; margin-bottom: 10px; }
+.tecmo-static-card .tecmo-points { display: block; }
+
+@keyframes tecmo-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes tecmo-run {
+  from { transform: translateX(-80px); }
+  to { transform: translateX(min(560px, 78vw)); }
+}
+@keyframes tecmo-slam {
+  0% { transform: scale(3.2); opacity: 0; }
+  60% { opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* Safety net: if the OS asks for reduced motion, neutralize every animation even
+   on elements the component still renders. */
+@media (prefers-reduced-motion: reduce) {
+  .tecmo-overlay,
+  .tecmo-runner,
+  .tecmo-title,
+  .tecmo-caption {
+    animation: none !important;
+  }
+  .tecmo-title { transform: none; opacity: 1; }
+  .tecmo-caption { opacity: 1; }
+}

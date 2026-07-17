@@ -238,6 +238,93 @@ async function weekHindsight({ leagueId, teamId, season, week }) {
   return { teamId, week, actualPoints, optimalPoints, pointsLeftOnBench, optimalStarters };
 }
 
+/**
+ * LIVE (in-progress week) counterpart to weekHindsight: actual points so far
+ * vs. the best legal lineup achievable from here, using each player's CURRENT
+ * fantasy_points. Read-only — it never changes a lineup.
+ *
+ * Locks are respected: a player whose real game has kicked off can't be moved,
+ * so locked players are excluded from swap suggestions entirely. The returned
+ * `swaps` therefore only lists actionable bench-for-starter upgrades among
+ * still-unlocked players; `delta` is their combined gain.
+ */
+async function liveWhatIf({ leagueId, teamId, season, week }) {
+  const league = await assertLeagueAndTeam({ leagueId, teamId });
+  await materializeLineup(pool, { leagueId, teamId, season, week });
+
+  const rows = await pool.query(
+    `SELECT "lineup_entries"."player_id", "players"."name", "players"."position",
+            "players"."nfl_team", "lineup_entries"."slot",
+            COALESCE("player_stats"."fantasy_points", 0) AS "fantasy_points",
+            ("nfl_games"."kickoff_at" IS NOT NULL AND "nfl_games"."kickoff_at" <= now()) AS "locked"
+     FROM "lineup_entries"
+     JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
+     LEFT JOIN "player_stats" ON "player_stats"."player_id" = "lineup_entries"."player_id"
+       AND "player_stats"."season" = $2 AND "player_stats"."week" = $3
+     LEFT JOIN "nfl_games" ON "nfl_games"."nfl_team" = "players"."nfl_team"
+       AND "nfl_games"."season" = $2 AND "nfl_games"."week" = $3
+     WHERE "lineup_entries"."team_id" = $1 AND "lineup_entries"."season" = $2
+       AND "lineup_entries"."week" = $3`,
+    [teamId, season, week]
+  );
+
+  let actualPoints = 0;
+  const pointsFor = new Map();
+  const nameById = new Map();
+  const lockedById = new Map();
+  // Only unlocked players are candidates for the "what you could still do" pool;
+  // locked players stay wherever they are.
+  const candidatePool = [];
+  const currentStarterIds = new Set();
+  for (const row of rows.rows) {
+    const points = Number(row.fantasy_points) || 0;
+    pointsFor.set(row.player_id, points);
+    nameById.set(row.player_id, row.name);
+    lockedById.set(row.player_id, row.locked === true);
+    const isStarter = row.slot !== BENCH && row.slot !== IR;
+    if (isStarter) {
+      actualPoints += points;
+      currentStarterIds.add(row.player_id);
+    }
+    if (row.locked !== true) {
+      candidatePool.push({ playerId: row.player_id, position: row.position });
+    }
+  }
+  actualPoints = round2(actualPoints);
+
+  const settings = parseLineupSettings(league);
+  // Optimal over the actionable pool. Locked starters are pinned by adding them
+  // back as forced candidates so the optimizer keeps their slots realistic.
+  const forced = rows.rows
+    .filter((r) => r.locked === true && currentStarterIds.has(r.player_id))
+    .map((r) => ({ playerId: r.player_id, position: r.position }));
+  const optimal = optimalLineup([...candidatePool, ...forced], settings.lineupSlots, pointsFor);
+  const optimalIds = new Set(optimal.starters.map((s) => s.playerId));
+
+  // Actionable swaps: an unlocked bench player the optimizer promotes, replacing
+  // an unlocked current starter it benches.
+  const swapsIn = optimal.starters
+    .filter((s) => !currentStarterIds.has(s.playerId) && !lockedById.get(s.playerId))
+    .map((s) => ({ playerId: s.playerId, name: nameById.get(s.playerId), points: round2(pointsFor.get(s.playerId) || 0) }));
+  const swapsOut = [...currentStarterIds]
+    .filter((id) => !optimalIds.has(id) && !lockedById.get(id))
+    .map((id) => ({ playerId: id, name: nameById.get(id), points: round2(pointsFor.get(id) || 0) }));
+
+  const swaps = [];
+  const outSorted = swapsOut.sort((a, b) => a.points - b.points);
+  swapsIn
+    .sort((a, b) => b.points - a.points)
+    .forEach((inP, i) => {
+      const outP = outSorted[i];
+      if (outP && inP.points > outP.points) {
+        swaps.push({ out: outP, in: inP, gain: round2(inP.points - outP.points) });
+      }
+    });
+
+  const delta = round2(swaps.reduce((sum, s) => sum + s.gain, 0));
+  return { teamId, week, actualPoints, optimalPoints: round2(actualPoints + delta), delta, swaps };
+}
+
 /** weekHindsight for every FINAL regular-season week, plus season totals. */
 async function seasonHindsight({ leagueId, teamId, season }) {
   const league = await assertLeagueAndTeam({ leagueId, teamId });
@@ -500,6 +587,7 @@ module.exports = {
   buildSuggestions,
   startSitAdvice,
   weekHindsight,
+  liveWhatIf,
   seasonHindsight,
   fitAdjustedValue,
   tradeVerdict,

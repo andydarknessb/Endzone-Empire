@@ -108,9 +108,11 @@ async function syncAndScoreLiveWeeks() {
     if (!live.rows[0]) continue; // no game window right now
     ranAny = true;
     try {
-      await scoring.syncWeekStats({ season, week });
+      // Typed touchdown events from this sync ride the scores:updated emit so
+      // the live matchup UI can fire team-accurate cutscenes.
+      const { plays } = await scoring.syncWeekStats({ season, week });
       for (const leagueId of leagueIds) {
-        const { scored } = await scoring.scoreMatchups({ leagueId, season, week }); // emits scores:updated
+        const { scored } = await scoring.scoreMatchups({ leagueId, season, week, plays }); // emits scores:updated
         await alertCloseMatchups({ leagueId, week, scored });
       }
       console.log(`scheduler: live-scored ${leagueIds.length} league(s) for ${season} week ${week}`);

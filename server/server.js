@@ -62,6 +62,10 @@ app.use('/api/trades', tradesRouter);
 app.use('/api/notifications', notificationsRouter);
 app.use('/api/commissioner', commissionerRouter);
 app.use('/api/admin', adminRouter);
+// DEV-ONLY: touchdown-cutscene demo trigger. Never mounted in production.
+if (process.env.NODE_ENV !== 'production') {
+  app.use('/api/dev', require('./routes/dev.router'));
+}
 
 // Serve the built React app
 app.use(express.static('build'));

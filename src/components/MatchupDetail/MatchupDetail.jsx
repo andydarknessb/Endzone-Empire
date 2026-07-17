@@ -1,105 +1,60 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Container,
-  Paper,
   Typography,
   Grid,
+  Paper,
   Chip,
   Alert,
   CircularProgress,
   Box,
-  List,
-  ListItem,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import { createDraftSocket, onReconnect } from '../../api/socket';
-import InjuryBadge from '../InjuryBadge/InjuryBadge';
+import { classifyPlays } from '../../lib/scoringEvents';
+import { matchupWinProbability } from '../../lib/winProbability';
+import TecmoCutscene from './TecmoCutscene';
+import {
+  WinProbabilityBar,
+  StarterList,
+  LiveTicker,
+  BenchWhatIf,
+  MatchupToasts,
+} from './MatchupExtras';
 
-function TeamColumn({ team, teamName, score, benchLeft }) {
-  const starters = team?.starters || [];
-  return (
-    <Grid item xs={12} md={6}>
-      <Paper sx={{ p: 2 }}>
-        <Typography variant="h6">{teamName}</Typography>
-        <Typography variant="h5" sx={{ mb: benchLeft != null ? 0.5 : 2 }}>
-          {score}
-        </Typography>
-        {benchLeft != null && (
-          <Typography variant="body2" sx={{ mb: 2, color: 'text.secondary' }}>
-            Left {benchLeft} on the bench
-          </Typography>
-        )}
-        <List disablePadding>
-          {starters.map((player) => (
-            <ListItem key={player.id} sx={{ px: 0 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, width: '100%' }}>
-                <Chip label={player.slot} size="small" sx={{ minWidth: 56 }} />
-                <Box sx={{ flexGrow: 1 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Typography variant="body1">{player.name}</Typography>
-                    <InjuryBadge status={player.injury_status} />
-                  </Box>
-                  <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                    {player.position} — {player.nfl_team}
-                  </Typography>
-                </Box>
-                <Typography variant="body2" sx={{ textAlign: 'right' }}>
-                  {player.points}
-                </Typography>
-              </Box>
-            </ListItem>
-          ))}
-        </List>
-      </Paper>
-    </Grid>
-  );
-}
+const TICKER_LIMIT = 12;
 
 function MatchupDetail() {
   const { leagueId, matchupId } = useParams();
   const [matchup, setMatchup] = useState(null);
   const [home, setHome] = useState(null);
   const [away, setAway] = useState(null);
+  const [viewerTeamId, setViewerTeamId] = useState(null);
+  const [whatIf, setWhatIf] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
   const [homeBenchLeft, setHomeBenchLeft] = useState(null);
   const [awayBenchLeft, setAwayBenchLeft] = useState(null);
+  const [expandedId, setExpandedId] = useState(null);
+  const [whatIfOpen, setWhatIfOpen] = useState(false);
+  const [cutsceneQueue, setCutsceneQueue] = useState([]);
+  const [toasts, setToasts] = useState([]);
+  const [ticker, setTicker] = useState([]);
+
   const socketRef = useRef(null);
+  const toastSeq = useRef(0);
+  const cutsceneSeq = useRef(0);
+  // Refs so the socket handler always sees current lineups/prefs, not stale closures.
+  const homeRef = useRef(null);
+  const awayRef = useRef(null);
+  const viewerTeamRef = useRef(null);
+  const celebrationsRef = useRef(true);
 
-  useEffect(() => {
-    fetchData();
-  }, [leagueId, matchupId]);
-
-  useEffect(() => {
-    const newSocket = createDraftSocket();
-    socketRef.current = newSocket;
-
-    const joinLeagueRoom = () => {
-      newSocket.emit('league:join', { leagueId: Number(leagueId) });
-    };
-
-    joinLeagueRoom();
-
-    // Re-join on reconnect so the server re-adds us to the room — otherwise
-    // a dropped connection would silently stop delivering scores:updated.
-    const offReconnect = onReconnect(newSocket, joinLeagueRoom);
-
-    newSocket.on('scores:updated', (data) => {
-      const scored = data.scored.find((s) => s.matchupId === Number(matchupId));
-      if (!scored) return;
-
-      setMatchup((prev) =>
-        prev ? { ...prev, home_score: scored.homeScore, away_score: scored.awayScore } : prev
-      );
-    });
-
-    return () => {
-      offReconnect?.(); // reconnect listener lives on the manager, which outlives the socket
-      socketRef.current.disconnect();
-      socketRef.current = null;
-    };
-  }, [leagueId, matchupId]);
+  homeRef.current = home;
+  awayRef.current = away;
+  viewerTeamRef.current = viewerTeamId;
 
   const fetchData = async () => {
     try {
@@ -109,6 +64,8 @@ function MatchupDetail() {
       setMatchup(res.data.matchup);
       setHome(res.data.home);
       setAway(res.data.away);
+      setViewerTeamId(res.data.viewerTeamId || null);
+      setWhatIf(res.data.viewerWhatIf || null);
       if (res.data.matchup?.final) {
         fetchBenchLeft(res.data.matchup, res.data.home, res.data.away);
       }
@@ -119,9 +76,8 @@ function MatchupDetail() {
     }
   };
 
-  // Points left on the bench only makes sense once a week is final. Fetched
-  // per-team from the hindsight endpoint; skipped silently on 404/error since
-  // it's a supplementary stat, not core matchup data.
+  // Points left on the bench: only meaningful once a week is final. Per-team
+  // from the hindsight endpoint; skipped silently on error (supplementary stat).
   const fetchBenchLeft = async (matchupData, homeData, awayData) => {
     const [homeResult, awayResult] = await Promise.allSettled([
       apiClient.get(
@@ -143,6 +99,120 @@ function MatchupDetail() {
     );
   };
 
+  useEffect(() => {
+    fetchData();
+  }, [leagueId, matchupId]);
+
+  // Touchdown-celebration preference (opt-out: default on).
+  useEffect(() => {
+    apiClient
+      .get('/api/notifications/prefs')
+      .then((res) => {
+        celebrationsRef.current = res.data?.touchdownCelebrations !== false;
+      })
+      .catch(() => { celebrationsRef.current = true; });
+  }, []);
+
+  const dismissToast = useCallback((id) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  const pushToasts = useCallback((items) => {
+    if (!items.length) return;
+    setToasts((prev) => [
+      ...prev,
+      ...items.map((t) => ({ ...t, id: (toastSeq.current += 1) })),
+    ]);
+  }, []);
+
+  useEffect(() => {
+    const socket = createDraftSocket();
+    socketRef.current = socket;
+
+    const joinLeagueRoom = () => socket.emit('league:join', { leagueId: Number(leagueId) });
+    joinLeagueRoom();
+    const offReconnect = onReconnect(socket, joinLeagueRoom);
+
+    socket.on('scores:updated', (data) => {
+      const scored = (data.scored || []).find((s) => s.matchupId === Number(matchupId));
+      if (scored) {
+        setMatchup((prev) =>
+          prev ? { ...prev, home_score: scored.homeScore, away_score: scored.awayScore } : prev
+        );
+      }
+
+      const plays = data.plays || [];
+      if (plays.length) {
+        const homeStarters = homeRef.current?.starters || [];
+        const awayStarters = awayRef.current?.starters || [];
+        const homeIds = new Set(homeStarters.map((p) => p.id));
+        const awayIds = new Set(awayStarters.map((p) => p.id));
+
+        // Optimistically bump the scoring players' displayed points by the
+        // reported delta so rows track the live score without a full refetch.
+        const deltaById = new Map();
+        for (const p of plays) {
+          deltaById.set(p.playerId, (deltaById.get(p.playerId) || 0) + (Number(p.pointsDelta) || 0));
+        }
+        const applyDeltas = (team) => {
+          if (!team) return team;
+          let touched = false;
+          const starters = team.starters.map((s) => {
+            const d = deltaById.get(s.id);
+            if (!d) return s;
+            touched = true;
+            return { ...s, points: Math.round(((Number(s.points) || 0) + d) * 100) / 100 };
+          });
+          return touched ? { ...team, starters } : team;
+        };
+        setHome((prev) => applyDeltas(prev));
+        setAway((prev) => applyDeltas(prev));
+
+        const viewer = viewerTeamRef.current;
+        const iAmHome = viewer && homeRef.current?.teamId === viewer;
+        const myIds = viewer ? (iAmHome ? homeIds : awayIds) : new Set();
+        const oppIds = viewer ? (iAmHome ? awayIds : homeIds) : new Set();
+
+        const { cutscenes, summaryToast, toasts: oppToasts } = classifyPlays(plays, {
+          myStarterIds: myIds,
+          oppStarterIds: oppIds,
+          celebrationsEnabled: celebrationsRef.current,
+        });
+        if (cutscenes.length) {
+          setCutsceneQueue((q) => [
+            ...q,
+            ...cutscenes.map((c) => ({ ...c, _cid: (cutsceneSeq.current += 1) })),
+          ]);
+        }
+        const toastBatch = [...oppToasts];
+        if (summaryToast) toastBatch.push(summaryToast);
+        pushToasts(toastBatch);
+
+        // Ticker: every TD by either team in this matchup, colored by side.
+        const tickerAdds = plays
+          .filter((p) => homeIds.has(p.playerId) || awayIds.has(p.playerId))
+          .map((p) => ({ ...p, side: homeIds.has(p.playerId) ? 'home' : 'away' }));
+        if (tickerAdds.length) {
+          setTicker((prev) => [...prev, ...tickerAdds].slice(-TICKER_LIMIT));
+        }
+      }
+    });
+
+    return () => {
+      offReconnect?.();
+      socketRef.current?.disconnect();
+      socketRef.current = null;
+    };
+  }, [leagueId, matchupId, pushToasts]);
+
+  const dismissCutscene = useCallback(() => {
+    setCutsceneQueue((q) => q.slice(1));
+  }, []);
+
+  const toggleRow = useCallback((id) => {
+    setExpandedId((cur) => (cur === id ? null : id));
+  }, []);
+
   if (loading) {
     return (
       <Container sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
@@ -150,6 +220,17 @@ function MatchupDetail() {
       </Container>
     );
   }
+
+  const homeScore = matchup ? Number(matchup.home_score) : 0;
+  const awayScore = matchup ? Number(matchup.away_score) : 0;
+  const winProb = matchupWinProbability({
+    homeScore,
+    awayScore,
+    homeProjectedTotal: home?.projectedTotal || 0,
+    awayProjectedTotal: away?.projectedTotal || 0,
+  });
+  const showLive = matchup && !matchup.final;
+  const currentCutscene = cutsceneQueue[0] || null;
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
@@ -161,27 +242,70 @@ function MatchupDetail() {
 
       {matchup && (
         <>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
             <Typography variant="h4">Week {matchup.week} Matchup</Typography>
             {matchup.is_playoff && <Chip label="Playoff" />}
-            {matchup.final && <Chip label="Final" color="success" />}
+            {matchup.final
+              ? <Chip label="Final" color="success" />
+              : <Chip label="LIVE" color="error" />}
           </Box>
 
+          {showLive && (
+            <WinProbabilityBar
+              homeName={matchup.home_team_name}
+              awayName={matchup.away_team_name}
+              homeProb={winProb.home}
+            />
+          )}
+
+          {showLive && <LiveTicker items={ticker} />}
+
+          {showLive && (
+            <BenchWhatIf
+              whatIf={whatIf}
+              open={whatIfOpen}
+              onToggle={() => setWhatIfOpen((o) => !o)}
+            />
+          )}
+
           <Grid container spacing={2}>
-            <TeamColumn
-              team={home}
-              teamName={matchup.home_team_name}
-              score={Number(matchup.home_score)}
-              benchLeft={matchup.final ? homeBenchLeft : null}
-            />
-            <TeamColumn
-              team={away}
-              teamName={matchup.away_team_name}
-              score={Number(matchup.away_score)}
-              benchLeft={matchup.final ? awayBenchLeft : null}
-            />
+            {[{ team: home, name: matchup.home_team_name, score: homeScore, benchLeft: homeBenchLeft },
+              { team: away, name: matchup.away_team_name, score: awayScore, benchLeft: awayBenchLeft }].map((col, i) => (
+              <Grid item xs={12} md={6} key={i}>
+                <Paper sx={{ p: 2 }}>
+                  <Typography variant="h6">{col.name}</Typography>
+                  <Typography variant="h5" sx={{ mb: 0.5, fontVariantNumeric: 'tabular-nums' }}>
+                    {col.score}
+                  </Typography>
+                  {matchup.final && col.benchLeft != null && (
+                    <Typography variant="body2" sx={{ mb: 1, color: 'text.secondary' }}>
+                      Left {col.benchLeft} on the bench
+                    </Typography>
+                  )}
+                  {showLive && col.team?.projectedTotal != null && (
+                    <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1 }}>
+                      Projected {Number(col.team.projectedTotal).toFixed(1)}
+                    </Typography>
+                  )}
+                  <StarterList
+                    starters={col.team?.starters}
+                    expandedId={expandedId}
+                    onToggle={toggleRow}
+                  />
+                </Paper>
+              </Grid>
+            ))}
           </Grid>
         </>
+      )}
+
+      <MatchupToasts toasts={toasts} onDismiss={dismissToast} />
+      {currentCutscene && (
+        <TecmoCutscene
+          key={currentCutscene._cid}
+          play={currentCutscene}
+          onDone={dismissCutscene}
+        />
       )}
     </Container>
   );
