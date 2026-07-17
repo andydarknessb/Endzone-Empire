@@ -18,6 +18,9 @@ const DEFAULT_PREFS = {
   tradeOffers: true,
   closeMatchups: true,
   draftReminders: true,
+  // In-app: play the Tecmo touchdown cutscene when the viewer's own starter
+  // scores on the live matchup page. Opt-out, like the rest.
+  touchdownCelebrations: true,
 };
 
 /** Pure: merge a stored prefs object onto the defaults. Unknown stored keys are ignored. */

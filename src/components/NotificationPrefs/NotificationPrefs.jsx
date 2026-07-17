@@ -10,6 +10,7 @@ const PREF_FIELDS = [
   { key: 'tradeOffers', label: 'Trade offers' },
   { key: 'closeMatchups', label: 'Close matchup alerts' },
   { key: 'draftReminders', label: 'Draft reminders & start alerts' },
+  { key: 'touchdownCelebrations', label: 'Touchdown celebrations' },
 ];
 
 // Feature-detected each render (cheap) rather than hoisted to module scope,

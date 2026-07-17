@@ -123,10 +123,51 @@ function normalizeTank01Stats(entry) {
   };
 }
 
+// Stat keys that represent a scored touchdown, mapped to the cutscene's event
+// type. Detection keys off the stat itself incrementing — never a fantasy-point
+// jump — so a stat correction that moves points without a TD never fires a
+// cutscene.
+const TD_STAT_EVENTS = {
+  passingTDs: 'passing',
+  rushingTDs: 'rushing',
+  receivingTDs: 'receiving',
+  defensiveTD: 'defensive',
+  returnTDs: 'return',
+  kickReturnTDs: 'return',
+  puntReturnTDs: 'return',
+};
+
+/**
+ * Pure: diff a player's previous vs. new stat line and return one typed
+ * scoring event per touchdown-stat that increased. Yardage and other stat
+ * changes produce nothing. `prevStats` null/undefined is treated as all-zero
+ * (first observation of the week) — so re-running a sync with unchanged stats
+ * yields no events (idempotent), but a genuinely new TD does.
+ */
+function detectScoringEvents(prevStats, newStats) {
+  const prev = prevStats || {};
+  const next = newStats || {};
+  const events = [];
+  for (const [statKey, type] of Object.entries(TD_STAT_EVENTS)) {
+    const before = Number(prev[statKey]) || 0;
+    const after = Number(next[statKey]) || 0;
+    if (after > before) {
+      events.push({ type, statKey, tdDelta: after - before });
+    }
+  }
+  return events;
+}
+
 /**
  * Fetch a week's real-world stats from Tank01: one getNFLGamesForWeek call,
  * then a box score per game (~16 calls) — every player in those games whose
  * external_id we know gets a player_stats upsert.
+ *
+ * Returns typed touchdown events (`plays`) detected by diffing each player's
+ * prior stored stats against the fresh pull, decorated with the scoring
+ * player's real NFL team and that week's opponent so the live UI can render a
+ * team-accurate cutscene. Only genuine TD-stat increments produce a play, so a
+ * re-sync or a stat correction never fabricates one.
  */
 async function syncWeekStats({ season, week }) {
   const api = rapidApiClient();
@@ -135,18 +176,37 @@ async function syncWeekStats({ season, week }) {
   });
   const games = tank01Body(gamesResponse.data) || [];
   if (!Array.isArray(games) || games.length === 0) {
-    return { season, week, playersUpdated: 0, gamesProcessed: 0 };
+    return { season, week, playersUpdated: 0, gamesProcessed: 0, plays: [] };
   }
 
   const knownPlayers = await pool.query(
-    `SELECT "id", "external_id" FROM "players" WHERE "external_id" IS NOT NULL`
+    `SELECT "id", "external_id", "name", "position", "nfl_team"
+     FROM "players" WHERE "external_id" IS NOT NULL`
   );
   const idByExternal = new Map(
     knownPlayers.rows.map((r) => [String(r.external_id), r.id])
   );
+  const metaById = new Map(knownPlayers.rows.map((r) => [r.id, r]));
+
+  // Prior stats for this week, so we can diff for new touchdowns.
+  const priorStats = await pool.query(
+    `SELECT "player_id", "stats" FROM "player_stats"
+     WHERE "season" = $1 AND "week" = $2`,
+    [season, week]
+  );
+  const prevById = new Map(priorStats.rows.map((r) => [r.player_id, r.stats]));
+
+  // This week's real-game opponents, keyed by nfl_team, for the defender sprite.
+  const schedule = await pool.query(
+    `SELECT "nfl_team", "opponent" FROM "nfl_games"
+     WHERE "season" = $1 AND "week" = $2`,
+    [season, week]
+  );
+  const opponentByTeam = new Map(schedule.rows.map((r) => [r.nfl_team, r.opponent]));
 
   let updated = 0;
   let gamesProcessed = 0;
+  const plays = [];
   for (const game of games) {
     if (!game || !game.gameID) continue;
     try {
@@ -161,6 +221,25 @@ async function syncWeekStats({ season, week }) {
         if (!playerId) continue; // not in our pool
         const stats = normalizeTank01Stats(entry);
         const points = calculateFantasyPoints(stats);
+        const prev = prevById.get(playerId);
+        const events = detectScoringEvents(prev, stats);
+        if (events.length > 0) {
+          const meta = metaById.get(playerId) || {};
+          const pointsDelta =
+            Math.round((points - calculateFantasyPoints(prev || {})) * 100) / 100;
+          for (const ev of events) {
+            plays.push({
+              playerId,
+              name: meta.name,
+              position: meta.position,
+              nflTeam: meta.nfl_team,
+              opponent: opponentByTeam.get(meta.nfl_team) || null,
+              type: ev.type,
+              tdDelta: ev.tdDelta,
+              pointsDelta,
+            });
+          }
+        }
         await pool.query(
           `INSERT INTO "player_stats" ("player_id", "season", "week", "stats", "fantasy_points")
            VALUES ($1, $2, $3, $4, $5)
@@ -174,7 +253,7 @@ async function syncWeekStats({ season, week }) {
       console.error(`Stat sync failed for game ${game.gameID}:`, err.message);
     }
   }
-  return { season, week, playersUpdated: updated, gamesProcessed };
+  return { season, week, playersUpdated: updated, gamesProcessed, plays };
 }
 
 /** Map a RapidAPI injury designation to our badge codes (Q/D/O/IR). */
@@ -416,7 +495,7 @@ async function generateMatchups({ leagueId, season, week }) {
  * legal lineup over that week's players (same live/final population rules),
  * computed server-side every time — there is no lineup to manage.
  */
-async function scoreMatchups({ leagueId, season, week }) {
+async function scoreMatchups({ leagueId, season, week, plays = [] }) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -492,7 +571,10 @@ async function scoreMatchups({ leagueId, season, week }) {
     await client.query('COMMIT');
     // Live scoring: push fresh scores to anyone watching this league
     const io = getIo();
-    if (io) io.to(`league:${leagueId}`).emit('scores:updated', { leagueId, season, week, scored });
+    // `plays` (typed touchdown events) rides the same emit that carries fresh
+    // scores. It's populated only on the live sync path — the stat-correction
+    // path passes none — so a cutscene can never fire from a correction.
+    if (io) io.to(`league:${leagueId}`).emit('scores:updated', { leagueId, season, week, scored, plays });
     return { scored };
   } catch (error) {
     await client.query('ROLLBACK');
@@ -512,6 +594,7 @@ module.exports = {
   normalizeTank01Game,
   normalizeInjuryStatus,
   normalizePlayerEntry,
+  detectScoringEvents,
   syncWeekStats,
   syncSchedule,
   syncInjuries,

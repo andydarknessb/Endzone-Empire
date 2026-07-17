@@ -702,7 +702,8 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
 
     const matchupResult = await client.query(
       `SELECT "matchups".*,
-              home."name" AS "home_team_name", away."name" AS "away_team_name"
+              home."name" AS "home_team_name", away."name" AS "away_team_name",
+              home."owner_id" AS "home_owner_id", away."owner_id" AS "away_owner_id"
        FROM "matchups"
        JOIN "teams" home ON home."id" = "matchups"."home_team_id"
        JOIN "teams" away ON away."id" = "matchups"."away_team_id"
@@ -715,7 +716,23 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
     const { rulesForLeague, calculateFantasyPoints } = require('../services/scoring.service');
     const { materializeLineup } = require('../services/lineup.service');
+    const { getWeekProjections } = require('../services/projection.service');
     const rules = rulesForLeague(leagueResult.rows[0]);
+
+    // Per-week projections power the pace bars and the live win-probability bar.
+    // Read-only, cached — a miss just leaves projections null, never an error.
+    let projById = new Map();
+    try {
+      projById = await getWeekProjections({ season: matchup.season, week: matchup.week });
+    } catch (projErr) {
+      console.error('matchup projections unavailable', projErr.message);
+    }
+    // This week's real-game opponents, for the cutscene's chasing defender.
+    const scheduleRows = await client.query(
+      `SELECT "nfl_team", "opponent" FROM "nfl_games" WHERE "season" = $1 AND "week" = $2`,
+      [matchup.season, matchup.week]
+    );
+    const opponentByTeam = new Map(scheduleRows.rows.map((r) => [r.nfl_team, r.opponent]));
 
     await client.query('BEGIN');
     const teamLineup = async (teamId) => {
@@ -738,20 +755,64 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
          ORDER BY "lineup_entries"."slot", "players"."name"`,
         [teamId, matchup.season, matchup.week]
       );
-      return rows.rows.map((row) => ({
-        ...row,
-        stats: undefined,
-        points: row.stats ? calculateFantasyPoints(row.stats, rules) : 0,
-      }));
+      const starters = rows.rows.map((row) => {
+        const projection = projById.get(row.id);
+        return {
+          id: row.id,
+          name: row.name,
+          position: row.position,
+          nfl_team: row.nfl_team,
+          injury_status: row.injury_status,
+          slot: row.slot,
+          // Full stat line for the expandable row; safe to expose (public NFL data).
+          stats: row.stats || null,
+          points: row.stats ? calculateFantasyPoints(row.stats, rules) : 0,
+          projected: projection ? Math.round(projection.points * 100) / 100 : null,
+          opponent: opponentByTeam.get(row.nfl_team) || null,
+        };
+      });
+      const projectedTotal = Math.round(
+        starters.reduce((sum, s) => sum + (s.projected || 0), 0) * 100
+      ) / 100;
+      return { starters, projectedTotal };
     };
-    const homeStarters = await teamLineup(matchup.home_team_id);
-    const awayStarters = await teamLineup(matchup.away_team_id);
+    const homeTeam = await teamLineup(matchup.home_team_id);
+    const awayTeam = await teamLineup(matchup.away_team_id);
     await client.query('COMMIT');
 
+    // Live bench what-if for the viewer, but only when they own one of the two
+    // teams in this matchup. Read-only, best-effort — never fails the request.
+    let viewerWhatIf = null;
+    let viewerTeamId = null;
+    if (matchup.home_owner_id === req.user.id) viewerTeamId = matchup.home_team_id;
+    else if (matchup.away_owner_id === req.user.id) viewerTeamId = matchup.away_team_id;
+    if (viewerTeamId) {
+      try {
+        const { liveWhatIf } = require('../services/decision.service');
+        viewerWhatIf = await liveWhatIf({
+          leagueId, teamId: viewerTeamId, season: matchup.season, week: matchup.week,
+        });
+      } catch (whatIfErr) {
+        console.error('live what-if unavailable', whatIfErr.message);
+      }
+    }
+
     res.json({
+      viewerTeamId: viewerTeamId || null,
+      viewerWhatIf,
       matchup,
-      home: { teamId: matchup.home_team_id, name: matchup.home_team_name, starters: homeStarters },
-      away: { teamId: matchup.away_team_id, name: matchup.away_team_name, starters: awayStarters },
+      home: {
+        teamId: matchup.home_team_id,
+        name: matchup.home_team_name,
+        starters: homeTeam.starters,
+        projectedTotal: homeTeam.projectedTotal,
+      },
+      away: {
+        teamId: matchup.away_team_id,
+        name: matchup.away_team_name,
+        starters: awayTeam.starters,
+        projectedTotal: awayTeam.projectedTotal,
+      },
     });
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});

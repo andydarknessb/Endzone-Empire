@@ -23,6 +23,8 @@ const ALLOWLIST = [
   'src/lib/nflTeamColors.js', // real NFL team colors (external data)
   'src/components/DraftGradesCard/', // A–F grade scale (data encoding)
   'src/components/LandingPage/LandingPage.css', // accent-tint gradient w/ both themes
+  'src/components/MatchupDetail/TecmoCutscene.css', // retro CRT scanline/gradient FX (not themeable)
+  'src/components/MatchupDetail/TecmoCutscene.jsx', // fixed pixel-art sprite palette (data encoding)
 ];
 
 // Test files legitimately assert on color values.
