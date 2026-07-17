@@ -2,6 +2,7 @@ const pool = require('./pool');
 const { processAllDueWaivers } = require('../services/waiver.service');
 const { processDueTrades } = require('../services/trade.service');
 const { processExpiredPickClocks } = require('../services/autopick.service');
+const { processScheduledDrafts } = require('../services/draftSchedule.service');
 
 /**
  * In-process job runner for time-based league mechanics (waiver clearing,
@@ -55,6 +56,14 @@ async function tick() {
     }
     const trades = await processDueTrades();
     if (trades.length > 0) console.log(`scheduler: settled ${trades.length} trade(s)`);
+    try {
+      const draftActions = await processScheduledDrafts();
+      if (draftActions.length > 0) {
+        console.log(`scheduler: ran ${draftActions.length} scheduled-draft action(s)`);
+      }
+    } catch (err) {
+      console.error('scheduled drafts failed:', err.message);
+    }
     ticksSinceSync += 1;
     if (ticksSinceSync >= SYNC_EVERY_TICKS) {
       const synced = await syncAndScoreLiveWeeks();

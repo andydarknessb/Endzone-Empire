@@ -275,8 +275,18 @@ router.put('/:id', async (req, res) => {
     waiverType, waiverPeriodHours, faabBudget,
     tradeDeadlineWeek, tradeReviewHours, tradeVetoVotes,
     scoringPreset, scoringRules, regularSeasonWeeks, playoffTeams, playoffConsolation,
-    pickTimeSeconds, minTeams, maxTeams,
+    pickTimeSeconds, minTeams, maxTeams, draftDate,
   } = req.body || {};
+  // draftDate: undefined = leave as-is, null = clear, string = (re)schedule.
+  const draftDateProvided = draftDate !== undefined;
+  let draftDateValue = null;
+  if (draftDateProvided && draftDate !== null) {
+    const parsed = new Date(draftDate);
+    if (Number.isNaN(parsed.getTime())) {
+      return res.status(400).json({ error: 'draftDate must be a valid date or null' });
+    }
+    draftDateValue = parsed.toISOString();
+  }
   const limit = rosterLimit === undefined ? null : Number(rosterLimit);
   if (limit !== null && (!Number.isInteger(limit) || limit < 1 || limit > 30)) {
     return res.status(400).json({ error: 'rosterLimit must be an integer between 1 and 30' });
@@ -358,6 +368,7 @@ router.put('/:id', async (req, res) => {
     : scoringPreset !== undefined
       ? scoringPreset
       : undefined;
+  let previousDraftDate = null;
   try {
     // Game-integrity settings freeze once the draft starts; administrative
     // ones (name, waivers, trades) stay editable all season.
@@ -365,18 +376,20 @@ router.put('/:id', async (req, res) => {
       rosterLimit, lineupSlots, positionCaps, irSlots,
       scoringRules: effectiveRules, regularSeasonWeeks, playoffTeams,
       playoffConsolation, pickTimeSeconds, minTeams, maxTeams,
+      draftDate: draftDateProvided ? draftDate : undefined,
     };
     const frozenRequested = Object.entries(preDraftOnly)
       .filter(([, v]) => v !== undefined)
       .map(([k]) => k);
     if (frozenRequested.length > 0) {
       const statusResult = await pool.query(
-        `SELECT "draft_status", "min_teams", "max_teams",
+        `SELECT "draft_status", "min_teams", "max_teams", "draft_date",
                 (SELECT COUNT(*)::int FROM "teams" WHERE "teams"."league_id" = "leagues"."id") AS "team_count"
          FROM "leagues" WHERE "id" = $1 AND "owner_id" = $2`,
         [leagueId, req.user.id]
       );
       const current = statusResult.rows[0];
+      previousDraftDate = current ? current.draft_date : null;
       if (current && current.draft_status !== 'pending') {
         return res.status(409).json({
           error: `these settings are locked once the draft starts: ${frozenRequested.join(', ')}`,
@@ -415,6 +428,11 @@ router.put('/:id', async (req, res) => {
            "scoring_preset" = COALESCE($19, "scoring_preset"),
            "min_teams" = COALESCE($20, "min_teams"),
            "max_teams" = COALESCE($21, "max_teams"),
+           "draft_date" = CASE WHEN $22 THEN $23 ELSE "draft_date" END,
+           -- Rescheduling resets the reminder/auto-start bookkeeping so the
+           -- new time gets a fresh set of reminders.
+           "draft_reminder_stage" = CASE WHEN $22 THEN 0 ELSE "draft_reminder_stage" END,
+           "draft_autostart_failed" = CASE WHEN $22 THEN false ELSE "draft_autostart_failed" END,
            "updated_at" = now()
        WHERE "id" = $17 AND "owner_id" = $18
        RETURNING *`,
@@ -440,10 +458,25 @@ router.put('/:id', async (req, res) => {
         effectivePreset === undefined ? null : effectivePreset,
         newMin,
         newMax,
+        draftDateProvided,
+        draftDateValue,
       ]
     );
     if (!result.rows[0]) {
       return res.status(403).json({ error: 'league not found or you are not the owner' });
+    }
+    // Tell the league when the draft time is set or moved (not when cleared).
+    const changed = draftDateProvided &&
+      String(previousDraftDate ? new Date(previousDraftDate).toISOString() : null) !== String(draftDateValue);
+    if (changed && draftDateValue) {
+      const { notifyLeague } = require('../services/activity.service');
+      const verb = previousDraftDate ? 'rescheduled' : 'scheduled';
+      await notifyLeague(pool, {
+        leagueId,
+        type: 'draft_scheduled',
+        message: `${result.rows[0].name}'s draft has been ${verb}.`,
+        data: { url: `/#/league/${leagueId}`, draftDate: draftDateValue },
+      });
     }
     res.json(result.rows[0]);
   } catch (error) {

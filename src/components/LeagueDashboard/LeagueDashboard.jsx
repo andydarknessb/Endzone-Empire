@@ -23,6 +23,7 @@ import ChatPanel from '../ChatPanel/ChatPanel';
 import RecapCard from '../RecapCard/RecapCard';
 import TrophyCase from '../TrophyCase/TrophyCase';
 import DraftGradesCard from '../DraftGradesCard/DraftGradesCard';
+import Countdown from '../Countdown/Countdown';
 
 const SEASON_STATUS_CHIP = {
   regular: { label: 'Regular Season', color: 'default' },
@@ -266,6 +267,12 @@ function LeagueDashboard() {
           </>
         )}
       </Box>
+
+      {league.draft_status === 'pending' && league.draft_date && (
+        <Box sx={{ mb: 3 }}>
+          <Countdown variant="full" date={league.draft_date} />
+        </Box>
+      )}
 
       {league.invite_code && (
         <Paper sx={{ p: 2, mb: 3, bgcolor: 'action.hover' }}>

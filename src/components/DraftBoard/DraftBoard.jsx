@@ -27,6 +27,7 @@ import {
 import apiClient from '../../api/apiClient';
 import { createDraftSocket, onReconnect } from '../../api/socket';
 import InjuryBadge from '../InjuryBadge/InjuryBadge';
+import Countdown from '../Countdown/Countdown';
 
 function DraftBoard() {
   const { leagueId } = useParams();
@@ -368,6 +369,11 @@ function DraftBoard() {
             </Button>
           )}
         </Box>
+        {league?.draft_status === 'pending' && league?.draft_date && (
+          <Box sx={{ mt: 2 }}>
+            <Countdown variant="full" date={league.draft_date} />
+          </Box>
+        )}
       </Box>
 
       <Grid container spacing={3}>

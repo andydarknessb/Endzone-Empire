@@ -6,6 +6,7 @@ import {
   Switch, FormControlLabel, Select, MenuItem, InputLabel, FormControl,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
+import Countdown from '../Countdown/Countdown';
 import './LeagueManagement.css';
 
 function LeagueManagement() {
@@ -209,6 +210,9 @@ function LeagueManagement() {
             <Chip size="small" label={`Team: ${league.my_team_name}`} />
             {league.team_count != null && (
               <Chip size="small" label={`Teams: ${league.team_count}/${league.max_teams}`} />
+            )}
+            {league.draft_status === 'pending' && league.draft_date && (
+              <Countdown variant="chip" date={league.draft_date} />
             )}
             <Button component={Link} to={`/league/${league.id}`} variant="outlined">Dashboard</Button>
             <Button component={Link} to={`/league/${league.id}/draft`} variant="outlined">Draft Room</Button>

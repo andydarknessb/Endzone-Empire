@@ -17,6 +17,7 @@ const DEFAULT_PREFS = {
   weeklyRecap: true,
   tradeOffers: true,
   closeMatchups: true,
+  draftReminders: true,
 };
 
 /** Pure: merge a stored prefs object onto the defaults. Unknown stored keys are ignored. */
