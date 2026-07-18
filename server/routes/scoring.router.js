@@ -2,6 +2,7 @@ const express = require('express');
 const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
 const scoring = require('../services/scoring.service');
+const sportsdb = require('../services/sportsdb.service');
 const season = require('../services/season.service');
 const correction = require('../services/correction.service');
 const montecarlo = require('../services/montecarlo.service');
@@ -150,6 +151,19 @@ router.post('/sync-players', async (req, res) => {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     console.error('Player sync failed:', error);
     res.status(500).json({ error: 'player sync failed' });
+  }
+});
+
+// POST /api/scoring/sync-photos — enrich the player pool with headshots and
+// jersey numbers from TheSportsDB (matched by name). Safe to re-run.
+router.post('/sync-photos', async (req, res) => {
+  try {
+    const result = await sportsdb.syncPlayerPhotos();
+    res.json(result);
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    console.error('Photo sync failed:', error);
+    res.status(500).json({ error: 'photo sync failed' });
   }
 });
 
