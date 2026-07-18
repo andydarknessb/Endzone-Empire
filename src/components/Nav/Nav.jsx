@@ -22,6 +22,7 @@ import MenuIcon from '@mui/icons-material/Menu';
 import Brightness4Icon from '@mui/icons-material/Brightness4';
 import Brightness7Icon from '@mui/icons-material/Brightness7';
 import NotificationBell from '../NotificationBell/NotificationBell';
+import GlobalPlayerSearch from '../GlobalPlayerSearch/GlobalPlayerSearch';
 import { useThemeMode } from '../../theme/AppThemeProvider';
 
 // Primary destinations shown inline on desktop and in the drawer on mobile.
@@ -131,6 +132,11 @@ function Nav() {
             </Link>
           )}
 
+          {loggedIn && (
+            <Box sx={{ display: { xs: 'none', md: 'block' }, mr: 1 }}>
+              <GlobalPlayerSearch enableShortcut />
+            </Box>
+          )}
           {loggedIn && <NotificationBell />}
           {themeToggle}
 
@@ -175,6 +181,11 @@ function Nav() {
             Endzone Empire
           </Typography>
           <Divider />
+          {loggedIn && (
+            <Box sx={{ p: 2 }} onClick={(e) => e.stopPropagation()}>
+              <GlobalPlayerSearch inDrawer />
+            </Box>
+          )}
           {loggedIn ? (
             <List>
               {links.map((l) => (
