@@ -36,7 +36,8 @@ test('shows "No players rostered yet." when the roster is empty', async () => {
 
   renderWithProviders(<TeamManagement />);
 
-  expect(await screen.findByText('No players rostered yet.')).toBeInTheDocument();
+  expect(await screen.findByText(/No players rostered yet/)).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: /browse players/i })).toHaveAttribute('href', '/player');
 });
 
 test('renders an acquired date when present, and an em dash when absent', async () => {
@@ -75,7 +76,7 @@ test('dropping a player calls the delete endpoint with the selected league and r
   await waitFor(() =>
     expect(apiClient.delete).toHaveBeenCalledWith('/api/team/roster/10?leagueId=1')
   );
-  expect(await screen.findByText('No players rostered yet.')).toBeInTheDocument();
+  expect(await screen.findByText(/No players rostered yet/)).toBeInTheDocument();
 });
 
 test('shows an error alert when the roster fetch fails', async () => {

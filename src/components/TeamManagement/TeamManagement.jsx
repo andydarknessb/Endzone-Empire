@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { Link as RouterLink } from 'react-router-dom';
 import {
   Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  Paper, Select, MenuItem, Button, Alert, FormControl, InputLabel,
+  Paper, Select, MenuItem, Button, Alert, FormControl, InputLabel, Box,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
@@ -102,7 +103,27 @@ function TeamManagement() {
             {roster.length === 0 && (
               <TableRow>
                 <TableCell colSpan={5}>
-                  <Typography color="text.secondary">No players rostered yet.</Typography>
+                  <Box sx={{ py: 3, textAlign: 'center' }}>
+                    {leagues.length === 0 ? (
+                      <>
+                        <Typography color="text.secondary" gutterBottom>
+                          You&apos;re not in a league yet — create or join one to start building your team.
+                        </Typography>
+                        <Button component={RouterLink} to="/league" variant="contained">
+                          Go to Leagues
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Typography color="text.secondary" gutterBottom>
+                          No players rostered yet. Head to the player pool to add players to your team.
+                        </Typography>
+                        <Button component={RouterLink} to="/player" variant="contained">
+                          Browse Players
+                        </Button>
+                      </>
+                    )}
+                  </Box>
                 </TableCell>
               </TableRow>
             )}

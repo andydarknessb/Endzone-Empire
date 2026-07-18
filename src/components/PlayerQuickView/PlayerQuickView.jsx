@@ -94,6 +94,14 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy }) {
         const config = leagueId != null ? { params: { leagueId } } : undefined;
         const res = await apiClient.get(`/api/players/${playerId}/summary`, config);
         setData(res.data);
+
+        // Don't open on an empty tab: if the current season has no games yet
+        // but prior-season data exists, default to Previous Seasons. When
+        // current-season stats exist, honor the session's last-used tab.
+        const cs = res.data.currentSeason;
+        const hasCurrent = !!(cs && (cs.weekly || []).length > 0);
+        const hasPrevious = (res.data.previousSeasons || []).length > 0;
+        setView(hasCurrent ? lastView : hasPrevious ? 'previous' : lastView);
       } catch (err) {
         setError(err.response?.data?.error || err.message);
       } finally {

@@ -120,6 +120,10 @@ function LeagueDiscovery() {
 
   const statusFor = (league) => requestStatus[league.id] ?? league.myRequestStatus;
 
+  // "Filters active" drives the empty state: only blame the filters when the
+  // user has actually narrowed the search. Sort is ordering, not a filter.
+  const hasActiveFilters = search.trim() !== '' || scoring !== '' || openSlotsOnly;
+
   if (loading && leagues.length === 0) {
     return (
       <Container maxWidth="lg" sx={{ py: 4 }} data-testid="page-skeleton">
@@ -199,9 +203,20 @@ function LeagueDiscovery() {
       </Paper>
 
       {leagues.length === 0 ? (
-        <Typography color="text.secondary">
-          No leagues match your filters — try widening your search.
-        </Typography>
+        hasActiveFilters ? (
+          <Typography color="text.secondary">
+            No leagues match your filters — try widening your search.
+          </Typography>
+        ) : (
+          <Box sx={{ textAlign: 'center', py: 5 }}>
+            <Typography color="text.secondary" gutterBottom>
+              No public leagues yet — be the first to start one.
+            </Typography>
+            <Button component={Link} to="/user" variant="contained">
+              Create a League
+            </Button>
+          </Box>
+        )
       ) : (
         <TableContainer component={Paper}>
           <Table>
