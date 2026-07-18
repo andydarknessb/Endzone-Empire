@@ -31,6 +31,34 @@ const SEASON_STATUS_CHIP = {
   complete: { label: 'Season Complete', color: 'success' },
 };
 
+// League navigation, grouped by intent so the dashboard reads as sections
+// rather than a flat wall of buttons.
+const NAV_GROUPS = [
+  {
+    label: 'Play',
+    links: [
+      { label: 'Draft Room', slug: 'draft' },
+      { label: 'Set Lineup', slug: 'lineup' },
+      { label: 'Matchups', slug: 'matchups' },
+    ],
+  },
+  {
+    label: 'Moves',
+    links: [
+      { label: 'Waivers', slug: 'waivers' },
+      { label: 'Trades', slug: 'trades' },
+    ],
+  },
+  {
+    label: 'League',
+    links: [
+      { label: 'Activity', slug: 'activity' },
+      { label: 'Power Rankings', slug: 'power-rankings' },
+      { label: 'History', slug: 'history' },
+    ],
+  },
+];
+
 function LeagueDashboard() {
   const { leagueId } = useParams();
   const [league, setLeague] = useState(null);
@@ -217,6 +245,9 @@ function LeagueDashboard() {
   // Below the configured minimum, the draft can't start yet (min_teams may be
   // absent in older data — treat that as no gate).
   const belowMin = league.min_teams != null && teams.length < league.min_teams;
+  // A commissioner can't remove their own team; only surface the section when
+  // there is actually someone to remove.
+  const removableTeams = teams.filter((team) => team.owner !== user.username);
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
@@ -343,76 +374,72 @@ function LeagueDashboard() {
         </Box>
       </Box>
 
-      <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-        {isOwner && league.draft_status === 'pending' && (
-          <Tooltip
-            title={
-              belowMin
-                ? `Need at least ${league.min_teams} teams to start the draft (currently ${teams.length})`
-                : ''
-            }
-          >
-            <span>
-              <Button
-                variant="contained"
-                color="primary"
-                onClick={handleStartDraft}
-                disabled={belowMin}
-              >
-                Start Draft
-              </Button>
-            </span>
-          </Tooltip>
-        )}
-        {isOwner &&
+      {/* Contextual actions: only shown when they apply */}
+      {((isOwner && league.draft_status === 'pending') ||
+        (isOwner &&
           league.draft_status === 'complete' &&
           standingsLeague &&
-          standingsLeague.season_status !== 'complete' && (
-            <Button variant="contained" color="secondary" onClick={handleAdvanceWeek}>
-              Advance Week
-            </Button>
+          standingsLeague.season_status !== 'complete')) && (
+        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 3 }}>
+          {isOwner && league.draft_status === 'pending' && (
+            <Tooltip
+              title={
+                belowMin
+                  ? `Need at least ${league.min_teams} teams to start the draft (currently ${teams.length})`
+                  : ''
+              }
+            >
+              <span>
+                <Button
+                  variant="contained"
+                  color="primary"
+                  onClick={handleStartDraft}
+                  disabled={belowMin}
+                >
+                  Start Draft
+                </Button>
+              </span>
+            </Tooltip>
           )}
-        <Link to={`/league/${leagueId}/draft`} style={{ textDecoration: 'none' }}>
-          <Button variant="outlined" color="primary">
-            Draft Room
-          </Button>
-        </Link>
-        <Link to={`/league/${leagueId}/matchups`} style={{ textDecoration: 'none' }}>
-          <Button variant="outlined" color="primary">
-            Matchups
-          </Button>
-        </Link>
-        <Link to={`/league/${leagueId}/lineup`} style={{ textDecoration: 'none' }}>
-          <Button variant="outlined" color="primary">
-            Set Lineup
-          </Button>
-        </Link>
-        <Link to={`/league/${leagueId}/waivers`} style={{ textDecoration: 'none' }}>
-          <Button variant="outlined" color="primary">
-            Waivers
-          </Button>
-        </Link>
-        <Link to={`/league/${leagueId}/trades`} style={{ textDecoration: 'none' }}>
-          <Button variant="outlined" color="primary">
-            Trades
-          </Button>
-        </Link>
-        <Link to={`/league/${leagueId}/activity`} style={{ textDecoration: 'none' }}>
-          <Button variant="outlined" color="primary">
-            Activity
-          </Button>
-        </Link>
-        <Link to={`/league/${leagueId}/power-rankings`} style={{ textDecoration: 'none' }}>
-          <Button variant="outlined" color="primary">
-            Power Rankings
-          </Button>
-        </Link>
-        <Link to={`/league/${leagueId}/history`} style={{ textDecoration: 'none' }}>
-          <Button variant="outlined" color="primary">
-            History
-          </Button>
-        </Link>
-      </Box>
+          {isOwner &&
+            league.draft_status === 'complete' &&
+            standingsLeague &&
+            standingsLeague.season_status !== 'complete' && (
+              <Button variant="contained" color="secondary" onClick={handleAdvanceWeek}>
+                Advance Week
+              </Button>
+            )}
+        </Box>
+      )}
+
+      {/* Grouped league navigation */}
+      <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
+        <Box sx={{ display: 'flex', gap: { xs: 3, sm: 5 }, flexWrap: 'wrap' }}>
+          {NAV_GROUPS.map((group) => (
+            <Box key={group.label} sx={{ minWidth: 140 }}>
+              <Typography
+                variant="overline"
+                sx={{ color: 'text.secondary', display: 'block', mb: 1 }}
+              >
+                {group.label}
+              </Typography>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'flex-start' }}>
+                {group.links.map((l) => (
+                  <Link
+                    key={l.slug}
+                    to={`/league/${leagueId}/${l.slug}`}
+                    style={{ textDecoration: 'none' }}
+                  >
+                    <Button variant="outlined" color="primary" size="small">
+                      {l.label}
+                    </Button>
+                  </Link>
+                ))}
+              </Box>
+            </Box>
+          ))}
+        </Box>
+      </Paper>
 
       {isOwner && (
         <Paper sx={{ p: 2, mt: 3 }}>
@@ -460,24 +487,26 @@ function LeagueDashboard() {
               </Box>
             </Box>
           )}
-          <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
-            Remove a team
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-            {teams
-              .filter((team) => team.owner !== user.username)
-              .map((team) => (
-                <Button
-                  key={team.id}
-                  size="small"
-                  variant="outlined"
-                  color="error"
-                  onClick={() => handleRemoveTeam(team.id)}
-                >
-                  Remove {team.name}
-                </Button>
-              ))}
-          </Box>
+          {removableTeams.length > 0 && (
+            <>
+              <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
+                Remove a team
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                {removableTeams.map((team) => (
+                  <Button
+                    key={team.id}
+                    size="small"
+                    variant="outlined"
+                    color="error"
+                    onClick={() => handleRemoveTeam(team.id)}
+                  >
+                    Remove {team.name}
+                  </Button>
+                ))}
+              </Box>
+            </>
+          )}
 
           {league.is_public && league.join_approval && (
             <Box sx={{ mt: 3 }} data-testid="join-requests-section">
