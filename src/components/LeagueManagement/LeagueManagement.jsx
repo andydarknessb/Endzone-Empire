@@ -176,6 +176,7 @@ function LeagueManagement() {
               type="datetime-local"
               size="small"
               InputLabelProps={{ shrink: true }}
+              sx={(theme) => ({ colorScheme: theme.palette.mode })}
               value={draftDate}
               onChange={(e) => setDraftDate(e.target.value)}
             />

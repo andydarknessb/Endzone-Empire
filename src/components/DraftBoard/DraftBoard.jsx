@@ -590,17 +590,21 @@ function DraftBoard() {
             </Typography>
             <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
               <TextField
-                label="Pick clock (seconds, 0 = untimed)"
+                label="Pick clock (sec)"
+                helperText="0 = untimed"
                 type="number"
                 size="small"
+                sx={{ width: 170 }}
                 inputProps={{ min: 0, max: 3600 }}
                 value={pickTimeSeconds}
                 onChange={(e) => setPickTimeSeconds(e.target.value)}
               />
               <TextField
-                label="Autodraft delay (seconds)"
+                label="Autodraft delay"
+                helperText="seconds"
                 type="number"
                 size="small"
+                sx={{ width: 170 }}
                 inputProps={{ min: 1, max: 60 }}
                 value={autodraftDelaySeconds}
                 onChange={(e) => setAutodraftDelaySeconds(e.target.value)}

@@ -337,6 +337,7 @@ function UserPage() {
             type="datetime-local"
             fullWidth
             InputLabelProps={{ shrink: true }}
+            sx={(theme) => ({ colorScheme: theme.palette.mode })}
             value={draftDate}
             onChange={(event) => setDraftDate(event.target.value)}
           />
