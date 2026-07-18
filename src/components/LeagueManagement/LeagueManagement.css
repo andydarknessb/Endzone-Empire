@@ -75,7 +75,6 @@
     box-shadow: var(--shadow-2);
     transition: all var(--transition-base) ease 0s;
     cursor: pointer;
-    outline: none;
   }
 
   .buttonContainer button:hover {

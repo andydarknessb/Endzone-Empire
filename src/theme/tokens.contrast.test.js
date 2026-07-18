@@ -29,6 +29,9 @@ const PAIRINGS = [
   ['text-primary', 'row-stripe', AA_TEXT, 'cell text on a striped row'],
   ['text-primary', 'row-hover', AA_TEXT, 'cell text on a hovered row'],
   ['text-muted', 'row-stripe', AA_TEXT, 'muted cell text on a striped row'],
+  // The amber "Teams: N/M" chip (MUI warning): its label flips white/dark with
+  // the theme, matching text-inverse.
+  ['text-inverse', 'warning', AA_TEXT, 'label on the amber Teams chip'],
 ];
 
 describe.each(['light', 'dark'])('%s theme contrast', (mode) => {
