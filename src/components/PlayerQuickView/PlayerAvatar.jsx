@@ -1,6 +1,6 @@
 import React from 'react';
 import { Avatar } from '@mui/material';
-import { POSITION_COLORS } from './PositionChip';
+import { positionColorSx } from './PositionChip';
 
 function initialsFor(name) {
   if (!name) return '?';
@@ -19,18 +19,16 @@ function initialsFor(name) {
  * full profile page so avatars look identical everywhere.
  */
 function PlayerAvatar({ name, position, photoUrl, size = 32 }) {
-  const color = POSITION_COLORS[position] || 'primary';
+  // Match the position chip; fall back to the neutral (DEF) fill when unknown.
+  const colorSx = positionColorSx(position) || {
+    bgcolor: 'var(--pos-def)',
+    color: 'var(--text-inverse)',
+  };
   return (
     <Avatar
       src={photoUrl || undefined}
       imgProps={{ loading: 'lazy' }}
-      sx={{
-        width: size,
-        height: size,
-        bgcolor: `${color}.main`,
-        color: `${color}.contrastText`,
-        fontSize: size * 0.4,
-      }}
+      sx={{ width: size, height: size, fontSize: size * 0.4, ...colorSx }}
     >
       {initialsFor(name)}
     </Avatar>

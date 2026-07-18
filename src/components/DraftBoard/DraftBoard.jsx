@@ -36,6 +36,7 @@ import InjuryBadge from '../InjuryBadge/InjuryBadge';
 import Countdown from '../Countdown/Countdown';
 import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
+import PositionChip from '../PlayerQuickView/PositionChip';
 
 // Matches the server's players page size; used to number rows by ADP rank.
 const PLAYERS_PAGE_SIZE = 25;
@@ -718,7 +719,7 @@ function DraftBoard() {
                           <InjuryBadge status={player.injury_status} detail={player.injury_detail} />
                         </Box>
                       </TableCell>
-                      <TableCell>{player.position}</TableCell>
+                      <TableCell><PositionChip position={player.position} /></TableCell>
                       <TableCell>{player.nfl_team}</TableCell>
                       <TableCell align="right">
                         {player.adp != null ? player.adp : '—'}

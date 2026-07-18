@@ -34,6 +34,14 @@ export const colorTokens = {
     warning: '#8a5a00',
     'focus-ring': 'rgba(30, 91, 184, 0.55)',
     overlay: 'rgba(15, 20, 25, 0.5)',
+    // Fantasy position palette (data encoding). Light theme: saturated, dark
+    // enough to carry white (`text-inverse`) chip/avatar labels at AA.
+    'pos-qb': '#c62828', // red
+    'pos-rb': '#15663f', // green
+    'pos-wr': '#1e5bb8', // blue
+    'pos-te': '#9a5100', // orange
+    'pos-k': '#6d28d9', // purple
+    'pos-def': '#4b5c66', // gray
   },
   dark: {
     'bg-page': '#0f1419',
@@ -55,6 +63,14 @@ export const colorTokens = {
     warning: '#f0b34e',
     'focus-ring': 'rgba(79, 140, 255, 0.6)',
     overlay: 'rgba(0, 0, 0, 0.6)',
+    // Fantasy position palette (data encoding). Dark theme: lighter, brighter
+    // fills that carry the dark `text-inverse` label at AA.
+    'pos-qb': '#ff8a80', // red
+    'pos-rb': '#7ee2a8', // green
+    'pos-wr': '#7fb0ff', // blue
+    'pos-te': '#f0b34e', // orange
+    'pos-k': '#c4a2f5', // purple
+    'pos-def': '#b0bec5', // gray
   },
 };
 

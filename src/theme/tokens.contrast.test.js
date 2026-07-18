@@ -18,6 +18,13 @@ const PAIRINGS = [
   ['on-accent', 'accent', AA_LARGE, 'button label on accent'],
   ['text-inverse', 'danger', AA_LARGE, 'alert banner text'],
   ['danger', 'surface', AA_TEXT, 'error text on cards'],
+  // Position chips/avatars: white (light) or dark (dark) label on the fill.
+  ['text-inverse', 'pos-qb', AA_TEXT, 'QB position chip label'],
+  ['text-inverse', 'pos-rb', AA_TEXT, 'RB position chip label'],
+  ['text-inverse', 'pos-wr', AA_TEXT, 'WR position chip label'],
+  ['text-inverse', 'pos-te', AA_TEXT, 'TE position chip label'],
+  ['text-inverse', 'pos-k', AA_TEXT, 'K position chip label'],
+  ['text-inverse', 'pos-def', AA_TEXT, 'DEF position chip label'],
 ];
 
 describe.each(['light', 'dark'])('%s theme contrast', (mode) => {

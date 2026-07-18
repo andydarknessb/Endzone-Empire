@@ -1,21 +1,34 @@
 import React from 'react';
 import { Chip } from '@mui/material';
 
-// Shared position -> MUI palette color mapping so the position chip reads the
-// same everywhere (players table, quick-view, full profile).
-export const POSITION_COLORS = {
-  QB: 'primary',
-  RB: 'success',
-  WR: 'secondary',
-  TE: 'warning',
-  K: 'info',
-  DEF: 'error',
-};
+// Fantasy position -> CSS-var fill (defined per-theme in tokens.js: QB red,
+// RB green, WR blue, TE orange, K purple, DEF gray). The label uses
+// --text-inverse, which flips white/dark with the theme so it stays AA-legible
+// on the fill in both light and dark modes.
+const POSITION_VAR = { QB: 'qb', RB: 'rb', WR: 'wr', TE: 'te', K: 'k', DEF: 'def' };
 
-/** A small, position-colored chip (QB/RB/WR/TE/K/DEF). */
-function PositionChip({ position, size = 'small', ...props }) {
+/**
+ * sx for a position-colored surface (chip fill or avatar background), or null
+ * for an unknown position. Shared so chips and avatars color identically.
+ */
+export function positionColorSx(position) {
+  const key = POSITION_VAR[position];
+  if (!key) return null;
+  return { bgcolor: `var(--pos-${key})`, color: 'var(--text-inverse)' };
+}
+
+/** A small, position-colored chip (QB red, RB green, WR blue, TE orange, K purple, DEF gray). */
+function PositionChip({ position, size = 'small', sx, ...props }) {
   if (!position) return null;
-  return <Chip label={position} size={size} color={POSITION_COLORS[position] || 'default'} {...props} />;
+  const colorSx = positionColorSx(position);
+  return (
+    <Chip
+      label={position}
+      size={size}
+      sx={{ fontWeight: 600, ...(colorSx || {}), ...sx }}
+      {...props}
+    />
+  );
 }
 
 export default PositionChip;
