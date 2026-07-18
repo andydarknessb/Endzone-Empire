@@ -29,6 +29,7 @@ import {
   TextField,
   Stack,
   TableSortLabel,
+  Tooltip,
 } from '@mui/material';
 import { keyframes } from '@mui/material/styles';
 import apiClient from '../../api/apiClient';
@@ -138,6 +139,17 @@ function DraftBoard() {
   const [pickTimeSeconds, setPickTimeSeconds] = useState('');
   const [autodraftDelaySeconds, setAutodraftDelaySeconds] = useState('');
   const [settingsSaving, setSettingsSaving] = useState(false);
+  // Per-user pick chime, default muted, remembered in localStorage. Read via a
+  // ref inside the long-lived socket handlers so they see the current value.
+  const [soundOn, setSoundOn] = useState(() => localStorage.getItem('endzone_draft_sound') === '1');
+  const soundOnRef = useRef(soundOn);
+  const toggleSound = () => {
+    setSoundOn((prev) => {
+      const next = !prev;
+      localStorage.setItem('endzone_draft_sound', next ? '1' : '0');
+      return next;
+    });
+  };
   // Player quick-view: only the viewed id is stored. Whether that player has
   // been drafted (and by whom) is derived live from `picks`/`teams` below, so a
   // pick arriving over the socket while the dialog is open surfaces the banner
@@ -181,7 +193,7 @@ function DraftBoard() {
       const isMyTurn = !!(team && userIdRef.current != null && team.owner_id === userIdRef.current);
       if (isMyTurn && !wasMyTurnRef.current) {
         setOnClockAlertOpen(true);
-        playBeep();
+        if (soundOnRef.current) playBeep();
       }
       wasMyTurnRef.current = isMyTurn;
     };
@@ -294,6 +306,47 @@ function DraftBoard() {
   useEffect(() => {
     userIdRef.current = user?.id;
   }, [user?.id]);
+
+  useEffect(() => {
+    soundOnRef.current = soundOn;
+  }, [soundOn]);
+
+  // Flash the tab title while it's the user's pick and the tab is in the
+  // background, so they notice from another tab. Stops (and restores the
+  // title) on focus/visibility or when the pick is made.
+  useEffect(() => {
+    const myTurn = !!(onTheClock && user?.id != null && onTheClock.owner_id === user.id);
+    if (!myTurn) return undefined;
+    const original = document.title;
+    let intervalId = null;
+    let flip = false;
+    const start = () => {
+      if (intervalId) return;
+      intervalId = setInterval(() => {
+        document.title = flip ? original : '⏰ Your pick!';
+        flip = !flip;
+      }, 1000);
+    };
+    const stop = () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+      document.title = original;
+    };
+    const onVisibility = () => {
+      if (document.hidden) start();
+      else stop();
+    };
+    onVisibility();
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('focus', stop);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('focus', stop);
+      stop();
+    };
+  }, [onTheClock, user?.id]);
 
   // Pre-fills the commissioner's draft-settings form from the league once
   // it's known, without clobbering in-progress edits on later draft:state pushes.
@@ -630,6 +683,16 @@ function DraftBoard() {
             />
           )}
           {league?.draft_paused && <Chip label="Draft Paused" color="warning" />}
+          <Tooltip title={soundOn ? 'Mute pick sound' : 'Unmute pick sound'}>
+            <IconButton
+              size="small"
+              aria-label={soundOn ? 'Mute pick sound' : 'Unmute pick sound'}
+              aria-pressed={soundOn}
+              onClick={toggleSound}
+            >
+              {soundOn ? '🔔' : '🔕'}
+            </IconButton>
+          </Tooltip>
           {isCommissioner && league?.draft_status === 'pending' && (
             <Button variant="outlined" size="small" onClick={handleRandomizeOrder}>
               Randomize Draft Order
