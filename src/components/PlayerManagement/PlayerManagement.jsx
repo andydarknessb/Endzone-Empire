@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper,
   Button, Pagination, Alert, Typography, Select, MenuItem, FormControl, InputLabel,
-  TextField, InputAdornment, Tooltip, Box,
+  TextField, InputAdornment, Tooltip, Box, TableSortLabel, Switch, FormControlLabel,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
@@ -31,20 +32,52 @@ const stripedRowsSx = {
   '& tbody tr:hover': { backgroundColor: 'var(--row-hover)' },
 };
 
+// Keep the sort arrow/label legible on the colored (primary.main) header.
+const sortLabelSx = {
+  color: 'primary.contrastText',
+  '&.Mui-active': { color: 'primary.contrastText' },
+  '&:hover': { color: 'primary.contrastText' },
+  '& .MuiTableSortLabel-icon': { color: 'primary.contrastText !important' },
+};
+
 function PlayerManagement() {
   const [leagues, setLeagues] = useState([]);
   const [selectedLeague, setSelectedLeague] = useState('');
   const [players, setPlayers] = useState([]);
   const [totalPages, setTotalPages] = useState(1);
   const [totalPlayers, setTotalPlayers] = useState(0);
-  const [positionFilter, setPositionFilter] = useState('All');
-  const [searchInput, setSearchInput] = useState('');
-  const [search, setSearch] = useState('');
-  const [pageNumber, setPageNumber] = useState(1);
   const [roster, setRoster] = useState([]);
   const [error, setError] = useState(null);
   const [quickViewId, setQuickViewId] = useState(null);
   const notify = useSnackbar();
+
+  // Table state lives in the URL so refresh and back/forward restore it.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const pageNumber = Math.max(1, Number(searchParams.get('page')) || 1);
+  const positionFilter = searchParams.get('pos') || 'All';
+  const search = searchParams.get('q') || '';
+  const sort = searchParams.get('sort') || 'adp';
+  const dir = searchParams.get('dir') || 'asc';
+  const hideRostered = searchParams.get('hide') === '1';
+  const [searchInput, setSearchInput] = useState(search);
+
+  // Merge updates into the query string, dropping keys set to a default/empty.
+  const updateParams = useCallback(
+    (updates) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          Object.entries(updates).forEach(([k, v]) => {
+            if (v === '' || v == null || v === false) next.delete(k);
+            else next.set(k, String(v));
+          });
+          return next;
+        },
+        { replace: false }
+      );
+    },
+    [setSearchParams]
+  );
 
   const report = (err) => setError(err.response?.data?.error || err.message);
 
@@ -62,7 +95,8 @@ function PlayerManagement() {
 
   const fetchPlayers = useCallback(async () => {
     try {
-      const params = { page: pageNumber, position: positionFilter, sort: 'adp' };
+      const params = { page: pageNumber, position: positionFilter, sort };
+      if (dir === 'desc') params.dir = 'desc';
       if (search) params.search = search;
       const response = await apiClient.get('/api/players', { params });
       setPlayers(response.data.players);
@@ -71,7 +105,7 @@ function PlayerManagement() {
     } catch (err) {
       report(err);
     }
-  }, [pageNumber, positionFilter, search]);
+  }, [pageNumber, positionFilter, search, sort, dir]);
 
   const fetchRoster = useCallback(async () => {
     if (!selectedLeague) return;
@@ -86,15 +120,29 @@ function PlayerManagement() {
   useEffect(() => { fetchPlayers(); }, [fetchPlayers]);
   useEffect(() => { fetchRoster(); }, [fetchRoster]);
 
-  // Debounce the search box so we're not firing a request per keystroke, and
-  // reset to page 1 whenever the committed term changes.
+  // Debounce the search box; commit the term to the URL (resetting to page 1).
   useEffect(() => {
     const handle = setTimeout(() => {
-      setSearch(searchInput.trim());
-      setPageNumber(1);
+      const trimmed = searchInput.trim();
+      if (trimmed !== search) updateParams({ q: trimmed, page: 1 });
     }, 300);
     return () => clearTimeout(handle);
-  }, [searchInput]);
+  }, [searchInput, search, updateParams]);
+
+  const handleSort = (key) => {
+    const nextDesc = sort === key && dir === 'asc';
+    updateParams({
+      sort: key === 'adp' ? '' : key, // adp is the default sort — keep URL clean
+      dir: nextDesc ? 'desc' : '',
+      page: 1,
+    });
+  };
+
+  // Keep the (uncontrolled-feel) search box in sync when the URL term changes
+  // externally, e.g. via the back/forward buttons.
+  useEffect(() => {
+    setSearchInput(search);
+  }, [search]);
 
   const addToRoster = async (player, { silent = false } = {}) => {
     setError(null);
@@ -127,6 +175,7 @@ function PlayerManagement() {
   };
 
   const isPlayerInRoster = (playerId) => roster.some((player) => player.id === playerId);
+  const shownPlayers = hideRostered ? players.filter((p) => !isPlayerInRoster(p.id)) : players;
 
   // Context action for the quick-view: Add to Roster for the currently-viewed
   // player, mirroring the row button's disabled/tooltip logic.
@@ -177,14 +226,24 @@ function PlayerManagement() {
         <FormControl size="small" sx={{ minWidth: 120 }}>
           <InputLabel id="pm-pos-label">Position</InputLabel>
           <Select labelId="pm-pos-label" label="Position" value={positionFilter}
-            onChange={(e) => { setPositionFilter(e.target.value); setPageNumber(1); }}>
+            onChange={(e) => updateParams({ pos: e.target.value === 'All' ? '' : e.target.value, page: 1 })}>
             {POSITIONS.map((pos) => <MenuItem key={pos} value={pos}>{pos}</MenuItem>)}
           </Select>
         </FormControl>
+        <FormControlLabel
+          control={
+            <Switch
+              size="small"
+              checked={hideRostered}
+              onChange={(e) => updateParams({ hide: e.target.checked ? '1' : '' })}
+            />
+          }
+          label="Hide rostered"
+        />
         <Pagination
           count={totalPages}
           page={pageNumber}
-          onChange={(event, value) => setPageNumber(value)}
+          onChange={(event, value) => updateParams({ page: value })}
         />
       </div>
 
@@ -193,22 +252,40 @@ function PlayerManagement() {
           <TableHead>
             <TableRow>
               <TableCell sx={headCellSx} align="right">#</TableCell>
-              <TableCell sx={headCellSx}>Name</TableCell>
+              <TableCell sx={headCellSx}>
+                <TableSortLabel
+                  active={sort === 'name'}
+                  direction={sort === 'name' ? dir : 'asc'}
+                  onClick={() => handleSort('name')}
+                  sx={sortLabelSx}
+                >
+                  Name
+                </TableSortLabel>
+              </TableCell>
               <TableCell sx={headCellSx} align="right">Position</TableCell>
               <TableCell sx={headCellSx} align="right">NFL Team</TableCell>
-              <TableCell sx={headCellSx} align="right">ADP</TableCell>
+              <TableCell sx={headCellSx} align="right">
+                <TableSortLabel
+                  active={sort === 'adp'}
+                  direction={sort === 'adp' ? dir : 'asc'}
+                  onClick={() => handleSort('adp')}
+                  sx={sortLabelSx}
+                >
+                  ADP
+                </TableSortLabel>
+              </TableCell>
               <TableCell sx={stickyActionHeadSx} align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {players.length === 0 && (
+            {shownPlayers.length === 0 && (
               <TableRow>
                 <TableCell colSpan={6} sx={{ color: 'text.secondary', textAlign: 'center' }}>
                   {search ? `No players matching “${search}”` : 'No players found'}
                 </TableCell>
               </TableRow>
             )}
-            {players.map((player, idx) => (
+            {shownPlayers.map((player, idx) => (
               <TableRow key={player.id}>
                 <TableCell align="right" sx={{ color: 'text.secondary' }}>
                   {(pageNumber - 1) * PLAYERS_PAGE_SIZE + idx + 1}
@@ -252,7 +329,7 @@ function PlayerManagement() {
       </TableContainer>
 
       <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5, mt: 1 }}>
-        <Pagination count={totalPages} page={pageNumber} onChange={(event, value) => setPageNumber(value)} />
+        <Pagination count={totalPages} page={pageNumber} onChange={(event, value) => updateParams({ page: value })} />
         <Typography variant="caption" color="text.secondary">
           {totalPlayers} player{totalPlayers === 1 ? '' : 's'}
           {search ? ` matching “${search}”` : ''}
@@ -308,7 +385,7 @@ function PlayerManagement() {
         onClose={() => setQuickViewId(null)}
         playerId={quickViewId}
         leagueId={selectedLeague ? Number(selectedLeague) : undefined}
-        playerIds={players.map((p) => p.id)}
+        playerIds={shownPlayers.map((p) => p.id)}
         onNavigate={setQuickViewId}
         actions={quickViewActions}
       />

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import {
   Container,
@@ -28,6 +28,7 @@ import {
   FormControlLabel,
   TextField,
   Stack,
+  TableSortLabel,
 } from '@mui/material';
 import { keyframes } from '@mui/material/styles';
 import apiClient from '../../api/apiClient';
@@ -61,6 +62,14 @@ const stripedRowsSx = {
   '& tbody tr': { backgroundColor: 'var(--surface)' },
   '& tbody tr:nth-of-type(even)': { backgroundColor: 'var(--row-stripe)' },
   '& tbody tr:hover': { backgroundColor: 'var(--row-hover)' },
+};
+
+// Keep the sort arrow/label legible on the colored (primary.main) header.
+const sortLabelSx = {
+  color: 'primary.contrastText',
+  '&.Mui-active': { color: 'primary.contrastText' },
+  '&:hover': { color: 'primary.contrastText' },
+  '& .MuiTableSortLabel-icon': { color: 'primary.contrastText !important' },
 };
 
 // Subtle pulse for the on-clock timer once time is running low (<=10s).
@@ -115,9 +124,14 @@ function DraftBoard() {
   const userIdRef = useRef(user?.id);
   const [page, setPage] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
-  const [positionFilter, setPositionFilter] = useState('All');
-  const [searchInput, setSearchInput] = useState('');
-  const [search, setSearch] = useState('');
+  // Table state seeds from the URL (so a refresh restores it) and mirrors back.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [positionFilter, setPositionFilter] = useState(() => searchParams.get('pos') || 'All');
+  const [searchInput, setSearchInput] = useState(() => searchParams.get('q') || '');
+  const [search, setSearch] = useState(() => searchParams.get('q') || '');
+  const [sort, setSort] = useState(() => searchParams.get('sort') || 'adp');
+  const [dir, setDir] = useState(() => searchParams.get('dir') || 'asc');
+  const [hideDrafted, setHideDrafted] = useState(() => searchParams.get('showDrafted') !== '1');
   const didMountRef = useRef(false);
   const [onClockAlertOpen, setOnClockAlertOpen] = useState(false);
   const wasMyTurnRef = useRef(false);
@@ -298,15 +312,37 @@ function DraftBoard() {
     return () => clearTimeout(handle);
   }, [searchInput]);
 
-  // Refetch the available list from page 1 when the committed search term
-  // changes. Skips the initial mount, where fetchInitialData already loads it.
+  // Refetch the available list from page 1 when the committed search term,
+  // sort, direction, or the hide-drafted toggle changes. Skips the initial
+  // mount, where fetchInitialData already loads it.
   useEffect(() => {
     if (!didMountRef.current) {
       didMountRef.current = true;
       return;
     }
     fetchAvailablePlayers(0, positionFilter, search);
-  }, [search]);
+  }, [search, sort, dir, hideDrafted]);
+
+  // Mirror the table state into the URL so a refresh restores it (replace, so
+  // we don't flood history during a live draft).
+  useEffect(() => {
+    const next = new URLSearchParams();
+    if (positionFilter !== 'All') next.set('pos', positionFilter);
+    if (search) next.set('q', search);
+    if (sort !== 'adp') next.set('sort', sort);
+    if (dir !== 'asc') next.set('dir', dir);
+    if (!hideDrafted) next.set('showDrafted', '1');
+    setSearchParams(next, { replace: true });
+  }, [positionFilter, search, sort, dir, hideDrafted, setSearchParams]);
+
+  const handleSort = (key) => {
+    if (sort === key) {
+      setDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSort(key);
+      setDir('asc');
+    }
+  };
 
   const fetchInitialData = async () => {
     try {
@@ -325,9 +361,13 @@ function DraftBoard() {
       const params = {
         page: pageNum + 1,
         leagueId: Number(leagueId),
-        available: true,
-        sort: 'adp', // best available first, by ADP
+        // Season Proj isn't a DB column — fetch by ADP and re-sort the page
+        // client-side for that column.
+        sort: sort === 'proj' ? 'adp' : sort,
       };
+      // "Hide drafted" (default) keeps the board to available players only.
+      if (hideDrafted) params.available = true;
+      if (dir === 'desc') params.dir = 'desc';
       if (positionOverride !== 'All') {
         params.position = positionOverride;
       }
@@ -508,6 +548,19 @@ function DraftBoard() {
   // Context actions for the quick-view: Draft / Queue the currently-viewed
   // available player, mirroring the row buttons. Hidden once the player is
   // drafted (the "Drafted by" banner covers that case).
+  // Season Proj isn't server-sortable (derived per league), so sort that column
+  // client-side over the current page. Drafted rows only appear when the
+  // "Hide drafted" toggle is off.
+  const draftedIds = new Set(picks.map((p) => p.player_id));
+  const displayPlayers =
+    sort === 'proj'
+      ? [...availablePlayers].sort((a, b) => {
+          const av = a.projected_points ?? -Infinity;
+          const bv = b.projected_points ?? -Infinity;
+          return dir === 'desc' ? bv - av : av - bv;
+        })
+      : availablePlayers;
+
   const quickViewAvail = availablePlayers.find((p) => p.id === quickViewId);
   const quickViewActions =
     quickViewAvail && !quickViewDraftedBy
@@ -712,6 +765,16 @@ function DraftBoard() {
                   <MenuItem value="DEF">DEF</MenuItem>
                 </Select>
               </FormControl>
+              <FormControlLabel
+                control={
+                  <Switch
+                    size="small"
+                    checked={hideDrafted}
+                    onChange={(e) => setHideDrafted(e.target.checked)}
+                  />
+                }
+                label="Hide drafted"
+              />
             </Box>
 
             <TableContainer>
@@ -722,7 +785,14 @@ function DraftBoard() {
                       #
                     </TableCell>
                     <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>
-                      Name
+                      <TableSortLabel
+                        active={sort === 'name'}
+                        direction={sort === 'name' ? dir : 'asc'}
+                        onClick={() => handleSort('name')}
+                        sx={sortLabelSx}
+                      >
+                        Name
+                      </TableSortLabel>
                     </TableCell>
                     <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>
                       Pos
@@ -731,10 +801,24 @@ function DraftBoard() {
                       NFL Team
                     </TableCell>
                     <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }} align="right">
-                      ADP
+                      <TableSortLabel
+                        active={sort === 'adp'}
+                        direction={sort === 'adp' ? dir : 'asc'}
+                        onClick={() => handleSort('adp')}
+                        sx={sortLabelSx}
+                      >
+                        ADP
+                      </TableSortLabel>
                     </TableCell>
                     <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }} align="right">
-                      Season Proj
+                      <TableSortLabel
+                        active={sort === 'proj'}
+                        direction={sort === 'proj' ? dir : 'asc'}
+                        onClick={() => handleSort('proj')}
+                        sx={sortLabelSx}
+                      >
+                        Season Proj
+                      </TableSortLabel>
                     </TableCell>
                     <TableCell sx={stickyActionHeadSx} align="center">
                       Action
@@ -742,57 +826,61 @@ function DraftBoard() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {availablePlayers.length === 0 && (
+                  {displayPlayers.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={7} sx={{ color: 'text.secondary', textAlign: 'center' }}>
                         {search ? `No available players matching “${search}”` : 'No available players'}
                       </TableCell>
                     </TableRow>
                   )}
-                  {availablePlayers.map((player, idx) => (
-                    <TableRow key={player.id}>
-                      <TableCell align="right" sx={{ color: 'text.secondary' }}>
-                        {page * PLAYERS_PAGE_SIZE + idx + 1}
-                      </TableCell>
-                      <TableCell>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <PlayerNameLink
-                            name={player.name}
-                            playerId={player.id}
-                            onOpen={setQuickViewId}
-                          />
-                          <InjuryBadge status={player.injury_status} detail={player.injury_detail} />
-                        </Box>
-                      </TableCell>
-                      <TableCell><PositionChip position={player.position} /></TableCell>
-                      <TableCell>{player.nfl_team}</TableCell>
-                      <TableCell align="right">
-                        {player.adp != null ? player.adp : '—'}
-                      </TableCell>
-                      <TableCell align="right">
-                        {player.projected_points != null ? player.projected_points : '—'}
-                      </TableCell>
-                      <TableCell align="center" sx={stickyActionCellSx}>
-                        <Button
-                          variant="contained"
-                          size="small"
-                          disabled={!!league?.draft_paused}
-                          onClick={() => handleDraftPlayer(player.id)}
-                        >
-                          Draft
-                        </Button>
-                        <Button
-                          variant="outlined"
-                          size="small"
-                          sx={{ ml: 1 }}
-                          disabled={queue.some((p) => p.id === player.id)}
-                          onClick={() => handleQueuePlayer(player)}
-                        >
-                          Queue
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {displayPlayers.map((player, idx) => {
+                    const isDrafted = draftedIds.has(player.id);
+                    return (
+                      <TableRow key={player.id}>
+                        <TableCell align="right" sx={{ color: 'text.secondary' }}>
+                          {page * PLAYERS_PAGE_SIZE + idx + 1}
+                        </TableCell>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <PlayerNameLink
+                              name={player.name}
+                              playerId={player.id}
+                              onOpen={setQuickViewId}
+                            />
+                            <InjuryBadge status={player.injury_status} detail={player.injury_detail} />
+                            {isDrafted && <Chip size="small" label="Drafted" color="default" />}
+                          </Box>
+                        </TableCell>
+                        <TableCell><PositionChip position={player.position} /></TableCell>
+                        <TableCell>{player.nfl_team}</TableCell>
+                        <TableCell align="right">
+                          {player.adp != null ? player.adp : '—'}
+                        </TableCell>
+                        <TableCell align="right">
+                          {player.projected_points != null ? player.projected_points : '—'}
+                        </TableCell>
+                        <TableCell align="center" sx={stickyActionCellSx}>
+                          <Button
+                            variant="contained"
+                            size="small"
+                            disabled={!!league?.draft_paused || isDrafted}
+                            onClick={() => handleDraftPlayer(player.id)}
+                          >
+                            Draft
+                          </Button>
+                          <Button
+                            variant="outlined"
+                            size="small"
+                            sx={{ ml: 1 }}
+                            disabled={isDrafted || queue.some((p) => p.id === player.id)}
+                            onClick={() => handleQueuePlayer(player)}
+                          >
+                            Queue
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </TableContainer>
@@ -971,7 +1059,7 @@ function DraftBoard() {
         playerId={quickViewId}
         leagueId={Number(leagueId)}
         draftedBy={quickViewDraftedBy}
-        playerIds={availablePlayers.map((p) => p.id)}
+        playerIds={displayPlayers.map((p) => p.id)}
         onNavigate={setQuickViewId}
         actions={quickViewActions}
       />

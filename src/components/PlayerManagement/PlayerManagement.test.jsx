@@ -46,6 +46,34 @@ test('fetches players filtered by page and position', async () => {
   });
 });
 
+test('sorting by Name refetches with sort=name and persists to the URL', async () => {
+  mockDefaultApi();
+  renderWithProviders(<PlayerManagement />);
+  await screen.findByText('Patrick Mahomes');
+
+  await userEvent.click(screen.getByRole('button', { name: /Name/ }));
+
+  await waitFor(() =>
+    expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
+      params: { page: 1, position: 'All', sort: 'name' },
+    })
+  );
+});
+
+test('restores sort/position/search from the URL on load', async () => {
+  mockDefaultApi();
+  renderWithProviders(<PlayerManagement />, {
+    route: '/player?pos=RB&sort=name&dir=desc&q=smith',
+    path: '/player',
+  });
+
+  await waitFor(() =>
+    expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
+      params: { page: 1, position: 'RB', sort: 'name', dir: 'desc', search: 'smith' },
+    })
+  );
+});
+
 test('a player already on the roster shows "Added" and a disabled button', async () => {
   mockDefaultApi({ players: [player({ id: 5, name: 'Rostered Guy' })], roster: [player({ id: 5, name: 'Rostered Guy' })] });
 

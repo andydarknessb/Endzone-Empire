@@ -99,11 +99,17 @@ router.get('/', requireAuth, async (req, res) => {
     }
   }
 
-  // Ordering: by ADP (best pick first, undrafted last) for draft/browse views,
-  // else by id. Whitelisted — never interpolate raw user input into SQL.
-  const orderBy = req.query.sort === 'adp'
-    ? `"adp" ASC NULLS LAST, "id"`
-    : `"id"`;
+  // Ordering: whitelisted sort key + direction — never interpolate raw user
+  // input into SQL. ADP is the default (best pick first, undrafted last).
+  const dir = req.query.dir === 'desc' ? 'DESC' : 'ASC';
+  let orderBy;
+  if (req.query.sort === 'name') {
+    orderBy = `"name" ${dir}, "id"`;
+  } else if (req.query.sort === 'adp') {
+    orderBy = `"adp" ${dir} NULLS LAST, "id"`;
+  } else {
+    orderBy = `"id"`;
+  }
 
   const params = [];
   const where = [];
