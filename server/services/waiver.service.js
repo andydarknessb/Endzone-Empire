@@ -33,15 +33,18 @@ function orderClaims(claims, priorities, waiverType) {
 
 /**
  * When a player leaves a roster he goes on waivers for the league's waiver
- * period. Runs inside the caller's transaction.
+ * period. Runs inside the caller's transaction. `droppedByTeamId` (when the
+ * waiver hold originates from a roster drop rather than a waiver-claim swap)
+ * records which team can undo it — see `undoDrop` in draft.service.js.
  */
-async function placeOnWaivers(client, { leagueId, playerId, waiverPeriodHours }) {
+async function placeOnWaivers(client, { leagueId, playerId, waiverPeriodHours, droppedByTeamId = null }) {
   await client.query(
-    `INSERT INTO "waiver_players" ("league_id", "player_id", "available_at")
-     VALUES ($1, $2, now() + make_interval(hours => $3))
+    `INSERT INTO "waiver_players" ("league_id", "player_id", "available_at", "dropped_by_team_id")
+     VALUES ($1, $2, now() + make_interval(hours => $3), $4)
      ON CONFLICT ("league_id", "player_id")
-     DO UPDATE SET "available_at" = EXCLUDED."available_at", "updated_at" = now()`,
-    [leagueId, playerId, waiverPeriodHours]
+     DO UPDATE SET "available_at" = EXCLUDED."available_at", "updated_at" = now(),
+                   "dropped_by_team_id" = EXCLUDED."dropped_by_team_id"`,
+    [leagueId, playerId, waiverPeriodHours, droppedByTeamId]
   );
 }
 

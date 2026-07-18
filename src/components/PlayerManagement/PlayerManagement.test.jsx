@@ -3,6 +3,7 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
+import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 import PlayerManagement from './PlayerManagement';
 
 jest.mock('../../api/apiClient', () => ({
@@ -108,6 +109,26 @@ test('clicking "Remove" in the roster section deletes the player for the selecte
 
   await waitFor(() =>
     expect(apiClient.delete).toHaveBeenCalledWith('/api/team/roster/3?leagueId=1')
+  );
+});
+
+test('clicking Undo on the drop snackbar calls the undo-drop endpoint, not a plain re-add', async () => {
+  mockDefaultApi({ roster: [player({ id: 3, name: 'Bench Him' })] });
+  apiClient.delete.mockResolvedValue({});
+  apiClient.post.mockResolvedValue({});
+
+  renderWithProviders(
+    <SnackbarProvider>
+      <PlayerManagement />
+    </SnackbarProvider>
+  );
+  await screen.findByText('Bench Him');
+
+  await userEvent.click(screen.getByRole('button', { name: 'Remove' }));
+  await userEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/team/roster/3/undo-drop', { leagueId: 1 })
   );
 });
 

@@ -1,7 +1,7 @@
 const express = require('express');
 const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
-const { draftPlayer, dropPlayer } = require('../services/draft.service');
+const { draftPlayer, dropPlayer, undoDrop } = require('../services/draft.service');
 const { getLineup, setLineup } = require('../services/lineup.service');
 const { startSitAdvice, weekHindsight, seasonHindsight } = require('../services/decision.service');
 
@@ -74,6 +74,31 @@ router.delete('/roster/:playerId', async (req, res) => {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     console.error('Error dropping player', error);
     res.status(500).json({ error: 'failed to drop player' });
+  }
+});
+
+// POST /api/team/roster/:playerId/undo-drop — re-add a player this team just
+// dropped, bypassing the waiver hold that a plain POST /roster would hit.
+// Only valid while the waiver_players row still names this team as dropper.
+router.post('/roster/:playerId/undo-drop', async (req, res) => {
+  if (!/^\d+$/.test(req.params.playerId)) {
+    return res.status(400).json({ error: 'playerId must be a positive integer' });
+  }
+  const leagueId = req.body && req.body.leagueId;
+  if (!Number.isInteger(leagueId) || leagueId < 1) {
+    return res.status(400).json({ error: 'leagueId (integer) is required in the body' });
+  }
+  try {
+    const outcome = await undoDrop({
+      leagueId,
+      userId: req.user.id,
+      playerId: Number(req.params.playerId),
+    });
+    res.status(201).json(outcome);
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    console.error('Error undoing drop', error);
+    res.status(500).json({ error: 'failed to undo drop' });
   }
 });
 

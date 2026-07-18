@@ -144,14 +144,26 @@ function PlayerManagement() {
     setSearchInput(search);
   }, [search]);
 
-  const addToRoster = async (player, { silent = false } = {}) => {
+  const addToRoster = async (player) => {
     setError(null);
     try {
       await apiClient.post(`/api/team/roster/${player.id}`, {
         leagueId: Number(selectedLeague),
       });
       fetchRoster();
-      if (!silent) notify(`Added ${player.name} to your roster`);
+      notify(`Added ${player.name} to your roster`);
+    } catch (err) {
+      report(err);
+      notify(err.response?.data?.error || err.message, { severity: 'error' });
+    }
+  };
+
+  const undoDrop = async (player) => {
+    try {
+      await apiClient.post(`/api/team/roster/${player.id}/undo-drop`, {
+        leagueId: Number(selectedLeague),
+      });
+      fetchRoster();
     } catch (err) {
       report(err);
       notify(err.response?.data?.error || err.message, { severity: 'error' });
@@ -166,7 +178,7 @@ function PlayerManagement() {
       notify(`Dropped ${player.name}`, {
         severity: 'info',
         actionLabel: 'Undo',
-        onAction: () => addToRoster(player, { silent: true }),
+        onAction: () => undoDrop(player),
       });
     } catch (err) {
       report(err);

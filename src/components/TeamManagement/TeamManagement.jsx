@@ -57,9 +57,9 @@ function TeamManagement() {
     }
   };
 
-  const readdPlayer = async (player) => {
+  const undoDrop = async (player) => {
     try {
-      await apiClient.post(`/api/team/roster/${player.id}`, { leagueId: Number(selectedLeague) });
+      await apiClient.post(`/api/team/roster/${player.id}/undo-drop`, { leagueId: Number(selectedLeague) });
       fetchRoster(selectedLeague);
     } catch (err) {
       notify(err.response?.data?.error || err.message, { severity: 'error' });
@@ -74,7 +74,7 @@ function TeamManagement() {
       notify(`Dropped ${player.name}`, {
         severity: 'info',
         actionLabel: 'Undo',
-        onAction: () => readdPlayer(player),
+        onAction: () => undoDrop(player),
       });
     } catch (err) {
       report(err);

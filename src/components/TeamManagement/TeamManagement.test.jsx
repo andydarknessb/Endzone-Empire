@@ -3,11 +3,12 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
+import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 import TeamManagement from './TeamManagement';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
-  default: { get: jest.fn(), delete: jest.fn() },
+  default: { get: jest.fn(), post: jest.fn(), delete: jest.fn() },
 }));
 
 afterEach(() => {
@@ -86,6 +87,37 @@ test('dropping a player calls the delete endpoint with the selected league and r
     expect(apiClient.delete).toHaveBeenCalledWith('/api/team/roster/10?leagueId=1')
   );
   expect(await screen.findByText(/No players rostered yet/)).toBeInTheDocument();
+});
+
+test('clicking Undo on the drop snackbar calls the undo-drop endpoint, not a plain re-add', async () => {
+  apiClient.get
+    .mockImplementationOnce(() => Promise.resolve({ data: [{ id: 1, name: 'Sunday Ballers' }] })) // leagues
+    .mockImplementationOnce(() =>
+      Promise.resolve({ data: [{ id: 10, name: 'Drop Me', position: 'TE', nfl_team: 'X', acquired_at: null }] })
+    ) // initial roster
+    .mockImplementationOnce(() => Promise.resolve({ data: [] })) // roster after drop
+    .mockImplementationOnce(() =>
+      Promise.resolve({ data: [{ id: 10, name: 'Drop Me', position: 'TE', nfl_team: 'X', acquired_at: null }] })
+    ); // roster after undo
+  apiClient.delete.mockResolvedValue({});
+  apiClient.post.mockResolvedValue({});
+
+  renderWithProviders(
+    <SnackbarProvider>
+      <TeamManagement />
+    </SnackbarProvider>
+  );
+  await screen.findByText('Drop Me');
+
+  await userEvent.click(screen.getByRole('button', { name: 'Drop' }));
+  await screen.findByText(/No players rostered yet/);
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/team/roster/10/undo-drop', { leagueId: 1 })
+  );
+  expect(await screen.findByText('Drop Me')).toBeInTheDocument();
 });
 
 test('shows an error alert when the roster fetch fails', async () => {

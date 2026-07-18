@@ -242,6 +242,7 @@ async function dropPlayer({ leagueId, userId, playerId }) {
       leagueId,
       playerId,
       waiverPeriodHours: leagueResult.rows[0].waiver_period_hours,
+      droppedByTeamId: team.id,
     });
     await logTransaction(client, {
       leagueId,
@@ -260,9 +261,102 @@ async function dropPlayer({ leagueId, userId, playerId }) {
   }
 }
 
+/**
+ * Undo the caller's own recent drop: only valid while the player's waiver
+ * hold still names this team as the dropper (see `placeOnWaivers`'s
+ * `droppedByTeamId`). This is what powers the drop snackbar's "Undo" button —
+ * a normal `draftPlayer` call would be rejected by the waiver-hold check.
+ */
+async function undoDrop({ leagueId, userId, playerId }) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const leagueResult = await client.query(
+      `SELECT "roster_limit", "position_caps" FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
+      [leagueId]
+    );
+    const league = leagueResult.rows[0];
+    if (!league) throw new DraftError(404, 'league not found');
+
+    const teamResult = await client.query(
+      `SELECT "id" FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
+      [leagueId, userId]
+    );
+    const team = teamResult.rows[0];
+    if (!team) throw new DraftError(403, 'you do not have a team in this league');
+
+    const holdResult = await client.query(
+      `SELECT 1 FROM "waiver_players"
+       WHERE "league_id" = $1 AND "player_id" = $2 AND "dropped_by_team_id" = $3`,
+      [leagueId, playerId, team.id]
+    );
+    if (!holdResult.rows[0]) {
+      throw new DraftError(409, 'too late to undo — submit a waiver claim instead');
+    }
+
+    const rosterCountResult = await client.query(
+      `SELECT COUNT(*)::int AS n FROM "team_players" WHERE "team_id" = $1`,
+      [team.id]
+    );
+    if (rosterCountResult.rows[0].n >= league.roster_limit) {
+      throw new DraftError(409, `roster limit of ${league.roster_limit} reached`);
+    }
+
+    const playerResult = await client.query(
+      `SELECT "id", "name", "position" FROM "players" WHERE "id" = $1`,
+      [playerId]
+    );
+    if (!playerResult.rows[0]) throw new DraftError(404, 'player not found');
+
+    const caps = typeof league.position_caps === 'string'
+      ? JSON.parse(league.position_caps)
+      : league.position_caps || {};
+    const cap = caps[playerResult.rows[0].position];
+    if (Number.isInteger(cap)) {
+      const positionCountResult = await client.query(
+        `SELECT COUNT(*)::int AS n FROM "team_players"
+         JOIN "players" ON "players"."id" = "team_players"."player_id"
+         WHERE "team_players"."team_id" = $1 AND "players"."position" = $2`,
+        [team.id, playerResult.rows[0].position]
+      );
+      if (positionCountResult.rows[0].n >= cap) {
+        throw new DraftError(409, `position cap reached: max ${cap} ${playerResult.rows[0].position}`);
+      }
+    }
+
+    await client.query(
+      `DELETE FROM "waiver_players" WHERE "league_id" = $1 AND "player_id" = $2`,
+      [leagueId, playerId]
+    );
+    await client.query(
+      `INSERT INTO "team_players" ("league_id", "team_id", "player_id") VALUES ($1, $2, $3)`,
+      [leagueId, team.id, playerId]
+    );
+    await logTransaction(client, {
+      leagueId,
+      teamId: team.id,
+      type: 'add',
+      detail: { playerId, playerName: playerResult.rows[0].name, undo: true },
+    });
+
+    await client.query('COMMIT');
+    return { leagueId, teamId: team.id, player: playerResult.rows[0] };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    if (error.code === '23505') {
+      throw new DraftError(409, 'player is already rostered in this league');
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 module.exports = {
   draftPlayer,
   dropPlayer,
+  undoDrop,
   teamIndexForPick,
   nextPickClockSeconds,
   shouldAutoEnableAutodraft,
