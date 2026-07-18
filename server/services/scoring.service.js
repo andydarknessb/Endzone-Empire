@@ -480,33 +480,46 @@ function aggregateSeasonStats(weeklyStats) {
  *   - seasonRows:  player_season_stats rows [{ season, games_played, stats }]
  *   - rules:       scoring rules to price every stat line under
  *   - byeWeek:     precomputed bye week (number) or null
- * currentSeason is the player's most recent weekly season (null when none);
- * previousSeasons lists the rolled-up seasons (newest first), excluding the
- * current one, with points RE-SCORED under `rules` — so [] means "no prior
- * data", the dialog's graceful-degradation case.
+ *   - currentSeasonYear: the league's current season (default 2026)
+ * currentSeason holds this-season weekly lines (null before any are played);
+ * previousSeasons lists every completed season (< current) from the rollups,
+ * newest first, points RE-SCORED under `rules`. `fantasy` is the draft-facing
+ * summary: ADP, last completed season's total, and a projected point total for
+ * the upcoming season (that season's per-game pace over a 17-game slate).
  */
-function buildPlayerSummary({ player, weeklyRows = [], seasonRows = [], rules = SCORING_RULES, byeWeek = null }) {
-  const sorted = [...weeklyRows].sort((a, b) =>
-    a.season !== b.season ? b.season - a.season : a.week - b.week
-  );
-  const latestSeason = sorted.length ? sorted[0].season : null;
-  const seasonWeeks = sorted.filter((r) => r.season === latestSeason);
-  const weekly = seasonWeeks.map((r) => ({
-    week: r.week,
-    stats: r.stats,
-    fantasy_points: calculateFantasyPoints(r.stats, rules),
-  }));
+// Fewest completed-season games we'll extrapolate a projection from — below
+// this the per-game pace is too noisy to scale to a full season.
+const MIN_PROJECTION_GAMES = 4;
+
+function buildPlayerSummary({
+  player,
+  weeklyRows = [],
+  seasonRows = [],
+  rules = SCORING_RULES,
+  byeWeek = null,
+  currentSeasonYear = 2026,
+}) {
+  const currentYear = Number(currentSeasonYear) || 2026;
+
+  const weekly = [...weeklyRows]
+    .filter((r) => r.season === currentYear)
+    .sort((a, b) => a.week - b.week)
+    .map((r) => ({
+      week: r.week,
+      stats: r.stats,
+      fantasy_points: calculateFantasyPoints(r.stats, rules),
+    }));
   const currentPoints = Math.round(weekly.reduce((s, w) => s + w.fantasy_points, 0) * 100) / 100;
-  const currentSeason = latestSeason === null ? null : {
-    season: latestSeason,
+  const currentSeason = weekly.length === 0 ? null : {
+    season: currentYear,
     weekly,
     games: weekly.length,
     points: currentPoints,
-    perGame: weekly.length ? Math.round((currentPoints / weekly.length) * 10) / 10 : 0,
+    perGame: Math.round((currentPoints / weekly.length) * 10) / 10,
   };
 
   const previousSeasons = [...seasonRows]
-    .filter((r) => r.season !== latestSeason)
+    .filter((r) => r.season < currentYear)
     .sort((a, b) => b.season - a.season)
     .map((r) => {
       const points = calculateFantasyPoints(r.stats, rules);
@@ -520,6 +533,21 @@ function buildPlayerSummary({ player, weeklyRows = [], seasonRows = [], rules = 
       };
     });
 
+  // Draft-facing fantasy summary. Projection extrapolates the most recent
+  // completed season's per-game pace across a full 17-game slate — but only
+  // from a large enough sample; a 1-2 game season would inflate wildly, so we
+  // report no projection there rather than a misleading one.
+  const lastCompleted = previousSeasons[0] || null;
+  const adp = player.adp != null && Number.isFinite(Number(player.adp)) ? Number(player.adp) : null;
+  const canProject = lastCompleted && lastCompleted.games >= MIN_PROJECTION_GAMES && lastCompleted.perGame;
+  const fantasy = {
+    adp,
+    previousSeasonYear: lastCompleted ? lastCompleted.season : null,
+    previousSeasonTotal: lastCompleted ? lastCompleted.points : null,
+    projectionSeason: currentYear,
+    projectedPoints: canProject ? Math.round(lastCompleted.perGame * 17 * 10) / 10 : null,
+  };
+
   return {
     player: {
       id: player.id,
@@ -532,8 +560,10 @@ function buildPlayerSummary({ player, weeklyRows = [], seasonRows = [], rules = 
       injury_detail: player.injury_detail,
       news: player.news,
       photo_url: player.photo_url,
+      adp,
       bye_week: byeWeek,
     },
+    fantasy,
     currentSeason,
     previousSeasons,
   };

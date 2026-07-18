@@ -191,11 +191,19 @@ router.get('/:id/summary', requireAuth, async (req, res) => {
     const player = playerResult.rows[0];
     if (!player) return res.status(404).json({ error: 'player not found' });
 
-    // Scoring rules: the named league's (if valid), else defaults.
+    // Scoring rules + current season: the named league's (if valid), else
+    // defaults / 2026. The current season decides which weekly lines count as
+    // "this season" vs. which roll up under Previous Seasons.
     let rules = rulesForLeague(null);
+    let currentSeasonYear = 2026;
     if (leagueId) {
       const leagueResult = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [Number(leagueId)]);
-      if (leagueResult.rows[0]) rules = rulesForLeague(leagueResult.rows[0]);
+      if (leagueResult.rows[0]) {
+        rules = rulesForLeague(leagueResult.rows[0]);
+        if (leagueResult.rows[0].current_season != null) {
+          currentSeasonYear = Number(leagueResult.rows[0].current_season);
+        }
+      }
     }
 
     const weeklyResult = await pool.query(
@@ -208,8 +216,7 @@ router.get('/:id/summary', requireAuth, async (req, res) => {
        WHERE "player_id" = $1 ORDER BY "season" DESC`,
       [playerId]
     );
-    const latestSeason = weeklyResult.rows.length ? weeklyResult.rows[0].season : null;
-    const byeWeek = await computeByeWeek(player.nfl_team, latestSeason || 2026);
+    const byeWeek = await computeByeWeek(player.nfl_team, currentSeasonYear);
 
     const payload = buildPlayerSummary({
       player,
@@ -217,6 +224,7 @@ router.get('/:id/summary', requireAuth, async (req, res) => {
       seasonRows: seasonResult.rows,
       rules,
       byeWeek,
+      currentSeasonYear,
     });
 
     summaryCacheSet(cacheKey, payload);

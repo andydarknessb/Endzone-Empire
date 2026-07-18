@@ -22,8 +22,19 @@ const summaryResponse = (overrides = {}) => ({
       news: null,
       photo_url: 'https://example.com/photo.jpg',
       bye_week: 6,
+      adp: 3.4,
       ...(overrides.player || {}),
     },
+    fantasy:
+      overrides.fantasy !== undefined
+        ? overrides.fantasy
+        : {
+            adp: 3.4,
+            previousSeasonYear: 2025,
+            previousSeasonTotal: 300,
+            projectionSeason: 2026,
+            projectedPoints: 299.2,
+          },
     currentSeason:
       overrides.currentSeason !== undefined
         ? overrides.currentSeason
@@ -67,6 +78,29 @@ test('renders header (name, position) after a successful fetch', async () => {
   expect(await screen.findByText('Justin Jefferson')).toBeInTheDocument();
   expect(screen.getByText('WR')).toBeInTheDocument();
   expect(apiClient.get).toHaveBeenCalledWith('/api/players/7/summary', undefined);
+});
+
+test('shows the fantasy strip: ADP, projection, and last-season total', async () => {
+  renderQuickView();
+
+  expect(await screen.findByText('Justin Jefferson')).toBeInTheDocument();
+  const strip = screen.getByTestId('fantasy-strip');
+  expect(strip).toHaveTextContent('ADP 3.4');
+  expect(strip).toHaveTextContent('2026 Proj 299.2');
+  expect(strip).toHaveTextContent('2025: 300 pts');
+});
+
+test('fantasy strip is hidden when there is no ADP/projection/prior data', async () => {
+  apiClient.get.mockResolvedValue(
+    summaryResponse({
+      fantasy: { adp: null, previousSeasonTotal: null, projectedPoints: null },
+      previousSeasons: [],
+    })
+  );
+  renderQuickView();
+
+  expect(await screen.findByText('Justin Jefferson')).toBeInTheDocument();
+  expect(screen.queryByTestId('fantasy-strip')).not.toBeInTheDocument();
 });
 
 test('toggle switches from Current Season weekly table to Previous Seasons table', async () => {

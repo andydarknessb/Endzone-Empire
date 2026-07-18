@@ -1,5 +1,6 @@
 const axios = require('axios');
 const pool = require('../modules/pool');
+const { normalizeNameKey, teamMatches } = require('./nameMatch');
 
 /**
  * TheSportsDB provider — headshots, jersey numbers, and bio for the player
@@ -49,26 +50,6 @@ function normalizeSportsDbPosition(strPosition) {
 }
 
 /**
- * A normalized key for fuzzy name matching across providers: lowercased, with
- * accents and generational suffixes (Jr/Sr/II-V) stripped and whitespace
- * collapsed. Intra-word punctuation (apostrophes, periods) is DELETED so
- * "Ja'Marr"/"JaMarr" and "A.J."/"AJ" converge; hyphens become spaces since
- * they separate words ("Amon-Ra" -> "amon ra").
- */
-function normalizeNameKey(name) {
-  return String(name || '')
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '') // strip diacritics
-    .toLowerCase()
-    .replace(/[.'`’]/g, '') // apostrophes / periods deleted (intra-word)
-    .replace(/-/g, ' ') // hyphens separate words
-    .replace(/\b(jr|sr|ii|iii|iv|v)\b/g, '')
-    .replace(/[^a-z0-9 ]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-/**
  * One TheSportsDB roster/player entry -> our enrichment shape, or null when it
  * lacks a usable name. photo prefers the square headshot (strThumb) and falls
  * back to the transparent cutout (strCutout). Jersey is left null when absent.
@@ -90,16 +71,6 @@ function normalizeSportsDbPlayer(entry) {
     team: entry.strTeam ? String(entry.strTeam) : null,
     teamShort: entry.strTeamShort ? String(entry.strTeamShort) : null,
   };
-}
-
-/** True when our stored nfl_team matches a provider team (full name or abbr). */
-function teamMatches(ourTeam, entry) {
-  if (!ourTeam) return false;
-  const t = String(ourTeam).trim().toLowerCase();
-  return (
-    (entry.team && entry.team.toLowerCase() === t) ||
-    (entry.teamShort && entry.teamShort.toLowerCase() === t)
-  );
 }
 
 /**

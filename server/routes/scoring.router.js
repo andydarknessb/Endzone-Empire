@@ -3,6 +3,7 @@ const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
 const scoring = require('../services/scoring.service');
 const sportsdb = require('../services/sportsdb.service');
+const adp = require('../services/adp.service');
 const season = require('../services/season.service');
 const correction = require('../services/correction.service');
 const montecarlo = require('../services/montecarlo.service');
@@ -164,6 +165,24 @@ router.post('/sync-photos', async (req, res) => {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     console.error('Photo sync failed:', error);
     res.status(500).json({ error: 'photo sync failed' });
+  }
+});
+
+// POST /api/scoring/sync-adp — refresh players.adp from the free FFC ADP feed.
+// Optional body: { format: 'half-ppr'|'ppr'|'standard'|..., teams, year }.
+router.post('/sync-adp', async (req, res) => {
+  const body = req.body || {};
+  const opts = {};
+  if (body.format) opts.format = String(body.format);
+  if (body.teams) opts.teams = Number(body.teams);
+  if (body.year) opts.year = Number(body.year);
+  try {
+    const result = await adp.syncAdp(opts);
+    res.json(result);
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    console.error('ADP sync failed:', error);
+    res.status(500).json({ error: 'adp sync failed' });
   }
 });
 

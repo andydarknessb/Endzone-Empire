@@ -110,8 +110,11 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy }) {
   };
 
   const player = data?.player;
+  const fantasy = data?.fantasy || {};
   const currentSeason = data?.currentSeason;
   const previousSeasons = data?.previousSeasons || [];
+  const hasFantasy =
+    fantasy.adp != null || fantasy.projectedPoints != null || fantasy.previousSeasonTotal != null;
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
@@ -177,6 +180,28 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy }) {
               <Alert severity="info" sx={{ mb: 2 }}>
                 {player.news}
               </Alert>
+            )}
+
+            {hasFantasy && (
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 2 }} data-testid="fantasy-strip">
+                {fantasy.adp != null && (
+                  <Chip size="small" variant="outlined" label={`ADP ${fantasy.adp}`} />
+                )}
+                {fantasy.projectedPoints != null && (
+                  <Chip
+                    size="small"
+                    color="info"
+                    label={`${fantasy.projectionSeason} Proj ${fantasy.projectedPoints}`}
+                  />
+                )}
+                {fantasy.previousSeasonTotal != null && (
+                  <Chip
+                    size="small"
+                    color="success"
+                    label={`${fantasy.previousSeasonYear}: ${fantasy.previousSeasonTotal} pts`}
+                  />
+                )}
+              </Box>
             )}
 
             <ToggleButtonGroup

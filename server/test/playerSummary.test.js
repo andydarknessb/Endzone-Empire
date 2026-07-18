@@ -113,6 +113,56 @@ test('buildPlayerSummary excludes the current season from previousSeasons', () =
   assert.deepEqual(out.previousSeasons.map((s) => s.season), [2025, 2024]);
 });
 
+test('buildPlayerSummary builds the draft-facing fantasy summary (adp, last-season total, projection)', () => {
+  const out = buildPlayerSummary({
+    player: { ...PLAYER, adp: 4.2 },
+    weeklyRows: [],
+    seasonRows: SEASONS, // 2025: 17 games
+    rules: SCORING_PRESETS.ppr,
+    currentSeasonYear: 2026,
+  });
+  // 2025 PPR: 1500*0.1 + 100 + 10*6 = 310 over 17 games -> 18.2/g -> proj 18.2*17
+  assert.equal(out.fantasy.adp, 4.2);
+  assert.equal(out.player.adp, 4.2);
+  assert.equal(out.fantasy.previousSeasonYear, 2025);
+  assert.equal(out.fantasy.previousSeasonTotal, 310);
+  assert.equal(out.fantasy.projectionSeason, 2026);
+  assert.equal(out.fantasy.projectedPoints, Math.round(out.previousSeasons[0].perGame * 17 * 10) / 10);
+});
+
+test('buildPlayerSummary reframes last-season-only data as previous (current is null pre-season)', () => {
+  // Weekly data only in 2025; league is on 2026 -> current tab empty, 2025 is previous.
+  const out = buildPlayerSummary({
+    player: PLAYER,
+    weeklyRows: [{ season: 2025, week: 1, stats: { receivingYards: 90 } }],
+    seasonRows: [{ season: 2025, games_played: 17, stats: { receivingYards: 1500, receptions: 100 } }],
+    rules: SCORING_PRESETS.ppr,
+    currentSeasonYear: 2026,
+  });
+  assert.equal(out.currentSeason, null);
+  assert.deepEqual(out.previousSeasons.map((s) => s.season), [2025]);
+  assert.equal(out.fantasy.previousSeasonYear, 2025);
+});
+
+test('buildPlayerSummary does not project from a tiny (1-2 game) sample', () => {
+  const out = buildPlayerSummary({
+    player: { ...PLAYER, adp: 1.4 },
+    weeklyRows: [],
+    seasonRows: [{ season: 2025, games_played: 1, stats: { rushingYards: 100, rushingTDs: 2 } }],
+    rules: SCORING_PRESETS.ppr,
+    currentSeasonYear: 2026,
+  });
+  assert.equal(out.fantasy.projectedPoints, null); // guarded — no 1-game extrapolation
+  assert.ok(out.fantasy.previousSeasonTotal > 0); // the real 1-game total is still reported
+});
+
+test('buildPlayerSummary fantasy fields are null with no prior data', () => {
+  const out = buildPlayerSummary({ player: PLAYER, weeklyRows: [], seasonRows: [] });
+  assert.equal(out.fantasy.adp, null);
+  assert.equal(out.fantasy.previousSeasonTotal, null);
+  assert.equal(out.fantasy.projectedPoints, null);
+});
+
 test('buildPlayerSummary perGame is zero-safe when a season has zero games', () => {
   const out = buildPlayerSummary({
     player: PLAYER,
