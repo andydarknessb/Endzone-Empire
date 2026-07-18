@@ -244,7 +244,13 @@ function LineupScreen() {
                 </Typography>
               </Box>
               <InjuryBadge status={entry.injury_status} />
-              {entry.onBye && <Chip label="BYE" size="small" color="warning" />}
+              {entry.onBye && (
+                <Chip
+                  label={`BYE Wk ${lineup?.week ?? ''}`.trim()}
+                  size="small"
+                  color={lineup && lineup.week === lineup.currentWeek ? 'error' : 'warning'}
+                />
+              )}
               {entry.locked && <Chip label="LOCKED" size="small" color="error" />}
             </>
           ) : (
@@ -316,6 +322,20 @@ function LineupScreen() {
       entry,
     })
   );
+
+  // Lineup guardrails: a persistent warning (never a block — moves auto-save)
+  // when a starting slot is empty or a starter is on this week's bye.
+  const emptyStarterSlots = lineup
+    ? STARTER_SLOT_ORDER.reduce((acc, type) => {
+        const count = lineup.lineupSlots?.[type] || 0;
+        const filled = (bySlot[type] || []).length;
+        return acc + Math.max(0, count - filled);
+      }, 0)
+    : 0;
+  const startersOnBye = lineup
+    ? STARTER_SLOT_ORDER.flatMap((type) => bySlot[type] || []).filter((e) => e.onBye)
+    : [];
+  const showLineupWarning = !bestBall && (emptyStarterSlots > 0 || startersOnBye.length > 0);
 
   return (
     <Container maxWidth="md" sx={{ py: 4 }}>
@@ -422,6 +442,17 @@ function LineupScreen() {
                 </Box>
               </Collapse>
             </Paper>
+          )}
+
+          {showLineupWarning && (
+            <Alert severity="warning" sx={{ mb: 2 }} data-testid="lineup-warning">
+              Heads up:
+              {emptyStarterSlots > 0 &&
+                ` ${emptyStarterSlots} empty starting slot${emptyStarterSlots > 1 ? 's' : ''}.`}
+              {startersOnBye.length > 0 &&
+                ` ${startersOnBye.map((e) => e.name).join(', ')} on a bye this week.`}{' '}
+              Changes save automatically — set your lineup before kickoff.
+            </Alert>
           )}
 
           <Paper sx={{ p: 2, mb: 3 }} data-testid="lineup-starters">

@@ -247,7 +247,7 @@ test('renders BYE and LOCKED chips for flagged entries', async () => {
   renderScreen();
   await screen.findByText('Davante Adams');
 
-  expect(within(screen.getByTestId('slot-row-BENCH-4')).getByText('BYE')).toBeInTheDocument();
+  expect(within(screen.getByTestId('slot-row-BENCH-4')).getByText(/BYE/)).toBeInTheDocument();
   expect(within(screen.getByTestId('slot-row-RB-0')).getByText('LOCKED')).toBeInTheDocument();
 });
 
