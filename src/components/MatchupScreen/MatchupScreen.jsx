@@ -17,6 +17,7 @@ import {
   Chip,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
+import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import { createDraftSocket, onReconnect } from '../../api/socket';
 
 const LIVE_INDICATOR_MS = 10000;
@@ -159,6 +160,7 @@ function MatchupScreen() {
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
+      <LeagueBreadcrumb />
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {error}

@@ -23,6 +23,7 @@ import {
   FormControlLabel,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
+import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
@@ -254,6 +255,7 @@ function TradeCenter() {
 
   return (
     <Container maxWidth="md" sx={{ py: 4 }}>
+      <LeagueBreadcrumb />
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h4">Trade Center</Typography>
         <Button variant="contained" onClick={handleOpenDialog}>

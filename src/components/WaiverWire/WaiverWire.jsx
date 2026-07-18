@@ -27,6 +27,7 @@ import {
   TableSortLabel,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
+import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
@@ -179,6 +180,7 @@ function WaiverWire() {
 
   return (
     <Container maxWidth="md" sx={{ py: 4 }}>
+      <LeagueBreadcrumb />
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {error}

@@ -33,6 +33,7 @@ import {
 } from '@mui/material';
 import { keyframes } from '@mui/material/styles';
 import apiClient from '../../api/apiClient';
+import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import { createDraftSocket, onReconnect } from '../../api/socket';
 import InjuryBadge from '../InjuryBadge/InjuryBadge';
 import Countdown from '../Countdown/Countdown';
@@ -638,6 +639,7 @@ function DraftBoard() {
 
   return (
     <Container maxWidth="xl" sx={{ py: 4 }}>
+      <LeagueBreadcrumb />
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {error}

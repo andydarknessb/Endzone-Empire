@@ -16,6 +16,7 @@ import {
   Skeleton,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
+import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 
 const TYPE_COLORS = {
   add: 'success',
@@ -90,6 +91,7 @@ function TransactionLog() {
 
   return (
     <Container maxWidth="md" sx={{ py: 4 }}>
+      <LeagueBreadcrumb />
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {error}

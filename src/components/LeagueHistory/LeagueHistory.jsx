@@ -21,6 +21,7 @@ import {
 import { TROPHY_EMOJI } from '../TrophyCase/TrophyCase';
 import { GRADE_COLORS } from '../DraftGradesCard/DraftGradesCard';
 import apiClient from '../../api/apiClient';
+import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 
 function SeasonPanel({ season, defaultExpanded }) {
   const standings = Array.isArray(season.standings) ? season.standings : [];
@@ -175,6 +176,7 @@ function LeagueHistory() {
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
+      <LeagueBreadcrumb />
       <Typography variant="h4" sx={{ mb: 3 }}>
         League History
       </Typography>

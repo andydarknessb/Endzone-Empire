@@ -16,6 +16,7 @@ import {
   LinearProgress,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
+import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 
 function OddsCell({ value }) {
   const pct = Math.round((value || 0) * 1000) / 10;
@@ -73,6 +74,7 @@ function PowerRankings() {
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
+      <LeagueBreadcrumb />
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
         <Typography variant="h4">Power Rankings</Typography>
         {payload && (
