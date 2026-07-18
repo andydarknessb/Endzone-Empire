@@ -18,7 +18,17 @@ const headCellSx = { fontWeight: 'bold', backgroundColor: 'primary.main', color:
 // narrow screens: pin it to the right edge so the primary button stays visible
 // while the rest of the row scrolls under it.
 const stickyActionHeadSx = { ...headCellSx, position: 'sticky', right: 0, zIndex: 3 };
-const stickyActionCellSx = { position: 'sticky', right: 0, backgroundColor: 'background.paper', zIndex: 1 };
+// Body sticky cell inherits the row's (striped/hover) background so the pinned
+// column reads as part of the row with no vertical seam at its left edge.
+const stickyActionCellSx = { position: 'sticky', right: 0, backgroundColor: 'inherit', zIndex: 1 };
+
+// Opaque zebra striping + hover so rows are scannable and the sticky column
+// (which inherits these) has no seam. Values are theme tokens.
+const stripedRowsSx = {
+  '& tbody tr': { backgroundColor: 'var(--surface)' },
+  '& tbody tr:nth-of-type(even)': { backgroundColor: 'var(--row-stripe)' },
+  '& tbody tr:hover': { backgroundColor: 'var(--row-hover)' },
+};
 
 function PlayerManagement() {
   const [leagues, setLeagues] = useState([]);
@@ -154,7 +164,7 @@ function PlayerManagement() {
       </div>
 
       <TableContainer component={Paper} sx={{ borderRadius: 2, m: 1, maxWidth: 900 }}>
-        <Table sx={{ minWidth: 650 }}>
+        <Table sx={{ minWidth: 650, ...stripedRowsSx }}>
           <TableHead>
             <TableRow>
               <TableCell sx={headCellSx} align="right">#</TableCell>
@@ -226,7 +236,7 @@ function PlayerManagement() {
 
       <Typography variant="h6" sx={{ mt: 3 }}>My Roster</Typography>
       <TableContainer component={Paper} sx={{ borderRadius: 2, m: 1, maxWidth: 900 }}>
-        <Table sx={{ minWidth: 650 }}>
+        <Table sx={{ minWidth: 650, ...stripedRowsSx }}>
           <TableHead>
             <TableRow>
               <TableCell sx={headCellSx}>Name</TableCell>

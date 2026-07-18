@@ -51,7 +51,16 @@ const stickyActionHeadSx = {
   bgcolor: 'primary.main',
   zIndex: 3,
 };
-const stickyActionCellSx = { position: 'sticky', right: 0, bgcolor: 'background.paper', zIndex: 1 };
+// Inherit the row's (striped/hover) background so the pinned column has no
+// vertical seam against the row.
+const stickyActionCellSx = { position: 'sticky', right: 0, bgcolor: 'inherit', zIndex: 1 };
+
+// Opaque zebra striping + hover; the sticky action cell inherits these.
+const stripedRowsSx = {
+  '& tbody tr': { backgroundColor: 'var(--surface)' },
+  '& tbody tr:nth-of-type(even)': { backgroundColor: 'var(--row-stripe)' },
+  '& tbody tr:hover': { backgroundColor: 'var(--row-hover)' },
+};
 
 // Subtle pulse for the on-clock timer once time is running low (<=10s).
 const pulse = keyframes`
@@ -670,7 +679,7 @@ function DraftBoard() {
             </Box>
 
             <TableContainer>
-              <Table>
+              <Table sx={stripedRowsSx}>
                 <TableHead>
                   <TableRow sx={{ bgcolor: 'primary.main' }}>
                     <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }} align="right">
@@ -680,7 +689,7 @@ function DraftBoard() {
                       Name
                     </TableCell>
                     <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>
-                      Position
+                      Pos
                     </TableCell>
                     <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>
                       NFL Team
