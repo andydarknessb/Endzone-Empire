@@ -42,7 +42,7 @@ test('fetches players filtered by page and position', async () => {
   await screen.findByText('Patrick Mahomes');
 
   expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
-    params: { page: 1, position: 'All' },
+    params: { page: 1, position: 'All', sort: 'adp' },
   });
 });
 
@@ -93,7 +93,7 @@ test('changing the position filter refetches players with the new position and r
   await userEvent.click(await screen.findByRole('option', { name: 'QB' }));
 
   await waitFor(() =>
-    expect(apiClient.get).toHaveBeenCalledWith('/api/players', { params: { page: 1, position: 'QB' } })
+    expect(apiClient.get).toHaveBeenCalledWith('/api/players', { params: { page: 1, position: 'QB', sort: 'adp' } })
   );
 });
 

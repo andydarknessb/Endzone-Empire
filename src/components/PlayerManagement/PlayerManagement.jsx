@@ -8,6 +8,7 @@ import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 
 const POSITIONS = ['All', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
+const PLAYERS_PAGE_SIZE = 25; // matches the server page size; for ADP rank numbers
 
 const headCellSx = { fontWeight: 'bold', backgroundColor: 'primary.main', color: 'primary.contrastText' };
 
@@ -39,7 +40,7 @@ function PlayerManagement() {
   const fetchPlayers = useCallback(async () => {
     try {
       const response = await apiClient.get('/api/players', {
-        params: { page: pageNumber, position: positionFilter },
+        params: { page: pageNumber, position: positionFilter, sort: 'adp' },
       });
       setPlayers(response.data.players);
       setTotalPages(response.data.totalPages);
@@ -116,15 +117,20 @@ function PlayerManagement() {
         <Table sx={{ minWidth: 650 }}>
           <TableHead>
             <TableRow>
+              <TableCell sx={headCellSx} align="right">#</TableCell>
               <TableCell sx={headCellSx}>Name</TableCell>
               <TableCell sx={headCellSx} align="right">Position</TableCell>
               <TableCell sx={headCellSx} align="right">NFL Team</TableCell>
+              <TableCell sx={headCellSx} align="right">ADP</TableCell>
               <TableCell sx={headCellSx} align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {players.map((player) => (
+            {players.map((player, idx) => (
               <TableRow key={player.id}>
+                <TableCell align="right" sx={{ color: 'text.secondary' }}>
+                  {(pageNumber - 1) * PLAYERS_PAGE_SIZE + idx + 1}
+                </TableCell>
                 <TableCell component="th" scope="row" sx={{ fontWeight: 'bold', color: 'text.primary' }}>
                   <PlayerNameLink
                     name={player.name}
@@ -135,6 +141,7 @@ function PlayerManagement() {
                 </TableCell>
                 <TableCell align="right" sx={{ fontStyle: 'italic' }}>{player.position}</TableCell>
                 <TableCell align="right">{player.nfl_team}</TableCell>
+                <TableCell align="right">{player.adp != null ? player.adp : '—'}</TableCell>
                 <TableCell align="right">
                   <Button
                     sx={{ backgroundColor: 'primary.main', color: 'primary.contrastText', '&:hover': { backgroundColor: 'primary.dark' } }}

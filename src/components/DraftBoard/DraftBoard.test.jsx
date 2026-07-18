@@ -292,7 +292,7 @@ test('changing the position filter refetches available players filtered by posit
 
   await waitFor(() =>
     expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
-      params: { page: 1, leagueId: 1, available: true, position: 'RB' },
+      params: { page: 1, leagueId: 1, available: true, sort: 'adp', position: 'RB' },
     })
   );
 });
@@ -542,7 +542,7 @@ test('shows projected points and injury badges in the available players table', 
         projected_points: 21.5,
         injury_status: 'Q',
       },
-      { id: 2, name: 'Josh Allen', position: 'QB', nfl_team: 'Buffalo Bills', projected_points: null },
+      { id: 2, name: 'Josh Allen', position: 'QB', nfl_team: 'Buffalo Bills', projected_points: null, adp: 3.2 },
     ])
   );
   renderBoard(1);
@@ -550,7 +550,8 @@ test('shows projected points and injury badges in the available players table', 
   await screen.findByText('Patrick Mahomes');
   expect(screen.getByText('21.5')).toBeInTheDocument();
   expect(screen.getByText('Q')).toBeInTheDocument();
-  expect(screen.getByText('—')).toBeInTheDocument(); // missing projection
+  expect(screen.getByText('3.2')).toBeInTheDocument(); // Josh Allen's ADP
+  expect(screen.getAllByText('—').length).toBeGreaterThan(0); // missing proj/adp render as —
   // The name is a quick-view trigger (a button), not a navigation link.
   expect(screen.getByRole('button', { name: 'Patrick Mahomes' })).toBeInTheDocument();
 });

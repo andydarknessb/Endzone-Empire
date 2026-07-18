@@ -37,6 +37,9 @@ import Countdown from '../Countdown/Countdown';
 import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 
+// Matches the server's players page size; used to number rows by ADP rank.
+const PLAYERS_PAGE_SIZE = 25;
+
 // Subtle pulse for the on-clock timer once time is running low (<=10s).
 const pulse = keyframes`
   0% { opacity: 1; }
@@ -280,6 +283,7 @@ function DraftBoard() {
         page: pageNum + 1,
         leagueId: Number(leagueId),
         available: true,
+        sort: 'adp', // best available first, by ADP
       };
       if (positionOverride !== 'All') {
         params.position = positionOverride;
@@ -615,6 +619,9 @@ function DraftBoard() {
               <Table>
                 <TableHead>
                   <TableRow sx={{ bgcolor: 'primary.main' }}>
+                    <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }} align="right">
+                      #
+                    </TableCell>
                     <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>
                       Name
                     </TableCell>
@@ -625,6 +632,9 @@ function DraftBoard() {
                       NFL Team
                     </TableCell>
                     <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }} align="right">
+                      ADP
+                    </TableCell>
+                    <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }} align="right">
                       Proj
                     </TableCell>
                     <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }} align="center">
@@ -633,8 +643,11 @@ function DraftBoard() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {availablePlayers.map((player) => (
+                  {availablePlayers.map((player, idx) => (
                     <TableRow key={player.id}>
+                      <TableCell align="right" sx={{ color: 'text.secondary' }}>
+                        {page * PLAYERS_PAGE_SIZE + idx + 1}
+                      </TableCell>
                       <TableCell>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                           <PlayerNameLink
@@ -647,6 +660,9 @@ function DraftBoard() {
                       </TableCell>
                       <TableCell>{player.position}</TableCell>
                       <TableCell>{player.nfl_team}</TableCell>
+                      <TableCell align="right">
+                        {player.adp != null ? player.adp : '—'}
+                      </TableCell>
                       <TableCell align="right">
                         {player.projected_points != null ? player.projected_points : '—'}
                       </TableCell>

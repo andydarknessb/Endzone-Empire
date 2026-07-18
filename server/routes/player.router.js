@@ -78,6 +78,12 @@ router.get('/', requireAuth, async (req, res) => {
   }
   const availableOnly = req.query.available === 'true' && leagueId;
 
+  // Ordering: by ADP (best pick first, undrafted last) for draft/browse views,
+  // else by id. Whitelisted — never interpolate raw user input into SQL.
+  const orderBy = req.query.sort === 'adp'
+    ? `"adp" ASC NULLS LAST, "id"`
+    : `"id"`;
+
   const params = [];
   const where = [];
   if (position) {
@@ -102,7 +108,7 @@ router.get('/', requireAuth, async (req, res) => {
            ) AS "projected_points"
     FROM "players"
     ${whereSql}
-    ORDER BY "id"
+    ORDER BY ${orderBy}
     LIMIT $${params.length - 1} OFFSET $${params.length}
   `;
 

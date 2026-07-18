@@ -4,6 +4,7 @@ const { requireAuth } = require('../modules/auth');
 const scoring = require('../services/scoring.service');
 const sportsdb = require('../services/sportsdb.service');
 const adp = require('../services/adp.service');
+const sleeper = require('../services/sleeper.service');
 const season = require('../services/season.service');
 const correction = require('../services/correction.service');
 const montecarlo = require('../services/montecarlo.service');
@@ -165,6 +166,24 @@ router.post('/sync-photos', async (req, res) => {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     console.error('Photo sync failed:', error);
     res.status(500).json({ error: 'photo sync failed' });
+  }
+});
+
+// POST /api/scoring/sync-season-stats — fill player_season_stats with real
+// full-season lines from Sleeper. Optional body: { seasons: [2025, 2024] }.
+router.post('/sync-season-stats', async (req, res) => {
+  const body = req.body || {};
+  const opts = {};
+  if (Array.isArray(body.seasons) && body.seasons.length) {
+    opts.seasons = body.seasons.map(Number).filter((y) => Number.isInteger(y) && y >= 2000 && y <= 2100);
+  }
+  try {
+    const result = await sleeper.syncSeasonStats(opts);
+    res.json(result);
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    console.error('Season-stats sync failed:', error);
+    res.status(500).json({ error: 'season-stats sync failed' });
   }
 });
 
