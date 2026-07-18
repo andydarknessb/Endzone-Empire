@@ -92,6 +92,9 @@ function DraftBoard() {
   const [page, setPage] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [positionFilter, setPositionFilter] = useState('All');
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
+  const didMountRef = useRef(false);
   const [onClockAlertOpen, setOnClockAlertOpen] = useState(false);
   const wasMyTurnRef = useRef(false);
   const [pickTimeSeconds, setPickTimeSeconds] = useState('');
@@ -265,6 +268,22 @@ function DraftBoard() {
     }
   }, [league?.draft_status, league?.pick_time_seconds, league?.autodraft_delay_seconds, settingsSaving]);
 
+  // Debounce the search box (avoid a request per keystroke).
+  useEffect(() => {
+    const handle = setTimeout(() => setSearch(searchInput.trim()), 300);
+    return () => clearTimeout(handle);
+  }, [searchInput]);
+
+  // Refetch the available list from page 1 when the committed search term
+  // changes. Skips the initial mount, where fetchInitialData already loads it.
+  useEffect(() => {
+    if (!didMountRef.current) {
+      didMountRef.current = true;
+      return;
+    }
+    fetchAvailablePlayers(0, positionFilter, search);
+  }, [search]);
+
   const fetchInitialData = async () => {
     try {
       setLoading(true);
@@ -277,7 +296,7 @@ function DraftBoard() {
     }
   };
 
-  const fetchAvailablePlayers = async (pageNum, positionOverride = positionFilter) => {
+  const fetchAvailablePlayers = async (pageNum, positionOverride = positionFilter, searchOverride = search) => {
     try {
       const params = {
         page: pageNum + 1,
@@ -287,6 +306,9 @@ function DraftBoard() {
       };
       if (positionOverride !== 'All') {
         params.position = positionOverride;
+      }
+      if (searchOverride) {
+        params.search = searchOverride;
       }
 
       const res = await apiClient.get('/api/players', { params });
@@ -593,8 +615,23 @@ function DraftBoard() {
       <Grid container spacing={3}>
         <Grid item xs={12} md={8}>
           <Paper sx={{ p: 2 }}>
-            <Box sx={{ mb: 2, display: 'flex', gap: 2, alignItems: 'center' }}>
+            <Box sx={{ mb: 2, display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
               <Typography variant="h6">Available Players</Typography>
+              <TextField
+                size="small"
+                label="Search"
+                placeholder="Search by name…"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                sx={{ minWidth: 200 }}
+                InputProps={{
+                  endAdornment: searchInput ? (
+                    <IconButton size="small" aria-label="Clear search" onClick={() => setSearchInput('')}>
+                      ✕
+                    </IconButton>
+                  ) : null,
+                }}
+              />
               <FormControl sx={{ minWidth: 120 }}>
                 <InputLabel id="draft-position-filter-label">Position</InputLabel>
                 <Select
@@ -643,6 +680,13 @@ function DraftBoard() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
+                  {availablePlayers.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={7} sx={{ color: 'text.secondary', textAlign: 'center' }}>
+                        {search ? `No available players matching “${search}”` : 'No available players'}
+                      </TableCell>
+                    </TableRow>
+                  )}
                   {availablePlayers.map((player, idx) => (
                     <TableRow key={player.id}>
                       <TableCell align="right" sx={{ color: 'text.secondary' }}>
@@ -704,8 +748,13 @@ function DraftBoard() {
         <Grid item xs={12} md={4}>
           {teams.length > 0 && (
             <Paper sx={{ p: 2, mb: 3 }}>
-              <Typography variant="h6" sx={{ mb: 2 }}>
+              <Typography variant="h6" sx={{ mb: 0.5 }}>
                 Draft Order
+              </Typography>
+              <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2 }}>
+                Turn on <strong>Auto-draft</strong> to let the system pick automatically for a team
+                (best available by ADP) when it's on the clock. It also switches on by itself after a
+                team misses two picks.
               </Typography>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                 {teams.map((team) => {
@@ -730,11 +779,22 @@ function DraftBoard() {
                       </Typography>
                       {team.autodraft && <Chip size="small" color="warning" label="AUTO" />}
                       {canToggle && (
-                        <Switch
-                          size="small"
-                          checked={!!team.autodraft}
-                          onChange={(e) => handleToggleAutodraft(team.id, e.target.checked)}
-                          inputProps={{ 'aria-label': `Autodraft for ${team.name}` }}
+                        <FormControlLabel
+                          sx={{ m: 0 }}
+                          labelPlacement="start"
+                          control={
+                            <Switch
+                              size="small"
+                              checked={!!team.autodraft}
+                              onChange={(e) => handleToggleAutodraft(team.id, e.target.checked)}
+                              inputProps={{ 'aria-label': `Autodraft for ${team.name}` }}
+                            />
+                          }
+                          label={
+                            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                              Auto-draft
+                            </Typography>
+                          }
                         />
                       )}
                     </Box>

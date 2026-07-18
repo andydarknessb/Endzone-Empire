@@ -12,6 +12,7 @@ import {
   TableRow,
   Chip,
   Alert,
+  Avatar,
   Box,
   Skeleton,
 } from '@mui/material';
@@ -37,35 +38,68 @@ function statLine(stats) {
   return parts.length > 0 ? parts.join(', ') : '—';
 }
 
+const POSITION_COLORS = {
+  QB: 'primary',
+  RB: 'success',
+  WR: 'secondary',
+  TE: 'warning',
+  K: 'info',
+  DEF: 'error',
+};
+
+function positionAvatarSx(position) {
+  const key = POSITION_COLORS[position] || 'primary';
+  return {
+    width: 96,
+    height: 96,
+    bgcolor: `${key}.main`,
+    color: `${key}.contrastText`,
+    fontSize: '2rem',
+  };
+}
+
+function initialsFor(name) {
+  if (!name) return '?';
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((word) => word[0])
+    .join('')
+    .toUpperCase();
+}
+
 function PlayerDetail() {
   const { playerId } = useParams();
-  const [detail, setDetail] = useState(null);
+  const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    const fetchDetail = async () => {
+    const fetchSummary = async () => {
       try {
         setLoading(true);
         setError(null);
-        const res = await apiClient.get(`/api/players/${playerId}`);
-        setDetail(res.data);
+        const res = await apiClient.get(`/api/players/${playerId}/summary`);
+        setSummary(res.data);
       } catch (err) {
         setError(err.response?.data?.error || err.message);
       } finally {
         setLoading(false);
       }
     };
-    fetchDetail();
+    fetchSummary();
   }, [playerId]);
 
   if (loading) {
     return (
       <Container maxWidth="md" sx={{ py: 4 }} data-testid="page-skeleton">
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
-          <Skeleton variant="text" width={220} height={48} />
-          <Skeleton variant="rounded" width={70} height={32} />
-          <Skeleton variant="rounded" width={120} height={32} />
+          <Skeleton variant="circular" width={96} height={96} />
+          <Box sx={{ flexGrow: 1 }}>
+            <Skeleton variant="text" width={220} height={48} />
+            <Skeleton variant="text" width={160} height={32} />
+          </Box>
         </Box>
         <Skeleton variant="rectangular" height={80} sx={{ mb: 3, borderRadius: 1 }} />
         <Skeleton variant="text" width={160} height={36} sx={{ mb: 2 }} />
@@ -76,7 +110,7 @@ function PlayerDetail() {
     );
   }
 
-  if (error || !detail) {
+  if (error || !summary || !summary.player) {
     return (
       <Container sx={{ py: 4 }}>
         <Alert severity="error">{error || 'Player not available'}</Alert>
@@ -84,70 +118,130 @@ function PlayerDetail() {
     );
   }
 
-  const { player, weekly, seasonTotals } = detail;
+  const { player, fantasy = {}, currentSeason, previousSeasons = [] } = summary;
+  const hasFantasy =
+    fantasy.adp != null || fantasy.projectedPoints != null || fantasy.previousSeasonTotal != null;
 
   return (
     <Container maxWidth="md" sx={{ py: 4 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1, flexWrap: 'wrap' }}>
-        <Typography variant="h4">{player.name}</Typography>
-        <Chip label={player.position} color="primary" />
-        <Chip label={player.nfl_team || 'Free Agent'} />
-        <InjuryBadge status={player.injury_status} detail={player.injury_detail} />
+        <Avatar src={player.photo_url} imgProps={{ loading: 'lazy' }} sx={positionAvatarSx(player.position)}>
+          {initialsFor(player.name)}
+        </Avatar>
+        <Box>
+          <Typography variant="h4">
+            {player.name}
+            {player.jersey_number != null && (
+              <Typography component="span" variant="h6" sx={{ color: 'text.secondary', ml: 1 }}>
+                #{player.jersey_number}
+              </Typography>
+            )}
+          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mt: 0.5 }}>
+            <Chip label={player.position} color="primary" />
+            <Chip label={player.nfl_team || 'Free Agent'} />
+            <InjuryBadge status={player.injury_status} detail={player.injury_detail} />
+            {player.bye_week != null && (
+              <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                Bye: Wk {player.bye_week}
+              </Typography>
+            )}
+          </Box>
+        </Box>
       </Box>
+
       {player.news && (
         <Alert severity="info" sx={{ mb: 2 }}>
           {player.news}
         </Alert>
       )}
 
-      {seasonTotals ? (
+      {hasFantasy && (
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 3 }} data-testid="fantasy-strip">
+          {fantasy.adp != null && <Chip variant="outlined" label={`ADP ${fantasy.adp}`} />}
+          {fantasy.projectedPoints != null && (
+            <Chip color="info" label={`${fantasy.projectionSeason} Projection: ${fantasy.projectedPoints} pts`} />
+          )}
+          {fantasy.previousSeasonTotal != null && (
+            <Chip color="success" label={`${fantasy.previousSeasonYear}: ${fantasy.previousSeasonTotal} pts`} />
+          )}
+        </Box>
+      )}
+
+      <Typography variant="h6" sx={{ mb: 2 }}>
+        {currentSeason ? `${currentSeason.season} Season (In Progress)` : 'Current Season'}
+      </Typography>
+      {!currentSeason || currentSeason.weekly.length === 0 ? (
         <Paper sx={{ p: 2, mb: 3 }}>
-          <Typography variant="h6" sx={{ mb: 1 }}>
-            {seasonTotals.season} Season
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-            <Chip label={`Games: ${seasonTotals.games}`} />
-            <Chip label={`Fantasy Points: ${seasonTotals.points}`} color="success" />
-            {seasonTotals.projectedPoints !== null && (
-              <Chip label={`Projected: ${seasonTotals.projectedPoints}/wk`} color="info" />
-            )}
-          </Box>
+          <Typography sx={{ color: 'text.secondary' }}>No current-season stats yet</Typography>
         </Paper>
       ) : (
         <Paper sx={{ p: 2, mb: 3 }}>
-          <Typography sx={{ color: 'text.secondary' }}>No stats synced yet</Typography>
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 2 }}>
+            <Chip label={`Games: ${currentSeason.games}`} />
+            <Chip label={`Fantasy Points: ${currentSeason.points}`} color="success" />
+            {currentSeason.perGame != null && (
+              <Chip label={`Pts/G: ${currentSeason.perGame}`} color="info" />
+            )}
+          </Box>
+          <TableContainer>
+            <Table size="small">
+              <TableHead>
+                <TableRow sx={{ bgcolor: 'primary.main' }}>
+                  <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>Week</TableCell>
+                  <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>Stat Line</TableCell>
+                  <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }} align="right">
+                    Fantasy Pts
+                  </TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {currentSeason.weekly.map((row) => (
+                  <TableRow key={row.week}>
+                    <TableCell>{row.week}</TableCell>
+                    <TableCell>{statLine(row.stats)}</TableCell>
+                    <TableCell align="right">{row.fantasy_points}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
         </Paper>
       )}
 
       <Typography variant="h6" sx={{ mb: 2 }}>
-        Weekly Stats
+        Previous Seasons
       </Typography>
       <TableContainer component={Paper}>
         <Table size="small">
           <TableHead>
             <TableRow sx={{ bgcolor: 'primary.main' }}>
               <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>Season</TableCell>
-              <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>Week</TableCell>
+              <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>G</TableCell>
               <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>Stat Line</TableCell>
               <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }} align="right">
-                Fantasy Pts
+                FPTS
+              </TableCell>
+              <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }} align="right">
+                FPTS/G
               </TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {weekly.length === 0 ? (
+            {previousSeasons.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} sx={{ color: 'text.secondary' }}>
-                  No weekly stats yet
+                <TableCell colSpan={5} sx={{ color: 'text.secondary' }}>
+                  No previous-season data available for this player.
                 </TableCell>
               </TableRow>
             ) : (
-              weekly.map((row) => (
-                <TableRow key={`${row.season}-${row.week}`}>
+              previousSeasons.map((row) => (
+                <TableRow key={row.season}>
                   <TableCell>{row.season}</TableCell>
-                  <TableCell>{row.week}</TableCell>
+                  <TableCell>{row.games}</TableCell>
                   <TableCell>{statLine(row.stats)}</TableCell>
-                  <TableCell align="right">{row.fantasy_points}</TableCell>
+                  <TableCell align="right">{row.points}</TableCell>
+                  <TableCell align="right">{row.perGame}</TableCell>
                 </TableRow>
               ))
             )}

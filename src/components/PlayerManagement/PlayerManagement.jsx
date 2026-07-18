@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper,
   Button, Pagination, Alert, Typography, Select, MenuItem, FormControl, InputLabel,
+  TextField, InputAdornment,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
@@ -18,6 +19,8 @@ function PlayerManagement() {
   const [players, setPlayers] = useState([]);
   const [totalPages, setTotalPages] = useState(1);
   const [positionFilter, setPositionFilter] = useState('All');
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
   const [pageNumber, setPageNumber] = useState(1);
   const [roster, setRoster] = useState([]);
   const [error, setError] = useState(null);
@@ -39,15 +42,15 @@ function PlayerManagement() {
 
   const fetchPlayers = useCallback(async () => {
     try {
-      const response = await apiClient.get('/api/players', {
-        params: { page: pageNumber, position: positionFilter, sort: 'adp' },
-      });
+      const params = { page: pageNumber, position: positionFilter, sort: 'adp' };
+      if (search) params.search = search;
+      const response = await apiClient.get('/api/players', { params });
       setPlayers(response.data.players);
       setTotalPages(response.data.totalPages);
     } catch (err) {
       report(err);
     }
-  }, [pageNumber, positionFilter]);
+  }, [pageNumber, positionFilter, search]);
 
   const fetchRoster = useCallback(async () => {
     if (!selectedLeague) return;
@@ -61,6 +64,16 @@ function PlayerManagement() {
 
   useEffect(() => { fetchPlayers(); }, [fetchPlayers]);
   useEffect(() => { fetchRoster(); }, [fetchRoster]);
+
+  // Debounce the search box so we're not firing a request per keystroke, and
+  // reset to page 1 whenever the committed term changes.
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      setSearch(searchInput.trim());
+      setPageNumber(1);
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [searchInput]);
 
   const addToRoster = async (player) => {
     setError(null);
@@ -90,6 +103,24 @@ function PlayerManagement() {
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flexDirection: 'column' }}>
       {error && <Alert severity="error" onClose={() => setError(null)} sx={{ m: 1 }}>{error}</Alert>}
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 10, flexWrap: 'wrap' }}>
+        <TextField
+          size="small"
+          label="Search players"
+          placeholder="Search by name…"
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          sx={{ minWidth: 220 }}
+          InputProps={{
+            startAdornment: <InputAdornment position="start">🔍</InputAdornment>,
+            endAdornment: searchInput ? (
+              <InputAdornment position="end">
+                <Button size="small" onClick={() => setSearchInput('')} sx={{ minWidth: 0, p: 0.5 }} aria-label="Clear search">
+                  ✕
+                </Button>
+              </InputAdornment>
+            ) : null,
+          }}
+        />
         <FormControl size="small" sx={{ minWidth: 200 }}>
           <InputLabel id="pm-league-label">League</InputLabel>
           <Select labelId="pm-league-label" label="League" value={selectedLeague}
@@ -126,6 +157,13 @@ function PlayerManagement() {
             </TableRow>
           </TableHead>
           <TableBody>
+            {players.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={6} sx={{ color: 'text.secondary', textAlign: 'center' }}>
+                  {search ? `No players matching “${search}”` : 'No players found'}
+                </TableCell>
+              </TableRow>
+            )}
             {players.map((player, idx) => (
               <TableRow key={player.id}>
                 <TableCell align="right" sx={{ color: 'text.secondary' }}>

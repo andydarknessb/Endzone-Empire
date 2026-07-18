@@ -71,6 +71,12 @@ router.get('/', requireAuth, async (req, res) => {
     return res.status(400).json({ error: `position must be one of ${POSITIONS.join(', ')}` });
   }
 
+  // Optional case-insensitive name search. Wildcards/backslashes are escaped so
+  // a user typing "%" matches a literal percent, not the whole pool (default
+  // ESCAPE '\' applies to the ILIKE below). Capped so a huge string can't bloat
+  // the query.
+  const search = req.query.search ? String(req.query.search).trim().slice(0, 100) : '';
+
   // Optional: exclude players already rostered in a league (draft board view)
   const leagueId = req.query.leagueId ? String(req.query.leagueId) : null;
   if (leagueId && !/^\d+$/.test(leagueId)) {
@@ -89,6 +95,10 @@ router.get('/', requireAuth, async (req, res) => {
   if (position) {
     params.push(position);
     where.push(`"position" = $${params.length}`);
+  }
+  if (search) {
+    params.push(`%${search.replace(/[\\%_]/g, '\\$&')}%`);
+    where.push(`"name" ILIKE $${params.length}`);
   }
   if (availableOnly) {
     params.push(Number(leagueId));
