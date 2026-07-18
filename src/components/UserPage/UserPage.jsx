@@ -1,12 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { useSelector } from 'react-redux';
+import { Link as RouterLink } from 'react-router-dom';
 import {
   Typography, Button, Dialog, DialogTitle, DialogContent, DialogActions,
   TextField, Select, MenuItem, InputLabel, Alert, Switch, FormControlLabel,
-  FormControl, Tooltip,
+  FormControl, Tooltip, Container, Box, Grid, Card, CardActionArea, CardContent, Chip,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
-import './UserPage.css';
+import Countdown from '../Countdown/Countdown';
+
+// Draft status -> readable chip on each league card.
+const STATUS_LABEL = { pending: 'Pre-draft', active: 'Draft live', complete: 'In season' };
+const STATUS_COLOR = { pending: 'default', active: 'warning', complete: 'success' };
 
 function UserPage() {
   const user = useSelector((store) => store.user);
@@ -141,24 +146,38 @@ function UserPage() {
   };
 
   return (
-    <div className="user-page">
-    <div className="container">
-    <div className="RegisterForm">
-      <Typography variant="h4" className="title">Endzone Empire</Typography>
-      <Typography variant="h6" className="welcomeText">Welcome, {user.username}!</Typography>
+    <Container maxWidth="lg" sx={{ py: 3 }}>
+      {/* Header banner — the logo is an accent, not the whole page */}
+      <Box
+        sx={{
+          position: 'relative',
+          borderRadius: 2,
+          overflow: 'hidden',
+          mb: 3,
+          minHeight: { xs: 120, md: 160 },
+          display: 'flex',
+          alignItems: 'flex-end',
+          backgroundImage: 'url(/endzone.jpeg)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+        }}
+      >
+        <Box sx={{ position: 'absolute', inset: 0, bgcolor: 'common.black', opacity: 0.5 }} />
+        <Box sx={{ position: 'relative', p: { xs: 2, md: 3 }, color: 'common.white' }}>
+          <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.1 }}>
+            Endzone Empire
+          </Typography>
+          <Typography variant="h6" sx={{ opacity: 0.92 }}>
+            Welcome, {user.username}!
+          </Typography>
+        </Box>
+      </Box>
 
-      {error && <Alert severity="error" onClose={() => setError(null)} sx={{ my: 1 }}>{error}</Alert>}
-      {notice && <Alert severity="success" onClose={() => setNotice(null)} sx={{ my: 1 }}>{notice}</Alert>}
+      {error && <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>{error}</Alert>}
+      {notice && <Alert severity="success" onClose={() => setNotice(null)} sx={{ mb: 2 }}>{notice}</Alert>}
 
-      <div className="leagueContainer">
-        {myLeagues.map((league) => (
-          <div key={league.id} className="leagueItem">
-            <Typography variant="body1">{league.name}</Typography>
-            <Typography variant="body2">Team: {league.my_team_name}</Typography>
-          </div>
-        ))}
-      </div>
-      <div className="buttonContainer">
+      {/* Primary actions */}
+      <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 3 }}>
         <Button variant="contained" color="primary" onClick={handleOpenCreateDialog}>
           Create League
         </Button>
@@ -177,7 +196,67 @@ function UserPage() {
             </Button>
           </span>
         </Tooltip>
-      </div>
+      </Box>
+
+      <Typography variant="h5" sx={{ mb: 2 }}>
+        My Leagues
+      </Typography>
+
+      {myLeagues.length === 0 ? (
+        <Card variant="outlined" sx={{ p: 4, textAlign: 'center' }}>
+          <Typography variant="h6" gutterBottom>
+            You&apos;re not in a league yet
+          </Typography>
+          <Typography color="text.secondary">
+            Use <strong>Create League</strong> or <strong>Join League</strong> above to get started.
+          </Typography>
+        </Card>
+      ) : (
+        <Grid container spacing={2}>
+          {myLeagues.map((league) => (
+            <Grid item xs={12} sm={6} md={4} key={league.id}>
+              <Card variant="outlined" sx={{ height: '100%' }}>
+                <CardActionArea
+                  component={RouterLink}
+                  to={`/league/${league.id}`}
+                  sx={{ height: '100%' }}
+                >
+                  <CardContent>
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'flex-start',
+                        gap: 1,
+                        mb: 1,
+                      }}
+                    >
+                      <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                        {league.name}
+                      </Typography>
+                      <Chip
+                        size="small"
+                        label={STATUS_LABEL[league.draft_status] || league.draft_status}
+                        color={STATUS_COLOR[league.draft_status] || 'default'}
+                      />
+                    </Box>
+                    <Typography variant="body2" color="text.secondary">
+                      Team: {league.my_team_name}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                      {league.team_count != null ? league.team_count : '—'}
+                      {league.max_teams ? `/${league.max_teams}` : ''} teams
+                    </Typography>
+                    {league.draft_status === 'pending' && league.draft_date && (
+                      <Countdown variant="chip" date={league.draft_date} />
+                    )}
+                  </CardContent>
+                </CardActionArea>
+              </Card>
+            </Grid>
+          ))}
+        </Grid>
+      )}
       <Dialog open={openCreateDialog} onClose={handleCloseCreateDialog} className="dialogContainer">
         <DialogTitle className="dialogTitle">Create a New League</DialogTitle>
         <DialogContent>
@@ -320,10 +399,7 @@ function UserPage() {
                 </Button>
               </DialogActions>
             </Dialog>
-          </div>
-        </div>
-
-  </div>
+    </Container>
   );
 }
 
