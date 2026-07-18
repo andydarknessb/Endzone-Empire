@@ -2,7 +2,7 @@ const express = require('express');
 const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
 const { draftPlayer } = require('../services/draft.service');
-const { rulesForLeague, buildPlayerSummary } = require('../services/scoring.service');
+const { rulesForLeague, buildPlayerSummary, projectSeasonPoints } = require('../services/scoring.service');
 
 const router = express.Router();
 
@@ -84,6 +84,21 @@ router.get('/', requireAuth, async (req, res) => {
   }
   const availableOnly = req.query.available === 'true' && leagueId;
 
+  // Scoring context for the season projection below: use the named league's
+  // rules + current season when given (the draft board passes leagueId), else
+  // defaults. This keeps the list's projection identical to the quick-view's.
+  let projectionRules = rulesForLeague(null);
+  let currentSeasonYear = 2026;
+  if (leagueId) {
+    const leagueRow = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [Number(leagueId)]);
+    if (leagueRow.rows[0]) {
+      projectionRules = rulesForLeague(leagueRow.rows[0]);
+      if (leagueRow.rows[0].current_season != null) {
+        currentSeasonYear = Number(leagueRow.rows[0].current_season);
+      }
+    }
+  }
+
   // Ordering: by ADP (best pick first, undrafted last) for draft/browse views,
   // else by id. Whitelisted — never interpolate raw user input into SQL.
   const orderBy = req.query.sort === 'adp'
@@ -107,15 +122,8 @@ router.get('/', requireAuth, async (req, res) => {
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
   params.push(PAGE_SIZE, offset);
-  // projected_points = per-game fantasy average over the player's most
-  // recent synced season (null until stats exist)
   const queryText = `
-    SELECT "players".*, COUNT(*) OVER() AS total_count,
-           (SELECT ROUND(AVG("fantasy_points"), 1) FROM "player_stats"
-            WHERE "player_stats"."player_id" = "players"."id"
-              AND "player_stats"."season" = (SELECT MAX("season") FROM "player_stats"
-                                             WHERE "player_id" = "players"."id")
-           ) AS "projected_points"
+    SELECT "players".*, COUNT(*) OVER() AS total_count
     FROM "players"
     ${whereSql}
     ORDER BY ${orderBy}
@@ -125,8 +133,35 @@ router.get('/', requireAuth, async (req, res) => {
   try {
     const result = await pool.query(queryText, params);
     const total = result.rows[0] ? Number(result.rows[0].total_count) : 0;
+    const players = result.rows.map(({ total_count, ...p }) => p);
+
+    // Attach a full-season projection (same math the quick-view uses), computed
+    // from prior-season totals under the league's scoring rules, so the draft
+    // board's "Season Proj" matches the dialog rather than showing a raw
+    // per-game figure. One extra query for the whole page.
+    const ids = players.map((p) => p.id);
+    const seasonByPlayer = new Map();
+    if (ids.length > 0) {
+      const seasonRes = await pool.query(
+        `SELECT "player_id", "season", "games_played", "stats"
+         FROM "player_season_stats" WHERE "player_id" = ANY($1)`,
+        [ids]
+      );
+      for (const row of seasonRes.rows) {
+        if (!seasonByPlayer.has(row.player_id)) seasonByPlayer.set(row.player_id, []);
+        seasonByPlayer.get(row.player_id).push(row);
+      }
+    }
+    for (const p of players) {
+      p.projected_points = projectSeasonPoints({
+        seasonRows: seasonByPlayer.get(p.id) || [],
+        rules: projectionRules,
+        currentSeasonYear,
+      });
+    }
+
     res.json({
-      players: result.rows.map(({ total_count, ...p }) => p),
+      players,
       page,
       pageSize: PAGE_SIZE,
       totalPages: Math.max(1, Math.ceil(total / PAGE_SIZE)),

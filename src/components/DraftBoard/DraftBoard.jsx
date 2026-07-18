@@ -684,7 +684,7 @@ function DraftBoard() {
                       ADP
                     </TableCell>
                     <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }} align="right">
-                      Proj
+                      Season Proj
                     </TableCell>
                     <TableCell sx={stickyActionHeadSx} align="center">
                       Action

@@ -3,8 +3,36 @@ const assert = require('node:assert/strict');
 const {
   aggregateSeasonStats,
   buildPlayerSummary,
+  projectSeasonPoints,
   SCORING_PRESETS,
 } = require('../services/scoring.service');
+
+// --- projectSeasonPoints ----------------------------------------------------
+
+test('projectSeasonPoints extrapolates last completed season per-game over 17', () => {
+  const proj = projectSeasonPoints({
+    seasonRows: [{ season: 2025, games_played: 17, stats: { rushingYards: 1700, rushingTDs: 17 } }],
+    currentSeasonYear: 2026,
+  });
+  // 1700 * 0.1 + 17 * 6 = 170 + 102 = 272 over 17 games = 16 pt/g -> 272 season
+  assert.equal(proj, 272);
+});
+
+test('projectSeasonPoints returns null below the minimum games sample', () => {
+  const proj = projectSeasonPoints({
+    seasonRows: [{ season: 2025, games_played: 2, stats: { rushingYards: 400, rushingTDs: 4 } }],
+    currentSeasonYear: 2026,
+  });
+  assert.equal(proj, null);
+});
+
+test('projectSeasonPoints ignores the current (in-progress) season and empty history', () => {
+  assert.equal(
+    projectSeasonPoints({ seasonRows: [{ season: 2026, games_played: 17, stats: {} }], currentSeasonYear: 2026 }),
+    null
+  );
+  assert.equal(projectSeasonPoints({ seasonRows: [], currentSeasonYear: 2026 }), null);
+});
 
 const PLAYER = {
   id: 7,

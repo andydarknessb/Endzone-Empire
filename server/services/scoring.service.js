@@ -491,6 +491,25 @@ function aggregateSeasonStats(weeklyStats) {
 // this the per-game pace is too noisy to scale to a full season.
 const MIN_PROJECTION_GAMES = 4;
 
+/**
+ * Guarded full-season projection: the most recent completed season's per-game
+ * pace under `rules`, extrapolated over a 17-game slate. Returns null when the
+ * sample is too small (< MIN_PROJECTION_GAMES) or there's no prior season, so
+ * the draft board and the quick-view report the same number for a player.
+ */
+function projectSeasonPoints({ seasonRows = [], rules = SCORING_RULES, currentSeasonYear = 2026 }) {
+  const currentYear = Number(currentSeasonYear) || 2026;
+  const lastCompleted = [...seasonRows]
+    .filter((r) => r.season < currentYear)
+    .sort((a, b) => b.season - a.season)[0];
+  if (!lastCompleted) return null;
+  const games = Number(lastCompleted.games_played) || 0;
+  if (games < MIN_PROJECTION_GAMES) return null;
+  const perGame = calculateFantasyPoints(lastCompleted.stats, rules) / games;
+  if (!perGame) return null;
+  return Math.round(perGame * 17 * 10) / 10;
+}
+
 function buildPlayerSummary({
   player,
   weeklyRows = [],
@@ -799,6 +818,7 @@ module.exports = {
   resolveHeadshotUrl,
   aggregateSeasonStats,
   buildPlayerSummary,
+  projectSeasonPoints,
   detectScoringEvents,
   syncWeekStats,
   syncSchedule,
