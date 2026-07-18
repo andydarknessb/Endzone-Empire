@@ -29,6 +29,7 @@ import {
 import apiClient from '../../api/apiClient';
 import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
+import { useSnackbar } from '../Snackbar/SnackbarProvider';
 
 function statusColor(status) {
   if (status === 'won') return 'success';
@@ -38,6 +39,7 @@ function statusColor(status) {
 
 function WaiverWire() {
   const { leagueId } = useParams();
+  const notify = useSnackbar();
   const [data, setData] = useState(null);
   const [roster, setRoster] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -138,10 +140,12 @@ function WaiverWire() {
         bid: isFaab ? Number(bid) : 0,
       });
       setSuccessMessage('Claim submitted');
+      notify('Waiver claim submitted');
       setClaimPlayer(null);
       await fetchAll();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
+      notify(err.response?.data?.error || err.message, { severity: 'error' });
     }
   };
 
@@ -150,9 +154,11 @@ function WaiverWire() {
       setError(null);
       await apiClient.delete(`/api/waivers/claim/${claim.id}?leagueId=${leagueId}`);
       setSuccessMessage('Claim cancelled');
+      notify('Waiver claim cancelled', { severity: 'info' });
       await fetchAll();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
+      notify(err.response?.data?.error || err.message, { severity: 'error' });
     }
   };
 

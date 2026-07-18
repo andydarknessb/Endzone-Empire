@@ -18,6 +18,7 @@ import {
   Collapse,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
+import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import InjuryBadge from '../InjuryBadge/InjuryBadge';
 import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
@@ -34,6 +35,7 @@ function isEligibleForSlot(position, slot) {
 
 function LineupScreen() {
   const { leagueId } = useParams();
+  const notify = useSnackbar();
   const [lineup, setLineup] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -156,9 +158,11 @@ function LineupScreen() {
         moves,
       });
       setSuccessMessage('Lineup saved');
+      notify('Lineup saved');
       await fetchLineup();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
+      notify(err.response?.data?.error || err.message, { severity: 'error' });
     }
   };
 

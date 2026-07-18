@@ -9,6 +9,7 @@ import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import PlayerAvatar from '../PlayerQuickView/PlayerAvatar';
 import PositionChip from '../PlayerQuickView/PositionChip';
+import { useSnackbar } from '../Snackbar/SnackbarProvider';
 
 const POSITIONS = ['All', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
 const PLAYERS_PAGE_SIZE = 25; // matches the server page size; for ADP rank numbers
@@ -43,6 +44,7 @@ function PlayerManagement() {
   const [roster, setRoster] = useState([]);
   const [error, setError] = useState(null);
   const [quickViewId, setQuickViewId] = useState(null);
+  const notify = useSnackbar();
 
   const report = (err) => setError(err.response?.data?.error || err.message);
 
@@ -94,25 +96,33 @@ function PlayerManagement() {
     return () => clearTimeout(handle);
   }, [searchInput]);
 
-  const addToRoster = async (player) => {
+  const addToRoster = async (player, { silent = false } = {}) => {
     setError(null);
     try {
       await apiClient.post(`/api/team/roster/${player.id}`, {
         leagueId: Number(selectedLeague),
       });
       fetchRoster();
+      if (!silent) notify(`Added ${player.name} to your roster`);
     } catch (err) {
       report(err);
+      notify(err.response?.data?.error || err.message, { severity: 'error' });
     }
   };
 
-  const removeFromRoster = async (playerId) => {
+  const removeFromRoster = async (player) => {
     setError(null);
     try {
-      await apiClient.delete(`/api/team/roster/${playerId}?leagueId=${selectedLeague}`);
+      await apiClient.delete(`/api/team/roster/${player.id}?leagueId=${selectedLeague}`);
       fetchRoster();
+      notify(`Dropped ${player.name}`, {
+        severity: 'info',
+        actionLabel: 'Undo',
+        onAction: () => addToRoster(player, { silent: true }),
+      });
     } catch (err) {
       report(err);
+      notify(err.response?.data?.error || err.message, { severity: 'error' });
     }
   };
 
@@ -267,7 +277,7 @@ function PlayerManagement() {
                   <Button
                     variant="outlined"
                     color="error"
-                    onClick={() => removeFromRoster(player.id)}
+                    onClick={() => removeFromRoster(player)}
                   >
                     Remove
                   </Button>

@@ -7,6 +7,7 @@ import {
 import apiClient from '../../api/apiClient';
 import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
+import { useSnackbar } from '../Snackbar/SnackbarProvider';
 
 function TeamManagement() {
   const [leagues, setLeagues] = useState([]);
@@ -15,6 +16,7 @@ function TeamManagement() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [quickViewId, setQuickViewId] = useState(null);
+  const notify = useSnackbar();
 
   useEffect(() => {
     fetchLeagues();
@@ -55,13 +57,28 @@ function TeamManagement() {
     }
   };
 
-  const dropPlayer = async (playerId) => {
-    setError(null);
+  const readdPlayer = async (player) => {
     try {
-      await apiClient.delete(`/api/team/roster/${playerId}?leagueId=${selectedLeague}`);
+      await apiClient.post(`/api/team/roster/${player.id}`, { leagueId: Number(selectedLeague) });
       fetchRoster(selectedLeague);
     } catch (err) {
+      notify(err.response?.data?.error || err.message, { severity: 'error' });
+    }
+  };
+
+  const dropPlayer = async (player) => {
+    setError(null);
+    try {
+      await apiClient.delete(`/api/team/roster/${player.id}?leagueId=${selectedLeague}`);
+      fetchRoster(selectedLeague);
+      notify(`Dropped ${player.name}`, {
+        severity: 'info',
+        actionLabel: 'Undo',
+        onAction: () => readdPlayer(player),
+      });
+    } catch (err) {
       report(err);
+      notify(err.response?.data?.error || err.message, { severity: 'error' });
     }
   };
 
@@ -116,7 +133,7 @@ function TeamManagement() {
                     {player.acquired_at ? new Date(player.acquired_at).toLocaleDateString() : '—'}
                   </TableCell>
                   <TableCell align="right">
-                    <Button size="small" color="error" onClick={() => dropPlayer(player.id)}>
+                    <Button size="small" color="error" onClick={() => dropPlayer(player)}>
                       Drop
                     </Button>
                   </TableCell>

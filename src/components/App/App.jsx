@@ -43,6 +43,7 @@ import VerifyEmail from '../VerifyEmail/VerifyEmail';
 import AppThemeProvider from '../../theme/AppThemeProvider';
 import OfflineBanner from '../OfflineBanner/OfflineBanner';
 import NotFound from '../NotFound/NotFound';
+import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 
 
 import './App.css';
@@ -58,6 +59,7 @@ function App() {
 
   return (
     <AppThemeProvider>
+    <SnackbarProvider>
     <OfflineBanner />
     <Router>
       <div>
@@ -154,6 +156,7 @@ function App() {
         <Footer />
       </div>
     </Router>
+    </SnackbarProvider>
     </AppThemeProvider>
   );
 }

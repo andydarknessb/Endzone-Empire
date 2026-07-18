@@ -7,10 +7,12 @@ import {
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import Countdown from '../Countdown/Countdown';
+import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import './LeagueManagement.css';
 
 function LeagueManagement() {
   const user = useSelector((store) => store.user);
+  const notify = useSnackbar();
   const [leagues, setLeagues] = useState([]);
   const [leagueName, setLeagueName] = useState('');
   const [rosterLimit, setRosterLimit] = useState(15);
@@ -61,6 +63,7 @@ function LeagueManagement() {
 
       const response = await apiClient.post('/api/league', payload);
       setNotice(`League created! Invite code: ${response.data.invite_code}`);
+      notify('League created!');
       setLeagueName('');
       setIsPublic(false);
       setJoinApproval(false);
@@ -70,6 +73,7 @@ function LeagueManagement() {
       fetchLeagues();
     } catch (err) {
       report(err);
+      notify(err.response?.data?.error || err.message, { severity: 'error' });
     }
   };
 
@@ -79,10 +83,12 @@ function LeagueManagement() {
     try {
       await apiClient.post('/api/league/join', { inviteCode: inviteCode.trim() });
       setNotice('Joined league!');
+      notify('Joined league!');
       setInviteCode('');
       fetchLeagues();
     } catch (err) {
       report(err);
+      notify(err.response?.data?.error || err.message, { severity: 'error' });
     }
   };
 

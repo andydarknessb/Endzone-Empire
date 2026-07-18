@@ -19,6 +19,7 @@ import {
   TextField,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
+import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import ChatPanel from '../ChatPanel/ChatPanel';
 import RecapCard from '../RecapCard/RecapCard';
 import TrophyCase from '../TrophyCase/TrophyCase';
@@ -69,6 +70,7 @@ function LeagueDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState(null);
+  const notify = useSnackbar();
   const [joinRequests, setJoinRequests] = useState([]);
   const [sizeMin, setSizeMin] = useState('');
   const [sizeMax, setSizeMax] = useState('');
@@ -145,9 +147,11 @@ function LeagueDashboard() {
       setSuccessMessage(null);
       await apiClient.post(`/api/league/${leagueId}/start-draft`);
       setSuccessMessage('Draft started successfully!');
+      notify('Draft started!');
       fetchLeagueAndUser();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
+      notify(err.response?.data?.error || err.message, { severity: 'error' });
     }
   };
 
@@ -160,9 +164,11 @@ function LeagueDashboard() {
         maxTeams: Number(sizeMax),
       });
       setSuccessMessage('Team limits updated');
+      notify('Team limits updated');
       fetchLeagueAndUser();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
+      notify(err.response?.data?.error || err.message, { severity: 'error' });
     }
   };
 

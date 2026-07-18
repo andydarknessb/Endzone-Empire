@@ -37,6 +37,7 @@ import Countdown from '../Countdown/Countdown';
 import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import PositionChip from '../PlayerQuickView/PositionChip';
+import { useSnackbar } from '../Snackbar/SnackbarProvider';
 
 // Matches the server's players page size; used to number rows by ADP rank.
 const PLAYERS_PAGE_SIZE = 25;
@@ -95,6 +96,7 @@ function playBeep() {
 function DraftBoard() {
   const { leagueId } = useParams();
   const user = useSelector((store) => store.user);
+  const notify = useSnackbar();
   const [league, setLeague] = useState(null);
   const [teams, setTeams] = useState([]);
   const [picks, setPicks] = useState([]);
@@ -369,6 +371,7 @@ function DraftBoard() {
   const handleQueuePlayer = (player) => {
     if (queue.some((p) => p.id === player.id)) return;
     persistQueue([...queue, player]);
+    notify(`Queued ${player.name}`, { severity: 'info' });
   };
 
   const handleMoveUp = (index) => {
@@ -386,16 +389,22 @@ function DraftBoard() {
   };
 
   const handleRemoveFromQueue = (index) => {
+    const removed = queue[index];
     const next = queue.filter((_, i) => i !== index);
     persistQueue(next);
+    if (removed) notify(`Removed ${removed.name} from your queue`, { severity: 'info' });
   };
 
   const handleDraftPlayer = (playerId) => {
     if (socketRef.current) {
       setError(null);
+      const player = availablePlayers.find((p) => p.id === playerId);
       socketRef.current.emit('draft:pick', { leagueId: Number(leagueId), playerId }, (resp) => {
         if (resp?.error) {
           setError(resp.error);
+          notify(resp.error, { severity: 'error' });
+        } else {
+          notify(`Drafted ${player ? player.name : 'player'}!`);
         }
       });
     }
@@ -459,8 +468,10 @@ function DraftBoard() {
         autodraftDelaySeconds: Number(autodraftDelaySeconds),
       });
       setSuccessMessage('Draft settings saved');
+      notify('Draft settings saved');
     } catch (err) {
       setError(err.response?.data?.error || err.message);
+      notify(err.response?.data?.error || err.message, { severity: 'error' });
     } finally {
       setSettingsSaving(false);
     }

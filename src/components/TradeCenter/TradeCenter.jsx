@@ -25,6 +25,7 @@ import {
 import apiClient from '../../api/apiClient';
 import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
+import { useSnackbar } from '../Snackbar/SnackbarProvider';
 
 const STATUS_COLOR = {
   pending: 'warning',
@@ -123,6 +124,7 @@ function TradeAnalysisPanel({ leagueId, receivingTeamId, offeredPlayerIds, reque
 function TradeCenter() {
   const { leagueId } = useParams();
   const user = useSelector((store) => store.user);
+  const notify = useSnackbar();
 
   const [trades, setTrades] = useState(null);
   const [myTeamId, setMyTeamId] = useState(null);
@@ -197,9 +199,11 @@ function TradeCenter() {
       });
       setDialogOpen(false);
       setSuccessMessage('Trade offer sent');
+      notify('Trade offer sent');
       await fetchTrades();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
+      notify(err.response?.data?.error || err.message, { severity: 'error' });
     }
   };
 
@@ -209,9 +213,11 @@ function TradeCenter() {
       setSuccessMessage(null);
       await apiClient.post(url, body);
       setSuccessMessage(message);
+      notify(message);
       await fetchTrades();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
+      notify(err.response?.data?.error || err.message, { severity: 'error' });
     }
   };
 

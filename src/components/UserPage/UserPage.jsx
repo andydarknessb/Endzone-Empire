@@ -9,6 +9,7 @@ import {
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import Countdown from '../Countdown/Countdown';
+import { useSnackbar } from '../Snackbar/SnackbarProvider';
 
 // Draft status -> readable chip on each league card.
 const STATUS_LABEL = { pending: 'Pre-draft', active: 'Draft live', complete: 'In season' };
@@ -21,6 +22,7 @@ function UserPage() {
   const [loadingLeagues, setLoadingLeagues] = useState(true);
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
+  const notify = useSnackbar();
 
   // Create League dialog
   const [openCreateDialog, setOpenCreateDialog] = useState(false);
@@ -87,6 +89,7 @@ function UserPage() {
 
       await apiClient.post('/api/league', payload);
       setNotice('League created!');
+      notify('League created!');
       setLeagueName('');
       setTeamName('');
       setIsPublic(false);
@@ -97,6 +100,7 @@ function UserPage() {
       fetchMyLeagues();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
+      notify(err.response?.data?.error || err.message, { severity: 'error' });
     } finally {
       handleCloseCreateDialog();
     }
@@ -116,10 +120,12 @@ function UserPage() {
     try {
       await apiClient.post('/api/league/join', { inviteCode: inviteCode.trim() });
       setNotice('Joined league!');
+      notify('Joined league!');
       setInviteCode('');
       fetchMyLeagues();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
+      notify(err.response?.data?.error || err.message, { severity: 'error' });
     } finally {
       handleCloseJoinDialog();
     }
@@ -141,10 +147,12 @@ function UserPage() {
       if (!league) throw new Error('Select a league first');
       await apiClient.put(`/api/team/${league.my_team_id}`, { name: newTeamName });
       setNotice('Team renamed!');
+      notify('Team renamed!');
       setNewTeamName('');
       fetchMyLeagues();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
+      notify(err.response?.data?.error || err.message, { severity: 'error' });
     } finally {
       handleCloseRenameTeamDialog();
     }
