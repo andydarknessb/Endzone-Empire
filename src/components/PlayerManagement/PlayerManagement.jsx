@@ -128,6 +128,21 @@ function PlayerManagement() {
 
   const isPlayerInRoster = (playerId) => roster.some((player) => player.id === playerId);
 
+  // Context action for the quick-view: Add to Roster for the currently-viewed
+  // player, mirroring the row button's disabled/tooltip logic.
+  const quickViewPlayer =
+    players.find((p) => p.id === quickViewId) || roster.find((p) => p.id === quickViewId);
+  const quickViewActions = quickViewPlayer
+    ? [
+        {
+          label: isPlayerInRoster(quickViewPlayer.id) ? 'Added' : 'Add to Roster',
+          onClick: () => addToRoster(quickViewPlayer),
+          disabled: !selectedLeague || isPlayerInRoster(quickViewPlayer.id),
+          tooltip: !selectedLeague ? 'Select a league first' : '',
+        },
+      ]
+    : [];
+
   return (
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flexDirection: 'column' }}>
       {error && <Alert severity="error" onClose={() => setError(null)} sx={{ m: 1 }}>{error}</Alert>}
@@ -293,6 +308,9 @@ function PlayerManagement() {
         onClose={() => setQuickViewId(null)}
         playerId={quickViewId}
         leagueId={selectedLeague ? Number(selectedLeague) : undefined}
+        playerIds={players.map((p) => p.id)}
+        onNavigate={setQuickViewId}
+        actions={quickViewActions}
       />
     </div>
   );

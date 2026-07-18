@@ -18,6 +18,8 @@ import {
   TableRow,
   Paper,
   Link,
+  Button,
+  Tooltip,
   ToggleButtonGroup,
   ToggleButton,
 } from '@mui/material';
@@ -32,11 +34,54 @@ import { statLine } from './statLine';
 // localStorage per the component contract.
 let lastView = 'current';
 
-function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy }) {
+// Don't hijack arrow keys while the user is typing or roving the toggle group.
+function isTypingTarget(el) {
+  if (!el) return false;
+  const tag = el.tagName;
+  if (el.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+  return !!(el.closest && el.closest('.MuiToggleButtonGroup-root'));
+}
+
+/**
+ * @param playerIds  Optional ordered id list the dialog was opened from; enables
+ *                   prev/next arrows + Left/Right arrow-key navigation.
+ * @param onNavigate (id) => void — called with the new id on prev/next.
+ * @param actions    Optional [{ label, onClick, disabled, tooltip, variant, color }]
+ *                   context action(s) (e.g. Add to Roster / Draft / Queue).
+ */
+function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerIds, onNavigate, actions }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [view, setView] = useState(lastView);
+
+  const navIds = Array.isArray(playerIds) ? playerIds : null;
+  const navIndex = navIds ? navIds.indexOf(playerId) : -1;
+  const canPrev = navIndex > 0;
+  const canNext = navIndex >= 0 && navIds && navIndex < navIds.length - 1;
+  const goPrev = () => {
+    if (canPrev && onNavigate) onNavigate(navIds[navIndex - 1]);
+  };
+  const goNext = () => {
+    if (canNext && onNavigate) onNavigate(navIds[navIndex + 1]);
+  };
+
+  useEffect(() => {
+    if (!open || !navIds) return undefined;
+    const onKey = (e) => {
+      if (isTypingTarget(e.target)) return;
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        goPrev();
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        goNext();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // Recreated when the position in the list changes so the closures stay fresh.
+  }, [open, navIndex, canPrev, canNext]);
 
   useEffect(() => {
     if (!open || !playerId) return;
@@ -119,9 +164,21 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy }) {
             </>
           )}
         </Box>
-        <IconButton aria-label="Close" onClick={onClose} size="small">
-          ✕
-        </IconButton>
+        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+          {navIds && (
+            <>
+              <IconButton aria-label="Previous player" onClick={goPrev} disabled={!canPrev} size="small">
+                ‹
+              </IconButton>
+              <IconButton aria-label="Next player" onClick={goNext} disabled={!canNext} size="small">
+                ›
+              </IconButton>
+            </>
+          )}
+          <IconButton aria-label="Close" onClick={onClose} size="small">
+            ✕
+          </IconButton>
+        </Box>
       </DialogTitle>
       <DialogContent dividers>
         {draftedBy && (
@@ -254,6 +311,26 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy }) {
                   </TableBody>
                 </Table>
               </TableContainer>
+            )}
+
+            {Array.isArray(actions) && actions.length > 0 && (
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mt: 2 }}>
+                {actions.map((action, i) => (
+                  <Tooltip key={i} title={action.disabled && action.tooltip ? action.tooltip : ''}>
+                    <span>
+                      <Button
+                        variant={action.variant || 'contained'}
+                        color={action.color || 'primary'}
+                        size="small"
+                        disabled={action.disabled}
+                        onClick={action.onClick}
+                      >
+                        {action.label}
+                      </Button>
+                    </span>
+                  </Tooltip>
+                ))}
+              </Box>
             )}
 
             <Box sx={{ mt: 2, textAlign: 'right' }}>

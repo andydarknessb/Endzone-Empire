@@ -505,6 +505,31 @@ function DraftBoard() {
     ? teams.find((t) => t.id === quickViewPick.team_id)?.name || null
     : null;
 
+  // Context actions for the quick-view: Draft / Queue the currently-viewed
+  // available player, mirroring the row buttons. Hidden once the player is
+  // drafted (the "Drafted by" banner covers that case).
+  const quickViewAvail = availablePlayers.find((p) => p.id === quickViewId);
+  const quickViewActions =
+    quickViewAvail && !quickViewDraftedBy
+      ? [
+          {
+            label: 'Draft',
+            variant: 'contained',
+            disabled: !!league?.draft_paused,
+            onClick: () => {
+              handleDraftPlayer(quickViewAvail.id);
+              setQuickViewId(null);
+            },
+          },
+          {
+            label: queue.some((p) => p.id === quickViewAvail.id) ? 'Queued' : 'Queue',
+            variant: 'outlined',
+            disabled: queue.some((p) => p.id === quickViewAvail.id),
+            onClick: () => handleQueuePlayer(quickViewAvail),
+          },
+        ]
+      : [];
+
   return (
     <Container maxWidth="xl" sx={{ py: 4 }}>
       {error && (
@@ -946,6 +971,9 @@ function DraftBoard() {
         playerId={quickViewId}
         leagueId={Number(leagueId)}
         draftedBy={quickViewDraftedBy}
+        playerIds={availablePlayers.map((p) => p.id)}
+        onNavigate={setQuickViewId}
+        actions={quickViewActions}
       />
     </Container>
   );

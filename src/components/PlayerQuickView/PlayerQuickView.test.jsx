@@ -80,6 +80,42 @@ test('renders header (name, position) after a successful fetch', async () => {
   expect(apiClient.get).toHaveBeenCalledWith('/api/players/7/summary', undefined);
 });
 
+test('prev/next arrows navigate through the provided list', async () => {
+  const onNavigate = jest.fn();
+  renderQuickView({ playerId: 7, playerIds: [5, 7, 9], onNavigate });
+  await screen.findByText('Justin Jefferson');
+
+  fireEvent.click(screen.getByRole('button', { name: 'Next player' }));
+  expect(onNavigate).toHaveBeenCalledWith(9);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Previous player' }));
+  expect(onNavigate).toHaveBeenCalledWith(5);
+});
+
+test('Left/Right arrow keys navigate the list', async () => {
+  const onNavigate = jest.fn();
+  renderQuickView({ playerId: 7, playerIds: [5, 7, 9], onNavigate });
+  await screen.findByText('Justin Jefferson');
+
+  fireEvent.keyDown(window, { key: 'ArrowRight' });
+  expect(onNavigate).toHaveBeenCalledWith(9);
+});
+
+test('no nav arrows when no player list is provided', async () => {
+  renderQuickView();
+  await screen.findByText('Justin Jefferson');
+  expect(screen.queryByRole('button', { name: 'Next player' })).not.toBeInTheDocument();
+});
+
+test('renders context actions and fires their onClick', async () => {
+  const onClick = jest.fn();
+  renderQuickView({ actions: [{ label: 'Add to Roster', onClick }] });
+  await screen.findByText('Justin Jefferson');
+
+  fireEvent.click(screen.getByRole('button', { name: 'Add to Roster' }));
+  expect(onClick).toHaveBeenCalled();
+});
+
 test('shows the fantasy strip: ADP, projection, and last-season total', async () => {
   renderQuickView();
 
