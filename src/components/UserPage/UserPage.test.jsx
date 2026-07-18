@@ -29,6 +29,14 @@ afterEach(() => {
   jest.clearAllMocks();
 });
 
+test('shows skeleton cards (not the empty state) while leagues are loading', () => {
+  apiClient.get.mockReturnValue(new Promise(() => {})); // never resolves
+  renderWithProviders(<UserPage />, { state: baseState });
+
+  expect(screen.getAllByTestId('league-skeleton').length).toBeGreaterThan(0);
+  expect(screen.queryByText(/not in a league yet/i)).not.toBeInTheDocument();
+});
+
 test('renders the title and a welcome message with the username', async () => {
   apiClient.get.mockResolvedValue({ data: [] });
   renderWithProviders(<UserPage />, { state: baseState });

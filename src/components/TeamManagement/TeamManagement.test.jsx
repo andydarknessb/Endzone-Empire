@@ -28,6 +28,15 @@ test('fetches leagues, auto-selects the first one, and loads its roster', async 
   await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/team/roster?leagueId=1'));
 });
 
+test('shows skeleton rows (not the empty state) while data is loading', () => {
+  apiClient.get.mockReturnValue(new Promise(() => {})); // never resolves
+  renderWithProviders(<TeamManagement />);
+
+  expect(screen.getAllByTestId('roster-skeleton').length).toBeGreaterThan(0);
+  expect(screen.queryByText(/No players rostered yet/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/not in a league yet/i)).not.toBeInTheDocument();
+});
+
 test('shows "No players rostered yet." when the roster is empty', async () => {
   apiClient.get.mockImplementation((url) => {
     if (url === '/api/league') return Promise.resolve({ data: [{ id: 1, name: 'Sunday Ballers' }] });

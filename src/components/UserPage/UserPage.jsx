@@ -5,6 +5,7 @@ import {
   Typography, Button, Dialog, DialogTitle, DialogContent, DialogActions,
   TextField, Select, MenuItem, InputLabel, Alert, Switch, FormControlLabel,
   FormControl, Tooltip, Container, Box, Grid, Card, CardActionArea, CardContent, Chip,
+  Skeleton,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import Countdown from '../Countdown/Countdown';
@@ -17,6 +18,7 @@ function UserPage() {
   const user = useSelector((store) => store.user);
 
   const [myLeagues, setMyLeagues] = useState([]);
+  const [loadingLeagues, setLoadingLeagues] = useState(true);
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
 
@@ -46,10 +48,13 @@ function UserPage() {
 
   const fetchMyLeagues = async () => {
     try {
+      setLoadingLeagues(true);
       const response = await apiClient.get('/api/league');
       setMyLeagues(response.data);
     } catch (err) {
       setError(err.response?.data?.error || err.message);
+    } finally {
+      setLoadingLeagues(false);
     }
   };
 
@@ -202,7 +207,22 @@ function UserPage() {
         My Leagues
       </Typography>
 
-      {myLeagues.length === 0 ? (
+      {loadingLeagues ? (
+        <Grid container spacing={2}>
+          {[0, 1, 2].map((i) => (
+            <Grid item xs={12} sm={6} md={4} key={i}>
+              <Card variant="outlined" sx={{ height: '100%' }} data-testid="league-skeleton">
+                <CardContent>
+                  <Skeleton variant="text" width="60%" height={32} />
+                  <Skeleton variant="text" width="45%" />
+                  <Skeleton variant="text" width="30%" />
+                  <Skeleton variant="rounded" width={80} height={24} sx={{ mt: 1 }} />
+                </CardContent>
+              </Card>
+            </Grid>
+          ))}
+        </Grid>
+      ) : myLeagues.length === 0 ? (
         <Card variant="outlined" sx={{ p: 4, textAlign: 'center' }}>
           <Typography variant="h6" gutterBottom>
             You&apos;re not in a league yet

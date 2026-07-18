@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import {
   Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  Paper, Select, MenuItem, Button, Alert, FormControl, InputLabel, Box,
+  Paper, Select, MenuItem, Button, Alert, FormControl, InputLabel, Box, Skeleton,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
@@ -12,6 +12,7 @@ function TeamManagement() {
   const [leagues, setLeagues] = useState([]);
   const [selectedLeague, setSelectedLeague] = useState('');
   const [roster, setRoster] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [quickViewId, setQuickViewId] = useState(null);
 
@@ -29,18 +30,28 @@ function TeamManagement() {
     try {
       const response = await apiClient.get('/api/league');
       setLeagues(response.data);
-      if (response.data.length > 0) setSelectedLeague(response.data[0].id);
+      if (response.data.length > 0) {
+        setSelectedLeague(response.data[0].id);
+        // Keep the skeleton up: fetchRoster (via the selectedLeague effect)
+        // resolves the loading state.
+      } else {
+        setLoading(false); // no league -> nothing more to load
+      }
     } catch (err) {
       report(err);
+      setLoading(false);
     }
   };
 
   const fetchRoster = async (leagueId) => {
     try {
+      setLoading(true);
       const response = await apiClient.get(`/api/team/roster?leagueId=${leagueId}`);
       setRoster(response.data);
     } catch (err) {
       report(err);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -83,24 +94,35 @@ function TeamManagement() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {roster.map((player) => (
-              <TableRow key={player.id}>
-                <TableCell component="th" scope="row">{player.position}</TableCell>
-                <TableCell>
-                  <PlayerNameLink name={player.name} playerId={player.id} onOpen={setQuickViewId} />
-                </TableCell>
-                <TableCell>{player.nfl_team}</TableCell>
-                <TableCell>
-                  {player.acquired_at ? new Date(player.acquired_at).toLocaleDateString() : '—'}
-                </TableCell>
-                <TableCell align="right">
-                  <Button size="small" color="error" onClick={() => dropPlayer(player.id)}>
-                    Drop
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
-            {roster.length === 0 && (
+            {loading &&
+              Array.from({ length: 3 }).map((_, i) => (
+                <TableRow key={`skeleton-${i}`} data-testid="roster-skeleton">
+                  {Array.from({ length: 5 }).map((__, j) => (
+                    <TableCell key={j}>
+                      <Skeleton variant="text" />
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))}
+            {!loading &&
+              roster.map((player) => (
+                <TableRow key={player.id}>
+                  <TableCell component="th" scope="row">{player.position}</TableCell>
+                  <TableCell>
+                    <PlayerNameLink name={player.name} playerId={player.id} onOpen={setQuickViewId} />
+                  </TableCell>
+                  <TableCell>{player.nfl_team}</TableCell>
+                  <TableCell>
+                    {player.acquired_at ? new Date(player.acquired_at).toLocaleDateString() : '—'}
+                  </TableCell>
+                  <TableCell align="right">
+                    <Button size="small" color="error" onClick={() => dropPlayer(player.id)}>
+                      Drop
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            {!loading && roster.length === 0 && (
               <TableRow>
                 <TableCell colSpan={5}>
                   <Box sx={{ py: 3, textAlign: 'center' }}>
