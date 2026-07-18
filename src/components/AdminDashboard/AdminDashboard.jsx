@@ -40,6 +40,15 @@ const SYNC_JOBS = [
   { job: 'injuries', label: 'Sync Injuries' },
 ];
 
+// Free, no-key data sources — usable without RapidAPI. These power the
+// player quick-view (headshots, ADP, real prior-season stats).
+const FREE_SYNC_JOBS = [
+  { job: 'photos', label: 'Sync Headshots (TheSportsDB)' },
+  { job: 'adp', label: 'Sync ADP (Fantasy Football Calculator)' },
+  { job: 'season-stats', label: 'Sync Season Stats (Sleeper)' },
+  { job: 'backfill-seasons', label: 'Backfill Seasons (from weekly stats)' },
+];
+
 function StatTile({ label, value, caption, tone }) {
   return (
     <Grid item xs={12} sm={6} md={3}>
@@ -77,6 +86,10 @@ function AdminDashboard() {
     schedule: { running: false, result: null, error: null },
     injuries: { running: false, result: null, error: null },
     stats: { running: false, result: null, error: null },
+    photos: { running: false, result: null, error: null },
+    adp: { running: false, result: null, error: null },
+    'season-stats': { running: false, result: null, error: null },
+    'backfill-seasons': { running: false, result: null, error: null },
   });
 
   useEffect(() => {
@@ -355,6 +368,40 @@ function AdminDashboard() {
           </Box>
           {syncState.stats.error && <Alert severity="error">{syncState.stats.error}</Alert>}
           {syncState.stats.result && <Alert severity="success">{syncState.stats.result}</Alert>}
+        </Box>
+      </Paper>
+
+      <Paper sx={{ p: 2, mt: 3 }} data-testid="data-enrichment-card">
+        <Typography variant="h6" sx={{ mb: 1 }}>
+          Data Enrichment
+        </Typography>
+        <Typography variant="body2" sx={{ color: 'text.secondary', mb: 2 }}>
+          Free, no-key sources that power the player quick-view. Safe to re-run;
+          Headshots and Season Stats take up to a minute.
+        </Typography>
+
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {FREE_SYNC_JOBS.map(({ job, label }) => (
+            <Box key={job}>
+              <Button
+                variant="outlined"
+                onClick={() => runSync(job)}
+                disabled={syncState[job].running}
+              >
+                {syncState[job].running ? `${label}…` : label}
+              </Button>
+              {syncState[job].error && (
+                <Alert severity="error" sx={{ mt: 1 }}>
+                  {syncState[job].error}
+                </Alert>
+              )}
+              {syncState[job].result && (
+                <Alert severity="success" sx={{ mt: 1 }}>
+                  {syncState[job].result}
+                </Alert>
+              )}
+            </Box>
+          ))}
         </Box>
       </Paper>
     </Container>

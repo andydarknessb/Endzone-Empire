@@ -203,6 +203,21 @@ test('all sync buttons are disabled with a hint when rapidApiConfigured is false
   expect(screen.getByRole('button', { name: 'Sync Schedule' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Sync Injuries' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Sync Stats' })).toBeDisabled();
+  // Free-source enrichment jobs don't need RapidAPI, so they stay enabled.
+  expect(screen.getByRole('button', { name: /Sync ADP/ })).toBeEnabled();
+  expect(screen.getByRole('button', { name: /Sync Season Stats/ })).toBeEnabled();
+});
+
+test('clicking an enrichment job POSTs to its admin sync route', async () => {
+  apiClient.get.mockResolvedValue({ data: overviewResponse() });
+  apiClient.post.mockResolvedValue({ data: { format: 'half-ppr', playersUpdated: 161 } });
+  renderScreen();
+
+  await screen.findByRole('heading', { name: 'Admin Dashboard' });
+  await userEvent.click(screen.getByRole('button', { name: /Sync ADP/ }));
+
+  await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith('/api/admin/sync/adp', {}));
+  expect(await screen.findByText(/playersUpdated/)).toBeInTheDocument();
 });
 
 test('a 503 from the server while syncing is surfaced as an error alert', async () => {
