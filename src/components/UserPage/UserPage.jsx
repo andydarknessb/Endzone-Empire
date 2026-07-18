@@ -3,7 +3,7 @@ import { useSelector } from 'react-redux';
 import {
   Typography, Button, Dialog, DialogTitle, DialogContent, DialogActions,
   TextField, Select, MenuItem, InputLabel, Alert, Switch, FormControlLabel,
-  FormControl,
+  FormControl, Tooltip,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import './UserPage.css';
@@ -165,14 +165,18 @@ function UserPage() {
         <Button variant="outlined" color="primary" onClick={handleOpenJoinDialog}>
           Join League
         </Button>
-        <Button
-          variant="outlined"
-          color="primary"
-          onClick={handleOpenRenameTeamDialog}
-          disabled={myLeagues.length === 0}
-        >
-          Rename Team
-        </Button>
+        <Tooltip title={myLeagues.length === 0 ? 'Join a league first' : ''}>
+          <span>
+            <Button
+              variant="outlined"
+              color="primary"
+              onClick={handleOpenRenameTeamDialog}
+              disabled={myLeagues.length === 0}
+            >
+              Rename Team
+            </Button>
+          </span>
+        </Tooltip>
       </div>
       <Dialog open={openCreateDialog} onClose={handleCloseCreateDialog} className="dialogContainer">
         <DialogTitle className="dialogTitle">Create a New League</DialogTitle>

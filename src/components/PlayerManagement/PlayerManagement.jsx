@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper,
   Button, Pagination, Alert, Typography, Select, MenuItem, FormControl, InputLabel,
-  TextField, InputAdornment,
+  TextField, InputAdornment, Tooltip,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
@@ -186,13 +186,18 @@ function PlayerManagement() {
                 <TableCell align="right">{player.nfl_team}</TableCell>
                 <TableCell align="right">{player.adp != null ? player.adp : '—'}</TableCell>
                 <TableCell align="right" sx={stickyActionCellSx}>
-                  <Button
-                    sx={{ backgroundColor: 'primary.main', color: 'primary.contrastText', '&:hover': { backgroundColor: 'primary.dark' } }}
-                    onClick={() => addToRoster(player)}
-                    disabled={!selectedLeague || isPlayerInRoster(player.id)}
-                  >
-                    {isPlayerInRoster(player.id) ? 'Added' : 'Add to Roster'}
-                  </Button>
+                  <Tooltip title={!selectedLeague ? 'Select a league first' : ''}>
+                    <span>
+                      <Button
+                        variant="contained"
+                        color="primary"
+                        onClick={() => addToRoster(player)}
+                        disabled={!selectedLeague || isPlayerInRoster(player.id)}
+                      >
+                        {isPlayerInRoster(player.id) ? 'Added' : 'Add to Roster'}
+                      </Button>
+                    </span>
+                  </Tooltip>
                 </TableCell>
               </TableRow>
             ))}
@@ -224,7 +229,8 @@ function PlayerManagement() {
                 <TableCell align="right" sx={{ fontStyle: 'italic' }}>{player.position}</TableCell>
                 <TableCell align="right" sx={stickyActionCellSx}>
                   <Button
-                    sx={{ backgroundColor: 'primary.main', color: 'primary.contrastText', '&:hover': { backgroundColor: 'primary.dark' } }}
+                    variant="outlined"
+                    color="error"
                     onClick={() => removeFromRoster(player.id)}
                   >
                     Remove
