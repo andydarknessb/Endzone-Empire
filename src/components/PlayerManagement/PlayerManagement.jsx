@@ -2,11 +2,13 @@ import React, { useEffect, useState, useCallback } from 'react';
 import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper,
   Button, Pagination, Alert, Typography, Select, MenuItem, FormControl, InputLabel,
-  TextField, InputAdornment, Tooltip,
+  TextField, InputAdornment, Tooltip, Box,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
+import PlayerAvatar from '../PlayerQuickView/PlayerAvatar';
+import PositionChip from '../PlayerQuickView/PositionChip';
 
 const POSITIONS = ['All', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
 const PLAYERS_PAGE_SIZE = 25; // matches the server page size; for ADP rank numbers
@@ -23,6 +25,7 @@ function PlayerManagement() {
   const [selectedLeague, setSelectedLeague] = useState('');
   const [players, setPlayers] = useState([]);
   const [totalPages, setTotalPages] = useState(1);
+  const [totalPlayers, setTotalPlayers] = useState(0);
   const [positionFilter, setPositionFilter] = useState('All');
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
@@ -52,6 +55,7 @@ function PlayerManagement() {
       const response = await apiClient.get('/api/players', { params });
       setPlayers(response.data.players);
       setTotalPages(response.data.totalPages);
+      setTotalPlayers(response.data.total ?? 0);
     } catch (err) {
       report(err);
     }
@@ -174,15 +178,22 @@ function PlayerManagement() {
                 <TableCell align="right" sx={{ color: 'text.secondary' }}>
                   {(pageNumber - 1) * PLAYERS_PAGE_SIZE + idx + 1}
                 </TableCell>
-                <TableCell component="th" scope="row" sx={{ fontWeight: 'bold', color: 'text.primary' }}>
-                  <PlayerNameLink
-                    name={player.name}
-                    playerId={player.id}
-                    onOpen={setQuickViewId}
-                    sx={{ fontWeight: 'bold' }}
-                  />
+                <TableCell component="th" scope="row">
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                    <PlayerAvatar
+                      name={player.name}
+                      position={player.position}
+                      photoUrl={player.photo_url}
+                    />
+                    <PlayerNameLink
+                      name={player.name}
+                      playerId={player.id}
+                      onOpen={setQuickViewId}
+                      sx={{ fontWeight: 'bold' }}
+                    />
+                  </Box>
                 </TableCell>
-                <TableCell align="right" sx={{ fontStyle: 'italic' }}>{player.position}</TableCell>
+                <TableCell align="right"><PositionChip position={player.position} /></TableCell>
                 <TableCell align="right">{player.nfl_team}</TableCell>
                 <TableCell align="right">{player.adp != null ? player.adp : '—'}</TableCell>
                 <TableCell align="right" sx={stickyActionCellSx}>
@@ -205,6 +216,14 @@ function PlayerManagement() {
         </Table>
       </TableContainer>
 
+      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5, mt: 1 }}>
+        <Pagination count={totalPages} page={pageNumber} onChange={(event, value) => setPageNumber(value)} />
+        <Typography variant="caption" color="text.secondary">
+          {totalPlayers} player{totalPlayers === 1 ? '' : 's'}
+          {search ? ` matching “${search}”` : ''}
+        </Typography>
+      </Box>
+
       <Typography variant="h6" sx={{ mt: 3 }}>My Roster</Typography>
       <TableContainer component={Paper} sx={{ borderRadius: 2, m: 1, maxWidth: 900 }}>
         <Table sx={{ minWidth: 650 }}>
@@ -218,15 +237,22 @@ function PlayerManagement() {
           <TableBody>
             {roster.map((player) => (
               <TableRow key={player.id}>
-                <TableCell component="th" scope="row" sx={{ fontWeight: 'bold', color: 'text.primary' }}>
-                  <PlayerNameLink
-                    name={player.name}
-                    playerId={player.id}
-                    onOpen={setQuickViewId}
-                    sx={{ fontWeight: 'bold' }}
-                  />
+                <TableCell component="th" scope="row">
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                    <PlayerAvatar
+                      name={player.name}
+                      position={player.position}
+                      photoUrl={player.photo_url}
+                    />
+                    <PlayerNameLink
+                      name={player.name}
+                      playerId={player.id}
+                      onOpen={setQuickViewId}
+                      sx={{ fontWeight: 'bold' }}
+                    />
+                  </Box>
                 </TableCell>
-                <TableCell align="right" sx={{ fontStyle: 'italic' }}>{player.position}</TableCell>
+                <TableCell align="right"><PositionChip position={player.position} /></TableCell>
                 <TableCell align="right" sx={stickyActionCellSx}>
                   <Button
                     variant="outlined"

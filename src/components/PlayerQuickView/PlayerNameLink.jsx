@@ -19,10 +19,13 @@ function PlayerNameLink({ name, playerId, onOpen, sx }) {
       sx={{
         color: 'primary.main',
         font: 'inherit',
+        textTransform: 'none',
         textAlign: 'left',
         p: 0,
         cursor: 'pointer',
         verticalAlign: 'baseline',
+        textDecoration: 'none',
+        '&:hover': { textDecoration: 'underline' },
         ...sx,
       }}
     >
