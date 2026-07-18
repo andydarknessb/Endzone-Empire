@@ -86,7 +86,7 @@ test('shows the fantasy strip: ADP, projection, and last-season total', async ()
   expect(await screen.findByText('Justin Jefferson')).toBeInTheDocument();
   const strip = screen.getByTestId('fantasy-strip');
   expect(strip).toHaveTextContent('ADP 3.4');
-  expect(strip).toHaveTextContent('2026 Proj 299.2');
+  expect(strip).toHaveTextContent('2026 proj: 299.2 pts');
   expect(strip).toHaveTextContent('2025: 300 pts');
 });
 
@@ -107,11 +107,11 @@ test('toggle switches from Current Season weekly table to Previous Seasons table
   renderQuickView();
 
   expect(await screen.findByText('Justin Jefferson')).toBeInTheDocument();
-  expect(screen.getByText('120 Rec Yds, 1 Rec TD, 8 Rec')).toBeInTheDocument();
+  expect(screen.getByText('8 Rec, 120 Rec Yds, 1 Rec TD')).toBeInTheDocument();
 
   fireEvent.click(screen.getByRole('button', { name: 'Previous Seasons' }));
 
-  expect(screen.getByText('1500 Rec Yds, 10 Rec TD, 110 Rec')).toBeInTheDocument();
+  expect(screen.getByText('110 Rec, 1500 Rec Yds, 10 Rec TD')).toBeInTheDocument();
   expect(screen.getByText('2025')).toBeInTheDocument();
 });
 

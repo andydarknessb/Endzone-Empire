@@ -6,7 +6,6 @@ import {
   DialogContent,
   IconButton,
   Box,
-  Avatar,
   Typography,
   Chip,
   Alert,
@@ -24,55 +23,9 @@ import {
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import InjuryBadge from '../InjuryBadge/InjuryBadge';
-
-const STAT_LABELS = {
-  passingYards: 'Pass Yds',
-  passingTDs: 'Pass TD',
-  interceptions: 'INT',
-  rushingYards: 'Rush Yds',
-  rushingTDs: 'Rush TD',
-  receivingYards: 'Rec Yds',
-  receivingTDs: 'Rec TD',
-  receptions: 'Rec',
-  fumbles: 'Fum',
-};
-
-function statLine(stats) {
-  const parts = Object.entries(stats || {})
-    .filter(([key, value]) => STAT_LABELS[key] && Number(value) !== 0)
-    .map(([key, value]) => `${value} ${STAT_LABELS[key]}`);
-  return parts.length > 0 ? parts.join(', ') : '—';
-}
-
-const POSITION_COLORS = {
-  QB: 'primary',
-  RB: 'success',
-  WR: 'secondary',
-  TE: 'warning',
-  K: 'info',
-  DEF: 'error',
-};
-
-function positionAvatarSx(position) {
-  const key = POSITION_COLORS[position] || 'primary';
-  return {
-    width: 72,
-    height: 72,
-    bgcolor: `${key}.main`,
-    color: `${key}.contrastText`,
-  };
-}
-
-function initialsFor(name) {
-  if (!name) return '?';
-  return name
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((word) => word[0])
-    .join('')
-    .toUpperCase();
-}
+import PlayerAvatar from './PlayerAvatar';
+import PositionChip from './PositionChip';
+import { statLine } from './statLine';
 
 // Module-level: persists the last-selected toggle across dialog opens for the
 // duration of the session (resets on full page reload). Intentionally not
@@ -125,18 +78,24 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy }) {
     fantasy.adp != null || fantasy.projectedPoints != null || fantasy.previousSeasonTotal != null;
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
+    <Dialog
+      open={open}
+      onClose={onClose}
+      fullWidth
+      maxWidth="sm"
+      transitionDuration={{ appear: 0, enter: 0, exit: 120 }}
+      PaperProps={{ sx: { backgroundImage: 'none' } }}
+    >
       <DialogTitle sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
           {player && (
             <>
-              <Avatar
-                src={player.photo_url}
-                imgProps={{ loading: 'lazy' }}
-                sx={positionAvatarSx(player.position)}
-              >
-                {initialsFor(player.name)}
-              </Avatar>
+              <PlayerAvatar
+                name={player.name}
+                position={player.position}
+                photoUrl={player.photo_url}
+                size={72}
+              />
               <Box>
                 <Typography variant="h5" component="div">
                   {player.name}
@@ -147,7 +106,7 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy }) {
                   )}
                 </Typography>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mt: 0.5 }}>
-                  <Chip label={player.position} color="primary" size="small" />
+                  <PositionChip position={player.position} size="small" />
                   <Chip label={player.nfl_team || 'Free Agent'} size="small" />
                   <InjuryBadge status={player.injury_status} detail={player.injury_detail} />
                   {player.bye_week != null && (
@@ -199,7 +158,7 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy }) {
                   <Chip
                     size="small"
                     color="info"
-                    label={`${fantasy.projectionSeason} Proj ${fantasy.projectedPoints}`}
+                    label={`${fantasy.projectionSeason} proj: ${fantasy.projectedPoints} pts`}
                   />
                 )}
                 {fantasy.previousSeasonTotal != null && (

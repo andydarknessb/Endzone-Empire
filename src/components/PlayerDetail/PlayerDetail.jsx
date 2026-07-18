@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import {
   Container,
   Paper,
@@ -12,65 +12,20 @@ import {
   TableRow,
   Chip,
   Alert,
-  Avatar,
   Box,
+  Button,
   Skeleton,
 } from '@mui/material';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import apiClient from '../../api/apiClient';
 import InjuryBadge from '../InjuryBadge/InjuryBadge';
-
-const STAT_LABELS = {
-  passingYards: 'Pass Yds',
-  passingTDs: 'Pass TD',
-  interceptions: 'INT',
-  rushingYards: 'Rush Yds',
-  rushingTDs: 'Rush TD',
-  receivingYards: 'Rec Yds',
-  receivingTDs: 'Rec TD',
-  receptions: 'Rec',
-  fumbles: 'Fum',
-};
-
-function statLine(stats) {
-  const parts = Object.entries(stats || {})
-    .filter(([key, value]) => STAT_LABELS[key] && Number(value) !== 0)
-    .map(([key, value]) => `${value} ${STAT_LABELS[key]}`);
-  return parts.length > 0 ? parts.join(', ') : '—';
-}
-
-const POSITION_COLORS = {
-  QB: 'primary',
-  RB: 'success',
-  WR: 'secondary',
-  TE: 'warning',
-  K: 'info',
-  DEF: 'error',
-};
-
-function positionAvatarSx(position) {
-  const key = POSITION_COLORS[position] || 'primary';
-  return {
-    width: 96,
-    height: 96,
-    bgcolor: `${key}.main`,
-    color: `${key}.contrastText`,
-    fontSize: '2rem',
-  };
-}
-
-function initialsFor(name) {
-  if (!name) return '?';
-  return name
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((word) => word[0])
-    .join('')
-    .toUpperCase();
-}
+import PlayerAvatar from '../PlayerQuickView/PlayerAvatar';
+import PositionChip from '../PlayerQuickView/PositionChip';
+import { statLine } from '../PlayerQuickView/statLine';
 
 function PlayerDetail() {
   const { playerId } = useParams();
+  const navigate = useNavigate();
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -124,10 +79,21 @@ function PlayerDetail() {
 
   return (
     <Container maxWidth="md" sx={{ py: 4 }}>
+      <Button
+        startIcon={<ArrowBackIcon />}
+        onClick={() => navigate(-1)}
+        sx={{ mb: 2 }}
+        size="small"
+      >
+        Back
+      </Button>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1, flexWrap: 'wrap' }}>
-        <Avatar src={player.photo_url} imgProps={{ loading: 'lazy' }} sx={positionAvatarSx(player.position)}>
-          {initialsFor(player.name)}
-        </Avatar>
+        <PlayerAvatar
+          name={player.name}
+          position={player.position}
+          photoUrl={player.photo_url}
+          size={96}
+        />
         <Box>
           <Typography variant="h4">
             {player.name}
@@ -138,7 +104,7 @@ function PlayerDetail() {
             )}
           </Typography>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mt: 0.5 }}>
-            <Chip label={player.position} color="primary" />
+            <PositionChip position={player.position} />
             <Chip label={player.nfl_team || 'Free Agent'} />
             <InjuryBadge status={player.injury_status} detail={player.injury_detail} />
             {player.bye_week != null && (
@@ -160,7 +126,7 @@ function PlayerDetail() {
         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 3 }} data-testid="fantasy-strip">
           {fantasy.adp != null && <Chip variant="outlined" label={`ADP ${fantasy.adp}`} />}
           {fantasy.projectedPoints != null && (
-            <Chip color="info" label={`${fantasy.projectionSeason} Projection: ${fantasy.projectedPoints} pts`} />
+            <Chip color="info" label={`${fantasy.projectionSeason} proj: ${fantasy.projectedPoints} pts`} />
           )}
           {fantasy.previousSeasonTotal != null && (
             <Chip color="success" label={`${fantasy.previousSeasonYear}: ${fantasy.previousSeasonTotal} pts`} />
