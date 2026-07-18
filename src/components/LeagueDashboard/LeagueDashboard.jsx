@@ -225,9 +225,25 @@ function LeagueDashboard() {
     try {
       await navigator.clipboard.writeText(league.invite_code);
       setSuccessMessage('Invite code copied to clipboard!');
+      notify('Invite code copied');
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
       setError('Failed to copy invite code');
+      notify('Failed to copy invite code', { severity: 'error' });
+    }
+  };
+
+  // A full shareable link that drops the recipient on the join form with the
+  // code pre-filled. HashRouter keeps the route + query behind the '#'.
+  const inviteLink = () =>
+    `${window.location.origin}/#/league/join?code=${encodeURIComponent(league.invite_code)}`;
+
+  const handleCopyInviteLink = async () => {
+    try {
+      await navigator.clipboard.writeText(inviteLink());
+      notify('Invite link copied');
+    } catch (err) {
+      notify('Failed to copy invite link', { severity: 'error' });
     }
   };
 
@@ -318,7 +334,10 @@ function LeagueDashboard() {
               <strong>Invite code:</strong> {league.invite_code}
             </Typography>
             <Button variant="outlined" size="small" onClick={handleCopyInviteCode}>
-              Copy
+              Copy code
+            </Button>
+            <Button variant="contained" size="small" onClick={handleCopyInviteLink}>
+              Copy invite link
             </Button>
           </Box>
         </Paper>

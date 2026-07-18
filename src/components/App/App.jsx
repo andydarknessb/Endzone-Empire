@@ -66,6 +66,7 @@ function App() {
         <Nav />
         <Routes>
           <Route path="/league" element={<ProtectedRoute><LeagueManagement /></ProtectedRoute>} />
+          <Route path="/league/join" element={<ProtectedRoute><LeagueManagement /></ProtectedRoute>} />
           <Route path="/discover" element={<ProtectedRoute><LeagueDiscovery /></ProtectedRoute>} />
           <Route path="/team" element={<ProtectedRoute><TeamManagement /></ProtectedRoute>} />
           <Route path="/player" element={<ProtectedRoute><PlayerManagement /></ProtectedRoute>} />

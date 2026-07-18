@@ -32,6 +32,21 @@ test('fetches and renders the user\'s leagues on mount', async () => {
   expect(apiClient.get).toHaveBeenCalledWith('/api/league');
 });
 
+test('pre-fills the invite code from a ?code= deep link and focuses Join', async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+
+  renderWithProviders(<LeagueManagement />, {
+    state: { user: { id: 1 } },
+    path: '/league/join',
+    route: '/league/join?code=ABC123',
+  });
+
+  await waitFor(() =>
+    expect(screen.getByLabelText(/invite code/i)).toHaveValue('ABC123')
+  );
+  expect(screen.getByRole('button', { name: 'Join League' })).toHaveFocus();
+});
+
 test('shows a friendly message when the user has no leagues', async () => {
   apiClient.get.mockResolvedValue({ data: [] });
 

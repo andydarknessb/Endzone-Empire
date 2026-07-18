@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import {
   Typography, TextField, Button, Paper, Stack, Chip, Alert, Divider,
@@ -21,6 +21,18 @@ function LeagueManagement() {
   const [inviteCode, setInviteCode] = useState('');
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
+  const [searchParams] = useSearchParams();
+  const joinButtonRef = useRef(null);
+
+  // Deep-link support: /#/league/join?code=XYZ pre-fills the invite field and
+  // focuses the Join button so a shared link is one click from joining.
+  useEffect(() => {
+    const code = searchParams.get('code');
+    if (code) {
+      setInviteCode(code);
+      joinButtonRef.current?.focus();
+    }
+  }, [searchParams]);
 
   // New league-creation options — all optional, sent only when the user
   // actually sets them (see createLeague).
@@ -196,7 +208,7 @@ function LeagueManagement() {
           <Stack spacing={2} sx={{ mt: 1 }}>
             <TextField label="Invite code" size="small" required
               value={inviteCode} onChange={(e) => setInviteCode(e.target.value)} />
-            <Button type="submit" variant="contained">Join League</Button>
+            <Button ref={joinButtonRef} type="submit" variant="contained">Join League</Button>
           </Stack>
         </Paper>
       </Stack>

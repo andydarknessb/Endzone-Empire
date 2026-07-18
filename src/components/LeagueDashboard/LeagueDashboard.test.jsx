@@ -201,10 +201,27 @@ test('shows the invite code and copies it to the clipboard', async () => {
   await screen.findByText('Sunday Ballers');
 
   expect(screen.getByText(/abc123/)).toBeInTheDocument();
-  await userEvent.click(screen.getByRole('button', { name: 'Copy' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Copy code' }));
 
   expect(navigator.clipboard.writeText).toHaveBeenCalledWith('abc123');
   expect(await screen.findByText('Invite code copied to clipboard!')).toBeInTheDocument();
+});
+
+test('copies a full invite link', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse(),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
+
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  await userEvent.click(screen.getByRole('button', { name: 'Copy invite link' }));
+
+  expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+    expect.stringContaining('/#/league/join?code=abc123')
+  );
 });
 
 test('does not render an invite code section when none is present', async () => {
