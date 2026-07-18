@@ -12,6 +12,11 @@ const POSITIONS = ['All', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
 const PLAYERS_PAGE_SIZE = 25; // matches the server page size; for ADP rank numbers
 
 const headCellSx = { fontWeight: 'bold', backgroundColor: 'primary.main', color: 'primary.contrastText' };
+// Keep the action column reachable when the table overflows horizontally on
+// narrow screens: pin it to the right edge so the primary button stays visible
+// while the rest of the row scrolls under it.
+const stickyActionHeadSx = { ...headCellSx, position: 'sticky', right: 0, zIndex: 3 };
+const stickyActionCellSx = { position: 'sticky', right: 0, backgroundColor: 'background.paper', zIndex: 1 };
 
 function PlayerManagement() {
   const [leagues, setLeagues] = useState([]);
@@ -153,7 +158,7 @@ function PlayerManagement() {
               <TableCell sx={headCellSx} align="right">Position</TableCell>
               <TableCell sx={headCellSx} align="right">NFL Team</TableCell>
               <TableCell sx={headCellSx} align="right">ADP</TableCell>
-              <TableCell sx={headCellSx} align="right">Actions</TableCell>
+              <TableCell sx={stickyActionHeadSx} align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -180,7 +185,7 @@ function PlayerManagement() {
                 <TableCell align="right" sx={{ fontStyle: 'italic' }}>{player.position}</TableCell>
                 <TableCell align="right">{player.nfl_team}</TableCell>
                 <TableCell align="right">{player.adp != null ? player.adp : '—'}</TableCell>
-                <TableCell align="right">
+                <TableCell align="right" sx={stickyActionCellSx}>
                   <Button
                     sx={{ backgroundColor: 'primary.main', color: 'primary.contrastText', '&:hover': { backgroundColor: 'primary.dark' } }}
                     onClick={() => addToRoster(player)}
@@ -202,7 +207,7 @@ function PlayerManagement() {
             <TableRow>
               <TableCell sx={headCellSx}>Name</TableCell>
               <TableCell sx={headCellSx} align="right">Position</TableCell>
-              <TableCell sx={headCellSx} align="right">Actions</TableCell>
+              <TableCell sx={stickyActionHeadSx} align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -217,7 +222,7 @@ function PlayerManagement() {
                   />
                 </TableCell>
                 <TableCell align="right" sx={{ fontStyle: 'italic' }}>{player.position}</TableCell>
-                <TableCell align="right">
+                <TableCell align="right" sx={stickyActionCellSx}>
                   <Button
                     sx={{ backgroundColor: 'primary.main', color: 'primary.contrastText', '&:hover': { backgroundColor: 'primary.dark' } }}
                     onClick={() => removeFromRoster(player.id)}

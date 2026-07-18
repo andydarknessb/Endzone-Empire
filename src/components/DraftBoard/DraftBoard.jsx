@@ -40,6 +40,18 @@ import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 // Matches the server's players page size; used to number rows by ADP rank.
 const PLAYERS_PAGE_SIZE = 25;
 
+// Pin the action column to the right edge so Draft/Queue stay reachable when
+// the table overflows horizontally on narrow (phone) screens.
+const stickyActionHeadSx = {
+  color: 'primary.contrastText',
+  fontWeight: 'bold',
+  position: 'sticky',
+  right: 0,
+  bgcolor: 'primary.main',
+  zIndex: 3,
+};
+const stickyActionCellSx = { position: 'sticky', right: 0, bgcolor: 'background.paper', zIndex: 1 };
+
 // Subtle pulse for the on-clock timer once time is running low (<=10s).
 const pulse = keyframes`
   0% { opacity: 1; }
@@ -674,7 +686,7 @@ function DraftBoard() {
                     <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }} align="right">
                       Proj
                     </TableCell>
-                    <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }} align="center">
+                    <TableCell sx={stickyActionHeadSx} align="center">
                       Action
                     </TableCell>
                   </TableRow>
@@ -710,7 +722,7 @@ function DraftBoard() {
                       <TableCell align="right">
                         {player.projected_points != null ? player.projected_points : '—'}
                       </TableCell>
-                      <TableCell align="center">
+                      <TableCell align="center" sx={stickyActionCellSx}>
                         <Button
                           variant="contained"
                           size="small"
