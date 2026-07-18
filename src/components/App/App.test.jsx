@@ -291,12 +291,13 @@ test('"/players/:playerId" is protected and renders PlayerDetail when logged in'
 
   renderApp('#/players/5', { user: loggedIn }, () => {
     apiClient.get.mockImplementation((url) => {
-      if (url === '/api/players/5') {
+      if (url === '/api/players/5/summary') {
         return Promise.resolve({
           data: {
             player: { id: 5, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'KC' },
-            weekly: [],
-            seasonTotals: null,
+            fantasy: {},
+            currentSeason: null,
+            previousSeasons: [],
           },
         });
       }
