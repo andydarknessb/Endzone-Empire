@@ -93,7 +93,8 @@ test('renders league state (name, on-the-clock, pick history) from a draft:state
   expect(screen.getByText('Sunday Ballers')).toBeInTheDocument();
   expect(screen.getByText("On the clock: Bob's Team (bob)")).toBeInTheDocument();
   expect(screen.getByText('#1')).toBeInTheDocument();
-  expect(screen.getByText('Josh Allen (QB)')).toBeInTheDocument();
+  // The pick-history name is now a quick-view button (separate from any action).
+  expect(screen.getByRole('button', { name: 'Josh Allen' })).toBeInTheDocument();
 });
 
 test('shows the prominent on-clock timer with "Your pick!" for the active user', async () => {
@@ -216,7 +217,7 @@ test('a draft:picked event prepends the new pick, updates who is on the clock, a
   );
 
   expect(screen.getByText('#1')).toBeInTheDocument();
-  expect(screen.getByText('Patrick Mahomes (QB)')).toBeInTheDocument();
+  expect(screen.getAllByRole('button', { name: 'Patrick Mahomes' }).length).toBeGreaterThan(0);
   expect(screen.getByText('On the clock: Team B (bob)')).toBeInTheDocument();
   await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/players', expect.any(Object)));
 });
@@ -430,8 +431,12 @@ test('the queue loads on mount and renders players in rank order', async () => {
   });
   renderBoard(1);
 
-  expect(await screen.findByText('1. Bijan Robinson (RB)')).toBeInTheDocument();
-  expect(screen.getByText('2. Justin Jefferson (WR)')).toBeInTheDocument();
+  await screen.findByRole('button', { name: 'Bijan Robinson' });
+  // Queue names are quick-view buttons; assert both are present in rank order.
+  const queued = screen
+    .getAllByRole('button', { name: /Bijan Robinson|Justin Jefferson/ })
+    .map((b) => b.textContent);
+  expect(queued).toEqual(['Bijan Robinson', 'Justin Jefferson']);
   expect(apiClient.get).toHaveBeenCalledWith('/api/draft/queue', { params: { leagueId: 1 } });
 });
 
@@ -447,7 +452,8 @@ test('clicking Queue on an available player persists the updated ordered list', 
       playerIds: [1],
     })
   );
-  expect(screen.getByText('1. Patrick Mahomes (QB)')).toBeInTheDocument();
+  // Patrick Mahomes now appears both in the available table and the queue.
+  expect(screen.getAllByRole('button', { name: 'Patrick Mahomes' })).toHaveLength(2);
   expect(screen.getByRole('button', { name: 'Queue' })).toBeDisabled();
 });
 
@@ -459,7 +465,7 @@ test('move up and remove reorder the queue and persist it', async () => {
     ],
   });
   renderBoard(1);
-  await screen.findByText('1. Bijan Robinson (RB)');
+  await screen.findByRole('button', { name: 'Bijan Robinson' });
 
   await userEvent.click(screen.getAllByLabelText('Move up')[1]);
   await waitFor(() =>
@@ -468,7 +474,10 @@ test('move up and remove reorder the queue and persist it', async () => {
       playerIds: [3, 2],
     })
   );
-  expect(screen.getByText('1. Justin Jefferson (WR)')).toBeInTheDocument();
+  const reordered = screen
+    .getAllByRole('button', { name: /Bijan Robinson|Justin Jefferson/ })
+    .map((b) => b.textContent);
+  expect(reordered).toEqual(['Justin Jefferson', 'Bijan Robinson']);
 
   apiClient.put.mockClear();
   await userEvent.click(screen.getAllByLabelText('Remove from queue')[0]);
@@ -542,5 +551,30 @@ test('shows projected points and injury badges in the available players table', 
   expect(screen.getByText('21.5')).toBeInTheDocument();
   expect(screen.getByText('Q')).toBeInTheDocument();
   expect(screen.getByText('—')).toBeInTheDocument(); // missing projection
-  expect(screen.getByRole('link', { name: 'Patrick Mahomes' })).toHaveAttribute('href', '/players/1');
+  // The name is a quick-view trigger (a button), not a navigation link.
+  expect(screen.getByRole('button', { name: 'Patrick Mahomes' })).toBeInTheDocument();
+});
+
+test('clicking a player name opens the quick-view dialog and never drafts the player', async () => {
+  apiClient.get.mockImplementation((url) =>
+    url.endsWith('/summary')
+      ? Promise.resolve({
+          data: {
+            player: { id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'KC' },
+            currentSeason: null,
+            previousSeasons: [],
+          },
+        })
+      : Promise.resolve(playersPage())
+  );
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+
+  await userEvent.click(screen.getByRole('button', { name: 'Patrick Mahomes' }));
+
+  // Dialog opened (heading shows the player); no draft:pick was ever emitted.
+  expect(await screen.findByRole('dialog')).toBeInTheDocument();
+  expect(
+    fakeSocket.emit.mock.calls.some(([event]) => event === 'draft:pick')
+  ).toBe(false);
 });

@@ -153,6 +153,29 @@ router.post('/sync-players', async (req, res) => {
   }
 });
 
+// POST /api/scoring/backfill-seasons — roll up completed prior seasons'
+// weekly stats into player_season_stats (powers the quick-view dialog's
+// "Previous Seasons" tab). One-time / on-demand; optional `currentSeason`
+// body sets the cutoff (defaults to the newest league's current season).
+router.post('/backfill-seasons', async (req, res) => {
+  const raw = req.body && req.body.currentSeason;
+  let currentSeason;
+  if (raw !== undefined) {
+    currentSeason = Number(raw);
+    if (!Number.isInteger(currentSeason) || currentSeason < 2000 || currentSeason > 2100) {
+      return res.status(400).json({ error: 'currentSeason must be an integer year' });
+    }
+  }
+  try {
+    const result = await scoring.syncPlayerSeasonStats({ currentSeason });
+    res.json(result);
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    console.error('Season backfill failed:', error);
+    res.status(500).json({ error: 'season backfill failed' });
+  }
+});
+
 // POST /api/scoring/sync-injuries — refresh player injury designations
 router.post('/sync-injuries', async (req, res) => {
   try {

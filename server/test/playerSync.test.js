@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { normalizePlayerEntry } = require('../services/scoring.service');
+const { normalizePlayerEntry, resolveHeadshotUrl } = require('../services/scoring.service');
 
 // Tank01 getNFLPlayerList entry shape: { playerID, longName, pos, team, ... }
 
@@ -16,7 +16,42 @@ test('normalizePlayerEntry maps a Tank01 player entry', () => {
     name: 'Josh Allen',
     position: 'QB',
     nflTeam: 'BUF',
+    photoUrl: null,
+    jerseyNumber: null,
   });
+});
+
+test('normalizePlayerEntry carries the provider headshot and jersey number', () => {
+  const parsed = normalizePlayerEntry({
+    playerID: '3915511',
+    longName: 'Josh Allen',
+    pos: 'QB',
+    team: 'BUF',
+    espnHeadshot: 'https://a.espncdn.com/i/headshots/nfl/players/full/3918298.png',
+    jerseyNum: '17',
+  });
+  assert.equal(parsed.photoUrl, 'https://a.espncdn.com/i/headshots/nfl/players/full/3918298.png');
+  assert.equal(parsed.jerseyNumber, '17');
+});
+
+test('resolveHeadshotUrl builds the ESPN URL from espnID when no headshot is given', () => {
+  assert.equal(
+    resolveHeadshotUrl({ espnID: '3918298' }),
+    'https://a.espncdn.com/i/headshots/nfl/players/full/3918298.png'
+  );
+});
+
+test('resolveHeadshotUrl prefers a provided http headshot over espnID', () => {
+  assert.equal(
+    resolveHeadshotUrl({ espnHeadshot: 'https://img.example/x.png', espnID: '999' }),
+    'https://img.example/x.png'
+  );
+});
+
+test('resolveHeadshotUrl returns null when nothing usable is present', () => {
+  assert.equal(resolveHeadshotUrl({}), null);
+  assert.equal(resolveHeadshotUrl({ espnID: 'not-a-number' }), null);
+  assert.equal(resolveHeadshotUrl({ espnHeadshot: 'ftp://nope' }), null);
 });
 
 test('normalizePlayerEntry uppercases position and stringifies numeric ids', () => {

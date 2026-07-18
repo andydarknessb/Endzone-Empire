@@ -4,12 +4,15 @@ import {
   Paper, Select, MenuItem, Button, Alert, FormControl, InputLabel,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
+import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
+import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 
 function TeamManagement() {
   const [leagues, setLeagues] = useState([]);
   const [selectedLeague, setSelectedLeague] = useState('');
   const [roster, setRoster] = useState([]);
   const [error, setError] = useState(null);
+  const [quickViewId, setQuickViewId] = useState(null);
 
   useEffect(() => {
     fetchLeagues();
@@ -82,7 +85,9 @@ function TeamManagement() {
             {roster.map((player) => (
               <TableRow key={player.id}>
                 <TableCell component="th" scope="row">{player.position}</TableCell>
-                <TableCell>{player.name}</TableCell>
+                <TableCell>
+                  <PlayerNameLink name={player.name} playerId={player.id} onOpen={setQuickViewId} />
+                </TableCell>
                 <TableCell>{player.nfl_team}</TableCell>
                 <TableCell>
                   {player.acquired_at ? new Date(player.acquired_at).toLocaleDateString() : '—'}
@@ -104,6 +109,12 @@ function TeamManagement() {
           </TableBody>
         </Table>
       </TableContainer>
+
+      <PlayerQuickView
+        open={quickViewId != null}
+        onClose={() => setQuickViewId(null)}
+        playerId={quickViewId}
+      />
     </div>
   );
 }

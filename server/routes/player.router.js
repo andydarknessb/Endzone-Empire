@@ -2,11 +2,57 @@ const express = require('express');
 const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
 const { draftPlayer } = require('../services/draft.service');
+const { rulesForLeague, buildPlayerSummary } = require('../services/scoring.service');
 
 const router = express.Router();
 
 const PAGE_SIZE = 25;
 const POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
+
+// Short-lived in-memory cache for the player summary. Keyed by player + league
+// (scoring rules differ per league), so a draft room hammering this endpoint
+// serves most reads from memory. TTL is intentionally small — a 30s-stale
+// injury/stat line during a live draft is harmless.
+const SUMMARY_TTL_MS = 30_000;
+const summaryCache = new Map();
+
+function summaryCacheGet(key) {
+  const hit = summaryCache.get(key);
+  if (!hit) return null;
+  if (hit.expires <= Date.now()) {
+    summaryCache.delete(key);
+    return null;
+  }
+  return hit.value;
+}
+
+function summaryCacheSet(key, value) {
+  // Bound the map so a long-lived process can't leak memory during a big draft.
+  if (summaryCache.size > 2000) summaryCache.clear();
+  summaryCache.set(key, { value, expires: Date.now() + SUMMARY_TTL_MS });
+}
+
+const REG_SEASON_WEEKS = 18;
+
+/**
+ * A team's bye week for a season: the regular-season week (1..18) with no
+ * nfl_games row for that team. Returns null when the schedule isn't synced
+ * (no rows) or nothing is missing — the dialog just omits the bye then.
+ */
+async function computeByeWeek(nflTeam, season) {
+  if (!nflTeam) return null;
+  const r = await pool.query(
+    `SELECT DISTINCT "week" FROM "nfl_games"
+     WHERE "nfl_team" = $1 AND "season" = $2 AND "week" BETWEEN 1 AND $3`,
+    [nflTeam, season, REG_SEASON_WEEKS]
+  );
+  if (r.rows.length === 0) return null; // schedule not synced for this team
+  const played = new Set(r.rows.map((row) => Number(row.week)));
+  for (let week = 1; week <= REG_SEASON_WEEKS; week++) {
+    if (!played.has(week)) return week;
+  }
+  return null;
+}
 
 // GET /api/players?page=N&position=QB[&leagueId=N&available=true]
 // Paginated player pool with strict integer validation on `page`.
@@ -113,6 +159,72 @@ router.get('/:id', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('Error fetching player detail', error);
     res.status(500).json({ error: 'failed to fetch player' });
+  }
+});
+
+// GET /api/players/:id/summary[?leagueId=N] — everything the quick-view dialog
+// needs in one aggressively-cached call: bio (+ photo, jersey, injury, bye),
+// current-season weekly lines with a running fantasy total, and previous-season
+// totals. Fantasy points are computed from raw stats under the given league's
+// scoring rules (default rules when no leagueId), so the same player reads
+// differently in a PPR vs. standard league.
+router.get('/:id/summary', requireAuth, async (req, res) => {
+  if (!/^\d+$/.test(req.params.id)) {
+    return res.status(400).json({ error: 'player id must be a positive integer' });
+  }
+  const playerId = Number(req.params.id);
+
+  const leagueId = req.query.leagueId ? String(req.query.leagueId) : null;
+  if (leagueId && !/^\d+$/.test(leagueId)) {
+    return res.status(400).json({ error: 'leagueId must be a positive integer' });
+  }
+
+  const cacheKey = `${playerId}|${leagueId || 'std'}`;
+  const cached = summaryCacheGet(cacheKey);
+  if (cached) {
+    res.set('Cache-Control', 'private, max-age=30');
+    return res.json(cached);
+  }
+
+  try {
+    const playerResult = await pool.query(`SELECT * FROM "players" WHERE "id" = $1`, [playerId]);
+    const player = playerResult.rows[0];
+    if (!player) return res.status(404).json({ error: 'player not found' });
+
+    // Scoring rules: the named league's (if valid), else defaults.
+    let rules = rulesForLeague(null);
+    if (leagueId) {
+      const leagueResult = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [Number(leagueId)]);
+      if (leagueResult.rows[0]) rules = rulesForLeague(leagueResult.rows[0]);
+    }
+
+    const weeklyResult = await pool.query(
+      `SELECT "season", "week", "stats" FROM "player_stats"
+       WHERE "player_id" = $1 ORDER BY "season" DESC, "week"`,
+      [playerId]
+    );
+    const seasonResult = await pool.query(
+      `SELECT "season", "games_played", "stats" FROM "player_season_stats"
+       WHERE "player_id" = $1 ORDER BY "season" DESC`,
+      [playerId]
+    );
+    const latestSeason = weeklyResult.rows.length ? weeklyResult.rows[0].season : null;
+    const byeWeek = await computeByeWeek(player.nfl_team, latestSeason || 2026);
+
+    const payload = buildPlayerSummary({
+      player,
+      weeklyRows: weeklyResult.rows,
+      seasonRows: seasonResult.rows,
+      rules,
+      byeWeek,
+    });
+
+    summaryCacheSet(cacheKey, payload);
+    res.set('Cache-Control', 'private, max-age=30');
+    res.json(payload);
+  } catch (error) {
+    console.error('Error building player summary', error);
+    res.status(500).json({ error: 'failed to fetch player summary' });
   }
 });
 

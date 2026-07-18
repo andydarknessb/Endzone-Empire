@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import {
   Container,
@@ -34,6 +34,8 @@ import apiClient from '../../api/apiClient';
 import { createDraftSocket, onReconnect } from '../../api/socket';
 import InjuryBadge from '../InjuryBadge/InjuryBadge';
 import Countdown from '../Countdown/Countdown';
+import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
+import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 
 // Subtle pulse for the on-clock timer once time is running low (<=10s).
 const pulse = keyframes`
@@ -92,6 +94,11 @@ function DraftBoard() {
   const [pickTimeSeconds, setPickTimeSeconds] = useState('');
   const [autodraftDelaySeconds, setAutodraftDelaySeconds] = useState('');
   const [settingsSaving, setSettingsSaving] = useState(false);
+  // Player quick-view: only the viewed id is stored. Whether that player has
+  // been drafted (and by whom) is derived live from `picks`/`teams` below, so a
+  // pick arriving over the socket while the dialog is open surfaces the banner
+  // without any extra state — the board keeps updating behind the overlay.
+  const [quickViewId, setQuickViewId] = useState(null);
 
   useEffect(() => {
     // Socket lives for the lifetime of this view; refs avoid stale closures
@@ -429,6 +436,16 @@ function DraftBoard() {
     onTheClock.owner_id === user.id
   );
 
+  // Derive the "Drafted by X" banner for the open quick-view from live draft
+  // state: if the viewed player already appears in the pick history, name the
+  // team that took them. Recomputes as picks stream in, so a player drafted
+  // while the dialog is open shows the banner without disrupting the board.
+  const quickViewPick =
+    quickViewId != null ? picks.find((p) => p.player_id === quickViewId) : null;
+  const quickViewDraftedBy = quickViewPick
+    ? teams.find((t) => t.id === quickViewPick.team_id)?.name || null
+    : null;
+
   return (
     <Container maxWidth="xl" sx={{ py: 4 }}>
       {error && (
@@ -620,9 +637,11 @@ function DraftBoard() {
                     <TableRow key={player.id}>
                       <TableCell>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Link to={`/players/${player.id}`} style={{ color: 'inherit' }}>
-                            {player.name}
-                          </Link>
+                          <PlayerNameLink
+                            name={player.name}
+                            playerId={player.id}
+                            onOpen={setQuickViewId}
+                          />
                           <InjuryBadge status={player.injury_status} detail={player.injury_detail} />
                         </Box>
                       </TableCell>
@@ -727,7 +746,12 @@ function DraftBoard() {
                       #{pick.pick_number}
                     </Typography>
                     <Typography variant="body2">
-                      {pick.name} ({pick.position})
+                      <PlayerNameLink
+                        name={pick.name}
+                        playerId={pick.player_id}
+                        onOpen={setQuickViewId}
+                      />{' '}
+                      ({pick.position})
                     </Typography>
                     <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                       {pick.nfl_team}
@@ -763,7 +787,13 @@ function DraftBoard() {
                   }}
                 >
                   <Typography variant="body2">
-                    {index + 1}. {player.name} ({player.position})
+                    {index + 1}.{' '}
+                    <PlayerNameLink
+                      name={player.name}
+                      playerId={player.id}
+                      onOpen={setQuickViewId}
+                    />{' '}
+                    ({player.position})
                   </Typography>
                   <Box>
                     <IconButton
@@ -796,6 +826,14 @@ function DraftBoard() {
           </Paper>
         </Grid>
       </Grid>
+
+      <PlayerQuickView
+        open={quickViewId != null}
+        onClose={() => setQuickViewId(null)}
+        playerId={quickViewId}
+        leagueId={Number(leagueId)}
+        draftedBy={quickViewDraftedBy}
+      />
     </Container>
   );
 }

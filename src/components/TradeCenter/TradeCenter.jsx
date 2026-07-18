@@ -23,6 +23,8 @@ import {
   FormControlLabel,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
+import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
+import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 
 const STATUS_COLOR = {
   pending: 'warning',
@@ -53,7 +55,7 @@ const VERDICT_LABEL = {
 // Self-contained "Analyze trade" control: posts to /api/trades/analyze and
 // renders the verdict + per-player breakdown. Used both in the compose
 // dialog and on each existing trade card, so it owns its own request state.
-function TradeAnalysisPanel({ leagueId, receivingTeamId, offeredPlayerIds, requestedPlayerIds }) {
+function TradeAnalysisPanel({ leagueId, receivingTeamId, offeredPlayerIds, requestedPlayerIds, onOpenPlayer }) {
   const [result, setResult] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeError, setAnalyzeError] = useState(null);
@@ -108,7 +110,8 @@ function TradeAnalysisPanel({ leagueId, receivingTeamId, offeredPlayerIds, reque
           </Grid>
           {(result.players || []).map((p) => (
             <Typography key={p.playerId} variant="body2">
-              {p.name} ({p.position}): {p.rosValue} → {p.fitAdjustedValue}
+              <PlayerNameLink name={p.name} playerId={p.playerId} onOpen={onOpenPlayer} /> ({p.position}):{' '}
+              {p.rosValue} → {p.fitAdjustedValue}
             </Typography>
           ))}
         </Box>
@@ -134,6 +137,7 @@ function TradeCenter() {
   const [selectedTeamId, setSelectedTeamId] = useState('');
   const [sendIds, setSendIds] = useState(new Set());
   const [receiveIds, setReceiveIds] = useState(new Set());
+  const [quickViewId, setQuickViewId] = useState(null);
 
   useEffect(() => {
     fetchAll();
@@ -293,7 +297,8 @@ function TradeCenter() {
                 <Typography variant="subtitle2">{trade.proposing_team_name} sends</Typography>
                 {itemsFromProposing.map((item) => (
                   <Typography key={item.player_id} variant="body2">
-                    {item.name} ({item.position})
+                    <PlayerNameLink name={item.name} playerId={item.player_id} onOpen={setQuickViewId} />{' '}
+                    ({item.position})
                   </Typography>
                 ))}
               </Grid>
@@ -301,7 +306,8 @@ function TradeCenter() {
                 <Typography variant="subtitle2">{trade.receiving_team_name} sends</Typography>
                 {itemsFromReceiving.map((item) => (
                   <Typography key={item.player_id} variant="body2">
-                    {item.name} ({item.position})
+                    <PlayerNameLink name={item.name} playerId={item.player_id} onOpen={setQuickViewId} />{' '}
+                    ({item.position})
                   </Typography>
                 ))}
               </Grid>
@@ -345,6 +351,7 @@ function TradeCenter() {
               receivingTeamId={trade.receiving_team_id}
               offeredPlayerIds={itemsFromProposing.map((i) => i.player_id)}
               requestedPlayerIds={itemsFromReceiving.map((i) => i.player_id)}
+              onOpenPlayer={setQuickViewId}
             />
           </Paper>
         );
@@ -415,6 +422,7 @@ function TradeCenter() {
               receivingTeamId={selectedTeamId}
               offeredPlayerIds={[...sendIds]}
               requestedPlayerIds={[...receiveIds]}
+              onOpenPlayer={setQuickViewId}
             />
           )}
         </DialogContent>
@@ -429,6 +437,13 @@ function TradeCenter() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <PlayerQuickView
+        open={quickViewId != null}
+        onClose={() => setQuickViewId(null)}
+        playerId={quickViewId}
+        leagueId={Number(leagueId)}
+      />
     </Container>
   );
 }

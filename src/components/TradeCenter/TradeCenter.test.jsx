@@ -80,6 +80,14 @@ afterEach(() => {
   jest.clearAllMocks();
 });
 
+// PlayerNameLink renders the player's name inside a nested <button>, so a
+// "Name (POS)" query is now split across elements — a plain string no
+// longer matches (RTL only reads an element's own direct text nodes).
+// These content-matching functions check the full textContent instead.
+const byLabel = (text) => (_, element) =>
+  element?.tagName?.toLowerCase() === 'label' && element.textContent === text;
+const byText = (text) => (_, element) => element?.textContent === text;
+
 test('shows a loading spinner before data arrives', () => {
   apiClient.get.mockReturnValue(new Promise(() => {}));
   renderScreen();
@@ -93,8 +101,8 @@ test('renders trades with team names, status, and items', async () => {
 
   await screen.findByText('Alice Squad ⇄ Bob Squad');
   expect(screen.getByText('pending')).toBeInTheDocument();
-  expect(screen.getByText('Stefon Diggs (WR)')).toBeInTheDocument();
-  expect(screen.getByText('Tyreek Hill (WR)')).toBeInTheDocument();
+  expect(screen.getByText(byText('Stefon Diggs (WR)'))).toBeInTheDocument();
+  expect(screen.getByText(byText('Tyreek Hill (WR)'))).toBeInTheDocument();
 });
 
 test('shows empty state when there are no trades', async () => {
@@ -276,8 +284,8 @@ test('Analyze Trade in the compose dialog posts the correct body and renders the
   expect(await screen.findByText('Favors Proposer')).toBeInTheDocument();
   expect(screen.getByText(/Proposer: gives 20 · gets 32/)).toBeInTheDocument();
   expect(screen.getByText(/Receiver: gives 32 · gets 20/)).toBeInTheDocument();
-  expect(screen.getByText(/Stefon Diggs \(WR\): 18 → 20/)).toBeInTheDocument();
-  expect(screen.getByText(/Tyreek Hill \(WR\): 30 → 32/)).toBeInTheDocument();
+  expect(screen.getByText(byText('Stefon Diggs (WR): 18 → 20'))).toBeInTheDocument();
+  expect(screen.getByText(byText('Tyreek Hill (WR): 30 → 32'))).toBeInTheDocument();
 });
 
 test('Analyze Trade surfaces an error message when the analyze request fails', async () => {

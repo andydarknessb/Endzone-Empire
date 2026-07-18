@@ -27,6 +27,8 @@ import {
   TableSortLabel,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
+import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
+import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 
 function statusColor(status) {
   if (status === 'won') return 'success';
@@ -49,6 +51,7 @@ function WaiverWire() {
   const [suggestions, setSuggestions] = useState([]);
   const [sortByUpgrade, setSortByUpgrade] = useState(false);
   const [sortDir, setSortDir] = useState('desc');
+  const [quickViewId, setQuickViewId] = useState(null);
 
   useEffect(() => {
     fetchAll();
@@ -226,7 +229,9 @@ function WaiverWire() {
                       const delta = upgradeByPlayerId.get(player.id);
                       return (
                         <TableRow key={player.id}>
-                          <TableCell>{player.name}</TableCell>
+                          <TableCell>
+                            <PlayerNameLink name={player.name} playerId={player.id} onOpen={setQuickViewId} />
+                          </TableCell>
                           <TableCell>{player.position}</TableCell>
                           <TableCell>{player.nfl_team}</TableCell>
                           <TableCell>{new Date(player.available_at).toLocaleString()}</TableCell>
@@ -309,7 +314,12 @@ function WaiverWire() {
       )}
 
       <Dialog open={!!claimPlayer} onClose={handleCloseClaim}>
-        <DialogTitle>Claim {claimPlayer?.name}</DialogTitle>
+        <DialogTitle>
+          Claim{' '}
+          {claimPlayer && (
+            <PlayerNameLink name={claimPlayer.name} playerId={claimPlayer.id} onOpen={setQuickViewId} />
+          )}
+        </DialogTitle>
         <DialogContent>
           <FormControl fullWidth sx={{ mt: 1, minWidth: 250 }}>
             <InputLabel id="drop-player-select-label">Drop a player (optional)</InputLabel>
@@ -346,6 +356,13 @@ function WaiverWire() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <PlayerQuickView
+        open={quickViewId != null}
+        onClose={() => setQuickViewId(null)}
+        playerId={quickViewId}
+        leagueId={Number(leagueId)}
+      />
     </Container>
   );
 }

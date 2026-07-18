@@ -4,6 +4,8 @@ import {
   Button, Pagination, Alert, Typography, Select, MenuItem, FormControl, InputLabel,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
+import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
+import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 
 const POSITIONS = ['All', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
 
@@ -18,6 +20,7 @@ function PlayerManagement() {
   const [pageNumber, setPageNumber] = useState(1);
   const [roster, setRoster] = useState([]);
   const [error, setError] = useState(null);
+  const [quickViewId, setQuickViewId] = useState(null);
 
   const report = (err) => setError(err.response?.data?.error || err.message);
 
@@ -123,7 +126,12 @@ function PlayerManagement() {
             {players.map((player) => (
               <TableRow key={player.id}>
                 <TableCell component="th" scope="row" sx={{ fontWeight: 'bold', color: 'text.primary' }}>
-                  {player.name}
+                  <PlayerNameLink
+                    name={player.name}
+                    playerId={player.id}
+                    onOpen={setQuickViewId}
+                    sx={{ fontWeight: 'bold' }}
+                  />
                 </TableCell>
                 <TableCell align="right" sx={{ fontStyle: 'italic' }}>{player.position}</TableCell>
                 <TableCell align="right">{player.nfl_team}</TableCell>
@@ -156,7 +164,12 @@ function PlayerManagement() {
             {roster.map((player) => (
               <TableRow key={player.id}>
                 <TableCell component="th" scope="row" sx={{ fontWeight: 'bold', color: 'text.primary' }}>
-                  {player.name}
+                  <PlayerNameLink
+                    name={player.name}
+                    playerId={player.id}
+                    onOpen={setQuickViewId}
+                    sx={{ fontWeight: 'bold' }}
+                  />
                 </TableCell>
                 <TableCell align="right" sx={{ fontStyle: 'italic' }}>{player.position}</TableCell>
                 <TableCell align="right">
@@ -172,6 +185,13 @@ function PlayerManagement() {
           </TableBody>
         </Table>
       </TableContainer>
+
+      <PlayerQuickView
+        open={quickViewId != null}
+        onClose={() => setQuickViewId(null)}
+        playerId={quickViewId}
+        leagueId={selectedLeague ? Number(selectedLeague) : undefined}
+      />
     </div>
   );
 }

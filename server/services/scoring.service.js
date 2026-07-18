@@ -364,10 +364,27 @@ async function syncSchedule({ season }) {
 const FANTASY_POSITIONS = new Set(['QB', 'RB', 'WR', 'TE', 'K', 'PK', 'DEF']);
 
 /**
+ * Resolve a headshot URL for a Tank01 player entry. Prefer the provider's own
+ * `espnHeadshot` URL when present; otherwise build the public ESPN headshot
+ * URL from the player's `espnID` (a stable, keyed pattern). Returns null when
+ * neither is available, so the UI falls back to an initials avatar.
+ */
+function resolveHeadshotUrl(entry) {
+  const provided = entry && entry.espnHeadshot;
+  if (provided && String(provided).startsWith('http')) return String(provided);
+  const espnId = entry && entry.espnID;
+  if (espnId != null && /^\d+$/.test(String(espnId))) {
+    return `https://a.espncdn.com/i/headshots/nfl/players/full/${espnId}.png`;
+  }
+  return null;
+}
+
+/**
  * Normalize one entry from Tank01's getNFLPlayerList into our player shape.
  * Returns null for entries missing an id, name, or position, and for
  * non-fantasy positions. Tank01 calls kickers 'PK' — stored as 'K' to match
- * our slot eligibility.
+ * our slot eligibility. Also carries a resolved headshot URL and jersey
+ * number (both null when the feed omits them).
  */
 function normalizePlayerEntry(entry) {
   const externalId = entry && entry.playerID;
@@ -375,11 +392,16 @@ function normalizePlayerEntry(entry) {
   let position = entry && entry.pos && String(entry.pos).toUpperCase();
   if (position === 'PK') position = 'K';
   if (!externalId || !name || !position || !FANTASY_POSITIONS.has(position)) return null;
+  const jersey = entry.jerseyNum != null && String(entry.jerseyNum) !== ''
+    ? String(entry.jerseyNum).slice(0, 8)
+    : null;
   return {
     externalId: String(externalId),
     name,
     position,
     nflTeam: entry.team ? String(entry.team) : null,
+    photoUrl: resolveHeadshotUrl(entry),
+    jerseyNumber: jersey,
   };
 }
 
@@ -409,12 +431,15 @@ async function syncPlayers({ season }) {
     }
     try {
       await pool.query(
-        `INSERT INTO "players" ("external_id", "name", "position", "nfl_team")
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO "players" ("external_id", "name", "position", "nfl_team", "photo_url", "jersey_number")
+         VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT ("external_id")
          DO UPDATE SET "name" = EXCLUDED."name", "position" = EXCLUDED."position",
-                       "nfl_team" = EXCLUDED."nfl_team"`,
-        [parsed.externalId, parsed.name, parsed.position, parsed.nflTeam]
+                       "nfl_team" = EXCLUDED."nfl_team",
+                       -- keep an existing headshot/jersey if a later feed omits it
+                       "photo_url" = COALESCE(EXCLUDED."photo_url", "players"."photo_url"),
+                       "jersey_number" = COALESCE(EXCLUDED."jersey_number", "players"."jersey_number")`,
+        [parsed.externalId, parsed.name, parsed.position, parsed.nflTeam, parsed.photoUrl, parsed.jerseyNumber]
       );
       upserted += 1;
     } catch (err) {
@@ -422,6 +447,153 @@ async function syncPlayers({ season }) {
     }
   }
   return { season, playersUpserted: upserted, skippedNonFantasy: skipped };
+}
+
+/**
+ * Pure: sum an array of weekly stat objects into one season total. Every
+ * numeric stat key is added up; `games` counts the rows (weeks played).
+ * Non-numeric / unknown values are ignored.
+ */
+function aggregateSeasonStats(weeklyStats) {
+  const totals = {};
+  let games = 0;
+  for (const raw of weeklyStats || []) {
+    let stats = raw;
+    if (typeof stats === 'string') {
+      try { stats = JSON.parse(stats); } catch { stats = null; }
+    }
+    if (!stats || typeof stats !== 'object') continue;
+    games += 1;
+    for (const [key, value] of Object.entries(stats)) {
+      const n = Number(value);
+      if (Number.isFinite(n)) totals[key] = Math.round(((totals[key] || 0) + n) * 100) / 100;
+    }
+  }
+  return { games, stats: totals };
+}
+
+/**
+ * Pure: assemble the player quick-view summary payload from already-fetched
+ * rows. Kept free of DB access so it's unit-testable.
+ *   - player:      the players row
+ *   - weeklyRows:  player_stats rows [{ season, week, stats }] (any order)
+ *   - seasonRows:  player_season_stats rows [{ season, games_played, stats }]
+ *   - rules:       scoring rules to price every stat line under
+ *   - byeWeek:     precomputed bye week (number) or null
+ * currentSeason is the player's most recent weekly season (null when none);
+ * previousSeasons lists the rolled-up seasons (newest first), excluding the
+ * current one, with points RE-SCORED under `rules` — so [] means "no prior
+ * data", the dialog's graceful-degradation case.
+ */
+function buildPlayerSummary({ player, weeklyRows = [], seasonRows = [], rules = SCORING_RULES, byeWeek = null }) {
+  const sorted = [...weeklyRows].sort((a, b) =>
+    a.season !== b.season ? b.season - a.season : a.week - b.week
+  );
+  const latestSeason = sorted.length ? sorted[0].season : null;
+  const seasonWeeks = sorted.filter((r) => r.season === latestSeason);
+  const weekly = seasonWeeks.map((r) => ({
+    week: r.week,
+    stats: r.stats,
+    fantasy_points: calculateFantasyPoints(r.stats, rules),
+  }));
+  const currentPoints = Math.round(weekly.reduce((s, w) => s + w.fantasy_points, 0) * 100) / 100;
+  const currentSeason = latestSeason === null ? null : {
+    season: latestSeason,
+    weekly,
+    games: weekly.length,
+    points: currentPoints,
+    perGame: weekly.length ? Math.round((currentPoints / weekly.length) * 10) / 10 : 0,
+  };
+
+  const previousSeasons = [...seasonRows]
+    .filter((r) => r.season !== latestSeason)
+    .sort((a, b) => b.season - a.season)
+    .map((r) => {
+      const points = calculateFantasyPoints(r.stats, rules);
+      const games = Number(r.games_played) || 0;
+      return {
+        season: r.season,
+        games,
+        stats: r.stats,
+        points,
+        perGame: games ? Math.round((points / games) * 10) / 10 : 0,
+      };
+    });
+
+  return {
+    player: {
+      id: player.id,
+      name: player.name,
+      position: player.position,
+      nfl_team: player.nfl_team,
+      jersey_number: player.jersey_number,
+      external_id: player.external_id,
+      injury_status: player.injury_status,
+      injury_detail: player.injury_detail,
+      news: player.news,
+      photo_url: player.photo_url,
+      bye_week: byeWeek,
+    },
+    currentSeason,
+    previousSeasons,
+  };
+}
+
+/**
+ * Backfill / refresh season-level totals in player_season_stats by rolling up
+ * every completed prior season's weekly rows in player_stats. "Prior" means
+ * strictly before `currentSeason` (defaults to the newest league's current
+ * season, else 2026). Idempotent — re-running recomputes and upserts each
+ * (player, season). The stored fantasy_points uses the default scoring rules;
+ * the summary API recomputes points from `stats` under a league's own rules.
+ *
+ * This is a one-time/on-demand job (admin dashboard or POST
+ * /api/scoring/backfill-seasons), not on the scheduler. Seasons for which we
+ * have no weekly data simply produce no rows, so players without prior-season
+ * history degrade gracefully to the dialog's "no data" state.
+ */
+async function syncPlayerSeasonStats({ currentSeason } = {}) {
+  let cutoff = Number(currentSeason);
+  if (!Number.isInteger(cutoff)) {
+    const r = await pool.query(`SELECT MAX("current_season") AS s FROM "leagues"`);
+    cutoff = r.rows[0] && r.rows[0].s != null ? Number(r.rows[0].s) : 2026;
+  }
+
+  const weekly = await pool.query(
+    `SELECT "player_id", "season", "stats" FROM "player_stats"
+     WHERE "season" < $1
+     ORDER BY "player_id", "season"`,
+    [cutoff]
+  );
+
+  // Group weekly rows by player+season.
+  const byKey = new Map();
+  for (const row of weekly.rows) {
+    const key = `${row.player_id}:${row.season}`;
+    if (!byKey.has(key)) byKey.set(key, { playerId: row.player_id, season: row.season, rows: [] });
+    byKey.get(key).rows.push(row.stats);
+  }
+
+  let upserted = 0;
+  for (const { playerId, season, rows } of byKey.values()) {
+    const { games, stats } = aggregateSeasonStats(rows);
+    const points = calculateFantasyPoints(stats);
+    try {
+      await pool.query(
+        `INSERT INTO "player_season_stats" ("player_id", "season", "games_played", "stats", "fantasy_points")
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT ("player_id", "season")
+         DO UPDATE SET "games_played" = EXCLUDED."games_played",
+                       "stats" = EXCLUDED."stats",
+                       "fantasy_points" = EXCLUDED."fantasy_points"`,
+        [playerId, season, games, JSON.stringify(stats), points]
+      );
+      upserted += 1;
+    } catch (err) {
+      console.error(`season-stat backfill failed for player ${playerId} season ${season}:`, err.message);
+    }
+  }
+  return { cutoffSeason: cutoff, seasonsUpserted: upserted };
 }
 
 /**
@@ -594,11 +766,15 @@ module.exports = {
   normalizeTank01Game,
   normalizeInjuryStatus,
   normalizePlayerEntry,
+  resolveHeadshotUrl,
+  aggregateSeasonStats,
+  buildPlayerSummary,
   detectScoringEvents,
   syncWeekStats,
   syncSchedule,
   syncInjuries,
   syncPlayers,
+  syncPlayerSeasonStats,
   generateMatchups,
   scoreMatchups,
 };

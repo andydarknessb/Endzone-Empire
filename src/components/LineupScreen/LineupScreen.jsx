@@ -19,6 +19,8 @@ import {
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import InjuryBadge from '../InjuryBadge/InjuryBadge';
+import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
+import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 
 const STARTER_SLOT_ORDER = ['QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF'];
 const FLEX_ELIGIBLE_POSITIONS = ['RB', 'WR', 'TE'];
@@ -42,6 +44,7 @@ function LineupScreen() {
   const [adviceExpanded, setAdviceExpanded] = useState(true);
   const [benchSeasonTotal, setBenchSeasonTotal] = useState(null);
   const [bestBall, setBestBall] = useState(false);
+  const [quickViewId, setQuickViewId] = useState(null);
 
   useEffect(() => {
     fetchLineup();
@@ -227,7 +230,9 @@ function LineupScreen() {
           {entry ? (
             <>
               <Box sx={{ flexGrow: 1 }}>
-                <Typography variant="body1">{entry.name}</Typography>
+                <Typography variant="body1">
+                  <PlayerNameLink name={entry.name} playerId={entry.id} onOpen={setQuickViewId} />
+                </Typography>
                 <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                   {entry.position} — {entry.nfl_team}
                   {entry.projected_points != null && ` — proj ${entry.projected_points}`}
@@ -435,6 +440,13 @@ function LineupScreen() {
           </Paper>
         </>
       )}
+
+      <PlayerQuickView
+        open={quickViewId != null}
+        onClose={() => setQuickViewId(null)}
+        playerId={quickViewId}
+        leagueId={Number(leagueId)}
+      />
     </Container>
   );
 }
