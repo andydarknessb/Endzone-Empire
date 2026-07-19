@@ -51,6 +51,12 @@
     "nodemon": "^3.1.9",
     "redux-mock-store": "^1.5.5"
   },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
   "browserslist": {
     "production": [
       ">0.2%",
