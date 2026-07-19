@@ -6,6 +6,7 @@ import {
   Typography,
   Select,
   MenuItem,
+  Menu,
   FormControl,
   InputLabel,
   Alert,
@@ -17,10 +18,14 @@ import {
   Button,
   Collapse,
   IconButton,
+  Divider,
+  Tooltip,
 } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import AddIcon from '@mui/icons-material/Add';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import apiClient from '../../api/apiClient';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import { useLeague } from '../../hooks/useLeague';
@@ -65,6 +70,7 @@ function LineupScreen() {
   const [adviceExpanded, setAdviceExpanded] = useState(true);
   const [benchSeasonTotal, setBenchSeasonTotal] = useState(null);
   const [quickViewId, setQuickViewId] = useState(null);
+  const [quickPick, setQuickPick] = useState(null); // { anchorEl, slotType }
   const advicePanelRef = useRef(null);
 
   // GET /api/team/lineup doesn't carry the league's best_ball flag, and no
@@ -191,7 +197,7 @@ function LineupScreen() {
     }
   };
 
-  const handleRowClick = (entry, slotType) => {
+  const handleRowClick = (entry, slotType, event) => {
     if (bestBall) return; // best ball lineups are set automatically — no manual moves
 
     if (entry && entry.locked) {
@@ -201,7 +207,12 @@ function LineupScreen() {
     }
 
     if (!selectedEntry) {
-      if (!entry) return;
+      if (!entry) {
+        // Slot-first flow: no player selected yet, so offer a quick-pick of
+        // eligible players instead of the two-click select-then-target swap.
+        setQuickPick({ anchorEl: event.currentTarget, slotType });
+        return;
+      }
       setSelectedEntry(entry);
       return;
     }
@@ -224,21 +235,33 @@ function LineupScreen() {
     ]);
   };
 
+  const closeQuickPick = () => setQuickPick(null);
+
+  const handleQuickPickSelect = (chosenEntry) => {
+    const slotType = quickPick?.slotType;
+    closeQuickPick();
+    if (!slotType) return;
+    performMove([{ playerId: chosenEntry.id, slot: slotType }]);
+  };
+
   const renderRow = ({ key, testId, slotLabel, slotType, entry }) => {
     const isSelected = !!(entry && selectedEntry && selectedEntry.id === entry.id);
     const showEligibility = !!selectedEntry && !isSelected;
     const eligible = showEligibility && isEligibleTarget(selectedEntry, entry, slotType);
     const disabled = bestBall || (showEligibility && !eligible);
+    const isEmpty = !entry;
     return (
       <ListItemButton
         key={key}
         data-testid={testId}
         selected={isSelected}
         disabled={disabled}
-        onClick={() => handleRowClick(entry, slotType)}
+        onClick={(e) => handleRowClick(entry, slotType, e)}
         sx={{
           border: '1px solid',
-          borderColor: showEligibility && eligible ? 'primary.main' : 'divider',
+          borderStyle: isEmpty ? 'dashed' : 'solid',
+          borderColor:
+            showEligibility && eligible ? 'primary.main' : isEmpty ? 'text.secondary' : 'divider',
           borderRadius: 1,
           mb: 1,
           ...(showEligibility && eligible && { bgcolor: 'var(--accent-soft)' }),
@@ -270,7 +293,20 @@ function LineupScreen() {
               {entry.locked && <Chip label="LOCKED" size="small" color="error" />}
             </>
           ) : (
-            <Typography sx={{ flexGrow: 1, color: 'text.secondary' }}>Empty</Typography>
+            <>
+              <Typography sx={{ flexGrow: 1, color: 'text.secondary' }}>Empty</Typography>
+              {!selectedEntry && !bestBall && (
+                <IconButton
+                  size="small"
+                  component="span"
+                  tabIndex={-1}
+                  aria-hidden="true"
+                  sx={{ color: 'text.secondary' }}
+                >
+                  <AddIcon fontSize="small" />
+                </IconButton>
+              )}
+            </>
           )}
         </Box>
       </ListItemButton>
@@ -352,6 +388,18 @@ function LineupScreen() {
     ? STARTER_SLOT_ORDER.flatMap((type) => bySlot[type] || []).filter((e) => e.onBye)
     : [];
   const showLineupWarning = !bestBall && (emptyStarterSlots > 0 || startersOnBye.length > 0);
+  const lineupWarningText = [
+    emptyStarterSlots > 0 &&
+      `${emptyStarterSlots} empty starting slot${emptyStarterSlots > 1 ? 's' : ''}.`,
+    startersOnBye.length > 0 &&
+      `${startersOnBye.map((e) => e.name).join(', ')} on a bye this week.`,
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  const quickPickEligible = quickPick
+    ? entries.filter((e) => !e.locked && isEligibleForSlot(e.position, quickPick.slotType))
+    : [];
 
   const currentWeekValue = lineup ? selectedWeek ?? lineup.week : null;
   const projectedTotal = advice?.projectedTotal;
@@ -393,15 +441,28 @@ function LineupScreen() {
             </Typography>
           )}
 
-          {!bestBall && advice && (
+          {!bestBall && (advice || showLineupWarning) && (
             <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }} data-testid="lineup-summary-header">
-              <Typography variant="h6">
-                Projected {projectedTotal} · Optimal {optimalTotal}
-              </Typography>
+              {advice && (
+                <Typography variant="h6">
+                  Projected {projectedTotal} · Optimal {optimalTotal}
+                </Typography>
+              )}
               {optimalGain > 0 && (
                 <Button size="small" color="success" onClick={handleExpandAdvice}>
                   (+{optimalGain})
                 </Button>
+              )}
+              {showLineupWarning && (
+                <Tooltip title={`${lineupWarningText} Changes save automatically — set your lineup before kickoff.`}>
+                  <Chip
+                    icon={<WarningAmberIcon fontSize="small" />}
+                    label="Needs attention"
+                    size="small"
+                    color="warning"
+                    data-testid="lineup-warning-chip"
+                  />
+                </Tooltip>
               )}
             </Box>
           )}
@@ -454,7 +515,9 @@ function LineupScreen() {
                   </Typography>
                   {advice.suggestions.length === 0 ? (
                     <Typography sx={{ color: 'text.secondary' }}>
-                      Your lineup is already optimal
+                      {emptyStarterSlots > 0
+                        ? 'Fill your starting lineup to unlock live optimization insights.'
+                        : 'Your lineup is already optimal'}
                     </Typography>
                   ) : (
                     advice.suggestions.map((s) => (
@@ -490,17 +553,6 @@ function LineupScreen() {
             </Paper>
           )}
 
-          {showLineupWarning && (
-            <Alert severity="warning" sx={{ mb: 2 }} data-testid="lineup-warning">
-              Heads up:
-              {emptyStarterSlots > 0 &&
-                ` ${emptyStarterSlots} empty starting slot${emptyStarterSlots > 1 ? 's' : ''}.`}
-              {startersOnBye.length > 0 &&
-                ` ${startersOnBye.map((e) => e.name).join(', ')} on a bye this week.`}{' '}
-              Changes save automatically — set your lineup before kickoff.
-            </Alert>
-          )}
-
           <Grid container spacing={3}>
             <Grid xs={12} md={6}>
               {selectedEntry && (
@@ -531,32 +583,54 @@ function LineupScreen() {
                 </Box>
               )}
 
-              <Paper sx={{ p: 2, mb: 3 }} data-testid="lineup-starters">
-                <Typography variant="h6" sx={{ mb: 2 }}>
-                  Starters
-                </Typography>
+              <Paper sx={{ p: 2, mb: 3, height: '100%' }} data-testid="lineup-starters">
+                <Divider sx={{ mb: 2 }}>
+                  <Chip label="Starters" size="small" variant="outlined" />
+                </Divider>
                 <List disablePadding>{starterRows}</List>
               </Paper>
             </Grid>
 
             <Grid xs={12} md={6}>
-              <Paper sx={{ p: 2, mb: 3 }} data-testid="lineup-ir">
-                <Typography variant="h6" sx={{ mb: 2 }}>
-                  IR
-                </Typography>
-                <List disablePadding>{irRows}</List>
-              </Paper>
+              <Paper sx={{ p: 2, mb: 3, height: '100%' }} data-testid="lineup-bench-ir">
+                {lineup.irSlots > 0 && (
+                  <Box data-testid="lineup-ir" sx={{ mb: 3 }}>
+                    <Divider sx={{ mb: 2 }}>
+                      <Chip label="IR" size="small" variant="outlined" />
+                    </Divider>
+                    <List disablePadding>{irRows}</List>
+                  </Box>
+                )}
 
-              <Paper sx={{ p: 2, mb: 3 }} data-testid="lineup-bench">
-                <Typography variant="h6" sx={{ mb: 2 }}>
-                  Bench
-                </Typography>
-                <List disablePadding>{benchRows}</List>
+                <Box data-testid="lineup-bench">
+                  <Divider sx={{ mb: 2 }}>
+                    <Chip label="Bench" size="small" variant="outlined" />
+                  </Divider>
+                  <List disablePadding>{benchRows}</List>
+                </Box>
               </Paper>
             </Grid>
           </Grid>
         </>
       )}
+
+      <Menu
+        anchorEl={quickPick?.anchorEl}
+        open={!!quickPick}
+        onClose={closeQuickPick}
+        data-testid="quick-pick-menu"
+      >
+        {quickPickEligible.length === 0 ? (
+          <MenuItem disabled>No eligible players available</MenuItem>
+        ) : (
+          quickPickEligible.map((e) => (
+            <MenuItem key={e.id} onClick={() => handleQuickPickSelect(e)}>
+              {e.name} · {e.position} ·{' '}
+              {e.slot === 'BENCH' ? 'Bench' : e.slot === 'IR' ? 'IR' : `Starting ${e.slot}`}
+            </MenuItem>
+          ))
+        )}
+      </Menu>
 
       <PlayerQuickView
         open={quickViewId != null}

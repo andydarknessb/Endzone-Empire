@@ -135,6 +135,21 @@ const adviceResponse = (overrides = {}) => ({
   ...overrides,
 });
 
+// A fully-filled starting lineup (every STARTER_SLOT_ORDER slot occupied),
+// used to isolate the "already optimal" empty state from the "fill your
+// lineup" one — both only render when advice returns zero suggestions.
+const fullyFilledEntries = [
+  { id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'Kansas City Chiefs', slot: 'QB', locked: false, onBye: false },
+  { id: 2, name: 'Christian McCaffrey', position: 'RB', nfl_team: 'San Francisco 49ers', slot: 'RB', locked: false, onBye: false },
+  { id: 3, name: 'Derrick Henry', position: 'RB', nfl_team: 'Baltimore Ravens', slot: 'RB', locked: false, onBye: false },
+  { id: 4, name: 'Davante Adams', position: 'WR', nfl_team: 'Las Vegas Raiders', slot: 'WR', locked: false, onBye: false },
+  { id: 5, name: 'Tyreek Hill', position: 'WR', nfl_team: 'Miami Dolphins', slot: 'WR', locked: false, onBye: false },
+  { id: 6, name: 'Travis Kelce', position: 'TE', nfl_team: 'Kansas City Chiefs', slot: 'TE', locked: false, onBye: false },
+  { id: 7, name: 'Saquon Barkley', position: 'RB', nfl_team: 'Philadelphia Eagles', slot: 'FLEX', locked: false, onBye: false },
+  { id: 8, name: 'Justin Tucker', position: 'K', nfl_team: 'Baltimore Ravens', slot: 'K', locked: false, onBye: false },
+  { id: 9, name: 'SF Defense', position: 'DEF', nfl_team: 'San Francisco 49ers', slot: 'DEF', locked: false, onBye: false },
+];
+
 const flexBenchEntries = [
   {
     id: 10,
@@ -207,13 +222,29 @@ test('clicking Apply on a suggestion swaps the two players and saves via the nor
   expect(await screen.findByText('Lineup saved')).toBeInTheDocument();
 });
 
-test('shows an "already optimal" empty state when advice returns no suggestions', async () => {
-  setupGet({ advice: adviceResponse({ suggestions: [] }) });
+test('shows an "already optimal" empty state when the starting lineup is full and advice returns no suggestions', async () => {
+  setupGet({
+    lineup: lineupResponse({ entries: fullyFilledEntries }),
+    advice: adviceResponse({ suggestions: [] }),
+  });
 
   renderScreen();
   await screen.findByText('Patrick Mahomes');
 
   expect(await screen.findByText('Your lineup is already optimal')).toBeInTheDocument();
+});
+
+test('shows a "fill your lineup" message instead of "already optimal" when starting slots are empty', async () => {
+  // Default lineupResponse() leaves WR/TE/FLEX/K/DEF starter slots empty.
+  setupGet({ advice: adviceResponse({ suggestions: [] }) });
+
+  renderScreen();
+  await screen.findByText('Patrick Mahomes');
+
+  expect(
+    await screen.findByText('Fill your starting lineup to unlock live optimization insights.')
+  ).toBeInTheDocument();
+  expect(screen.queryByText('Your lineup is already optimal')).not.toBeInTheDocument();
 });
 
 test('silently hides the suggestions panel when the advice endpoint fails', async () => {
@@ -405,6 +436,55 @@ test('a failed PUT rolls the optimistic move back and shows an error toast', asy
     url.startsWith('/api/team/lineup?')
   );
   expect(lineupGets).toHaveLength(1);
+});
+
+test('clicking an empty slot with no selection opens a quick-pick menu; choosing a player fills that slot directly', async () => {
+  apiClient.get.mockResolvedValue({ data: lineupResponse() });
+  apiClient.put.mockResolvedValue({});
+
+  renderScreenWithToasts();
+  await screen.findByText('Davante Adams');
+
+  // WR-0 is empty; only Davante Adams (WR, unlocked) is eligible — the two
+  // RBs are wrong position for a straight WR slot.
+  await userEvent.click(screen.getByTestId('slot-row-WR-0'));
+
+  const menu = await screen.findByRole('menu');
+  expect(within(menu).getAllByRole('menuitem')).toHaveLength(1);
+  await userEvent.click(within(menu).getByText(/Davante Adams/));
+
+  await waitFor(() =>
+    expect(apiClient.put).toHaveBeenCalledWith('/api/team/lineup', {
+      leagueId: 1,
+      week: 3,
+      moves: [{ playerId: 4, slot: 'WR' }],
+    })
+  );
+  expect(await screen.findByText('Lineup saved')).toBeInTheDocument();
+});
+
+test('clicking an empty slot with no eligible players shows a disabled "no eligible players" item', async () => {
+  apiClient.get.mockResolvedValue({ data: lineupResponse() });
+
+  renderScreen();
+  await screen.findByText('Patrick Mahomes');
+
+  // DEF-0 is empty and no entry in the fixture plays DEF.
+  await userEvent.click(screen.getByTestId('slot-row-DEF-0'));
+
+  const menu = await screen.findByRole('menu');
+  expect(within(menu).getByText('No eligible players available')).toBeInTheDocument();
+});
+
+test('shows a "Needs attention" warning chip in the summary header when starting slots are empty', async () => {
+  apiClient.get.mockResolvedValue({ data: lineupResponse() });
+
+  renderScreen();
+  await screen.findByText('Patrick Mahomes');
+
+  expect(
+    within(screen.getByTestId('lineup-summary-header')).getByTestId('lineup-warning-chip')
+  ).toBeInTheDocument();
 });
 
 test('shows an error alert when the initial fetch fails', async () => {
