@@ -57,7 +57,7 @@ test('fetches transactions for the league on mount', async () => {
   mockTransactions([]);
   renderScreen(5);
 
-  await screen.findByText('No activity yet');
+  await screen.findByText(/The league is quiet/);
   expect(apiClient.get).toHaveBeenCalledWith('/api/league/5/transactions');
 });
 
@@ -65,7 +65,11 @@ test('shows an empty state when there is no activity', async () => {
   mockTransactions([]);
   renderScreen();
 
-  expect(await screen.findByText('No activity yet')).toBeInTheDocument();
+  expect(
+    await screen.findByText(
+      'The league is quiet. Recent transactions, trades, and commissioner actions will appear here.'
+    )
+  ).toBeInTheDocument();
 });
 
 test('shows an error alert when the fetch fails', async () => {

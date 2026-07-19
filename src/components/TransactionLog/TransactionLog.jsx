@@ -4,12 +4,10 @@ import {
   Container,
   Paper,
   Typography,
-  List,
-  ListSubheader,
-  ListItem,
   Alert,
   Chip,
   Box,
+  Stack,
   Button,
   Skeleton,
   ToggleButtonGroup,
@@ -20,6 +18,20 @@ import {
   InputLabel,
   Tooltip,
 } from '@mui/material';
+import {
+  Timeline,
+  TimelineItem,
+  TimelineSeparator,
+  TimelineConnector,
+  TimelineContent,
+  TimelineDot,
+} from '@mui/lab';
+import HistoryOutlinedIcon from '@mui/icons-material/HistoryOutlined';
+import AddCircleIcon from '@mui/icons-material/AddCircle';
+import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutline';
+import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
+import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
+import RuleIcon from '@mui/icons-material/Rule';
 import apiClient from '../../api/apiClient';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
@@ -35,6 +47,19 @@ const TYPE_COLORS = {
   trade: 'warning',
   commissioner: 'secondary',
   stat_correction: 'error',
+};
+
+// Timeline dot icon + color per transaction type — reuses the theme's
+// semantic palette roles (no hard-coded color literals) rather than the
+// TYPE_COLORS chip mapping above, since the two conventions serve different
+// visual jobs (a filled chip label vs. a small dot icon).
+const TYPE_ICON_META = {
+  add: { Icon: AddCircleIcon, color: 'success' },
+  drop: { Icon: RemoveCircleOutlineIcon, color: 'error' },
+  waiver: { Icon: AddCircleIcon, color: 'info' },
+  trade: { Icon: SwapHorizIcon, color: 'info' },
+  commissioner: { Icon: AdminPanelSettingsIcon, color: 'warning' },
+  stat_correction: { Icon: RuleIcon, color: 'error' },
 };
 
 const FILTER_OPTIONS = [
@@ -140,6 +165,48 @@ function TransactionDescription({ txn, onOpenPlayer }) {
   }
 }
 
+// One row of the activity timeline: a colored dot/icon keyed off the
+// transaction type, the team + action description, and a relative
+// timestamp aligned to the right.
+function ActivityFeedItem({ txn, onOpenPlayer, isLast }) {
+  const { Icon, color } = TYPE_ICON_META[txn.type] || { Icon: HistoryOutlinedIcon, color: 'grey' };
+  return (
+    <TimelineItem data-testid={`txn-${txn.id}`}>
+      <TimelineSeparator>
+        <TimelineDot color={color} variant="outlined">
+          <Icon fontSize="small" />
+        </TimelineDot>
+        {!isLast && <TimelineConnector />}
+      </TimelineSeparator>
+      <TimelineContent sx={{ py: 0, pb: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1.5 }}>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Chip
+              label={txn.type}
+              size="small"
+              color={TYPE_COLORS[txn.type] || 'default'}
+              sx={{ mb: 0.5 }}
+            />
+            <Typography variant="body2" component="div" data-testid="txn-desc">
+              {txn.team_name && (
+                <Box component="span" sx={{ fontWeight: 'bold' }}>
+                  {txn.team_name}{' '}
+                </Box>
+              )}
+              <TransactionDescription txn={txn} onOpenPlayer={onOpenPlayer} />
+            </Typography>
+          </Box>
+          <Tooltip title={new Date(txn.created_at).toLocaleString()}>
+            <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'nowrap' }}>
+              {formatRelative(txn.created_at)}
+            </Typography>
+          </Tooltip>
+        </Box>
+      </TimelineContent>
+    </TimelineItem>
+  );
+}
+
 function TransactionLog() {
   const { leagueId } = useParams();
   const [transactions, setTransactions] = useState(null);
@@ -197,6 +264,20 @@ function TransactionLog() {
   const visible = filtered.slice(0, visibleCount);
   const hasMore = visibleCount < filtered.length;
 
+  // Cluster consecutive same-day rows so each day renders as its own
+  // mini-timeline under a single date heading (assumes `visible` is already
+  // ordered newest-first, same assumption the old flat list relied on).
+  const dayGroups = [];
+  visible.forEach((t) => {
+    const label = dayLabel(t.created_at);
+    const lastGroup = dayGroups[dayGroups.length - 1];
+    if (lastGroup && lastGroup.label === label) {
+      lastGroup.items.push(t);
+    } else {
+      dayGroups.push({ label, items: [t] });
+    }
+  });
+
   return (
     <Container maxWidth="md" sx={{ py: 4 }}>
       <LeagueBreadcrumb />
@@ -212,23 +293,32 @@ function TransactionLog() {
 
       {transactions && (
         <>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 2, mb: 3 }}>
-            <ToggleButtonGroup
-              value={typeFilter}
-              exclusive
-              onChange={(e, value) => value && setTypeFilter(value)}
-              size="small"
-              color="primary"
-              aria-label="Filter by transaction type"
-            >
-              {FILTER_OPTIONS.map((opt) => (
-                <ToggleButton key={opt.value} value={opt.value}>
-                  {opt.label}
-                </ToggleButton>
-              ))}
-            </ToggleButtonGroup>
+          <Stack
+            direction={{ xs: 'column', sm: 'row' }}
+            alignItems={{ xs: 'stretch', sm: 'center' }}
+            justifyContent="space-between"
+            spacing={2}
+            sx={{ mb: 3 }}
+          >
+            <Box sx={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', pb: { xs: 0.5, sm: 0 } }}>
+              <ToggleButtonGroup
+                value={typeFilter}
+                exclusive
+                onChange={(e, value) => value && setTypeFilter(value)}
+                size="small"
+                color="primary"
+                aria-label="Filter by transaction type"
+                sx={{ flexWrap: { xs: 'nowrap', sm: 'wrap' } }}
+              >
+                {FILTER_OPTIONS.map((opt) => (
+                  <ToggleButton key={opt.value} value={opt.value} sx={{ whiteSpace: 'nowrap' }}>
+                    {opt.label}
+                  </ToggleButton>
+                ))}
+              </ToggleButtonGroup>
+            </Box>
 
-            <FormControl size="small" sx={{ minWidth: 160 }}>
+            <FormControl size="small" sx={{ minWidth: 160, alignSelf: { xs: 'stretch', sm: 'center' } }}>
               <InputLabel id="txn-team-filter-label">Team</InputLabel>
               <Select
                 labelId="txn-team-filter-label"
@@ -245,58 +335,55 @@ function TransactionLog() {
                 ))}
               </Select>
             </FormControl>
-          </Box>
+          </Stack>
 
           {filtered.length === 0 ? (
-            <Typography sx={{ color: 'text.secondary' }}>
-              {transactions.length === 0 ? 'No activity yet' : 'No activity matches these filters'}
-            </Typography>
+            transactions.length === 0 ? (
+              <Stack
+                alignItems="center"
+                justifyContent="center"
+                spacing={2}
+                sx={{ py: 8, minHeight: 240 }}
+              >
+                <HistoryOutlinedIcon sx={{ fontSize: 64, color: 'text.disabled' }} />
+                <Typography sx={{ color: 'text.secondary', textAlign: 'center', maxWidth: 380 }}>
+                  The league is quiet. Recent transactions, trades, and commissioner actions will
+                  appear here.
+                </Typography>
+              </Stack>
+            ) : (
+              <Typography sx={{ color: 'text.secondary' }}>No activity matches these filters</Typography>
+            )
           ) : (
             <Paper sx={{ p: 2 }}>
-              <List sx={{ py: 0 }}>
-                {visible.map((txn, idx) => {
-                  const label = dayLabel(txn.created_at);
-                  const prevLabel = idx > 0 ? dayLabel(visible[idx - 1].created_at) : null;
-                  return (
-                    <React.Fragment key={txn.id}>
-                      {label !== prevLabel && (
-                        <ListSubheader disableSticky data-testid="day-header">
-                          {label}
-                        </ListSubheader>
-                      )}
-                      <ListItem
-                        data-testid={`txn-${txn.id}`}
-                        sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, py: 1 }}
-                      >
-                        <Chip
-                          label={txn.type}
-                          size="small"
-                          color={TYPE_COLORS[txn.type] || 'default'}
-                          sx={{ mt: 0.25 }}
-                        />
-                        <Box sx={{ flex: 1, minWidth: 0 }}>
-                          <Typography variant="body2" component="div" data-testid="txn-desc">
-                            {txn.team_name && (
-                              <Box component="span" sx={{ fontWeight: 'bold' }}>
-                                {txn.team_name}{' '}
-                              </Box>
-                            )}
-                            <TransactionDescription txn={txn} onOpenPlayer={setQuickViewId} />
-                          </Typography>
-                        </Box>
-                        <Tooltip title={new Date(txn.created_at).toLocaleString()}>
-                          <Typography
-                            variant="caption"
-                            sx={{ color: 'text.secondary', whiteSpace: 'nowrap' }}
-                          >
-                            {formatRelative(txn.created_at)}
-                          </Typography>
-                        </Tooltip>
-                      </ListItem>
-                    </React.Fragment>
-                  );
-                })}
-              </List>
+              {dayGroups.map((group) => (
+                <Box key={`${group.label}-${group.items[0].id}`} sx={{ mb: 1 }}>
+                  <Typography
+                    variant="overline"
+                    sx={{ color: 'text.secondary', pl: 1 }}
+                    data-testid="day-header"
+                  >
+                    {group.label}
+                  </Typography>
+                  <Timeline
+                    position="right"
+                    sx={{
+                      p: 0,
+                      m: 0,
+                      '& .MuiTimelineItem-root:before': { flex: 0, padding: 0 },
+                    }}
+                  >
+                    {group.items.map((txn, i) => (
+                      <ActivityFeedItem
+                        key={txn.id}
+                        txn={txn}
+                        onOpenPlayer={setQuickViewId}
+                        isLast={i === group.items.length - 1}
+                      />
+                    ))}
+                  </Timeline>
+                </Box>
+              ))}
               {hasMore && (
                 <Box sx={{ textAlign: 'center', pt: 2 }}>
                   <Button onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}>Show more</Button>
