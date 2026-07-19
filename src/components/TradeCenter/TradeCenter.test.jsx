@@ -129,7 +129,7 @@ test('shows empty state when there are no trades', async () => {
 
   renderScreen();
 
-  expect(await screen.findByText('No trades yet')).toBeInTheDocument();
+  expect(await screen.findByText('No Pending Trades')).toBeInTheDocument();
 });
 
 test('propose trade dialog flow posts the correct body, toasts, and refetches', async () => {
@@ -137,7 +137,7 @@ test('propose trade dialog flow posts the correct body, toasts, and refetches', 
   apiClient.post.mockResolvedValue({});
 
   renderScreenWithToasts();
-  await screen.findByText('No trades yet');
+  await screen.findByText('No Pending Trades');
 
   await userEvent.click(screen.getByRole('button', { name: 'Propose Trade' }));
 
@@ -165,7 +165,7 @@ test('Send Offer is disabled until at least one player is checked on each side',
   mockGetSequence({ trades: [] });
 
   renderScreen();
-  await screen.findByText('No trades yet');
+  await screen.findByText('No Pending Trades');
 
   await userEvent.click(screen.getByRole('button', { name: 'Propose Trade' }));
   await userEvent.click(screen.getByLabelText('Trade with'));
@@ -184,7 +184,7 @@ test('propose dialog roster columns stack full width on mobile (xs=12, sm=6) and
   mockGetSequence({ trades: [] });
 
   renderScreen();
-  await screen.findByText('No trades yet');
+  await screen.findByText('No Pending Trades');
 
   await userEvent.click(screen.getByRole('button', { name: 'Propose Trade' }));
   await userEvent.click(screen.getByLabelText('Trade with'));
@@ -207,7 +207,7 @@ test('live summary chip rows reflect the current selection on each side', async 
   mockGetSequence({ trades: [] });
 
   renderScreen();
-  await screen.findByText('No trades yet');
+  await screen.findByText('No Pending Trades');
 
   await userEvent.click(screen.getByRole('button', { name: 'Propose Trade' }));
   await userEvent.click(screen.getByLabelText('Trade with'));
@@ -250,7 +250,7 @@ test('auto-analyze in the compose dialog debounces ~600ms after the last checkbo
   });
 
   renderScreen();
-  await screen.findByText('No trades yet');
+  await screen.findByText('No Pending Trades');
 
   await user.click(screen.getByRole('button', { name: 'Propose Trade' }));
   await user.click(screen.getByLabelText('Trade with'));
@@ -293,7 +293,7 @@ test('auto-analyze in the compose dialog surfaces an error message when the debo
   apiClient.post.mockRejectedValue({ response: { data: { error: 'trade not eligible for analysis' } } });
 
   renderScreen();
-  await screen.findByText('No trades yet');
+  await screen.findByText('No Pending Trades');
 
   await user.click(screen.getByRole('button', { name: 'Propose Trade' }));
   await user.click(screen.getByLabelText('Trade with'));
@@ -315,9 +315,9 @@ test('accept and reject buttons appear only for the receiving team owner on a pe
   renderScreenWithToasts();
   await screen.findByText('Alice Squad ⇄ Bob Squad');
 
-  const acceptButton = screen.getByRole('button', { name: 'Accept' });
+  const acceptButton = screen.getByRole('button', { name: 'Accept Trade' });
   expect(acceptButton).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Reject' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Decline' })).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
 
   await userEvent.click(acceptButton);
@@ -368,7 +368,7 @@ test('cancel button appears for the proposing team on a pending trade and calls 
   renderScreenWithToasts();
   await screen.findByText('Alice Squad ⇄ Bob Squad');
 
-  expect(screen.queryByRole('button', { name: 'Accept' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Accept Trade' })).not.toBeInTheDocument();
   const cancelButton = screen.getByRole('button', { name: 'Cancel' });
 
   await userEvent.click(cancelButton);
