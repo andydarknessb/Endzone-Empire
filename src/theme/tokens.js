@@ -47,6 +47,10 @@ export const colorTokens = {
     // scrolled content bleed through).
     'row-stripe': '#f7f9fb',
     'row-hover': '#eaeff4',
+    // Medal accents for podium/standings UI. Gold reuses `warning`; these two
+    // fill the silver/bronze slots MUI's palette has no equivalent for.
+    'medal-silver': '#9aa5b1',
+    'medal-bronze': '#a56a3a',
   },
   dark: {
     'bg-page': '#0f1419',
@@ -79,6 +83,9 @@ export const colorTokens = {
     // Opaque table row shades (see the light theme note above).
     'row-stripe': '#1e2732',
     'row-hover': '#28323e',
+    // Medal accents for podium/standings UI (see the light theme note above).
+    'medal-silver': '#b8c0c9',
+    'medal-bronze': '#c98a54',
   },
 };
 

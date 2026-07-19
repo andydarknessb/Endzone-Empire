@@ -5,10 +5,16 @@ import {
   Typography,
   Alert,
   Box,
+  Stack,
   Skeleton,
   Accordion,
   AccordionSummary,
   AccordionDetails,
+  Tabs,
+  Tab,
+  Card,
+  Avatar,
+  Divider,
   Table,
   TableBody,
   TableCell,
@@ -19,12 +25,64 @@ import {
   Chip,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import EmojiEventsOutlined from '@mui/icons-material/EmojiEventsOutlined';
+import EmojiEvents from '@mui/icons-material/EmojiEvents';
 import { TROPHY_EMOJI } from '../TrophyCase/TrophyCase';
 import { GRADE_COLORS } from '../DraftGradesCard/DraftGradesCard';
 import apiClient from '../../api/apiClient';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 
 const MEDAL_EMOJI = { 1: '🥇', 2: '🥈', 3: '🥉' };
+
+// Podium placement styling. Gold reuses the theme's `warning` color per the
+// existing champion-chip convention; silver/bronze have no MUI palette
+// equivalent so they read from the `--medal-*` design tokens (see theme/tokens.js).
+const PODIUM_CONFIG = {
+  2: { label: '2nd Place', borderColor: 'var(--medal-silver)', minHeight: 170 },
+  1: { label: '1st Place', borderColor: 'warning.main', minHeight: 220 },
+  3: { label: '3rd Place', borderColor: 'var(--medal-bronze)', minHeight: 150 },
+};
+
+/**
+ * Placeholder podium card. The multi-season/all-time endpoints this will read
+ * from don't exist yet, so every field is an intentional ghost value — this
+ * renders the future "Hall of Fame" shape, not real standings.
+ */
+function PodiumCard({ place }) {
+  const config = PODIUM_CONFIG[place];
+  return (
+    <Card
+      variant="outlined"
+      data-testid={`podium-card-${place}`}
+      sx={{
+        width: { xs: 108, sm: 168 },
+        minHeight: config.minHeight,
+        flexShrink: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'flex-start',
+        textAlign: 'center',
+        gap: 0.5,
+        p: { xs: 1.5, sm: 2 },
+        pt: place === 1 ? 3 : 2,
+        bgcolor: 'background.paper',
+        borderWidth: 2,
+        borderColor: config.borderColor,
+      }}
+    >
+      {place === 1 && <EmojiEvents sx={{ fontSize: 40, color: 'warning.main' }} />}
+      <Avatar sx={{ width: 56, height: 56, bgcolor: 'action.disabledBackground' }} />
+      <Typography variant="subtitle2" color="text.secondary" noWrap sx={{ maxWidth: '100%' }}>
+        Team Name
+      </Typography>
+      <Typography variant="caption" color="text.disabled">
+        W-L-T
+      </Typography>
+      <Chip size="small" variant="outlined" label={config.label} sx={{ mt: 0.5, borderColor: config.borderColor }} />
+    </Card>
+  );
+}
 
 function SeasonPanel({ season, defaultExpanded }) {
   const standings = Array.isArray(season.standings) ? season.standings : [];
@@ -210,6 +268,7 @@ function LeagueHistory() {
   const [seasons, setSeasons] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [yearTab, setYearTab] = useState(0);
 
   useEffect(() => {
     fetchHistory();
@@ -254,9 +313,91 @@ function LeagueHistory() {
       )}
 
       {!error && seasons.length === 0 && (
-        <Alert severity="info" data-testid="history-empty">
-          No completed seasons yet
-        </Alert>
+        <Stack
+          alignItems="center"
+          justifyContent="center"
+          spacing={1.5}
+          data-testid="history-empty"
+          sx={{ minHeight: '60vh', textAlign: 'center', px: 2 }}
+        >
+          <EmojiEventsOutlined sx={{ fontSize: 96, color: 'text.disabled' }} />
+          <Typography variant="h6" color="text.secondary">
+            The Hall of Fame is empty.
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 420 }}>
+            Complete your first season to cement your legacy.
+          </Typography>
+        </Stack>
+      )}
+
+      {!error && seasons.length > 0 && (
+        <>
+          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+            <Chip
+              size="small"
+              variant="outlined"
+              color="info"
+              label="Preview"
+              data-testid="hall-of-fame-preview-chip"
+            />
+            <Typography variant="body2" color="text.secondary">
+              Multi-season Hall of Fame — full year-by-year and all-time data coming soon
+            </Typography>
+          </Stack>
+
+          <Tabs
+            value={yearTab}
+            onChange={(e, newValue) => setYearTab(newValue)}
+            variant="scrollable"
+            scrollButtons="auto"
+            sx={{ mb: 3, borderBottom: 1, borderColor: 'divider' }}
+            data-testid="history-year-tabs"
+          >
+            <Tab label="2025" />
+            <Tab label="2024" />
+            <Tab label="All-Time Records" />
+          </Tabs>
+
+          <Stack
+            direction="row"
+            alignItems="flex-end"
+            justifyContent="center"
+            spacing={{ xs: 1.5, sm: 3 }}
+            sx={{ mb: 4, overflowX: 'auto', py: 1 }}
+          >
+            <PodiumCard place={2} />
+            <PodiumCard place={1} />
+            <PodiumCard place={3} />
+          </Stack>
+
+          <TableContainer component={Paper} sx={{ mb: 4 }} data-testid="history-mock-standings">
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Rank</TableCell>
+                  <TableCell>Team</TableCell>
+                  <TableCell align="right">W-L-T</TableCell>
+                  <TableCell align="right">Total Points</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {[1, 2, 3, 4].map((rank) => (
+                  <TableRow key={rank}>
+                    <TableCell>{rank}</TableCell>
+                    <TableCell sx={{ color: 'text.disabled', fontStyle: 'italic' }}>Team Name</TableCell>
+                    <TableCell align="right" sx={{ color: 'text.disabled' }}>—</TableCell>
+                    <TableCell align="right" sx={{ color: 'text.disabled' }}>—</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+
+          <Divider sx={{ mb: 3 }} />
+          <Typography variant="h6" sx={{ mb: 2 }}>
+            Season Detail
+          </Typography>
+        </>
       )}
 
       {seasons.map((season, i) => (
