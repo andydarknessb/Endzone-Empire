@@ -56,8 +56,17 @@ function mockApi({
   matchups = [],
   league = { id: 1, name: 'Sunday Ballers', owner_id: 1 },
   rosters = [],
+  matchupDetail = null,
 } = {}) {
   apiClient.get.mockImplementation((url) => {
+    if (/\/matchups\/\d+$/.test(url)) {
+      return Promise.resolve({
+        data: matchupDetail || {
+          home: { starters: [], projectedTotal: 0 },
+          away: { starters: [], projectedTotal: 0 },
+        },
+      });
+    }
     if (url.endsWith('/matchups')) return Promise.resolve({ data: matchups });
     if (url.endsWith('/rosters')) return Promise.resolve({ data: rosters });
     return Promise.resolve({ data: { league } });
@@ -230,6 +239,48 @@ test('renders the viewer matchup as a full-width hero and keeps it out of the gr
   expect(screen.getByText('Other A (0)')).toBeInTheDocument();
 });
 
+test('renders a real slot-by-slot roster preview under the featured matchup', async () => {
+  mockApi({
+    matchups: [
+      matchup({ id: 1, week: 1, home_team_id: 10, away_team_id: 20, home_team_name: 'My Team', away_team_name: 'Rival', home_score: 30, away_score: 20 }),
+    ],
+    league: { id: 1, name: 'Sunday Ballers', owner_id: 99, current_week: 1 },
+    rosters: [{ teamId: 10, teamName: 'My Team', ownerId: 1 }, { teamId: 20, teamName: 'Rival', ownerId: 2 }],
+    matchupDetail: {
+      home: { projectedTotal: 118.4, starters: [{ id: 101, name: 'Home QB', slot: 'QB', points: 24, projected: 22 }] },
+      away: { projectedTotal: 105.2, starters: [{ id: 201, name: 'Away QB', slot: 'QB', points: 18, projected: 20 }] },
+    },
+  });
+
+  renderScreen(1, { user: { id: 1 } });
+
+  expect(await screen.findByText('Your Matchup — Week 1')).toBeInTheDocument();
+  expect(await screen.findByText('Home QB')).toBeInTheDocument();
+  expect(screen.getByText('Away QB')).toBeInTheDocument();
+  expect(screen.getByText('Proj: 118.4')).toBeInTheDocument();
+  expect(screen.getByText('Proj: 105.2')).toBeInTheDocument();
+});
+
+test('clicking an "Other Matchups" chip swaps the featured matchup panel', async () => {
+  mockApi({
+    matchups: [
+      matchup({ id: 1, week: 1, home_team_id: 10, away_team_id: 20, home_team_name: 'My Team', away_team_name: 'Rival', home_score: 30, away_score: 20 }),
+      matchup({ id: 2, week: 1, home_team_id: 30, away_team_id: 40, home_team_name: 'Other A', away_team_name: 'Other B' }),
+    ],
+    league: { id: 1, name: 'Sunday Ballers', owner_id: 99, current_week: 1 },
+    rosters: [{ teamId: 10, teamName: 'My Team', ownerId: 1 }, { teamId: 20, teamName: 'Rival', ownerId: 2 }],
+  });
+
+  renderScreen(1, { user: { id: 1 } });
+
+  expect(await screen.findByText('Your Matchup — Week 1')).toBeInTheDocument();
+
+  await userEvent.click(screen.getByText('Other A vs Other B'));
+
+  expect(await screen.findByText('Featured Matchup — Week 1')).toBeInTheDocument();
+  expect(screen.queryByText('Your Matchup — Week 1')).not.toBeInTheDocument();
+});
+
 test('no hero card renders when the viewer has no matchup this week', async () => {
   mockApi({
     matchups: [matchup({ id: 2, week: 1, home_team_id: 30, away_team_id: 40, home_team_name: 'Other A', away_team_name: 'Other B' })],
@@ -259,13 +310,16 @@ test('shows a Final chip for a completed matchup and a Scheduled chip otherwise'
   expect(screen.getByText('Scheduled')).toBeInTheDocument();
 });
 
-test('shows Owner Tools for the league owner and lets them generate matchups and score the week', async () => {
+test('shows Commissioner Tools for the league owner and lets them generate matchups and score the week', async () => {
   mockApi({ matchups: [], league: { id: 1, name: 'Sunday Ballers', owner_id: 1 } });
   apiClient.post.mockResolvedValue({});
 
   renderScreenWithToasts(1, { user: { id: 1 } });
-  const ownerToolsHeading = await screen.findByRole('heading', { name: 'Owner Tools' });
+  const ownerToolsHeading = await screen.findByRole('heading', { name: 'Commissioner Tools' });
   const ownerTools = within(ownerToolsHeading.closest('.MuiPaper-root'));
+
+  // Commissioner Tools defaults to collapsed — expand it before interacting.
+  await userEvent.click(ownerToolsHeading);
 
   const seasonInput = ownerTools.getByLabelText('Season');
   const weekInput = ownerTools.getByLabelText('Week');
@@ -285,13 +339,13 @@ test('shows Owner Tools for the league owner and lets them generate matchups and
   expect(await screen.findByText('Week scored successfully!')).toBeInTheDocument();
 });
 
-test('does not show Owner Tools for a non-owner', async () => {
+test('does not show Commissioner Tools for a non-owner', async () => {
   mockApi({ matchups: [], league: { id: 1, name: 'Sunday Ballers', owner_id: 99 } });
 
   renderScreen(1, { user: { id: 1 } });
   await screen.findByText(/Sunday Ballers/);
 
-  expect(screen.queryByRole('heading', { name: 'Owner Tools' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: 'Commissioner Tools' })).not.toBeInTheDocument();
 });
 
 test('shows an error alert when the initial fetch fails', async () => {

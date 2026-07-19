@@ -3,7 +3,6 @@ import { useParams, Link } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import {
   Container,
-  Paper,
   Typography,
   Select,
   MenuItem,
@@ -13,54 +12,32 @@ import {
   Button,
   Alert,
   Box,
-  Chip,
   Card,
   CardActionArea,
   CardContent,
   IconButton,
   Skeleton,
+  Stack,
+  Chip,
+  LinearProgress,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
 } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import apiClient from '../../api/apiClient';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import { useLeague } from '../../hooks/useLeague';
 import { createDraftSocket, onReconnect } from '../../api/socket';
 import { matchupWinProbability } from '../../lib/winProbability';
+import { computeDefaultWeek } from '../../lib/matchupWeek';
+import { MatchupStatusChip, RosterPreviewGrid } from '../MatchupDetail/MatchupExtras';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 
 const LIVE_INDICATOR_MS = 10000;
-
-/**
- * Picks the week the screen opens to: the league's current week when it's
- * one of the weeks we actually have matchups for, else the latest week that
- * still has an unfinished matchup (closest thing to "in progress"), else the
- * latest week that exists at all. 'All' only when there's nothing to pick.
- */
-function computeDefaultWeek(league, matchups, weeks) {
-  if (league?.current_week && weeks.includes(league.current_week)) {
-    return league.current_week;
-  }
-  const nonFinalWeeks = matchups.filter((m) => !m.final).map((m) => m.week);
-  if (nonFinalWeeks.length) {
-    return Math.max(...nonFinalWeeks);
-  }
-  if (weeks.length) {
-    return Math.max(...weeks);
-  }
-  return 'All';
-}
-
-function MatchupStatusChip({ matchup, showLive }) {
-  if (matchup.final) {
-    return <Chip size="small" label="Final" color="success" />;
-  }
-  if (showLive) {
-    return <Chip size="small" label="LIVE" color="error" />;
-  }
-  return <Chip size="small" label="Scheduled" variant="outlined" />;
-}
 
 function MatchupScreen() {
   const { leagueId } = useParams();
@@ -76,6 +53,9 @@ function MatchupScreen() {
   const [season, setSeason] = useState('2025');
   const [week, setWeek] = useState('1');
   const [showLive, setShowLive] = useState(false);
+  const [selectedMatchupId, setSelectedMatchupId] = useState(null);
+  const [selectedDetail, setSelectedDetail] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const socketRef = useRef(null);
   const liveTimeoutRef = useRef(null);
   const weekFilterInitialized = useRef(false);
@@ -213,17 +193,51 @@ function MatchupScreen() {
     ? filteredMatchups.filter((m) => m.id !== heroMatchup.id)
     : filteredMatchups;
 
-  const heroHomeScore = heroMatchup ? Number(heroMatchup.home_score) : 0;
-  const heroAwayScore = heroMatchup ? Number(heroMatchup.away_score) : 0;
+  // The featured card defaults to the viewer's own matchup, but the "Other
+  // Matchups" chips below can swap it to preview any other game this week.
+  const selectedMatchup = heroMatchup
+    ? filteredMatchups.find((m) => m.id === selectedMatchupId) || heroMatchup
+    : null;
+  const isViewerMatchup = !!(selectedMatchup && heroMatchup && selectedMatchup.id === heroMatchup.id);
+  const navMatchups = heroMatchup
+    ? filteredMatchups.filter((m) => m.id !== selectedMatchup.id)
+    : [];
+
+  // Real slot-by-slot roster data for whichever matchup is featured, reusing
+  // the same endpoint the full matchup detail page relies on.
+  useEffect(() => {
+    if (!selectedMatchup) {
+      setSelectedDetail(null);
+      return undefined;
+    }
+    let cancelled = false;
+    setDetailLoading(true);
+    apiClient
+      .get(`/api/league/${leagueId}/matchups/${selectedMatchup.id}`)
+      .then((res) => {
+        if (!cancelled) setSelectedDetail(res.data);
+      })
+      .catch(() => {
+        if (!cancelled) setSelectedDetail(null);
+      })
+      .finally(() => {
+        if (!cancelled) setDetailLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedMatchup?.id, leagueId]);
+
+  const heroHomeScore = selectedMatchup ? Number(selectedMatchup.home_score) : 0;
+  const heroAwayScore = selectedMatchup ? Number(selectedMatchup.away_score) : 0;
   const heroHomeWins = heroHomeScore > heroAwayScore;
   const heroAwayWins = heroAwayScore > heroHomeScore;
-  const heroIsLive = !!heroMatchup && !heroMatchup.final && showLive;
-  const heroWinProb = heroMatchup
+  const heroWinProb = selectedMatchup
     ? matchupWinProbability({
         homeScore: heroHomeScore,
         awayScore: heroAwayScore,
-        homeProjectedTotal: 0,
-        awayProjectedTotal: 0,
+        homeProjectedTotal: selectedDetail?.home?.projectedTotal || 0,
+        awayProjectedTotal: selectedDetail?.away?.projectedTotal || 0,
       })
     : null;
 
@@ -259,7 +273,7 @@ function MatchupScreen() {
         Matchups {league && `— ${league.name}`}
       </Typography>
 
-      <Box sx={{ mb: 3, display: 'flex', gap: 0.5, alignItems: 'center' }}>
+      <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
         <FormControl sx={{ minWidth: 150 }}>
           <InputLabel id="week-filter-label">Week</InputLabel>
           <Select
@@ -277,7 +291,7 @@ function MatchupScreen() {
           </Select>
         </FormControl>
         {weekFilter !== 'All' && weekFilter != null && (
-          <>
+          <Stack direction="row" alignItems="center">
             <IconButton
               aria-label="Previous week"
               onClick={() => setWeekFilter(weeks[weekIndex - 1])}
@@ -292,30 +306,55 @@ function MatchupScreen() {
             >
               <ChevronRightIcon />
             </IconButton>
-          </>
+          </Stack>
         )}
-      </Box>
+      </Stack>
 
-      {heroMatchup && (
-        <Card sx={{ mb: 3 }}>
-          <CardActionArea component={Link} to={`/league/${leagueId}/matchups/${heroMatchup.id}`}>
+      {navMatchups.length > 0 && (
+        <Box sx={{ mb: 2 }}>
+          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.75 }}>
+            Other Matchups
+          </Typography>
+          <Stack direction="row" spacing={1} sx={{ overflowX: 'auto', pb: 1 }}>
+            {navMatchups.map((m) => (
+              <Chip
+                key={m.id}
+                clickable
+                variant="outlined"
+                label={`${m.home_team_name} vs ${m.away_team_name}`}
+                onClick={() => setSelectedMatchupId(m.id)}
+                sx={{ flexShrink: 0 }}
+              />
+            ))}
+          </Stack>
+        </Box>
+      )}
+
+      {selectedMatchup && (
+        <Card sx={{ mb: 3, bgcolor: 'background.paper' }}>
+          <CardActionArea component={Link} to={`/league/${leagueId}/matchups/${selectedMatchup.id}`}>
             <CardContent>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                 <Typography variant="overline" sx={{ color: 'text.secondary' }}>
-                  Your Matchup — Week {heroMatchup.week}
+                  {isViewerMatchup ? 'Your Matchup' : 'Featured Matchup'} — Week {selectedMatchup.week}
                 </Typography>
-                <MatchupStatusChip matchup={heroMatchup} showLive={showLive} />
+                <MatchupStatusChip matchup={selectedMatchup} showLive={showLive} />
               </Box>
               <Grid container spacing={2} alignItems="center">
                 <Grid xs={5}>
                   <Typography variant="h6" sx={{ fontWeight: heroHomeWins ? 700 : 400 }} noWrap>
-                    {heroMatchup.home_team_name}
+                    {selectedMatchup.home_team_name}
                   </Typography>
                   <Typography
                     variant="stat"
                     sx={{ fontSize: '1.25rem', fontWeight: heroHomeWins ? 700 : 400, mt: 0.5 }}
                   >
                     {heroHomeScore}
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.25 }}>
+                    Proj: {selectedDetail?.home?.projectedTotal != null
+                      ? Number(selectedDetail.home.projectedTotal).toFixed(1)
+                      : '—'}
                   </Typography>
                 </Grid>
                 <Grid xs={2} sx={{ textAlign: 'center' }}>
@@ -325,7 +364,7 @@ function MatchupScreen() {
                 </Grid>
                 <Grid xs={5} sx={{ textAlign: 'right' }}>
                   <Typography variant="h6" sx={{ fontWeight: heroAwayWins ? 700 : 400 }} noWrap>
-                    {heroMatchup.away_team_name}
+                    {selectedMatchup.away_team_name}
                   </Typography>
                   <Typography
                     variant="stat"
@@ -333,27 +372,43 @@ function MatchupScreen() {
                   >
                     {heroAwayScore}
                   </Typography>
+                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.25 }}>
+                    Proj: {selectedDetail?.away?.projectedTotal != null
+                      ? Number(selectedDetail.away.projectedTotal).toFixed(1)
+                      : '—'}
+                  </Typography>
                 </Grid>
               </Grid>
-              {heroIsLive && (
-                <Box
-                  role="img"
-                  aria-label={`Win probability: ${heroMatchup.home_team_name} ${Math.round(heroWinProb.home * 100)}%, ${heroMatchup.away_team_name} ${Math.round(heroWinProb.away * 100)}%`}
-                  sx={{
-                    display: 'flex',
-                    height: 4,
-                    borderRadius: 2,
-                    overflow: 'hidden',
-                    mt: 2,
-                    bgcolor: 'action.hover',
-                  }}
-                >
-                  <Box sx={{ width: `${heroWinProb.home * 100}%`, bgcolor: 'primary.main', transition: 'width 0.8s ease' }} />
-                  <Box sx={{ width: `${heroWinProb.away * 100}%`, bgcolor: 'secondary.main', transition: 'width 0.8s ease' }} />
-                </Box>
-              )}
+              <Box
+                role="img"
+                aria-label={`Win probability: ${selectedMatchup.home_team_name} ${Math.round(heroWinProb.home * 100)}%, ${selectedMatchup.away_team_name} ${Math.round(heroWinProb.away * 100)}%`}
+                sx={{ mt: 2 }}
+              >
+                <LinearProgress
+                  variant="determinate"
+                  value={heroWinProb.home * 100}
+                  sx={{ height: 6, borderRadius: 3 }}
+                />
+              </Box>
             </CardContent>
           </CardActionArea>
+
+          <Box sx={{ px: 2, pb: 2 }}>
+            {detailLoading && !selectedDetail?.home?.starters?.length && (
+              <Skeleton variant="rectangular" height={140} sx={{ borderRadius: 1 }} />
+            )}
+            {!!selectedDetail?.home?.starters?.length && (
+              <>
+                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.5 }}>
+                  Starting Lineups
+                </Typography>
+                <RosterPreviewGrid
+                  homeStarters={selectedDetail.home.starters}
+                  awayStarters={selectedDetail.away.starters}
+                />
+              </>
+            )}
+          </Box>
         </Card>
       )}
 
@@ -402,35 +457,37 @@ function MatchupScreen() {
       </Grid>
 
       {isOwner && (
-        <Paper sx={{ p: 3, bgcolor: 'action.hover' }}>
-          <Typography variant="h6" sx={{ mb: 2 }}>
-            Owner Tools
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-            <TextField
-              label="Season"
-              type="number"
-              value={season}
-              onChange={(e) => setSeason(e.target.value)}
-              size="small"
-              sx={{ width: 100 }}
-            />
-            <TextField
-              label="Week"
-              type="number"
-              value={week}
-              onChange={(e) => setWeek(e.target.value)}
-              size="small"
-              sx={{ width: 100 }}
-            />
-            <Button variant="contained" color="primary" onClick={handleGenerateMatchups}>
-              Generate Matchups
-            </Button>
-            <Button variant="contained" color="primary" onClick={handleScoreWeek}>
-              Score Week
-            </Button>
-          </Box>
-        </Paper>
+        <Accordion defaultExpanded={false} sx={{ bgcolor: 'background.paper' }}>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <Typography variant="h6">Commissioner Tools</Typography>
+          </AccordionSummary>
+          <AccordionDetails>
+            <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+              <TextField
+                label="Season"
+                type="number"
+                value={season}
+                onChange={(e) => setSeason(e.target.value)}
+                size="small"
+                sx={{ width: 100 }}
+              />
+              <TextField
+                label="Week"
+                type="number"
+                value={week}
+                onChange={(e) => setWeek(e.target.value)}
+                size="small"
+                sx={{ width: 100 }}
+              />
+              <Button variant="contained" color="primary" onClick={handleGenerateMatchups}>
+                Generate Matchups
+              </Button>
+              <Button variant="contained" color="primary" onClick={handleScoreWeek}>
+                Score Week
+              </Button>
+            </Box>
+          </AccordionDetails>
+        </Accordion>
       )}
     </Container>
   );
