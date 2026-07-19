@@ -17,7 +17,25 @@ import {
   Box,
   Tooltip,
   TextField,
+  Card,
+  CardActionArea,
+  Drawer,
+  Fab,
+  IconButton,
 } from '@mui/material';
+import Grid from '@mui/material/Unstable_Grid2';
+import GroupsIcon from '@mui/icons-material/Groups';
+import AssignmentIcon from '@mui/icons-material/Assignment';
+import SportsScoreIcon from '@mui/icons-material/SportsScore';
+import LiveTvIcon from '@mui/icons-material/LiveTv';
+import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
+import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
+import TimelineIcon from '@mui/icons-material/Timeline';
+import TrendingUpIcon from '@mui/icons-material/TrendingUp';
+import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
+import LocalFireDepartmentIcon from '@mui/icons-material/LocalFireDepartment';
+import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
+import CloseIcon from '@mui/icons-material/Close';
 import apiClient from '../../api/apiClient';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import ChatPanel from '../ChatPanel/ChatPanel';
@@ -33,32 +51,51 @@ const SEASON_STATUS_CHIP = {
 };
 
 // League navigation, grouped by intent so the dashboard reads as sections
-// rather than a flat wall of buttons.
+// rather than a flat wall of buttons. `weight` drives the card's visual
+// emphasis: 'primary' cards (the most common day-to-day actions) get a
+// tinted, filled treatment; 'default' cards stay outlined.
 const NAV_GROUPS = [
   {
     label: 'Play',
+    weight: 'primary',
     links: [
-      { label: 'Draft Room', slug: 'draft' },
-      { label: 'Set Lineup', slug: 'lineup' },
-      { label: 'Matchups', slug: 'matchups' },
+      { label: 'Draft Room', slug: 'draft', icon: GroupsIcon },
+      { label: 'Set Lineup', slug: 'lineup', icon: AssignmentIcon },
+      { label: 'Matchups', slug: 'matchups', icon: SportsScoreIcon },
+      { label: 'Game Center', slug: 'game-center', icon: LiveTvIcon },
     ],
   },
   {
     label: 'Moves',
+    weight: 'default',
     links: [
-      { label: 'Waivers', slug: 'waivers' },
-      { label: 'Trades', slug: 'trades' },
+      { label: 'Waivers', slug: 'waivers', icon: SwapHorizIcon },
+      { label: 'Trades', slug: 'trades', icon: CompareArrowsIcon },
     ],
   },
   {
     label: 'League',
+    weight: 'default',
     links: [
-      { label: 'Activity', slug: 'activity' },
-      { label: 'Power Rankings', slug: 'power-rankings' },
-      { label: 'History', slug: 'history' },
+      { label: 'Activity', slug: 'activity', icon: TimelineIcon },
+      { label: 'Power Rankings', slug: 'power-rankings', icon: TrendingUpIcon },
+      { label: 'History', slug: 'history', icon: EmojiEventsIcon },
     ],
   },
 ];
+
+// Streak chip styling: green for a win streak, red for a loss streak, and a
+// flame once a win streak reaches 3+ games.
+function streakChipProps(streak) {
+  if (!streak || streak === '—') return { color: 'default', icon: undefined };
+  const result = streak[0];
+  const length = Number(streak.slice(1)) || 0;
+  if (result === 'W') {
+    return { color: 'success', icon: length >= 3 ? <LocalFireDepartmentIcon /> : undefined };
+  }
+  if (result === 'L') return { color: 'error', icon: undefined };
+  return { color: 'default', icon: undefined };
+}
 
 function LeagueDashboard() {
   const { leagueId } = useParams();
@@ -73,6 +110,7 @@ function LeagueDashboard() {
   const [joinRequests, setJoinRequests] = useState([]);
   const [sizeMin, setSizeMin] = useState('');
   const [sizeMax, setSizeMax] = useState('');
+  const [chatOpen, setChatOpen] = useState(false);
 
   useEffect(() => {
     fetchLeagueAndUser();
@@ -331,43 +369,47 @@ function LeagueDashboard() {
       <TableContainer component={Paper} sx={{ mb: 3 }}>
         <Table>
           <TableHead>
-            <TableRow sx={{ bgcolor: 'primary.main' }}>
-              <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>Rank</TableCell>
-              <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>Team</TableCell>
-              <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>Owner</TableCell>
-              <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }} align="right">
-                W-L-T
-              </TableCell>
-              <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }} align="right">
-                PF
-              </TableCell>
-              <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }} align="right">
-                PA
-              </TableCell>
-              <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }} align="right">
-                Streak
-              </TableCell>
+            <TableRow
+              sx={{
+                bgcolor: 'background.default',
+                '& .MuiTableCell-root': {
+                  color: 'text.primary',
+                  fontWeight: 700,
+                  borderBottom: '2px solid',
+                  borderBottomColor: 'divider',
+                },
+              }}
+            >
+              <TableCell>Rank</TableCell>
+              <TableCell>Team</TableCell>
+              <TableCell>Owner</TableCell>
+              <TableCell align="right">W-L-T</TableCell>
+              <TableCell align="right">PF</TableCell>
+              <TableCell align="right">PA</TableCell>
+              <TableCell align="right">Streak</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {standings.map((team) => (
-              <TableRow key={team.teamId}>
-                <TableCell>{team.rank}</TableCell>
-                <TableCell>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    {team.name}
-                    {team.playoffSeed != null && (
-                      <Chip label={`#${team.playoffSeed}`} size="small" color="success" />
+            {standings.map((team) => {
+              const { color: streakColor, icon: streakIcon } = streakChipProps(team.streak);
+              return (
+                <TableRow key={team.teamId}>
+                  <TableCell>{team.rank}</TableCell>
+                  <TableCell>{team.name}</TableCell>
+                  <TableCell>{team.owner}</TableCell>
+                  <TableCell align="right">{`${team.wins}-${team.losses}-${team.ties}`}</TableCell>
+                  <TableCell align="right">{team.pf}</TableCell>
+                  <TableCell align="right">{team.pa}</TableCell>
+                  <TableCell align="right">
+                    {team.streak && team.streak !== '—' ? (
+                      <Chip label={team.streak} size="small" color={streakColor} icon={streakIcon} />
+                    ) : (
+                      team.streak
                     )}
-                  </Box>
-                </TableCell>
-                <TableCell>{team.owner}</TableCell>
-                <TableCell align="right">{`${team.wins}-${team.losses}-${team.ties}`}</TableCell>
-                <TableCell align="right">{team.pf}</TableCell>
-                <TableCell align="right">{team.pa}</TableCell>
-                <TableCell align="right">{team.streak}</TableCell>
-              </TableRow>
-            ))}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
       </TableContainer>
@@ -389,24 +431,31 @@ function LeagueDashboard() {
           standingsLeague.season_status !== 'complete')) && (
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 3 }}>
           {isOwner && league.draft_status === 'pending' && (
-            <Tooltip
-              title={
-                belowMin
-                  ? `Need at least ${league.min_teams} teams to start the draft (currently ${teams.length})`
-                  : ''
-              }
-            >
-              <span>
-                <Button
-                  variant="contained"
-                  color="primary"
-                  onClick={handleStartDraft}
-                  disabled={belowMin}
-                >
-                  Start Draft
-                </Button>
-              </span>
-            </Tooltip>
+            <Box>
+              <Tooltip
+                title={
+                  belowMin
+                    ? `Need at least ${league.min_teams} teams to start the draft (currently ${teams.length})`
+                    : ''
+                }
+              >
+                <span>
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    onClick={handleStartDraft}
+                    disabled={belowMin}
+                  >
+                    Start Draft
+                  </Button>
+                </span>
+              </Tooltip>
+              {belowMin && (
+                <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'text.secondary' }}>
+                  Requires a minimum of {league.min_teams} teams to start the draft.
+                </Typography>
+              )}
+            </Box>
           )}
           {isOwner &&
             league.draft_status === 'complete' &&
@@ -419,34 +468,57 @@ function LeagueDashboard() {
         </Box>
       )}
 
-      {/* Grouped league navigation */}
-      <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
-        <Box sx={{ display: 'flex', gap: { xs: 3, sm: 5 }, flexWrap: 'wrap' }}>
-          {NAV_GROUPS.map((group) => (
-            <Box key={group.label} sx={{ minWidth: 140 }}>
-              <Typography
-                variant="overline"
-                sx={{ color: 'text.secondary', display: 'block', mb: 1 }}
-              >
-                {group.label}
-              </Typography>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'flex-start' }}>
-                {group.links.map((l) => (
-                  <Link
-                    key={l.slug}
-                    to={`/league/${leagueId}/${l.slug}`}
-                    style={{ textDecoration: 'none' }}
-                  >
-                    <Button variant="outlined" color="primary" size="small">
-                      {l.label}
-                    </Button>
-                  </Link>
-                ))}
-              </Box>
-            </Box>
-          ))}
-        </Box>
-      </Paper>
+      {/* Grouped league navigation, as rich cards rather than a wall of
+          identical outlined buttons. */}
+      <Box sx={{ mb: 3 }}>
+        {NAV_GROUPS.map((group) => (
+          <Box key={group.label} sx={{ mb: 2 }}>
+            <Typography
+              variant="overline"
+              sx={{ color: 'text.secondary', display: 'block', mb: 1 }}
+            >
+              {group.label}
+            </Typography>
+            <Grid container spacing={1.5}>
+              {group.links.map((l) => {
+                const Icon = l.icon;
+                const primary = group.weight === 'primary';
+                return (
+                  <Grid xs={6} sm={3} key={l.slug}>
+                    <Card
+                      variant={primary ? 'elevation' : 'outlined'}
+                      elevation={primary ? 1 : 0}
+                      sx={{
+                        height: '100%',
+                        bgcolor: primary ? 'primary.main' : 'background.paper',
+                        color: primary ? 'primary.contrastText' : 'text.primary',
+                      }}
+                    >
+                      <CardActionArea
+                        component={Link}
+                        to={`/league/${leagueId}/${l.slug}`}
+                        sx={{
+                          height: '100%',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'flex-start',
+                          gap: 1,
+                          p: 2,
+                        }}
+                      >
+                        <Icon fontSize="medium" />
+                        <Typography variant="subtitle2" sx={{ color: 'inherit' }}>
+                          {l.label}
+                        </Typography>
+                      </CardActionArea>
+                    </Card>
+                  </Grid>
+                );
+              })}
+            </Grid>
+          </Box>
+        ))}
+      </Box>
 
       {isOwner && (
         <Paper sx={{ p: 2, mt: 3 }}>
@@ -488,7 +560,7 @@ function LeagueDashboard() {
                   onChange={(e) => setSizeMax(e.target.value)}
                   sx={{ width: 130 }}
                 />
-                <Button variant="outlined" onClick={handleSaveLimits}>
+                <Button variant="outlined" size="small" onClick={handleSaveLimits}>
                   Save Limits
                 </Button>
               </Box>
@@ -561,7 +633,43 @@ function LeagueDashboard() {
         </Paper>
       )}
 
-      <ChatPanel leagueId={leagueId} />
+      <Fab
+        color="primary"
+        onClick={() => setChatOpen(true)}
+        sx={{ position: 'fixed', bottom: 24, right: 24 }}
+        aria-label="Open league chat"
+      >
+        <ChatBubbleOutlineIcon />
+      </Fab>
+      <Drawer
+        anchor="right"
+        variant="persistent"
+        open={chatOpen}
+        sx={{
+          '& .MuiDrawer-paper': {
+            width: { xs: '100vw', sm: 380 },
+            boxSizing: 'border-box',
+          },
+        }}
+      >
+        <Box
+          sx={{
+            width: '100%',
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', p: 1 }}>
+            <IconButton onClick={() => setChatOpen(false)} aria-label="Close chat">
+              <CloseIcon />
+            </IconButton>
+          </Box>
+          <Box sx={{ flex: 1, overflowY: 'auto', px: 1 }}>
+            <ChatPanel leagueId={leagueId} />
+          </Box>
+        </Box>
+      </Drawer>
     </Container>
   );
 }

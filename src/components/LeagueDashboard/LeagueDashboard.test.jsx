@@ -156,7 +156,7 @@ test('renders league name, status chips, and the standings table', async () => {
   expect(screen.getByText('alice')).toBeInTheDocument();
 });
 
-test('standings table renders W-L-T, PF, PA, streak and the playoff seed chip', async () => {
+test('standings table renders W-L-T, PF, PA, and a streak chip (no redundant playoff-seed pill)', async () => {
   mockGetByUrl({
     '/api/league/1': leagueResponse({ draft_status: 'complete' }),
     '/api/user': userResponse(),
@@ -170,7 +170,9 @@ test('standings table renders W-L-T, PF, PA, streak and the playoff seed chip', 
   expect(screen.getByText('312.5')).toBeInTheDocument();
   expect(screen.getByText('280.1')).toBeInTheDocument();
   expect(screen.getByText('W2')).toBeInTheDocument();
-  expect(screen.getByText('#1')).toBeInTheDocument();
+  // The rank column is the single source of truth for standing; the old
+  // green "#1" playoff-seed pill next to the team name is gone.
+  expect(screen.queryByText('#1')).not.toBeInTheDocument();
 });
 
 test('shows the specific server error message when the initial fetch fails', async () => {
@@ -613,7 +615,7 @@ test('does not show the join-request queue for a non-owner even on a public appr
   expect(apiClient.get.mock.calls.some(([url]) => url.includes('/join-requests'))).toBe(false);
 });
 
-test('renders the League Chat panel at the bottom of the page', async () => {
+test('League Chat lives in a collapsible drawer, opened via a floating action button', async () => {
   mockGetByUrl({
     '/api/league/1': leagueResponse(),
     '/api/user': userResponse(),
@@ -623,8 +625,12 @@ test('renders the League Chat panel at the bottom of the page', async () => {
   renderDashboard();
   await screen.findByText('Sunday Ballers');
 
+  const openChatButton = screen.getByRole('button', { name: 'Open league chat' });
   expect(await screen.findByText('League Chat')).toBeInTheDocument();
   expect(screen.getByText('No messages yet')).toBeInTheDocument();
+
+  await userEvent.click(openChatButton);
+  expect(await screen.findByRole('button', { name: 'Close chat' })).toBeInTheDocument();
 });
 
 // --- Recap / Trophy Case / Draft Grades / History integration ---
