@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link as RouterLink, useParams } from 'react-router-dom';
-import { Link, Box } from '@mui/material';
+import { Button, Box } from '@mui/material';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 
 /**
  * A small back-link to the league dashboard, shown at the top of every league
@@ -11,14 +12,14 @@ function LeagueBreadcrumb({ name }) {
   const { leagueId } = useParams();
   return (
     <Box sx={{ mb: 2 }}>
-      <Link
+      <Button
         component={RouterLink}
         to={`/league/${leagueId}`}
-        underline="hover"
-        sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, fontWeight: 600 }}
+        startIcon={<ArrowBackIcon />}
+        sx={{ fontWeight: 600 }}
       >
-        ← {name || 'League dashboard'}
-      </Link>
+        {name || 'League dashboard'}
+      </Button>
     </Box>
   );
 }
