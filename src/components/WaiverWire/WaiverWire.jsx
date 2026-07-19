@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import {
   Container,
   Paper,
@@ -26,11 +26,15 @@ import {
   TextField,
   TableSortLabel,
   Tooltip,
+  Stack,
 } from '@mui/material';
+import SearchIcon from '@mui/icons-material/Search';
+import PersonAddDisabledIcon from '@mui/icons-material/PersonAddDisabled';
 import apiClient from '../../api/apiClient';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
+import WaiverClaimItem from './WaiverClaimItem';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import { formatRelative } from '../../utils/formatRelative';
 
@@ -45,12 +49,6 @@ const stickyActionHeadSx = {
   zIndex: 3,
 };
 const stickyActionCellSx = { position: 'sticky', right: 0, bgcolor: 'background.paper', zIndex: 1 };
-
-function statusColor(status) {
-  if (status === 'won') return 'success';
-  if (status === 'lost' || status === 'invalid') return 'error';
-  return 'default'; // pending, cancelled
-}
 
 // Worst-projection-first so the natural cut order comes first; roster entries
 // without a projection (the /api/team/roster response doesn't currently
@@ -70,6 +68,7 @@ function sortRosterForDrop(roster) {
 
 function WaiverWire() {
   const { leagueId } = useParams();
+  const navigate = useNavigate();
   const notify = useSnackbar();
   const [data, setData] = useState(null);
   const [roster, setRoster] = useState([]);
@@ -244,7 +243,13 @@ function WaiverWire() {
             {isFaab ? (
               <Chip label={`FAAB remaining: $${data.myTeam.faab_remaining}`} />
             ) : (
-              <Chip label={`Waiver priority: #${data.myTeam.waiver_priority}`} />
+              <Chip
+                label={
+                  data.myTeam.waiver_priority != null
+                    ? `Waiver priority: #${data.myTeam.waiver_priority}`
+                    : 'Waiver priority: TBD'
+                }
+              />
             )}
           </Box>
 
@@ -253,7 +258,21 @@ function WaiverWire() {
               On Waivers
             </Typography>
             {data.onWaivers.length === 0 ? (
-              <Typography sx={{ color: 'text.secondary' }}>No players on waivers</Typography>
+              <Box
+                sx={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  textAlign: 'center',
+                  py: 6,
+                }}
+              >
+                <SearchIcon sx={{ fontSize: 48, mb: 1, color: 'text.disabled' }} />
+                <Typography sx={{ color: 'text.secondary', mb: 2 }}>No players on waivers</Typography>
+                <Button variant="outlined" onClick={() => navigate('/player')}>
+                  Browse Players
+                </Button>
+              </Box>
             ) : (
               <TableContainer>
                 <Table size="small">
@@ -330,45 +349,29 @@ function WaiverWire() {
               My Claims
             </Typography>
             {data.myClaims.length === 0 ? (
-              <Typography sx={{ color: 'text.secondary' }}>No claims yet</Typography>
+              <Box
+                sx={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  textAlign: 'center',
+                  py: 6,
+                }}
+              >
+                <PersonAddDisabledIcon sx={{ fontSize: 48, mb: 1, color: 'text.disabled' }} />
+                <Typography sx={{ color: 'text.secondary' }}>No claims yet</Typography>
+              </Box>
             ) : (
-              <TableContainer>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Player</TableCell>
-                      <TableCell>Status</TableCell>
-                      {isFaab && <TableCell>Bid</TableCell>}
-                      <TableCell align="center">Action</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {data.myClaims.map((claim) => (
-                      <TableRow key={claim.id}>
-                        <TableCell>
-                          <Typography variant="body2">{claim.player_name}</Typography>
-                          {claim.note && (
-                            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                              {claim.note}
-                            </Typography>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Chip label={claim.status} size="small" color={statusColor(claim.status)} />
-                        </TableCell>
-                        {isFaab && <TableCell>${claim.bid}</TableCell>}
-                        <TableCell align="center">
-                          {claim.status === 'pending' && (
-                            <Button size="small" onClick={() => handleCancelClaim(claim)}>
-                              Cancel
-                            </Button>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
+              <Stack spacing={1.5}>
+                {data.myClaims.map((claim) => (
+                  <WaiverClaimItem
+                    key={claim.id}
+                    claim={claim}
+                    isFaab={isFaab}
+                    onCancel={handleCancelClaim}
+                  />
+                ))}
+              </Stack>
             )}
           </Paper>
         </>
