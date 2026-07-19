@@ -23,6 +23,7 @@ import Brightness4Icon from '@mui/icons-material/Brightness4';
 import Brightness7Icon from '@mui/icons-material/Brightness7';
 import NotificationBell from '../NotificationBell/NotificationBell';
 import GlobalPlayerSearch from '../GlobalPlayerSearch/GlobalPlayerSearch';
+import ProfileSettingsModal from './ProfileSettingsModal';
 import { useThemeMode } from '../../theme/AppThemeProvider';
 
 // Primary destinations shown inline on desktop and in the drawer on mobile.
@@ -43,6 +44,7 @@ function Nav() {
   const location = useLocation();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [profileAnchor, setProfileAnchor] = useState(null);
+  const [profileSettingsOpen, setProfileSettingsOpen] = useState(false);
 
   const loggedIn = !!user.id;
   const links = [...MAIN_LINKS];
@@ -164,11 +166,23 @@ function Nav() {
                   {user.username || 'Signed in'}
                 </MenuItem>
                 <Divider />
+                <MenuItem
+                  onClick={() => {
+                    setProfileAnchor(null);
+                    setProfileSettingsOpen(true);
+                  }}
+                >
+                  Profile Settings
+                </MenuItem>
                 <MenuItem component={RouterLink} to="/settings/notifications" onClick={() => setProfileAnchor(null)}>
                   Notification Settings
                 </MenuItem>
                 <MenuItem onClick={handleLogout}>Log Out</MenuItem>
               </Menu>
+              <ProfileSettingsModal
+                open={profileSettingsOpen}
+                onClose={() => setProfileSettingsOpen(false)}
+              />
             </>
           )}
         </Box>

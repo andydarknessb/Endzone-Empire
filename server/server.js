@@ -12,6 +12,7 @@ const waiversRouter = require('./routes/waivers.router');
 const draftRouter = require('./routes/draft.router');
 const tradesRouter = require('./routes/trades.router');
 const notificationsRouter = require('./routes/notifications.router');
+const newsRouter = require('./routes/news.router');
 const commissionerRouter = require('./routes/commissioner.router');
 const healthRouter = require('./routes/health.router');
 const adminRouter = require('./routes/admin.router');
@@ -60,6 +61,7 @@ app.use('/api/waivers', waiversRouter);
 app.use('/api/draft', draftRouter);
 app.use('/api/trades', tradesRouter);
 app.use('/api/notifications', notificationsRouter);
+app.use('/api/news', newsRouter);
 app.use('/api/commissioner', commissionerRouter);
 app.use('/api/admin', adminRouter);
 

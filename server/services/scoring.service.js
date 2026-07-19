@@ -929,6 +929,7 @@ module.exports = {
   SCORING_PRESETS,
   rulesForLeague,
   calculateFantasyPoints,
+  rapidApiClient,
   tank01Body,
   normalizeTank01Stats,
   normalizeTank01DstStats,

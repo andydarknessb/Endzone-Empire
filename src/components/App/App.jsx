@@ -7,6 +7,7 @@ import {
 } from 'react-router-dom';
 
 import { useDispatch, useSelector } from 'react-redux';
+import Box from '@mui/material/Box';
 
 import Nav from '../Nav/Nav';
 import Footer from '../Footer/Footer';
@@ -63,8 +64,12 @@ function App() {
     <SnackbarProvider>
     <OfflineBanner />
     <Router>
-      <div>
+      {/* Flex column shell, pinned to the viewport height, so pages shorter
+          than the viewport still push the footer to the bottom instead of
+          leaving a gap beneath it. Taller pages scroll normally. */}
+      <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
         <Nav />
+        <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
         <Routes>
           <Route path="/league" element={<ProtectedRoute><LeagueManagement /></ProtectedRoute>} />
           <Route path="/league/join" element={<ProtectedRoute><LeagueManagement /></ProtectedRoute>} />
@@ -156,8 +161,9 @@ function App() {
           {/* If none of the other routes matched, we will show a 404. */}
           <Route path="*" element={<NotFound />} />
         </Routes>
+        </Box>
         <Footer />
-      </div>
+      </Box>
     </Router>
     </SnackbarProvider>
     </AppThemeProvider>
