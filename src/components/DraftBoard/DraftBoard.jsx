@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useSelector } from 'react-redux';
-import { Container, Typography, Alert, Box, Skeleton, useMediaQuery, Tabs, Tab } from '@mui/material';
+import { Container, Typography, Alert, Box, Skeleton, useMediaQuery, Tabs, Tab, IconButton, Tooltip } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import Grid from '@mui/material/Unstable_Grid2';
+import SettingsIcon from '@mui/icons-material/Settings';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
+import Countdown from '../Countdown/Countdown';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import useDraftSocket from './useDraftSocket';
 import usePlayerPool from './usePlayerPool';
@@ -14,6 +16,7 @@ import useDraftAdmin from './useDraftAdmin';
 import useTabTitleFlash from './useTabTitleFlash';
 import DraftStatusBar from './DraftStatusBar';
 import DraftSettingsPanel from './DraftSettingsPanel';
+import LiveDraftBanner from './LiveDraftBanner';
 import PlayerPoolTable from './PlayerPoolTable';
 import DraftRail from './DraftRail';
 import DraftBoardMatrix from './DraftBoardMatrix';
@@ -83,6 +86,7 @@ function DraftBoard() {
   // pick arriving over the socket while the dialog is open surfaces the banner
   // without any extra state — the board keeps updating behind the overlay.
   const [quickViewId, setQuickViewId] = useState(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const pool = usePlayerPool(leagueId);
   const {
@@ -207,15 +211,21 @@ function DraftBoard() {
       )}
 
       <Box sx={{ mb: 3 }}>
-        <Typography variant="h4" sx={{ mb: 2 }}>
-          {league?.name || 'Draft Board'}
-        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+          <Typography variant="h4">{league?.name || 'Draft Board'}</Typography>
+          {isCommissioner && league?.draft_status === 'pending' && (
+            <Tooltip title="Draft settings">
+              <IconButton aria-label="Draft settings" onClick={() => setSettingsOpen(true)}>
+                <SettingsIcon />
+              </IconButton>
+            </Tooltip>
+          )}
+        </Box>
         <DraftStatusBar
           league={league}
           onTheClock={onTheClock}
           secondsLeft={secondsLeft}
           reconnecting={reconnecting}
-          isMyTurn={isMyTurn}
           soundOn={soundOn}
           toggleSound={toggleSound}
           isCommissioner={isCommissioner}
@@ -224,17 +234,33 @@ function DraftBoard() {
           onClockAlertOpen={onClockAlertOpen}
           onCloseOnClockAlert={dismissOnClockAlert}
         />
-        {league?.draft_status === 'pending' && isCommissioner && (
+        {league?.draft_status === 'pending' && league?.draft_date && (
+          <Box sx={{ mt: 2 }}>
+            <Countdown variant="full" date={league.draft_date} />
+          </Box>
+        )}
+        {isCommissioner && (
           <DraftSettingsPanel
+            open={settingsOpen}
+            onClose={() => setSettingsOpen(false)}
             pickTimeSeconds={admin.pickTimeSeconds}
             onPickTimeSecondsChange={admin.setPickTimeSeconds}
             autodraftDelaySeconds={admin.autodraftDelaySeconds}
             onAutodraftDelaySecondsChange={admin.setAutodraftDelaySeconds}
-            onSubmit={admin.handleSaveDraftSettings}
+            onSubmit={async (e) => {
+              await admin.handleSaveDraftSettings(e);
+              setSettingsOpen(false);
+            }}
             saving={admin.settingsSaving}
           />
         )}
       </Box>
+
+      {/* Sibling to (not nested in) the header Box above: sticky positioning is
+          bounded by the containing block, so LiveDraftBanner needs a containing
+          block tall enough to stay pinned while the Grid below scrolls underneath
+          it — the short header Box alone isn't tall enough. */}
+      <LiveDraftBanner league={league} onTheClock={onTheClock} secondsLeft={secondsLeft} isMyTurn={isMyTurn} />
 
       <Tabs
         value={view}

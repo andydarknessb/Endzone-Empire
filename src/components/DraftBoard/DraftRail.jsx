@@ -70,7 +70,20 @@ function DraftRail({
 
   return (
     <>
-      <Paper sx={{ p: 2, mb: 3 }}>
+      <Paper
+        sx={{
+          p: 2,
+          mb: 3,
+          // Keep the queue reachable as Draft Order / Pick History push it
+          // down the page. The offset when a draft is active clears
+          // LiveDraftBanner, which is sticky above it at top: 0.
+          position: 'sticky',
+          top: draftStatus === 'active' ? 148 : 16,
+          zIndex: 2,
+          maxHeight: draftStatus === 'active' ? 'calc(100vh - 164px)' : '80vh',
+          overflowY: 'auto',
+        }}
+      >
         <Typography variant="h6" sx={{ mb: 2 }}>
           My Queue
         </Typography>

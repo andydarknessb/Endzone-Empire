@@ -2,6 +2,7 @@ import React, { useRef, useCallback } from 'react';
 import {
   Paper,
   Box,
+  Stack,
   Typography,
   TextField,
   IconButton,
@@ -24,18 +25,27 @@ import {
   CircularProgress,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
+import PlaylistAddIcon from '@mui/icons-material/PlaylistAdd';
 import InjuryBadge from '../InjuryBadge/InjuryBadge';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import PositionChip from '../PlayerQuickView/PositionChip';
 
+// Muted, dark-mode-friendly header: a step off the surrounding Paper instead
+// of a saturated brand color, with a divider rule to separate it from rows.
+const headCellSx = {
+  color: 'text.primary',
+  fontWeight: 'bold',
+  bgcolor: 'background.default',
+  borderBottom: '2px solid',
+  borderBottomColor: 'divider',
+};
+
 // Pin the action column to the right edge so Draft/Queue stay reachable when
 // the table overflows horizontally on narrow (phone) screens.
 export const stickyActionHeadSx = {
-  color: 'primary.contrastText',
-  fontWeight: 'bold',
+  ...headCellSx,
   position: 'sticky',
   right: 0,
-  bgcolor: 'primary.main',
   zIndex: 3,
 };
 // Inherit the row's (striped/hover) background so the pinned column has no
@@ -47,14 +57,6 @@ const stripedRowsSx = {
   '& tbody tr': { backgroundColor: 'var(--surface)' },
   '& tbody tr:nth-of-type(even)': { backgroundColor: 'var(--row-stripe)' },
   '& tbody tr:hover': { backgroundColor: 'var(--row-hover)' },
-};
-
-// Keep the sort arrow/label legible on the colored (primary.main) header.
-const sortLabelSx = {
-  color: 'primary.contrastText',
-  '&.Mui-active': { color: 'primary.contrastText' },
-  '&:hover': { color: 'primary.contrastText' },
-  '& .MuiTableSortLabel-icon': { color: 'primary.contrastText !important' },
 };
 
 // Fetch the next page once the scroller is within this many pixels of the
@@ -144,48 +146,35 @@ function PlayerPoolTable({
       <TableContainer ref={scrollRef} onScroll={handleScroll} sx={{ maxHeight: '60vh', overflow: 'auto' }}>
         <Table stickyHeader sx={stripedRowsSx}>
           <TableHead>
-            <TableRow sx={{ bgcolor: 'primary.main' }}>
-              <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold', bgcolor: 'primary.main' }} align="right">
+            <TableRow>
+              <TableCell sx={headCellSx} align="right">
                 #
               </TableCell>
-              <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold', bgcolor: 'primary.main' }}>
+              <TableCell sx={headCellSx}>
                 <TableSortLabel
                   active={sort === 'name'}
                   direction={sort === 'name' ? dir : 'asc'}
                   onClick={() => onSort('name')}
-                  sx={sortLabelSx}
                 >
                   Name
                 </TableSortLabel>
               </TableCell>
-              <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold', bgcolor: 'primary.main' }}>
-                Pos
-              </TableCell>
-              <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold', bgcolor: 'primary.main' }}>
-                NFL Team
-              </TableCell>
-              <TableCell
-                sx={{ color: 'primary.contrastText', fontWeight: 'bold', bgcolor: 'primary.main' }}
-                align="right"
-              >
+              <TableCell sx={headCellSx}>Pos</TableCell>
+              <TableCell sx={headCellSx}>NFL Team</TableCell>
+              <TableCell sx={headCellSx} align="right">
                 <TableSortLabel
                   active={sort === 'adp'}
                   direction={sort === 'adp' ? dir : 'asc'}
                   onClick={() => onSort('adp')}
-                  sx={sortLabelSx}
                 >
                   ADP
                 </TableSortLabel>
               </TableCell>
-              <TableCell
-                sx={{ color: 'primary.contrastText', fontWeight: 'bold', bgcolor: 'primary.main' }}
-                align="right"
-              >
+              <TableCell sx={headCellSx} align="right">
                 <TableSortLabel
                   active={sort === 'proj'}
                   direction={sort === 'proj' ? dir : 'asc'}
                   onClick={() => onSort('proj')}
-                  sx={sortLabelSx}
                 >
                   Season Proj
                 </TableSortLabel>
@@ -234,22 +223,34 @@ function PlayerPoolTable({
                     {player.projected_points != null ? player.projected_points : '—'}
                   </TableCell>
                   <TableCell align="center" sx={stickyActionCellSx}>
-                    <Tooltip title={draftDisabledReason}>
-                      <span>
-                        <Button variant="contained" size="small" disabled={draftDisabled} onClick={() => onDraft(player.id)}>
-                          Draft
-                        </Button>
-                      </span>
-                    </Tooltip>
-                    <Button
-                      variant="outlined"
-                      size="small"
-                      sx={{ ml: 1 }}
-                      disabled={isDrafted || queue.some((p) => p.id === player.id)}
-                      onClick={() => onQueue(player)}
-                    >
-                      Queue
-                    </Button>
+                    <Stack direction="row" spacing={1} justifyContent="center" alignItems="center">
+                      <Tooltip title={draftDisabledReason}>
+                        <span>
+                          <Button
+                            variant="contained"
+                            color="success"
+                            size="small"
+                            disabled={draftDisabled}
+                            onClick={() => onDraft(player.id)}
+                          >
+                            Draft
+                          </Button>
+                        </span>
+                      </Tooltip>
+                      <Tooltip title="Queue">
+                        <span>
+                          <IconButton
+                            aria-label="Queue"
+                            size="small"
+                            color="default"
+                            disabled={isDrafted || queue.some((p) => p.id === player.id)}
+                            onClick={() => onQueue(player)}
+                          >
+                            <PlaylistAddIcon fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    </Stack>
                   </TableCell>
                 </TableRow>
               );
