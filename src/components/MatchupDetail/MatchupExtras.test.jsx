@@ -38,6 +38,33 @@ describe('SlotComparisonList', () => {
     expect(screen.getByText('D. Henry')).toBeInTheDocument();
   });
 
+  test('sorts starters into fantasy-standard slot order regardless of input order, and shows DEF as D/ST', () => {
+    const home = [
+      player({ id: 1, name: 'Def Guy', slot: 'DEF' }),
+      player({ id: 2, name: 'Flex Guy', slot: 'FLEX' }),
+      player({ id: 3, name: 'Kick Guy', slot: 'K' }),
+      player({ id: 4, name: 'QB Guy', slot: 'QB' }),
+      player({ id: 5, name: 'RB Guy', slot: 'RB' }),
+      player({ id: 6, name: 'TE Guy', slot: 'TE' }),
+      player({ id: 7, name: 'WR Guy', slot: 'WR' }),
+    ];
+
+    render(
+      <SlotComparisonList
+        homeStarters={home}
+        awayStarters={[]}
+        expandedId={null}
+        onToggle={jest.fn()}
+        onOpenPlayer={jest.fn()}
+      />
+    );
+
+    const names = screen.getAllByText(/Guy$/).map((el) => el.textContent);
+    expect(names).toEqual(['QB Guy', 'RB Guy', 'WR Guy', 'TE Guy', 'Flex Guy', 'Kick Guy', 'Def Guy']);
+    expect(screen.getByText('D/ST')).toBeInTheDocument();
+    expect(screen.queryByText('DEF')).not.toBeInTheDocument();
+  });
+
   test('renders unpaired remainder rows with an empty opposite side when lengths differ', () => {
     const home = [player({ id: 1, name: 'P. Mahomes', slot: 'QB' }), player({ id: 2, name: 'Bench Extra', slot: 'FLEX' })];
     const away = [player({ id: 3, name: 'J. Allen', slot: 'QB' })];

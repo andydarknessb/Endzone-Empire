@@ -106,6 +106,12 @@ function normalizeTank01Stats(entry) {
   const receiving = e.Receiving || {};
   const kicking = e.Kicking || {};
   const defense = e.Defense || {};
+  // Tank01 nests the return specialist's own punt-return line under
+  // "Punting" (alongside a punter's punting line) rather than a dedicated
+  // "Returns" category — there is no equivalent kickoff-return category
+  // anywhere in the box score response (confirmed empty across a full
+  // season sample), so kick returns have no real source to detect from.
+  const punting = e.Punting || {};
   return {
     passingYards: num(passing.passYds),
     passingTDs: num(passing.passTD),
@@ -120,39 +126,96 @@ function normalizeTank01Stats(entry) {
     fumbles: num(defense.fumblesLost, e.fumblesLost),
     fieldGoal: num(kicking.fgMade),
     extraPoint: num(kicking.xpMade),
+    returnTDs: num(punting.puntReturnTD),
+    puntReturns: num(punting.puntReturns),
+    puntReturnYards: num(punting.puntReturnYds),
   };
 }
 
-// Stat keys that represent a scored touchdown, mapped to the cutscene's event
-// type. Detection keys off the stat itself incrementing — never a fantasy-point
-// jump — so a stat correction that moves points without a TD never fires a
-// cutscene.
-const TD_STAT_EVENTS = {
-  passingTDs: 'passing',
-  rushingTDs: 'rushing',
-  receivingTDs: 'receiving',
-  defensiveTD: 'defensive',
-  returnTDs: 'return',
-  kickReturnTDs: 'return',
-  puntReturnTDs: 'return',
+/**
+ * Map one side of Tank01's box-score "DST" object (team-level defensive
+ * aggregate — sacks/interceptions/fumble recoveries/defensive TDs summed
+ * across every individual defender) to our scoring-rule stat names. This is
+ * the only source for team-defense stats: Tank01's player list has no
+ * individual "DEF" entries, so a rostered DEF unit's fantasy points come
+ * entirely from this aggregate rather than from any single player's line.
+ */
+function normalizeTank01DstStats(dstSide) {
+  const num = (value) => {
+    const parsed = Number(String(value ?? '').replace(/,/g, ''));
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  const d = dstSide || {};
+  return {
+    sack: num(d.sacks),
+    interceptionReturn: num(d.defensiveInterceptions),
+    fumbleRecovery: num(d.fumblesRecovered),
+    defensiveTD: num(d.defTD),
+  };
+}
+
+// Full NFL team name -> Tank01 abbreviation, used only to match a league's
+// seeded/rostered DEF-unit player (stored with either a full name or an
+// abbreviation in nfl_team) against the live box score's teamAbv.
+const NFL_TEAM_NAME_TO_ABBR = {
+  'ARIZONA CARDINALS': 'ARI', 'ATLANTA FALCONS': 'ATL', 'BALTIMORE RAVENS': 'BAL',
+  'BUFFALO BILLS': 'BUF', 'CAROLINA PANTHERS': 'CAR', 'CHICAGO BEARS': 'CHI',
+  'CINCINNATI BENGALS': 'CIN', 'CLEVELAND BROWNS': 'CLE', 'DALLAS COWBOYS': 'DAL',
+  'DENVER BRONCOS': 'DEN', 'DETROIT LIONS': 'DET', 'GREEN BAY PACKERS': 'GB',
+  'HOUSTON TEXANS': 'HOU', 'INDIANAPOLIS COLTS': 'IND', 'JACKSONVILLE JAGUARS': 'JAX',
+  'KANSAS CITY CHIEFS': 'KC', 'LAS VEGAS RAIDERS': 'LV', 'LOS ANGELES CHARGERS': 'LAC',
+  'LOS ANGELES RAMS': 'LAR', 'MIAMI DOLPHINS': 'MIA', 'MINNESOTA VIKINGS': 'MIN',
+  'NEW ENGLAND PATRIOTS': 'NE', 'NEW ORLEANS SAINTS': 'NO', 'NEW YORK GIANTS': 'NYG',
+  'NEW YORK JETS': 'NYJ', 'PHILADELPHIA EAGLES': 'PHI', 'PITTSBURGH STEELERS': 'PIT',
+  'SAN FRANCISCO 49ERS': 'SF', 'SEATTLE SEAHAWKS': 'SEA', 'TAMPA BAY BUCCANEERS': 'TB',
+  'TENNESSEE TITANS': 'TEN', 'WASHINGTON COMMANDERS': 'WAS',
+};
+
+/** A players.nfl_team value (full name or already-an-abbreviation) -> Tank01 abbreviation. */
+function normalizeTeamAbbr(nflTeam) {
+  const raw = String(nflTeam || '').trim();
+  if (!raw) return null;
+  if (/^[A-Z]{2,3}$/.test(raw)) return raw;
+  return NFL_TEAM_NAME_TO_ABBR[raw.toUpperCase()] || null;
+}
+
+// Stat keys that represent a discrete, animatable "play" (a touchdown or a
+// smaller impact play), mapped to the event type the live UI renders and
+// whether it's touchdown-caliber (full-screen cutscene territory) or a
+// lighter moment (flash-banner territory on the retro scoreboard only).
+// Detection keys off the stat itself incrementing — never a fantasy-point
+// jump — so a stat correction that moves points without a new play never
+// fires an animation.
+const PLAY_STAT_EVENTS = {
+  passingTDs: { type: 'passing', isTouchdown: true },
+  rushingTDs: { type: 'rushing', isTouchdown: true },
+  receivingTDs: { type: 'receiving', isTouchdown: true },
+  defensiveTD: { type: 'defensive', isTouchdown: true },
+  returnTDs: { type: 'return', isTouchdown: true },
+  fieldGoal: { type: 'fieldGoal', isTouchdown: false },
+  extraPoint: { type: 'extraPoint', isTouchdown: false },
+  sack: { type: 'sack', isTouchdown: false },
+  interceptionReturn: { type: 'interception', isTouchdown: false },
+  fumbleRecovery: { type: 'fumble', isTouchdown: false },
+  puntReturns: { type: 'puntReturn', isTouchdown: false },
 };
 
 /**
- * Pure: diff a player's previous vs. new stat line and return one typed
- * scoring event per touchdown-stat that increased. Yardage and other stat
+ * Pure: diff a player's previous vs. new stat line and return one typed play
+ * event per tracked stat that increased. Yardage and other untracked stat
  * changes produce nothing. `prevStats` null/undefined is treated as all-zero
  * (first observation of the week) — so re-running a sync with unchanged stats
- * yields no events (idempotent), but a genuinely new TD does.
+ * yields no events (idempotent), but a genuinely new play does.
  */
 function detectScoringEvents(prevStats, newStats) {
   const prev = prevStats || {};
   const next = newStats || {};
   const events = [];
-  for (const [statKey, type] of Object.entries(TD_STAT_EVENTS)) {
+  for (const [statKey, { type, isTouchdown }] of Object.entries(PLAY_STAT_EVENTS)) {
     const before = Number(prev[statKey]) || 0;
     const after = Number(next[statKey]) || 0;
     if (after > before) {
-      events.push({ type, statKey, tdDelta: after - before });
+      events.push({ type, statKey, tdDelta: after - before, isTouchdown });
     }
   }
   return events;
@@ -187,6 +250,19 @@ async function syncWeekStats({ season, week }) {
     knownPlayers.rows.map((r) => [String(r.external_id), r.id])
   );
   const metaById = new Map(knownPlayers.rows.map((r) => [r.id, r]));
+
+  // Team-defense (DEF slot) units have no external_id — Tank01's player list
+  // never reports them as individual entries — so they're matched by team
+  // abbreviation against the box score's separate team-level DST aggregate
+  // instead of by id, below.
+  const defPlayers = await pool.query(
+    `SELECT "id", "name", "nfl_team" FROM "players" WHERE "position" = 'DEF'`
+  );
+  const defByAbbr = new Map();
+  for (const row of defPlayers.rows) {
+    const abbr = normalizeTeamAbbr(row.nfl_team);
+    if (abbr) defByAbbr.set(abbr, row);
+  }
 
   // Prior stats for this week, so we can diff for new touchdowns.
   const priorStats = await pool.query(
@@ -237,6 +313,7 @@ async function syncWeekStats({ season, week }) {
               type: ev.type,
               tdDelta: ev.tdDelta,
               pointsDelta,
+              isTouchdown: ev.isTouchdown,
             });
           }
         }
@@ -246,6 +323,48 @@ async function syncWeekStats({ season, week }) {
            ON CONFLICT ("player_id", "season", "week")
            DO UPDATE SET "stats" = EXCLUDED."stats", "fantasy_points" = EXCLUDED."fantasy_points"`,
           [playerId, season, week, JSON.stringify(stats), points]
+        );
+        updated += 1;
+      }
+
+      // Team-defense scoring: Tank01's box score carries one aggregate DST
+      // line per side (sacks/interceptions/fumble recoveries/defensive TDs
+      // summed across every individual defender) rather than per-defender
+      // stats we could roster — this is the only real source for a DEF
+      // unit's fantasy points.
+      const dst = box.DST || {};
+      for (const side of ['home', 'away']) {
+        const dstSide = dst[side];
+        const abbr = dstSide && dstSide.teamAbv ? String(dstSide.teamAbv).toUpperCase() : null;
+        const defPlayer = abbr ? defByAbbr.get(abbr) : null;
+        if (!defPlayer) continue; // no rostered DEF unit for this team in our pool
+        const stats = normalizeTank01DstStats(dstSide);
+        const points = calculateFantasyPoints(stats);
+        const prev = prevById.get(defPlayer.id);
+        const events = detectScoringEvents(prev, stats);
+        if (events.length > 0) {
+          const pointsDelta =
+            Math.round((points - calculateFantasyPoints(prev || {})) * 100) / 100;
+          for (const ev of events) {
+            plays.push({
+              playerId: defPlayer.id,
+              name: defPlayer.name,
+              position: 'DEF',
+              nflTeam: abbr,
+              opponent: opponentByTeam.get(abbr) || null,
+              type: ev.type,
+              tdDelta: ev.tdDelta,
+              pointsDelta,
+              isTouchdown: ev.isTouchdown,
+            });
+          }
+        }
+        await pool.query(
+          `INSERT INTO "player_stats" ("player_id", "season", "week", "stats", "fantasy_points")
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT ("player_id", "season", "week")
+           DO UPDATE SET "stats" = EXCLUDED."stats", "fantasy_points" = EXCLUDED."fantasy_points"`,
+          [defPlayer.id, season, week, JSON.stringify(stats), points]
         );
         updated += 1;
       }
@@ -812,6 +931,8 @@ module.exports = {
   calculateFantasyPoints,
   tank01Body,
   normalizeTank01Stats,
+  normalizeTank01DstStats,
+  normalizeTeamAbbr,
   normalizeTank01Game,
   normalizeInjuryStatus,
   normalizePlayerEntry,

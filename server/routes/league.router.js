@@ -738,11 +738,43 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     const opponentByTeam = new Map(scheduleRows.rows.map((r) => [r.nfl_team, r.opponent]));
 
     await client.query('BEGIN');
+    const toPlayer = (row) => {
+      const projection = projById.get(row.id);
+      return {
+        id: row.id,
+        name: row.name,
+        position: row.position,
+        nfl_team: row.nfl_team,
+        injury_status: row.injury_status,
+        slot: row.slot,
+        // Full stat line for the expandable row; safe to expose (public NFL data).
+        stats: row.stats || null,
+        points: row.stats ? calculateFantasyPoints(row.stats, rules) : 0,
+        projected: projection ? Math.round(projection.points * 100) / 100 : null,
+        opponent: opponentByTeam.get(row.nfl_team) || null,
+      };
+    };
     const teamLineup = async (teamId) => {
       await materializeLineup(client, {
         leagueId, teamId, season: matchup.season, week: matchup.week,
       });
-      const rows = await client.query(
+      const lineupRows = await client.query(
+        `SELECT "players"."id", "players"."name", "players"."position",
+                "players"."nfl_team", "players"."injury_status",
+                "lineup_entries"."slot", "player_stats"."stats"
+         FROM "lineup_entries"
+         JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
+           AND "team_players"."player_id" = "lineup_entries"."player_id"
+         JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
+         LEFT JOIN "player_stats" ON "player_stats"."player_id" = "lineup_entries"."player_id"
+           AND "player_stats"."season" = $2 AND "player_stats"."week" = $3
+         WHERE "lineup_entries"."team_id" = $1 AND "lineup_entries"."season" = $2
+           AND "lineup_entries"."week" = $3
+           AND "lineup_entries"."slot" = $4
+         ORDER BY "lineup_entries"."slot", "players"."name"`,
+        [teamId, matchup.season, matchup.week, 'BENCH']
+      );
+      const starterRows = await client.query(
         `SELECT "players"."id", "players"."name", "players"."position",
                 "players"."nfl_team", "players"."injury_status",
                 "lineup_entries"."slot", "player_stats"."stats"
@@ -758,26 +790,12 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
          ORDER BY "lineup_entries"."slot", "players"."name"`,
         [teamId, matchup.season, matchup.week]
       );
-      const starters = rows.rows.map((row) => {
-        const projection = projById.get(row.id);
-        return {
-          id: row.id,
-          name: row.name,
-          position: row.position,
-          nfl_team: row.nfl_team,
-          injury_status: row.injury_status,
-          slot: row.slot,
-          // Full stat line for the expandable row; safe to expose (public NFL data).
-          stats: row.stats || null,
-          points: row.stats ? calculateFantasyPoints(row.stats, rules) : 0,
-          projected: projection ? Math.round(projection.points * 100) / 100 : null,
-          opponent: opponentByTeam.get(row.nfl_team) || null,
-        };
-      });
+      const starters = starterRows.rows.map(toPlayer);
+      const bench = lineupRows.rows.map(toPlayer);
       const projectedTotal = Math.round(
         starters.reduce((sum, s) => sum + (s.projected || 0), 0) * 100
       ) / 100;
-      return { starters, projectedTotal };
+      return { starters, bench, projectedTotal };
     };
     const homeTeam = await teamLineup(matchup.home_team_id);
     const awayTeam = await teamLineup(matchup.away_team_id);
@@ -808,12 +826,14 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
         teamId: matchup.home_team_id,
         name: matchup.home_team_name,
         starters: homeTeam.starters,
+        bench: homeTeam.bench,
         projectedTotal: homeTeam.projectedTotal,
       },
       away: {
         teamId: matchup.away_team_id,
         name: matchup.away_team_name,
         starters: awayTeam.starters,
+        bench: awayTeam.bench,
         projectedTotal: awayTeam.projectedTotal,
       },
     });

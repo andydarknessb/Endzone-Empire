@@ -8,11 +8,30 @@ import {
   Collapse,
   Button,
   LinearProgress,
+  Avatar,
 } from '@mui/material';
 import { keyframes } from '@mui/material/styles';
 import InjuryBadge from '../InjuryBadge/InjuryBadge';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import { playLabel } from '../../lib/scoringEvents';
+
+// Fantasy-standard starting order — the API returns starters sorted
+// alphabetically by slot (a SQL ORDER BY convenience), which reads QB last.
+const SLOT_DISPLAY_ORDER = ['QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF'];
+
+/** Stable-sorts starters into fantasy-standard slot order (unknown slots sink to the end). */
+function sortBySlotOrder(starters) {
+  return [...(starters || [])].sort((a, b) => {
+    const ai = SLOT_DISPLAY_ORDER.indexOf(a.slot);
+    const bi = SLOT_DISPLAY_ORDER.indexOf(b.slot);
+    return (ai === -1 ? SLOT_DISPLAY_ORDER.length : ai) - (bi === -1 ? SLOT_DISPLAY_ORDER.length : bi);
+  });
+}
+
+/** DEF is stored/scored as the "DEF" slot but reads as D/ST everywhere it's displayed. */
+function slotLabel(slot) {
+  return slot === 'DEF' ? 'D/ST' : slot;
+}
 
 // --- Win probability bar ---------------------------------------------------
 
@@ -321,8 +340,8 @@ SlotSide.propTypes = {
  * empty opposite side rather than dropping data when the two arrays differ in length.
  */
 export function SlotComparisonList({ homeStarters, awayStarters, expandedId, onToggle, onOpenPlayer }) {
-  const home = homeStarters || [];
-  const away = awayStarters || [];
+  const home = sortBySlotOrder(homeStarters);
+  const away = sortBySlotOrder(awayStarters);
   const rowCount = Math.max(home.length, away.length);
   const rows = Array.from({ length: rowCount }, (_, i) => ({
     home: home[i] || null,
@@ -332,7 +351,7 @@ export function SlotComparisonList({ homeStarters, awayStarters, expandedId, onT
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column' }}>
       {rows.map((row, i) => {
-        const slotLabel = row.home?.slot || row.away?.slot || '';
+        const rowSlot = slotLabel(row.home?.slot || row.away?.slot || '');
         const homeOpen = !!(row.home && expandedId === row.home.id);
         const awayOpen = !!(row.away && expandedId === row.away.id);
         const openPlayer = homeOpen ? row.home : (awayOpen ? row.away : null);
@@ -343,7 +362,7 @@ export function SlotComparisonList({ homeStarters, awayStarters, expandedId, onT
           >
             <Box sx={{ display: 'flex', alignItems: 'center' }}>
               <SlotSide player={row.home} side="home" open={homeOpen} onToggle={onToggle} onOpenPlayer={onOpenPlayer} />
-              <Chip label={slotLabel} size="small" sx={{ minWidth: 48, mx: 0.5, flexShrink: 0 }} />
+              <Chip label={rowSlot} size="small" sx={{ minWidth: 48, mx: 0.5, flexShrink: 0 }} />
               <SlotSide player={row.away} side="away" open={awayOpen} onToggle={onToggle} onOpenPlayer={onOpenPlayer} />
             </Box>
             <Collapse in={!!openPlayer} unmountOnExit>
@@ -367,6 +386,96 @@ SlotComparisonList.propTypes = {
   expandedId: PropTypes.number,
   onToggle: PropTypes.func.isRequired,
   onOpenPlayer: PropTypes.func.isRequired,
+};
+
+// --- Compact roster preview (Matchups list page) ----------------------------
+
+function playerInitials(name) {
+  if (!name) return '?';
+  return name
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0].toUpperCase())
+    .join('');
+}
+
+function RosterPreviewSide({ player, side }) {
+  if (!player) return <Box sx={{ flex: 1, minWidth: 0 }} />;
+  return (
+    <Box
+      sx={{
+        flex: 1,
+        minWidth: 0,
+        display: 'flex',
+        flexDirection: side === 'home' ? 'row' : 'row-reverse',
+        alignItems: 'center',
+        gap: 1,
+      }}
+    >
+      <Avatar
+        sx={{
+          width: 28,
+          height: 28,
+          fontSize: '0.75rem',
+          bgcolor: side === 'home' ? 'primary.main' : 'secondary.main',
+        }}
+      >
+        {playerInitials(player.name)}
+      </Avatar>
+      <Box sx={{ minWidth: 0, textAlign: side === 'home' ? 'left' : 'right' }}>
+        <Typography variant="body2" noWrap>{player.name}</Typography>
+        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
+          {Number(player.points || 0).toFixed(1)} pts
+          {player.projected != null ? ` · Proj ${Number(player.projected).toFixed(1)}` : ''}
+        </Typography>
+      </Box>
+    </Box>
+  );
+}
+
+RosterPreviewSide.propTypes = {
+  player: PropTypes.object,
+  side: PropTypes.oneOf(['home', 'away']).isRequired,
+};
+
+/**
+ * Compact, non-interactive slot-by-slot roster comparison for the Matchups
+ * list page — a preview of the full SlotComparisonList shown on the matchup
+ * detail page, driven by the same real starters/points/projected data.
+ */
+export function RosterPreviewGrid({ homeStarters, awayStarters }) {
+  const home = sortBySlotOrder(homeStarters);
+  const away = sortBySlotOrder(awayStarters);
+  const rowCount = Math.max(home.length, away.length);
+  if (rowCount === 0) return null;
+  const rows = Array.from({ length: rowCount }, (_, i) => ({
+    home: home[i] || null,
+    away: away[i] || null,
+  }));
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+      {rows.map((row, i) => {
+        const rowSlot = slotLabel(row.home?.slot || row.away?.slot || '');
+        return (
+          <Box
+            key={`${row.home?.id ?? 'x'}-${row.away?.id ?? 'x'}-${i}`}
+            sx={{ display: 'flex', alignItems: 'center', py: 0.75, borderTop: 1, borderColor: 'divider' }}
+          >
+            <RosterPreviewSide player={row.home} side="home" />
+            <Chip label={rowSlot} size="small" sx={{ minWidth: 48, mx: 1, flexShrink: 0 }} />
+            <RosterPreviewSide player={row.away} side="away" />
+          </Box>
+        );
+      })}
+    </Box>
+  );
+}
+
+RosterPreviewGrid.propTypes = {
+  homeStarters: PropTypes.array,
+  awayStarters: PropTypes.array,
 };
 
 // --- Live play ticker ------------------------------------------------------

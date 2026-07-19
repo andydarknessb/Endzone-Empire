@@ -68,8 +68,27 @@ export function classifyPlays(plays, opts = {}) {
   return { cutscenes, summaryToast, toasts };
 }
 
-/** A short label for the cutscene / ticker line, e.g. "rushing TD". */
+// Labels for non-touchdown "moment" plays (retro-scoreboard flash banner
+// only — these never reach playLabel's TD-cutscene callers today, but the
+// mapping lives here so it stays next to the touchdown label logic).
+const MOMENT_LABELS = {
+  fieldGoal: 'FIELD GOAL',
+  extraPoint: 'EXTRA POINT',
+  sack: 'SACK',
+  interception: 'INTERCEPTED',
+  fumble: 'FUMBLE RECOVERED',
+  puntReturn: 'PUNT RETURN',
+};
+
+/**
+ * A short label for the cutscene / ticker line, e.g. "rushing TD". Plays
+ * explicitly marked non-touchdown (`isTouchdown === false`) get their own
+ * plain-English label instead of a "TD" suffix.
+ */
 export function playLabel(play) {
   const type = play && play.type ? play.type : 'scoring';
+  if (play && play.isTouchdown === false) {
+    return MOMENT_LABELS[type] || type.toUpperCase();
+  }
   return `${type} TD`;
 }

@@ -1,5 +1,6 @@
 import React from 'react';
 import { screen, act, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import { createDraftSocket, onReconnect } from '../../api/socket';
@@ -50,11 +51,13 @@ const matchupResponse = (overrides = {}) => ({
       teamId: 1,
       name: 'Team A',
       starters: overrides.homeStarters || [starter()],
+      bench: overrides.homeBench || [],
     },
     away: {
       teamId: 2,
       name: 'Team B',
       starters: overrides.awayStarters || [starter({ id: 6, name: 'D. Adams', slot: 'WR', position: 'WR', points: 15.4 })],
+      bench: overrides.awayBench || [],
     },
   },
 });
@@ -151,6 +154,26 @@ test('scores:updated for a different matchupId leaves the displayed scores uncha
   expect(screen.getByText('88')).toBeInTheDocument();
 });
 
+test('a non-touchdown moment play (e.g. a sack) flashes a retro banner in Scoreboard mode, not a cutscene/toast', async () => {
+  apiClient.get.mockResolvedValue(matchupResponse());
+
+  renderDetail(1, 9);
+  await screen.findByText('P. Mahomes');
+  await userEvent.click(screen.getByRole('button', { name: 'Scoreboard' }));
+
+  act(() => {
+    socketHandlers['scores:updated']({
+      scored: [{ matchupId: 9, homeScore: 101.5, awayScore: 88 }],
+      plays: [{
+        playerId: 5, name: 'P. Mahomes', position: 'QB', nflTeam: 'KC', opponent: 'BUF',
+        type: 'sack', isTouchdown: false, pointsDelta: 0,
+      }],
+    });
+  });
+
+  expect(await screen.findByRole('status')).toHaveTextContent('KC — SACK');
+});
+
 test('shows an error alert when the fetch fails', async () => {
   apiClient.get.mockRejectedValue({ response: { data: { error: 'matchup not found' } } });
 
@@ -205,6 +228,46 @@ test('silently skips bench points on a 404/error from the hindsight endpoint', a
   await screen.findByText('Team A');
 
   expect(screen.queryByText(/on the bench/)).not.toBeInTheDocument();
+});
+
+test('the Scoreboard toggle swaps the retro view in and switching back restores the standard slot list', async () => {
+  apiClient.get.mockResolvedValue(matchupResponse());
+
+  renderDetail();
+  await screen.findByText('P. Mahomes');
+
+  // In Standard mode, starters are interactive links into PlayerQuickView.
+  expect(screen.getByRole('button', { name: 'P. Mahomes' })).toBeInTheDocument();
+
+  await userEvent.click(screen.getByRole('button', { name: 'Scoreboard' }));
+
+  // Retro view: team names render in both the dot-matrix header and the
+  // field's endzones, the full starting lineup shows (plain text, not the
+  // standard mode's interactive quick-view links), and benches stay hidden
+  // until toggled.
+  expect(screen.getAllByText('TEAM A').length).toBeGreaterThanOrEqual(2);
+  expect(screen.getAllByText('TEAM B').length).toBeGreaterThanOrEqual(2);
+  expect(screen.getByText('P. Mahomes')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'P. Mahomes' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Show Benches' })).toBeInTheDocument();
+
+  await userEvent.click(screen.getByRole('button', { name: 'Standard' }));
+  expect(screen.getByRole('button', { name: 'P. Mahomes' })).toBeInTheDocument();
+  expect(screen.queryByText('TEAM A')).not.toBeInTheDocument();
+});
+
+test('Scoreboard mode\'s Show Benches reveals real bench players from the API', async () => {
+  apiClient.get.mockResolvedValue(
+    matchupResponse({ homeBench: [{ id: 20, name: 'Bench Runner', position: 'RB', points: 3.1 }] })
+  );
+
+  renderDetail();
+  await screen.findByText('P. Mahomes');
+  await userEvent.click(screen.getByRole('button', { name: 'Scoreboard' }));
+
+  expect(screen.queryByText(/Bench Runner/)).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: 'Show Benches' }));
+  expect(screen.getByText(/Bench Runner/)).toBeInTheDocument();
 });
 
 test('joins the league room on mount and disconnects on unmount', async () => {

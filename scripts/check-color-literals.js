@@ -25,6 +25,7 @@ const ALLOWLIST = [
   'src/components/LandingPage/LandingPage.css', // accent-tint gradient w/ both themes
   'src/components/MatchupDetail/TecmoCutscene.css', // retro CRT scanline/gradient FX (not themeable)
   'src/components/MatchupDetail/TecmoCutscene.jsx', // fixed pixel-art sprite palette (data encoding)
+  'src/components/MatchupDetail/TecmoSprite.jsx', // fixed pixel-art sprite palette (data encoding)
 ];
 
 // Test files legitimately assert on color values.
