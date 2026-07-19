@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Container,
@@ -16,9 +16,14 @@ import {
   Skeleton,
   Button,
   Collapse,
+  IconButton,
 } from '@mui/material';
+import Grid from '@mui/material/Unstable_Grid2';
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import apiClient from '../../api/apiClient';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
+import { useLeague } from '../../hooks/useLeague';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import InjuryBadge from '../InjuryBadge/InjuryBadge';
 import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
@@ -26,12 +31,26 @@ import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 
 const STARTER_SLOT_ORDER = ['QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF'];
 const FLEX_ELIGIBLE_POSITIONS = ['RB', 'WR', 'TE'];
-const WEEK_OPTIONS = Array.from({ length: 18 }, (_, i) => i + 1);
+const MIN_WEEK = 1;
+const MAX_WEEK = 18;
+const WEEK_OPTIONS = Array.from({ length: MAX_WEEK }, (_, i) => i + 1);
 
 function isEligibleForSlot(position, slot) {
   if (slot === 'FLEX') return FLEX_ELIGIBLE_POSITIONS.includes(position);
   if (slot === 'BENCH' || slot === 'IR') return true;
   return position === slot;
+}
+
+// Whether `selectedEntry` may legally land on this row: an empty slot only
+// needs the one-way check, but an occupied row is a swap, so both players
+// must be eligible for each other's slot. A locked occupant can never be a
+// target regardless of position.
+function isEligibleTarget(selectedEntry, targetEntry, slotType) {
+  if (!targetEntry) return isEligibleForSlot(selectedEntry.position, slotType);
+  if (targetEntry.locked) return false;
+  const aEligible = isEligibleForSlot(selectedEntry.position, targetEntry.slot);
+  const bEligible = isEligibleForSlot(targetEntry.position, selectedEntry.slot);
+  return aEligible && bEligible;
 }
 
 function LineupScreen() {
@@ -40,38 +59,24 @@ function LineupScreen() {
   const [lineup, setLineup] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [successMessage, setSuccessMessage] = useState(null);
   const [selectedWeek, setSelectedWeek] = useState(null);
   const [selectedEntry, setSelectedEntry] = useState(null);
   const [advice, setAdvice] = useState(null);
   const [adviceExpanded, setAdviceExpanded] = useState(true);
   const [benchSeasonTotal, setBenchSeasonTotal] = useState(null);
-  const [bestBall, setBestBall] = useState(false);
   const [quickViewId, setQuickViewId] = useState(null);
-
-  useEffect(() => {
-    fetchLineup();
-  }, [leagueId, selectedWeek]);
+  const advicePanelRef = useRef(null);
 
   // GET /api/team/lineup doesn't carry the league's best_ball flag, and no
   // league object is otherwise available to this screen (it's reached
   // directly at /league/:leagueId/lineup with no league context passed
-  // in). Rather than growing the lineup payload, fetch the league once per
-  // mount — the same GET /api/league/:id LeagueDashboard already uses — and
-  // read best_ball off of it. This is a small one-time request, not tied to
-  // week switches.
-  useEffect(() => {
-    fetchLeagueBestBall();
-  }, [leagueId]);
+  // in) — read best_ball off the shared league fetch instead.
+  const { league } = useLeague(leagueId);
+  const bestBall = !!league?.best_ball;
 
-  const fetchLeagueBestBall = async () => {
-    try {
-      const res = await apiClient.get(`/api/league/${leagueId}`);
-      setBestBall(!!res.data?.league?.best_ball);
-    } catch (err) {
-      setBestBall(false);
-    }
-  };
+  useEffect(() => {
+    fetchLineup();
+  }, [leagueId, selectedWeek]);
 
   // Once the lineup for this week is known, load the decision-support
   // panels that ride alongside it. Re-runs whenever `lineup` changes (week
@@ -142,27 +147,46 @@ function LineupScreen() {
     ]);
   };
 
-  const handleWeekChange = (e) => {
-    setError(null);
-    setSuccessMessage(null);
+  const changeWeek = (week) => {
     setSelectedEntry(null);
-    setSelectedWeek(Number(e.target.value));
+    setSelectedWeek(Math.min(MAX_WEEK, Math.max(MIN_WEEK, week)));
   };
 
+  const handleWeekChange = (e) => {
+    changeWeek(Number(e.target.value));
+  };
+
+  const handleExpandAdvice = () => {
+    setAdviceExpanded(true);
+    advicePanelRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  };
+
+  // Applies `moves` to local state immediately so swaps feel instant, fires
+  // the PUT in the background, and rolls back to the pre-move snapshot if it
+  // fails. No refetch on success — the optimistic state is the new truth.
   const performMove = async (moves) => {
+    const snapshot = lineup;
+    const slotByPlayer = new Map(moves.map((m) => [m.playerId, m.slot]));
+    setLineup((prev) =>
+      prev
+        ? {
+            ...prev,
+            entries: prev.entries.map((e) =>
+              slotByPlayer.has(e.id) ? { ...e, slot: slotByPlayer.get(e.id) } : e
+            ),
+          }
+        : prev
+    );
+
     try {
-      setError(null);
-      setSuccessMessage(null);
       await apiClient.put('/api/team/lineup', {
         leagueId: Number(leagueId),
-        week: lineup.week,
+        week: snapshot.week,
         moves,
       });
-      setSuccessMessage('Lineup saved');
       notify('Lineup saved');
-      await fetchLineup();
     } catch (err) {
-      setError(err.response?.data?.error || err.message);
+      setLineup(snapshot);
       notify(err.response?.data?.error || err.message, { severity: 'error' });
     }
   };
@@ -171,16 +195,13 @@ function LineupScreen() {
     if (bestBall) return; // best ball lineups are set automatically — no manual moves
 
     if (entry && entry.locked) {
-      setError("Locked players can't be moved");
-      setSuccessMessage(null);
+      notify("Locked players can't be moved", { severity: 'warning' });
       setSelectedEntry(null);
       return;
     }
 
     if (!selectedEntry) {
       if (!entry) return;
-      setError(null);
-      setSuccessMessage(null);
       setSelectedEntry(entry);
       return;
     }
@@ -190,29 +211,13 @@ function LineupScreen() {
       return;
     }
 
-    setSuccessMessage(null);
+    setSelectedEntry(null);
 
     if (!entry) {
-      if (!isEligibleForSlot(selectedEntry.position, slotType)) {
-        setError("That player can't go in that slot");
-        setSelectedEntry(null);
-        return;
-      }
-      setError(null);
-      setSelectedEntry(null);
       performMove([{ playerId: selectedEntry.id, slot: slotType }]);
       return;
     }
 
-    const aEligible = isEligibleForSlot(selectedEntry.position, entry.slot);
-    const bEligible = isEligibleForSlot(entry.position, selectedEntry.slot);
-    if (!aEligible || !bEligible) {
-      setError("That player can't go in that slot");
-      setSelectedEntry(null);
-      return;
-    }
-    setError(null);
-    setSelectedEntry(null);
     performMove([
       { playerId: selectedEntry.id, slot: entry.slot },
       { playerId: entry.id, slot: selectedEntry.slot },
@@ -221,14 +226,24 @@ function LineupScreen() {
 
   const renderRow = ({ key, testId, slotLabel, slotType, entry }) => {
     const isSelected = !!(entry && selectedEntry && selectedEntry.id === entry.id);
+    const showEligibility = !!selectedEntry && !isSelected;
+    const eligible = showEligibility && isEligibleTarget(selectedEntry, entry, slotType);
+    const disabled = bestBall || (showEligibility && !eligible);
     return (
       <ListItemButton
         key={key}
         data-testid={testId}
         selected={isSelected}
-        disabled={bestBall}
+        disabled={disabled}
         onClick={() => handleRowClick(entry, slotType)}
-        sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, mb: 1 }}
+        sx={{
+          border: '1px solid',
+          borderColor: showEligibility && eligible ? 'primary.main' : 'divider',
+          borderRadius: 1,
+          mb: 1,
+          ...(showEligibility && eligible && { bgcolor: 'var(--accent-soft)' }),
+          ...(showEligibility && !eligible && { opacity: 0.45 }),
+        }}
       >
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, width: '100%' }}>
           <Chip label={slotLabel} size="small" sx={{ minWidth: 56 }} />
@@ -240,6 +255,7 @@ function LineupScreen() {
                 </Typography>
                 <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                   {entry.position} — {entry.nfl_team}
+                  {entry.opponent && ` · vs ${entry.opponent}`}
                   {entry.projected_points != null && ` — proj ${entry.projected_points}`}
                 </Typography>
               </Box>
@@ -337,17 +353,20 @@ function LineupScreen() {
     : [];
   const showLineupWarning = !bestBall && (emptyStarterSlots > 0 || startersOnBye.length > 0);
 
+  const currentWeekValue = lineup ? selectedWeek ?? lineup.week : null;
+  const projectedTotal = advice?.projectedTotal;
+  const optimalTotal = advice?.optimalTotal;
+  const optimalGain =
+    typeof projectedTotal === 'number' && typeof optimalTotal === 'number'
+      ? Number((optimalTotal - projectedTotal).toFixed(1))
+      : 0;
+
   return (
-    <Container maxWidth="md" sx={{ py: 4 }}>
+    <Container maxWidth="lg" sx={{ py: 4 }}>
       <LeagueBreadcrumb />
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {error}
-        </Alert>
-      )}
-      {successMessage && (
-        <Alert severity="success" sx={{ mb: 2 }}>
-          {successMessage}
         </Alert>
       )}
 
@@ -374,13 +393,33 @@ function LineupScreen() {
             </Typography>
           )}
 
-          <Box sx={{ mb: 3 }}>
+          {!bestBall && advice && (
+            <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }} data-testid="lineup-summary-header">
+              <Typography variant="h6">
+                Projected {projectedTotal} · Optimal {optimalTotal}
+              </Typography>
+              {optimalGain > 0 && (
+                <Button size="small" color="success" onClick={handleExpandAdvice}>
+                  (+{optimalGain})
+                </Button>
+              )}
+            </Box>
+          )}
+
+          <Box sx={{ mb: 3, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <IconButton
+              aria-label="Previous week"
+              onClick={() => changeWeek(currentWeekValue - 1)}
+              disabled={currentWeekValue <= MIN_WEEK}
+            >
+              <ChevronLeftIcon />
+            </IconButton>
             <FormControl sx={{ minWidth: 150 }}>
               <InputLabel id="lineup-week-select-label">Week</InputLabel>
               <Select
                 labelId="lineup-week-select-label"
                 id="lineup-week-select"
-                value={selectedWeek ?? lineup.week}
+                value={currentWeekValue}
                 label="Week"
                 onChange={handleWeekChange}
               >
@@ -391,10 +430,17 @@ function LineupScreen() {
                 ))}
               </Select>
             </FormControl>
+            <IconButton
+              aria-label="Next week"
+              onClick={() => changeWeek(currentWeekValue + 1)}
+              disabled={currentWeekValue >= MAX_WEEK}
+            >
+              <ChevronRightIcon />
+            </IconButton>
           </Box>
 
           {Array.isArray(advice?.suggestions) && (
-            <Paper sx={{ p: 2, mb: 3 }} data-testid="lineup-advice-panel">
+            <Paper sx={{ p: 2, mb: 3 }} data-testid="lineup-advice-panel" ref={advicePanelRef}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Typography variant="h6">Start/Sit Suggestions</Typography>
                 <Button size="small" onClick={() => setAdviceExpanded((prev) => !prev)}>
@@ -455,26 +501,60 @@ function LineupScreen() {
             </Alert>
           )}
 
-          <Paper sx={{ p: 2, mb: 3 }} data-testid="lineup-starters">
-            <Typography variant="h6" sx={{ mb: 2 }}>
-              Starters
-            </Typography>
-            <List disablePadding>{starterRows}</List>
-          </Paper>
+          <Grid container spacing={3}>
+            <Grid xs={12} md={6}>
+              {selectedEntry && (
+                <Box
+                  data-testid="lineup-move-strip"
+                  sx={{
+                    position: 'sticky',
+                    top: 0,
+                    zIndex: (theme) => theme.zIndex.appBar - 1,
+                    bgcolor: 'background.paper',
+                    border: '1px solid',
+                    borderColor: 'primary.main',
+                    borderRadius: 1,
+                    p: 1.5,
+                    mb: 2,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 1,
+                  }}
+                >
+                  <Typography variant="body2">
+                    Moving {selectedEntry.name} — tap a highlighted slot
+                  </Typography>
+                  <Button size="small" onClick={() => setSelectedEntry(null)}>
+                    Cancel
+                  </Button>
+                </Box>
+              )}
 
-          <Paper sx={{ p: 2, mb: 3 }} data-testid="lineup-ir">
-            <Typography variant="h6" sx={{ mb: 2 }}>
-              IR
-            </Typography>
-            <List disablePadding>{irRows}</List>
-          </Paper>
+              <Paper sx={{ p: 2, mb: 3 }} data-testid="lineup-starters">
+                <Typography variant="h6" sx={{ mb: 2 }}>
+                  Starters
+                </Typography>
+                <List disablePadding>{starterRows}</List>
+              </Paper>
+            </Grid>
 
-          <Paper sx={{ p: 2, mb: 3 }} data-testid="lineup-bench">
-            <Typography variant="h6" sx={{ mb: 2 }}>
-              Bench
-            </Typography>
-            <List disablePadding>{benchRows}</List>
-          </Paper>
+            <Grid xs={12} md={6}>
+              <Paper sx={{ p: 2, mb: 3 }} data-testid="lineup-ir">
+                <Typography variant="h6" sx={{ mb: 2 }}>
+                  IR
+                </Typography>
+                <List disablePadding>{irRows}</List>
+              </Paper>
+
+              <Paper sx={{ p: 2, mb: 3 }} data-testid="lineup-bench">
+                <Typography variant="h6" sx={{ mb: 2 }}>
+                  Bench
+                </Typography>
+                <List disablePadding>{benchRows}</List>
+              </Paper>
+            </Grid>
+          </Grid>
         </>
       )}
 

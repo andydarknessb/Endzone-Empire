@@ -3,6 +3,8 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
+import { formatRelative } from '../../utils/formatRelative';
+import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 import WaiverWire from './WaiverWire';
 
 jest.mock('../../api/apiClient', () => ({
@@ -15,6 +17,18 @@ const renderScreen = (leagueId = 1) =>
     path: '/league/:leagueId/waivers',
     route: `/league/${leagueId}/waivers`,
   });
+
+// Toast text (via notify) only renders when a SnackbarProvider is mounted.
+const renderScreenWithToasts = (leagueId = 1) =>
+  renderWithProviders(
+    <SnackbarProvider>
+      <WaiverWire />
+    </SnackbarProvider>,
+    {
+      path: '/league/:leagueId/waivers',
+      route: `/league/${leagueId}/waivers`,
+    }
+  );
 
 const waiversResponse = (overrides = {}) => ({
   league: {
@@ -40,6 +54,12 @@ const waiversResponse = (overrides = {}) => ({
 const rosterResponse = () => [
   { id: 20, name: 'Josh Allen', position: 'QB', nfl_team: 'Buffalo Bills' },
   { id: 21, name: 'Tyreek Hill', position: 'WR', nfl_team: 'Miami Dolphins' },
+];
+
+const rosterWithProjectionsResponse = () => [
+  { id: 20, name: 'Josh Allen', position: 'QB', nfl_team: 'Buffalo Bills', projected_points: 22.4 },
+  { id: 21, name: 'Tyreek Hill', position: 'WR', nfl_team: 'Miami Dolphins', projected_points: 15.1 },
+  { id: 22, name: 'Bench Warmer', position: 'WR', nfl_team: 'Free Agent', projected_points: 3.2 },
 ];
 
 const suggestionsResponse = (overrides = {}) => ({
@@ -84,8 +104,19 @@ test('renders the on-waivers table and the priority chip', async () => {
   expect(screen.getByText('RB')).toBeInTheDocument();
   expect(screen.getByText('New York Jets')).toBeInTheDocument();
   expect(screen.getByText('Waiver priority: #3')).toBeInTheDocument();
+  expect(screen.getByText(formatRelative('2026-07-12T15:00:00.000Z'))).toBeInTheDocument();
+});
+
+test('the Clears cell shows the absolute time in a tooltip', async () => {
+  setupGet({ waivers: waiversResponse(), roster: rosterResponse() });
+  renderScreen();
+
+  await screen.findByText('Breece Hall');
+  const relativeText = screen.getByText(formatRelative('2026-07-12T15:00:00.000Z'));
+  await userEvent.hover(relativeText);
+
   expect(
-    screen.getByText(new Date('2026-07-12T15:00:00.000Z').toLocaleString())
+    await screen.findByText(new Date('2026-07-12T15:00:00.000Z').toLocaleString())
   ).toBeInTheDocument();
 });
 
@@ -111,10 +142,86 @@ test('a FAAB league shows the FAAB chip and a bid field in the claim dialog', as
   expect(screen.getByLabelText('Bid')).toBeInTheDocument();
 });
 
+const faabLeagueOverride = {
+  waiver_type: 'faab',
+  waiver_period_hours: 24,
+  faab_budget: 100,
+  waivers_clear_at: null,
+};
+
+test('an empty or negative FAAB bid disables Submit and shows an error state', async () => {
+  setupGet({
+    waivers: waiversResponse({ league: faabLeagueOverride }),
+    roster: rosterResponse(),
+  });
+  renderScreen();
+
+  await screen.findByText('Breece Hall');
+  await userEvent.click(screen.getByRole('button', { name: 'Claim' }));
+
+  const submitButton = screen.getByRole('button', { name: 'Submit Claim' });
+  const bidInput = screen.getByLabelText('Bid');
+
+  // Empty bid: disabled and already in an error state (nothing valid to submit).
+  expect(submitButton).toBeDisabled();
+  expect(screen.getByText('Enter a bid between $0 and $85')).toBeInTheDocument();
+
+  // Negative bid: error state + still disabled.
+  await userEvent.type(bidInput, '-5');
+  expect(submitButton).toBeDisabled();
+  expect(screen.getByText('Enter a bid between $0 and $85')).toBeInTheDocument();
+});
+
+test('a FAAB bid over budget shows an error state and disables Submit', async () => {
+  setupGet({
+    waivers: waiversResponse({ league: faabLeagueOverride }),
+    roster: rosterResponse(),
+  });
+  renderScreen();
+
+  await screen.findByText('Breece Hall');
+  await userEvent.click(screen.getByRole('button', { name: 'Claim' }));
+
+  const bidInput = screen.getByLabelText('Bid');
+  await userEvent.type(bidInput, '90');
+
+  expect(screen.getByRole('button', { name: 'Submit Claim' })).toBeDisabled();
+  expect(screen.getByText('Enter a bid between $0 and $85')).toBeInTheDocument();
+});
+
+test('a valid FAAB bid within budget enables Submit and posts the bid amount', async () => {
+  setupGet({
+    waivers: waiversResponse({ league: faabLeagueOverride }),
+    roster: rosterResponse(),
+  });
+  apiClient.post.mockResolvedValue({});
+  renderScreen();
+
+  await screen.findByText('Breece Hall');
+  await userEvent.click(screen.getByRole('button', { name: 'Claim' }));
+
+  const bidInput = screen.getByLabelText('Bid');
+  await userEvent.type(bidInput, '40');
+
+  const submitButton = screen.getByRole('button', { name: 'Submit Claim' });
+  expect(submitButton).not.toBeDisabled();
+  expect(screen.getByText('$85 remaining')).toBeInTheDocument();
+  await userEvent.click(submitButton);
+
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/waivers/claim', {
+      leagueId: 1,
+      playerId: 7,
+      dropPlayerId: null,
+      bid: 40,
+    })
+  );
+});
+
 test('submitting a claim with no drop player posts the correct body and refetches', async () => {
   setupGet({ waivers: waiversResponse(), roster: rosterResponse() });
   apiClient.post.mockResolvedValue({});
-  renderScreen();
+  renderScreenWithToasts();
 
   await screen.findByText('Breece Hall');
   await userEvent.click(screen.getByRole('button', { name: 'Claim' }));
@@ -128,7 +235,7 @@ test('submitting a claim with no drop player posts the correct body and refetche
       bid: 0,
     })
   );
-  expect(await screen.findByText('Claim submitted')).toBeInTheDocument();
+  expect(await screen.findByText('Waiver claim submitted')).toBeInTheDocument();
   // Waiver list refetches after the claim (suggestions calls don't count):
   // one on mount, one after.
   await waitFor(() => {
@@ -159,6 +266,79 @@ test('selecting a drop player includes its id in the claim request', async () =>
       bid: 0,
     })
   );
+});
+
+test('drop-select options are sorted worst-projection-first with a proj caption', async () => {
+  setupGet({ waivers: waiversResponse(), roster: rosterWithProjectionsResponse() });
+  renderScreen();
+
+  await screen.findByText('Breece Hall');
+  await userEvent.click(screen.getByRole('button', { name: 'Claim' }));
+  await userEvent.click(screen.getByLabelText('Drop a player (optional)'));
+
+  const options = await screen.findAllByRole('option');
+  // "No drop" first, then worst projected_points -> best.
+  expect(within(options[1]).getByText(/Bench Warmer \(WR\)/)).toBeInTheDocument();
+  expect(within(options[1]).getByText('proj 3.2')).toBeInTheDocument();
+  expect(within(options[2]).getByText(/Tyreek Hill \(WR\)/)).toBeInTheDocument();
+  expect(within(options[3]).getByText(/Josh Allen \(QB\)/)).toBeInTheDocument();
+});
+
+test('preselects the roster player a waiver suggestion pairs with the claimed pickup', async () => {
+  setupGet({
+    waivers: waiversResponse(),
+    roster: rosterResponse(),
+    suggestions: suggestionsResponse({
+      suggestions: [
+        {
+          playerId: 7,
+          name: 'Breece Hall',
+          position: 'RB',
+          nflTeam: 'New York Jets',
+          projection: 14.2,
+          weakestStarterProjection: 8.9,
+          upgradeDelta: 5.3,
+          dropPlayerId: 21,
+        },
+      ],
+    }),
+  });
+  renderScreen();
+
+  await screen.findByText('Breece Hall');
+  await userEvent.click(screen.getByRole('button', { name: 'Claim' }));
+
+  expect(await screen.findByText('Tyreek Hill (WR)')).toBeInTheDocument();
+});
+
+test('does not preselect a drop when the suggestion has no valid roster pairing', async () => {
+  setupGet({
+    waivers: waiversResponse(),
+    roster: rosterResponse(),
+    suggestions: suggestionsResponse({
+      suggestions: [
+        {
+          playerId: 7,
+          name: 'Breece Hall',
+          position: 'RB',
+          nflTeam: 'New York Jets',
+          projection: 14.2,
+          weakestStarterProjection: 8.9,
+          upgradeDelta: 5.3,
+          dropPlayerId: 999, // not on this roster
+        },
+      ],
+    }),
+  });
+  renderScreen();
+
+  await screen.findByText('Breece Hall');
+  await userEvent.click(screen.getByRole('button', { name: 'Claim' }));
+
+  // MUI renders an empty-string Select value as blank rather than the "No
+  // drop" label itself, so assert the absence of either roster option instead.
+  expect(screen.queryByText('Josh Allen (QB)')).not.toBeInTheDocument();
+  expect(screen.queryByText('Tyreek Hill (WR)')).not.toBeInTheDocument();
 });
 
 test('shows a Cancel button only for pending claims and cancels correctly', async () => {
@@ -192,7 +372,7 @@ test('shows a Cancel button only for pending claims and cancels correctly', asyn
     roster: rosterResponse(),
   });
   apiClient.delete.mockResolvedValue({});
-  renderScreen();
+  renderScreenWithToasts();
 
   await screen.findByText('Jaylen Warren');
   expect(screen.getByText('Isiah Pacheco')).toBeInTheDocument();
@@ -204,7 +384,7 @@ test('shows a Cancel button only for pending claims and cancels correctly', asyn
   await waitFor(() =>
     expect(apiClient.delete).toHaveBeenCalledWith('/api/waivers/claim/1?leagueId=1')
   );
-  expect(await screen.findByText('Claim cancelled')).toBeInTheDocument();
+  expect(await screen.findByText('Waiver claim cancelled')).toBeInTheDocument();
 });
 
 test('a server error when submitting a claim is surfaced', async () => {
@@ -308,55 +488,95 @@ test('a non-best-ball league still shows the Upgrade column', async () => {
   expect(screen.getByText('Upgrade')).toBeInTheDocument();
 });
 
-test('clicking the Upgrade column header sorts the on-waivers table by upgrade delta', async () => {
-  setupGet({
-    waivers: waiversResponse({
-      onWaivers: [
-        {
-          id: 7,
-          name: 'Breece Hall',
-          position: 'RB',
-          nfl_team: 'New York Jets',
-          available_at: '2026-07-12T15:00:00.000Z',
-        },
-        {
-          id: 8,
-          name: 'Jaylen Warren',
-          position: 'RB',
-          nfl_team: 'Pittsburgh Steelers',
-          available_at: '2026-07-12T15:00:00.000Z',
-        },
-      ],
-    }),
-    roster: rosterResponse(),
-    suggestions: {
-      suggestions: [
-        {
-          playerId: 7,
-          name: 'Breece Hall',
-          position: 'RB',
-          nflTeam: 'New York Jets',
-          projection: 14.2,
-          weakestStarterProjection: 8.9,
-          upgradeDelta: 2.1,
-        },
-        {
-          playerId: 8,
-          name: 'Jaylen Warren',
-          position: 'RB',
-          nflTeam: 'Pittsburgh Steelers',
-          projection: 15.0,
-          weakestStarterProjection: 8.9,
-          upgradeDelta: 6.1,
-        },
-      ],
+const twoWaiverPlayers = () => [
+  {
+    id: 7,
+    name: 'Breece Hall',
+    position: 'RB',
+    nfl_team: 'New York Jets',
+    available_at: '2026-07-12T15:00:00.000Z',
+  },
+  {
+    id: 8,
+    name: 'Jaylen Warren',
+    position: 'RB',
+    nfl_team: 'Pittsburgh Steelers',
+    available_at: '2026-07-12T15:00:00.000Z',
+  },
+];
+
+const twoPlayerSuggestions = () => ({
+  suggestions: [
+    {
+      playerId: 7,
+      name: 'Breece Hall',
+      position: 'RB',
+      nflTeam: 'New York Jets',
+      projection: 14.2,
+      weakestStarterProjection: 8.9,
+      upgradeDelta: 2.1,
     },
+    {
+      playerId: 8,
+      name: 'Jaylen Warren',
+      position: 'RB',
+      nflTeam: 'Pittsburgh Steelers',
+      projection: 15.0,
+      weakestStarterProjection: 8.9,
+      upgradeDelta: 6.1,
+    },
+  ],
+});
+
+test('defaults the on-waivers sort to upgrade-desc once suggestions arrive', async () => {
+  setupGet({
+    waivers: waiversResponse({ onWaivers: twoWaiverPlayers() }),
+    roster: rosterResponse(),
+    suggestions: twoPlayerSuggestions(),
   });
   renderScreen();
 
   await screen.findByText('Breece Hall');
+  await waitFor(() => {
+    const rows = screen.getAllByRole('row').slice(1); // drop the header row
+    expect(within(rows[0]).getByText('Jaylen Warren')).toBeInTheDocument();
+  });
+});
+
+test('clicking the Upgrade column header toggles the default sort direction', async () => {
+  setupGet({
+    waivers: waiversResponse({ onWaivers: twoWaiverPlayers() }),
+    roster: rosterResponse(),
+    suggestions: twoPlayerSuggestions(),
+  });
+  renderScreen();
+
+  await screen.findByText('Breece Hall');
+  // Auto-sorted desc already (Jaylen Warren's +6.1 first); one click on an
+  // already-active sort flips the direction, not re-applies the same one.
+  await waitFor(() => {
+    const rows = screen.getAllByRole('row').slice(1);
+    expect(within(rows[0]).getByText('Jaylen Warren')).toBeInTheDocument();
+  });
+
   await userEvent.click(screen.getByText('Upgrade'));
 
-  const rows = screen.getAllByRole('row').slice(1); // drop the header row
-  expect(within(rows[0]).getByText('Jaylen Warren')).toBeInTheDocument();
+  const rows = screen.getAllByRole('row').slice(1);
+  expect(within(rows[0]).getByText('Breece Hall')).toBeInTheDocument();
+});
+
+test('the sort toggle can still be engaged manually when there are no suggestions', async () => {
+  setupGet({
+    waivers: waiversResponse({ onWaivers: twoWaiverPlayers() }),
+    roster: rosterResponse(),
+    suggestions: { suggestions: [] },
+  });
+  renderScreen();
+
+  await screen.findByText('Breece Hall');
+  // No suggestions, so nothing auto-sorted; a manual click still works and
+  // doesn't crash with no upgrade data to rank against.
+  await userEvent.click(screen.getByText('Upgrade'));
+  const rows = screen.getAllByRole('row').slice(1);
+  expect(within(rows[0]).getByText('Breece Hall')).toBeInTheDocument();
 });

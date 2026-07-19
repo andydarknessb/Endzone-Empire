@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen, act } from '@testing-library/react';
+import { screen, act, waitFor } from '@testing-library/react';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import { createDraftSocket, onReconnect } from '../../api/socket';
@@ -86,10 +86,10 @@ afterEach(() => {
   jest.clearAllMocks();
 });
 
-test('shows a loading spinner before data arrives', () => {
+test('shows a loading skeleton before data arrives', () => {
   apiClient.get.mockReturnValue(new Promise(() => {}));
   renderDetail();
-  expect(screen.getByRole('progressbar')).toBeInTheDocument();
+  expect(screen.getByTestId('page-skeleton')).toBeInTheDocument();
 });
 
 test('renders both teams starters with points and coerced scores', async () => {
@@ -220,16 +220,24 @@ test('joins the league room on mount and disconnects on unmount', async () => {
   expect(mockSocket.disconnect).toHaveBeenCalled();
 });
 
-test('re-joins the league room when the manager reconnects', async () => {
+test('re-joins the league room and refetches the matchup when the manager reconnects', async () => {
   apiClient.get.mockResolvedValue(matchupResponse());
 
   renderDetail(42, 9);
   await screen.findByText('Week 3 Matchup');
   mockSocket.emit.mockClear();
+  const callsBeforeReconnect = apiClient.get.mock.calls.length;
 
   act(() => {
     reconnectHandlers.forEach((cb) => cb());
   });
 
   expect(mockSocket.emit).toHaveBeenCalledWith('league:join', { leagueId: 42 });
+  // A dropped connection means missed play deltas never reached the client, so
+  // rows can drift from the authoritative total — reconnect should refetch.
+  await waitFor(() =>
+    expect(apiClient.get.mock.calls.length).toBeGreaterThan(callsBeforeReconnect)
+  );
+  expect(apiClient.get).toHaveBeenCalledWith('/api/league/42/matchups/9');
+  await screen.findByText('Week 3 Matchup');
 });

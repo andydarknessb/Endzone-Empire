@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import { createDraftSocket } from '../../api/socket';
+import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 import LeagueDashboard from './LeagueDashboard';
 
 jest.mock('../../api/apiClient', () => ({
@@ -30,6 +31,18 @@ const renderDashboard = (leagueId = 1) =>
     path: '/league/:leagueId',
     route: `/league/${leagueId}`,
   });
+
+// Toast text (via notify) only renders when a SnackbarProvider is mounted.
+const renderDashboardWithToasts = (leagueId = 1) =>
+  renderWithProviders(
+    <SnackbarProvider>
+      <LeagueDashboard />
+    </SnackbarProvider>,
+    {
+      path: '/league/:leagueId',
+      route: `/league/${leagueId}`,
+    }
+  );
 
 const leagueResponse = (overrides = {}) => ({
   data: {
@@ -197,7 +210,7 @@ test('shows the invite code and copies it to the clipboard', async () => {
     '/standings': standingsResponse(),
   });
 
-  renderDashboard();
+  renderDashboardWithToasts();
   await screen.findByText('Sunday Ballers');
 
   expect(screen.getByText(/abc123/)).toBeInTheDocument();
@@ -245,7 +258,7 @@ test('shows "Start Draft" only for the owner while the draft is pending, and sta
   });
   apiClient.post.mockResolvedValue({});
 
-  renderDashboard();
+  renderDashboardWithToasts();
   await screen.findByText('Sunday Ballers');
 
   const startButton = screen.getByRole('button', { name: 'Start Draft' });
@@ -352,7 +365,7 @@ test('Advance Week is visible for the owner when draft is complete and season is
   });
   apiClient.post.mockResolvedValue({});
 
-  renderDashboard();
+  renderDashboardWithToasts();
   await screen.findByText('Sunday Ballers');
 
   const advanceButton = screen.getByRole('button', { name: 'Advance Week' });
@@ -426,7 +439,7 @@ test('Lock Transactions toggles via the commissioner endpoint', async () => {
     '/standings': standingsResponse(),
   });
   apiClient.put.mockResolvedValue({});
-  renderDashboard();
+  renderDashboardWithToasts();
   await screen.findByText('Sunday Ballers');
 
   await userEvent.click(screen.getByRole('button', { name: 'Lock Transactions' }));
@@ -448,7 +461,7 @@ test('removing another owner\'s team calls the commissioner endpoint', async () 
     '/standings': standingsResponse(),
   });
   apiClient.delete.mockResolvedValue({});
-  renderDashboard();
+  renderDashboardWithToasts();
   await screen.findByText('Sunday Ballers');
 
   // Own team has no remove button; Bob's does
@@ -703,7 +716,7 @@ test('Start New Season appears only when the season is complete and POSTs the ro
     '/standings': standingsResponse({ league: { season_status: 'complete' } }),
   });
   apiClient.post.mockResolvedValue({});
-  renderDashboard();
+  renderDashboardWithToasts();
   await screen.findByText('Sunday Ballers');
 
   await userEvent.click(screen.getByRole('button', { name: 'Start New Season' }));

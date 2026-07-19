@@ -4,9 +4,10 @@ import { Link as RouterLink } from 'react-router-dom';
 import {
   Typography, Button, Dialog, DialogTitle, DialogContent, DialogActions,
   TextField, Select, MenuItem, InputLabel, Alert, Switch, FormControlLabel,
-  FormControl, Tooltip, Container, Box, Grid, Card, CardActionArea, CardContent, Chip,
+  FormControl, Tooltip, Container, Box, Card, CardActionArea, CardContent, Chip,
   Skeleton,
 } from '@mui/material';
+import Grid from '@mui/material/Unstable_Grid2';
 import apiClient from '../../api/apiClient';
 import Countdown from '../Countdown/Countdown';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
@@ -218,7 +219,7 @@ function UserPage() {
       {loadingLeagues ? (
         <Grid container spacing={2}>
           {[0, 1, 2].map((i) => (
-            <Grid item xs={12} sm={6} md={4} key={i}>
+            <Grid xs={12} sm={6} md={4} key={i}>
               <Card variant="outlined" sx={{ height: '100%' }} data-testid="league-skeleton">
                 <CardContent>
                   <Skeleton variant="text" width="60%" height={32} />
@@ -242,7 +243,7 @@ function UserPage() {
       ) : (
         <Grid container spacing={2}>
           {myLeagues.map((league) => (
-            <Grid item xs={12} sm={6} md={4} key={league.id}>
+            <Grid xs={12} sm={6} md={4} key={league.id}>
               <Card variant="outlined" sx={{ height: '100%' }}>
                 <CardActionArea
                   component={RouterLink}

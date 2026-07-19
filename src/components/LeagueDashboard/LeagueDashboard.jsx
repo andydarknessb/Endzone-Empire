@@ -69,7 +69,6 @@ function LeagueDashboard() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [successMessage, setSuccessMessage] = useState(null);
   const notify = useSnackbar();
   const [joinRequests, setJoinRequests] = useState([]);
   const [sizeMin, setSizeMin] = useState('');
@@ -100,10 +99,9 @@ function LeagueDashboard() {
   const handleDecideJoinRequest = async (requestId, approve) => {
     try {
       setError(null);
-      setSuccessMessage(null);
       await apiClient.post(`/api/league/${leagueId}/join-requests/${requestId}/decide`, { approve });
       setJoinRequests((prev) => prev.filter((r) => r.id !== requestId));
-      setSuccessMessage(approve ? 'Join request approved' : 'Join request denied');
+      notify(approve ? 'Join request approved' : 'Join request denied');
     } catch (err) {
       setError(err.response?.data?.error || err.message);
     }
@@ -144,10 +142,8 @@ function LeagueDashboard() {
   const handleStartDraft = async () => {
     try {
       setError(null);
-      setSuccessMessage(null);
       await apiClient.post(`/api/league/${leagueId}/start-draft`);
-      setSuccessMessage('Draft started successfully!');
-      notify('Draft started!');
+      notify('Draft started successfully!');
       fetchLeagueAndUser();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
@@ -158,12 +154,10 @@ function LeagueDashboard() {
   const handleSaveLimits = async () => {
     try {
       setError(null);
-      setSuccessMessage(null);
       await apiClient.put(`/api/league/${leagueId}`, {
         minTeams: Number(sizeMin),
         maxTeams: Number(sizeMax),
       });
-      setSuccessMessage('Team limits updated');
       notify('Team limits updated');
       fetchLeagueAndUser();
     } catch (err) {
@@ -175,9 +169,8 @@ function LeagueDashboard() {
   const handleAdvanceWeek = async () => {
     try {
       setError(null);
-      setSuccessMessage(null);
       await apiClient.post(`/api/scoring/league/${leagueId}/advance-week`);
-      setSuccessMessage('Week advanced!');
+      notify('Week advanced!');
       fetchLeagueAndUser();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
@@ -187,10 +180,9 @@ function LeagueDashboard() {
   const handleToggleTransactionsLock = async () => {
     try {
       setError(null);
-      setSuccessMessage(null);
       const locked = !league.transactions_locked;
       await apiClient.put(`/api/commissioner/league/${leagueId}/transactions-lock`, { locked });
-      setSuccessMessage(locked ? 'Transactions locked' : 'Transactions unlocked');
+      notify(locked ? 'Transactions locked' : 'Transactions unlocked');
       fetchLeagueAndUser();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
@@ -200,9 +192,8 @@ function LeagueDashboard() {
   const handleRemoveTeam = async (teamId) => {
     try {
       setError(null);
-      setSuccessMessage(null);
       await apiClient.delete(`/api/commissioner/league/${leagueId}/teams/${teamId}`);
-      setSuccessMessage('Team removed');
+      notify('Team removed');
       fetchLeagueAndUser();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
@@ -212,9 +203,8 @@ function LeagueDashboard() {
   const handleRollover = async () => {
     try {
       setError(null);
-      setSuccessMessage(null);
       await apiClient.post(`/api/commissioner/league/${leagueId}/rollover`, {});
-      setSuccessMessage('New season started!');
+      notify('New season started!');
       fetchLeagueAndUser();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
@@ -224,9 +214,7 @@ function LeagueDashboard() {
   const handleCopyInviteCode = async () => {
     try {
       await navigator.clipboard.writeText(league.invite_code);
-      setSuccessMessage('Invite code copied to clipboard!');
-      notify('Invite code copied');
-      setTimeout(() => setSuccessMessage(null), 3000);
+      notify('Invite code copied to clipboard!');
     } catch (err) {
       setError('Failed to copy invite code');
       notify('Failed to copy invite code', { severity: 'error' });
@@ -278,12 +266,6 @@ function LeagueDashboard() {
           {error}
         </Alert>
       )}
-      {successMessage && (
-        <Alert severity="success" sx={{ mb: 2 }}>
-          {successMessage}
-        </Alert>
-      )}
-
       <RecapCard leagueId={leagueId} />
 
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>

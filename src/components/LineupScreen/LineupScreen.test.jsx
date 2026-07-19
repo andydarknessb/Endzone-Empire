@@ -3,6 +3,8 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
+import { clearLeagueCache } from '../../hooks/useLeague';
+import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 import LineupScreen from './LineupScreen';
 
 jest.mock('../../api/apiClient', () => ({
@@ -15,6 +17,18 @@ const renderScreen = (leagueId = 1) =>
     path: '/league/:leagueId/lineup',
     route: `/league/${leagueId}/lineup`,
   });
+
+// Toast text (via notify) only renders when a SnackbarProvider is mounted.
+const renderScreenWithToasts = (leagueId = 1) =>
+  renderWithProviders(
+    <SnackbarProvider>
+      <LineupScreen />
+    </SnackbarProvider>,
+    {
+      path: '/league/:leagueId/lineup',
+      route: `/league/${leagueId}/lineup`,
+    }
+  );
 
 // Defaults: a QB starter, two RB starters (one locked), a WR on bench (on bye).
 const lineupResponse = (overrides = {}) => ({
@@ -153,6 +167,7 @@ const hindsightSeasonResponse = (overrides = {}) => ({
 
 afterEach(() => {
   jest.clearAllMocks();
+  clearLeagueCache();
 });
 
 test('suggestions panel shows projected vs optimal totals and a suggestion with opponent context', async () => {
@@ -174,7 +189,7 @@ test('clicking Apply on a suggestion swaps the two players and saves via the nor
   setupGet({ lineup: lineupResponse({ entries: flexBenchEntries }), advice: adviceResponse() });
   apiClient.put.mockResolvedValue({});
 
-  renderScreen();
+  renderScreenWithToasts();
   await screen.findByText('Justin Jefferson');
 
   await userEvent.click(screen.getByRole('button', { name: 'Apply' }));
@@ -251,15 +266,20 @@ test('renders BYE and LOCKED chips for flagged entries', async () => {
   expect(within(screen.getByTestId('slot-row-RB-0')).getByText('LOCKED')).toBeInTheDocument();
 });
 
-test('clicking bench player then empty eligible slot PUTs one move and refetches', async () => {
+test('clicking bench player then empty eligible slot applies the move optimistically, PUTs one move, and does not refetch', async () => {
   apiClient.get.mockResolvedValue({ data: lineupResponse() });
   apiClient.put.mockResolvedValue({});
 
-  renderScreen();
+  renderScreenWithToasts();
   await screen.findByText('Davante Adams');
 
   await userEvent.click(screen.getByTestId('slot-row-BENCH-4'));
   await userEvent.click(screen.getByTestId('slot-row-WR-0'));
+
+  // Optimistic: the WR slot shows Adams right away, not after a refetch.
+  expect(
+    within(screen.getByTestId('slot-row-WR-0')).getByText('Davante Adams')
+  ).toBeInTheDocument();
 
   await waitFor(() =>
     expect(apiClient.put).toHaveBeenCalledWith('/api/team/lineup', {
@@ -270,11 +290,11 @@ test('clicking bench player then empty eligible slot PUTs one move and refetches
   );
 
   expect(await screen.findByText('Lineup saved')).toBeInTheDocument();
-  // The lineup itself refetches after a save (advice/hindsight calls don't count)
+  // No refetch of the lineup itself on a successful save (advice/hindsight calls don't count)
   const lineupGets = apiClient.get.mock.calls.filter(([url]) =>
     url.startsWith('/api/team/lineup?')
   );
-  expect(lineupGets).toHaveLength(2);
+  expect(lineupGets).toHaveLength(1);
 });
 
 test('swapping two players PUTs two moves', async () => {
@@ -319,23 +339,39 @@ test('swapping two players PUTs two moves', async () => {
   );
 });
 
-test("ineligible target shows an error and does not call put", async () => {
+test('selecting a player highlights eligible slots and disables ineligible ones (no top-of-page error)', async () => {
   apiClient.get.mockResolvedValue({ data: lineupResponse() });
 
   renderScreen();
   await screen.findByText('Patrick Mahomes');
 
   await userEvent.click(screen.getByTestId('slot-row-QB-0'));
-  await userEvent.click(screen.getByTestId('slot-row-RB-1'));
 
-  expect(await screen.findByText("That player can't go in that slot")).toBeInTheDocument();
+  // The helper strip announces the move.
+  expect(
+    screen.getByText('Moving Patrick Mahomes — tap a highlighted slot')
+  ).toBeInTheDocument();
+
+  // Derrick Henry (RB, unlocked) can't take a QB — ineligible, so disabled.
+  expect(screen.getByTestId('slot-row-RB-1')).toHaveAttribute('aria-disabled', 'true');
+  // Christian McCaffrey is locked, so also disabled as a target.
+  expect(screen.getByTestId('slot-row-RB-0')).toHaveAttribute('aria-disabled', 'true');
+  // The empty IR slot accepts any position — eligible target, not disabled.
+  expect(screen.getByTestId('slot-row-IR-0')).not.toHaveAttribute('aria-disabled', 'true');
+
+  expect(screen.queryByText("That player can't go in that slot")).not.toBeInTheDocument();
   expect(apiClient.put).not.toHaveBeenCalled();
+
+  // Cancel via the helper strip clears the selection and its highlighting.
+  await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(screen.queryByTestId('lineup-move-strip')).not.toBeInTheDocument();
+  expect(screen.getByTestId('slot-row-RB-1')).not.toHaveAttribute('aria-disabled', 'true');
 });
 
-test("clicking a locked player shows an error and does not call put", async () => {
+test("clicking a locked player shows a warning toast and does not call put", async () => {
   apiClient.get.mockResolvedValue({ data: lineupResponse() });
 
-  renderScreen();
+  renderScreenWithToasts();
   await screen.findByText('Christian McCaffrey');
 
   await userEvent.click(screen.getByTestId('slot-row-RB-0'));
@@ -344,20 +380,27 @@ test("clicking a locked player shows an error and does not call put", async () =
   expect(apiClient.put).not.toHaveBeenCalled();
 });
 
-test('server error on PUT surfaces the error message', async () => {
+test('a failed PUT rolls the optimistic move back and shows an error toast', async () => {
   apiClient.get.mockResolvedValue({ data: lineupResponse() });
   apiClient.put.mockRejectedValue({
     response: { data: { error: 'Player is on bye and cannot start' } },
   });
 
-  renderScreen();
+  renderScreenWithToasts();
   await screen.findByText('Davante Adams');
 
   await userEvent.click(screen.getByTestId('slot-row-BENCH-4'));
   await userEvent.click(screen.getByTestId('slot-row-WR-0'));
 
   expect(await screen.findByText('Player is on bye and cannot start')).toBeInTheDocument();
-  // No lineup refetch on a failed save (advice/hindsight calls don't count)
+
+  // Rolled back: Adams is back on the bench, the WR slot is empty again.
+  expect(
+    within(screen.getByTestId('lineup-bench')).getByText('Davante Adams')
+  ).toBeInTheDocument();
+  expect(screen.getByTestId('slot-row-WR-0')).toHaveTextContent('Empty');
+
+  // No lineup refetch, on either success or failure.
   const lineupGets = apiClient.get.mock.calls.filter(([url]) =>
     url.startsWith('/api/team/lineup?')
   );
@@ -370,6 +413,60 @@ test('shows an error alert when the initial fetch fails', async () => {
   renderScreen();
 
   expect(await screen.findByText('lineup unavailable')).toBeInTheDocument();
+});
+
+test('week chevrons step the selected week and are disabled at the boundaries', async () => {
+  apiClient.get.mockResolvedValue({ data: lineupResponse() }); // week 3
+
+  renderScreen();
+  await screen.findByText('Patrick Mahomes');
+
+  expect(screen.getByRole('combobox')).toHaveTextContent('Week 3');
+  expect(screen.getByRole('button', { name: 'Previous week' })).not.toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Next week' })).not.toBeDisabled();
+
+  await userEvent.click(screen.getByRole('button', { name: 'Next week' }));
+  await waitFor(() =>
+    expect(apiClient.get).toHaveBeenCalledWith(expect.stringContaining('week=4'))
+  );
+  expect(screen.getByRole('combobox')).toHaveTextContent('Week 4');
+
+  await userEvent.click(screen.getByRole('button', { name: 'Previous week' }));
+  await waitFor(() =>
+    expect(apiClient.get).toHaveBeenCalledWith(expect.stringContaining('week=3'))
+  );
+  expect(screen.getByRole('combobox')).toHaveTextContent('Week 3');
+});
+
+test('the previous-week chevron is disabled at week 1', async () => {
+  apiClient.get.mockResolvedValue({ data: lineupResponse({ week: 1, currentWeek: 1 }) });
+
+  renderScreen();
+  await screen.findByText('Patrick Mahomes');
+
+  expect(screen.getByRole('button', { name: 'Previous week' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Next week' })).not.toBeDisabled();
+});
+
+test('the summary header shows projected/optimal totals and the (+gain) button expands the suggestions panel', async () => {
+  setupGet({ lineup: lineupResponse({ entries: flexBenchEntries }), advice: adviceResponse() });
+
+  renderScreen();
+  await screen.findByText('Justin Jefferson');
+
+  expect(
+    within(screen.getByTestId('lineup-summary-header')).getByText(/Projected 110\.4/)
+  ).toBeInTheDocument();
+  expect(
+    within(screen.getByTestId('lineup-summary-header')).getByText(/Optimal 118\.2/)
+  ).toBeInTheDocument();
+
+  // Collapse the panel, then use the summary header's gain button to reopen it.
+  await userEvent.click(screen.getByRole('button', { name: 'Hide' }));
+  expect(screen.getByRole('button', { name: 'Show' })).toBeInTheDocument();
+
+  await userEvent.click(screen.getByRole('button', { name: '(+7.8)' }));
+  expect(screen.getByRole('button', { name: 'Hide' })).toBeInTheDocument();
 });
 
 // --- Best ball ---
@@ -413,4 +510,20 @@ test('shows injury badges and projected points on lineup rows', async () => {
   await screen.findByText('Patrick Mahomes');
   expect(screen.getByText('Q')).toBeInTheDocument();
   expect(screen.getByText(/proj 21\.5/)).toBeInTheDocument();
+});
+
+test('appends the opponent to the row caption when provided, and omits it when missing', async () => {
+  const response = lineupResponse();
+  response.entries[0].opponent = 'DAL';
+  apiClient.get.mockResolvedValue({ data: response });
+  renderScreen();
+
+  await screen.findByText('Patrick Mahomes');
+  expect(
+    within(screen.getByTestId('slot-row-QB-0')).getByText(/· vs DAL/)
+  ).toBeInTheDocument();
+  // Derrick Henry has no opponent field on this fixture — no dangling separator.
+  expect(
+    within(screen.getByTestId('slot-row-RB-1')).queryByText(/·/)
+  ).not.toBeInTheDocument();
 });

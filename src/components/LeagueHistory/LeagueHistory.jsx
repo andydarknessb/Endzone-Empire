@@ -18,19 +18,25 @@ import {
   Paper,
   Chip,
 } from '@mui/material';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { TROPHY_EMOJI } from '../TrophyCase/TrophyCase';
 import { GRADE_COLORS } from '../DraftGradesCard/DraftGradesCard';
 import apiClient from '../../api/apiClient';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 
+const MEDAL_EMOJI = { 1: '🥇', 2: '🥈', 3: '🥉' };
+
 function SeasonPanel({ season, defaultExpanded }) {
   const standings = Array.isArray(season.standings) ? season.standings : [];
   const trophies = Array.isArray(season.trophies) ? season.trophies : [];
   const draftGrades = Array.isArray(season.draftGrades) ? season.draftGrades : null;
+  const championStanding = season.champion
+    ? standings.find((team) => team.teamId === season.champion.teamId)
+    : null;
 
   return (
     <Accordion defaultExpanded={defaultExpanded} data-testid={`season-panel-${season.season}`}>
-      <AccordionSummary expandIcon={<span role="img" aria-label="expand">▼</span>}>
+      <AccordionSummary expandIcon={<ExpandMoreIcon />}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
           <Typography variant="h6">Season {season.season}</Typography>
           {season.champion ? (
@@ -45,6 +51,40 @@ function SeasonPanel({ season, defaultExpanded }) {
         </Box>
       </AccordionSummary>
       <AccordionDetails>
+        {season.champion && (
+          <Box
+            data-testid={`champion-banner-${season.season}`}
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 2,
+              mb: 3,
+              p: 2,
+              bgcolor: 'var(--accent-soft)',
+              borderLeft: '4px solid',
+              borderLeftColor: 'warning.main',
+              borderRadius: 1,
+            }}
+          >
+            <Box component="span" aria-hidden="true" sx={{ fontSize: '2rem', lineHeight: 1 }}>
+              🏆
+            </Box>
+            <Box>
+              <Typography variant="body2" color="text.secondary">
+                Season Champion
+              </Typography>
+              <Typography variant="h5" component="p">
+                {season.champion.name}
+              </Typography>
+              {championStanding && (
+                <Typography variant="body2" color="text.secondary">
+                  {`${championStanding.wins}-${championStanding.losses} record`}
+                </Typography>
+              )}
+            </Box>
+          </Box>
+        )}
+
         <Typography variant="subtitle1" sx={{ mb: 1 }}>
           Final Standings
         </Typography>
@@ -59,80 +99,106 @@ function SeasonPanel({ season, defaultExpanded }) {
               </TableRow>
             </TableHead>
             <TableBody>
-              {standings.map((team) => (
-                <TableRow key={team.teamId}>
-                  <TableCell>{team.rank}</TableCell>
-                  <TableCell>{team.name}</TableCell>
-                  <TableCell align="right">{`${team.wins}-${team.losses}`}</TableCell>
-                  <TableCell align="right">{team.pf}</TableCell>
-                </TableRow>
-              ))}
+              {standings.map((team) => {
+                const medal = MEDAL_EMOJI[team.rank];
+                return (
+                  <TableRow
+                    key={team.teamId}
+                    sx={team.rank === 1 ? { '& .MuiTableCell-root': { fontWeight: 'bold' } } : undefined}
+                  >
+                    <TableCell>
+                      {medal && (
+                        <Box component="span" aria-hidden="true" sx={{ mr: 0.5 }}>
+                          {medal}
+                        </Box>
+                      )}
+                      {team.rank}
+                    </TableCell>
+                    <TableCell>{team.name}</TableCell>
+                    <TableCell align="right">{`${team.wins}-${team.losses}`}</TableCell>
+                    <TableCell align="right">{team.pf}</TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </TableContainer>
 
-        {trophies.length > 0 && (
-          <>
-            <Typography variant="subtitle1" sx={{ mb: 1 }}>
-              Trophies
-            </Typography>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 3 }}>
-              {trophies.map((trophy) => (
-                <Chip
-                  key={trophy.id}
-                  variant="outlined"
-                  label={`${TROPHY_EMOJI[trophy.type] || '🎖️'} ${trophy.label} — ${trophy.team_name}`}
-                />
-              ))}
-            </Box>
-          </>
+        {season.trophiesErrored ? (
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3, fontStyle: 'italic' }}>
+            Couldn't load trophies for this season
+          </Typography>
+        ) : (
+          trophies.length > 0 && (
+            <>
+              <Typography variant="subtitle1" sx={{ mb: 1 }}>
+                Trophies
+              </Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 3 }}>
+                {trophies.map((trophy) => (
+                  <Chip
+                    key={trophy.id}
+                    variant="outlined"
+                    label={`${TROPHY_EMOJI[trophy.type] || '🎖️'} ${trophy.label} — ${trophy.team_name}`}
+                  />
+                ))}
+              </Box>
+            </>
+          )
         )}
 
-        {draftGrades && draftGrades.length > 0 && (
-          <>
-            <Typography variant="subtitle1" sx={{ mb: 1 }}>
-              Draft Grades
-            </Typography>
-            <TableContainer component={Paper}>
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Rank</TableCell>
-                    <TableCell>Team</TableCell>
-                    <TableCell align="center">Grade</TableCell>
-                    <TableCell align="right">Roster Value</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {draftGrades.map((row) => (
-                    <TableRow key={row.teamId}>
-                      <TableCell>{row.rank}</TableCell>
-                      <TableCell>{row.name}</TableCell>
-                      <TableCell align="center">
-                        <Box
-                          sx={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            width: 28,
-                            height: 28,
-                            borderRadius: '50%',
-                            color: 'common.white',
-                            bgcolor: GRADE_COLORS[row.grade] || 'grey.500',
-                            fontWeight: 'bold',
-                            fontSize: '0.85rem',
-                          }}
-                        >
-                          {row.grade}
-                        </Box>
-                      </TableCell>
-                      <TableCell align="right">{row.rosterValue}</TableCell>
+        {season.draftGradesErrored ? (
+          <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+            Couldn't load draft grades for this season
+          </Typography>
+        ) : (
+          draftGrades &&
+          draftGrades.length > 0 && (
+            <>
+              <Typography variant="subtitle1" sx={{ mb: 1 }}>
+                Draft Grades
+              </Typography>
+              <TableContainer component={Paper}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Rank</TableCell>
+                      <TableCell>Team</TableCell>
+                      <TableCell align="center">Grade</TableCell>
+                      <TableCell align="right">Roster Value</TableCell>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </>
+                  </TableHead>
+                  <TableBody>
+                    {draftGrades.map((row) => (
+                      <TableRow key={row.teamId}>
+                        <TableCell>{row.rank}</TableCell>
+                        <TableCell>{row.name}</TableCell>
+                        <TableCell align="center">
+                          <Box
+                            sx={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              width: 28,
+                              height: 28,
+                              borderRadius: '50%',
+                              color: 'common.white',
+                              bgcolor: GRADE_COLORS[row.grade] || 'grey.500',
+                              fontWeight: 'bold',
+                              fontSize: '0.85rem',
+                            }}
+                          >
+                            {row.grade}
+                          </Box>
+                        </TableCell>
+                        <TableCell align="right">{row.rosterValue}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </>
+          )
         )}
       </AccordionDetails>
     </Accordion>

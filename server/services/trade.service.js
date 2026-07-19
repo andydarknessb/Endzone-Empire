@@ -389,6 +389,14 @@ async function executeTrade(client, { trade, league, items, teams, byCommissione
     `UPDATE "trades" SET "status" = 'executed', "updated_at" = now() WHERE "id" = $1`,
     [trade.id]
   );
+  // Names are baked into the transaction detail at execution time so the
+  // league activity feed can render "traded X to Y for Z" without the
+  // transactions route having to re-join trade_items/players/teams later.
+  const playerNamesResult = await client.query(
+    `SELECT "id", "name" FROM "players" WHERE "id" = ANY($1::int[])`,
+    [items.map((i) => i.player_id)]
+  );
+  const playerNameById = new Map(playerNamesResult.rows.map((p) => [p.id, p.name]));
   await logTransaction(client, {
     leagueId: league.id,
     teamId: trade.proposing_team_id,
@@ -396,7 +404,16 @@ async function executeTrade(client, { trade, league, items, teams, byCommissione
     detail: {
       tradeId: trade.id,
       byCommissioner,
-      items: items.map((i) => ({ playerId: i.player_id, fromTeamId: i.from_team_id, toTeamId: i.to_team_id })),
+      proposingTeamId: trade.proposing_team_id,
+      receivingTeamId: trade.receiving_team_id,
+      proposingTeamName: teams.get(trade.proposing_team_id).name,
+      receivingTeamName: teams.get(trade.receiving_team_id).name,
+      items: items.map((i) => ({
+        playerId: i.player_id,
+        playerName: playerNameById.get(i.player_id),
+        fromTeamId: i.from_team_id,
+        toTeamId: i.to_team_id,
+      })),
     },
   });
   for (const teamId of [trade.proposing_team_id, trade.receiving_team_id]) {

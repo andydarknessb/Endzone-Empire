@@ -8,6 +8,7 @@ const {
   runSimulation,
   simulateBracketFrom,
   powerRankings,
+  withRankChange,
 } = require('../services/montecarlo.service');
 const { optimalLineup, DEFAULT_LINEUP_SLOTS } = require('../services/lineup.service');
 
@@ -190,6 +191,23 @@ test('powerRankings orders by blended score and assigns dense ranks', () => {
   assert.deepEqual(ranked.map((r) => r.teamId), [1, 2, 3]);
   assert.deepEqual(ranked.map((r) => r.rank), [1, 2, 3]);
   assert.ok(ranked[0].score > ranked[1].score);
+});
+
+test('withRankChange computes movement vs the previous week, null when new', () => {
+  const rankings = [
+    { teamId: 1, rank: 1 }, { teamId: 2, rank: 2 }, { teamId: 3, rank: 3 },
+  ];
+  const previous = [
+    { teamId: 2, rank: 1 }, { teamId: 1, rank: 2 },
+  ];
+  const withChange = withRankChange(rankings, previous);
+  assert.deepEqual(withChange.map((r) => r.change), [1, -1, null]);
+});
+
+test('withRankChange treats a missing previous week as all-new', () => {
+  const rankings = [{ teamId: 1, rank: 1 }, { teamId: 2, rank: 2 }];
+  assert.deepEqual(withRankChange(rankings, null).map((r) => r.change), [null, null]);
+  assert.deepEqual(withRankChange(rankings, []).map((r) => r.change), [null, null]);
 });
 
 test('optimalLineup fills dedicated slots then FLEX with the best leftover', () => {

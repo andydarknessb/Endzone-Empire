@@ -3,21 +3,23 @@ import { useParams } from 'react-router-dom';
 import {
   Container,
   Typography,
-  Grid,
   Paper,
   Chip,
   Alert,
-  CircularProgress,
   Box,
+  Skeleton,
 } from '@mui/material';
+import Grid from '@mui/material/Unstable_Grid2';
 import apiClient from '../../api/apiClient';
 import { createDraftSocket, onReconnect } from '../../api/socket';
 import { classifyPlays } from '../../lib/scoringEvents';
 import { matchupWinProbability } from '../../lib/winProbability';
 import TecmoCutscene from './TecmoCutscene';
+import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
 import {
   WinProbabilityBar,
-  StarterList,
+  StickyScoreboard,
+  SlotComparisonList,
   LiveTicker,
   BenchWhatIf,
   MatchupToasts,
@@ -38,6 +40,7 @@ function MatchupDetail() {
   const [homeBenchLeft, setHomeBenchLeft] = useState(null);
   const [awayBenchLeft, setAwayBenchLeft] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
+  const [quickViewId, setQuickViewId] = useState(null);
   const [whatIfOpen, setWhatIfOpen] = useState(false);
   const [cutsceneQueue, setCutsceneQueue] = useState([]);
   const [toasts, setToasts] = useState([]);
@@ -131,7 +134,14 @@ function MatchupDetail() {
 
     const joinLeagueRoom = () => socket.emit('league:join', { leagueId: Number(leagueId) });
     joinLeagueRoom();
-    const offReconnect = onReconnect(socket, joinLeagueRoom);
+    // Missed play deltas never reach the client while disconnected, so a bare
+    // room re-join can leave starter rows drifted from the authoritative total —
+    // resync with a full refetch alongside it.
+    const onSocketReconnect = () => {
+      joinLeagueRoom();
+      fetchData();
+    };
+    const offReconnect = onReconnect(socket, onSocketReconnect);
 
     socket.on('scores:updated', (data) => {
       const scored = (data.scored || []).find((s) => s.matchupId === Number(matchupId));
@@ -215,8 +225,20 @@ function MatchupDetail() {
 
   if (loading) {
     return (
-      <Container sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-        <CircularProgress />
+      <Container maxWidth="lg" sx={{ py: 4 }} data-testid="page-skeleton">
+        <Skeleton variant="text" width={260} height={48} sx={{ mb: 2 }} />
+        <Skeleton variant="rectangular" height={80} sx={{ mb: 2, borderRadius: 1 }} />
+        <Grid container spacing={2} sx={{ mb: 2 }}>
+          <Grid xs={6}>
+            <Skeleton variant="text" width={140} height={32} />
+            <Skeleton variant="text" width={80} height={40} />
+          </Grid>
+          <Grid xs={6}>
+            <Skeleton variant="text" width={140} height={32} />
+            <Skeleton variant="text" width={80} height={40} />
+          </Grid>
+        </Grid>
+        <Skeleton variant="rectangular" height={320} sx={{ borderRadius: 1 }} />
       </Container>
     );
   }
@@ -250,6 +272,15 @@ function MatchupDetail() {
               : <Chip label="LIVE" color="error" />}
           </Box>
 
+          <StickyScoreboard
+            homeName={matchup.home_team_name}
+            awayName={matchup.away_team_name}
+            homeScore={homeScore}
+            awayScore={awayScore}
+            homeProb={winProb.home}
+            final={matchup.final}
+          />
+
           {showLive && (
             <WinProbabilityBar
               homeName={matchup.home_team_name}
@@ -268,34 +299,37 @@ function MatchupDetail() {
             />
           )}
 
-          <Grid container spacing={2}>
+          <Grid container spacing={2} sx={{ mb: 2 }}>
             {[{ team: home, name: matchup.home_team_name, score: homeScore, benchLeft: homeBenchLeft },
               { team: away, name: matchup.away_team_name, score: awayScore, benchLeft: awayBenchLeft }].map((col, i) => (
-              <Grid item xs={12} md={6} key={i}>
-                <Paper sx={{ p: 2 }}>
-                  <Typography variant="h6">{col.name}</Typography>
-                  <Typography variant="h5" sx={{ mb: 0.5, fontVariantNumeric: 'tabular-nums' }}>
-                    {col.score}
+              <Grid xs={6} key={i}>
+                <Typography variant="h6" noWrap>{col.name}</Typography>
+                <Typography variant="stat" sx={{ mb: 0.5, fontSize: '1.125rem' }}>
+                  {col.score}
+                </Typography>
+                {matchup.final && col.benchLeft != null && (
+                  <Typography variant="body2" sx={{ mb: 1, color: 'text.secondary' }}>
+                    Left {col.benchLeft} on the bench
                   </Typography>
-                  {matchup.final && col.benchLeft != null && (
-                    <Typography variant="body2" sx={{ mb: 1, color: 'text.secondary' }}>
-                      Left {col.benchLeft} on the bench
-                    </Typography>
-                  )}
-                  {showLive && col.team?.projectedTotal != null && (
-                    <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1 }}>
-                      Projected {Number(col.team.projectedTotal).toFixed(1)}
-                    </Typography>
-                  )}
-                  <StarterList
-                    starters={col.team?.starters}
-                    expandedId={expandedId}
-                    onToggle={toggleRow}
-                  />
-                </Paper>
+                )}
+                {showLive && col.team?.projectedTotal != null && (
+                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1 }}>
+                    Projected {Number(col.team.projectedTotal).toFixed(1)}
+                  </Typography>
+                )}
               </Grid>
             ))}
           </Grid>
+
+          <Paper sx={{ p: 2 }}>
+            <SlotComparisonList
+              homeStarters={home?.starters}
+              awayStarters={away?.starters}
+              expandedId={expandedId}
+              onToggle={toggleRow}
+              onOpenPlayer={setQuickViewId}
+            />
+          </Paper>
         </>
       )}
 
@@ -307,6 +341,13 @@ function MatchupDetail() {
           onDone={dismissCutscene}
         />
       )}
+
+      <PlayerQuickView
+        open={quickViewId != null}
+        onClose={() => setQuickViewId(null)}
+        playerId={quickViewId}
+        leagueId={Number(leagueId)}
+      />
     </Container>
   );
 }

@@ -608,10 +608,13 @@ router.get('/:id/transactions', async (req, res) => {
 
     const result = await pool.query(
       `SELECT "transactions".*, "teams"."name" AS "team_name",
-              "players"."name" AS "player_name"
+              "players"."name" AS "player_name",
+              "dropped_player"."name" AS "dropped_player_name"
        FROM "transactions"
        LEFT JOIN "teams" ON "teams"."id" = "transactions"."team_id"
        LEFT JOIN "players" ON "players"."id" = ("transactions"."detail"->>'playerId')::int
+       LEFT JOIN "players" AS "dropped_player"
+         ON "dropped_player"."id" = ("transactions"."detail"->>'droppedPlayerId')::int
        WHERE "transactions"."league_id" = $1
        ORDER BY "transactions"."created_at" DESC
        LIMIT 100`,
@@ -889,20 +892,41 @@ router.get('/:id/history', async (req, res) => {
     const trophies = require('../services/trophy.service');
     const seasons = [];
     for (const row of historyResult.rows) {
-      const seasonTrophies = await trophies.getLeagueTrophies({ leagueId, season: row.season });
-      const gradesResult = await pool.query(
-        `SELECT "data" FROM "league_analytics"
-         WHERE "league_id" = $1 AND "season" = $2 AND "type" = 'draft_grades'`,
-        [leagueId, row.season]
-      );
+      let seasonTrophies = [];
+      let trophiesErrored = false;
+      try {
+        seasonTrophies = (await trophies.getLeagueTrophies({ leagueId, season: row.season })).filter(
+          (t) => t.week === 0
+        );
+      } catch (error) {
+        console.error('Error fetching season trophies for league history', error);
+        trophiesErrored = true;
+      }
+
+      let draftGrades = null;
+      let draftGradesErrored = false;
+      try {
+        const gradesResult = await pool.query(
+          `SELECT "data" FROM "league_analytics"
+           WHERE "league_id" = $1 AND "season" = $2 AND "type" = 'draft_grades'`,
+          [leagueId, row.season]
+        );
+        draftGrades = gradesResult.rows[0] ? gradesResult.rows[0].data.grades : null;
+      } catch (error) {
+        console.error('Error fetching draft grades for league history', error);
+        draftGradesErrored = true;
+      }
+
       seasons.push({
         season: row.season,
         champion: row.champion_team_id
           ? { teamId: row.champion_team_id, name: row.champion_name }
           : null,
         standings: row.standings,
-        trophies: seasonTrophies.filter((t) => t.week === 0),
-        draftGrades: gradesResult.rows[0] ? gradesResult.rows[0].data.grades : null,
+        trophies: seasonTrophies,
+        trophiesErrored,
+        draftGrades,
+        draftGradesErrored,
       });
     }
     res.json({ seasons });

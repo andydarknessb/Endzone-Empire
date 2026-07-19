@@ -54,11 +54,24 @@ export function buildTheme(mode) {
       body1: { lineHeight: 1.6 },
       body2: { lineHeight: 1.55 },
       button: { textTransform: 'none', fontWeight: 600 },
+      // Custom variant for score/points figures: fixed-width digits so they
+      // don't jitter horizontally as values change, plus a bolder weight.
+      stat: { fontVariantNumeric: 'tabular-nums', fontWeight: 600 },
     },
     components: {
       MuiPaper: {
         styleOverrides: {
-          root: { backgroundImage: 'none' },
+          // MUI's elevationN slots are fixed keys (elevation0..24), but callers use
+          // arbitrary elevations (menus/popovers default to 8, dialogs to 24) — so
+          // map ranges via the root slot function instead of enumerating every key.
+          root: ({ ownerState }) => {
+            const elevation = ownerState.elevation ?? 1;
+            let boxShadow;
+            if (elevation >= 4) boxShadow = e['shadow-3'];
+            else if (elevation >= 2) boxShadow = e['shadow-2'];
+            else if (elevation >= 1) boxShadow = e['shadow-1'];
+            return { backgroundImage: 'none', ...(boxShadow ? { boxShadow } : {}) };
+          },
         },
       },
       // Cleaner cards: hairline border + subtle elevation from the shadow tokens.
@@ -79,6 +92,18 @@ export function buildTheme(mode) {
             borderRadius: 10,
             transition:
               'background-color 150ms ease, box-shadow 150ms ease, border-color 150ms ease',
+          },
+        },
+      },
+      // Visible keyboard-focus ring for every button-like control (buttons,
+      // icon buttons, tabs, list items, menu items, chips, ...).
+      MuiButtonBase: {
+        styleOverrides: {
+          root: {
+            '&.Mui-focusVisible': {
+              outline: `2px solid ${c['focus-ring']}`,
+              outlineOffset: 2,
+            },
           },
         },
       },

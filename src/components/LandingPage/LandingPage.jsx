@@ -6,11 +6,11 @@ import {
   Typography,
   Button,
   Link as MuiLink,
-  Grid,
   Card,
   CardContent,
   Stack,
 } from '@mui/material';
+import Grid from '@mui/material/Unstable_Grid2';
 import './LandingPage.css';
 
 const FEATURES = [
@@ -101,7 +101,7 @@ function LandingPage() {
 
         <Grid container spacing={3}>
           {FEATURES.map((feature) => (
-            <Grid item xs={12} sm={6} md={3} key={feature.title}>
+            <Grid xs={12} sm={6} md={3} key={feature.title}>
               <Card
                 variant="outlined"
                 sx={{

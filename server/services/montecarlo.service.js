@@ -334,15 +334,36 @@ async function computeLeagueOdds({ leagueId, runs = DEFAULT_RUNS, seed }) {
   return data;
 }
 
-/** Latest stored power rankings for a league (any week this season). */
+/**
+ * Pure: merge each team's rank movement vs the previous stored week onto its
+ * ranking row. `change` is prevRank - currentRank (positive = moved up,
+ * negative = moved down, 0 = held, null = no prior week to compare against).
+ */
+function withRankChange(rankings, previousRankings) {
+  const prevRankByTeam = new Map((previousRankings || []).map((r) => [r.teamId, r.rank]));
+  return rankings.map((r) => {
+    const prevRank = prevRankByTeam.get(r.teamId);
+    return { ...r, change: prevRank != null ? prevRank - r.rank : null };
+  });
+}
+
+/**
+ * Latest stored power rankings for a league (any week this season), with
+ * rank movement vs the previous stored week (each week is stored as its own
+ * row, so history is already there — see league_analytics unique constraint).
+ */
 async function getLatestPowerRankings({ leagueId }) {
   const result = await pool.query(
     `SELECT "season", "week", "data" FROM "league_analytics"
      WHERE "league_id" = $1 AND "type" = 'power_rankings'
-     ORDER BY "season" DESC, "week" DESC LIMIT 1`,
+     ORDER BY "season" DESC, "week" DESC LIMIT 2`,
     [leagueId]
   );
-  return result.rows[0] || null;
+  const latest = result.rows[0];
+  if (!latest) return null;
+  const previous = result.rows[1];
+  const rankings = withRankChange(latest.data.rankings, previous ? previous.data.rankings : null);
+  return { season: latest.season, week: latest.week, data: { ...latest.data, rankings } };
 }
 
 module.exports = {
@@ -355,6 +376,7 @@ module.exports = {
   simulateBracketFrom,
   runSimulation,
   powerRankings,
+  withRankChange,
   computeLeagueOdds,
   getLatestPowerRankings,
 };

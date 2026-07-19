@@ -264,10 +264,10 @@ async function getTeamTrophies({ teamId }) {
 /** A league's trophies (optionally one season), newest first. */
 async function getLeagueTrophies({ leagueId, season }) {
   const params = [leagueId];
-  let where = `"league_id" = $1`;
+  let where = `"trophies"."league_id" = $1`;
   if (season != null) {
     params.push(season);
-    where += ` AND "season" = $2`;
+    where += ` AND "trophies"."season" = $2`;
   }
   const result = await pool.query(
     `SELECT "trophies".*, "teams"."name" AS "team_name"

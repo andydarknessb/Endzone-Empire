@@ -5,6 +5,7 @@ import {
   Button, Pagination, Alert, Typography, Select, MenuItem, FormControl, InputLabel,
   TextField, InputAdornment, Tooltip, Box, TableSortLabel, Switch, FormControlLabel,
 } from '@mui/material';
+import CloseIcon from '@mui/icons-material/Close';
 import apiClient from '../../api/apiClient';
 import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
@@ -220,7 +221,7 @@ function PlayerManagement() {
             endAdornment: searchInput ? (
               <InputAdornment position="end">
                 <Button size="small" onClick={() => setSearchInput('')} sx={{ minWidth: 0, p: 0.5 }} aria-label="Clear search">
-                  ✕
+                  <CloseIcon fontSize="small" />
                 </Button>
               </InputAdornment>
             ) : null,

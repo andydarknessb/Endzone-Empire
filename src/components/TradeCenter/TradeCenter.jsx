@@ -6,11 +6,11 @@ import {
   Typography,
   Paper,
   Box,
-  Grid,
   Chip,
   Button,
   Alert,
-  CircularProgress,
+  Skeleton,
+  Tooltip,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -22,11 +22,14 @@ import {
   Checkbox,
   FormControlLabel,
 } from '@mui/material';
+import Grid from '@mui/material/Unstable_Grid2';
 import apiClient from '../../api/apiClient';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
+import { useLeague } from '../../hooks/useLeague';
 import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
+import { formatRelative } from '../../utils/formatRelative';
 
 const STATUS_COLOR = {
   pending: 'warning',
@@ -38,6 +41,8 @@ const STATUS_COLOR = {
   countered: 'default',
 };
 
+const POSITION_ORDER = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
+
 function toggleInSet(set, id) {
   const next = new Set(set);
   if (next.has(id)) {
@@ -46,6 +51,21 @@ function toggleInSet(set, id) {
     next.add(id);
   }
   return next;
+}
+
+/** Position-grouped, in QB/RB/WR/TE/K/DEF order, with anything else appended after. */
+function groupPlayersByPosition(players) {
+  const byPosition = new Map();
+  for (const player of players) {
+    const key = player.position || 'Other';
+    if (!byPosition.has(key)) byPosition.set(key, []);
+    byPosition.get(key).push(player);
+  }
+  const orderedKeys = [
+    ...POSITION_ORDER.filter((pos) => byPosition.has(pos)),
+    ...[...byPosition.keys()].filter((pos) => !POSITION_ORDER.includes(pos)),
+  ];
+  return orderedKeys.map((position) => ({ position, players: byPosition.get(position) }));
 }
 
 const VERDICT_LABEL = {
@@ -57,7 +77,10 @@ const VERDICT_LABEL = {
 // Self-contained "Analyze trade" control: posts to /api/trades/analyze and
 // renders the verdict + per-player breakdown. Used both in the compose
 // dialog and on each existing trade card, so it owns its own request state.
-function TradeAnalysisPanel({ leagueId, receivingTeamId, offeredPlayerIds, requestedPlayerIds, onOpenPlayer }) {
+// autoRun (compose dialog only) fires the request ~600ms after the offered/
+// requested ids last changed instead of waiting for a button click; existing
+// trade cards leave autoRun off and keep the manual button.
+function TradeAnalysisPanel({ leagueId, receivingTeamId, offeredPlayerIds, requestedPlayerIds, onOpenPlayer, autoRun = false }) {
   const [result, setResult] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeError, setAnalyzeError] = useState(null);
@@ -80,11 +103,28 @@ function TradeAnalysisPanel({ leagueId, receivingTeamId, offeredPlayerIds, reque
     }
   };
 
+  useEffect(() => {
+    if (!autoRun) return undefined;
+    if (offeredPlayerIds.length === 0 || requestedPlayerIds.length === 0) return undefined;
+    const handle = setTimeout(() => {
+      handleAnalyze();
+    }, 600);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRun, receivingTeamId, offeredPlayerIds.join(','), requestedPlayerIds.join(',')]);
+
   return (
     <Box sx={{ mt: 2 }}>
-      <Button size="small" variant="outlined" onClick={handleAnalyze} disabled={analyzing}>
-        {analyzing ? 'Analyzing…' : 'Analyze Trade'}
-      </Button>
+      {!autoRun && (
+        <Button size="small" variant="outlined" onClick={handleAnalyze} disabled={analyzing}>
+          {analyzing ? 'Analyzing…' : 'Analyze Trade'}
+        </Button>
+      )}
+      {autoRun && analyzing && (
+        <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+          Analyzing…
+        </Typography>
+      )}
       {analyzeError && (
         <Alert severity="error" sx={{ mt: 1 }}>
           {analyzeError}
@@ -99,12 +139,12 @@ function TradeAnalysisPanel({ leagueId, receivingTeamId, offeredPlayerIds, reque
             sx={{ mb: 1 }}
           />
           <Grid container spacing={2} sx={{ mb: 1 }}>
-            <Grid item xs={6}>
+            <Grid xs={6}>
               <Typography variant="body2">
                 Proposer: gives {result.proposerGives} · gets {result.proposerGets}
               </Typography>
             </Grid>
-            <Grid item xs={6}>
+            <Grid xs={6}>
               <Typography variant="body2">
                 Receiver: gives {result.receiverGives} · gets {result.receiverGets}
               </Typography>
@@ -122,6 +162,62 @@ function TradeAnalysisPanel({ leagueId, receivingTeamId, offeredPlayerIds, reque
   );
 }
 
+/** One roster column in the propose dialog: players grouped under position subheaders. */
+function RosterColumn({ label, players, selectedIds, onToggle, testId }) {
+  const groups = groupPlayersByPosition(players || []);
+  return (
+    <Grid xs={12} sm={6} data-testid={testId}>
+      <Typography variant="subtitle1" sx={{ mb: 1 }}>
+        {label}
+      </Typography>
+      {groups.map(({ position, players: groupPlayers }) => (
+        <Box key={position} sx={{ mb: 1 }}>
+          <Typography variant="caption" sx={{ display: 'block', fontWeight: 'bold', color: 'text.secondary' }}>
+            {position}
+          </Typography>
+          {groupPlayers.map((player) => (
+            <FormControlLabel
+              key={player.id}
+              control={
+                <Checkbox
+                  checked={selectedIds.has(player.id)}
+                  onChange={() => onToggle(player.id)}
+                />
+              }
+              label={
+                player.projected_points != null
+                  ? `${player.name} (${player.position}) · proj ${player.projected_points}`
+                  : `${player.name} (${player.position})`
+              }
+            />
+          ))}
+        </Box>
+      ))}
+    </Grid>
+  );
+}
+
+/** A "You send (n): <chips>" / "You receive (n): <chips>" scannable summary row. */
+function SummaryChipRow({ label, ids, roster }) {
+  const idList = [...ids];
+  return (
+    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, alignItems: 'center', mb: 1 }}>
+      <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+        {label} ({idList.length}):
+      </Typography>
+      {idList.length === 0 ? (
+        <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+          none selected
+        </Typography>
+      ) : (
+        idList.map((id) => (
+          <Chip key={id} size="small" label={roster?.players?.find((p) => p.id === id)?.name || `#${id}`} />
+        ))
+      )}
+    </Box>
+  );
+}
+
 function TradeCenter() {
   const { leagueId } = useParams();
   const user = useSelector((store) => store.user);
@@ -130,16 +226,16 @@ function TradeCenter() {
   const [trades, setTrades] = useState(null);
   const [myTeamId, setMyTeamId] = useState(null);
   const [rosters, setRosters] = useState([]);
-  const [league, setLeague] = useState(null);
+  const { league, loading: leagueLoading, error: leagueError } = useLeague(leagueId);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [successMessage, setSuccessMessage] = useState(null);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedTeamId, setSelectedTeamId] = useState('');
   const [sendIds, setSendIds] = useState(new Set());
   const [receiveIds, setReceiveIds] = useState(new Set());
+  const [counterTradeId, setCounterTradeId] = useState(null);
   const [quickViewId, setQuickViewId] = useState(null);
 
   useEffect(() => {
@@ -156,15 +252,13 @@ function TradeCenter() {
     try {
       setLoading(true);
       setError(null);
-      const [tradesRes, rostersRes, leagueRes] = await Promise.all([
+      const [tradesRes, rostersRes] = await Promise.all([
         apiClient.get(`/api/trades?leagueId=${leagueId}`),
         apiClient.get(`/api/league/${leagueId}/rosters`),
-        apiClient.get(`/api/league/${leagueId}`),
       ]);
       setMyTeamId(tradesRes.data.myTeamId);
       setTrades(tradesRes.data.trades || []);
       setRosters(rostersRes.data || []);
-      setLeague(leagueRes.data.league);
     } catch (err) {
       setError(err.response?.data?.error || err.message);
     } finally {
@@ -176,11 +270,26 @@ function TradeCenter() {
     setSelectedTeamId('');
     setSendIds(new Set());
     setReceiveIds(new Set());
+    setCounterTradeId(null);
+    setDialogOpen(true);
+  };
+
+  // Opens the propose dialog pre-filled with the trade inverted: the team
+  // that sent the original offer, with the sides swapped from the viewer's
+  // perspective, so the user only has to adjust before sending.
+  const handleOpenCounter = (trade) => {
+    const requestedFromMe = (trade.items || []).filter((i) => i.from_team_id === trade.receiving_team_id);
+    const offeredToMe = (trade.items || []).filter((i) => i.from_team_id === trade.proposing_team_id);
+    setSelectedTeamId(trade.proposing_team_id);
+    setSendIds(new Set(requestedFromMe.map((i) => i.player_id)));
+    setReceiveIds(new Set(offeredToMe.map((i) => i.player_id)));
+    setCounterTradeId(trade.id);
     setDialogOpen(true);
   };
 
   const handleCloseDialog = () => {
     setDialogOpen(false);
+    setCounterTradeId(null);
   };
 
   const handleTeamChange = (e) => {
@@ -192,15 +301,19 @@ function TradeCenter() {
   const handleSendOffer = async () => {
     try {
       setError(null);
-      setSuccessMessage(null);
-      await apiClient.post('/api/trades', {
-        leagueId: Number(leagueId),
-        receivingTeamId: selectedTeamId,
-        playerIds: [...sendIds, ...receiveIds],
-      });
+      const playerIds = [...sendIds, ...receiveIds];
+      if (counterTradeId) {
+        await apiClient.post(`/api/trades/${counterTradeId}/counter`, { playerIds });
+      } else {
+        await apiClient.post('/api/trades', {
+          leagueId: Number(leagueId),
+          receivingTeamId: selectedTeamId,
+          playerIds,
+        });
+      }
       setDialogOpen(false);
-      setSuccessMessage('Trade offer sent');
-      notify('Trade offer sent');
+      notify(counterTradeId ? 'Counter offer sent' : 'Trade offer sent');
+      setCounterTradeId(null);
       await fetchTrades();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
@@ -211,9 +324,7 @@ function TradeCenter() {
   const performAction = async (url, body, message) => {
     try {
       setError(null);
-      setSuccessMessage(null);
       await apiClient.post(url, body);
-      setSuccessMessage(message);
       notify(message);
       await fetchTrades();
     } catch (err) {
@@ -240,10 +351,16 @@ function TradeCenter() {
   const handleCommissionerVeto = (trade) =>
     performAction(`/api/trades/${trade.id}/decide`, { approve: false }, 'Trade vetoed');
 
-  if (loading && trades === null) {
+  if ((loading || leagueLoading) && trades === null) {
     return (
-      <Container sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-        <CircularProgress />
+      <Container maxWidth="md" sx={{ py: 4 }} data-testid="page-skeleton">
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+          <Skeleton variant="text" width={200} height={48} />
+          <Skeleton variant="rounded" width={140} height={36} />
+        </Box>
+        <Skeleton variant="rectangular" height={140} sx={{ mb: 2, borderRadius: 1 }} />
+        <Skeleton variant="rectangular" height={140} sx={{ mb: 2, borderRadius: 1 }} />
+        <Skeleton variant="rectangular" height={140} sx={{ borderRadius: 1 }} />
       </Container>
     );
   }
@@ -263,14 +380,9 @@ function TradeCenter() {
         </Button>
       </Box>
 
-      {error && (
+      {(error || leagueError) && (
         <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
-        </Alert>
-      )}
-      {successMessage && (
-        <Alert severity="success" sx={{ mb: 2 }}>
-          {successMessage}
+          {error || leagueError}
         </Alert>
       )}
 
@@ -289,10 +401,19 @@ function TradeCenter() {
 
         return (
           <Paper key={trade.id} sx={{ p: 2, mb: 2 }} data-testid={`trade-${trade.id}`}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-              <Typography variant="h6">
-                {trade.proposing_team_name} ⇄ {trade.receiving_team_name}
-              </Typography>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+              <Box>
+                <Typography variant="h6">
+                  {trade.proposing_team_name} ⇄ {trade.receiving_team_name}
+                </Typography>
+                {trade.created_at && (
+                  <Tooltip title={new Date(trade.created_at).toLocaleString()}>
+                    <Typography variant="caption" component="span" sx={{ color: 'text.secondary' }}>
+                      {formatRelative(trade.created_at)}
+                    </Typography>
+                  </Tooltip>
+                )}
+              </Box>
               <Chip
                 label={trade.status}
                 color={STATUS_COLOR[trade.status] || 'default'}
@@ -301,7 +422,7 @@ function TradeCenter() {
             </Box>
 
             <Grid container spacing={2} sx={{ mb: 2 }}>
-              <Grid item xs={6}>
+              <Grid xs={6}>
                 <Typography variant="subtitle2">{trade.proposing_team_name} sends</Typography>
                 {itemsFromProposing.map((item) => (
                   <Typography key={item.player_id} variant="body2">
@@ -310,7 +431,7 @@ function TradeCenter() {
                   </Typography>
                 ))}
               </Grid>
-              <Grid item xs={6}>
+              <Grid xs={6}>
                 <Typography variant="subtitle2">{trade.receiving_team_name} sends</Typography>
                 {itemsFromReceiving.map((item) => (
                   <Typography key={item.player_id} variant="body2">
@@ -329,6 +450,9 @@ function TradeCenter() {
                   </Button>
                   <Button size="small" color="error" onClick={() => handleReject(trade)}>
                     Reject
+                  </Button>
+                  <Button size="small" variant="outlined" onClick={() => handleOpenCounter(trade)}>
+                    Counter
                   </Button>
                 </>
               )}
@@ -366,9 +490,9 @@ function TradeCenter() {
       })}
 
       <Dialog open={dialogOpen} onClose={handleCloseDialog} fullWidth maxWidth="md">
-        <DialogTitle>Propose Trade</DialogTitle>
+        <DialogTitle>{counterTradeId ? 'Counter Trade' : 'Propose Trade'}</DialogTitle>
         <DialogContent>
-          <FormControl fullWidth sx={{ mt: 1, mb: 2 }}>
+          <FormControl fullWidth sx={{ mt: 1, mb: 2 }} disabled={counterTradeId != null}>
             <InputLabel id="trade-with-select-label">Trade with</InputLabel>
             <Select
               labelId="trade-with-select-label"
@@ -387,40 +511,20 @@ function TradeCenter() {
 
           {selectedTeamId !== '' && (
             <Grid container spacing={2}>
-              <Grid item xs={6}>
-                <Typography variant="subtitle1" sx={{ mb: 1 }}>
-                  You send
-                </Typography>
-                {(myRoster?.players || []).map((player) => (
-                  <FormControlLabel
-                    key={player.id}
-                    control={
-                      <Checkbox
-                        checked={sendIds.has(player.id)}
-                        onChange={() => setSendIds((prev) => toggleInSet(prev, player.id))}
-                      />
-                    }
-                    label={`${player.name} (${player.position})`}
-                  />
-                ))}
-              </Grid>
-              <Grid item xs={6}>
-                <Typography variant="subtitle1" sx={{ mb: 1 }}>
-                  You receive
-                </Typography>
-                {(theirRoster?.players || []).map((player) => (
-                  <FormControlLabel
-                    key={player.id}
-                    control={
-                      <Checkbox
-                        checked={receiveIds.has(player.id)}
-                        onChange={() => setReceiveIds((prev) => toggleInSet(prev, player.id))}
-                      />
-                    }
-                    label={`${player.name} (${player.position})`}
-                  />
-                ))}
-              </Grid>
+              <RosterColumn
+                label="You send"
+                players={myRoster?.players}
+                selectedIds={sendIds}
+                onToggle={(id) => setSendIds((prev) => toggleInSet(prev, id))}
+                testId="roster-column-send"
+              />
+              <RosterColumn
+                label="You receive"
+                players={theirRoster?.players}
+                selectedIds={receiveIds}
+                onToggle={(id) => setReceiveIds((prev) => toggleInSet(prev, id))}
+                testId="roster-column-receive"
+              />
             </Grid>
           )}
 
@@ -431,7 +535,15 @@ function TradeCenter() {
               offeredPlayerIds={[...sendIds]}
               requestedPlayerIds={[...receiveIds]}
               onOpenPlayer={setQuickViewId}
+              autoRun
             />
+          )}
+
+          {selectedTeamId !== '' && (
+            <Box sx={{ mt: 2 }}>
+              <SummaryChipRow label="You send" ids={sendIds} roster={myRoster} />
+              <SummaryChipRow label="You receive" ids={receiveIds} roster={theirRoster} />
+            </Box>
           )}
         </DialogContent>
         <DialogActions>

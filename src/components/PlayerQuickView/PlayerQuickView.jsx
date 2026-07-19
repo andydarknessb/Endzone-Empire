@@ -23,6 +23,7 @@ import {
   ToggleButtonGroup,
   ToggleButton,
 } from '@mui/material';
+import CloseIcon from '@mui/icons-material/Close';
 import apiClient from '../../api/apiClient';
 import InjuryBadge from '../InjuryBadge/InjuryBadge';
 import PlayerAvatar from './PlayerAvatar';
@@ -176,7 +177,7 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
             </>
           )}
           <IconButton aria-label="Close" onClick={onClose} size="small">
-            ✕
+            <CloseIcon fontSize="small" />
           </IconButton>
         </Box>
       </DialogTitle>

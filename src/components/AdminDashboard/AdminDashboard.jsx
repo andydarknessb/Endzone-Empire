@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
   Container,
-  Grid,
   Paper,
   Typography,
   Table,
@@ -17,6 +16,7 @@ import {
   TextField,
   Skeleton,
 } from '@mui/material';
+import Grid from '@mui/material/Unstable_Grid2';
 import apiClient from '../../api/apiClient';
 
 // Turns a whole number of seconds into a short humanized string, e.g. "3h 42m".
@@ -51,7 +51,7 @@ const FREE_SYNC_JOBS = [
 
 function StatTile({ label, value, caption, tone }) {
   return (
-    <Grid item xs={12} sm={6} md={3}>
+    <Grid xs={12} sm={6} md={3}>
       <Paper
         sx={{
           p: 2,
@@ -155,7 +155,7 @@ function AdminDashboard() {
         <Skeleton variant="text" width={220} height={48} sx={{ mb: 2 }} />
         <Grid container spacing={2} sx={{ mb: 3 }}>
           {[0, 1, 2, 3].map((i) => (
-            <Grid item xs={12} sm={6} md={3} key={i}>
+            <Grid xs={12} sm={6} md={3} key={i}>
               <Skeleton variant="rounded" height={100} />
             </Grid>
           ))}

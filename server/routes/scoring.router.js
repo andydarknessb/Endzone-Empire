@@ -280,13 +280,13 @@ router.get('/league/:id/power-rankings', async (req, res) => {
   const leagueId = Number(req.params.id);
   try {
     const membership = await pool.query(
-      `SELECT 1 FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
+      `SELECT "id" FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
       [leagueId, req.user.id]
     );
     if (!membership.rows[0]) return res.status(403).json({ error: 'not a member of this league' });
     const latest = await montecarlo.getLatestPowerRankings({ leagueId });
     if (!latest) return res.status(404).json({ error: 'no power rankings computed yet' });
-    res.json(latest);
+    res.json({ ...latest, viewerTeamId: membership.rows[0].id });
   } catch (error) {
     console.error('Power rankings fetch failed:', error);
     res.status(500).json({ error: 'failed to fetch power rankings' });

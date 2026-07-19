@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useCallback, useState } from 'react';
 import { Snackbar, Alert, Button, IconButton } from '@mui/material';
+import CloseIcon from '@mui/icons-material/Close';
 
 /**
  * App-wide toast feedback. `useSnackbar()` returns a `notify` function:
@@ -66,7 +67,7 @@ export function SnackbarProvider({ children }) {
                 </Button>
               )}
               <IconButton aria-label="Dismiss notification" color="inherit" size="small" onClick={handleClose}>
-                ✕
+                <CloseIcon fontSize="small" />
               </IconButton>
             </>
           }

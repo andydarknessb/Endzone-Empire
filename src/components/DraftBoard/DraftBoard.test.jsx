@@ -1,9 +1,10 @@
 import React from 'react';
-import { act, screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import { createDraftSocket, onReconnect } from '../../api/socket';
+import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 import DraftBoard from './DraftBoard';
 
 jest.mock('../../api/apiClient', () => ({
@@ -50,6 +51,19 @@ const renderBoard = (leagueId = 1, state) =>
     route: `/league/${leagueId}/draft`,
     state,
   });
+
+// Toast text (via notify) only renders when a SnackbarProvider is mounted.
+const renderBoardWithToasts = (leagueId = 1, state) =>
+  renderWithProviders(
+    <SnackbarProvider>
+      <DraftBoard />
+    </SnackbarProvider>,
+    {
+      path: '/league/:leagueId/draft',
+      route: `/league/${leagueId}/draft`,
+      state,
+    }
+  );
 
 let fakeSocket;
 
@@ -175,8 +189,17 @@ test('shows "No picks yet" when the pick history is empty', async () => {
 });
 
 test('clicking Draft on a player emits draft:pick with the league and player id', async () => {
-  renderBoard(3);
+  renderBoard(3, { user: { id: 5 } });
   await screen.findByText('Patrick Mahomes');
+
+  act(() =>
+    fakeSocket.trigger('draft:state', {
+      league: { name: 'Sunday Ballers', draft_status: 'active', draft_paused: false },
+      teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 5 }],
+      picks: [],
+      onTheClock: { id: 1, name: 'Team A', owner: 'alice', owner_id: 5 },
+    })
+  );
 
   await userEvent.click(screen.getByRole('button', { name: 'Draft' }));
 
@@ -271,8 +294,17 @@ test('an error acknowledgment from draft:join is surfaced as an alert', async ()
 });
 
 test('an error acknowledgment from draft:pick is surfaced as an alert', async () => {
-  renderBoard(1);
+  renderBoard(1, { user: { id: 5 } });
   await screen.findByText('Patrick Mahomes');
+
+  act(() =>
+    fakeSocket.trigger('draft:state', {
+      league: { name: 'Sunday Ballers', draft_status: 'active', draft_paused: false },
+      teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 5 }],
+      picks: [],
+      onTheClock: { id: 1, name: 'Team A', owner: 'alice', owner_id: 5 },
+    })
+  );
 
   await userEvent.click(screen.getByRole('button', { name: 'Draft' }));
   const [, , ack] = fakeSocket.emit.mock.calls.find(([event]) => event === 'draft:pick');
@@ -422,6 +454,77 @@ test('a paused draft shows the paused chip and disables drafting', async () => {
   expect(screen.getByRole('button', { name: 'Draft' })).toBeDisabled();
 });
 
+test('the pool Draft button is disabled off-turn and enabled on-turn', async () => {
+  renderBoard(1, { user: { id: 5 } });
+  await screen.findByText('Patrick Mahomes');
+
+  act(() =>
+    fakeSocket.trigger(
+      'draft:state',
+      stateEvent(activeLeague(), {
+        teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 9 }],
+        onTheClock: { id: 1, name: 'Team A', owner: 'alice', owner_id: 9 },
+      })
+    )
+  );
+  expect(screen.getByRole('button', { name: 'Draft' })).toBeDisabled();
+
+  act(() =>
+    fakeSocket.trigger(
+      'draft:state',
+      stateEvent(activeLeague(), {
+        teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 5 }],
+        onTheClock: { id: 1, name: 'Team A', owner: 'alice', owner_id: 5 },
+      })
+    )
+  );
+  expect(screen.getByRole('button', { name: 'Draft' })).toBeEnabled();
+});
+
+test("the queue's top-row Draft button appears only on your turn and drafts queue[0]", async () => {
+  mockGets({
+    queue: [
+      { id: 2, name: 'Bijan Robinson', position: 'RB', nfl_team: 'ATL', rank: 1 },
+      { id: 3, name: 'Justin Jefferson', position: 'WR', nfl_team: 'MIN', rank: 2 },
+    ],
+  });
+  renderBoard(1, { user: { id: 5 } });
+  await screen.findByRole('button', { name: 'Bijan Robinson' });
+
+  const queuePanel = () => screen.getByText('My Queue').closest('.MuiPaper-root');
+
+  // Not my turn: the queue's top row has no quick-draft button.
+  act(() =>
+    fakeSocket.trigger(
+      'draft:state',
+      stateEvent(activeLeague(), {
+        teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 9 }],
+        onTheClock: { id: 1, name: 'Team A', owner: 'alice', owner_id: 9 },
+      })
+    )
+  );
+  expect(within(queuePanel()).queryByRole('button', { name: 'Draft' })).not.toBeInTheDocument();
+
+  // My turn: the quick-draft button appears and drafts queue[0] (Bijan Robinson, id 2).
+  act(() =>
+    fakeSocket.trigger(
+      'draft:state',
+      stateEvent(activeLeague(), {
+        teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 5 }],
+        onTheClock: { id: 1, name: 'Team A', owner: 'alice', owner_id: 5 },
+      })
+    )
+  );
+  const queueDraftButton = within(queuePanel()).getByRole('button', { name: 'Draft' });
+  await userEvent.click(queueDraftButton);
+
+  expect(fakeSocket.emit).toHaveBeenCalledWith(
+    'draft:pick',
+    { leagueId: 1, playerId: 2 },
+    expect.any(Function)
+  );
+});
+
 test('the queue loads on mount and renders players in rank order', async () => {
   mockGets({
     queue: [
@@ -490,7 +593,7 @@ test('move up and remove reorder the queue and persist it', async () => {
 });
 
 test('Randomize Draft Order shows only for the commissioner pre-draft and POSTs', async () => {
-  const { unmount } = renderBoard(1, { user: { id: 7, username: 'commish' } });
+  const { unmount } = renderBoardWithToasts(1, { user: { id: 7, username: 'commish' } });
   await screen.findByText('Patrick Mahomes');
   act(() =>
     fakeSocket.trigger('draft:state', stateEvent(activeLeague({

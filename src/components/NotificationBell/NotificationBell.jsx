@@ -10,6 +10,7 @@ import {
   Divider,
   ListSubheader,
 } from '@mui/material';
+import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import apiClient from '../../api/apiClient';
 
 const POLL_INTERVAL_MS = 60000;
@@ -83,9 +84,7 @@ function NotificationBell() {
     <>
       <IconButton color="inherit" aria-label="notifications" onClick={handleOpen}>
         <Badge badgeContent={unread} color="error">
-          <span role="img" aria-label="bell">
-            🔔
-          </span>
+          <NotificationsActiveIcon />
         </Badge>
       </IconButton>
       <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={handleClose}>

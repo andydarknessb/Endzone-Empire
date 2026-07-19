@@ -4,6 +4,8 @@ import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import { createDraftSocket, onReconnect } from '../../api/socket';
+import { clearLeagueCache } from '../../hooks/useLeague';
+import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 import MatchupScreen from './MatchupScreen';
 
 jest.mock('../../api/apiClient', () => ({
@@ -16,27 +18,48 @@ jest.mock('../../api/socket', () => ({
   onReconnect: jest.fn(),
 }));
 
-const renderScreen = (leagueId = 1) =>
+const renderScreen = (leagueId = 1, state = {}) =>
   renderWithProviders(<MatchupScreen />, {
     path: '/league/:leagueId/matchups',
     route: `/league/${leagueId}/matchups`,
+    state,
   });
+
+// Toast text (via notify) only renders when a SnackbarProvider is mounted.
+const renderScreenWithToasts = (leagueId = 1, state = {}) =>
+  renderWithProviders(
+    <SnackbarProvider>
+      <MatchupScreen />
+    </SnackbarProvider>,
+    {
+      path: '/league/:leagueId/matchups',
+      route: `/league/${leagueId}/matchups`,
+      state,
+    }
+  );
 
 const matchup = (overrides = {}) => ({
   id: 1,
   season: 2025,
   week: 1,
+  home_team_id: 10,
+  away_team_id: 20,
   home_team_name: 'Home Team',
   away_team_name: 'Away Team',
   home_score: 0,
   away_score: 0,
+  final: false,
   ...overrides,
 });
 
-function mockApi({ matchups = [], league = { id: 1, name: 'Sunday Ballers', owner_id: 1 }, user = { id: 1 } } = {}) {
+function mockApi({
+  matchups = [],
+  league = { id: 1, name: 'Sunday Ballers', owner_id: 1 },
+  rosters = [],
+} = {}) {
   apiClient.get.mockImplementation((url) => {
     if (url.endsWith('/matchups')) return Promise.resolve({ data: matchups });
-    if (url === '/api/user') return Promise.resolve({ data: user });
+    if (url.endsWith('/rosters')) return Promise.resolve({ data: rosters });
     return Promise.resolve({ data: { league } });
   });
 }
@@ -66,12 +89,13 @@ beforeEach(() => {
 
 afterEach(() => {
   jest.clearAllMocks();
+  clearLeagueCache();
 });
 
-test('shows a loading spinner before data arrives', () => {
+test('shows a loading skeleton before data arrives', () => {
   apiClient.get.mockReturnValue(new Promise(() => {}));
   renderScreen();
-  expect(screen.getByRole('progressbar')).toBeInTheDocument();
+  expect(screen.getByTestId('page-skeleton')).toBeInTheDocument();
 });
 
 test('renders the league name and each matchup', async () => {
@@ -115,21 +139,34 @@ test('neither team is bolded on a tie', async () => {
   expect(homeText.className).toBe(awayText.className);
 });
 
-test('the week filter lists unique weeks and filters the visible matchups', async () => {
-  // Non-owner: keeps Owner Tools (which has its own "Week" TextField) out
-  // of the tree, so the filter's "Week" label is unambiguous.
+test('defaults to the league current_week when it has matchups', async () => {
   mockApi({
     matchups: [
       matchup({ id: 1, week: 1, home_team_name: 'Week1 Home' }),
       matchup({ id: 2, week: 2, home_team_name: 'Week2 Home' }),
     ],
-    league: { id: 1, name: 'Sunday Ballers', owner_id: 99 },
-    user: { id: 1 },
+    league: { id: 1, name: 'Sunday Ballers', owner_id: 99, current_week: 1 },
   });
 
   renderScreen();
+
   await screen.findByText(/Week1 Home/);
-  expect(screen.getByText(/Week2 Home/)).toBeInTheDocument();
+  expect(screen.queryByText(/Week2 Home/)).not.toBeInTheDocument();
+  expect(screen.getByLabelText('Week')).toHaveTextContent('Week 1');
+});
+
+test('falls back to the highest non-final week when current_week has no matchups, and the filter switches weeks', async () => {
+  mockApi({
+    matchups: [
+      matchup({ id: 1, week: 1, home_team_name: 'Week1 Home', final: true }),
+      matchup({ id: 2, week: 2, home_team_name: 'Week2 Home', final: false }),
+    ],
+    league: { id: 1, name: 'Sunday Ballers', owner_id: 99 },
+  });
+
+  renderScreen();
+  await screen.findByText(/Week2 Home/);
+  expect(screen.queryByText(/Week1 Home/)).not.toBeInTheDocument();
 
   await userEvent.click(screen.getByLabelText('Week'));
   await userEvent.click(await screen.findByRole('option', { name: 'Week 1' }));
@@ -138,11 +175,95 @@ test('the week filter lists unique weeks and filters the visible matchups', asyn
   expect(screen.queryByText(/Week2 Home/)).not.toBeInTheDocument();
 });
 
-test('shows Owner Tools for the league owner and lets them generate matchups and score the week', async () => {
-  mockApi({ matchups: [], league: { id: 1, name: 'Sunday Ballers', owner_id: 1 }, user: { id: 1 } });
-  apiClient.post.mockResolvedValue({});
+test('week chevrons step through weeks and are hidden when All is selected', async () => {
+  mockApi({
+    matchups: [
+      matchup({ id: 1, week: 1, home_team_name: 'Week1 Home', final: true }),
+      matchup({ id: 2, week: 2, home_team_name: 'Week2 Home', final: true }),
+      matchup({ id: 3, week: 3, home_team_name: 'Week3 Home', final: false }),
+    ],
+    league: { id: 1, name: 'Sunday Ballers', owner_id: 99 },
+  });
 
   renderScreen();
+  await screen.findByText(/Week3 Home/);
+
+  const prevButton = screen.getByLabelText('Previous week');
+  const nextButton = screen.getByLabelText('Next week');
+  expect(nextButton).toBeDisabled();
+  expect(prevButton).not.toBeDisabled();
+
+  await userEvent.click(prevButton);
+  await screen.findByText(/Week2 Home/);
+  expect(screen.queryByText(/Week3 Home/)).not.toBeInTheDocument();
+
+  await userEvent.click(prevButton);
+  await screen.findByText(/Week1 Home/);
+  expect(screen.getByLabelText('Previous week')).toBeDisabled();
+
+  await userEvent.click(screen.getByLabelText('Week'));
+  await userEvent.click(await screen.findByRole('option', { name: 'All' }));
+
+  expect(screen.queryByLabelText('Previous week')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('Next week')).not.toBeInTheDocument();
+});
+
+test('renders the viewer matchup as a full-width hero and keeps it out of the grid', async () => {
+  mockApi({
+    matchups: [
+      matchup({ id: 1, week: 1, home_team_id: 10, away_team_id: 20, home_team_name: 'My Team', away_team_name: 'Rival', home_score: 30, away_score: 20, final: true }),
+      matchup({ id: 2, week: 1, home_team_id: 30, away_team_id: 40, home_team_name: 'Other A', away_team_name: 'Other B' }),
+    ],
+    league: { id: 1, name: 'Sunday Ballers', owner_id: 99, current_week: 1 },
+    rosters: [{ teamId: 10, teamName: 'My Team', ownerId: 1 }, { teamId: 20, teamName: 'Rival', ownerId: 2 }],
+  });
+
+  renderScreen(1, { user: { id: 1 } });
+
+  expect(await screen.findByText('Your Matchup — Week 1')).toBeInTheDocument();
+  // Hero renders team names and scores as separate elements, not "(score)".
+  expect(screen.getByText('My Team')).toBeInTheDocument();
+  expect(screen.getByText('30')).toBeInTheDocument();
+  expect(screen.getByText('20')).toBeInTheDocument();
+  // The viewer's matchup should not also appear as a grid card.
+  expect(screen.queryByText('Rival (20)')).not.toBeInTheDocument();
+  expect(screen.getByText('Other A (0)')).toBeInTheDocument();
+});
+
+test('no hero card renders when the viewer has no matchup this week', async () => {
+  mockApi({
+    matchups: [matchup({ id: 2, week: 1, home_team_id: 30, away_team_id: 40, home_team_name: 'Other A', away_team_name: 'Other B' })],
+    league: { id: 1, name: 'Sunday Ballers', owner_id: 99, current_week: 1 },
+    rosters: [{ teamId: 30, teamName: 'Other A', ownerId: 2 }],
+  });
+
+  renderScreen(1, { user: { id: 1 } });
+
+  await screen.findByText('Other A (0)');
+  expect(screen.queryByText(/Your Matchup/)).not.toBeInTheDocument();
+});
+
+test('shows a Final chip for a completed matchup and a Scheduled chip otherwise', async () => {
+  mockApi({
+    matchups: [
+      matchup({ id: 1, week: 1, home_team_name: 'Done Team', final: true }),
+      matchup({ id: 2, week: 1, home_team_name: 'Pending Team', final: false }),
+    ],
+    league: { id: 1, name: 'Sunday Ballers', owner_id: 99, current_week: 1 },
+  });
+
+  renderScreen();
+
+  await screen.findByText(/Done Team/);
+  expect(screen.getByText('Final')).toBeInTheDocument();
+  expect(screen.getByText('Scheduled')).toBeInTheDocument();
+});
+
+test('shows Owner Tools for the league owner and lets them generate matchups and score the week', async () => {
+  mockApi({ matchups: [], league: { id: 1, name: 'Sunday Ballers', owner_id: 1 } });
+  apiClient.post.mockResolvedValue({});
+
+  renderScreenWithToasts(1, { user: { id: 1 } });
   const ownerToolsHeading = await screen.findByRole('heading', { name: 'Owner Tools' });
   const ownerTools = within(ownerToolsHeading.closest('.MuiPaper-root'));
 
@@ -165,9 +286,9 @@ test('shows Owner Tools for the league owner and lets them generate matchups and
 });
 
 test('does not show Owner Tools for a non-owner', async () => {
-  mockApi({ matchups: [], league: { id: 1, name: 'Sunday Ballers', owner_id: 99 }, user: { id: 1 } });
+  mockApi({ matchups: [], league: { id: 1, name: 'Sunday Ballers', owner_id: 99 } });
 
-  renderScreen();
+  renderScreen(1, { user: { id: 1 } });
   await screen.findByText(/Sunday Ballers/);
 
   expect(screen.queryByRole('heading', { name: 'Owner Tools' })).not.toBeInTheDocument();
@@ -208,7 +329,7 @@ test('re-joins the league room when the manager reconnects', async () => {
   expect(mockSocket.emit).toHaveBeenCalledWith('league:join', { leagueId: 42 });
 });
 
-test('receiving scores:updated for a rendered matchup updates the displayed scores', async () => {
+test('receiving scores:updated for a rendered matchup updates the displayed scores and shows a LIVE chip', async () => {
   mockApi({ matchups: [matchup({ id: 5, home_score: 0, away_score: 0 })] });
 
   renderScreen();
@@ -228,16 +349,14 @@ test('receiving scores:updated for a rendered matchup updates the displayed scor
   expect(screen.getByText('LIVE')).toBeInTheDocument();
 });
 
-test('each matchup links to its details page', async () => {
+test('each matchup card links to its details page', async () => {
   mockApi({ matchups: [matchup({ id: 5 })] });
 
   renderScreen(3);
   await screen.findByText('Home Team (0)');
 
-  expect(screen.getByRole('link', { name: 'Details' })).toHaveAttribute(
-    'href',
-    '/league/3/matchups/5'
-  );
+  const links = screen.getAllByRole('link');
+  expect(links.some((el) => el.getAttribute('href') === '/league/3/matchups/5')).toBe(true);
 });
 
 test('scores:updated for an unknown matchupId leaves the list unchanged', async () => {
