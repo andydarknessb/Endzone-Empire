@@ -18,13 +18,26 @@ import {
   Chip,
   LinearProgress,
   Skeleton,
+  Stack,
+  Avatar,
   useMediaQuery,
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import ArrowDropUpIcon from '@mui/icons-material/ArrowDropUp';
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
+import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
+import LeaderboardOutlinedIcon from '@mui/icons-material/LeaderboardOutlined';
 import apiClient from '../../api/apiClient';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
+
+function initialsFor(name) {
+  if (!name) return '?';
+  const parts = name.trim().split(/\s+/);
+  const first = parts[0]?.[0] || '';
+  const last = parts.length > 1 ? parts[parts.length - 1][0] : '';
+  return (first + last).toUpperCase();
+}
 
 function OddsCell({ value, label }) {
   const pct = Math.round((value || 0) * 1000) / 10;
@@ -70,6 +83,46 @@ function MovementCell({ change }) {
   );
 }
 
+function formatRecord(record) {
+  if (!record) return '—';
+  return record.ties ? `${record.wins}-${record.losses}-${record.ties}` : `${record.wins}-${record.losses}`;
+}
+
+function HighlightCard({ label, team, change, up }) {
+  return (
+    <Card variant="outlined" sx={{ flex: 1, minWidth: 220 }} data-testid={`highlight-card-${up ? 'mover' : 'faller'}`}>
+      <CardContent>
+        <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+          <Stack direction="row" alignItems="center" spacing={1.5} sx={{ minWidth: 0 }}>
+            <Avatar sx={{ bgcolor: 'action.selected', color: 'text.secondary', flexShrink: 0 }}>
+              {initialsFor(team.name)}
+            </Avatar>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                {label}
+              </Typography>
+              <Typography variant="subtitle1" noWrap sx={{ fontWeight: 600, lineHeight: 1.2 }}>
+                {team.name}
+              </Typography>
+            </Box>
+          </Stack>
+          <Stack
+            direction="row"
+            alignItems="center"
+            spacing={0.25}
+            sx={{ color: up ? 'success.main' : 'error.main', flexShrink: 0, whiteSpace: 'nowrap' }}
+          >
+            {up ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />}
+            <Typography variant="h6" sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>
+              {Math.abs(change)} Spot{Math.abs(change) === 1 ? '' : 's'}
+            </Typography>
+          </Stack>
+        </Stack>
+      </CardContent>
+    </Card>
+  );
+}
+
 const SORT_DEFAULT_DIRECTION = { rank: 'asc', winPct: 'desc', avgScore: 'desc' };
 
 function sortRankings(rankings, orderBy, order) {
@@ -86,6 +139,7 @@ function PowerRankings() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [payload, setPayload] = useState(null);
+  const [standings, setStandings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [notComputed, setNotComputed] = useState(false);
@@ -104,6 +158,10 @@ function PowerRankings() {
       setNotComputed(false);
       const res = await apiClient.get(`/api/scoring/league/${leagueId}/power-rankings`);
       setPayload(res.data);
+      apiClient
+        .get(`/api/scoring/league/${leagueId}/standings`)
+        .then((standingsRes) => setStandings(standingsRes.data?.standings || []))
+        .catch(() => setStandings([]));
     } catch (err) {
       if (err.response?.status === 404) {
         setNotComputed(true);
@@ -116,13 +174,27 @@ function PowerRankings() {
     }
   };
 
-  const rankings = payload?.data?.rankings || [];
+  const rankings = useMemo(() => payload?.data?.rankings || [], [payload]);
   const viewerTeamId = payload?.viewerTeamId ?? null;
 
   const sortedRankings = useMemo(
     () => sortRankings(rankings, orderBy, order),
     [rankings, orderBy, order]
   );
+
+  const recordByTeamId = useMemo(() => {
+    const map = new Map();
+    for (const s of standings) map.set(s.teamId, s);
+    return map;
+  }, [standings]);
+
+  const { biggestMover, biggestFaller } = useMemo(() => {
+    const movers = rankings.filter((t) => typeof t.change === 'number' && t.change > 0);
+    const fallers = rankings.filter((t) => typeof t.change === 'number' && t.change < 0);
+    const mover = movers.reduce((best, t) => (!best || t.change > best.change ? t : best), null);
+    const faller = fallers.reduce((worst, t) => (!worst || t.change < worst.change ? t : worst), null);
+    return { biggestMover: mover, biggestFaller: faller };
+  }, [rankings]);
 
   const handleSort = (key) => {
     if (orderBy === key) {
@@ -164,9 +236,21 @@ function PowerRankings() {
       )}
 
       {notComputed && (
-        <Alert severity="info" data-testid="power-rankings-empty">
-          Rankings appear after the first scored week
-        </Alert>
+        <Stack
+          alignItems="center"
+          justifyContent="center"
+          spacing={1.5}
+          sx={{ minHeight: 320, textAlign: 'center', color: 'text.secondary' }}
+          data-testid="power-rankings-empty"
+        >
+          <LeaderboardOutlinedIcon sx={{ fontSize: 64, color: 'text.disabled' }} />
+          <Typography variant="h6" sx={{ color: 'text.primary' }}>
+            No rankings yet
+          </Typography>
+          <Typography variant="body2" sx={{ maxWidth: 360 }}>
+            Rankings appear after the first scored week
+          </Typography>
+        </Stack>
       )}
 
       {payload && (
@@ -178,6 +262,17 @@ function PowerRankings() {
             Computed {new Date(payload.data.computedAt).toLocaleString()} · {payload.data.runs}{' '}
             simulation runs
           </Typography>
+
+          {(biggestMover || biggestFaller) && (
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 3 }}>
+              {biggestMover && (
+                <HighlightCard label="Biggest Mover" team={biggestMover} change={biggestMover.change} up />
+              )}
+              {biggestFaller && (
+                <HighlightCard label="Biggest Faller" team={biggestFaller} change={biggestFaller.change} up={false} />
+              )}
+            </Stack>
+          )}
 
           {isMobile ? (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
@@ -207,13 +302,17 @@ function PowerRankings() {
                           mb: 0.5,
                         }}
                       >
+                        <Avatar sx={{ bgcolor: 'action.selected', color: 'text.secondary', width: 32, height: 32, fontSize: 13 }}>
+                          {initialsFor(team.name)}
+                        </Avatar>
                         <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
                           #{team.rank} {team.name}
                         </Typography>
                         <MovementCell change={team.change} />
                       </Box>
                       <Typography variant="body2" sx={{ color: 'text.secondary', mb: 1.5 }}>
-                        Win {Math.round((team.winPct || 0) * 1000) / 10}% · Avg {team.avgScore}
+                        Win {Math.round((team.winPct || 0) * 1000) / 10}% · Avg {team.avgScore} ·{' '}
+                        {formatRecord(recordByTeamId.get(team.teamId))}
                       </Typography>
                       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                         <Box>
@@ -249,6 +348,7 @@ function PowerRankings() {
                       </TableSortLabel>
                     </TableCell>
                     <TableCell>Team</TableCell>
+                    <TableCell>Record</TableCell>
                     <TableCell>Move</TableCell>
                     <TableCell align="right" sortDirection={orderBy === 'winPct' ? order : false}>
                       <TableSortLabel
@@ -291,8 +391,20 @@ function PowerRankings() {
                           }),
                         }}
                       >
-                        <TableCell>{team.rank}</TableCell>
-                        <TableCell>{team.name}</TableCell>
+                        <TableCell>
+                          <Typography variant="body1" sx={{ fontWeight: 700 }}>
+                            {team.rank}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Stack direction="row" alignItems="center" spacing={1}>
+                            <Avatar sx={{ bgcolor: 'action.selected', color: 'text.secondary', width: 28, height: 28, fontSize: 12 }}>
+                              {initialsFor(team.name)}
+                            </Avatar>
+                            <Typography variant="body2">{team.name}</Typography>
+                          </Stack>
+                        </TableCell>
+                        <TableCell>{formatRecord(recordByTeamId.get(team.teamId))}</TableCell>
                         <TableCell>
                           <MovementCell change={team.change} />
                         </TableCell>

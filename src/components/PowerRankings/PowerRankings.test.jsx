@@ -30,6 +30,16 @@ const renderScreen = (leagueId = 1) =>
     route: `/league/${leagueId}/power-rankings`,
   });
 
+const standingsResponse = () => ({
+  league: { season_status: 'in_progress' },
+  standings: [
+    { teamId: 1, name: "Alice's Team", wins: 3, losses: 1, ties: 0 },
+    { teamId: 2, name: "Bob's Team", wins: 2, losses: 2, ties: 0 },
+    { teamId: 3, name: "Cara's Team", wins: 1, losses: 3, ties: 0 },
+    { teamId: 4, name: "Dave's Team", wins: 0, losses: 4, ties: 0 },
+  ],
+});
+
 const powerRankingsResponse = (overrides = {}) => ({
   season: 2026,
   week: 5,
@@ -63,17 +73,17 @@ test('renders the ranked table with win %, avg score, and odds columns', async (
 
   renderScreen();
 
-  await screen.findByText("Alice's Team");
-  expect(screen.getByText("Bob's Team")).toBeInTheDocument();
+  const aliceRow = await screen.findByTestId('power-ranking-row-1');
+  expect(within(aliceRow).getByText("Alice's Team")).toBeInTheDocument();
+  const bobRow = screen.getByTestId('power-ranking-row-2');
+  expect(within(bobRow).getByText("Bob's Team")).toBeInTheDocument();
 
-  const aliceRow = screen.getByTestId('power-ranking-row-1');
   expect(within(aliceRow).getAllByRole('cell')[0]).toHaveTextContent('1');
   expect(within(aliceRow).getByText('75%')).toBeInTheDocument();
   expect(within(aliceRow).getByText('121.3')).toBeInTheDocument();
   expect(within(aliceRow).getByText('91%')).toBeInTheDocument();
   expect(within(aliceRow).getByText('34%')).toBeInTheDocument();
 
-  const bobRow = screen.getByTestId('power-ranking-row-2');
   expect(within(bobRow).getByText('50%')).toBeInTheDocument();
   expect(within(bobRow).getByText('62%')).toBeInTheDocument();
   expect(within(bobRow).getByText('12%')).toBeInTheDocument();
@@ -87,7 +97,7 @@ test('shows the computedAt caption and run count', async () => {
 
   renderScreen();
 
-  await screen.findByText("Alice's Team");
+  await screen.findByTestId('power-ranking-row-1');
   expect(
     screen.getByText(new RegExp(new Date('2026-07-10T12:00:00.000Z').toLocaleString().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   ).toBeInTheDocument();
@@ -156,7 +166,7 @@ describe('sorting', () => {
   test('defaults to ascending rank order', async () => {
     apiClient.get.mockResolvedValue({ data: powerRankingsResponse() });
     renderScreen();
-    await screen.findByText("Alice's Team");
+    await screen.findByTestId('power-ranking-row-1');
     const rows = screen.getAllByTestId(/power-ranking-row-/);
     expect(rows.map((r) => r.getAttribute('data-testid'))).toEqual([
       'power-ranking-row-1',
@@ -169,7 +179,7 @@ describe('sorting', () => {
   test('clicking Win % sorts descending by win percentage', async () => {
     apiClient.get.mockResolvedValue({ data: powerRankingsResponse() });
     renderScreen();
-    await screen.findByText("Alice's Team");
+    await screen.findByTestId('power-ranking-row-1');
     fireEvent.click(screen.getByRole('button', { name: /Win %/i }));
     const rows = screen.getAllByTestId(/power-ranking-row-/);
     // Alice (0.75) already highest, so order is unchanged, but toggling again reverses it
@@ -192,7 +202,7 @@ describe('sorting', () => {
   test('clicking Avg Score sorts descending by average score', async () => {
     apiClient.get.mockResolvedValue({ data: powerRankingsResponse() });
     renderScreen();
-    await screen.findByText("Alice's Team");
+    await screen.findByTestId('power-ranking-row-1');
     fireEvent.click(screen.getByRole('button', { name: /Avg Score/i }));
     const rows = screen.getAllByTestId(/power-ranking-row-/);
     expect(rows.map((r) => r.getAttribute('data-testid'))).toEqual([
@@ -204,6 +214,61 @@ describe('sorting', () => {
   });
 });
 
+describe('highlight cards', () => {
+  const mockBothEndpoints = () => {
+    apiClient.get.mockImplementation((url) =>
+      url.includes('standings')
+        ? Promise.resolve({ data: standingsResponse() })
+        : Promise.resolve({ data: powerRankingsResponse() })
+    );
+  };
+
+  test('shows Biggest Mover and Biggest Faller cards computed from real movement data', async () => {
+    mockBothEndpoints();
+    renderScreen();
+    await screen.findByTestId('power-ranking-row-1');
+
+    const mover = screen.getByTestId('highlight-card-mover');
+    expect(within(mover).getByText('Biggest Mover')).toBeInTheDocument();
+    expect(within(mover).getByText("Alice's Team")).toBeInTheDocument();
+    expect(within(mover).getByText('1 Spot')).toBeInTheDocument();
+
+    const faller = screen.getByTestId('highlight-card-faller');
+    expect(within(faller).getByText('Biggest Faller')).toBeInTheDocument();
+    expect(within(faller).getByText("Bob's Team")).toBeInTheDocument();
+    expect(within(faller).getByText('1 Spot')).toBeInTheDocument();
+  });
+
+  test('omits highlight cards when no team has moved', async () => {
+    apiClient.get.mockResolvedValue({
+      data: powerRankingsResponse({
+        data: {
+          rankings: [
+            { teamId: 1, name: "Alice's Team", rank: 1, winPct: 0.75, avgScore: 121.3, playoffOdds: 0.91, titleOdds: 0.34, change: 0 },
+            { teamId: 2, name: "Bob's Team", rank: 2, winPct: 0.5, avgScore: 108.7, playoffOdds: 0.62, titleOdds: 0.12, change: null },
+          ],
+        },
+      }),
+    });
+    renderScreen();
+    await screen.findByTestId('power-ranking-row-1');
+    expect(screen.queryByTestId('highlight-card-mover')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('highlight-card-faller')).not.toBeInTheDocument();
+  });
+});
+
+test('shows each team\'s real win-loss record fetched from the standings endpoint', async () => {
+  apiClient.get.mockImplementation((url) =>
+    url.includes('standings')
+      ? Promise.resolve({ data: standingsResponse() })
+      : Promise.resolve({ data: powerRankingsResponse() })
+  );
+  renderScreen();
+
+  const aliceRow = await screen.findByTestId('power-ranking-row-1');
+  expect(within(aliceRow).getByText('3-1')).toBeInTheDocument();
+});
+
 describe('mobile layout', () => {
   beforeEach(() => {
     matchMediaMatches = true;
@@ -212,10 +277,9 @@ describe('mobile layout', () => {
   test('renders card rows instead of the table below the sm breakpoint', async () => {
     apiClient.get.mockResolvedValue({ data: powerRankingsResponse() });
     renderScreen();
-    await screen.findByText(/Alice's Team/);
+    const aliceRow = await screen.findByTestId('power-ranking-row-1');
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
 
-    const aliceRow = screen.getByTestId('power-ranking-row-1');
     expect(within(aliceRow).getByText(/#1 Alice's Team/)).toBeInTheDocument();
     expect(within(aliceRow).getByText(/Win 75%/)).toBeInTheDocument();
     expect(within(aliceRow).getByText(/Avg 121.3/)).toBeInTheDocument();
