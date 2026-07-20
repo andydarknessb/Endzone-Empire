@@ -34,27 +34,44 @@ import InjuryBadge from '../InjuryBadge/InjuryBadge';
 import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 
-const STARTER_SLOT_ORDER = ['QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF'];
-const FLEX_ELIGIBLE_POSITIONS = ['RB', 'WR', 'TE'];
+// Mirrors POSITION_GROUPS in server/services/lineup.service.js — group keys
+// (DL/LB/DB) usable in a slot's eligiblePositions expand to every specific
+// defensive position Tank01 reports in that group.
+const POSITION_GROUPS = {
+  DL: ['DL', 'DE', 'DT', 'NT'],
+  LB: ['LB', 'ILB', 'OLB'],
+  DB: ['DB', 'CB', 'S', 'FS', 'SS'],
+};
+const DEFAULT_STARTER_SLOT_ORDER = ['QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF'];
 const MIN_WEEK = 1;
 const MAX_WEEK = 18;
 const WEEK_OPTIONS = Array.from({ length: MAX_WEEK }, (_, i) => i + 1);
 
-function isEligibleForSlot(position, slot) {
-  if (slot === 'FLEX') return FLEX_ELIGIBLE_POSITIONS.includes(position);
+/** A slot's configured eligiblePositions, with any group key expanded to its member positions. */
+function slotEligiblePositions(rosterSlots, slotKey) {
+  const slot = (rosterSlots || []).find((s) => s.key === slotKey);
+  if (!slot) return [];
+  const out = new Set();
+  for (const p of slot.eligiblePositions || []) {
+    (POSITION_GROUPS[p] || [p]).forEach((m) => out.add(m));
+  }
+  return [...out];
+}
+
+function isEligibleForSlot(position, slot, rosterSlots) {
   if (slot === 'BENCH' || slot === 'IR') return true;
-  return position === slot;
+  return slotEligiblePositions(rosterSlots, slot).includes(position);
 }
 
 // Whether `selectedEntry` may legally land on this row: an empty slot only
 // needs the one-way check, but an occupied row is a swap, so both players
 // must be eligible for each other's slot. A locked occupant can never be a
 // target regardless of position.
-function isEligibleTarget(selectedEntry, targetEntry, slotType) {
-  if (!targetEntry) return isEligibleForSlot(selectedEntry.position, slotType);
+function isEligibleTarget(selectedEntry, targetEntry, slotType, rosterSlots) {
+  if (!targetEntry) return isEligibleForSlot(selectedEntry.position, slotType, rosterSlots);
   if (targetEntry.locked) return false;
-  const aEligible = isEligibleForSlot(selectedEntry.position, targetEntry.slot);
-  const bEligible = isEligibleForSlot(targetEntry.position, selectedEntry.slot);
+  const aEligible = isEligibleForSlot(selectedEntry.position, targetEntry.slot, rosterSlots);
+  const bEligible = isEligibleForSlot(targetEntry.position, selectedEntry.slot, rosterSlots);
   return aEligible && bEligible;
 }
 
@@ -247,7 +264,7 @@ function LineupScreen() {
   const renderRow = ({ key, testId, slotLabel, slotType, entry }) => {
     const isSelected = !!(entry && selectedEntry && selectedEntry.id === entry.id);
     const showEligibility = !!selectedEntry && !isSelected;
-    const eligible = showEligibility && isEligibleTarget(selectedEntry, entry, slotType);
+    const eligible = showEligibility && isEligibleTarget(selectedEntry, entry, slotType, lineup?.rosterSlots);
     const disabled = bestBall || (showEligibility && !eligible);
     const isEmpty = !entry;
     return (
@@ -337,9 +354,12 @@ function LineupScreen() {
     (bySlot[e.slot] = bySlot[e.slot] || []).push(e);
   });
 
+  const rosterSlots = lineup?.rosterSlots || [];
+  const starterSlotOrder = rosterSlots.length > 0 ? rosterSlots.map((s) => s.key) : DEFAULT_STARTER_SLOT_ORDER;
+
   const starterRows = lineup
-    ? STARTER_SLOT_ORDER.flatMap((type) => {
-        const count = lineup.lineupSlots?.[type] || 0;
+    ? starterSlotOrder.flatMap((type) => {
+        const count = rosterSlots.find((s) => s.key === type)?.count || 0;
         const filled = bySlot[type] || [];
         return Array.from({ length: count }, (_, i) =>
           renderRow({
@@ -378,14 +398,14 @@ function LineupScreen() {
   // Lineup guardrails: a persistent warning (never a block — moves auto-save)
   // when a starting slot is empty or a starter is on this week's bye.
   const emptyStarterSlots = lineup
-    ? STARTER_SLOT_ORDER.reduce((acc, type) => {
-        const count = lineup.lineupSlots?.[type] || 0;
+    ? starterSlotOrder.reduce((acc, type) => {
+        const count = rosterSlots.find((s) => s.key === type)?.count || 0;
         const filled = (bySlot[type] || []).length;
         return acc + Math.max(0, count - filled);
       }, 0)
     : 0;
   const startersOnBye = lineup
-    ? STARTER_SLOT_ORDER.flatMap((type) => bySlot[type] || []).filter((e) => e.onBye)
+    ? starterSlotOrder.flatMap((type) => bySlot[type] || []).filter((e) => e.onBye)
     : [];
   const showLineupWarning = !bestBall && (emptyStarterSlots > 0 || startersOnBye.length > 0);
   const lineupWarningText = [
@@ -398,7 +418,7 @@ function LineupScreen() {
     .join(' ');
 
   const quickPickEligible = quickPick
-    ? entries.filter((e) => !e.locked && isEligibleForSlot(e.position, quickPick.slotType))
+    ? entries.filter((e) => !e.locked && isEligibleForSlot(e.position, quickPick.slotType, lineup?.rosterSlots))
     : [];
 
   const currentWeekValue = lineup ? selectedWeek ?? lineup.week : null;

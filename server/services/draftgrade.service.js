@@ -79,7 +79,7 @@ async function getOrComputeDraftGrades({ leagueId }) {
   const pointsFor = new Map(
     [...projections].map(([playerId, { points }]) => [playerId, points])
   );
-  const { lineupSlots } = parseLineupSettings(league);
+  const { rosterSlots } = parseLineupSettings(league);
 
   const byTeam = new Map();
   for (const pick of picksResult.rows) {
@@ -91,7 +91,7 @@ async function getOrComputeDraftGrades({ leagueId }) {
 
   const teamValues = [];
   for (const [teamId, { name, players }] of byTeam) {
-    const optimal = optimalLineup(players, lineupSlots, pointsFor);
+    const optimal = optimalLineup(players, rosterSlots, pointsFor);
     const starterIds = new Set(optimal.starters.map((s) => s.playerId));
     const benchValue = players
       .filter((p) => !starterIds.has(p.playerId))

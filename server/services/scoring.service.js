@@ -875,8 +875,8 @@ async function scoreMatchups({ leagueId, season, week, plays = [] }) {
         const pointsFor = new Map(
           r.rows.map((row) => [row.player_id, calculateFantasyPoints(row.stats, rules)])
         );
-        const { lineupSlots } = parseLineupSettings(league);
-        return optimalLineup(candidates, lineupSlots, pointsFor).total;
+        const { rosterSlots } = parseLineupSettings(league);
+        return optimalLineup(candidates, rosterSlots, pointsFor).total;
       }
       const r = await client.query(
         `SELECT "player_stats"."stats"

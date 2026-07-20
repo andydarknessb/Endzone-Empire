@@ -301,6 +301,149 @@ function GeneralSettingsPanel({ leagueId, league, teams, user, standingsLeague, 
   );
 }
 
+const ROSTER_POSITION_OPTIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF', 'DL', 'LB', 'DB'];
+const DP_GROUP_KEYS = ['DL', 'LB', 'DB'];
+
+function RosterSettingsPanel({ leagueId, league, onRefresh, notify }) {
+  const [slots, setSlots] = useState(
+    (league.roster_slots || []).map((s, i) => ({ ...s, _id: i }))
+  );
+  const [nextId, setNextId] = useState(slots.length);
+  const [benchSlots, setBenchSlots] = useState(league.bench_slots ?? 5);
+  const [irSlots, setIrSlots] = useState(league.ir_slots ?? 1);
+  const [dpEnabled, setDpEnabled] = useState(!!league.dp_enabled);
+  const report = fail(notify);
+
+  const frozen = league.draft_status !== 'pending';
+
+  const starters = slots.reduce((sum, s) => sum + (Number(s.count) || 0), 0);
+  const dpStarters = slots
+    .filter((s) => (s.eligiblePositions || []).length > 0 && s.eligiblePositions.every((p) => DP_GROUP_KEYS.includes(p)))
+    .reduce((sum, s) => sum + (Number(s.count) || 0), 0);
+  const totalRosterSize = starters + (Number(benchSlots) || 0) + (Number(irSlots) || 0);
+
+  const updateSlot = (id, patch) => setSlots((prev) => prev.map((s) => (s._id === id ? { ...s, ...patch } : s)));
+  const removeSlot = (id) => setSlots((prev) => prev.filter((s) => s._id !== id));
+  const addSlot = () => {
+    setSlots((prev) => [...prev, { _id: nextId, key: '', count: 1, eligiblePositions: [] }]);
+    setNextId((n) => n + 1);
+  };
+
+  const handleSave = async () => {
+    const payload = slots.map(({ key, count, eligiblePositions }) => ({
+      key: String(key).trim().toUpperCase(),
+      count: Number(count) || 0,
+      eligiblePositions: eligiblePositions || [],
+    }));
+    try {
+      await apiClient.put(`/api/league/${leagueId}`, {
+        rosterSlots: payload,
+        benchSlots: Number(benchSlots),
+        irSlots: Number(irSlots),
+        dpEnabled,
+      });
+      notify('Roster settings saved');
+      onRefresh();
+    } catch (err) {
+      report(err);
+    }
+  };
+
+  return (
+    <Stack spacing={3}>
+      {frozen && (
+        <Alert severity="info">
+          Roster construction locks once the draft starts, so every manager drafts against the
+          same rules.
+        </Alert>
+      )}
+
+      <Box>
+        <Typography variant="subtitle2" sx={{ mb: 1 }}>Starting Lineup Slots</Typography>
+        <Stack spacing={1.5}>
+          {slots.map((slot) => (
+            <Box key={slot._id} sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap' }}>
+              <TextField
+                label="Slot Name" size="small" disabled={frozen}
+                value={slot.key} onChange={(e) => updateSlot(slot._id, { key: e.target.value.toUpperCase() })}
+                sx={{ width: 130 }}
+              />
+              <TextField
+                label="Count" type="number" size="small" disabled={frozen}
+                inputProps={{ min: 0, max: 10 }}
+                value={slot.count} onChange={(e) => updateSlot(slot._id, { count: e.target.value })}
+                sx={{ width: 90 }}
+              />
+              <FormControl size="small" disabled={frozen} sx={{ minWidth: 260 }}>
+                <InputLabel id={`elig-${slot._id}`}>Eligible Positions</InputLabel>
+                <Select
+                  labelId={`elig-${slot._id}`} label="Eligible Positions" multiple
+                  value={slot.eligiblePositions || []}
+                  onChange={(e) => updateSlot(slot._id, { eligiblePositions: e.target.value })}
+                  renderValue={(sel) => sel.join(', ')}
+                >
+                  {ROSTER_POSITION_OPTIONS.map((p) => (
+                    <MenuItem key={p} value={p} disabled={!dpEnabled && DP_GROUP_KEYS.includes(p)}>
+                      {p}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <IconButton
+                aria-label={`Remove ${slot.key || 'slot'}`} disabled={frozen}
+                onClick={() => removeSlot(slot._id)}
+              >
+                <DeleteIcon fontSize="small" />
+              </IconButton>
+            </Box>
+          ))}
+        </Stack>
+        <Button size="small" sx={{ mt: 1 }} disabled={frozen} onClick={addSlot}>+ Add Slot</Button>
+      </Box>
+
+      <Divider />
+
+      <Box>
+        <FormControlLabel
+          control={<Switch checked={dpEnabled} disabled={frozen} onChange={(e) => setDpEnabled(e.target.checked)} />}
+          label="Enable Defensive Players (IDP)"
+        />
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4.5 }}>
+          Lets slots target DL/LB/DB position groups (e.g. a "Flex IDP" slot). Combined
+          DP-eligible starting slots are capped at 3 (base + up to 2 additional)
+          {dpEnabled ? ` — currently ${dpStarters}/3.` : '.'}
+        </Typography>
+      </Box>
+
+      <Divider />
+
+      <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+        <TextField
+          label="Bench Slots" type="number" size="small" disabled={frozen}
+          inputProps={{ min: 0, max: 5 }}
+          value={benchSlots} onChange={(e) => setBenchSlots(e.target.value)}
+          sx={{ width: 130 }}
+        />
+        <TextField
+          label="IR Slots" type="number" size="small" disabled={frozen}
+          inputProps={{ min: 0, max: 5 }}
+          value={irSlots} onChange={(e) => setIrSlots(e.target.value)}
+          sx={{ width: 130 }}
+        />
+        <Typography variant="body2" color="text.secondary">
+          Total roster size: <strong>{totalRosterSize}</strong> ({starters} starters + {Number(benchSlots) || 0} bench + {Number(irSlots) || 0} IR)
+        </Typography>
+      </Box>
+
+      <Box>
+        <Button variant="outlined" size="small" disabled={frozen} onClick={handleSave}>
+          Save Roster Settings
+        </Button>
+      </Box>
+    </Stack>
+  );
+}
+
 function PlayoffSchedulePanel({ leagueId, league, onRefresh, notify }) {
   const [playoffTeams, setPlayoffTeams] = useState(league.playoff_teams ?? 4);
   const [startWeek, setStartWeek] = useState((league.regular_season_weeks ?? 14) + 1);
@@ -777,6 +920,7 @@ function CommissionerTools({ leagueId, league, teams, user, standingsLeague, onR
         sx={{ px: 2, mt: 1, borderBottom: 1, borderColor: 'divider' }}
       >
         <Tab label="General Settings" value="general" />
+        <Tab label="Roster Settings" value="roster" />
         <Tab label="Playoffs & Schedule" value="playoffs" />
         <Tab label="Waivers & Trades" value="waivers" />
         <Tab label="System Overrides" value="overrides" />
@@ -787,6 +931,9 @@ function CommissionerTools({ leagueId, league, teams, user, standingsLeague, onR
             leagueId={leagueId} league={league} teams={teams} user={user}
             standingsLeague={standingsLeague} onRefresh={onRefresh} notify={notify}
           />
+        )}
+        {tab === 'roster' && (
+          <RosterSettingsPanel leagueId={leagueId} league={league} onRefresh={onRefresh} notify={notify} />
         )}
         {tab === 'playoffs' && (
           <PlayoffSchedulePanel leagueId={leagueId} league={league} onRefresh={onRefresh} notify={notify} />

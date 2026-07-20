@@ -100,7 +100,6 @@ function LeagueManagement() {
   const [leagues, setLeagues] = useState([]);
   const [activeTab, setActiveTab] = useState('create');
   const [leagueName, setLeagueName] = useState('');
-  const [rosterLimit, setRosterLimit] = useState(15);
   const [maxTeams, setMaxTeams] = useState(10);
   const [minTeams, setMinTeams] = useState(8);
   const [inviteCode, setInviteCode] = useState('');
@@ -157,7 +156,6 @@ function LeagueManagement() {
     try {
       const payload = {
         name: leagueName,
-        rosterLimit: Number(rosterLimit),
         maxTeams: Number(maxTeams),
         minTeams: Number(minTeams),
       };
@@ -277,9 +275,10 @@ function LeagueManagement() {
               </AccordionSummary>
               <AccordionDetails>
                 <Stack spacing={2}>
-                  <TextField label="Roster limit" size="small" type="number"
-                    inputProps={{ min: 1, max: 30 }}
-                    value={rosterLimit} onChange={(e) => setRosterLimit(e.target.value)} />
+                  <Typography variant="caption" color="text.secondary">
+                    Roster size (starting slots, bench, and IR) is configured after creating the
+                    league, via Commissioner Tools → Roster Settings.
+                  </Typography>
                   <TextField label="Min teams (draft won't start below this)" size="small" type="number"
                     inputProps={{ min: 2, max: 20 }}
                     value={minTeams} onChange={(e) => setMinTeams(e.target.value)} />

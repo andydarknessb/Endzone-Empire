@@ -10,7 +10,7 @@ const {
   powerRankings,
   withRankChange,
 } = require('../services/montecarlo.service');
-const { optimalLineup, DEFAULT_LINEUP_SLOTS } = require('../services/lineup.service');
+const { optimalLineup, DEFAULT_ROSTER_SLOTS } = require('../services/lineup.service');
 
 test('mulberry32 is deterministic for a given seed and in [0, 1)', () => {
   const a = mulberry32(42);
@@ -223,7 +223,7 @@ test('optimalLineup fills dedicated slots then FLEX with the best leftover', () 
   const points = new Map([
     [1, 20], [2, 15], [3, 12], [4, 11], [5, 14], [6, 13], [7, 9], [8, 8], [9, 7], [10, 6],
   ]);
-  const { starters, total } = optimalLineup(players, DEFAULT_LINEUP_SLOTS, points);
+  const { starters, total } = optimalLineup(players, DEFAULT_ROSTER_SLOTS, points);
   const flex = starters.find((s) => s.slot === 'FLEX');
   assert.equal(flex.playerId, 4); // RB3 (11) beats WR3 (9) and TE bench (none left)
   assert.equal(starters.length, 9); // 1QB 2RB 2WR 1TE 1FLEX 1K 1DEF
@@ -231,12 +231,12 @@ test('optimalLineup fills dedicated slots then FLEX with the best leftover', () 
 });
 
 test('optimalLineup tolerates unfillable slots and empty rosters', () => {
-  const { starters, total } = optimalLineup([], DEFAULT_LINEUP_SLOTS, new Map());
+  const { starters, total } = optimalLineup([], DEFAULT_ROSTER_SLOTS, new Map());
   assert.deepEqual(starters, []);
   assert.equal(total, 0);
   const qbOnly = optimalLineup(
     [{ playerId: 1, position: 'QB' }],
-    DEFAULT_LINEUP_SLOTS,
+    DEFAULT_ROSTER_SLOTS,
     new Map([[1, 22]])
   );
   assert.equal(qbOnly.starters.length, 1);
@@ -248,7 +248,7 @@ test('optimalLineup never starts a player in an ineligible slot', () => {
     { playerId: 1, position: 'QB' }, { playerId: 2, position: 'QB' },
   ];
   const points = new Map([[1, 30], [2, 28]]);
-  const { starters } = optimalLineup(players, DEFAULT_LINEUP_SLOTS, points);
+  const { starters } = optimalLineup(players, DEFAULT_ROSTER_SLOTS, points);
   // Second QB has nowhere legal to go (FLEX excludes QB)
   assert.equal(starters.length, 1);
   assert.equal(starters[0].slot, 'QB');

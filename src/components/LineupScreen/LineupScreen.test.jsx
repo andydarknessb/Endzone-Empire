@@ -37,7 +37,16 @@ const lineupResponse = (overrides = {}) => ({
   season: 2026,
   week: 3,
   currentWeek: 3,
-  lineupSlots: { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DEF: 1 },
+  rosterSlots: [
+    { key: 'QB', count: 1, eligiblePositions: ['QB'] },
+    { key: 'RB', count: 2, eligiblePositions: ['RB'] },
+    { key: 'WR', count: 2, eligiblePositions: ['WR'] },
+    { key: 'TE', count: 1, eligiblePositions: ['TE'] },
+    { key: 'FLEX', count: 1, eligiblePositions: ['RB', 'WR', 'TE'] },
+    { key: 'K', count: 1, eligiblePositions: ['K'] },
+    { key: 'DEF', count: 1, eligiblePositions: ['DEF'] },
+  ],
+  benchSlots: 5,
   irSlots: 1,
   entries: [
     {

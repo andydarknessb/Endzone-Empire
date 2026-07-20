@@ -28,37 +28,37 @@ function intParam(value) {
 // POST /api/league — create a private league (plus the owner's team) atomically
 router.post('/', async (req, res) => {
   const {
-    name, rosterLimit, maxTeams, minTeams, teamName,
+    name, maxTeams, minTeams, teamName,
     isPublic, joinApproval, bestBall, scoringPreset, draftDate,
   } = req.body || {};
   if (!name || typeof name !== 'string') {
     return res.status(400).json({ error: 'league name is required' });
   }
-  const limit = rosterLimit === undefined ? 15 : Number(rosterLimit);
   const teams = maxTeams === undefined ? 10 : Number(maxTeams);
   // Default the floor to a sensible 8, but never above the league's own cap.
   const minimum = resolveMinTeams(minTeams, teams);
-  if (!Number.isInteger(limit) || limit < 1 || limit > 30) {
-    return res.status(400).json({ error: 'rosterLimit must be an integer between 1 and 30' });
-  }
   const sizeError = createSizeError({ minTeams: minimum, maxTeams: teams });
   if (sizeError) return res.status(400).json({ error: sizeError });
   const optionsResult = validateCreateOptions({ isPublic, joinApproval, bestBall, scoringPreset, draftDate });
   if (optionsResult.error) return res.status(400).json({ error: optionsResult.error });
   const options = optionsResult.value;
 
+  // roster_limit/roster_slots/bench_slots/ir_slots are left to their column
+  // defaults here (a standard 9-starter/5-bench/1-IR roster, summing to the
+  // roster_limit default) — a commissioner customizes roster construction via
+  // the Roster Settings tab after creation, any time before the draft starts.
   const inviteCode = crypto.randomBytes(4).toString('hex');
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const leagueResult = await client.query(
       `INSERT INTO "leagues" (
-         "name", "owner_id", "invite_code", "roster_limit", "max_teams", "min_teams",
+         "name", "owner_id", "invite_code", "max_teams", "min_teams",
          "is_public", "join_approval", "best_ball", "scoring_preset", "scoring_rules", "draft_date"
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
       [
-        name, req.user.id, inviteCode, limit, teams, minimum,
+        name, req.user.id, inviteCode, teams, minimum,
         options.isPublic, options.joinApproval, options.bestBall,
         options.scoringPreset, options.scoringRules ? JSON.stringify(options.scoringRules) : null,
         options.draftDate,
@@ -272,12 +272,18 @@ router.put('/:id', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
   const {
-    name, rosterLimit, lineupSlots, positionCaps, irSlots,
+    name, rosterLimit, rosterSlots, positionCaps, benchSlots, dpEnabled, irSlots,
     waiverType, waiverPeriodHours, faabBudget,
     tradeDeadlineWeek, tradeReviewHours, tradeVetoVotes,
     scoringPreset, scoringRules, regularSeasonWeeks, playoffTeams, playoffConsolation,
     pickTimeSeconds, minTeams, maxTeams, draftDate, autodraftDelaySeconds,
   } = req.body || {};
+  // roster_limit is derived (starters + bench + IR) — see below — not settable directly.
+  if (rosterLimit !== undefined) {
+    return res.status(400).json({
+      error: 'rosterLimit is computed automatically from rosterSlots + benchSlots + irSlots and cannot be set directly',
+    });
+  }
   // draftDate: undefined = leave as-is, null = clear, string = (re)schedule.
   const draftDateProvided = draftDate !== undefined;
   let draftDateValue = null;
@@ -288,10 +294,6 @@ router.put('/:id', async (req, res) => {
     }
     draftDateValue = parsed.toISOString();
   }
-  const limit = rosterLimit === undefined ? null : Number(rosterLimit);
-  if (limit !== null && (!Number.isInteger(limit) || limit < 1 || limit > 30)) {
-    return res.status(400).json({ error: 'rosterLimit must be an integer between 1 and 30' });
-  }
   // Validated against the league's current teams/limits inside the handler
   // (see editSizeError below), since it needs the live team count.
   const newMax = maxTeams === undefined ? null : Number(maxTeams);
@@ -301,13 +303,44 @@ router.put('/:id', async (req, res) => {
     Object.entries(map).every(
       ([key, count]) => allowedKeys.includes(key) && Number.isInteger(count) && count >= 0 && count <= 10
     );
-  const slotKeys = ['QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF'];
-  const positionKeys = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
-  if (lineupSlots !== undefined && !validSlotMap(lineupSlots, slotKeys)) {
-    return res.status(400).json({ error: `lineupSlots must map ${slotKeys.join('/')} to integers 0-10` });
+  // Group keys (DL/LB/DB) are allowed alongside literal positions so a slot's
+  // eligiblePositions can target a defensive group (see lineup.service.js's
+  // POSITION_GROUPS) as well as a single offensive position.
+  const positionKeys = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF', 'DL', 'LB', 'DB'];
+  const DP_GROUP_KEYS = ['DL', 'LB', 'DB'];
+  const validRosterSlots = (arr) =>
+    Array.isArray(arr) && arr.length > 0 && arr.length <= 20 &&
+    arr.every((s) =>
+      s && typeof s === 'object' &&
+      typeof s.key === 'string' && /^[A-Za-z0-9_]{1,20}$/.test(s.key) &&
+      Number.isInteger(s.count) && s.count >= 0 && s.count <= 10 &&
+      Array.isArray(s.eligiblePositions) && s.eligiblePositions.length > 0 &&
+      s.eligiblePositions.every((p) => positionKeys.includes(p))
+    ) &&
+    new Set(arr.map((s) => s.key)).size === arr.length;
+  if (rosterSlots !== undefined) {
+    if (!validRosterSlots(rosterSlots)) {
+      return res.status(400).json({
+        error: `rosterSlots must be a non-empty array of {key, count (0-10), eligiblePositions} with unique keys, eligiblePositions drawn from ${positionKeys.join('/')}`,
+      });
+    }
+    // A "DP-type" slot is one whose eligibility is entirely within the IDP
+    // groups — cap their combined starting count at 3 (base + up to 2 more).
+    const dpSlotTotal = rosterSlots
+      .filter((s) => s.eligiblePositions.every((p) => DP_GROUP_KEYS.includes(p)))
+      .reduce((sum, s) => sum + s.count, 0);
+    if (dpSlotTotal > 3) {
+      return res.status(400).json({ error: 'combined DP-eligible starting slots cannot exceed 3 (base + up to 2 additional)' });
+    }
   }
   if (positionCaps !== undefined && !validSlotMap(positionCaps, positionKeys)) {
     return res.status(400).json({ error: `positionCaps must map ${positionKeys.join('/')} to integers 0-10` });
+  }
+  if (benchSlots !== undefined && (!Number.isInteger(benchSlots) || benchSlots < 0 || benchSlots > 5)) {
+    return res.status(400).json({ error: 'benchSlots must be an integer between 0 and 5' });
+  }
+  if (dpEnabled !== undefined && typeof dpEnabled !== 'boolean') {
+    return res.status(400).json({ error: 'dpEnabled must be a boolean' });
   }
   if (irSlots !== undefined && (!Number.isInteger(irSlots) || irSlots < 0 || irSlots > 5)) {
     return res.status(400).json({ error: 'irSlots must be an integer between 0 and 5' });
@@ -377,7 +410,7 @@ router.put('/:id', async (req, res) => {
     // Game-integrity settings freeze once the draft starts; administrative
     // ones (name, waivers, trades) stay editable all season.
     const preDraftOnly = {
-      rosterLimit, lineupSlots, positionCaps, irSlots,
+      rosterSlots, positionCaps, benchSlots, dpEnabled, irSlots,
       scoringRules: effectiveRules, regularSeasonWeeks, playoffTeams,
       playoffConsolation, pickTimeSeconds, minTeams, maxTeams, autodraftDelaySeconds,
       draftDate: draftDateProvided ? draftDate : undefined,
@@ -385,15 +418,27 @@ router.put('/:id', async (req, res) => {
     const frozenRequested = Object.entries(preDraftOnly)
       .filter(([, v]) => v !== undefined)
       .map(([k]) => k);
+    // roster_limit is derived from starters+bench+IR — recomputed below
+    // whenever any of those three actually change.
+    const rosterCompositionChanged = rosterSlots !== undefined || benchSlots !== undefined || irSlots !== undefined;
+    let derivedRosterLimit = null;
     if (frozenRequested.length > 0) {
       const statusResult = await pool.query(
         `SELECT "draft_status", "min_teams", "max_teams", "draft_date",
+                "roster_slots", "bench_slots", "ir_slots",
                 (SELECT COUNT(*)::int FROM "teams" WHERE "teams"."league_id" = "leagues"."id") AS "team_count"
          FROM "leagues" WHERE "id" = $1 AND "owner_id" = $2`,
         [leagueId, req.user.id]
       );
       const current = statusResult.rows[0];
       previousDraftDate = current ? current.draft_date : null;
+      if (current && rosterCompositionChanged) {
+        const effectiveSlots = rosterSlots !== undefined ? rosterSlots : current.roster_slots;
+        const effectiveBench = benchSlots !== undefined ? benchSlots : current.bench_slots;
+        const effectiveIr = irSlots !== undefined ? irSlots : current.ir_slots;
+        const starters = effectiveSlots.reduce((sum, s) => sum + s.count, 0);
+        derivedRosterLimit = starters + effectiveBench + effectiveIr;
+      }
       if (current && current.draft_status !== 'pending') {
         return res.status(409).json({
           error: `these settings are locked once the draft starts: ${frozenRequested.join(', ')}`,
@@ -415,9 +460,11 @@ router.put('/:id', async (req, res) => {
       `UPDATE "leagues"
        SET "name" = COALESCE($1, "name"),
            "roster_limit" = COALESCE($2, "roster_limit"),
-           "lineup_slots" = COALESCE($3, "lineup_slots"),
+           "roster_slots" = COALESCE($3, "roster_slots"),
            "position_caps" = COALESCE($4, "position_caps"),
            "ir_slots" = COALESCE($5, "ir_slots"),
+           "bench_slots" = COALESCE($25, "bench_slots"),
+           "dp_enabled" = COALESCE($26, "dp_enabled"),
            "waiver_type" = COALESCE($6, "waiver_type"),
            "waiver_period_hours" = COALESCE($7, "waiver_period_hours"),
            "faab_budget" = COALESCE($8, "faab_budget"),
@@ -443,8 +490,8 @@ router.put('/:id', async (req, res) => {
        RETURNING *`,
       [
         name || null,
-        limit,
-        lineupSlots === undefined ? null : JSON.stringify(lineupSlots),
+        derivedRosterLimit,
+        rosterSlots === undefined ? null : JSON.stringify(rosterSlots),
         positionCaps === undefined ? null : JSON.stringify(positionCaps),
         irSlots === undefined ? null : irSlots,
         waiverType === undefined ? null : waiverType,
@@ -466,6 +513,8 @@ router.put('/:id', async (req, res) => {
         draftDateProvided,
         draftDateValue,
         autodraftDelaySeconds === undefined ? null : autodraftDelaySeconds,
+        benchSlots === undefined ? null : benchSlots,
+        dpEnabled === undefined ? null : dpEnabled,
       ]
     );
     if (!result.rows[0]) {

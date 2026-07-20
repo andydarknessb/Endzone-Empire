@@ -92,7 +92,6 @@ test('creating a league posts the form data and shows the returned invite code',
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/league', {
       name: 'Monday Mayhem',
-      rosterLimit: 15,
       maxTeams: 10,
       minTeams: 8,
     })
@@ -151,7 +150,6 @@ test('creating a league only sends the new optional fields the user actually set
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/league', {
       name: 'Plain League',
-      rosterLimit: 15,
       maxTeams: 10,
       minTeams: 8,
     })
@@ -178,7 +176,6 @@ test('creating a public, approval-required, best-ball, PPR league with a draft d
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/league', {
       name: 'Full Featured League',
-      rosterLimit: 15,
       maxTeams: 10,
       minTeams: 8,
       isPublic: true,

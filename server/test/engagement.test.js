@@ -70,8 +70,10 @@ const entry = (slot, name, overrides = {}) => ({
   slot, name, onBye: false, injury_status: null, ...overrides,
 });
 
+const slots = (counts) => Object.entries(counts).map(([key, count]) => ({ key, count, eligiblePositions: [key] }));
+
 test('lineupProblems flags empty starting slots against the league config', () => {
-  const problems = lineupProblems([entry('QB', 'QB1')], { QB: 1, RB: 2 });
+  const problems = lineupProblems([entry('QB', 'QB1')], slots({ QB: 1, RB: 2 }));
   assert.deepEqual(problems, ['2 empty RB slots']);
 });
 
@@ -83,7 +85,7 @@ test('lineupProblems flags bye and Out/IR starters but ignores the bench', () =>
       entry('WR', 'Hurt WR', { injury_status: 'O' }),
       entry('BENCH', 'Hurt Bench Guy', { injury_status: 'IR' }),
     ],
-    { QB: 1, RB: 1, WR: 1 }
+    slots({ QB: 1, RB: 1, WR: 1 })
   );
   assert.deepEqual(problems, ['Bye RB (RB) is on bye', 'Hurt WR (WR) is Out']);
 });
@@ -91,7 +93,7 @@ test('lineupProblems flags bye and Out/IR starters but ignores the bench', () =>
 test('lineupProblems: questionable players do not trigger, clean lineup is empty', () => {
   const problems = lineupProblems(
     [entry('QB', 'Q Guy', { injury_status: 'Q' })],
-    { QB: 1 }
+    slots({ QB: 1 })
   );
   assert.deepEqual(problems, []);
 });

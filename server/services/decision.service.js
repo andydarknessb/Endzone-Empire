@@ -59,7 +59,7 @@ async function getWeekOpponents({ season, week }) {
  * defenseByPlayer: Map playerId -> { opponent, opponentPointsAllowed }.
  * Returns { projectedTotal, optimalTotal, suggestions }.
  */
-function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map()) {
+function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(), rosterSlots = undefined) {
   const allStarters = lineupEntries.filter((e) => e.slot !== BENCH && e.slot !== IR);
   const swappable = allStarters.filter((e) => !e.locked);
   const bench = lineupEntries.filter((e) => e.slot === BENCH && !e.locked);
@@ -81,7 +81,7 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
     let bestProjection = -Infinity;
     for (const candidate of bench) {
       if (usedBench.has(candidate.playerId)) continue;
-      if (!slotEligible(starter.slot, candidate.position)) continue;
+      if (!slotEligible(starter.slot, candidate.position, rosterSlots)) continue;
       const candidateProjection = pointsOf(projections, candidate.playerId);
       if (candidateProjection > bestProjection) {
         best = candidate;
@@ -159,7 +159,8 @@ async function startSitAdvice({ leagueId, userId, week }) {
   const { projectedTotal, optimalTotal, suggestions } = buildSuggestions(
     lineupEntries,
     projections,
-    defenseByPlayer
+    defenseByPlayer,
+    lineup.rosterSlots
   );
 
   return { week: effectiveWeek, season: effectiveSeason, projectedTotal, optimalTotal, suggestions };
@@ -230,7 +231,7 @@ async function weekHindsight({ leagueId, teamId, season, week }) {
   actualPoints = round2(actualPoints);
 
   const settings = parseLineupSettings(league);
-  const optimal = optimalLineup(players, settings.lineupSlots, pointsFor);
+  const optimal = optimalLineup(players, settings.rosterSlots, pointsFor);
   const optimalStarters = optimal.starters.map((s) => ({ ...s, name: nameById.get(s.playerId) }));
   const optimalPoints = optimal.total;
   const pointsLeftOnBench = Math.max(0, round2(optimalPoints - actualPoints));
@@ -298,7 +299,7 @@ async function liveWhatIf({ leagueId, teamId, season, week }) {
   const forced = rows.rows
     .filter((r) => r.locked === true && currentStarterIds.has(r.player_id))
     .map((r) => ({ playerId: r.player_id, position: r.position }));
-  const optimal = optimalLineup([...candidatePool, ...forced], settings.lineupSlots, pointsFor);
+  const optimal = optimalLineup([...candidatePool, ...forced], settings.rosterSlots, pointsFor);
   const optimalIds = new Set(optimal.starters.map((s) => s.playerId));
 
   // Actionable swaps: an unlocked bench player the optimizer promotes, replacing
@@ -353,13 +354,23 @@ async function seasonHindsight({ leagueId, teamId, season }) {
 /**
  * Pure: adjust a rest-of-season value for roster fit. If the receiving
  * roster already fills every starting slot this position is eligible for
- * (dedicated slot(s) + FLEX, when eligible) the player is surplus (0.85x);
- * if none of those slots are currently filled, he's filling an empty
- * starting slot (1.15x); otherwise the value is unadjusted.
+ * (dedicated slot(s) + any flex-style slot that also takes it) the player is
+ * surplus (0.85x); if none of those slots are currently filled, he's filling
+ * an empty starting slot (1.15x); otherwise the value is unadjusted.
+ *
+ * "Dedicated" vs. "flex-style" is read off each slot's own eligiblePositions
+ * length (1 entry = dedicated to that one position/group; 2+ = a flex-style
+ * slot), generalizing the old FLEX-only special case to any number of
+ * differently-configured flex/superflex/DP slots.
  */
-function fitAdjustedValue(baseValue, position, rosterPositions, lineupSlots) {
-  const dedicated = Number(lineupSlots[position]) || 0;
-  const flexCapacity = slotEligible('FLEX', position) ? Number(lineupSlots.FLEX) || 0 : 0;
+function fitAdjustedValue(baseValue, position, rosterPositions, rosterSlots) {
+  let dedicated = 0;
+  let flexCapacity = 0;
+  for (const slot of rosterSlots) {
+    if (!slotEligible(slot.key, position, rosterSlots)) continue;
+    if ((slot.eligiblePositions || []).length === 1) dedicated += slot.count;
+    else flexCapacity += slot.count;
+  }
   const capacity = dedicated + flexCapacity;
   const filling = rosterPositions.filter((p) => p === position).length;
 
@@ -451,7 +462,7 @@ async function analyzeTrade({ leagueId, proposingTeamId, receivingTeamId, offere
   for (const id of offeredPlayerIds) {
     const player = playersById.get(id);
     const baseValue = Number(rosValues.get(id)) || 0;
-    const fit = fitAdjustedValue(baseValue, player.position, receivingPositions, settings.lineupSlots);
+    const fit = fitAdjustedValue(baseValue, player.position, receivingPositions, settings.rosterSlots);
     proposerGives += fit;
     players.push({
       playerId: id, name: player.name, position: player.position,
@@ -461,7 +472,7 @@ async function analyzeTrade({ leagueId, proposingTeamId, receivingTeamId, offere
   for (const id of requestedPlayerIds) {
     const player = playersById.get(id);
     const baseValue = Number(rosValues.get(id)) || 0;
-    const fit = fitAdjustedValue(baseValue, player.position, proposingPositions, settings.lineupSlots);
+    const fit = fitAdjustedValue(baseValue, player.position, proposingPositions, settings.rosterSlots);
     receiverGives += fit;
     players.push({
       playerId: id, name: player.name, position: player.position,
@@ -491,13 +502,15 @@ async function analyzeTrade({ leagueId, proposingTeamId, receivingTeamId, offere
  * Returns the top 25, each annotated with weakestStarterProjection and
  * upgradeDelta, sorted by upgradeDelta descending.
  */
-function rankWaiverCandidates(candidates, currentStarters, lineupSlots) {
+function rankWaiverCandidates(candidates, currentStarters, rosterSlots) {
   const eligibleSlotsByPosition = new Map();
   const eligibleSlotsFor = (position) => {
     if (!eligibleSlotsByPosition.has(position)) {
       eligibleSlotsByPosition.set(
         position,
-        Object.keys(lineupSlots).filter((slot) => (lineupSlots[slot] || 0) > 0 && slotEligible(slot, position))
+        rosterSlots
+          .filter((s) => s.count > 0 && slotEligible(s.key, position, rosterSlots))
+          .map((s) => s.key)
       );
     }
     return eligibleSlotsByPosition.get(position);
@@ -578,7 +591,7 @@ async function waiverSuggestions({ leagueId, userId, season, week }) {
     projection: pointsOf(projections, p.id),
   }));
 
-  const suggestions = rankWaiverCandidates(candidates, currentStarters, settings.lineupSlots);
+  const suggestions = rankWaiverCandidates(candidates, currentStarters, settings.rosterSlots);
   return { suggestions };
 }
 

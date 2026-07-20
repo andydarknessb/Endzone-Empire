@@ -18,6 +18,13 @@ const league = (overrides = {}) => ({
   draft_status: 'pending',
   min_teams: 8,
   max_teams: 10,
+  roster_slots: [
+    { key: 'QB', count: 1, eligiblePositions: ['QB'] },
+    { key: 'FLEX', count: 1, eligiblePositions: ['RB', 'WR', 'TE'] },
+  ],
+  bench_slots: 5,
+  ir_slots: 1,
+  dp_enabled: false,
   transactions_locked: false,
   is_public: false,
   join_approval: false,
@@ -70,13 +77,65 @@ beforeEach(() => {
   mockGetByUrl();
 });
 
-test('renders all four tabs, defaulting to General Settings', () => {
+test('renders all five tabs, defaulting to General Settings', () => {
   renderTools();
   expect(screen.getByRole('tab', { name: 'General Settings' })).toHaveAttribute('aria-selected', 'true');
+  expect(screen.getByRole('tab', { name: 'Roster Settings' })).toBeInTheDocument();
   expect(screen.getByRole('tab', { name: 'Playoffs & Schedule' })).toBeInTheDocument();
   expect(screen.getByRole('tab', { name: 'Waivers & Trades' })).toBeInTheDocument();
   expect(screen.getByRole('tab', { name: 'System Overrides' })).toBeInTheDocument();
   expect(screen.getByRole('checkbox', { name: 'Lock Transactions' })).toBeInTheDocument();
+});
+
+// --- Roster Settings ---
+
+test('Roster Settings renders configured slots and computes the total roster size', async () => {
+  renderTools();
+  await userEvent.click(screen.getByRole('tab', { name: 'Roster Settings' }));
+
+  expect(screen.getAllByLabelText('Slot Name')).toHaveLength(2);
+  // 1 QB + 1 FLEX starters + 5 bench + 1 IR = 8
+  expect(screen.getByText(/Total roster size:/)).toHaveTextContent('Total roster size: 8 (2 starters + 5 bench + 1 IR)');
+});
+
+test('Roster Settings is frozen once the draft has started', async () => {
+  renderTools({ league: league({ draft_status: 'active' }) });
+  await userEvent.click(screen.getByRole('tab', { name: 'Roster Settings' }));
+
+  expect(screen.getByText(/locks once the draft starts/)).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Save Roster Settings' })).toBeDisabled();
+  expect(screen.getAllByLabelText('Slot Name')[0]).toBeDisabled();
+});
+
+test('Save Roster Settings sends the slot array plus bench/IR/DP payload', async () => {
+  apiClient.put.mockResolvedValue({});
+  const onRefresh = jest.fn();
+  renderTools({ onRefresh });
+  await userEvent.click(screen.getByRole('tab', { name: 'Roster Settings' }));
+
+  await userEvent.click(screen.getByRole('button', { name: 'Save Roster Settings' }));
+
+  await waitFor(() =>
+    expect(apiClient.put).toHaveBeenCalledWith('/api/league/1', {
+      rosterSlots: [
+        { key: 'QB', count: 1, eligiblePositions: ['QB'] },
+        { key: 'FLEX', count: 1, eligiblePositions: ['RB', 'WR', 'TE'] },
+      ],
+      benchSlots: 5,
+      irSlots: 1,
+      dpEnabled: false,
+    })
+  );
+  expect(await screen.findByText('Roster settings saved')).toBeInTheDocument();
+  expect(onRefresh).toHaveBeenCalled();
+});
+
+test('Add Slot appends an empty slot row for the commissioner to configure', async () => {
+  renderTools();
+  await userEvent.click(screen.getByRole('tab', { name: 'Roster Settings' }));
+
+  await userEvent.click(screen.getByRole('button', { name: '+ Add Slot' }));
+  expect(screen.getAllByLabelText('Slot Name')).toHaveLength(3);
 });
 
 // --- Playoffs & Schedule ---

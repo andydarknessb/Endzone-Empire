@@ -250,7 +250,7 @@ async function computeLeagueOdds({ leagueId, runs = DEFAULT_RUNS, seed }) {
   const pointsFor = new Map(
     [...projections].map(([playerId, { points }]) => [playerId, points])
   );
-  const { lineupSlots } = parseLineupSettings(league);
+  const { rosterSlots } = parseLineupSettings(league);
   const rosterResult = await pool.query(
     `SELECT "team_players"."team_id", "team_players"."player_id", "players"."position"
      FROM "team_players" JOIN "players" ON "players"."id" = "team_players"."player_id"
@@ -265,7 +265,7 @@ async function computeLeagueOdds({ leagueId, runs = DEFAULT_RUNS, seed }) {
   }
   const models = new Map();
   for (const team of teams) {
-    const projected = optimalLineup(rosters.get(team.id) || [], lineupSlots, pointsFor).total;
+    const projected = optimalLineup(rosters.get(team.id) || [], rosterSlots, pointsFor).total;
     models.set(team.id, buildTeamModel(history.get(team.id) || [], projected));
   }
 

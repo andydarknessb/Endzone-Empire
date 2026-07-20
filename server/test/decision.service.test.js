@@ -6,7 +6,7 @@ const {
   tradeVerdict,
   rankWaiverCandidates,
 } = require('../services/decision.service');
-const { DEFAULT_LINEUP_SLOTS } = require('../services/lineup.service');
+const { DEFAULT_ROSTER_SLOTS } = require('../services/lineup.service');
 
 // ---------------------------------------------------------------------------
 // buildSuggestions
@@ -158,38 +158,38 @@ test('buildSuggestions: missing opponent context defaults to nulls', () => {
 // ---------------------------------------------------------------------------
 
 test('fitAdjustedValue: surplus discount when the position (incl. FLEX capacity) is already full', () => {
-  // RB capacity = lineupSlots.RB (2) + lineupSlots.FLEX (1) = 3
+  // RB capacity = RB slot count (2) + FLEX slot count (1) = 3
   const rosterPositions = ['RB', 'RB', 'RB'];
-  const value = fitAdjustedValue(100, 'RB', rosterPositions, DEFAULT_LINEUP_SLOTS);
+  const value = fitAdjustedValue(100, 'RB', rosterPositions, DEFAULT_ROSTER_SLOTS);
   assert.equal(value, 85);
 });
 
 test('fitAdjustedValue: empty-slot premium when none of the position is rostered', () => {
   const rosterPositions = ['QB', 'WR', 'WR'];
-  const value = fitAdjustedValue(100, 'RB', rosterPositions, DEFAULT_LINEUP_SLOTS);
+  const value = fitAdjustedValue(100, 'RB', rosterPositions, DEFAULT_ROSTER_SLOTS);
   assert.equal(value, 115);
 });
 
 test('fitAdjustedValue: neutral when the position is partially filled', () => {
   // RB capacity = 3 (2 dedicated + 1 FLEX); one RB already rostered
   const rosterPositions = ['RB'];
-  const value = fitAdjustedValue(100, 'RB', rosterPositions, DEFAULT_LINEUP_SLOTS);
+  const value = fitAdjustedValue(100, 'RB', rosterPositions, DEFAULT_ROSTER_SLOTS);
   assert.equal(value, 100);
 });
 
 test('fitAdjustedValue: a position with zero starting capacity (no FLEX eligibility) is treated as surplus', () => {
   // K is not FLEX-eligible, so zero dedicated K slots means zero capacity outright.
-  const noK = { ...DEFAULT_LINEUP_SLOTS, K: 0 };
+  const noK = DEFAULT_ROSTER_SLOTS.map((s) => (s.key === 'K' ? { ...s, count: 0 } : s));
   const value = fitAdjustedValue(100, 'K', [], noK);
   assert.equal(value, 85);
 });
 
 test('fitAdjustedValue: FLEX capacity counts toward WR and TE too', () => {
   // WR capacity = 2 dedicated + 1 FLEX = 3; two WRs rostered -> still below capacity, neutral
-  const value = fitAdjustedValue(50, 'WR', ['WR', 'WR'], DEFAULT_LINEUP_SLOTS);
+  const value = fitAdjustedValue(50, 'WR', ['WR', 'WR'], DEFAULT_ROSTER_SLOTS);
   assert.equal(value, 50);
   // three WRs rostered -> at capacity, surplus
-  const surplus = fitAdjustedValue(50, 'WR', ['WR', 'WR', 'WR'], DEFAULT_LINEUP_SLOTS);
+  const surplus = fitAdjustedValue(50, 'WR', ['WR', 'WR', 'WR'], DEFAULT_ROSTER_SLOTS);
   assert.equal(surplus, 42.5);
 });
 
@@ -226,7 +226,7 @@ test('rankWaiverCandidates: sorted by upgradeDelta descending', () => {
     { playerId: 3, name: 'C', position: 'RB', nflTeam: 'PHI', projection: 8 },
   ];
   const currentStarters = [{ playerId: 99, slot: 'RB', projection: 10 }];
-  const ranked = rankWaiverCandidates(candidates, currentStarters, DEFAULT_LINEUP_SLOTS);
+  const ranked = rankWaiverCandidates(candidates, currentStarters, DEFAULT_ROSTER_SLOTS);
   assert.deepEqual(ranked.map((r) => r.playerId), [2, 1, 3]);
   assert.equal(ranked[0].upgradeDelta, 10);
   assert.equal(ranked[1].upgradeDelta, 2);
@@ -240,7 +240,7 @@ test('rankWaiverCandidates: compares against the weakest starter in ELIGIBLE slo
     { playerId: 11, slot: 'TE', projection: 6 },
     { playerId: 12, slot: 'FLEX', projection: 4 }, // TE-eligible via FLEX, weaker
   ];
-  const ranked = rankWaiverCandidates(candidates, currentStarters, DEFAULT_LINEUP_SLOTS);
+  const ranked = rankWaiverCandidates(candidates, currentStarters, DEFAULT_ROSTER_SLOTS);
   assert.equal(ranked[0].weakestStarterProjection, 4);
   assert.equal(ranked[0].upgradeDelta, 6);
 });
@@ -248,7 +248,7 @@ test('rankWaiverCandidates: compares against the weakest starter in ELIGIBLE slo
 test('rankWaiverCandidates: a position with no current starter in an eligible slot compares against 0', () => {
   const candidates = [{ playerId: 1, name: 'A', position: 'QB', nflTeam: 'DAL', projection: 18 }];
   const currentStarters = [{ playerId: 10, slot: 'RB', projection: 25 }];
-  const ranked = rankWaiverCandidates(candidates, currentStarters, DEFAULT_LINEUP_SLOTS);
+  const ranked = rankWaiverCandidates(candidates, currentStarters, DEFAULT_ROSTER_SLOTS);
   assert.equal(ranked[0].weakestStarterProjection, 0);
   assert.equal(ranked[0].upgradeDelta, 18);
 });
@@ -258,7 +258,7 @@ test('rankWaiverCandidates: caps results at 25', () => {
     playerId: i + 1, name: `p${i + 1}`, position: 'WR', nflTeam: 'DAL', projection: i,
   }));
   const currentStarters = [{ playerId: 99, slot: 'WR', projection: 0 }];
-  const ranked = rankWaiverCandidates(candidates, currentStarters, DEFAULT_LINEUP_SLOTS);
+  const ranked = rankWaiverCandidates(candidates, currentStarters, DEFAULT_ROSTER_SLOTS);
   assert.equal(ranked.length, 25);
   assert.equal(ranked[0].playerId, 40); // highest projection first
 });
