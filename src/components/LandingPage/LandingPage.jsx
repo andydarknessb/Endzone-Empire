@@ -5,61 +5,97 @@ import {
   Container,
   Typography,
   Button,
-  Link as MuiLink,
   Card,
   CardContent,
   Stack,
 } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2';
+import TimerIcon from '@mui/icons-material/Timer';
+import ViewListIcon from '@mui/icons-material/ViewList';
+import PersonAddIcon from '@mui/icons-material/PersonAdd';
+import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
+import ScoreboardIcon from '@mui/icons-material/Scoreboard';
+import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
+import ChatIcon from '@mui/icons-material/Chat';
+import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import './LandingPage.css';
 
 const FEATURES = [
   {
     title: 'Live Snake Drafts',
     description: 'Run draft day with a real pick clock and auto-pick so no one holds up the room.',
+    Icon: TimerIcon,
   },
   {
     title: 'Weekly Lineups',
     description: 'Set starters by slot with lock times and bye-week warnings built in.',
+    Icon: ViewListIcon,
   },
   {
     title: 'Waiver Wire',
     description: 'Claim free agents with priority order or a FAAB budget — your league, your rules.',
+    Icon: PersonAddIcon,
   },
   {
     title: 'Trades',
     description: 'Propose, review, and let the league veto trades before they go through.',
+    Icon: SwapHorizIcon,
   },
   {
     title: 'Live Scoring',
     description: 'Watch matchups update in real time as the games play out on Sunday.',
+    Icon: ScoreboardIcon,
   },
   {
     title: 'Playoffs & Standings',
     description: 'Seeded brackets and clear tiebreakers decide the champion, no arguments.',
+    Icon: EmojiEventsIcon,
   },
   {
     title: 'League Chat',
     description: 'Talk trash, trade offers, and trade regrets, all in one place.',
+    Icon: ChatIcon,
   },
   {
     title: 'Commissioner Tools',
     description: 'Manage rosters, settings, and disputes without leaving the app.',
+    Icon: AdminPanelSettingsIcon,
   },
 ];
 
 function LandingPage() {
   return (
     <Box className="landing-page">
-      <Box className="landing-hero" sx={{ py: { xs: 6, md: 10 } }}>
+      <Box className="landing-hero" sx={{ py: { xs: 8, md: 12 } }}>
         <Container maxWidth="md">
-          <Stack spacing={2} alignItems="center" textAlign="center">
-            <Typography variant="h2" component="h1" sx={{ fontWeight: 800 }}>
-              Welcome
+          <Stack spacing={3} alignItems="center" textAlign="center">
+            <Typography
+              variant="h1"
+              component="h1"
+              sx={{
+                fontWeight: 800,
+                fontSize: { xs: '2.5rem', sm: '3.25rem', md: '4rem' },
+                lineHeight: 1.15,
+              }}
+            >
+              Welcome to{' '}
+              <Box
+                component="span"
+                sx={{
+                  backgroundImage: 'linear-gradient(90deg, var(--accent), var(--secondary))',
+                  backgroundClip: 'text',
+                  WebkitBackgroundClip: 'text',
+                  color: 'transparent',
+                  WebkitTextFillColor: 'transparent',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Endzone Empire
+              </Box>
             </Typography>
-            <Typography variant="h5" component="p" sx={{ color: 'text.secondary', maxWidth: 640 }}>
-              to Endzone Empire — the app that turns armchair quarterbacks into legendary league
-              managers, all season long. Draft, manage, and battle your way to a championship.
+            <Typography variant="h5" component="p" sx={{ color: 'text.secondary', maxWidth: 640, fontWeight: 400 }}>
+              The app that turns armchair quarterbacks into legendary league managers, all season
+              long. Draft, manage, and battle your way to a championship.
             </Typography>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ pt: 2 }}>
               <Button
@@ -67,22 +103,19 @@ function LandingPage() {
                 to="/registration"
                 variant="contained"
                 size="large"
+                sx={{ px: 4 }}
               >
                 Get Started
               </Button>
-              <MuiLink
+              <Button
                 component={RouterLink}
                 to="/login"
-                underline="hover"
-                sx={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  px: 2,
-                  fontWeight: 600,
-                }}
+                variant="outlined"
+                size="large"
+                sx={{ px: 4 }}
               >
                 Log In
-              </MuiLink>
+              </Button>
             </Stack>
           </Stack>
         </Container>
@@ -100,7 +133,7 @@ function LandingPage() {
         </Typography>
 
         <Grid container spacing={3}>
-          {FEATURES.map((feature) => (
+          {FEATURES.map((feature, index) => (
             <Grid xs={12} sm={6} md={3} key={feature.title}>
               <Card
                 variant="outlined"
@@ -108,9 +141,22 @@ function LandingPage() {
                   height: '100%',
                   display: 'flex',
                   flexDirection: 'column',
+                  textAlign: 'center',
+                  transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+                  '&:hover': {
+                    transform: 'translateY(-4px)',
+                    boxShadow: 'var(--shadow-2)',
+                  },
                 }}
               >
                 <CardContent>
+                  <feature.Icon
+                    sx={{
+                      fontSize: 40,
+                      mb: 1.5,
+                      color: index % 2 === 0 ? 'var(--accent)' : 'var(--secondary)',
+                    }}
+                  />
                   <Typography variant="h6" component="h3" sx={{ mb: 1 }}>
                     {feature.title}
                   </Typography>
@@ -123,6 +169,41 @@ function LandingPage() {
           ))}
         </Grid>
       </Container>
+
+      <Box
+        sx={{
+          bgcolor: 'background.paper',
+          borderTop: '1px solid var(--border-subtle)',
+          py: 10,
+        }}
+      >
+        <Container maxWidth="sm">
+          <Stack spacing={3} alignItems="center" textAlign="center">
+            <Typography variant="h3" component="h2" sx={{ fontWeight: 800 }}>
+              Ready to build your dynasty?
+            </Typography>
+            <Typography variant="body1" sx={{ color: 'text.secondary' }}>
+              Create a league in minutes and have your friends drafting by tonight.
+            </Typography>
+            <Button
+              component={RouterLink}
+              to="/registration"
+              variant="contained"
+              size="large"
+              sx={{
+                px: 6,
+                py: 1.75,
+                fontSize: 18,
+                fontWeight: 700,
+                animation: 'landing-cta-pulse 2.4s ease-in-out infinite',
+                '@media (prefers-reduced-motion: reduce)': { animation: 'none' },
+              }}
+            >
+              Create Your League Now
+            </Button>
+          </Stack>
+        </Container>
+      </Box>
     </Box>
   );
 }

@@ -50,7 +50,7 @@ const loggedIn = { id: 1, username: 'alice' };
 
 test('"/" redirects to "/home", showing the Landing page when logged out', async () => {
   renderApp('#/', { user: loggedOut });
-  expect(await screen.findByRole('heading', { name: 'Welcome' })).toBeInTheDocument();
+  expect(await screen.findByRole('heading', { name: 'Welcome to Endzone Empire' })).toBeInTheDocument();
 });
 
 test('"/home" redirects to "/user" when already logged in', async () => {
