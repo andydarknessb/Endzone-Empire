@@ -3,38 +3,176 @@ const pool = require('../modules/pool');
 const { materializeLineup, optimalLineup, parseLineupSettings } = require('./lineup.service');
 const { getIo } = require('../modules/io');
 
-// Default fantasy scoring rules (points per unit of each stat) — half-PPR
+// Default fantasy scoring rules, grouped by category (NFL.com-style
+// defaults) — half-PPR. Tiered stats (FG distance, points/yards allowed)
+// are arrays of { min, max, points }, sorted ascending and non-overlapping;
+// `max: null` means "and up". `idp` scores individual defenders (DP roster
+// slots, see lineup.service.js's POSITION_GROUPS) — it's inert until a
+// league enables DP and the stat producers that feed it land (see the
+// roster/scoring plan's Phase C). Individual blocked-kick attribution has
+// no data source and is intentionally not a scored stat anywhere below;
+// `teamDefense.blockedKick` is a team-level stat only.
 const SCORING_RULES = {
-  passingYards: 0.04,
-  rushingYards: 0.1,
-  receivingYards: 0.1,
-  passingTDs: 4,
-  rushingTDs: 6,
-  receivingTDs: 6,
-  receptions: 0.5, // half-PPR
-  fumbles: -2,
-  interceptions: -2,
-  passingTwoPt: 2,
-  rushingTwoPt: 2,
-  receivingTwoPt: 2,
-  sack: 1,
-  interceptionReturn: 2,
-  fumbleRecovery: 2,
-  defensiveTD: 6,
-  fieldGoal: 3,
-  extraPoint: 1,
+  passing: {
+    yards: 0.04,
+    touchdowns: 4,
+    interceptions: -2,
+    twoPointConversions: 2,
+  },
+  rushing: {
+    yards: 0.1,
+    touchdowns: 6,
+    twoPointConversions: 2,
+  },
+  receiving: {
+    yards: 0.1,
+    touchdowns: 6,
+    reception: 0.5, // half-PPR
+    twoPointConversions: 2,
+  },
+  misc: {
+    fumblesLost: -2,
+  },
+  kicking: {
+    extraPoint: 1,
+    fieldGoal: [
+      { min: 0, max: 39, points: 3 },
+      { min: 40, max: 49, points: 4 },
+      { min: 50, max: null, points: 5 },
+    ],
+  },
+  teamDefense: {
+    sack: 1,
+    interception: 2,
+    fumbleRecovery: 2,
+    defensiveTD: 6,
+    safety: 2,
+    blockedKick: 2,
+    pointsAllowed: [
+      { min: 0, max: 0, points: 10 },
+      { min: 1, max: 6, points: 7 },
+      { min: 7, max: 13, points: 4 },
+      { min: 14, max: 20, points: 1 },
+      { min: 21, max: 27, points: 0 },
+      { min: 28, max: 34, points: -1 },
+      { min: 35, max: null, points: -4 },
+    ],
+    yardsAllowed: [
+      { min: 0, max: 99, points: 10 },
+      { min: 100, max: 199, points: 7 },
+      { min: 200, max: 299, points: 4 },
+      { min: 300, max: 349, points: 1 },
+      { min: 350, max: 399, points: 0 },
+      { min: 400, max: 449, points: -1 },
+      { min: 450, max: 499, points: -3 },
+      { min: 500, max: 549, points: -5 },
+      { min: 550, max: null, points: -7 },
+    ],
+  },
+  idp: {
+    soloTackle: 1,
+    assistedTackle: 0.5,
+    sack: 2,
+    interception: 6,
+    forcedFumble: 2,
+    fumbleRecovery: 2,
+    passDeflection: 1,
+    qbHit: 1,
+    tacklesForLoss: 1,
+    safety: 2,
+    defensiveTD: 6,
+    twoPointReturn: 2,
+  },
 };
 
-// League-selectable presets; each is a full rule set based on the defaults
+// Flat stat-key names carried on player_stats rows (unchanged by this
+// reshape — only the *rules* tree nested, not the stored stats shape) ->
+// where their rate/tier lives in the rules tree above. `tierMode: 'perUnit'`
+// means the stored value is a plain count with no distance/magnitude
+// breakdown (today's `fieldGoal` make-count), so it prices at the tier
+// array's first entry per unit — the same as the old flat `fieldGoal: 3`
+// rate — until a distance-aware producer (Phase C) replaces it. Tiers
+// without a mapping here (pointsAllowed/yardsAllowed) and all of `idp` have
+// no producer yet; they validate and edit correctly but simply never match
+// a stat key until their producers land.
+const STAT_KEY_PATHS = {
+  passingYards: { path: ['passing', 'yards'] },
+  passingTDs: { path: ['passing', 'touchdowns'] },
+  interceptions: { path: ['passing', 'interceptions'] },
+  passingTwoPt: { path: ['passing', 'twoPointConversions'] },
+  rushingYards: { path: ['rushing', 'yards'] },
+  rushingTDs: { path: ['rushing', 'touchdowns'] },
+  rushingTwoPt: { path: ['rushing', 'twoPointConversions'] },
+  receivingYards: { path: ['receiving', 'yards'] },
+  receivingTDs: { path: ['receiving', 'touchdowns'] },
+  receptions: { path: ['receiving', 'reception'] },
+  receivingTwoPt: { path: ['receiving', 'twoPointConversions'] },
+  fumbles: { path: ['misc', 'fumblesLost'] },
+  extraPoint: { path: ['kicking', 'extraPoint'] },
+  fieldGoal: { path: ['kicking', 'fieldGoal'], tierMode: 'perUnit' },
+  sack: { path: ['teamDefense', 'sack'] },
+  interceptionReturn: { path: ['teamDefense', 'interception'] },
+  fumbleRecovery: { path: ['teamDefense', 'fumbleRecovery'] },
+  defensiveTD: { path: ['teamDefense', 'defensiveTD'] },
+};
+
+/** True iff `arr` is a well-formed tier list: finite min/points, max is a
+ * finite number >= min or null ("and up"), sorted ascending by min, and
+ * non-overlapping (each tier's min is past the previous tier's max). */
+function isValidTierArray(arr) {
+  if (!Array.isArray(arr) || arr.length === 0 || arr.length > 20) return false;
+  let prevMax = -Infinity;
+  for (const tier of arr) {
+    if (!tier || typeof tier !== 'object') return false;
+    const { min, max, points } = tier;
+    if (!Number.isFinite(Number(min)) || !Number.isFinite(Number(points))) return false;
+    if (max !== null && !Number.isFinite(Number(max))) return false;
+    if (Number(min) <= prevMax) return false;
+    if (max !== null && Number(max) < Number(min)) return false;
+    prevMax = max === null ? Infinity : Number(max);
+  }
+  return true;
+}
+
+/** Coerce a validated tier array's fields to numbers (max stays null when unbounded). */
+function normalizeTierArray(arr) {
+  return arr.map((t) => ({
+    min: Number(t.min),
+    max: t.max === null ? null : Number(t.max),
+    points: Number(t.points),
+  }));
+}
+
+/** Merge one rule category's custom leaves over its defaults; unknown/invalid leaves are dropped. */
+function mergeRuleCategory(defaults, custom) {
+  const merged = { ...defaults };
+  for (const [key, value] of Object.entries(custom || {})) {
+    if (!(key in defaults)) continue;
+    if (Array.isArray(defaults[key])) {
+      if (isValidTierArray(value)) merged[key] = normalizeTierArray(value);
+    } else if (Number.isFinite(Number(value))) {
+      merged[key] = Number(value);
+    }
+  }
+  return merged;
+}
+
+// League-selectable presets; each is a full rule set based on the defaults,
+// varying only the reception rate (PPR-ness).
+function withReceptionRate(rate) {
+  return { ...SCORING_RULES, receiving: { ...SCORING_RULES.receiving, reception: rate } };
+}
 const SCORING_PRESETS = {
-  standard: { ...SCORING_RULES, receptions: 0 },
-  half_ppr: { ...SCORING_RULES, receptions: 0.5 },
-  ppr: { ...SCORING_RULES, receptions: 1 },
+  standard: withReceptionRate(0),
+  half_ppr: withReceptionRate(0.5),
+  ppr: withReceptionRate(1),
 };
 
 /**
- * A league's effective scoring rules: its scoring_rules jsonb merged over
- * the defaults (null/missing column = defaults). Unknown keys are dropped.
+ * A league's effective scoring rules: its scoring_rules jsonb (a nested
+ * shape matching SCORING_RULES) merged category-by-category over the
+ * defaults (null/missing column = defaults). Unknown categories/keys and
+ * malformed tier arrays are dropped, falling back to the default leaf.
  */
 function rulesForLeague(league) {
   let custom = league && league.scoring_rules;
@@ -42,20 +180,42 @@ function rulesForLeague(league) {
     try { custom = JSON.parse(custom); } catch { custom = null; }
   }
   if (!custom || typeof custom !== 'object') return SCORING_RULES;
-  const rules = { ...SCORING_RULES };
-  for (const [key, value] of Object.entries(custom)) {
-    if (key in rules && Number.isFinite(Number(value))) rules[key] = Number(value);
+  const rules = {};
+  for (const [category, defaults] of Object.entries(SCORING_RULES)) {
+    const customCategory = custom[category];
+    rules[category] = customCategory && typeof customCategory === 'object' && !Array.isArray(customCategory)
+      ? mergeRuleCategory(defaults, customCategory)
+      : { ...defaults };
   }
   return rules;
+}
+
+/** Nested rules -> the leaf value at a STAT_KEY_PATHS `path`. */
+function ruleValueAt(rules, path) {
+  let node = rules;
+  for (const key of path) node = node && node[key];
+  return node;
 }
 
 /** Pure function: stats object -> fantasy points under the given rules. */
 function calculateFantasyPoints(stats, rules = SCORING_RULES) {
   let score = 0;
   for (const [stat, value] of Object.entries(stats || {})) {
-    const pointsPerStat = rules[stat];
-    if (pointsPerStat !== undefined && Number.isFinite(Number(value))) {
-      score += Number(value) * pointsPerStat;
+    const mapping = STAT_KEY_PATHS[stat];
+    if (!mapping) continue;
+    const n = Number(value);
+    if (!Number.isFinite(n)) continue;
+    const ruleValue = ruleValueAt(rules, mapping.path);
+    if (Array.isArray(ruleValue)) {
+      if (mapping.tierMode === 'perUnit') {
+        const base = ruleValue[0];
+        if (base) score += n * base.points;
+      } else {
+        const tier = ruleValue.find((t) => n >= t.min && (t.max === null || n <= t.max));
+        if (tier) score += tier.points;
+      }
+    } else if (Number.isFinite(Number(ruleValue))) {
+      score += n * Number(ruleValue);
     }
   }
   return Math.round(score * 100) / 100;
@@ -927,6 +1087,7 @@ async function scoreMatchups({ leagueId, season, week, plays = [] }) {
 module.exports = {
   SCORING_RULES,
   SCORING_PRESETS,
+  isValidTierArray,
   rulesForLeague,
   calculateFantasyPoints,
   rapidApiClient,

@@ -444,6 +444,188 @@ function RosterSettingsPanel({ leagueId, league, onRefresh, notify }) {
   );
 }
 
+const RULE_CATEGORIES = ['passing', 'rushing', 'receiving', 'misc', 'kicking', 'teamDefense', 'idp'];
+const CATEGORY_LABELS = {
+  passing: 'Passing', rushing: 'Rushing', receiving: 'Receiving', misc: 'Misc',
+  kicking: 'Kicking', teamDefense: 'Team Defense', idp: 'Individual Defense (IDP)',
+};
+const LEAF_LABELS = {
+  yards: 'Per Yard', touchdowns: 'Touchdown', interceptions: 'Interception',
+  twoPointConversions: '2-Pt Conversion', reception: 'Reception', fumblesLost: 'Fumble Lost',
+  extraPoint: 'Extra Point', sack: 'Sack', interception: 'Interception',
+  fumbleRecovery: 'Fumble Recovery', defensiveTD: 'Defensive TD', safety: 'Safety',
+  blockedKick: 'Blocked Kick', soloTackle: 'Solo Tackle', assistedTackle: 'Assisted Tackle',
+  forcedFumble: 'Forced Fumble', passDeflection: 'Pass Deflection', qbHit: 'QB Hit',
+  tacklesForLoss: 'Tackle For Loss', twoPointReturn: '2-Pt Return',
+};
+const TIER_LABELS = {
+  fieldGoal: 'Field Goal (by distance)', pointsAllowed: 'Points Allowed', yardsAllowed: 'Yards Allowed',
+};
+
+// Client-side mirror of scoring.service.js's mergeRuleCategory — only used
+// to seed the editor's initial values from a league's stored (possibly
+// partial) scoring_rules; the server re-validates and re-merges on save.
+function mergeCategoryClient(defaults, custom) {
+  const merged = { ...defaults };
+  for (const [key, value] of Object.entries(custom || {})) {
+    if (!(key in defaults)) continue;
+    if (Array.isArray(defaults[key])) {
+      if (Array.isArray(value) && value.length > 0) {
+        merged[key] = value.map((t) => ({
+          min: Number(t.min),
+          max: t.max === null || t.max === undefined ? null : Number(t.max),
+          points: Number(t.points),
+        }));
+      }
+    } else if (Number.isFinite(Number(value))) {
+      merged[key] = Number(value);
+    }
+  }
+  return merged;
+}
+
+function buildInitialRules(defaults, custom) {
+  const rules = {};
+  for (const [category, catDefaults] of Object.entries(defaults)) {
+    const customCategory = custom && typeof custom === 'object' ? custom[category] : null;
+    rules[category] = customCategory && typeof customCategory === 'object' && !Array.isArray(customCategory)
+      ? mergeCategoryClient(catDefaults, customCategory)
+      : { ...catDefaults };
+  }
+  return rules;
+}
+
+function ScoringSettingsPanel({ leagueId, league, onRefresh, notify }) {
+  const [defaults, setDefaults] = useState(null);
+  const [rules, setRules] = useState(null);
+  const report = fail(notify);
+  const frozen = league.draft_status !== 'pending';
+
+  useEffect(() => {
+    let active = true;
+    apiClient
+      .get('/api/scoring/rules')
+      .then((res) => {
+        if (!active) return;
+        setDefaults(res.data.defaults);
+        setRules(buildInitialRules(res.data.defaults, league.scoring_rules));
+      })
+      .catch(() => active && notify('Failed to load scoring defaults', { severity: 'error' }));
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leagueId]);
+
+  if (!rules) return <CircularProgress size={24} />;
+
+  const setLeaf = (category, key, value) =>
+    setRules((prev) => ({ ...prev, [category]: { ...prev[category], [key]: value } }));
+
+  const setTier = (category, key, index, field, value) =>
+    setRules((prev) => {
+      const tiers = prev[category][key].map((t, i) => (i === index ? { ...t, [field]: value } : t));
+      return { ...prev, [category]: { ...prev[category], [key]: tiers } };
+    });
+
+  const handleReset = () => setRules(buildInitialRules(defaults, null));
+
+  const handleSave = async () => {
+    const payload = {};
+    for (const [category, leaves] of Object.entries(rules)) {
+      payload[category] = {};
+      for (const [key, value] of Object.entries(leaves)) {
+        payload[category][key] = Array.isArray(value)
+          ? value.map((t) => ({
+              min: Number(t.min),
+              max: t.max === '' || t.max === null ? null : Number(t.max),
+              points: Number(t.points),
+            }))
+          : Number(value);
+      }
+    }
+    try {
+      await apiClient.put(`/api/league/${leagueId}`, { scoringRules: payload });
+      notify('Scoring settings saved');
+      onRefresh();
+    } catch (err) {
+      report(err);
+    }
+  };
+
+  const categories = RULE_CATEGORIES.filter((c) => c in rules && (c !== 'idp' || league.dp_enabled));
+
+  return (
+    <Stack spacing={3}>
+      {frozen && (
+        <Alert severity="info">
+          Scoring rules lock once the draft starts, so every week is scored under the same rules.
+        </Alert>
+      )}
+
+      {categories.map((category) => {
+        const leaves = Object.entries(rules[category]).filter(([, v]) => !Array.isArray(v));
+        const tiers = Object.entries(rules[category]).filter(([, v]) => Array.isArray(v));
+        return (
+          <Box key={category}>
+            <Typography variant="subtitle2" sx={{ mb: 1 }}>{CATEGORY_LABELS[category]}</Typography>
+            {leaves.length > 0 && (
+              <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: tiers.length > 0 ? 2 : 0 }}>
+                {leaves.map(([key, value]) => (
+                  <TextField
+                    key={key} label={LEAF_LABELS[key] || key} type="number" size="small" disabled={frozen}
+                    inputProps={{ step: 0.1, min: -50, max: 50 }}
+                    value={value} onChange={(e) => setLeaf(category, key, e.target.value)}
+                    sx={{ width: 160 }}
+                  />
+                ))}
+              </Box>
+            )}
+            {tiers.map(([key, tierArray]) => (
+              <Box key={key} sx={{ mb: 2 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                  {TIER_LABELS[key] || key}
+                </Typography>
+                <Stack spacing={1}>
+                  {tierArray.map((tier, i) => (
+                    <Box key={i} sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                      <TextField
+                        label="Min" type="number" size="small" disabled={frozen}
+                        value={tier.min} onChange={(e) => setTier(category, key, i, 'min', e.target.value)}
+                        sx={{ width: 90 }}
+                      />
+                      <TextField
+                        label="Max" type="number" size="small" disabled={frozen} placeholder="and up"
+                        value={tier.max === null ? '' : tier.max}
+                        onChange={(e) => setTier(category, key, i, 'max', e.target.value === '' ? null : e.target.value)}
+                        sx={{ width: 90 }}
+                      />
+                      <TextField
+                        label="Points" type="number" size="small" disabled={frozen}
+                        value={tier.points} onChange={(e) => setTier(category, key, i, 'points', e.target.value)}
+                        sx={{ width: 90 }}
+                      />
+                    </Box>
+                  ))}
+                </Stack>
+              </Box>
+            ))}
+          </Box>
+        );
+      })}
+
+      <Box sx={{ display: 'flex', gap: 2 }}>
+        <Button variant="outlined" size="small" disabled={frozen} onClick={handleSave}>
+          Save Scoring Settings
+        </Button>
+        <Button size="small" disabled={frozen} onClick={handleReset}>
+          Reset to NFL.com Defaults
+        </Button>
+      </Box>
+    </Stack>
+  );
+}
+
 function PlayoffSchedulePanel({ leagueId, league, onRefresh, notify }) {
   const [playoffTeams, setPlayoffTeams] = useState(league.playoff_teams ?? 4);
   const [startWeek, setStartWeek] = useState((league.regular_season_weeks ?? 14) + 1);
@@ -921,6 +1103,7 @@ function CommissionerTools({ leagueId, league, teams, user, standingsLeague, onR
       >
         <Tab label="General Settings" value="general" />
         <Tab label="Roster Settings" value="roster" />
+        <Tab label="Scoring Settings" value="scoring" />
         <Tab label="Playoffs & Schedule" value="playoffs" />
         <Tab label="Waivers & Trades" value="waivers" />
         <Tab label="System Overrides" value="overrides" />
@@ -934,6 +1117,9 @@ function CommissionerTools({ leagueId, league, teams, user, standingsLeague, onR
         )}
         {tab === 'roster' && (
           <RosterSettingsPanel leagueId={leagueId} league={league} onRefresh={onRefresh} notify={notify} />
+        )}
+        {tab === 'scoring' && (
+          <ScoringSettingsPanel leagueId={leagueId} league={league} onRefresh={onRefresh} notify={notify} />
         )}
         {tab === 'playoffs' && (
           <PlayoffSchedulePanel leagueId={leagueId} league={league} onRefresh={onRefresh} notify={notify} />

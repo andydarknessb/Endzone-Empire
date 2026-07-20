@@ -13,13 +13,17 @@ const {
 
 test('SCORING_RULES is defined', () => {
   assert(SCORING_RULES);
-  assert.equal(SCORING_RULES.passingYards, 0.04);
-  assert.equal(SCORING_RULES.passingTDs, 4);
-  assert.equal(SCORING_RULES.interceptions, -2);
-  assert.equal(SCORING_RULES.rushingYards, 0.1);
-  assert.equal(SCORING_RULES.rushingTDs, 6);
-  assert.equal(SCORING_RULES.receptions, 0.5);
-  assert.equal(SCORING_RULES.receivingYards, 0.1);
+  assert.equal(SCORING_RULES.passing.yards, 0.04);
+  assert.equal(SCORING_RULES.passing.touchdowns, 4);
+  assert.equal(SCORING_RULES.passing.interceptions, -2);
+  assert.equal(SCORING_RULES.rushing.yards, 0.1);
+  assert.equal(SCORING_RULES.rushing.touchdowns, 6);
+  assert.equal(SCORING_RULES.receiving.reception, 0.5);
+  assert.equal(SCORING_RULES.receiving.yards, 0.1);
+  // Tiered stats are sorted, non-overlapping tier arrays
+  assert.deepEqual(SCORING_RULES.kicking.fieldGoal[0], { min: 0, max: 39, points: 3 });
+  assert.equal(SCORING_RULES.teamDefense.pointsAllowed.at(-1).max, null);
+  assert.equal(SCORING_RULES.idp.sack, 2);
 });
 
 test('calculateFantasyPoints returns 0 for empty object', () => {

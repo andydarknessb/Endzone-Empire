@@ -364,17 +364,34 @@ router.put('/:id', async (req, res) => {
   if (tradeVetoVotes !== undefined && !intInRange(tradeVetoVotes, 0, 20)) {
     return res.status(400).json({ error: 'tradeVetoVotes must be an integer between 0 and 20' });
   }
-  const { SCORING_PRESETS, SCORING_RULES } = require('../services/scoring.service');
+  const { SCORING_PRESETS, SCORING_RULES, isValidTierArray } = require('../services/scoring.service');
   if (scoringPreset !== undefined && !SCORING_PRESETS[scoringPreset]) {
     return res.status(400).json({ error: `scoringPreset must be one of ${Object.keys(SCORING_PRESETS).join(', ')}` });
   }
+  // scoringRules is a nested { category: { statKey: number | tierArray } }
+  // shape mirroring SCORING_RULES (see scoring.service.js). Every category
+  // and leaf key must already exist in the defaults; a leaf is either a
+  // finite bounded number (plain rate) or, for a tiered stat (FG distance,
+  // points/yards allowed), a well-formed tier array. Unknown categories/keys
+  // are rejected here rather than silently dropped, since this is the point
+  // a commissioner finds out about a typo — rulesForLeague()'s silent-drop
+  // behavior is the defense-in-depth fallback for anything that slips past.
   if (scoringRules !== undefined) {
+    const validCategory = (category, custom) =>
+      custom && typeof custom === 'object' && !Array.isArray(custom) &&
+      Object.entries(custom).every(([key, value]) => {
+        if (!(key in category)) return false;
+        if (Array.isArray(category[key])) return isValidTierArray(value);
+        return Number.isFinite(Number(value)) && Math.abs(Number(value)) <= 50;
+      });
     const valid = scoringRules && typeof scoringRules === 'object' && !Array.isArray(scoringRules) &&
       Object.entries(scoringRules).every(
-        ([key, value]) => key in SCORING_RULES && Number.isFinite(Number(value)) && Math.abs(Number(value)) <= 50
+        ([cat, custom]) => cat in SCORING_RULES && validCategory(SCORING_RULES[cat], custom)
       );
     if (!valid) {
-      return res.status(400).json({ error: 'scoringRules must map known stat names to numbers (|value| <= 50)' });
+      return res.status(400).json({
+        error: 'scoringRules must be a nested { category: { statKey: number|tierArray } } object matching the known scoring schema (rates |value| <= 50; tiers well-formed and non-overlapping)',
+      });
     }
   }
   if (regularSeasonWeeks !== undefined && !intInRange(regularSeasonWeeks, 1, 17)) {

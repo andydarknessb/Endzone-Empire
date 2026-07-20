@@ -77,10 +77,11 @@ beforeEach(() => {
   mockGetByUrl();
 });
 
-test('renders all five tabs, defaulting to General Settings', () => {
+test('renders all six tabs, defaulting to General Settings', () => {
   renderTools();
   expect(screen.getByRole('tab', { name: 'General Settings' })).toHaveAttribute('aria-selected', 'true');
   expect(screen.getByRole('tab', { name: 'Roster Settings' })).toBeInTheDocument();
+  expect(screen.getByRole('tab', { name: 'Scoring Settings' })).toBeInTheDocument();
   expect(screen.getByRole('tab', { name: 'Playoffs & Schedule' })).toBeInTheDocument();
   expect(screen.getByRole('tab', { name: 'Waivers & Trades' })).toBeInTheDocument();
   expect(screen.getByRole('tab', { name: 'System Overrides' })).toBeInTheDocument();
@@ -136,6 +137,117 @@ test('Add Slot appends an empty slot row for the commissioner to configure', asy
 
   await userEvent.click(screen.getByRole('button', { name: '+ Add Slot' }));
   expect(screen.getAllByLabelText('Slot Name')).toHaveLength(3);
+});
+
+// --- Scoring Settings ---
+
+const SCORING_DEFAULTS_FIXTURE = {
+  passing: { yards: 0.04, touchdowns: 4, interceptions: -2, twoPointConversions: 2 },
+  kicking: {
+    extraPoint: 1,
+    fieldGoal: [
+      { min: 0, max: 39, points: 3 },
+      { min: 40, max: 49, points: 4 },
+      { min: 50, max: null, points: 5 },
+    ],
+  },
+  idp: { soloTackle: 1, sack: 2 },
+};
+
+const mockScoringRules = () => mockGetByUrl({
+  '/api/scoring/rules': { data: { defaults: SCORING_DEFAULTS_FIXTURE, presets: {} } },
+});
+
+test('Scoring Settings renders category fields and tier rows from the defaults, hiding IDP when dpEnabled is false', async () => {
+  mockScoringRules();
+  renderTools();
+  await userEvent.click(screen.getByRole('tab', { name: 'Scoring Settings' }));
+
+  expect(await screen.findByText('Passing')).toBeInTheDocument();
+  expect(screen.getByLabelText('Per Yard')).toHaveValue(0.04);
+  expect(screen.getByLabelText('Touchdown')).toHaveValue(4);
+  expect(screen.getByText('Field Goal (by distance)')).toBeInTheDocument();
+  expect(screen.getAllByLabelText('Min')).toHaveLength(3); // 3 FG tiers
+  expect(screen.queryByText('Individual Defense (IDP)')).not.toBeInTheDocument();
+});
+
+test('Scoring Settings shows the IDP section when the league has DP enabled', async () => {
+  mockScoringRules();
+  renderTools({ league: league({ dp_enabled: true }) });
+  await userEvent.click(screen.getByRole('tab', { name: 'Scoring Settings' }));
+
+  expect(await screen.findByText('Individual Defense (IDP)')).toBeInTheDocument();
+  expect(screen.getByLabelText('Solo Tackle')).toHaveValue(1);
+});
+
+test('Scoring Settings is frozen once the draft has started', async () => {
+  mockScoringRules();
+  renderTools({ league: league({ draft_status: 'active' }) });
+  await userEvent.click(screen.getByRole('tab', { name: 'Scoring Settings' }));
+
+  expect(await screen.findByText(/lock once the draft starts/)).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Save Scoring Settings' })).toBeDisabled();
+  expect(screen.getByLabelText('Per Yard')).toBeDisabled();
+});
+
+test('editing a leaf value and a tier field, then saving, sends the full nested payload', async () => {
+  mockScoringRules();
+  apiClient.put.mockResolvedValue({});
+  const onRefresh = jest.fn();
+  renderTools({ onRefresh });
+  await userEvent.click(screen.getByRole('tab', { name: 'Scoring Settings' }));
+
+  const touchdownField = await screen.findByLabelText('Touchdown');
+  await userEvent.clear(touchdownField);
+  await userEvent.type(touchdownField, '6');
+
+  const pointsFields = screen.getAllByLabelText('Points');
+  await userEvent.clear(pointsFields[0]);
+  await userEvent.type(pointsFields[0], '4');
+
+  await userEvent.click(screen.getByRole('button', { name: 'Save Scoring Settings' }));
+
+  await waitFor(() =>
+    expect(apiClient.put).toHaveBeenCalledWith('/api/league/1', {
+      scoringRules: {
+        passing: { yards: 0.04, touchdowns: 6, interceptions: -2, twoPointConversions: 2 },
+        kicking: {
+          extraPoint: 1,
+          fieldGoal: [
+            { min: 0, max: 39, points: 4 },
+            { min: 40, max: 49, points: 4 },
+            { min: 50, max: null, points: 5 },
+          ],
+        },
+        idp: { soloTackle: 1, sack: 2 },
+      },
+    })
+  );
+  expect(await screen.findByText('Scoring settings saved')).toBeInTheDocument();
+  expect(onRefresh).toHaveBeenCalled();
+});
+
+test('Reset to NFL.com Defaults reverts an edited field back to its default value', async () => {
+  mockScoringRules();
+  renderTools();
+  await userEvent.click(screen.getByRole('tab', { name: 'Scoring Settings' }));
+
+  const touchdownField = await screen.findByLabelText('Touchdown');
+  await userEvent.clear(touchdownField);
+  await userEvent.type(touchdownField, '99');
+  expect(touchdownField).toHaveValue(99);
+
+  await userEvent.click(screen.getByRole('button', { name: 'Reset to NFL.com Defaults' }));
+  expect(touchdownField).toHaveValue(4);
+});
+
+test('a league\'s existing custom scoring_rules seed the editor over the defaults', async () => {
+  mockScoringRules();
+  renderTools({ league: league({ scoring_rules: { passing: { touchdowns: 8 } } }) });
+  await userEvent.click(screen.getByRole('tab', { name: 'Scoring Settings' }));
+
+  expect(await screen.findByLabelText('Touchdown')).toHaveValue(8);
+  expect(screen.getByLabelText('Per Yard')).toHaveValue(0.04); // untouched default
 });
 
 // --- Playoffs & Schedule ---
