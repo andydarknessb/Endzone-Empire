@@ -97,13 +97,33 @@ function GlobalPlayerSearch({ inDrawer = false, enableShortcut = false }) {
           <TextField
             {...params}
             inputRef={inputRef}
-            placeholder="Search players ( / )"
+            placeholder="Search players..."
             inputProps={{ ...params.inputProps, 'aria-label': 'Search players' }}
             InputProps={{
               ...params.InputProps,
               endAdornment: (
                 <>
-                  {loading ? <CircularProgress color="inherit" size={16} /> : null}
+                  {loading && <CircularProgress color="inherit" size={16} />}
+                  {!loading && enableShortcut && !input && (
+                    <Box
+                      component="kbd"
+                      aria-hidden="true"
+                      sx={{
+                        px: 0.6,
+                        py: 0.1,
+                        fontSize: 12,
+                        lineHeight: 1.6,
+                        fontFamily: 'inherit',
+                        color: 'text.secondary',
+                        border: '1px solid',
+                        borderColor: 'divider',
+                        borderRadius: 1,
+                        bgcolor: 'action.hover',
+                      }}
+                    >
+                      /
+                    </Box>
+                  )}
                   {params.InputProps.endAdornment}
                 </>
               ),

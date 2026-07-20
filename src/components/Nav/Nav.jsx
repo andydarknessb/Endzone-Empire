@@ -5,12 +5,15 @@ import {
   AppBar,
   Toolbar,
   Box,
+  Stack,
+  Button,
   IconButton,
   Menu,
   MenuItem,
   Drawer,
   List,
   ListItemButton,
+  ListItemIcon,
   ListItemText,
   Divider,
   Tooltip,
@@ -21,6 +24,8 @@ import {
 import MenuIcon from '@mui/icons-material/Menu';
 import Brightness4Icon from '@mui/icons-material/Brightness4';
 import Brightness7Icon from '@mui/icons-material/Brightness7';
+import SportsFootballIcon from '@mui/icons-material/SportsFootball';
+import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import NotificationBell from '../NotificationBell/NotificationBell';
 import GlobalPlayerSearch from '../GlobalPlayerSearch/GlobalPlayerSearch';
 import ProfileSettingsModal from './ProfileSettingsModal';
@@ -32,9 +37,9 @@ import { useThemeMode } from '../../theme/AppThemeProvider';
 const MAIN_LINKS = [
   { label: 'Home', to: '/user' },
   { label: 'League', to: '/league' },
-  { label: 'Discover Leagues', to: '/discover' },
+  { label: 'Discover', to: '/discover' },
   { label: 'Players', to: '/player' },
-  { label: 'My Team', to: '/team' },
+  { label: 'Roster', to: '/team' },
 ];
 
 function Nav() {
@@ -47,8 +52,8 @@ function Nav() {
   const [profileSettingsOpen, setProfileSettingsOpen] = useState(false);
 
   const loggedIn = !!user.id;
-  const links = [...MAIN_LINKS];
-  if (user.isPlatformAdmin === true) links.push({ label: 'Admin', to: '/admin' });
+  const links = MAIN_LINKS;
+  const isAdmin = user.isPlatformAdmin === true;
 
   const isActive = (to) => location.pathname === to || location.pathname.startsWith(`${to}/`);
 
@@ -66,11 +71,12 @@ function Nav() {
     px: 1.25,
     py: 3,
     fontSize: 15,
+    whiteSpace: 'nowrap',
     color: isActive(to) ? 'var(--accent)' : 'var(--text-muted)',
     fontWeight: isActive(to) ? 700 : 400,
     borderBottom: isActive(to) ? '2px solid var(--accent)' : '2px solid transparent',
     borderRadius: 0,
-    transition: 'color 0.2s ease, background-color 0.2s ease',
+    transition: 'color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease',
     '&:hover': { color: 'var(--accent)', bgcolor: 'var(--accent-soft)' },
   });
 
@@ -109,9 +115,23 @@ function Nav() {
           component={RouterLink}
           to="/home"
           underline="none"
-          sx={{ color: 'var(--accent)', fontWeight: 700, fontSize: 24, mr: 2, whiteSpace: 'nowrap' }}
+          sx={{ mr: { xs: 1, sm: 2 } }}
         >
-          Endzone Empire
+          <Stack direction="row" alignItems="center" spacing={1}>
+            <SportsFootballIcon sx={{ color: 'var(--accent)', fontSize: { xs: 22, sm: 26 } }} />
+            <Typography
+              component="span"
+              sx={{
+                color: 'var(--accent)',
+                fontWeight: 700,
+                fontSize: { xs: 18, sm: 22 },
+                letterSpacing: '-0.02em',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Endzone Empire
+            </Typography>
+          </Stack>
         </Link>
 
         {/* Desktop inline links */}
@@ -129,9 +149,30 @@ function Nav() {
 
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
           {!loggedIn && (
-            <Link component={RouterLink} to="/login" underline="none" sx={{ mr: 1, color: 'var(--text-muted)', '&:hover': { color: 'var(--accent)' } }}>
-              Login / Register
-            </Link>
+            <Stack direction="row" spacing={{ xs: 0.5, sm: 1 }} sx={{ mr: { xs: 0, sm: 1 } }}>
+              <Button
+                component={RouterLink}
+                to="/login"
+                size="small"
+                sx={{
+                  minWidth: 0,
+                  px: { xs: 1, sm: 2 },
+                  color: 'var(--text-muted)',
+                  '&:hover': { color: 'var(--accent)' },
+                }}
+              >
+                Log In
+              </Button>
+              <Button
+                component={RouterLink}
+                to="/registration"
+                variant="outlined"
+                size="small"
+                sx={{ minWidth: 0, px: { xs: 1.25, sm: 2 } }}
+              >
+                Register
+              </Button>
+            </Stack>
           )}
 
           {loggedIn && (
@@ -177,6 +218,14 @@ function Nav() {
                 <MenuItem component={RouterLink} to="/settings/notifications" onClick={() => setProfileAnchor(null)}>
                   Notification Settings
                 </MenuItem>
+                {isAdmin && (
+                  <MenuItem component={RouterLink} to="/admin" onClick={() => setProfileAnchor(null)}>
+                    <ListItemIcon>
+                      <AdminPanelSettingsIcon fontSize="small" />
+                    </ListItemIcon>
+                    Admin
+                  </MenuItem>
+                )}
                 <MenuItem onClick={handleLogout}>Log Out</MenuItem>
               </Menu>
               <ProfileSettingsModal
@@ -221,6 +270,14 @@ function Nav() {
               >
                 <ListItemText primary="Notification Settings" />
               </ListItemButton>
+              {isAdmin && (
+                <ListItemButton component={RouterLink} to="/admin" onClick={() => setDrawerOpen(false)}>
+                  <ListItemIcon>
+                    <AdminPanelSettingsIcon fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText primary="Admin" />
+                </ListItemButton>
+              )}
               <ListItemButton onClick={handleLogout}>
                 <ListItemText primary="Log Out" />
               </ListItemButton>
@@ -228,7 +285,10 @@ function Nav() {
           ) : (
             <List>
               <ListItemButton component={RouterLink} to="/login" onClick={() => setDrawerOpen(false)}>
-                <ListItemText primary="Login / Register" />
+                <ListItemText primary="Log In" />
+              </ListItemButton>
+              <ListItemButton component={RouterLink} to="/registration" onClick={() => setDrawerOpen(false)}>
+                <ListItemText primary="Register" />
               </ListItemButton>
             </List>
           )}

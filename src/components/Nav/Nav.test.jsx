@@ -18,12 +18,13 @@ afterEach(() => {
   jest.clearAllMocks();
 });
 
-test('shows a "Login / Register" link when no user is logged in', () => {
+test('shows separate "Log In" and "Register" links when no user is logged in', () => {
   renderWithProviders(<Nav />, { state: { user: {} } });
 
-  expect(screen.getByRole('link', { name: /login \/ register/i })).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Log In' })).toHaveAttribute('href', '/login');
+  expect(screen.getByRole('link', { name: 'Register' })).toHaveAttribute('href', '/registration');
   expect(screen.queryByRole('link', { name: 'League' })).not.toBeInTheDocument();
-  expect(screen.queryByRole('link', { name: 'Discover Leagues' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'Discover' })).not.toBeInTheDocument();
   expect(screen.queryByRole('link', { name: 'Notification Settings' })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Log Out' })).not.toBeInTheDocument();
 });
@@ -33,9 +34,9 @@ test('shows the full authenticated nav when a user is logged in', async () => {
 
   expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute('href', '/user');
   expect(screen.getByRole('link', { name: 'League' })).toHaveAttribute('href', '/league');
-  expect(screen.getByRole('link', { name: 'Discover Leagues' })).toHaveAttribute('href', '/discover');
+  expect(screen.getByRole('link', { name: 'Discover' })).toHaveAttribute('href', '/discover');
   expect(screen.getByRole('link', { name: 'Players' })).toHaveAttribute('href', '/player');
-  expect(screen.getByRole('link', { name: 'My Team' })).toHaveAttribute('href', '/team');
+  expect(screen.getByRole('link', { name: 'Roster' })).toHaveAttribute('href', '/team');
   expect(screen.queryByRole('link', { name: /login \/ register/i })).not.toBeInTheDocument();
 });
 
@@ -69,17 +70,20 @@ test('hides the notification bell when no user is logged in', () => {
   expect(screen.queryByRole('button', { name: /notifications/i })).not.toBeInTheDocument();
 });
 
-test('shows the Admin link when the logged-in user is a platform admin', () => {
+test('shows Admin in the account menu when the logged-in user is a platform admin', async () => {
   renderWithProviders(<Nav />, { state: { user: { id: 1, username: 'alice', isPlatformAdmin: true } } });
-  expect(screen.getByRole('link', { name: 'Admin' })).toHaveAttribute('href', '/admin');
+  await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
+  expect(screen.getByRole('menuitem', { name: 'Admin' })).toHaveAttribute('href', '/admin');
 });
 
-test('hides the Admin link when the logged-in user is not a platform admin', () => {
+test('hides Admin from the account menu when the logged-in user is not a platform admin', async () => {
   renderWithProviders(<Nav />, { state: { user: { id: 1, username: 'alice', isPlatformAdmin: false } } });
-  expect(screen.queryByRole('link', { name: 'Admin' })).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
+  expect(screen.queryByRole('menuitem', { name: 'Admin' })).not.toBeInTheDocument();
 });
 
-test('hides the Admin link when isPlatformAdmin is undefined', () => {
+test('hides Admin from the account menu when isPlatformAdmin is undefined', async () => {
   renderWithProviders(<Nav />, { state: { user: { id: 1, username: 'alice' } } });
-  expect(screen.queryByRole('link', { name: 'Admin' })).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
+  expect(screen.queryByRole('menuitem', { name: 'Admin' })).not.toBeInTheDocument();
 });
