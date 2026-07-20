@@ -84,9 +84,13 @@ router.post('/sync/:job', async (req, res) => {
       result = await require('../services/sleeper.service').syncSeasonStats();
     } else if (job === 'backfill-seasons') {
       result = await scoring.syncPlayerSeasonStats({ currentSeason: season });
+    } else if (job === 'defenses') {
+      // No RapidAPI call — backfills any of the 32 team-DEF rows still
+      // missing from a hardcoded team list, not a live sync.
+      result = await scoring.syncTeamDefenses();
     } else {
       return res.status(400).json({
-        error: 'job must be players, schedule, injuries, stats, photos, adp, season-stats, or backfill-seasons',
+        error: 'job must be players, schedule, injuries, stats, photos, adp, season-stats, backfill-seasons, or defenses',
       });
     }
     res.json(result);

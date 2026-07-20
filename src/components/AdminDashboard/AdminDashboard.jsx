@@ -47,6 +47,7 @@ const FREE_SYNC_JOBS = [
   { job: 'adp', label: 'Sync ADP (Fantasy Football Calculator)' },
   { job: 'season-stats', label: 'Sync Season Stats (Sleeper)' },
   { job: 'backfill-seasons', label: 'Backfill Seasons (from weekly stats)' },
+  { job: 'defenses', label: 'Sync Team Defenses' },
 ];
 
 function StatTile({ label, value, caption, tone }) {
@@ -90,6 +91,7 @@ function AdminDashboard() {
     adp: { running: false, result: null, error: null },
     'season-stats': { running: false, result: null, error: null },
     'backfill-seasons': { running: false, result: null, error: null },
+    defenses: { running: false, result: null, error: null },
   });
 
   useEffect(() => {

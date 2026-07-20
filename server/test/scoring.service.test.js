@@ -8,6 +8,7 @@ const {
   extractPlayByPlayBonusStats,
   normalizeTank01DstStats,
   normalizeTeamAbbr,
+  missingTeamDefenses,
   normalizeTank01Game,
   detectScoringEvents,
   SCORING_RULES,
@@ -206,6 +207,27 @@ test('extractPlayByPlayBonusStats tolerates a missing/empty play list', () => {
   assert.equal(extractPlayByPlayBonusStats(null).size, 0);
   assert.equal(extractPlayByPlayBonusStats([]).size, 0);
   assert.equal(extractPlayByPlayBonusStats([{ play: 'no playerStats here' }]).size, 0);
+});
+
+// --- Team-DEF backfill (missingTeamDefenses) ----------------------------------
+
+test('missingTeamDefenses returns all 32 teams when none exist yet', () => {
+  const missing = missingTeamDefenses([]);
+  assert.equal(missing.length, 32);
+  assert(missing.includes('Arizona Cardinals'));
+  assert(missing.includes('San Francisco 49ers'));
+});
+
+test('missingTeamDefenses excludes teams already present, matched by abbreviation regardless of stored format', () => {
+  const missing = missingTeamDefenses(['San Francisco 49ers', 'DAL']);
+  assert.equal(missing.length, 30);
+  assert(!missing.includes('San Francisco 49ers'));
+  assert(!missing.includes('Dallas Cowboys'));
+});
+
+test('missingTeamDefenses ignores unresolvable/empty nfl_team values and null/undefined input', () => {
+  assert.equal(missingTeamDefenses([null, '', 'Not A Real Team']).length, 32);
+  assert.equal(missingTeamDefenses(undefined).length, 32);
 });
 
 // --- Team-defense (DST) aggregate handling ------------------------------------

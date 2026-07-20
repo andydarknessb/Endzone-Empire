@@ -206,6 +206,19 @@ test('all sync buttons are disabled with a hint when rapidApiConfigured is false
   // Free-source enrichment jobs don't need RapidAPI, so they stay enabled.
   expect(screen.getByRole('button', { name: /Sync ADP/ })).toBeEnabled();
   expect(screen.getByRole('button', { name: /Sync Season Stats/ })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Sync Team Defenses' })).toBeEnabled();
+});
+
+test('clicking Sync Team Defenses POSTs to its admin sync route (no season/week needed)', async () => {
+  apiClient.get.mockResolvedValue({ data: overviewResponse() });
+  apiClient.post.mockResolvedValue({ data: { teamsInserted: 30, totalDefTeams: 32 } });
+  renderScreen();
+
+  await screen.findByRole('heading', { name: 'Admin Dashboard' });
+  await userEvent.click(screen.getByRole('button', { name: 'Sync Team Defenses' }));
+
+  await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith('/api/admin/sync/defenses', {}));
+  expect(await screen.findByText(/teamsInserted/)).toBeInTheDocument();
 });
 
 test('clicking an enrichment job POSTs to its admin sync route', async () => {

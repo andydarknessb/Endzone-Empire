@@ -492,6 +492,57 @@ function normalizeTeamAbbr(nflTeam) {
   return NFL_TEAM_NAME_TO_ABBR[raw.toUpperCase()] || null;
 }
 
+/** 'SAN FRANCISCO 49ERS' -> 'San Francisco 49ers'. */
+function titleCase(str) {
+  return str.split(' ').map((w) => w.charAt(0) + w.slice(1).toLowerCase()).join(' ');
+}
+
+/**
+ * Pure: which of the 32 NFL teams (from NFL_TEAM_NAME_TO_ABBR, the same list
+ * syncWeekStats already uses to match box-score DST aggregates) don't yet
+ * have a DEF row, given the nfl_team values of the DEF rows that already
+ * exist. Matches by abbreviation via normalizeTeamAbbr, so it's correct
+ * regardless of whether an existing row stores a full name or an
+ * abbreviation, and unresolvable/empty values are simply ignored.
+ */
+function missingTeamDefenses(existingNflTeams) {
+  const existingAbbrs = new Set(
+    (existingNflTeams || []).map((t) => normalizeTeamAbbr(t)).filter(Boolean)
+  );
+  const missing = [];
+  for (const [fullNameUpper, abbr] of Object.entries(NFL_TEAM_NAME_TO_ABBR)) {
+    if (existingAbbrs.has(abbr)) continue;
+    missing.push(titleCase(fullNameUpper));
+  }
+  return missing;
+}
+
+/**
+ * Backfill any of the 32 NFL teams missing a rosterable DEF (team defense)
+ * unit. Unlike every other position, DEF units can't be discovered through
+ * syncPlayers — Tank01's player list never returns individual DEF entries
+ * (see normalizeTank01DstStats) — so they're seeded directly from the same
+ * 32-team list syncWeekStats matches box scores against. Idempotent: safe to
+ * re-run, since missingTeamDefenses skips any team that already has a row.
+ */
+async function syncTeamDefenses() {
+  const existing = await pool.query(`SELECT "nfl_team" FROM "players" WHERE "position" = 'DEF'`);
+  const missing = missingTeamDefenses(existing.rows.map((r) => r.nfl_team));
+  let inserted = 0;
+  for (const name of missing) {
+    try {
+      await pool.query(
+        `INSERT INTO "players" ("name", "position", "nfl_team") VALUES ($1, 'DEF', $1)`,
+        [name]
+      );
+      inserted += 1;
+    } catch (err) {
+      console.error(`DEF backfill failed for ${name}:`, err.message);
+    }
+  }
+  return { teamsInserted: inserted, totalDefTeams: existing.rows.length + inserted };
+}
+
 // Stat keys that represent a discrete, animatable "play" (a touchdown or a
 // smaller impact play), mapped to the event type the live UI renders and
 // whether it's touchdown-caliber (full-screen cutscene territory) or a
@@ -1264,6 +1315,8 @@ module.exports = {
   extractPlayByPlayBonusStats,
   normalizeTank01DstStats,
   normalizeTeamAbbr,
+  missingTeamDefenses,
+  syncTeamDefenses,
   normalizeTank01Game,
   normalizeInjuryStatus,
   normalizePlayerEntry,
