@@ -64,8 +64,24 @@ test('calculateFantasyPoints respects custom rules', () => {
   assert.equal(calculateFantasyPoints(stats, SCORING_PRESETS.ppr), 26); // 10 + 10 + 6
 });
 
-test('calculateFantasyPoints: fieldGoal count prices per-unit at the tier array\'s base rate', () => {
-  assert.equal(calculateFantasyPoints({ fieldGoal: 2 }), 6); // 2 makes * base 3pt tier
+test('calculateFantasyPoints: fieldGoalDistances tier-prices each made kick by its own distance', () => {
+  // 35yd -> 3pt tier, 44yd -> 4pt tier, 51yd -> 5pt tier = 12
+  assert.equal(calculateFantasyPoints({ fieldGoalDistances: [35, 44, 51] }), 12);
+});
+
+test('calculateFantasyPoints: a plain fieldGoal count (no distance data) is not scored', () => {
+  // fieldGoal (a make-count with no distance breakdown) is display/event-only
+  // once real per-kick distances are available via fieldGoalDistances.
+  assert.equal(calculateFantasyPoints({ fieldGoal: 2 }), 0);
+});
+
+test('calculateFantasyPoints: TD-length bonus tiers price each scoring play\'s own yardage', () => {
+  const rules = rulesForLeague({
+    scoring_rules: { rushing: { tdLengthBonus: [{ min: 0, max: 39, points: 0 }, { min: 40, max: 49, points: 2 }, { min: 50, max: null, points: 5 }] } },
+  });
+  // base rushing TD rate (6) applies per TD via rushingTDs, tdLengthBonus is additive
+  const stats = { rushingTDs: 2, rushingTDLengths: [45, 60] };
+  assert.equal(calculateFantasyPoints(stats, rules), 2 * 6 + 2 + 5);
 });
 
 test('calculateFantasyPoints defaults to the standard rule set when rules omitted', () => {

@@ -29,6 +29,10 @@ let lastSyncAt = null;
 // correction window). In-process only: a restart may repeat the pass the
 // same day, which is safe — the whole pipeline is idempotent.
 let lastCorrectionDay = null;
+// nflverse IDP finalization pass runs once per calendar day on Mon-Thu
+// (nflverse's own "cleanest by Thursday" publishing window). Same
+// in-process, idempotent, repeat-safe pattern as the stat-correction pass.
+let lastNflverseDay = null;
 
 async function tick() {
   if (running) return; // don't overlap slow runs
@@ -70,6 +74,7 @@ async function tick() {
       if (synced) ticksSinceSync = 0;
     }
     await runDailyStatCorrections();
+    await runNflverseFinalization();
     lastTickError = null;
   } catch (err) {
     console.error('scheduler tick failed:', err.message);
@@ -152,6 +157,24 @@ async function runDailyStatCorrections() {
   lastCorrectionDay = today;
   if (result.corrected && result.corrected.length > 0) {
     console.log(`scheduler: stat corrections changed scores in ${result.corrected.length} league(s)`);
+  }
+}
+
+/**
+ * Mon-Thu nflverse IDP-finalization pass: patch in sack/TFL/fumble-return
+ * yardage and individual safety for the prior week's defenders (see
+ * nflverseSync.service) and re-score any league whose scores moved. Runs at
+ * most once per calendar day; needs no credentials (nflverse is public).
+ */
+async function runNflverseFinalization() {
+  const nflverseSync = require('../services/nflverseSync.service');
+  if (!nflverseSync.isNflverseFinalizationDay()) return;
+  const today = new Date().toLocaleDateString('en-CA');
+  if (lastNflverseDay === today) return;
+  const result = await nflverseSync.finalizePriorWeeks();
+  lastNflverseDay = today;
+  if (result.finalized && result.finalized.length > 0) {
+    console.log(`scheduler: nflverse finalization updated IDP stats for ${result.finalized.length} week(s)`);
   }
 }
 

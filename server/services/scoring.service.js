@@ -1,34 +1,53 @@
 const axios = require('axios');
 const pool = require('../modules/pool');
-const { materializeLineup, optimalLineup, parseLineupSettings } = require('./lineup.service');
+const { materializeLineup, optimalLineup, parseLineupSettings, POSITION_GROUPS } = require('./lineup.service');
 const { getIo } = require('../modules/io');
 
 // Default fantasy scoring rules, grouped by category (NFL.com-style
-// defaults) — half-PPR. Tiered stats (FG distance, points/yards allowed)
-// are arrays of { min, max, points }, sorted ascending and non-overlapping;
-// `max: null` means "and up". `idp` scores individual defenders (DP roster
-// slots, see lineup.service.js's POSITION_GROUPS) — it's inert until a
-// league enables DP and the stat producers that feed it land (see the
-// roster/scoring plan's Phase C). Individual blocked-kick attribution has
-// no data source and is intentionally not a scored stat anywhere below;
-// `teamDefense.blockedKick` is a team-level stat only.
+// defaults) — half-PPR. Tiered stats (FG distance, TD-length bonus,
+// points/yards allowed) are arrays of { min, max, points }, sorted ascending
+// and non-overlapping; `max: null` means "and up". TD-length and IDP
+// yardage-bonus tiers/rates default to all-zero points — the capability to
+// score them exists (a commissioner can dial them in from the Scoring
+// Settings tab) without changing anyone's score by default, the same way
+// `reception` defaults to 0 under the "standard" preset. `idp` scores
+// individual defenders (DP roster slots, see lineup.service.js's
+// POSITION_GROUPS) — it's inert until a league enables DP. Individual
+// blocked-kick attribution has no data source and is intentionally not a
+// scored stat anywhere below; `teamDefense.blockedKick` is a team-level stat
+// only.
 const SCORING_RULES = {
   passing: {
     yards: 0.04,
     touchdowns: 4,
     interceptions: -2,
     twoPointConversions: 2,
+    tdLengthBonus: [
+      { min: 0, max: 39, points: 0 },
+      { min: 40, max: 49, points: 0 },
+      { min: 50, max: null, points: 0 },
+    ],
   },
   rushing: {
     yards: 0.1,
     touchdowns: 6,
     twoPointConversions: 2,
+    tdLengthBonus: [
+      { min: 0, max: 39, points: 0 },
+      { min: 40, max: 49, points: 0 },
+      { min: 50, max: null, points: 0 },
+    ],
   },
   receiving: {
     yards: 0.1,
     touchdowns: 6,
     reception: 0.5, // half-PPR
     twoPointConversions: 2,
+    tdLengthBonus: [
+      { min: 0, max: 39, points: 0 },
+      { min: 40, max: 49, points: 0 },
+      { min: 50, max: null, points: 0 },
+    ],
   },
   misc: {
     fumblesLost: -2,
@@ -82,38 +101,64 @@ const SCORING_RULES = {
     safety: 2,
     defensiveTD: 6,
     twoPointReturn: 2,
+    // Yardage bonuses only nflverse's post-game finalization pass can fill
+    // in (Tank01's live feed has no per-defender yardage for these) — see
+    // nflverseSync.service.js. Default to 0 for the same reason TD-length
+    // bonuses do.
+    sackYards: 0,
+    tacklesForLossYards: 0,
+    fumbleReturnYards: 0,
   },
 };
 
-// Flat stat-key names carried on player_stats rows (unchanged by this
-// reshape — only the *rules* tree nested, not the stored stats shape) ->
-// where their rate/tier lives in the rules tree above. `tierMode: 'perUnit'`
-// means the stored value is a plain count with no distance/magnitude
-// breakdown (today's `fieldGoal` make-count), so it prices at the tier
-// array's first entry per unit — the same as the old flat `fieldGoal: 3`
-// rate — until a distance-aware producer (Phase C) replaces it. Tiers
-// without a mapping here (pointsAllowed/yardsAllowed) and all of `idp` have
-// no producer yet; they validate and edit correctly but simply never match
-// a stat key until their producers land.
+// Flat stat-key names carried on player_stats rows -> where their rate/tier
+// lives in the rules tree above. `tierMode: 'perValue'` means the stored
+// value is an ARRAY of raw magnitudes (e.g. one made-FG's yardage per kick,
+// one TD's yardage per scoring play) — each element is tier-matched and
+// summed independently, so multiple made kicks/TDs in a game all price
+// correctly. Tiers without `perValue` (pointsAllowed/yardsAllowed) treat the
+// stored value as a single scalar for the whole game, tier-matched once.
 const STAT_KEY_PATHS = {
   passingYards: { path: ['passing', 'yards'] },
   passingTDs: { path: ['passing', 'touchdowns'] },
   interceptions: { path: ['passing', 'interceptions'] },
   passingTwoPt: { path: ['passing', 'twoPointConversions'] },
+  passingTDLengths: { path: ['passing', 'tdLengthBonus'], tierMode: 'perValue' },
   rushingYards: { path: ['rushing', 'yards'] },
   rushingTDs: { path: ['rushing', 'touchdowns'] },
   rushingTwoPt: { path: ['rushing', 'twoPointConversions'] },
+  rushingTDLengths: { path: ['rushing', 'tdLengthBonus'], tierMode: 'perValue' },
   receivingYards: { path: ['receiving', 'yards'] },
   receivingTDs: { path: ['receiving', 'touchdowns'] },
   receptions: { path: ['receiving', 'reception'] },
   receivingTwoPt: { path: ['receiving', 'twoPointConversions'] },
+  receivingTDLengths: { path: ['receiving', 'tdLengthBonus'], tierMode: 'perValue' },
   fumbles: { path: ['misc', 'fumblesLost'] },
   extraPoint: { path: ['kicking', 'extraPoint'] },
-  fieldGoal: { path: ['kicking', 'fieldGoal'], tierMode: 'perUnit' },
+  fieldGoalDistances: { path: ['kicking', 'fieldGoal'], tierMode: 'perValue' },
   sack: { path: ['teamDefense', 'sack'] },
   interceptionReturn: { path: ['teamDefense', 'interception'] },
   fumbleRecovery: { path: ['teamDefense', 'fumbleRecovery'] },
   defensiveTD: { path: ['teamDefense', 'defensiveTD'] },
+  safety: { path: ['teamDefense', 'safety'] },
+  blockedKick: { path: ['teamDefense', 'blockedKick'] },
+  pointsAllowed: { path: ['teamDefense', 'pointsAllowed'] },
+  yardsAllowed: { path: ['teamDefense', 'yardsAllowed'] },
+  soloTackle: { path: ['idp', 'soloTackle'] },
+  assistedTackle: { path: ['idp', 'assistedTackle'] },
+  idpSack: { path: ['idp', 'sack'] },
+  idpInterception: { path: ['idp', 'interception'] },
+  forcedFumble: { path: ['idp', 'forcedFumble'] },
+  idpFumbleRecovery: { path: ['idp', 'fumbleRecovery'] },
+  passDeflection: { path: ['idp', 'passDeflection'] },
+  qbHit: { path: ['idp', 'qbHit'] },
+  tacklesForLoss: { path: ['idp', 'tacklesForLoss'] },
+  idpSafety: { path: ['idp', 'safety'] },
+  idpDefensiveTD: { path: ['idp', 'defensiveTD'] },
+  twoPointReturn: { path: ['idp', 'twoPointReturn'] },
+  idpSackYards: { path: ['idp', 'sackYards'] },
+  idpTacklesForLossYards: { path: ['idp', 'tacklesForLossYards'] },
+  idpFumbleReturnYards: { path: ['idp', 'fumbleReturnYards'] },
 };
 
 /** True iff `arr` is a well-formed tier list: finite min/points, max is a
@@ -197,23 +242,34 @@ function ruleValueAt(rules, path) {
   return node;
 }
 
+/** Sum a tier array's matching-bucket points for each raw magnitude in `values`. */
+function scoreTieredValues(values, tiers) {
+  let total = 0;
+  for (const raw of Array.isArray(values) ? values : []) {
+    const n = Number(raw);
+    if (!Number.isFinite(n)) continue;
+    const tier = tiers.find((t) => n >= t.min && (t.max === null || n <= t.max));
+    if (tier) total += tier.points;
+  }
+  return total;
+}
+
 /** Pure function: stats object -> fantasy points under the given rules. */
 function calculateFantasyPoints(stats, rules = SCORING_RULES) {
   let score = 0;
   for (const [stat, value] of Object.entries(stats || {})) {
     const mapping = STAT_KEY_PATHS[stat];
     if (!mapping) continue;
+    const ruleValue = ruleValueAt(rules, mapping.path);
+    if (mapping.tierMode === 'perValue') {
+      if (Array.isArray(ruleValue)) score += scoreTieredValues(value, ruleValue);
+      continue;
+    }
     const n = Number(value);
     if (!Number.isFinite(n)) continue;
-    const ruleValue = ruleValueAt(rules, mapping.path);
     if (Array.isArray(ruleValue)) {
-      if (mapping.tierMode === 'perUnit') {
-        const base = ruleValue[0];
-        if (base) score += n * base.points;
-      } else {
-        const tier = ruleValue.find((t) => n >= t.min && (t.max === null || n <= t.max));
-        if (tier) score += tier.points;
-      }
+      const tier = ruleValue.find((t) => n >= t.min && (t.max === null || n <= t.max));
+      if (tier) score += tier.points;
     } else if (Number.isFinite(Number(ruleValue))) {
       score += n * Number(ruleValue);
     }
@@ -293,24 +349,121 @@ function normalizeTank01Stats(entry) {
 }
 
 /**
+ * Map one Tank01 box-score playerStats entry's "Defense" category to our IDP
+ * scoring keys (individual defenders — DP roster slots). Confirmed live
+ * field names: totalTackles, soloTackles, sacks, defensiveInterceptions
+ * (+ interceptionTDs), forcedFumbles, fumblesRecovered, passDeflections,
+ * qbHits, tfl, twoPointConversionReturn, defTD. Sack/TFL/fumble-return
+ * YARDAGE has no Tank01 field at all — those score 0 here and are filled in
+ * later by nflverseSync.service.js's post-game finalization pass.
+ * `defTD - interceptionTDs` is scored as the generic defensiveTD bucket
+ * (fumble-or-blocked-kick-return TD, per the roster/scoring plan — Tank01
+ * doesn't separate those two, and individual blocked-kick attribution isn't
+ * scored at all); the interception itself already carries the full value of
+ * a pick regardless of whether it was returned for a score.
+ */
+function normalizeTank01IdpStats(entry) {
+  const num = (value) => {
+    const parsed = Number(String(value ?? '').replace(/,/g, ''));
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  const d = (entry && entry.Defense) || {};
+  const totalTackles = num(d.totalTackles);
+  const soloTackles = num(d.soloTackles);
+  return {
+    soloTackle: soloTackles,
+    assistedTackle: Math.max(totalTackles - soloTackles, 0),
+    idpSack: num(d.sacks),
+    idpInterception: num(d.defensiveInterceptions),
+    forcedFumble: num(d.forcedFumbles),
+    idpFumbleRecovery: num(d.fumblesRecovered),
+    passDeflection: num(d.passDeflections),
+    qbHit: num(d.qbHits),
+    tacklesForLoss: num(d.tfl),
+    idpDefensiveTD: Math.max(num(d.defTD) - num(d.interceptionTDs), 0),
+    twoPointReturn: num(d.twoPointConversionReturn),
+  };
+}
+
+/**
+ * Pure: scan a box score's play-by-play list (fetched with playByPlay=true)
+ * and extract, per player, arrays of made-FG distances and TD-play
+ * yardages by category — the raw material for the FG-distance and
+ * TD-length-bonus scoring tiers. Confirmed live shapes:
+ *   - a made FG's own play carries playerStats[id].Kicking.{fgMade, fgYds}
+ *   - a TD play carries playerStats[id].{Passing.passTD+passYds |
+ *     Rushing.rushTD+rushYds | Receiving.recTD+recYds} on the SAME play, so
+ *     that category's yardage on a scoring play equals the score's length.
+ * Nothing here infers yardage from play-text descriptions.
+ */
+function extractPlayByPlayBonusStats(plays) {
+  const num = (value) => {
+    const parsed = Number(String(value ?? '').replace(/,/g, ''));
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const byPlayer = new Map();
+  const bucket = (playerId) => {
+    if (!byPlayer.has(playerId)) {
+      byPlayer.set(playerId, {
+        fieldGoalDistances: [], passingTDLengths: [], rushingTDLengths: [], receivingTDLengths: [],
+      });
+    }
+    return byPlayer.get(playerId);
+  };
+  for (const play of Array.isArray(plays) ? plays : []) {
+    const playerStats = play && play.playerStats;
+    if (!playerStats) continue;
+    for (const [playerId, ps] of Object.entries(playerStats)) {
+      if (ps.Kicking && ps.Kicking.fgMade === '1') {
+        const yds = num(ps.Kicking.fgYds);
+        if (yds != null) bucket(playerId).fieldGoalDistances.push(yds);
+      }
+      if (ps.Passing && ps.Passing.passTD === '1') {
+        const yds = num(ps.Passing.passYds);
+        if (yds != null) bucket(playerId).passingTDLengths.push(yds);
+      }
+      if (ps.Rushing && ps.Rushing.rushTD === '1') {
+        const yds = num(ps.Rushing.rushYds);
+        if (yds != null) bucket(playerId).rushingTDLengths.push(yds);
+      }
+      if (ps.Receiving && ps.Receiving.recTD === '1') {
+        const yds = num(ps.Receiving.recYds);
+        if (yds != null) bucket(playerId).receivingTDLengths.push(yds);
+      }
+    }
+  }
+  return byPlayer;
+}
+
+/**
  * Map one side of Tank01's box-score "DST" object (team-level defensive
  * aggregate — sacks/interceptions/fumble recoveries/defensive TDs summed
  * across every individual defender) to our scoring-rule stat names. This is
  * the only source for team-defense stats: Tank01's player list has no
  * individual "DEF" entries, so a rostered DEF unit's fantasy points come
  * entirely from this aggregate rather than from any single player's line.
+ *
+ * `opponentTeamStats` is the OPPOSING side's `box.teamStats[side]` entry —
+ * confirmed live, `blockedFG`/`blockedXP`/`blockedPunt` are reported on a
+ * team's OWN teamStats line as kicks of THEIRS that got blocked, so credit
+ * for a block belongs to the opponent's defense.
  */
-function normalizeTank01DstStats(dstSide) {
+function normalizeTank01DstStats(dstSide, opponentTeamStats) {
   const num = (value) => {
     const parsed = Number(String(value ?? '').replace(/,/g, ''));
     return Number.isFinite(parsed) ? parsed : 0;
   };
   const d = dstSide || {};
+  const opp = opponentTeamStats || {};
   return {
     sack: num(d.sacks),
     interceptionReturn: num(d.defensiveInterceptions),
     fumbleRecovery: num(d.fumblesRecovered),
     defensiveTD: num(d.defTD),
+    safety: num(d.safeties),
+    blockedKick: num(opp.blockedFG) + num(opp.blockedXP) + num(opp.blockedPunt),
+    pointsAllowed: num(d.ptsAllowed),
+    yardsAllowed: num(d.ydsAllowed),
   };
 }
 
@@ -447,15 +600,20 @@ async function syncWeekStats({ season, week }) {
     if (!game || !game.gameID) continue;
     try {
       const boxResponse = await api.get('/getNFLBoxScore', {
-        params: { gameID: game.gameID, playByPlay: 'false', fantasyPoints: 'false' },
+        params: { gameID: game.gameID, playByPlay: 'true', fantasyPoints: 'false' },
       });
       const box = tank01Body(boxResponse.data) || {};
       const playerStats = box.playerStats || {};
+      const bonusByPlayer = extractPlayByPlayBonusStats(box.allPlayByPlay);
       gamesProcessed += 1;
       for (const entry of Object.values(playerStats)) {
         const playerId = idByExternal.get(String(entry && entry.playerID));
         if (!playerId) continue; // not in our pool
-        const stats = normalizeTank01Stats(entry);
+        const stats = {
+          ...normalizeTank01Stats(entry),
+          ...normalizeTank01IdpStats(entry),
+          ...(bonusByPlayer.get(String(entry.playerID)) || {}),
+        };
         const points = calculateFantasyPoints(stats);
         const prev = prevById.get(playerId);
         const events = detectScoringEvents(prev, stats);
@@ -493,12 +651,14 @@ async function syncWeekStats({ season, week }) {
       // stats we could roster — this is the only real source for a DEF
       // unit's fantasy points.
       const dst = box.DST || {};
+      const teamStats = box.teamStats || {};
       for (const side of ['home', 'away']) {
         const dstSide = dst[side];
         const abbr = dstSide && dstSide.teamAbv ? String(dstSide.teamAbv).toUpperCase() : null;
         const defPlayer = abbr ? defByAbbr.get(abbr) : null;
         if (!defPlayer) continue; // no rostered DEF unit for this team in our pool
-        const stats = normalizeTank01DstStats(dstSide);
+        const opponentSide = side === 'home' ? 'away' : 'home';
+        const stats = normalizeTank01DstStats(dstSide, teamStats[opponentSide]);
         const points = calculateFantasyPoints(stats);
         const prev = prevById.get(defPlayer.id);
         const events = detectScoringEvents(prev, stats);
@@ -639,8 +799,15 @@ async function syncSchedule({ season }) {
 }
 
 // Fantasy-relevant positions — Tank01's full player list includes every
-// position (OL, LB, ...); only these are useful in a lineup.
-const FANTASY_POSITIONS = new Set(['QB', 'RB', 'WR', 'TE', 'K', 'PK', 'DEF']);
+// position (OL, C, G, ...); only these are useful in a lineup. Individual
+// defenders (DL/LB/DB group members — DE/DT/NT/LB/ILB/OLB/CB/S/FS/SS) are
+// included so DP-enabled leagues can roster them; they keep their specific
+// Tank01 position for display (see lineup.service.js's POSITION_GROUPS,
+// which expands DL/LB/DB slot eligibility to match).
+const FANTASY_POSITIONS = new Set([
+  'QB', 'RB', 'WR', 'TE', 'K', 'PK', 'DEF',
+  ...POSITION_GROUPS.DL, ...POSITION_GROUPS.LB, ...POSITION_GROUPS.DB,
+]);
 
 /**
  * Resolve a headshot URL for a Tank01 player entry. Prefer the provider's own
@@ -1093,6 +1260,8 @@ module.exports = {
   rapidApiClient,
   tank01Body,
   normalizeTank01Stats,
+  normalizeTank01IdpStats,
+  extractPlayByPlayBonusStats,
   normalizeTank01DstStats,
   normalizeTeamAbbr,
   normalizeTank01Game,

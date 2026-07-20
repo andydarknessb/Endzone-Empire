@@ -4,6 +4,8 @@ const {
   calculateFantasyPoints,
   tank01Body,
   normalizeTank01Stats,
+  normalizeTank01IdpStats,
+  extractPlayByPlayBonusStats,
   normalizeTank01DstStats,
   normalizeTeamAbbr,
   normalizeTank01Game,
@@ -138,19 +140,102 @@ test('normalizeTank01Stats maps a punt-return touchdown', () => {
   assert.equal(result.puntReturnYards, 82);
 });
 
+// --- Individual defender (IDP) handling ---------------------------------------
+
+test('normalizeTank01IdpStats maps a defender\'s Defense category to IDP scoring keys', () => {
+  const result = normalizeTank01IdpStats({
+    Defense: {
+      totalTackles: '5', soloTackles: '3', sacks: '1', defensiveInterceptions: '0',
+      forcedFumbles: '1', fumblesRecovered: '0', passDeflections: '2', qbHits: '1',
+      tfl: '1', defTD: '0',
+    },
+  });
+  assert.deepEqual(result, {
+    soloTackle: 3,
+    assistedTackle: 2, // totalTackles - soloTackles
+    idpSack: 1,
+    idpInterception: 0,
+    forcedFumble: 1,
+    idpFumbleRecovery: 0,
+    passDeflection: 2,
+    qbHit: 1,
+    tacklesForLoss: 1,
+    idpDefensiveTD: 0,
+    twoPointReturn: 0,
+  });
+});
+
+test('normalizeTank01IdpStats: defTD is credited as fumble-return TD only after removing interceptionTDs', () => {
+  const result = normalizeTank01IdpStats({ Defense: { defTD: '2', interceptionTDs: '1' } });
+  assert.equal(result.idpDefensiveTD, 1);
+});
+
+test('normalizeTank01IdpStats: missing/empty Defense category is all-zero', () => {
+  assert.deepEqual(normalizeTank01IdpStats({}), {
+    soloTackle: 0, assistedTackle: 0, idpSack: 0, idpInterception: 0, forcedFumble: 0,
+    idpFumbleRecovery: 0, passDeflection: 0, qbHit: 0, tacklesForLoss: 0, idpDefensiveTD: 0,
+    twoPointReturn: 0,
+  });
+  assert.equal(normalizeTank01IdpStats(null).soloTackle, 0);
+});
+
+// --- Play-by-play bonus-stat extraction (FG distance / TD length) ------------
+
+test('extractPlayByPlayBonusStats collects a made FG\'s distance for the kicker', () => {
+  const plays = [
+    { playerStats: { '123': { Kicking: { fgMade: '1', fgAttempts: '1', fgYds: '41' } } } },
+    { playerStats: { '123': { Kicking: { fgAttempts: '1', fgYds: '37' } } } }, // missed — no fgMade
+  ];
+  const result = extractPlayByPlayBonusStats(plays);
+  assert.deepEqual(result.get('123').fieldGoalDistances, [41]);
+});
+
+test('extractPlayByPlayBonusStats collects passing/rushing/receiving TD lengths from the same-play yardage', () => {
+  const plays = [
+    { playerStats: { p1: { Passing: { passTD: '1', passYds: '5' } }, p2: { Receiving: { recTD: '1', recYds: '5' } } } },
+    { playerStats: { p3: { Rushing: { rushTD: '1', rushYds: '45' } } } },
+    { playerStats: { p3: { Rushing: { rushYds: '3' } } } }, // non-TD run — ignored
+  ];
+  const result = extractPlayByPlayBonusStats(plays);
+  assert.deepEqual(result.get('p1').passingTDLengths, [5]);
+  assert.deepEqual(result.get('p2').receivingTDLengths, [5]);
+  assert.deepEqual(result.get('p3').rushingTDLengths, [45]);
+});
+
+test('extractPlayByPlayBonusStats tolerates a missing/empty play list', () => {
+  assert.equal(extractPlayByPlayBonusStats(null).size, 0);
+  assert.equal(extractPlayByPlayBonusStats([]).size, 0);
+  assert.equal(extractPlayByPlayBonusStats([{ play: 'no playerStats here' }]).size, 0);
+});
+
 // --- Team-defense (DST) aggregate handling ------------------------------------
 
 test('normalizeTank01DstStats maps the box score DST side to scoring-rule stat names', () => {
   const result = normalizeTank01DstStats({
     teamAbv: 'BAL', sacks: '3', defensiveInterceptions: '1', fumblesRecovered: '1', defTD: '0',
+    safeties: '0', ptsAllowed: '20', ydsAllowed: '340',
   });
-  assert.deepEqual(result, { sack: 3, interceptionReturn: 1, fumbleRecovery: 1, defensiveTD: 0 });
+  assert.deepEqual(result, {
+    sack: 3, interceptionReturn: 1, fumbleRecovery: 1, defensiveTD: 0,
+    safety: 0, blockedKick: 0, pointsAllowed: 20, yardsAllowed: 340,
+  });
 });
 
 test('normalizeTank01DstStats treats a missing side as all-zero', () => {
   assert.deepEqual(normalizeTank01DstStats(null), {
     sack: 0, interceptionReturn: 0, fumbleRecovery: 0, defensiveTD: 0,
+    safety: 0, blockedKick: 0, pointsAllowed: 0, yardsAllowed: 0,
   });
+});
+
+test('normalizeTank01DstStats attributes a blocked kick to the OPPONENT\'s teamStats line', () => {
+  // The blocked side's own kick got blocked (their teamStats), so the block
+  // credit belongs to the other side's defense — this call is for that side.
+  const result = normalizeTank01DstStats(
+    { sacks: '0', defensiveInterceptions: '0', fumblesRecovered: '0', defTD: '0' },
+    { blockedFG: '1', blockedXP: '0', blockedPunt: '1' }
+  );
+  assert.equal(result.blockedKick, 2);
 });
 
 test('normalizeTeamAbbr passes through an already-abbreviated nfl_team', () => {

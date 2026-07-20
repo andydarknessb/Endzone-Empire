@@ -71,9 +71,16 @@ test('normalizePlayerEntry drops non-fantasy positions', () => {
     null
   );
   assert.equal(
-    normalizePlayerEntry({ playerID: '2', longName: 'A Backer', pos: 'LB', team: 'SF' }),
+    normalizePlayerEntry({ playerID: '2', longName: 'A Center', pos: 'C', team: 'SF' }),
     null
   );
+});
+
+test('normalizePlayerEntry keeps individual defenders (DL/LB/DB group members) for DP-enabled leagues', () => {
+  for (const pos of ['DE', 'DT', 'LB', 'CB', 'S']) {
+    const parsed = normalizePlayerEntry({ playerID: `d-${pos}`, longName: 'A Defender', pos, team: 'SF' });
+    assert.equal(parsed.position, pos); // keeps its specific Tank01 position, unlike PK->K
+  }
 });
 
 test('normalizePlayerEntry: missing id, name, or position returns null', () => {
