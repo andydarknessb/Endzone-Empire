@@ -26,6 +26,7 @@ function PlayerAvatar({ name, position, photoUrl, size = 32 }) {
   };
   return (
     <Avatar
+      aria-hidden="true"
       src={photoUrl || undefined}
       imgProps={{ loading: 'lazy' }}
       sx={{ width: size, height: size, fontSize: size * 0.4, ...colorSx }}

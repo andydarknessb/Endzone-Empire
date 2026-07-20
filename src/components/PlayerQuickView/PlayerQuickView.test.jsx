@@ -76,8 +76,41 @@ test('renders header (name, position) after a successful fetch', async () => {
   renderQuickView();
 
   expect(await screen.findByText('Justin Jefferson')).toBeInTheDocument();
+  expect(screen.getByRole('dialog')).toHaveAccessibleName('Justin Jefferson #18');
+  expect(screen.getByRole('heading', { level: 2, name: 'Justin Jefferson #18' })).toBeInTheDocument();
   expect(screen.getByText('WR')).toBeInTheDocument();
   expect(apiClient.get).toHaveBeenCalledWith('/api/players/7/summary', undefined);
+});
+
+test('exposes an accessible loading status and marks the content busy', () => {
+  apiClient.get.mockReturnValue(new Promise(() => {}));
+  renderQuickView();
+
+  expect(screen.getByRole('dialog')).toHaveAccessibleName('Player details');
+  expect(screen.getByRole('status')).toHaveTextContent('Loading player details');
+  expect(screen.getByTestId('quickview-skeleton').closest('[aria-busy="true"]')).toBeInTheDocument();
+});
+
+test('labels the statistics period control and each statistics table', async () => {
+  renderQuickView();
+
+  expect(await screen.findByRole('group', { name: 'Statistics period' })).toBeInTheDocument();
+  expect(
+    screen.getByRole('table', { name: 'Justin Jefferson current-season weekly statistics' })
+  ).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Previous Seasons' }));
+  expect(
+    screen.getByRole('table', { name: 'Justin Jefferson previous-season statistics' })
+  ).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Current Season' }));
+});
+
+test('treats the player avatar as decorative because the adjacent heading supplies the name', async () => {
+  renderQuickView();
+
+  await screen.findByText('Justin Jefferson');
+  expect(screen.queryByRole('img')).not.toBeInTheDocument();
 });
 
 test('prev/next arrows navigate through the provided list', async () => {

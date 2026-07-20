@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import {
   Dialog,
-  DialogTitle,
   DialogContent,
   IconButton,
   Box,
@@ -127,12 +126,24 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
     <Dialog
       open={open}
       onClose={onClose}
+      aria-labelledby="player-quickview-title"
       fullWidth
       maxWidth="sm"
       transitionDuration={{ appear: 0, enter: 0, exit: 120 }}
       PaperProps={{ sx: { backgroundImage: 'none' } }}
     >
-      <DialogTitle sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2 }}>
+      <Box
+        component="header"
+        sx={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          gap: 2,
+          px: 3,
+          py: 2,
+          flex: '0 0 auto',
+        }}
+      >
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
           {player && (
             <>
@@ -143,7 +154,7 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
                 size={72}
               />
               <Box>
-                <Typography variant="h5" component="div">
+                <Typography id="player-quickview-title" variant="h5" component="h2">
                   {player.name}
                   {player.jersey_number != null && (
                     <Typography component="span" variant="body1" sx={{ color: 'text.secondary', ml: 1 }}>
@@ -164,6 +175,11 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
               </Box>
             </>
           )}
+          {!player && (
+            <Typography id="player-quickview-title" variant="h5" component="h2">
+              Player details
+            </Typography>
+          )}
         </Box>
         <Box sx={{ display: 'flex', alignItems: 'center' }}>
           {navIds && (
@@ -180,8 +196,8 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
             <CloseIcon fontSize="small" />
           </IconButton>
         </Box>
-      </DialogTitle>
-      <DialogContent dividers>
+      </Box>
+      <DialogContent dividers aria-busy={loading || undefined}>
         {draftedBy && (
           <Alert severity="warning" sx={{ mb: 2 }}>
             {`Drafted by ${draftedBy}`}
@@ -189,11 +205,28 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
         )}
 
         {loading && (
-          <Box data-testid="quickview-skeleton">
-            <Skeleton variant="text" width={180} height={32} sx={{ mb: 1 }} />
-            <Skeleton variant="rectangular" height={40} sx={{ mb: 1, borderRadius: 1 }} />
-            <Skeleton variant="rectangular" height={40} sx={{ mb: 1, borderRadius: 1 }} />
-            <Skeleton variant="rectangular" height={40} sx={{ borderRadius: 1 }} />
+          <Box data-testid="quickview-skeleton" role="status" aria-live="polite">
+            <Typography
+              sx={{
+                position: 'absolute',
+                width: 1,
+                height: 1,
+                p: 0,
+                m: -1,
+                overflow: 'hidden',
+                clip: 'rect(0 0 0 0)',
+                whiteSpace: 'nowrap',
+                border: 0,
+              }}
+            >
+              Loading player details
+            </Typography>
+            <Box aria-hidden="true">
+              <Skeleton variant="text" width={180} height={32} sx={{ mb: 1 }} />
+              <Skeleton variant="rectangular" height={40} sx={{ mb: 1, borderRadius: 1 }} />
+              <Skeleton variant="rectangular" height={40} sx={{ mb: 1, borderRadius: 1 }} />
+              <Skeleton variant="rectangular" height={40} sx={{ borderRadius: 1 }} />
+            </Box>
           </Box>
         )}
 
@@ -233,6 +266,7 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
               value={view}
               exclusive
               onChange={handleViewChange}
+              aria-label="Statistics period"
               size="small"
               color="primary"
               sx={{ mb: 2 }}
@@ -254,7 +288,7 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
                     )}
                   </Box>
                   <TableContainer component={Paper}>
-                    <Table size="small">
+                    <Table size="small" aria-label={`${player.name} current-season weekly statistics`}>
                       <TableHead>
                         <TableRow sx={{ bgcolor: 'primary.main' }}>
                           <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>Week</TableCell>
@@ -285,7 +319,7 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
               </Typography>
             ) : (
               <TableContainer component={Paper}>
-                <Table size="small">
+                <Table size="small" aria-label={`${player.name} previous-season statistics`}>
                   <TableHead>
                     <TableRow sx={{ bgcolor: 'primary.main' }}>
                       <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>Season</TableCell>

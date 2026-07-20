@@ -21,11 +21,21 @@ function PlayerNameLink({ name, playerId, onOpen, sx }) {
         font: 'inherit',
         textTransform: 'none',
         textAlign: 'left',
-        p: 0,
+        px: 0,
+        minWidth: 24,
+        minHeight: 24,
+        display: 'inline-flex',
+        alignItems: 'center',
         cursor: 'pointer',
         verticalAlign: 'baseline',
         textDecoration: 'none',
         '&:hover': { textDecoration: 'underline' },
+        '&:focus-visible': {
+          outline: '2px solid',
+          outlineColor: 'primary.main',
+          outlineOffset: 2,
+          borderRadius: 0.5,
+        },
         ...sx,
       }}
     >
