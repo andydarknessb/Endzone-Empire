@@ -4,16 +4,101 @@ import { useSelector } from 'react-redux';
 import {
   Typography, TextField, Button, Paper, Stack, Chip, Alert, Divider,
   Switch, FormControlLabel, Select, MenuItem, InputLabel, FormControl,
+  Tabs, Tab, Accordion, AccordionSummary, AccordionDetails, Box,
+  Card, CardContent, CardActions, IconButton, Menu,
+  Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
 } from '@mui/material';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import apiClient from '../../api/apiClient';
 import Countdown from '../Countdown/Countdown';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import './LeagueManagement.css';
 
+function LeagueCard({ league, isOwner, onDelete }) {
+  const [anchorEl, setAnchorEl] = useState(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const confirmDelete = () => {
+    setConfirmOpen(false);
+    onDelete(league.id);
+  };
+
+  return (
+    <Card variant="outlined" sx={{ bgcolor: 'background.paper' }}>
+      <CardContent>
+        <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
+          <Box>
+            <Typography variant="h6">{league.name}</Typography>
+            <Typography variant="body2" color="text.secondary">{league.my_team_name}</Typography>
+            <Stack direction="row" spacing={1} rowGap={1} flexWrap="wrap" sx={{ mt: 1 }}>
+              <Chip
+                size="small"
+                label={`Draft: ${league.draft_status}`}
+                color={league.draft_status === 'active' ? 'warning' : league.draft_status === 'complete' ? 'success' : 'default'}
+              />
+              {league.team_count != null && (
+                <Chip size="small" label={`Teams: ${league.team_count}/${league.max_teams}`} />
+              )}
+              {league.draft_status === 'pending' && league.draft_date && (
+                <Countdown variant="chip" date={league.draft_date} />
+              )}
+            </Stack>
+          </Box>
+
+          {isOwner && (
+            <>
+              <IconButton
+                aria-label="League actions"
+                size="small"
+                onClick={(event) => setAnchorEl(event.currentTarget)}
+              >
+                <MoreVertIcon />
+              </IconButton>
+              <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={() => setAnchorEl(null)}>
+                <MenuItem
+                  sx={{ color: 'error.main' }}
+                  onClick={() => {
+                    setAnchorEl(null);
+                    setConfirmOpen(true);
+                  }}
+                >
+                  Delete
+                </MenuItem>
+              </Menu>
+              <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)}>
+                <DialogTitle>Delete {league.name}?</DialogTitle>
+                <DialogContent>
+                  <DialogContentText>
+                    This permanently removes the league, its roster, and its history for every
+                    member. This can&apos;t be undone.
+                  </DialogContentText>
+                </DialogContent>
+                <DialogActions>
+                  <Button onClick={() => setConfirmOpen(false)}>Cancel</Button>
+                  <Button color="error" variant="contained" onClick={confirmDelete}>
+                    Delete League
+                  </Button>
+                </DialogActions>
+              </Dialog>
+            </>
+          )}
+        </Stack>
+      </CardContent>
+      <CardActions sx={{ px: 2, pb: 2, pt: 0, flexWrap: 'wrap', gap: 1 }}>
+        <Button component={Link} to={`/league/${league.id}`} variant="contained">Dashboard</Button>
+        <Button component={Link} to={`/league/${league.id}/draft`} variant="outlined">Draft Room</Button>
+        <Button component={Link} to={`/league/${league.id}/matchups`} variant="outlined">Matchups</Button>
+      </CardActions>
+    </Card>
+  );
+}
+
 function LeagueManagement() {
   const user = useSelector((store) => store.user);
   const notify = useSnackbar();
   const [leagues, setLeagues] = useState([]);
+  const [activeTab, setActiveTab] = useState('create');
   const [leagueName, setLeagueName] = useState('');
   const [rosterLimit, setRosterLimit] = useState(15);
   const [maxTeams, setMaxTeams] = useState(10);
@@ -24,15 +109,24 @@ function LeagueManagement() {
   const [searchParams] = useSearchParams();
   const joinButtonRef = useRef(null);
 
-  // Deep-link support: /#/league/join?code=XYZ pre-fills the invite field and
-  // focuses the Join button so a shared link is one click from joining.
+  // Deep-link support: /#/league/join?code=XYZ pre-fills the invite field,
+  // switches to the Join tab, and focuses the Join button so a shared link is
+  // one click from joining.
   useEffect(() => {
     const code = searchParams.get('code');
     if (code) {
       setInviteCode(code);
-      joinButtonRef.current?.focus();
+      setActiveTab('join');
     }
   }, [searchParams]);
+
+  // The Join button only exists in the DOM once the Join tab is active, so
+  // the focus has to wait for that switch to actually render before firing.
+  useEffect(() => {
+    if (activeTab === 'join' && searchParams.get('code')) {
+      joinButtonRef.current?.focus();
+    }
+  }, [activeTab, searchParams]);
 
   // New league-creation options — all optional, sent only when the user
   // actually sets them (see createLeague).
@@ -120,57 +214,35 @@ function LeagueManagement() {
       {error && <Alert severity="error" onClose={() => setError(null)}>{error}</Alert>}
       {notice && <Alert severity="success" onClose={() => setNotice(null)}>{notice}</Alert>}
 
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ my: 2 }}>
-        <Paper component="form" onSubmit={createLeague} sx={{ p: 2, flex: 1 }}>
-          <Typography variant="h6">Create a private league</Typography>
-          <Stack spacing={2} sx={{ mt: 1 }}>
+      {leagues.length === 0 ? (
+        <Typography color="text.secondary" sx={{ my: 2 }}>
+          You aren&apos;t in any leagues yet — create one or join with an invite code.
+        </Typography>
+      ) : (
+        <Stack spacing={2} sx={{ my: 2 }}>
+          {leagues.map((league) => (
+            <LeagueCard
+              key={league.id}
+              league={league}
+              isOwner={user.id === league.owner_id}
+              onDelete={deleteLeague}
+            />
+          ))}
+        </Stack>
+      )}
+
+      <Divider sx={{ my: 3 }} />
+
+      <Tabs value={activeTab} onChange={(event, value) => setActiveTab(value)} sx={{ mb: 2 }}>
+        <Tab label="Create League" value="create" />
+        <Tab label="Join League" value="join" />
+      </Tabs>
+
+      {activeTab === 'create' ? (
+        <Paper component="form" onSubmit={createLeague} sx={{ p: 2, bgcolor: 'background.paper' }}>
+          <Stack spacing={2}>
             <TextField label="League name" size="small" required
               value={leagueName} onChange={(e) => setLeagueName(e.target.value)} />
-            <TextField label="Roster limit" size="small" type="number"
-              inputProps={{ min: 1, max: 30 }}
-              value={rosterLimit} onChange={(e) => setRosterLimit(e.target.value)} />
-            <TextField label="Min teams (draft won't start below this)" size="small" type="number"
-              inputProps={{ min: 2, max: 20 }}
-              value={minTeams} onChange={(e) => setMinTeams(e.target.value)} />
-            <TextField label="Max teams" size="small" type="number"
-              inputProps={{ min: 2, max: 20 }}
-              value={maxTeams} onChange={(e) => setMaxTeams(e.target.value)} />
-
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={isPublic}
-                  onChange={(e) => setIsPublic(e.target.checked)}
-                />
-              }
-              label="Public league"
-            />
-            {isPublic && (
-              <FormControlLabel
-                sx={{ ml: 2 }}
-                control={
-                  <Switch
-                    checked={joinApproval}
-                    onChange={(e) => setJoinApproval(e.target.checked)}
-                  />
-                }
-                label="Require commissioner approval to join"
-              />
-            )}
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={bestBall}
-                  onChange={(e) => setBestBall(e.target.checked)}
-                />
-              }
-              label="Best ball mode"
-            />
-            {bestBall && (
-              <Typography variant="caption" color="text.secondary">
-                Best ball: an optimal lineup is set automatically each week — no manual lineup edits.
-              </Typography>
-            )}
 
             <FormControl size="small">
               <InputLabel id="scoring-preset-label">Scoring</InputLabel>
@@ -199,49 +271,73 @@ function LeagueManagement() {
               onChange={(e) => setDraftDate(e.target.value)}
             />
 
+            <Accordion sx={{ bgcolor: 'background.paper' }}>
+              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                <Typography>Advanced Settings</Typography>
+              </AccordionSummary>
+              <AccordionDetails>
+                <Stack spacing={2}>
+                  <TextField label="Roster limit" size="small" type="number"
+                    inputProps={{ min: 1, max: 30 }}
+                    value={rosterLimit} onChange={(e) => setRosterLimit(e.target.value)} />
+                  <TextField label="Min teams (draft won't start below this)" size="small" type="number"
+                    inputProps={{ min: 2, max: 20 }}
+                    value={minTeams} onChange={(e) => setMinTeams(e.target.value)} />
+                  <TextField label="Max teams" size="small" type="number"
+                    inputProps={{ min: 2, max: 20 }}
+                    value={maxTeams} onChange={(e) => setMaxTeams(e.target.value)} />
+
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={isPublic}
+                        onChange={(e) => setIsPublic(e.target.checked)}
+                      />
+                    }
+                    label="Public league"
+                  />
+                  {isPublic && (
+                    <FormControlLabel
+                      sx={{ ml: 2 }}
+                      control={
+                        <Switch
+                          checked={joinApproval}
+                          onChange={(e) => setJoinApproval(e.target.checked)}
+                        />
+                      }
+                      label="Require commissioner approval to join"
+                    />
+                  )}
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={bestBall}
+                        onChange={(e) => setBestBall(e.target.checked)}
+                      />
+                    }
+                    label="Best ball mode"
+                  />
+                  {bestBall && (
+                    <Typography variant="caption" color="text.secondary">
+                      Best ball: an optimal lineup is set automatically each week — no manual lineup edits.
+                    </Typography>
+                  )}
+                </Stack>
+              </AccordionDetails>
+            </Accordion>
+
             <Button type="submit" variant="contained">Create League</Button>
           </Stack>
         </Paper>
-
-        <Paper component="form" onSubmit={joinLeague} sx={{ p: 2, flex: 1 }}>
-          <Typography variant="h6">Join with an invite code</Typography>
-          <Stack spacing={2} sx={{ mt: 1 }}>
+      ) : (
+        <Paper component="form" onSubmit={joinLeague} sx={{ p: 2, bgcolor: 'background.paper' }}>
+          <Stack spacing={2}>
             <TextField label="Invite code" size="small" required
               value={inviteCode} onChange={(e) => setInviteCode(e.target.value)} />
             <Button ref={joinButtonRef} type="submit" variant="contained">Join League</Button>
           </Stack>
         </Paper>
-      </Stack>
-
-      <Divider sx={{ my: 2 }} />
-
-      {leagues.length === 0 && (
-        <Typography color="text.secondary">
-          You aren&apos;t in any leagues yet — create one or join with an invite code.
-        </Typography>
       )}
-      <Stack spacing={1}>
-        {leagues.map((league) => (
-          <Paper key={league.id} sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-            <Typography variant="h6" sx={{ flexGrow: 1 }}>{league.name}</Typography>
-            <Chip size="small" label={`Draft: ${league.draft_status}`}
-              color={league.draft_status === 'active' ? 'warning' : league.draft_status === 'complete' ? 'success' : 'default'} />
-            <Chip size="small" label={`Team: ${league.my_team_name}`} />
-            {league.team_count != null && (
-              <Chip size="small" label={`Teams: ${league.team_count}/${league.max_teams}`} />
-            )}
-            {league.draft_status === 'pending' && league.draft_date && (
-              <Countdown variant="chip" date={league.draft_date} />
-            )}
-            <Button component={Link} to={`/league/${league.id}`} variant="outlined">Dashboard</Button>
-            <Button component={Link} to={`/league/${league.id}/draft`} variant="outlined">Draft Room</Button>
-            <Button component={Link} to={`/league/${league.id}/matchups`} variant="outlined">Matchups</Button>
-            {user.id === league.owner_id && (
-              <Button color="error" variant="outlined" onClick={() => deleteLeague(league.id)}>Delete</Button>
-            )}
-          </Paper>
-        ))}
-      </Stack>
     </div>
   );
 }

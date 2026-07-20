@@ -63,7 +63,7 @@ test('shows an error alert when fetching leagues fails', async () => {
   expect(await screen.findByText('server exploded')).toBeInTheDocument();
 });
 
-test('the Delete button only appears for leagues the user owns', async () => {
+test('the Delete action only appears for leagues the user owns', async () => {
   apiClient.get.mockResolvedValue({
     data: [league({ id: 1, name: 'Mine', owner_id: 1 }), league({ id: 2, name: 'Not Mine', owner_id: 99 })],
   });
@@ -71,8 +71,12 @@ test('the Delete button only appears for leagues the user owns', async () => {
   renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
 
   await screen.findByText('Mine');
-  const deleteButtons = screen.getAllByRole('button', { name: 'Delete' });
-  expect(deleteButtons).toHaveLength(1);
+  // Only the owned league's card renders the "..." actions menu at all.
+  const menuTriggers = screen.getAllByRole('button', { name: 'League actions' });
+  expect(menuTriggers).toHaveLength(1);
+
+  await userEvent.click(menuTriggers[0]);
+  expect(screen.getByRole('menuitem', { name: 'Delete' })).toBeInTheDocument();
 });
 
 test('creating a league posts the form data and shows the returned invite code', async () => {
@@ -114,6 +118,7 @@ test('the "Require commissioner approval" toggle only appears once "Public leagu
   apiClient.get.mockResolvedValue({ data: [] });
   renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
   await screen.findByText(/you aren't in any leagues yet/i);
+  await userEvent.click(screen.getByRole('button', { name: /advanced settings/i }));
 
   expect(screen.queryByLabelText('Require commissioner approval to join')).not.toBeInTheDocument();
 
@@ -125,6 +130,7 @@ test('the best-ball helper text only appears once "Best ball mode" is on', async
   apiClient.get.mockResolvedValue({ data: [] });
   renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
   await screen.findByText(/you aren't in any leagues yet/i);
+  await userEvent.click(screen.getByRole('button', { name: /advanced settings/i }));
 
   expect(screen.queryByText(/optimal lineup is set automatically/i)).not.toBeInTheDocument();
 
@@ -160,6 +166,7 @@ test('creating a public, approval-required, best-ball, PPR league with a draft d
   await screen.findByText(/you aren't in any leagues yet/i);
 
   await userEvent.type(screen.getByLabelText(/League name/), 'Full Featured League');
+  await userEvent.click(screen.getByRole('button', { name: /advanced settings/i }));
   await userEvent.click(screen.getByLabelText('Public league'));
   await userEvent.click(screen.getByLabelText('Require commissioner approval to join'));
   await userEvent.click(screen.getByLabelText('Best ball mode'));
@@ -190,6 +197,7 @@ test('joining a league posts the trimmed invite code', async () => {
   renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
   await screen.findByText(/you aren't in any leagues yet/i);
 
+  await userEvent.click(screen.getByRole('tab', { name: 'Join League' }));
   await userEvent.type(screen.getByLabelText(/Invite code/), '  xyz789  ');
   await userEvent.click(screen.getByRole('button', { name: 'Join League' }));
 
@@ -206,10 +214,31 @@ test('deleting a league calls the delete endpoint and refetches', async () => {
   renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
   await screen.findByText('Sunday Ballers');
 
-  await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+  await userEvent.click(screen.getByRole('button', { name: 'League actions' }));
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Delete' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Delete League' }));
 
   await waitFor(() => expect(apiClient.delete).toHaveBeenCalledWith('/api/league/7'));
   expect(apiClient.get).toHaveBeenCalledTimes(2);
+});
+
+test('canceling the delete confirmation dialog leaves the league intact', async () => {
+  apiClient.get.mockResolvedValue({ data: [league({ id: 7, owner_id: 1 })] });
+
+  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+  await screen.findByText('Sunday Ballers');
+
+  await userEvent.click(screen.getByRole('button', { name: 'League actions' }));
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Delete' }));
+  expect(await screen.findByRole('heading', { name: /delete sunday ballers\?/i })).toBeInTheDocument();
+
+  await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+  await waitFor(() =>
+    expect(screen.queryByRole('heading', { name: /delete sunday ballers\?/i })).not.toBeInTheDocument()
+  );
+  expect(apiClient.delete).not.toHaveBeenCalled();
+  expect(screen.getByText('Sunday Ballers')).toBeInTheDocument();
 });
 
 test('renders Dashboard/Draft Room/Matchups links pointing at the correct league id', async () => {
