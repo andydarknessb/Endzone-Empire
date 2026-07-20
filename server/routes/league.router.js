@@ -242,6 +242,7 @@ router.get('/:id', async (req, res) => {
 
     const teamsResult = await pool.query(
       `SELECT "teams"."id", "teams"."name", "teams"."draft_position",
+              "teams"."faab_remaining", "teams"."locked",
               "users"."username" AS "owner",
               COUNT("team_players"."id")::int AS "roster_count",
               COALESCE(SUM(CASE WHEN "matchups"."home_team_id" = "teams"."id" THEN "matchups"."home_score"

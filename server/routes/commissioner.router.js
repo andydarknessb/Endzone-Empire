@@ -105,4 +105,61 @@ router.post('/league/:id/rollover', async (req, res) => {
   }
 });
 
+// PUT /api/commissioner/league/:id/teams/:teamId/lock — { locked: true|false }
+router.put('/league/:id/teams/:teamId/lock', async (req, res) => {
+  const leagueId = intOrNull(req.params.id);
+  const teamId = intOrNull(req.params.teamId);
+  if (!leagueId || !teamId) {
+    return res.status(400).json({ error: 'league id and team id must be positive integers' });
+  }
+  const { locked } = req.body || {};
+  if (typeof locked !== 'boolean') {
+    return res.status(400).json({ error: 'locked (boolean) is required' });
+  }
+  try {
+    res.json(await commissioner.setTeamLocked({ leagueId, userId: req.user.id, teamId, locked }));
+  } catch (error) {
+    handle(res, error, 'failed to update team lock');
+  }
+});
+
+// PUT /api/commissioner/league/:id/teams/:teamId/faab — { faabRemaining }
+router.put('/league/:id/teams/:teamId/faab', async (req, res) => {
+  const leagueId = intOrNull(req.params.id);
+  const teamId = intOrNull(req.params.teamId);
+  if (!leagueId || !teamId) {
+    return res.status(400).json({ error: 'league id and team id must be positive integers' });
+  }
+  const { faabRemaining } = req.body || {};
+  if (!Number.isInteger(faabRemaining) || faabRemaining < 0 || faabRemaining > 1000) {
+    return res.status(400).json({ error: 'faabRemaining must be an integer between 0 and 1000' });
+  }
+  try {
+    res.json(await commissioner.setTeamFaab({ leagueId, userId: req.user.id, teamId, faabRemaining }));
+  } catch (error) {
+    handle(res, error, 'failed to update FAAB budget');
+  }
+});
+
+// POST /api/commissioner/league/:id/force-transaction — { teamId, action: 'add'|'drop', playerId }
+router.post('/league/:id/force-transaction', async (req, res) => {
+  const leagueId = intOrNull(req.params.id);
+  if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
+  const { teamId, action, playerId } = req.body || {};
+  if (!Number.isInteger(teamId) || teamId < 1) {
+    return res.status(400).json({ error: 'teamId (integer) is required' });
+  }
+  if (action !== 'add' && action !== 'drop') {
+    return res.status(400).json({ error: "action must be 'add' or 'drop'" });
+  }
+  if (!Number.isInteger(playerId) || playerId < 1) {
+    return res.status(400).json({ error: 'playerId (integer) is required' });
+  }
+  try {
+    res.json(await commissioner.forceTransaction({ leagueId, userId: req.user.id, teamId, action, playerId }));
+  } catch (error) {
+    handle(res, error, 'failed to force transaction');
+  }
+});
+
 module.exports = router;

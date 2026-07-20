@@ -61,6 +61,7 @@ async function proposeTrade({ leagueId, userId, receivingTeamId, playerIds, coun
     );
     const myTeam = myTeamResult.rows[0];
     if (!myTeam) throw new TradeError(403, 'you do not have a team in this league');
+    if (myTeam.locked) throw new TradeError(409, 'your team is locked by the commissioner');
     if (myTeam.id === receivingTeamId) throw new TradeError(400, 'cannot trade with yourself');
 
     const otherResult = await client.query(

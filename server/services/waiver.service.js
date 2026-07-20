@@ -86,6 +86,7 @@ async function submitClaim({ leagueId, userId, playerId, dropPlayerId, bid = 0 }
     );
     const team = teamResult.rows[0];
     if (!team) throw new WaiverError(403, 'you do not have a team in this league');
+    if (team.locked) throw new WaiverError(409, 'your team is locked by the commissioner');
 
     if (league.waiver_type === 'faab') {
       if (!Number.isInteger(bid) || bid < 0) throw new WaiverError(400, 'bid must be a non-negative integer');

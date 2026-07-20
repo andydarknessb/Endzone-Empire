@@ -60,13 +60,17 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false }) {
     }
 
     const teamsResult = await client.query(
-      `SELECT "id", "owner_id", "draft_position", "autodraft" FROM "teams"
+      `SELECT "id", "owner_id", "draft_position", "autodraft", "locked" FROM "teams"
        WHERE "league_id" = $1 ORDER BY "draft_position" NULLS LAST, "id"`,
       [leagueId]
     );
     const teams = teamsResult.rows;
     const myTeam = teams.find((t) => t.owner_id === userId);
     if (!myTeam) throw new DraftError(403, 'you do not have a team in this league');
+    // A commissioner-locked team can't add players (draft picks flow through
+    // this same function once draft_status === 'active'/'complete'); the
+    // commissioner's own force-add tool bypasses this via a separate path.
+    if (myTeam.locked) throw new DraftError(409, 'your team is locked by the commissioner');
 
     const playerResult = await client.query(
       `SELECT "id", "name", "position" FROM "players" WHERE "id" = $1`,
@@ -218,11 +222,12 @@ async function dropPlayer({ leagueId, userId, playerId }) {
   try {
     await client.query('BEGIN');
     const teamResult = await client.query(
-      `SELECT "id" FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2 FOR UPDATE`,
+      `SELECT "id", "locked" FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2 FOR UPDATE`,
       [leagueId, userId]
     );
     const team = teamResult.rows[0];
     if (!team) throw new DraftError(403, 'you do not have a team in this league');
+    if (team.locked) throw new DraftError(409, 'your team is locked by the commissioner');
 
     const deleted = await client.query(
       `DELETE FROM "team_players"
