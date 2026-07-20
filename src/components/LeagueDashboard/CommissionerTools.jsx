@@ -619,7 +619,7 @@ function ScoringSettingsPanel({ leagueId, league, onRefresh, notify }) {
           Save Scoring Settings
         </Button>
         <Button size="small" disabled={frozen} onClick={handleReset}>
-          Reset to NFL.com Defaults
+          Reset Scoring Settings
         </Button>
       </Box>
     </Stack>

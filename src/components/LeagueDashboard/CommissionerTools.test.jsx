@@ -227,7 +227,7 @@ test('editing a leaf value and a tier field, then saving, sends the full nested 
   expect(onRefresh).toHaveBeenCalled();
 });
 
-test('Reset to NFL.com Defaults reverts an edited field back to its default value', async () => {
+test('Reset Scoring Settings reverts an edited field back to its default value', async () => {
   mockScoringRules();
   renderTools();
   await userEvent.click(screen.getByRole('tab', { name: 'Scoring Settings' }));
@@ -237,7 +237,7 @@ test('Reset to NFL.com Defaults reverts an edited field back to its default valu
   await userEvent.type(touchdownField, '99');
   expect(touchdownField).toHaveValue(99);
 
-  await userEvent.click(screen.getByRole('button', { name: 'Reset to NFL.com Defaults' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Reset Scoring Settings' }));
   expect(touchdownField).toHaveValue(4);
 });
 
