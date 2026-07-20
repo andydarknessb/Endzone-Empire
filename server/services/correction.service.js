@@ -14,10 +14,75 @@ const { logTransaction, notify, notifyLeague } = require('./activity.service');
  * silently rewriting rounds that teams already played.
  */
 
-/** Pure: is `date` in the NFL stat-correction window (Tuesday or Wednesday)? */
-function isCorrectionDay(date = new Date()) {
-  const day = date.getDay();
+const CORRECTION_WINDOW_ERROR = Object.freeze({
+  code: 'CORRECTION_WINDOW_EXPIRED',
+  message: 'Manual score modifications for this week are locked.',
+});
+
+class CorrectionWindowError extends Error {
+  constructor() {
+    super(CORRECTION_WINDOW_ERROR.message);
+    this.name = 'CorrectionWindowError';
+    this.code = CORRECTION_WINDOW_ERROR.code;
+    this.statusCode = 403;
+  }
+}
+
+/** Parse only unambiguous instants. Client-local timestamps without a UTC offset are rejected. */
+function correctionInstant(timestamp) {
+  if (timestamp === undefined) return new Date();
+  if (
+    typeof timestamp === 'string' &&
+    !/(?:Z|[+-]\d{2}:\d{2})$/i.test(timestamp)
+  ) {
+    throw new CorrectionWindowError();
+  }
+  const instant = timestamp instanceof Date
+    ? new Date(timestamp.getTime())
+    : new Date(timestamp);
+  if (!Number.isFinite(instant.getTime())) throw new CorrectionWindowError();
+  return instant;
+}
+
+/** Pure: is `timestamp` in the UTC Tuesday/Wednesday correction window? */
+function isCorrectionDay(timestamp) {
+  const day = correctionInstant(timestamp).getUTCDay();
   return day === 2 || day === 3;
+}
+
+/**
+ * Fail-closed authorization for manual corrections. The active season/week
+ * must come from the league row, never request data. `timestamp` exists for
+ * deterministic tests and trusted callers; the HTTP route always uses the
+ * server clock.
+ */
+function assertManualCorrectionWindow({
+  requestedSeason,
+  requestedWeek,
+  activeSeason,
+  activeWeek,
+  timestamp,
+}) {
+  const values = [requestedSeason, requestedWeek, activeSeason, activeWeek].map(Number);
+  if (!values.every(Number.isInteger)) throw new CorrectionWindowError();
+  const [requestSeason, requestWeek, leagueSeason, leagueWeek] = values;
+  const immediatePastWeek = leagueWeek - 1;
+  const checkedAt = correctionInstant(timestamp);
+  const targetsImmediatePastWeek =
+    leagueWeek > 1 &&
+    requestSeason === leagueSeason &&
+    requestWeek === immediatePastWeek;
+
+  if (!targetsImmediatePastWeek || !isCorrectionDay(checkedAt)) {
+    throw new CorrectionWindowError();
+  }
+
+  return {
+    activeSeason: leagueSeason,
+    activeWeek: leagueWeek,
+    correctionWeek: immediatePastWeek,
+    checkedAt,
+  };
 }
 
 /**
@@ -173,7 +238,11 @@ async function resyncPriorWeeks() {
 }
 
 module.exports = {
+  CORRECTION_WINDOW_ERROR,
+  CorrectionWindowError,
+  correctionInstant,
   isCorrectionDay,
+  assertManualCorrectionWindow,
   diffMatchupScores,
   correctLeagueWeek,
   resyncPriorWeeks,

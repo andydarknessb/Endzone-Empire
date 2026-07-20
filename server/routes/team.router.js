@@ -127,9 +127,9 @@ router.get('/lineup', async (req, res) => {
   }
 });
 
-// PUT /api/team/lineup — move players between slots; the whole batch is
-// validated and applied atomically (slot counts, eligibility, lineup locks)
-router.put('/lineup', async (req, res) => {
+// PUT/POST /api/team/lineup — move players between slots; the whole batch is
+// validated and applied atomically (slot counts, eligibility, lineup locks).
+async function updateLineup(req, res) {
   const { leagueId, week, moves } = req.body || {};
   if (!Number.isInteger(leagueId) || leagueId < 1) {
     return res.status(400).json({ error: 'leagueId (integer) is required in the body' });
@@ -141,11 +141,18 @@ router.put('/lineup', async (req, res) => {
     const outcome = await setLineup({ leagueId, userId: req.user.id, week, moves });
     res.json(outcome);
   } catch (error) {
-    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    if (error.statusCode) {
+      return res.status(error.statusCode).json(
+        error.code ? { error: error.code, message: error.message } : { error: error.message }
+      );
+    }
     console.error('Error setting lineup', error);
     res.status(500).json({ error: 'failed to set lineup' });
   }
-});
+}
+
+router.put('/lineup', updateLineup);
+router.post('/lineup', updateLineup);
 
 // GET /api/team/lineup/advice?leagueId=N&season=S&week=W — start/sit suggestions
 // for the caller's team (season/week optional — default to the current lineup)

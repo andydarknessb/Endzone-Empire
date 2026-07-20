@@ -63,3 +63,8 @@ typings/
 
 # dotenv environment variables file
 .env
+.env.security
+
+# Playwright security-test artifacts
+playwright-report/
+test-results/

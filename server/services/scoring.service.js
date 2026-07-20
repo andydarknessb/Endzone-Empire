@@ -19,6 +19,11 @@ const { getIo } = require('../modules/io');
 const SCORING_RULES = {
   passing: {
     yards: 0.04,
+    yardageBonus: [
+      { min: 0, max: 99, points: 0 },
+      { min: 100, max: 149, points: 0 },
+      { min: 150, max: null, points: 0 },
+    ],
     touchdowns: 4,
     interceptions: -2,
     twoPointConversions: 2,
@@ -30,6 +35,11 @@ const SCORING_RULES = {
   },
   rushing: {
     yards: 0.1,
+    yardageBonus: [
+      { min: 0, max: 99, points: 0 },
+      { min: 100, max: 149, points: 0 },
+      { min: 150, max: null, points: 0 },
+    ],
     touchdowns: 6,
     twoPointConversions: 2,
     tdLengthBonus: [
@@ -40,6 +50,11 @@ const SCORING_RULES = {
   },
   receiving: {
     yards: 0.1,
+    yardageBonus: [
+      { min: 0, max: 99, points: 0 },
+      { min: 100, max: 149, points: 0 },
+      { min: 150, max: null, points: 0 },
+    ],
     touchdowns: 6,
     reception: 0.5, // half-PPR
     twoPointConversions: 2,
@@ -57,7 +72,7 @@ const SCORING_RULES = {
     fieldGoal: [
       { min: 0, max: 39, points: 3 },
       { min: 40, max: 49, points: 4 },
-      { min: 50, max: null, points: 5 },
+      { min: 50, max: null, points: 5, pointsPerYardOverMin: 0 },
     ],
   },
   teamDefense: {
@@ -119,16 +134,16 @@ const SCORING_RULES = {
 // correctly. Tiers without `perValue` (pointsAllowed/yardsAllowed) treat the
 // stored value as a single scalar for the whole game, tier-matched once.
 const STAT_KEY_PATHS = {
-  passingYards: { path: ['passing', 'yards'] },
+  passingYards: { path: ['passing', 'yards'], bonusPath: ['passing', 'yardageBonus'] },
   passingTDs: { path: ['passing', 'touchdowns'] },
   interceptions: { path: ['passing', 'interceptions'] },
   passingTwoPt: { path: ['passing', 'twoPointConversions'] },
   passingTDLengths: { path: ['passing', 'tdLengthBonus'], tierMode: 'perValue' },
-  rushingYards: { path: ['rushing', 'yards'] },
+  rushingYards: { path: ['rushing', 'yards'], bonusPath: ['rushing', 'yardageBonus'] },
   rushingTDs: { path: ['rushing', 'touchdowns'] },
   rushingTwoPt: { path: ['rushing', 'twoPointConversions'] },
   rushingTDLengths: { path: ['rushing', 'tdLengthBonus'], tierMode: 'perValue' },
-  receivingYards: { path: ['receiving', 'yards'] },
+  receivingYards: { path: ['receiving', 'yards'], bonusPath: ['receiving', 'yardageBonus'] },
   receivingTDs: { path: ['receiving', 'touchdowns'] },
   receptions: { path: ['receiving', 'reception'] },
   receivingTwoPt: { path: ['receiving', 'twoPointConversions'] },
@@ -169,9 +184,10 @@ function isValidTierArray(arr) {
   let prevMax = -Infinity;
   for (const tier of arr) {
     if (!tier || typeof tier !== 'object') return false;
-    const { min, max, points } = tier;
+    const { min, max, points, pointsPerYardOverMin } = tier;
     if (!Number.isFinite(Number(min)) || !Number.isFinite(Number(points))) return false;
     if (max !== null && !Number.isFinite(Number(max))) return false;
+    if (pointsPerYardOverMin !== undefined && !Number.isFinite(Number(pointsPerYardOverMin))) return false;
     if (Number(min) <= prevMax) return false;
     if (max !== null && Number(max) < Number(min)) return false;
     prevMax = max === null ? Infinity : Number(max);
@@ -185,6 +201,9 @@ function normalizeTierArray(arr) {
     min: Number(t.min),
     max: t.max === null ? null : Number(t.max),
     points: Number(t.points),
+    ...(t.pointsPerYardOverMin === undefined
+      ? {}
+      : { pointsPerYardOverMin: Number(t.pointsPerYardOverMin) }),
   }));
 }
 
@@ -242,14 +261,21 @@ function ruleValueAt(rules, path) {
   return node;
 }
 
+/** Score one raw magnitude from exactly one matching tier. */
+function scoreTieredValue(value, tiers) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  const tier = tiers.find((t) => n >= t.min && (t.max === null || n <= t.max));
+  if (!tier) return 0;
+  const incrementalRate = Number(tier.pointsPerYardOverMin) || 0;
+  return Number(tier.points) + Math.max(n - Number(tier.min), 0) * incrementalRate;
+}
+
 /** Sum a tier array's matching-bucket points for each raw magnitude in `values`. */
 function scoreTieredValues(values, tiers) {
   let total = 0;
   for (const raw of Array.isArray(values) ? values : []) {
-    const n = Number(raw);
-    if (!Number.isFinite(n)) continue;
-    const tier = tiers.find((t) => n >= t.min && (t.max === null || n <= t.max));
-    if (tier) total += tier.points;
+    total += scoreTieredValue(raw, tiers);
   }
   return total;
 }
@@ -268,11 +294,12 @@ function calculateFantasyPoints(stats, rules = SCORING_RULES) {
     const n = Number(value);
     if (!Number.isFinite(n)) continue;
     if (Array.isArray(ruleValue)) {
-      const tier = ruleValue.find((t) => n >= t.min && (t.max === null || n <= t.max));
-      if (tier) score += tier.points;
+      score += scoreTieredValue(n, ruleValue);
     } else if (Number.isFinite(Number(ruleValue))) {
       score += n * Number(ruleValue);
     }
+    const bonusTiers = mapping.bonusPath && ruleValueAt(rules, mapping.bonusPath);
+    if (Array.isArray(bonusTiers)) score += scoreTieredValue(n, bonusTiers);
   }
   return Math.round(score * 100) / 100;
 }

@@ -408,11 +408,13 @@ test('Manual Score Correction fetches the matchup and applies a point adjustment
   mockGetByUrl({
     '/matchups': {
       data: [
-        { id: 9, week: 3, home_team_id: 1, away_team_id: 2, home_score: 100, away_score: 90, home_team_name: "Alice's Team", away_team_name: "Bob's Team" },
+        { id: 9, season: 2026, week: 3, home_team_id: 1, away_team_id: 2, home_score: 100, away_score: 90, home_team_name: "Alice's Team", away_team_name: "Bob's Team" },
       ],
     },
   });
-  apiClient.put.mockResolvedValue({ data: {} });
+  apiClient.post.mockResolvedValue({
+    data: { id: 9, season: 2026, week: 3, home_team_id: 1, away_team_id: 2, home_score: 105, away_score: 90 },
+  });
   renderTools();
   await userEvent.click(screen.getByRole('tab', { name: 'System Overrides' }));
 
@@ -428,11 +430,57 @@ test('Manual Score Correction fetches the matchup and applies a point adjustment
   await userEvent.click(screen.getByRole('button', { name: 'Apply Correction' }));
 
   await waitFor(() =>
-    expect(apiClient.put).toHaveBeenCalledWith('/api/commissioner/league/1/matchups/9', {
+    expect(apiClient.post).toHaveBeenCalledWith('/api/scoring/league/1/correct-week', {
+      season: 2026,
+      week: 3,
+      matchupId: 9,
       homeScore: 105,
       awayScore: 90,
     })
   );
+});
+
+test('Manual Score Correction preserves input and locks submission after the correction window expires', async () => {
+  mockGetByUrl({
+    '/matchups': {
+      data: [
+        { id: 9, season: 2026, week: 3, home_team_id: 1, away_team_id: 2, home_score: 100, away_score: 90, home_team_name: "Alice's Team", away_team_name: "Bob's Team" },
+      ],
+    },
+  });
+  apiClient.post.mockRejectedValue({
+    response: {
+      status: 403,
+      data: {
+        error: 'CORRECTION_WINDOW_EXPIRED',
+        message: 'Manual score modifications for this week are locked.',
+      },
+    },
+  });
+  renderTools();
+  await userEvent.click(screen.getByRole('tab', { name: 'System Overrides' }));
+
+  const teamSelects = screen.getAllByLabelText('Team');
+  await userEvent.click(teamSelects[2]);
+  await userEvent.click(await screen.findByRole('option', { name: "Alice's Team" }));
+  await userEvent.click(screen.getByLabelText('Week'));
+  await userEvent.click(await screen.findByRole('option', { name: 'Week 3' }));
+
+  expect(await screen.findByText(/Current score:/)).toBeInTheDocument();
+  const adjustmentInput = screen.getByLabelText('Adjustment (+/-)');
+  await userEvent.type(adjustmentInput, '5');
+  const submitButton = screen.getByRole('button', { name: 'Apply Correction' });
+  await userEvent.click(submitButton);
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'Manual score modifications for this week are locked.'
+  );
+  expect(submitButton).toBeDisabled();
+  expect(adjustmentInput).toHaveValue(5);
+  expect(screen.getByText(/Current score:/)).toHaveTextContent('Current score: 100');
+  expect(screen.getByText('Manual Score Correction')).toBeInTheDocument();
+  expect(apiClient.post).toHaveBeenCalledTimes(1);
+  expect(apiClient.put).not.toHaveBeenCalled();
 });
 
 test('Lock Specific Team toggles a single team without touching the league-wide lock', async () => {

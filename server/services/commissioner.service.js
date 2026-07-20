@@ -7,6 +7,7 @@ const {
 } = require('./lineup.service');
 const { computeStandings } = require('./season.service');
 const { placeOnWaivers } = require('./waiver.service');
+const { assertManualCorrectionWindow } = require('./correction.service');
 
 class CommissionerError extends Error {
   constructor(statusCode, message) {
@@ -144,13 +145,26 @@ async function adjustMatchupScore({ leagueId, userId, matchupId, homeScore, away
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await requireCommissioner(client, { leagueId, userId });
+    const league = await requireCommissioner(client, { leagueId, userId, forUpdate: true });
+    const matchupResult = await client.query(
+      `SELECT "season", "week" FROM "matchups"
+       WHERE "id" = $1 AND "league_id" = $2 FOR UPDATE`,
+      [matchupId, leagueId]
+    );
+    const matchup = matchupResult.rows[0];
+    if (!matchup) throw new CommissionerError(404, 'matchup not found in this league');
+    assertManualCorrectionWindow({
+      requestedSeason: matchup.season,
+      requestedWeek: matchup.week,
+      activeSeason: league.current_season,
+      activeWeek: league.current_week,
+      timestamp: new Date(),
+    });
     const result = await client.query(
       `UPDATE "matchups" SET "home_score" = $1, "away_score" = $2
        WHERE "id" = $3 AND "league_id" = $4 RETURNING *`,
       [homeScore, awayScore, matchupId, leagueId]
     );
-    if (!result.rows[0]) throw new CommissionerError(404, 'matchup not found in this league');
     await logTransaction(client, {
       leagueId,
       teamId: null,

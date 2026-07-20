@@ -10,7 +10,11 @@ function intOrNull(value) {
 }
 
 function handle(res, error, fallback) {
-  if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+  if (error.statusCode) {
+    return res.status(error.statusCode).json(
+      error.code ? { error: error.code, message: error.message } : { error: error.message }
+    );
+  }
   console.error(fallback, error);
   return res.status(500).json({ error: fallback });
 }

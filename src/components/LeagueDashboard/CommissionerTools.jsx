@@ -460,6 +460,7 @@ const LEAF_LABELS = {
 };
 const TIER_LABELS = {
   fieldGoal: 'Field Goal (by distance)', pointsAllowed: 'Points Allowed', yardsAllowed: 'Yards Allowed',
+  yardageBonus: 'Yardage Bonus',
 };
 
 // Client-side mirror of scoring.service.js's mergeRuleCategory — only used
@@ -475,6 +476,9 @@ function mergeCategoryClient(defaults, custom) {
           min: Number(t.min),
           max: t.max === null || t.max === undefined ? null : Number(t.max),
           points: Number(t.points),
+          ...(t.pointsPerYardOverMin === undefined
+            ? {}
+            : { pointsPerYardOverMin: Number(t.pointsPerYardOverMin) }),
         }));
       }
     } else if (Number.isFinite(Number(value))) {
@@ -540,6 +544,9 @@ function ScoringSettingsPanel({ leagueId, league, onRefresh, notify }) {
               min: Number(t.min),
               max: t.max === '' || t.max === null ? null : Number(t.max),
               points: Number(t.points),
+              ...(t.pointsPerYardOverMin === undefined
+                ? {}
+                : { pointsPerYardOverMin: Number(t.pointsPerYardOverMin) }),
             }))
           : Number(value);
       }
@@ -605,6 +612,14 @@ function ScoringSettingsPanel({ leagueId, league, onRefresh, notify }) {
                         value={tier.points} onChange={(e) => setTier(category, key, i, 'points', e.target.value)}
                         sx={{ width: 90 }}
                       />
+                      {tier.pointsPerYardOverMin !== undefined && (
+                        <TextField
+                          label="Per Yard Over Min" type="number" size="small" disabled={frozen}
+                          inputProps={{ step: 0.1 }} value={tier.pointsPerYardOverMin}
+                          onChange={(e) => setTier(category, key, i, 'pointsPerYardOverMin', e.target.value)}
+                          sx={{ width: 150 }}
+                        />
+                      )}
                     </Box>
                   ))}
                 </Stack>
@@ -943,17 +958,24 @@ function ScoreCorrectionCard({ leagueId, teams, notify, onRefresh }) {
   const [loading, setLoading] = useState(false);
   const [checked, setChecked] = useState(false);
   const [adjustment, setAdjustment] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [correctionError, setCorrectionError] = useState('');
+  const [correctionLocked, setCorrectionLocked] = useState(false);
   const report = fail(notify);
 
   useEffect(() => {
     if (!teamId || !week) {
       setMatchup(null);
       setChecked(false);
+      setCorrectionError('');
+      setCorrectionLocked(false);
       return;
     }
     let active = true;
     setLoading(true);
     setChecked(false);
+    setCorrectionError('');
+    setCorrectionLocked(false);
     apiClient
       .get(`/api/league/${leagueId}/matchups`, { params: { week } })
       .then((res) => {
@@ -978,23 +1000,40 @@ function ScoreCorrectionCard({ leagueId, teams, notify, onRefresh }) {
   const opponentName = matchup ? (isHome ? matchup.away_team_name : matchup.home_team_name) : null;
 
   const handleApply = async () => {
+    if (submitting || correctionLocked) return;
     const delta = Number(adjustment);
     const newScore = currentScore + delta;
     const homeScore = isHome ? newScore : Number(matchup.home_score);
     const awayScore = isHome ? Number(matchup.away_score) : newScore;
+    setSubmitting(true);
+    setCorrectionError('');
     try {
-      const res = await apiClient.put(
-        `/api/commissioner/league/${leagueId}/matchups/${matchup.id}`,
-        { homeScore, awayScore }
+      const res = await apiClient.post(
+        `/api/scoring/league/${leagueId}/correct-week`,
+        {
+          season: Number(matchup.season),
+          week: Number(week),
+          matchupId: matchup.id,
+          homeScore,
+          awayScore,
+        }
       );
-      // The commissioner PUT returns the raw matchups row — it doesn't carry
+      // The correction endpoint returns the raw matchups row — it doesn't carry
       // the joined team names the GET does, so keep the ones already shown.
       setMatchup({ ...res.data, home_team_name: matchup.home_team_name, away_team_name: matchup.away_team_name });
       setAdjustment('');
       notify('Score correction applied');
       onRefresh();
     } catch (err) {
-      report(err);
+      const payload = err.response && err.response.data;
+      if (err.response && err.response.status === 403 && payload && payload.error === 'CORRECTION_WINDOW_EXPIRED') {
+        setCorrectionError(payload.message || 'Manual score modifications for this week are locked.');
+        setCorrectionLocked(true);
+      } else {
+        report(err);
+      }
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -1017,18 +1056,25 @@ function ScoreCorrectionCard({ leagueId, teams, notify, onRefresh }) {
       )}
 
       {matchup && (
-        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-          <Typography variant="body2" color="text.secondary">
-            Current score: <strong>{currentScore}</strong> vs {opponentName}
-          </Typography>
-          <TextField
-            label="Adjustment (+/-)" type="number" size="small"
-            value={adjustment} onChange={(e) => setAdjustment(e.target.value)}
-            sx={{ width: 160 }}
-          />
-          <Button variant="outlined" size="small" disabled={adjustment === ''} onClick={handleApply}>
-            Apply Correction
-          </Button>
+        <Box>
+          {correctionError && <Alert severity="error" sx={{ mb: 1 }}>{correctionError}</Alert>}
+          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Typography variant="body2" color="text.secondary">
+              Current score: <strong>{currentScore}</strong> vs {opponentName}
+            </Typography>
+            <TextField
+              label="Adjustment (+/-)" type="number" size="small"
+              value={adjustment} onChange={(e) => setAdjustment(e.target.value)}
+              sx={{ width: 160 }}
+            />
+            <Button
+              variant="outlined" size="small"
+              disabled={adjustment === '' || submitting || correctionLocked}
+              onClick={handleApply}
+            >
+              {submitting ? 'Submitting Correction…' : 'Apply Correction'}
+            </Button>
+          </Box>
         </Box>
       )}
     </Box>

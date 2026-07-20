@@ -1,9 +1,10 @@
 const pool = require('../modules/pool');
 
 class LineupError extends Error {
-  constructor(statusCode, message) {
+  constructor(statusCode, message, code = null) {
     super(message);
     this.statusCode = statusCode;
+    this.code = code;
   }
 }
 
@@ -151,11 +152,11 @@ async function materializeLineup(client, { leagueId, teamId, season, week }) {
  * The set of NFL team names whose game for (season, week) has kicked off —
  * players on those teams are locked. Empty schedule means nothing is locked.
  */
-async function lockedNflTeams(client, { season, week }) {
+async function lockedNflTeams(client, { season, week, now = new Date() }) {
   const result = await client.query(
     `SELECT "nfl_team" FROM "nfl_games"
-     WHERE "season" = $1 AND "week" = $2 AND "kickoff_at" <= now()`,
-    [season, week]
+     WHERE "season" = $1 AND "week" = $2 AND "kickoff_at" <= $3`,
+    [season, week, now]
   );
   return new Set(result.rows.map((r) => r.nfl_team));
 }
@@ -292,7 +293,7 @@ async function setLineup({ leagueId, userId, week, moves }) {
       if (!entry) throw new LineupError(404, `player ${move.playerId} is not on your roster`);
       if (entry.slot === move.slot) continue;
       if (locked.has(entry.nfl_team)) {
-        throw new LineupError(409, 'that player is locked — his game has started');
+        throw new LineupError(409, 'that player is locked — his game has started', 'LINEUP_LOCKED');
       }
       entry.slot = move.slot;
       changed.push(entry);

@@ -7,6 +7,7 @@ const adp = require('../services/adp.service');
 const sleeper = require('../services/sleeper.service');
 const season = require('../services/season.service');
 const correction = require('../services/correction.service');
+const commissioner = require('../services/commissioner.service');
 const montecarlo = require('../services/montecarlo.service');
 
 const router = express.Router();
@@ -108,11 +109,47 @@ router.post('/league/:id/correct-week', async (req, res) => {
   if (!sw) return;
   const leagueId = Number(req.params.id);
   try {
-    if (!(await requireLeagueOwner(req, res, leagueId))) return;
+    const leagueResult = await pool.query(
+      `SELECT "owner_id", "current_season", "current_week"
+       FROM "leagues" WHERE "id" = $1`,
+      [leagueId]
+    );
+    const league = leagueResult.rows[0];
+    if (!league || league.owner_id !== req.user.id) {
+      return res.status(403).json({ error: 'only the league owner can do this' });
+    }
+    correction.assertManualCorrectionWindow({
+      requestedSeason: sw.season,
+      requestedWeek: sw.week,
+      activeSeason: league.current_season,
+      activeWeek: league.current_week,
+      timestamp: new Date(),
+    });
+    const { matchupId, homeScore, awayScore } = req.body || {};
+    const hasManualScores = matchupId !== undefined || homeScore !== undefined || awayScore !== undefined;
+    if (hasManualScores) {
+      const validScore = (value) => Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) <= 1000;
+      if (!Number.isInteger(matchupId) || matchupId < 1 || !validScore(homeScore) || !validScore(awayScore)) {
+        return res.status(400).json({
+          error: 'matchupId and numeric homeScore/awayScore values between 0 and 1000 are required',
+        });
+      }
+      const result = await commissioner.adjustMatchupScore({
+        leagueId,
+        userId: req.user.id,
+        matchupId,
+        homeScore: Number(homeScore),
+        awayScore: Number(awayScore),
+      });
+      return res.json(result);
+    }
     await scoring.syncWeekStats(sw);
     const result = await correction.correctLeagueWeek({ leagueId, ...sw });
     res.json(result);
   } catch (error) {
+    if (error instanceof correction.CorrectionWindowError) {
+      return res.status(403).json({ error: error.code, message: error.message });
+    }
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     console.error('Stat correction failed:', error);
     res.status(500).json({ error: 'stat correction failed' });

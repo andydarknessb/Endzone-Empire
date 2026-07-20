@@ -1,6 +1,12 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { diffMatchupScores, isCorrectionDay } = require('../services/correction.service');
+const {
+  CORRECTION_WINDOW_ERROR,
+  CorrectionWindowError,
+  assertManualCorrectionWindow,
+  diffMatchupScores,
+  isCorrectionDay,
+} = require('../services/correction.service');
 
 const matchup = (id, home, away, overrides = {}) => ({
   id,
@@ -65,11 +71,65 @@ test('multiple matchups: only the changed ones are reported', () => {
   assert.equal(changes[0].winnerFlipped, true); // 70-75 loss became 77-75 win
 });
 
-test('isCorrectionDay is true only on Tuesday and Wednesday', () => {
-  // 2026-07-06 is a Monday; walk the whole week
-  const expected = [false, true, true, false, false, false, false]; // Mon..Sun
-  for (let i = 0; i < 7; i++) {
-    const date = new Date(2026, 6, 6 + i, 12, 0, 0); // local noon avoids TZ edges
-    assert.equal(isCorrectionDay(date), expected[i], date.toDateString());
+test('isCorrectionDay uses exact UTC Tuesday/Wednesday boundaries', () => {
+  assert.equal(isCorrectionDay('2026-07-06T23:59:59.999Z'), false);
+  assert.equal(isCorrectionDay('2026-07-07T00:00:00.000Z'), true);
+  assert.equal(isCorrectionDay('2026-07-08T23:59:59.999Z'), true);
+  assert.equal(isCorrectionDay('2026-07-09T00:00:00.000Z'), false);
+});
+
+test('manual correction allows only the immediate past week during the UTC window', () => {
+  const result = assertManualCorrectionWindow({
+    requestedSeason: 2026,
+    requestedWeek: 8,
+    activeSeason: 2026,
+    activeWeek: 9,
+    timestamp: '2026-10-06T00:00:00.000Z',
+  });
+
+  assert.equal(result.correctionWeek, 8);
+  assert.equal(result.checkedAt.toISOString(), '2026-10-06T00:00:00.000Z');
+});
+
+test('manual correction blocks a week older than the immediate past week', () => {
+  assert.throws(
+    () => assertManualCorrectionWindow({
+      requestedSeason: 2026,
+      requestedWeek: 7,
+      activeSeason: 2026,
+      activeWeek: 9,
+      timestamp: '2026-10-06T12:00:00.000Z',
+    }),
+    (error) =>
+      error instanceof CorrectionWindowError &&
+      error.statusCode === 403 &&
+      error.code === CORRECTION_WINDOW_ERROR.code &&
+      error.message === CORRECTION_WINDOW_ERROR.message
+  );
+});
+
+test('manual correction blocks the immediate past week outside Tuesday/Wednesday UTC', () => {
+  for (const timestamp of ['2026-10-05T23:59:59.999Z', '2026-10-08T00:00:00.000Z']) {
+    assert.throws(
+      () => assertManualCorrectionWindow({
+        requestedSeason: 2026,
+        requestedWeek: 8,
+        activeSeason: 2026,
+        activeWeek: 9,
+        timestamp,
+      }),
+      CorrectionWindowError
+    );
+  }
+});
+
+test('manual correction fails closed for cross-season, week-one, and ambiguous timestamps', () => {
+  const attempts = [
+    { requestedSeason: 2025, requestedWeek: 18, activeSeason: 2026, activeWeek: 1, timestamp: '2026-09-08T12:00:00Z' },
+    { requestedSeason: 2026, requestedWeek: 8, activeSeason: 2026, activeWeek: 9, timestamp: '2026-10-06T12:00:00' },
+    { requestedSeason: 2026, requestedWeek: 8, activeSeason: 2026, activeWeek: 9, timestamp: 'not-a-date' },
+  ];
+  for (const attempt of attempts) {
+    assert.throws(() => assertManualCorrectionWindow(attempt), CorrectionWindowError);
   }
 });
