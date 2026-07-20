@@ -5,6 +5,7 @@ import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import { createDraftSocket, onReconnect } from '../../api/socket';
 import MatchupDetail from './MatchupDetail';
+import useFantasyMatchupGames from '../../hooks/useFantasyMatchupGames';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
@@ -14,6 +15,18 @@ jest.mock('../../api/apiClient', () => ({
 jest.mock('../../api/socket', () => ({
   createDraftSocket: jest.fn(),
   onReconnect: jest.fn(),
+}));
+
+jest.mock('../../hooks/useFantasyMatchupGames', () => ({
+  __esModule: true,
+  default: jest.fn(),
+}));
+
+// Stubbed so the ticker tests are isolated from useLiveGameRealtime/Supabase —
+// this file only needs to verify MatchupDetail passes the right gameIds.
+jest.mock('../LiveGameStatus/LiveGameStatus', () => ({
+  __esModule: true,
+  default: ({ gameId }) => <div data-testid="live-game-status">{gameId}</div>,
 }));
 
 const renderDetail = (leagueId = 1, matchupId = 9) =>
@@ -69,6 +82,7 @@ let reconnectHandlers;
 beforeEach(() => {
   socketHandlers = {};
   reconnectHandlers = [];
+  useFantasyMatchupGames.mockReturnValue({ realGameIds: [], loading: false, error: null });
   mockSocket = {
     on: jest.fn((event, cb) => {
       socketHandlers[event] = cb;
@@ -303,4 +317,33 @@ test('re-joins the league room and refetches the matchup when the manager reconn
   );
   expect(apiClient.get).toHaveBeenCalledWith('/api/league/42/matchups/9');
   await screen.findByText('Week 3 Matchup');
+});
+
+test('renders a live-game ticker strip when the matchup maps to real NFL games', async () => {
+  useFantasyMatchupGames.mockReturnValue({
+    realGameIds: ['20260910_BUF@KC', '20260913_SF@LAR'],
+    loading: false,
+    error: null,
+  });
+  apiClient.get.mockResolvedValue(matchupResponse());
+
+  renderDetail();
+
+  await screen.findByText('Week 3 Matchup');
+  const games = screen.getAllByTestId('live-game-status');
+  expect(games.map((g) => g.textContent)).toEqual(['20260910_BUF@KC', '20260913_SF@LAR']);
+});
+
+test('does not render the live-game ticker once the matchup is final', async () => {
+  useFantasyMatchupGames.mockReturnValue({
+    realGameIds: ['20260910_BUF@KC'],
+    loading: false,
+    error: null,
+  });
+  apiClient.get.mockResolvedValue(matchupResponse({ matchup: { final: true } }));
+
+  renderDetail();
+
+  await screen.findByText('Week 3 Matchup');
+  expect(screen.queryByTestId('live-game-status')).not.toBeInTheDocument();
 });

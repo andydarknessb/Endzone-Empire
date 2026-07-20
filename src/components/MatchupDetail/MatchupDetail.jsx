@@ -15,11 +15,13 @@ import Grid from '@mui/material/Unstable_Grid2';
 import apiClient from '../../api/apiClient';
 import { createDraftSocket, onReconnect } from '../../api/socket';
 import { useLeague } from '../../hooks/useLeague';
+import useFantasyMatchupGames from '../../hooks/useFantasyMatchupGames';
 import { classifyPlays } from '../../lib/scoringEvents';
 import { matchupWinProbability } from '../../lib/winProbability';
 import TecmoCutscene from './TecmoCutscene';
 import RetroScoreboard from './RetroScoreboard';
 import RetroField from './RetroField';
+import LiveGameStatus from '../LiveGameStatus/LiveGameStatus';
 import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
 import {
   WinProbabilityBar,
@@ -38,6 +40,7 @@ const TICKER_LIMIT = 12;
 function MatchupDetail() {
   const { leagueId, matchupId } = useParams();
   const { league } = useLeague(leagueId);
+  const { realGameIds } = useFantasyMatchupGames(matchupId);
   const [matchup, setMatchup] = useState(null);
   const [home, setHome] = useState(null);
   const [away, setAway] = useState(null);
@@ -325,6 +328,29 @@ function MatchupDetail() {
               <ToggleButton value="scoreboard">Scoreboard</ToggleButton>
             </ToggleButtonGroup>
           </Box>
+
+          {showLive && realGameIds.length > 0 && (
+            <Box
+              sx={{
+                display: 'flex',
+                flexWrap: 'nowrap',
+                overflowX: 'auto',
+                gap: 1,
+                mb: 2,
+                pb: 0.5,
+              }}
+            >
+              {realGameIds.map((gameId) => (
+                <Paper
+                  key={gameId}
+                  variant="outlined"
+                  sx={{ px: 1.5, py: 0.75, borderRadius: 2, flexShrink: 0 }}
+                >
+                  <LiveGameStatus gameId={gameId} />
+                </Paper>
+              ))}
+            </Box>
+          )}
 
           {viewMode === 'scoreboard' ? (
             <>
