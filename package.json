@@ -43,7 +43,17 @@
     "seed": "knex seed:run",
     "test": "react-scripts test --env=jsdom --watchAll=false",
     "test:server": "node --test server/test/**/*.test.js",
-    "test:security": "playwright test --config=playwright.security.config.js"
+    "test:security": "playwright test --config=playwright.security.config.js",
+    "test:e2e:auth-offline": "playwright test --config=playwright.e2e.config.js",
+    "test:draft-autopick": "react-scripts test --env=node --watchAll=false --runInBand --runTestsByPath src/lib/draftAutopickClock.integration.test.js",
+    "test:draft-grades-adp": "react-scripts test --env=node --watchAll=false --runInBand --runTestsByPath src/lib/draftGradeAdp.integration.test.ts",
+    "test:trade-fairness": "react-scripts test --env=node --watchAll=false --runInBand --runTestsByPath src/lib/tradeFairnessApi.integration.test.js",
+    "stress:waivers": "node scripts/stress-faab-waivers.js",
+    "load:k6:snake-draft": "k6 run scripts/k6-snake-draft.js",
+    "load:k6:notification-burst": "k6 run scripts/k6-notification-burst.js",
+    "load:k6:admin-health": "k6 run load-tests/admin-dashboard-health.js",
+    "infra:activate-k6": "node scripts/activate-k6.js",
+    "test:load-pipeline": "node scripts/run-load-triage.js"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",

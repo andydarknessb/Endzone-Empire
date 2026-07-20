@@ -29,6 +29,7 @@ import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import apiClient from '../../api/apiClient';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import { useLeague } from '../../hooks/useLeague';
+import useResilientLineupMutation from '../../hooks/useResilientLineupMutation';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import InjuryBadge from '../InjuryBadge/InjuryBadge';
 import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
@@ -78,6 +79,9 @@ function isEligibleTarget(selectedEntry, targetEntry, slotType, rosterSlots) {
 function LineupScreen() {
   const { leagueId } = useParams();
   const notify = useSnackbar();
+  const { saveLineup } = useResilientLineupMutation({
+    onReplaySuccess: () => notify('Lineup saved'),
+  });
   const [lineup, setLineup] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -202,12 +206,16 @@ function LineupScreen() {
     );
 
     try {
-      await apiClient.put('/api/team/lineup', {
+      const result = await saveLineup({
         leagueId: Number(leagueId),
         week: snapshot.week,
         moves,
       });
-      notify('Lineup saved');
+      if (result.queued) {
+        notify('Lineup change saved offline — it will sync when you reconnect', { severity: 'info' });
+      } else {
+        notify('Lineup saved');
+      }
     } catch (err) {
       setLineup(snapshot);
       notify(err.response?.data?.error || err.message, { severity: 'error' });

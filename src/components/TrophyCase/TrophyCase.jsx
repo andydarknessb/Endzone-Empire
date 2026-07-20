@@ -14,13 +14,16 @@ import apiClient from '../../api/apiClient';
 export const TROPHY_EMOJI = {
   champion: '🏆',
   weekly_high: '🔥',
+  top_scorer: '🔥',
+  closest_game: '🤝',
+  biggest_blowout: '💥',
   win_streak: '📈',
   comeback: '💪',
   draft_grade: '🎯',
 };
 
 function trophySubLabel(trophy) {
-  if (trophy.type === 'weekly_high' && trophy.week != null) {
+  if (['weekly_high', 'top_scorer', 'closest_game', 'biggest_blowout'].includes(trophy.type) && trophy.week != null) {
     return `${trophy.team_name} · Week ${trophy.week}`;
   }
   return trophy.team_name;

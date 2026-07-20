@@ -1,6 +1,7 @@
 const express = require('express');
 const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
+const { isTransientDatabaseError, withDatabaseRetry } = require('../modules/dbRetry');
 const scoring = require('../services/scoring.service');
 const sportsdb = require('../services/sportsdb.service');
 const adp = require('../services/adp.service');
@@ -108,11 +109,15 @@ router.post('/league/:id/correct-week', async (req, res) => {
   const sw = validSeasonWeek(req, res);
   if (!sw) return;
   const leagueId = Number(req.params.id);
+  const correctionRequest = Object.freeze({ leagueId, season: sw.season, week: sw.week });
+  const requestBody = { ...(req.body || {}) };
   try {
-    const leagueResult = await pool.query(
-      `SELECT "owner_id", "current_season", "current_week"
-       FROM "leagues" WHERE "id" = $1`,
-      [leagueId]
+    const leagueResult = await withDatabaseRetry(() =>
+      pool.query(
+        `SELECT "owner_id", "current_season", "current_week"
+         FROM "leagues" WHERE "id" = $1`,
+        [correctionRequest.leagueId]
+      )
     );
     const league = leagueResult.rows[0];
     if (!league || league.owner_id !== req.user.id) {
@@ -125,7 +130,7 @@ router.post('/league/:id/correct-week', async (req, res) => {
       activeWeek: league.current_week,
       timestamp: new Date(),
     });
-    const { matchupId, homeScore, awayScore } = req.body || {};
+    const { matchupId, homeScore, awayScore } = requestBody;
     const hasManualScores = matchupId !== undefined || homeScore !== undefined || awayScore !== undefined;
     if (hasManualScores) {
       const validScore = (value) => Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) <= 1000;
@@ -143,14 +148,25 @@ router.post('/league/:id/correct-week', async (req, res) => {
       });
       return res.json(result);
     }
-    await scoring.syncWeekStats(sw);
-    const result = await correction.correctLeagueWeek({ leagueId, ...sw });
+    await withDatabaseRetry(() => scoring.syncWeekStats({
+      season: correctionRequest.season,
+      week: correctionRequest.week,
+    }));
+    const result = await withDatabaseRetry(() => correction.correctLeagueWeek(correctionRequest));
     res.json(result);
   } catch (error) {
     if (error instanceof correction.CorrectionWindowError) {
       return res.status(403).json({ error: error.code, message: error.message });
     }
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    if (isTransientDatabaseError(error)) {
+      const attempts = error.databaseAttempts || 1;
+      res.set('Retry-After', '1');
+      return res.status(500).json({
+        error: 'DATABASE_TEMPORARILY_UNAVAILABLE',
+        message: `Score correction could not complete after ${attempts} database attempt${attempts === 1 ? '' : 's'}.`,
+      });
+    }
     console.error('Stat correction failed:', error);
     res.status(500).json({ error: 'stat correction failed' });
   }

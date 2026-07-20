@@ -4,6 +4,7 @@ const {
   buildSuggestions,
   fitAdjustedValue,
   tradeVerdict,
+  tradeFairnessSummary,
   rankWaiverCandidates,
 } = require('../services/decision.service');
 const { DEFAULT_ROSTER_SLOTS } = require('../services/lineup.service');
@@ -213,6 +214,33 @@ test('tradeVerdict: just over 10% apart favors the side that received more', () 
 
 test('tradeVerdict: both sides zero is fair', () => {
   assert.equal(tradeVerdict(0, 0), 'fair');
+});
+
+test('tradeFairnessSummary: applies exact badge and commissioner-review boundaries', () => {
+  assert.deepEqual(tradeFairnessSummary(100, 85), {
+    fairnessMarginPct: 15,
+    statusBadge: 'Even / Fair',
+    isBlocked: false,
+    collusion_risk: 'LOW',
+  });
+  assert.equal(tradeFairnessSummary(100, 84.99).statusBadge, 'Imbalanced');
+  assert.equal(tradeFairnessSummary(100, 64.99).statusBadge, 'Highly Imbalanced');
+  assert.equal(tradeFairnessSummary(100, 50).isBlocked, false);
+  assert.deepEqual(tradeFairnessSummary(100, 49.99), {
+    fairnessMarginPct: 50.01,
+    statusBadge: 'Highly Imbalanced',
+    isBlocked: true,
+    collusion_risk: 'HIGH',
+  });
+});
+
+test('tradeFairnessSummary: safely defaults missing and non-finite totals to zero', () => {
+  assert.deepEqual(tradeFairnessSummary(undefined, Number.POSITIVE_INFINITY), {
+    fairnessMarginPct: 0,
+    statusBadge: 'Even / Fair',
+    isBlocked: false,
+    collusion_risk: 'LOW',
+  });
 });
 
 // ---------------------------------------------------------------------------

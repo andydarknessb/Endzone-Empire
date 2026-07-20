@@ -232,7 +232,9 @@ async function computeLeagueOdds({ leagueId, runs = DEFAULT_RUNS, seed }) {
   if (teams.length < 2) return null;
 
   const matchupsResult = await pool.query(
-    `SELECT * FROM "matchups" WHERE "league_id" = $1 AND "season" = $2`,
+    `SELECT "week", "home_team_id", "away_team_id", "home_score", "away_score",
+            "is_playoff", "is_consolation", "final"
+     FROM "matchups" WHERE "league_id" = $1 AND "season" = $2`,
     [leagueId, season]
   );
   const played = matchupsResult.rows.filter((m) => m.final && !m.is_playoff);

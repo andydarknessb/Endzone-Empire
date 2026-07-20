@@ -1,5 +1,6 @@
 const axios = require('axios');
 const pool = require('../modules/pool');
+const { isTransientDatabaseError } = require('../modules/dbRetry');
 const { materializeLineup, optimalLineup, parseLineupSettings, POSITION_GROUPS } = require('./lineup.service');
 const { getIo } = require('../modules/io');
 
@@ -767,6 +768,9 @@ async function syncWeekStats({ season, week }) {
         updated += 1;
       }
     } catch (err) {
+      // Correction-route retries are safe because every stat write is an
+      // upsert. Do not hide pool starvation as a single skipped NFL game.
+      if (isTransientDatabaseError(err)) throw err;
       console.error(`Stat sync failed for game ${game.gameID}:`, err.message);
     }
   }

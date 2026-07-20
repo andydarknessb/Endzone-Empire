@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
@@ -9,8 +9,15 @@ import LineupScreen from './LineupScreen';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
-  default: { get: jest.fn(), put: jest.fn() },
+  default: { get: jest.fn(), put: jest.fn(), request: jest.fn() },
 }));
+
+const setOnline = (value) => {
+  Object.defineProperty(window.navigator, 'onLine', {
+    configurable: true,
+    value,
+  });
+};
 
 const renderScreen = (leagueId = 1) =>
   renderWithProviders(<LineupScreen />, {
@@ -192,6 +199,8 @@ const hindsightSeasonResponse = (overrides = {}) => ({
 afterEach(() => {
   jest.clearAllMocks();
   clearLeagueCache();
+  localStorage.removeItem('pending_lineup_mutations');
+  setOnline(true);
 });
 
 test('suggestions panel shows projected vs optimal totals and a suggestion with opponent context', async () => {
@@ -335,6 +344,49 @@ test('clicking bench player then empty eligible slot applies the move optimistic
     url.startsWith('/api/team/lineup?')
   );
   expect(lineupGets).toHaveLength(1);
+});
+
+test('an offline move is cached without a request and replays once when connectivity returns', async () => {
+  setOnline(false);
+  apiClient.get.mockResolvedValue({ data: lineupResponse() });
+  apiClient.request.mockResolvedValue({ status: 200 });
+
+  renderScreenWithToasts();
+  await screen.findByText('Davante Adams');
+  await userEvent.click(screen.getByTestId('slot-row-BENCH-4'));
+  await userEvent.click(screen.getByTestId('slot-row-WR-0'));
+
+  expect(apiClient.put).not.toHaveBeenCalled();
+  expect(JSON.parse(localStorage.getItem('pending_lineup_mutations'))).toEqual([
+    expect.objectContaining({
+      endpoint: '/api/team/lineup',
+      method: 'PUT',
+      payload: {
+        leagueId: 1,
+        week: 3,
+        moves: [{ playerId: 4, slot: 'WR' }],
+      },
+    }),
+  ]);
+  expect(await screen.findByText(/saved offline/i)).toBeInTheDocument();
+
+  setOnline(true);
+  act(() => window.dispatchEvent(new Event('online')));
+
+  await waitFor(() => expect(apiClient.request).toHaveBeenCalledTimes(1));
+  expect(apiClient.request).toHaveBeenCalledWith(
+    expect.objectContaining({
+      url: '/api/team/lineup',
+      method: 'PUT',
+      data: {
+        leagueId: 1,
+        week: 3,
+        moves: [{ playerId: 4, slot: 'WR' }],
+      },
+    })
+  );
+  await waitFor(() => expect(localStorage.getItem('pending_lineup_mutations')).toBeNull());
+  expect(await screen.findByText('Lineup saved')).toBeInTheDocument();
 });
 
 test('swapping two players PUTs two moves', async () => {

@@ -9,12 +9,14 @@ const { optimalLineup, parseLineupSettings } = require('./lineup.service');
  * which usually lands after the draft anyway, and a re-request simply serves
  * the cached copy.
  *
- * Valuation: each team's drafted roster is scored as its optimal projected
- * lineup plus a discounted bench (depth matters, starters matter more).
- * Without ADP data the fair baseline is the league itself — grades come from
- * each team's z-score against the league mean, so a league full of sharks
- * still spreads A through F.
+ * Valuation: every pick receives the signed market delta `ADP - pick number`.
+ * Lower is better: a player taken at 45 with ADP 12 is -33 (a steal), while a
+ * player taken at 10 with ADP 80 is +70 (a reach). Team grades use the inverse
+ * composite delta as their z-score input. Projected roster value remains in
+ * the payload for backwards-compatible UI display.
  */
+
+const DRAFT_GRADE_ALGORITHM_VERSION = 2;
 
 const GRADE_THRESHOLDS = [
   { min: 1.0, grade: 'A' },
@@ -45,6 +47,50 @@ function gradeTeams(teamValues) {
   return rows.map((row, i) => ({ ...row, rank: i + 1 }));
 }
 
+function round2(value) {
+  return Math.round(value * 100) / 100;
+}
+
+/** Pure: missing/non-numeric market ADP is neutral at the actual pick. */
+function draftPickValue({ pickNumber, marketAdp }) {
+  const actualPick = Number(pickNumber);
+  const parsedAdp = Number(marketAdp);
+  const hasMarketAdp = Number.isFinite(parsedAdp) && parsedAdp > 0;
+  const safeAdp = hasMarketAdp ? parsedAdp : actualPick;
+  return {
+    marketAdp: round2(safeAdp),
+    draftValueScore: round2(safeAdp - actualPick),
+    adpFallback: !hasMarketAdp,
+  };
+}
+
+/**
+ * Pure: smaller cumulative deltas are better, so negate the score before the
+ * established z-score matrix. gradeTeams keeps exact ties deterministic by id.
+ */
+function gradeDraftValues(teamValues) {
+  const normalized = teamValues.map((team) => ({
+    ...team,
+    draftValueScore: round2(team.draftValueScore),
+  }));
+  const originalByTeam = new Map(normalized.map((team) => [team.teamId, team]));
+  const graded = gradeTeams(normalized.map((team) => ({
+    teamId: team.teamId,
+    name: team.name,
+    rosterValue: -team.draftValueScore,
+  })));
+  return graded.map(({ teamId, grade, rank }) => {
+    const original = originalByTeam.get(teamId);
+    return {
+      ...original,
+      rosterValue: round2(original.rosterValue),
+      draftValueScore: round2(original.draftValueScore),
+      grade,
+      rank,
+    };
+  });
+}
+
 /**
  * Cached grades for a league, computing them on first request once the
  * draft is complete. Returns null while the draft is still running.
@@ -60,12 +106,14 @@ async function getOrComputeDraftGrades({ leagueId }) {
      WHERE "league_id" = $1 AND "season" = $2 AND "type" = 'draft_grades'`,
     [leagueId, season]
   );
-  if (cached.rows[0]) return cached.rows[0].data;
+  if (cached.rows[0]?.data?.algorithmVersion === DRAFT_GRADE_ALGORITHM_VERSION) {
+    return cached.rows[0].data;
+  }
   if (league.draft_status !== 'complete') return null;
 
   const picksResult = await pool.query(
     `SELECT "draft_picks"."team_id", "draft_picks"."player_id", "draft_picks"."pick_number",
-            "players"."position", "teams"."name" AS "team_name"
+            "players"."position", "players"."adp", "teams"."name" AS "team_name"
      FROM "draft_picks"
      JOIN "players" ON "players"."id" = "draft_picks"."player_id"
      JOIN "teams" ON "teams"."id" = "draft_picks"."team_id"
@@ -84,22 +132,39 @@ async function getOrComputeDraftGrades({ leagueId }) {
   const byTeam = new Map();
   for (const pick of picksResult.rows) {
     if (!byTeam.has(pick.team_id)) {
-      byTeam.set(pick.team_id, { name: pick.team_name, players: [] });
+      byTeam.set(pick.team_id, { name: pick.team_name, picks: [] });
     }
-    byTeam.get(pick.team_id).players.push({ playerId: pick.player_id, position: pick.position });
+    const value = draftPickValue({ pickNumber: pick.pick_number, marketAdp: pick.adp });
+    byTeam.get(pick.team_id).picks.push({
+      playerId: pick.player_id,
+      position: pick.position,
+      pickNumber: pick.pick_number,
+      ...value,
+    });
   }
 
   const teamValues = [];
-  for (const [teamId, { name, players }] of byTeam) {
+  for (const [teamId, { name, picks }] of byTeam) {
+    const players = picks.map(({ playerId, position }) => ({ playerId, position }));
     const optimal = optimalLineup(players, rosterSlots, pointsFor);
     const starterIds = new Set(optimal.starters.map((s) => s.playerId));
     const benchValue = players
       .filter((p) => !starterIds.has(p.playerId))
       .reduce((sum, p) => sum + (Number(pointsFor.get(p.playerId)) || 0), 0);
-    teamValues.push({ teamId, name, rosterValue: optimal.total + 0.25 * benchValue });
+    teamValues.push({
+      teamId,
+      name,
+      rosterValue: optimal.total + 0.25 * benchValue,
+      draftValueScore: round2(picks.reduce((sum, pick) => sum + pick.draftValueScore, 0)),
+      picks,
+    });
   }
 
-  const data = { computedAt: new Date().toISOString(), grades: gradeTeams(teamValues) };
+  const data = {
+    algorithmVersion: DRAFT_GRADE_ALGORITHM_VERSION,
+    computedAt: new Date().toISOString(),
+    grades: gradeDraftValues(teamValues),
+  };
   await pool.query(
     `INSERT INTO "league_analytics" ("league_id", "season", "week", "type", "data")
      VALUES ($1, $2, 0, 'draft_grades', $3)
@@ -110,4 +175,10 @@ async function getOrComputeDraftGrades({ leagueId }) {
   return data;
 }
 
-module.exports = { gradeTeams, getOrComputeDraftGrades };
+module.exports = {
+  draftPickValue,
+  gradeDraftValues,
+  gradeTeams,
+  getOrComputeDraftGrades,
+  DRAFT_GRADE_ALGORITHM_VERSION,
+};

@@ -224,7 +224,7 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
     }
 
     const teamsResult = await client.query(
-      `SELECT "id", "name" FROM "teams" WHERE "league_id" = $1`,
+      `SELECT "id", "name", "owner_id" FROM "teams" WHERE "league_id" = $1`,
       [leagueId]
     );
     const matchupsResult = await client.query(
@@ -232,6 +232,16 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
       [leagueId, league.current_season]
     );
     const standings = computeStandings(teamsResult.rows, matchupsResult.rows);
+    const rostersResult = await client.query(
+      `SELECT "team_players"."team_id", "team_players"."player_id",
+              "players"."name" AS "player_name", "players"."position",
+              "players"."nfl_team"
+       FROM "team_players"
+       JOIN "players" ON "players"."id" = "team_players"."player_id"
+       WHERE "team_players"."league_id" = $1
+       ORDER BY "team_players"."team_id", "team_players"."player_id"`,
+      [leagueId]
+    );
 
     // Champion: winner of the last final, non-consolation playoff game
     const playoffFinals = matchupsResult.rows
@@ -243,14 +253,52 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
         ? decider.home_team_id
         : decider.away_team_id)
       : (standings[0] ? standings[0].teamId : null);
+    const championUserId =
+      teamsResult.rows.find((team) => team.id === championTeamId)?.owner_id || null;
+
+    if (championTeamId) {
+      // The weekly trophy index is team-aware so both closest-game teams can
+      // share a type. Champion remains singular, so replace any stale winner
+      // explicitly before inserting the authoritative season result.
+      await client.query(
+        `DELETE FROM "trophies"
+         WHERE "league_id" = $1 AND "season" = $2 AND "week" = 0 AND "type" = 'champion'`,
+        [leagueId, league.current_season]
+      );
+      await client.query(
+        `INSERT INTO "trophies" ("league_id", "team_id", "season", "week", "type", "label", "data")
+         VALUES ($1, $2, $3, 0, 'champion', $4, '{}')
+         ON CONFLICT ("league_id", "season", "week", "team_id", "type")
+         DO UPDATE SET "team_id" = EXCLUDED."team_id", "label" = EXCLUDED."label"`,
+        [leagueId, championTeamId, league.current_season, `${league.current_season} League Champion`]
+      );
+    }
+    const awardsResult = await client.query(
+      `SELECT "team_id", "season", "week", "type", "label", "data", "awarded_at"
+       FROM "trophies" WHERE "league_id" = $1 AND "season" = $2
+       ORDER BY "week", "type"`,
+      [leagueId, league.current_season]
+    );
 
     await client.query(
-      `INSERT INTO "league_history" ("league_id", "season", "champion_team_id", "standings")
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO "league_history"
+         ("league_id", "season", "champion_team_id", "champion_user_id", "standings", "rosters", "awards")
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT ("league_id", "season")
        DO UPDATE SET "champion_team_id" = EXCLUDED."champion_team_id",
-                     "standings" = EXCLUDED."standings"`,
-      [leagueId, league.current_season, championTeamId, JSON.stringify(standings)]
+                     "champion_user_id" = EXCLUDED."champion_user_id",
+                     "standings" = EXCLUDED."standings",
+                     "rosters" = EXCLUDED."rosters",
+                     "awards" = EXCLUDED."awards"`,
+      [
+        leagueId,
+        league.current_season,
+        championTeamId,
+        championUserId,
+        JSON.stringify(standings),
+        JSON.stringify(rostersResult.rows),
+        JSON.stringify(awardsResult.rows),
+      ]
     );
 
     // Roster wipe with keeper exceptions
@@ -284,6 +332,11 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
        WHERE "league_id" = $1 AND "status" IN ('pending', 'accepted')`,
       [leagueId]
     );
+    await client.query(
+      `UPDATE "teams" SET "faab_remaining" = $1, "updated_at" = now()
+       WHERE "league_id" = $2`,
+      [league.faab_budget, leagueId]
+    );
     const newSeason = league.current_season + 1;
     await client.query(
       `UPDATE "leagues"
@@ -306,7 +359,7 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
       message: `A new season has begun! ${keeperPairs.length > 0 ? 'Keepers are locked in — ' : ''}the draft is open to be scheduled.`,
     });
     await client.query('COMMIT');
-    return { leagueId, archivedSeason: league.current_season, newSeason, championTeamId };
+    return { leagueId, archivedSeason: league.current_season, newSeason, championTeamId, championUserId };
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;

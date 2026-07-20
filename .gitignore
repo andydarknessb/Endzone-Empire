@@ -12,6 +12,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# Checked-in synthetic log fixtures
+!fixtures/*.log
+
 # Runtime data
 pids
 *.pid

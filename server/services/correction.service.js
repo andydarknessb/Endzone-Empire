@@ -129,15 +129,30 @@ async function correctLeagueWeek({ leagueId, season, week }) {
 
   await scoring.scoreMatchups({ leagueId, season, week });
 
-  const after = await pool.query(
-    `SELECT "id", "home_score", "away_score" FROM "matchups"
-     WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3`,
-    [leagueId, season, week]
-  );
+  let after;
+  try {
+    after = await pool.query(
+      `SELECT "id", "home_score", "away_score" FROM "matchups"
+       WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3`,
+      [leagueId, season, week]
+    );
+  } catch (error) {
+    // Scores have committed. Retrying the whole correction would replace the
+    // original before-snapshot and could hide a correction from the audit log.
+    error.retrySafe = false;
+    throw error;
+  }
   const changes = diffMatchupScores(before.rows, after.rows);
   if (changes.length === 0) return { leagueId, changes };
 
-  const client = await pool.connect();
+  let client;
+  try {
+    client = await pool.connect();
+  } catch (error) {
+    // Scores already committed above; replaying would lose the before-snapshot.
+    error.retrySafe = false;
+    throw error;
+  }
   try {
     await client.query('BEGIN');
     await logTransaction(client, {
@@ -173,7 +188,12 @@ async function correctLeagueWeek({ leagueId, season, week }) {
     }
     await client.query('COMMIT');
   } catch (error) {
-    await client.query('ROLLBACK');
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackError) {
+      error.rollbackError = rollbackError;
+    }
+    error.retrySafe = false;
     // The corrected scores are already committed and a later run won't
     // re-detect them (its "before" snapshot is post-correction) — dump the
     // full change set to the server log so the record isn't lost entirely.

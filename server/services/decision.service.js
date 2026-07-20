@@ -1,7 +1,7 @@
 const pool = require('../modules/pool');
 const {
   getWeekProjections,
-  getRestOfSeasonProjections,
+  getTradeProjectionMetrics,
   getPositionDefense,
 } = require('./projection.service');
 const {
@@ -24,6 +24,11 @@ const IR = 'IR';
 
 function round2(x) {
   return Math.round(Number(x) * 100) / 100;
+}
+
+function finiteNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 /** Accepts either a raw number or a { points, source } projection entry. */
@@ -392,6 +397,42 @@ function tradeVerdict(proposerGets, receiverGets) {
   return proposerGets > receiverGets ? 'favors_proposer' : 'favors_receiver';
 }
 
+function emptyTradeAggregate() {
+  return {
+    seasonTotalPoints: 0,
+    perGameProjection: 0,
+    historicalWeeklyAverage: 0,
+    restOfSeasonValue: 0,
+  };
+}
+
+function addTradeMetrics(aggregate, metrics) {
+  for (const key of Object.keys(aggregate)) {
+    aggregate[key] = round2(aggregate[key] + finiteNumber(metrics && metrics[key]));
+  }
+}
+
+function tradeFairnessSummary(offeredTotal, requestedTotal) {
+  const offered = finiteNumber(offeredTotal);
+  const requested = finiteNumber(requestedTotal);
+  const larger = Math.max(offered, requested);
+  const fairnessMarginPct = larger === 0
+    ? 0
+    : round2((Math.abs(offered - requested) / larger) * 100);
+
+  let statusBadge = 'Even / Fair';
+  if (fairnessMarginPct > 35) statusBadge = 'Highly Imbalanced';
+  else if (fairnessMarginPct > 15) statusBadge = 'Imbalanced';
+
+  const isBlocked = fairnessMarginPct > 50;
+  return {
+    fairnessMarginPct,
+    statusBadge,
+    isBlocked,
+    collusion_risk: isBlocked ? 'HIGH' : 'LOW',
+  };
+}
+
 /**
  * Value both sides of a proposed (not-yet-submitted) trade with
  * rest-of-season projections, adjusted for roster fit on the RECEIVING side
@@ -449,33 +490,52 @@ async function analyzeTrade({ leagueId, proposingTeamId, receivingTeamId, offere
 
   const fromWeek = league.current_week;
   const throughWeek = league.regular_season_weeks;
-  const rosValues = await getRestOfSeasonProjections({ season: league.current_season, fromWeek, throughWeek });
+  const projectionMetrics = await getTradeProjectionMetrics({
+    playerIds: allPlayerIds,
+    season: league.current_season,
+    fromWeek,
+    throughWeek,
+  });
 
   const settings = parseLineupSettings(league);
   const proposingPositions = proposingRoster.map((r) => r.position);
   const receivingPositions = receivingRoster.map((r) => r.position);
 
   const players = [];
+  const aggregates = {
+    offered: emptyTradeAggregate(),
+    requested: emptyTradeAggregate(),
+  };
   let proposerGives = 0;
   let receiverGives = 0;
 
   for (const id of offeredPlayerIds) {
     const player = playersById.get(id);
-    const baseValue = Number(rosValues.get(id)) || 0;
+    const metrics = projectionMetrics.get(id) || emptyTradeAggregate();
+    const baseValue = finiteNumber(metrics.restOfSeasonValue);
     const fit = fitAdjustedValue(baseValue, player.position, receivingPositions, settings.rosterSlots);
     proposerGives += fit;
+    addTradeMetrics(aggregates.offered, metrics);
     players.push({
       playerId: id, name: player.name, position: player.position,
+      seasonTotalPoints: round2(finiteNumber(metrics.seasonTotalPoints)),
+      perGameProjection: round2(finiteNumber(metrics.perGameProjection)),
+      historicalWeeklyAverage: round2(finiteNumber(metrics.historicalWeeklyAverage)),
       rosValue: round2(baseValue), fitAdjustedValue: fit, direction: 'proposer_to_receiver',
     });
   }
   for (const id of requestedPlayerIds) {
     const player = playersById.get(id);
-    const baseValue = Number(rosValues.get(id)) || 0;
+    const metrics = projectionMetrics.get(id) || emptyTradeAggregate();
+    const baseValue = finiteNumber(metrics.restOfSeasonValue);
     const fit = fitAdjustedValue(baseValue, player.position, proposingPositions, settings.rosterSlots);
     receiverGives += fit;
+    addTradeMetrics(aggregates.requested, metrics);
     players.push({
       playerId: id, name: player.name, position: player.position,
+      seasonTotalPoints: round2(finiteNumber(metrics.seasonTotalPoints)),
+      perGameProjection: round2(finiteNumber(metrics.perGameProjection)),
+      historicalWeeklyAverage: round2(finiteNumber(metrics.historicalWeeklyAverage)),
       rosValue: round2(baseValue), fitAdjustedValue: fit, direction: 'receiver_to_proposer',
     });
   }
@@ -485,9 +545,24 @@ async function analyzeTrade({ leagueId, proposingTeamId, receivingTeamId, offere
   const receiverGets = proposerGives; // what proposer sends is what receiver receives
   const proposerGets = receiverGives; // what receiver sends is what proposer receives
 
-  const verdict = tradeVerdict(proposerGets, receiverGets);
+  const fairness = tradeFairnessSummary(
+    aggregates.offered.restOfSeasonValue,
+    aggregates.requested.restOfSeasonValue
+  );
+  const verdict = fairness.isBlocked
+    ? 'collusion_risk'
+    : tradeVerdict(proposerGets, receiverGets);
 
-  return { verdict, proposerGives, proposerGets, receiverGives, receiverGets, players };
+  return {
+    verdict,
+    ...fairness,
+    proposerGives,
+    proposerGets,
+    receiverGives,
+    receiverGets,
+    aggregates,
+    players,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -604,6 +679,7 @@ module.exports = {
   seasonHindsight,
   fitAdjustedValue,
   tradeVerdict,
+  tradeFairnessSummary,
   analyzeTrade,
   rankWaiverCandidates,
   waiverSuggestions,
