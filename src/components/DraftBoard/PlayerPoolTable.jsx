@@ -133,6 +133,14 @@ function PlayerPoolTable({
             <MenuItem value="TE">TE</MenuItem>
             <MenuItem value="K">K</MenuItem>
             <MenuItem value="DEF">DEF</MenuItem>
+            {/* Individual defenders (DP-enabled leagues) — literal Tank01
+                position codes, not the DL/LB/DB roster-eligibility group keys. */}
+            <MenuItem value="DE">DE</MenuItem>
+            <MenuItem value="DT">DT</MenuItem>
+            <MenuItem value="LB">LB</MenuItem>
+            <MenuItem value="CB">CB</MenuItem>
+            <MenuItem value="S">S</MenuItem>
+            <MenuItem value="DB">DB</MenuItem>
           </Select>
         </FormControl>
         <FormControlLabel

@@ -7,7 +7,13 @@ const { rulesForLeague, buildPlayerSummary, projectSeasonPoints } = require('../
 const router = express.Router();
 
 const PAGE_SIZE = 25;
-const POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
+// Individual defender codes are literal Tank01 positions (not the DL/LB/DB
+// roster-eligibility GROUP keys used elsewhere — see lineup.service.js's
+// POSITION_GROUPS) so a commissioner can filter to exactly "DT" rather than
+// the whole defensive-line group. Limited to the codes Tank01 actually
+// reports (confirmed live): DE, DT, LB, CB, S, DB — NT/ILB/OLB/FS/SS/DL
+// exist in POSITION_GROUPS as a safety net but have ~zero real rows.
+const POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF', 'DE', 'DT', 'LB', 'CB', 'S', 'DB'];
 
 // Short-lived in-memory cache for the player summary. Keyed by player + league
 // (scoring rules differ per league), so a draft room hammering this endpoint

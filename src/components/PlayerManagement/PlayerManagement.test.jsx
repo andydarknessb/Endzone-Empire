@@ -146,6 +146,23 @@ test('changing the position filter refetches players with the new position and r
   );
 });
 
+test('the position filter offers individual defender positions (DE/DT/LB/CB/S/DB) and filters by them', async () => {
+  mockDefaultApi();
+  renderWithProviders(<PlayerManagement />);
+  await screen.findByText('Patrick Mahomes');
+  apiClient.get.mockClear();
+
+  await userEvent.click(screen.getByLabelText('Position'));
+  for (const pos of ['DE', 'DT', 'LB', 'CB', 'S', 'DB']) {
+    expect(await screen.findByRole('option', { name: pos })).toBeInTheDocument();
+  }
+  await userEvent.click(screen.getByRole('option', { name: 'DT' }));
+
+  await waitFor(() =>
+    expect(apiClient.get).toHaveBeenCalledWith('/api/players', { params: { page: 1, position: 'DT', sort: 'adp' } })
+  );
+});
+
 test('shows an error alert when the player fetch fails', async () => {
   apiClient.get.mockImplementation((url) => {
     if (url === '/api/league') return Promise.resolve({ data: [] });

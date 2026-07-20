@@ -13,7 +13,9 @@ import PlayerAvatar from '../PlayerQuickView/PlayerAvatar';
 import PositionChip from '../PlayerQuickView/PositionChip';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 
-const POSITIONS = ['All', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
+// DE/DT/LB/CB/S/DB are individual defenders (DP-enabled leagues) — literal
+// Tank01 position codes, not the DL/LB/DB roster-eligibility group keys.
+const POSITIONS = ['All', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF', 'DE', 'DT', 'LB', 'CB', 'S', 'DB'];
 const PLAYERS_PAGE_SIZE = 25; // matches the server page size; for ADP rank numbers
 
 const headCellSx = { fontWeight: 'bold', backgroundColor: 'primary.main', color: 'primary.contrastText' };

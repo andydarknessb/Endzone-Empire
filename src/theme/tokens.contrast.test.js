@@ -25,6 +25,7 @@ const PAIRINGS = [
   ['text-inverse', 'pos-te', AA_TEXT, 'TE position chip label'],
   ['text-inverse', 'pos-k', AA_TEXT, 'K position chip label'],
   ['text-inverse', 'pos-def', AA_TEXT, 'DEF position chip label'],
+  ['text-inverse', 'pos-idp', AA_TEXT, 'IDP position chip label'],
   // Table cell text on striped / hovered rows.
   ['text-primary', 'row-stripe', AA_TEXT, 'cell text on a striped row'],
   ['text-primary', 'row-hover', AA_TEXT, 'cell text on a hovered row'],

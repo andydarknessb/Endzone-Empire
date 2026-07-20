@@ -329,6 +329,25 @@ test('changing the position filter refetches available players filtered by posit
   );
 });
 
+test('the position filter offers individual defender positions and filters the draft pool by them', async () => {
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+  apiClient.get.mockClear();
+  apiClient.get.mockResolvedValue(playersPage([]));
+
+  await userEvent.click(screen.getByLabelText('Position'));
+  for (const pos of ['DE', 'DT', 'LB', 'CB', 'S', 'DB']) {
+    expect(await screen.findByRole('option', { name: pos })).toBeInTheDocument();
+  }
+  await userEvent.click(screen.getByRole('option', { name: 'LB' }));
+
+  await waitFor(() =>
+    expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
+      params: { page: 1, leagueId: 1, available: true, sort: 'adp', position: 'LB' },
+    })
+  );
+});
+
 test('disconnects the socket on unmount', async () => {
   const { unmount } = renderBoard(1);
   await screen.findByText('Patrick Mahomes');

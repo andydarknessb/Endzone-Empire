@@ -42,6 +42,7 @@ export const colorTokens = {
     'pos-te': '#9a5100', // orange
     'pos-k': '#6d28d9', // purple
     'pos-def': '#4b5c66', // gray
+    'pos-idp': '#008477', // teal — individual defenders (DE/DT/LB/CB/S/DB)
     // Opaque table row shades. Sticky cells inherit these so the pinned column
     // has no seam against the striped/hover row (transparency would let
     // scrolled content bleed through).
@@ -80,6 +81,7 @@ export const colorTokens = {
     'pos-te': '#f0b34e', // orange
     'pos-k': '#c4a2f5', // purple
     'pos-def': '#b0bec5', // gray
+    'pos-idp': '#4db6ac', // teal — individual defenders (DE/DT/LB/CB/S/DB)
     // Opaque table row shades (see the light theme note above).
     'row-stripe': '#1e2732',
     'row-hover': '#28323e',
