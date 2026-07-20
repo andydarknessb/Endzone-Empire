@@ -18,6 +18,7 @@ const healthRouter = require('./routes/health.router');
 const adminRouter = require('./routes/admin.router');
 const { attachDraftSocket } = require('./modules/draftSocket');
 const { startScheduler } = require('./modules/scheduler');
+const { startLiveGameEngine } = require('./modules/liveGameEngine');
 const { createRateLimiter } = require('./modules/rateLimit');
 const { requestLogMiddleware } = require('./modules/requestLog');
 const { initSentry, captureError } = require('./modules/sentry');
@@ -86,6 +87,7 @@ if (require.main === module) {
     console.log(`Endzone Empire listening on port ${PORT}`);
   });
   startScheduler(); // waiver clearing + trade review windows
+  startLiveGameEngine(); // live NFL game clock/status -> live_game_states
 }
 
 module.exports = { app, server };

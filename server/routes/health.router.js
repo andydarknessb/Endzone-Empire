@@ -1,6 +1,7 @@
 const express = require('express');
 const pool = require('../modules/pool');
 const { getSchedulerStatus } = require('../modules/scheduler');
+const { getLiveGameEngineStatus } = require('../modules/liveGameEngine');
 
 const router = express.Router();
 
@@ -22,6 +23,7 @@ router.get('/', async (req, res) => {
     ok: db.ok,
     db,
     scheduler: getSchedulerStatus(),
+    liveGameEngine: getLiveGameEngineStatus(),
     uptimeSec: Math.round(process.uptime()),
   });
 });
