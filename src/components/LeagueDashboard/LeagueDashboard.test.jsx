@@ -444,7 +444,7 @@ test('Lock Transactions toggles via the commissioner endpoint', async () => {
   renderDashboardWithToasts();
   await screen.findByText('Sunday Ballers');
 
-  await userEvent.click(screen.getByRole('button', { name: 'Lock Transactions' }));
+  await userEvent.click(screen.getByRole('checkbox', { name: 'Lock Transactions' }));
 
   await waitFor(() =>
     expect(apiClient.put).toHaveBeenCalledWith('/api/commissioner/league/1/transactions-lock', {
@@ -454,7 +454,7 @@ test('Lock Transactions toggles via the commissioner endpoint', async () => {
   expect(await screen.findByText('Transactions locked')).toBeInTheDocument();
 });
 
-test('removing another owner\'s team calls the commissioner endpoint', async () => {
+test('removing another owner\'s team calls the commissioner endpoint after confirming', async () => {
   const withOtherTeam = leagueResponse();
   withOtherTeam.data.teams.push({ id: 2, name: "Bob's Team", owner: 'bob', roster_count: 0, total_points: 0 });
   mockGetByUrl({
@@ -466,14 +466,38 @@ test('removing another owner\'s team calls the commissioner endpoint', async () 
   renderDashboardWithToasts();
   await screen.findByText('Sunday Ballers');
 
-  // Own team has no remove button; Bob's does
+  // Own team has no remove control; Bob's does
   expect(screen.queryByRole('button', { name: "Remove Alice's Team" })).not.toBeInTheDocument();
   await userEvent.click(screen.getByRole('button', { name: "Remove Bob's Team" }));
+
+  // A severe confirmation dialog guards the destructive action
+  expect(await screen.findByText("Remove Bob's Team?")).toBeInTheDocument();
+  expect(apiClient.delete).not.toHaveBeenCalled();
+  await userEvent.click(screen.getByRole('button', { name: 'Remove Team' }));
 
   await waitFor(() =>
     expect(apiClient.delete).toHaveBeenCalledWith('/api/commissioner/league/1/teams/2')
   );
   expect(await screen.findByText('Team removed')).toBeInTheDocument();
+});
+
+test('cancelling the remove-team dialog does not call the API', async () => {
+  const withOtherTeam = leagueResponse();
+  withOtherTeam.data.teams.push({ id: 2, name: "Bob's Team", owner: 'bob', roster_count: 0, total_points: 0 });
+  mockGetByUrl({
+    '/api/league/1': withOtherTeam,
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
+  renderDashboardWithToasts();
+  await screen.findByText('Sunday Ballers');
+
+  await userEvent.click(screen.getByRole('button', { name: "Remove Bob's Team" }));
+  expect(await screen.findByText("Remove Bob's Team?")).toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+  expect(screen.queryByText("Remove Bob's Team?")).not.toBeInTheDocument();
+  expect(apiClient.delete).not.toHaveBeenCalled();
 });
 
 // --- Best ball chip ---

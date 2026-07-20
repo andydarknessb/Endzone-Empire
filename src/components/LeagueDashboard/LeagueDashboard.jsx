@@ -16,7 +16,6 @@ import {
   CircularProgress,
   Box,
   Tooltip,
-  TextField,
   Card,
   CardActionArea,
   Drawer,
@@ -43,6 +42,7 @@ import RecapCard from '../RecapCard/RecapCard';
 import TrophyCase from '../TrophyCase/TrophyCase';
 import DraftGradesCard from '../DraftGradesCard/DraftGradesCard';
 import Countdown from '../Countdown/Countdown';
+import CommissionerTools from './CommissionerTools';
 
 const SEASON_STATUS_CHIP = {
   regular: { label: 'Regular Season', color: 'default' },
@@ -107,53 +107,22 @@ function LeagueDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const notify = useSnackbar();
-  const [joinRequests, setJoinRequests] = useState([]);
-  const [sizeMin, setSizeMin] = useState('');
-  const [sizeMax, setSizeMax] = useState('');
   const [chatOpen, setChatOpen] = useState(false);
 
   useEffect(() => {
     fetchLeagueAndUser();
   }, [leagueId]);
 
-  // Commissioner-only join-request queue: only relevant for public leagues
-  // that require approval, and only once we know the viewer is the owner.
-  useEffect(() => {
-    if (league && user && league.is_public && league.join_approval && user.id === league.owner_id) {
-      fetchJoinRequests();
-    }
-  }, [league, user]);
-
-  const fetchJoinRequests = async () => {
-    try {
-      const res = await apiClient.get(`/api/league/${leagueId}/join-requests`);
-      setJoinRequests(Array.isArray(res.data) ? res.data : []);
-    } catch (err) {
-      // The queue is supplementary to the main dashboard — fail silently.
-      setJoinRequests([]);
-    }
-  };
-
-  const handleDecideJoinRequest = async (requestId, approve) => {
-    try {
-      setError(null);
-      await apiClient.post(`/api/league/${leagueId}/join-requests/${requestId}/decide`, { approve });
-      setJoinRequests((prev) => prev.filter((r) => r.id !== requestId));
-      notify(approve ? 'Join request approved' : 'Join request denied');
-    } catch (err) {
-      setError(err.response?.data?.error || err.message);
-    }
-  };
-
   const fetchLeagueAndUser = async () => {
     try {
-      setLoading(true);
+      // Only show the full-page spinner on the first load — a background
+      // refresh (e.g. after a Commissioner Tools action) shouldn't unmount
+      // the dashboard and lose the selected tab / in-progress form state.
+      if (!league) setLoading(true);
       setError(null);
       const leagueRes = await apiClient.get(`/api/league/${leagueId}`);
       setLeague(leagueRes.data.league);
       setTeams(leagueRes.data.teams);
-      if (leagueRes.data.league.min_teams != null) setSizeMin(leagueRes.data.league.min_teams);
-      if (leagueRes.data.league.max_teams != null) setSizeMax(leagueRes.data.league.max_teams);
 
       const userRes = await apiClient.get('/api/user');
       setUser(userRes.data);
@@ -189,60 +158,11 @@ function LeagueDashboard() {
     }
   };
 
-  const handleSaveLimits = async () => {
-    try {
-      setError(null);
-      await apiClient.put(`/api/league/${leagueId}`, {
-        minTeams: Number(sizeMin),
-        maxTeams: Number(sizeMax),
-      });
-      notify('Team limits updated');
-      fetchLeagueAndUser();
-    } catch (err) {
-      setError(err.response?.data?.error || err.message);
-      notify(err.response?.data?.error || err.message, { severity: 'error' });
-    }
-  };
-
   const handleAdvanceWeek = async () => {
     try {
       setError(null);
       await apiClient.post(`/api/scoring/league/${leagueId}/advance-week`);
       notify('Week advanced!');
-      fetchLeagueAndUser();
-    } catch (err) {
-      setError(err.response?.data?.error || err.message);
-    }
-  };
-
-  const handleToggleTransactionsLock = async () => {
-    try {
-      setError(null);
-      const locked = !league.transactions_locked;
-      await apiClient.put(`/api/commissioner/league/${leagueId}/transactions-lock`, { locked });
-      notify(locked ? 'Transactions locked' : 'Transactions unlocked');
-      fetchLeagueAndUser();
-    } catch (err) {
-      setError(err.response?.data?.error || err.message);
-    }
-  };
-
-  const handleRemoveTeam = async (teamId) => {
-    try {
-      setError(null);
-      await apiClient.delete(`/api/commissioner/league/${leagueId}/teams/${teamId}`);
-      notify('Team removed');
-      fetchLeagueAndUser();
-    } catch (err) {
-      setError(err.response?.data?.error || err.message);
-    }
-  };
-
-  const handleRollover = async () => {
-    try {
-      setError(null);
-      await apiClient.post(`/api/commissioner/league/${leagueId}/rollover`, {});
-      notify('New season started!');
       fetchLeagueAndUser();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
@@ -293,9 +213,6 @@ function LeagueDashboard() {
   // Below the configured minimum, the draft can't start yet (min_teams may be
   // absent in older data — treat that as no gate).
   const belowMin = league.min_teams != null && teams.length < league.min_teams;
-  // A commissioner can't remove their own team; only surface the section when
-  // there is actually someone to remove.
-  const removableTeams = teams.filter((team) => team.owner !== user.username);
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
@@ -521,116 +438,14 @@ function LeagueDashboard() {
       </Box>
 
       {isOwner && (
-        <Paper sx={{ p: 2, mt: 3 }}>
-          <Typography variant="h6" sx={{ mb: 2 }}>
-            Commissioner Tools
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
-            <Button variant="outlined" color="warning" onClick={handleToggleTransactionsLock}>
-              {league.transactions_locked ? 'Unlock Transactions' : 'Lock Transactions'}
-            </Button>
-            {standingsLeague && standingsLeague.season_status === 'complete' && (
-              <Button variant="contained" color="secondary" onClick={handleRollover}>
-                Start New Season
-              </Button>
-            )}
-          </Box>
-
-          {league.draft_status === 'pending' && (
-            <Box sx={{ mt: 2 }}>
-              <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                Team limits (editable until the draft starts)
-              </Typography>
-              <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-                <TextField
-                  label="Min teams"
-                  type="number"
-                  size="small"
-                  inputProps={{ min: 2, max: 20 }}
-                  value={sizeMin}
-                  onChange={(e) => setSizeMin(e.target.value)}
-                  sx={{ width: 130 }}
-                />
-                <TextField
-                  label="Max teams"
-                  type="number"
-                  size="small"
-                  inputProps={{ min: 2, max: 20 }}
-                  value={sizeMax}
-                  onChange={(e) => setSizeMax(e.target.value)}
-                  sx={{ width: 130 }}
-                />
-                <Button variant="outlined" size="small" onClick={handleSaveLimits}>
-                  Save Limits
-                </Button>
-              </Box>
-            </Box>
-          )}
-          {removableTeams.length > 0 && (
-            <>
-              <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
-                Remove a team
-              </Typography>
-              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                {removableTeams.map((team) => (
-                  <Button
-                    key={team.id}
-                    size="small"
-                    variant="outlined"
-                    color="error"
-                    onClick={() => handleRemoveTeam(team.id)}
-                  >
-                    Remove {team.name}
-                  </Button>
-                ))}
-              </Box>
-            </>
-          )}
-
-          {league.is_public && league.join_approval && (
-            <Box sx={{ mt: 3 }} data-testid="join-requests-section">
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                <Typography variant="subtitle2">Join Requests</Typography>
-                <Chip size="small" label={joinRequests.length} color={joinRequests.length > 0 ? 'primary' : 'default'} />
-              </Box>
-              {joinRequests.length === 0 ? (
-                <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                  No pending join requests
-                </Typography>
-              ) : (
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                  {joinRequests.map((request) => (
-                    <Box
-                      key={request.id}
-                      sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}
-                    >
-                      <Typography sx={{ flexGrow: 1 }}>
-                        {request.username} — {request.team_name} —{' '}
-                        {new Date(request.created_at).toLocaleString()}
-                      </Typography>
-                      <Button
-                        size="small"
-                        variant="contained"
-                        color="success"
-                        onClick={() => handleDecideJoinRequest(request.id, true)}
-                      >
-                        Approve
-                      </Button>
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        color="error"
-                        onClick={() => handleDecideJoinRequest(request.id, false)}
-                      >
-                        Deny
-                      </Button>
-                    </Box>
-                  ))}
-                </Box>
-              )}
-            </Box>
-          )}
-        </Paper>
+        <CommissionerTools
+          leagueId={leagueId}
+          league={league}
+          teams={teams}
+          user={user}
+          standingsLeague={standingsLeague}
+          onRefresh={fetchLeagueAndUser}
+        />
       )}
 
       <Fab
