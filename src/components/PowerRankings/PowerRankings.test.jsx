@@ -1,7 +1,8 @@
 import React from 'react';
-import { screen, within, fireEvent } from '@testing-library/react';
+import { screen, within, fireEvent, act } from '@testing-library/react';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
+import { publishTeamProfileUpdate } from '../../lib/teamProfileEvents';
 import PowerRankings from './PowerRankings';
 
 jest.mock('../../api/apiClient', () => ({
@@ -267,6 +268,31 @@ test('shows each team\'s real win-loss record fetched from the standings endpoin
 
   const aliceRow = await screen.findByTestId('power-ranking-row-1');
   expect(within(aliceRow).getByText('3-1')).toBeInTheDocument();
+});
+
+test('updates a mounted ranking immediately when Profile Settings publishes a team change', async () => {
+  apiClient.get.mockImplementation((url) =>
+    url.includes('standings')
+      ? Promise.resolve({ data: standingsResponse() })
+      : Promise.resolve({ data: powerRankingsResponse() })
+  );
+  renderScreen();
+
+  const aliceRow = await screen.findByTestId('power-ranking-row-1');
+  expect(within(aliceRow).getByText("Alice's Team")).toBeInTheDocument();
+  const initialRequestCount = apiClient.get.mock.calls.length;
+
+  act(() => publishTeamProfileUpdate({
+    leagueId: 1,
+    teamId: 1,
+    name: 'Bandits',
+    avatarUrl: 'https://cdn.example/bandits.png',
+    avatarStaticUrl: null,
+  }));
+
+  expect(within(aliceRow).getByText('Bandits')).toBeInTheDocument();
+  expect(aliceRow.querySelector('img')).toHaveAttribute('src', 'https://cdn.example/bandits.png');
+  expect(apiClient.get).toHaveBeenCalledTimes(initialRequestCount);
 });
 
 describe('mobile layout', () => {

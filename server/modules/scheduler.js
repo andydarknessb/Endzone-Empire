@@ -207,7 +207,7 @@ async function alertCloseMatchups({ leagueId, week, scored }) {
         {
           title: 'Your matchup is close!',
           body: `Week ${week}: separated by just ${Math.round(margin * 10) / 10} points — keep watching.`,
-          url: `/#/league/${leagueId}/matchups`,
+          url: `/#/league/${leagueId}/game-center`,
         }
       );
     } catch (err) {
@@ -257,6 +257,7 @@ module.exports = {
   stopScheduler,
   tick,
   draftTick,
+  alertCloseMatchups,
   getSchedulerStatus,
   INTERVAL_MS,
   DRAFT_CLOCK_MS,

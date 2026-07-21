@@ -50,7 +50,6 @@ function mockApi({
     }
     if (url.endsWith('/matchups')) return Promise.resolve({ data: matchups });
     if (url.endsWith('/rosters')) return Promise.resolve({ data: rosters });
-    if (url.endsWith('/notifications/prefs')) return Promise.resolve({ data: { touchdownCelebrations: true } });
     return Promise.resolve({ data: { league } });
   });
 }
@@ -218,15 +217,27 @@ test('receiving scores:updated updates a card score and shows a LIVE chip', asyn
   expect(screen.getByText('LIVE')).toBeInTheDocument();
 });
 
-test('each matchup card links directly to its full box score — no intermediate modal', async () => {
+test('every card — hero and list — links directly to its box score, no intermediate modal', async () => {
   mockApi({
-    matchups: [matchup({ id: 5 }), matchup({ id: 6, home_team_name: 'Second Home' })],
+    matchups: [
+      // The viewer owns team 10, so matchup 4 becomes the hero card.
+      matchup({ id: 4, week: 1, home_team_id: 10, away_team_id: 20, home_team_name: 'My Team', away_team_name: 'Rival' }),
+      matchup({ id: 5 }),
+      matchup({ id: 6, home_team_name: 'Second Home' }),
+    ],
+    league: { id: 1, name: 'Sunday Ballers', owner_id: 99, current_week: 1 },
+    rosters: [{ teamId: 10, teamName: 'My Team', ownerId: 1 }, { teamId: 20, teamName: 'Rival', ownerId: 2 }],
   });
 
-  renderScreen(3);
+  renderScreen(3, { user: { id: 1 } });
   await screen.findByText('Home Team (0)');
 
-  // The card is a plain link to the box score page — no dialog, no detail fetch.
+  // The hero card's CardActionArea is itself a plain link to the box score.
+  expect(screen.getByText('My Team').closest('a')).toHaveAttribute(
+    'href',
+    '/league/3/matchups/4'
+  );
+  // The list cards are plain links too — no dialog, no detail fetch.
   expect(screen.getByText('Home Team (0)').closest('a')).toHaveAttribute(
     'href',
     '/league/3/matchups/5'

@@ -1,17 +1,36 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import MockAdapter from 'axios-mock-adapter';
 import apiClient from '../../api/apiClient';
+import { TEAM_PROFILE_UPDATED_EVENT } from '../../lib/teamProfileEvents';
+import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 import ProfileSettingsModal from './ProfileSettingsModal';
 
 let mock;
+let teamProfileUpdates;
+let handleTeamProfileUpdate;
+
+const setupUser = () => {
+  const user = userEvent.setup();
+  return Object.fromEntries(
+    ['click', 'type', 'upload'].map((method) => [
+      method,
+      (...args) => act(async () => { await user[method](...args); }),
+    ])
+  );
+};
+
 beforeEach(() => {
   mock = new MockAdapter(apiClient);
+  teamProfileUpdates = [];
+  handleTeamProfileUpdate = (event) => teamProfileUpdates.push(event.detail);
+  window.addEventListener(TEAM_PROFILE_UPDATED_EVENT, handleTeamProfileUpdate);
   window.URL.createObjectURL = jest.fn(() => 'blob:preview');
   window.URL.revokeObjectURL = jest.fn();
 });
 afterEach(() => {
+  window.removeEventListener(TEAM_PROFILE_UPDATED_EVENT, handleTeamProfileUpdate);
   mock.restore();
 });
 
@@ -26,7 +45,7 @@ const league = {
 
 test('shows the avatar uploader for the selected league', async () => {
   mock.onGet('/api/league').reply(200, [league]);
-  const user = userEvent.setup();
+  const user = setupUser();
   render(<ProfileSettingsModal open onClose={jest.fn()} />);
 
   await user.click(await screen.findByLabelText('League'));
@@ -53,7 +72,7 @@ test('avatar-only change enables the button and saves just the avatar', async ()
   mock.onGet('/api/league').reply(200, [league]);
   mock.onPost('/api/team/5/avatar').reply(200, { id: 5, avatar_url: 'https://x/logo.png', avatar_static_url: null });
   const onClose = jest.fn();
-  const user = userEvent.setup();
+  const user = setupUser();
   render(<ProfileSettingsModal open onClose={onClose} />);
 
   await selectLeague(user);
@@ -76,6 +95,12 @@ test('avatar-only change enables the button and saves just the avatar', async ()
   await waitFor(() => expect(mock.history.post).toHaveLength(1));
   expect(mock.history.post[0].url).toBe('/api/team/5/avatar');
   expect(mock.history.put).toHaveLength(0); // no rename
+  expect(teamProfileUpdates).toContainEqual({
+    leagueId: 1,
+    teamId: 5,
+    avatarUrl: 'https://x/logo.png',
+    avatarStaticUrl: null,
+  });
   expect(onClose).toHaveBeenCalled();
 });
 
@@ -83,7 +108,7 @@ test('name-only change still renames the team', async () => {
   mock.onGet('/api/league').reply(200, [league]);
   mock.onPut('/api/team/5').reply(200, { id: 5 });
   const onClose = jest.fn();
-  const user = userEvent.setup();
+  const user = setupUser();
   render(<ProfileSettingsModal open onClose={onClose} />);
 
   await selectLeague(user);
@@ -105,7 +130,7 @@ test('name and avatar changed together fire both requests', async () => {
   mock.onGet('/api/league').reply(200, [league]);
   mock.onPost('/api/team/5/avatar').reply(200, { id: 5, avatar_url: 'https://x/logo.png', avatar_static_url: null });
   mock.onPut('/api/team/5').reply(200, { id: 5 });
-  const user = userEvent.setup();
+  const user = setupUser();
   render(<ProfileSettingsModal open onClose={jest.fn()} />);
 
   await selectLeague(user);
@@ -120,4 +145,85 @@ test('name and avatar changed together fire both requests', async () => {
   expect(mock.history.post[0].url).toBe('/api/team/5/avatar');
   await waitFor(() => expect(mock.history.put).toHaveLength(1));
   expect(mock.history.put[0].url).toBe('/api/team/5');
+});
+
+// M1: when both changes are staged and only one request fails, the other is
+// already persisted — spell out both outcomes and keep the dialog open to retry.
+test('partial failure: avatar fails while name saves — reports both, dialog stays open', async () => {
+  mock.onGet('/api/league').reply(200, [league]);
+  mock.onPost('/api/team/5/avatar').reply(500, { error: 'storage offline' });
+  mock.onPut('/api/team/5').reply(200, { id: 5, name: 'Bandits' });
+  const onClose = jest.fn();
+  const user = setupUser();
+  render(
+    <SnackbarProvider>
+      <ProfileSettingsModal open onClose={onClose} />
+    </SnackbarProvider>
+  );
+
+  await selectLeague(user);
+  await user.type(screen.getByLabelText('New Team Name'), 'Bandits');
+  const input = document.querySelector('input[type="file"]');
+  await user.upload(input, new File(['bytes'], 'logo.png', { type: 'image/png' }));
+
+  await user.click(await screen.findByRole('button', { name: 'Save' }));
+
+  // Both requests fired independently, and the toast names each outcome.
+  await waitFor(() => expect(mock.history.post).toHaveLength(1));
+  await waitFor(() => expect(mock.history.put).toHaveLength(1));
+  expect(
+    await screen.findByText('avatar save failed (storage offline); name saved')
+  ).toBeInTheDocument();
+  expect(teamProfileUpdates).toEqual([{ leagueId: 1, teamId: 5, name: 'Bandits' }]);
+  // The failed part is retryable, so the dialog does not close.
+  expect(onClose).not.toHaveBeenCalled();
+});
+
+// L1: the state-based guard let a fast double-click through because `saving`
+// hadn't re-rendered yet. The useRef latch blocks the second click synchronously.
+test('a rapid double-click fires only one save request', async () => {
+  mock.onGet('/api/league').reply(200, [league]);
+  mock.onPut('/api/team/5').reply(200, { id: 5, name: 'Bandits' });
+  const user = setupUser();
+  render(<ProfileSettingsModal open onClose={jest.fn()} />);
+
+  await selectLeague(user);
+  await user.type(screen.getByLabelText('New Team Name'), 'Bandits');
+  const renameBtn = await screen.findByRole('button', { name: 'Rename' });
+
+  // Two clicks in the same tick, before React can re-render to disable the button.
+  fireEvent.click(renameBtn);
+  fireEvent.click(renameBtn);
+
+  // Both handler calls ran synchronously, so a duplicate request (if any) is
+  // already recorded by now — assert exactly one.
+  await waitFor(() => expect(mock.history.put.length).toBeGreaterThan(0));
+  expect(mock.history.put).toHaveLength(1);
+});
+
+// Deferred-staging edge case: stage a file, remove it, then stage a different
+// file. The last action must win — an upload of the new file, not a stale delete.
+test('staging a file, removing, then picking another file uploads the last file', async () => {
+  mock.onGet('/api/league').reply(200, [league]);
+  mock.onPost('/api/team/5/avatar').reply(200, { id: 5, avatar_url: 'https://x/second.png', avatar_static_url: null });
+  mock.onDelete('/api/team/5/avatar').reply(200, { id: 5, avatar_url: null, avatar_static_url: null });
+  const onClose = jest.fn();
+  const user = setupUser();
+  render(<ProfileSettingsModal open onClose={onClose} />);
+
+  await selectLeague(user);
+
+  const input = document.querySelector('input[type="file"]');
+  await user.upload(input, new File(['a'], 'first.png', { type: 'image/png' }));
+  // Remove the just-staged file...
+  await user.click(await screen.findByRole('button', { name: /Remove Alice's Team avatar/i }));
+  // ...then stage a different one in its place.
+  await user.upload(input, new File(['bcd'], 'second.png', { type: 'image/png' }));
+
+  await user.click(await screen.findByRole('button', { name: 'Save' }));
+
+  // One upload, and crucially no stale DELETE from the intermediate removal.
+  await waitFor(() => expect(mock.history.post).toHaveLength(1));
+  expect(mock.history.delete).toHaveLength(0);
+  expect(onClose).toHaveBeenCalled();
 });

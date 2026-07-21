@@ -1,6 +1,6 @@
 import React from 'react';
-import { screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { act, screen, waitFor, within } from '@testing-library/react';
+import userEventLibrary from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
@@ -10,6 +10,13 @@ jest.mock('../../api/apiClient', () => ({
   __esModule: true,
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn() },
 }));
+
+const userEvent = Object.fromEntries(
+  ['click', 'clear', 'type'].map((method) => [
+    method,
+    (...args) => act(async () => { await userEventLibrary[method](...args); }),
+  ])
+);
 
 const league = (overrides = {}) => ({
   id: 1,
@@ -457,6 +464,27 @@ test('Matchup Scheduling & Scoring can generate matchups and score a week', asyn
     expect(apiClient.post).toHaveBeenCalledWith('/api/scoring/league/1/score', { season: 2025, week: 1 })
   );
   expect(onRefresh).toHaveBeenCalled();
+});
+
+test('Matchup Scheduling & Scoring surfaces a toast and skips refresh when an op fails', async () => {
+  apiClient.post.mockRejectedValue({ response: { data: { error: 'No teams to schedule' } } });
+  const onRefresh = jest.fn();
+  renderTools({ onRefresh });
+  await userEvent.click(screen.getByRole('tab', { name: 'System Overrides' }));
+
+  await userEvent.click(screen.getByRole('button', { name: 'Generate Matchups' }));
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/scoring/league/1/matchups', { season: 2025, week: 1 })
+  );
+  expect(await screen.findByText('No teams to schedule')).toBeInTheDocument();
+  expect(onRefresh).not.toHaveBeenCalled();
+
+  // Score Week fails independently and likewise reports rather than refreshing.
+  await userEvent.click(screen.getByRole('button', { name: 'Score Week' }));
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/scoring/league/1/score', { season: 2025, week: 1 })
+  );
+  expect(onRefresh).not.toHaveBeenCalled();
 });
 
 test('Manual Score Correction preserves input and locks submission after the correction window expires', async () => {

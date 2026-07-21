@@ -30,6 +30,7 @@ import EmojiEvents from '@mui/icons-material/EmojiEvents';
 import { TROPHY_EMOJI } from '../TrophyCase/TrophyCase';
 import { GRADE_COLORS } from '../DraftGradesCard/DraftGradesCard';
 import apiClient from '../../api/apiClient';
+import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../lib/teamProfileEvents';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import TeamAvatar from '../common/TeamAvatar';
 
@@ -280,6 +281,20 @@ function LeagueHistory() {
   useEffect(() => {
     fetchHistory();
   }, [leagueId]);
+
+  useEffect(() => subscribeToTeamProfileUpdates((update) => {
+    if (Number(update.leagueId) !== Number(leagueId)) return;
+    setSeasons((prev) => prev.map((season) => ({
+      ...season,
+      champion: applyTeamProfileUpdate(season.champion, update),
+      standings: Array.isArray(season.standings)
+        ? season.standings.map((team) => applyTeamProfileUpdate(team, update))
+        : season.standings,
+      draftGrades: Array.isArray(season.draftGrades)
+        ? season.draftGrades.map((team) => applyTeamProfileUpdate(team, update))
+        : season.draftGrades,
+    })));
+  }), [leagueId]);
 
   const fetchHistory = async () => {
     try {

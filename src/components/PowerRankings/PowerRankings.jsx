@@ -28,6 +28,7 @@ import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import LeaderboardOutlinedIcon from '@mui/icons-material/LeaderboardOutlined';
 import apiClient from '../../api/apiClient';
+import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../lib/teamProfileEvents';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import TeamAvatar from '../common/TeamAvatar';
 
@@ -140,6 +141,19 @@ function PowerRankings() {
     fetchRankings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leagueId]);
+
+  useEffect(() => subscribeToTeamProfileUpdates((update) => {
+    if (Number(update.leagueId) !== Number(leagueId)) return;
+    setPayload((prev) => {
+      const rankings = prev?.data?.rankings;
+      if (!Array.isArray(rankings)) return prev;
+      return {
+        ...prev,
+        data: { ...prev.data, rankings: rankings.map((team) => applyTeamProfileUpdate(team, update)) },
+      };
+    });
+    setStandings((prev) => prev.map((team) => applyTeamProfileUpdate(team, update)));
+  }), [leagueId]);
 
   const fetchRankings = async () => {
     try {

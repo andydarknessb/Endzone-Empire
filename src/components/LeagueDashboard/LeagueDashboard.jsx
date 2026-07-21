@@ -36,6 +36,7 @@ import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
 import CloseIcon from '@mui/icons-material/Close';
 import SettingsIcon from '@mui/icons-material/Settings';
 import apiClient from '../../api/apiClient';
+import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../lib/teamProfileEvents';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import TeamAvatar from '../common/TeamAvatar';
 import ChatPanel from '../ChatPanel/ChatPanel';
@@ -113,6 +114,14 @@ function LeagueDashboard() {
   useEffect(() => {
     fetchLeagueAndUser();
   }, [leagueId]);
+
+  useEffect(() => subscribeToTeamProfileUpdates((update) => {
+    if (Number(update.leagueId) !== Number(leagueId)) return;
+    setTeams((prev) => prev.map((team) => applyTeamProfileUpdate(team, update, {
+      id: 'id', avatarUrl: 'avatar_url', avatarStaticUrl: 'avatar_static_url',
+    })));
+    setStandings((prev) => prev.map((team) => applyTeamProfileUpdate(team, update)));
+  }), [leagueId]);
 
   const fetchLeagueAndUser = async () => {
     try {

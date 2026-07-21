@@ -29,6 +29,7 @@ import { createDraftSocket, onReconnect } from '../../api/socket';
 import { matchupWinProbability } from '../../lib/winProbability';
 import { computeDefaultWeek } from '../../lib/matchupWeek';
 import { playLabel } from '../../lib/scoringEvents';
+import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../lib/teamProfileEvents';
 import { MatchupStatusChip } from '../MatchupDetail/MatchupExtras';
 import TeamAvatar from '../common/TeamAvatar';
 
@@ -211,6 +212,35 @@ function GameCenter() {
   useEffect(() => {
     fetchData();
   }, [leagueId]);
+
+  useEffect(() => subscribeToTeamProfileUpdates((update) => {
+    if (Number(update.leagueId) !== Number(leagueId)) return;
+    setRosters((prev) => prev.map((team) => applyTeamProfileUpdate(team, update, { name: 'teamName' })));
+    setMatchups((prev) => prev.map((matchup) => {
+      let next = matchup;
+      if (Number(matchup.home_team_id) === Number(update.teamId)) {
+        next = {
+          ...next,
+          ...(Object.prototype.hasOwnProperty.call(update, 'name') ? { home_team_name: update.name } : {}),
+          ...(Object.prototype.hasOwnProperty.call(update, 'avatarUrl') ? { home_team_avatar_url: update.avatarUrl } : {}),
+          ...(Object.prototype.hasOwnProperty.call(update, 'avatarStaticUrl')
+            ? { home_team_avatar_static_url: update.avatarStaticUrl }
+            : {}),
+        };
+      }
+      if (Number(matchup.away_team_id) === Number(update.teamId)) {
+        next = {
+          ...next,
+          ...(Object.prototype.hasOwnProperty.call(update, 'name') ? { away_team_name: update.name } : {}),
+          ...(Object.prototype.hasOwnProperty.call(update, 'avatarUrl') ? { away_team_avatar_url: update.avatarUrl } : {}),
+          ...(Object.prototype.hasOwnProperty.call(update, 'avatarStaticUrl')
+            ? { away_team_avatar_static_url: update.avatarStaticUrl }
+            : {}),
+        };
+      }
+      return next;
+    }));
+  }), [leagueId]);
 
   // Picks the default week once both the matchups fetch and the shared
   // league fetch have settled, whichever order they resolve in.

@@ -27,6 +27,7 @@ import HandshakeOutlinedIcon from '@mui/icons-material/HandshakeOutlined';
 import HistoryOutlinedIcon from '@mui/icons-material/HistoryOutlined';
 import ConstructionOutlinedIcon from '@mui/icons-material/ConstructionOutlined';
 import apiClient from '../../api/apiClient';
+import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../lib/teamProfileEvents';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import { useLeague } from '../../hooks/useLeague';
 import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
@@ -239,6 +240,35 @@ function TradeCenter() {
   useEffect(() => {
     fetchAll();
   }, [leagueId]);
+
+  useEffect(() => subscribeToTeamProfileUpdates((update) => {
+    if (Number(update.leagueId) !== Number(leagueId)) return;
+    setRosters((prev) => prev.map((team) => applyTeamProfileUpdate(team, update, { name: 'teamName' })));
+    setTrades((prev) => prev?.map((trade) => {
+      let next = trade;
+      if (Number(trade.proposing_team_id) === Number(update.teamId)) {
+        next = {
+          ...next,
+          ...(Object.prototype.hasOwnProperty.call(update, 'name') ? { proposing_team_name: update.name } : {}),
+          ...(Object.prototype.hasOwnProperty.call(update, 'avatarUrl') ? { proposing_team_avatar_url: update.avatarUrl } : {}),
+          ...(Object.prototype.hasOwnProperty.call(update, 'avatarStaticUrl')
+            ? { proposing_team_avatar_static_url: update.avatarStaticUrl }
+            : {}),
+        };
+      }
+      if (Number(trade.receiving_team_id) === Number(update.teamId)) {
+        next = {
+          ...next,
+          ...(Object.prototype.hasOwnProperty.call(update, 'name') ? { receiving_team_name: update.name } : {}),
+          ...(Object.prototype.hasOwnProperty.call(update, 'avatarUrl') ? { receiving_team_avatar_url: update.avatarUrl } : {}),
+          ...(Object.prototype.hasOwnProperty.call(update, 'avatarStaticUrl')
+            ? { receiving_team_avatar_static_url: update.avatarStaticUrl }
+            : {}),
+        };
+      }
+      return next;
+    }) ?? prev);
+  }), [leagueId]);
 
   const fetchTrades = async () => {
     const res = await apiClient.get(`/api/trades?leagueId=${leagueId}`);
