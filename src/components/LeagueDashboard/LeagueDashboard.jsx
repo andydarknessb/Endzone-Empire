@@ -37,6 +37,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import SettingsIcon from '@mui/icons-material/Settings';
 import apiClient from '../../api/apiClient';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
+import TeamAvatar from '../common/TeamAvatar';
 import ChatPanel from '../ChatPanel/ChatPanel';
 import RecapCard from '../RecapCard/RecapCard';
 import TrophyCase from '../TrophyCase/TrophyCase';
@@ -313,7 +314,17 @@ function LeagueDashboard() {
               return (
                 <TableRow key={team.teamId}>
                   <TableCell>{team.rank}</TableCell>
-                  <TableCell>{team.name}</TableCell>
+                  <TableCell>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <TeamAvatar
+                        name={team.name}
+                        avatarUrl={team.avatarUrl}
+                        avatarStaticUrl={team.avatarStaticUrl}
+                        size={28}
+                      />
+                      {team.name}
+                    </Box>
+                  </TableCell>
                   <TableCell>{team.owner}</TableCell>
                   <TableCell align="right">{`${team.wins}-${team.losses}-${team.ties}`}</TableCell>
                   <TableCell align="right">{team.pf}</TableCell>

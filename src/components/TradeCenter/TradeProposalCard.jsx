@@ -2,6 +2,7 @@ import React from 'react';
 import { Card, CardContent, CardActions, Box, Typography, Chip, Avatar, Button, Stack, Tooltip } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
+import TeamAvatar from '../common/TeamAvatar';
 import { formatRelative } from '../../utils/formatRelative';
 
 const STATUS_COLOR = {
@@ -61,8 +62,20 @@ function TradeProposalCard({
       <CardContent>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 1, mb: 2 }}>
           <Box>
-            <Typography variant="h6">
+            <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+              <TeamAvatar
+                name={trade.proposing_team_name}
+                avatarUrl={trade.proposing_team_avatar_url}
+                avatarStaticUrl={trade.proposing_team_avatar_static_url}
+                size={24}
+              />
               {trade.proposing_team_name} ⇄ {trade.receiving_team_name}
+              <TeamAvatar
+                name={trade.receiving_team_name}
+                avatarUrl={trade.receiving_team_avatar_url}
+                avatarStaticUrl={trade.receiving_team_avatar_static_url}
+                size={24}
+              />
             </Typography>
             {trade.created_at && (
               <Tooltip title={new Date(trade.created_at).toLocaleString()}>

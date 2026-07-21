@@ -19,7 +19,6 @@ import {
   LinearProgress,
   Skeleton,
   Stack,
-  Avatar,
   useMediaQuery,
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
@@ -30,14 +29,7 @@ import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import LeaderboardOutlinedIcon from '@mui/icons-material/LeaderboardOutlined';
 import apiClient from '../../api/apiClient';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
-
-function initialsFor(name) {
-  if (!name) return '?';
-  const parts = name.trim().split(/\s+/);
-  const first = parts[0]?.[0] || '';
-  const last = parts.length > 1 ? parts[parts.length - 1][0] : '';
-  return (first + last).toUpperCase();
-}
+import TeamAvatar from '../common/TeamAvatar';
 
 function OddsCell({ value, label }) {
   const pct = Math.round((value || 0) * 1000) / 10;
@@ -94,9 +86,7 @@ function HighlightCard({ label, team, change, up }) {
       <CardContent>
         <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
           <Stack direction="row" alignItems="center" spacing={1.5} sx={{ minWidth: 0 }}>
-            <Avatar sx={{ bgcolor: 'action.selected', color: 'text.secondary', flexShrink: 0 }}>
-              {initialsFor(team.name)}
-            </Avatar>
+            <TeamAvatar name={team.name} avatarUrl={team.avatarUrl} avatarStaticUrl={team.avatarStaticUrl} />
             <Box sx={{ minWidth: 0 }}>
               <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.5 }}>
                 {label}
@@ -302,9 +292,7 @@ function PowerRankings() {
                           mb: 0.5,
                         }}
                       >
-                        <Avatar sx={{ bgcolor: 'action.selected', color: 'text.secondary', width: 32, height: 32, fontSize: 13 }}>
-                          {initialsFor(team.name)}
-                        </Avatar>
+                        <TeamAvatar name={team.name} avatarUrl={team.avatarUrl} avatarStaticUrl={team.avatarStaticUrl} size={32} />
                         <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
                           #{team.rank} {team.name}
                         </Typography>
@@ -398,9 +386,7 @@ function PowerRankings() {
                         </TableCell>
                         <TableCell>
                           <Stack direction="row" alignItems="center" spacing={1}>
-                            <Avatar sx={{ bgcolor: 'action.selected', color: 'text.secondary', width: 28, height: 28, fontSize: 12 }}>
-                              {initialsFor(team.name)}
-                            </Avatar>
+                            <TeamAvatar name={team.name} avatarUrl={team.avatarUrl} avatarStaticUrl={team.avatarStaticUrl} size={28} />
                             <Typography variant="body2">{team.name}</Typography>
                           </Stack>
                         </TableCell>

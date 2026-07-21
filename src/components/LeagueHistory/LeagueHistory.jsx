@@ -31,6 +31,7 @@ import { TROPHY_EMOJI } from '../TrophyCase/TrophyCase';
 import { GRADE_COLORS } from '../DraftGradesCard/DraftGradesCard';
 import apiClient from '../../api/apiClient';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
+import TeamAvatar from '../common/TeamAvatar';
 
 const MEDAL_EMOJI = { 1: '🥇', 2: '🥈', 3: '🥉' };
 
@@ -127,6 +128,12 @@ function SeasonPanel({ season, defaultExpanded }) {
             <Box component="span" aria-hidden="true" sx={{ fontSize: '2rem', lineHeight: 1 }}>
               🏆
             </Box>
+            <TeamAvatar
+              name={season.champion.name}
+              avatarUrl={season.champion.avatarUrl}
+              avatarStaticUrl={season.champion.avatarStaticUrl}
+              size={48}
+            />
             <Box>
               <Typography variant="body2" color="text.secondary">
                 Season Champion
