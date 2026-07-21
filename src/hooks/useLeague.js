@@ -83,5 +83,15 @@ export function useLeague(leagueId) {
     return load();
   }, [key, leagueId, load]);
 
-  return { league, loading, error, refetch };
+  const updateLeague = useCallback((changes) => {
+    if (key == null || !changes) return;
+    setLeague((current) => {
+      const next = { ...(current || {}), ...changes };
+      cache.set(key, { data: next, promise: null, fetchedAt: Date.now() });
+      return next;
+    });
+    setError(null);
+  }, [key]);
+
+  return { league, loading, error, refetch, updateLeague };
 }

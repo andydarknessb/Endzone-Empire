@@ -162,6 +162,24 @@ function validateKeepers(keepers, { teams = [], rosterByTeam = new Map(), keeper
   return errors;
 }
 
+/** Pure: decide whether a keeper-settings update must clear or reject existing assignments. */
+function keeperSettingsPlan({ currentEnabled, currentCount, keepersEnabled, keeperCount, assignmentCounts = [] }) {
+  const effectiveEnabled = keepersEnabled === undefined ? currentEnabled : keepersEnabled;
+  const effectiveCount = keeperCount === undefined ? currentCount : keeperCount;
+  if (!effectiveEnabled) return { clearAssignments: true, error: null };
+
+  const conflicts = assignmentCounts
+    .filter((row) => Number(row.count) > effectiveCount)
+    .map((row) => `team ${row.team_id} has ${Number(row.count)}`);
+  if (conflicts.length > 0) {
+    return {
+      clearAssignments: false,
+      error: `keeperCount cannot be set to ${effectiveCount}: ${conflicts.join(', ')} existing keeper assignment(s); remove assignments first or disable keepers`,
+    };
+  }
+  return { clearAssignments: false, error: null };
+}
+
 /**
  * Pure: which draft_picks rows an undo of `count` picks would remove. Undo
  * only ever touches the most recent live picks (highest pick_number) and
@@ -210,9 +228,24 @@ function startPlan(league, teams, keepers = []) {
     return { error: { status: 409, message: `draft order overrides are stale — ${overridesError}` } };
   }
 
+  const activeKeepers = league.keepers_enabled ? keepers : [];
+  const normalizedKeepers = activeKeepers.map((keeper) => ({
+    teamId: keeper.team_id,
+    playerId: keeper.player_id,
+    round: keeper.draft_round,
+  }));
+  const keeperErrors = validateKeepers(normalizedKeepers, {
+    teams,
+    keeperCount: league.keeper_count,
+    rosterLimit: league.roster_limit,
+  });
+  if (keeperErrors.length > 0) {
+    return { error: { status: 409, message: `keepers are stale: ${keeperErrors.join('; ')}` } };
+  }
+
   let keeperPicks;
   try {
-    keeperPicks = keeperPickNumbers(keepers, teams, rotationOpts).map(({ keeper, pickNumber }) => ({
+    keeperPicks = keeperPickNumbers(activeKeepers, teams, rotationOpts).map(({ keeper, pickNumber }) => ({
       teamId: keeper.team_id,
       playerId: keeper.player_id,
       pickNumber,
@@ -249,6 +282,7 @@ module.exports = {
   positionCapsFeasible,
   validateAuctionSettings,
   validateKeepers,
+  keeperSettingsPlan,
   undoTargets,
   startPlan,
 };

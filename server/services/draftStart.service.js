@@ -55,12 +55,16 @@ async function startDraft({ leagueId, userId = null }) {
       throw new DraftError(409, `need at least ${league.min_teams} teams to start the draft (currently ${teams.length})`);
     }
 
-    const keepersResult = await client.query(
-      `SELECT "team_id", "player_id", "draft_round" FROM "keepers" WHERE "league_id" = $1`,
-      [leagueId]
-    );
+    let keepers = [];
+    if (league.keepers_enabled) {
+      const keepersResult = await client.query(
+        `SELECT "team_id", "player_id", "draft_round" FROM "keepers" WHERE "league_id" = $1`,
+        [leagueId]
+      );
+      keepers = keepersResult.rows;
+    }
 
-    const plan = startPlan(league, teams, keepersResult.rows);
+    const plan = startPlan(league, teams, keepers);
     if (plan.error) {
       throw new DraftError(plan.error.status, plan.error.message);
     }

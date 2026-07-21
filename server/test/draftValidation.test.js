@@ -4,6 +4,7 @@ const {
   positionCapsFeasible,
   validateAuctionSettings,
   validateKeepers,
+  keeperSettingsPlan,
   undoTargets,
   startPlan,
 } = require('../services/draftValidation.service');
@@ -178,6 +179,8 @@ const baseLeague = {
   draft_type: 'snake',
   draft_rotation: 'snake',
   draft_order_overrides: null,
+  keepers_enabled: true,
+  keeper_count: 2,
   roster_limit: 2,
   pick_time_seconds: 90,
   autodraft_delay_seconds: 10,
@@ -203,10 +206,63 @@ test('startPlan: offline leagues run clockless', () => {
 });
 
 test('startPlan: a keeper pre-fills its resolved pick and shifts the first open pick', () => {
-  const plan = startPlan(baseLeague, startTeams, [{ team_id: 1, draft_round: 1 }]);
+  const plan = startPlan(baseLeague, startTeams, [{ team_id: 1, player_id: 100, draft_round: 1 }]);
   assert.equal(plan.error, undefined);
-  assert.deepEqual(plan.keeperPicks, [{ teamId: 1, playerId: undefined, pickNumber: 0 }]);
+  assert.deepEqual(plan.keeperPicks, [{ teamId: 1, playerId: 100, pickNumber: 0 }]);
   assert.equal(plan.firstOpenPick, 1);
+});
+
+test('startPlan: disabled keepers ignore existing assignments', () => {
+  const plan = startPlan(
+    { ...baseLeague, keepers_enabled: false, keeper_count: 0 },
+    startTeams,
+    [{ team_id: 1, player_id: 100, draft_round: 1 }]
+  );
+  assert.equal(plan.error, undefined);
+  assert.deepEqual(plan.keeperPicks, []);
+  assert.equal(plan.firstOpenPick, 0);
+});
+
+test('startPlan: rejects assignments above the current keeper count', () => {
+  const plan = startPlan(
+    { ...baseLeague, keeper_count: 1 },
+    startTeams,
+    [
+      { team_id: 1, player_id: 100, draft_round: 1 },
+      { team_id: 1, player_id: 101, draft_round: 2 },
+    ]
+  );
+  assert.equal(plan.error.status, 409);
+  assert.match(plan.error.message, /allows 1/);
+});
+
+test('keeperSettingsPlan: disabling keepers clears existing assignments', () => {
+  assert.deepEqual(keeperSettingsPlan({
+    currentEnabled: true,
+    currentCount: 2,
+    keepersEnabled: false,
+    assignmentCounts: [{ team_id: 1, count: 2 }],
+  }), { clearAssignments: true, error: null });
+});
+
+test('keeperSettingsPlan: lowering the count below existing assignments is rejected', () => {
+  const plan = keeperSettingsPlan({
+    currentEnabled: true,
+    currentCount: 2,
+    keeperCount: 1,
+    assignmentCounts: [{ team_id: 1, count: 2 }],
+  });
+  assert.equal(plan.clearAssignments, false);
+  assert.match(plan.error, /team 1 has 2/);
+});
+
+test('keeperSettingsPlan: a valid keeper-count update preserves assignments', () => {
+  assert.deepEqual(keeperSettingsPlan({
+    currentEnabled: true,
+    currentCount: 1,
+    keeperCount: 2,
+    assignmentCounts: [{ team_id: 1, count: 1 }],
+  }), { clearAssignments: false, error: null });
 });
 
 test('startPlan: stale overrides (team no longer in the league) are rejected', () => {

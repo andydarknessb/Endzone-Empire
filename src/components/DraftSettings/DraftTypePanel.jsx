@@ -9,10 +9,15 @@ const TYPES = [
   ['offline', 'Offline', 'The commissioner records picks after an offline draft.'],
 ];
 
-export default function DraftTypePanel({ league, frozen, onSave, saving }) {
+export default function DraftTypePanel({ league, frozen, onSave, saving, onDirtyChange }) {
   const [draftType, setDraftType] = useState(league.draft_type || 'snake');
   const [draftRotation, setDraftRotation] = useState(league.draft_rotation || 'snake');
   useEffect(() => { setDraftType(league.draft_type || 'snake'); setDraftRotation(league.draft_rotation || 'snake'); }, [league.draft_type, league.draft_rotation]);
+  useEffect(() => {
+    const typeChanged = draftType !== (league.draft_type || 'snake');
+    const rotationChanged = draftType !== 'auction' && draftRotation !== (league.draft_rotation || 'snake');
+    onDirtyChange(typeChanged || rotationChanged);
+  }, [draftRotation, draftType, league.draft_rotation, league.draft_type, onDirtyChange]);
   return (
     <Stack spacing={2}>
       <Typography variant="body2" color="text.secondary">Choose how this draft is conducted. The order format is available for snake, autopick, and offline drafts.</Typography>
@@ -26,16 +31,16 @@ export default function DraftTypePanel({ league, frozen, onSave, saving }) {
           ))}
         </RadioGroup>
       </FormControl>
-      {draftType === 'auction' && <Alert severity="info">Settings only — live salary-cap drafts are coming soon.</Alert>}
-      <Box>
+      {draftType === 'auction' && <Alert severity="info">Settings only — live salary-cap drafts are coming soon. Scheduling and immediate start are unavailable.</Alert>}
+      {draftType !== 'auction' && <Box>
         <Typography variant="subtitle2" sx={{ mb: 1 }}>Draft rotation</Typography>
         <ToggleButtonGroup exclusive value={draftRotation} disabled={frozen} onChange={(event, value) => value && setDraftRotation(value)} size="small">
           <ToggleButton value="snake">Snake</ToggleButton><ToggleButton value="linear">Linear</ToggleButton>
         </ToggleButtonGroup>
-      </Box>
-      <Box><Button variant="contained" disabled={frozen || saving} onClick={() => onSave({ draftType, draftRotation }, 'Draft type saved')}>Save draft type</Button></Box>
+      </Box>}
+      <Box><Button variant="contained" disabled={frozen || saving} onClick={() => onSave(draftType === 'auction' ? { draftType } : { draftType, draftRotation }, 'Draft type saved')}>Save draft type</Button></Box>
     </Stack>
   );
 }
 
-DraftTypePanel.propTypes = { league: PropTypes.object.isRequired, frozen: PropTypes.bool.isRequired, onSave: PropTypes.func.isRequired, saving: PropTypes.bool };
+DraftTypePanel.propTypes = { league: PropTypes.object.isRequired, frozen: PropTypes.bool.isRequired, onSave: PropTypes.func.isRequired, saving: PropTypes.bool, onDirtyChange: PropTypes.func.isRequired };

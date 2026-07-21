@@ -6,11 +6,17 @@ import SortableTeamList from './SortableTeamList';
 
 const effectiveOrder = (teams, rotation, round) => rotation === 'snake' && round % 2 === 0 ? [...teams].reverse() : [...teams];
 
-export default function DraftOrderPanel({ league, teams, frozen, onSave, onSetOrder, onRandomize, saving }) {
+export default function DraftOrderPanel({ league, teams, frozen, onSave, onSetOrder, onRandomize, saving, onDirtyChange }) {
   const [order, setOrder] = useState([]);
   const [overrides, setOverrides] = useState(league.draft_order_overrides || {});
   useEffect(() => { setOrder([...teams].sort((a, b) => (a.draft_position || 999) - (b.draft_position || 999))); }, [teams]);
   useEffect(() => setOverrides(league.draft_order_overrides || {}), [league.draft_order_overrides]);
+  useEffect(() => {
+    const savedOrder = [...teams].sort((a, b) => (a.draft_position || 999) - (b.draft_position || 999)).map((team) => team.id);
+    const orderChanged = JSON.stringify(order.map((team) => team.id)) !== JSON.stringify(savedOrder);
+    const overridesChanged = JSON.stringify(overrides) !== JSON.stringify(league.draft_order_overrides || {});
+    onDirtyChange(orderChanged || overridesChanged);
+  }, [league.draft_order_overrides, onDirtyChange, order, overrides, teams]);
   const teamMap = useMemo(() => new Map(teams.map((team) => [String(team.id), team])), [teams]);
   const labels = (ids) => ids.map((id) => teamMap.get(String(id))).filter(Boolean).map((team) => ({ id: team.id, label: team.name || `Team ${team.id}`, secondary: team.owner }));
   const saveOverrides = () => onSave({ draftOrderOverrides: Object.keys(overrides).length ? overrides : null }, 'Round overrides saved');
@@ -33,4 +39,4 @@ export default function DraftOrderPanel({ league, teams, frozen, onSave, onSetOr
   );
 }
 
-DraftOrderPanel.propTypes = { league: PropTypes.object.isRequired, teams: PropTypes.array.isRequired, frozen: PropTypes.bool.isRequired, onSave: PropTypes.func.isRequired, onSetOrder: PropTypes.func.isRequired, onRandomize: PropTypes.func.isRequired, saving: PropTypes.bool };
+DraftOrderPanel.propTypes = { league: PropTypes.object.isRequired, teams: PropTypes.array.isRequired, frozen: PropTypes.bool.isRequired, onSave: PropTypes.func.isRequired, onSetOrder: PropTypes.func.isRequired, onRandomize: PropTypes.func.isRequired, saving: PropTypes.bool, onDirtyChange: PropTypes.func.isRequired };

@@ -49,6 +49,7 @@ import AppThemeProvider from '../../theme/AppThemeProvider';
 import OfflineBanner from '../OfflineBanner/OfflineBanner';
 import NotFound from '../NotFound/NotFound';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
+import NavigationGuard from '../NavigationGuard/NavigationGuard';
 
 
 import './App.css';
@@ -82,6 +83,7 @@ function App() {
     <SnackbarProvider>
     <OfflineBanner />
     <Router>
+      <NavigationGuard>
       <AppLayout>
         <Routes>
           <Route path="/present/:token" element={<DraftPresenter />} />
@@ -177,6 +179,7 @@ function App() {
           <Route path="*" element={<NotFound />} />
         </Routes>
       </AppLayout>
+      </NavigationGuard>
     </Router>
     </SnackbarProvider>
     </AppThemeProvider>
