@@ -11,6 +11,15 @@ jest.mock('../../server/modules/auth', () => ({
   },
 }));
 jest.mock('../../server/modules/pool', () => ({ connect: jest.fn() }));
+// team.router transitively pulls in supabaseAdmin.js, which calls the real
+// createClient() on import whenever .env supplies SUPABASE_* vars. That in turn
+// references the Fetch API's global Headers, which Jest 27's sandboxed node
+// environment doesn't expose (unlike Node itself) — so the import throws
+// "Headers is not defined". This suite never touches Supabase, so stub the
+// client out (same pattern as multiSeasonRollover.integration.test.js).
+jest.mock('@supabase/supabase-js', () => ({
+  createClient: jest.fn(() => ({ storage: { from: jest.fn() } })),
+}));
 
 const pool = require('../../server/modules/pool');
 const teamRouter = require('../../server/routes/team.router');
