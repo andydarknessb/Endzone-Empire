@@ -1,12 +1,14 @@
 const express = require('express');
+const crypto = require('crypto');
 const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
 const { getIo } = require('../modules/io');
 const { getDraftState } = require('../modules/draftSocket');
-const { teamIndexForPick } = require('../services/draft.service');
+const { teamForPick } = require('../services/draftOrder.service');
+const { draftPlayer, DraftError, nextPickClockSeconds } = require('../services/draft.service');
+const { validateKeepers, undoTargets } = require('../services/draftValidation.service');
 
 const router = express.Router();
-router.use(requireAuth);
 
 function intOrNull(value) {
   return /^\d+$/.test(String(value)) ? Number(value) : null;
@@ -19,6 +21,40 @@ async function myTeam(leagueId, userId) {
   );
   return result.rows[0] || null;
 }
+
+// GET /api/draft/board/:token — PUBLIC presenter-mode board (no auth). Must
+// stay registered before router.use(requireAuth) below.
+router.get('/board/:token', async (req, res) => {
+  const { token } = req.params;
+  if (!token || typeof token !== 'string') {
+    return res.status(400).json({ error: 'token is required' });
+  }
+  try {
+    const leagueResult = await pool.query(
+      `SELECT "id" FROM "leagues" WHERE "draft_share_token" = $1`,
+      [token]
+    );
+    const league = leagueResult.rows[0];
+    if (!league) return res.status(404).json({ error: 'invalid presenter link' });
+    const state = await getDraftState(league.id);
+    if (!state) return res.status(404).json({ error: 'invalid presenter link' });
+    // Anonymous viewers only get what's already visible on the draft board —
+    // strip anything that identifies a real account.
+    delete state.league.owner_id;
+    delete state.league.invite_code;
+    state.teams = state.teams.map(({ owner_id, ...team }) => team);
+    if (state.onTheClock) {
+      const { owner_id, ...clock } = state.onTheClock;
+      state.onTheClock = clock;
+    }
+    res.json(state);
+  } catch (error) {
+    console.error('Error fetching presenter board', error);
+    res.status(500).json({ error: 'failed to fetch draft board' });
+  }
+});
+
+router.use(requireAuth);
 
 // GET /api/draft/queue?leagueId=N — the caller's pre-draft queue, in order
 router.get('/queue', async (req, res) => {
@@ -203,7 +239,8 @@ router.post('/league/:id/teams/:teamId/autodraft', async (req, res) => {
   try {
     await client.query('BEGIN');
     const leagueResult = await client.query(
-      `SELECT "owner_id", "draft_status", "current_pick", "draft_paused", "autodraft_delay_seconds"
+      `SELECT "owner_id", "draft_status", "current_pick", "draft_paused", "autodraft_delay_seconds",
+              "draft_rotation", "draft_order_overrides"
        FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
       [leagueId]
     );
@@ -242,7 +279,10 @@ router.post('/league/:id/teams/:teamId/autodraft', async (req, res) => {
         `SELECT "id" FROM "teams" WHERE "league_id" = $1 ORDER BY "draft_position" NULLS LAST, "id"`,
         [leagueId]
       );
-      const onClock = teams.rows[teamIndexForPick(league.current_pick, teams.rows.length)];
+      const onClock = teamForPick(league.current_pick, teams.rows, {
+        rotation: league.draft_rotation,
+        overrides: league.draft_order_overrides,
+      });
       if (onClock && onClock.id === teamId) {
         await client.query(
           `UPDATE "leagues"
@@ -264,6 +304,406 @@ router.post('/league/:id/teams/:teamId/autodraft', async (req, res) => {
     res.status(500).json({ error: 'failed to toggle autodraft' });
   } finally {
     client.release();
+  }
+});
+
+// POST /api/draft/league/:id/clock — commissioner changes the pick clock
+// mid-schedule or mid-draft. Never recomputes the *live* deadline — it takes
+// effect starting with the next pick (pause→resume re-arms it sooner if
+// immediate effect is wanted). { pickTimeSeconds: 0-3600 }
+router.post('/league/:id/clock', async (req, res) => {
+  const leagueId = intOrNull(req.params.id);
+  if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
+  const { pickTimeSeconds } = req.body || {};
+  if (!Number.isInteger(pickTimeSeconds) || pickTimeSeconds < 0 || pickTimeSeconds > 3600) {
+    return res.status(400).json({ error: 'pickTimeSeconds must be an integer between 0 and 3600 (0 = untimed)' });
+  }
+  try {
+    const result = await pool.query(
+      `UPDATE "leagues" SET "pick_time_seconds" = $1, "updated_at" = now()
+       WHERE "id" = $2 AND "owner_id" = $3 AND "draft_status" IN ('pending', 'active')
+       RETURNING "id"`,
+      [pickTimeSeconds, leagueId, req.user.id]
+    );
+    if (!result.rows[0]) {
+      return res.status(403).json({ error: 'league not found, not owner, or the draft has already finished' });
+    }
+    const io = getIo();
+    if (io) io.to(`league:${leagueId}`).emit('draft:state', await getDraftState(leagueId));
+    res.json({ leagueId, pickTimeSeconds });
+  } catch (error) {
+    console.error('Error setting pick clock', error);
+    res.status(500).json({ error: 'failed to set the pick clock' });
+  }
+});
+
+// POST /api/draft/league/:id/undo — commissioner undoes the last N live picks.
+// Refuses to cross a keeper pick; only picks already reached by live play are
+// eligible (a keeper pre-filled far ahead of the current pick must never
+// block undoing recent live picks just because it has a higher pick_number).
+// { count: 1-10, default 1 }
+router.post('/league/:id/undo', async (req, res) => {
+  const leagueId = intOrNull(req.params.id);
+  if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
+  const count = req.body?.count === undefined ? 1 : req.body.count;
+  if (!Number.isInteger(count) || count < 1 || count > 10) {
+    return res.status(400).json({ error: 'count must be an integer between 1 and 10' });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const leagueResult = await client.query(
+      `SELECT * FROM "leagues" WHERE "id" = $1 AND "owner_id" = $2 AND "draft_status" = 'active' FOR UPDATE`,
+      [leagueId, req.user.id]
+    );
+    const league = leagueResult.rows[0];
+    if (!league) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'league not found, not owner, or draft not active' });
+    }
+    const picksResult = await client.query(
+      `SELECT "pick_number", "team_id", "player_id", "is_keeper" FROM "draft_picks"
+       WHERE "league_id" = $1 AND "pick_number" <= $2`,
+      [leagueId, league.current_pick]
+    );
+    const { targets, error: undoError } = undoTargets(picksResult.rows, count);
+    if (undoError) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: undoError });
+    }
+    const targetRows = picksResult.rows.filter((p) => targets.includes(p.pick_number));
+    for (const row of targetRows) {
+      await client.query(
+        `DELETE FROM "draft_picks" WHERE "league_id" = $1 AND "pick_number" = $2`,
+        [leagueId, row.pick_number]
+      );
+      await client.query(
+        `DELETE FROM "team_players" WHERE "league_id" = $1 AND "team_id" = $2 AND "player_id" = $3`,
+        [leagueId, row.team_id, row.player_id]
+      );
+    }
+    // The earliest undone pick's own slot was itself open (a live pick, never
+    // a keeper) before it was made, so rewinding current_pick straight to it
+    // reproduces the exact pre-pick state — no re-scan for open slots needed.
+    const newCurrentPick = Math.min(...targets) - 1;
+    const teamsResult = await client.query(
+      `SELECT "id", "autodraft" FROM "teams" WHERE "league_id" = $1 ORDER BY "draft_position" NULLS LAST, "id"`,
+      [leagueId]
+    );
+    const rotationOpts = { rotation: league.draft_rotation, overrides: league.draft_order_overrides };
+    const onClock = teamForPick(newCurrentPick, teamsResult.rows, rotationOpts);
+    const clockSeconds = league.draft_type === 'offline' ? null : nextPickClockSeconds({
+      draftComplete: false,
+      nextTeamAutodraft: onClock ? onClock.autodraft : false,
+      pickTimeSeconds: league.pick_time_seconds,
+      autodraftDelaySeconds: league.autodraft_delay_seconds,
+    });
+    await client.query(
+      `UPDATE "leagues"
+       SET "current_pick" = $1, "updated_at" = now(),
+           "pick_deadline_at" = CASE WHEN $3::int IS NULL THEN NULL ELSE now() + make_interval(secs => $3::int) END
+       WHERE "id" = $2`,
+      [newCurrentPick, leagueId, clockSeconds]
+    );
+    await client.query('COMMIT');
+    const io = getIo();
+    if (io) io.to(`league:${leagueId}`).emit('draft:state', await getDraftState(leagueId));
+    res.json({ leagueId, undone: targets.length, currentPick: newCurrentPick });
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error undoing draft pick', error);
+    res.status(500).json({ error: 'failed to undo the pick' });
+  } finally {
+    client.release();
+  }
+});
+
+// POST /api/draft/league/:id/reset — commissioner, destructive: wipes every
+// pick made so far and returns the league to pending. The keepers table
+// itself is untouched — the next start re-applies them fresh.
+router.post('/league/:id/reset', async (req, res) => {
+  const leagueId = intOrNull(req.params.id);
+  if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const leagueResult = await client.query(
+      `SELECT "id" FROM "leagues" WHERE "id" = $1 AND "owner_id" = $2 AND "draft_status" = 'active' FOR UPDATE`,
+      [leagueId, req.user.id]
+    );
+    if (!leagueResult.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'league not found, not owner, or draft not active' });
+    }
+    await client.query(`DELETE FROM "team_players" WHERE "league_id" = $1`, [leagueId]);
+    await client.query(`DELETE FROM "draft_picks" WHERE "league_id" = $1`, [leagueId]);
+    await client.query(
+      `UPDATE "teams" SET "autodraft" = false, "draft_ready" = false, "consecutive_timeouts" = 0, "updated_at" = now()
+       WHERE "league_id" = $1`,
+      [leagueId]
+    );
+    // draft_date is nulled so the 5-minute scheduler doesn't immediately
+    // auto-restart the draft it just reset.
+    await client.query(
+      `UPDATE "leagues"
+       SET "draft_status" = 'pending', "current_pick" = 0, "draft_paused" = false,
+           "pick_deadline_at" = NULL, "draft_date" = NULL, "draft_reminder_stage" = 0,
+           "draft_autostart_failed" = false, "updated_at" = now()
+       WHERE "id" = $1`,
+      [leagueId]
+    );
+    await client.query('COMMIT');
+    const io = getIo();
+    if (io) io.to(`league:${leagueId}`).emit('draft:state', await getDraftState(leagueId));
+    res.json({ leagueId, reset: true });
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error resetting draft', error);
+    res.status(500).json({ error: 'failed to reset the draft' });
+  } finally {
+    client.release();
+  }
+});
+
+// POST /api/draft/league/:id/ready — any team owner marks their own team
+// ready/not-ready for a pending draft. { ready: boolean }
+router.post('/league/:id/ready', async (req, res) => {
+  const leagueId = intOrNull(req.params.id);
+  if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
+  const { ready } = req.body || {};
+  if (typeof ready !== 'boolean') {
+    return res.status(400).json({ error: 'ready (boolean) is required' });
+  }
+  try {
+    const result = await pool.query(
+      `UPDATE "teams" SET "draft_ready" = $1, "updated_at" = now()
+       FROM "leagues"
+       WHERE "teams"."league_id" = "leagues"."id"
+         AND "teams"."league_id" = $2 AND "teams"."owner_id" = $3
+         AND "leagues"."draft_status" = 'pending'
+       RETURNING "teams"."id"`,
+      [ready, leagueId, req.user.id]
+    );
+    if (!result.rows[0]) {
+      return res.status(403).json({ error: 'you do not have a team in this league, or the draft is not pending' });
+    }
+    const io = getIo();
+    if (io) io.to(`league:${leagueId}`).emit('draft:state', await getDraftState(leagueId));
+    res.json({ leagueId, ready });
+  } catch (error) {
+    console.error('Error updating draft readiness', error);
+    res.status(500).json({ error: 'failed to update readiness' });
+  }
+});
+
+// GET /api/draft/league/:id/keepers — any league member views the current keeper board
+router.get('/league/:id/keepers', async (req, res) => {
+  const leagueId = intOrNull(req.params.id);
+  if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
+  try {
+    const team = await myTeam(leagueId, req.user.id);
+    if (!team) return res.status(403).json({ error: 'you do not have a team in this league' });
+    const result = await pool.query(
+      `SELECT "keepers"."team_id", "keepers"."player_id", "keepers"."draft_round",
+              "players"."name", "players"."position", "players"."nfl_team"
+       FROM "keepers" JOIN "players" ON "players"."id" = "keepers"."player_id"
+       WHERE "keepers"."league_id" = $1
+       ORDER BY "keepers"."draft_round", "keepers"."team_id"`,
+      [leagueId]
+    );
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching keepers', error);
+    res.status(500).json({ error: 'failed to fetch keepers' });
+  }
+});
+
+// GET /api/draft/league/:id/keeper-candidates — commissioner-only roster
+// players grouped client-side by team for keeper assignment. A team with no
+// roster deliberately returns no candidates: keeper validation permits a
+// player search in that pre-season case.
+router.get('/league/:id/keeper-candidates', async (req, res) => {
+  const leagueId = intOrNull(req.params.id);
+  if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
+  try {
+    const owner = await pool.query(
+      `SELECT "id" FROM "leagues" WHERE "id" = $1 AND "owner_id" = $2`,
+      [leagueId, req.user.id]
+    );
+    if (!owner.rows[0]) return res.status(403).json({ error: 'league not found or you are not the owner' });
+    const result = await pool.query(
+      `SELECT "team_players"."team_id", "players"."id", "players"."name", "players"."position", "players"."nfl_team"
+       FROM "team_players" JOIN "players" ON "players"."id" = "team_players"."player_id"
+       WHERE "team_players"."league_id" = $1
+       ORDER BY "team_players"."team_id", "players"."position", "players"."name"`,
+      [leagueId]
+    );
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching keeper candidates', error);
+    res.status(500).json({ error: 'failed to fetch keeper candidates' });
+  }
+});
+
+// PUT /api/draft/league/:id/keepers — commissioner replace-all
+// { keepers: [{ teamId, playerId, round }] }
+router.put('/league/:id/keepers', async (req, res) => {
+  const leagueId = intOrNull(req.params.id);
+  if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
+  const { keepers } = req.body || {};
+  if (!Array.isArray(keepers)) {
+    return res.status(400).json({ error: 'keepers must be an array' });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const leagueResult = await client.query(
+      `SELECT "owner_id", "draft_status", "roster_limit", "keeper_count", "keeper_lock_at", "draft_date"
+       FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
+      [leagueId]
+    );
+    const league = leagueResult.rows[0];
+    if (!league || league.owner_id !== req.user.id) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'league not found or you are not the owner' });
+    }
+    if (league.draft_status !== 'pending') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'keepers can only be edited before the draft starts' });
+    }
+    const lockAt = league.keeper_lock_at || league.draft_date;
+    if (lockAt && new Date(lockAt).getTime() <= Date.now()) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'the keeper deadline has passed' });
+    }
+    const teamsResult = await client.query(`SELECT "id" FROM "teams" WHERE "league_id" = $1`, [leagueId]);
+    const rosterResult = await client.query(
+      `SELECT "team_id", "player_id" FROM "team_players" WHERE "league_id" = $1`,
+      [leagueId]
+    );
+    const rosterByTeam = new Map();
+    for (const row of rosterResult.rows) {
+      if (!rosterByTeam.has(row.team_id)) rosterByTeam.set(row.team_id, new Set());
+      rosterByTeam.get(row.team_id).add(row.player_id);
+    }
+    const normalized = keepers.map((k) => ({ teamId: k.teamId, playerId: k.playerId, round: k.round }));
+    const errors = validateKeepers(normalized, {
+      teams: teamsResult.rows,
+      rosterByTeam,
+      keeperCount: league.keeper_count,
+      rosterLimit: league.roster_limit,
+    });
+    if (errors.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: errors.join('; ') });
+    }
+    await client.query(`DELETE FROM "keepers" WHERE "league_id" = $1`, [leagueId]);
+    for (const k of normalized) {
+      await client.query(
+        `INSERT INTO "keepers" ("league_id", "team_id", "player_id", "draft_round")
+         VALUES ($1, $2, $3, $4)`,
+        [leagueId, k.teamId, k.playerId, k.round]
+      );
+    }
+    await client.query('COMMIT');
+    res.json({ leagueId, keepers: normalized.length });
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    if (error.code === '23503') {
+      return res.status(400).json({ error: 'unknown team or player in keepers list' });
+    }
+    console.error('Error saving keepers', error);
+    res.status(500).json({ error: 'failed to save keepers' });
+  } finally {
+    client.release();
+  }
+});
+
+// POST /api/draft/league/:id/offline-picks — commissioner bulk-enters picks
+// for an active offline draft. Stops at the first rejected pick so the
+// commissioner can see exactly where it went wrong. { playerIds: [...] }
+router.post('/league/:id/offline-picks', async (req, res) => {
+  const leagueId = intOrNull(req.params.id);
+  if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
+  const { playerIds } = req.body || {};
+  if (!Array.isArray(playerIds) || playerIds.length === 0 || playerIds.some((id) => !Number.isInteger(id))) {
+    return res.status(400).json({ error: 'playerIds must be a non-empty array of integers' });
+  }
+  try {
+    const leagueResult = await pool.query(
+      `SELECT "owner_id", "draft_status", "draft_type" FROM "leagues" WHERE "id" = $1`,
+      [leagueId]
+    );
+    const league = leagueResult.rows[0];
+    if (!league || league.owner_id !== req.user.id) {
+      return res.status(403).json({ error: 'league not found or you are not the owner' });
+    }
+    if (league.draft_type !== 'offline' || league.draft_status !== 'active') {
+      return res.status(409).json({ error: 'offline pick entry requires an active offline draft' });
+    }
+    let applied = 0;
+    let result = { applied };
+    for (let i = 0; i < playerIds.length; i++) {
+      try {
+        await draftPlayer({ leagueId, userId: req.user.id, playerId: playerIds[i], byCommissioner: true });
+        applied++;
+      } catch (error) {
+        const message = error instanceof DraftError || error.statusCode ? error.message : 'pick failed';
+        result = { applied, error: message, failedAtIndex: i };
+        break;
+      }
+    }
+    if (!result.error) result = { applied };
+    const io = getIo();
+    if (io && applied > 0) io.to(`league:${leagueId}`).emit('draft:state', await getDraftState(leagueId));
+    res.json(result);
+  } catch (error) {
+    console.error('Error entering offline picks', error);
+    res.status(500).json({ error: 'failed to enter offline picks' });
+  }
+});
+
+// POST /api/draft/league/:id/share-token — commissioner generates or rotates
+// the presenter-mode link. Rotating invalidates any previously shared link.
+router.post('/league/:id/share-token', async (req, res) => {
+  const leagueId = intOrNull(req.params.id);
+  if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
+  const token = crypto.randomBytes(24).toString('hex');
+  try {
+    const result = await pool.query(
+      `UPDATE "leagues" SET "draft_share_token" = $1, "updated_at" = now()
+       WHERE "id" = $2 AND "owner_id" = $3
+       RETURNING "id"`,
+      [token, leagueId, req.user.id]
+    );
+    if (!result.rows[0]) {
+      return res.status(403).json({ error: 'league not found or you are not the owner' });
+    }
+    res.json({ leagueId, token, url: `/#/present/${token}` });
+  } catch (error) {
+    console.error('Error generating share token', error);
+    res.status(500).json({ error: 'failed to generate a share link' });
+  }
+});
+
+// GET /api/draft/mine — the caller's leagues with a live or scheduled draft
+// (Draft Central overview on the My Leagues page).
+router.get('/mine', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT "id", "name", "draft_status", "draft_date", "draft_type", "roster_limit",
+              (SELECT COUNT(*)::int FROM "draft_picks" WHERE "draft_picks"."league_id" = "leagues"."id") AS "picks_made",
+              (SELECT COUNT(*)::int FROM "teams" WHERE "teams"."league_id" = "leagues"."id") AS "team_count"
+       FROM "leagues"
+       WHERE "owner_id" = $1
+         AND "draft_status" IN ('active', 'pending')
+       ORDER BY ("draft_status" = 'active') DESC, "draft_date" NULLS LAST`,
+      [req.user.id]
+    );
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching draft overview', error);
+    res.status(500).json({ error: 'failed to fetch draft overview' });
   }
 });
 

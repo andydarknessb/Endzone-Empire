@@ -15,7 +15,6 @@ const {
   resolveMinTeams,
   createSizeError,
   editSizeError,
-  meetsMinimum,
 } = require('../services/leagueSize');
 
 const router = express.Router();
@@ -277,6 +276,8 @@ router.put('/:id', async (req, res) => {
     tradeDeadlineWeek, tradeReviewHours, tradeVetoVotes,
     scoringPreset, scoringRules, regularSeasonWeeks, playoffTeams, playoffConsolation,
     pickTimeSeconds, minTeams, maxTeams, draftDate, autodraftDelaySeconds,
+    draftType, draftRotation, draftOrderOverrides, auctionSettings,
+    keepersEnabled, keeperCount, keeperLockAt,
   } = req.body || {};
   // roster_limit is derived (starters + bench + IR) — see below — not settable directly.
   if (rosterLimit !== undefined) {
@@ -409,6 +410,38 @@ router.put('/:id', async (req, res) => {
   if (autodraftDelaySeconds !== undefined && !intInRange(autodraftDelaySeconds, 1, 60)) {
     return res.status(400).json({ error: 'autodraftDelaySeconds must be an integer between 1 and 60' });
   }
+  const VALID_DRAFT_TYPES = ['snake', 'auction', 'autopick', 'offline'];
+  const VALID_DRAFT_ROTATIONS = ['snake', 'linear'];
+  if (draftType !== undefined && !VALID_DRAFT_TYPES.includes(draftType)) {
+    return res.status(400).json({ error: `draftType must be one of ${VALID_DRAFT_TYPES.join(', ')}` });
+  }
+  if (draftRotation !== undefined && !VALID_DRAFT_ROTATIONS.includes(draftRotation)) {
+    return res.status(400).json({ error: `draftRotation must be one of ${VALID_DRAFT_ROTATIONS.join(', ')}` });
+  }
+  if (draftOrderOverrides !== undefined && draftOrderOverrides !== null &&
+      (typeof draftOrderOverrides !== 'object' || Array.isArray(draftOrderOverrides))) {
+    return res.status(400).json({ error: 'draftOrderOverrides must be an object keyed by round number, or null' });
+  }
+  if (keepersEnabled !== undefined && typeof keepersEnabled !== 'boolean') {
+    return res.status(400).json({ error: 'keepersEnabled must be a boolean' });
+  }
+  if (keeperCount !== undefined && (!Number.isInteger(keeperCount) || keeperCount < 0)) {
+    return res.status(400).json({ error: 'keeperCount must be a non-negative integer' });
+  }
+  if (auctionSettings !== undefined && auctionSettings !== null) {
+    const { validateAuctionSettings } = require('../services/draftValidation.service');
+    const auctionError = validateAuctionSettings(auctionSettings);
+    if (auctionError) return res.status(400).json({ error: auctionError });
+  }
+  const keeperLockAtProvided = keeperLockAt !== undefined;
+  let keeperLockAtValue = null;
+  if (keeperLockAtProvided && keeperLockAt !== null) {
+    const parsed = new Date(keeperLockAt);
+    if (Number.isNaN(parsed.getTime())) {
+      return res.status(400).json({ error: 'keeperLockAt must be a valid date or null' });
+    }
+    keeperLockAtValue = parsed.toISOString();
+  }
   // A preset is just a prefilled full rule set; explicit scoringRules win
   const effectiveRules = scoringRules !== undefined
     ? scoringRules
@@ -426,11 +459,17 @@ router.put('/:id', async (req, res) => {
   try {
     // Game-integrity settings freeze once the draft starts; administrative
     // ones (name, waivers, trades) stay editable all season.
+    const draftOrderOverridesProvided = draftOrderOverrides !== undefined;
+    const auctionSettingsProvided = auctionSettings !== undefined;
     const preDraftOnly = {
       rosterSlots, positionCaps, benchSlots, dpEnabled, irSlots,
       scoringRules: effectiveRules, regularSeasonWeeks, playoffTeams,
       playoffConsolation, pickTimeSeconds, minTeams, maxTeams, autodraftDelaySeconds,
       draftDate: draftDateProvided ? draftDate : undefined,
+      draftType, draftRotation, keepersEnabled, keeperCount,
+      draftOrderOverrides: draftOrderOverridesProvided ? draftOrderOverrides : undefined,
+      auctionSettings: auctionSettingsProvided ? auctionSettings : undefined,
+      keeperLockAt: keeperLockAtProvided ? keeperLockAt : undefined,
     };
     const frozenRequested = Object.entries(preDraftOnly)
       .filter(([, v]) => v !== undefined)
@@ -442,7 +481,7 @@ router.put('/:id', async (req, res) => {
     if (frozenRequested.length > 0) {
       const statusResult = await pool.query(
         `SELECT "draft_status", "min_teams", "max_teams", "draft_date",
-                "roster_slots", "bench_slots", "ir_slots",
+                "roster_slots", "bench_slots", "ir_slots", "position_caps", "roster_limit",
                 (SELECT COUNT(*)::int FROM "teams" WHERE "teams"."league_id" = "leagues"."id") AS "team_count"
          FROM "leagues" WHERE "id" = $1 AND "owner_id" = $2`,
         [leagueId, req.user.id]
@@ -471,6 +510,32 @@ router.put('/:id', async (req, res) => {
           teamCount: current.team_count,
         });
         if (sizeError) return res.status(400).json({ error: sizeError });
+      }
+      const effectiveRosterLimit = derivedRosterLimit !== null ? derivedRosterLimit : (current ? current.roster_limit : null);
+      if (current && draftOrderOverridesProvided) {
+        const { validateOrderOverrides } = require('../services/draftOrder.service');
+        const teamsResult = await pool.query(`SELECT "id" FROM "teams" WHERE "league_id" = $1`, [leagueId]);
+        const overridesError = validateOrderOverrides(
+          draftOrderOverrides, teamsResult.rows.map((t) => t.id), effectiveRosterLimit
+        );
+        if (overridesError) return res.status(400).json({ error: overridesError });
+      }
+      if (current && keeperCount !== undefined && keeperCount > effectiveRosterLimit) {
+        return res.status(400).json({ error: `keeperCount cannot exceed the roster limit (${effectiveRosterLimit})` });
+      }
+      // Any change to caps or roster shape must keep every slot fillable —
+      // re-run the same Hall's-condition check the draft settings UI warns with.
+      if (current && (positionCaps !== undefined || rosterCompositionChanged)) {
+        const { positionCapsFeasible } = require('../services/draftValidation.service');
+        const feasibility = positionCapsFeasible({
+          rosterSlots: rosterSlots !== undefined ? rosterSlots : current.roster_slots,
+          benchSlots: benchSlots !== undefined ? benchSlots : current.bench_slots,
+          irSlots: irSlots !== undefined ? irSlots : current.ir_slots,
+          positionCaps: positionCaps !== undefined ? positionCaps : current.position_caps,
+        });
+        if (!feasibility.feasible) {
+          return res.status(400).json({ error: feasibility.errors.join('; ') });
+        }
       }
     }
     const result = await pool.query(
@@ -502,6 +567,13 @@ router.put('/:id', async (req, res) => {
            -- new time gets a fresh set of reminders.
            "draft_reminder_stage" = CASE WHEN $22 THEN 0 ELSE "draft_reminder_stage" END,
            "draft_autostart_failed" = CASE WHEN $22 THEN false ELSE "draft_autostart_failed" END,
+           "draft_type" = COALESCE($27, "draft_type"),
+           "draft_rotation" = COALESCE($28, "draft_rotation"),
+           "keepers_enabled" = COALESCE($29, "keepers_enabled"),
+           "keeper_count" = COALESCE($30, "keeper_count"),
+           "draft_order_overrides" = CASE WHEN $31::boolean THEN $32::jsonb ELSE "draft_order_overrides" END,
+           "auction_settings" = CASE WHEN $33::boolean THEN $34::jsonb ELSE "auction_settings" END,
+           "keeper_lock_at" = CASE WHEN $35::boolean THEN $36::timestamptz ELSE "keeper_lock_at" END,
            "updated_at" = now()
        WHERE "id" = $17 AND "owner_id" = $18
        RETURNING *`,
@@ -532,6 +604,16 @@ router.put('/:id', async (req, res) => {
         autodraftDelaySeconds === undefined ? null : autodraftDelaySeconds,
         benchSlots === undefined ? null : benchSlots,
         dpEnabled === undefined ? null : dpEnabled,
+        draftType === undefined ? null : draftType,
+        draftRotation === undefined ? null : draftRotation,
+        keepersEnabled === undefined ? null : keepersEnabled,
+        keeperCount === undefined ? null : keeperCount,
+        draftOrderOverridesProvided,
+        draftOrderOverridesProvided ? (draftOrderOverrides === null ? null : JSON.stringify(draftOrderOverrides)) : null,
+        auctionSettingsProvided,
+        auctionSettingsProvided ? (auctionSettings === null ? null : JSON.stringify(auctionSettings)) : null,
+        keeperLockAtProvided,
+        keeperLockAtProvided ? keeperLockAtValue : null,
       ]
     );
     if (!result.rows[0]) {
@@ -558,49 +640,21 @@ router.put('/:id', async (req, res) => {
 });
 
 // POST /api/league/:id/start-draft — owner starts the live draft (once the
-// league has reached its minimum team count)
+// league has reached its minimum team count). Also doubles as the Instant
+// Start button on the Draft Settings page — any pre-start confirmation lives
+// client-side.
 router.post('/:id/start-draft', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
-  const client = await pool.connect();
   try {
-    await client.query('BEGIN');
-    // Lock the league row so a concurrent join can't slip the count under the
-    // minimum between the check and the status flip.
-    const leagueResult = await client.query(
-      `SELECT "owner_id", "draft_status", "min_teams",
-              (SELECT COUNT(*)::int FROM "teams" WHERE "teams"."league_id" = "leagues"."id") AS "team_count"
-       FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
-      [leagueId]
-    );
-    const league = leagueResult.rows[0];
-    if (!league || league.owner_id !== req.user.id || league.draft_status !== 'pending') {
-      await client.query('ROLLBACK');
-      return res.status(403).json({ error: 'league not found, not owner, or draft already started' });
-    }
-    if (!meetsMinimum(league.team_count, league.min_teams)) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({
-        error: `need at least ${league.min_teams} teams to start the draft (currently ${league.team_count})`,
-      });
-    }
-    const result = await client.query(
-      `UPDATE "leagues"
-       SET "draft_status" = 'active', "current_pick" = 0, "updated_at" = now(),
-           "pick_deadline_at" = CASE WHEN "pick_time_seconds" > 0
-             THEN now() + make_interval(secs => "pick_time_seconds") ELSE NULL END
-       WHERE "id" = $1
-       RETURNING *`,
-      [leagueId]
-    );
-    await client.query('COMMIT');
+    const { startDraft } = require('../services/draftStart.service');
+    await startDraft({ leagueId, userId: req.user.id });
+    const result = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
     res.json(result.rows[0]);
   } catch (error) {
-    await client.query('ROLLBACK').catch(() => {});
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     console.error('Error starting draft', error);
     res.status(500).json({ error: 'failed to start draft' });
-  } finally {
-    client.release();
   }
 });
 

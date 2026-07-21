@@ -12,6 +12,7 @@ import MoreVertIcon from '@mui/icons-material/MoreVert';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import apiClient from '../../api/apiClient';
 import Countdown from '../Countdown/Countdown';
+import DraftCentralCard from '../DraftCentral/DraftCentralCard';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import './LeagueManagement.css';
 
@@ -211,6 +212,8 @@ function LeagueManagement() {
       <Typography variant="h4" gutterBottom>My Leagues</Typography>
       {error && <Alert severity="error" onClose={() => setError(null)}>{error}</Alert>}
       {notice && <Alert severity="success" onClose={() => setNotice(null)}>{notice}</Alert>}
+
+      <DraftCentralCard />
 
       {leagues.length === 0 ? (
         <Typography color="text.secondary" sx={{ my: 2 }}>

@@ -1,6 +1,8 @@
 const pool = require('../modules/pool');
 const { placeOnWaivers, isOnWaivers } = require('./waiver.service');
 const { logTransaction } = require('./activity.service');
+const { teamForPick, nextOpenPickNumber } = require('./draftOrder.service');
+const { POSITION_GROUPS } = require('./lineup.service');
 
 class DraftError extends Error {
   constructor(statusCode, message) {
@@ -35,16 +37,51 @@ function shouldAutoEnableAutodraft(consecutiveTimeouts) {
 }
 
 /**
- * Draft a player onto the caller's team inside a single database transaction.
- * The league row is locked (SELECT ... FOR UPDATE) so concurrent picks in the
+ * Position caps are keyed at the same granularity as positionCapsFeasible's
+ * POSITION_KEYS: literal offense positions plus the three IDP group keys
+ * (DL/LB/DB) rather than every specific position Tank01 reports. A 'CB' must
+ * therefore be checked (and counted) against the 'DB' cap, not a literal
+ * 'CB' cap that would never be set.
+ */
+function positionCapGroup(position) {
+  return Object.keys(POSITION_GROUPS).find((key) => POSITION_GROUPS[key].includes(position)) || position;
+}
+
+/** Enforce a team's per-position draft cap (if the league sets one for this player's cap group). Throws DraftError(409) when full. */
+async function assertPositionCapNotReached(client, { teamId, positionCaps, position }) {
+  const caps = typeof positionCaps === 'string' ? JSON.parse(positionCaps) : positionCaps || {};
+  const group = positionCapGroup(position);
+  const cap = caps[group];
+  if (!Number.isInteger(cap)) return;
+  const members = POSITION_GROUPS[group] || [position];
+  const countResult = await client.query(
+    `SELECT COUNT(*)::int AS n FROM "team_players"
+     JOIN "players" ON "players"."id" = "team_players"."player_id"
+     WHERE "team_players"."team_id" = $1 AND "players"."position" = ANY($2::text[])`,
+    [teamId, members]
+  );
+  if (countResult.rows[0].n >= cap) {
+    throw new DraftError(409, `position cap reached: max ${cap} ${group}`);
+  }
+}
+
+/**
+ * Draft a player onto a team inside a single database transaction. The
+ * league row is locked (SELECT ... FOR UPDATE) so concurrent picks in the
  * same league serialize; unique constraints on (league_id, player_id) are the
  * backstop against double-drafting.
  *
  * Works in two modes:
- *  - draft_status = 'active': enforces snake-draft turn order and records a pick
+ *  - draft_status = 'active': enforces turn order (per the league's rotation
+ *    and any round overrides) and records a pick
  *  - draft_status = 'complete': free-agent pickup (roster insert only)
+ *
+ * `byCommissioner` is set by the offline-draft bulk-entry endpoint: the
+ * league owner applies the pick to whichever team is on the clock rather
+ * than to their own team, and skips the team-lock check (an offline draft is
+ * entirely commissioner-driven).
  */
-async function draftPlayer({ leagueId, userId, playerId, auto = false }) {
+async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommissioner = false }) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -58,6 +95,9 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false }) {
     if (league.draft_status === 'pending') {
       throw new DraftError(409, 'draft has not started for this league');
     }
+    if (byCommissioner && league.owner_id !== userId) {
+      throw new DraftError(403, 'only the commissioner can enter picks for this draft');
+    }
 
     const teamsResult = await client.query(
       `SELECT "id", "owner_id", "draft_position", "autodraft", "locked" FROM "teams"
@@ -65,18 +105,33 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false }) {
       [leagueId]
     );
     const teams = teamsResult.rows;
-    const myTeam = teams.find((t) => t.owner_id === userId);
-    if (!myTeam) throw new DraftError(403, 'you do not have a team in this league');
-    // A commissioner-locked team can't add players (draft picks flow through
-    // this same function once draft_status === 'active'/'complete'); the
-    // commissioner's own force-add tool bypasses this via a separate path.
-    if (myTeam.locked) throw new DraftError(409, 'your team is locked by the commissioner');
+    const rotationOpts = { rotation: league.draft_rotation, overrides: league.draft_order_overrides };
+
+    let myTeam;
+    if (byCommissioner) {
+      if (league.draft_status !== 'active') {
+        throw new DraftError(409, 'the draft is not active');
+      }
+      myTeam = teamForPick(league.current_pick, teams, rotationOpts);
+      if (!myTeam) throw new DraftError(409, 'no team is currently on the clock');
+    } else {
+      myTeam = teams.find((t) => t.owner_id === userId);
+      if (!myTeam) throw new DraftError(403, 'you do not have a team in this league');
+      // A commissioner-locked team can't add players (draft picks flow through
+      // this same function once draft_status === 'active'/'complete'); the
+      // commissioner's own force-add tool bypasses this via a separate path.
+      if (myTeam.locked) throw new DraftError(409, 'your team is locked by the commissioner');
+      if (league.draft_status === 'active' && league.draft_type === 'offline') {
+        throw new DraftError(409, 'this is an offline draft — the commissioner enters every pick');
+      }
+    }
 
     const playerResult = await client.query(
       `SELECT "id", "name", "position" FROM "players" WHERE "id" = $1`,
       [playerId]
     );
     if (!playerResult.rows[0]) throw new DraftError(404, 'player not found');
+    const position = playerResult.rows[0].position;
 
     const rosterCountResult = await client.query(
       `SELECT COUNT(*)::int AS n FROM "team_players" WHERE "team_id" = $1`,
@@ -86,23 +141,7 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false }) {
       throw new DraftError(409, `roster limit of ${league.roster_limit} reached`);
     }
 
-    // Per-position roster caps (league.position_caps jsonb, e.g. {"RB":4})
-    const caps = typeof league.position_caps === 'string'
-      ? JSON.parse(league.position_caps)
-      : league.position_caps || {};
-    const position = playerResult.rows[0].position;
-    const cap = caps[position];
-    if (Number.isInteger(cap)) {
-      const positionCountResult = await client.query(
-        `SELECT COUNT(*)::int AS n FROM "team_players"
-         JOIN "players" ON "players"."id" = "team_players"."player_id"
-         WHERE "team_players"."team_id" = $1 AND "players"."position" = $2`,
-        [myTeam.id, position]
-      );
-      if (positionCountResult.rows[0].n >= cap) {
-        throw new DraftError(409, `position cap reached: max ${cap} ${position}`);
-      }
-    }
+    await assertPositionCapNotReached(client, { teamId: myTeam.id, positionCaps: league.position_caps, position });
 
     // Post-draft pickups are free agency: players still on waivers must be
     // claimed through the waiver process instead.
@@ -120,8 +159,8 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false }) {
       if (league.draft_paused) {
         throw new DraftError(409, 'the draft is paused by the commissioner');
       }
-      const onTheClock = teams[teamIndexForPick(league.current_pick, teams.length)];
-      if (onTheClock.id !== myTeam.id) {
+      const onTheClock = teamForPick(league.current_pick, teams, rotationOpts);
+      if (!onTheClock || onTheClock.id !== myTeam.id) {
         throw new DraftError(409, 'it is not your turn to pick');
       }
       pickNumber = league.current_pick + 1;
@@ -132,11 +171,31 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false }) {
       );
 
       const totalPicks = teams.length * league.roster_limit;
-      draftComplete = pickNumber >= totalPicks;
-      const nextTeam = draftComplete ? null : teams[teamIndexForPick(pickNumber, teams.length)];
+      // Keeper picks are pre-inserted at draft start and can occupy any slot,
+      // so completion is a count of all picks made, not a comparison against
+      // this pick's own (possibly non-terminal) pick_number.
+      const pickCountResult = await client.query(
+        `SELECT COUNT(*)::int AS n FROM "draft_picks" WHERE "league_id" = $1`,
+        [leagueId]
+      );
+      draftComplete = pickCountResult.rows[0].n >= totalPicks;
+
+      let nextTeam = null;
+      let nextPickIndex = null;
+      if (!draftComplete) {
+        const takenResult = await client.query(
+          `SELECT "pick_number" FROM "draft_picks" WHERE "league_id" = $1`,
+          [leagueId]
+        );
+        const takenSet = new Set(takenResult.rows.map((r) => r.pick_number - 1));
+        nextPickIndex = nextOpenPickNumber(takenSet, league.current_pick + 1, totalPicks);
+        nextTeam = nextPickIndex === null ? null : teamForPick(nextPickIndex, teams, rotationOpts);
+      }
       // The next team's clock: short autodraft delay if it autodrafts, else the
-      // league pick clock (null = untimed / draft over).
-      const clockSeconds = nextPickClockSeconds({
+      // league pick clock (null = untimed / draft over). Offline drafts never
+      // arm a deadline regardless of a team's autodraft flag or the league's
+      // configured pick clock — picks only ever land via commissioner entry.
+      const clockSeconds = league.draft_type === 'offline' ? null : nextPickClockSeconds({
         draftComplete,
         nextTeamAutodraft: nextTeam ? nextTeam.autodraft : false,
         pickTimeSeconds: league.pick_time_seconds,
@@ -151,7 +210,7 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false }) {
              END
          WHERE "id" = $3
          RETURNING "pick_deadline_at"`,
-        [pickNumber, draftComplete ? 'complete' : 'active', leagueId, clockSeconds]
+        [draftComplete ? pickNumber : nextPickIndex, draftComplete ? 'complete' : 'active', leagueId, clockSeconds]
       );
       pickDeadlineAt = leagueUpdate.rows[0].pick_deadline_at;
       // A present owner making their own pick clears any timeout streak.
@@ -314,21 +373,11 @@ async function undoDrop({ leagueId, userId, playerId }) {
     );
     if (!playerResult.rows[0]) throw new DraftError(404, 'player not found');
 
-    const caps = typeof league.position_caps === 'string'
-      ? JSON.parse(league.position_caps)
-      : league.position_caps || {};
-    const cap = caps[playerResult.rows[0].position];
-    if (Number.isInteger(cap)) {
-      const positionCountResult = await client.query(
-        `SELECT COUNT(*)::int AS n FROM "team_players"
-         JOIN "players" ON "players"."id" = "team_players"."player_id"
-         WHERE "team_players"."team_id" = $1 AND "players"."position" = $2`,
-        [team.id, playerResult.rows[0].position]
-      );
-      if (positionCountResult.rows[0].n >= cap) {
-        throw new DraftError(409, `position cap reached: max ${cap} ${playerResult.rows[0].position}`);
-      }
-    }
+    await assertPositionCapNotReached(client, {
+      teamId: team.id,
+      positionCaps: league.position_caps,
+      position: playerResult.rows[0].position,
+    });
 
     await client.query(
       `DELETE FROM "waiver_players" WHERE "league_id" = $1 AND "player_id" = $2`,

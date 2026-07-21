@@ -97,7 +97,7 @@ test('creating a league posts the form data and shows the returned invite code',
     })
   );
   expect(await screen.findByText(/Invite code: abc123/)).toBeInTheDocument();
-  expect(apiClient.get).toHaveBeenCalledTimes(2); // initial fetch + refetch after create
+  expect(apiClient.get).toHaveBeenCalledTimes(3); // Draft Central + initial fetch + refetch after create
 });
 
 test('creating a league surfaces the server error on failure', async () => {
@@ -216,7 +216,7 @@ test('deleting a league calls the delete endpoint and refetches', async () => {
   await userEvent.click(screen.getByRole('button', { name: 'Delete League' }));
 
   await waitFor(() => expect(apiClient.delete).toHaveBeenCalledWith('/api/league/7'));
-  expect(apiClient.get).toHaveBeenCalledTimes(2);
+  expect(apiClient.get).toHaveBeenCalledTimes(3);
 });
 
 test('canceling the delete confirmation dialog leaves the league intact', async () => {

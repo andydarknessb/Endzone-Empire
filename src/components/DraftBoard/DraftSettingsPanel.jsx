@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { Dialog, DialogTitle, DialogContent, DialogActions, Stack, TextField, Button } from '@mui/material';
 
 /** Commissioner-only pre-draft settings (pick clock + autodraft delay), in a
@@ -12,6 +13,8 @@ function DraftSettingsPanel({
   onAutodraftDelaySecondsChange,
   onSubmit,
   saving,
+  leagueId,
+  draftStatus,
 }) {
   return (
     <Dialog
@@ -43,10 +46,12 @@ function DraftSettingsPanel({
             inputProps={{ min: 1, max: 60 }}
             value={autodraftDelaySeconds}
             onChange={(e) => onAutodraftDelaySecondsChange(e.target.value)}
+            disabled={draftStatus === 'active'}
           />
         </Stack>
       </DialogContent>
       <DialogActions>
+        <Button component={Link} to={`/league/${leagueId}/draft-settings`} onClick={onClose}>All draft settings →</Button>
         <Button onClick={onClose}>Cancel</Button>
         <Button type="submit" variant="contained" disabled={saving}>
           Save

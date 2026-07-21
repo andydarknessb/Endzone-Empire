@@ -251,9 +251,17 @@ class FakeDraftDatabase {
     if (sql.includes('SELECT COUNT(*)::int AS n FROM "team_players"') && sql.includes('JOIN "players"')) {
       const [teamId, position] = values;
       const n = state.teamPlayers.filter((entry) =>
-        entry.teamId === teamId && state.players.get(entry.playerId)?.position === position
+        entry.teamId === teamId && (Array.isArray(position)
+          ? position.includes(state.players.get(entry.playerId)?.position)
+          : state.players.get(entry.playerId)?.position === position)
       ).length;
       return { rows: [{ n }] };
+    }
+    if (sql.includes('SELECT COUNT(*)::int AS n FROM "draft_picks"')) {
+      return { rows: [{ n: state.draftPicks.length }] };
+    }
+    if (sql.includes('SELECT "pick_number" FROM "draft_picks"')) {
+      return { rows: state.draftPicks.map((pick) => ({ pick_number: pick.pickNumber })) };
     }
     if (sql.includes('INSERT INTO "draft_picks"')) {
       const [leagueId, teamId, playerId, pickNumber] = values;

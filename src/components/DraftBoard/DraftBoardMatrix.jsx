@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState, useEffect } from 'react';
-import { Paper, Box, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from '@mui/material';
+import { Paper, Box, Chip, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from '@mui/material';
 import { keyframes } from '@mui/material/styles';
 import PositionChip from '../PlayerQuickView/PositionChip';
 
@@ -64,7 +64,7 @@ function useFlashKey(value) {
  * client-side re-derivation of snake order is needed to place a landed pick,
  * only to know the round a pick_number falls in (ceil(pick_number / teamCount)).
  */
-function DraftBoardMatrix({ teams, picks, onTheClock, rosterLimit, onOpenQuickView }) {
+function DraftBoardMatrix({ teams, picks, onTheClock, rosterLimit, onOpenQuickView, readOnly = false }) {
   const orderedTeams = useMemo(
     () => [...teams].sort((a, b) => (a.draft_position ?? Infinity) - (b.draft_position ?? Infinity)),
     [teams]
@@ -159,38 +159,49 @@ function DraftBoardMatrix({ teams, picks, onTheClock, rosterLimit, onOpenQuickVi
                   const isFlashing = flashKey > 0 && cellKey === flashCellKey;
 
                   if (pick) {
+                    const pickContent = (
+                      <>
+                        <Typography variant="body2" noWrap title={pick.name} sx={{ maxWidth: '100%' }}>
+                          {pick.name}
+                        </Typography>
+                        {pick.is_keeper && <Chip label="Keeper" size="small" color="secondary" />}
+                        <PositionChip position={pick.position} size="small" />
+                      </>
+                    );
+
                     return (
                       <TableCell key={team.id} sx={{ minWidth: TEAM_COL_MIN_WIDTH, p: 0.5 }}>
-                        <Box
-                          component="button"
-                          type="button"
-                          onClick={() => onOpenQuickView(pick.player_id)}
-                          aria-label={`Round ${round} pick ${pick.pick_number}, ${team.name}: ${pick.name}`}
-                          sx={{
-                            width: '100%',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'flex-start',
-                            gap: 0.5,
-                            textAlign: 'left',
-                            border: 'none',
-                            bgcolor: 'transparent',
-                            borderRadius: 1,
-                            p: 0.75,
-                            cursor: 'pointer',
-                            font: 'inherit',
-                            color: 'inherit',
-                            '&:hover': { bgcolor: 'action.hover' },
-                            '&:focus-visible': { outline: '2px solid var(--focus-ring)', outlineOffset: -2 },
-                            animation: isFlashing ? `${pickLandedFlash} 1.2s ease-out` : 'none',
-                            '@media (prefers-reduced-motion: reduce)': { animation: 'none' },
-                          }}
-                        >
-                          <Typography variant="body2" noWrap title={pick.name} sx={{ maxWidth: '100%' }}>
-                            {pick.name}
-                          </Typography>
-                          <PositionChip position={pick.position} size="small" />
-                        </Box>
+                        {readOnly ? (
+                          <Box
+                            aria-label={`Round ${round} pick ${pick.pick_number}, ${team.name}: ${pick.name}`}
+                            sx={{
+                              width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
+                              gap: 0.5, textAlign: 'left', borderRadius: 1, p: 0.75,
+                              animation: isFlashing ? `${pickLandedFlash} 1.2s ease-out` : 'none',
+                              '@media (prefers-reduced-motion: reduce)': { animation: 'none' },
+                            }}
+                          >
+                            {pickContent}
+                          </Box>
+                        ) : (
+                          <Box
+                            component="button"
+                            type="button"
+                            onClick={() => onOpenQuickView(pick.player_id)}
+                            aria-label={`Round ${round} pick ${pick.pick_number}, ${team.name}: ${pick.name}`}
+                            sx={{
+                              width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
+                              gap: 0.5, textAlign: 'left', border: 'none', bgcolor: 'transparent', borderRadius: 1,
+                              p: 0.75, cursor: 'pointer', font: 'inherit', color: 'inherit',
+                              '&:hover': { bgcolor: 'action.hover' },
+                              '&:focus-visible': { outline: '2px solid var(--focus-ring)', outlineOffset: -2 },
+                              animation: isFlashing ? `${pickLandedFlash} 1.2s ease-out` : 'none',
+                              '@media (prefers-reduced-motion: reduce)': { animation: 'none' },
+                            }}
+                          >
+                            {pickContent}
+                          </Box>
+                        )}
                       </TableCell>
                     );
                   }

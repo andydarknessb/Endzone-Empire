@@ -20,6 +20,7 @@ import LiveDraftBanner from './LiveDraftBanner';
 import PlayerPoolTable from './PlayerPoolTable';
 import DraftRail from './DraftRail';
 import DraftBoardMatrix from './DraftBoardMatrix';
+import DraftDayControls from './DraftDayControls';
 
 /** Plays a short (~200ms) beep via WebAudio so no audio asset is needed. */
 function playBeep() {
@@ -213,7 +214,7 @@ function DraftBoard() {
       <Box sx={{ mb: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
           <Typography variant="h4">{league?.name || 'Draft Board'}</Typography>
-          {isCommissioner && league?.draft_status === 'pending' && (
+          {isCommissioner && (league?.draft_status === 'pending' || league?.draft_status === 'active') && (
             <Tooltip title="Draft settings">
               <IconButton aria-label="Draft settings" onClick={() => setSettingsOpen(true)}>
                 <SettingsIcon />
@@ -234,6 +235,15 @@ function DraftBoard() {
           onClockAlertOpen={onClockAlertOpen}
           onCloseOnClockAlert={dismissOnClockAlert}
         />
+        {isCommissioner && league?.draft_status === 'active' && (
+          <DraftDayControls
+            league={league}
+            picks={picks}
+            onUndo={admin.handleUndoPick}
+            onReset={admin.handleResetDraft}
+            onGetShareLink={admin.handleGetShareLink}
+          />
+        )}
         {league?.draft_status === 'pending' && league?.draft_date && (
           <Box sx={{ mt: 2 }}>
             <Countdown variant="full" date={league.draft_date} />
@@ -252,6 +262,8 @@ function DraftBoard() {
               setSettingsOpen(false);
             }}
             saving={admin.settingsSaving}
+            leagueId={leagueId}
+            draftStatus={league?.draft_status}
           />
         )}
       </Box>
@@ -323,6 +335,7 @@ function DraftBoard() {
               userId={user?.id}
               draftStatus={league?.draft_status}
               onToggleAutodraft={admin.handleToggleAutodraft}
+              onToggleReady={admin.handleToggleReady}
               picks={picks}
               isXs={isXs}
               onOpenQuickView={setQuickViewId}

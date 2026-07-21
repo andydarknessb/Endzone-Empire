@@ -15,7 +15,7 @@ export default function useDraftAdmin(leagueId, league, { onError } = {}) {
   // Pre-fills the form from the league once it's known, without clobbering
   // in-progress edits on later draft:state pushes.
   useEffect(() => {
-    if (league?.draft_status === 'pending' && !settingsSaving) {
+    if ((league?.draft_status === 'pending' || league?.draft_status === 'active') && !settingsSaving) {
       setPickTimeSeconds((prev) => (prev === '' ? String(league.pick_time_seconds ?? '') : prev));
       setAutodraftDelaySeconds((prev) => (prev === '' ? String(league.autodraft_delay_seconds ?? '') : prev));
     }
@@ -51,17 +51,102 @@ export default function useDraftAdmin(leagueId, league, { onError } = {}) {
     }
   };
 
+  const handleSetClock = async (pickTimeSeconds) => {
+    try {
+      onError?.(null);
+      await apiClient.post(`/api/draft/league/${leagueId}/clock`, { pickTimeSeconds });
+      clearLeagueCache(leagueId);
+      notify('Clock updated for the next pick');
+      return true;
+    } catch (err) {
+      const message = err.response?.data?.error || err.message;
+      onError?.(message);
+      notify(message, { severity: 'error' });
+      return false;
+    }
+  };
+
+  const handleUndoPick = async () => {
+    try {
+      onError?.(null);
+      await apiClient.post(`/api/draft/league/${leagueId}/undo`, { count: 1 });
+      clearLeagueCache(leagueId);
+      notify('Last pick undone');
+      return true;
+    } catch (err) {
+      const message = err.response?.data?.error || err.message;
+      onError?.(message);
+      notify(message, { severity: 'error' });
+      return false;
+    }
+  };
+
+  const handleResetDraft = async () => {
+    try {
+      onError?.(null);
+      await apiClient.post(`/api/draft/league/${leagueId}/reset`, {});
+      clearLeagueCache(leagueId);
+      notify('Draft reset; schedule cleared');
+      return true;
+    } catch (err) {
+      const message = err.response?.data?.error || err.message;
+      onError?.(message);
+      notify(message, { severity: 'error' });
+      return false;
+    }
+  };
+
+  const handleToggleReady = async (ready) => {
+    try {
+      onError?.(null);
+      await apiClient.post(`/api/draft/league/${leagueId}/ready`, { ready });
+      notify(ready ? 'You are marked ready' : 'You are marked not ready');
+      return true;
+    } catch (err) {
+      const message = err.response?.data?.error || err.message;
+      onError?.(message);
+      notify(message, { severity: 'error' });
+      return false;
+    }
+  };
+
+  const handleGetShareLink = async () => {
+    try {
+      onError?.(null);
+      const response = await apiClient.post(`/api/draft/league/${leagueId}/share-token`, {});
+      const url = response.data?.url || null;
+      if (!url) throw new Error('presenter link was not returned');
+      try {
+        await navigator.clipboard.writeText(url);
+        notify('Presenter link copied');
+      } catch (clipboardError) {
+        notify('Presenter link ready');
+      }
+      return url;
+    } catch (err) {
+      const message = err.response?.data?.error || err.message;
+      onError?.(message);
+      notify(message, { severity: 'error' });
+      return null;
+    }
+  };
+
   const handleSaveDraftSettings = async (e) => {
     e.preventDefault();
     try {
       onError?.(null);
       setSettingsSaving(true);
-      await apiClient.put(`/api/league/${leagueId}`, {
-        pickTimeSeconds: Number(pickTimeSeconds),
-        autodraftDelaySeconds: Number(autodraftDelaySeconds),
-      });
+      if (league?.draft_status === 'active') {
+        await apiClient.post(`/api/draft/league/${leagueId}/clock`, { pickTimeSeconds: Number(pickTimeSeconds) });
+        notify('Clock updated for the next pick');
+      } else {
+        await apiClient.put(`/api/league/${leagueId}`, {
+          pickTimeSeconds: Number(pickTimeSeconds),
+          autodraftDelaySeconds: Number(autodraftDelaySeconds),
+        });
+        notify('Draft settings saved');
+      }
       clearLeagueCache(leagueId);
-      notify('Draft settings saved');
     } catch (err) {
       const message = err.response?.data?.error || err.message;
       onError?.(message);
@@ -80,6 +165,11 @@ export default function useDraftAdmin(leagueId, league, { onError } = {}) {
     handleRandomizeOrder,
     handleTogglePause,
     handleToggleAutodraft,
+    handleSetClock,
+    handleUndoPick,
+    handleResetDraft,
+    handleToggleReady,
+    handleGetShareLink,
     handleSaveDraftSettings,
   };
 }

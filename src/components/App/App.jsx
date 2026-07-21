@@ -4,6 +4,7 @@ import {
   Navigate,
   Route,
   Routes,
+  useLocation,
 } from 'react-router-dom';
 
 import { useDispatch, useSelector } from 'react-redux';
@@ -30,6 +31,8 @@ import MatchupScreen from '../MatchupScreen/MatchupScreen';
 import MatchupDetail from '../MatchupDetail/MatchupDetail';
 import GameCenter from '../GameCenter/GameCenter';
 import DraftBoard from '../DraftBoard/DraftBoard';
+import DraftSettings from '../DraftSettings/DraftSettings';
+import DraftPresenter from '../DraftPresenter/DraftPresenter';
 import LineupScreen from '../LineupScreen/LineupScreen';
 import WaiverWire from '../WaiverWire/WaiverWire';
 import TradeCenter from '../TradeCenter/TradeCenter';
@@ -50,6 +53,21 @@ import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 
 import './App.css';
 
+function AppLayout({ children }) {
+  const { pathname } = useLocation();
+  const isPresenter = pathname.startsWith('/present/');
+
+  return (
+    <Box sx={isPresenter ? { minHeight: '100vh' } : { display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+      {!isPresenter && <Nav />}
+      <Box sx={isPresenter ? undefined : { flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+        {children}
+      </Box>
+      {!isPresenter && <Footer />}
+    </Box>
+  );
+}
+
 function App() {
   const dispatch = useDispatch();
 
@@ -64,13 +82,9 @@ function App() {
     <SnackbarProvider>
     <OfflineBanner />
     <Router>
-      {/* Flex column shell, pinned to the viewport height, so pages shorter
-          than the viewport still push the footer to the bottom instead of
-          leaving a gap beneath it. Taller pages scroll normally. */}
-      <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-        <Nav />
-        <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+      <AppLayout>
         <Routes>
+          <Route path="/present/:token" element={<DraftPresenter />} />
           <Route path="/league" element={<ProtectedRoute><LeagueManagement /></ProtectedRoute>} />
           <Route path="/league/join" element={<ProtectedRoute><LeagueManagement /></ProtectedRoute>} />
           <Route path="/discover" element={<ProtectedRoute><LeagueDiscovery /></ProtectedRoute>} />
@@ -81,6 +95,7 @@ function App() {
           <Route path="/league/:leagueId/matchups/:matchupId" element={<ProtectedRoute><MatchupDetail /></ProtectedRoute>} />
           <Route path="/league/:leagueId/game-center" element={<ProtectedRoute><GameCenter /></ProtectedRoute>} />
           <Route path="/league/:leagueId/draft" element={<ProtectedRoute><DraftBoard /></ProtectedRoute>} />
+          <Route path="/league/:leagueId/draft-settings" element={<ProtectedRoute><DraftSettings /></ProtectedRoute>} />
           <Route path="/league/:leagueId/lineup" element={<ProtectedRoute><LineupScreen /></ProtectedRoute>} />
           <Route path="/league/:leagueId/waivers" element={<ProtectedRoute><WaiverWire /></ProtectedRoute>} />
           <Route path="/league/:leagueId/trades" element={<ProtectedRoute><TradeCenter /></ProtectedRoute>} />
@@ -161,9 +176,7 @@ function App() {
           {/* If none of the other routes matched, we will show a 404. */}
           <Route path="*" element={<NotFound />} />
         </Routes>
-        </Box>
-        <Footer />
-      </Box>
+      </AppLayout>
     </Router>
     </SnackbarProvider>
     </AppThemeProvider>

@@ -35,6 +35,7 @@ import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
 import LocalFireDepartmentIcon from '@mui/icons-material/LocalFireDepartment';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
 import CloseIcon from '@mui/icons-material/Close';
+import SettingsIcon from '@mui/icons-material/Settings';
 import apiClient from '../../api/apiClient';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import ChatPanel from '../ChatPanel/ChatPanel';
@@ -80,6 +81,7 @@ const NAV_GROUPS = [
       { label: 'Activity', slug: 'activity', icon: TimelineIcon },
       { label: 'Power Rankings', slug: 'power-rankings', icon: TrendingUpIcon },
       { label: 'History', slug: 'history', icon: EmojiEventsIcon },
+      { label: 'Draft Settings', slug: 'draft-settings', icon: SettingsIcon, ownerOnly: true },
     ],
   },
 ];
@@ -213,6 +215,7 @@ function LeagueDashboard() {
   // Below the configured minimum, the draft can't start yet (min_teams may be
   // absent in older data — treat that as no gate).
   const belowMin = league.min_teams != null && teams.length < league.min_teams;
+  const auctionUnsupported = league.draft_type === 'auction';
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
@@ -353,6 +356,8 @@ function LeagueDashboard() {
                 title={
                   belowMin
                     ? `Need at least ${league.min_teams} teams to start the draft (currently ${teams.length})`
+                    : auctionUnsupported
+                    ? 'Salary-cap auctions are not supported yet'
                     : ''
                 }
               >
@@ -361,7 +366,7 @@ function LeagueDashboard() {
                     variant="contained"
                     color="primary"
                     onClick={handleStartDraft}
-                    disabled={belowMin}
+                    disabled={belowMin || auctionUnsupported}
                   >
                     Start Draft
                   </Button>
@@ -370,6 +375,11 @@ function LeagueDashboard() {
               {belowMin && (
                 <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'text.secondary' }}>
                   Requires a minimum of {league.min_teams} teams to start the draft.
+                </Typography>
+              )}
+              {auctionUnsupported && !belowMin && (
+                <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'text.secondary' }}>
+                  Live salary-cap auctions are not supported yet.
                 </Typography>
               )}
             </Box>
@@ -397,7 +407,7 @@ function LeagueDashboard() {
               {group.label}
             </Typography>
             <Grid container spacing={1.5}>
-              {group.links.map((l) => {
+              {group.links.filter((l) => !l.ownerOnly || isOwner).map((l) => {
                 const Icon = l.icon;
                 const primary = group.weight === 'primary';
                 return (

@@ -34,10 +34,13 @@ function DraftRail({
   userId,
   draftStatus,
   onToggleAutodraft,
+  onToggleReady,
   picks,
   isXs,
   onOpenQuickView,
 }) {
+  const myTeam = teams.find((team) => team.owner_id === userId);
+  const readyCount = teams.filter((team) => team.draft_ready).length;
   const pickHistoryBody = (
     <Box sx={{ maxHeight: '600px', overflowY: 'auto' }}>
       {picks.length === 0 ? (
@@ -137,6 +140,21 @@ function DraftRail({
           })
         )}
       </Paper>
+
+      {draftStatus === 'pending' && myTeam && (
+        <Paper sx={{ p: 2, mb: 3 }}>
+          <FormControlLabel
+            control={<Switch checked={!!myTeam.draft_ready} onChange={(event) => onToggleReady(event.target.checked)} inputProps={{ 'aria-label': 'I am ready for the draft' }} />}
+            label="I&apos;m ready"
+          />
+          <Typography role="status" aria-live="polite" variant="caption" sx={{ display: 'block', color: 'text.secondary', mb: 1 }}>
+            {readyCount} of {teams.length} managers ready
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+            {teams.map((team) => <Chip key={team.id} size="small" color={team.draft_ready ? 'success' : 'default'} label={`${team.name}: ${team.draft_ready ? 'Ready' : 'Not ready'}`} />)}
+          </Box>
+        </Paper>
+      )}
 
       {teams.length > 0 && (
         <Paper sx={{ p: 2, mb: 3 }}>

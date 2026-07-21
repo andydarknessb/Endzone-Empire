@@ -2,7 +2,8 @@ const { Server } = require('socket.io');
 const pool = require('./pool');
 const { setIo } = require('./io');
 const { requireSocketAuth } = require('./auth');
-const { draftPlayer, teamIndexForPick, DraftError } = require('../services/draft.service');
+const { draftPlayer, DraftError } = require('../services/draft.service');
+const { teamForPick } = require('../services/draftOrder.service');
 
 /**
  * Real-time draft room. Clients connect with { auth: { token } }, then:
@@ -127,18 +128,11 @@ function attachDraftSocket(httpServer) {
         return ack && ack({ error: 'leagueId (integer) required' });
       }
       try {
-        const result = await pool.query(
-          `UPDATE "leagues" SET "draft_status" = 'active', "current_pick" = 0, "updated_at" = now()
-           WHERE "id" = $1 AND "owner_id" = $2 AND "draft_status" = 'pending' RETURNING "id"`,
-          [leagueId, socket.user.id]
-        );
-        if (!result.rows[0]) {
-          return ack && ack({ error: 'not owner or draft already started' });
-        }
-        const state = await getDraftState(leagueId);
-        io.to(`league:${leagueId}`).emit('draft:state', state);
+        const { startDraft } = require('../services/draftStart.service');
+        await startDraft({ leagueId, userId: socket.user.id });
         ack && ack({ ok: true });
       } catch (error) {
+        if (error.statusCode) return ack && ack({ error: error.message });
         console.error('draft:start failed', error);
         ack && ack({ error: 'failed to start draft' });
       }
@@ -157,13 +151,13 @@ async function getDraftState(leagueId) {
 
   const teamsResult = await pool.query(
     `SELECT "teams"."id", "teams"."name", "teams"."draft_position", "teams"."autodraft",
-            "teams"."owner_id", "users"."username" AS "owner"
+            "teams"."draft_ready", "teams"."owner_id", "users"."username" AS "owner"
      FROM "teams" JOIN "users" ON "users"."id" = "teams"."owner_id"
      WHERE "league_id" = $1 ORDER BY "draft_position" NULLS LAST, "teams"."id"`,
     [leagueId]
   );
   const picksResult = await pool.query(
-    `SELECT "draft_picks"."pick_number", "draft_picks"."team_id",
+    `SELECT "draft_picks"."pick_number", "draft_picks"."team_id", "draft_picks"."is_keeper",
             "players"."id" AS "player_id", "players"."name", "players"."position", "players"."nfl_team"
      FROM "draft_picks" JOIN "players" ON "players"."id" = "draft_picks"."player_id"
      WHERE "draft_picks"."league_id" = $1 ORDER BY "pick_number"`,
@@ -171,7 +165,7 @@ async function getDraftState(leagueId) {
   );
   const teams = teamsResult.rows;
   const onTheClock = league.draft_status === 'active' && teams.length > 0
-    ? teams[teamIndexForPick(league.current_pick, teams.length)]
+    ? teamForPick(league.current_pick, teams, { rotation: league.draft_rotation, overrides: league.draft_order_overrides })
     : null;
 
   return { league, teams, picks: picksResult.rows, onTheClock };

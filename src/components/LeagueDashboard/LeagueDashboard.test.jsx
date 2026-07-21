@@ -297,6 +297,19 @@ test('enables "Start Draft" once the minimum team count is met', async () => {
   expect(screen.getByRole('button', { name: 'Start Draft' })).toBeEnabled();
 });
 
+test('disables Start Draft for a salary-cap auction with an explanatory tooltip', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse({ min_teams: 1, draft_type: 'auction' }),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  expect(screen.getByRole('button', { name: 'Start Draft' })).toBeDisabled();
+  expect(screen.getByText('Live salary-cap auctions are not supported yet.')).toBeInTheDocument();
+});
+
 test('does not show "Start Draft" for a non-owner', async () => {
   mockGetByUrl({
     '/api/league/1': leagueResponse({ owner_id: 99 }),
