@@ -1,6 +1,13 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import apiClient from '../../api/apiClient';
 import KeeperPanel from './KeeperPanel';
+
+jest.mock('../../api/apiClient', () => ({
+  __esModule: true,
+  default: { get: jest.fn() },
+}));
 
 function renderPanel(onSaveLeague = jest.fn()) {
   render(
@@ -111,4 +118,123 @@ test('shows a row error when one team exceeds its keeper allowance', () => {
   expect(screen.getByRole('button', { name: 'Save assignments' })).toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: 'Save assignments' }));
   expect(onSaveKeepers).not.toHaveBeenCalled();
+});
+
+function renderWithSearchableRow({ teamCount = 2, keeperCount = 2 } = {}) {
+  const teams = Array.from({ length: teamCount }, (_, i) => ({ id: i + 1, name: `Team ${i + 1}` }));
+  render(
+    <KeeperPanel
+      league={{ keepers_enabled: true, keeper_count: keeperCount, keeper_lock_at: null, roster_limit: 4 }}
+      teams={teams}
+      keepers={[]}
+      keeperCandidates={[]}
+      frozen={false}
+      onSaveLeague={jest.fn()}
+      onSaveKeepers={jest.fn()}
+      saving={false}
+      onSettingsDirtyChange={jest.fn()}
+      onAssignmentsDirtyChange={jest.fn()}
+    />
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Add keeper' }));
+}
+
+describe('keeper player search', () => {
+  beforeEach(() => { jest.useFakeTimers(); });
+  afterEach(() => { jest.useRealTimers(); apiClient.get.mockReset(); });
+
+  test('discards a stale player-search response after a newer search resolves first', async () => {
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+    let resolveFirst;
+    let resolveSecond;
+    apiClient.get.mockImplementation((url, config) => {
+      const query = config.params.search;
+      if (query === 'aar') return new Promise((resolve) => { resolveFirst = resolve; });
+      if (query === 'aaron') return new Promise((resolve) => { resolveSecond = resolve; });
+      return Promise.resolve({ data: [] });
+    });
+    renderWithSearchableRow();
+
+    const input = screen.getByRole('combobox', { name: 'Player' });
+    await user.type(input, 'aar');
+    await act(async () => { jest.advanceTimersByTime(250); });
+
+    await user.clear(input);
+    await user.type(input, 'aaron');
+    await act(async () => { jest.advanceTimersByTime(250); });
+
+    await act(async () => {
+      resolveSecond({ data: { players: [{ id: 2, name: 'Aaron Rodgers' }] } });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(await screen.findByRole('option', { name: 'Aaron Rodgers' })).toBeInTheDocument();
+
+    await act(async () => {
+      resolveFirst({ data: { players: [{ id: 1, name: 'Aaron Stale' }] } });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.queryByRole('option', { name: 'Aaron Stale' })).not.toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Aaron Rodgers' })).toBeInTheDocument();
+  });
+
+  test('shows a distinct error state when the player search request fails', async () => {
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+    apiClient.get.mockRejectedValue(new Error('players service unavailable'));
+    renderWithSearchableRow();
+
+    const input = screen.getByRole('combobox', { name: 'Player' });
+    await user.type(input, 'aaron');
+    await act(async () => { jest.advanceTimersByTime(250); });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByText('Unable to search players right now.', { selector: 'p' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /aaron/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('zero/one-team empty states', () => {
+  test('explains that keeper assignment needs at least 2 teams and disables Add keeper', () => {
+    render(
+      <KeeperPanel
+        league={{ keepers_enabled: true, keeper_count: 2, keeper_lock_at: null, roster_limit: 4 }}
+        teams={[{ id: 1, name: 'Solo Team' }]}
+        keepers={[]}
+        keeperCandidates={[]}
+        frozen={false}
+        onSaveLeague={jest.fn()}
+        onSaveKeepers={jest.fn()}
+        saving={false}
+        onSettingsDirtyChange={jest.fn()}
+        onAssignmentsDirtyChange={jest.fn()}
+      />
+    );
+
+    expect(screen.getByText('Add at least 2 teams to assign keepers.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add keeper' })).toBeDisabled();
+  });
+
+  test('explains that keeper assignment needs at least 2 teams with zero teams', () => {
+    render(
+      <KeeperPanel
+        league={{ keepers_enabled: true, keeper_count: 2, keeper_lock_at: null, roster_limit: 4 }}
+        teams={[]}
+        keepers={[]}
+        keeperCandidates={[]}
+        frozen={false}
+        onSaveLeague={jest.fn()}
+        onSaveKeepers={jest.fn()}
+        saving={false}
+        onSettingsDirtyChange={jest.fn()}
+        onAssignmentsDirtyChange={jest.fn()}
+      />
+    );
+
+    expect(screen.getByText('Add at least 2 teams to assign keepers.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add keeper' })).toBeDisabled();
+  });
 });

@@ -48,6 +48,28 @@ function renderSettings({ withLeaveLink = false } = {}) {
 beforeEach(() => { clearLeagueCache(); });
 afterEach(() => { clearLeagueCache(); jest.clearAllMocks(); });
 
+test('associates each tab with its panel via matching ARIA ids', async () => {
+  mockData();
+  renderSettings();
+  await screen.findByText('Sunday Ballers');
+
+  expect(screen.getByRole('tablist')).toHaveAccessibleName('Draft settings sections');
+
+  const typeTabId = screen.getByRole('tab', { name: 'Draft type' }).id;
+  const typePanelId = screen.getByRole('tabpanel').id;
+  expect(typeTabId).toBeTruthy();
+  expect(typePanelId).toBeTruthy();
+  expect(screen.getByRole('tab', { name: 'Draft type' })).toHaveAttribute('aria-controls', typePanelId);
+  expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', typeTabId);
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Timer' }));
+  const timerTabId = screen.getByRole('tab', { name: 'Timer' }).id;
+  const timerPanelId = screen.getByRole('tabpanel').id;
+  expect(screen.getByRole('tab', { name: 'Timer' })).toHaveAttribute('aria-controls', timerPanelId);
+  expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', timerTabId);
+  expect(timerPanelId).not.toBe(typePanelId);
+});
+
 test('shows auction controls only for salary-cap auction drafts', async () => {
   mockData();
   renderSettings();

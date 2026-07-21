@@ -91,3 +91,42 @@ test.each([
     },
   }, 'Auction settings saved');
 });
+
+test.each([0, 1])('explains custom nomination order needs 2+ teams and disables it with %i team(s)', (teamCount) => {
+  const teams = Array.from({ length: teamCount }, (_, i) => ({ id: i + 1, name: `Team ${i + 1}`, owner: `owner${i + 1}` }));
+  render(
+    <AuctionPanel
+      league={{ auction_settings: { budget: 200, nominationSeconds: 30, bidSeconds: 15, nominationOrder: 'random' } }}
+      teams={teams}
+      frozen={false}
+      onSave={jest.fn()}
+      saving={false}
+      onDirtyChange={jest.fn()}
+    />
+  );
+
+  expect(screen.getByText('Add at least 2 teams to set a custom nomination order.')).toBeInTheDocument();
+  expect(screen.getByRole('radio', { name: 'Custom nomination order' })).toBeDisabled();
+});
+
+test('blocks saving a stale custom nomination order once a league drops below 2 teams', () => {
+  const onSave = jest.fn();
+  render(
+    <AuctionPanel
+      league={{
+        auction_settings: {
+          budget: 200, nominationSeconds: 30, bidSeconds: 15,
+          nominationOrder: 'custom', nominationCustomOrder: [1],
+        },
+      }}
+      teams={[{ id: 1, name: 'Solo Team', owner: 'solo' }]}
+      frozen={false}
+      onSave={onSave}
+      saving={false}
+      onDirtyChange={jest.fn()}
+    />
+  );
+
+  expect(screen.getByText('Add at least 2 teams to set a custom nomination order.')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Save auction settings' })).toBeDisabled();
+});

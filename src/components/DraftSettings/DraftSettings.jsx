@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Navigate, useParams } from 'react-router-dom';
 import { useSelector } from 'react-redux';
-import { Alert, Button, Container, Paper, Skeleton, Tab, Tabs, Typography } from '@mui/material';
+import { Alert, Box, Button, Container, Paper, Skeleton, Tab, Tabs, Typography } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import { clearLeagueCache, useLeague } from '../../hooks/useLeague';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
@@ -19,6 +19,9 @@ const TAB_ITEMS = [
   ['type', 'Draft type'], ['schedule', 'Schedule'], ['timer', 'Timer'], ['order', 'Draft order'],
   ['auction', 'Auction'], ['limits', 'Position limits'], ['keepers', 'Keepers'], ['readiness', 'Readiness'],
 ];
+
+const tabId = (value) => `draft-settings-tab-${value}`;
+const panelId = (value) => `draft-settings-tabpanel-${value}`;
 
 const errorMessage = (error) => error?.response?.data?.error || error?.message || 'Request failed';
 const failure = (notify, error) => notify(errorMessage(error), { severity: 'error' });
@@ -215,5 +218,5 @@ export default function DraftSettings() {
   else if (tab === 'limits') content = <PositionLimitsPanel {...common} />;
   else if (tab === 'keepers') content = teamData(!keeperDataRequested || keeperDataLoading ? <Skeleton variant="rounded" height={260} /> : keeperDataError ? <Alert severity="error" action={<Button color="inherit" size="small" onClick={loadKeeperData}>Retry keeper data</Button>}>Unable to load keeper data: {keeperDataError}</Alert> : <KeeperPanel league={league} teams={teams} keepers={keepers} keeperCandidates={keeperCandidates} frozen={frozen} saving={saving} onSaveLeague={saveKeeperSettings} onSaveKeepers={saveKeepers} onSettingsDirtyChange={setKeeperSettingsDirty} onAssignmentsDirtyChange={setKeeperAssignmentsDirty} />);
   else content = teamData(<ReadinessPanel teams={teams} draftType={league.draft_type} />);
-  return <Container maxWidth="lg" sx={{ py: 4 }}><Typography variant="h4" sx={{ mb: 0.5 }}>Draft Settings</Typography><Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>{league.name}</Typography>{error && <Alert severity="error" sx={{ mb: 2 }} action={<Button color="inherit" size="small" onClick={refetch}>Retry league settings</Button>}>Unable to refresh league settings: {error}</Alert>}{frozen && <Alert severity="info" sx={{ mb: 2 }}>Draft setup is locked after the draft starts. The Timer tab remains available while a draft is active.</Alert>}<Paper sx={{ p: { xs: 1.5, sm: 2.5 } }}><Tabs value={tab} onChange={(event, value) => changeTab(value)} variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile sx={{ borderBottom: '1px solid', borderColor: 'divider', mb: 3 }}>{TAB_ITEMS.map(([value, label]) => <Tab key={value} value={value} label={label} />)}</Tabs>{content}</Paper></Container>;
+  return <Container maxWidth="lg" sx={{ py: 4 }}><Typography variant="h4" sx={{ mb: 0.5 }}>Draft Settings</Typography><Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>{league.name}</Typography>{error && <Alert severity="error" sx={{ mb: 2 }} action={<Button color="inherit" size="small" onClick={refetch}>Retry league settings</Button>}>Unable to refresh league settings: {error}</Alert>}{frozen && <Alert severity="info" sx={{ mb: 2 }}>Draft setup is locked after the draft starts. The Timer tab remains available while a draft is active.</Alert>}<Paper sx={{ p: { xs: 1.5, sm: 2.5 } }}><Tabs aria-label="Draft settings sections" value={tab} onChange={(event, value) => changeTab(value)} variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile sx={{ borderBottom: '1px solid', borderColor: 'divider', mb: 3 }}>{TAB_ITEMS.map(([value, label]) => <Tab key={value} value={value} label={label} id={tabId(value)} aria-controls={panelId(value)} />)}</Tabs><Box role="tabpanel" id={panelId(tab)} aria-labelledby={tabId(tab)}>{content}</Box></Paper></Container>;
 }
