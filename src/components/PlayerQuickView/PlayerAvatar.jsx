@@ -1,17 +1,7 @@
 import React from 'react';
 import { Avatar } from '@mui/material';
 import { positionColorSx } from './PositionChip';
-
-function initialsFor(name) {
-  if (!name) return '?';
-  return name
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((word) => word[0])
-    .join('')
-    .toUpperCase();
-}
+import { initialsFor } from '../../lib/initials';
 
 /**
  * A player's headshot with a position-colored, initials fallback when no

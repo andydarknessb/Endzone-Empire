@@ -13,6 +13,7 @@ import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import PlayerAvatar from '../PlayerQuickView/PlayerAvatar';
 import PositionChip from '../PlayerQuickView/PositionChip';
+import TeamAvatarUploader from '../common/TeamAvatarUploader';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 
 // Injury status -> chip fill. Not backed by real data yet (players has no
@@ -37,17 +38,6 @@ function StatusChip({ status }) {
       sx={{ fontWeight: 700, minWidth: 30, ...(STATUS_STYLE[status] || { bgcolor: 'grey.500', color: 'common.white' }) }}
     />
   );
-}
-
-function initialsFor(name) {
-  if (!name) return 'FF';
-  return name
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((word) => word[0])
-    .join('')
-    .toUpperCase();
 }
 
 function TeamManagement() {
@@ -127,6 +117,12 @@ function TeamManagement() {
   const teamName = activeLeague?.my_team_name || 'My Team';
   const showEmptyState = !loading && roster.length === 0;
 
+  const handleAvatarUpdated = (team) => {
+    setLeagues((prev) => prev.map((league) => (league.id === selectedLeague
+      ? { ...league, my_team_avatar_url: team.avatar_url, my_team_avatar_static_url: team.avatar_static_url }
+      : league)));
+  };
+
   return (
     <div>
       {error && <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>{error}</Alert>}
@@ -139,9 +135,18 @@ function TeamManagement() {
           spacing={2}
         >
           <Stack direction="row" alignItems="center" spacing={2}>
-            <Avatar sx={{ width: 64, height: 64, bgcolor: 'primary.main', fontSize: 22, fontWeight: 700 }}>
-              {initialsFor(teamName)}
-            </Avatar>
+            {activeLeague ? (
+              <TeamAvatarUploader
+                teamId={activeLeague.my_team_id}
+                teamName={teamName}
+                avatarUrl={activeLeague.my_team_avatar_url}
+                avatarStaticUrl={activeLeague.my_team_avatar_static_url}
+                onUpdated={handleAvatarUpdated}
+                size={64}
+              />
+            ) : (
+              <Avatar sx={{ width: 64, height: 64 }} />
+            )}
             <Box>
               <Typography variant="h4" component="h1">{teamName}</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
