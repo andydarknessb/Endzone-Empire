@@ -246,5 +246,5 @@ test('renders Dashboard/Draft Room/Matchups links pointing at the correct league
 
   expect(screen.getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/league/42');
   expect(screen.getByRole('link', { name: 'Draft Room' })).toHaveAttribute('href', '/league/42/draft');
-  expect(screen.getByRole('link', { name: 'Matchups' })).toHaveAttribute('href', '/league/42/matchups');
+  expect(screen.getByRole('link', { name: 'Game Center' })).toHaveAttribute('href', '/league/42/game-center');
 });

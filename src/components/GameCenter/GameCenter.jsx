@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import {
   Container,
@@ -11,7 +11,6 @@ import {
   Alert,
   Box,
   Stack,
-  Avatar,
   Paper,
   LinearProgress,
   Card,
@@ -31,17 +30,9 @@ import { matchupWinProbability } from '../../lib/winProbability';
 import { computeDefaultWeek } from '../../lib/matchupWeek';
 import { playLabel } from '../../lib/scoringEvents';
 import { MatchupStatusChip } from '../MatchupDetail/MatchupExtras';
-import MatchupLiveModal from './MatchupLiveModal';
+import TeamAvatar from '../common/TeamAvatar';
 
 const LIVE_INDICATOR_MS = 10000;
-
-function initialsFor(name) {
-  if (!name) return '?';
-  const parts = name.trim().split(/\s+/);
-  const first = parts[0]?.[0] || '';
-  const last = parts.length > 1 ? parts[parts.length - 1][0] : '';
-  return (first + last).toUpperCase();
-}
 
 /**
  * Dual-sided win probability bar built from two adjoining determinate
@@ -193,14 +184,10 @@ function GameCenter() {
   const [weekFilter, setWeekFilter] = useState(null);
   const [weeks, setWeeks] = useState([]);
   const [showLive, setShowLive] = useState(false);
-  const [selectedMatchupId, setSelectedMatchupId] = useState(null);
-  const [celebrationsEnabled, setCelebrationsEnabled] = useState(true);
-  const [lastScoreEvent, setLastScoreEvent] = useState(null);
   const [ticker, setTicker] = useState([]);
   const socketRef = useRef(null);
   const liveTimeoutRef = useRef(null);
   const weekFilterInitialized = useRef(false);
-  const scoreEventSeq = useRef(0);
   // Refs (not state) so the long-lived socket handler below — subscribed once
   // per leagueId — always sees the latest roster map and week filter without
   // having to tear down and rejoin the league room on every render.
@@ -232,16 +219,6 @@ function GameCenter() {
     weekFilterInitialized.current = true;
     setWeekFilter(computeDefaultWeek(league, matchups, weeks));
   }, [loading, leagueLoading, league, matchups, weeks]);
-
-  // Touchdown-celebration preference (opt-out: default on), fetched once and
-  // passed down to whichever matchup modal is open — no need to refetch it
-  // every time a different card is clicked.
-  useEffect(() => {
-    apiClient
-      .get('/api/notifications/prefs')
-      .then((res) => setCelebrationsEnabled(res.data?.touchdownCelebrations !== false))
-      .catch(() => setCelebrationsEnabled(true));
-  }, []);
 
   useEffect(() => {
     // Socket lives for the lifetime of this view; a ref avoids stale closures
@@ -276,10 +253,6 @@ function GameCenter() {
         setShowLive(false);
         liveTimeoutRef.current = null;
       }, LIVE_INDICATOR_MS);
-
-      // A new object identity every tick so a modal watching this as a prop
-      // can key an effect off it with a plain `[lastScoreEvent]` dependency.
-      setLastScoreEvent({ seq: (scoreEventSeq.current += 1), data });
 
       // Only feed the ticker plays from the week currently on screen — a
       // league-wide "All" view takes everything.
@@ -446,7 +419,7 @@ function GameCenter() {
       {heroMatchup && (
         <Container maxWidth="md" disableGutters sx={{ mb: 4 }}>
           <Card>
-            <CardActionArea onClick={() => setSelectedMatchupId(heroMatchup.id)}>
+            <CardActionArea component={Link} to={`/league/${leagueId}/matchups/${heroMatchup.id}`}>
               <CardContent>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                   <Typography variant="overline" sx={{ color: 'text.secondary' }}>
@@ -525,7 +498,7 @@ function GameCenter() {
           return (
             <Grid xs={12} sm={6} md={4} key={matchup.id}>
               <Card>
-                <CardActionArea onClick={() => setSelectedMatchupId(matchup.id)}>
+                <CardActionArea component={Link} to={`/league/${leagueId}/matchups/${matchup.id}`}>
                   <CardContent>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                       <Typography variant="caption" sx={{ color: 'text.secondary' }}>
@@ -535,9 +508,12 @@ function GameCenter() {
                     </Box>
                     <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Avatar sx={{ width: 28, height: 28, fontSize: 12, bgcolor: 'action.selected', color: 'text.secondary', flexShrink: 0 }}>
-                          {initialsFor(matchup.home_team_name)}
-                        </Avatar>
+                        <TeamAvatar
+                          name={matchup.home_team_name}
+                          avatarUrl={matchup.home_team_avatar_url}
+                          avatarStaticUrl={matchup.home_team_avatar_static_url}
+                          size={28}
+                        />
                         <Box sx={{ minWidth: 0 }}>
                           <Typography
                             variant="body2"
@@ -555,9 +531,12 @@ function GameCenter() {
                         vs
                       </Typography>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Avatar sx={{ width: 28, height: 28, fontSize: 12, bgcolor: 'action.selected', color: 'text.secondary', flexShrink: 0 }}>
-                          {initialsFor(matchup.away_team_name)}
-                        </Avatar>
+                        <TeamAvatar
+                          name={matchup.away_team_name}
+                          avatarUrl={matchup.away_team_avatar_url}
+                          avatarStaticUrl={matchup.away_team_avatar_static_url}
+                          size={28}
+                        />
                         <Box sx={{ minWidth: 0 }}>
                           <Typography
                             variant="body2"
@@ -580,16 +559,6 @@ function GameCenter() {
         })}
         </Grid>
       </Container>
-
-      {selectedMatchupId != null && (
-        <MatchupLiveModal
-          leagueId={leagueId}
-          matchupId={selectedMatchupId}
-          celebrationsEnabled={celebrationsEnabled}
-          lastScoreEvent={lastScoreEvent}
-          onClose={() => setSelectedMatchupId(null)}
-        />
-      )}
     </Container>
   );
 }

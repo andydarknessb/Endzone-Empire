@@ -440,6 +440,25 @@ test('Manual Score Correction fetches the matchup and applies a point adjustment
   );
 });
 
+test('Matchup Scheduling & Scoring can generate matchups and score a week', async () => {
+  apiClient.post.mockResolvedValue({ data: {} });
+  const onRefresh = jest.fn();
+  renderTools({ onRefresh });
+  await userEvent.click(screen.getByRole('tab', { name: 'System Overrides' }));
+
+  // Defaults (season 2025, week 1) are used as-is.
+  await userEvent.click(screen.getByRole('button', { name: 'Generate Matchups' }));
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/scoring/league/1/matchups', { season: 2025, week: 1 })
+  );
+
+  await userEvent.click(screen.getByRole('button', { name: 'Score Week' }));
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/scoring/league/1/score', { season: 2025, week: 1 })
+  );
+  expect(onRefresh).toHaveBeenCalled();
+});
+
 test('Manual Score Correction preserves input and locks submission after the correction window expires', async () => {
   mockGetByUrl({
     '/matchups': {

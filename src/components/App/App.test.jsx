@@ -161,21 +161,12 @@ test('"/league/:leagueId" is protected: LoginPage when logged out, LeagueDashboa
   expect(await screen.findByText('Sunday Ballers')).toBeInTheDocument();
 });
 
-test('"/league/:leagueId/matchups" is protected and renders MatchupScreen when logged in', async () => {
-  const { unmount } = renderApp('#/league/1/matchups', { user: loggedOut });
-  expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();
-  unmount();
-
+test('"/league/:leagueId/matchups" no longer resolves — the standalone Matchups page was removed', async () => {
   renderApp('#/league/1/matchups', { user: loggedIn }, () => {
-    apiClient.get.mockImplementation((url) => {
-      if (url === '/api/league/1') {
-        return Promise.resolve({ data: { league: { id: 1, name: 'Sunday Ballers', owner_id: 99 } } });
-      }
-      if (url === '/api/user') return Promise.resolve({ data: { id: 1, username: 'alice' } });
-      return Promise.resolve({ data: [] });
-    });
+    apiClient.get.mockResolvedValue({ data: [] });
   });
-  expect(await screen.findByText(/Matchups/)).toBeInTheDocument();
+  // Falls through to the 404 fallback rather than rendering a matchups page.
+  expect(await screen.findByRole('heading', { name: '404' })).toBeInTheDocument();
 });
 
 test('"/league/:leagueId/lineup" is protected and renders LineupScreen when logged in', async () => {

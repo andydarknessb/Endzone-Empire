@@ -89,7 +89,7 @@ function LeagueCard({ league, isOwner, onDelete }) {
       <CardActions sx={{ px: 2, pb: 2, pt: 0, flexWrap: 'wrap', gap: 1 }}>
         <Button component={Link} to={`/league/${league.id}`} variant="contained">Dashboard</Button>
         <Button component={Link} to={`/league/${league.id}/draft`} variant="outlined">Draft Room</Button>
-        <Button component={Link} to={`/league/${league.id}/matchups`} variant="outlined">Matchups</Button>
+        <Button component={Link} to={`/league/${league.id}/game-center`} variant="outlined">Game Center</Button>
       </CardActions>
     </Card>
   );

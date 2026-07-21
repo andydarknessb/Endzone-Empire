@@ -218,53 +218,26 @@ test('receiving scores:updated updates a card score and shows a LIVE chip', asyn
   expect(screen.getByText('LIVE')).toBeInTheDocument();
 });
 
-test('clicking a matchup card opens the live modal and fetches its detail', async () => {
-  mockApi({
-    matchups: [matchup({ id: 5 })],
-    detail: {
-      matchup: matchup({ id: 5 }),
-      home: { teamId: 10, starters: [] },
-      away: { teamId: 20, starters: [] },
-      viewerTeamId: null,
-    },
-  });
-
-  renderScreen(3);
-  await screen.findByText('Home Team (0)');
-
-  await userEvent.click(screen.getByText('Home Team (0)'));
-
-  expect(await screen.findByRole('dialog')).toBeInTheDocument();
-  expect(apiClient.get).toHaveBeenCalledWith('/api/league/3/matchups/5');
-});
-
-test('closing the modal and opening a different card fetches fresh detail', async () => {
+test('each matchup card links directly to its full box score — no intermediate modal', async () => {
   mockApi({
     matchups: [matchup({ id: 5 }), matchup({ id: 6, home_team_name: 'Second Home' })],
-    detail: {
-      matchup: matchup({ id: 5 }),
-      home: { teamId: 10, starters: [] },
-      away: { teamId: 20, starters: [] },
-      viewerTeamId: null,
-    },
   });
 
   renderScreen(3);
   await screen.findByText('Home Team (0)');
 
+  // The card is a plain link to the box score page — no dialog, no detail fetch.
+  expect(screen.getByText('Home Team (0)').closest('a')).toHaveAttribute(
+    'href',
+    '/league/3/matchups/5'
+  );
+  expect(screen.getByText('Second Home (0)').closest('a')).toHaveAttribute(
+    'href',
+    '/league/3/matchups/6'
+  );
+
   await userEvent.click(screen.getByText('Home Team (0)'));
-  await screen.findByRole('dialog');
 
-  // Two "Close" affordances render: the header icon button and the footer
-  // text button — both share the accessible name "Close", so disambiguate
-  // by DOM order (header first, footer last).
-  const closeButtons = screen.getAllByRole('button', { name: 'Close' });
-  await userEvent.click(closeButtons[closeButtons.length - 1]);
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-
-  apiClient.get.mockClear();
-  await userEvent.click(screen.getByText('Second Home (0)'));
-  await screen.findByRole('dialog');
-
-  expect(apiClient.get).toHaveBeenCalledWith('/api/league/3/matchups/6');
+  expect(apiClient.get).not.toHaveBeenCalledWith('/api/league/3/matchups/5');
 });

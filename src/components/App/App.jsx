@@ -27,7 +27,6 @@ import LeagueDiscovery from '../LeagueDiscovery/LeagueDiscovery';
 import TeamManagement from '../TeamManagement/TeamManagement';
 import PlayerManagement from '../PlayerManagement/PlayerManagement';
 import LeagueDashboard from '../LeagueDashboard/LeagueDashboard';
-import MatchupScreen from '../MatchupScreen/MatchupScreen';
 import MatchupDetail from '../MatchupDetail/MatchupDetail';
 import GameCenter from '../GameCenter/GameCenter';
 import DraftBoard from '../DraftBoard/DraftBoard';
@@ -93,7 +92,6 @@ function App() {
           <Route path="/team" element={<ProtectedRoute><TeamManagement /></ProtectedRoute>} />
           <Route path="/player" element={<ProtectedRoute><PlayerManagement /></ProtectedRoute>} />
           <Route path="/league/:leagueId" element={<ProtectedRoute><LeagueDashboard /></ProtectedRoute>} />
-          <Route path="/league/:leagueId/matchups" element={<ProtectedRoute><MatchupScreen /></ProtectedRoute>} />
           <Route path="/league/:leagueId/matchups/:matchupId" element={<ProtectedRoute><MatchupDetail /></ProtectedRoute>} />
           <Route path="/league/:leagueId/game-center" element={<ProtectedRoute><GameCenter /></ProtectedRoute>} />
           <Route path="/league/:leagueId/draft" element={<ProtectedRoute><DraftBoard /></ProtectedRoute>} />

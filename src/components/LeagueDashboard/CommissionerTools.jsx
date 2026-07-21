@@ -1120,12 +1120,73 @@ function TeamLockList({ leagueId, teams, notify, onRefresh }) {
   );
 }
 
+// Manual matchup scheduling/scoring, moved here from the retired standalone
+// Matchups page. These are low-level commissioner controls: (re)generate a
+// week's schedule and force-score a week for a given season.
+function MatchupOpsCard({ leagueId, notify, onRefresh }) {
+  const [season, setSeason] = useState('2025');
+  const [week, setWeek] = useState('1');
+  const [busy, setBusy] = useState(false);
+  const report = fail(notify);
+
+  const run = async (path, successMsg) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await apiClient.post(`/api/scoring/league/${leagueId}/${path}`, {
+        season: parseInt(season, 10),
+        week: parseInt(week, 10),
+      });
+      notify(successMsg);
+      onRefresh();
+    } catch (err) {
+      report(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const invalid = !season || !week;
+
+  return (
+    <Box>
+      <Typography variant="subtitle2" sx={{ mb: 1 }}>Matchup Scheduling &amp; Scoring</Typography>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+        Generate a week&apos;s matchups or force-score a completed week.
+      </Typography>
+      <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+        <TextField
+          label="Season" type="number" size="small" sx={{ width: 100 }}
+          value={season} onChange={(e) => setSeason(e.target.value)}
+        />
+        <TextField
+          label="Week Number" type="number" size="small" sx={{ width: 130 }}
+          value={week} onChange={(e) => setWeek(e.target.value)}
+        />
+        <Button
+          variant="outlined" size="small" disabled={invalid || busy}
+          onClick={() => run('matchups', 'Matchups generated successfully!')}
+        >
+          Generate Matchups
+        </Button>
+        <Button
+          variant="outlined" size="small" disabled={invalid || busy}
+          onClick={() => run('score', 'Week scored successfully!')}
+        >
+          Score Week
+        </Button>
+      </Box>
+    </Box>
+  );
+}
+
 function SystemOverridesPanel({ leagueId, teams, notify, onRefresh }) {
   return (
     <Stack spacing={3} divider={<Divider />}>
       <ForceRosterMoveCard leagueId={leagueId} teams={teams} notify={notify} onRefresh={onRefresh} />
       <FaabEditorCard leagueId={leagueId} teams={teams} notify={notify} onRefresh={onRefresh} />
       <ScoreCorrectionCard leagueId={leagueId} teams={teams} notify={notify} onRefresh={onRefresh} />
+      <MatchupOpsCard leagueId={leagueId} notify={notify} onRefresh={onRefresh} />
       <TeamLockList leagueId={leagueId} teams={teams} notify={notify} onRefresh={onRefresh} />
     </Stack>
   );
