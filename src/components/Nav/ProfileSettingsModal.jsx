@@ -1,20 +1,33 @@
 import React, { useEffect, useState } from 'react';
 import {
   Dialog, DialogTitle, DialogContent, DialogActions, Button,
-  Select, MenuItem, InputLabel, TextField, Typography, Divider,
+  Select, MenuItem, InputLabel, TextField, Typography, Divider, Box,
 } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
+import TeamAvatarUploader from '../common/TeamAvatarUploader';
 
 // Home for account-level settings, reachable from the Nav avatar menu.
-// Team renaming lives here now (moved off the main dashboard so "My Leagues"
-// stays focused on leagues, not account admin). Other account preferences —
-// avatar, password, notification defaults — will land in this same dialog.
+// Team renaming and avatar management live here now (moved off the main
+// dashboard so "My Leagues" stays focused on leagues, not account admin).
+// Other account preferences — password, notification defaults — will land
+// in this same dialog.
 function ProfileSettingsModal({ open, onClose }) {
   const notify = useSnackbar();
   const [leagues, setLeagues] = useState([]);
   const [leagueId, setLeagueId] = useState('');
   const [newTeamName, setNewTeamName] = useState('');
+  // Staged avatar change from the (deferred) uploader: { file } | { remove: true }
+  // | null. Committed alongside the name on submit so a single button saves both.
+  const [pendingAvatar, setPendingAvatar] = useState(null);
+  // Bumped after a successful save to remount the uploader and clear its preview.
+  const [uploaderKey, setUploaderKey] = useState(0);
+  const [saving, setSaving] = useState(false);
+
+  const selectedLeague = leagues.find((l) => l.id === leagueId);
+  const currentName = selectedLeague?.my_team_name || '';
+  const nameChanged = !!newTeamName.trim() && newTeamName.trim() !== currentName;
+  const avatarChanged = pendingAvatar != null;
 
   useEffect(() => {
     if (!open) return;
@@ -24,21 +37,42 @@ function ProfileSettingsModal({ open, onClose }) {
       .catch(() => setLeagues([]));
   }, [open]);
 
+  // Clear any staged avatar when switching leagues — it belongs to a team.
+  const handleLeagueChange = (event) => {
+    setLeagueId(event.target.value);
+    setPendingAvatar(null);
+    setUploaderKey((k) => k + 1);
+  };
+
   const handleClose = () => {
     setLeagueId('');
     setNewTeamName('');
+    setPendingAvatar(null);
     onClose();
   };
 
-  const handleRename = async () => {
+  const handleSave = async () => {
+    if (!selectedLeague || saving || (!nameChanged && !avatarChanged)) return;
+    setSaving(true);
     try {
-      const league = leagues.find((l) => l.id === leagueId);
-      if (!league) return;
-      await apiClient.put(`/api/team/${league.my_team_id}`, { name: newTeamName });
-      notify('Team renamed!');
+      if (avatarChanged) {
+        if (pendingAvatar.remove) {
+          await apiClient.delete(`/api/team/${selectedLeague.my_team_id}/avatar`);
+        } else {
+          const formData = new FormData();
+          formData.append('avatar', pendingAvatar.file);
+          await apiClient.post(`/api/team/${selectedLeague.my_team_id}/avatar`, formData);
+        }
+      }
+      if (nameChanged) {
+        await apiClient.put(`/api/team/${selectedLeague.my_team_id}`, { name: newTeamName });
+      }
+      notify(nameChanged && !avatarChanged ? 'Team renamed!' : 'Changes saved!');
       handleClose();
     } catch (err) {
       notify(err.response?.data?.error || err.message, { severity: 'error' });
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -47,7 +81,7 @@ function ProfileSettingsModal({ open, onClose }) {
       <DialogTitle>Profile Settings</DialogTitle>
       <DialogContent>
         <Typography variant="subtitle2" sx={{ mt: 1, mb: 1, fontWeight: 700 }}>
-          Rename a team
+          Team name &amp; avatar
         </Typography>
         <InputLabel id="profile-rename-league-label">League</InputLabel>
         <Select
@@ -55,7 +89,7 @@ function ProfileSettingsModal({ open, onClose }) {
           fullWidth
           size="small"
           value={leagueId}
-          onChange={(event) => setLeagueId(event.target.value)}
+          onChange={handleLeagueChange}
         >
           {leagues.map((league) => (
             <MenuItem key={league.id} value={league.id}>
@@ -71,17 +105,33 @@ function ProfileSettingsModal({ open, onClose }) {
           onChange={(event) => setNewTeamName(event.target.value)}
         />
 
+        {selectedLeague && (
+          <Box sx={{ mt: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
+            <TeamAvatarUploader
+              key={uploaderKey}
+              teamId={selectedLeague.my_team_id}
+              teamName={selectedLeague.my_team_name}
+              avatarUrl={selectedLeague.my_team_avatar_url}
+              avatarStaticUrl={selectedLeague.my_team_avatar_static_url}
+              onStageChange={setPendingAvatar}
+            />
+            <Typography variant="body2" color="text.secondary">
+              Team avatar for {selectedLeague.my_team_name}
+            </Typography>
+          </Box>
+        )}
+
         <Divider sx={{ my: 2 }} />
 
         <Typography variant="body2" color="text.secondary">
-          More account preferences — avatar, password, and notification
-          defaults — are coming soon to this panel.
+          More account preferences — password and notification defaults —
+          are coming soon to this panel.
         </Typography>
       </DialogContent>
       <DialogActions>
         <Button onClick={handleClose}>Cancel</Button>
-        <Button onClick={handleRename} disabled={!leagueId || !newTeamName.trim()}>
-          Rename
+        <Button onClick={handleSave} disabled={!leagueId || saving || (!nameChanged && !avatarChanged)}>
+          {nameChanged && !avatarChanged ? 'Rename' : 'Save'}
         </Button>
       </DialogActions>
     </Dialog>
