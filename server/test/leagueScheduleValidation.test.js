@@ -171,6 +171,52 @@ test('rejects a direct attempt to schedule an existing auction league', async (t
   assert.equal(updateCalled, false);
 });
 
+test('rejects a schedule when the league is converted to auction between the read and the write', async (t) => {
+  const draftDate = new Date(Date.now() + 60000).toISOString();
+  // Shared row mutated mid-request to model a concurrent auction conversion.
+  const currentRow = {
+    draft_status: 'pending', draft_type: 'snake', min_teams: 2, max_teams: 12,
+    draft_date: null, roster_slots: [], bench_slots: 0, ir_slots: 0,
+    position_caps: {}, roster_limit: 15, keepers_enabled: false, keeper_count: 0,
+    team_count: 2,
+  };
+  let updateCalled = false;
+  t.mock.method(pool, 'query', async (sql) => {
+    const text = String(sql);
+    if (text.startsWith('UPDATE "leagues"')) {
+      updateCalled = true;
+      // Emulate the atomic guard: the non-null date write requires draft_type <> 'auction'.
+      if (currentRow.draft_type === 'auction') return { rows: [] };
+      currentRow.draft_date = draftDate;
+      return { rows: [{ id: 1, owner_id: 7, draft_status: 'pending', draft_type: 'snake', draft_date: draftDate }] };
+    }
+    if (text.includes('SELECT "draft_status"')) {
+      // Request A passes its initial (snake) type check, then Request B converts
+      // the league to auction and clears the date before A reaches its UPDATE.
+      const snapshot = { ...currentRow };
+      currentRow.draft_type = 'auction';
+      currentRow.draft_date = null;
+      return { rows: [snapshot] };
+    }
+    if (text.includes('SELECT "draft_type" FROM')) {
+      return { rows: [{ draft_type: currentRow.draft_type }] };
+    }
+    throw new Error(`Unexpected SQL: ${text}`);
+  });
+
+  const response = await request(app)
+    .put('/api/league/1')
+    .set('Authorization', authorization())
+    .send({ draftDate });
+
+  assert.equal(response.status, 409);
+  assert.match(response.body.error, /auction/i);
+  assert.equal(updateCalled, true);
+  // No non-null date persisted; the league remains an auction with a cleared date.
+  assert.equal(currentRow.draft_type, 'auction');
+  assert.equal(currentRow.draft_date, null);
+});
+
 test('does not delay the schedule response while activity notification is pending', async (t) => {
   const draftDate = new Date(Date.now() + 60000).toISOString();
   t.mock.method(pool, 'query', async (sql) => {
@@ -190,7 +236,7 @@ test('does not delay the schedule response while activity notification is pendin
     }
     throw new Error(`Unexpected SQL: ${text}`);
   });
-  t.mock.method(activityService, 'notifyLeague', () => new Promise(() => {}));
+  const notify = t.mock.method(activityService, 'notifyLeague', () => new Promise(() => {}));
 
   let timeoutId;
   try {
@@ -209,4 +255,14 @@ test('does not delay the schedule response while activity notification is pendin
   } finally {
     clearTimeout(timeoutId);
   }
+
+  // Fire-and-forget is intentional, but the notification must still be dispatched —
+  // guard against a future refactor silently dropping the call.
+  assert.equal(notify.mock.calls.length, 1);
+  const [, payload] = notify.mock.calls[0].arguments;
+  assert.equal(payload.leagueId, 1);
+  assert.equal(payload.type, 'draft_scheduled');
+  assert.match(payload.message, /draft has been scheduled/);
+  assert.equal(payload.data.url, '/#/league/1');
+  assert.equal(payload.data.draftDate, draftDate);
 });

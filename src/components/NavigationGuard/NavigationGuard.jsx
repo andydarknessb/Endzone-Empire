@@ -26,6 +26,10 @@ export default function NavigationGuard({ children }) {
   const historyIndexRef = useRef(typeof window === 'undefined' ? null : window.history.state?.idx);
   const restoringPopRef = useRef(false);
   const [pendingTransition, setPendingTransition] = useState(null);
+  // True from the moment we issue history.go(-delta) to restore a blocked POP
+  // until the restoration POP actually lands. The replayed traversal must wait
+  // for this, so "Discard changes" stays disabled while it is set.
+  const [restorationPending, setRestorationPending] = useState(false);
 
   const setUnsavedChanges = useCallback((value) => {
     unsavedChangesRef.current = Boolean(value);
@@ -55,8 +59,21 @@ export default function NavigationGuard({ children }) {
   useEffect(() => {
     const handlePopState = (event) => {
       const nextIndex = event.state?.idx;
+      const currentIndex = historyIndexRef.current;
+
       if (restoringPopRef.current) {
+        // We are mid-restoration. Only the POP that returns us to the entry we
+        // left is the completion signal. Any other index means an extra
+        // Back/Forward press slipped in during the async restore, so bounce it
+        // back and stay pending — this coalesces rapid presses instead of
+        // letting one through unguarded.
+        if (Number.isInteger(nextIndex) && Number.isInteger(currentIndex) && nextIndex !== currentIndex) {
+          event.stopImmediatePropagation();
+          window.history.go(currentIndex - nextIndex);
+          return;
+        }
         restoringPopRef.current = false;
+        setRestorationPending(false);
         historyIndexRef.current = nextIndex;
         return;
       }
@@ -64,7 +81,6 @@ export default function NavigationGuard({ children }) {
         historyIndexRef.current = nextIndex;
         return;
       }
-      const currentIndex = historyIndexRef.current;
       if (!Number.isInteger(currentIndex) || !Number.isInteger(nextIndex) || currentIndex === nextIndex) return;
 
       // Browser POP navigation changes history before notifying listeners.
@@ -73,6 +89,7 @@ export default function NavigationGuard({ children }) {
       event.stopImmediatePropagation();
       const delta = nextIndex - currentIndex;
       restoringPopRef.current = true;
+      setRestorationPending(true);
       window.history.go(-delta);
       requestTransition(() => window.history.go(delta));
     };
@@ -108,7 +125,7 @@ export default function NavigationGuard({ children }) {
           <DialogContent><DialogContentText>Your edits on this tab will be lost.</DialogContentText></DialogContent>
           <DialogActions>
             <Button onClick={() => setPendingTransition(null)}>Keep editing</Button>
-            <Button color="error" variant="contained" onClick={discardAndContinue}>Discard changes</Button>
+            <Button color="error" variant="contained" disabled={restorationPending} onClick={discardAndContinue}>Discard changes</Button>
           </DialogActions>
         </Dialog>
       </NavigationContext.Provider>

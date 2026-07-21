@@ -498,6 +498,12 @@ router.put('/:id', async (req, res) => {
     // roster_limit is derived from starters+bench+IR — recomputed below
     // whenever any of those three actually change.
     const rosterCompositionChanged = rosterSlots !== undefined || benchSlots !== undefined || irSlots !== undefined;
+    // Writing a non-null draft_date without also setting the type ourselves relies
+    // on the current type staying non-auction. The earlier SELECT can go stale if a
+    // concurrent request converts the league to auction, so the UPDATE re-checks the
+    // type atomically. (An explicit draftType wins outright, and draftType==='auction'
+    // clears the date, so neither needs the guard.)
+    const schedulingNonAuction = draftDateProvided && Boolean(draftDateValue) && draftType === undefined;
     let derivedRosterLimit = null;
     let pendingStatusVerified = false;
     if (frozenRequested.length > 0) {
@@ -632,6 +638,7 @@ router.put('/:id', async (req, res) => {
            "updated_at" = now()
        WHERE "id" = $17 AND "owner_id" = $18
          ${frozenRequested.length > 0 ? `AND "draft_status" = 'pending'` : ''}
+         ${schedulingNonAuction ? `AND "draft_type" <> 'auction'` : ''}
        RETURNING *`,
       [
         name || null,
@@ -673,6 +680,18 @@ router.put('/:id', async (req, res) => {
       ]
     );
     if (!result.rows[0]) {
+      // The scheduling guard can also zero out the update when the league was
+      // converted to auction between our SELECT and UPDATE. Re-read the current
+      // type to report the auction conflict distinctly from a draft that started.
+      if (schedulingNonAuction && pendingStatusVerified) {
+        const recheck = await db.query(
+          `SELECT "draft_type" FROM "leagues" WHERE "id" = $1 AND "owner_id" = $2`,
+          [leagueId, req.user.id]
+        );
+        if (recheck.rows[0]?.draft_type === 'auction') {
+          return await rejectUpdate(409, 'this league was converted to a salary-cap auction; auction drafts cannot be scheduled');
+        }
+      }
       if (pendingStatusVerified) {
         return await rejectUpdate(409, `these settings are locked once the draft starts: ${frozenRequested.join(', ')}`);
       }
