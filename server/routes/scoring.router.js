@@ -339,7 +339,21 @@ router.get('/league/:id/power-rankings', async (req, res) => {
     if (!membership.rows[0]) return res.status(403).json({ error: 'not a member of this league' });
     const latest = await montecarlo.getLatestPowerRankings({ leagueId });
     if (!latest) return res.status(404).json({ error: 'no power rankings computed yet' });
-    res.json({ ...latest, viewerTeamId: membership.rows[0].id });
+    // Avatars are overlaid from the live teams table rather than baked into
+    // the stored run (league_analytics.data) — same reasoning as league
+    // history's champion avatar: a frozen snapshot shouldn't need updating
+    // every time someone changes their avatar.
+    const avatarsResult = await pool.query(
+      `SELECT "id", "avatar_url", "avatar_static_url" FROM "teams" WHERE "league_id" = $1`,
+      [leagueId]
+    );
+    const avatarsByTeam = new Map(avatarsResult.rows.map((t) => [t.id, t]));
+    const rankings = latest.rankings.map((r) => ({
+      ...r,
+      avatarUrl: avatarsByTeam.get(r.teamId)?.avatar_url ?? null,
+      avatarStaticUrl: avatarsByTeam.get(r.teamId)?.avatar_static_url ?? null,
+    }));
+    res.json({ ...latest, rankings, viewerTeamId: membership.rows[0].id });
   } catch (error) {
     console.error('Power rankings fetch failed:', error);
     res.status(500).json({ error: 'failed to fetch power rankings' });

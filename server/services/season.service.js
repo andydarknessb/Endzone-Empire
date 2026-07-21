@@ -227,7 +227,8 @@ async function generateRegularSeason({ leagueId }, existingClient = null) {
 /** Standings for a league straight from the database. */
 async function getStandings({ leagueId }) {
   const teamsResult = await pool.query(
-    `SELECT "teams"."id", "teams"."name", "users"."username" AS "owner"
+    `SELECT "teams"."id", "teams"."name", "teams"."avatar_url", "teams"."avatar_static_url",
+            "users"."username" AS "owner"
      FROM "teams" JOIN "users" ON "users"."id" = "teams"."owner_id"
      WHERE "league_id" = $1`,
     [leagueId]
@@ -238,8 +239,13 @@ async function getStandings({ leagueId }) {
     [leagueId]
   );
   const standings = computeStandings(teamsResult.rows, matchupsResult.rows);
-  const owners = new Map(teamsResult.rows.map((t) => [t.id, t.owner]));
-  return standings.map((s) => ({ ...s, owner: owners.get(s.teamId) }));
+  // Kept out of computeStandings itself (a pure function also used to build
+  // the frozen league_history snapshot on rollover) so avatars never get
+  // baked into that historical record — overlaid here instead, same as owner.
+  const teamMeta = new Map(
+    teamsResult.rows.map((t) => [t.id, { owner: t.owner, avatarUrl: t.avatar_url, avatarStaticUrl: t.avatar_static_url }])
+  );
+  return standings.map((s) => ({ ...s, ...teamMeta.get(s.teamId) }));
 }
 
 /**

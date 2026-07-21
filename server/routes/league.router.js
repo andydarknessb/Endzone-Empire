@@ -210,6 +210,8 @@ router.get('/', async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT "leagues".*, "teams"."id" AS "my_team_id", "teams"."name" AS "my_team_name",
+              "teams"."avatar_url" AS "my_team_avatar_url",
+              "teams"."avatar_static_url" AS "my_team_avatar_static_url",
               (SELECT COUNT(*)::int FROM "teams" "t" WHERE "t"."league_id" = "leagues"."id") AS "team_count"
        FROM "leagues"
        JOIN "teams" ON "teams"."league_id" = "leagues"."id"
@@ -242,6 +244,7 @@ router.get('/:id', async (req, res) => {
     const teamsResult = await pool.query(
       `SELECT "teams"."id", "teams"."name", "teams"."draft_position",
               "teams"."faab_remaining", "teams"."locked", "teams"."draft_ready",
+              "teams"."avatar_url", "teams"."avatar_static_url",
               "users"."username" AS "owner",
               COUNT("team_players"."id")::int AS "roster_count",
               COALESCE(SUM(CASE WHEN "matchups"."home_team_id" = "teams"."id" THEN "matchups"."home_score"
@@ -786,6 +789,7 @@ router.get('/:id/rosters', async (req, res) => {
 
     const result = await pool.query(
       `SELECT "teams"."id" AS "team_id", "teams"."name" AS "team_name", "teams"."owner_id",
+              "teams"."avatar_url", "teams"."avatar_static_url",
               "players"."id", "players"."name", "players"."position", "players"."nfl_team"
        FROM "teams"
        LEFT JOIN "team_players" ON "team_players"."team_id" = "teams"."id"
@@ -797,7 +801,14 @@ router.get('/:id/rosters', async (req, res) => {
     const teams = new Map();
     for (const row of result.rows) {
       if (!teams.has(row.team_id)) {
-        teams.set(row.team_id, { teamId: row.team_id, teamName: row.team_name, ownerId: row.owner_id, players: [] });
+        teams.set(row.team_id, {
+          teamId: row.team_id,
+          teamName: row.team_name,
+          ownerId: row.owner_id,
+          avatarUrl: row.avatar_url,
+          avatarStaticUrl: row.avatar_static_url,
+          players: [],
+        });
       }
       if (row.id) {
         teams.get(row.team_id).players.push({
@@ -825,6 +836,8 @@ router.get('/:id/transactions', async (req, res) => {
 
     const result = await pool.query(
       `SELECT "transactions".*, "teams"."name" AS "team_name",
+              "teams"."avatar_url" AS "team_avatar_url",
+              "teams"."avatar_static_url" AS "team_avatar_static_url",
               "players"."name" AS "player_name",
               "dropped_player"."name" AS "dropped_player_name"
        FROM "transactions"
@@ -861,7 +874,10 @@ router.get('/:id/matchups', async (req, res) => {
     }
     const result = await pool.query(
       `SELECT "matchups".*,
-              home."name" AS "home_team_name", away."name" AS "away_team_name"
+              home."name" AS "home_team_name", away."name" AS "away_team_name",
+              home."avatar_url" AS "home_team_avatar_url", away."avatar_url" AS "away_team_avatar_url",
+              home."avatar_static_url" AS "home_team_avatar_static_url",
+              away."avatar_static_url" AS "away_team_avatar_static_url"
        FROM "matchups"
        JOIN "teams" home ON home."id" = "matchups"."home_team_id"
        JOIN "teams" away ON away."id" = "matchups"."away_team_id"
@@ -923,7 +939,10 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     const matchupResult = await client.query(
       `SELECT "matchups".*,
               home."name" AS "home_team_name", away."name" AS "away_team_name",
-              home."owner_id" AS "home_owner_id", away."owner_id" AS "away_owner_id"
+              home."owner_id" AS "home_owner_id", away."owner_id" AS "away_owner_id",
+              home."avatar_url" AS "home_team_avatar_url", away."avatar_url" AS "away_team_avatar_url",
+              home."avatar_static_url" AS "home_team_avatar_static_url",
+              away."avatar_static_url" AS "away_team_avatar_static_url"
        FROM "matchups"
        JOIN "teams" home ON home."id" = "matchups"."home_team_id"
        JOIN "teams" away ON away."id" = "matchups"."away_team_id"
@@ -1119,7 +1138,9 @@ router.get('/:id/history', async (req, res) => {
     if (!(await requireMember(req, res, leagueId))) return;
     const historyResult = await pool.query(
       `SELECT "league_history"."season", "league_history"."standings",
-              "league_history"."champion_team_id", "teams"."name" AS "champion_name"
+              "league_history"."champion_team_id", "teams"."name" AS "champion_name",
+              "teams"."avatar_url" AS "champion_avatar_url",
+              "teams"."avatar_static_url" AS "champion_avatar_static_url"
        FROM "league_history"
        LEFT JOIN "teams" ON "teams"."id" = "league_history"."champion_team_id"
        WHERE "league_history"."league_id" = $1
@@ -1157,7 +1178,12 @@ router.get('/:id/history', async (req, res) => {
       seasons.push({
         season: row.season,
         champion: row.champion_team_id
-          ? { teamId: row.champion_team_id, name: row.champion_name }
+          ? {
+              teamId: row.champion_team_id,
+              name: row.champion_name,
+              avatarUrl: row.champion_avatar_url,
+              avatarStaticUrl: row.champion_avatar_static_url,
+            }
           : null,
         standings: row.standings,
         trophies: seasonTrophies,

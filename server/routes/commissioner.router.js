@@ -166,4 +166,19 @@ router.post('/league/:id/force-transaction', async (req, res) => {
   }
 });
 
+// DELETE /api/commissioner/league/:id/teams/:teamId/avatar — moderation
+// removal; privately notifies the affected owner (see commissioner.service.js)
+router.delete('/league/:id/teams/:teamId/avatar', async (req, res) => {
+  const leagueId = intOrNull(req.params.id);
+  const teamId = intOrNull(req.params.teamId);
+  if (!leagueId || !teamId) {
+    return res.status(400).json({ error: 'league id and team id must be positive integers' });
+  }
+  try {
+    res.json(await commissioner.removeTeamAvatar({ leagueId, userId: req.user.id, teamId }));
+  } catch (error) {
+    handle(res, error, 'failed to remove team avatar');
+  }
+});
+
 module.exports = router;

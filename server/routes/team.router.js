@@ -1,12 +1,23 @@
 const express = require('express');
+const multer = require('multer');
 const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
+const { createRateLimiter } = require('../modules/rateLimit');
 const { draftPlayer, dropPlayer, undoDrop } = require('../services/draft.service');
 const { getLineup, setLineup } = require('../services/lineup.service');
 const { startSitAdvice, weekHindsight, seasonHindsight } = require('../services/decision.service');
+const { uploadTeamAvatar, removeTeamAvatar, MAX_UPLOAD_BYTES } = require('../services/avatar.service');
 
 const router = express.Router();
 router.use(requireAuth);
+
+const avatarUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 },
+});
+// Ten uploads/removals per 10 minutes is ample for legitimate crop-and-retry
+// use and caps how much storage churn a single account can cause.
+const avatarRateLimiter = createRateLimiter({ windowMs: 10 * 60 * 1000, max: 10 });
 
 // GET /api/team/roster?leagueId=N — the caller's roster in a league
 router.get('/roster', async (req, res) => {
@@ -241,6 +252,54 @@ router.put('/:id', async (req, res) => {
   } catch (error) {
     console.error('Error renaming team', error);
     res.status(500).json({ error: 'failed to rename team' });
+  }
+});
+
+// POST /api/team/:id/avatar — upload/replace the caller's team avatar
+// (multipart, field name "avatar"; PNG/JPEG/WEBP/GIF up to 5MB)
+router.post('/:id/avatar', avatarRateLimiter, (req, res, next) => {
+  avatarUpload.single('avatar')(req, res, (err) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: 'file too large (max 5MB)' });
+      }
+      return res.status(400).json({ error: err.message });
+    }
+    next();
+  });
+}, async (req, res) => {
+  if (!/^\d+$/.test(req.params.id)) {
+    return res.status(400).json({ error: 'team id must be a positive integer' });
+  }
+  if (!req.file) {
+    return res.status(400).json({ error: 'avatar file is required (multipart field "avatar")' });
+  }
+  try {
+    const team = await uploadTeamAvatar({
+      teamId: Number(req.params.id),
+      ownerId: req.user.id,
+      buffer: req.file.buffer,
+    });
+    res.json(team);
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    console.error('Error uploading team avatar', error);
+    res.status(500).json({ error: 'failed to upload avatar' });
+  }
+});
+
+// DELETE /api/team/:id/avatar — reset the caller's team avatar to the initials fallback
+router.delete('/:id/avatar', avatarRateLimiter, async (req, res) => {
+  if (!/^\d+$/.test(req.params.id)) {
+    return res.status(400).json({ error: 'team id must be a positive integer' });
+  }
+  try {
+    const team = await removeTeamAvatar({ teamId: Number(req.params.id), ownerId: req.user.id });
+    res.json(team);
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    console.error('Error removing team avatar', error);
+    res.status(500).json({ error: 'failed to remove avatar' });
   }
 });
 

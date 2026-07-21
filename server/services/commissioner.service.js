@@ -8,6 +8,7 @@ const {
 const { computeStandings } = require('./season.service');
 const { placeOnWaivers } = require('./waiver.service');
 const { assertManualCorrectionWindow } = require('./correction.service');
+const { deleteAvatarObjects } = require('./avatar.service');
 
 class CommissionerError extends Error {
   constructor(statusCode, message) {
@@ -524,6 +525,55 @@ async function forceTransaction({ leagueId, userId, teamId, action, playerId }) 
   }
 }
 
+/**
+ * Commissioner-initiated avatar removal — moderation, not the owner's own
+ * reset (that's avatar.service.js's removeTeamAvatar, called from
+ * team.router.js). Unlike a silent self-reset, this privately notifies the
+ * affected owner via `notify` (never `notifyLeague`, which would broadcast
+ * the moderation action to the whole league).
+ */
+async function removeTeamAvatar({ leagueId, userId, teamId }) {
+  const client = await pool.connect();
+  let priorAvatar = null;
+  try {
+    await client.query('BEGIN');
+    await requireCommissioner(client, { leagueId, userId });
+    const teamResult = await client.query(
+      `SELECT "owner_id", "avatar_url", "avatar_static_url" FROM "teams"
+       WHERE "id" = $1 AND "league_id" = $2 FOR UPDATE`,
+      [teamId, leagueId]
+    );
+    const team = teamResult.rows[0];
+    if (!team) throw new CommissionerError(404, 'team not found in this league');
+    priorAvatar = { avatar_url: team.avatar_url, avatar_static_url: team.avatar_static_url };
+    await client.query(
+      `UPDATE "teams" SET "avatar_url" = NULL, "avatar_static_url" = NULL, "updated_at" = now()
+       WHERE "id" = $1`,
+      [teamId]
+    );
+    await logTransaction(client, {
+      leagueId,
+      teamId,
+      type: 'commissioner',
+      detail: { action: 'remove_team_avatar' },
+    });
+    await notify(client, {
+      userId: team.owner_id,
+      leagueId,
+      type: 'league',
+      message: 'Your team avatar was removed by the commissioner',
+    });
+    await client.query('COMMIT');
+    void deleteAvatarObjects(priorAvatar);
+    return { leagueId, teamId };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 module.exports = {
   CommissionerError,
   removeTeam,
@@ -534,4 +584,5 @@ module.exports = {
   setTeamLocked,
   setTeamFaab,
   forceTransaction,
+  removeTeamAvatar,
 };

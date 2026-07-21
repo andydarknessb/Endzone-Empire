@@ -26,7 +26,11 @@ router.get('/', async (req, res) => {
     const tradesResult = await pool.query(
       `SELECT "trades".*,
               proposing."name" AS "proposing_team_name",
-              receiving."name" AS "receiving_team_name"
+              receiving."name" AS "receiving_team_name",
+              proposing."avatar_url" AS "proposing_team_avatar_url",
+              receiving."avatar_url" AS "receiving_team_avatar_url",
+              proposing."avatar_static_url" AS "proposing_team_avatar_static_url",
+              receiving."avatar_static_url" AS "receiving_team_avatar_static_url"
        FROM "trades"
        JOIN "teams" proposing ON proposing."id" = "trades"."proposing_team_id"
        JOIN "teams" receiving ON receiving."id" = "trades"."receiving_team_id"
