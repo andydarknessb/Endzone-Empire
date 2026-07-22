@@ -7,6 +7,7 @@ const { draftPlayer, dropPlayer, undoDrop } = require('../services/draft.service
 const { getLineup, setLineup } = require('../services/lineup.service');
 const { startSitAdvice, weekHindsight, seasonHindsight } = require('../services/decision.service');
 const { uploadTeamAvatar, removeTeamAvatar, MAX_UPLOAD_BYTES } = require('../services/avatar.service');
+const { computeByeWeeks } = require('../services/bye.service');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -35,6 +36,21 @@ router.get('/roster', async (req, res) => {
        ORDER BY "players"."position", "players"."name"`,
       [Number(leagueId), req.user.id]
     );
+    // Bye week is schedule-derived (not a stored players column), so annotate
+    // each roster row with its NFL team's bye for the league's current season.
+    // Batched: a full roster resolves in one nfl_games query, not one per slot.
+    const leagueRow = await pool.query(
+      `SELECT "current_season" FROM "leagues" WHERE "id" = $1`,
+      [Number(leagueId)]
+    );
+    const season = leagueRow.rows[0]?.current_season ?? null;
+    const byeByTeam = await computeByeWeeks(
+      result.rows.map((row) => row.nfl_team),
+      season
+    );
+    for (const row of result.rows) {
+      row.bye_week = byeByTeam.get(row.nfl_team) ?? null;
+    }
     res.json(result.rows);
   } catch (error) {
     console.error('Error fetching roster', error);
