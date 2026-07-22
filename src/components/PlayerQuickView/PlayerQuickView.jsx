@@ -116,10 +116,6 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
   }, [open, navIndex, canPrev, canNext]);
 
   useEffect(() => {
-    if (!open) setPinnedComparison(null);
-  }, [open]);
-
-  useEffect(() => {
     if (!open || !playerId) return;
     const fetchSummary = async () => {
       try {

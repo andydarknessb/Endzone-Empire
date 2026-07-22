@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen, fireEvent } from '@testing-library/react';
+import { screen, fireEvent, waitFor } from '@testing-library/react';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import PlayerQuickView from './PlayerQuickView';
@@ -201,6 +201,59 @@ test('Compare pins the first player and renders two stat lines after navigation'
   expect(comparison).toHaveTextContent('6 Rec, 90 Rec Yds');
   expect(comparison).toHaveTextContent('JaMarr Chase');
   expect(comparison).toHaveTextContent('10 Rec, 140 Rec Yds');
+});
+
+test('a pinned player survives closing the modal and opening another row', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/players/9/summary') {
+      return Promise.resolve(summaryResponse({
+        player: { id: 9, name: 'JaMarr Chase', jersey_number: 1 },
+        currentSeason: {
+          season: 2026,
+          weekly: [
+            { week: 1, stats: { receivingYards: 140, receptions: 10 }, fantasy_points: 24 },
+          ],
+          games: 1,
+          points: 24,
+          perGame: 24,
+        },
+      }));
+    }
+    return Promise.resolve(summaryResponse());
+  });
+
+  function RowHarness() {
+    const [open, setOpen] = React.useState(true);
+    const [playerId, setPlayerId] = React.useState(7);
+    const openPlayer = (id) => {
+      setPlayerId(id);
+      setOpen(true);
+    };
+    return (
+      <>
+        <button type="button" onClick={() => openPlayer(9)}>Open JaMarr Chase</button>
+        <PlayerQuickView
+          open={open}
+          onClose={() => setOpen(false)}
+          playerId={playerId}
+          playerIds={[7, 9]}
+          onNavigate={openPlayer}
+        />
+      </>
+    );
+  }
+
+  renderWithProviders(<RowHarness />);
+  await screen.findByText('Justin Jefferson');
+  fireEvent.click(screen.getByRole('button', { name: 'Compare' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+
+  fireEvent.click(screen.getByRole('button', { name: 'Open JaMarr Chase' }));
+
+  const comparison = await screen.findByTestId('player-comparison');
+  expect(comparison).toHaveTextContent('Justin Jefferson');
+  expect(comparison).toHaveTextContent('JaMarr Chase');
 });
 
 test('no nav arrows when no player list is provided', async () => {
