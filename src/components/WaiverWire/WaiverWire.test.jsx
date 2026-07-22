@@ -412,6 +412,22 @@ test('shows empty states when there are no waiver players or claims', async () =
   expect(screen.getByText('No claims yet')).toBeInTheDocument();
 });
 
+test('empty waivers Browse Players opens the player pool filtered to available players', async () => {
+  setupGet({
+    waivers: waiversResponse({ onWaivers: [], myClaims: [] }),
+    roster: rosterResponse(),
+  });
+  renderScreen();
+
+  await screen.findByText('No players on waivers');
+  // hide=1 is the Players page's "Hide rostered" filter, so the CTA lands on
+  // the pool already scoped to unrostered/available players.
+  expect(screen.getByRole('link', { name: /browse players/i })).toHaveAttribute(
+    'href',
+    '/player?hide=1'
+  );
+});
+
 test('shows an error alert when the initial fetch fails', async () => {
   apiClient.get.mockRejectedValue({ response: { data: { error: 'waivers unavailable' } } });
 

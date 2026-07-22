@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, Link as RouterLink } from 'react-router-dom';
 import {
   Container,
   Paper,
@@ -68,7 +68,6 @@ function sortRosterForDrop(roster) {
 
 function WaiverWire() {
   const { leagueId } = useParams();
-  const navigate = useNavigate();
   const notify = useSnackbar();
   const [data, setData] = useState(null);
   const [roster, setRoster] = useState([]);
@@ -269,7 +268,7 @@ function WaiverWire() {
               >
                 <SearchIcon sx={{ fontSize: 48, mb: 1, color: 'text.disabled' }} />
                 <Typography sx={{ color: 'text.secondary', mb: 2 }}>No players on waivers</Typography>
-                <Button variant="outlined" onClick={() => navigate('/player')}>
+                <Button component={RouterLink} to="/player?hide=1" variant="outlined">
                   Browse Players
                 </Button>
               </Box>
