@@ -89,6 +89,7 @@ router.get('/', requireAuth, async (req, res) => {
   // Ordering: whitelisted sort key + direction — never interpolate raw user
   // input into SQL. ADP is the default (best pick first, undrafted last).
   const dir = req.query.dir === 'desc' ? 'DESC' : 'ASC';
+  const projectionSort = req.query.sort === 'projected_points';
   let orderBy;
   if (req.query.sort === 'name') {
     orderBy = `"name" ${dir}, "id"`;
@@ -114,13 +115,13 @@ router.get('/', requireAuth, async (req, res) => {
   }
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
-  params.push(PAGE_SIZE, offset);
+  if (!projectionSort) params.push(PAGE_SIZE, offset);
   const queryText = `
     SELECT "players".*, COUNT(*) OVER() AS total_count
     FROM "players"
     ${whereSql}
     ORDER BY ${orderBy}
-    LIMIT $${params.length - 1} OFFSET $${params.length}
+    ${projectionSort ? '' : `LIMIT $${params.length - 1} OFFSET $${params.length}`}
   `;
 
   try {
@@ -153,8 +154,22 @@ router.get('/', requireAuth, async (req, res) => {
       });
     }
 
+    if (projectionSort) {
+      players.sort((a, b) => {
+        const av = a.projected_points == null ? null : Number(a.projected_points);
+        const bv = b.projected_points == null ? null : Number(b.projected_points);
+        const aMissing = av == null || !Number.isFinite(av);
+        const bMissing = bv == null || !Number.isFinite(bv);
+        if (aMissing !== bMissing) return aMissing ? 1 : -1;
+        if (!aMissing && av !== bv) return dir === 'DESC' ? bv - av : av - bv;
+        return a.id - b.id;
+      });
+    }
+
+    const pagePlayers = projectionSort ? players.slice(offset, offset + PAGE_SIZE) : players;
+
     res.json({
-      players,
+      players: pagePlayers,
       page,
       pageSize: PAGE_SIZE,
       totalPages: Math.max(1, Math.ceil(total / PAGE_SIZE)),
