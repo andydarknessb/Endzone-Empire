@@ -118,6 +118,8 @@ test('prev/next arrows navigate through the provided list', async () => {
   renderQuickView({ playerId: 7, playerIds: [5, 7, 9], onNavigate });
   await screen.findByText('Justin Jefferson');
 
+  expect(screen.getByLabelText('Player 2 of 3')).toHaveTextContent('2 of 3');
+
   fireEvent.click(screen.getByRole('button', { name: 'Next player' }));
   expect(onNavigate).toHaveBeenCalledWith(9);
 
@@ -132,6 +134,73 @@ test('Left/Right arrow keys navigate the list', async () => {
 
   fireEvent.keyDown(window, { key: 'ArrowRight' });
   expect(onNavigate).toHaveBeenCalledWith(9);
+});
+
+test('Left/Right arrow keys do not navigate while a text input is focused', async () => {
+  const onNavigate = jest.fn();
+  renderQuickView({ playerId: 7, playerIds: [5, 7, 9], onNavigate });
+  await screen.findByText('Justin Jefferson');
+  const input = document.createElement('input');
+  document.body.appendChild(input);
+  input.focus();
+
+  fireEvent.keyDown(input, { key: 'ArrowRight' });
+
+  expect(onNavigate).not.toHaveBeenCalled();
+  input.remove();
+});
+
+test('Compare pins the first player and renders two stat lines after navigation', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/players/9/summary') {
+      return Promise.resolve(summaryResponse({
+        player: { id: 9, name: 'JaMarr Chase', jersey_number: 1 },
+        fantasy: {
+          adp: 4.2,
+          previousSeasonYear: 2025,
+          previousSeasonTotal: 280,
+          projectionSeason: 2026,
+          projectedPoints: 287.4,
+        },
+        currentSeason: {
+          season: 2026,
+          weekly: [
+            { week: 1, stats: { receivingYards: 140, receptions: 10 }, fantasy_points: 24 },
+          ],
+          games: 1,
+          points: 24,
+          perGame: 24,
+        },
+      }));
+    }
+    return Promise.resolve(summaryResponse());
+  });
+
+  function Harness() {
+    const [playerId, setPlayerId] = React.useState(7);
+    return (
+      <PlayerQuickView
+        open
+        onClose={jest.fn()}
+        playerId={playerId}
+        playerIds={[7, 9]}
+        onNavigate={setPlayerId}
+      />
+    );
+  }
+
+  renderWithProviders(<Harness />);
+  await screen.findByText('Justin Jefferson');
+  fireEvent.click(screen.getByRole('button', { name: 'Compare' }));
+  expect(screen.getByText(/Justin Jefferson pinned/)).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Next player' }));
+
+  const comparison = await screen.findByTestId('player-comparison');
+  expect(comparison).toHaveTextContent('Justin Jefferson');
+  expect(comparison).toHaveTextContent('6 Rec, 90 Rec Yds');
+  expect(comparison).toHaveTextContent('JaMarr Chase');
+  expect(comparison).toHaveTextContent('10 Rec, 140 Rec Yds');
 });
 
 test('no nav arrows when no player list is provided', async () => {

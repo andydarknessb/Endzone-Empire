@@ -42,6 +42,37 @@ function isTypingTarget(el) {
   return !!(el.closest && el.closest('.MuiToggleButtonGroup-root'));
 }
 
+function comparisonLine(summary) {
+  const current = summary?.currentSeason;
+  const weekly = Array.isArray(current?.weekly) ? current.weekly : [];
+  const latest = [...weekly].sort((a, b) => Number(b.week) - Number(a.week))[0];
+  return {
+    player: summary?.player,
+    projected: summary?.fantasy?.projectedPoints,
+    points: current?.points,
+    perGame: current?.perGame,
+    latest: latest ? statLine(latest.stats) : '',
+  };
+}
+
+function ComparisonCard({ summary }) {
+  const line = comparisonLine(summary);
+  return (
+    <Paper variant="outlined" sx={{ p: 1.5, minWidth: 0 }}>
+      <Typography variant="subtitle2" noWrap>{line.player?.name}</Typography>
+      <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+        Projected: {line.projected ?? '—'}
+      </Typography>
+      <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+        FPTS: {line.points ?? '—'} · FPTS/G: {line.perGame ?? '—'}
+      </Typography>
+      <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'text.secondary' }}>
+        {line.latest || 'No current-season stat line'}
+      </Typography>
+    </Paper>
+  );
+}
+
 /**
  * @param playerIds  Optional ordered id list the dialog was opened from; enables
  *                   prev/next arrows + Left/Right arrow-key navigation.
@@ -54,6 +85,7 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [view, setView] = useState(lastView);
+  const [pinnedComparison, setPinnedComparison] = useState(null);
 
   const navIds = Array.isArray(playerIds) ? playerIds : null;
   const navIndex = navIds ? navIds.indexOf(playerId) : -1;
@@ -82,6 +114,10 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
     return () => window.removeEventListener('keydown', onKey);
     // Recreated when the position in the list changes so the closures stay fresh.
   }, [open, navIndex, canPrev, canNext]);
+
+  useEffect(() => {
+    if (!open) setPinnedComparison(null);
+  }, [open]);
 
   useEffect(() => {
     if (!open || !playerId) return;
@@ -184,6 +220,15 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
         <Box sx={{ display: 'flex', alignItems: 'center' }}>
           {navIds && (
             <>
+              {navIndex >= 0 && (
+                <Typography
+                  variant="caption"
+                  aria-label={`Player ${navIndex + 1} of ${navIds.length}`}
+                  sx={{ color: 'text.secondary', whiteSpace: 'nowrap', px: 0.5 }}
+                >
+                  {navIndex + 1} of {navIds.length}
+                </Typography>
+              )}
               <IconButton aria-label="Previous player" onClick={goPrev} disabled={!canPrev} size="small">
                 ‹
               </IconButton>
@@ -346,6 +391,39 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
                   </TableBody>
                 </Table>
               </TableContainer>
+            )}
+
+            {navIds && navIds.length > 1 && (
+              <Box sx={{ mt: 2 }}>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => setPinnedComparison((current) => (current ? null : data))}
+                >
+                  {pinnedComparison ? 'Clear compare' : 'Compare'}
+                </Button>
+                {pinnedComparison && pinnedComparison.player?.id === player.id && (
+                  <Typography variant="caption" sx={{ color: 'text.secondary', ml: 1 }}>
+                    {player.name} pinned. Choose another player.
+                  </Typography>
+                )}
+              </Box>
+            )}
+
+            {pinnedComparison && pinnedComparison.player?.id !== player.id && (
+              <Box component="section" aria-label="Player comparison" data-testid="player-comparison" sx={{ mt: 2 }}>
+                <Typography variant="subtitle2" sx={{ mb: 1 }}>Comparison</Typography>
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' },
+                    gap: 1,
+                  }}
+                >
+                  <ComparisonCard summary={pinnedComparison} />
+                  <ComparisonCard summary={data} />
+                </Box>
+              </Box>
             )}
 
             {Array.isArray(actions) && actions.length > 0 && (
