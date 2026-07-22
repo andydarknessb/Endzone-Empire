@@ -190,6 +190,7 @@ describe('StickyScoreboard', () => {
         awayScore={65.2}
         homeProb={0.6}
         final={false}
+        isLive
       />
     );
     expect(screen.getByText('Team A 78.4 — 65.2 Team B')).toBeInTheDocument();
@@ -208,6 +209,22 @@ describe('StickyScoreboard', () => {
       />
     );
     expect(screen.getByText('Final')).toBeInTheDocument();
+  });
+
+  test('shows Not started without a win-probability bar before kickoff', () => {
+    render(
+      <StickyScoreboard
+        homeName="Team A"
+        awayName="Team B"
+        homeScore={0}
+        awayScore={0}
+        homeProb={0.5}
+        final={false}
+        isLive={false}
+      />
+    );
+    expect(screen.getByText('Not started')).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: /Win probability:/i })).not.toBeInTheDocument();
   });
 });
 

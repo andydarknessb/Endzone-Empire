@@ -6,6 +6,7 @@ import apiClient from '../../api/apiClient';
 import { createDraftSocket, onReconnect } from '../../api/socket';
 import MatchupDetail from './MatchupDetail';
 import useFantasyMatchupGames from '../../hooks/useFantasyMatchupGames';
+import { useLeague } from '../../hooks/useLeague';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
@@ -20,6 +21,10 @@ jest.mock('../../api/socket', () => ({
 jest.mock('../../hooks/useFantasyMatchupGames', () => ({
   __esModule: true,
   default: jest.fn(),
+}));
+
+jest.mock('../../hooks/useLeague', () => ({
+  useLeague: jest.fn(),
 }));
 
 // Stubbed so the ticker tests are isolated from useLiveGameRealtime/Supabase —
@@ -83,6 +88,18 @@ beforeEach(() => {
   socketHandlers = {};
   reconnectHandlers = [];
   useFantasyMatchupGames.mockReturnValue({ realGameIds: [], loading: false, error: null });
+  useLeague.mockReturnValue({
+    league: {
+      id: 1,
+      name: 'Sunday Ballers',
+      draft_status: 'complete',
+      season_status: 'regular',
+      current_season: 2026,
+      current_week: 3,
+    },
+    loading: false,
+    error: null,
+  });
   mockSocket = {
     on: jest.fn((event, cb) => {
       socketHandlers[event] = cb;
@@ -123,6 +140,39 @@ test('renders both teams starters with points and coerced scores', async () => {
   expect(screen.getByText('24.1')).toBeInTheDocument();
   expect(screen.getByText('D. Adams')).toBeInTheDocument();
   expect(screen.getByText('15.4')).toBeInTheDocument();
+});
+
+test('renders a pre-draft matchup as Not started and never LIVE', async () => {
+  useLeague.mockReturnValue({
+    league: {
+      id: 1,
+      name: 'Sunday Ballers',
+      draft_status: 'pending',
+      season_status: 'regular',
+      current_season: 2026,
+      current_week: 1,
+    },
+    loading: false,
+    error: null,
+  });
+  apiClient.get.mockResolvedValue(
+    matchupResponse({ matchup: { week: 1, home_score: '0', away_score: '0' } })
+  );
+
+  renderDetail();
+
+  expect((await screen.findAllByText('Not started')).length).toBeGreaterThan(0);
+  expect(screen.queryByText('LIVE')).not.toBeInTheDocument();
+  expect(screen.queryByRole('img', { name: /Win probability:/i })).not.toBeInTheDocument();
+});
+
+test('renders LIVE for a genuinely in-progress current-week matchup', async () => {
+  apiClient.get.mockResolvedValue(matchupResponse());
+
+  renderDetail();
+
+  expect((await screen.findAllByText('LIVE')).length).toBeGreaterThan(0);
+  expect(screen.queryByText('Not started')).not.toBeInTheDocument();
 });
 
 test('renders an injury badge for a flagged starter', async () => {

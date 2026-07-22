@@ -48,6 +48,7 @@ function MatchupDetail() {
   const [whatIf, setWhatIf] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [receivedLiveScore, setReceivedLiveScore] = useState(false);
 
   const [homeBenchLeft, setHomeBenchLeft] = useState(null);
   const [awayBenchLeft, setAwayBenchLeft] = useState(null);
@@ -78,6 +79,7 @@ function MatchupDetail() {
     try {
       setLoading(true);
       setError(null);
+      setReceivedLiveScore(false);
       const res = await apiClient.get(`/api/league/${leagueId}/matchups/${matchupId}`);
       setMatchup(res.data.matchup);
       setHome(res.data.home);
@@ -161,6 +163,7 @@ function MatchupDetail() {
     socket.on('scores:updated', (data) => {
       const scored = (data.scored || []).find((s) => s.matchupId === Number(matchupId));
       if (scored) {
+        setReceivedLiveScore(true);
         setMatchup((prev) =>
           prev ? { ...prev, home_score: scored.homeScore, away_score: scored.awayScore } : prev
         );
@@ -296,7 +299,16 @@ function MatchupDetail() {
     homeProjectedTotal: home?.projectedTotal || 0,
     awayProjectedTotal: away?.projectedTotal || 0,
   });
-  const showLive = matchup && !matchup.final;
+  const isCurrentSeason = Number(matchup?.season) === Number(league?.current_season);
+  const isCurrentWeek = Number(matchup?.week) === Number(league?.current_week);
+  const hasRecordedScore = homeScore !== 0 || awayScore !== 0;
+  const showLive = !!matchup
+    && !matchup.final
+    && league?.draft_status === 'complete'
+    && league?.season_status !== 'complete'
+    && isCurrentSeason
+    && isCurrentWeek
+    && (receivedLiveScore || hasRecordedScore);
   const currentCutscene = cutsceneQueue[0] || null;
 
   return (
@@ -315,7 +327,9 @@ function MatchupDetail() {
               {matchup.is_playoff && <Chip label="Playoff" />}
               {matchup.final
                 ? <Chip label="Final" color="success" />
-                : <Chip label="LIVE" color="error" />}
+                : showLive
+                  ? <Chip label="LIVE" color="error" />
+                  : <Chip label="Not started" variant="outlined" />}
             </Box>
             <ToggleButtonGroup
               size="small"
@@ -393,6 +407,7 @@ function MatchupDetail() {
                 awayScore={awayScore}
                 homeProb={winProb.home}
                 final={matchup.final}
+                isLive={showLive}
               />
 
               {showLive && (

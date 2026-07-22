@@ -90,7 +90,7 @@ WinProbabilityBar.propTypes = {
 // --- Sticky compact scoreboard ----------------------------------------------
 
 /** Stays pinned to the top of the viewport so the score is visible while scrolling the roster. */
-export function StickyScoreboard({ homeName, awayName, homeScore, awayScore, homeProb, final: isFinal }) {
+export function StickyScoreboard({ homeName, awayName, homeScore, awayScore, homeProb, final: isFinal, isLive }) {
   const home = Math.max(0, Math.min(1, Number(homeProb) || 0));
   return (
     <Box
@@ -114,23 +114,27 @@ export function StickyScoreboard({ homeName, awayName, homeScore, awayScore, hom
         </Typography>
         {isFinal
           ? <Chip label="Final" color="success" size="small" />
-          : <Chip label="LIVE" color="error" size="small" />}
+          : isLive
+            ? <Chip label="LIVE" color="error" size="small" />
+            : <Chip label="Not started" variant="outlined" size="small" />}
       </Box>
-      <Box
-        role="img"
-        aria-label={`Win probability: ${homeName} ${Math.round(home * 100)}%, ${awayName} ${Math.round((1 - home) * 100)}%`}
-        sx={{
-          display: 'flex',
-          height: 4,
-          borderRadius: 2,
-          overflow: 'hidden',
-          mt: 0.75,
-          bgcolor: 'action.hover',
-        }}
-      >
-        <Box sx={{ width: `${home * 100}%`, bgcolor: 'primary.main', transition: 'width 0.8s ease' }} />
-        <Box sx={{ width: `${(1 - home) * 100}%`, bgcolor: 'secondary.main', transition: 'width 0.8s ease' }} />
-      </Box>
+      {(isLive || isFinal) && (
+        <Box
+          role="img"
+          aria-label={`Win probability: ${homeName} ${Math.round(home * 100)}%, ${awayName} ${Math.round((1 - home) * 100)}%`}
+          sx={{
+            display: 'flex',
+            height: 4,
+            borderRadius: 2,
+            overflow: 'hidden',
+            mt: 0.75,
+            bgcolor: 'action.hover',
+          }}
+        >
+          <Box sx={{ width: `${home * 100}%`, bgcolor: 'primary.main', transition: 'width 0.8s ease' }} />
+          <Box sx={{ width: `${(1 - home) * 100}%`, bgcolor: 'secondary.main', transition: 'width 0.8s ease' }} />
+        </Box>
+      )}
     </Box>
   );
 }
@@ -142,6 +146,7 @@ StickyScoreboard.propTypes = {
   awayScore: PropTypes.number,
   homeProb: PropTypes.number,
   final: PropTypes.bool,
+  isLive: PropTypes.bool,
 };
 
 // --- Expandable starter list with pace bars --------------------------------

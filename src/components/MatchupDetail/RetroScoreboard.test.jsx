@@ -29,9 +29,9 @@ test('renders the league name, both team names, and rounded scores', () => {
   expect(screen.getByText('88')).toBeInTheDocument();
 });
 
-test('shows VS before kickoff, LIVE while in progress, and FINAL once over', () => {
+test('shows NOT STARTED before kickoff, LIVE while in progress, and FINAL once over', () => {
   const { rerender } = renderScoreboard({ isFinal: false, isLive: false });
-  expect(screen.getByText('VS')).toBeInTheDocument();
+  expect(screen.getByText('NOT STARTED')).toBeInTheDocument();
 
   rerender(
     <ThemeProvider theme={createTheme()}>

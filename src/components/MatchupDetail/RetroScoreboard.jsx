@@ -37,7 +37,7 @@ function RetroScoreboard({ leagueName, homeName, awayName, homeScore, awayScore,
           </Typography>
         </Box>
         <Typography sx={{ ...textStyle('0.85rem', 0.7), px: 1 }}>
-          {isFinal ? 'FINAL' : isLive ? 'LIVE' : 'VS'}
+          {isFinal ? 'FINAL' : isLive ? 'LIVE' : 'NOT STARTED'}
         </Typography>
         <Box sx={{ minWidth: 0, textAlign: 'right' }}>
           <Typography noWrap sx={{ ...textStyle({ xs: '0.85rem', sm: '1.25rem' }) }}>
