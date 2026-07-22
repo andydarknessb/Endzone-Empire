@@ -12,6 +12,7 @@ import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import PlayerAvatar from '../PlayerQuickView/PlayerAvatar';
 import PositionChip from '../PlayerQuickView/PositionChip';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
+import AbbreviationTooltip from '../common/AbbreviationTooltip';
 
 // DE/DT/LB/CB/S/DB are individual defenders (DP-enabled leagues) — literal
 // Tank01 position codes, not the DL/LB/DB roster-eligibility group keys.
@@ -278,6 +279,16 @@ function PlayerManagement() {
                 </TableSortLabel>
               </TableCell>
               <TableCell sx={headCellSx} align="right">Position</TableCell>
+              <TableCell sx={headCellSx} align="right">
+                <TableSortLabel
+                  active={sort === 'position_rank'}
+                  direction={sort === 'position_rank' ? dir : 'asc'}
+                  onClick={() => handleSort('position_rank')}
+                  sx={sortLabelSx}
+                >
+                  <AbbreviationTooltip term="Pos rank" />
+                </TableSortLabel>
+              </TableCell>
               <TableCell sx={headCellSx} align="right">NFL Team</TableCell>
               <TableCell sx={headCellSx} align="right">
                 <TableSortLabel
@@ -286,7 +297,17 @@ function PlayerManagement() {
                   onClick={() => handleSort('adp')}
                   sx={sortLabelSx}
                 >
-                  ADP
+                  <AbbreviationTooltip term="ADP" />
+                </TableSortLabel>
+              </TableCell>
+              <TableCell sx={headCellSx} align="right">
+                <TableSortLabel
+                  active={sort === 'projected_points'}
+                  direction={sort === 'projected_points' ? dir : 'asc'}
+                  onClick={() => handleSort('projected_points')}
+                  sx={sortLabelSx}
+                >
+                  <AbbreviationTooltip term="Projected" />
                 </TableSortLabel>
               </TableCell>
               <TableCell sx={stickyActionHeadSx} align="right">Actions</TableCell>
@@ -295,7 +316,7 @@ function PlayerManagement() {
           <TableBody>
             {shownPlayers.length === 0 && (
               <TableRow>
-                <TableCell colSpan={6} sx={{ color: 'text.secondary', textAlign: 'center' }}>
+                <TableCell colSpan={8} sx={{ color: 'text.secondary', textAlign: 'center' }}>
                   {search ? `No players matching “${search}”` : 'No players found'}
                 </TableCell>
               </TableRow>
@@ -321,8 +342,12 @@ function PlayerManagement() {
                   </Box>
                 </TableCell>
                 <TableCell align="right"><PositionChip position={player.position} /></TableCell>
+                <TableCell align="right">{player.position_rank != null ? `#${player.position_rank}` : '—'}</TableCell>
                 <TableCell align="right">{player.nfl_team}</TableCell>
                 <TableCell align="right">{player.adp != null ? player.adp : '—'}</TableCell>
+                <TableCell align="right">
+                  {player.projected_points != null ? Number(player.projected_points).toFixed(1) : '—'}
+                </TableCell>
                 <TableCell align="right" sx={stickyActionCellSx}>
                   <Tooltip title={!selectedLeague ? 'Select a league first' : ''}>
                     <span>

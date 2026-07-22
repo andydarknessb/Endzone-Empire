@@ -29,6 +29,7 @@ import PlaylistAddIcon from '@mui/icons-material/PlaylistAdd';
 import InjuryBadge from '../InjuryBadge/InjuryBadge';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import PositionChip from '../PlayerQuickView/PositionChip';
+import AbbreviationTooltip from '../common/AbbreviationTooltip';
 
 // Muted, dark-mode-friendly header: a step off the surrounding Paper instead
 // of a saturated brand color, with a divider rule to separate it from rows.
@@ -175,7 +176,7 @@ function PlayerPoolTable({
                   direction={sort === 'adp' ? dir : 'asc'}
                   onClick={() => onSort('adp')}
                 >
-                  ADP
+                  <AbbreviationTooltip term="ADP" />
                 </TableSortLabel>
               </TableCell>
               <TableCell sx={headCellSx} align="right">
@@ -184,7 +185,7 @@ function PlayerPoolTable({
                   direction={sort === 'proj' ? dir : 'asc'}
                   onClick={() => onSort('proj')}
                 >
-                  Season Proj
+                  <AbbreviationTooltip term="Projected" label="Season Proj" />
                 </TableSortLabel>
               </TableCell>
               <TableCell sx={stickyActionHeadSx} align="center">

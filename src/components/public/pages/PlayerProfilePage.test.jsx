@@ -105,6 +105,27 @@ test('defaults to half-PPR and updates every points readout when the format chan
   expect(screen.getByText('19.6')).toBeInTheDocument(); // wk1 standard
 });
 
+test('stat labels expose the shared FPTS/G definition and preserve the ADP definition', async () => {
+  renderPage();
+  await screen.findByRole('heading', { name: 'Alpha Back' });
+
+  const perGameDefinition = screen.getByLabelText('FPTS/G definition');
+  fireEvent.mouseOver(perGameDefinition);
+  expect(await screen.findByRole('tooltip')).toHaveTextContent(
+    'Fantasy points per game: total fantasy points divided by games played.'
+  );
+  fireEvent.mouseLeave(perGameDefinition);
+  await waitFor(() => expect(screen.queryByText(
+    'Fantasy points per game: total fantasy points divided by games played.'
+  )).not.toBeInTheDocument());
+
+  const adpDefinition = screen.getByLabelText('ADP definition');
+  fireEvent.mouseOver(adpDefinition);
+  expect(await screen.findByText(
+    'Average draft position: the typical pick where this player is selected.'
+  )).toBeInTheDocument();
+});
+
 test('shows the partial-weekly affordance when weekly rows lag games played', async () => {
   renderPage();
   await screen.findByRole('heading', { name: 'Alpha Back' });

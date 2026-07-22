@@ -98,6 +98,22 @@ test('clicking "Add to Roster" posts the player and league, then refetches the r
   );
 });
 
+test('player stat headers expose shared definitions and keep projection sorting', async () => {
+  mockDefaultApi({
+    players: [player({ position_rank: 2, projected_points: 211.4 })],
+  });
+  renderWithProviders(<PlayerManagement />);
+
+  await screen.findByText('Patrick Mahomes');
+  expect(screen.getByLabelText(/Pos rank: Position rank:/)).toBeInTheDocument();
+  expect(screen.getByLabelText(/ADP: Average draft position:/)).toBeInTheDocument();
+  const projectedSort = screen.getByRole('button', { name: /Projected fantasy points:/ });
+  await userEvent.click(projectedSort);
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
+    params: { page: 1, position: 'All', sort: 'projected_points' },
+  }));
+});
+
 test('clicking "Remove" in the roster section deletes the player for the selected league', async () => {
   mockDefaultApi({ roster: [player({ id: 3, name: 'Bench Him' })] });
   apiClient.delete.mockResolvedValue({});

@@ -64,6 +64,7 @@ describe('RankingTable states', () => {
     expect(link).toHaveAttribute('href', '/players/9');
     expect(screen.getByText('Big Wideout')).toBeInTheDocument();
     expect(screen.getAllByText(/Tier 1/).length).toBeGreaterThan(0);
+    expect(screen.getByLabelText(/Proj: Projected fantasy points:/)).toBeInTheDocument();
   });
 
   it('hides Last Wk until at least one row contains last-week data', () => {
@@ -119,5 +120,6 @@ describe('RankingTable states', () => {
     expect(screen.getByRole('list', { name: 'NFL player rankings' })).toBeInTheDocument();
     expect(screen.getAllByRole('listitem')).toHaveLength(2);
     expect(screen.getAllByText('Projected')).toHaveLength(2);
+    expect(screen.getAllByLabelText(/Projected: Projected fantasy points:/)).toHaveLength(2);
   });
 });

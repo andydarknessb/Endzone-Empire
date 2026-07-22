@@ -743,6 +743,7 @@ test('shows projected points and injury badges in the available players table', 
   expect(screen.getByText('21.5')).toBeInTheDocument();
   expect(screen.getByText('Q')).toBeInTheDocument();
   expect(screen.getByText('3.2')).toBeInTheDocument(); // Josh Allen's ADP
+  expect(screen.getByLabelText(/Season Proj: Projected fantasy points:/)).toBeInTheDocument();
   expect(screen.getAllByText('—').length).toBeGreaterThan(0); // missing proj/adp render as —
   // The name is a quick-view trigger (a button), not a navigation link.
   expect(screen.getByRole('button', { name: 'Patrick Mahomes' })).toBeInTheDocument();

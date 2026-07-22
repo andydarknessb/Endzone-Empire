@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen, fireEvent, waitFor } from '@testing-library/react';
+import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import PlayerQuickView from './PlayerQuickView';
@@ -201,6 +201,8 @@ test('Compare pins the first player and renders two stat lines after navigation'
   expect(comparison).toHaveTextContent('6 Rec, 90 Rec Yds');
   expect(comparison).toHaveTextContent('JaMarr Chase');
   expect(comparison).toHaveTextContent('10 Rec, 140 Rec Yds');
+  expect(within(comparison).getAllByLabelText(/Projected: Projected fantasy points:/)).toHaveLength(2);
+  expect(within(comparison).getAllByLabelText(/FPTS\/G: Fantasy points per game:/)).toHaveLength(2);
 });
 
 test('a pinned player survives closing the modal and opening another row', async () => {
@@ -286,8 +288,11 @@ test('shows the fantasy strip: ADP, projection, and last-season total', async ()
   expect(await screen.findByText('Justin Jefferson')).toBeInTheDocument();
   const strip = screen.getByTestId('fantasy-strip');
   expect(strip).toHaveTextContent('ADP 3.4');
-  expect(strip).toHaveTextContent('2026 proj: 299.2 pts');
+  expect(strip).toHaveTextContent('Projected (2026): 299.2 pts');
   expect(strip).toHaveTextContent('2025: 300 pts');
+  expect(screen.getByLabelText(/ADP: Average draft position:/)).toBeInTheDocument();
+  expect(screen.getByLabelText(/Projected: Projected fantasy points:/)).toBeInTheDocument();
+  expect(screen.getByLabelText(/FPTS\/G: Fantasy points per game:/)).toBeInTheDocument();
 });
 
 test('fantasy strip is hidden when there is no ADP/projection/prior data', async () => {
@@ -313,6 +318,7 @@ test('toggle switches from Current Season weekly table to Previous Seasons table
 
   expect(screen.getByText('110 Rec, 1500 Rec Yds, 10 Rec TD')).toBeInTheDocument();
   expect(screen.getByText('2025')).toBeInTheDocument();
+  expect(screen.getByLabelText(/FPTS\/G: Fantasy points per game:/)).toBeInTheDocument();
 });
 
 test('previousSeasons: [] shows the "No previous-season data" empty state', async () => {

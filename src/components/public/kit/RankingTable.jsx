@@ -14,6 +14,7 @@ import SwapVertIcon from '@mui/icons-material/SwapVert';
 import { positionColorVar } from './positionColor';
 import { LoadingRows, EmptyState, ErrorState } from './DataState';
 import { deriveProjectionTiers, orderRowsByPosition } from './rankingTiers';
+import AbbreviationTooltip from '../../common/AbbreviationTooltip';
 
 const TREND_VALUES = { down: -1, flat: 0, up: 1 };
 
@@ -84,7 +85,7 @@ function MobileRankings({ rows, tiers, showTierBands, orderBy, order, sortHandle
           ['trend', 'Trend'],
         ].map(([key, label]) => (
           <Button key={key} size="small" variant={orderBy === key ? 'contained' : 'outlined'} onClick={sortHandler(key)}>
-            {label}
+            {key === 'projectedPoints' ? <AbbreviationTooltip term="Projected" label={label} /> : label}
           </Button>
         ))}
         <Tooltip title={`Sort ${order === 'asc' ? 'descending' : 'ascending'}`}>
@@ -110,7 +111,7 @@ function MobileRankings({ rows, tiers, showTierBands, orderBy, order, sortHandle
                 </Stack>
                 <Stack direction="row" divider={<Box sx={{ borderLeft: '1px solid var(--border-subtle)' }} />} sx={{ mt: 1.5, pt: 1.25, borderTop: '1px solid var(--border-subtle)' }}>
                   <Box sx={{ flex: 1 }}>
-                    <Typography variant="caption" sx={{ color: 'text.secondary' }}>Projected</Typography>
+                    <Typography variant="caption" sx={{ color: 'text.secondary' }}><AbbreviationTooltip term="Projected" /></Typography>
                     <Typography variant="stat" component="div" sx={{ fontWeight: 800 }}>{row.projectedPoints ?? '—'}</Typography>
                   </Box>
                   <Box sx={{ flex: 1, pl: 2 }}>
@@ -192,7 +193,7 @@ function RankingTable({ rows = [], loading = false, error = false, onRetry, empt
                 <TableCell key={key} align={key === 'trend' ? 'center' : 'right'} sortDirection={orderBy === key ? order : false} sx={{ fontWeight: 700 }}>
                   {key === 'lastWeekPoints' ? label : (
                     <TableSortLabel active={orderBy === key} direction={orderBy === key ? order : 'desc'} onClick={sortHandler(key)}>
-                      {label}
+                      {key === 'projectedPoints' ? <AbbreviationTooltip term="Projected" label={label} /> : label}
                     </TableSortLabel>
                   )}
                 </TableCell>

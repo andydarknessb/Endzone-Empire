@@ -15,6 +15,7 @@ import { positionColorVar } from '../kit/positionColor';
 import { sortGamesByWeek } from '../kit/gameLog';
 import { SCORING_FORMATS, DEFAULT_FORMAT, formatLabel, pointsFor } from '../kit/scoringFormat';
 import publicApiClient from '../../../api/publicApiClient';
+import { STAT_DEFINITIONS } from '../../common/AbbreviationTooltip';
 
 function StatCard({ label, value, tooltip }) {
   return (
@@ -256,9 +257,9 @@ export function ProfileBody({
           {/* Stat cards */}
           <Grid container spacing={2} sx={{ mb: 3 }}>
             <Grid xs={6} md={3}><StatCard label="Games" value={s?.gamesPlayed} /></Grid>
-            <Grid xs={6} md={3}><StatCard label="Points / game" value={perGame} /></Grid>
+            <Grid xs={6} md={3}><StatCard label="FPTS/G" value={perGame} tooltip={STAT_DEFINITIONS['FPTS/G']} /></Grid>
             <Grid xs={6} md={3}><StatCard label="Season points" value={seasonPoints} /></Grid>
-            <Grid xs={6} md={3}><StatCard label="ADP" value={player.adp} tooltip="Average draft position: the typical pick where this player is selected." /></Grid>
+            <Grid xs={6} md={3}><StatCard label="ADP" value={player.adp} tooltip={STAT_DEFINITIONS.ADP} /></Grid>
           </Grid>
 
           {/* Recent games */}

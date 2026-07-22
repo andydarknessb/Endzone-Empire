@@ -28,6 +28,7 @@ import InjuryBadge from '../InjuryBadge/InjuryBadge';
 import PlayerAvatar from './PlayerAvatar';
 import PositionChip from './PositionChip';
 import { statLine } from './statLine';
+import AbbreviationTooltip from '../common/AbbreviationTooltip';
 
 // Module-level: persists the last-selected toggle across dialog opens for the
 // duration of the session (resets on full page reload). Intentionally not
@@ -61,10 +62,10 @@ function ComparisonCard({ summary }) {
     <Paper variant="outlined" sx={{ p: 1.5, minWidth: 0 }}>
       <Typography variant="subtitle2" noWrap>{line.player?.name}</Typography>
       <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-        Projected: {line.projected ?? '—'}
+        <AbbreviationTooltip term="Projected" />: {line.projected ?? '—'}
       </Typography>
       <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-        FPTS: {line.points ?? '—'} · FPTS/G: {line.perGame ?? '—'}
+        FPTS: {line.points ?? '—'} · <AbbreviationTooltip term="FPTS/G" />: {line.perGame ?? '—'}
       </Typography>
       <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'text.secondary' }}>
         {line.latest || 'No current-season stat line'}
@@ -284,13 +285,13 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
             {hasFantasy && (
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 2 }} data-testid="fantasy-strip">
                 {fantasy.adp != null && (
-                  <Chip size="small" variant="outlined" label={`ADP ${fantasy.adp}`} />
+                  <Chip size="small" variant="outlined" label={<><AbbreviationTooltip term="ADP" /> {fantasy.adp}</>} />
                 )}
                 {fantasy.projectedPoints != null && (
                   <Chip
                     size="small"
                     color="info"
-                    label={`${fantasy.projectionSeason} proj: ${fantasy.projectedPoints} pts`}
+                    label={<><AbbreviationTooltip term="Projected" /> ({fantasy.projectionSeason}): {fantasy.projectedPoints} pts</>}
                   />
                 )}
                 {fantasy.previousSeasonTotal != null && (
@@ -325,7 +326,7 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
                     <Chip label={`Games: ${currentSeason.games}`} />
                     <Chip label={`Points: ${currentSeason.points}`} color="success" />
                     {currentSeason.perGame != null && (
-                      <Chip label={`Pts/G: ${currentSeason.perGame}`} color="info" />
+                      <Chip label={<><AbbreviationTooltip term="FPTS/G" />: {currentSeason.perGame}</>} color="info" />
                     )}
                   </Box>
                   <TableContainer component={Paper}>
@@ -370,7 +371,7 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
                         FPTS
                       </TableCell>
                       <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }} align="right">
-                        FPTS/G
+                        <AbbreviationTooltip term="FPTS/G" />
                       </TableCell>
                     </TableRow>
                   </TableHead>
