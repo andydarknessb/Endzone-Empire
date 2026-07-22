@@ -1,11 +1,56 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { byeWeekFromPlayedWeeks, REG_SEASON_WEEKS } = require('../services/bye.service');
 const {
   slotEligible,
   validateLineup,
   parseLineupSettings,
+  annotateLineupEntries,
   DEFAULT_ROSTER_SLOTS,
 } = require('../services/lineup.service');
+
+test('annotateLineupEntries derives onBye only from the canonical bye week', () => {
+  const selectedWeek = 6;
+  const entries = annotateLineupEntries(
+    [
+      { id: 1, name: 'Justin Jefferson', nfl_team: 'MIN' },
+      { id: 2, name: 'Josh Allen', nfl_team: 'BUF' },
+      { id: 3, name: 'Patrick Mahomes', nfl_team: 'KC' },
+    ],
+    {
+      locked: new Set(['BUF']),
+      byeByTeam: new Map([['MIN', 6], ['BUF', 7], ['KC', null]]),
+      selectedWeek,
+    }
+  );
+
+  assert.equal(entries[0].bye_week, selectedWeek);
+  assert.equal(entries[0].onBye, true);
+  assert.equal(entries[1].bye_week, 7);
+  assert.equal(entries[1].onBye, false);
+  assert.equal(entries[1].locked, true);
+  assert.equal(entries[2].bye_week, null);
+  assert.equal(entries[2].onBye, false);
+  assert.equal(entries[0].name, 'Justin Jefferson');
+  for (const entry of entries.filter((row) => row.onBye)) {
+    assert.equal(entry.bye_week, selectedWeek);
+  }
+});
+
+test('annotateLineupEntries does not treat an incomplete schedule gap as a bye', () => {
+  const playedWeeks = new Set(Array.from({ length: REG_SEASON_WEEKS }, (_, index) => index + 1));
+  playedWeeks.delete(6); // actual bye
+  playedWeeks.delete(10); // missing game row, not a bye
+  const byeWeek = byeWeekFromPlayedWeeks(playedWeeks);
+
+  const [entry] = annotateLineupEntries(
+    [{ id: 1, nfl_team: 'MIN' }],
+    { locked: new Set(), byeByTeam: new Map([['MIN', byeWeek]]), selectedWeek: 10 }
+  );
+
+  assert.equal(entry.bye_week, null);
+  assert.equal(entry.onBye, false);
+});
 
 test('slotEligible: exact-position slots take only that position', () => {
   assert.equal(slotEligible('QB', 'QB'), true);

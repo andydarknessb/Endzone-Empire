@@ -4,9 +4,9 @@ const REG_SEASON_WEEKS = 18;
 
 /**
  * Pure: given the regular-season weeks a team HAS a game in (a Set or an
- * iterable of week numbers), return the team's bye week — the first week in
- * 1..18 with no game. Returns null when the schedule is unknown (no games) or
- * complete (every week played, i.e. no gap). Extracted so the derivation is
+ * iterable of week numbers), return the team's bye week when exactly one week
+ * in 1..18 has no game. Returns null when the schedule is unknown, incomplete
+ * (multiple gaps), or complete (no gap). Extracted so the derivation is
  * unit-testable without a database.
  */
 function byeWeekFromPlayedWeeks(playedWeeks) {
@@ -14,19 +14,19 @@ function byeWeekFromPlayedWeeks(playedWeeks) {
   const played = playedWeeks instanceof Set
     ? playedWeeks
     : new Set([...playedWeeks].map(Number));
-  if (played.size === 0) return null; // schedule not synced for this team
+  const missing = [];
   for (let week = 1; week <= REG_SEASON_WEEKS; week++) {
-    if (!played.has(week)) return week;
+    if (!played.has(week)) missing.push(week);
   }
-  return null;
+  return missing.length === 1 ? missing[0] : null;
 }
 
 /**
  * Batched bye-week lookup. Resolves the bye week for many NFL teams in a
  * single query, so a caller annotating a whole roster or lineup doesn't fan
  * out one query per player. Returns a Map<nflTeam, week|null>; a team with no
- * schedule rows (unsynced) or no gap maps to null. Unknown/blank team codes
- * are ignored.
+ * schedule rows (unsynced), multiple gaps (incomplete), or no gap maps to
+ * null. Unknown/blank team codes are ignored.
  */
 async function computeByeWeeks(nflTeams, season) {
   const teams = [...new Set((nflTeams || []).filter(Boolean))];
@@ -52,8 +52,8 @@ async function computeByeWeeks(nflTeams, season) {
 
 /**
  * A single team's bye week for a season (thin wrapper over computeByeWeeks).
- * Returns the regular-season week (1..18) with no nfl_games row, or null when
- * the schedule isn't synced or nothing is missing.
+ * Returns the sole regular-season week (1..18) with no nfl_games row, or null
+ * when the schedule is unknown, incomplete, or has no gap.
  */
 async function computeByeWeek(nflTeam, season) {
   if (!nflTeam) return null;

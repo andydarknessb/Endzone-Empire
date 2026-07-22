@@ -1,4 +1,5 @@
 const pool = require('../modules/pool');
+const { computeByeWeeks } = require('./bye.service');
 
 class LineupError extends Error {
   constructor(statusCode, message, code = null) {
@@ -161,13 +162,17 @@ async function lockedNflTeams(client, { season, week, now = new Date() }) {
   return new Set(result.rows.map((r) => r.nfl_team));
 }
 
-/** NFL teams that have any scheduled game for (season, week) — for bye detection. */
-async function scheduledNflTeams(client, { season, week }) {
-  const result = await client.query(
-    `SELECT "nfl_team" FROM "nfl_games" WHERE "season" = $1 AND "week" = $2`,
-    [season, week]
-  );
-  return new Set(result.rows.map((r) => r.nfl_team));
+/** Pure: add schedule-derived lock and bye metadata to lineup entries. */
+function annotateLineupEntries(entries, { locked, byeByTeam, selectedWeek }) {
+  return entries.map((row) => {
+    const byeWeek = byeByTeam.get(row.nfl_team) ?? null;
+    return {
+      ...row,
+      bye_week: byeWeek,
+      locked: locked.has(row.nfl_team),
+      onBye: byeWeek === selectedWeek,
+    };
+  });
 }
 
 async function loadLeagueAndTeam(client, { leagueId, userId, forUpdate = false }) {
@@ -188,7 +193,7 @@ async function loadLeagueAndTeam(client, { leagueId, userId, forUpdate = false }
 
 /**
  * Fetch (materializing if needed) the caller's lineup for a week, annotated
- * with per-player locked and onBye flags.
+ * with per-player locked, bye_week, and onBye metadata.
  */
 async function getLineup({ leagueId, userId, week }) {
   const client = await pool.connect();
@@ -216,7 +221,7 @@ async function getLineup({ leagueId, userId, week }) {
       [team.id, season, targetWeek]
     );
     const locked = await lockedNflTeams(client, { season, week: targetWeek });
-    const scheduled = await scheduledNflTeams(client, { season, week: targetWeek });
+    const byeByTeam = await computeByeWeeks(entriesResult.rows.map((row) => row.nfl_team), season);
     await client.query('COMMIT');
 
     const settings = parseLineupSettings(league);
@@ -229,11 +234,7 @@ async function getLineup({ leagueId, userId, week }) {
       rosterSlots: settings.rosterSlots,
       benchSlots: settings.benchSlots,
       irSlots: settings.irSlots,
-      entries: entriesResult.rows.map((row) => ({
-        ...row,
-        locked: locked.has(row.nfl_team),
-        onBye: scheduled.size > 0 && !scheduled.has(row.nfl_team),
-      })),
+      entries: annotateLineupEntries(entriesResult.rows, { locked, byeByTeam, selectedWeek: targetWeek }),
     };
   } catch (error) {
     await client.query('ROLLBACK');
@@ -367,6 +368,7 @@ module.exports = {
   validateLineup,
   materializeLineup,
   lockedNflTeams,
+  annotateLineupEntries,
   getLineup,
   setLineup,
   optimalLineup,
