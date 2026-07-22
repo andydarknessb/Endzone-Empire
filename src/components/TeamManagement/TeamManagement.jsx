@@ -40,14 +40,57 @@ function StatusChip({ status }) {
   );
 }
 
+function TeamSummary({ league, summary }) {
+  if (!league || summary.status === 'idle') return null;
+  if (summary.status === 'loading') {
+    return <Skeleton data-testid="team-summary-skeleton" variant="text" width={220} sx={{ mt: 0.5 }} />;
+  }
+
+  const isPreDraft = league.draft_status === 'pending';
+  const isFaab = league.waiver_type === 'faab';
+  const row = summary.row;
+  const gamesPlayed = row ? row.wins + row.losses + row.ties : 0;
+  const parts = [];
+
+  if (isPreDraft || (row && gamesPlayed === 0)) {
+    parts.push('No record yet');
+  } else if (row) {
+    parts.push(`Record: ${row.wins}-${row.losses}-${row.ties}`);
+    parts.push(`Rank: #${row.rank}`);
+  } else {
+    parts.push('Record unavailable');
+  }
+
+  if (isPreDraft) {
+    parts.push('Waiver order not set');
+  } else if (isFaab) {
+    parts.push(league.my_team_faab_remaining == null
+      ? 'FAAB unavailable'
+      : `FAAB remaining: $${league.my_team_faab_remaining}`);
+  } else {
+    parts.push(league.my_team_waiver_priority == null
+      ? 'Waiver order not set'
+      : `Waiver priority: #${league.my_team_waiver_priority}`);
+  }
+
+  return (
+    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+      {parts.join(' · ')}
+    </Typography>
+  );
+}
+
 function TeamManagement() {
   const [leagues, setLeagues] = useState([]);
   const [selectedLeague, setSelectedLeague] = useState('');
   const [roster, setRoster] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [summary, setSummary] = useState({ status: 'idle', row: null });
   const [quickViewId, setQuickViewId] = useState(null);
   const notify = useSnackbar();
+  const activeLeague = leagues.find((league) => league.id === selectedLeague);
+  const activeTeamId = activeLeague?.my_team_id;
 
   useEffect(() => {
     fetchLeagues();
@@ -56,6 +99,30 @@ function TeamManagement() {
   useEffect(() => {
     if (selectedLeague) fetchRoster(selectedLeague);
   }, [selectedLeague]);
+
+  useEffect(() => {
+    let ignore = false;
+    if (!selectedLeague || activeTeamId == null) {
+      setSummary({ status: 'idle', row: null });
+      return () => { ignore = true; };
+    }
+
+    setSummary({ status: 'loading', row: null });
+    apiClient.get(`/api/scoring/league/${selectedLeague}/standings`)
+      .then((response) => {
+        if (ignore) return;
+        const rows = Array.isArray(response.data?.standings) ? response.data.standings : [];
+        setSummary({
+          status: 'success',
+          row: rows.find((row) => row.teamId === activeTeamId) || null,
+        });
+      })
+      .catch(() => {
+        if (!ignore) setSummary({ status: 'error', row: null });
+      });
+
+    return () => { ignore = true; };
+  }, [selectedLeague, activeTeamId]);
 
   const report = (err) => setError(err.response?.data?.error || err.message);
 
@@ -113,9 +180,9 @@ function TeamManagement() {
     }
   };
 
-  const activeLeague = leagues.find((league) => league.id === selectedLeague);
   const teamName = activeLeague?.my_team_name || 'My Team';
   const showEmptyState = !loading && roster.length === 0;
+  const draftInProgress = activeLeague?.draft_status === 'pending' || activeLeague?.draft_status === 'active';
 
   const handleAvatarUpdated = (team) => {
     setLeagues((prev) => prev.map((league) => (league.id === selectedLeague
@@ -149,6 +216,7 @@ function TeamManagement() {
             )}
             <Box>
               <Typography variant="h4" component="h1">{teamName}</Typography>
+              <TeamSummary league={activeLeague} summary={summary} />
             </Box>
           </Stack>
 
@@ -193,10 +261,16 @@ function TeamManagement() {
             ) : (
               <>
                 <Typography color="text.secondary">
-                  No players rostered yet. Head to the player pool to add players to your team.
+                  {draftInProgress
+                    ? 'No players rostered yet. Head to the Draft Room to build your team.'
+                    : 'No players rostered yet. Head to the player pool to add players to your team.'}
                 </Typography>
-                <Button component={RouterLink} to="/player" variant="contained">
-                  Browse Players
+                <Button
+                  component={RouterLink}
+                  to={draftInProgress ? `/league/${selectedLeague}/draft` : '/player'}
+                  variant="contained"
+                >
+                  {draftInProgress ? 'Draft Room' : 'Browse Players'}
                 </Button>
               </>
             )}

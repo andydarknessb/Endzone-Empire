@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
@@ -14,6 +14,29 @@ jest.mock('../../api/apiClient', () => ({
 afterEach(() => {
   jest.clearAllMocks();
 });
+
+const makeLeague = (overrides = {}) => ({
+  id: 1,
+  name: 'Sunday Ballers',
+  draft_status: 'complete',
+  waiver_type: 'priority',
+  my_team_id: 101,
+  my_team_name: 'Gridiron Guild',
+  my_team_waiver_priority: 3,
+  my_team_faab_remaining: 100,
+  ...overrides,
+});
+
+const makeStanding = (overrides = {}) => ({
+  teamId: 101,
+  wins: 0,
+  losses: 0,
+  ties: 0,
+  rank: 1,
+  ...overrides,
+});
+
+const standingsResponse = (rows) => ({ data: { standings: rows } });
 
 test('fetches leagues, auto-selects the first one, and loads its roster', async () => {
   apiClient.get.mockImplementation((url) => {
@@ -41,9 +64,177 @@ test('shows skeleton rows (not the empty state) while data is loading', () => {
   expect(screen.queryByText(/not in a league yet/i)).not.toBeInTheDocument();
 });
 
-test('shows "No players rostered yet." when the roster is empty', async () => {
+test('shows a compact summary skeleton while standings load', async () => {
   apiClient.get.mockImplementation((url) => {
-    if (url === '/api/league') return Promise.resolve({ data: [{ id: 1, name: 'Sunday Ballers' }] });
+    if (url === '/api/league') return Promise.resolve({ data: [makeLeague()] });
+    if (url.includes('/standings')) return new Promise(() => {});
+    return Promise.resolve({ data: [] });
+  });
+
+  renderWithProviders(<TeamManagement />);
+
+  expect(await screen.findByTestId('team-summary-skeleton')).toBeInTheDocument();
+});
+
+test('renders a pre-draft summary and directs an empty roster to the Draft Room', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/league') {
+      return Promise.resolve({
+        data: [makeLeague({ draft_status: 'pending', my_team_waiver_priority: null })],
+      });
+    }
+    if (url.includes('/standings')) return Promise.resolve(standingsResponse([makeStanding()]));
+    return Promise.resolve({ data: [] });
+  });
+
+  renderWithProviders(<TeamManagement />);
+
+  expect(await screen.findByText('No record yet · Waiver order not set')).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Draft Room' })).toHaveAttribute('href', '/league/1/draft');
+});
+
+test('post-draft zero-game summary omits rank and keeps the real waiver priority', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/league') return Promise.resolve({ data: [makeLeague({ my_team_waiver_priority: 4 })] });
+    if (url.includes('/standings')) return Promise.resolve(standingsResponse([makeStanding({ rank: 2 })]));
+    return Promise.resolve({ data: [] });
+  });
+
+  renderWithProviders(<TeamManagement />);
+
+  expect(await screen.findByText('No record yet · Waiver priority: #4')).toBeInTheDocument();
+  expect(screen.queryByText(/Rank:/)).not.toBeInTheDocument();
+});
+
+test('renders active priority-waiver record, rank, and priority', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/league') return Promise.resolve({ data: [makeLeague()] });
+    if (url.includes('/standings')) {
+      return Promise.resolve(standingsResponse([makeStanding({ wins: 4, losses: 2, ties: 1, rank: 3 })]));
+    }
+    return Promise.resolve({ data: [] });
+  });
+
+  renderWithProviders(<TeamManagement />);
+
+  expect(await screen.findByText('Record: 4-2-1 · Rank: #3 · Waiver priority: #3')).toBeInTheDocument();
+});
+
+test('renders active FAAB record, rank, and remaining balance', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/league') {
+      return Promise.resolve({ data: [makeLeague({ waiver_type: 'faab', my_team_faab_remaining: 85 })] });
+    }
+    if (url.includes('/standings')) {
+      return Promise.resolve(standingsResponse([makeStanding({ wins: 6, losses: 1, rank: 1 })]));
+    }
+    return Promise.resolve({ data: [] });
+  });
+
+  renderWithProviders(<TeamManagement />);
+
+  expect(await screen.findByText('Record: 6-1-0 · Rank: #1 · FAAB remaining: $85')).toBeInTheDocument();
+});
+
+test('keeps the roster visible and real waiver data when standings are unavailable', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/league') return Promise.resolve({ data: [makeLeague({ my_team_waiver_priority: 2 })] });
+    if (url.includes('/standings')) return Promise.reject(new Error('standings unavailable'));
+    return Promise.resolve({
+      data: [{ id: 10, name: 'Roster Player', position: 'RB', nfl_team: 'CHI', acquired_at: null }],
+    });
+  });
+
+  renderWithProviders(<TeamManagement />);
+
+  expect(await screen.findByText('Roster Player')).toBeInTheDocument();
+  expect(await screen.findByText('Record unavailable · Waiver priority: #2')).toBeInTheDocument();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+
+test('treats a missing team standings row as unavailable and keeps real FAAB', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/league') {
+      return Promise.resolve({ data: [makeLeague({ waiver_type: 'faab', my_team_faab_remaining: 60 })] });
+    }
+    if (url.includes('/standings')) {
+      return Promise.resolve(standingsResponse([makeStanding({ teamId: 999, wins: 3 })]));
+    }
+    return Promise.resolve({ data: [] });
+  });
+
+  renderWithProviders(<TeamManagement />);
+
+  expect(await screen.findByText('Record unavailable · FAAB remaining: $60')).toBeInTheDocument();
+});
+
+test('renders defensive waiver and FAAB fallbacks when balances are missing', async () => {
+  const leagues = [
+    makeLeague({ my_team_waiver_priority: null }),
+    makeLeague({
+      id: 2,
+      name: 'FAAB League',
+      my_team_id: 202,
+      waiver_type: 'faab',
+      my_team_faab_remaining: null,
+    }),
+  ];
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/league') return Promise.resolve({ data: leagues });
+    if (url === '/api/scoring/league/1/standings') {
+      return Promise.resolve(standingsResponse([makeStanding({ wins: 1 })]));
+    }
+    if (url === '/api/scoring/league/2/standings') {
+      return Promise.resolve(standingsResponse([makeStanding({ teamId: 202, wins: 1 })]));
+    }
+    return Promise.resolve({ data: [] });
+  });
+
+  renderWithProviders(<TeamManagement />);
+
+  expect(await screen.findByText(/Waiver order not set/)).toBeInTheDocument();
+  await userEvent.click(screen.getByRole('combobox', { name: 'League' }));
+  await userEvent.click(await screen.findByRole('option', { name: 'FAAB League' }));
+  expect(await screen.findByText(/FAAB unavailable/)).toBeInTheDocument();
+});
+
+test('ignores stale standings after switching leagues and selects by my_team_id', async () => {
+  let resolveFirstStandings;
+  const firstStandings = new Promise((resolve) => { resolveFirstStandings = resolve; });
+  const leagues = [
+    makeLeague({ my_team_id: 111, my_team_name: 'First Team' }),
+    makeLeague({ id: 2, name: 'Second League', my_team_id: 222, my_team_name: 'Second Team' }),
+  ];
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/league') return Promise.resolve({ data: leagues });
+    if (url === '/api/scoring/league/1/standings') return firstStandings;
+    if (url === '/api/scoring/league/2/standings') {
+      return Promise.resolve(standingsResponse([
+        makeStanding({ teamId: 111, wins: 9, rank: 1 }),
+        makeStanding({ teamId: 222, wins: 2, losses: 1, rank: 2 }),
+      ]));
+    }
+    return Promise.resolve({ data: [] });
+  });
+
+  renderWithProviders(<TeamManagement />);
+
+  expect(await screen.findByText('First Team')).toBeInTheDocument();
+  await userEvent.click(screen.getByRole('combobox', { name: 'League' }));
+  await userEvent.click(await screen.findByRole('option', { name: 'Second League' }));
+  expect(await screen.findByText('Record: 2-1-0 · Rank: #2 · Waiver priority: #3')).toBeInTheDocument();
+
+  await act(async () => {
+    resolveFirstStandings(standingsResponse([makeStanding({ teamId: 111, wins: 8, rank: 1 })]));
+  });
+  expect(screen.queryByText(/Record: 8-0-0/)).not.toBeInTheDocument();
+  expect(screen.getByText('Second Team')).toBeInTheDocument();
+});
+
+test('completed draft keeps the Browse Players action when the roster is empty', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/league') return Promise.resolve({ data: [makeLeague()] });
+    if (url.includes('/standings')) return Promise.resolve(standingsResponse([makeStanding()]));
     return Promise.resolve({ data: [] });
   });
 
@@ -51,6 +242,28 @@ test('shows "No players rostered yet." when the roster is empty', async () => {
 
   expect(await screen.findByText(/No players rostered yet/)).toBeInTheDocument();
   expect(screen.getByRole('link', { name: /browse players/i })).toHaveAttribute('href', '/player');
+});
+
+test('active draft directs an empty roster to the Draft Room', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/league') return Promise.resolve({ data: [makeLeague({ draft_status: 'active' })] });
+    if (url.includes('/standings')) return Promise.resolve(standingsResponse([makeStanding()]));
+    return Promise.resolve({ data: [] });
+  });
+
+  renderWithProviders(<TeamManagement />);
+
+  expect(await screen.findByText(/Head to the Draft Room/)).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Draft Room' })).toHaveAttribute('href', '/league/1/draft');
+});
+
+test('preserves the no-league empty state', async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+
+  renderWithProviders(<TeamManagement />);
+
+  expect(await screen.findByText(/not in a league yet/i)).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Go to Leagues' })).toHaveAttribute('href', '/league');
 });
 
 test('renders an acquired date when present, and an em dash when absent', async () => {
