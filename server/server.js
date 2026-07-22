@@ -1,6 +1,7 @@
 require('dotenv').config();
 const http = require('http');
 const express = require('express');
+const cors = require('cors');
 
 const authRouter = require('./routes/auth.router');
 const userRouter = require('./routes/user.router');
@@ -17,18 +18,23 @@ const newsRouter = require('./routes/news.router');
 const commissionerRouter = require('./routes/commissioner.router');
 const healthRouter = require('./routes/health.router');
 const adminRouter = require('./routes/admin.router');
+const publicRouter = require('./routes/public.router');
 const { attachDraftSocket } = require('./modules/draftSocket');
 const { startScheduler } = require('./modules/scheduler');
 const { startLiveGameEngine } = require('./modules/liveGameEngine');
 const { createRateLimiter } = require('./modules/rateLimit');
 const { requestLogMiddleware } = require('./modules/requestLog');
 const { initSentry, captureError } = require('./modules/sentry');
+const { getCorsOptions } = require('./modules/clientOrigins');
 
 const app = express();
+
+if (process.env.NODE_ENV === 'production') app.set('trust proxy', 1);
 
 // Sentry's request handler (when available) needs to wrap everything else.
 initSentry(app);
 
+app.use(cors(getCorsOptions()));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(requestLogMiddleware); // one JSON line per /api request, on finish
@@ -67,9 +73,26 @@ app.use('/api/notifications', notificationsRouter);
 app.use('/api/news', newsRouter);
 app.use('/api/commissioner', commissionerRouter);
 app.use('/api/admin', adminRouter);
+// Unauthenticated public layer (rankings, player profiles, NFL game recaps).
+// No requireAuth, its own rate limiter, global NFL data only — see
+// public.router.js. Mounted before the static/catch-all fallback.
+app.use('/api/public', publicRouter);
 
 // Serve the built React app
 app.use(express.static('build'));
+
+// SPA fallback for the self-host deployment: serve the built index.html for any
+// non-/api GET so public deep links (/rankings, /players/:id, /recaps/:id, …)
+// and the hash app both resolve to the shell. In production Netlify handles
+// this rewrite (see netlify.toml); Express only serves build/ as a fallback.
+// Guarded so it's a no-op in dev, where build/ doesn't exist.
+const path = require('path');
+const fs = require('fs');
+const buildIndexPath = path.resolve(__dirname, '..', 'build', 'index.html');
+app.get(/^(?!\/api\/).*/, (req, res, next) => {
+  if (!fs.existsSync(buildIndexPath)) return next();
+  res.sendFile(buildIndexPath);
+});
 
 // Central error handler — must be registered last (after all routes) so
 // it catches anything thrown/next(err)'d out of a router.
@@ -85,7 +108,7 @@ const server = http.createServer(app);
 attachDraftSocket(server);
 
 if (require.main === module) {
-  server.listen(PORT, () => {
+  server.listen(PORT, '0.0.0.0', () => {
     console.log(`Endzone Empire listening on port ${PORT}`);
   });
   startScheduler(); // waiver clearing + trade review windows

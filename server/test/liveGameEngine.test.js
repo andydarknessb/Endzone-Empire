@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const {
   normalizeLiveGameEntry,
   mapTank01Status,
+  finalTransitions,
 } = require('../modules/liveGameEngine');
 
 // --- mapTank01Status ---------------------------------------------------------
@@ -118,4 +119,32 @@ test('normalizeLiveGameEntry: missing home/away -> null', () => {
 test('normalizeLiveGameEntry: null/undefined entry -> null', () => {
   assert.equal(normalizeLiveGameEntry(null, { season: 2026, week: 1 }), null);
   assert.equal(normalizeLiveGameEntry(undefined, { season: 2026, week: 1 }), null);
+});
+
+// --- finalTransitions (recap generation trigger) -----------------------------
+
+test('finalTransitions: only games newly final this tick are returned', () => {
+  const prior = new Map([
+    ['g1', 'in_progress'], // -> final: generate
+    ['g2', 'final'],       // already final: skip (no duplicate)
+    ['g3', 'scheduled'],   // still scheduled: skip
+  ]);
+  const rows = [
+    { tank01_game_id: 'g1', game_status: 'final' },
+    { tank01_game_id: 'g2', game_status: 'final' },
+    { tank01_game_id: 'g3', game_status: 'scheduled' },
+  ];
+  assert.deepEqual(finalTransitions(prior, rows), ['g1']);
+});
+
+test('finalTransitions: a game unseen before that arrives final is generated', () => {
+  const prior = new Map(); // no prior row (first time we ever saw it)
+  const rows = [{ tank01_game_id: 'gNew', game_status: 'final' }];
+  assert.deepEqual(finalTransitions(prior, rows), ['gNew']);
+});
+
+test('finalTransitions: nothing to do when no game is final', () => {
+  const prior = new Map([['g1', 'in_progress']]);
+  const rows = [{ tank01_game_id: 'g1', game_status: 'in_progress' }];
+  assert.deepEqual(finalTransitions(prior, rows), []);
 });

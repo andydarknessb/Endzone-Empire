@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /rankings
+Allow: /players/
+Allow: /waiver-wire
+Allow: /strategy
+Allow: /recaps
+Disallow: /api/
+
+Sitemap: https://endzoneempire.gg/sitemap.xml

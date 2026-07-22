@@ -5,7 +5,7 @@ import { Provider } from 'react-redux';
 import store from './redux/store';
 
 import './theme/base.css';
-import App from './components/App/App';
+import RootRouter from './components/App/RootRouter';
 import { register as registerServiceWorker } from './serviceWorkerRegistration';
 
 // apiClient fires this when a token refresh fails — the session is dead, so
@@ -18,7 +18,7 @@ const root = ReactDOM.createRoot(document.getElementById('react-root'));
 root.render(
   <React.StrictMode>
     <Provider store={store}>
-      <App />
+      <RootRouter />
     </Provider>
   </React.StrictMode>
 );

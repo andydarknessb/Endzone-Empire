@@ -122,6 +122,10 @@ export const scaleTokens = {
   'radius-pill': '999px',
   'transition-fast': '150ms',
   'transition-base': '200ms',
+  // Brand wordmark gradient (public layer + landing hero). References the
+  // per-theme accent/secondary vars so it resolves correctly in both themes
+  // while keeping the gradient literal in one place.
+  'gradient-brand': 'linear-gradient(90deg, var(--accent), var(--secondary))',
   // Fixed light text + dark scrim for content that always sits on a photo
   // background (UserPage), independent of the active theme.
   'on-overlay': '#f4f6f8',

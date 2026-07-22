@@ -13,14 +13,17 @@
  */
 const pool = require('./pool');
 const { rapidApiClient, tank01Body } = require('../services/scoring.service');
+const gameRecap = require('../services/gameRecap.service');
 
 const SLOW_POLL_MS = 5 * 60 * 1000; // idle cadence
 const FAST_POLL_MS = 20 * 1000; // live cadence
+const RECAP_SWEEP_INTERVAL_MS = 5 * 60 * 1000; // reconciliation cadence (safety net, not a hot path)
 
 let loopTimer = null;
 let stopped = true;
 let lastRunAt = null;
 let lastError = null;
+let lastRecapSweepAt = 0;
 
 /**
  * Pure: Tank01's gameStatusCode/gameStatus -> our enum. `0` is "Not Started
@@ -102,7 +105,7 @@ const UPSERT_SQL = `
     "time_remaining" = EXCLUDED."time_remaining",
     "last_updated" = EXCLUDED."last_updated",
     "updated_at" = now()
-  RETURNING "game_status"
+  RETURNING "tank01_game_id", "game_status"
 `;
 
 /**
@@ -130,6 +133,17 @@ async function pollAndUpsert({ season, week }) {
   }
   if (rows.length === 0) return { hasInProgress: false };
 
+  // Pre-upsert statuses so we can detect games transitioning INTO 'final' on
+  // this tick (and only this tick) — a recap is generated once, when the game
+  // first goes final, never again for games already final on a prior tick.
+  const gameIds = rows.map((r) => r.tank01GameId);
+  const priorRes = await pool.query(
+    `SELECT "tank01_game_id", "game_status" FROM "live_game_states"
+     WHERE "tank01_game_id" = ANY($1)`,
+    [gameIds]
+  );
+  const priorStatus = new Map(priorRes.rows.map((r) => [r.tank01_game_id, r.game_status]));
+
   const now = new Date();
   const result = await pool.query(UPSERT_SQL, [
     rows.map((r) => r.tank01GameId),
@@ -145,8 +159,36 @@ async function pollAndUpsert({ season, week }) {
     rows.map((r) => r.timeRemaining),
     rows.map(() => now),
   ]);
+
+  // Enqueue recap generation for freshly-final games. The queue bounds the
+  // box-score fan-out (a burst of games going final at once becomes a short
+  // sequence, not a thundering herd) and swallows failures, so it can never
+  // break or delay the poll loop.
+  for (const gameId of finalTransitions(priorStatus, result.rows)) {
+    gameRecap.enqueueRecap(gameId);
+  }
+
   const hasInProgress = result.rows.some((r) => r.game_status === 'in_progress');
   return { hasInProgress };
+}
+
+/**
+ * Pure: which upserted games just transitioned INTO 'final' on this tick —
+ * i.e. are now final but weren't final before. Games already final on a prior
+ * tick are excluded, so a recap is generated exactly once per game.
+ *
+ * @param {Map<string,string>} priorStatus - game id -> pre-upsert status
+ * @param {Array<{tank01_game_id: string, game_status: string}>} resultRows
+ * @returns {string[]} game ids to generate a recap for
+ */
+function finalTransitions(priorStatus, resultRows) {
+  const out = [];
+  for (const r of resultRows) {
+    if (r.game_status === 'final' && priorStatus.get(r.tank01_game_id) !== 'final') {
+      out.push(r.tank01_game_id);
+    }
+  }
+  return out;
 }
 
 async function tick() {
@@ -161,6 +203,17 @@ async function tick() {
     }
     nextDelay = anyInProgress ? FAST_POLL_MS : SLOW_POLL_MS;
     lastError = null;
+
+    // Reconciliation sweep on a slower cadence than the live poll: heals games
+    // that ended up with no recap (crash/deploy mid-window, or a dropped live
+    // trigger). Fire-and-forget through the same bounded queue — never blocks
+    // the tick.
+    if (Date.now() - lastRecapSweepAt >= RECAP_SWEEP_INTERVAL_MS) {
+      lastRecapSweepAt = Date.now();
+      gameRecap
+        .reconcileRecaps()
+        .catch((err) => console.error('recap reconcile sweep failed:', err.message));
+    }
   } catch (err) {
     console.error('liveGameEngine tick failed:', err.message);
     lastError = err.message; // back off to slow cadence on failure
@@ -196,5 +249,6 @@ module.exports = {
   mapTank01Status,
   findLiveWindowSeasonWeeks,
   pollAndUpsert,
+  finalTransitions,
   getLiveGameEngineStatus,
 };

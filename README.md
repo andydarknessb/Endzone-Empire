@@ -82,6 +82,13 @@ npm run test:server   # node:test unit tests (scoring + draft-order logic)
 npm run build         # production build of the frontend
 ```
 
+## Production hosting
+
+Netlify serves the CRA build at `endzoneempire.gg`; Render runs the Express and
+Socket.IO service at `api.endzoneempire.gg`. See
+[`documentation/production-hosting.md`](documentation/production-hosting.md) for
+the manual deploy, Dynadot DNS, TLS verification, and rollback procedure.
+
 ## API overview
 
 All routes except `/api/auth/*` require `Authorization: Bearer <jwt>`.

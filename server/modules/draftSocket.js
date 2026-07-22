@@ -4,6 +4,7 @@ const { setIo } = require('./io');
 const { requireSocketAuth } = require('./auth');
 const { draftPlayer, DraftError } = require('../services/draft.service');
 const { teamForPick } = require('../services/draftOrder.service');
+const { getCorsOptions } = require('./clientOrigins');
 
 /**
  * Real-time draft room. Clients connect with { auth: { token } }, then:
@@ -15,7 +16,7 @@ const { teamForPick } = require('../services/draftOrder.service');
  */
 function attachDraftSocket(httpServer) {
   const io = new Server(httpServer, {
-    cors: { origin: true, credentials: true },
+    cors: getCorsOptions(),
   });
   io.use(requireSocketAuth);
   setIo(io); // let scoring/scheduler broadcast without a circular require

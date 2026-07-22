@@ -1,8 +1,9 @@
 import { io } from 'socket.io-client';
 import { getToken, getRefreshToken, refreshTokens } from './apiClient';
+import { getSocketOrigin } from './origins';
 
 export function createDraftSocket() {
-  const socket = io('/', {
+  const socket = io(getSocketOrigin(), {
     // A callback (rather than a frozen object) so socket.io re-invokes it on
     // every reconnection attempt, picking up a rotated JWT (access tokens
     // auto-refresh roughly every 15 min) instead of replaying a stale one.

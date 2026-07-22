@@ -1,0 +1,37 @@
+services:
+  - type: web
+    name: endzone-empire-api
+    runtime: node
+    plan: starter
+    region: virginia
+    numInstances: 1
+    buildCommand: npm ci --omit=dev
+    preDeployCommand: npm run migrate
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeployTrigger: off
+    domains:
+      - api.endzoneempire.gg
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "24"
+      - key: APP_ORIGIN
+        value: https://endzoneempire.gg
+      - key: CLIENT_ORIGINS
+        value: https://endzoneempire.gg,https://www.endzoneempire.gg
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: RAPID_API_KEY
+        sync: false
+      - key: RAPID_API_HOST
+        value: tank01-nfl-live-in-game-real-time-statistics-nfl.p.rapidapi.com
+      - key: SPORTSDB_API_KEY
+        value: "123"
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false

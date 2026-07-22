@@ -18,6 +18,7 @@ import ScoreboardIcon from '@mui/icons-material/Scoreboard';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
 import ChatIcon from '@mui/icons-material/Chat';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
+import LandingPublicBand from './LandingPublicBand';
 import './LandingPage.css';
 
 const FEATURES = [
@@ -169,6 +170,8 @@ function LandingPage() {
           ))}
         </Grid>
       </Container>
+
+      <LandingPublicBand />
 
       <Box
         sx={{

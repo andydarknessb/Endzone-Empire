@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { apiUrl, getApiOrigin } from './origins';
 
 const TOKEN_KEY = 'endzone_token';
 const REFRESH_KEY = 'endzone_refresh';
@@ -25,7 +26,7 @@ export function clearToken() {
 }
 
 // Shared axios instance: attaches the JWT to every request.
-const apiClient = axios.create();
+const apiClient = axios.create({ baseURL: getApiOrigin() || undefined });
 
 apiClient.interceptors.request.use((config) => {
   const token = getToken();
@@ -49,7 +50,7 @@ export async function refreshTokens() {
   if (!refreshPromise) {
     const sent = getRefreshToken();
     refreshPromise = axios
-      .post('/api/auth/refresh', { refreshToken: sent })
+      .post(apiUrl('/api/auth/refresh'), { refreshToken: sent })
       .then(storeRotatedTokens)
       .catch((error) => {
         // The single-flight guard is per-tab; another tab may have won the
@@ -58,7 +59,7 @@ export async function refreshTokens() {
         const current = getRefreshToken();
         if (current && current !== sent) {
           return axios
-            .post('/api/auth/refresh', { refreshToken: current })
+            .post(apiUrl('/api/auth/refresh'), { refreshToken: current })
             .then(storeRotatedTokens);
         }
         throw error;
