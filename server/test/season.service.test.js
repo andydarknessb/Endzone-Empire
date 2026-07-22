@@ -1,6 +1,12 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { roundRobinPairings, computeStandings, pairBySeed } = require('../services/season.service');
+const pool = require('../modules/pool');
+const {
+  roundRobinPairings,
+  computeStandings,
+  pairBySeed,
+  getStandings,
+} = require('../services/season.service');
 
 // --- roundRobinPairings ---
 
@@ -127,6 +133,57 @@ test('computeStandings: unfinished and playoff games are excluded', () => {
   const a = standings.find((s) => s.teamId === 1);
   assert.equal(a.wins + a.losses + a.ties, 0);
   assert.equal(a.streak, '—');
+});
+
+// --- getStandings ---
+
+const serviceTeams = [
+  { id: 1, name: 'A', owner: 'owner-a', avatar_url: null, avatar_static_url: null },
+  { id: 2, name: 'B', owner: 'owner-b', avatar_url: null, avatar_static_url: null },
+];
+
+test('getStandings: single-season league preserves record, rank, points, and streak', async (t) => {
+  t.mock.method(pool, 'query', async (sql, params) => {
+    assert.deepEqual(params, [44]);
+    if (sql.includes('FROM "teams"')) return { rows: serviceTeams };
+    return { rows: [matchup(1, 1, 2, 100, 90, { season: 2026 })] };
+  });
+
+  const standings = await getStandings({ leagueId: 44 });
+
+  assert.deepEqual(
+    standings.map(({ teamId, wins, losses, ties, pf, pa, streak, rank }) => (
+      { teamId, wins, losses, ties, pf, pa, streak, rank }
+    )),
+    [
+      { teamId: 1, wins: 1, losses: 0, ties: 0, pf: 100, pa: 90, streak: 'W1', rank: 1 },
+      { teamId: 2, wins: 0, losses: 1, ties: 0, pf: 90, pa: 100, streak: 'L1', rank: 2 },
+    ]
+  );
+});
+
+test('getStandings: rolled-over league excludes prior-season matchups', async (t) => {
+  const allMatchups = [
+    matchup(1, 1, 2, 150, 80, { season: 2025 }),
+    matchup(1, 2, 1, 110, 100, { season: 2026 }),
+  ];
+
+  t.mock.method(pool, 'query', async (sql) => {
+    if (sql.includes('FROM "teams"')) return { rows: serviceTeams };
+    assert.match(sql, /JOIN "leagues" ON "leagues"\."id" = "matchups"\."league_id"/);
+    assert.match(sql, /"matchups"\."season" = "leagues"\."current_season"/);
+    return { rows: allMatchups.filter((row) => row.season === 2026) };
+  });
+
+  const standings = await getStandings({ leagueId: 44 });
+
+  assert.deepEqual(
+    standings.map(({ teamId, wins, losses, pf, pa }) => ({ teamId, wins, losses, pf, pa })),
+    [
+      { teamId: 2, wins: 1, losses: 0, pf: 110, pa: 100 },
+      { teamId: 1, wins: 0, losses: 1, pf: 100, pa: 110 },
+    ]
+  );
 });
 
 // --- pairBySeed ---

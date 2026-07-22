@@ -235,7 +235,11 @@ async function getStandings({ leagueId }) {
   );
   if (teamsResult.rows.length === 0) throw new SeasonError(404, 'league has no teams');
   const matchupsResult = await pool.query(
-    `SELECT * FROM "matchups" WHERE "league_id" = $1`,
+    `SELECT "matchups".*
+     FROM "matchups"
+     JOIN "leagues" ON "leagues"."id" = "matchups"."league_id"
+     WHERE "matchups"."league_id" = $1
+       AND "matchups"."season" = "leagues"."current_season"`,
     [leagueId]
   );
   const standings = computeStandings(teamsResult.rows, matchupsResult.rows);
