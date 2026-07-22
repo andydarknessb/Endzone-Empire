@@ -425,6 +425,19 @@ function LineupScreen() {
     .filter(Boolean)
     .join(' ');
 
+  // TODO(bye-week clustering): the guardrail above is single-week — it only
+  // flags starters on THIS week's bye via the per-entry `onBye` boolean. A
+  // clustering warning would extend the same lineup-warning banner to look
+  // across upcoming byes and flag when too many rostered players at one
+  // position share a future bye week (e.g. "3 of your RBs are on bye in
+  // Week 7"), so managers can plan waivers ahead. That needs a per-player
+  // bye-week NUMBER, which we don't have yet: `onBye` is derived server-side
+  // for the selected week only (lineup.service), and bye week itself is
+  // schedule-derived (computeByeWeek from nfl_games) and is included in
+  // neither the lineup entries nor the /api/team/roster payload. Plumbing a
+  // per-player bye week through first is the prerequisite; the roster view
+  // (TeamManagement) already renders a Bye column awaiting the same data.
+
   const quickPickEligible = quickPick
     ? entries.filter((e) => !e.locked && isEligibleForSlot(e.position, quickPick.slotType, lineup?.rosterSlots))
     : [];
