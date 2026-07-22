@@ -309,6 +309,13 @@ function MatchupDetail() {
     && isCurrentSeason
     && isCurrentWeek
     && (receivedLiveScore || hasRecordedScore);
+  const viewerTeam = viewerTeamId === home?.teamId
+    ? home
+    : viewerTeamId === away?.teamId
+      ? away
+      : null;
+  const viewerHasRoster = !!viewerTeam
+    && ((viewerTeam.starters || []).length > 0 || (viewerTeam.bench || []).length > 0);
   const currentCutscene = cutsceneQueue[0] || null;
 
   return (
@@ -393,6 +400,7 @@ function MatchupDetail() {
               {showLive && (
                 <BenchWhatIf
                   whatIf={whatIf}
+                  hasRoster={viewerHasRoster}
                   open={whatIfOpen}
                   onToggle={() => setWhatIfOpen((o) => !o)}
                 />
@@ -423,6 +431,7 @@ function MatchupDetail() {
               {showLive && (
                 <BenchWhatIf
                   whatIf={whatIf}
+                  hasRoster={viewerHasRoster}
                   open={whatIfOpen}
                   onToggle={() => setWhatIfOpen((o) => !o)}
                 />

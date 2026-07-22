@@ -1,6 +1,6 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { SlotComparisonList, StickyScoreboard, LiveTicker } from './MatchupExtras';
+import { BenchWhatIf, SlotComparisonList, StickyScoreboard, LiveTicker } from './MatchupExtras';
 
 const player = (overrides = {}) => ({
   id: 1,
@@ -239,5 +239,21 @@ describe('LiveTicker', () => {
     expect(screen.getByText(/^Last: S\. Diggs/)).toBeInTheDocument();
     // The marquee still renders both plays (duplicated for the seamless loop).
     expect(screen.getAllByText(/J\. Chase/).length).toBeGreaterThan(1);
+  });
+});
+
+describe('BenchWhatIf', () => {
+  test('uses complete copy when the active lineup is already optimal', () => {
+    render(
+      <BenchWhatIf
+        whatIf={{ delta: 0, swaps: [] }}
+        hasRoster
+        open={false}
+        onToggle={jest.fn()}
+      />
+    );
+
+    expect(screen.getByText('Your best legal lineup is already active.')).toBeInTheDocument();
+    expect(screen.queryByText('Your best legal lineup is in')).not.toBeInTheDocument();
   });
 });

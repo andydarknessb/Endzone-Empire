@@ -175,6 +175,19 @@ test('renders LIVE for a genuinely in-progress current-week matchup', async () =
   expect(screen.queryByText('Not started')).not.toBeInTheDocument();
 });
 
+test('does not render dangling bench what-if copy when the viewer has no roster', async () => {
+  const response = matchupResponse({ homeStarters: [], homeBench: [] });
+  response.data.viewerTeamId = 1;
+  response.data.viewerWhatIf = { delta: 0, swaps: [] };
+  apiClient.get.mockResolvedValue(response);
+
+  renderDetail();
+
+  await screen.findByText('Week 3 Matchup');
+  expect(screen.queryByText('Bench what-if')).not.toBeInTheDocument();
+  expect(screen.queryByText(/Your best legal lineup is in/i)).not.toBeInTheDocument();
+});
+
 test('renders an injury badge for a flagged starter', async () => {
   apiClient.get.mockResolvedValue(
     matchupResponse({ homeStarters: [starter({ injury_status: 'Q' })] })

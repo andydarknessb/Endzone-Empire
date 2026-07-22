@@ -543,8 +543,8 @@ LiveTicker.propTypes = { items: PropTypes.array };
 
 // --- Bench what-if (live, read-only) ---------------------------------------
 
-export function BenchWhatIf({ whatIf, open, onToggle }) {
-  if (!whatIf) return null;
+export function BenchWhatIf({ whatIf, hasRoster, open, onToggle }) {
+  if (!whatIf || !hasRoster) return null;
   const delta = Number(whatIf.delta) || 0;
   return (
     <Paper sx={{ p: 2, mb: 2 }}>
@@ -554,7 +554,7 @@ export function BenchWhatIf({ whatIf, open, onToggle }) {
           <Typography variant="caption" sx={{ color: delta > 0 ? 'warning.main' : 'text.secondary' }}>
             {delta > 0
               ? `+${delta.toFixed(1)} still on your bench`
-              : 'Your best legal lineup is in'}
+              : 'Your best legal lineup is already active.'}
           </Typography>
         </Box>
         <Button size="small" onClick={onToggle} disabled={delta <= 0 && (!whatIf.swaps || whatIf.swaps.length === 0)}>
@@ -594,6 +594,7 @@ export function BenchWhatIf({ whatIf, open, onToggle }) {
 
 BenchWhatIf.propTypes = {
   whatIf: PropTypes.object,
+  hasRoster: PropTypes.bool,
   open: PropTypes.bool,
   onToggle: PropTypes.func.isRequired,
 };
