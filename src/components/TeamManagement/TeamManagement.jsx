@@ -149,9 +149,6 @@ function TeamManagement() {
             )}
             <Box>
               <Typography variant="h4" component="h1">{teamName}</Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                Record: 4-0&nbsp;&nbsp;|&nbsp;&nbsp;Rank: 1st&nbsp;&nbsp;|&nbsp;&nbsp;Waiver: 3
-              </Typography>
             </Box>
           </Stack>
 

@@ -27,6 +27,9 @@ test('fetches leagues, auto-selects the first one, and loads its roster', async 
 
   expect(await screen.findByText('Patrick Mahomes')).toBeInTheDocument();
   await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/team/roster?leagueId=1'));
+  expect(screen.queryByText(/Record: 4-0/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Rank: 1st/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Waiver: 3/)).not.toBeInTheDocument();
 });
 
 test('shows skeleton rows (not the empty state) while data is loading', () => {
