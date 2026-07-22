@@ -13,7 +13,7 @@ import {
   Button,
   Chip,
   Alert,
-  CircularProgress,
+  Skeleton,
   Box,
   Tooltip,
   Card,
@@ -204,9 +204,17 @@ function LeagueDashboard() {
   };
 
   if (loading) {
+    // Layout-shaped skeleton that mirrors the real dashboard: title + status
+    // chips, then the Standings heading and table.
     return (
-      <Container sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-        <CircularProgress />
+      <Container maxWidth="lg" sx={{ py: 4 }} data-testid="page-skeleton">
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+          <Skeleton variant="text" width={220} height={48} />
+          <Skeleton variant="rounded" width={90} height={32} />
+          <Skeleton variant="rounded" width={120} height={32} />
+        </Box>
+        <Skeleton variant="text" width={140} height={32} sx={{ mb: 2 }} />
+        <Skeleton variant="rectangular" height={260} sx={{ borderRadius: 1 }} />
       </Container>
     );
   }

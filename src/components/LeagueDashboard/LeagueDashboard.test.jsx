@@ -133,10 +133,10 @@ afterEach(() => {
   jest.clearAllMocks();
 });
 
-test('shows a loading spinner before data arrives', () => {
+test('shows a layout-shaped skeleton before data arrives', () => {
   apiClient.get.mockReturnValue(new Promise(() => {})); // never resolves
   renderDashboard();
-  expect(screen.getByRole('progressbar')).toBeInTheDocument();
+  expect(screen.getByTestId('page-skeleton')).toBeInTheDocument();
 });
 
 test('renders league name, status chips, and the standings table', async () => {
