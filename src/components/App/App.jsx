@@ -39,7 +39,7 @@ import TransactionLog from '../TransactionLog/TransactionLog';
 import PowerRankings from '../PowerRankings/PowerRankings';
 import LeagueHistory from '../LeagueHistory/LeagueHistory';
 import NotificationPrefs from '../NotificationPrefs/NotificationPrefs';
-import PlayerDetail from '../PlayerDetail/PlayerDetail';
+import AuthenticatedPlayerProfilePage from '../PlayerDetail/AuthenticatedPlayerProfilePage';
 import AdminDashboard from '../AdminDashboard/AdminDashboard';
 import ForgotPassword from '../ForgotPassword/ForgotPassword';
 import ResetPassword from '../ResetPassword/ResetPassword';
@@ -103,7 +103,7 @@ function App() {
           <Route path="/league/:leagueId/power-rankings" element={<ProtectedRoute><PowerRankings /></ProtectedRoute>} />
           <Route path="/league/:leagueId/history" element={<ProtectedRoute><LeagueHistory /></ProtectedRoute>} />
           <Route path="/settings/notifications" element={<ProtectedRoute><NotificationPrefs /></ProtectedRoute>} />
-          <Route path="/players/:playerId" element={<ProtectedRoute><PlayerDetail /></ProtectedRoute>} />
+          <Route path="/players/:playerId" element={<ProtectedRoute><AuthenticatedPlayerProfilePage /></ProtectedRoute>} />
           <Route path="/admin" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />

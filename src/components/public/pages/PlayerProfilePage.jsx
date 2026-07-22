@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link as RouterLink, useParams, useSearchParams } from 'react-router-dom';
 import {
   Box, Card, CardContent, Chip, Stack, Typography, Avatar, Table, TableBody,
@@ -158,8 +158,17 @@ function FormatToggle({ value, onChange }) {
   );
 }
 
-function ProfileBody({ player, onSeasonChange }) {
-  const [format, setFormat] = useState(DEFAULT_FORMAT);
+export function ProfileBody({
+  player,
+  onSeasonChange,
+  initialFormat = DEFAULT_FORMAT,
+  breadcrumbLabel = 'Rankings',
+  breadcrumbTo = '/rankings',
+}) {
+  const [format, setFormat] = useState(initialFormat);
+  useEffect(() => {
+    setFormat(initialFormat);
+  }, [initialFormat, player.playerId]);
   const s = player.seasonSummary;
   const isEmptySeason = !s; // pending or not-available -> no summary to show
   // Status of the season currently being viewed (echoed even when not selectable).
@@ -174,7 +183,7 @@ function ProfileBody({ player, onSeasonChange }) {
   return (
     <>
       <Breadcrumbs aria-label="Breadcrumb" sx={{ mb: 2 }}>
-        <Link component={RouterLink} to="/rankings" underline="hover">Rankings</Link>
+        <Link component={RouterLink} to={breadcrumbTo} underline="hover">{breadcrumbLabel}</Link>
         <Typography color="text.primary">{player.name}</Typography>
       </Breadcrumbs>
       {/* Hero band */}

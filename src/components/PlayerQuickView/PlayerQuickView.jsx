@@ -369,7 +369,11 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
             )}
 
             <Box sx={{ mt: 2, textAlign: 'right' }}>
-              <Link component={RouterLink} to={`/players/${playerId}`} onClick={onClose}>
+              <Link
+                component={RouterLink}
+                to={`/players/${playerId}${leagueId ? `?leagueId=${leagueId}` : ''}`}
+                onClick={onClose}
+              >
                 Full profile →
               </Link>
             </Box>

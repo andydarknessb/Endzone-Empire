@@ -149,6 +149,15 @@ test('renders context actions and fires their onClick', async () => {
   expect(onClick).toHaveBeenCalled();
 });
 
+test('preserves league context in the full-profile link', async () => {
+  renderQuickView({ leagueId: 10 });
+
+  expect(await screen.findByRole('link', { name: /Full profile/i })).toHaveAttribute(
+    'href',
+    '/players/7?leagueId=10'
+  );
+});
+
 test('shows the fantasy strip: ADP, projection, and last-season total', async () => {
   renderQuickView();
 

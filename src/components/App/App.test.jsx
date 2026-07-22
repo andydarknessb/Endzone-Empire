@@ -4,6 +4,7 @@ import { Provider } from 'react-redux';
 import configureMockStore from 'redux-mock-store';
 import App from './App';
 import apiClient from '../../api/apiClient';
+import publicApiClient from '../../api/publicApiClient';
 import { createDraftSocket } from '../../api/socket';
 
 // App's routes mount real page components (LeagueManagement, UserPage,
@@ -15,6 +16,10 @@ jest.mock('../../api/apiClient', () => ({
   __esModule: true,
   default: { get: jest.fn(), post: jest.fn(), delete: jest.fn(), put: jest.fn() },
 }));
+jest.mock('../../api/publicApiClient', () => ({
+  __esModule: true,
+  default: { get: jest.fn() },
+}));
 jest.mock('../../api/socket', () => ({
   createDraftSocket: jest.fn(),
   onReconnect: jest.fn((socket, handler) => socket.io.on('reconnect', handler)),
@@ -25,6 +30,7 @@ const mockStore = configureMockStore([]);
 function renderApp(hash, state = {}, configureApi) {
   window.location.hash = hash;
   apiClient.get.mockResolvedValue({ data: [] });
+  publicApiClient.get.mockResolvedValue({ data: { rankings: [] } });
   createDraftSocket.mockReturnValue({
     on: jest.fn(),
     io: { on: jest.fn() },
@@ -284,27 +290,32 @@ test('"/league/:leagueId/activity" is protected and renders TransactionLog when 
   expect(await screen.findByText('League Activity')).toBeInTheDocument();
 });
 
-test('"/players/:playerId" is protected and renders PlayerDetail when logged in', async () => {
+test('"/players/:playerId" is protected and renders the format-aware profile when logged in', async () => {
   const { unmount } = renderApp('#/players/5', { user: loggedOut });
   expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();
   unmount();
 
   renderApp('#/players/5', { user: loggedIn }, () => {
     apiClient.get.mockImplementation((url) => {
-      if (url === '/api/players/5/summary') {
+      if (url === '/api/public/players/5') {
         return Promise.resolve({
           data: {
-            player: { id: 5, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'KC' },
-            fantasy: {},
-            currentSeason: null,
-            previousSeasons: [],
+            playerId: 5,
+            name: 'Patrick Mahomes',
+            position: 'QB',
+            nflTeam: 'KC',
+            season: 2026,
+            seasons: [{ season: 2026, status: 'pending' }],
+            seasonSummary: null,
+            weeklyLogPartial: false,
+            recentGames: [],
           },
         });
       }
       return Promise.resolve({ data: [] });
     });
   });
-  expect(await screen.findByText('Patrick Mahomes')).toBeInTheDocument();
+  expect(await screen.findByRole('heading', { name: 'Patrick Mahomes' })).toBeInTheDocument();
 });
 
 test('"/league/:leagueId/history" is protected and renders LeagueHistory when logged in', async () => {
