@@ -212,6 +212,8 @@ router.get('/', async (req, res) => {
       `SELECT "leagues".*, "teams"."id" AS "my_team_id", "teams"."name" AS "my_team_name",
               "teams"."avatar_url" AS "my_team_avatar_url",
               "teams"."avatar_static_url" AS "my_team_avatar_static_url",
+              "teams"."waiver_priority" AS "my_team_waiver_priority",
+              "teams"."faab_remaining" AS "my_team_faab_remaining",
               (SELECT COUNT(*)::int FROM "teams" "t" WHERE "t"."league_id" = "leagues"."id") AS "team_count"
        FROM "leagues"
        JOIN "teams" ON "teams"."league_id" = "leagues"."id"
