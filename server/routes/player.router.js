@@ -3,7 +3,7 @@ const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
 const { draftPlayer } = require('../services/draft.service');
 const { rulesForLeague, buildPlayerSummary, projectSeasonPoints } = require('../services/scoring.service');
-const { computeByeWeek } = require('../services/bye.service');
+const { computeByeWeek, computeByeWeeks } = require('../services/bye.service');
 
 const router = express.Router();
 
@@ -38,8 +38,6 @@ function summaryCacheSet(key, value) {
   if (summaryCache.size > 2000) summaryCache.clear();
   summaryCache.set(key, { value, expires: Date.now() + SUMMARY_TTL_MS });
 }
-
-const REG_SEASON_WEEKS = 18;
 
 // GET /api/players?page=N&position=QB[&leagueId=N&available=true]
 // Paginated player pool with strict integer validation on `page`.
@@ -167,6 +165,11 @@ router.get('/', requireAuth, async (req, res) => {
     }
 
     const pagePlayers = projectionSort ? players.slice(offset, offset + PAGE_SIZE) : players;
+    const nflTeams = [...new Set(pagePlayers.map((p) => p.nfl_team).filter(Boolean))];
+    const byeByTeam = await computeByeWeeks(nflTeams, currentSeasonYear);
+    for (const player of pagePlayers) {
+      player.bye_week = byeByTeam.get(player.nfl_team) ?? null;
+    }
 
     res.json({
       players: pagePlayers,
