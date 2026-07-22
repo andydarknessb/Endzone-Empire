@@ -3,6 +3,7 @@ const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
 const { draftPlayer } = require('../services/draft.service');
 const { rulesForLeague, buildPlayerSummary, projectSeasonPoints } = require('../services/scoring.service');
+const { computeByeWeek } = require('../services/bye.service');
 
 const router = express.Router();
 
@@ -39,26 +40,6 @@ function summaryCacheSet(key, value) {
 }
 
 const REG_SEASON_WEEKS = 18;
-
-/**
- * A team's bye week for a season: the regular-season week (1..18) with no
- * nfl_games row for that team. Returns null when the schedule isn't synced
- * (no rows) or nothing is missing — the dialog just omits the bye then.
- */
-async function computeByeWeek(nflTeam, season) {
-  if (!nflTeam) return null;
-  const r = await pool.query(
-    `SELECT DISTINCT "week" FROM "nfl_games"
-     WHERE "nfl_team" = $1 AND "season" = $2 AND "week" BETWEEN 1 AND $3`,
-    [nflTeam, season, REG_SEASON_WEEKS]
-  );
-  if (r.rows.length === 0) return null; // schedule not synced for this team
-  const played = new Set(r.rows.map((row) => Number(row.week)));
-  for (let week = 1; week <= REG_SEASON_WEEKS; week++) {
-    if (!played.has(week)) return week;
-  }
-  return null;
-}
 
 // GET /api/players?page=N&position=QB[&leagueId=N&available=true]
 // Paginated player pool with strict integer validation on `page`.
