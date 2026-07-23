@@ -361,7 +361,7 @@ async function processAllDueWaivers() {
     try {
       outcomes.push({ leagueId: row.league_id, ...(await processWaivers({ leagueId: row.league_id })) });
     } catch (err) {
-      console.error(`waiver processing failed for league ${row.league_id}:`, err.message);
+      console.error('waiver processing failed for league %s:', row.league_id, err.message);
     }
   }
   return outcomes;

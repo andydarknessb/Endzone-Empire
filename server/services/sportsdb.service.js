@@ -131,7 +131,7 @@ async function syncPlayerPhotos() {
         rostersFetched += 1;
       }
     } catch (err) {
-      console.error(`photo sync: roster fetch failed for team ${teamId}:`, err.message);
+      console.error('photo sync: roster fetch failed for team %s:', teamId, err.message);
     }
     await delay(2100); // free tier allows ~30 req/min — pace to ~1 call / 2s
   }
@@ -156,7 +156,7 @@ async function syncPlayerPhotos() {
       );
       updated += 1;
     } catch (err) {
-      console.error(`photo sync: update failed for player ${u.id}:`, err.message);
+      console.error('photo sync: update failed for player %s:', u.id, err.message);
     }
   }
 

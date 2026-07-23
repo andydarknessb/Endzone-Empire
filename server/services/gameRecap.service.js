@@ -426,7 +426,7 @@ function createRecapQueue({
       } else {
         // Non-retriable, or retries exhausted: drop it. The sweep re-heals a
         // game that ends up with no game_recaps row.
-        console.error(`gameRecap generation failed for ${job.gameId}:`, err && err.message);
+        console.error('gameRecap generation failed for %s:', job.gameId, err && err.message);
       }
     } finally {
       active -= 1;

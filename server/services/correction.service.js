@@ -198,7 +198,9 @@ async function correctLeagueWeek({ leagueId, season, week }) {
     // re-detect them (its "before" snapshot is post-correction) — dump the
     // full change set to the server log so the record isn't lost entirely.
     console.error(
-      `stat correction: league ${leagueId} week ${week} scores changed but logging failed;`,
+      'stat correction: league %s week %s scores changed but logging failed;',
+      leagueId,
+      week,
       JSON.stringify(changes)
     );
     throw error;
@@ -234,7 +236,7 @@ async function resyncPriorWeeks() {
     try {
       await scoring.syncWeekStats({ season, week });
     } catch (err) {
-      console.error(`stat correction: sync failed for ${season} week ${week}:`, err.message);
+      console.error('stat correction: sync failed for %s week %s:', season, week, err.message);
       continue; // don't re-score leagues from stale stats
     }
     // Corrected stats shift season averages — rebuild the following week's
@@ -243,14 +245,19 @@ async function resyncPriorWeeks() {
       const projection = require('./projection.service');
       await projection.getWeekProjections({ season, week: week + 1, refresh: true });
     } catch (err) {
-      console.error(`stat correction: projection refresh failed for ${season} week ${week + 1}:`, err.message);
+      console.error(
+        'stat correction: projection refresh failed for %s week %s:',
+        season,
+        week + 1,
+        err.message
+      );
     }
     for (const leagueId of leagueIds) {
       try {
         const outcome = await correctLeagueWeek({ leagueId, season, week });
         if (outcome.changes.length > 0) results.push(outcome);
       } catch (err) {
-        console.error(`stat correction failed for league ${leagueId}:`, err.message);
+        console.error('stat correction failed for league %s:', leagueId, err.message);
       }
     }
   }

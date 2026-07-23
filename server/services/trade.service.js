@@ -454,7 +454,7 @@ async function processDueTrades() {
         );
         outcomes.push({ tradeId: row.id, status: 'cancelled', reason: err.message });
       } else {
-        console.error(`trade execution failed for trade ${row.id}:`, err.message);
+        console.error('trade execution failed for trade %s:', row.id, err.message);
       }
     } finally {
       client.release();

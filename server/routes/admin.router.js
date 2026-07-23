@@ -96,7 +96,7 @@ router.post('/sync/:job', async (req, res) => {
     res.json(result);
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
-    console.error(`Admin sync (${job}) failed:`, error);
+    console.error('Admin sync (%s) failed:', job, error);
     res.status(500).json({ error: `${job} sync failed` });
   }
 });

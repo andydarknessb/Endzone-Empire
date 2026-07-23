@@ -191,7 +191,7 @@ async function syncNflverseWeek({ season, week }) {
       const outcome = await correction.correctLeagueWeek({ leagueId: league.id, season, week });
       if (outcome.changes.length > 0) leaguesRescored += 1;
     } catch (err) {
-      console.error(`nflverse finalization: re-score failed for league ${league.id}:`, err.message);
+      console.error('nflverse finalization: re-score failed for league %s:', league.id, err.message);
     }
   }
   return { season, week, playersUpdated, leaguesRescored };
@@ -230,7 +230,7 @@ async function finalizePriorWeeks() {
       const outcome = await syncNflverseWeek({ season, week });
       if (outcome.playersUpdated > 0) finalized.push(outcome);
     } catch (err) {
-      console.error(`nflverse finalization failed for ${season} week ${week}:`, err.message);
+      console.error('nflverse finalization failed for %s week %s:', season, week, err.message);
     }
   }
   return { finalized };

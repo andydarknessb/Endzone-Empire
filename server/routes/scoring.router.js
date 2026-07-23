@@ -443,7 +443,7 @@ router.post('/league/:id/advance-week', async (req, res) => {
     montecarlo
       .computeLeagueOdds({ leagueId })
       .catch((err) => {
-        console.error(`power rankings failed for league ${leagueId}:`, err.message);
+        console.error('power rankings failed for league %s:', leagueId, err.message);
       })
       .then(() => {
         const recap = require('../services/recap.service');
@@ -454,21 +454,21 @@ router.post('/league/:id/advance-week', async (req, res) => {
         });
       })
       .catch((err) => {
-        console.error(`weekly recap failed for league ${leagueId}:`, err.message);
+        console.error('weekly recap failed for league %s:', leagueId, err.message);
       })
       .then(() => {
         const trophies = require('../services/trophy.service');
         return trophies.awardWeeklyTrophies({ leagueId, season: current_season, week: current_week });
       })
       .catch((err) => {
-        console.error(`trophy awards failed for league ${leagueId}:`, err.message);
+        console.error('trophy awards failed for league %s:', leagueId, err.message);
       })
       .then(() => {
         const digest = require('../services/digest.service');
         return digest.sendWeeklyRecapDigest({ leagueId, season: current_season, week: current_week });
       })
       .catch((err) => {
-        console.error(`recap digest failed for league ${leagueId}:`, err.message);
+        console.error('recap digest failed for league %s:', leagueId, err.message);
       });
     res.json({ scored: scoredResult.scored, ...advance });
   } catch (error) {

@@ -142,7 +142,7 @@ async function syncSeasonStats({ seasons = [2025, 2024] } = {}) {
       const upserted = await upsertSeasonStats(updates);
       perSeason.push({ season, sleeperPlayers: entries.length, playersUpserted: upserted });
     } catch (err) {
-      console.error(`Sleeper season sync failed for ${season}:`, err.message);
+      console.error('Sleeper season sync failed for %s:', season, err.message);
       perSeason.push({ season, error: err.message });
     }
   }

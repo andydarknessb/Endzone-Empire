@@ -244,7 +244,7 @@ async function awardWeeklyTrophies({ leagueId, season, week }) {
         label: trophyAwarded.label,
       });
     } catch (err) {
-      console.error(`trophy notification failed (${trophyAwarded.type}):`, err.message);
+      console.error('trophy notification failed (%s):', trophyAwarded.type, err.message);
     }
   }
   return awarded;

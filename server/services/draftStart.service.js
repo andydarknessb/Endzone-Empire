@@ -12,7 +12,7 @@ async function broadcastDraftState(leagueId) {
     const { getDraftState } = require('../modules/draftSocket');
     io.to(`league:${leagueId}`).emit('draft:state', await getDraftState(leagueId));
   } catch (err) {
-    console.error(`draft state broadcast failed for league ${leagueId}:`, err.message);
+    console.error('draft state broadcast failed for league %s:', leagueId, err.message);
   }
 }
 

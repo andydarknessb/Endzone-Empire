@@ -565,7 +565,7 @@ async function syncTeamDefenses() {
       );
       inserted += 1;
     } catch (err) {
-      console.error(`DEF backfill failed for ${name}:`, err.message);
+      console.error('DEF backfill failed for %s:', name, err.message);
     }
   }
   return { teamsInserted: inserted, totalDefTeams: existing.rows.length + inserted };
@@ -771,7 +771,7 @@ async function syncWeekStats({ season, week }) {
       // Correction-route retries are safe because every stat write is an
       // upsert. Do not hide pool starvation as a single skipped NFL game.
       if (isTransientDatabaseError(err)) throw err;
-      console.error(`Stat sync failed for game ${game.gameID}:`, err.message);
+      console.error('Stat sync failed for game %s:', game.gameID, err.message);
     }
   }
   return { season, week, playersUpdated: updated, gamesProcessed, plays };
@@ -826,7 +826,7 @@ async function syncInjuries() {
       );
       updated += 1;
     } catch (err) {
-      console.error(`Injury sync failed for player ${player.id}:`, err.message);
+      console.error('Injury sync failed for player %s:', player.id, err.message);
     }
   }
   return { playersUpdated: updated };
@@ -874,7 +874,7 @@ async function syncSchedule({ season }) {
         }
       }
     } catch (err) {
-      console.error(`schedule sync failed for week ${week}:`, err.message);
+      console.error('schedule sync failed for week %s:', week, err.message);
     }
   }
   return { season, gamesUpserted: upserted };
@@ -971,7 +971,7 @@ async function syncPlayers({ season }) {
       );
       upserted += 1;
     } catch (err) {
-      console.error(`player sync: upsert failed for external_id ${parsed.externalId}:`, err.message);
+      console.error('player sync: upsert failed for external_id %s:', parsed.externalId, err.message);
     }
   }
   return { season, playersUpserted: upserted, skippedNonFantasy: skipped };
@@ -1167,7 +1167,7 @@ async function syncPlayerSeasonStats({ currentSeason } = {}) {
       );
       upserted += 1;
     } catch (err) {
-      console.error(`season-stat backfill failed for player ${playerId} season ${season}:`, err.message);
+      console.error('season-stat backfill failed for player %s season %s:', playerId, season, err.message);
     }
   }
   return { cutoffSeason: cutoff, seasonsUpserted: upserted };

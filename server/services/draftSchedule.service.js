@@ -39,7 +39,7 @@ async function pushDraftAlert(leagueId, ownerIds, { title, body }) {
       await push.sendPushToUsers(wanting, { title, body, url: `/#/league/${leagueId}/draft` });
     }
   } catch (err) {
-    console.error(`draft push failed for league ${leagueId}:`, err.message);
+    console.error('draft push failed for league %s:', leagueId, err.message);
   }
 }
 
@@ -66,7 +66,7 @@ async function processScheduledDrafts({ now = new Date() } = {}) {
       await runAction(league, action);
       actions.push({ leagueId: league.id, action });
     } catch (err) {
-      console.error(`scheduled draft ${action} failed for league ${league.id}:`, err.message);
+      console.error('scheduled draft %s failed for league %s:', action, league.id, err.message);
     }
   }
   return actions;

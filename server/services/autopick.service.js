@@ -113,7 +113,7 @@ async function processExpiredPickClocks() {
       const outcome = await autoPick({ leagueId: row.id });
       if (outcome) outcomes.push({ leagueId: row.id, playerId: outcome.player.id });
     } catch (err) {
-      console.error(`auto-pick failed for league ${row.id}:`, err.message);
+      console.error('auto-pick failed for league %s:', row.id, err.message);
     }
   }
   return outcomes;

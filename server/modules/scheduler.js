@@ -51,7 +51,7 @@ async function tickUnlocked() {
         try {
           await digest.sendWaiverResultsDigest({ leagueId });
         } catch (err) {
-          console.error(`waiver digest failed for league ${leagueId}:`, err.message);
+          console.error('waiver digest failed for league %s:', leagueId, err.message);
         }
       }
     }
@@ -150,7 +150,7 @@ async function syncAndScoreLiveWeeks() {
       }
       console.log(`scheduler: live-scored ${leagueIds.length} league(s) for ${season} week ${week}`);
     } catch (err) {
-      console.error(`live scoring failed for ${season} week ${week}:`, err.message);
+      console.error('live scoring failed for %s week %s:', season, week, err.message);
     }
   }
   if (ranAny) lastSyncAt = new Date().toISOString();

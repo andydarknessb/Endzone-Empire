@@ -126,7 +126,8 @@ async function pollAndUpsert({ season, week }) {
       if (normalized) rows.push(normalized);
     } catch (err) {
       console.error(
-        `liveGameEngine: failed to normalize entry ${(raw && raw.gameID) || '?'}:`,
+        'liveGameEngine: failed to normalize entry %s:',
+        (raw && raw.gameID) || '?',
         err.message
       );
     }
