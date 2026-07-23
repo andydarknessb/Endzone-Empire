@@ -5,6 +5,8 @@ const { requireSocketAuth } = require('./auth');
 const { draftPlayer, DraftError } = require('../services/draft.service');
 const { teamForPick } = require('../services/draftOrder.service');
 const { getCorsOptions } = require('./clientOrigins');
+const { createAdapter } = require('@socket.io/redis-adapter');
+const { createRedisSubscriber, getRedisClient } = require('./redis');
 
 /**
  * Real-time draft room. Clients connect with { auth: { token } }, then:
@@ -18,6 +20,13 @@ function attachDraftSocket(httpServer) {
   const io = new Server(httpServer, {
     cors: getCorsOptions(),
   });
+  io.redisReady = (async () => {
+    const publisher = await getRedisClient();
+    if (!publisher) return;
+    const subscriber = await createRedisSubscriber();
+    io.adapter(createAdapter(publisher, subscriber));
+    io.redisSubscriber = subscriber;
+  })();
   io.use(requireSocketAuth);
   setIo(io); // let scoring/scheduler broadcast without a circular require
 
@@ -143,6 +152,12 @@ function attachDraftSocket(httpServer) {
   return io;
 }
 
+async function closeDraftSocket(io) {
+  if (!io) return;
+  await new Promise((resolve) => io.close(resolve));
+  if (io.redisSubscriber?.isOpen) await io.redisSubscriber.quit();
+}
+
 /** Full draft-room snapshot: league, teams in draft order, picks so far, on the clock. */
 async function getDraftState(leagueId) {
   const leagueResult = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
@@ -172,4 +187,4 @@ async function getDraftState(leagueId) {
   return { league, teams, picks: picksResult.rows, onTheClock };
 }
 
-module.exports = { attachDraftSocket, getDraftState };
+module.exports = { attachDraftSocket, closeDraftSocket, getDraftState };

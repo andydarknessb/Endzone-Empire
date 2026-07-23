@@ -3,6 +3,7 @@ const { processAllDueWaivers } = require('../services/waiver.service');
 const { processDueTrades } = require('../services/trade.service');
 const { processExpiredPickClocks } = require('../services/autopick.service');
 const { processScheduledDrafts } = require('../services/draftSchedule.service');
+const { withAdvisoryLock } = require('./advisoryLock');
 
 /**
  * In-process job runner for time-based league mechanics (waiver clearing,
@@ -16,6 +17,7 @@ const SYNC_EVERY_TICKS = 6; // stat sync at most every ~30 min
 
 let timer = null;
 let draftTimer = null;
+let bootTimer = null;
 let running = false;
 let draftRunning = false;
 let ticksSinceSync = SYNC_EVERY_TICKS; // sync on the first eligible tick
@@ -33,8 +35,9 @@ let lastCorrectionDay = null;
 // (nflverse's own "cleanest by Thursday" publishing window). Same
 // in-process, idempotent, repeat-safe pattern as the stat-correction pass.
 let lastNflverseDay = null;
+let lastRetentionDay = null;
 
-async function tick() {
+async function tickUnlocked() {
   if (running) return; // don't overlap slow runs
   running = true;
   try {
@@ -75,6 +78,7 @@ async function tick() {
     }
     await runDailyStatCorrections();
     await runNflverseFinalization();
+    await runRetention();
     lastTickError = null;
   } catch (err) {
     console.error('scheduler tick failed:', err.message);
@@ -83,6 +87,21 @@ async function tick() {
     lastTickAt = new Date().toISOString();
     running = false;
   }
+}
+
+async function runRetention() {
+  const today = new Date().toLocaleDateString('en-CA');
+  if (lastRetentionDay === today) return;
+  const { enforceRetention } = require('../services/retention.service');
+  const counts = await enforceRetention();
+  lastRetentionDay = today;
+  if (Object.values(counts).some((count) => count > 0)) {
+    console.log('scheduler: retention cleanup completed', counts);
+  }
+}
+
+async function tick() {
+  return withAdvisoryLock(23001, 'league-scheduler', tickUnlocked);
 }
 
 /**
@@ -217,7 +236,7 @@ async function alertCloseMatchups({ leagueId, week, scored }) {
 }
 
 /** Fast loop: expired draft pick clocks -> server-side auto-pick. */
-async function draftTick() {
+async function draftTickUnlocked() {
   if (draftRunning) return;
   draftRunning = true;
   try {
@@ -230,21 +249,28 @@ async function draftTick() {
   }
 }
 
+async function draftTick() {
+  return withAdvisoryLock(23002, 'draft-clock', draftTickUnlocked);
+}
+
 function startScheduler() {
   if (timer) return timer;
   timer = setInterval(tick, INTERVAL_MS);
   timer.unref(); // never keep the process alive just for the scheduler
   draftTimer = setInterval(draftTick, DRAFT_CLOCK_MS);
   draftTimer.unref();
-  setTimeout(tick, 15 * 1000).unref(); // first pass shortly after boot
+  bootTimer = setTimeout(tick, 15 * 1000);
+  bootTimer.unref(); // first pass shortly after boot
   return timer;
 }
 
 function stopScheduler() {
   if (timer) clearInterval(timer);
   if (draftTimer) clearInterval(draftTimer);
+  if (bootTimer) clearTimeout(bootTimer);
   timer = null;
   draftTimer = null;
+  bootTimer = null;
 }
 
 /** Snapshot of scheduler health for the /api/health endpoint. */

@@ -194,7 +194,13 @@ function finalTransitions(priorStatus, resultRows) {
 async function tick() {
   if (stopped) return;
   let nextDelay = SLOW_POLL_MS;
+  let lockClient = null;
+  let lockHeld = false;
   try {
+    lockClient = await pool.connect();
+    const lockResult = await lockClient.query('SELECT pg_try_advisory_lock($1) AS locked', [23003]);
+    lockHeld = Boolean(lockResult.rows[0]?.locked);
+    if (!lockHeld) return;
     const windows = await findLiveWindowSeasonWeeks();
     let anyInProgress = false;
     for (const w of windows) {
@@ -218,6 +224,10 @@ async function tick() {
     console.error('liveGameEngine tick failed:', err.message);
     lastError = err.message; // back off to slow cadence on failure
   } finally {
+    if (lockHeld) {
+      await lockClient.query('SELECT pg_advisory_unlock($1)', [23003]).catch(() => {});
+    }
+    if (lockClient) lockClient.release();
     lastRunAt = new Date().toISOString();
     if (!stopped) loopTimer = setTimeout(tick, nextDelay).unref();
   }
