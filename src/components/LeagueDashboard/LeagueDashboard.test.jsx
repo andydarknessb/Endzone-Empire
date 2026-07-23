@@ -175,6 +175,34 @@ test('standings table renders W-L-T, PF, PA, and a streak chip (no redundant pla
   expect(screen.queryByText('#1')).not.toBeInTheDocument();
 });
 
+test('marks the phase-appropriate nav actions as Recommended', async () => {
+  // Pre-draft league: only the Draft Room action is recommended.
+  mockGetByUrl({
+    '/api/league/1': leagueResponse(), // draft_status: 'pending'
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
+  const { unmount } = renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  expect(within(screen.getByRole('link', { name: 'Draft Room' })).getByText('Recommended')).toBeInTheDocument();
+  expect(within(screen.getByRole('link', { name: 'Trades' })).queryByText('Recommended')).not.toBeInTheDocument();
+
+  unmount();
+
+  // In-season league: weekly-management actions are recommended, the draft is not.
+  mockGetByUrl({
+    '/api/league/1': leagueResponse({ draft_status: 'complete' }),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse({ league: { season_status: 'regular' } }),
+  });
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  expect(within(screen.getByRole('link', { name: 'Set Lineup' })).getByText('Recommended')).toBeInTheDocument();
+  expect(within(screen.getByRole('link', { name: 'Draft Room' })).queryByText('Recommended')).not.toBeInTheDocument();
+});
+
 test('shows the specific server error message when the initial fetch fails', async () => {
   apiClient.get.mockRejectedValue({ response: { data: { error: 'league not found' } } });
 

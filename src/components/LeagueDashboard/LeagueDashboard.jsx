@@ -45,6 +45,7 @@ import TrophyCase from '../TrophyCase/TrophyCase';
 import DraftGradesCard from '../DraftGradesCard/DraftGradesCard';
 import Countdown from '../Countdown/Countdown';
 import CommissionerTools from './CommissionerTools';
+import { deriveLeaguePhase, LEAGUE_PHASE } from '../../lib/leaguePhase';
 
 const SEASON_STATUS_CHIP = {
   regular: { label: 'Regular Season', color: 'default' },
@@ -59,7 +60,6 @@ const SEASON_STATUS_CHIP = {
 const NAV_GROUPS = [
   {
     label: 'Play',
-    weight: 'primary',
     links: [
       { label: 'Draft Room', slug: 'draft', icon: GroupsIcon },
       { label: 'Set Lineup', slug: 'lineup', icon: AssignmentIcon },
@@ -68,7 +68,6 @@ const NAV_GROUPS = [
   },
   {
     label: 'Moves',
-    weight: 'default',
     links: [
       { label: 'Waivers', slug: 'waivers', icon: SwapHorizIcon },
       { label: 'Trades', slug: 'trades', icon: CompareArrowsIcon },
@@ -76,7 +75,6 @@ const NAV_GROUPS = [
   },
   {
     label: 'League',
-    weight: 'default',
     links: [
       { label: 'Activity', slug: 'activity', icon: TimelineIcon },
       { label: 'Power Rankings', slug: 'power-rankings', icon: TrendingUpIcon },
@@ -232,6 +230,19 @@ function LeagueDashboard() {
   // absent in older data — treat that as no gate).
   const belowMin = league.min_teams != null && teams.length < league.min_teams;
   const auctionUnsupported = league.draft_type === 'auction';
+  const leaguePhase = deriveLeaguePhase({
+    ...league,
+    season_status: standingsLeague?.season_status || league.season_status,
+  });
+  const primarySlugs = new Set(
+    leaguePhase === LEAGUE_PHASE.PRE_DRAFT || leaguePhase === LEAGUE_PHASE.DRAFTING
+      ? ['draft']
+      : leaguePhase === LEAGUE_PHASE.COMPLETE
+        ? ['history']
+        : leaguePhase === LEAGUE_PHASE.PLAYOFFS
+          ? ['lineup', 'game-center']
+          : ['lineup', 'game-center', 'waivers']
+  );
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
@@ -435,7 +446,7 @@ function LeagueDashboard() {
             <Grid container spacing={1.5}>
               {group.links.filter((l) => !l.ownerOnly || isOwner).map((l) => {
                 const Icon = l.icon;
-                const primary = group.weight === 'primary';
+                const primary = primarySlugs.has(l.slug);
                 return (
                   <Grid xs={6} sm={3} key={l.slug}>
                     <Card
@@ -450,6 +461,7 @@ function LeagueDashboard() {
                       <CardActionArea
                         component={Link}
                         to={`/league/${leagueId}/${l.slug}`}
+                        aria-label={l.label}
                         sx={{
                           height: '100%',
                           display: 'flex',
@@ -463,6 +475,7 @@ function LeagueDashboard() {
                         <Typography variant="subtitle2" sx={{ color: 'inherit' }}>
                           {l.label}
                         </Typography>
+                        {primary && <Chip label="Recommended" size="small" color="secondary" />}
                       </CardActionArea>
                     </Card>
                   </Grid>
