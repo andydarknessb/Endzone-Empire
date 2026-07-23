@@ -59,6 +59,8 @@ function LeagueManagement() {
 
   useEffect(() => {
     fetchLeagues();
+    // League inventory is loaded once when this route mounts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const report = (err) => setError(err.response?.data?.error || err.message);

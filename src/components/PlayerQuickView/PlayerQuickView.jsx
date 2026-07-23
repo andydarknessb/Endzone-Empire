@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import {
   Dialog,
@@ -92,12 +92,12 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
   const navIndex = navIds ? navIds.indexOf(playerId) : -1;
   const canPrev = navIndex > 0;
   const canNext = navIndex >= 0 && navIds && navIndex < navIds.length - 1;
-  const goPrev = () => {
+  const goPrev = useCallback(() => {
     if (canPrev && onNavigate) onNavigate(navIds[navIndex - 1]);
-  };
-  const goNext = () => {
+  }, [canPrev, navIds, navIndex, onNavigate]);
+  const goNext = useCallback(() => {
     if (canNext && onNavigate) onNavigate(navIds[navIndex + 1]);
-  };
+  }, [canNext, navIds, navIndex, onNavigate]);
 
   useEffect(() => {
     if (!open || !navIds) return undefined;
@@ -114,7 +114,7 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // Recreated when the position in the list changes so the closures stay fresh.
-  }, [open, navIndex, canPrev, canNext]);
+  }, [open, navIds, goPrev, goNext]);
 
   useEffect(() => {
     if (!open || !playerId) return;

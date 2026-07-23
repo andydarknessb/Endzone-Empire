@@ -219,6 +219,8 @@ function TransactionLog() {
 
   useEffect(() => {
     fetchTransactions();
+    // fetchTransactions closes over leagueId, which is the explicit trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leagueId]);
 
   useEffect(() => {

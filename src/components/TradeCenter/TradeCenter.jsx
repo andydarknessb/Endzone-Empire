@@ -239,6 +239,8 @@ function TradeCenter() {
 
   useEffect(() => {
     fetchAll();
+    // fetchAll closes over leagueId, which is the explicit trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leagueId]);
 
   useEffect(() => subscribeToTeamProfileUpdates((update) => {

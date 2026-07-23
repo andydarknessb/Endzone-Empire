@@ -96,10 +96,14 @@ function TeamManagement() {
 
   useEffect(() => {
     fetchLeagues();
+    // League inventory is loaded once when this route mounts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (selectedLeague) fetchRoster(selectedLeague);
+    // fetchRoster is an event helper; selectedLeague is the fetch trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedLeague]);
 
   useEffect(() => {

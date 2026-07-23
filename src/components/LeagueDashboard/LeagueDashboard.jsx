@@ -112,6 +112,8 @@ function LeagueDashboard() {
 
   useEffect(() => {
     fetchLeagueAndUser();
+    // Refresh only when the route changes; league state controls spinner behavior.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leagueId]);
 
   useEffect(() => subscribeToTeamProfileUpdates((update) => {

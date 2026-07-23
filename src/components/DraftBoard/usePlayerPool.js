@@ -80,6 +80,8 @@ export default function usePlayerPool(leagueId) {
   // every filter) — this should only re-run when the league itself changes.
   useEffect(() => {
     fetchPage(0);
+    // Initial league load is separate from the filter-driven refetch below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leagueId]);
 
   // Debounce the search box (avoid a request per keystroke).
@@ -100,6 +102,8 @@ export default function usePlayerPool(leagueId) {
       return;
     }
     fetchPage(0);
+    // Position changes fetch directly; including fetchPage would double-fetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, sort, dir, hideDrafted]);
 
   // Mirror the table state into the URL so a refresh restores it (replace, so

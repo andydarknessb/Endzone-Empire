@@ -103,6 +103,8 @@ function LineupScreen() {
 
   useEffect(() => {
     fetchLineup();
+    // Route/week changes are the only automatic lineup fetch triggers.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leagueId, selectedWeek]);
 
   // Once the lineup for this week is known, load the decision-support
@@ -118,6 +120,8 @@ function LineupScreen() {
       setAdvice(null);
     }
     fetchSeasonBenchTotal();
+    // Advice refreshes when the loaded lineup changes; fetch functions are event helpers.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lineup, bestBall]);
 
   const fetchLineup = async () => {

@@ -80,6 +80,8 @@ function LeagueDiscovery() {
 
   useEffect(() => {
     fetchLeagues();
+    // Search is submit-driven; the remaining filters refresh immediately.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scoring, openSlotsOnly, sort]);
 
   const handleSearchSubmit = (event) => {

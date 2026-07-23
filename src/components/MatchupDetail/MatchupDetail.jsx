@@ -121,6 +121,8 @@ function MatchupDetail() {
 
   useEffect(() => {
     fetchData();
+    // fetchData closes over both route identifiers listed below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leagueId, matchupId]);
 
   // Touchdown-celebration preference (opt-out: default on).
@@ -261,6 +263,8 @@ function MatchupDetail() {
         retroDashTimeoutRef.current = null;
       }
     };
+    // Socket lifecycle is route-bound; pushToasts is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leagueId, matchupId, pushToasts]);
 
   const dismissCutscene = useCallback(() => {

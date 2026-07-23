@@ -39,7 +39,7 @@ function NotificationPrefs() {
     if (pushSupported) {
       fetchPushState();
     }
-  }, []);
+  }, [pushSupported]);
 
   const fetchPushState = async () => {
     try {
