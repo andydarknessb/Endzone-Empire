@@ -13,7 +13,7 @@
     "@emotion/react": "^11.13.0",
     "@emotion/styled": "^11.13.0",
     "@mui/icons-material": "^5.18.0",
-    "@mui/lab": "^5.0.0-alpha.170",
+    "@mui/lab": "^6.0.0-dev.20240529-082515-213b5e33ab",
     "@mui/material": "^5.16.7",
     "@sentry/node": "^10.67.0",
     "@sentry/react": "^10.67.0",
