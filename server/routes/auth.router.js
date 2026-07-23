@@ -107,7 +107,10 @@ router.post('/refresh', requireTrustedOrigin, async (req, res) => {
       return res.status(401).json({ error: 'invalid refresh token' });
     }
     setRefreshCookie(res, rotated.refreshToken);
-    return res.json({ token: signToken(user), user });
+    return res.json({
+      token: signToken(user, { authenticatedAt: rotated.authenticatedAt }),
+      user,
+    });
   } catch (error) {
     if (error.code !== 'REFRESH_RACE') clearRefreshCookie(res);
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
