@@ -42,9 +42,9 @@ export default function usePlayerPool(leagueId) {
         const params = {
           page: pageNum + 1,
           leagueId: Number(leagueId),
-          // Season Proj isn't a DB column — fetch by ADP and re-sort the
-          // loaded list client-side for that column.
-          sort: sort === 'proj' ? 'adp' : sort,
+          // Keep the compact UI/URL key while using the server's global
+          // projection sort across every page.
+          sort: sort === 'proj' ? 'projected_points' : sort,
         };
         // "Hide drafted" (default) keeps the board to available players only.
         if (hideDrafted) params.available = true;

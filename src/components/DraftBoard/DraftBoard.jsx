@@ -159,18 +159,8 @@ function DraftBoard() {
   const quickViewPick = quickViewId != null ? picks.find((p) => p.player_id === quickViewId) : null;
   const quickViewDraftedBy = quickViewPick ? teams.find((t) => t.id === quickViewPick.team_id)?.name || null : null;
 
-  // Season Proj isn't server-sortable (derived per league), so sort that column
-  // client-side over the currently loaded list. Drafted rows only appear when
-  // the "Hide drafted" toggle is off.
   const draftedIds = new Set(picks.map((p) => p.player_id));
-  const displayPlayers =
-    pool.sort === 'proj'
-      ? [...pool.availablePlayers].sort((a, b) => {
-          const av = a.projected_points ?? -Infinity;
-          const bv = b.projected_points ?? -Infinity;
-          return pool.dir === 'desc' ? bv - av : av - bv;
-        })
-      : pool.availablePlayers;
+  const displayPlayers = pool.availablePlayers;
 
   // Context actions for the quick-view: Draft / Queue the currently-viewed
   // available player, mirroring the row buttons. Hidden once the player is

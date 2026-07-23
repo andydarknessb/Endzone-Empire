@@ -51,6 +51,23 @@ test('fetches page 1 on mount and clears the initial loading flag', async () => 
   });
 });
 
+test('maps the projection URL sort to the server global projection sort', async () => {
+  const { Wrapper } = makeWrapper('/league/1/draft?sort=proj&dir=desc');
+  const { result } = renderHook(() => usePlayerPool(1), { wrapper: Wrapper });
+
+  await waitFor(() => expect(result.current.loading).toBe(false));
+
+  expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
+    params: {
+      page: 1,
+      leagueId: 1,
+      sort: 'projected_points',
+      available: true,
+      dir: 'desc',
+    },
+  });
+});
+
 test('debounces the search box 300ms before committing and refetching', async () => {
   jest.useFakeTimers();
   const { Wrapper } = makeWrapper();
