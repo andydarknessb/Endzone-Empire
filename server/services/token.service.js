@@ -1,19 +1,20 @@
 const crypto = require('crypto');
 const pool = require('../modules/pool');
 const { hashToken } = require('./account.service');
+const { logger } = require('../modules/logger');
 
 class TokenError extends Error {
-  constructor(statusCode, message) {
+  constructor(statusCode, message, code = 'INVALID_REFRESH_TOKEN') {
     super(message);
     this.statusCode = statusCode;
+    this.code = code;
   }
 }
 
 const REFRESH_TTL_DAYS = 30;
-// Two browser tabs share one refresh token via localStorage but refresh
-// independently; the loser of that race presents a just-rotated token. Within
-// this window that's treated as a benign 401 (the tab re-reads storage and
-// retries with the winner's token) instead of an attack that kills the family.
+// Two browser tabs share one refresh cookie but can refresh independently; the
+// loser of that race presents a just-rotated token. Within this window that is
+// treated as a benign 401 instead of an attack that kills the token family.
 const REUSE_GRACE_MS = 60 * 1000;
 
 /**
@@ -22,28 +23,30 @@ const REUSE_GRACE_MS = 60 * 1000;
  *   'rotate'  — valid, unexpired, never used: rotate it.
  *   'reuse'   — rotated away longer than the grace window ago: someone is
  *               replaying an old token. Caller must revoke the entire family.
- *   'invalid' — unknown, revoked, expired, or a just-rotated token (the
- *               multi-tab race): plain 401, nothing to revoke.
+ *   'race'    — a just-rotated token presented by another browser tab:
+ *               plain 401, but the shared cookie must not be cleared.
+ *   'invalid' — unknown, revoked, or expired: plain 401, nothing to revoke.
  */
 function classifyRefreshToken(row, now = new Date()) {
   if (!row) return 'invalid';
   if (row.revoked) return 'invalid'; // family already dead (logout or prior reuse)
   if (row.used) {
     const rotatedAt = new Date(row.updated_at || 0);
-    return now - rotatedAt <= REUSE_GRACE_MS ? 'invalid' : 'reuse';
+    return now - rotatedAt <= REUSE_GRACE_MS ? 'race' : 'reuse';
   }
   if (new Date(row.expires_at) <= now) return 'invalid';
   return 'rotate';
 }
 
 /** Issue a refresh token for a user; returns the raw token (hash stored). */
-async function issueRefreshToken({ userId, familyId }, client = pool) {
+async function issueRefreshToken({ userId, familyId, authenticatedAt }, client = pool) {
   const raw = crypto.randomBytes(32).toString('hex');
   const family = familyId || crypto.randomUUID();
   await client.query(
-    `INSERT INTO "refresh_tokens" ("user_id", "family_id", "token_hash", "expires_at")
-     VALUES ($1, $2, $3, now() + make_interval(days => $4))`,
-    [userId, family, hashToken(raw), REFRESH_TTL_DAYS]
+    `INSERT INTO "refresh_tokens"
+       ("user_id", "family_id", "token_hash", "expires_at", "authenticated_at")
+     VALUES ($1, $2, $3, now() + make_interval(days => $4), COALESCE($5, now()))`,
+    [userId, family, hashToken(raw), REFRESH_TTL_DAYS, authenticatedAt || null]
   );
   return raw;
 }
@@ -73,23 +76,35 @@ async function rotateRefreshToken({ token }) {
         [row.family_id]
       );
       await client.query('COMMIT');
-      console.warn(`refresh token reuse detected for user ${row.user_id}; family revoked`);
+      logger.warn({ userId: row.user_id }, 'refresh token reuse detected; family revoked');
       throw new TokenError(401, 'invalid refresh token');
     }
     if (verdict === 'invalid') {
       await client.query('ROLLBACK');
       throw new TokenError(401, 'invalid refresh token');
     }
+    if (verdict === 'race') {
+      await client.query('ROLLBACK');
+      throw new TokenError(401, 'invalid refresh token', 'REFRESH_RACE');
+    }
     await client.query(
       `UPDATE "refresh_tokens" SET "used" = true, "updated_at" = now() WHERE "id" = $1`,
       [row.id]
     );
     const refreshToken = await issueRefreshToken(
-      { userId: row.user_id, familyId: row.family_id },
+      {
+        userId: row.user_id,
+        familyId: row.family_id,
+        authenticatedAt: row.authenticated_at,
+      },
       client
     );
     await client.query('COMMIT');
-    return { userId: row.user_id, refreshToken };
+    return {
+      userId: row.user_id,
+      refreshToken,
+      authenticatedAt: row.authenticated_at,
+    };
   } catch (error) {
     if (!(error instanceof TokenError)) await client.query('ROLLBACK');
     throw error;

@@ -4,57 +4,69 @@ const encryptLib = require('../modules/encryption');
 const { signToken, requireAuth } = require('../modules/auth');
 const account = require('../services/account.service');
 const tokens = require('../services/token.service');
+const {
+  clearRefreshCookie,
+  getRefreshToken,
+  requireTrustedOrigin,
+  setRefreshCookie,
+} = require('../modules/refreshCookie');
+const { logger } = require('../modules/logger');
 
 const router = express.Router();
-
-/**
- * A refresh token is a session nicety, not a login requirement: if the insert
- * fails the user still gets their (15-min) access token and the client just
- * skips storing a refresh token. Never let this write 500 a valid login —
- * register in particular has already committed the user row by this point.
- */
-async function tryIssueRefreshToken(userId) {
-  try {
-    return await tokens.issueRefreshToken({ userId });
-  } catch (error) {
-    console.error('Refresh token issue failed (continuing without):', error.message);
-    return null;
-  }
-}
 
 function appOrigin(req) {
   return process.env.APP_ORIGIN || `${req.protocol}://${req.get('host')}`;
 }
 
-// POST /api/auth/register — create an account and return a JWT
 router.post('/register', async (req, res) => {
-  const { username, email, password } = req.body || {};
+  const username = String(req.body?.username || '').trim();
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const { password } = req.body || {};
   if (!username || !email || !password) {
     return res.status(400).json({ error: 'username, email, and password are required' });
   }
-  if (String(password).length < 8) {
-    return res.status(400).json({ error: 'password must be at least 8 characters' });
+  if (username.length > 80 || email.length > 255) {
+    return res.status(400).json({ error: 'username or email is too long' });
   }
+  if (String(password).length < 8 || String(password).length > 128) {
+    return res.status(400).json({ error: 'password must be between 8 and 128 characters' });
+  }
+
+  const client = await pool.connect();
   try {
-    const hash = encryptLib.encryptPassword(password);
-    const result = await pool.query(
+    await client.query('BEGIN');
+    const existing = await client.query(
+      `SELECT 1 FROM "users"
+       WHERE lower("username") = lower($1) OR lower("email") = lower($2)`,
+      [username, email]
+    );
+    if (existing.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'username or email already in use' });
+    }
+    const hash = await encryptLib.encryptPassword(password);
+    const result = await client.query(
       `INSERT INTO "users" ("username", "email", "password")
        VALUES ($1, $2, $3) RETURNING "id", "username", "email"`,
       [username, email, hash]
     );
     const user = result.rows[0];
-    const refreshToken = await tryIssueRefreshToken(user.id);
-    res.status(201).json({ token: signToken(user), refreshToken, user });
+    const refreshToken = await tokens.issueRefreshToken({ userId: user.id }, client);
+    await client.query('COMMIT');
+    setRefreshCookie(res, refreshToken);
+    return res.status(201).json({ token: signToken(user), user });
   } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
     if (error.code === '23505') {
       return res.status(409).json({ error: 'username or email already in use' });
     }
-    console.error('Registration failed:', error);
-    res.status(500).json({ error: 'registration failed' });
+    logger.error({ err: error }, 'registration failed');
+    return res.status(500).json({ error: 'registration failed' });
+  } finally {
+    client.release();
   }
 });
 
-// POST /api/auth/login — verify credentials and return a JWT
 router.post('/login', async (req, res) => {
   const { username, password } = req.body || {};
   if (!username || !password) {
@@ -62,54 +74,61 @@ router.post('/login', async (req, res) => {
   }
   try {
     const result = await pool.query(
-      `SELECT "id", "username", "email", "password" FROM "users" WHERE "username" = $1`,
-      [username]
+      `SELECT "id", "username", "email", "password" FROM "users"
+       WHERE lower("username") = lower($1) AND "deleted_at" IS NULL`,
+      [String(username).trim()]
     );
     const user = result.rows[0];
-    if (!user || !encryptLib.comparePassword(password, user.password)) {
+    if (!user || !(await encryptLib.comparePassword(password, user.password))) {
       return res.status(401).json({ error: 'invalid username or password' });
     }
     delete user.password;
-    const refreshToken = await tryIssueRefreshToken(user.id);
-    res.json({ token: signToken(user), refreshToken, user });
+    const refreshToken = await tokens.issueRefreshToken({ userId: user.id });
+    setRefreshCookie(res, refreshToken);
+    return res.json({
+      token: signToken(user, { authenticatedAt: rotated.authenticatedAt }),
+      user,
+    });
   } catch (error) {
-    console.error('Login failed:', error);
-    res.status(500).json({ error: 'login failed' });
+    logger.error({ err: error }, 'login failed');
+    return res.status(500).json({ error: 'login failed' });
   }
 });
 
-// POST /api/auth/refresh — rotate a refresh token for a fresh access JWT.
-// Reusing an already-rotated token revokes its whole family (see token.service).
-router.post('/refresh', async (req, res) => {
-  const { refreshToken } = req.body || {};
+router.post('/refresh', requireTrustedOrigin, async (req, res) => {
+  const refreshToken = getRefreshToken(req);
   try {
     const rotated = await tokens.rotateRefreshToken({ token: refreshToken });
     const result = await pool.query(
-      `SELECT "id", "username", "email" FROM "users" WHERE "id" = $1`,
+      `SELECT "id", "username", "email" FROM "users"
+       WHERE "id" = $1 AND "deleted_at" IS NULL`,
       [rotated.userId]
     );
     const user = result.rows[0];
-    if (!user) return res.status(401).json({ error: 'invalid refresh token' });
-    res.json({ token: signToken(user), refreshToken: rotated.refreshToken, user });
+    if (!user) {
+      clearRefreshCookie(res);
+      return res.status(401).json({ error: 'invalid refresh token' });
+    }
+    setRefreshCookie(res, rotated.refreshToken);
+    return res.json({ token: signToken(user), user });
   } catch (error) {
+    if (error.code !== 'REFRESH_RACE') clearRefreshCookie(res);
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
-    console.error('Token refresh failed:', error);
-    res.status(500).json({ error: 'token refresh failed' });
+    logger.error({ err: error }, 'token refresh failed');
+    return res.status(500).json({ error: 'token refresh failed' });
   }
 });
 
-// POST /api/auth/logout — revoke the refresh session server-side. Always 200.
-router.post('/logout', async (req, res) => {
-  const { refreshToken } = req.body || {};
+router.post('/logout', requireTrustedOrigin, async (req, res) => {
   try {
-    await tokens.revokeRefreshToken({ token: refreshToken });
+    await tokens.revokeRefreshToken({ token: getRefreshToken(req) });
   } catch (error) {
-    console.error('Logout revocation failed:', error);
+    logger.error({ err: error }, 'logout revocation failed');
   }
-  res.json({ ok: true });
+  clearRefreshCookie(res);
+  return res.json({ ok: true });
 });
 
-// POST /api/auth/forgot-password — start a reset; always 200 (no enumeration)
 router.post('/forgot-password', async (req, res) => {
   const { email } = req.body || {};
   if (!email || typeof email !== 'string') {
@@ -117,51 +136,50 @@ router.post('/forgot-password', async (req, res) => {
   }
   try {
     await account.requestPasswordReset({ email, appOrigin: appOrigin(req) });
-    res.json({ ok: true, message: 'If that email exists, a reset link has been sent.' });
+    return res.json({ ok: true, message: 'If that email exists, a reset link has been sent.' });
   } catch (error) {
-    console.error('Forgot password failed:', error);
-    res.status(500).json({ error: 'failed to start password reset' });
+    logger.error({ err: error }, 'forgot password failed');
+    return res.status(error.statusCode || 500).json({
+      error: error.statusCode ? error.message : 'failed to start password reset',
+    });
   }
 });
 
-// POST /api/auth/reset-password — { token, password }
 router.post('/reset-password', async (req, res) => {
   const { token, password } = req.body || {};
   try {
     await account.resetPassword({ token, newPassword: password });
-    res.json({ ok: true });
+    return res.json({ ok: true });
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
-    console.error('Password reset failed:', error);
-    res.status(500).json({ error: 'password reset failed' });
+    logger.error({ err: error }, 'password reset failed');
+    return res.status(500).json({ error: 'password reset failed' });
   }
 });
 
-// POST /api/auth/send-verification — logged-in user (re)sends their link
 router.post('/send-verification', requireAuth, async (req, res) => {
   try {
     const result = await account.requestEmailVerification({
       userId: req.user.id,
       appOrigin: appOrigin(req),
     });
-    res.json(result);
+    return res.json(result);
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
-    console.error('Send verification failed:', error);
-    res.status(500).json({ error: 'failed to send verification email' });
+    logger.error({ err: error }, 'send verification failed');
+    return res.status(500).json({ error: 'failed to send verification email' });
   }
 });
 
-// POST /api/auth/verify-email — { token }
 router.post('/verify-email', async (req, res) => {
   const { token } = req.body || {};
   try {
     const result = await account.verifyEmail({ token });
-    res.json(result);
+    return res.json(result);
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
-    console.error('Email verification failed:', error);
-    res.status(500).json({ error: 'email verification failed' });
+    logger.error({ err: error }, 'email verification failed');
+    return res.status(500).json({ error: 'email verification failed' });
   }
 });
 

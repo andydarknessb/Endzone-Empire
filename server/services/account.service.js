@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const pool = require('../modules/pool');
 const encryptLib = require('../modules/encryption');
+const { logger } = require('../modules/logger');
 
 class AccountError extends Error {
   constructor(statusCode, message) {
@@ -16,30 +17,37 @@ function hashToken(token) {
 }
 
 /**
- * Deliver an account email. With SMTP_URL configured, nodemailer (optional
- * dependency) sends it; otherwise the link is logged so local/dev flows stay
- * usable end to end without an email provider.
+ * Deliver account email through SMTP. Production fails closed when delivery is
+ * unavailable; non-production suppresses delivery without logging recipient,
+ * body, link, or token content.
  */
+let transporter = null;
+
 async function deliverEmail({ to, subject, text }) {
   if (process.env.SMTP_URL) {
     try {
       // Optional dependency — only required when SMTP is actually configured
       // eslint-disable-next-line global-require
       const nodemailer = require('nodemailer');
-      const transporter = nodemailer.createTransport(process.env.SMTP_URL);
-      await transporter.sendMail({
-        from: process.env.SMTP_FROM || 'no-reply@endzone-empire.local',
+      if (!transporter) transporter = nodemailer.createTransport(process.env.SMTP_URL);
+      const delivery = await transporter.sendMail({
+        from: process.env.SMTP_FROM || 'no-reply@endzoneempire.gg',
         to,
         subject,
         text,
       });
+      logger.info({ deliveryId: delivery.messageId }, 'account email delivered');
       return { delivered: 'smtp' };
     } catch (err) {
-      console.error('SMTP delivery failed, falling back to console:', err.message);
+      logger.error({ err }, 'account email delivery failed');
+      throw new AccountError(503, 'email delivery is temporarily unavailable');
     }
   }
-  console.log(`[email to ${to}] ${subject}\n${text}`);
-  return { delivered: 'console' };
+  if (process.env.NODE_ENV === 'production') {
+    throw new AccountError(503, 'email delivery is not configured');
+  }
+  logger.info({ emailType: subject }, 'account email suppressed outside production');
+  return { delivered: 'suppressed' };
 }
 
 /** Create a single-use token for a user; returns the raw token (hash stored). */
@@ -59,8 +67,9 @@ async function issueToken({ userId, type }) {
  */
 async function requestPasswordReset({ email, appOrigin }) {
   const result = await pool.query(
-    `SELECT "id", "email", "username" FROM "users" WHERE "email" = $1`,
-    [email]
+    `SELECT "id", "email", "username" FROM "users"
+     WHERE lower("email") = lower($1) AND "deleted_at" IS NULL`,
+    [String(email).trim()]
   );
   const user = result.rows[0];
   if (user) {
@@ -78,8 +87,12 @@ async function requestPasswordReset({ email, appOrigin }) {
 /** Complete a password reset with a valid unexpired unused token. */
 async function resetPassword({ token, newPassword }) {
   if (!token || typeof token !== 'string') throw new AccountError(400, 'token is required');
-  if (!newPassword || String(newPassword).length < 8) {
-    throw new AccountError(400, 'password must be at least 8 characters');
+  if (
+    !newPassword ||
+    String(newPassword).length < 8 ||
+    String(newPassword).length > 128
+  ) {
+    throw new AccountError(400, 'password must be between 8 and 128 characters');
   }
   const client = await pool.connect();
   try {
@@ -94,7 +107,7 @@ async function resetPassword({ token, newPassword }) {
     if (!row) throw new AccountError(400, 'invalid or expired reset token');
     await client.query(
       `UPDATE "users" SET "password" = $1, "updated_at" = now() WHERE "id" = $2`,
-      [encryptLib.encryptPassword(newPassword), row.user_id]
+      [await encryptLib.encryptPassword(newPassword), row.user_id]
     );
     await client.query(
       `UPDATE "auth_tokens" SET "used" = true, "updated_at" = now() WHERE "id" = $1`,
@@ -119,7 +132,8 @@ async function resetPassword({ token, newPassword }) {
 /** Send (or resend) the email-verification link for a logged-in user. */
 async function requestEmailVerification({ userId, appOrigin }) {
   const result = await pool.query(
-    `SELECT "id", "email", "username", "email_verified" FROM "users" WHERE "id" = $1`,
+    `SELECT "id", "email", "username", "email_verified" FROM "users"
+     WHERE "id" = $1 AND "deleted_at" IS NULL`,
     [userId]
   );
   const user = result.rows[0];

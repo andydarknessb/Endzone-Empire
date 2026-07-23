@@ -35,18 +35,18 @@ test('already-rotated token is reuse — the replay attack case', () => {
   assert.equal(classifyRefreshToken(row({ used: true }), NOW), 'reuse');
 });
 
-test('token rotated seconds ago is invalid, not reuse — the multi-tab race', () => {
+test('token rotated seconds ago is classified as a benign multi-tab race', () => {
   const justRotated = new Date(NOW - 5 * 1000).toISOString();
   assert.equal(
     classifyRefreshToken(row({ used: true, updated_at: justRotated }), NOW),
-    'invalid'
+    'race'
   );
 });
 
 test('grace window has an edge: one ms past it flips to reuse', () => {
   const atEdge = new Date(NOW - REUSE_GRACE_MS).toISOString();
   const pastEdge = new Date(NOW - REUSE_GRACE_MS - 1).toISOString();
-  assert.equal(classifyRefreshToken(row({ used: true, updated_at: atEdge }), NOW), 'invalid');
+  assert.equal(classifyRefreshToken(row({ used: true, updated_at: atEdge }), NOW), 'race');
   assert.equal(classifyRefreshToken(row({ used: true, updated_at: pastEdge }), NOW), 'reuse');
 });
 
