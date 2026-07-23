@@ -16,6 +16,9 @@ export const PUBLIC_PATH_PREFIXES = [
   '/waiver-wire',
   '/strategy',
   '/recaps',
+  '/privacy',
+  '/terms',
+  '/acceptable-use',
 ];
 
 /**

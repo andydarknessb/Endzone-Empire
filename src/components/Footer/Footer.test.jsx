@@ -4,7 +4,7 @@ import Footer from './Footer';
 
 test('renders the copyright footer text inside a <footer> element', () => {
   render(<Footer />);
-  const footer = screen.getByText(/Endzone Empire/i);
+  const footer = screen.getByRole('contentinfo');
   expect(footer.tagName).toBe('FOOTER');
   expect(footer).toHaveTextContent('© Endzone Empire');
 });

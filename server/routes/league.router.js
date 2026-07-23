@@ -934,10 +934,15 @@ router.get('/:id/chat', async (req, res) => {
                 "chat_messages"."user_id", "users"."username"
          FROM "chat_messages" JOIN "users" ON "users"."id" = "chat_messages"."user_id"
          WHERE "chat_messages"."league_id" = $1
+           AND NOT EXISTS (
+             SELECT 1 FROM "user_blocks"
+             WHERE "user_blocks"."blocker_id" = $2
+               AND "user_blocks"."blocked_id" = "chat_messages"."user_id"
+           )
          ORDER BY "chat_messages"."created_at" DESC
          LIMIT 50
        ) recent ORDER BY "created_at" ASC`,
-      [leagueId]
+      [leagueId, req.user.id]
     );
     res.json(result.rows);
   } catch (error) {

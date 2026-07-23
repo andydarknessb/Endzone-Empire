@@ -7,6 +7,11 @@ import { TEAM_PROFILE_UPDATED_EVENT } from '../../lib/teamProfileEvents';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 import ProfileSettingsModal from './ProfileSettingsModal';
 
+jest.mock('react-redux', () => ({
+  useDispatch: () => jest.fn(),
+  useSelector: (selector) => selector({ user: { id: 1, username: 'alice' } }),
+}));
+
 let mock;
 let teamProfileUpdates;
 let handleTeamProfileUpdate;

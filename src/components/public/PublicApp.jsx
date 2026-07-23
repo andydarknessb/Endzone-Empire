@@ -14,6 +14,7 @@ const StrategyIndexPage = lazy(() => import('./pages/StrategyIndexPage'));
 const ArticlePage = lazy(() => import('./pages/ArticlePage'));
 const RecapsPage = lazy(() => import('./pages/RecapsPage'));
 const RecapDetailPage = lazy(() => import('./pages/RecapDetailPage'));
+const LegalPage = lazy(() => import('./pages/LegalPage'));
 
 function SuspenseFallback() {
   return (
@@ -43,6 +44,9 @@ function PublicApp() {
               <Route path="/strategy/:slug" element={<ArticlePage />} />
               <Route path="/recaps" element={<RecapsPage />} />
               <Route path="/recaps/:gameId" element={<RecapDetailPage />} />
+              <Route path="/privacy" element={<LegalPage document="privacy" />} />
+              <Route path="/terms" element={<LegalPage document="terms" />} />
+              <Route path="/acceptable-use" element={<LegalPage document="acceptable-use" />} />
               {/* Any other public-prefixed path falls back to rankings. */}
               <Route path="*" element={<Navigate to="/rankings" replace />} />
             </Routes>

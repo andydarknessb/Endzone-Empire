@@ -3,6 +3,7 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions, Button,
   Select, MenuItem, InputLabel, TextField, Typography, Divider, Box,
 } from '@mui/material';
+import { useDispatch, useSelector } from 'react-redux';
 import apiClient from '../../api/apiClient';
 import { publishTeamProfileUpdate } from '../../lib/teamProfileEvents';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
@@ -14,6 +15,8 @@ import TeamAvatarUploader from '../common/TeamAvatarUploader';
 // Other account preferences — password, notification defaults — will land
 // in this same dialog.
 function ProfileSettingsModal({ open, onClose }) {
+  const dispatch = useDispatch();
+  const user = useSelector((state) => state.user);
   const notify = useSnackbar();
   const [leagues, setLeagues] = useState([]);
   const [leagueId, setLeagueId] = useState('');
@@ -27,6 +30,10 @@ function ProfileSettingsModal({ open, onClose }) {
   // Synchronous in-flight latch: state updates don't re-render between two fast
   // clicks, so a state-only guard lets a double-click through. This does not.
   const savingRef = useRef(false);
+  const [deletionOpen, setDeletionOpen] = useState(false);
+  const [deletionConfirmation, setDeletionConfirmation] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const selectedLeague = leagues.find((l) => l.id === leagueId);
   const currentName = selectedLeague?.my_team_name || '';
@@ -137,7 +144,45 @@ function ProfileSettingsModal({ open, onClose }) {
     }
   };
 
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const response = await apiClient.get('/api/user/export', { responseType: 'blob' });
+      const url = URL.createObjectURL(response.data);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `endzone-empire-export-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      notify('Account export downloaded');
+    } catch (error) {
+      notify('Account export failed', { severity: 'error' });
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (deletionConfirmation !== user.username || deleting) return;
+    setDeleting(true);
+    try {
+      await apiClient.delete('/api/user', { data: { confirmation: deletionConfirmation } });
+      setDeletionOpen(false);
+      setDeletionConfirmation('');
+      dispatch({ type: 'LOGOUT' });
+    } catch (error) {
+      const owned = error.response?.data?.details?.leagues;
+      const message = owned?.length
+        ? `Delete commissioned leagues first: ${owned.map((league) => league.name).join(', ')}`
+        : error.response?.data?.message || 'Account deletion failed';
+      notify(message, { severity: 'error' });
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
+    <>
     <Dialog open={open} onClose={handleClose} fullWidth maxWidth="xs">
       <DialogTitle>Profile Settings</DialogTitle>
       <DialogContent>
@@ -184,10 +229,20 @@ function ProfileSettingsModal({ open, onClose }) {
 
         <Divider sx={{ my: 2 }} />
 
-        <Typography variant="body2" color="text.secondary">
-          More account preferences — password and notification defaults —
-          are coming soon to this panel.
+        <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 700 }}>
+          Account data
         </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Download a portable copy of your account data or permanently anonymize your account.
+        </Typography>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+          <Button variant="outlined" onClick={handleExport} disabled={exporting}>
+            {exporting ? 'Preparing export…' : 'Download my data'}
+          </Button>
+          <Button color="error" variant="outlined" onClick={() => setDeletionOpen(true)}>
+            Delete account
+          </Button>
+        </Box>
       </DialogContent>
       <DialogActions>
         <Button onClick={handleClose}>Cancel</Button>
@@ -196,6 +251,40 @@ function ProfileSettingsModal({ open, onClose }) {
         </Button>
       </DialogActions>
     </Dialog>
+    <Dialog
+      open={deletionOpen}
+      onClose={() => !deleting && setDeletionOpen(false)}
+      fullWidth
+      maxWidth="xs"
+    >
+      <DialogTitle>Delete account permanently?</DialogTitle>
+      <DialogContent>
+        <Typography sx={{ mb: 2 }}>
+          This removes active credentials, chat messages, notifications, push subscriptions, and
+          avatars, then anonymizes retained league history. You must delete leagues you commission
+          first. This action cannot be undone.
+        </Typography>
+        <TextField
+          autoFocus
+          fullWidth
+          label={`Type ${user.username || 'your username'} to confirm`}
+          value={deletionConfirmation}
+          onChange={(event) => setDeletionConfirmation(event.target.value)}
+        />
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => setDeletionOpen(false)} disabled={deleting}>Cancel</Button>
+        <Button
+          color="error"
+          variant="contained"
+          onClick={handleDeleteAccount}
+          disabled={deleting || deletionConfirmation !== user.username}
+        >
+          {deleting ? 'Deleting…' : 'Delete my account'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+    </>
   );
 }
 
