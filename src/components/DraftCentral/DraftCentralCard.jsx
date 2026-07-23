@@ -4,12 +4,6 @@ import { Box, Button, Chip, LinearProgress, Paper, Stack, Typography } from '@mu
 import apiClient from '../../api/apiClient';
 import Countdown from '../Countdown/Countdown';
 
-function draftStatus(draft) {
-  if (draft.draft_status === 'active') return { label: 'Live now', color: 'error' };
-  if (draft.draft_date) return { label: 'Scheduled', color: 'primary' };
-  return { label: 'Needs scheduling', color: 'warning' };
-}
-
 function DraftCentralCard() {
   const [drafts, setDrafts] = useState([]);
 
@@ -38,58 +32,38 @@ function DraftCentralCard() {
 
   if (drafts.length === 0) return null;
 
-  return (
-    <Paper component="section" aria-labelledby="draft-central-heading" sx={{ p: { xs: 2, sm: 3 }, mb: 3 }}>
-      <Typography id="draft-central-heading" variant="h5" component="h2" sx={{ mb: 2, fontWeight: 'bold' }}>
-        Draft Central
-      </Typography>
-      <Stack spacing={2}>
-        {drafts.map((draft) => {
-          const picksMade = Number(draft.picks_made) || 0;
-          const totalPicks = (Number(draft.roster_limit) || 0) * (Number(draft.team_count) || 0);
-          const progress = totalPicks > 0 ? Math.min(100, (picksMade / totalPicks) * 100) : 0;
-          const status = draftStatus(draft);
+  const active = drafts.filter((draft) => draft.draft_status === 'active');
+  const scheduled = drafts.filter((draft) => draft.draft_status === 'pending' && draft.draft_date);
+  const unscheduled = drafts.filter((draft) => draft.draft_status === 'pending' && !draft.draft_date);
+  const focusDraft = active[0] || scheduled[0] || unscheduled[0];
+  const picksMade = Number(focusDraft.picks_made) || 0;
+  const totalPicks = (Number(focusDraft.roster_limit) || 0) * (Number(focusDraft.team_count) || 0);
+  const progress = totalPicks > 0 ? Math.min(100, (picksMade / totalPicks) * 100) : 0;
 
-          return (
-            <Box key={draft.id} sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 2 }}>
-              <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={2}>
-                <Box sx={{ minWidth: 0, flexGrow: 1 }}>
-                  <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-                    <Typography variant="h6" noWrap>{draft.name}</Typography>
-                    <Chip size="small" label={status.label} color={status.color} />
-                    {draft.draft_status === 'pending' && draft.draft_date && (
-                      <Countdown variant="chip" date={draft.draft_date} />
-                    )}
-                  </Stack>
-                  {totalPicks > 0 ? (
-                    <Box sx={{ mt: 1.5 }}>
-                      <LinearProgress
-                        aria-label={`Draft progress for ${draft.name}`}
-                        variant="determinate"
-                        value={progress}
-                      />
-                      <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.5 }}>
-                        {picksMade} / {totalPicks} picks
-                      </Typography>
-                    </Box>
-                  ) : (
-                    <Typography variant="body2" sx={{ color: 'text.secondary', mt: 1 }}>
-                      Draft progress is available after teams join.
-                    </Typography>
-                  )}
-                </Box>
-                <Stack direction="row" spacing={1} alignSelf={{ xs: 'flex-start', sm: 'center' }}>
-                  <Button component={Link} to={`/league/${draft.id}/draft`} variant="contained">
-                    Draft Room
-                  </Button>
-                  <Button component={Link} to={`/league/${draft.id}/draft-settings`} variant="outlined">
-                    Settings
-                  </Button>
-                </Stack>
-              </Stack>
+  return (
+    <Paper component="section" aria-labelledby="draft-central-heading" variant="outlined" sx={{ p: 2, mb: 3 }}>
+      <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'center' }} spacing={2}>
+        <Box sx={{ minWidth: 0, flexGrow: 1 }}>
+          <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap" useFlexGap>
+            <Typography id="draft-central-heading" variant="subtitle1" component="h2" sx={{ fontWeight: 700 }}>
+              Draft Central
+            </Typography>
+            {active.length > 0 && <Chip size="small" label={`${active.length} live`} color="error" />}
+            {scheduled.length > 0 && <Chip size="small" label={`${scheduled.length} scheduled`} color="primary" />}
+            {unscheduled.length > 0 && <Chip size="small" label={`${unscheduled.length} need scheduling`} color="warning" />}
+          </Stack>
+          {focusDraft.draft_status === 'active' && totalPicks > 0 ? (
+            <Box sx={{ mt: 1, maxWidth: 420 }}>
+              <LinearProgress aria-label="Current draft progress" variant="determinate" value={progress} />
+              <Typography variant="caption" color="text.secondary">{picksMade} / {totalPicks} picks</Typography>
             </Box>
-          );
-        })}
+          ) : focusDraft.draft_date ? (
+            <Box sx={{ mt: 1 }}><Countdown variant="chip" date={focusDraft.draft_date} /></Box>
+          ) : null}
+        </Box>
+        <Button component={Link} to={`/league/${focusDraft.id}/draft`} variant={active.length > 0 ? 'contained' : 'outlined'}>
+          {active.length > 0 ? 'Open live draft' : 'Review drafts'}
+        </Button>
       </Stack>
     </Paper>
   );

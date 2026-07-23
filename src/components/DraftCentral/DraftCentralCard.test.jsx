@@ -32,10 +32,9 @@ test('shows live, scheduled, and unscheduled commissioner drafts with progress a
   renderWithProviders(<DraftCentralCard />);
 
   expect(await screen.findByRole('heading', { name: 'Draft Central' })).toBeInTheDocument();
-  expect(screen.getByText('Live now')).toBeInTheDocument();
-  expect(screen.getByText('Scheduled')).toBeInTheDocument();
-  expect(screen.getByText('Needs scheduling')).toBeInTheDocument();
+  expect(screen.getByText('1 live')).toBeInTheDocument();
+  expect(screen.getByText('1 scheduled')).toBeInTheDocument();
+  expect(screen.getByText('1 need scheduling')).toBeInTheDocument();
   expect(screen.getByText('37 / 150 picks')).toBeInTheDocument();
-  expect(screen.getAllByRole('link', { name: 'Draft Room' })[0]).toHaveAttribute('href', '/league/1/draft');
-  expect(screen.getAllByRole('link', { name: 'Settings' })[1]).toHaveAttribute('href', '/league/2/draft-settings');
+  expect(screen.getByRole('link', { name: 'Open live draft' })).toHaveAttribute('href', '/league/1/draft');
 });
