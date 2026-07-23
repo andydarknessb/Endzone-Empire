@@ -1,10 +1,14 @@
 require('dotenv').config();
 const { sslForConnection } = require('./server/modules/dbSsl');
 
-const connection = process.env.DATABASE_URL
+const migrationDatabaseUrl =
+  process.env.DATABASE_URL_MIGRATIONS ||
+  process.env.DATABASE_URL_RUNTIME ||
+  process.env.DATABASE_URL;
+const connection = migrationDatabaseUrl
   ? {
-      connectionString: process.env.DATABASE_URL,
-      ssl: sslForConnection(process.env.DATABASE_URL),
+      connectionString: migrationDatabaseUrl,
+      ssl: sslForConnection(migrationDatabaseUrl),
     }
   : {
       host: process.env.PGHOST || 'localhost',

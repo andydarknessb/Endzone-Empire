@@ -14,10 +14,75 @@ const { logTransaction, notify, notifyLeague } = require('./activity.service');
  * silently rewriting rounds that teams already played.
  */
 
-/** Pure: is `date` in the NFL stat-correction window (Tuesday or Wednesday)? */
-function isCorrectionDay(date = new Date()) {
-  const day = date.getDay();
+const CORRECTION_WINDOW_ERROR = Object.freeze({
+  code: 'CORRECTION_WINDOW_EXPIRED',
+  message: 'Manual score modifications for this week are locked.',
+});
+
+class CorrectionWindowError extends Error {
+  constructor() {
+    super(CORRECTION_WINDOW_ERROR.message);
+    this.name = 'CorrectionWindowError';
+    this.code = CORRECTION_WINDOW_ERROR.code;
+    this.statusCode = 403;
+  }
+}
+
+/** Parse only unambiguous instants. Client-local timestamps without a UTC offset are rejected. */
+function correctionInstant(timestamp) {
+  if (timestamp === undefined) return new Date();
+  if (
+    typeof timestamp === 'string' &&
+    !/(?:Z|[+-]\d{2}:\d{2})$/i.test(timestamp)
+  ) {
+    throw new CorrectionWindowError();
+  }
+  const instant = timestamp instanceof Date
+    ? new Date(timestamp.getTime())
+    : new Date(timestamp);
+  if (!Number.isFinite(instant.getTime())) throw new CorrectionWindowError();
+  return instant;
+}
+
+/** Pure: is `timestamp` in the UTC Tuesday/Wednesday correction window? */
+function isCorrectionDay(timestamp) {
+  const day = correctionInstant(timestamp).getUTCDay();
   return day === 2 || day === 3;
+}
+
+/**
+ * Fail-closed authorization for manual corrections. The active season/week
+ * must come from the league row, never request data. `timestamp` exists for
+ * deterministic tests and trusted callers; the HTTP route always uses the
+ * server clock.
+ */
+function assertManualCorrectionWindow({
+  requestedSeason,
+  requestedWeek,
+  activeSeason,
+  activeWeek,
+  timestamp,
+}) {
+  const values = [requestedSeason, requestedWeek, activeSeason, activeWeek].map(Number);
+  if (!values.every(Number.isInteger)) throw new CorrectionWindowError();
+  const [requestSeason, requestWeek, leagueSeason, leagueWeek] = values;
+  const immediatePastWeek = leagueWeek - 1;
+  const checkedAt = correctionInstant(timestamp);
+  const targetsImmediatePastWeek =
+    leagueWeek > 1 &&
+    requestSeason === leagueSeason &&
+    requestWeek === immediatePastWeek;
+
+  if (!targetsImmediatePastWeek || !isCorrectionDay(checkedAt)) {
+    throw new CorrectionWindowError();
+  }
+
+  return {
+    activeSeason: leagueSeason,
+    activeWeek: leagueWeek,
+    correctionWeek: immediatePastWeek,
+    checkedAt,
+  };
 }
 
 /**
@@ -64,15 +129,30 @@ async function correctLeagueWeek({ leagueId, season, week }) {
 
   await scoring.scoreMatchups({ leagueId, season, week });
 
-  const after = await pool.query(
-    `SELECT "id", "home_score", "away_score" FROM "matchups"
-     WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3`,
-    [leagueId, season, week]
-  );
+  let after;
+  try {
+    after = await pool.query(
+      `SELECT "id", "home_score", "away_score" FROM "matchups"
+       WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3`,
+      [leagueId, season, week]
+    );
+  } catch (error) {
+    // Scores have committed. Retrying the whole correction would replace the
+    // original before-snapshot and could hide a correction from the audit log.
+    error.retrySafe = false;
+    throw error;
+  }
   const changes = diffMatchupScores(before.rows, after.rows);
   if (changes.length === 0) return { leagueId, changes };
 
-  const client = await pool.connect();
+  let client;
+  try {
+    client = await pool.connect();
+  } catch (error) {
+    // Scores already committed above; replaying would lose the before-snapshot.
+    error.retrySafe = false;
+    throw error;
+  }
   try {
     await client.query('BEGIN');
     await logTransaction(client, {
@@ -108,12 +188,19 @@ async function correctLeagueWeek({ leagueId, season, week }) {
     }
     await client.query('COMMIT');
   } catch (error) {
-    await client.query('ROLLBACK');
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackError) {
+      error.rollbackError = rollbackError;
+    }
+    error.retrySafe = false;
     // The corrected scores are already committed and a later run won't
     // re-detect them (its "before" snapshot is post-correction) — dump the
     // full change set to the server log so the record isn't lost entirely.
     console.error(
-      `stat correction: league ${leagueId} week ${week} scores changed but logging failed;`,
+      'stat correction: league %s week %s scores changed but logging failed;',
+      leagueId,
+      week,
       JSON.stringify(changes)
     );
     throw error;
@@ -149,7 +236,7 @@ async function resyncPriorWeeks() {
     try {
       await scoring.syncWeekStats({ season, week });
     } catch (err) {
-      console.error(`stat correction: sync failed for ${season} week ${week}:`, err.message);
+      console.error('stat correction: sync failed for %s week %s:', season, week, err.message);
       continue; // don't re-score leagues from stale stats
     }
     // Corrected stats shift season averages — rebuild the following week's
@@ -158,14 +245,19 @@ async function resyncPriorWeeks() {
       const projection = require('./projection.service');
       await projection.getWeekProjections({ season, week: week + 1, refresh: true });
     } catch (err) {
-      console.error(`stat correction: projection refresh failed for ${season} week ${week + 1}:`, err.message);
+      console.error(
+        'stat correction: projection refresh failed for %s week %s:',
+        season,
+        week + 1,
+        err.message
+      );
     }
     for (const leagueId of leagueIds) {
       try {
         const outcome = await correctLeagueWeek({ leagueId, season, week });
         if (outcome.changes.length > 0) results.push(outcome);
       } catch (err) {
-        console.error(`stat correction failed for league ${leagueId}:`, err.message);
+        console.error('stat correction failed for league %s:', leagueId, err.message);
       }
     }
   }
@@ -173,7 +265,11 @@ async function resyncPriorWeeks() {
 }
 
 module.exports = {
+  CORRECTION_WINDOW_ERROR,
+  CorrectionWindowError,
+  correctionInstant,
   isCorrectionDay,
+  assertManualCorrectionWindow,
   diffMatchupScores,
   correctLeagueWeek,
   resyncPriorWeeks,

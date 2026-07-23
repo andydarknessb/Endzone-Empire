@@ -1,11 +1,115 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const pool = require('../modules/pool');
+const { byeWeekFromPlayedWeeks, REG_SEASON_WEEKS } = require('../services/bye.service');
 const {
   slotEligible,
   validateLineup,
   parseLineupSettings,
-  DEFAULT_LINEUP_SLOTS,
+  annotateLineupEntries,
+  getLineup,
+  DEFAULT_ROSTER_SLOTS,
 } = require('../services/lineup.service');
+
+test('annotateLineupEntries derives onBye only from the canonical bye week', () => {
+  const selectedWeek = 6;
+  const entries = annotateLineupEntries(
+    [
+      { id: 1, name: 'Justin Jefferson', nfl_team: 'MIN' },
+      { id: 2, name: 'Josh Allen', nfl_team: 'BUF' },
+      { id: 3, name: 'Patrick Mahomes', nfl_team: 'KC' },
+    ],
+    {
+      locked: new Set(['BUF']),
+      byeByTeam: new Map([['MIN', 6], ['BUF', 7], ['KC', null]]),
+      selectedWeek,
+    }
+  );
+
+  assert.equal(entries[0].bye_week, selectedWeek);
+  assert.equal(entries[0].onBye, true);
+  assert.equal(entries[1].bye_week, 7);
+  assert.equal(entries[1].onBye, false);
+  assert.equal(entries[1].locked, true);
+  assert.equal(entries[2].bye_week, null);
+  assert.equal(entries[2].onBye, false);
+  assert.equal(entries[0].name, 'Justin Jefferson');
+  for (const entry of entries.filter((row) => row.onBye)) {
+    assert.equal(entry.bye_week, selectedWeek);
+  }
+});
+
+test('annotateLineupEntries does not treat an incomplete schedule gap as a bye', () => {
+  const playedWeeks = new Set(Array.from({ length: REG_SEASON_WEEKS }, (_, index) => index + 1));
+  playedWeeks.delete(6); // actual bye
+  playedWeeks.delete(10); // missing game row, not a bye
+  const byeWeek = byeWeekFromPlayedWeeks(playedWeeks);
+
+  const [entry] = annotateLineupEntries(
+    [{ id: 1, nfl_team: 'MIN' }],
+    { locked: new Set(), byeByTeam: new Map([['MIN', byeWeek]]), selectedWeek: 10 }
+  );
+
+  assert.equal(entry.bye_week, null);
+  assert.equal(entry.onBye, false);
+});
+
+test('getLineup batches completed-season projections and preserves weekly null semantics', async (t) => {
+  const entries = [
+    { id: 1, name: 'Projected Player', position: 'RB', nfl_team: null, injury_status: null, slot: 'RB' },
+    { id: 2, name: 'Small Sample', position: 'WR', nfl_team: null, injury_status: null, slot: 'WR' },
+    { id: 3, name: 'No History', position: 'TE', nfl_team: null, injury_status: null, slot: 'TE' },
+  ];
+  const seasonQueries = [];
+  const client = {
+    query: async (sql, params) => {
+      const text = String(sql);
+      if (text === 'BEGIN' || text === 'COMMIT') return { rows: [] };
+      if (text.includes('SELECT * FROM "leagues"')) {
+        return { rows: [{ id: 5, current_season: 2026, current_week: 8 }] };
+      }
+      if (text.includes('SELECT * FROM "teams"')) return { rows: [{ id: 10 }] };
+      if (text.includes('SELECT "team_players"."player_id"')) {
+        return { rows: entries.map(({ id, position }) => ({ player_id: id, position })) };
+      }
+      if (text.includes('SELECT "player_id" FROM "lineup_entries"')) {
+        return { rows: entries.map(({ id }) => ({ player_id: id })) };
+      }
+      if (text.includes('SELECT "players"."id"')) return { rows: entries };
+      if (text.includes('FROM "player_season_stats"')) {
+        seasonQueries.push({ text, params });
+        return {
+          rows: [
+            {
+              player_id: 1,
+              season: 2025,
+              games_played: 10,
+              stats: { rushingYards: 1000, rushingTDs: 10 },
+            },
+            {
+              player_id: 2,
+              season: 2025,
+              games_played: 3,
+              stats: { receivingYards: 300, receivingTDs: 3 },
+            },
+          ],
+        };
+      }
+      if (text.includes('SELECT "nfl_team" FROM "nfl_games"')) return { rows: [] };
+      throw new Error(`unexpected query: ${text}`);
+    },
+    release: () => {},
+  };
+  t.mock.method(pool, 'connect', async () => client);
+
+  const lineup = await getLineup({ leagueId: 5, userId: 7, week: 8 });
+
+  assert.equal(seasonQueries.length, 1);
+  assert.deepEqual(seasonQueries[0].params, [[1, 2, 3]]);
+  assert.equal(lineup.entries[0].projected_points, 16);
+  assert.equal(lineup.entries[1].projected_points, null);
+  assert.equal(lineup.entries[2].projected_points, null);
+});
 
 test('slotEligible: exact-position slots take only that position', () => {
   assert.equal(slotEligible('QB', 'QB'), true);
@@ -33,6 +137,29 @@ test('slotEligible: BENCH and IR take any position', () => {
   }
 });
 
+test('slotEligible: a custom SUPERFLEX slot also takes QB', () => {
+  const superflexSlots = [
+    ...DEFAULT_ROSTER_SLOTS,
+    { key: 'SUPERFLEX', count: 1, eligiblePositions: ['QB', 'RB', 'WR', 'TE'] },
+  ];
+  assert.equal(slotEligible('SUPERFLEX', 'QB', superflexSlots), true);
+  assert.equal(slotEligible('SUPERFLEX', 'RB', superflexSlots), true);
+  assert.equal(slotEligible('SUPERFLEX', 'K', superflexSlots), false);
+  // The default (no third arg) shape has no SUPERFLEX slot at all.
+  assert.equal(slotEligible('SUPERFLEX', 'QB'), false);
+});
+
+test('slotEligible: a DP slot expands DL/LB/DB group keys to specific positions', () => {
+  const dpSlots = [
+    ...DEFAULT_ROSTER_SLOTS,
+    { key: 'DP', count: 1, eligiblePositions: ['DL', 'LB', 'DB'] },
+  ];
+  for (const position of ['DE', 'DT', 'NT', 'LB', 'ILB', 'OLB', 'CB', 'S', 'FS', 'SS']) {
+    assert.equal(slotEligible('DP', position, dpSlots), true);
+  }
+  assert.equal(slotEligible('DP', 'QB', dpSlots), false);
+});
+
 const entry = (position, slot, playerId = 1) => ({ playerId, position, slot });
 
 test('validateLineup: a legal default lineup passes', () => {
@@ -46,68 +173,80 @@ test('validateLineup: a legal default lineup passes', () => {
     entry('DEF', 'DEF'),
     entry('RB', 'BENCH'), entry('WR', 'BENCH'), entry('QB', 'BENCH'),
   ];
-  assert.deepEqual(validateLineup(entries, { lineupSlots: DEFAULT_LINEUP_SLOTS, irSlots: 1 }), []);
+  assert.deepEqual(validateLineup(entries, { rosterSlots: DEFAULT_ROSTER_SLOTS, benchSlots: 5, irSlots: 1 }), []);
 });
 
 test('validateLineup: overfilling a slot is rejected', () => {
   const entries = [entry('QB', 'QB', 1), entry('QB', 'QB', 2)];
-  const errors = validateLineup(entries, { lineupSlots: DEFAULT_LINEUP_SLOTS, irSlots: 1 });
+  const errors = validateLineup(entries, { rosterSlots: DEFAULT_ROSTER_SLOTS, benchSlots: 5, irSlots: 1 });
   assert.equal(errors.length, 1);
   assert.match(errors[0], /too many players at QB \(2\/1\)/);
 });
 
 test('validateLineup: wrong position in a slot is rejected', () => {
-  const errors = validateLineup([entry('QB', 'FLEX')], { lineupSlots: DEFAULT_LINEUP_SLOTS, irSlots: 1 });
+  const errors = validateLineup([entry('QB', 'FLEX')], { rosterSlots: DEFAULT_ROSTER_SLOTS, benchSlots: 5, irSlots: 1 });
   assert.equal(errors.length, 1);
   assert.match(errors[0], /a QB cannot start at FLEX/);
 });
 
 test('validateLineup: unknown slot names are rejected', () => {
-  const errors = validateLineup([entry('RB', 'SUPERFLEX')], { lineupSlots: DEFAULT_LINEUP_SLOTS, irSlots: 1 });
+  const errors = validateLineup([entry('RB', 'SUPERFLEX')], { rosterSlots: DEFAULT_ROSTER_SLOTS, benchSlots: 5, irSlots: 1 });
   assert.equal(errors.length, 1);
   assert.match(errors[0], /unknown slot "SUPERFLEX"/);
 });
 
-test('validateLineup: BENCH is unbounded', () => {
-  const entries = Array.from({ length: 20 }, (_, i) => entry('RB', 'BENCH', i + 1));
-  assert.deepEqual(validateLineup(entries, { lineupSlots: DEFAULT_LINEUP_SLOTS, irSlots: 1 }), []);
+test('validateLineup: BENCH is capped at benchSlots', () => {
+  const entries = Array.from({ length: 5 }, (_, i) => entry('RB', 'BENCH', i + 1));
+  assert.deepEqual(validateLineup(entries, { rosterSlots: DEFAULT_ROSTER_SLOTS, benchSlots: 5, irSlots: 1 }), []);
+
+  const tooMany = Array.from({ length: 6 }, (_, i) => entry('RB', 'BENCH', i + 1));
+  const errors = validateLineup(tooMany, { rosterSlots: DEFAULT_ROSTER_SLOTS, benchSlots: 5, irSlots: 1 });
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /too many players at BENCH \(6\/5\)/);
 });
 
 test('validateLineup: IR is capped at irSlots', () => {
   const entries = [entry('RB', 'IR', 1), entry('WR', 'IR', 2)];
-  assert.deepEqual(validateLineup(entries, { lineupSlots: DEFAULT_LINEUP_SLOTS, irSlots: 2 }), []);
-  const errors = validateLineup(entries, { lineupSlots: DEFAULT_LINEUP_SLOTS, irSlots: 1 });
+  assert.deepEqual(validateLineup(entries, { rosterSlots: DEFAULT_ROSTER_SLOTS, benchSlots: 5, irSlots: 2 }), []);
+  const errors = validateLineup(entries, { rosterSlots: DEFAULT_ROSTER_SLOTS, benchSlots: 5, irSlots: 1 });
   assert.equal(errors.length, 1);
   assert.match(errors[0], /too many players at IR \(2\/1\)/);
 });
 
 test('validateLineup: custom slot counts are honored', () => {
-  const twoQb = { ...DEFAULT_LINEUP_SLOTS, QB: 2 };
+  const twoQb = DEFAULT_ROSTER_SLOTS.map((s) => (s.key === 'QB' ? { ...s, count: 2 } : s));
   const entries = [entry('QB', 'QB', 1), entry('QB', 'QB', 2)];
-  assert.deepEqual(validateLineup(entries, { lineupSlots: twoQb, irSlots: 1 }), []);
+  assert.deepEqual(validateLineup(entries, { rosterSlots: twoQb, benchSlots: 5, irSlots: 1 }), []);
 });
 
 test('validateLineup: a slot configured to 0 rejects any starter there', () => {
-  const noTe = { ...DEFAULT_LINEUP_SLOTS, TE: 0 };
-  const errors = validateLineup([entry('TE', 'TE')], { lineupSlots: noTe, irSlots: 1 });
+  const noTe = DEFAULT_ROSTER_SLOTS.map((s) => (s.key === 'TE' ? { ...s, count: 0 } : s));
+  const errors = validateLineup([entry('TE', 'TE')], { rosterSlots: noTe, benchSlots: 5, irSlots: 1 });
   assert.equal(errors.length, 1);
   assert.match(errors[0], /too many players at TE \(1\/0\)/);
 });
 
 test('parseLineupSettings: defaults when columns are null', () => {
-  const settings = parseLineupSettings({ lineup_slots: null, position_caps: null, ir_slots: null });
-  assert.deepEqual(settings.lineupSlots, DEFAULT_LINEUP_SLOTS);
+  const settings = parseLineupSettings({ roster_slots: null, position_caps: null, bench_slots: null, ir_slots: null });
+  assert.deepEqual(settings.rosterSlots, DEFAULT_ROSTER_SLOTS);
   assert.deepEqual(settings.positionCaps, {});
+  assert.equal(settings.benchSlots, 5);
   assert.equal(settings.irSlots, 1);
 });
 
 test('parseLineupSettings: accepts jsonb objects and JSON strings', () => {
-  const asObject = parseLineupSettings({ lineup_slots: { QB: 2 }, position_caps: { RB: 4 }, ir_slots: 2 });
-  assert.deepEqual(asObject.lineupSlots, { QB: 2 });
+  const customSlots = [{ key: 'QB', count: 2, eligiblePositions: ['QB'] }];
+  const asObject = parseLineupSettings({
+    roster_slots: customSlots, position_caps: { RB: 4 }, bench_slots: 3, ir_slots: 2,
+  });
+  assert.deepEqual(asObject.rosterSlots, customSlots);
   assert.deepEqual(asObject.positionCaps, { RB: 4 });
+  assert.equal(asObject.benchSlots, 3);
   assert.equal(asObject.irSlots, 2);
 
-  const asString = parseLineupSettings({ lineup_slots: '{"QB":2}', position_caps: '{"RB":4}', ir_slots: 2 });
-  assert.deepEqual(asString.lineupSlots, { QB: 2 });
+  const asString = parseLineupSettings({
+    roster_slots: JSON.stringify(customSlots), position_caps: '{"RB":4}', bench_slots: 3, ir_slots: 2,
+  });
+  assert.deepEqual(asString.rosterSlots, customSlots);
   assert.deepEqual(asString.positionCaps, { RB: 4 });
 });

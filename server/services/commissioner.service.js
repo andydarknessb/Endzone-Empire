@@ -6,6 +6,9 @@ const {
   validateLineup,
 } = require('./lineup.service');
 const { computeStandings } = require('./season.service');
+const { placeOnWaivers } = require('./waiver.service');
+const { assertManualCorrectionWindow } = require('./correction.service');
+const { deleteAvatarObjects } = require('./avatar.service');
 
 class CommissionerError extends Error {
   constructor(statusCode, message) {
@@ -143,13 +146,26 @@ async function adjustMatchupScore({ leagueId, userId, matchupId, homeScore, away
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await requireCommissioner(client, { leagueId, userId });
+    const league = await requireCommissioner(client, { leagueId, userId, forUpdate: true });
+    const matchupResult = await client.query(
+      `SELECT "season", "week" FROM "matchups"
+       WHERE "id" = $1 AND "league_id" = $2 FOR UPDATE`,
+      [matchupId, leagueId]
+    );
+    const matchup = matchupResult.rows[0];
+    if (!matchup) throw new CommissionerError(404, 'matchup not found in this league');
+    assertManualCorrectionWindow({
+      requestedSeason: matchup.season,
+      requestedWeek: matchup.week,
+      activeSeason: league.current_season,
+      activeWeek: league.current_week,
+      timestamp: new Date(),
+    });
     const result = await client.query(
       `UPDATE "matchups" SET "home_score" = $1, "away_score" = $2
        WHERE "id" = $3 AND "league_id" = $4 RETURNING *`,
       [homeScore, awayScore, matchupId, leagueId]
     );
-    if (!result.rows[0]) throw new CommissionerError(404, 'matchup not found in this league');
     await logTransaction(client, {
       leagueId,
       teamId: null,
@@ -209,7 +225,7 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
     }
 
     const teamsResult = await client.query(
-      `SELECT "id", "name" FROM "teams" WHERE "league_id" = $1`,
+      `SELECT "id", "name", "owner_id" FROM "teams" WHERE "league_id" = $1`,
       [leagueId]
     );
     const matchupsResult = await client.query(
@@ -217,6 +233,16 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
       [leagueId, league.current_season]
     );
     const standings = computeStandings(teamsResult.rows, matchupsResult.rows);
+    const rostersResult = await client.query(
+      `SELECT "team_players"."team_id", "team_players"."player_id",
+              "players"."name" AS "player_name", "players"."position",
+              "players"."nfl_team"
+       FROM "team_players"
+       JOIN "players" ON "players"."id" = "team_players"."player_id"
+       WHERE "team_players"."league_id" = $1
+       ORDER BY "team_players"."team_id", "team_players"."player_id"`,
+      [leagueId]
+    );
 
     // Champion: winner of the last final, non-consolation playoff game
     const playoffFinals = matchupsResult.rows
@@ -228,14 +254,52 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
         ? decider.home_team_id
         : decider.away_team_id)
       : (standings[0] ? standings[0].teamId : null);
+    const championUserId =
+      teamsResult.rows.find((team) => team.id === championTeamId)?.owner_id || null;
+
+    if (championTeamId) {
+      // The weekly trophy index is team-aware so both closest-game teams can
+      // share a type. Champion remains singular, so replace any stale winner
+      // explicitly before inserting the authoritative season result.
+      await client.query(
+        `DELETE FROM "trophies"
+         WHERE "league_id" = $1 AND "season" = $2 AND "week" = 0 AND "type" = 'champion'`,
+        [leagueId, league.current_season]
+      );
+      await client.query(
+        `INSERT INTO "trophies" ("league_id", "team_id", "season", "week", "type", "label", "data")
+         VALUES ($1, $2, $3, 0, 'champion', $4, '{}')
+         ON CONFLICT ("league_id", "season", "week", "team_id", "type")
+         DO UPDATE SET "team_id" = EXCLUDED."team_id", "label" = EXCLUDED."label"`,
+        [leagueId, championTeamId, league.current_season, `${league.current_season} League Champion`]
+      );
+    }
+    const awardsResult = await client.query(
+      `SELECT "team_id", "season", "week", "type", "label", "data", "awarded_at"
+       FROM "trophies" WHERE "league_id" = $1 AND "season" = $2
+       ORDER BY "week", "type"`,
+      [leagueId, league.current_season]
+    );
 
     await client.query(
-      `INSERT INTO "league_history" ("league_id", "season", "champion_team_id", "standings")
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO "league_history"
+         ("league_id", "season", "champion_team_id", "champion_user_id", "standings", "rosters", "awards")
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT ("league_id", "season")
        DO UPDATE SET "champion_team_id" = EXCLUDED."champion_team_id",
-                     "standings" = EXCLUDED."standings"`,
-      [leagueId, league.current_season, championTeamId, JSON.stringify(standings)]
+                     "champion_user_id" = EXCLUDED."champion_user_id",
+                     "standings" = EXCLUDED."standings",
+                     "rosters" = EXCLUDED."rosters",
+                     "awards" = EXCLUDED."awards"`,
+      [
+        leagueId,
+        league.current_season,
+        championTeamId,
+        championUserId,
+        JSON.stringify(standings),
+        JSON.stringify(rostersResult.rows),
+        JSON.stringify(awardsResult.rows),
+      ]
     );
 
     // Roster wipe with keeper exceptions
@@ -269,6 +333,11 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
        WHERE "league_id" = $1 AND "status" IN ('pending', 'accepted')`,
       [leagueId]
     );
+    await client.query(
+      `UPDATE "teams" SET "faab_remaining" = $1, "updated_at" = now()
+       WHERE "league_id" = $2`,
+      [league.faab_budget, leagueId]
+    );
     const newSeason = league.current_season + 1;
     await client.query(
       `UPDATE "leagues"
@@ -291,7 +360,212 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
       message: `A new season has begun! ${keeperPairs.length > 0 ? 'Keepers are locked in — ' : ''}the draft is open to be scheduled.`,
     });
     await client.query('COMMIT');
-    return { leagueId, archivedSeason: league.current_season, newSeason, championTeamId };
+    return { leagueId, archivedSeason: league.current_season, newSeason, championTeamId, championUserId };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+/** Freeze or unfreeze a single team's roster moves (adds, drops, waivers, trades). */
+async function setTeamLocked({ leagueId, userId, teamId, locked }) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await requireCommissioner(client, { leagueId, userId });
+    const result = await client.query(
+      `UPDATE "teams" SET "locked" = $1, "updated_at" = now()
+       WHERE "id" = $2 AND "league_id" = $3 RETURNING "id", "owner_id"`,
+      [locked, teamId, leagueId]
+    );
+    if (!result.rows[0]) throw new CommissionerError(404, 'team not found in this league');
+    await logTransaction(client, {
+      leagueId,
+      teamId,
+      type: 'commissioner',
+      detail: { action: locked ? 'lock_team' : 'unlock_team' },
+    });
+    await notify(client, {
+      userId: result.rows[0].owner_id,
+      leagueId,
+      type: 'league',
+      message: locked
+        ? 'Your team was locked by the commissioner — roster moves are frozen until it is unlocked'
+        : 'Your team was unlocked by the commissioner',
+    });
+    await client.query('COMMIT');
+    return { leagueId, teamId, locked };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+/** Directly set a team's remaining FAAB budget (bypasses the normal only-decreases-on-win path). */
+async function setTeamFaab({ leagueId, userId, teamId, faabRemaining }) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await requireCommissioner(client, { leagueId, userId });
+    const result = await client.query(
+      `UPDATE "teams" SET "faab_remaining" = $1, "updated_at" = now()
+       WHERE "id" = $2 AND "league_id" = $3 RETURNING "id"`,
+      [faabRemaining, teamId, leagueId]
+    );
+    if (!result.rows[0]) throw new CommissionerError(404, 'team not found in this league');
+    await logTransaction(client, {
+      leagueId,
+      teamId,
+      type: 'commissioner',
+      detail: { action: 'set_faab', faabRemaining },
+    });
+    await client.query('COMMIT');
+    return { leagueId, teamId, faabRemaining };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Force an add or drop on any team's behalf. Bypasses waiver holds, the
+ * league-wide transaction lock, and per-team locks (that's the point of an
+ * override) but still respects the roster limit and the one-roster-per-league
+ * constraint on adds; a forced add also clears any pending waiver hold/claims
+ * for that player so it can't be won out from under the new roster spot.
+ */
+async function forceTransaction({ leagueId, userId, teamId, action, playerId }) {
+  if (action !== 'add' && action !== 'drop') {
+    throw new CommissionerError(400, "action must be 'add' or 'drop'");
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const league = await requireCommissioner(client, { leagueId, userId, forUpdate: true });
+    const teamResult = await client.query(
+      `SELECT * FROM "teams" WHERE "id" = $1 AND "league_id" = $2 FOR UPDATE`,
+      [teamId, leagueId]
+    );
+    const team = teamResult.rows[0];
+    if (!team) throw new CommissionerError(404, 'team not found in this league');
+
+    const playerResult = await client.query(`SELECT "id", "name" FROM "players" WHERE "id" = $1`, [playerId]);
+    if (!playerResult.rows[0]) throw new CommissionerError(404, 'player not found');
+    const playerName = playerResult.rows[0].name;
+
+    if (action === 'add') {
+      const rosterCountResult = await client.query(
+        `SELECT COUNT(*)::int AS n FROM "team_players" WHERE "team_id" = $1`,
+        [teamId]
+      );
+      if (rosterCountResult.rows[0].n >= league.roster_limit) {
+        throw new CommissionerError(409, `roster limit of ${league.roster_limit} reached`);
+      }
+      try {
+        await client.query(
+          `INSERT INTO "team_players" ("league_id", "team_id", "player_id") VALUES ($1, $2, $3)`,
+          [leagueId, teamId, playerId]
+        );
+      } catch (error) {
+        if (error.code === '23505') {
+          throw new CommissionerError(409, 'player is already rostered in this league — drop them first');
+        }
+        throw error;
+      }
+      await client.query(
+        `DELETE FROM "waiver_players" WHERE "league_id" = $1 AND "player_id" = $2`,
+        [leagueId, playerId]
+      );
+      await client.query(
+        `UPDATE "waiver_claims" SET "status" = 'cancelled', "updated_at" = now()
+         WHERE "league_id" = $1 AND "player_id" = $2 AND "status" = 'pending'`,
+        [leagueId, playerId]
+      );
+    } else {
+      const deleted = await client.query(
+        `DELETE FROM "team_players" WHERE "team_id" = $1 AND "player_id" = $2 RETURNING "id"`,
+        [teamId, playerId]
+      );
+      if (deleted.rowCount === 0) throw new CommissionerError(404, 'player is not on that roster');
+      await placeOnWaivers(client, {
+        leagueId,
+        playerId,
+        waiverPeriodHours: league.waiver_period_hours,
+        droppedByTeamId: teamId,
+      });
+    }
+
+    await logTransaction(client, {
+      leagueId,
+      teamId,
+      type: 'commissioner',
+      detail: { action: `force_${action}`, playerId, playerName },
+    });
+    await notify(client, {
+      userId: team.owner_id,
+      leagueId,
+      type: 'league',
+      message: action === 'add'
+        ? `The commissioner added ${playerName} to your roster`
+        : `The commissioner dropped ${playerName} from your roster`,
+    });
+    await client.query('COMMIT');
+    return { leagueId, teamId, action, playerId, playerName };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Commissioner-initiated avatar removal — moderation, not the owner's own
+ * reset (that's avatar.service.js's removeTeamAvatar, called from
+ * team.router.js). Unlike a silent self-reset, this privately notifies the
+ * affected owner via `notify` (never `notifyLeague`, which would broadcast
+ * the moderation action to the whole league).
+ */
+async function removeTeamAvatar({ leagueId, userId, teamId }) {
+  const client = await pool.connect();
+  let priorAvatar = null;
+  try {
+    await client.query('BEGIN');
+    await requireCommissioner(client, { leagueId, userId });
+    const teamResult = await client.query(
+      `SELECT "owner_id", "avatar_url", "avatar_static_url" FROM "teams"
+       WHERE "id" = $1 AND "league_id" = $2 FOR UPDATE`,
+      [teamId, leagueId]
+    );
+    const team = teamResult.rows[0];
+    if (!team) throw new CommissionerError(404, 'team not found in this league');
+    priorAvatar = { avatar_url: team.avatar_url, avatar_static_url: team.avatar_static_url };
+    await client.query(
+      `UPDATE "teams" SET "avatar_url" = NULL, "avatar_static_url" = NULL, "updated_at" = now()
+       WHERE "id" = $1`,
+      [teamId]
+    );
+    await logTransaction(client, {
+      leagueId,
+      teamId,
+      type: 'commissioner',
+      detail: { action: 'remove_team_avatar' },
+    });
+    await notify(client, {
+      userId: team.owner_id,
+      leagueId,
+      type: 'league',
+      message: 'Your team avatar was removed by the commissioner',
+    });
+    await client.query('COMMIT');
+    void deleteAvatarObjects(priorAvatar);
+    return { leagueId, teamId };
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
@@ -307,4 +581,8 @@ module.exports = {
   adjustMatchupScore,
   setTransactionsLocked,
   rolloverSeason,
+  setTeamLocked,
+  setTeamFaab,
+  forceTransaction,
+  removeTeamAvatar,
 };

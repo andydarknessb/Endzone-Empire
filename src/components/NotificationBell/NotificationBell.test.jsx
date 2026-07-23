@@ -44,7 +44,7 @@ test('opens the menu and lists notification messages', async () => {
   expect(screen.getByText('Your waiver claim was processed')).toBeInTheDocument();
 });
 
-test('marks all notifications read on open and clears the badge', async () => {
+test('"Mark all read" marks all read and clears the badge', async () => {
   apiClient.get.mockResolvedValue({ data: notificationsResponse() });
   apiClient.put.mockResolvedValue({});
 
@@ -52,6 +52,7 @@ test('marks all notifications read on open and clears the badge', async () => {
   await screen.findByText('2');
 
   await userEvent.click(screen.getByRole('button', { name: /notifications/i }));
+  await userEvent.click(await screen.findByRole('button', { name: /mark all read/i }));
 
   await waitFor(() => expect(apiClient.put).toHaveBeenCalledWith('/api/notifications/read'));
   // MUI's Badge keeps the last non-zero content in the DOM for its exit transition,
@@ -59,6 +60,25 @@ test('marks all notifications read on open and clears the badge', async () => {
   await waitFor(() =>
     expect(document.querySelector('.MuiBadge-badge')).toHaveClass('MuiBadge-invisible')
   );
+});
+
+test('groups notifications under league subheaders across multiple leagues', async () => {
+  apiClient.get.mockResolvedValue({
+    data: {
+      notifications: [
+        { id: 1, message: 'Trade offer', read: false, created_at: '2026-07-01T12:00:00Z', league_id: 1, league_name: 'Sunday Ballers' },
+        { id: 2, message: 'Waiver processed', read: true, created_at: '2026-06-30T12:00:00Z', league_id: 2, league_name: 'Monday Mayhem' },
+      ],
+      unread: 1,
+    },
+  });
+
+  renderWithProviders(<NotificationBell />);
+  await screen.findByText('1');
+  await userEvent.click(screen.getByRole('button', { name: /notifications/i }));
+
+  expect(await screen.findByText('Sunday Ballers')).toBeInTheDocument();
+  expect(screen.getByText('Monday Mayhem')).toBeInTheDocument();
 });
 
 test('shows "No notifications" when there are none', async () => {

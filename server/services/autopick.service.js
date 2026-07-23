@@ -1,5 +1,6 @@
 const pool = require('../modules/pool');
-const { draftPlayer, teamIndexForPick, shouldAutoEnableAutodraft } = require('./draft.service');
+const { draftPlayer, shouldAutoEnableAutodraft } = require('./draft.service');
+const { teamForPick } = require('./draftOrder.service');
 const { getIo } = require('../modules/io');
 
 /**
@@ -23,7 +24,11 @@ async function autoPick({ leagueId }) {
   );
   const teams = teamsResult.rows;
   if (teams.length === 0) return null;
-  const onTheClock = teams[teamIndexForPick(league.current_pick, teams.length)];
+  const onTheClock = teamForPick(league.current_pick, teams, {
+    rotation: league.draft_rotation,
+    overrides: league.draft_order_overrides,
+  });
+  if (!onTheClock) return null;
   // A pick fired by an expired clock is a "timeout" only when the team isn't
   // already autodrafting on purpose.
   const wasTimeout = !onTheClock.autodraft;
@@ -108,7 +113,7 @@ async function processExpiredPickClocks() {
       const outcome = await autoPick({ leagueId: row.id });
       if (outcome) outcomes.push({ leagueId: row.id, playerId: outcome.player.id });
     } catch (err) {
-      console.error(`auto-pick failed for league ${row.id}:`, err.message);
+      console.error('auto-pick failed for league %s:', row.id, err.message);
     }
   }
   return outcomes;

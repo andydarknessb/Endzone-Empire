@@ -1,38 +1,63 @@
 const pool = require('../modules/pool');
+const { computeByeWeeks } = require('./bye.service');
 
 class LineupError extends Error {
-  constructor(statusCode, message) {
+  constructor(statusCode, message, code = null) {
     super(message);
     this.statusCode = statusCode;
+    this.code = code;
   }
 }
 
 const BENCH = 'BENCH';
 const IR = 'IR';
 
-/** Which player positions may occupy each starting slot. */
-const SLOT_ELIGIBILITY = {
-  QB: ['QB'],
-  RB: ['RB'],
-  WR: ['WR'],
-  TE: ['TE'],
-  FLEX: ['RB', 'WR', 'TE'],
-  K: ['K'],
-  DEF: ['DEF'],
+// Group keys usable in a slot's eligiblePositions alongside literal position
+// codes (e.g. a "DP" slot's eligiblePositions might be ['DL','LB','DB']) —
+// expands to every specific defensive position Tank01 reports in that group.
+// Players keep their specific position (e.g. 'CB') for display; slots
+// configure eligibility at the group level.
+const POSITION_GROUPS = {
+  DL: ['DL', 'DE', 'DT', 'NT'],
+  LB: ['LB', 'ILB', 'OLB'],
+  DB: ['DB', 'CB', 'S', 'FS', 'SS'],
 };
 
-const DEFAULT_LINEUP_SLOTS = { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DEF: 1 };
+const DEFAULT_ROSTER_SLOTS = [
+  { key: 'QB', label: 'QB', count: 1, eligiblePositions: ['QB'] },
+  { key: 'RB', label: 'RB', count: 2, eligiblePositions: ['RB'] },
+  { key: 'WR', label: 'WR', count: 2, eligiblePositions: ['WR'] },
+  { key: 'TE', label: 'TE', count: 1, eligiblePositions: ['TE'] },
+  { key: 'FLEX', label: 'FLEX', count: 1, eligiblePositions: ['RB', 'WR', 'TE'] },
+  { key: 'K', label: 'K', count: 1, eligiblePositions: ['K'] },
+  { key: 'DEF', label: 'DEF', count: 1, eligiblePositions: ['DEF'] },
+];
 
-/** Pure: may a player of this position sit in this slot? BENCH/IR take anyone. */
-function slotEligible(slot, position) {
-  if (slot === BENCH || slot === IR) return true;
-  const allowed = SLOT_ELIGIBILITY[slot];
-  return Boolean(allowed && allowed.includes(position));
+/** A slot's eligiblePositions, with any group key (DL/LB/DB) expanded to its member positions. */
+function expandEligibility(eligiblePositions) {
+  const out = new Set();
+  for (const p of eligiblePositions || []) {
+    if (POSITION_GROUPS[p]) POSITION_GROUPS[p].forEach((m) => out.add(m));
+    else out.add(p);
+  }
+  return out;
 }
 
 /**
- * Normalize a league row's lineup configuration (jsonb columns arrive as
- * objects from pg, but tolerate strings for safety).
+ * Pure: may a player of this position sit in this named slot? BENCH/IR take
+ * anyone. rosterSlots defaults to the standard 7-slot shape so existing
+ * 2-arg call sites (and tests) keep working unchanged against it.
+ */
+function slotEligible(slotKey, position, rosterSlots = DEFAULT_ROSTER_SLOTS) {
+  if (slotKey === BENCH || slotKey === IR) return true;
+  const slot = rosterSlots.find((s) => s.key === slotKey);
+  if (!slot) return false;
+  return expandEligibility(slot.eligiblePositions).has(position);
+}
+
+/**
+ * Normalize a league row's roster/lineup configuration (jsonb columns arrive
+ * as objects from pg, but tolerate strings for safety).
  */
 function parseLineupSettings(league) {
   const parse = (value, fallback) => {
@@ -43,8 +68,9 @@ function parseLineupSettings(league) {
     return value;
   };
   return {
-    lineupSlots: parse(league.lineup_slots, DEFAULT_LINEUP_SLOTS),
+    rosterSlots: parse(league.roster_slots, DEFAULT_ROSTER_SLOTS),
     positionCaps: parse(league.position_caps, {}),
+    benchSlots: Number.isInteger(league.bench_slots) ? league.bench_slots : 5,
     irSlots: Number.isInteger(league.ir_slots) ? league.ir_slots : 1,
   };
 }
@@ -52,26 +78,27 @@ function parseLineupSettings(league) {
 /**
  * Pure: validate a full lineup against league settings.
  * entries: [{ playerId, position, slot }]. Returns an array of error strings
- * (empty when valid). BENCH is unbounded; starting slots and IR are capped.
+ * (empty when valid). Starting slots, BENCH, and IR are all capped — total
+ * roster size is enforced as starters + bench + IR by construction.
  */
-function validateLineup(entries, { lineupSlots = DEFAULT_LINEUP_SLOTS, irSlots = 1 } = {}) {
+function validateLineup(entries, { rosterSlots = DEFAULT_ROSTER_SLOTS, benchSlots = 5, irSlots = 1 } = {}) {
   const errors = [];
   const counts = {};
+  const slotByKey = new Map(rosterSlots.map((s) => [s.key, s]));
   for (const entry of entries) {
     const slot = entry.slot;
-    if (slot !== BENCH && slot !== IR && lineupSlots[slot] === undefined) {
+    if (slot !== BENCH && slot !== IR && !slotByKey.has(slot)) {
       errors.push(`unknown slot "${slot}"`);
       continue;
     }
-    if (!slotEligible(slot, entry.position)) {
+    if (!slotEligible(slot, entry.position, rosterSlots)) {
       errors.push(`a ${entry.position} cannot start at ${slot}`);
       continue;
     }
     counts[slot] = (counts[slot] || 0) + 1;
   }
   for (const [slot, count] of Object.entries(counts)) {
-    if (slot === BENCH) continue;
-    const max = slot === IR ? irSlots : lineupSlots[slot];
+    const max = slot === IR ? irSlots : slot === BENCH ? benchSlots : slotByKey.get(slot).count;
     if (count > max) errors.push(`too many players at ${slot} (${count}/${max})`);
   }
   return errors;
@@ -126,22 +153,26 @@ async function materializeLineup(client, { leagueId, teamId, season, week }) {
  * The set of NFL team names whose game for (season, week) has kicked off —
  * players on those teams are locked. Empty schedule means nothing is locked.
  */
-async function lockedNflTeams(client, { season, week }) {
+async function lockedNflTeams(client, { season, week, now = new Date() }) {
   const result = await client.query(
     `SELECT "nfl_team" FROM "nfl_games"
-     WHERE "season" = $1 AND "week" = $2 AND "kickoff_at" <= now()`,
-    [season, week]
+     WHERE "season" = $1 AND "week" = $2 AND "kickoff_at" <= $3`,
+    [season, week, now]
   );
   return new Set(result.rows.map((r) => r.nfl_team));
 }
 
-/** NFL teams that have any scheduled game for (season, week) — for bye detection. */
-async function scheduledNflTeams(client, { season, week }) {
-  const result = await client.query(
-    `SELECT "nfl_team" FROM "nfl_games" WHERE "season" = $1 AND "week" = $2`,
-    [season, week]
-  );
-  return new Set(result.rows.map((r) => r.nfl_team));
+/** Pure: add schedule-derived lock and bye metadata to lineup entries. */
+function annotateLineupEntries(entries, { locked, byeByTeam, selectedWeek }) {
+  return entries.map((row) => {
+    const byeWeek = byeByTeam.get(row.nfl_team) ?? null;
+    return {
+      ...row,
+      bye_week: byeWeek,
+      locked: locked.has(row.nfl_team),
+      onBye: byeWeek === selectedWeek,
+    };
+  });
 }
 
 async function loadLeagueAndTeam(client, { leagueId, userId, forUpdate = false }) {
@@ -162,7 +193,7 @@ async function loadLeagueAndTeam(client, { leagueId, userId, forUpdate = false }
 
 /**
  * Fetch (materializing if needed) the caller's lineup for a week, annotated
- * with per-player locked and onBye flags.
+ * with per-player locked, bye_week, and onBye metadata.
  */
 async function getLineup({ leagueId, userId, week }) {
   const client = await pool.connect();
@@ -176,10 +207,7 @@ async function getLineup({ leagueId, userId, week }) {
 
     const entriesResult = await client.query(
       `SELECT "players"."id", "players"."name", "players"."position", "players"."nfl_team",
-              "players"."injury_status", "lineup_entries"."slot",
-              (SELECT ROUND(AVG("fantasy_points"), 1) FROM "player_stats"
-               WHERE "player_stats"."player_id" = "players"."id"
-                 AND "player_stats"."season" = $2) AS "projected_points"
+              "players"."injury_status", "lineup_entries"."slot"
        FROM "lineup_entries"
        JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
          AND "team_players"."player_id" = "lineup_entries"."player_id"
@@ -189,8 +217,37 @@ async function getLineup({ leagueId, userId, week }) {
        ORDER BY "players"."position", "players"."name"`,
       [team.id, season, targetWeek]
     );
+
+    // scoring.service imports lineup.service, so load these after module
+    // initialization to avoid a circular top-level dependency.
+    const { projectSeasonPoints, rulesForLeague } = require('./scoring.service');
+    const playerIds = entriesResult.rows.map((row) => row.id);
+    const seasonByPlayer = new Map();
+    if (playerIds.length > 0) {
+      const seasonResult = await client.query(
+        `SELECT "player_id", "season", "games_played", "stats"
+         FROM "player_season_stats" WHERE "player_id" = ANY($1)`,
+        [playerIds]
+      );
+      for (const row of seasonResult.rows) {
+        if (!seasonByPlayer.has(row.player_id)) seasonByPlayer.set(row.player_id, []);
+        seasonByPlayer.get(row.player_id).push(row);
+      }
+    }
+    const projectionRules = rulesForLeague(league);
+    for (const entry of entriesResult.rows) {
+      const seasonProjection = projectSeasonPoints({
+        seasonRows: seasonByPlayer.get(entry.id) || [],
+        rules: projectionRules,
+        currentSeasonYear: season,
+      });
+      entry.projected_points = seasonProjection == null
+        ? null
+        : Math.round((seasonProjection / 17) * 10) / 10;
+    }
+
     const locked = await lockedNflTeams(client, { season, week: targetWeek });
-    const scheduled = await scheduledNflTeams(client, { season, week: targetWeek });
+    const byeByTeam = await computeByeWeeks(entriesResult.rows.map((row) => row.nfl_team), season);
     await client.query('COMMIT');
 
     const settings = parseLineupSettings(league);
@@ -200,13 +257,10 @@ async function getLineup({ leagueId, userId, week }) {
       season,
       week: targetWeek,
       currentWeek: league.current_week,
-      lineupSlots: settings.lineupSlots,
+      rosterSlots: settings.rosterSlots,
+      benchSlots: settings.benchSlots,
       irSlots: settings.irSlots,
-      entries: entriesResult.rows.map((row) => ({
-        ...row,
-        locked: locked.has(row.nfl_team),
-        onBye: scheduled.size > 0 && !scheduled.has(row.nfl_team),
-      })),
+      entries: annotateLineupEntries(entriesResult.rows, { locked, byeByTeam, selectedWeek: targetWeek }),
     };
   } catch (error) {
     await client.query('ROLLBACK');
@@ -266,7 +320,7 @@ async function setLineup({ leagueId, userId, week, moves }) {
       if (!entry) throw new LineupError(404, `player ${move.playerId} is not on your roster`);
       if (entry.slot === move.slot) continue;
       if (locked.has(entry.nfl_team)) {
-        throw new LineupError(409, 'that player is locked — his game has started');
+        throw new LineupError(409, 'that player is locked — his game has started', 'LINEUP_LOCKED');
       }
       entry.slot = move.slot;
       changed.push(entry);
@@ -306,23 +360,20 @@ async function setLineup({ leagueId, userId, week, moves }) {
  * players: [{ playerId, position }]; pointsFor: Map playerId -> points.
  * Returns { starters: [{ playerId, position, slot, points }], total }.
  */
-function optimalLineup(players, lineupSlots = DEFAULT_LINEUP_SLOTS, pointsFor = new Map()) {
-  const slots = Object.entries(lineupSlots)
-    .filter(([, count]) => count > 0)
-    .sort(
-      ([a], [b]) =>
-        (SLOT_ELIGIBILITY[a] || []).length - (SLOT_ELIGIBILITY[b] || []).length
-    );
+function optimalLineup(players, rosterSlots = DEFAULT_ROSTER_SLOTS, pointsFor = new Map()) {
+  const slots = rosterSlots
+    .filter((s) => s.count > 0)
+    .sort((a, b) => expandEligibility(a.eligiblePositions).size - expandEligibility(b.eligiblePositions).size);
   const available = [...players].sort(
     (a, b) => (Number(pointsFor.get(b.playerId)) || 0) - (Number(pointsFor.get(a.playerId)) || 0)
   );
   const taken = new Set();
   const starters = [];
   let total = 0;
-  for (const [slot, count] of slots) {
+  for (const { key: slot, count } of slots) {
     for (let i = 0; i < count; i++) {
       const pick = available.find(
-        (p) => !taken.has(p.playerId) && slotEligible(slot, p.position)
+        (p) => !taken.has(p.playerId) && slotEligible(slot, p.position, rosterSlots)
       );
       if (!pick) continue; // roster can't fill this slot — leave it empty
       taken.add(pick.playerId);
@@ -336,13 +387,14 @@ function optimalLineup(players, lineupSlots = DEFAULT_LINEUP_SLOTS, pointsFor = 
 
 module.exports = {
   LineupError,
-  DEFAULT_LINEUP_SLOTS,
-  SLOT_ELIGIBILITY,
+  DEFAULT_ROSTER_SLOTS,
+  POSITION_GROUPS,
   slotEligible,
   parseLineupSettings,
   validateLineup,
   materializeLineup,
   lockedNflTeams,
+  annotateLineupEntries,
   getLineup,
   setLineup,
   optimalLineup,

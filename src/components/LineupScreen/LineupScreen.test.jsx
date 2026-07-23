@@ -1,20 +1,41 @@
 import React from 'react';
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
+import { clearLeagueCache } from '../../hooks/useLeague';
+import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 import LineupScreen from './LineupScreen';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
-  default: { get: jest.fn(), put: jest.fn() },
+  default: { get: jest.fn(), put: jest.fn(), request: jest.fn() },
 }));
+
+const setOnline = (value) => {
+  Object.defineProperty(window.navigator, 'onLine', {
+    configurable: true,
+    value,
+  });
+};
 
 const renderScreen = (leagueId = 1) =>
   renderWithProviders(<LineupScreen />, {
     path: '/league/:leagueId/lineup',
     route: `/league/${leagueId}/lineup`,
   });
+
+// Toast text (via notify) only renders when a SnackbarProvider is mounted.
+const renderScreenWithToasts = (leagueId = 1) =>
+  renderWithProviders(
+    <SnackbarProvider>
+      <LineupScreen />
+    </SnackbarProvider>,
+    {
+      path: '/league/:leagueId/lineup',
+      route: `/league/${leagueId}/lineup`,
+    }
+  );
 
 // Defaults: a QB starter, two RB starters (one locked), a WR on bench (on bye).
 const lineupResponse = (overrides = {}) => ({
@@ -23,7 +44,16 @@ const lineupResponse = (overrides = {}) => ({
   season: 2026,
   week: 3,
   currentWeek: 3,
-  lineupSlots: { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DEF: 1 },
+  rosterSlots: [
+    { key: 'QB', count: 1, eligiblePositions: ['QB'] },
+    { key: 'RB', count: 2, eligiblePositions: ['RB'] },
+    { key: 'WR', count: 2, eligiblePositions: ['WR'] },
+    { key: 'TE', count: 1, eligiblePositions: ['TE'] },
+    { key: 'FLEX', count: 1, eligiblePositions: ['RB', 'WR', 'TE'] },
+    { key: 'K', count: 1, eligiblePositions: ['K'] },
+    { key: 'DEF', count: 1, eligiblePositions: ['DEF'] },
+  ],
+  benchSlots: 5,
   irSlots: 1,
   entries: [
     {
@@ -121,6 +151,21 @@ const adviceResponse = (overrides = {}) => ({
   ...overrides,
 });
 
+// A fully-filled starting lineup (every STARTER_SLOT_ORDER slot occupied),
+// used to isolate the "already optimal" empty state from the "fill your
+// lineup" one — both only render when advice returns zero suggestions.
+const fullyFilledEntries = [
+  { id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'Kansas City Chiefs', slot: 'QB', locked: false, onBye: false },
+  { id: 2, name: 'Christian McCaffrey', position: 'RB', nfl_team: 'San Francisco 49ers', slot: 'RB', locked: false, onBye: false },
+  { id: 3, name: 'Derrick Henry', position: 'RB', nfl_team: 'Baltimore Ravens', slot: 'RB', locked: false, onBye: false },
+  { id: 4, name: 'Davante Adams', position: 'WR', nfl_team: 'Las Vegas Raiders', slot: 'WR', locked: false, onBye: false },
+  { id: 5, name: 'Tyreek Hill', position: 'WR', nfl_team: 'Miami Dolphins', slot: 'WR', locked: false, onBye: false },
+  { id: 6, name: 'Travis Kelce', position: 'TE', nfl_team: 'Kansas City Chiefs', slot: 'TE', locked: false, onBye: false },
+  { id: 7, name: 'Saquon Barkley', position: 'RB', nfl_team: 'Philadelphia Eagles', slot: 'FLEX', locked: false, onBye: false },
+  { id: 8, name: 'Justin Tucker', position: 'K', nfl_team: 'Baltimore Ravens', slot: 'K', locked: false, onBye: false },
+  { id: 9, name: 'SF Defense', position: 'DEF', nfl_team: 'San Francisco 49ers', slot: 'DEF', locked: false, onBye: false },
+];
+
 const flexBenchEntries = [
   {
     id: 10,
@@ -153,6 +198,9 @@ const hindsightSeasonResponse = (overrides = {}) => ({
 
 afterEach(() => {
   jest.clearAllMocks();
+  clearLeagueCache();
+  localStorage.removeItem('pending_lineup_mutations');
+  setOnline(true);
 });
 
 test('suggestions panel shows projected vs optimal totals and a suggestion with opponent context', async () => {
@@ -174,7 +222,7 @@ test('clicking Apply on a suggestion swaps the two players and saves via the nor
   setupGet({ lineup: lineupResponse({ entries: flexBenchEntries }), advice: adviceResponse() });
   apiClient.put.mockResolvedValue({});
 
-  renderScreen();
+  renderScreenWithToasts();
   await screen.findByText('Justin Jefferson');
 
   await userEvent.click(screen.getByRole('button', { name: 'Apply' }));
@@ -192,13 +240,29 @@ test('clicking Apply on a suggestion swaps the two players and saves via the nor
   expect(await screen.findByText('Lineup saved')).toBeInTheDocument();
 });
 
-test('shows an "already optimal" empty state when advice returns no suggestions', async () => {
-  setupGet({ advice: adviceResponse({ suggestions: [] }) });
+test('shows an "already optimal" empty state when the starting lineup is full and advice returns no suggestions', async () => {
+  setupGet({
+    lineup: lineupResponse({ entries: fullyFilledEntries }),
+    advice: adviceResponse({ suggestions: [] }),
+  });
 
   renderScreen();
   await screen.findByText('Patrick Mahomes');
 
   expect(await screen.findByText('Your lineup is already optimal')).toBeInTheDocument();
+});
+
+test('shows a "fill your lineup" message instead of "already optimal" when starting slots are empty', async () => {
+  // Default lineupResponse() leaves WR/TE/FLEX/K/DEF starter slots empty.
+  setupGet({ advice: adviceResponse({ suggestions: [] }) });
+
+  renderScreen();
+  await screen.findByText('Patrick Mahomes');
+
+  expect(
+    await screen.findByText('Fill your starting lineup to unlock live optimization insights.')
+  ).toBeInTheDocument();
+  expect(screen.queryByText('Your lineup is already optimal')).not.toBeInTheDocument();
 });
 
 test('silently hides the suggestions panel when the advice endpoint fails', async () => {
@@ -247,19 +311,24 @@ test('renders BYE and LOCKED chips for flagged entries', async () => {
   renderScreen();
   await screen.findByText('Davante Adams');
 
-  expect(within(screen.getByTestId('slot-row-BENCH-4')).getByText('BYE')).toBeInTheDocument();
+  expect(within(screen.getByTestId('slot-row-BENCH-4')).getByText(/BYE/)).toBeInTheDocument();
   expect(within(screen.getByTestId('slot-row-RB-0')).getByText('LOCKED')).toBeInTheDocument();
 });
 
-test('clicking bench player then empty eligible slot PUTs one move and refetches', async () => {
+test('clicking bench player then empty eligible slot applies the move optimistically, PUTs one move, and does not refetch', async () => {
   apiClient.get.mockResolvedValue({ data: lineupResponse() });
   apiClient.put.mockResolvedValue({});
 
-  renderScreen();
+  renderScreenWithToasts();
   await screen.findByText('Davante Adams');
 
   await userEvent.click(screen.getByTestId('slot-row-BENCH-4'));
   await userEvent.click(screen.getByTestId('slot-row-WR-0'));
+
+  // Optimistic: the WR slot shows Adams right away, not after a refetch.
+  expect(
+    within(screen.getByTestId('slot-row-WR-0')).getByText('Davante Adams')
+  ).toBeInTheDocument();
 
   await waitFor(() =>
     expect(apiClient.put).toHaveBeenCalledWith('/api/team/lineup', {
@@ -270,11 +339,54 @@ test('clicking bench player then empty eligible slot PUTs one move and refetches
   );
 
   expect(await screen.findByText('Lineup saved')).toBeInTheDocument();
-  // The lineup itself refetches after a save (advice/hindsight calls don't count)
+  // No refetch of the lineup itself on a successful save (advice/hindsight calls don't count)
   const lineupGets = apiClient.get.mock.calls.filter(([url]) =>
     url.startsWith('/api/team/lineup?')
   );
-  expect(lineupGets).toHaveLength(2);
+  expect(lineupGets).toHaveLength(1);
+});
+
+test('an offline move is cached without a request and replays once when connectivity returns', async () => {
+  setOnline(false);
+  apiClient.get.mockResolvedValue({ data: lineupResponse() });
+  apiClient.request.mockResolvedValue({ status: 200 });
+
+  renderScreenWithToasts();
+  await screen.findByText('Davante Adams');
+  await userEvent.click(screen.getByTestId('slot-row-BENCH-4'));
+  await userEvent.click(screen.getByTestId('slot-row-WR-0'));
+
+  expect(apiClient.put).not.toHaveBeenCalled();
+  expect(JSON.parse(localStorage.getItem('pending_lineup_mutations'))).toEqual([
+    expect.objectContaining({
+      endpoint: '/api/team/lineup',
+      method: 'PUT',
+      payload: {
+        leagueId: 1,
+        week: 3,
+        moves: [{ playerId: 4, slot: 'WR' }],
+      },
+    }),
+  ]);
+  expect(await screen.findByText(/saved offline/i)).toBeInTheDocument();
+
+  setOnline(true);
+  act(() => window.dispatchEvent(new Event('online')));
+
+  await waitFor(() => expect(apiClient.request).toHaveBeenCalledTimes(1));
+  expect(apiClient.request).toHaveBeenCalledWith(
+    expect.objectContaining({
+      url: '/api/team/lineup',
+      method: 'PUT',
+      data: {
+        leagueId: 1,
+        week: 3,
+        moves: [{ playerId: 4, slot: 'WR' }],
+      },
+    })
+  );
+  await waitFor(() => expect(localStorage.getItem('pending_lineup_mutations')).toBeNull());
+  expect(await screen.findByText('Lineup saved')).toBeInTheDocument();
 });
 
 test('swapping two players PUTs two moves', async () => {
@@ -319,23 +431,39 @@ test('swapping two players PUTs two moves', async () => {
   );
 });
 
-test("ineligible target shows an error and does not call put", async () => {
+test('selecting a player highlights eligible slots and disables ineligible ones (no top-of-page error)', async () => {
   apiClient.get.mockResolvedValue({ data: lineupResponse() });
 
   renderScreen();
   await screen.findByText('Patrick Mahomes');
 
   await userEvent.click(screen.getByTestId('slot-row-QB-0'));
-  await userEvent.click(screen.getByTestId('slot-row-RB-1'));
 
-  expect(await screen.findByText("That player can't go in that slot")).toBeInTheDocument();
+  // The helper strip announces the move.
+  expect(
+    screen.getByText('Moving Patrick Mahomes — tap a highlighted slot')
+  ).toBeInTheDocument();
+
+  // Derrick Henry (RB, unlocked) can't take a QB — ineligible, so disabled.
+  expect(screen.getByTestId('slot-row-RB-1')).toHaveAttribute('aria-disabled', 'true');
+  // Christian McCaffrey is locked, so also disabled as a target.
+  expect(screen.getByTestId('slot-row-RB-0')).toHaveAttribute('aria-disabled', 'true');
+  // The empty IR slot accepts any position — eligible target, not disabled.
+  expect(screen.getByTestId('slot-row-IR-0')).not.toHaveAttribute('aria-disabled', 'true');
+
+  expect(screen.queryByText("That player can't go in that slot")).not.toBeInTheDocument();
   expect(apiClient.put).not.toHaveBeenCalled();
+
+  // Cancel via the helper strip clears the selection and its highlighting.
+  await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(screen.queryByTestId('lineup-move-strip')).not.toBeInTheDocument();
+  expect(screen.getByTestId('slot-row-RB-1')).not.toHaveAttribute('aria-disabled', 'true');
 });
 
-test("clicking a locked player shows an error and does not call put", async () => {
+test("clicking a locked player shows a warning toast and does not call put", async () => {
   apiClient.get.mockResolvedValue({ data: lineupResponse() });
 
-  renderScreen();
+  renderScreenWithToasts();
   await screen.findByText('Christian McCaffrey');
 
   await userEvent.click(screen.getByTestId('slot-row-RB-0'));
@@ -344,24 +472,80 @@ test("clicking a locked player shows an error and does not call put", async () =
   expect(apiClient.put).not.toHaveBeenCalled();
 });
 
-test('server error on PUT surfaces the error message', async () => {
+test('a failed PUT rolls the optimistic move back and shows an error toast', async () => {
   apiClient.get.mockResolvedValue({ data: lineupResponse() });
   apiClient.put.mockRejectedValue({
     response: { data: { error: 'Player is on bye and cannot start' } },
   });
 
-  renderScreen();
+  renderScreenWithToasts();
   await screen.findByText('Davante Adams');
 
   await userEvent.click(screen.getByTestId('slot-row-BENCH-4'));
   await userEvent.click(screen.getByTestId('slot-row-WR-0'));
 
   expect(await screen.findByText('Player is on bye and cannot start')).toBeInTheDocument();
-  // No lineup refetch on a failed save (advice/hindsight calls don't count)
+
+  // Rolled back: Adams is back on the bench, the WR slot is empty again.
+  expect(
+    within(screen.getByTestId('lineup-bench')).getByText('Davante Adams')
+  ).toBeInTheDocument();
+  expect(screen.getByTestId('slot-row-WR-0')).toHaveTextContent('Empty');
+
+  // No lineup refetch, on either success or failure.
   const lineupGets = apiClient.get.mock.calls.filter(([url]) =>
     url.startsWith('/api/team/lineup?')
   );
   expect(lineupGets).toHaveLength(1);
+});
+
+test('clicking an empty slot with no selection opens a quick-pick menu; choosing a player fills that slot directly', async () => {
+  apiClient.get.mockResolvedValue({ data: lineupResponse() });
+  apiClient.put.mockResolvedValue({});
+
+  renderScreenWithToasts();
+  await screen.findByText('Davante Adams');
+
+  // WR-0 is empty; only Davante Adams (WR, unlocked) is eligible — the two
+  // RBs are wrong position for a straight WR slot.
+  await userEvent.click(screen.getByTestId('slot-row-WR-0'));
+
+  const menu = await screen.findByRole('menu');
+  expect(within(menu).getAllByRole('menuitem')).toHaveLength(1);
+  await userEvent.click(within(menu).getByText(/Davante Adams/));
+
+  await waitFor(() =>
+    expect(apiClient.put).toHaveBeenCalledWith('/api/team/lineup', {
+      leagueId: 1,
+      week: 3,
+      moves: [{ playerId: 4, slot: 'WR' }],
+    })
+  );
+  expect(await screen.findByText('Lineup saved')).toBeInTheDocument();
+});
+
+test('clicking an empty slot with no eligible players shows a disabled "no eligible players" item', async () => {
+  apiClient.get.mockResolvedValue({ data: lineupResponse() });
+
+  renderScreen();
+  await screen.findByText('Patrick Mahomes');
+
+  // DEF-0 is empty and no entry in the fixture plays DEF.
+  await userEvent.click(screen.getByTestId('slot-row-DEF-0'));
+
+  const menu = await screen.findByRole('menu');
+  expect(within(menu).getByText('No eligible players available')).toBeInTheDocument();
+});
+
+test('shows a "Needs attention" warning chip in the summary header when starting slots are empty', async () => {
+  apiClient.get.mockResolvedValue({ data: lineupResponse() });
+
+  renderScreen();
+  await screen.findByText('Patrick Mahomes');
+
+  expect(
+    within(screen.getByTestId('lineup-summary-header')).getByTestId('lineup-warning-chip')
+  ).toBeInTheDocument();
 });
 
 test('shows an error alert when the initial fetch fails', async () => {
@@ -370,6 +554,60 @@ test('shows an error alert when the initial fetch fails', async () => {
   renderScreen();
 
   expect(await screen.findByText('lineup unavailable')).toBeInTheDocument();
+});
+
+test('week chevrons step the selected week and are disabled at the boundaries', async () => {
+  apiClient.get.mockResolvedValue({ data: lineupResponse() }); // week 3
+
+  renderScreen();
+  await screen.findByText('Patrick Mahomes');
+
+  expect(screen.getByRole('combobox')).toHaveTextContent('Week 3');
+  expect(screen.getByRole('button', { name: 'Previous week' })).not.toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Next week' })).not.toBeDisabled();
+
+  await userEvent.click(screen.getByRole('button', { name: 'Next week' }));
+  await waitFor(() =>
+    expect(apiClient.get).toHaveBeenCalledWith(expect.stringContaining('week=4'))
+  );
+  expect(screen.getByRole('combobox')).toHaveTextContent('Week 4');
+
+  await userEvent.click(screen.getByRole('button', { name: 'Previous week' }));
+  await waitFor(() =>
+    expect(apiClient.get).toHaveBeenCalledWith(expect.stringContaining('week=3'))
+  );
+  expect(screen.getByRole('combobox')).toHaveTextContent('Week 3');
+});
+
+test('the previous-week chevron is disabled at week 1', async () => {
+  apiClient.get.mockResolvedValue({ data: lineupResponse({ week: 1, currentWeek: 1 }) });
+
+  renderScreen();
+  await screen.findByText('Patrick Mahomes');
+
+  expect(screen.getByRole('button', { name: 'Previous week' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Next week' })).not.toBeDisabled();
+});
+
+test('the summary header shows projected/optimal totals and the (+gain) button expands the suggestions panel', async () => {
+  setupGet({ lineup: lineupResponse({ entries: flexBenchEntries }), advice: adviceResponse() });
+
+  renderScreen();
+  await screen.findByText('Justin Jefferson');
+
+  expect(
+    within(screen.getByTestId('lineup-summary-header')).getByText(/Projected 110\.4/)
+  ).toBeInTheDocument();
+  expect(
+    within(screen.getByTestId('lineup-summary-header')).getByText(/Optimal 118\.2/)
+  ).toBeInTheDocument();
+
+  // Collapse the panel, then use the summary header's gain button to reopen it.
+  await userEvent.click(screen.getByRole('button', { name: 'Hide' }));
+  expect(screen.getByRole('button', { name: 'Show' })).toBeInTheDocument();
+
+  await userEvent.click(screen.getByRole('button', { name: '(+7.8)' }));
+  expect(screen.getByRole('button', { name: 'Hide' })).toBeInTheDocument();
 });
 
 // --- Best ball ---
@@ -413,4 +651,20 @@ test('shows injury badges and projected points on lineup rows', async () => {
   await screen.findByText('Patrick Mahomes');
   expect(screen.getByText('Q')).toBeInTheDocument();
   expect(screen.getByText(/proj 21\.5/)).toBeInTheDocument();
+});
+
+test('appends the opponent to the row caption when provided, and omits it when missing', async () => {
+  const response = lineupResponse();
+  response.entries[0].opponent = 'DAL';
+  apiClient.get.mockResolvedValue({ data: response });
+  renderScreen();
+
+  await screen.findByText('Patrick Mahomes');
+  expect(
+    within(screen.getByTestId('slot-row-QB-0')).getByText(/· vs DAL/)
+  ).toBeInTheDocument();
+  // Derrick Henry has no opponent field on this fixture — no dangling separator.
+  expect(
+    within(screen.getByTestId('slot-row-RB-1')).queryByText(/·/)
+  ).not.toBeInTheDocument();
 });

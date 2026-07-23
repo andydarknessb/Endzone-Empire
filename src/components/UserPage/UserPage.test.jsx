@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, within, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
@@ -25,8 +25,26 @@ const league = (overrides = {}) => ({
   ...overrides,
 });
 
+// The hero's Create/Join League buttons are always on screen; the rich empty
+// state repeats the same two CTAs when there are no leagues yet. Scope to the
+// hero so these tests keep working regardless of which state is showing.
+const heroButton = (name) => within(screen.getByTestId('dashboard-hero')).getByRole('button', { name });
+
+// UserPage also fetches the news/activity widgets on mount via apiClient.get,
+// so raw call counts aren't meaningful for the leagues fetch anymore — filter
+// to the URL under test instead.
+const getCallsTo = (url) => apiClient.get.mock.calls.filter(([calledUrl]) => calledUrl === url).length;
+
 afterEach(() => {
   jest.clearAllMocks();
+});
+
+test('shows skeleton cards (not the empty state) while leagues are loading', () => {
+  apiClient.get.mockReturnValue(new Promise(() => {})); // never resolves
+  renderWithProviders(<UserPage />, { state: baseState });
+
+  expect(screen.getAllByTestId('league-skeleton').length).toBeGreaterThan(0);
+  expect(screen.queryByTestId('leagues-empty-state')).not.toBeInTheDocument();
 });
 
 test('renders the title and a welcome message with the username', async () => {
@@ -53,20 +71,117 @@ test('shows an error alert when fetching leagues fails', async () => {
   expect(await screen.findByText('server exploded')).toBeInTheDocument();
 });
 
-test('Rename Team is disabled until the user has at least one league', async () => {
+test('renders a rich empty state with an icon and CTAs once loading finishes with no leagues', async () => {
   apiClient.get.mockResolvedValue({ data: [] });
   renderWithProviders(<UserPage />, { state: baseState });
 
-  await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
-  expect(screen.getByRole('button', { name: 'Rename Team' })).toBeDisabled();
+  const emptyState = await screen.findByTestId('leagues-empty-state');
+  expect(within(emptyState).getByText("You aren't managing any teams yet.")).toBeInTheDocument();
+  expect(within(emptyState).getByTestId('SportsFootballIcon')).toBeInTheDocument();
+  expect(within(emptyState).getByRole('button', { name: 'Create League' })).toBeInTheDocument();
+  expect(within(emptyState).getByRole('button', { name: 'Join League' })).toBeInTheDocument();
 });
 
-test('Rename Team is enabled once the user has a league', async () => {
+test('does not render the empty state once leagues are present', async () => {
   apiClient.get.mockResolvedValue({ data: [league()] });
   renderWithProviders(<UserPage />, { state: baseState });
 
   await screen.findByText('Sunday Ballers');
-  expect(screen.getByRole('button', { name: 'Rename Team' })).toBeEnabled();
+  expect(screen.queryByTestId('leagues-empty-state')).not.toBeInTheDocument();
+});
+
+test('renders NFL news headlines and cross-league activity from their own endpoints', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/news') {
+      return Promise.resolve({
+        data: [{ title: 'Star RB questionable for Sunday', link: 'https://example.com/news/1' }],
+      });
+    }
+    if (url === '/api/notifications') {
+      return Promise.resolve({
+        data: {
+          notifications: [
+            { id: 5, message: 'Sunday Ballers completed a trade', league_name: 'Sunday Ballers', created_at: '2026-01-01T00:00:00.000Z' },
+          ],
+          unread: 0,
+        },
+      });
+    }
+    return Promise.resolve({ data: [] }); // /api/league
+  });
+  renderWithProviders(<UserPage />, { state: baseState });
+
+  expect(await screen.findByRole('link', { name: 'Star RB questionable for Sunday' })).toHaveAttribute(
+    'href',
+    'https://example.com/news/1'
+  );
+  expect(screen.getAllByText('Sunday Ballers completed a trade')).toHaveLength(2);
+});
+
+test('shows a friendly message when the news or activity widgets fail to load', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/news' || url === '/api/notifications') {
+      return Promise.reject(new Error('network error'));
+    }
+    return Promise.resolve({ data: [] }); // /api/league
+  });
+  renderWithProviders(<UserPage />, { state: baseState });
+
+  expect(await screen.findByText("Couldn't load the latest news right now.")).toBeInTheDocument();
+  expect(screen.getByText("Couldn't load recent activity right now.")).toBeInTheDocument();
+});
+
+// --- "Next up" hero (nextUpFor) -------------------------------------------
+// The hero distills the user's leagues + recent activity into one prioritized
+// CTA. Priority: an actionable notification (trade/invite/join request) > a
+// live draft > a scheduled draft > an in-season/playoff lineup nudge > the
+// create/join fallback. The action renders as a link, so assert on its href.
+const mockDashboard = ({ leagues = [], notifications = [] }) => {
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/notifications') return Promise.resolve({ data: { notifications, unread: 0 } });
+    if (url === '/api/news') return Promise.resolve({ data: [] });
+    return Promise.resolve({ data: leagues }); // /api/league
+  });
+};
+
+test('Next up hero prioritizes an actionable trade notification over league phase', async () => {
+  mockDashboard({
+    leagues: [league({ id: 9, draft_status: 'active' })], // a live draft would otherwise win
+    notifications: [{ id: 1, message: 'Bob proposed a trade', league_id: 9 }],
+  });
+  renderWithProviders(<UserPage />, { state: baseState });
+
+  expect(await screen.findByRole('link', { name: 'Review trades' })).toHaveAttribute('href', '/league/9/trades');
+  expect(screen.getByText('Action needed')).toBeInTheDocument();
+});
+
+test('Next up hero surfaces a live draft when nothing needs action', async () => {
+  mockDashboard({
+    leagues: [league({ id: 1, draft_status: 'active' })],
+    notifications: [{ id: 1, message: 'Week 1 scores posted' }],
+  });
+  renderWithProviders(<UserPage />, { state: baseState });
+
+  expect(await screen.findByRole('link', { name: 'Open Draft Room' })).toHaveAttribute('href', '/league/1/draft');
+  // "Draft live" also appears in the league card's phase chip, so scope to the hero region.
+  const hero = screen.getByRole('region', { name: /is on the clock/i });
+  expect(within(hero).getByText('Draft live')).toBeInTheDocument();
+});
+
+test('Next up hero nudges the in-season lineup once the draft is complete', async () => {
+  mockDashboard({
+    leagues: [league({ id: 3, draft_status: 'complete', season_status: 'regular', current_week: 5 })],
+  });
+  renderWithProviders(<UserPage />, { state: baseState });
+
+  expect(await screen.findByRole('link', { name: 'Set Lineup' })).toHaveAttribute('href', '/league/3/lineup');
+});
+
+test('Next up hero points to browsing leagues when the user has none', async () => {
+  mockDashboard({ leagues: [] });
+  renderWithProviders(<UserPage />, { state: baseState });
+
+  expect(await screen.findByRole('link', { name: 'View leagues' })).toHaveAttribute('href', '/league');
 });
 
 test('creating a league posts the form data, shows a notice, and refetches leagues', async () => {
@@ -74,9 +189,9 @@ test('creating a league posts the form data, shows a notice, and refetches leagu
   apiClient.post.mockResolvedValue({ data: { id: 2 } });
 
   renderWithProviders(<UserPage />, { state: baseState });
-  await waitFor(() => expect(apiClient.get).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(getCallsTo('/api/league')).toBe(1));
 
-  await userEvent.click(screen.getByRole('button', { name: 'Create League' }));
+  await userEvent.click(heroButton('Create League'));
   await userEvent.type(screen.getByLabelText('League Name'), 'Monday Mayhem');
   await userEvent.type(screen.getByLabelText('Team Name'), "Alice's Squad");
   await userEvent.click(screen.getByRole('button', { name: 'Create' }));
@@ -89,7 +204,7 @@ test('creating a league posts the form data, shows a notice, and refetches leagu
     })
   );
   expect(await screen.findByText('League created!')).toBeInTheDocument();
-  await waitFor(() => expect(apiClient.get).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(getCallsTo('/api/league')).toBe(2));
 });
 
 test('the approval toggle only appears once Public league is on, and only the fields the user sets are sent', async () => {
@@ -97,9 +212,9 @@ test('the approval toggle only appears once Public league is on, and only the fi
   apiClient.post.mockResolvedValue({ data: { id: 2 } });
 
   renderWithProviders(<UserPage />, { state: baseState });
-  await waitFor(() => expect(apiClient.get).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(getCallsTo('/api/league')).toBe(1));
 
-  await userEvent.click(screen.getByRole('button', { name: 'Create League' }));
+  await userEvent.click(heroButton('Create League'));
   expect(screen.queryByLabelText('Require commissioner approval to join')).not.toBeInTheDocument();
 
   await userEvent.type(screen.getByLabelText('League Name'), 'Plain League');
@@ -119,9 +234,9 @@ test('creating a public, approval-required, best-ball, half-PPR league with a dr
   apiClient.post.mockResolvedValue({ data: { id: 2 } });
 
   renderWithProviders(<UserPage />, { state: baseState });
-  await waitFor(() => expect(apiClient.get).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(getCallsTo('/api/league')).toBe(1));
 
-  await userEvent.click(screen.getByRole('button', { name: 'Create League' }));
+  await userEvent.click(heroButton('Create League'));
   await userEvent.type(screen.getByLabelText('League Name'), 'Full League');
   await userEvent.click(screen.getByLabelText('Public league'));
   await userEvent.click(screen.getByLabelText('Require commissioner approval to join'));
@@ -151,7 +266,7 @@ test('the Create button is disabled until a league name is entered', async () =>
   renderWithProviders(<UserPage />, { state: baseState });
   await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
 
-  await userEvent.click(screen.getByRole('button', { name: 'Create League' }));
+  await userEvent.click(heroButton('Create League'));
   expect(screen.getByRole('button', { name: 'Create' })).toBeDisabled();
 
   await userEvent.type(screen.getByLabelText('League Name'), 'X');
@@ -165,7 +280,7 @@ test('creating a league surfaces the server error on failure', async () => {
   renderWithProviders(<UserPage />, { state: baseState });
   await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
 
-  await userEvent.click(screen.getByRole('button', { name: 'Create League' }));
+  await userEvent.click(heroButton('Create League'));
   await userEvent.type(screen.getByLabelText('League Name'), 'Dup League');
   await userEvent.click(screen.getByRole('button', { name: 'Create' }));
 
@@ -177,10 +292,10 @@ test('joining a league posts the trimmed invite code, shows a notice, and refetc
   apiClient.post.mockResolvedValue({});
 
   renderWithProviders(<UserPage />, { state: baseState });
-  await waitFor(() => expect(apiClient.get).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(getCallsTo('/api/league')).toBe(1));
 
-  await userEvent.click(screen.getByRole('button', { name: 'Join League' }));
-  expect(apiClient.get).toHaveBeenCalledTimes(1); // opening the dialog fetches nothing — no browse list
+  await userEvent.click(heroButton('Join League'));
+  expect(getCallsTo('/api/league')).toBe(1); // opening the dialog fetches nothing — no browse list
   await userEvent.type(screen.getByLabelText('Invite Code'), '  abc123  ');
   await userEvent.click(screen.getByRole('button', { name: 'Join' }));
 
@@ -188,7 +303,7 @@ test('joining a league posts the trimmed invite code, shows a notice, and refetc
     expect(apiClient.post).toHaveBeenCalledWith('/api/league/join', { inviteCode: 'abc123' })
   );
   expect(await screen.findByText('Joined league!')).toBeInTheDocument();
-  await waitFor(() => expect(apiClient.get).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(getCallsTo('/api/league')).toBe(2));
 });
 
 test('the Join button is disabled until an invite code is entered', async () => {
@@ -196,7 +311,7 @@ test('the Join button is disabled until an invite code is entered', async () => 
   renderWithProviders(<UserPage />, { state: baseState });
   await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
 
-  await userEvent.click(screen.getByRole('button', { name: 'Join League' }));
+  await userEvent.click(heroButton('Join League'));
   expect(screen.getByRole('button', { name: 'Join' })).toBeDisabled();
 
   await userEvent.type(screen.getByLabelText('Invite Code'), 'x');
@@ -210,57 +325,11 @@ test('joining a league surfaces the server error on failure', async () => {
   renderWithProviders(<UserPage />, { state: baseState });
   await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
 
-  await userEvent.click(screen.getByRole('button', { name: 'Join League' }));
+  await userEvent.click(heroButton('Join League'));
   await userEvent.type(screen.getByLabelText('Invite Code'), 'bogus');
   await userEvent.click(screen.getByRole('button', { name: 'Join' }));
 
   expect(await screen.findByText('no league with that invite code')).toBeInTheDocument();
-});
-
-test("renaming a team PUTs the new name to the selected league's team id", async () => {
-  apiClient.get.mockResolvedValue({
-    data: [league({ id: 3, my_team_id: 30, name: 'Dynasty League', my_team_name: 'Old Name' })],
-  });
-  apiClient.put.mockResolvedValue({ data: {} });
-
-  renderWithProviders(<UserPage />, { state: baseState });
-  await screen.findByText('Dynasty League');
-
-  await userEvent.click(screen.getByRole('button', { name: 'Rename Team' }));
-  await userEvent.click(screen.getByLabelText('League'));
-  await userEvent.click(await screen.findByRole('option', { name: 'Dynasty League (Old Name)' }));
-  await userEvent.type(screen.getByLabelText('New Team Name'), 'New Name');
-  await userEvent.click(screen.getByRole('button', { name: 'Rename' }));
-
-  await waitFor(() =>
-    expect(apiClient.put).toHaveBeenCalledWith('/api/team/30', { name: 'New Name' })
-  );
-  expect(await screen.findByText('Team renamed!')).toBeInTheDocument();
-});
-
-test('the Rename button is disabled until a league is selected and a new name is entered', async () => {
-  apiClient.get.mockResolvedValue({ data: [league()] });
-  renderWithProviders(<UserPage />, { state: baseState });
-  await screen.findByText('Sunday Ballers');
-
-  await userEvent.click(screen.getByRole('button', { name: 'Rename Team' }));
-  expect(screen.getByRole('button', { name: 'Rename' })).toBeDisabled();
-});
-
-test('renaming a team surfaces the server error on failure', async () => {
-  apiClient.get.mockResolvedValue({ data: [league()] });
-  apiClient.put.mockRejectedValue({ response: { data: { error: 'team not found or not yours' } } });
-
-  renderWithProviders(<UserPage />, { state: baseState });
-  await screen.findByText('Sunday Ballers');
-
-  await userEvent.click(screen.getByRole('button', { name: 'Rename Team' }));
-  await userEvent.click(screen.getByLabelText('League'));
-  await userEvent.click(await screen.findByRole('option', { name: "Sunday Ballers (alice's Team)" }));
-  await userEvent.type(screen.getByLabelText('New Team Name'), 'New Name');
-  await userEvent.click(screen.getByRole('button', { name: 'Rename' }));
-
-  expect(await screen.findByText('team not found or not yours')).toBeInTheDocument();
 });
 
 test('Cancel closes the Create League dialog without making a write request', async () => {
@@ -268,7 +337,7 @@ test('Cancel closes the Create League dialog without making a write request', as
   renderWithProviders(<UserPage />, { state: baseState });
   await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
 
-  await userEvent.click(screen.getByRole('button', { name: 'Create League' }));
+  await userEvent.click(heroButton('Create League'));
   await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 
   await waitFor(() => expect(screen.queryByText('Create a New League')).not.toBeInTheDocument());

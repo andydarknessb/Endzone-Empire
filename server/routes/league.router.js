@@ -2,6 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
+const projectionService = require('../services/projection.service');
 const {
   VALID_SCORING_PRESETS,
   VALID_DISCOVER_SORTS,
@@ -15,7 +16,6 @@ const {
   resolveMinTeams,
   createSizeError,
   editSizeError,
-  meetsMinimum,
 } = require('../services/leagueSize');
 
 const router = express.Router();
@@ -28,37 +28,37 @@ function intParam(value) {
 // POST /api/league — create a private league (plus the owner's team) atomically
 router.post('/', async (req, res) => {
   const {
-    name, rosterLimit, maxTeams, minTeams, teamName,
+    name, maxTeams, minTeams, teamName,
     isPublic, joinApproval, bestBall, scoringPreset, draftDate,
   } = req.body || {};
   if (!name || typeof name !== 'string') {
     return res.status(400).json({ error: 'league name is required' });
   }
-  const limit = rosterLimit === undefined ? 15 : Number(rosterLimit);
   const teams = maxTeams === undefined ? 10 : Number(maxTeams);
   // Default the floor to a sensible 8, but never above the league's own cap.
   const minimum = resolveMinTeams(minTeams, teams);
-  if (!Number.isInteger(limit) || limit < 1 || limit > 30) {
-    return res.status(400).json({ error: 'rosterLimit must be an integer between 1 and 30' });
-  }
   const sizeError = createSizeError({ minTeams: minimum, maxTeams: teams });
   if (sizeError) return res.status(400).json({ error: sizeError });
   const optionsResult = validateCreateOptions({ isPublic, joinApproval, bestBall, scoringPreset, draftDate });
   if (optionsResult.error) return res.status(400).json({ error: optionsResult.error });
   const options = optionsResult.value;
 
+  // roster_limit/roster_slots/bench_slots/ir_slots are left to their column
+  // defaults here (a standard 9-starter/5-bench/1-IR roster, summing to the
+  // roster_limit default) — a commissioner customizes roster construction via
+  // the Roster Settings tab after creation, any time before the draft starts.
   const inviteCode = crypto.randomBytes(4).toString('hex');
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const leagueResult = await client.query(
       `INSERT INTO "leagues" (
-         "name", "owner_id", "invite_code", "roster_limit", "max_teams", "min_teams",
+         "name", "owner_id", "invite_code", "max_teams", "min_teams",
          "is_public", "join_approval", "best_ball", "scoring_preset", "scoring_rules", "draft_date"
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
       [
-        name, req.user.id, inviteCode, limit, teams, minimum,
+        name, req.user.id, inviteCode, teams, minimum,
         options.isPublic, options.joinApproval, options.bestBall,
         options.scoringPreset, options.scoringRules ? JSON.stringify(options.scoringRules) : null,
         options.draftDate,
@@ -211,6 +211,10 @@ router.get('/', async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT "leagues".*, "teams"."id" AS "my_team_id", "teams"."name" AS "my_team_name",
+              "teams"."avatar_url" AS "my_team_avatar_url",
+              "teams"."avatar_static_url" AS "my_team_avatar_static_url",
+              "teams"."waiver_priority" AS "my_team_waiver_priority",
+              "teams"."faab_remaining" AS "my_team_faab_remaining",
               (SELECT COUNT(*)::int FROM "teams" "t" WHERE "t"."league_id" = "leagues"."id") AS "team_count"
        FROM "leagues"
        JOIN "teams" ON "teams"."league_id" = "leagues"."id"
@@ -242,6 +246,8 @@ router.get('/:id', async (req, res) => {
 
     const teamsResult = await pool.query(
       `SELECT "teams"."id", "teams"."name", "teams"."draft_position",
+              "teams"."faab_remaining", "teams"."locked", "teams"."draft_ready",
+              "teams"."avatar_url", "teams"."avatar_static_url",
               "users"."username" AS "owner",
               COUNT("team_players"."id")::int AS "roster_count",
               COALESCE(SUM(CASE WHEN "matchups"."home_team_id" = "teams"."id" THEN "matchups"."home_score"
@@ -271,12 +277,20 @@ router.put('/:id', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
   const {
-    name, rosterLimit, lineupSlots, positionCaps, irSlots,
+    name, rosterLimit, rosterSlots, positionCaps, benchSlots, dpEnabled, irSlots,
     waiverType, waiverPeriodHours, faabBudget,
     tradeDeadlineWeek, tradeReviewHours, tradeVetoVotes,
     scoringPreset, scoringRules, regularSeasonWeeks, playoffTeams, playoffConsolation,
     pickTimeSeconds, minTeams, maxTeams, draftDate, autodraftDelaySeconds,
+    draftType, draftRotation, draftOrderOverrides, auctionSettings,
+    keepersEnabled, keeperCount, keeperLockAt,
   } = req.body || {};
+  // roster_limit is derived (starters + bench + IR) — see below — not settable directly.
+  if (rosterLimit !== undefined) {
+    return res.status(400).json({
+      error: 'rosterLimit is computed automatically from rosterSlots + benchSlots + irSlots and cannot be set directly',
+    });
+  }
   // draftDate: undefined = leave as-is, null = clear, string = (re)schedule.
   const draftDateProvided = draftDate !== undefined;
   let draftDateValue = null;
@@ -285,11 +299,10 @@ router.put('/:id', async (req, res) => {
     if (Number.isNaN(parsed.getTime())) {
       return res.status(400).json({ error: 'draftDate must be a valid date or null' });
     }
+    if (parsed.getTime() <= Date.now()) {
+      return res.status(400).json({ error: 'draftDate must be in the future or null' });
+    }
     draftDateValue = parsed.toISOString();
-  }
-  const limit = rosterLimit === undefined ? null : Number(rosterLimit);
-  if (limit !== null && (!Number.isInteger(limit) || limit < 1 || limit > 30)) {
-    return res.status(400).json({ error: 'rosterLimit must be an integer between 1 and 30' });
   }
   // Validated against the league's current teams/limits inside the handler
   // (see editSizeError below), since it needs the live team count.
@@ -300,13 +313,44 @@ router.put('/:id', async (req, res) => {
     Object.entries(map).every(
       ([key, count]) => allowedKeys.includes(key) && Number.isInteger(count) && count >= 0 && count <= 10
     );
-  const slotKeys = ['QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF'];
-  const positionKeys = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
-  if (lineupSlots !== undefined && !validSlotMap(lineupSlots, slotKeys)) {
-    return res.status(400).json({ error: `lineupSlots must map ${slotKeys.join('/')} to integers 0-10` });
+  // Group keys (DL/LB/DB) are allowed alongside literal positions so a slot's
+  // eligiblePositions can target a defensive group (see lineup.service.js's
+  // POSITION_GROUPS) as well as a single offensive position.
+  const positionKeys = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF', 'DL', 'LB', 'DB'];
+  const DP_GROUP_KEYS = ['DL', 'LB', 'DB'];
+  const validRosterSlots = (arr) =>
+    Array.isArray(arr) && arr.length > 0 && arr.length <= 20 &&
+    arr.every((s) =>
+      s && typeof s === 'object' &&
+      typeof s.key === 'string' && /^[A-Za-z0-9_]{1,20}$/.test(s.key) &&
+      Number.isInteger(s.count) && s.count >= 0 && s.count <= 10 &&
+      Array.isArray(s.eligiblePositions) && s.eligiblePositions.length > 0 &&
+      s.eligiblePositions.every((p) => positionKeys.includes(p))
+    ) &&
+    new Set(arr.map((s) => s.key)).size === arr.length;
+  if (rosterSlots !== undefined) {
+    if (!validRosterSlots(rosterSlots)) {
+      return res.status(400).json({
+        error: `rosterSlots must be a non-empty array of {key, count (0-10), eligiblePositions} with unique keys, eligiblePositions drawn from ${positionKeys.join('/')}`,
+      });
+    }
+    // A "DP-type" slot is one whose eligibility is entirely within the IDP
+    // groups — cap their combined starting count at 3 (base + up to 2 more).
+    const dpSlotTotal = rosterSlots
+      .filter((s) => s.eligiblePositions.every((p) => DP_GROUP_KEYS.includes(p)))
+      .reduce((sum, s) => sum + s.count, 0);
+    if (dpSlotTotal > 3) {
+      return res.status(400).json({ error: 'combined DP-eligible starting slots cannot exceed 3 (base + up to 2 additional)' });
+    }
   }
   if (positionCaps !== undefined && !validSlotMap(positionCaps, positionKeys)) {
     return res.status(400).json({ error: `positionCaps must map ${positionKeys.join('/')} to integers 0-10` });
+  }
+  if (benchSlots !== undefined && (!Number.isInteger(benchSlots) || benchSlots < 0 || benchSlots > 5)) {
+    return res.status(400).json({ error: 'benchSlots must be an integer between 0 and 5' });
+  }
+  if (dpEnabled !== undefined && typeof dpEnabled !== 'boolean') {
+    return res.status(400).json({ error: 'dpEnabled must be a boolean' });
   }
   if (irSlots !== undefined && (!Number.isInteger(irSlots) || irSlots < 0 || irSlots > 5)) {
     return res.status(400).json({ error: 'irSlots must be an integer between 0 and 5' });
@@ -330,17 +374,34 @@ router.put('/:id', async (req, res) => {
   if (tradeVetoVotes !== undefined && !intInRange(tradeVetoVotes, 0, 20)) {
     return res.status(400).json({ error: 'tradeVetoVotes must be an integer between 0 and 20' });
   }
-  const { SCORING_PRESETS, SCORING_RULES } = require('../services/scoring.service');
+  const { SCORING_PRESETS, SCORING_RULES, isValidTierArray } = require('../services/scoring.service');
   if (scoringPreset !== undefined && !SCORING_PRESETS[scoringPreset]) {
     return res.status(400).json({ error: `scoringPreset must be one of ${Object.keys(SCORING_PRESETS).join(', ')}` });
   }
+  // scoringRules is a nested { category: { statKey: number | tierArray } }
+  // shape mirroring SCORING_RULES (see scoring.service.js). Every category
+  // and leaf key must already exist in the defaults; a leaf is either a
+  // finite bounded number (plain rate) or, for a tiered stat (FG distance,
+  // points/yards allowed), a well-formed tier array. Unknown categories/keys
+  // are rejected here rather than silently dropped, since this is the point
+  // a commissioner finds out about a typo — rulesForLeague()'s silent-drop
+  // behavior is the defense-in-depth fallback for anything that slips past.
   if (scoringRules !== undefined) {
+    const validCategory = (category, custom) =>
+      custom && typeof custom === 'object' && !Array.isArray(custom) &&
+      Object.entries(custom).every(([key, value]) => {
+        if (!(key in category)) return false;
+        if (Array.isArray(category[key])) return isValidTierArray(value);
+        return Number.isFinite(Number(value)) && Math.abs(Number(value)) <= 50;
+      });
     const valid = scoringRules && typeof scoringRules === 'object' && !Array.isArray(scoringRules) &&
       Object.entries(scoringRules).every(
-        ([key, value]) => key in SCORING_RULES && Number.isFinite(Number(value)) && Math.abs(Number(value)) <= 50
+        ([cat, custom]) => cat in SCORING_RULES && validCategory(SCORING_RULES[cat], custom)
       );
     if (!valid) {
-      return res.status(400).json({ error: 'scoringRules must map known stat names to numbers (|value| <= 50)' });
+      return res.status(400).json({
+        error: 'scoringRules must be a nested { category: { statKey: number|tierArray } } object matching the known scoring schema (rates |value| <= 50; tiers well-formed and non-overlapping)',
+      });
     }
   }
   if (regularSeasonWeeks !== undefined && !intInRange(regularSeasonWeeks, 1, 17)) {
@@ -358,6 +419,38 @@ router.put('/:id', async (req, res) => {
   if (autodraftDelaySeconds !== undefined && !intInRange(autodraftDelaySeconds, 1, 60)) {
     return res.status(400).json({ error: 'autodraftDelaySeconds must be an integer between 1 and 60' });
   }
+  const VALID_DRAFT_TYPES = ['snake', 'auction', 'autopick', 'offline'];
+  const VALID_DRAFT_ROTATIONS = ['snake', 'linear'];
+  if (draftType !== undefined && !VALID_DRAFT_TYPES.includes(draftType)) {
+    return res.status(400).json({ error: `draftType must be one of ${VALID_DRAFT_TYPES.join(', ')}` });
+  }
+  if (draftRotation !== undefined && !VALID_DRAFT_ROTATIONS.includes(draftRotation)) {
+    return res.status(400).json({ error: `draftRotation must be one of ${VALID_DRAFT_ROTATIONS.join(', ')}` });
+  }
+  if (draftOrderOverrides !== undefined && draftOrderOverrides !== null &&
+      (typeof draftOrderOverrides !== 'object' || Array.isArray(draftOrderOverrides))) {
+    return res.status(400).json({ error: 'draftOrderOverrides must be an object keyed by round number, or null' });
+  }
+  if (keepersEnabled !== undefined && typeof keepersEnabled !== 'boolean') {
+    return res.status(400).json({ error: 'keepersEnabled must be a boolean' });
+  }
+  if (keeperCount !== undefined && (!Number.isInteger(keeperCount) || keeperCount < 0)) {
+    return res.status(400).json({ error: 'keeperCount must be a non-negative integer' });
+  }
+  if (auctionSettings !== undefined && auctionSettings !== null) {
+    const { validateAuctionSettings } = require('../services/draftValidation.service');
+    const auctionError = validateAuctionSettings(auctionSettings);
+    if (auctionError) return res.status(400).json({ error: auctionError });
+  }
+  const keeperLockAtProvided = keeperLockAt !== undefined;
+  let keeperLockAtValue = null;
+  if (keeperLockAtProvided && keeperLockAt !== null) {
+    const parsed = new Date(keeperLockAt);
+    if (Number.isNaN(parsed.getTime())) {
+      return res.status(400).json({ error: 'keeperLockAt must be a valid date or null' });
+    }
+    keeperLockAtValue = parsed.toISOString();
+  }
   // A preset is just a prefilled full rule set; explicit scoringRules win
   const effectiveRules = scoringRules !== undefined
     ? scoringRules
@@ -372,32 +465,78 @@ router.put('/:id', async (req, res) => {
       ? scoringPreset
       : undefined;
   let previousDraftDate = null;
+  const keeperSettingsProvided = keepersEnabled !== undefined || keeperCount !== undefined;
+  const auctionSettingsProvided = auctionSettings !== undefined;
+  const ownerLockedSettingsProvided = keeperSettingsProvided || auctionSettingsProvided;
+  let transactionClient = null;
+  let transactionOpen = false;
+  let db = pool;
+  const rejectUpdate = async (status, error) => {
+    if (transactionOpen) {
+      await transactionClient.query('ROLLBACK');
+      transactionOpen = false;
+    }
+    return res.status(status).json({ error });
+  };
   try {
+    if (ownerLockedSettingsProvided) {
+      transactionClient = await pool.connect();
+      db = transactionClient;
+      await transactionClient.query('BEGIN');
+      transactionOpen = true;
+    }
     // Game-integrity settings freeze once the draft starts; administrative
     // ones (name, waivers, trades) stay editable all season.
+    const draftOrderOverridesProvided = draftOrderOverrides !== undefined;
     const preDraftOnly = {
-      rosterLimit, lineupSlots, positionCaps, irSlots,
+      rosterSlots, positionCaps, benchSlots, dpEnabled, irSlots,
       scoringRules: effectiveRules, regularSeasonWeeks, playoffTeams,
       playoffConsolation, pickTimeSeconds, minTeams, maxTeams, autodraftDelaySeconds,
       draftDate: draftDateProvided ? draftDate : undefined,
+      draftType, draftRotation, keepersEnabled, keeperCount,
+      draftOrderOverrides: draftOrderOverridesProvided ? draftOrderOverrides : undefined,
+      auctionSettings: auctionSettingsProvided ? auctionSettings : undefined,
+      keeperLockAt: keeperLockAtProvided ? keeperLockAt : undefined,
     };
     const frozenRequested = Object.entries(preDraftOnly)
       .filter(([, v]) => v !== undefined)
       .map(([k]) => k);
+    // roster_limit is derived from starters+bench+IR — recomputed below
+    // whenever any of those three actually change.
+    const rosterCompositionChanged = rosterSlots !== undefined || benchSlots !== undefined || irSlots !== undefined;
+    // Writing a non-null draft_date without also setting the type ourselves relies
+    // on the current type staying non-auction. The earlier SELECT can go stale if a
+    // concurrent request converts the league to auction, so the UPDATE re-checks the
+    // type atomically. (An explicit draftType wins outright, and draftType==='auction'
+    // clears the date, so neither needs the guard.)
+    const schedulingNonAuction = draftDateProvided && Boolean(draftDateValue) && draftType === undefined;
+    let derivedRosterLimit = null;
+    let pendingStatusVerified = false;
     if (frozenRequested.length > 0) {
-      const statusResult = await pool.query(
-        `SELECT "draft_status", "min_teams", "max_teams", "draft_date",
+      const statusResult = await db.query(
+        `SELECT "draft_status", "draft_type", "min_teams", "max_teams", "draft_date",
+                "roster_slots", "bench_slots", "ir_slots", "position_caps", "roster_limit",
+                "keepers_enabled", "keeper_count",
                 (SELECT COUNT(*)::int FROM "teams" WHERE "teams"."league_id" = "leagues"."id") AS "team_count"
-         FROM "leagues" WHERE "id" = $1 AND "owner_id" = $2`,
+         FROM "leagues" WHERE "id" = $1 AND "owner_id" = $2${ownerLockedSettingsProvided ? ' FOR UPDATE' : ''}`,
         [leagueId, req.user.id]
       );
       const current = statusResult.rows[0];
       previousDraftDate = current ? current.draft_date : null;
-      if (current && current.draft_status !== 'pending') {
-        return res.status(409).json({
-          error: `these settings are locked once the draft starts: ${frozenRequested.join(', ')}`,
-        });
+      if (current && rosterCompositionChanged) {
+        const effectiveSlots = rosterSlots !== undefined ? rosterSlots : current.roster_slots;
+        const effectiveBench = benchSlots !== undefined ? benchSlots : current.bench_slots;
+        const effectiveIr = irSlots !== undefined ? irSlots : current.ir_slots;
+        const starters = effectiveSlots.reduce((sum, s) => sum + s.count, 0);
+        derivedRosterLimit = starters + effectiveBench + effectiveIr;
       }
+      if (current && current.draft_status !== 'pending') {
+        return await rejectUpdate(409, `these settings are locked once the draft starts: ${frozenRequested.join(', ')}`);
+      }
+      if (current && draftDateValue && (draftType ?? current.draft_type) === 'auction') {
+        return await rejectUpdate(400, 'salary-cap auction drafts cannot be scheduled until live auction support is available');
+      }
+      pendingStatusVerified = Boolean(current);
       // Size-limit invariants: valid bounds, min ≤ max, and the cap can't drop
       // below the teams already in the league.
       if (current && (newMin !== null || newMax !== null)) {
@@ -407,16 +546,70 @@ router.put('/:id', async (req, res) => {
           currentMax: current.max_teams,
           teamCount: current.team_count,
         });
-        if (sizeError) return res.status(400).json({ error: sizeError });
+        if (sizeError) return await rejectUpdate(400, sizeError);
+      }
+      const effectiveRosterLimit = derivedRosterLimit !== null ? derivedRosterLimit : (current ? current.roster_limit : null);
+      if (current && draftOrderOverridesProvided) {
+        const { validateOrderOverrides } = require('../services/draftOrder.service');
+        const teamsResult = await db.query(`SELECT "id" FROM "teams" WHERE "league_id" = $1`, [leagueId]);
+        const overridesError = validateOrderOverrides(
+          draftOrderOverrides, teamsResult.rows.map((t) => t.id), effectiveRosterLimit
+        );
+        if (overridesError) return await rejectUpdate(400, overridesError);
+      }
+      if (current && auctionSettingsProvided && auctionSettings?.nominationOrder === 'custom') {
+        const teamsResult = await db.query(`SELECT "id" FROM "teams" WHERE "league_id" = $1`, [leagueId]);
+        const { isPermutationOf } = require('../services/draftOrder.service');
+        const teamIds = teamsResult.rows.map((team) => team.id);
+        if (!isPermutationOf(auctionSettings.nominationCustomOrder, teamIds)) {
+          return await rejectUpdate(400, 'nominationCustomOrder must list every current team exactly once');
+        }
+      }
+      if (current && keeperCount !== undefined && keeperCount > effectiveRosterLimit) {
+        return await rejectUpdate(400, `keeperCount cannot exceed the roster limit (${effectiveRosterLimit})`);
+      }
+      if (current && keeperSettingsProvided) {
+        const assignmentResult = await db.query(
+          `SELECT "team_id", COUNT(*)::int AS "count" FROM "keepers" WHERE "league_id" = $1 GROUP BY "team_id"`,
+          [leagueId]
+        );
+        const { keeperSettingsPlan } = require('../services/draftValidation.service');
+        const keeperPlan = keeperSettingsPlan({
+          currentEnabled: current.keepers_enabled,
+          currentCount: current.keeper_count,
+          keepersEnabled,
+          keeperCount,
+          assignmentCounts: assignmentResult.rows,
+        });
+        if (keeperPlan.error) return await rejectUpdate(409, keeperPlan.error);
+        if (keeperPlan.clearAssignments) {
+          await db.query(`DELETE FROM "keepers" WHERE "league_id" = $1`, [leagueId]);
+        }
+      }
+      // Any change to caps or roster shape must keep every slot fillable —
+      // re-run the same Hall's-condition check the draft settings UI warns with.
+      if (current && (positionCaps !== undefined || rosterCompositionChanged)) {
+        const { positionCapsFeasible } = require('../services/draftValidation.service');
+        const feasibility = positionCapsFeasible({
+          rosterSlots: rosterSlots !== undefined ? rosterSlots : current.roster_slots,
+          benchSlots: benchSlots !== undefined ? benchSlots : current.bench_slots,
+          irSlots: irSlots !== undefined ? irSlots : current.ir_slots,
+          positionCaps: positionCaps !== undefined ? positionCaps : current.position_caps,
+        });
+        if (!feasibility.feasible) {
+          return await rejectUpdate(400, feasibility.errors.join('; '));
+        }
       }
     }
-    const result = await pool.query(
+    const result = await db.query(
       `UPDATE "leagues"
        SET "name" = COALESCE($1, "name"),
            "roster_limit" = COALESCE($2, "roster_limit"),
-           "lineup_slots" = COALESCE($3, "lineup_slots"),
+           "roster_slots" = COALESCE($3, "roster_slots"),
            "position_caps" = COALESCE($4, "position_caps"),
            "ir_slots" = COALESCE($5, "ir_slots"),
+           "bench_slots" = COALESCE($25, "bench_slots"),
+           "dp_enabled" = COALESCE($26, "dp_enabled"),
            "waiver_type" = COALESCE($6, "waiver_type"),
            "waiver_period_hours" = COALESCE($7, "waiver_period_hours"),
            "faab_budget" = COALESCE($8, "faab_budget"),
@@ -432,18 +625,31 @@ router.put('/:id', async (req, res) => {
            "min_teams" = COALESCE($20, "min_teams"),
            "max_teams" = COALESCE($21, "max_teams"),
            "autodraft_delay_seconds" = COALESCE($24, "autodraft_delay_seconds"),
-           "draft_date" = CASE WHEN $22 THEN $23 ELSE "draft_date" END,
+           "draft_date" = CASE
+             WHEN $27 = 'auction' THEN NULL
+             WHEN $22 THEN $23
+             ELSE "draft_date"
+           END,
            -- Rescheduling resets the reminder/auto-start bookkeeping so the
            -- new time gets a fresh set of reminders.
-           "draft_reminder_stage" = CASE WHEN $22 THEN 0 ELSE "draft_reminder_stage" END,
-           "draft_autostart_failed" = CASE WHEN $22 THEN false ELSE "draft_autostart_failed" END,
+           "draft_reminder_stage" = CASE WHEN $22 OR $27 = 'auction' THEN 0 ELSE "draft_reminder_stage" END,
+           "draft_autostart_failed" = CASE WHEN $22 OR $27 = 'auction' THEN false ELSE "draft_autostart_failed" END,
+           "draft_type" = COALESCE($27, "draft_type"),
+           "draft_rotation" = COALESCE($28, "draft_rotation"),
+           "keepers_enabled" = COALESCE($29, "keepers_enabled"),
+           "keeper_count" = COALESCE($30, "keeper_count"),
+           "draft_order_overrides" = CASE WHEN $31::boolean THEN $32::jsonb ELSE "draft_order_overrides" END,
+           "auction_settings" = CASE WHEN $33::boolean THEN $34::jsonb ELSE "auction_settings" END,
+           "keeper_lock_at" = CASE WHEN $35::boolean THEN $36::timestamptz ELSE "keeper_lock_at" END,
            "updated_at" = now()
        WHERE "id" = $17 AND "owner_id" = $18
+         ${frozenRequested.length > 0 ? `AND "draft_status" = 'pending'` : ''}
+         ${schedulingNonAuction ? `AND "draft_type" <> 'auction'` : ''}
        RETURNING *`,
       [
         name || null,
-        limit,
-        lineupSlots === undefined ? null : JSON.stringify(lineupSlots),
+        derivedRosterLimit,
+        rosterSlots === undefined ? null : JSON.stringify(rosterSlots),
         positionCaps === undefined ? null : JSON.stringify(positionCaps),
         irSlots === undefined ? null : irSlots,
         waiverType === undefined ? null : waiverType,
@@ -465,75 +671,92 @@ router.put('/:id', async (req, res) => {
         draftDateProvided,
         draftDateValue,
         autodraftDelaySeconds === undefined ? null : autodraftDelaySeconds,
+        benchSlots === undefined ? null : benchSlots,
+        dpEnabled === undefined ? null : dpEnabled,
+        draftType === undefined ? null : draftType,
+        draftRotation === undefined ? null : draftRotation,
+        keepersEnabled === undefined ? null : keepersEnabled,
+        keeperCount === undefined ? null : keeperCount,
+        draftOrderOverridesProvided,
+        draftOrderOverridesProvided ? (draftOrderOverrides === null ? null : JSON.stringify(draftOrderOverrides)) : null,
+        auctionSettingsProvided,
+        auctionSettingsProvided ? (auctionSettings === null ? null : JSON.stringify(auctionSettings)) : null,
+        keeperLockAtProvided,
+        keeperLockAtProvided ? keeperLockAtValue : null,
       ]
     );
     if (!result.rows[0]) {
-      return res.status(403).json({ error: 'league not found or you are not the owner' });
+      // The scheduling guard can also zero out the update when the league was
+      // converted to auction between our SELECT and UPDATE. Re-read the current
+      // type to report the auction conflict distinctly from a draft that started.
+      if (schedulingNonAuction && pendingStatusVerified) {
+        const recheck = await db.query(
+          `SELECT "draft_type" FROM "leagues" WHERE "id" = $1 AND "owner_id" = $2`,
+          [leagueId, req.user.id]
+        );
+        if (recheck.rows[0]?.draft_type === 'auction') {
+          return await rejectUpdate(409, 'this league was converted to a salary-cap auction; auction drafts cannot be scheduled');
+        }
+      }
+      if (pendingStatusVerified) {
+        return await rejectUpdate(409, `these settings are locked once the draft starts: ${frozenRequested.join(', ')}`);
+      }
+      return await rejectUpdate(403, 'league not found or you are not the owner');
     }
-    // Tell the league when the draft time is set or moved (not when cleared).
     const changed = draftDateProvided &&
       String(previousDraftDate ? new Date(previousDraftDate).toISOString() : null) !== String(draftDateValue);
+    if (transactionOpen) {
+      await transactionClient.query('COMMIT');
+      transactionOpen = false;
+    }
+    // The settings update is the source of truth. Activity delivery happens
+    // after commit and is best-effort so a notification outage cannot turn a
+    // persisted schedule into an HTTP 500 response.
     if (changed && draftDateValue) {
       const { notifyLeague } = require('../services/activity.service');
       const verb = previousDraftDate ? 'rescheduled' : 'scheduled';
-      await notifyLeague(pool, {
-        leagueId,
-        type: 'draft_scheduled',
-        message: `${result.rows[0].name}'s draft has been ${verb}.`,
-        data: { url: `/#/league/${leagueId}`, draftDate: draftDateValue },
-      });
+      try {
+        void notifyLeague(pool, {
+          leagueId,
+          type: 'draft_scheduled',
+          message: `${result.rows[0].name}'s draft has been ${verb}.`,
+          data: { url: `/#/league/${leagueId}`, draftDate: draftDateValue },
+        }).catch((notificationError) => {
+          console.error('Failed to send draft schedule notification', notificationError);
+        });
+      } catch (notificationError) {
+        console.error('Failed to send draft schedule notification', notificationError);
+      }
     }
     res.json(result.rows[0]);
   } catch (error) {
+    if (transactionOpen) {
+      await transactionClient.query('ROLLBACK').catch(() => {});
+      transactionOpen = false;
+    }
     console.error('Error updating league', error);
     res.status(500).json({ error: 'failed to update league' });
+  } finally {
+    if (transactionClient) transactionClient.release();
   }
 });
 
 // POST /api/league/:id/start-draft — owner starts the live draft (once the
-// league has reached its minimum team count)
+// league has reached its minimum team count). Also doubles as the Instant
+// Start button on the Draft Settings page — any pre-start confirmation lives
+// client-side.
 router.post('/:id/start-draft', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
-  const client = await pool.connect();
   try {
-    await client.query('BEGIN');
-    // Lock the league row so a concurrent join can't slip the count under the
-    // minimum between the check and the status flip.
-    const leagueResult = await client.query(
-      `SELECT "owner_id", "draft_status", "min_teams",
-              (SELECT COUNT(*)::int FROM "teams" WHERE "teams"."league_id" = "leagues"."id") AS "team_count"
-       FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
-      [leagueId]
-    );
-    const league = leagueResult.rows[0];
-    if (!league || league.owner_id !== req.user.id || league.draft_status !== 'pending') {
-      await client.query('ROLLBACK');
-      return res.status(403).json({ error: 'league not found, not owner, or draft already started' });
-    }
-    if (!meetsMinimum(league.team_count, league.min_teams)) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({
-        error: `need at least ${league.min_teams} teams to start the draft (currently ${league.team_count})`,
-      });
-    }
-    const result = await client.query(
-      `UPDATE "leagues"
-       SET "draft_status" = 'active', "current_pick" = 0, "updated_at" = now(),
-           "pick_deadline_at" = CASE WHEN "pick_time_seconds" > 0
-             THEN now() + make_interval(secs => "pick_time_seconds") ELSE NULL END
-       WHERE "id" = $1
-       RETURNING *`,
-      [leagueId]
-    );
-    await client.query('COMMIT');
+    const { startDraft } = require('../services/draftStart.service');
+    await startDraft({ leagueId, userId: req.user.id });
+    const result = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
     res.json(result.rows[0]);
   } catch (error) {
-    await client.query('ROLLBACK').catch(() => {});
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     console.error('Error starting draft', error);
     res.status(500).json({ error: 'failed to start draft' });
-  } finally {
-    client.release();
   }
 });
 
@@ -567,8 +790,23 @@ router.get('/:id/rosters', async (req, res) => {
     );
     if (!membership.rows[0]) return res.status(403).json({ error: 'not a member of this league' });
 
+    const leagueRow = await pool.query(
+      `SELECT "current_season", "current_week", "regular_season_weeks" FROM "leagues" WHERE "id" = $1`,
+      [leagueId]
+    );
+    const season = leagueRow.rows[0]?.current_season ?? null;
+    const week = leagueRow.rows[0]?.current_week ?? null;
+    const weeklyByPlayer = await projectionService.getWeekProjections({ season, week });
+    const throughWeek = leagueRow.rows[0]?.regular_season_weeks ?? null;
+    const rosByPlayer = await projectionService.getRestOfSeasonProjections({
+      season,
+      fromWeek: week,
+      throughWeek,
+    });
+
     const result = await pool.query(
       `SELECT "teams"."id" AS "team_id", "teams"."name" AS "team_name", "teams"."owner_id",
+              "teams"."avatar_url", "teams"."avatar_static_url",
               "players"."id", "players"."name", "players"."position", "players"."nfl_team"
        FROM "teams"
        LEFT JOIN "team_players" ON "team_players"."team_id" = "teams"."id"
@@ -580,11 +818,27 @@ router.get('/:id/rosters', async (req, res) => {
     const teams = new Map();
     for (const row of result.rows) {
       if (!teams.has(row.team_id)) {
-        teams.set(row.team_id, { teamId: row.team_id, teamName: row.team_name, ownerId: row.owner_id, players: [] });
+        teams.set(row.team_id, {
+          teamId: row.team_id,
+          teamName: row.team_name,
+          ownerId: row.owner_id,
+          avatarUrl: row.avatar_url,
+          avatarStaticUrl: row.avatar_static_url,
+          players: [],
+        });
       }
       if (row.id) {
+        const projection = weeklyByPlayer.get(row.id);
+        row.projected_weekly_points =
+          projection && Number.isFinite(Number(projection.points))
+            ? Number(projection.points)
+            : null;
+        const ros = rosByPlayer.get(row.id);
+        row.rest_of_season_points = Number.isFinite(Number(ros)) ? Number(ros) : null;
         teams.get(row.team_id).players.push({
           id: row.id, name: row.name, position: row.position, nfl_team: row.nfl_team,
+          projected_weekly_points: row.projected_weekly_points,
+          rest_of_season_points: row.rest_of_season_points,
         });
       }
     }
@@ -608,10 +862,15 @@ router.get('/:id/transactions', async (req, res) => {
 
     const result = await pool.query(
       `SELECT "transactions".*, "teams"."name" AS "team_name",
-              "players"."name" AS "player_name"
+              "teams"."avatar_url" AS "team_avatar_url",
+              "teams"."avatar_static_url" AS "team_avatar_static_url",
+              "players"."name" AS "player_name",
+              "dropped_player"."name" AS "dropped_player_name"
        FROM "transactions"
        LEFT JOIN "teams" ON "teams"."id" = "transactions"."team_id"
        LEFT JOIN "players" ON "players"."id" = ("transactions"."detail"->>'playerId')::int
+       LEFT JOIN "players" AS "dropped_player"
+         ON "dropped_player"."id" = ("transactions"."detail"->>'droppedPlayerId')::int
        WHERE "transactions"."league_id" = $1
        ORDER BY "transactions"."created_at" DESC
        LIMIT 100`,
@@ -641,7 +900,10 @@ router.get('/:id/matchups', async (req, res) => {
     }
     const result = await pool.query(
       `SELECT "matchups".*,
-              home."name" AS "home_team_name", away."name" AS "away_team_name"
+              home."name" AS "home_team_name", away."name" AS "away_team_name",
+              home."avatar_url" AS "home_team_avatar_url", away."avatar_url" AS "away_team_avatar_url",
+              home."avatar_static_url" AS "home_team_avatar_static_url",
+              away."avatar_static_url" AS "away_team_avatar_static_url"
        FROM "matchups"
        JOIN "teams" home ON home."id" = "matchups"."home_team_id"
        JOIN "teams" away ON away."id" = "matchups"."away_team_id"
@@ -672,10 +934,15 @@ router.get('/:id/chat', async (req, res) => {
                 "chat_messages"."user_id", "users"."username"
          FROM "chat_messages" JOIN "users" ON "users"."id" = "chat_messages"."user_id"
          WHERE "chat_messages"."league_id" = $1
+           AND NOT EXISTS (
+             SELECT 1 FROM "user_blocks"
+             WHERE "user_blocks"."blocker_id" = $2
+               AND "user_blocks"."blocked_id" = "chat_messages"."user_id"
+           )
          ORDER BY "chat_messages"."created_at" DESC
          LIMIT 50
        ) recent ORDER BY "created_at" ASC`,
-      [leagueId]
+      [leagueId, req.user.id]
     );
     res.json(result.rows);
   } catch (error) {
@@ -703,7 +970,10 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     const matchupResult = await client.query(
       `SELECT "matchups".*,
               home."name" AS "home_team_name", away."name" AS "away_team_name",
-              home."owner_id" AS "home_owner_id", away."owner_id" AS "away_owner_id"
+              home."owner_id" AS "home_owner_id", away."owner_id" AS "away_owner_id",
+              home."avatar_url" AS "home_team_avatar_url", away."avatar_url" AS "away_team_avatar_url",
+              home."avatar_static_url" AS "home_team_avatar_static_url",
+              away."avatar_static_url" AS "away_team_avatar_static_url"
        FROM "matchups"
        JOIN "teams" home ON home."id" = "matchups"."home_team_id"
        JOIN "teams" away ON away."id" = "matchups"."away_team_id"
@@ -735,11 +1005,43 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     const opponentByTeam = new Map(scheduleRows.rows.map((r) => [r.nfl_team, r.opponent]));
 
     await client.query('BEGIN');
+    const toPlayer = (row) => {
+      const projection = projById.get(row.id);
+      return {
+        id: row.id,
+        name: row.name,
+        position: row.position,
+        nfl_team: row.nfl_team,
+        injury_status: row.injury_status,
+        slot: row.slot,
+        // Full stat line for the expandable row; safe to expose (public NFL data).
+        stats: row.stats || null,
+        points: row.stats ? calculateFantasyPoints(row.stats, rules) : 0,
+        projected: projection ? Math.round(projection.points * 100) / 100 : null,
+        opponent: opponentByTeam.get(row.nfl_team) || null,
+      };
+    };
     const teamLineup = async (teamId) => {
       await materializeLineup(client, {
         leagueId, teamId, season: matchup.season, week: matchup.week,
       });
-      const rows = await client.query(
+      const lineupRows = await client.query(
+        `SELECT "players"."id", "players"."name", "players"."position",
+                "players"."nfl_team", "players"."injury_status",
+                "lineup_entries"."slot", "player_stats"."stats"
+         FROM "lineup_entries"
+         JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
+           AND "team_players"."player_id" = "lineup_entries"."player_id"
+         JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
+         LEFT JOIN "player_stats" ON "player_stats"."player_id" = "lineup_entries"."player_id"
+           AND "player_stats"."season" = $2 AND "player_stats"."week" = $3
+         WHERE "lineup_entries"."team_id" = $1 AND "lineup_entries"."season" = $2
+           AND "lineup_entries"."week" = $3
+           AND "lineup_entries"."slot" = $4
+         ORDER BY "lineup_entries"."slot", "players"."name"`,
+        [teamId, matchup.season, matchup.week, 'BENCH']
+      );
+      const starterRows = await client.query(
         `SELECT "players"."id", "players"."name", "players"."position",
                 "players"."nfl_team", "players"."injury_status",
                 "lineup_entries"."slot", "player_stats"."stats"
@@ -755,26 +1057,12 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
          ORDER BY "lineup_entries"."slot", "players"."name"`,
         [teamId, matchup.season, matchup.week]
       );
-      const starters = rows.rows.map((row) => {
-        const projection = projById.get(row.id);
-        return {
-          id: row.id,
-          name: row.name,
-          position: row.position,
-          nfl_team: row.nfl_team,
-          injury_status: row.injury_status,
-          slot: row.slot,
-          // Full stat line for the expandable row; safe to expose (public NFL data).
-          stats: row.stats || null,
-          points: row.stats ? calculateFantasyPoints(row.stats, rules) : 0,
-          projected: projection ? Math.round(projection.points * 100) / 100 : null,
-          opponent: opponentByTeam.get(row.nfl_team) || null,
-        };
-      });
+      const starters = starterRows.rows.map(toPlayer);
+      const bench = lineupRows.rows.map(toPlayer);
       const projectedTotal = Math.round(
         starters.reduce((sum, s) => sum + (s.projected || 0), 0) * 100
       ) / 100;
-      return { starters, projectedTotal };
+      return { starters, bench, projectedTotal };
     };
     const homeTeam = await teamLineup(matchup.home_team_id);
     const awayTeam = await teamLineup(matchup.away_team_id);
@@ -805,12 +1093,14 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
         teamId: matchup.home_team_id,
         name: matchup.home_team_name,
         starters: homeTeam.starters,
+        bench: homeTeam.bench,
         projectedTotal: homeTeam.projectedTotal,
       },
       away: {
         teamId: matchup.away_team_id,
         name: matchup.away_team_name,
         starters: awayTeam.starters,
+        bench: awayTeam.bench,
         projectedTotal: awayTeam.projectedTotal,
       },
     });
@@ -879,7 +1169,9 @@ router.get('/:id/history', async (req, res) => {
     if (!(await requireMember(req, res, leagueId))) return;
     const historyResult = await pool.query(
       `SELECT "league_history"."season", "league_history"."standings",
-              "league_history"."champion_team_id", "teams"."name" AS "champion_name"
+              "league_history"."champion_team_id", "teams"."name" AS "champion_name",
+              "teams"."avatar_url" AS "champion_avatar_url",
+              "teams"."avatar_static_url" AS "champion_avatar_static_url"
        FROM "league_history"
        LEFT JOIN "teams" ON "teams"."id" = "league_history"."champion_team_id"
        WHERE "league_history"."league_id" = $1
@@ -889,20 +1181,46 @@ router.get('/:id/history', async (req, res) => {
     const trophies = require('../services/trophy.service');
     const seasons = [];
     for (const row of historyResult.rows) {
-      const seasonTrophies = await trophies.getLeagueTrophies({ leagueId, season: row.season });
-      const gradesResult = await pool.query(
-        `SELECT "data" FROM "league_analytics"
-         WHERE "league_id" = $1 AND "season" = $2 AND "type" = 'draft_grades'`,
-        [leagueId, row.season]
-      );
+      let seasonTrophies = [];
+      let trophiesErrored = false;
+      try {
+        seasonTrophies = (await trophies.getLeagueTrophies({ leagueId, season: row.season })).filter(
+          (t) => t.week === 0
+        );
+      } catch (error) {
+        console.error('Error fetching season trophies for league history', error);
+        trophiesErrored = true;
+      }
+
+      let draftGrades = null;
+      let draftGradesErrored = false;
+      try {
+        const gradesResult = await pool.query(
+          `SELECT "data" FROM "league_analytics"
+           WHERE "league_id" = $1 AND "season" = $2 AND "type" = 'draft_grades'`,
+          [leagueId, row.season]
+        );
+        draftGrades = gradesResult.rows[0] ? gradesResult.rows[0].data.grades : null;
+      } catch (error) {
+        console.error('Error fetching draft grades for league history', error);
+        draftGradesErrored = true;
+      }
+
       seasons.push({
         season: row.season,
         champion: row.champion_team_id
-          ? { teamId: row.champion_team_id, name: row.champion_name }
+          ? {
+              teamId: row.champion_team_id,
+              name: row.champion_name,
+              avatarUrl: row.champion_avatar_url,
+              avatarStaticUrl: row.champion_avatar_static_url,
+            }
           : null,
         standings: row.standings,
-        trophies: seasonTrophies.filter((t) => t.week === 0),
-        draftGrades: gradesResult.rows[0] ? gradesResult.rows[0].data.grades : null,
+        trophies: seasonTrophies,
+        trophiesErrored,
+        draftGrades,
+        draftGradesErrored,
       });
     }
     res.json({ seasons });

@@ -33,15 +33,18 @@ function orderClaims(claims, priorities, waiverType) {
 
 /**
  * When a player leaves a roster he goes on waivers for the league's waiver
- * period. Runs inside the caller's transaction.
+ * period. Runs inside the caller's transaction. `droppedByTeamId` (when the
+ * waiver hold originates from a roster drop rather than a waiver-claim swap)
+ * records which team can undo it — see `undoDrop` in draft.service.js.
  */
-async function placeOnWaivers(client, { leagueId, playerId, waiverPeriodHours }) {
+async function placeOnWaivers(client, { leagueId, playerId, waiverPeriodHours, droppedByTeamId = null }) {
   await client.query(
-    `INSERT INTO "waiver_players" ("league_id", "player_id", "available_at")
-     VALUES ($1, $2, now() + make_interval(hours => $3))
+    `INSERT INTO "waiver_players" ("league_id", "player_id", "available_at", "dropped_by_team_id")
+     VALUES ($1, $2, now() + make_interval(hours => $3), $4)
      ON CONFLICT ("league_id", "player_id")
-     DO UPDATE SET "available_at" = EXCLUDED."available_at", "updated_at" = now()`,
-    [leagueId, playerId, waiverPeriodHours]
+     DO UPDATE SET "available_at" = EXCLUDED."available_at", "updated_at" = now(),
+                   "dropped_by_team_id" = EXCLUDED."dropped_by_team_id"`,
+    [leagueId, playerId, waiverPeriodHours, droppedByTeamId]
   );
 }
 
@@ -83,6 +86,7 @@ async function submitClaim({ leagueId, userId, playerId, dropPlayerId, bid = 0 }
     );
     const team = teamResult.rows[0];
     if (!team) throw new WaiverError(403, 'you do not have a team in this league');
+    if (team.locked) throw new WaiverError(409, 'your team is locked by the commissioner');
 
     if (league.waiver_type === 'faab') {
       if (!Number.isInteger(bid) || bid < 0) throw new WaiverError(400, 'bid must be a non-negative integer');
@@ -357,7 +361,7 @@ async function processAllDueWaivers() {
     try {
       outcomes.push({ leagueId: row.league_id, ...(await processWaivers({ leagueId: row.league_id })) });
     } catch (err) {
-      console.error(`waiver processing failed for league ${row.league_id}:`, err.message);
+      console.error('waiver processing failed for league %s:', row.league_id, err.message);
     }
   }
   return outcomes;

@@ -18,16 +18,16 @@ function appOrigin() {
 /**
  * Pure: problems in a lineup that should trigger a pre-lockout reminder.
  * entries: [{ slot, name, onBye, injury_status }] (starters only get flagged;
- * BENCH/IR are ignored). lineupSlots: {QB:1,...} to detect unfilled slots.
+ * BENCH/IR are ignored). rosterSlots: [{key,count,...}] to detect unfilled slots.
  * Returns human-readable problem strings (empty = lineup looks fine).
  */
-function lineupProblems(entries, lineupSlots = {}) {
+function lineupProblems(entries, rosterSlots = []) {
   const problems = [];
   const starters = entries.filter((e) => e.slot !== 'BENCH' && e.slot !== 'IR');
 
   const filled = {};
   for (const s of starters) filled[s.slot] = (filled[s.slot] || 0) + 1;
-  for (const [slot, count] of Object.entries(lineupSlots)) {
+  for (const { key: slot, count } of rosterSlots) {
     const have = filled[slot] || 0;
     if (have < count) {
       problems.push(`${count - have} empty ${slot} slot${count - have === 1 ? '' : 's'}`);
@@ -179,7 +179,7 @@ async function sendLineupReminders() {
     if (!upcoming.rows[0]) continue;
 
     const { parseLineupSettings } = require('./lineup.service');
-    const { lineupSlots } = parseLineupSettings(league);
+    const { rosterSlots } = parseLineupSettings(league);
 
     const teams = await pool.query(
       `SELECT "teams"."id", "teams"."name", "teams"."owner_id", "users"."email"
@@ -212,7 +212,7 @@ async function sendLineupReminders() {
         onBye: r.on_bye,
         injury_status: r.injury_status,
       }));
-      const problems = lineupProblems(entries, lineupSlots);
+      const problems = lineupProblems(entries, rosterSlots);
       if (problems.length === 0) {
         remindedTeamWeeks.add(key); // lineup is fine — don't re-check this week
         continue;

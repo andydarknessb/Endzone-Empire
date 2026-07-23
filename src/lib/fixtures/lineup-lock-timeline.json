@@ -1,0 +1,49 @@
+{
+  "league": {
+    "id": 1,
+    "season": 2026,
+    "week": 1,
+    "teamId": 11,
+    "userId": 7
+  },
+  "timeline": {
+    "beforeKickoff": "2026-09-13T12:59:59.000Z",
+    "playerAKickoff": "2026-09-13T13:00:00.000Z",
+    "lockedSwapAttempt": "2026-09-13T13:00:01.000Z",
+    "benchTransactionAttempt": "2026-09-13T13:01:00.000Z"
+  },
+  "players": {
+    "playerA": {
+      "id": 101,
+      "name": "Player A",
+      "position": "RB",
+      "nflTeam": "SEA",
+      "slot": "FLEX",
+      "kickoffAt": "2026-09-13T13:00:00.000Z"
+    },
+    "playerB": {
+      "id": 202,
+      "name": "Player B",
+      "position": "WR",
+      "nflTeam": "BAL",
+      "slot": "BENCH",
+      "kickoffAt": "2026-09-13T20:20:00.000Z"
+    }
+  },
+  "requests": {
+    "swap": {
+      "path": "/api/team/lineup",
+      "body": {
+        "leagueId": 1,
+        "week": 1,
+        "moves": [
+          { "playerId": 101, "slot": "BENCH" },
+          { "playerId": 202, "slot": "FLEX" }
+        ]
+      }
+    },
+    "dropPlayerB": {
+      "path": "/api/team/roster/202?leagueId=1"
+    }
+  }
+}

@@ -73,6 +73,12 @@ describe('classifyPlays', () => {
     expect(playLabel(td(1, { type: 'receiving' }))).toBe('receiving TD');
     expect(playLabel({})).toBe('scoring TD');
   });
+
+  test('playLabel describes a non-touchdown moment play in plain English', () => {
+    expect(playLabel(td(1, { type: 'sack', isTouchdown: false }))).toBe('SACK');
+    expect(playLabel(td(1, { type: 'fieldGoal', isTouchdown: false }))).toBe('FIELD GOAL');
+    expect(playLabel(td(1, { type: 'interception', isTouchdown: false }))).toBe('INTERCEPTED');
+  });
 });
 
 describe('win probability', () => {

@@ -1,68 +1,56 @@
 import axios from 'axios';
+import { apiUrl, getApiOrigin } from './origins';
 
-const TOKEN_KEY = 'endzone_token';
-const REFRESH_KEY = 'endzone_refresh';
+let accessToken = null;
+
+if (typeof window !== 'undefined') {
+  window.localStorage.removeItem('endzone_token');
+  window.localStorage.removeItem('endzone_refresh');
+}
 
 export function getToken() {
-  return localStorage.getItem(TOKEN_KEY);
+  return accessToken;
 }
 
 export function setToken(token) {
-  localStorage.setItem(TOKEN_KEY, token);
-}
-
-export function getRefreshToken() {
-  return localStorage.getItem(REFRESH_KEY);
-}
-
-export function setRefreshToken(token) {
-  localStorage.setItem(REFRESH_KEY, token);
+  accessToken = token || null;
 }
 
 export function clearToken() {
-  localStorage.removeItem(TOKEN_KEY);
-  localStorage.removeItem(REFRESH_KEY);
+  accessToken = null;
 }
 
-// Shared axios instance: attaches the JWT to every request.
-const apiClient = axios.create();
+const apiClient = axios.create({
+  baseURL: getApiOrigin() || undefined,
+  withCredentials: true,
+});
 
 apiClient.interceptors.request.use((config) => {
   const token = getToken();
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
+  if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
 
-// Single-flight refresh: concurrent 401s share one /refresh round-trip so a
-// rotated token is never presented twice (that would trip reuse detection).
 let refreshPromise = null;
 
-function storeRotatedTokens(response) {
+function storeRotatedAccessToken(response) {
   setToken(response.data.token);
-  setRefreshToken(response.data.refreshToken);
   return response.data.token;
+}
+
+function requestRefresh() {
+  return axios.post(apiUrl('/api/auth/refresh'), null, { withCredentials: true });
 }
 
 export async function refreshTokens() {
   if (!refreshPromise) {
-    const sent = getRefreshToken();
-    refreshPromise = axios
-      .post('/api/auth/refresh', { refreshToken: sent })
-      .then(storeRotatedTokens)
-      .catch((error) => {
-        // The single-flight guard is per-tab; another tab may have won the
-        // refresh race and already rotated the shared token in localStorage.
-        // If so, retry once with the winner's token instead of logging out.
-        const current = getRefreshToken();
-        if (current && current !== sent) {
-          return axios
-            .post('/api/auth/refresh', { refreshToken: current })
-            .then(storeRotatedTokens);
-        }
-        throw error;
+    refreshPromise = requestRefresh()
+      .catch(async (error) => {
+        if (error.response?.status !== 401) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 75));
+        return requestRefresh();
       })
+      .then(storeRotatedAccessToken)
       .finally(() => {
         refreshPromise = null;
       });
@@ -70,8 +58,6 @@ export async function refreshTokens() {
   return refreshPromise;
 }
 
-// On 401: refresh once and retry the original request. A failed refresh means
-// the session is truly dead — clear tokens and let the app fall to login.
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -81,11 +67,8 @@ apiClient.interceptors.response.use(
       response.status === 401 &&
       config &&
       !config._retried &&
-      getRefreshToken() &&
       !String(config.url).includes('/api/auth/');
-    if (!shouldRefresh) {
-      return Promise.reject(error);
-    }
+    if (!shouldRefresh) return Promise.reject(error);
     try {
       const token = await refreshTokens();
       config._retried = true;

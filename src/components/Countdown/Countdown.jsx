@@ -44,7 +44,7 @@ function formatCompact({ days, hours, minutes }) {
  * rendering this at all, but the null-render is a safety net for the exact
  * moment the clock runs out.
  */
-function Countdown({ date, prefix, variant }) {
+function Countdown({ date = null, prefix = 'Draft in', variant = 'full' }) {
   const [remainingMs, setRemainingMs] = useState(() => getRemainingMs(date));
 
   useEffect(() => {
@@ -84,12 +84,6 @@ Countdown.propTypes = {
   date: PropTypes.string,
   prefix: PropTypes.string,
   variant: PropTypes.oneOf(['chip', 'full']),
-};
-
-Countdown.defaultProps = {
-  date: null,
-  prefix: 'Draft in',
-  variant: 'full',
 };
 
 export default Countdown;

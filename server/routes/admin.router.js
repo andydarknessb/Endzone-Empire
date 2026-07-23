@@ -75,13 +75,28 @@ router.post('/sync/:job', async (req, res) => {
     } else if (job === 'stats') {
       if (!week) return res.status(400).json({ error: 'week is required for a stats sync' });
       result = await scoring.syncWeekStats({ season, week });
+    } else if (job === 'photos') {
+      // Free source (TheSportsDB) — no RapidAPI needed.
+      result = await require('../services/sportsdb.service').syncPlayerPhotos();
+    } else if (job === 'adp') {
+      result = await require('../services/adp.service').syncAdp();
+    } else if (job === 'season-stats') {
+      result = await require('../services/sleeper.service').syncSeasonStats();
+    } else if (job === 'backfill-seasons') {
+      result = await scoring.syncPlayerSeasonStats({ currentSeason: season });
+    } else if (job === 'defenses') {
+      // No RapidAPI call — backfills any of the 32 team-DEF rows still
+      // missing from a hardcoded team list, not a live sync.
+      result = await scoring.syncTeamDefenses();
     } else {
-      return res.status(400).json({ error: 'job must be players, schedule, injuries, or stats' });
+      return res.status(400).json({
+        error: 'job must be players, schedule, injuries, stats, photos, adp, season-stats, backfill-seasons, or defenses',
+      });
     }
     res.json(result);
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
-    console.error(`Admin sync (${job}) failed:`, error);
+    console.error('Admin sync (%s) failed:', job, error);
     res.status(500).json({ error: `${job} sync failed` });
   }
 });

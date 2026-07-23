@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import {
   Box,
@@ -8,9 +8,30 @@ import {
   Collapse,
   Button,
   LinearProgress,
+  Avatar,
 } from '@mui/material';
+import { keyframes } from '@mui/material/styles';
 import InjuryBadge from '../InjuryBadge/InjuryBadge';
+import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import { playLabel } from '../../lib/scoringEvents';
+
+// Fantasy-standard starting order — the API returns starters sorted
+// alphabetically by slot (a SQL ORDER BY convenience), which reads QB last.
+const SLOT_DISPLAY_ORDER = ['QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF'];
+
+/** Stable-sorts starters into fantasy-standard slot order (unknown slots sink to the end). */
+function sortBySlotOrder(starters) {
+  return [...(starters || [])].sort((a, b) => {
+    const ai = SLOT_DISPLAY_ORDER.indexOf(a.slot);
+    const bi = SLOT_DISPLAY_ORDER.indexOf(b.slot);
+    return (ai === -1 ? SLOT_DISPLAY_ORDER.length : ai) - (bi === -1 ? SLOT_DISPLAY_ORDER.length : bi);
+  });
+}
+
+/** DEF is stored/scored as the "DEF" slot but reads as D/ST everywhere it's displayed. */
+function slotLabel(slot) {
+  return slot === 'DEF' ? 'D/ST' : slot;
+}
 
 // --- Win probability bar ---------------------------------------------------
 
@@ -64,6 +85,68 @@ WinProbabilityBar.propTypes = {
   homeName: PropTypes.string,
   awayName: PropTypes.string,
   homeProb: PropTypes.number,
+};
+
+// --- Sticky compact scoreboard ----------------------------------------------
+
+/** Stays pinned to the top of the viewport so the score is visible while scrolling the roster. */
+export function StickyScoreboard({ homeName, awayName, homeScore, awayScore, homeProb, final: isFinal, isLive }) {
+  const home = Math.max(0, Math.min(1, Number(homeProb) || 0));
+  return (
+    <Box
+      sx={{
+        position: 'sticky',
+        top: 0,
+        zIndex: (theme) => theme.zIndex.appBar - 1,
+        bgcolor: 'background.default',
+        pt: 1,
+        pb: 0.75,
+        mb: 2,
+      }}
+    >
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
+        <Typography
+          variant="subtitle1"
+          noWrap
+          sx={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums', minWidth: 0 }}
+        >
+          {homeName} {Number(homeScore || 0).toFixed(1)} — {Number(awayScore || 0).toFixed(1)} {awayName}
+        </Typography>
+        {isFinal
+          ? <Chip label="Final" color="success" size="small" />
+          : isLive
+            ? <Chip label="LIVE" color="error" size="small" />
+            : <Chip label="Not started" variant="outlined" size="small" />}
+      </Box>
+      {(isLive || isFinal) && (
+        <Box
+          role="img"
+          aria-label={`Win probability: ${homeName} ${Math.round(home * 100)}%, ${awayName} ${Math.round((1 - home) * 100)}%`}
+          sx={{
+            display: 'flex',
+            height: 4,
+            borderRadius: 2,
+            overflow: 'hidden',
+            mt: 0.75,
+            bgcolor: 'action.hover',
+          }}
+        >
+          <Box sx={{ width: `${home * 100}%`, bgcolor: 'primary.main', transition: 'width 0.8s ease' }} />
+          <Box sx={{ width: `${(1 - home) * 100}%`, bgcolor: 'secondary.main', transition: 'width 0.8s ease' }} />
+        </Box>
+      )}
+    </Box>
+  );
+}
+
+StickyScoreboard.propTypes = {
+  homeName: PropTypes.string,
+  awayName: PropTypes.string,
+  homeScore: PropTypes.number,
+  awayScore: PropTypes.number,
+  homeProb: PropTypes.number,
+  final: PropTypes.bool,
+  isLive: PropTypes.bool,
 };
 
 // --- Expandable starter list with pace bars --------------------------------
@@ -133,7 +216,7 @@ export function StarterList({ starters, expandedId, onToggle }) {
               sx={{
                 display: 'flex', alignItems: 'center', gap: 1.5, py: 1, cursor: 'pointer',
                 '&:hover': { bgcolor: 'action.hover' },
-                '&:focus-visible': { outline: 2, outlineColor: 'primary.main', outlineOffset: -2 },
+                '&:focus-visible': { outline: '2px solid var(--focus-ring)', outlineOffset: -2 },
               }}
             >
               <Chip label={player.slot} size="small" sx={{ minWidth: 56 }} />
@@ -147,7 +230,7 @@ export function StarterList({ starters, expandedId, onToggle }) {
                   {player.opponent ? ` vs ${player.opponent}` : ''}
                 </Typography>
               </Box>
-              <Typography variant="body2" sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+              <Typography variant="stat" sx={{ textAlign: 'right', fontSize: '0.875rem' }}>
                 {Number(player.points || 0).toFixed(1)}
               </Typography>
             </Box>
@@ -172,20 +255,259 @@ StarterList.propTypes = {
   onToggle: PropTypes.func.isRequired,
 };
 
+// --- Slot-aligned head-to-head comparison -----------------------------------
+
+const scoreFlash = keyframes`
+  0% { background-color: transparent; }
+  35% { background-color: var(--accent-soft); }
+  100% { background-color: transparent; }
+`;
+
+/** Remounts (via the returned key) whenever `value` changes after the first render, so a CSS animation can replay. */
+function useFlashKey(value) {
+  const prevRef = useRef(value);
+  const [flashKey, setFlashKey] = useState(0);
+  useEffect(() => {
+    if (value != null && prevRef.current != null && value !== prevRef.current) {
+      setFlashKey((k) => k + 1);
+    }
+    prevRef.current = value;
+  }, [value]);
+  return flashKey;
+}
+
+function SlotSide({ player, side, open, onToggle, onOpenPlayer }) {
+  const points = player ? Number(player.points || 0) : null;
+  const flashKey = useFlashKey(points);
+
+  if (!player) {
+    return <Box sx={{ flex: 1, minWidth: 0 }} />;
+  }
+
+  return (
+    <Box
+      key={flashKey}
+      role="button"
+      tabIndex={0}
+      aria-expanded={open}
+      onClick={() => onToggle(player.id)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(player.id); }
+      }}
+      sx={{
+        flex: 1,
+        minWidth: 0,
+        display: 'flex',
+        flexDirection: side === 'home' ? 'row' : 'row-reverse',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 1,
+        px: 1,
+        py: 1,
+        cursor: 'pointer',
+        borderRadius: 1,
+        '&:hover': { bgcolor: 'action.hover' },
+        '&:focus-visible': { outline: '2px solid var(--focus-ring)', outlineOffset: -2 },
+        animation: flashKey > 0 ? `${scoreFlash} 1.2s ease-out` : 'none',
+        '@media (prefers-reduced-motion: reduce)': { animation: 'none' },
+      }}
+    >
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
+        <PlayerNameLink
+          name={player.name}
+          playerId={player.id}
+          onOpen={onOpenPlayer}
+          sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block', maxWidth: '100%' }}
+        />
+        <InjuryBadge status={player.injury_status} />
+      </Box>
+      <Typography
+        variant="stat"
+        sx={{ fontSize: '0.875rem', flexShrink: 0 }}
+      >
+        {points.toFixed(1)}
+      </Typography>
+    </Box>
+  );
+}
+
+SlotSide.propTypes = {
+  player: PropTypes.object,
+  side: PropTypes.oneOf(['home', 'away']).isRequired,
+  open: PropTypes.bool,
+  onToggle: PropTypes.func.isRequired,
+  onOpenPlayer: PropTypes.func.isRequired,
+};
+
+/**
+ * One row per lineup slot, pairing the home and away starters arrays index-by-index
+ * (both share the league's slot structure). Unpaired remainder rows render with an
+ * empty opposite side rather than dropping data when the two arrays differ in length.
+ */
+export function SlotComparisonList({ homeStarters, awayStarters, expandedId, onToggle, onOpenPlayer }) {
+  const home = sortBySlotOrder(homeStarters);
+  const away = sortBySlotOrder(awayStarters);
+  const rowCount = Math.max(home.length, away.length);
+  const rows = Array.from({ length: rowCount }, (_, i) => ({
+    home: home[i] || null,
+    away: away[i] || null,
+  }));
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+      {rows.map((row, i) => {
+        const rowSlot = slotLabel(row.home?.slot || row.away?.slot || '');
+        const homeOpen = !!(row.home && expandedId === row.home.id);
+        const awayOpen = !!(row.away && expandedId === row.away.id);
+        const openPlayer = homeOpen ? row.home : (awayOpen ? row.away : null);
+        return (
+          <Box
+            key={`${row.home?.id ?? 'x'}-${row.away?.id ?? 'x'}-${i}`}
+            sx={{ borderTop: 1, borderColor: 'divider' }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+              <SlotSide player={row.home} side="home" open={homeOpen} onToggle={onToggle} onOpenPlayer={onOpenPlayer} />
+              <Chip label={rowSlot} size="small" sx={{ minWidth: 48, mx: 0.5, flexShrink: 0 }} />
+              <SlotSide player={row.away} side="away" open={awayOpen} onToggle={onToggle} onOpenPlayer={onOpenPlayer} />
+            </Box>
+            <Collapse in={!!openPlayer} unmountOnExit>
+              <Box sx={{ pb: 1.5, px: 2 }}>
+                <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                  {openPlayer ? (formatStatLine(openPlayer.stats) || 'No stats recorded yet.') : ''}
+                </Typography>
+                {openPlayer && <PaceBar actual={openPlayer.points} projected={openPlayer.projected} />}
+              </Box>
+            </Collapse>
+          </Box>
+        );
+      })}
+    </Box>
+  );
+}
+
+SlotComparisonList.propTypes = {
+  homeStarters: PropTypes.array,
+  awayStarters: PropTypes.array,
+  expandedId: PropTypes.number,
+  onToggle: PropTypes.func.isRequired,
+  onOpenPlayer: PropTypes.func.isRequired,
+};
+
+// --- Compact roster preview (Matchups list page) ----------------------------
+
+function playerInitials(name) {
+  if (!name) return '?';
+  return name
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0].toUpperCase())
+    .join('');
+}
+
+function RosterPreviewSide({ player, side }) {
+  if (!player) return <Box sx={{ flex: 1, minWidth: 0 }} />;
+  return (
+    <Box
+      sx={{
+        flex: 1,
+        minWidth: 0,
+        display: 'flex',
+        flexDirection: side === 'home' ? 'row' : 'row-reverse',
+        alignItems: 'center',
+        gap: 1,
+      }}
+    >
+      <Avatar
+        sx={{
+          width: 28,
+          height: 28,
+          fontSize: '0.75rem',
+          bgcolor: side === 'home' ? 'primary.main' : 'secondary.main',
+        }}
+      >
+        {playerInitials(player.name)}
+      </Avatar>
+      <Box sx={{ minWidth: 0, textAlign: side === 'home' ? 'left' : 'right' }}>
+        <Typography variant="body2" noWrap>{player.name}</Typography>
+        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
+          {Number(player.points || 0).toFixed(1)} pts
+          {player.projected != null ? ` · Proj ${Number(player.projected).toFixed(1)}` : ''}
+        </Typography>
+      </Box>
+    </Box>
+  );
+}
+
+RosterPreviewSide.propTypes = {
+  player: PropTypes.object,
+  side: PropTypes.oneOf(['home', 'away']).isRequired,
+};
+
+/**
+ * Compact, non-interactive slot-by-slot roster comparison for the Matchups
+ * list page — a preview of the full SlotComparisonList shown on the matchup
+ * detail page, driven by the same real starters/points/projected data.
+ */
+export function RosterPreviewGrid({ homeStarters, awayStarters }) {
+  const home = sortBySlotOrder(homeStarters);
+  const away = sortBySlotOrder(awayStarters);
+  const rowCount = Math.max(home.length, away.length);
+  if (rowCount === 0) return null;
+  const rows = Array.from({ length: rowCount }, (_, i) => ({
+    home: home[i] || null,
+    away: away[i] || null,
+  }));
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+      {rows.map((row, i) => {
+        const rowSlot = slotLabel(row.home?.slot || row.away?.slot || '');
+        return (
+          <Box
+            key={`${row.home?.id ?? 'x'}-${row.away?.id ?? 'x'}-${i}`}
+            sx={{ display: 'flex', alignItems: 'center', py: 0.75, borderTop: 1, borderColor: 'divider' }}
+          >
+            <RosterPreviewSide player={row.home} side="home" />
+            <Chip label={rowSlot} size="small" sx={{ minWidth: 48, mx: 1, flexShrink: 0 }} />
+            <RosterPreviewSide player={row.away} side="away" />
+          </Box>
+        );
+      })}
+    </Box>
+  );
+}
+
+RosterPreviewGrid.propTypes = {
+  homeStarters: PropTypes.array,
+  awayStarters: PropTypes.array,
+};
+
 // --- Live play ticker ------------------------------------------------------
 
 export function LiveTicker({ items }) {
   if (!items || items.length === 0) return null;
   // Duplicate the run so the marquee loops seamlessly.
   const loop = [...items, ...items];
+  const last = items[items.length - 1];
+  const lastColor = ['away', 'opponent'].includes(last.side) ? 'secondary.main' : 'primary.main';
   return (
     <Paper
       sx={{ mb: 2, overflow: 'hidden', position: 'relative' }}
       aria-label="Recent scoring plays"
     >
+      <Box sx={{ display: { xs: 'block', sm: 'none' }, py: 1, px: 2 }}>
+        <Typography
+          variant="body2"
+          noWrap
+          sx={{ fontWeight: 600, color: lastColor }}
+        >
+          Last: {last.name} — {playLabel(last)} (+{Math.round((Number(last.pointsDelta) || 0) * 10) / 10})
+        </Typography>
+      </Box>
       <Box
         sx={{
-          display: 'inline-flex',
+          display: { xs: 'none', sm: 'inline-flex' },
           gap: 3,
           py: 1,
           px: 2,
@@ -221,8 +543,8 @@ LiveTicker.propTypes = { items: PropTypes.array };
 
 // --- Bench what-if (live, read-only) ---------------------------------------
 
-export function BenchWhatIf({ whatIf, open, onToggle }) {
-  if (!whatIf) return null;
+export function BenchWhatIf({ whatIf, hasRoster, open, onToggle }) {
+  if (!whatIf || !hasRoster) return null;
   const delta = Number(whatIf.delta) || 0;
   return (
     <Paper sx={{ p: 2, mb: 2 }}>
@@ -232,7 +554,7 @@ export function BenchWhatIf({ whatIf, open, onToggle }) {
           <Typography variant="caption" sx={{ color: delta > 0 ? 'warning.main' : 'text.secondary' }}>
             {delta > 0
               ? `+${delta.toFixed(1)} still on your bench`
-              : 'Your best legal lineup is in'}
+              : 'Your best legal lineup is already active.'}
           </Typography>
         </Box>
         <Button size="small" onClick={onToggle} disabled={delta <= 0 && (!whatIf.swaps || whatIf.swaps.length === 0)}>
@@ -272,6 +594,7 @@ export function BenchWhatIf({ whatIf, open, onToggle }) {
 
 BenchWhatIf.propTypes = {
   whatIf: PropTypes.object,
+  hasRoster: PropTypes.bool,
   open: PropTypes.bool,
   onToggle: PropTypes.func.isRequired,
 };
@@ -325,3 +648,20 @@ export function MatchupToasts({ toasts, onDismiss }) {
 }
 
 MatchupToasts.propTypes = { toasts: PropTypes.array, onDismiss: PropTypes.func.isRequired };
+
+// --- Status chip -------------------------------------------------------
+
+export function MatchupStatusChip({ matchup, showLive }) {
+  if (matchup.final) {
+    return <Chip size="small" label="Final" color="success" />;
+  }
+  if (showLive) {
+    return <Chip size="small" label="LIVE" color="error" />;
+  }
+  return <Chip size="small" label="Scheduled" variant="outlined" />;
+}
+
+MatchupStatusChip.propTypes = {
+  matchup: PropTypes.shape({ final: PropTypes.bool }).isRequired,
+  showLive: PropTypes.bool,
+};

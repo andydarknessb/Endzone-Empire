@@ -16,17 +16,16 @@ import {
   Box,
   Chip,
   Skeleton,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
+  Card,
+  CardContent,
+  CardActions,
+  Stack,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
 } from '@mui/material';
+import Grid from '@mui/material/Unstable_Grid2';
 import apiClient from '../../api/apiClient';
 
 const SCORING_LABEL = {
@@ -81,6 +80,8 @@ function LeagueDiscovery() {
 
   useEffect(() => {
     fetchLeagues();
+    // Search is submit-driven; the remaining filters refresh immediately.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scoring, openSlotsOnly, sort]);
 
   const handleSearchSubmit = (event) => {
@@ -120,6 +121,10 @@ function LeagueDiscovery() {
 
   const statusFor = (league) => requestStatus[league.id] ?? league.myRequestStatus;
 
+  // "Filters active" drives the empty state: only blame the filters when the
+  // user has actually narrowed the search. Sort is ordering, not a filter.
+  const hasActiveFilters = search.trim() !== '' || scoring !== '' || openSlotsOnly;
+
   if (loading && leagues.length === 0) {
     return (
       <Container maxWidth="lg" sx={{ py: 4 }} data-testid="page-skeleton">
@@ -142,8 +147,8 @@ function LeagueDiscovery() {
         </Alert>
       )}
 
-      <Paper component="form" onSubmit={handleSearchSubmit} sx={{ p: 2, mb: 3 }}>
-        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+      <Paper component="form" onSubmit={handleSearchSubmit} variant="outlined" sx={{ p: 2, mb: 2 }}>
+        <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'flex-start' }}>
           <TextField
             label="Search"
             size="small"
@@ -198,64 +203,65 @@ function LeagueDiscovery() {
         </Box>
       </Paper>
 
-      {leagues.length === 0 ? (
-        <Typography color="text.secondary">
-          No leagues match your filters — try widening your search.
+      {!loading && (
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }} aria-live="polite">
+          {leagues.length} public league{leagues.length === 1 ? '' : 's'} found
         </Typography>
+      )}
+
+      {leagues.length === 0 ? (
+        hasActiveFilters ? (
+          <Typography color="text.secondary">
+            No leagues match your filters — try widening your search.
+          </Typography>
+        ) : (
+          <Box sx={{ textAlign: 'center', py: 5 }}>
+            <Typography color="text.secondary" gutterBottom>
+              No public leagues yet — be the first to start one.
+            </Typography>
+            <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="center" spacing={1.5} sx={{ mt: 2 }}>
+              <Button component={Link} to="/league" variant="contained">Create a League</Button>
+              <Button component={Link} to="/league" variant="outlined">Invite friends</Button>
+            </Stack>
+          </Box>
+        )
       ) : (
-        <TableContainer component={Paper}>
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell>Name</TableCell>
-                <TableCell>Teams</TableCell>
-                <TableCell>Scoring</TableCell>
-                <TableCell>Draft date</TableCell>
-                <TableCell align="right">Action</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {leagues.map((league) => {
-                const status = statusFor(league);
-                return (
-                  <TableRow key={league.id}>
-                    <TableCell>
-                      <Typography variant="body1">{league.name}</Typography>
-                    </TableCell>
-                    <TableCell>
-                      {league.teamCount}/{league.maxTeams}
-                    </TableCell>
-                    <TableCell>
-                      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                        <Chip
-                          size="small"
-                          label={SCORING_LABEL[league.scoringPreset] || league.scoringPreset || 'Standard'}
-                        />
-                        {league.bestBall && <Chip size="small" label="Best Ball" color="secondary" />}
-                      </Box>
-                    </TableCell>
-                    <TableCell>
-                      {league.draftDate ? new Date(league.draftDate).toLocaleString() : '—'}
-                    </TableCell>
-                    <TableCell align="right">
-                      {league.alreadyMember ? (
-                        <Button component={Link} to={`/league/${league.id}`}>
-                          View
-                        </Button>
-                      ) : status === 'pending' ? (
-                        <Button disabled>Request pending</Button>
-                      ) : (
-                        <Button variant="outlined" onClick={() => handleOpenJoin(league)}>
-                          {league.joinApproval ? 'Request to join' : 'Join'}
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </TableContainer>
+        <Grid container spacing={2}>
+          {leagues.map((league) => {
+            const status = statusFor(league);
+            const slotsOpen = Math.max(0, league.maxTeams - league.teamCount);
+            return (
+              <Grid xs={12} sm={6} md={4} key={league.id}>
+                <Card variant="outlined" sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                  <CardContent sx={{ flexGrow: 1 }}>
+                    <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>{league.name}</Typography>
+                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
+                      <Chip size="small" label={SCORING_LABEL[league.scoringPreset] || league.scoringPreset || 'Standard'} />
+                      {league.bestBall && <Chip size="small" label="Best Ball" color="secondary" />}
+                    </Stack>
+                    <Typography variant="body2" color="text.secondary">
+                      {league.teamCount}/{league.maxTeams} teams · {slotsOpen} slot{slotsOpen === 1 ? '' : 's'} open
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                      {league.draftDate ? `Draft: ${new Date(league.draftDate).toLocaleString()}` : 'Draft date not set'}
+                    </Typography>
+                  </CardContent>
+                  <CardActions sx={{ px: 2, pb: 2 }}>
+                    {league.alreadyMember ? (
+                      <Button component={Link} to={`/league/${league.id}`}>View</Button>
+                    ) : status === 'pending' ? (
+                      <Button disabled>Request pending</Button>
+                    ) : (
+                      <Button variant="outlined" onClick={() => handleOpenJoin(league)}>
+                        {league.joinApproval ? 'Request to join' : 'Join'}
+                      </Button>
+                    )}
+                  </CardActions>
+                </Card>
+              </Grid>
+            );
+          })}
+        </Grid>
       )}
 
       <Dialog open={!!joinTarget} onClose={handleCloseJoin}>

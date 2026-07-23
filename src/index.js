@@ -5,11 +5,15 @@ import { Provider } from 'react-redux';
 import store from './redux/store';
 
 import './theme/base.css';
-import App from './components/App/App';
+import RootRouter from './components/App/RootRouter';
+import AppErrorBoundary from './components/App/AppErrorBoundary';
+import { initializeSentry } from './monitoring/sentry';
 import { register as registerServiceWorker } from './serviceWorkerRegistration';
 
 // apiClient fires this when a token refresh fails — the session is dead, so
 // drop the user back to the login screen.
+initializeSentry();
+
 window.addEventListener('auth:session-expired', () => {
   store.dispatch({ type: 'UNSET_USER' });
 });
@@ -18,7 +22,9 @@ const root = ReactDOM.createRoot(document.getElementById('react-root'));
 root.render(
   <React.StrictMode>
     <Provider store={store}>
-      <App />
+      <AppErrorBoundary>
+        <RootRouter />
+      </AppErrorBoundary>
     </Provider>
   </React.StrictMode>
 );

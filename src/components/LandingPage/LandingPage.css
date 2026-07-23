@@ -8,3 +8,16 @@
 html[data-theme='dark'] .landing-page .landing-hero {
   background: linear-gradient(180deg, rgba(79, 140, 255, 0.14) 0%, rgba(79, 140, 255, 0) 100%);
 }
+
+/* Attention ring on the bottom CTA button. */
+@keyframes landing-cta-pulse {
+  0% {
+    box-shadow: 0 0 0 0 var(--accent-soft);
+  }
+  70% {
+    box-shadow: 0 0 0 14px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}

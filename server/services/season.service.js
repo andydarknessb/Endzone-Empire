@@ -154,6 +154,24 @@ function pairBySeed(entrants) {
   return { games, byes };
 }
 
+/**
+ * Pure: split final regular-season standings into the opening championship
+ * and consolation brackets. Each bracket is seeded independently, preserving
+ * standings order while allowing pairBySeed to assign any required byes.
+ */
+function buildOpeningBrackets({ standings, playoffTeams, consolationEnabled }) {
+  const playoffCount = Math.min(Math.max(Number(playoffTeams) || 0, 0), standings.length);
+  const seed = (rows) => rows.map((row, index) => ({ teamId: row.teamId, seed: index + 1 }));
+  const emptyBracket = { games: [], byes: [] };
+
+  return {
+    playoff: pairBySeed(seed(standings.slice(0, playoffCount))),
+    consolation: consolationEnabled
+      ? pairBySeed(seed(standings.slice(playoffCount)))
+      : emptyBracket,
+  };
+}
+
 function round2(x) {
   return Math.round(x * 100) / 100;
 }
@@ -209,19 +227,29 @@ async function generateRegularSeason({ leagueId }, existingClient = null) {
 /** Standings for a league straight from the database. */
 async function getStandings({ leagueId }) {
   const teamsResult = await pool.query(
-    `SELECT "teams"."id", "teams"."name", "users"."username" AS "owner"
+    `SELECT "teams"."id", "teams"."name", "teams"."avatar_url", "teams"."avatar_static_url",
+            "users"."username" AS "owner"
      FROM "teams" JOIN "users" ON "users"."id" = "teams"."owner_id"
      WHERE "league_id" = $1`,
     [leagueId]
   );
   if (teamsResult.rows.length === 0) throw new SeasonError(404, 'league has no teams');
   const matchupsResult = await pool.query(
-    `SELECT * FROM "matchups" WHERE "league_id" = $1`,
+    `SELECT "matchups".*
+     FROM "matchups"
+     JOIN "leagues" ON "leagues"."id" = "matchups"."league_id"
+     WHERE "matchups"."league_id" = $1
+       AND "matchups"."season" = "leagues"."current_season"`,
     [leagueId]
   );
   const standings = computeStandings(teamsResult.rows, matchupsResult.rows);
-  const owners = new Map(teamsResult.rows.map((t) => [t.id, t.owner]));
-  return standings.map((s) => ({ ...s, owner: owners.get(s.teamId) }));
+  // Kept out of computeStandings itself (a pure function also used to build
+  // the frozen league_history snapshot on rollover) so avatars never get
+  // baked into that historical record — overlaid here instead, same as owner.
+  const teamMeta = new Map(
+    teamsResult.rows.map((t) => [t.id, { owner: t.owner, avatarUrl: t.avatar_url, avatarStaticUrl: t.avatar_static_url }])
+  );
+  return standings.map((s) => ({ ...s, ...teamMeta.get(s.teamId) }));
 }
 
 /**
@@ -271,11 +299,12 @@ async function finalizeWeekAndAdvance({ leagueId }) {
     if (league.season_status === 'regular' && week >= league.regular_season_weeks) {
       // Seed the playoff bracket from final standings
       const standings = computeStandings(teams, allMatchups.rows);
-      const qualifiers = standings
-        .slice(0, Math.min(league.playoff_teams, teams.length))
-        .map((s, i) => ({ teamId: s.teamId, seed: i + 1 }));
-      const { games } = pairBySeed(qualifiers);
-      for (const game of games) {
+      const brackets = buildOpeningBrackets({
+        standings,
+        playoffTeams: league.playoff_teams,
+        consolationEnabled: league.playoff_consolation,
+      });
+      for (const game of brackets.playoff.games) {
         await client.query(
           `INSERT INTO "matchups" ("league_id", "season", "week", "home_team_id", "away_team_id",
                                    "is_playoff", "playoff_round")
@@ -284,8 +313,7 @@ async function finalizeWeekAndAdvance({ leagueId }) {
         );
       }
       if (league.playoff_consolation) {
-        const rest = standings.slice(league.playoff_teams).map((s, i) => ({ teamId: s.teamId, seed: i + 1 }));
-        for (const game of pairBySeed(rest).games) {
+        for (const game of brackets.consolation.games) {
           await client.query(
             `INSERT INTO "matchups" ("league_id", "season", "week", "home_team_id", "away_team_id",
                                      "is_playoff", "playoff_round", "is_consolation")
@@ -392,6 +420,7 @@ module.exports = {
   roundRobinPairings,
   computeStandings,
   pairBySeed,
+  buildOpeningBrackets,
   generateRegularSeason,
   getStandings,
   finalizeWeekAndAdvance,

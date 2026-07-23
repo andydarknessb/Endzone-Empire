@@ -9,8 +9,11 @@ router.use(requireAuth);
 router.get('/', async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT * FROM "notifications" WHERE "user_id" = $1
-       ORDER BY "created_at" DESC LIMIT 50`,
+      `SELECT "notifications".*, "leagues"."name" AS "league_name"
+       FROM "notifications"
+       LEFT JOIN "leagues" ON "leagues"."id" = "notifications"."league_id"
+       WHERE "notifications"."user_id" = $1
+       ORDER BY "notifications"."created_at" DESC LIMIT 50`,
       [req.user.id]
     );
     const unread = await pool.query(

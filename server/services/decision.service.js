@@ -1,7 +1,7 @@
 const pool = require('../modules/pool');
 const {
   getWeekProjections,
-  getRestOfSeasonProjections,
+  getTradeProjectionMetrics,
   getPositionDefense,
 } = require('./projection.service');
 const {
@@ -24,6 +24,11 @@ const IR = 'IR';
 
 function round2(x) {
   return Math.round(Number(x) * 100) / 100;
+}
+
+function finiteNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 /** Accepts either a raw number or a { points, source } projection entry. */
@@ -59,7 +64,7 @@ async function getWeekOpponents({ season, week }) {
  * defenseByPlayer: Map playerId -> { opponent, opponentPointsAllowed }.
  * Returns { projectedTotal, optimalTotal, suggestions }.
  */
-function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map()) {
+function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(), rosterSlots = undefined) {
   const allStarters = lineupEntries.filter((e) => e.slot !== BENCH && e.slot !== IR);
   const swappable = allStarters.filter((e) => !e.locked);
   const bench = lineupEntries.filter((e) => e.slot === BENCH && !e.locked);
@@ -81,7 +86,7 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
     let bestProjection = -Infinity;
     for (const candidate of bench) {
       if (usedBench.has(candidate.playerId)) continue;
-      if (!slotEligible(starter.slot, candidate.position)) continue;
+      if (!slotEligible(starter.slot, candidate.position, rosterSlots)) continue;
       const candidateProjection = pointsOf(projections, candidate.playerId);
       if (candidateProjection > bestProjection) {
         best = candidate;
@@ -159,7 +164,8 @@ async function startSitAdvice({ leagueId, userId, week }) {
   const { projectedTotal, optimalTotal, suggestions } = buildSuggestions(
     lineupEntries,
     projections,
-    defenseByPlayer
+    defenseByPlayer,
+    lineup.rosterSlots
   );
 
   return { week: effectiveWeek, season: effectiveSeason, projectedTotal, optimalTotal, suggestions };
@@ -230,7 +236,7 @@ async function weekHindsight({ leagueId, teamId, season, week }) {
   actualPoints = round2(actualPoints);
 
   const settings = parseLineupSettings(league);
-  const optimal = optimalLineup(players, settings.lineupSlots, pointsFor);
+  const optimal = optimalLineup(players, settings.rosterSlots, pointsFor);
   const optimalStarters = optimal.starters.map((s) => ({ ...s, name: nameById.get(s.playerId) }));
   const optimalPoints = optimal.total;
   const pointsLeftOnBench = Math.max(0, round2(optimalPoints - actualPoints));
@@ -298,7 +304,7 @@ async function liveWhatIf({ leagueId, teamId, season, week }) {
   const forced = rows.rows
     .filter((r) => r.locked === true && currentStarterIds.has(r.player_id))
     .map((r) => ({ playerId: r.player_id, position: r.position }));
-  const optimal = optimalLineup([...candidatePool, ...forced], settings.lineupSlots, pointsFor);
+  const optimal = optimalLineup([...candidatePool, ...forced], settings.rosterSlots, pointsFor);
   const optimalIds = new Set(optimal.starters.map((s) => s.playerId));
 
   // Actionable swaps: an unlocked bench player the optimizer promotes, replacing
@@ -353,13 +359,23 @@ async function seasonHindsight({ leagueId, teamId, season }) {
 /**
  * Pure: adjust a rest-of-season value for roster fit. If the receiving
  * roster already fills every starting slot this position is eligible for
- * (dedicated slot(s) + FLEX, when eligible) the player is surplus (0.85x);
- * if none of those slots are currently filled, he's filling an empty
- * starting slot (1.15x); otherwise the value is unadjusted.
+ * (dedicated slot(s) + any flex-style slot that also takes it) the player is
+ * surplus (0.85x); if none of those slots are currently filled, he's filling
+ * an empty starting slot (1.15x); otherwise the value is unadjusted.
+ *
+ * "Dedicated" vs. "flex-style" is read off each slot's own eligiblePositions
+ * length (1 entry = dedicated to that one position/group; 2+ = a flex-style
+ * slot), generalizing the old FLEX-only special case to any number of
+ * differently-configured flex/superflex/DP slots.
  */
-function fitAdjustedValue(baseValue, position, rosterPositions, lineupSlots) {
-  const dedicated = Number(lineupSlots[position]) || 0;
-  const flexCapacity = slotEligible('FLEX', position) ? Number(lineupSlots.FLEX) || 0 : 0;
+function fitAdjustedValue(baseValue, position, rosterPositions, rosterSlots) {
+  let dedicated = 0;
+  let flexCapacity = 0;
+  for (const slot of rosterSlots) {
+    if (!slotEligible(slot.key, position, rosterSlots)) continue;
+    if ((slot.eligiblePositions || []).length === 1) dedicated += slot.count;
+    else flexCapacity += slot.count;
+  }
   const capacity = dedicated + flexCapacity;
   const filling = rosterPositions.filter((p) => p === position).length;
 
@@ -379,6 +395,42 @@ function tradeVerdict(proposerGets, receiverGets) {
   const diff = Math.abs(proposerGets - receiverGets);
   if (diff <= larger * 0.1) return 'fair';
   return proposerGets > receiverGets ? 'favors_proposer' : 'favors_receiver';
+}
+
+function emptyTradeAggregate() {
+  return {
+    seasonTotalPoints: 0,
+    perGameProjection: 0,
+    historicalWeeklyAverage: 0,
+    restOfSeasonValue: 0,
+  };
+}
+
+function addTradeMetrics(aggregate, metrics) {
+  for (const key of Object.keys(aggregate)) {
+    aggregate[key] = round2(aggregate[key] + finiteNumber(metrics && metrics[key]));
+  }
+}
+
+function tradeFairnessSummary(offeredTotal, requestedTotal) {
+  const offered = finiteNumber(offeredTotal);
+  const requested = finiteNumber(requestedTotal);
+  const larger = Math.max(offered, requested);
+  const fairnessMarginPct = larger === 0
+    ? 0
+    : round2((Math.abs(offered - requested) / larger) * 100);
+
+  let statusBadge = 'Even / Fair';
+  if (fairnessMarginPct > 35) statusBadge = 'Highly Imbalanced';
+  else if (fairnessMarginPct > 15) statusBadge = 'Imbalanced';
+
+  const isBlocked = fairnessMarginPct > 50;
+  return {
+    fairnessMarginPct,
+    statusBadge,
+    isBlocked,
+    collusion_risk: isBlocked ? 'HIGH' : 'LOW',
+  };
 }
 
 /**
@@ -438,33 +490,52 @@ async function analyzeTrade({ leagueId, proposingTeamId, receivingTeamId, offere
 
   const fromWeek = league.current_week;
   const throughWeek = league.regular_season_weeks;
-  const rosValues = await getRestOfSeasonProjections({ season: league.current_season, fromWeek, throughWeek });
+  const projectionMetrics = await getTradeProjectionMetrics({
+    playerIds: allPlayerIds,
+    season: league.current_season,
+    fromWeek,
+    throughWeek,
+  });
 
   const settings = parseLineupSettings(league);
   const proposingPositions = proposingRoster.map((r) => r.position);
   const receivingPositions = receivingRoster.map((r) => r.position);
 
   const players = [];
+  const aggregates = {
+    offered: emptyTradeAggregate(),
+    requested: emptyTradeAggregate(),
+  };
   let proposerGives = 0;
   let receiverGives = 0;
 
   for (const id of offeredPlayerIds) {
     const player = playersById.get(id);
-    const baseValue = Number(rosValues.get(id)) || 0;
-    const fit = fitAdjustedValue(baseValue, player.position, receivingPositions, settings.lineupSlots);
+    const metrics = projectionMetrics.get(id) || emptyTradeAggregate();
+    const baseValue = finiteNumber(metrics.restOfSeasonValue);
+    const fit = fitAdjustedValue(baseValue, player.position, receivingPositions, settings.rosterSlots);
     proposerGives += fit;
+    addTradeMetrics(aggregates.offered, metrics);
     players.push({
       playerId: id, name: player.name, position: player.position,
+      seasonTotalPoints: round2(finiteNumber(metrics.seasonTotalPoints)),
+      perGameProjection: round2(finiteNumber(metrics.perGameProjection)),
+      historicalWeeklyAverage: round2(finiteNumber(metrics.historicalWeeklyAverage)),
       rosValue: round2(baseValue), fitAdjustedValue: fit, direction: 'proposer_to_receiver',
     });
   }
   for (const id of requestedPlayerIds) {
     const player = playersById.get(id);
-    const baseValue = Number(rosValues.get(id)) || 0;
-    const fit = fitAdjustedValue(baseValue, player.position, proposingPositions, settings.lineupSlots);
+    const metrics = projectionMetrics.get(id) || emptyTradeAggregate();
+    const baseValue = finiteNumber(metrics.restOfSeasonValue);
+    const fit = fitAdjustedValue(baseValue, player.position, proposingPositions, settings.rosterSlots);
     receiverGives += fit;
+    addTradeMetrics(aggregates.requested, metrics);
     players.push({
       playerId: id, name: player.name, position: player.position,
+      seasonTotalPoints: round2(finiteNumber(metrics.seasonTotalPoints)),
+      perGameProjection: round2(finiteNumber(metrics.perGameProjection)),
+      historicalWeeklyAverage: round2(finiteNumber(metrics.historicalWeeklyAverage)),
       rosValue: round2(baseValue), fitAdjustedValue: fit, direction: 'receiver_to_proposer',
     });
   }
@@ -474,9 +545,24 @@ async function analyzeTrade({ leagueId, proposingTeamId, receivingTeamId, offere
   const receiverGets = proposerGives; // what proposer sends is what receiver receives
   const proposerGets = receiverGives; // what receiver sends is what proposer receives
 
-  const verdict = tradeVerdict(proposerGets, receiverGets);
+  const fairness = tradeFairnessSummary(
+    aggregates.offered.restOfSeasonValue,
+    aggregates.requested.restOfSeasonValue
+  );
+  const verdict = fairness.isBlocked
+    ? 'collusion_risk'
+    : tradeVerdict(proposerGets, receiverGets);
 
-  return { verdict, proposerGives, proposerGets, receiverGives, receiverGets, players };
+  return {
+    verdict,
+    ...fairness,
+    proposerGives,
+    proposerGets,
+    receiverGives,
+    receiverGets,
+    aggregates,
+    players,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -491,13 +577,15 @@ async function analyzeTrade({ leagueId, proposingTeamId, receivingTeamId, offere
  * Returns the top 25, each annotated with weakestStarterProjection and
  * upgradeDelta, sorted by upgradeDelta descending.
  */
-function rankWaiverCandidates(candidates, currentStarters, lineupSlots) {
+function rankWaiverCandidates(candidates, currentStarters, rosterSlots) {
   const eligibleSlotsByPosition = new Map();
   const eligibleSlotsFor = (position) => {
     if (!eligibleSlotsByPosition.has(position)) {
       eligibleSlotsByPosition.set(
         position,
-        Object.keys(lineupSlots).filter((slot) => (lineupSlots[slot] || 0) > 0 && slotEligible(slot, position))
+        rosterSlots
+          .filter((s) => s.count > 0 && slotEligible(s.key, position, rosterSlots))
+          .map((s) => s.key)
       );
     }
     return eligibleSlotsByPosition.get(position);
@@ -578,7 +666,7 @@ async function waiverSuggestions({ leagueId, userId, season, week }) {
     projection: pointsOf(projections, p.id),
   }));
 
-  const suggestions = rankWaiverCandidates(candidates, currentStarters, settings.lineupSlots);
+  const suggestions = rankWaiverCandidates(candidates, currentStarters, settings.rosterSlots);
   return { suggestions };
 }
 
@@ -591,6 +679,7 @@ module.exports = {
   seasonHindsight,
   fitAdjustedValue,
   tradeVerdict,
+  tradeFairnessSummary,
   analyzeTrade,
   rankWaiverCandidates,
   waiverSuggestions,

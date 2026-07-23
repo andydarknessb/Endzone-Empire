@@ -232,7 +232,9 @@ async function computeLeagueOdds({ leagueId, runs = DEFAULT_RUNS, seed }) {
   if (teams.length < 2) return null;
 
   const matchupsResult = await pool.query(
-    `SELECT * FROM "matchups" WHERE "league_id" = $1 AND "season" = $2`,
+    `SELECT "week", "home_team_id", "away_team_id", "home_score", "away_score",
+            "is_playoff", "is_consolation", "final"
+     FROM "matchups" WHERE "league_id" = $1 AND "season" = $2`,
     [leagueId, season]
   );
   const played = matchupsResult.rows.filter((m) => m.final && !m.is_playoff);
@@ -250,7 +252,7 @@ async function computeLeagueOdds({ leagueId, runs = DEFAULT_RUNS, seed }) {
   const pointsFor = new Map(
     [...projections].map(([playerId, { points }]) => [playerId, points])
   );
-  const { lineupSlots } = parseLineupSettings(league);
+  const { rosterSlots } = parseLineupSettings(league);
   const rosterResult = await pool.query(
     `SELECT "team_players"."team_id", "team_players"."player_id", "players"."position"
      FROM "team_players" JOIN "players" ON "players"."id" = "team_players"."player_id"
@@ -265,7 +267,7 @@ async function computeLeagueOdds({ leagueId, runs = DEFAULT_RUNS, seed }) {
   }
   const models = new Map();
   for (const team of teams) {
-    const projected = optimalLineup(rosters.get(team.id) || [], lineupSlots, pointsFor).total;
+    const projected = optimalLineup(rosters.get(team.id) || [], rosterSlots, pointsFor).total;
     models.set(team.id, buildTeamModel(history.get(team.id) || [], projected));
   }
 
@@ -334,15 +336,36 @@ async function computeLeagueOdds({ leagueId, runs = DEFAULT_RUNS, seed }) {
   return data;
 }
 
-/** Latest stored power rankings for a league (any week this season). */
+/**
+ * Pure: merge each team's rank movement vs the previous stored week onto its
+ * ranking row. `change` is prevRank - currentRank (positive = moved up,
+ * negative = moved down, 0 = held, null = no prior week to compare against).
+ */
+function withRankChange(rankings, previousRankings) {
+  const prevRankByTeam = new Map((previousRankings || []).map((r) => [r.teamId, r.rank]));
+  return rankings.map((r) => {
+    const prevRank = prevRankByTeam.get(r.teamId);
+    return { ...r, change: prevRank != null ? prevRank - r.rank : null };
+  });
+}
+
+/**
+ * Latest stored power rankings for a league (any week this season), with
+ * rank movement vs the previous stored week (each week is stored as its own
+ * row, so history is already there — see league_analytics unique constraint).
+ */
 async function getLatestPowerRankings({ leagueId }) {
   const result = await pool.query(
     `SELECT "season", "week", "data" FROM "league_analytics"
      WHERE "league_id" = $1 AND "type" = 'power_rankings'
-     ORDER BY "season" DESC, "week" DESC LIMIT 1`,
+     ORDER BY "season" DESC, "week" DESC LIMIT 2`,
     [leagueId]
   );
-  return result.rows[0] || null;
+  const latest = result.rows[0];
+  if (!latest) return null;
+  const previous = result.rows[1];
+  const rankings = withRankChange(latest.data.rankings, previous ? previous.data.rankings : null);
+  return { season: latest.season, week: latest.week, data: { ...latest.data, rankings } };
 }
 
 module.exports = {
@@ -355,6 +378,7 @@ module.exports = {
   simulateBracketFrom,
   runSimulation,
   powerRankings,
+  withRankChange,
   computeLeagueOdds,
   getLatestPowerRankings,
 };

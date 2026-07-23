@@ -1,9 +1,10 @@
 import React from 'react';
-import { act, screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import { createDraftSocket, onReconnect } from '../../api/socket';
+import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 import DraftBoard from './DraftBoard';
 
 jest.mock('../../api/apiClient', () => ({
@@ -51,6 +52,19 @@ const renderBoard = (leagueId = 1, state) =>
     state,
   });
 
+// Toast text (via notify) only renders when a SnackbarProvider is mounted.
+const renderBoardWithToasts = (leagueId = 1, state) =>
+  renderWithProviders(
+    <SnackbarProvider>
+      <DraftBoard />
+    </SnackbarProvider>,
+    {
+      path: '/league/:leagueId/draft',
+      route: `/league/${leagueId}/draft`,
+      state,
+    }
+  );
+
 let fakeSocket;
 
 beforeEach(() => {
@@ -93,7 +107,8 @@ test('renders league state (name, on-the-clock, pick history) from a draft:state
   expect(screen.getByText('Sunday Ballers')).toBeInTheDocument();
   expect(screen.getByText("On the clock: Bob's Team (bob)")).toBeInTheDocument();
   expect(screen.getByText('#1')).toBeInTheDocument();
-  expect(screen.getByText('Josh Allen (QB)')).toBeInTheDocument();
+  // The pick-history name is now a quick-view button (separate from any action).
+  expect(screen.getByRole('button', { name: 'Josh Allen' })).toBeInTheDocument();
 });
 
 test('shows the prominent on-clock timer with "Your pick!" for the active user', async () => {
@@ -174,8 +189,17 @@ test('shows "No picks yet" when the pick history is empty', async () => {
 });
 
 test('clicking Draft on a player emits draft:pick with the league and player id', async () => {
-  renderBoard(3);
+  renderBoard(3, { user: { id: 5 } });
   await screen.findByText('Patrick Mahomes');
+
+  act(() =>
+    fakeSocket.trigger('draft:state', {
+      league: { name: 'Sunday Ballers', draft_status: 'active', draft_paused: false },
+      teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 5 }],
+      picks: [],
+      onTheClock: { id: 1, name: 'Team A', owner: 'alice', owner_id: 5 },
+    })
+  );
 
   await userEvent.click(screen.getByRole('button', { name: 'Draft' }));
 
@@ -216,7 +240,7 @@ test('a draft:picked event prepends the new pick, updates who is on the clock, a
   );
 
   expect(screen.getByText('#1')).toBeInTheDocument();
-  expect(screen.getByText('Patrick Mahomes (QB)')).toBeInTheDocument();
+  expect(screen.getAllByRole('button', { name: 'Patrick Mahomes' }).length).toBeGreaterThan(0);
   expect(screen.getByText('On the clock: Team B (bob)')).toBeInTheDocument();
   await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/players', expect.any(Object)));
 });
@@ -270,8 +294,17 @@ test('an error acknowledgment from draft:join is surfaced as an alert', async ()
 });
 
 test('an error acknowledgment from draft:pick is surfaced as an alert', async () => {
-  renderBoard(1);
+  renderBoard(1, { user: { id: 5 } });
   await screen.findByText('Patrick Mahomes');
+
+  act(() =>
+    fakeSocket.trigger('draft:state', {
+      league: { name: 'Sunday Ballers', draft_status: 'active', draft_paused: false },
+      teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 5 }],
+      picks: [],
+      onTheClock: { id: 1, name: 'Team A', owner: 'alice', owner_id: 5 },
+    })
+  );
 
   await userEvent.click(screen.getByRole('button', { name: 'Draft' }));
   const [, , ack] = fakeSocket.emit.mock.calls.find(([event]) => event === 'draft:pick');
@@ -291,7 +324,26 @@ test('changing the position filter refetches available players filtered by posit
 
   await waitFor(() =>
     expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
-      params: { page: 1, leagueId: 1, available: true, position: 'RB' },
+      params: { page: 1, leagueId: 1, available: true, sort: 'adp', position: 'RB' },
+    })
+  );
+});
+
+test('the position filter offers individual defender positions and filters the draft pool by them', async () => {
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+  apiClient.get.mockClear();
+  apiClient.get.mockResolvedValue(playersPage([]));
+
+  await userEvent.click(screen.getByLabelText('Position'));
+  for (const pos of ['DE', 'DT', 'LB', 'CB', 'S', 'DB']) {
+    expect(await screen.findByRole('option', { name: pos })).toBeInTheDocument();
+  }
+  await userEvent.click(screen.getByRole('option', { name: 'LB' }));
+
+  await waitFor(() =>
+    expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
+      params: { page: 1, leagueId: 1, available: true, sort: 'adp', position: 'LB' },
     })
   );
 });
@@ -421,6 +473,77 @@ test('a paused draft shows the paused chip and disables drafting', async () => {
   expect(screen.getByRole('button', { name: 'Draft' })).toBeDisabled();
 });
 
+test('the pool Draft button is disabled off-turn and enabled on-turn', async () => {
+  renderBoard(1, { user: { id: 5 } });
+  await screen.findByText('Patrick Mahomes');
+
+  act(() =>
+    fakeSocket.trigger(
+      'draft:state',
+      stateEvent(activeLeague(), {
+        teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 9 }],
+        onTheClock: { id: 1, name: 'Team A', owner: 'alice', owner_id: 9 },
+      })
+    )
+  );
+  expect(screen.getByRole('button', { name: 'Draft' })).toBeDisabled();
+
+  act(() =>
+    fakeSocket.trigger(
+      'draft:state',
+      stateEvent(activeLeague(), {
+        teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 5 }],
+        onTheClock: { id: 1, name: 'Team A', owner: 'alice', owner_id: 5 },
+      })
+    )
+  );
+  expect(screen.getByRole('button', { name: 'Draft' })).toBeEnabled();
+});
+
+test("the queue's top-row Draft button appears only on your turn and drafts queue[0]", async () => {
+  mockGets({
+    queue: [
+      { id: 2, name: 'Bijan Robinson', position: 'RB', nfl_team: 'ATL', rank: 1 },
+      { id: 3, name: 'Justin Jefferson', position: 'WR', nfl_team: 'MIN', rank: 2 },
+    ],
+  });
+  renderBoard(1, { user: { id: 5 } });
+  await screen.findByRole('button', { name: 'Bijan Robinson' });
+
+  const queuePanel = () => screen.getByText('My Queue').closest('.MuiPaper-root');
+
+  // Not my turn: the queue's top row has no quick-draft button.
+  act(() =>
+    fakeSocket.trigger(
+      'draft:state',
+      stateEvent(activeLeague(), {
+        teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 9 }],
+        onTheClock: { id: 1, name: 'Team A', owner: 'alice', owner_id: 9 },
+      })
+    )
+  );
+  expect(within(queuePanel()).queryByRole('button', { name: 'Draft' })).not.toBeInTheDocument();
+
+  // My turn: the quick-draft button appears and drafts queue[0] (Bijan Robinson, id 2).
+  act(() =>
+    fakeSocket.trigger(
+      'draft:state',
+      stateEvent(activeLeague(), {
+        teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 5 }],
+        onTheClock: { id: 1, name: 'Team A', owner: 'alice', owner_id: 5 },
+      })
+    )
+  );
+  const queueDraftButton = within(queuePanel()).getByRole('button', { name: 'Draft' });
+  await userEvent.click(queueDraftButton);
+
+  expect(fakeSocket.emit).toHaveBeenCalledWith(
+    'draft:pick',
+    { leagueId: 1, playerId: 2 },
+    expect.any(Function)
+  );
+});
+
 test('the queue loads on mount and renders players in rank order', async () => {
   mockGets({
     queue: [
@@ -430,8 +553,12 @@ test('the queue loads on mount and renders players in rank order', async () => {
   });
   renderBoard(1);
 
-  expect(await screen.findByText('1. Bijan Robinson (RB)')).toBeInTheDocument();
-  expect(screen.getByText('2. Justin Jefferson (WR)')).toBeInTheDocument();
+  await screen.findByRole('button', { name: 'Bijan Robinson' });
+  // Queue names are quick-view buttons; assert both are present in rank order.
+  const queued = screen
+    .getAllByRole('button', { name: /Bijan Robinson|Justin Jefferson/ })
+    .map((b) => b.textContent);
+  expect(queued).toEqual(['Bijan Robinson', 'Justin Jefferson']);
   expect(apiClient.get).toHaveBeenCalledWith('/api/draft/queue', { params: { leagueId: 1 } });
 });
 
@@ -447,7 +574,8 @@ test('clicking Queue on an available player persists the updated ordered list', 
       playerIds: [1],
     })
   );
-  expect(screen.getByText('1. Patrick Mahomes (QB)')).toBeInTheDocument();
+  // Patrick Mahomes now appears both in the available table and the queue.
+  expect(screen.getAllByRole('button', { name: 'Patrick Mahomes' })).toHaveLength(2);
   expect(screen.getByRole('button', { name: 'Queue' })).toBeDisabled();
 });
 
@@ -459,7 +587,7 @@ test('move up and remove reorder the queue and persist it', async () => {
     ],
   });
   renderBoard(1);
-  await screen.findByText('1. Bijan Robinson (RB)');
+  await screen.findByRole('button', { name: 'Bijan Robinson' });
 
   await userEvent.click(screen.getAllByLabelText('Move up')[1]);
   await waitFor(() =>
@@ -468,7 +596,10 @@ test('move up and remove reorder the queue and persist it', async () => {
       playerIds: [3, 2],
     })
   );
-  expect(screen.getByText('1. Justin Jefferson (WR)')).toBeInTheDocument();
+  const reordered = screen
+    .getAllByRole('button', { name: /Bijan Robinson|Justin Jefferson/ })
+    .map((b) => b.textContent);
+  expect(reordered).toEqual(['Justin Jefferson', 'Bijan Robinson']);
 
   apiClient.put.mockClear();
   await userEvent.click(screen.getAllByLabelText('Remove from queue')[0]);
@@ -481,7 +612,7 @@ test('move up and remove reorder the queue and persist it', async () => {
 });
 
 test('Randomize Draft Order shows only for the commissioner pre-draft and POSTs', async () => {
-  const { unmount } = renderBoard(1, { user: { id: 7, username: 'commish' } });
+  const { unmount } = renderBoardWithToasts(1, { user: { id: 7, username: 'commish' } });
   await screen.findByText('Patrick Mahomes');
   act(() =>
     fakeSocket.trigger('draft:state', stateEvent(activeLeague({
@@ -522,6 +653,76 @@ test('Pause Draft POSTs the toggled paused flag for the commissioner during an a
   );
 });
 
+test('commissioner confirms undo before posting the last-pick rollback', async () => {
+  renderBoardWithToasts(1, { user: { id: 99, username: 'commish' } });
+  await screen.findByText('Patrick Mahomes');
+  act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ owner_id: 99, current_pick: 1 }), {
+    picks: [{ pick_number: 1, player_id: 10, name: 'Josh Allen', position: 'QB', nfl_team: 'BUF', is_keeper: false }],
+  })));
+
+  await userEvent.click(screen.getByRole('button', { name: 'Undo last pick' }));
+  expect(screen.getByText('Undo last pick?')).toBeInTheDocument();
+  expect(apiClient.post).not.toHaveBeenCalledWith('/api/draft/league/1/undo', { count: 1 });
+  await userEvent.click(screen.getByRole('button', { name: 'Undo pick' }));
+  await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith('/api/draft/league/1/undo', { count: 1 }));
+  expect(await screen.findByText('Last pick undone')).toBeInTheDocument();
+});
+
+test('undo is disabled when the most recent reached pick is a keeper', async () => {
+  renderBoard(1, { user: { id: 99, username: 'commish' } });
+  await screen.findByText('Patrick Mahomes');
+  act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ owner_id: 99, current_pick: 1 }), {
+    picks: [{ pick_number: 1, player_id: 10, name: 'Josh Allen', position: 'QB', nfl_team: 'BUF', is_keeper: true }],
+  })));
+
+  expect(screen.getByRole('button', { name: 'Undo last pick' })).toBeDisabled();
+  expect(screen.getByText('Keeper picks cannot be undone.')).toBeInTheDocument();
+});
+
+test('reset draft requires the exact league name before calling the destructive endpoint', async () => {
+  renderBoardWithToasts(1, { user: { id: 99, username: 'commish' } });
+  await screen.findByText('Patrick Mahomes');
+  act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ owner_id: 99 }))));
+
+  await userEvent.click(screen.getByRole('button', { name: 'Reset draft' }));
+  const reset = screen.getByRole('button', { name: 'Reset draft' });
+  expect(reset).toBeDisabled();
+  await userEvent.type(screen.getByRole('textbox', { name: 'League name' }), 'Sunday Ballers');
+  expect(reset).toBeEnabled();
+  await userEvent.click(reset);
+  await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith('/api/draft/league/1/reset', {}));
+});
+
+test('commissioner copies a presenter link generated by the share-token endpoint', async () => {
+  Object.assign(navigator, { clipboard: { writeText: jest.fn().mockResolvedValue() } });
+  apiClient.post.mockResolvedValue({ data: { url: 'http://localhost:3000/#/present/example-token' } });
+  renderBoardWithToasts(1, { user: { id: 99, username: 'commish' } });
+  await screen.findByText('Patrick Mahomes');
+  act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ owner_id: 99 }))));
+
+  await userEvent.click(screen.getByRole('button', { name: 'Presenter link' }));
+  await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith('/api/draft/league/1/share-token', {}));
+  expect(navigator.clipboard.writeText).toHaveBeenCalledWith('http://localhost:3000/#/present/example-token');
+  expect(screen.getByRole('textbox', { name: 'Presenter link' })).toHaveValue('http://localhost:3000/#/present/example-token');
+});
+
+test('a pending-draft member can toggle readiness and sees the league readiness chips', async () => {
+  renderBoardWithToasts(1, { user: { id: 5, username: 'alice' } });
+  await screen.findByText('Patrick Mahomes');
+  act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ draft_status: 'pending', owner_id: 99 }), {
+    teams: [
+      { id: 1, name: 'Team A', owner: 'alice', owner_id: 5, draft_ready: false },
+      { id: 2, name: 'Team B', owner: 'bob', owner_id: 6, draft_ready: true },
+    ],
+    onTheClock: null,
+  })));
+
+  expect(screen.getByRole('status')).toHaveTextContent('1 of 2 managers ready');
+  expect(screen.getByText('Team B: Ready')).toBeInTheDocument();
+  await userEvent.click(screen.getByRole('checkbox', { name: 'I am ready for the draft' }));
+  await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith('/api/draft/league/1/ready', { ready: true }));
+});
+
 test('shows projected points and injury badges in the available players table', async () => {
   apiClient.get.mockResolvedValue(
     playersPage([
@@ -533,7 +734,7 @@ test('shows projected points and injury badges in the available players table', 
         projected_points: 21.5,
         injury_status: 'Q',
       },
-      { id: 2, name: 'Josh Allen', position: 'QB', nfl_team: 'Buffalo Bills', projected_points: null },
+      { id: 2, name: 'Josh Allen', position: 'QB', nfl_team: 'Buffalo Bills', projected_points: null, adp: 3.2 },
     ])
   );
   renderBoard(1);
@@ -541,6 +742,33 @@ test('shows projected points and injury badges in the available players table', 
   await screen.findByText('Patrick Mahomes');
   expect(screen.getByText('21.5')).toBeInTheDocument();
   expect(screen.getByText('Q')).toBeInTheDocument();
-  expect(screen.getByText('—')).toBeInTheDocument(); // missing projection
-  expect(screen.getByRole('link', { name: 'Patrick Mahomes' })).toHaveAttribute('href', '/players/1');
+  expect(screen.getByText('3.2')).toBeInTheDocument(); // Josh Allen's ADP
+  expect(screen.getByLabelText(/Season Proj: Projected fantasy points:/)).toBeInTheDocument();
+  expect(screen.getAllByText('—').length).toBeGreaterThan(0); // missing proj/adp render as —
+  // The name is a quick-view trigger (a button), not a navigation link.
+  expect(screen.getByRole('button', { name: 'Patrick Mahomes' })).toBeInTheDocument();
+});
+
+test('clicking a player name opens the quick-view dialog and never drafts the player', async () => {
+  apiClient.get.mockImplementation((url) =>
+    url.endsWith('/summary')
+      ? Promise.resolve({
+          data: {
+            player: { id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'KC' },
+            currentSeason: null,
+            previousSeasons: [],
+          },
+        })
+      : Promise.resolve(playersPage())
+  );
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+
+  await userEvent.click(screen.getByRole('button', { name: 'Patrick Mahomes' }));
+
+  // Dialog opened (heading shows the player); no draft:pick was ever emitted.
+  expect(await screen.findByRole('dialog')).toBeInTheDocument();
+  expect(
+    fakeSocket.emit.mock.calls.some(([event]) => event === 'draft:pick')
+  ).toBe(false);
 });

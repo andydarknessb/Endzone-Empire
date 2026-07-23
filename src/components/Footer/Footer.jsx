@@ -7,7 +7,17 @@ import './Footer.css';
 // or even care what the redux state is, so it doesn't need 'connect()'
 
 function Footer() {
-  return <footer>&copy; Endzone Empire</footer>;
+  return (
+    <footer>
+      &copy; Endzone Empire
+      {' · '}
+      <a href="/privacy">Privacy</a>
+      {' · '}
+      <a href="/terms">Terms</a>
+      {' · '}
+      <a href="/acceptable-use">Acceptable Use</a>
+    </footer>
+  );
 }
 
 export default Footer;

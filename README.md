@@ -48,12 +48,46 @@ matchups using real-world NFL statistics.
    npm run client      # React dev server on :3000 (proxies /api to :5000)
    ```
 
+5. **(Optional) Manager avatars — one-time Supabase Storage setup.** Team
+   avatar/GIF uploads (`POST /api/team/:id/avatar`) are stored in Supabase
+   Storage via a server-side service-role client (`server/modules/supabaseAdmin.js`),
+   since this app's own JWT auth isn't Supabase Auth and so Storage RLS can't
+   scope writes per-user — uploads go through the Express API, not the
+   browser directly. Every environment needs a `team-avatars` bucket created
+   once, before this feature works: set `SUPABASE_URL` and
+   `SUPABASE_SERVICE_ROLE_KEY` in `.env` (see `.env.example`), then run this
+   once against that Supabase project's SQL editor (or via `execute_sql` if
+   using the Supabase MCP tools):
+
+   ```sql
+   INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+   VALUES ('team-avatars', 'team-avatars', true, 5242880,
+           ARRAY['image/png','image/jpeg','image/webp','image/gif']);
+   ```
+
+   `public = true` lets Supabase's Storage API serve objects at
+   `.../storage/v1/object/public/team-avatars/...` without an RLS policy
+   check. Deliberately add **no** RLS policies on `storage.objects` for this
+   bucket — the service-role key bypasses RLS entirely for writes, and no
+   client-side (anon/authenticated) role should ever be able to write here.
+   Without this bucket, avatar uploads fail with `503 avatar storage is not
+   configured on this server` (missing env vars) or a Supabase "bucket not
+   found" error (env vars set, bucket missing) — every other feature works
+   fine without it.
+
 ## Tests
 
 ```sh
 npm run test:server   # node:test unit tests (scoring + draft-order logic)
 npm run build         # production build of the frontend
 ```
+
+## Production hosting
+
+Netlify serves the CRA build at `endzoneempire.gg`; Render runs the Express and
+Socket.IO service at `api.endzoneempire.gg`. See
+[`documentation/production-hosting.md`](documentation/production-hosting.md) for
+the manual deploy, Dynadot DNS, TLS verification, and rollback procedure.
 
 ## API overview
 

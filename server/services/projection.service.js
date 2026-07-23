@@ -92,6 +92,57 @@ async function getRestOfSeasonProjections({ season, fromWeek, throughWeek }) {
 }
 
 /**
+ * Projection and season-to-date metrics used by package-level trade analysis.
+ * Every requested player is returned, with zeroes for missing stats or
+ * projections, so incomplete feeds cannot poison the fairness calculation.
+ */
+async function getTradeProjectionMetrics({ playerIds, season, fromWeek, throughWeek }) {
+  const ids = [...new Set((playerIds || []).filter(Number.isInteger))];
+  if (ids.length === 0) return new Map();
+
+  const [weekly, statsResult] = await Promise.all([
+    getWeekProjections({ season, week: fromWeek }),
+    pool.query(
+      `SELECT "player_id",
+              COALESCE(SUM("fantasy_points"), 0) AS "season_total_points",
+              COALESCE(AVG("fantasy_points"), 0) AS "historical_weekly_average"
+       FROM "player_stats"
+       WHERE "player_id" = ANY($1::int[])
+         AND "season" = $2
+         AND "week" < $3
+       GROUP BY "player_id"`,
+      [ids, season, fromWeek]
+    ),
+  ]);
+
+  const statsByPlayer = new Map(statsResult.rows.map((row) => [row.player_id, row]));
+  const remainingWeeks = Math.max(0, Number(throughWeek) - Number(fromWeek) + 1);
+  return new Map(ids.map((playerId) => {
+    const projection = weekly.get(playerId);
+    const projectedPoints = projection && typeof projection === 'object'
+      ? projection.points
+      : projection;
+    const perGameProjection = Number.isFinite(Number(projectedPoints))
+      ? Number(projectedPoints)
+      : 0;
+    const stats = statsByPlayer.get(playerId) || {};
+    const seasonTotalPoints = Number.isFinite(Number(stats.season_total_points))
+      ? Number(stats.season_total_points)
+      : 0;
+    const historicalWeeklyAverage = Number.isFinite(Number(stats.historical_weekly_average))
+      ? Number(stats.historical_weekly_average)
+      : 0;
+
+    return [playerId, {
+      seasonTotalPoints: Math.round(seasonTotalPoints * 100) / 100,
+      perGameProjection: Math.round(perGameProjection * 100) / 100,
+      historicalWeeklyAverage: Math.round(historicalWeeklyAverage * 100) / 100,
+      restOfSeasonValue: Math.round(perGameProjection * remainingWeeks * 100) / 100,
+    }];
+  }));
+}
+
+/**
  * Positional defense: average fantasy points each NFL team has ALLOWED per
  * game to each position this season (weeks < uptoWeek). Map
  * nflTeam -> { QB: avg, RB: avg, ... }. Powers opponent-difficulty context in
@@ -127,5 +178,6 @@ module.exports = {
   extrapolateWeekly,
   getWeekProjections,
   getRestOfSeasonProjections,
+  getTradeProjectionMetrics,
   getPositionDefense,
 };

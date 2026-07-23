@@ -5,7 +5,8 @@ import './RegisterForm.css';
 function RegisterForm() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [email, setEmail] = useState(''); 
+  const [email, setEmail] = useState('');
+  const [ageConfirmed, setAgeConfirmed] = useState(false);
   const errors = useSelector((store) => store.errors);
   const dispatch = useDispatch();
 
@@ -41,6 +42,19 @@ function RegisterForm() {
             required
             onChange={(event) => setUsername(event.target.value)}
           />
+        </label>
+      </div>
+      <div>
+        <label htmlFor="age-confirmed">
+          <input
+            id="age-confirmed"
+            type="checkbox"
+            checked={ageConfirmed}
+            required
+            onChange={(event) => setAgeConfirmed(event.target.checked)}
+          />
+          I am at least 13 years old and agree to the{' '}
+          <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.
         </label>
       </div>
       <div>

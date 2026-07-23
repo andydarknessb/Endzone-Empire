@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import { createDraftSocket } from '../../api/socket';
+import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 import LeagueDashboard from './LeagueDashboard';
 
 jest.mock('../../api/apiClient', () => ({
@@ -30,6 +31,18 @@ const renderDashboard = (leagueId = 1) =>
     path: '/league/:leagueId',
     route: `/league/${leagueId}`,
   });
+
+// Toast text (via notify) only renders when a SnackbarProvider is mounted.
+const renderDashboardWithToasts = (leagueId = 1) =>
+  renderWithProviders(
+    <SnackbarProvider>
+      <LeagueDashboard />
+    </SnackbarProvider>,
+    {
+      path: '/league/:leagueId',
+      route: `/league/${leagueId}`,
+    }
+  );
 
 const leagueResponse = (overrides = {}) => ({
   data: {
@@ -120,10 +133,10 @@ afterEach(() => {
   jest.clearAllMocks();
 });
 
-test('shows a loading spinner before data arrives', () => {
+test('shows a layout-shaped skeleton before data arrives', () => {
   apiClient.get.mockReturnValue(new Promise(() => {})); // never resolves
   renderDashboard();
-  expect(screen.getByRole('progressbar')).toBeInTheDocument();
+  expect(screen.getByTestId('page-skeleton')).toBeInTheDocument();
 });
 
 test('renders league name, status chips, and the standings table', async () => {
@@ -143,7 +156,7 @@ test('renders league name, status chips, and the standings table', async () => {
   expect(screen.getByText('alice')).toBeInTheDocument();
 });
 
-test('standings table renders W-L-T, PF, PA, streak and the playoff seed chip', async () => {
+test('standings table renders W-L-T, PF, PA, and a streak chip (no redundant playoff-seed pill)', async () => {
   mockGetByUrl({
     '/api/league/1': leagueResponse({ draft_status: 'complete' }),
     '/api/user': userResponse(),
@@ -157,7 +170,44 @@ test('standings table renders W-L-T, PF, PA, streak and the playoff seed chip', 
   expect(screen.getByText('312.5')).toBeInTheDocument();
   expect(screen.getByText('280.1')).toBeInTheDocument();
   expect(screen.getByText('W2')).toBeInTheDocument();
-  expect(screen.getByText('#1')).toBeInTheDocument();
+  const pointsForHeader = screen.getByLabelText(/PF: Points for:/i);
+  expect(screen.getByLabelText(/PA: Points against:/i)).toBeInTheDocument();
+  expect(pointsForHeader.closest('table')).toHaveStyle({ minWidth: '680px' });
+  expect(pointsForHeader.closest('.MuiTableContainer-root')).toHaveStyle({
+    maxWidth: '100%',
+    overflowX: 'auto',
+  });
+  // The rank column is the single source of truth for standing; the old
+  // green "#1" playoff-seed pill next to the team name is gone.
+  expect(screen.queryByText('#1')).not.toBeInTheDocument();
+});
+
+test('marks the phase-appropriate nav actions as Recommended', async () => {
+  // Pre-draft league: only the Draft Room action is recommended.
+  mockGetByUrl({
+    '/api/league/1': leagueResponse(), // draft_status: 'pending'
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
+  const { unmount } = renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  expect(within(screen.getByRole('link', { name: 'Draft Room' })).getByText('Recommended')).toBeInTheDocument();
+  expect(within(screen.getByRole('link', { name: 'Trades' })).queryByText('Recommended')).not.toBeInTheDocument();
+
+  unmount();
+
+  // In-season league: weekly-management actions are recommended, the draft is not.
+  mockGetByUrl({
+    '/api/league/1': leagueResponse({ draft_status: 'complete' }),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse({ league: { season_status: 'regular' } }),
+  });
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  expect(within(screen.getByRole('link', { name: 'Set Lineup' })).getByText('Recommended')).toBeInTheDocument();
+  expect(within(screen.getByRole('link', { name: 'Draft Room' })).queryByText('Recommended')).not.toBeInTheDocument();
 });
 
 test('shows the specific server error message when the initial fetch fails', async () => {
@@ -197,14 +247,31 @@ test('shows the invite code and copies it to the clipboard', async () => {
     '/standings': standingsResponse(),
   });
 
-  renderDashboard();
+  renderDashboardWithToasts();
   await screen.findByText('Sunday Ballers');
 
   expect(screen.getByText(/abc123/)).toBeInTheDocument();
-  await userEvent.click(screen.getByRole('button', { name: 'Copy' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Copy code' }));
 
   expect(navigator.clipboard.writeText).toHaveBeenCalledWith('abc123');
   expect(await screen.findByText('Invite code copied to clipboard!')).toBeInTheDocument();
+});
+
+test('copies a full invite link', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse(),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
+
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  await userEvent.click(screen.getByRole('button', { name: 'Copy invite link' }));
+
+  expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+    expect.stringContaining('/#/league/join?code=abc123')
+  );
 });
 
 test('does not render an invite code section when none is present', async () => {
@@ -228,7 +295,7 @@ test('shows "Start Draft" only for the owner while the draft is pending, and sta
   });
   apiClient.post.mockResolvedValue({});
 
-  renderDashboard();
+  renderDashboardWithToasts();
   await screen.findByText('Sunday Ballers');
 
   const startButton = screen.getByRole('button', { name: 'Start Draft' });
@@ -263,6 +330,19 @@ test('enables "Start Draft" once the minimum team count is met', async () => {
   await screen.findByText('Sunday Ballers');
 
   expect(screen.getByRole('button', { name: 'Start Draft' })).toBeEnabled();
+});
+
+test('disables Start Draft for a salary-cap auction with an explanatory tooltip', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse({ min_teams: 1, draft_type: 'auction' }),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  expect(screen.getByRole('button', { name: 'Start Draft' })).toBeDisabled();
+  expect(screen.getByText('Live salary-cap auctions are not supported yet.')).toBeInTheDocument();
 });
 
 test('does not show "Start Draft" for a non-owner', async () => {
@@ -302,7 +382,8 @@ test('links to the Draft Room, Matchups, and Set Lineup pages for this league', 
   await screen.findByText('Sunday Ballers');
 
   expect(screen.getByRole('link', { name: 'Draft Room' })).toHaveAttribute('href', '/league/7/draft');
-  expect(screen.getByRole('link', { name: 'Matchups' })).toHaveAttribute('href', '/league/7/matchups');
+  expect(screen.getByRole('link', { name: 'Game Center' })).toHaveAttribute('href', '/league/7/game-center');
+  expect(screen.queryByRole('link', { name: 'Matchups' })).not.toBeInTheDocument();
   expect(screen.getByRole('link', { name: 'Set Lineup' })).toHaveAttribute('href', '/league/7/lineup');
   expect(screen.getByRole('link', { name: 'Waivers' })).toHaveAttribute('href', '/league/7/waivers');
   expect(screen.getByRole('link', { name: 'Trades' })).toHaveAttribute('href', '/league/7/trades');
@@ -335,7 +416,7 @@ test('Advance Week is visible for the owner when draft is complete and season is
   });
   apiClient.post.mockResolvedValue({});
 
-  renderDashboard();
+  renderDashboardWithToasts();
   await screen.findByText('Sunday Ballers');
 
   const advanceButton = screen.getByRole('button', { name: 'Advance Week' });
@@ -409,10 +490,10 @@ test('Lock Transactions toggles via the commissioner endpoint', async () => {
     '/standings': standingsResponse(),
   });
   apiClient.put.mockResolvedValue({});
-  renderDashboard();
+  renderDashboardWithToasts();
   await screen.findByText('Sunday Ballers');
 
-  await userEvent.click(screen.getByRole('button', { name: 'Lock Transactions' }));
+  await userEvent.click(screen.getByRole('checkbox', { name: 'Lock Transactions' }));
 
   await waitFor(() =>
     expect(apiClient.put).toHaveBeenCalledWith('/api/commissioner/league/1/transactions-lock', {
@@ -422,7 +503,7 @@ test('Lock Transactions toggles via the commissioner endpoint', async () => {
   expect(await screen.findByText('Transactions locked')).toBeInTheDocument();
 });
 
-test('removing another owner\'s team calls the commissioner endpoint', async () => {
+test('removing another owner\'s team calls the commissioner endpoint after confirming', async () => {
   const withOtherTeam = leagueResponse();
   withOtherTeam.data.teams.push({ id: 2, name: "Bob's Team", owner: 'bob', roster_count: 0, total_points: 0 });
   mockGetByUrl({
@@ -431,17 +512,41 @@ test('removing another owner\'s team calls the commissioner endpoint', async () 
     '/standings': standingsResponse(),
   });
   apiClient.delete.mockResolvedValue({});
-  renderDashboard();
+  renderDashboardWithToasts();
   await screen.findByText('Sunday Ballers');
 
-  // Own team has no remove button; Bob's does
+  // Own team has no remove control; Bob's does
   expect(screen.queryByRole('button', { name: "Remove Alice's Team" })).not.toBeInTheDocument();
   await userEvent.click(screen.getByRole('button', { name: "Remove Bob's Team" }));
+
+  // A severe confirmation dialog guards the destructive action
+  expect(await screen.findByText("Remove Bob's Team?")).toBeInTheDocument();
+  expect(apiClient.delete).not.toHaveBeenCalled();
+  await userEvent.click(screen.getByRole('button', { name: 'Remove Team' }));
 
   await waitFor(() =>
     expect(apiClient.delete).toHaveBeenCalledWith('/api/commissioner/league/1/teams/2')
   );
   expect(await screen.findByText('Team removed')).toBeInTheDocument();
+});
+
+test('cancelling the remove-team dialog does not call the API', async () => {
+  const withOtherTeam = leagueResponse();
+  withOtherTeam.data.teams.push({ id: 2, name: "Bob's Team", owner: 'bob', roster_count: 0, total_points: 0 });
+  mockGetByUrl({
+    '/api/league/1': withOtherTeam,
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
+  renderDashboardWithToasts();
+  await screen.findByText('Sunday Ballers');
+
+  await userEvent.click(screen.getByRole('button', { name: "Remove Bob's Team" }));
+  expect(await screen.findByText("Remove Bob's Team?")).toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+  expect(screen.queryByText("Remove Bob's Team?")).not.toBeInTheDocument();
+  expect(apiClient.delete).not.toHaveBeenCalled();
 });
 
 // --- Best ball chip ---
@@ -583,7 +688,7 @@ test('does not show the join-request queue for a non-owner even on a public appr
   expect(apiClient.get.mock.calls.some(([url]) => url.includes('/join-requests'))).toBe(false);
 });
 
-test('renders the League Chat panel at the bottom of the page', async () => {
+test('League Chat lives in a collapsible drawer, opened via a floating action button', async () => {
   mockGetByUrl({
     '/api/league/1': leagueResponse(),
     '/api/user': userResponse(),
@@ -593,8 +698,12 @@ test('renders the League Chat panel at the bottom of the page', async () => {
   renderDashboard();
   await screen.findByText('Sunday Ballers');
 
+  const openChatButton = screen.getByRole('button', { name: 'Open league chat' });
   expect(await screen.findByText('League Chat')).toBeInTheDocument();
   expect(screen.getByText('No messages yet')).toBeInTheDocument();
+
+  await userEvent.click(openChatButton);
+  expect(await screen.findByRole('button', { name: 'Close chat' })).toBeInTheDocument();
 });
 
 // --- Recap / Trophy Case / Draft Grades / History integration ---
@@ -686,7 +795,7 @@ test('Start New Season appears only when the season is complete and POSTs the ro
     '/standings': standingsResponse({ league: { season_status: 'complete' } }),
   });
   apiClient.post.mockResolvedValue({});
-  renderDashboard();
+  renderDashboardWithToasts();
   await screen.findByText('Sunday Ballers');
 
   await userEvent.click(screen.getByRole('button', { name: 'Start New Season' }));

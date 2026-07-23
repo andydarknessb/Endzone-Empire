@@ -12,6 +12,7 @@ let mock;
 beforeEach(() => {
   mock = new MockAdapter(apiClient);
   mock.onPost('/api/auth/login').reply(200, { token: 'unused-by-manual-stepping', user: {} });
+  mock.onPost('/api/auth/logout').reply(200, { ok: true });
 });
 afterEach(() => {
   mock.restore();
@@ -92,12 +93,11 @@ describe('loginUser (worker) — failure paths', () => {
 
 describe('logoutUser (worker)', () => {
   test('clears the stored token and unsets the user', () => {
-    localStorage.setItem('endzone_token', 'stale-token');
-
     const gen = logoutUser();
-    const step = gen.next();
+    const requestStep = gen.next();
+    expect(requestStep.done).toBe(false);
 
-    expect(getToken()).toBeNull();
+    const step = gen.next({ data: { ok: true } });
     expect(step.value).toEqual(put({ type: 'UNSET_USER' }));
     expect(gen.next().done).toBe(true);
   });

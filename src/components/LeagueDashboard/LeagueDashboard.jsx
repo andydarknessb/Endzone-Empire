@@ -13,23 +13,90 @@ import {
   Button,
   Chip,
   Alert,
-  CircularProgress,
+  Skeleton,
   Box,
   Tooltip,
-  TextField,
+  Card,
+  CardActionArea,
+  Drawer,
+  Fab,
+  IconButton,
 } from '@mui/material';
+import Grid from '@mui/material/Unstable_Grid2';
+import GroupsIcon from '@mui/icons-material/Groups';
+import AssignmentIcon from '@mui/icons-material/Assignment';
+import LiveTvIcon from '@mui/icons-material/LiveTv';
+import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
+import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
+import TimelineIcon from '@mui/icons-material/Timeline';
+import TrendingUpIcon from '@mui/icons-material/TrendingUp';
+import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
+import LocalFireDepartmentIcon from '@mui/icons-material/LocalFireDepartment';
+import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
+import CloseIcon from '@mui/icons-material/Close';
+import SettingsIcon from '@mui/icons-material/Settings';
 import apiClient from '../../api/apiClient';
+import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../lib/teamProfileEvents';
+import { useSnackbar } from '../Snackbar/SnackbarProvider';
+import TeamAvatar from '../common/TeamAvatar';
 import ChatPanel from '../ChatPanel/ChatPanel';
 import RecapCard from '../RecapCard/RecapCard';
 import TrophyCase from '../TrophyCase/TrophyCase';
 import DraftGradesCard from '../DraftGradesCard/DraftGradesCard';
 import Countdown from '../Countdown/Countdown';
+import CommissionerTools from './CommissionerTools';
+import AbbreviationTooltip from '../common/AbbreviationTooltip';
+import { deriveLeaguePhase, LEAGUE_PHASE } from '../../lib/leaguePhase';
 
 const SEASON_STATUS_CHIP = {
   regular: { label: 'Regular Season', color: 'default' },
   playoffs: { label: 'Playoffs', color: 'warning' },
   complete: { label: 'Season Complete', color: 'success' },
 };
+
+// League navigation, grouped by intent so the dashboard reads as sections
+// rather than a flat wall of buttons. `weight` drives the card's visual
+// emphasis: 'primary' cards (the most common day-to-day actions) get a
+// tinted, filled treatment; 'default' cards stay outlined.
+const NAV_GROUPS = [
+  {
+    label: 'Play',
+    links: [
+      { label: 'Draft Room', slug: 'draft', icon: GroupsIcon },
+      { label: 'Set Lineup', slug: 'lineup', icon: AssignmentIcon },
+      { label: 'Game Center', slug: 'game-center', icon: LiveTvIcon },
+    ],
+  },
+  {
+    label: 'Moves',
+    links: [
+      { label: 'Waivers', slug: 'waivers', icon: SwapHorizIcon },
+      { label: 'Trades', slug: 'trades', icon: CompareArrowsIcon },
+    ],
+  },
+  {
+    label: 'League',
+    links: [
+      { label: 'Activity', slug: 'activity', icon: TimelineIcon },
+      { label: 'Power Rankings', slug: 'power-rankings', icon: TrendingUpIcon },
+      { label: 'History', slug: 'history', icon: EmojiEventsIcon },
+      { label: 'Draft Settings', slug: 'draft-settings', icon: SettingsIcon, ownerOnly: true },
+    ],
+  },
+];
+
+// Streak chip styling: green for a win streak, red for a loss streak, and a
+// flame once a win streak reaches 3+ games.
+function streakChipProps(streak) {
+  if (!streak || streak === '—') return { color: 'default', icon: undefined };
+  const result = streak[0];
+  const length = Number(streak.slice(1)) || 0;
+  if (result === 'W') {
+    return { color: 'success', icon: length >= 3 ? <LocalFireDepartmentIcon /> : undefined };
+  }
+  if (result === 'L') return { color: 'error', icon: undefined };
+  return { color: 'default', icon: undefined };
+}
 
 function LeagueDashboard() {
   const { leagueId } = useParams();
@@ -40,54 +107,33 @@ function LeagueDashboard() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [successMessage, setSuccessMessage] = useState(null);
-  const [joinRequests, setJoinRequests] = useState([]);
-  const [sizeMin, setSizeMin] = useState('');
-  const [sizeMax, setSizeMax] = useState('');
+  const notify = useSnackbar();
+  const [chatOpen, setChatOpen] = useState(false);
 
   useEffect(() => {
     fetchLeagueAndUser();
+    // Refresh only when the route changes; league state controls spinner behavior.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leagueId]);
 
-  // Commissioner-only join-request queue: only relevant for public leagues
-  // that require approval, and only once we know the viewer is the owner.
-  useEffect(() => {
-    if (league && user && league.is_public && league.join_approval && user.id === league.owner_id) {
-      fetchJoinRequests();
-    }
-  }, [league, user]);
-
-  const fetchJoinRequests = async () => {
-    try {
-      const res = await apiClient.get(`/api/league/${leagueId}/join-requests`);
-      setJoinRequests(Array.isArray(res.data) ? res.data : []);
-    } catch (err) {
-      // The queue is supplementary to the main dashboard — fail silently.
-      setJoinRequests([]);
-    }
-  };
-
-  const handleDecideJoinRequest = async (requestId, approve) => {
-    try {
-      setError(null);
-      setSuccessMessage(null);
-      await apiClient.post(`/api/league/${leagueId}/join-requests/${requestId}/decide`, { approve });
-      setJoinRequests((prev) => prev.filter((r) => r.id !== requestId));
-      setSuccessMessage(approve ? 'Join request approved' : 'Join request denied');
-    } catch (err) {
-      setError(err.response?.data?.error || err.message);
-    }
-  };
+  useEffect(() => subscribeToTeamProfileUpdates((update) => {
+    if (Number(update.leagueId) !== Number(leagueId)) return;
+    setTeams((prev) => prev.map((team) => applyTeamProfileUpdate(team, update, {
+      id: 'id', avatarUrl: 'avatar_url', avatarStaticUrl: 'avatar_static_url',
+    })));
+    setStandings((prev) => prev.map((team) => applyTeamProfileUpdate(team, update)));
+  }), [leagueId]);
 
   const fetchLeagueAndUser = async () => {
     try {
-      setLoading(true);
+      // Only show the full-page spinner on the first load — a background
+      // refresh (e.g. after a Commissioner Tools action) shouldn't unmount
+      // the dashboard and lose the selected tab / in-progress form state.
+      if (!league) setLoading(true);
       setError(null);
       const leagueRes = await apiClient.get(`/api/league/${leagueId}`);
       setLeague(leagueRes.data.league);
       setTeams(leagueRes.data.teams);
-      if (leagueRes.data.league.min_teams != null) setSizeMin(leagueRes.data.league.min_teams);
-      if (leagueRes.data.league.max_teams != null) setSizeMax(leagueRes.data.league.max_teams);
 
       const userRes = await apiClient.get('/api/user');
       setUser(userRes.data);
@@ -114,73 +160,20 @@ function LeagueDashboard() {
   const handleStartDraft = async () => {
     try {
       setError(null);
-      setSuccessMessage(null);
       await apiClient.post(`/api/league/${leagueId}/start-draft`);
-      setSuccessMessage('Draft started successfully!');
+      notify('Draft started successfully!');
       fetchLeagueAndUser();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
-    }
-  };
-
-  const handleSaveLimits = async () => {
-    try {
-      setError(null);
-      setSuccessMessage(null);
-      await apiClient.put(`/api/league/${leagueId}`, {
-        minTeams: Number(sizeMin),
-        maxTeams: Number(sizeMax),
-      });
-      setSuccessMessage('Team limits updated');
-      fetchLeagueAndUser();
-    } catch (err) {
-      setError(err.response?.data?.error || err.message);
+      notify(err.response?.data?.error || err.message, { severity: 'error' });
     }
   };
 
   const handleAdvanceWeek = async () => {
     try {
       setError(null);
-      setSuccessMessage(null);
       await apiClient.post(`/api/scoring/league/${leagueId}/advance-week`);
-      setSuccessMessage('Week advanced!');
-      fetchLeagueAndUser();
-    } catch (err) {
-      setError(err.response?.data?.error || err.message);
-    }
-  };
-
-  const handleToggleTransactionsLock = async () => {
-    try {
-      setError(null);
-      setSuccessMessage(null);
-      const locked = !league.transactions_locked;
-      await apiClient.put(`/api/commissioner/league/${leagueId}/transactions-lock`, { locked });
-      setSuccessMessage(locked ? 'Transactions locked' : 'Transactions unlocked');
-      fetchLeagueAndUser();
-    } catch (err) {
-      setError(err.response?.data?.error || err.message);
-    }
-  };
-
-  const handleRemoveTeam = async (teamId) => {
-    try {
-      setError(null);
-      setSuccessMessage(null);
-      await apiClient.delete(`/api/commissioner/league/${leagueId}/teams/${teamId}`);
-      setSuccessMessage('Team removed');
-      fetchLeagueAndUser();
-    } catch (err) {
-      setError(err.response?.data?.error || err.message);
-    }
-  };
-
-  const handleRollover = async () => {
-    try {
-      setError(null);
-      setSuccessMessage(null);
-      await apiClient.post(`/api/commissioner/league/${leagueId}/rollover`, {});
-      setSuccessMessage('New season started!');
+      notify('Week advanced!');
       fetchLeagueAndUser();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
@@ -190,17 +183,39 @@ function LeagueDashboard() {
   const handleCopyInviteCode = async () => {
     try {
       await navigator.clipboard.writeText(league.invite_code);
-      setSuccessMessage('Invite code copied to clipboard!');
-      setTimeout(() => setSuccessMessage(null), 3000);
+      notify('Invite code copied to clipboard!');
     } catch (err) {
       setError('Failed to copy invite code');
+      notify('Failed to copy invite code', { severity: 'error' });
+    }
+  };
+
+  // A full shareable link that drops the recipient on the join form with the
+  // code pre-filled. HashRouter keeps the route + query behind the '#'.
+  const inviteLink = () =>
+    `${window.location.origin}/#/league/join?code=${encodeURIComponent(league.invite_code)}`;
+
+  const handleCopyInviteLink = async () => {
+    try {
+      await navigator.clipboard.writeText(inviteLink());
+      notify('Invite link copied');
+    } catch (err) {
+      notify('Failed to copy invite link', { severity: 'error' });
     }
   };
 
   if (loading) {
+    // Layout-shaped skeleton that mirrors the real dashboard: title + status
+    // chips, then the Standings heading and table.
     return (
-      <Container sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-        <CircularProgress />
+      <Container maxWidth="lg" sx={{ py: 4 }} data-testid="page-skeleton">
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+          <Skeleton variant="text" width={220} height={48} />
+          <Skeleton variant="rounded" width={90} height={32} />
+          <Skeleton variant="rounded" width={120} height={32} />
+        </Box>
+        <Skeleton variant="text" width={140} height={32} sx={{ mb: 2 }} />
+        <Skeleton variant="rectangular" height={260} sx={{ borderRadius: 1 }} />
       </Container>
     );
   }
@@ -217,6 +232,20 @@ function LeagueDashboard() {
   // Below the configured minimum, the draft can't start yet (min_teams may be
   // absent in older data — treat that as no gate).
   const belowMin = league.min_teams != null && teams.length < league.min_teams;
+  const auctionUnsupported = league.draft_type === 'auction';
+  const leaguePhase = deriveLeaguePhase({
+    ...league,
+    season_status: standingsLeague?.season_status || league.season_status,
+  });
+  const primarySlugs = new Set(
+    leaguePhase === LEAGUE_PHASE.PRE_DRAFT || leaguePhase === LEAGUE_PHASE.DRAFTING
+      ? ['draft']
+      : leaguePhase === LEAGUE_PHASE.COMPLETE
+        ? ['history']
+        : leaguePhase === LEAGUE_PHASE.PLAYOFFS
+          ? ['lineup', 'game-center']
+          : ['lineup', 'game-center', 'waivers']
+  );
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
@@ -225,12 +254,6 @@ function LeagueDashboard() {
           {error}
         </Alert>
       )}
-      {successMessage && (
-        <Alert severity="success" sx={{ mb: 2 }}>
-          {successMessage}
-        </Alert>
-      )}
-
       <RecapCard leagueId={leagueId} />
 
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
@@ -281,7 +304,10 @@ function LeagueDashboard() {
               <strong>Invite code:</strong> {league.invite_code}
             </Typography>
             <Button variant="outlined" size="small" onClick={handleCopyInviteCode}>
-              Copy
+              Copy code
+            </Button>
+            <Button variant="contained" size="small" onClick={handleCopyInviteLink}>
+              Copy invite link
             </Button>
           </Box>
         </Paper>
@@ -290,46 +316,60 @@ function LeagueDashboard() {
       <Typography variant="h6" sx={{ mb: 2 }}>
         Standings
       </Typography>
-      <TableContainer component={Paper} sx={{ mb: 3 }}>
-        <Table>
+      <TableContainer component={Paper} sx={{ mb: 3, maxWidth: '100%', overflowX: 'auto' }}>
+        <Table sx={{ minWidth: 680 }}>
           <TableHead>
-            <TableRow sx={{ bgcolor: 'primary.main' }}>
-              <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>Rank</TableCell>
-              <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>Team</TableCell>
-              <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>Owner</TableCell>
-              <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }} align="right">
-                W-L-T
-              </TableCell>
-              <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }} align="right">
-                PF
-              </TableCell>
-              <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }} align="right">
-                PA
-              </TableCell>
-              <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }} align="right">
-                Streak
-              </TableCell>
+            <TableRow
+              sx={{
+                bgcolor: 'background.default',
+                '& .MuiTableCell-root': {
+                  color: 'text.primary',
+                  fontWeight: 700,
+                  borderBottom: '2px solid',
+                  borderBottomColor: 'divider',
+                },
+              }}
+            >
+              <TableCell>Rank</TableCell>
+              <TableCell>Team</TableCell>
+              <TableCell>Owner</TableCell>
+              <TableCell align="right">W-L-T</TableCell>
+              <TableCell align="right"><AbbreviationTooltip term="PF" /></TableCell>
+              <TableCell align="right"><AbbreviationTooltip term="PA" /></TableCell>
+              <TableCell align="right">Streak</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {standings.map((team) => (
-              <TableRow key={team.teamId}>
-                <TableCell>{team.rank}</TableCell>
-                <TableCell>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    {team.name}
-                    {team.playoffSeed != null && (
-                      <Chip label={`#${team.playoffSeed}`} size="small" color="success" />
+            {standings.map((team) => {
+              const { color: streakColor, icon: streakIcon } = streakChipProps(team.streak);
+              return (
+                <TableRow key={team.teamId}>
+                  <TableCell>{team.rank}</TableCell>
+                  <TableCell>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <TeamAvatar
+                        name={team.name}
+                        avatarUrl={team.avatarUrl}
+                        avatarStaticUrl={team.avatarStaticUrl}
+                        size={28}
+                      />
+                      {team.name}
+                    </Box>
+                  </TableCell>
+                  <TableCell>{team.owner}</TableCell>
+                  <TableCell align="right">{`${team.wins}-${team.losses}-${team.ties}`}</TableCell>
+                  <TableCell align="right">{team.pf}</TableCell>
+                  <TableCell align="right">{team.pa}</TableCell>
+                  <TableCell align="right">
+                    {team.streak && team.streak !== '—' ? (
+                      <Chip label={team.streak} size="small" color={streakColor} icon={streakIcon} />
+                    ) : (
+                      team.streak
                     )}
-                  </Box>
-                </TableCell>
-                <TableCell>{team.owner}</TableCell>
-                <TableCell align="right">{`${team.wins}-${team.losses}-${team.ties}`}</TableCell>
-                <TableCell align="right">{team.pf}</TableCell>
-                <TableCell align="right">{team.pa}</TableCell>
-                <TableCell align="right">{team.streak}</TableCell>
-              </TableRow>
-            ))}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
       </TableContainer>
@@ -343,189 +383,160 @@ function LeagueDashboard() {
         </Box>
       </Box>
 
-      <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-        {isOwner && league.draft_status === 'pending' && (
-          <Tooltip
-            title={
-              belowMin
-                ? `Need at least ${league.min_teams} teams to start the draft (currently ${teams.length})`
-                : ''
-            }
-          >
-            <span>
-              <Button
-                variant="contained"
-                color="primary"
-                onClick={handleStartDraft}
-                disabled={belowMin}
-              >
-                Start Draft
-              </Button>
-            </span>
-          </Tooltip>
-        )}
-        {isOwner &&
+      {/* Contextual actions: only shown when they apply */}
+      {((isOwner && league.draft_status === 'pending') ||
+        (isOwner &&
           league.draft_status === 'complete' &&
           standingsLeague &&
-          standingsLeague.season_status !== 'complete' && (
-            <Button variant="contained" color="secondary" onClick={handleAdvanceWeek}>
-              Advance Week
-            </Button>
-          )}
-        <Link to={`/league/${leagueId}/draft`} style={{ textDecoration: 'none' }}>
-          <Button variant="outlined" color="primary">
-            Draft Room
-          </Button>
-        </Link>
-        <Link to={`/league/${leagueId}/matchups`} style={{ textDecoration: 'none' }}>
-          <Button variant="outlined" color="primary">
-            Matchups
-          </Button>
-        </Link>
-        <Link to={`/league/${leagueId}/lineup`} style={{ textDecoration: 'none' }}>
-          <Button variant="outlined" color="primary">
-            Set Lineup
-          </Button>
-        </Link>
-        <Link to={`/league/${leagueId}/waivers`} style={{ textDecoration: 'none' }}>
-          <Button variant="outlined" color="primary">
-            Waivers
-          </Button>
-        </Link>
-        <Link to={`/league/${leagueId}/trades`} style={{ textDecoration: 'none' }}>
-          <Button variant="outlined" color="primary">
-            Trades
-          </Button>
-        </Link>
-        <Link to={`/league/${leagueId}/activity`} style={{ textDecoration: 'none' }}>
-          <Button variant="outlined" color="primary">
-            Activity
-          </Button>
-        </Link>
-        <Link to={`/league/${leagueId}/power-rankings`} style={{ textDecoration: 'none' }}>
-          <Button variant="outlined" color="primary">
-            Power Rankings
-          </Button>
-        </Link>
-        <Link to={`/league/${leagueId}/history`} style={{ textDecoration: 'none' }}>
-          <Button variant="outlined" color="primary">
-            History
-          </Button>
-        </Link>
-      </Box>
-
-      {isOwner && (
-        <Paper sx={{ p: 2, mt: 3 }}>
-          <Typography variant="h6" sx={{ mb: 2 }}>
-            Commissioner Tools
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
-            <Button variant="outlined" color="warning" onClick={handleToggleTransactionsLock}>
-              {league.transactions_locked ? 'Unlock Transactions' : 'Lock Transactions'}
-            </Button>
-            {standingsLeague && standingsLeague.season_status === 'complete' && (
-              <Button variant="contained" color="secondary" onClick={handleRollover}>
-                Start New Season
-              </Button>
-            )}
-          </Box>
-
-          {league.draft_status === 'pending' && (
-            <Box sx={{ mt: 2 }}>
-              <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                Team limits (editable until the draft starts)
-              </Typography>
-              <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-                <TextField
-                  label="Min teams"
-                  type="number"
-                  size="small"
-                  inputProps={{ min: 2, max: 20 }}
-                  value={sizeMin}
-                  onChange={(e) => setSizeMin(e.target.value)}
-                  sx={{ width: 130 }}
-                />
-                <TextField
-                  label="Max teams"
-                  type="number"
-                  size="small"
-                  inputProps={{ min: 2, max: 20 }}
-                  value={sizeMax}
-                  onChange={(e) => setSizeMax(e.target.value)}
-                  sx={{ width: 130 }}
-                />
-                <Button variant="outlined" onClick={handleSaveLimits}>
-                  Save Limits
-                </Button>
-              </Box>
-            </Box>
-          )}
-          <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
-            Remove a team
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-            {teams
-              .filter((team) => team.owner !== user.username)
-              .map((team) => (
-                <Button
-                  key={team.id}
-                  size="small"
-                  variant="outlined"
-                  color="error"
-                  onClick={() => handleRemoveTeam(team.id)}
-                >
-                  Remove {team.name}
-                </Button>
-              ))}
-          </Box>
-
-          {league.is_public && league.join_approval && (
-            <Box sx={{ mt: 3 }} data-testid="join-requests-section">
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                <Typography variant="subtitle2">Join Requests</Typography>
-                <Chip size="small" label={joinRequests.length} color={joinRequests.length > 0 ? 'primary' : 'default'} />
-              </Box>
-              {joinRequests.length === 0 ? (
-                <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                  No pending join requests
+          standingsLeague.season_status !== 'complete')) && (
+        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 3 }}>
+          {isOwner && league.draft_status === 'pending' && (
+            <Box>
+              <Tooltip
+                title={
+                  belowMin
+                    ? `Need at least ${league.min_teams} teams to start the draft (currently ${teams.length})`
+                    : auctionUnsupported
+                    ? 'Salary-cap auctions are not supported yet'
+                    : ''
+                }
+              >
+                <span>
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    onClick={handleStartDraft}
+                    disabled={belowMin || auctionUnsupported}
+                  >
+                    Start Draft
+                  </Button>
+                </span>
+              </Tooltip>
+              {belowMin && (
+                <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'text.secondary' }}>
+                  Requires a minimum of {league.min_teams} teams to start the draft.
                 </Typography>
-              ) : (
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                  {joinRequests.map((request) => (
-                    <Box
-                      key={request.id}
-                      sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}
-                    >
-                      <Typography sx={{ flexGrow: 1 }}>
-                        {request.username} — {request.team_name} —{' '}
-                        {new Date(request.created_at).toLocaleString()}
-                      </Typography>
-                      <Button
-                        size="small"
-                        variant="contained"
-                        color="success"
-                        onClick={() => handleDecideJoinRequest(request.id, true)}
-                      >
-                        Approve
-                      </Button>
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        color="error"
-                        onClick={() => handleDecideJoinRequest(request.id, false)}
-                      >
-                        Deny
-                      </Button>
-                    </Box>
-                  ))}
-                </Box>
+              )}
+              {auctionUnsupported && !belowMin && (
+                <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'text.secondary' }}>
+                  Live salary-cap auctions are not supported yet.
+                </Typography>
               )}
             </Box>
           )}
-        </Paper>
+          {isOwner &&
+            league.draft_status === 'complete' &&
+            standingsLeague &&
+            standingsLeague.season_status !== 'complete' && (
+              <Button variant="contained" color="secondary" onClick={handleAdvanceWeek}>
+                Advance Week
+              </Button>
+            )}
+        </Box>
       )}
 
-      <ChatPanel leagueId={leagueId} />
+      {/* Grouped league navigation, as rich cards rather than a wall of
+          identical outlined buttons. */}
+      <Box sx={{ mb: 3 }}>
+        {NAV_GROUPS.map((group) => (
+          <Box key={group.label} sx={{ mb: 2 }}>
+            <Typography
+              variant="overline"
+              sx={{ color: 'text.secondary', display: 'block', mb: 1 }}
+            >
+              {group.label}
+            </Typography>
+            <Grid container spacing={1.5}>
+              {group.links.filter((l) => !l.ownerOnly || isOwner).map((l) => {
+                const Icon = l.icon;
+                const primary = primarySlugs.has(l.slug);
+                return (
+                  <Grid xs={6} sm={3} key={l.slug}>
+                    <Card
+                      variant={primary ? 'elevation' : 'outlined'}
+                      elevation={primary ? 1 : 0}
+                      sx={{
+                        height: '100%',
+                        bgcolor: primary ? 'primary.main' : 'background.paper',
+                        color: primary ? 'primary.contrastText' : 'text.primary',
+                      }}
+                    >
+                      <CardActionArea
+                        component={Link}
+                        to={`/league/${leagueId}/${l.slug}`}
+                        aria-label={l.label}
+                        sx={{
+                          height: '100%',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'flex-start',
+                          gap: 1,
+                          p: 2,
+                        }}
+                      >
+                        <Icon fontSize="medium" />
+                        <Typography variant="subtitle2" sx={{ color: 'inherit' }}>
+                          {l.label}
+                        </Typography>
+                        {primary && <Chip label="Recommended" size="small" color="secondary" />}
+                      </CardActionArea>
+                    </Card>
+                  </Grid>
+                );
+              })}
+            </Grid>
+          </Box>
+        ))}
+      </Box>
+
+      {isOwner && (
+        <CommissionerTools
+          leagueId={leagueId}
+          league={league}
+          teams={teams}
+          user={user}
+          standingsLeague={standingsLeague}
+          onRefresh={fetchLeagueAndUser}
+        />
+      )}
+
+      <Fab
+        color="primary"
+        onClick={() => setChatOpen(true)}
+        sx={{ position: 'fixed', bottom: 24, right: 24 }}
+        aria-label="Open league chat"
+      >
+        <ChatBubbleOutlineIcon />
+      </Fab>
+      <Drawer
+        anchor="right"
+        variant="persistent"
+        open={chatOpen}
+        sx={{
+          '& .MuiDrawer-paper': {
+            width: { xs: '100vw', sm: 380 },
+            boxSizing: 'border-box',
+          },
+        }}
+      >
+        <Box
+          sx={{
+            width: '100%',
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', p: 1 }}>
+            <IconButton onClick={() => setChatOpen(false)} aria-label="Close chat">
+              <CloseIcon />
+            </IconButton>
+          </Box>
+          <Box sx={{ flex: 1, overflowY: 'auto', px: 1 }}>
+            <ChatPanel leagueId={leagueId} />
+          </Box>
+        </Box>
+      </Drawer>
     </Container>
   );
 }

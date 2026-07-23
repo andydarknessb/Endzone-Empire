@@ -18,6 +18,8 @@ function ChatPanel({ leagueId }) {
 
   useEffect(() => {
     fetchHistory();
+    // fetchHistory closes over leagueId, which is the explicit trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leagueId]);
 
   useEffect(() => {
@@ -42,6 +44,8 @@ function ChatPanel({ leagueId }) {
       socketRef.current.disconnect();
       socketRef.current = null;
     };
+    // Rebuild the socket only when the league room changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leagueId]);
 
   const handleSend = () => {

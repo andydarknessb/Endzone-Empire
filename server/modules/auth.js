@@ -11,10 +11,24 @@ function getSecret() {
   return process.env.JWT_SECRET;
 }
 
-function signToken(user) {
-  return jwt.sign({ sub: user.id, username: user.username }, getSecret(), {
+function signToken(user, { authenticatedAt } = {}) {
+  const parsedAuthTime = authenticatedAt
+    ? Math.floor(new Date(authenticatedAt).getTime() / 1000)
+    : Math.floor(Date.now() / 1000);
+  if (!Number.isFinite(parsedAuthTime)) {
+    throw new Error('authenticatedAt must be a valid date');
+  }
+  return jwt.sign(
+    {
+      sub: user.id,
+      username: user.username,
+      auth_time: parsedAuthTime,
+    },
+    getSecret(),
+    {
     expiresIn: TOKEN_TTL,
-  });
+    }
+  );
 }
 
 /** Express middleware: requires a valid `Authorization: Bearer <jwt>` header. */
@@ -26,11 +40,32 @@ function requireAuth(req, res, next) {
   }
   try {
     const payload = jwt.verify(token, getSecret());
-    req.user = { id: payload.sub, username: payload.username };
+    req.user = {
+      id: payload.sub,
+      username: payload.username,
+      authenticatedAt: payload.auth_time,
+    };
     next();
   } catch (err) {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
+}
+
+function requireRecentAuth(maxAgeSeconds = 10 * 60) {
+  return (req, res, next) => {
+    const authenticatedAt = Number(req.user?.authenticatedAt);
+    if (
+      !authenticatedAt ||
+      Math.floor(Date.now() / 1000) - authenticatedAt > maxAgeSeconds
+    ) {
+      return res.status(401).json({
+        code: 'RECENT_AUTH_REQUIRED',
+        message: 'Sign in again before performing this action',
+        requestId: req.id,
+      });
+    }
+    next();
+  };
 }
 
 /**
@@ -71,6 +106,7 @@ function requireSocketAuth(socket, next) {
 module.exports = {
   signToken,
   requireAuth,
+  requireRecentAuth,
   requireSocketAuth,
   isPlatformAdmin,
   requirePlatformAdmin,

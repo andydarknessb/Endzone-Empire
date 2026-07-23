@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title description">
+  <title id="title">Endzone Empire</title>
+  <desc id="description">Endzone Empire wordmark over a blue and green brand gradient.</desc>
+  <defs>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0f1419"/>
+      <stop offset="0.48" stop-color="#1e5bb8"/>
+      <stop offset="1" stop-color="#1b7d4f"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="40%" r="70%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#brand)"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+  <path d="M0 105H1200M0 525H1200M150 0V630M1050 0V630" fill="none" stroke="#ffffff" stroke-opacity="0.12" stroke-width="3"/>
+  <path d="M600 0V630" fill="none" stroke="#ffffff" stroke-opacity="0.18" stroke-width="5" stroke-dasharray="20 18"/>
+  <text x="600" y="285" text-anchor="middle" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="94" font-weight="800" letter-spacing="4">ENDZONE EMPIRE</text>
+  <text x="600" y="365" text-anchor="middle" fill="#ffffff" fill-opacity="0.9" font-family="Arial, Helvetica, sans-serif" font-size="34" font-weight="600" letter-spacing="3">BUILD YOUR DYNASTY</text>
+  <path d="M535 430C552 402 579 388 600 388C621 388 648 402 665 430C648 458 621 472 600 472C579 472 552 458 535 430Z" fill="none" stroke="#ffffff" stroke-width="7"/>
+  <path d="M600 392V468M575 415H625M572 430H628M575 445H625" stroke="#ffffff" stroke-width="6" stroke-linecap="round"/>
+</svg>

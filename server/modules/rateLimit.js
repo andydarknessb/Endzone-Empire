@@ -1,12 +1,7 @@
 /**
- * In-house sliding-window rate limiter (no npm dependency).
- *
- * Why: a couple of endpoints (auth in particular) need brute-force / abuse
- * protection, but pulling in a package like express-rate-limit for a single
- * in-process app is overkill. The window state lives in a plain Map keyed
- * by caller; expired hits are pruned lazily (only when that key is touched
- * again) rather than on a background timer, keeping this dependency-free
- * and simple to reason about.
+ * Redis-backed fixed-window limiter in production. Tests and local development
+ * retain a small process-local sliding-window fallback so they do not require
+ * external infrastructure; production fails closed when Redis is unavailable.
  */
 
 /**
@@ -54,13 +49,42 @@ function createRateLimiter({ windowMs, max, keyFn } = {}) {
   const store = new Map();
   const getKey = keyFn || ((req) => req.user?.id ?? req.ip);
 
-  return function rateLimitMiddleware(req, res, next) {
+  return async function rateLimitMiddleware(req, res, next) {
     const key = String(getKey(req));
     const now = Date.now();
-    const { allowed, retryAfterMs } = hit(store, key, now, windowMs, max);
+    let allowed;
+    let retryAfterMs;
+    let remaining;
+    try {
+      const { getRedisClient } = require('./redis');
+      const redis = await getRedisClient();
+      if (redis) {
+        const bucket = Math.floor(now / windowMs);
+        const redisKey = `rate-limit:${req.baseUrl || 'api'}:${req.path}:${key}:${bucket}`;
+        const count = await redis.incr(redisKey);
+        if (count === 1) await redis.pExpire(redisKey, windowMs);
+        const ttl = Math.max(await redis.pTTL(redisKey), 0);
+        allowed = count <= max;
+        retryAfterMs = allowed ? 0 : ttl;
+        remaining = Math.max(max - count, 0);
+      } else {
+        ({ allowed, retryAfterMs } = hit(store, key, now, windowMs, max));
+        remaining = allowed ? Math.max(max - (store.get(key)?.length || 0), 0) : 0;
+      }
+    } catch (error) {
+      if (process.env.NODE_ENV === 'production') return next(error);
+      ({ allowed, retryAfterMs } = hit(store, key, now, windowMs, max));
+      remaining = allowed ? Math.max(max - (store.get(key)?.length || 0), 0) : 0;
+    }
+    res.set('RateLimit-Limit', String(max));
+    res.set('RateLimit-Remaining', String(remaining));
     if (!allowed) {
       res.set('Retry-After', String(Math.ceil(retryAfterMs / 1000)));
-      return res.status(429).json({ error: 'too many requests' });
+      return res.status(429).json({
+        code: 'RATE_LIMITED',
+        message: 'Too many requests',
+        requestId: req.id,
+      });
     }
     next();
   };

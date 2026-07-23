@@ -5,7 +5,7 @@ import LandingPage from './LandingPage';
 
 test('renders the Welcome heading and the marketing copy', () => {
   renderWithProviders(<LandingPage />);
-  expect(screen.getByRole('heading', { name: 'Welcome' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: 'Welcome to Endzone Empire' })).toBeInTheDocument();
   expect(screen.getByText(/turns armchair quarterbacks into legendary/i)).toBeInTheDocument();
 });
 
@@ -36,4 +36,13 @@ test('renders the feature grid covering the core product areas', () => {
   ].forEach((title) => {
     expect(screen.getByRole('heading', { name: title })).toBeInTheDocument();
   });
+});
+
+test('the bottom CTA links to the registration page', () => {
+  renderWithProviders(<LandingPage />);
+  expect(screen.getByRole('heading', { name: /ready to build your dynasty/i })).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Create Your League Now' })).toHaveAttribute(
+    'href',
+    '/registration'
+  );
 });

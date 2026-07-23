@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
+import { useParams, Link as RouterLink } from 'react-router-dom';
 import {
   Container,
   Paper,
@@ -25,33 +25,72 @@ import {
   InputLabel,
   TextField,
   TableSortLabel,
+  Tooltip,
+  Stack,
 } from '@mui/material';
+import SearchIcon from '@mui/icons-material/Search';
+import PersonAddDisabledIcon from '@mui/icons-material/PersonAddDisabled';
 import apiClient from '../../api/apiClient';
+import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
+import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
+import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
+import WaiverClaimItem from './WaiverClaimItem';
+import { useSnackbar } from '../Snackbar/SnackbarProvider';
+import { formatRelative } from '../../utils/formatRelative';
 
-function statusColor(status) {
-  if (status === 'won') return 'success';
-  if (status === 'lost' || status === 'invalid') return 'error';
-  return 'default'; // pending, cancelled
+// Mirrors DraftBoard's sticky-action-column pattern, but this table has no
+// zebra striping to inherit an opaque background from, so both the header and
+// cell pin against an explicit background.paper.
+const stickyActionHeadSx = {
+  position: 'sticky',
+  right: 0,
+  bgcolor: 'background.paper',
+  fontWeight: 'bold',
+  zIndex: 3,
+};
+const stickyActionCellSx = { position: 'sticky', right: 0, bgcolor: 'background.paper', zIndex: 1 };
+
+// Worst-projection-first so the natural cut order comes first; roster entries
+// without a weekly projection sort after ones that have it and fall back to
+// server order (position, name) among themselves.
+function sortRosterForDrop(roster) {
+  const projectionOf = (p) => (
+    p.projected_weekly_points != null ? Number(p.projected_weekly_points) : null
+  );
+  return [...roster].sort((a, b) => {
+    const av = projectionOf(a);
+    const bv = projectionOf(b);
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    return av - bv;
+  });
 }
 
 function WaiverWire() {
   const { leagueId } = useParams();
+  const notify = useSnackbar();
   const [data, setData] = useState(null);
   const [roster, setRoster] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [successMessage, setSuccessMessage] = useState(null);
 
   const [claimPlayer, setClaimPlayer] = useState(null);
   const [dropPlayerId, setDropPlayerId] = useState('');
-  const [bid, setBid] = useState(0);
+  const [bid, setBid] = useState('');
 
   const [suggestions, setSuggestions] = useState([]);
   const [sortByUpgrade, setSortByUpgrade] = useState(false);
   const [sortDir, setSortDir] = useState('desc');
+  const [quickViewId, setQuickViewId] = useState(null);
+  // Once the user manually touches the Upgrade sort, stop auto-defaulting it
+  // on every suggestions refresh.
+  const manualSortRef = useRef(false);
 
   useEffect(() => {
     fetchAll();
+    // fetchAll closes over leagueId, which is the explicit trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leagueId]);
 
   const fetchAll = async () => {
@@ -90,9 +129,18 @@ function WaiverWire() {
     }
   };
 
+  // Default to the upgrade-desc sort once suggestions are available, but only
+  // until the user manually touches the sort control themselves.
+  useEffect(() => {
+    if (suggestions.length > 0 && !manualSortRef.current) {
+      setSortByUpgrade(true);
+    }
+  }, [suggestions]);
+
   const upgradeByPlayerId = new Map(suggestions.map((s) => [s.playerId, s.upgradeDelta]));
 
   const handleSortUpgrade = () => {
+    manualSortRef.current = true;
     if (!sortByUpgrade) {
       setSortByUpgrade(true);
       setSortDir('desc');
@@ -112,13 +160,24 @@ function WaiverWire() {
 
   const isFaab = data?.league?.waiver_type === 'faab';
   const isBestBall = !!data?.league?.best_ball;
+  const faabRemaining = data?.myTeam?.faab_remaining ?? 0;
+  const sortedRosterForDrop = sortRosterForDrop(roster);
+
+  const bidIsValidNumber = bid !== '' && !Number.isNaN(Number(bid));
+  const bidInvalid =
+    isFaab && (!bidIsValidNumber || Number(bid) < 0 || Number(bid) > faabRemaining);
 
   const handleOpenClaim = (player) => {
     setError(null);
-    setSuccessMessage(null);
     setClaimPlayer(player);
-    setDropPlayerId('');
-    setBid(0);
+    // If a waiver suggestion pairs this pickup with a specific bench player
+    // to cut, preselect it — otherwise leave the drop select on "No drop".
+    const suggestion = suggestions.find((s) => s.playerId === player.id);
+    const suggestedDropId = suggestion?.dropPlayerId;
+    const suggestedDropOnRoster =
+      suggestedDropId != null && roster.some((p) => p.id === suggestedDropId);
+    setDropPlayerId(suggestedDropOnRoster ? suggestedDropId : '');
+    setBid('');
   };
 
   const handleCloseClaim = () => {
@@ -134,11 +193,12 @@ function WaiverWire() {
         dropPlayerId: dropPlayerId === '' ? null : Number(dropPlayerId),
         bid: isFaab ? Number(bid) : 0,
       });
-      setSuccessMessage('Claim submitted');
+      notify('Waiver claim submitted');
       setClaimPlayer(null);
       await fetchAll();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
+      notify(err.response?.data?.error || err.message, { severity: 'error' });
     }
   };
 
@@ -146,10 +206,11 @@ function WaiverWire() {
     try {
       setError(null);
       await apiClient.delete(`/api/waivers/claim/${claim.id}?leagueId=${leagueId}`);
-      setSuccessMessage('Claim cancelled');
+      notify('Waiver claim cancelled', { severity: 'info' });
       await fetchAll();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
+      notify(err.response?.data?.error || err.message, { severity: 'error' });
     }
   };
 
@@ -170,14 +231,10 @@ function WaiverWire() {
 
   return (
     <Container maxWidth="md" sx={{ py: 4 }}>
+      <LeagueBreadcrumb />
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {error}
-        </Alert>
-      )}
-      {successMessage && (
-        <Alert severity="success" sx={{ mb: 2 }}>
-          {successMessage}
         </Alert>
       )}
 
@@ -188,7 +245,13 @@ function WaiverWire() {
             {isFaab ? (
               <Chip label={`FAAB remaining: $${data.myTeam.faab_remaining}`} />
             ) : (
-              <Chip label={`Waiver priority: #${data.myTeam.waiver_priority}`} />
+              <Chip
+                label={
+                  data.myTeam.waiver_priority != null
+                    ? `Waiver priority: #${data.myTeam.waiver_priority}`
+                    : 'Waiver priority: TBD'
+                }
+              />
             )}
           </Box>
 
@@ -197,15 +260,29 @@ function WaiverWire() {
               On Waivers
             </Typography>
             {data.onWaivers.length === 0 ? (
-              <Typography sx={{ color: 'text.secondary' }}>No players on waivers</Typography>
+              <Box
+                sx={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  textAlign: 'center',
+                  py: 6,
+                }}
+              >
+                <SearchIcon sx={{ fontSize: 48, mb: 1, color: 'text.disabled' }} />
+                <Typography sx={{ color: 'text.secondary', mb: 2 }}>No players on waivers</Typography>
+                <Button component={RouterLink} to="/player?hide=1" variant="outlined">
+                  Browse Players
+                </Button>
+              </Box>
             ) : (
               <TableContainer>
-                <Table>
+                <Table size="small">
                   <TableHead>
                     <TableRow>
                       <TableCell>Name</TableCell>
                       <TableCell>Position</TableCell>
-                      <TableCell>NFL Team</TableCell>
+                      <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>NFL Team</TableCell>
                       <TableCell>Clears</TableCell>
                       {!isBestBall && (
                         <TableCell align="center">
@@ -218,7 +295,9 @@ function WaiverWire() {
                           </TableSortLabel>
                         </TableCell>
                       )}
-                      <TableCell align="center">Action</TableCell>
+                      <TableCell align="center" sx={stickyActionHeadSx}>
+                        Action
+                      </TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -226,10 +305,18 @@ function WaiverWire() {
                       const delta = upgradeByPlayerId.get(player.id);
                       return (
                         <TableRow key={player.id}>
-                          <TableCell>{player.name}</TableCell>
+                          <TableCell>
+                            <PlayerNameLink name={player.name} playerId={player.id} onOpen={setQuickViewId} />
+                          </TableCell>
                           <TableCell>{player.position}</TableCell>
-                          <TableCell>{player.nfl_team}</TableCell>
-                          <TableCell>{new Date(player.available_at).toLocaleString()}</TableCell>
+                          <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
+                            {player.nfl_team}
+                          </TableCell>
+                          <TableCell>
+                            <Tooltip title={new Date(player.available_at).toLocaleString()}>
+                              <span>{formatRelative(player.available_at)}</span>
+                            </Tooltip>
+                          </TableCell>
                           {!isBestBall && (
                             <TableCell align="center">
                               {delta != null && (
@@ -241,7 +328,7 @@ function WaiverWire() {
                               )}
                             </TableCell>
                           )}
-                          <TableCell align="center">
+                          <TableCell align="center" sx={stickyActionCellSx}>
                             <Button
                               variant="contained"
                               size="small"
@@ -264,52 +351,41 @@ function WaiverWire() {
               My Claims
             </Typography>
             {data.myClaims.length === 0 ? (
-              <Typography sx={{ color: 'text.secondary' }}>No claims yet</Typography>
+              <Box
+                sx={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  textAlign: 'center',
+                  py: 6,
+                }}
+              >
+                <PersonAddDisabledIcon sx={{ fontSize: 48, mb: 1, color: 'text.disabled' }} />
+                <Typography sx={{ color: 'text.secondary' }}>No claims yet</Typography>
+              </Box>
             ) : (
-              <TableContainer>
-                <Table>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Player</TableCell>
-                      <TableCell>Status</TableCell>
-                      {isFaab && <TableCell>Bid</TableCell>}
-                      <TableCell align="center">Action</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {data.myClaims.map((claim) => (
-                      <TableRow key={claim.id}>
-                        <TableCell>
-                          <Typography variant="body2">{claim.player_name}</Typography>
-                          {claim.note && (
-                            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                              {claim.note}
-                            </Typography>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Chip label={claim.status} size="small" color={statusColor(claim.status)} />
-                        </TableCell>
-                        {isFaab && <TableCell>${claim.bid}</TableCell>}
-                        <TableCell align="center">
-                          {claim.status === 'pending' && (
-                            <Button size="small" onClick={() => handleCancelClaim(claim)}>
-                              Cancel
-                            </Button>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
+              <Stack spacing={1.5}>
+                {data.myClaims.map((claim) => (
+                  <WaiverClaimItem
+                    key={claim.id}
+                    claim={claim}
+                    isFaab={isFaab}
+                    onCancel={handleCancelClaim}
+                  />
+                ))}
+              </Stack>
             )}
           </Paper>
         </>
       )}
 
       <Dialog open={!!claimPlayer} onClose={handleCloseClaim}>
-        <DialogTitle>Claim {claimPlayer?.name}</DialogTitle>
+        <DialogTitle>
+          Claim{' '}
+          {claimPlayer && (
+            <PlayerNameLink name={claimPlayer.name} playerId={claimPlayer.id} onOpen={setQuickViewId} />
+          )}
+        </DialogTitle>
         <DialogContent>
           <FormControl fullWidth sx={{ mt: 1, minWidth: 250 }}>
             <InputLabel id="drop-player-select-label">Drop a player (optional)</InputLabel>
@@ -321,9 +397,14 @@ function WaiverWire() {
               onChange={(e) => setDropPlayerId(e.target.value)}
             >
               <MenuItem value="">No drop</MenuItem>
-              {roster.map((p) => (
+              {sortedRosterForDrop.map((p) => (
                 <MenuItem key={p.id} value={p.id}>
                   {p.name} ({p.position})
+                  {p.projected_weekly_points != null && (
+                    <Typography component="span" variant="caption" sx={{ color: 'text.secondary', ml: 1 }}>
+                      weekly proj {p.projected_weekly_points}
+                    </Typography>
+                  )}
                 </MenuItem>
               ))}
             </Select>
@@ -336,16 +417,30 @@ function WaiverWire() {
               sx={{ mt: 2 }}
               value={bid}
               onChange={(e) => setBid(e.target.value)}
+              error={bidInvalid}
+              helperText={
+                bidInvalid
+                  ? `Enter a bid between $0 and $${faabRemaining}`
+                  : `$${faabRemaining} remaining`
+              }
+              inputProps={{ min: 0, max: faabRemaining }}
             />
           )}
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseClaim}>Cancel</Button>
-          <Button variant="contained" onClick={handleSubmitClaim}>
+          <Button variant="contained" onClick={handleSubmitClaim} disabled={bidInvalid}>
             Submit Claim
           </Button>
         </DialogActions>
       </Dialog>
+
+      <PlayerQuickView
+        open={quickViewId != null}
+        onClose={() => setQuickViewId(null)}
+        playerId={quickViewId}
+        leagueId={Number(leagueId)}
+      />
     </Container>
   );
 }

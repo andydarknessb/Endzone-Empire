@@ -50,15 +50,29 @@ test('renders the league list with teams, scoring chip, best ball chip, and draf
   renderScreen();
 
   expect(await screen.findByText('Sunday Ballers')).toBeInTheDocument();
-  expect(screen.getByText('8/10')).toBeInTheDocument();
+  expect(screen.getByText(/8\/10 teams · 2 slots open/)).toBeInTheDocument();
   expect(screen.getByText('PPR')).toBeInTheDocument();
   expect(screen.getByText('Best Ball')).toBeInTheDocument();
-  expect(screen.getByText(new Date('2026-09-04T13:00:00.000Z').toLocaleString())).toBeInTheDocument();
+  expect(screen.getByText(`Draft: ${new Date('2026-09-04T13:00:00.000Z').toLocaleString()}`)).toBeInTheDocument();
+  expect(screen.getByText('1 public league found')).toBeInTheDocument();
 });
 
-test('shows an empty state when no leagues match', async () => {
+test('shows a create-league CTA when there are no public leagues and no filters', async () => {
   apiClient.get.mockResolvedValue({ data: [] });
   renderScreen();
+
+  expect(await screen.findByText(/no public leagues yet/i)).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: /create a league/i })).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: /invite friends/i })).toBeInTheDocument();
+});
+
+test('blames the filters only when a search is active and nothing matches', async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+  renderScreen();
+
+  const searchBox = await screen.findByLabelText('Search');
+  await userEvent.type(searchBox, 'zzz');
+  await userEvent.click(screen.getByRole('button', { name: 'Search' }));
 
   expect(await screen.findByText(/no leagues match your filters/i)).toBeInTheDocument();
 });

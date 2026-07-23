@@ -1,8 +1,6 @@
 import { put, takeLatest } from 'redux-saga/effects';
 import apiClient, {
   setToken,
-  setRefreshToken,
-  getRefreshToken,
   clearToken,
 } from '../../api/apiClient';
 
@@ -16,7 +14,6 @@ export function* loginUser(action) {
     // Persist both tokens; the access JWT rides every request, the refresh
     // token silently renews it when it expires (~15 min)
     setToken(response.data.token);
-    if (response.data.refreshToken) setRefreshToken(response.data.refreshToken);
 
     // A fresh login may be a different account on this device — drop any
     // offline-cached league data from the previous session.
@@ -38,20 +35,16 @@ export function* loginUser(action) {
 // worker Saga: fired on "LOGOUT" actions — also revokes the refresh session
 // server-side so the token family can't be replayed later
 export function* logoutUser() {
-  const refreshToken = getRefreshToken();
   clearToken();
   // Drop offline-cached league data so a different user on this device
   // can't see the previous account's cached responses.
   if (typeof caches !== 'undefined') {
     caches.delete('api-cache-v1').catch(() => {});
   }
-  if (refreshToken) {
-    try {
-      yield apiClient.post('/api/auth/logout', { refreshToken });
-    } catch (error) {
-      // Best effort: local logout already happened
-      console.log('Server-side logout failed:', error);
-    }
+  try {
+    yield apiClient.post('/api/auth/logout');
+  } catch (error) {
+    // Best effort: the in-memory access token is already gone.
   }
   yield put({ type: 'UNSET_USER' });
 }

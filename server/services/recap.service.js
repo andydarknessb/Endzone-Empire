@@ -106,13 +106,12 @@ function templateNarrative(facts) {
  * @anthropic-ai/sdk dependency; returns null on any failure so the caller
  * falls back to the template.
  */
-async function llmNarrative(facts) {
-  if (!process.env.ANTHROPIC_API_KEY) return null;
+async function llmNarrative(facts, { client: suppliedClient } = {}) {
+  if (!suppliedClient && !process.env.ANTHROPIC_API_KEY) return null;
   try {
     // Optional dependency — only required when the key is actually configured
     // eslint-disable-next-line global-require
-    const Anthropic = require('@anthropic-ai/sdk');
-    const client = new Anthropic();
+    const client = suppliedClient || new (require('@anthropic-ai/sdk'))();
     const response = await client.messages.create({
       model: 'claude-opus-4-8',
       max_tokens: 1024,

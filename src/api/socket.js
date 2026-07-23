@@ -1,8 +1,9 @@
 import { io } from 'socket.io-client';
-import { getToken, getRefreshToken, refreshTokens } from './apiClient';
+import { getToken, refreshTokens } from './apiClient';
+import { getSocketOrigin } from './origins';
 
 export function createDraftSocket() {
-  const socket = io('/', {
+  const socket = io(getSocketOrigin(), {
     // A callback (rather than a frozen object) so socket.io re-invokes it on
     // every reconnection attempt, picking up a rotated JWT (access tokens
     // auto-refresh roughly every 15 min) instead of replaying a stale one.
@@ -19,7 +20,7 @@ export function createDraftSocket() {
   // server rejects the handshake as unauthorized, refresh via REST — the next
   // reconnection attempt then reads the fresh token through the auth callback.
   socket.on('connect_error', (err) => {
-    if (String(err && err.message).includes('unauthorized') && getRefreshToken()) {
+    if (String(err && err.message).includes('unauthorized')) {
       refreshTokens().catch(() => {});
     }
   });

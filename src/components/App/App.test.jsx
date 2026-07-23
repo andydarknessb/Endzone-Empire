@@ -4,6 +4,7 @@ import { Provider } from 'react-redux';
 import configureMockStore from 'redux-mock-store';
 import App from './App';
 import apiClient from '../../api/apiClient';
+import publicApiClient from '../../api/publicApiClient';
 import { createDraftSocket } from '../../api/socket';
 
 // App's routes mount real page components (LeagueManagement, UserPage,
@@ -15,6 +16,10 @@ jest.mock('../../api/apiClient', () => ({
   __esModule: true,
   default: { get: jest.fn(), post: jest.fn(), delete: jest.fn(), put: jest.fn() },
 }));
+jest.mock('../../api/publicApiClient', () => ({
+  __esModule: true,
+  default: { get: jest.fn() },
+}));
 jest.mock('../../api/socket', () => ({
   createDraftSocket: jest.fn(),
   onReconnect: jest.fn((socket, handler) => socket.io.on('reconnect', handler)),
@@ -25,6 +30,7 @@ const mockStore = configureMockStore([]);
 function renderApp(hash, state = {}, configureApi) {
   window.location.hash = hash;
   apiClient.get.mockResolvedValue({ data: [] });
+  publicApiClient.get.mockResolvedValue({ data: { rankings: [] } });
   createDraftSocket.mockReturnValue({
     on: jest.fn(),
     io: { on: jest.fn() },
@@ -50,7 +56,7 @@ const loggedIn = { id: 1, username: 'alice' };
 
 test('"/" redirects to "/home", showing the Landing page when logged out', async () => {
   renderApp('#/', { user: loggedOut });
-  expect(await screen.findByRole('heading', { name: 'Welcome' })).toBeInTheDocument();
+  expect(await screen.findByRole('heading', { name: 'Welcome to Endzone Empire' })).toBeInTheDocument();
 });
 
 test('"/home" redirects to "/user" when already logged in', async () => {
@@ -129,7 +135,7 @@ test('"/team" is protected: LoginPage when logged out, TeamManagement when logge
   unmount();
 
   renderApp('#/team', { user: loggedIn });
-  expect(await screen.findByRole('heading', { name: 'Team Management' })).toBeInTheDocument();
+  expect(await screen.findByRole('heading', { name: 'My Team' })).toBeInTheDocument();
 });
 
 test('"/player" is protected: LoginPage when logged out, PlayerManagement when logged in', async () => {
@@ -138,7 +144,10 @@ test('"/player" is protected: LoginPage when logged out, PlayerManagement when l
   unmount();
 
   renderApp('#/player', { user: loggedIn }, () => {
-    apiClient.get.mockResolvedValue({ data: { players: [], totalPages: 1 } });
+    apiClient.get.mockImplementation((url) => {
+      if (url === '/api/league') return Promise.resolve({ data: [] });
+      return Promise.resolve({ data: { players: [], totalPages: 1 } });
+    });
   });
   expect(await screen.findByRole('heading', { name: 'My Roster' })).toBeInTheDocument();
 });
@@ -161,21 +170,12 @@ test('"/league/:leagueId" is protected: LoginPage when logged out, LeagueDashboa
   expect(await screen.findByText('Sunday Ballers')).toBeInTheDocument();
 });
 
-test('"/league/:leagueId/matchups" is protected and renders MatchupScreen when logged in', async () => {
-  const { unmount } = renderApp('#/league/1/matchups', { user: loggedOut });
-  expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();
-  unmount();
-
+test('"/league/:leagueId/matchups" no longer resolves — the standalone Matchups page was removed', async () => {
   renderApp('#/league/1/matchups', { user: loggedIn }, () => {
-    apiClient.get.mockImplementation((url) => {
-      if (url === '/api/league/1') {
-        return Promise.resolve({ data: { league: { id: 1, name: 'Sunday Ballers', owner_id: 99 } } });
-      }
-      if (url === '/api/user') return Promise.resolve({ data: { id: 1, username: 'alice' } });
-      return Promise.resolve({ data: [] });
-    });
+    apiClient.get.mockResolvedValue({ data: [] });
   });
-  expect(await screen.findByText(/Matchups/)).toBeInTheDocument();
+  // Falls through to the 404 fallback rather than rendering a matchups page.
+  expect(await screen.findByRole('heading', { name: '404' })).toBeInTheDocument();
 });
 
 test('"/league/:leagueId/lineup" is protected and renders LineupScreen when logged in', async () => {
@@ -187,7 +187,16 @@ test('"/league/:leagueId/lineup" is protected and renders LineupScreen when logg
     apiClient.get.mockResolvedValue({
       data: {
         leagueId: 1, teamId: 10, season: 2026, week: 1, currentWeek: 1,
-        lineupSlots: { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DEF: 1 },
+        rosterSlots: [
+          { key: 'QB', count: 1, eligiblePositions: ['QB'] },
+          { key: 'RB', count: 2, eligiblePositions: ['RB'] },
+          { key: 'WR', count: 2, eligiblePositions: ['WR'] },
+          { key: 'TE', count: 1, eligiblePositions: ['TE'] },
+          { key: 'FLEX', count: 1, eligiblePositions: ['RB', 'WR', 'TE'] },
+          { key: 'K', count: 1, eligiblePositions: ['K'] },
+          { key: 'DEF', count: 1, eligiblePositions: ['DEF'] },
+        ],
+        benchSlots: 5,
         irSlots: 1,
         entries: [],
       },
@@ -284,26 +293,32 @@ test('"/league/:leagueId/activity" is protected and renders TransactionLog when 
   expect(await screen.findByText('League Activity')).toBeInTheDocument();
 });
 
-test('"/players/:playerId" is protected and renders PlayerDetail when logged in', async () => {
+test('"/players/:playerId" is protected and renders the format-aware profile when logged in', async () => {
   const { unmount } = renderApp('#/players/5', { user: loggedOut });
   expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();
   unmount();
 
   renderApp('#/players/5', { user: loggedIn }, () => {
     apiClient.get.mockImplementation((url) => {
-      if (url === '/api/players/5') {
+      if (url === '/api/public/players/5') {
         return Promise.resolve({
           data: {
-            player: { id: 5, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'KC' },
-            weekly: [],
-            seasonTotals: null,
+            playerId: 5,
+            name: 'Patrick Mahomes',
+            position: 'QB',
+            nflTeam: 'KC',
+            season: 2026,
+            seasons: [{ season: 2026, status: 'pending' }],
+            seasonSummary: null,
+            weeklyLogPartial: false,
+            recentGames: [],
           },
         });
       }
       return Promise.resolve({ data: [] });
     });
   });
-  expect(await screen.findByText('Patrick Mahomes')).toBeInTheDocument();
+  expect(await screen.findByRole('heading', { name: 'Patrick Mahomes' })).toBeInTheDocument();
 });
 
 test('"/league/:leagueId/history" is protected and renders LeagueHistory when logged in', async () => {
@@ -367,7 +382,7 @@ test('an unmatched route shows the 404 page', async () => {
 test('always renders the Nav and Footer around the routed page', async () => {
   renderApp('#/about', { user: loggedOut });
   expect(await screen.findByRole('link', { name: 'Endzone Empire' })).toBeInTheDocument();
-  expect(screen.getByText('© Endzone Empire')).toBeInTheDocument();
+  expect(screen.getByRole('contentinfo')).toHaveTextContent('© Endzone Empire');
 });
 
 test('dispatches FETCH_USER on mount', () => {

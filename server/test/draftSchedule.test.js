@@ -52,3 +52,14 @@ test('sends the 24h reminder once, then waits for the 1h window', () => {
 test('no reminder yet when the draft is more than a day out', () => {
   assert.equal(scheduledDraftAction({ ...base, draft_date: at(48 * HOUR) }, 8, NOW), null);
 });
+
+test('a scheduled auction draft flags instead of starting, and only once', () => {
+  assert.equal(
+    scheduledDraftAction({ ...base, draft_date: at(-60000), draft_type: 'auction' }, 8, NOW),
+    'auction_unsupported'
+  );
+  assert.equal(
+    scheduledDraftAction({ ...base, draft_date: at(-60000), draft_type: 'auction', draft_autostart_failed: true }, 8, NOW),
+    null
+  );
+});

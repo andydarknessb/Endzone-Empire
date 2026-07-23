@@ -27,10 +27,10 @@ describe('userSaga (watcher)', () => {
 describe('fetchUser (worker)', () => {
   afterEach(() => clearToken());
 
-  test('does nothing when no token is stored (never calls the API)', () => {
+  test('attempts session restoration when no access token is in memory', () => {
     clearToken();
     const gen = fetchUser();
-    expect(gen.next().done).toBe(true);
+    expect(gen.next().done).toBe(false);
   });
 
   test('fetches and sets the user when a token is present', () => {

@@ -1,0 +1,178 @@
+{
+  "league": {
+    "id": 8801,
+    "currentSeason": 2026,
+    "currentWeek": 10,
+    "regularSeasonWeeks": 14,
+    "managerUserId": 7001
+  },
+  "teams": {
+    "proposer": { "id": 8101, "name": "Team A" },
+    "receiver": { "id": 8102, "name": "Team B" }
+  },
+  "scenarios": {
+    "balanced": {
+      "payload": {
+        "leagueId": 8801,
+        "receivingTeamId": 8102,
+        "offeredPlayerIds": [1001],
+        "requestedPlayerIds": [2001]
+      },
+      "players": [
+        {
+          "id": 1001,
+          "teamId": 8101,
+          "name": "Top Five Running Back",
+          "position": "RB",
+          "seasonTotalPoints": 241.6,
+          "perGameProjection": 21.6,
+          "historicalWeeklyAverage": 20.13,
+          "restOfSeasonValue": 248
+        },
+        {
+          "id": 2001,
+          "teamId": 8102,
+          "name": "Top Five Wide Receiver",
+          "position": "WR",
+          "seasonTotalPoints": 238.9,
+          "perGameProjection": 21.3,
+          "historicalWeeklyAverage": 19.91,
+          "restOfSeasonValue": 246
+        }
+      ],
+      "expected": {
+        "verdict": "fair",
+        "statusBadge": "Even / Fair",
+        "isBlocked": false,
+        "collusionRisk": "LOW",
+        "fairnessMarginPct": 0.81
+      }
+    },
+    "highImbalance": {
+      "payload": {
+        "leagueId": 8801,
+        "receivingTeamId": 8102,
+        "offeredPlayerIds": [1002],
+        "requestedPlayerIds": [2002]
+      },
+      "players": [
+        {
+          "id": 1002,
+          "teamId": 8101,
+          "name": "Elite Quarterback",
+          "position": "QB",
+          "seasonTotalPoints": 344.2,
+          "perGameProjection": 29.8,
+          "historicalWeeklyAverage": 28.68,
+          "restOfSeasonValue": 360
+        },
+        {
+          "id": 2002,
+          "teamId": 8102,
+          "name": "Injured Third String Kicker",
+          "position": "K",
+          "seasonTotalPoints": 11.4,
+          "perGameProjection": 1.1,
+          "historicalWeeklyAverage": 0.95,
+          "restOfSeasonValue": 18
+        }
+      ],
+      "expected": {
+        "verdict": "collusion_risk",
+        "statusBadge": "Highly Imbalanced",
+        "isBlocked": true,
+        "collusionRisk": "HIGH",
+        "fairnessMarginPct": 95
+      }
+    },
+    "multiPlayer": {
+      "payload": {
+        "leagueId": 8801,
+        "receivingTeamId": 8102,
+        "offeredPlayerIds": [1101, 1102, 1103],
+        "requestedPlayerIds": [2101, 2102, 2103]
+      },
+      "players": [
+        {
+          "id": 1101,
+          "teamId": 8101,
+          "name": "Team A Quarterback",
+          "position": "QB",
+          "seasonTotalPoints": 285.25,
+          "perGameProjection": 26.1,
+          "historicalWeeklyAverage": 25.93,
+          "restOfSeasonValue": 305
+        },
+        {
+          "id": 1102,
+          "teamId": 8101,
+          "name": "Team A Wide Receiver",
+          "position": "WR",
+          "seasonTotalPoints": 180.5,
+          "perGameProjection": 16.4,
+          "historicalWeeklyAverage": 16.41,
+          "restOfSeasonValue": 196
+        },
+        {
+          "id": 1103,
+          "teamId": 8101,
+          "name": "Team A Defensive Lineman",
+          "position": "DL",
+          "seasonTotalPoints": 101.75,
+          "perGameProjection": 9.3,
+          "historicalWeeklyAverage": 9.25,
+          "restOfSeasonValue": 112
+        },
+        {
+          "id": 2101,
+          "teamId": 8102,
+          "name": "Team B Quarterback",
+          "position": "QB",
+          "seasonTotalPoints": 279.5,
+          "perGameProjection": 25.6,
+          "historicalWeeklyAverage": 25.41,
+          "restOfSeasonValue": 298
+        },
+        {
+          "id": 2102,
+          "teamId": 8102,
+          "name": "Team B Wide Receiver",
+          "position": "WR",
+          "seasonTotalPoints": 184.25,
+          "perGameProjection": 16.8,
+          "historicalWeeklyAverage": 16.75,
+          "restOfSeasonValue": 202
+        },
+        {
+          "id": 2103,
+          "teamId": 8102,
+          "name": "Team B Defensive Lineman",
+          "position": "DL",
+          "seasonTotalPoints": 99.75,
+          "perGameProjection": 9.1,
+          "historicalWeeklyAverage": 9.07,
+          "restOfSeasonValue": 109
+        }
+      ],
+      "expected": {
+        "verdict": "fair",
+        "statusBadge": "Even / Fair",
+        "isBlocked": false,
+        "collusionRisk": "LOW",
+        "fairnessMarginPct": 0.65,
+        "offeredTotals": {
+          "seasonTotalPoints": 567.5,
+          "perGameProjection": 51.8,
+          "historicalWeeklyAverage": 51.59,
+          "restOfSeasonValue": 613
+        },
+        "requestedTotals": {
+          "seasonTotalPoints": 563.5,
+          "perGameProjection": 51.5,
+          "historicalWeeklyAverage": 51.23,
+          "restOfSeasonValue": 609
+        }
+      }
+    }
+  }
+}

@@ -5,7 +5,7 @@ const { notify } = require('./activity.service');
 /**
  * Trophies: automatic awards written after weekly scoring (and, once the
  * season completes, the season-level set). Awarding is idempotent — the
- * trophies table's UNIQUE(league_id, season, week, type) plus
+ * trophies table's UNIQUE(league_id, season, week, team_id, type) plus
  * ON CONFLICT DO NOTHING means re-running an advance-week (or a stat
  * correction re-triggering the pipeline) never duplicates an award.
  */
@@ -41,7 +41,7 @@ async function award(client, { leagueId, teamId, season, week, type, label, data
   const result = await client.query(
     `INSERT INTO "trophies" ("league_id", "team_id", "season", "week", "type", "label", "data")
      VALUES ($1, $2, $3, $4, $5, $6, $7)
-     ON CONFLICT ("league_id", "season", "week", "type") DO NOTHING
+     ON CONFLICT ("league_id", "season", "week", "team_id", "type") DO NOTHING
      RETURNING "id"`,
     [leagueId, teamId, season, week, type, label, JSON.stringify(data || {})]
   );
@@ -91,14 +91,14 @@ async function awardWeeklyTrophies({ leagueId, season, week }) {
       }
     }
     if (high) {
-      const label = `Week ${week} High Score`;
+      const label = 'Top Scorer';
       if (
         await award(client, {
           leagueId, teamId: high.teamId, season, week,
-          type: 'weekly_high', label, data: { points: high.points },
+          type: 'top_scorer', label, data: { points: high.points },
         })
       ) {
-        awarded.push({ type: 'weekly_high', teamId: high.teamId, label });
+        awarded.push({ type: 'top_scorer', teamId: high.teamId, label });
       }
     }
 
@@ -244,7 +244,7 @@ async function awardWeeklyTrophies({ leagueId, season, week }) {
         label: trophyAwarded.label,
       });
     } catch (err) {
-      console.error(`trophy notification failed (${trophyAwarded.type}):`, err.message);
+      console.error('trophy notification failed (%s):', trophyAwarded.type, err.message);
     }
   }
   return awarded;
@@ -264,10 +264,10 @@ async function getTeamTrophies({ teamId }) {
 /** A league's trophies (optionally one season), newest first. */
 async function getLeagueTrophies({ leagueId, season }) {
   const params = [leagueId];
-  let where = `"league_id" = $1`;
+  let where = `"trophies"."league_id" = $1`;
   if (season != null) {
     params.push(season);
-    where += ` AND "season" = $2`;
+    where += ` AND "trophies"."season" = $2`;
   }
   const result = await pool.query(
     `SELECT "trophies".*, "teams"."name" AS "team_name"

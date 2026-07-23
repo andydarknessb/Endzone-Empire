@@ -1,9 +1,12 @@
 import React from 'react';
-import { screen, act } from '@testing-library/react';
+import { screen, act, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import { createDraftSocket, onReconnect } from '../../api/socket';
 import MatchupDetail from './MatchupDetail';
+import useFantasyMatchupGames from '../../hooks/useFantasyMatchupGames';
+import { useLeague } from '../../hooks/useLeague';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
@@ -13,6 +16,22 @@ jest.mock('../../api/apiClient', () => ({
 jest.mock('../../api/socket', () => ({
   createDraftSocket: jest.fn(),
   onReconnect: jest.fn(),
+}));
+
+jest.mock('../../hooks/useFantasyMatchupGames', () => ({
+  __esModule: true,
+  default: jest.fn(),
+}));
+
+jest.mock('../../hooks/useLeague', () => ({
+  useLeague: jest.fn(),
+}));
+
+// Stubbed so the ticker tests are isolated from useLiveGameRealtime/Supabase —
+// this file only needs to verify MatchupDetail passes the right gameIds.
+jest.mock('../LiveGameStatus/LiveGameStatus', () => ({
+  __esModule: true,
+  default: ({ gameId }) => <div data-testid="live-game-status">{gameId}</div>,
 }));
 
 const renderDetail = (leagueId = 1, matchupId = 9) =>
@@ -50,11 +69,13 @@ const matchupResponse = (overrides = {}) => ({
       teamId: 1,
       name: 'Team A',
       starters: overrides.homeStarters || [starter()],
+      bench: overrides.homeBench || [],
     },
     away: {
       teamId: 2,
       name: 'Team B',
       starters: overrides.awayStarters || [starter({ id: 6, name: 'D. Adams', slot: 'WR', position: 'WR', points: 15.4 })],
+      bench: overrides.awayBench || [],
     },
   },
 });
@@ -66,6 +87,19 @@ let reconnectHandlers;
 beforeEach(() => {
   socketHandlers = {};
   reconnectHandlers = [];
+  useFantasyMatchupGames.mockReturnValue({ realGameIds: [], loading: false, error: null });
+  useLeague.mockReturnValue({
+    league: {
+      id: 1,
+      name: 'Sunday Ballers',
+      draft_status: 'complete',
+      season_status: 'regular',
+      current_season: 2026,
+      current_week: 3,
+    },
+    loading: false,
+    error: null,
+  });
   mockSocket = {
     on: jest.fn((event, cb) => {
       socketHandlers[event] = cb;
@@ -86,10 +120,10 @@ afterEach(() => {
   jest.clearAllMocks();
 });
 
-test('shows a loading spinner before data arrives', () => {
+test('shows a loading skeleton before data arrives', () => {
   apiClient.get.mockReturnValue(new Promise(() => {}));
   renderDetail();
-  expect(screen.getByRole('progressbar')).toBeInTheDocument();
+  expect(screen.getByTestId('page-skeleton')).toBeInTheDocument();
 });
 
 test('renders both teams starters with points and coerced scores', async () => {
@@ -106,6 +140,52 @@ test('renders both teams starters with points and coerced scores', async () => {
   expect(screen.getByText('24.1')).toBeInTheDocument();
   expect(screen.getByText('D. Adams')).toBeInTheDocument();
   expect(screen.getByText('15.4')).toBeInTheDocument();
+});
+
+test('renders a pre-draft matchup as Not started and never LIVE', async () => {
+  useLeague.mockReturnValue({
+    league: {
+      id: 1,
+      name: 'Sunday Ballers',
+      draft_status: 'pending',
+      season_status: 'regular',
+      current_season: 2026,
+      current_week: 1,
+    },
+    loading: false,
+    error: null,
+  });
+  apiClient.get.mockResolvedValue(
+    matchupResponse({ matchup: { week: 1, home_score: '0', away_score: '0' } })
+  );
+
+  renderDetail();
+
+  expect((await screen.findAllByText('Not started')).length).toBeGreaterThan(0);
+  expect(screen.queryByText('LIVE')).not.toBeInTheDocument();
+  expect(screen.queryByRole('img', { name: /Win probability:/i })).not.toBeInTheDocument();
+});
+
+test('renders LIVE for a genuinely in-progress current-week matchup', async () => {
+  apiClient.get.mockResolvedValue(matchupResponse());
+
+  renderDetail();
+
+  expect((await screen.findAllByText('LIVE')).length).toBeGreaterThan(0);
+  expect(screen.queryByText('Not started')).not.toBeInTheDocument();
+});
+
+test('does not render dangling bench what-if copy when the viewer has no roster', async () => {
+  const response = matchupResponse({ homeStarters: [], homeBench: [] });
+  response.data.viewerTeamId = 1;
+  response.data.viewerWhatIf = { delta: 0, swaps: [] };
+  apiClient.get.mockResolvedValue(response);
+
+  renderDetail();
+
+  await screen.findByText('Week 3 Matchup');
+  expect(screen.queryByText('Bench what-if')).not.toBeInTheDocument();
+  expect(screen.queryByText(/Your best legal lineup is in/i)).not.toBeInTheDocument();
 });
 
 test('renders an injury badge for a flagged starter', async () => {
@@ -149,6 +229,26 @@ test('scores:updated for a different matchupId leaves the displayed scores uncha
 
   expect(screen.getByText('101.5')).toBeInTheDocument();
   expect(screen.getByText('88')).toBeInTheDocument();
+});
+
+test('a non-touchdown moment play (e.g. a sack) flashes a retro banner in Scoreboard mode, not a cutscene/toast', async () => {
+  apiClient.get.mockResolvedValue(matchupResponse());
+
+  renderDetail(1, 9);
+  await screen.findByText('P. Mahomes');
+  await userEvent.click(screen.getByRole('button', { name: 'Scoreboard' }));
+
+  act(() => {
+    socketHandlers['scores:updated']({
+      scored: [{ matchupId: 9, homeScore: 101.5, awayScore: 88 }],
+      plays: [{
+        playerId: 5, name: 'P. Mahomes', position: 'QB', nflTeam: 'KC', opponent: 'BUF',
+        type: 'sack', isTouchdown: false, pointsDelta: 0,
+      }],
+    });
+  });
+
+  expect(await screen.findByRole('status')).toHaveTextContent('KC — SACK');
 });
 
 test('shows an error alert when the fetch fails', async () => {
@@ -207,6 +307,46 @@ test('silently skips bench points on a 404/error from the hindsight endpoint', a
   expect(screen.queryByText(/on the bench/)).not.toBeInTheDocument();
 });
 
+test('the Scoreboard toggle swaps the retro view in and switching back restores the standard slot list', async () => {
+  apiClient.get.mockResolvedValue(matchupResponse());
+
+  renderDetail();
+  await screen.findByText('P. Mahomes');
+
+  // In Standard mode, starters are interactive links into PlayerQuickView.
+  expect(screen.getByRole('button', { name: 'P. Mahomes' })).toBeInTheDocument();
+
+  await userEvent.click(screen.getByRole('button', { name: 'Scoreboard' }));
+
+  // Retro view: team names render in both the dot-matrix header and the
+  // field's endzones, the full starting lineup shows (plain text, not the
+  // standard mode's interactive quick-view links), and benches stay hidden
+  // until toggled.
+  expect(screen.getAllByText('TEAM A').length).toBeGreaterThanOrEqual(2);
+  expect(screen.getAllByText('TEAM B').length).toBeGreaterThanOrEqual(2);
+  expect(screen.getByText('P. Mahomes')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'P. Mahomes' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Show Benches' })).toBeInTheDocument();
+
+  await userEvent.click(screen.getByRole('button', { name: 'Standard' }));
+  expect(screen.getByRole('button', { name: 'P. Mahomes' })).toBeInTheDocument();
+  expect(screen.queryByText('TEAM A')).not.toBeInTheDocument();
+});
+
+test('Scoreboard mode\'s Show Benches reveals real bench players from the API', async () => {
+  apiClient.get.mockResolvedValue(
+    matchupResponse({ homeBench: [{ id: 20, name: 'Bench Runner', position: 'RB', points: 3.1 }] })
+  );
+
+  renderDetail();
+  await screen.findByText('P. Mahomes');
+  await userEvent.click(screen.getByRole('button', { name: 'Scoreboard' }));
+
+  expect(screen.queryByText(/Bench Runner/)).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: 'Show Benches' }));
+  expect(screen.getByText(/Bench Runner/)).toBeInTheDocument();
+});
+
 test('joins the league room on mount and disconnects on unmount', async () => {
   apiClient.get.mockResolvedValue(matchupResponse());
 
@@ -220,16 +360,53 @@ test('joins the league room on mount and disconnects on unmount', async () => {
   expect(mockSocket.disconnect).toHaveBeenCalled();
 });
 
-test('re-joins the league room when the manager reconnects', async () => {
+test('re-joins the league room and refetches the matchup when the manager reconnects', async () => {
   apiClient.get.mockResolvedValue(matchupResponse());
 
   renderDetail(42, 9);
   await screen.findByText('Week 3 Matchup');
   mockSocket.emit.mockClear();
+  const callsBeforeReconnect = apiClient.get.mock.calls.length;
 
   act(() => {
     reconnectHandlers.forEach((cb) => cb());
   });
 
   expect(mockSocket.emit).toHaveBeenCalledWith('league:join', { leagueId: 42 });
+  // A dropped connection means missed play deltas never reached the client, so
+  // rows can drift from the authoritative total — reconnect should refetch.
+  await waitFor(() =>
+    expect(apiClient.get.mock.calls.length).toBeGreaterThan(callsBeforeReconnect)
+  );
+  expect(apiClient.get).toHaveBeenCalledWith('/api/league/42/matchups/9');
+  await screen.findByText('Week 3 Matchup');
+});
+
+test('renders a live-game ticker strip when the matchup maps to real NFL games', async () => {
+  useFantasyMatchupGames.mockReturnValue({
+    realGameIds: ['20260910_BUF@KC', '20260913_SF@LAR'],
+    loading: false,
+    error: null,
+  });
+  apiClient.get.mockResolvedValue(matchupResponse());
+
+  renderDetail();
+
+  await screen.findByText('Week 3 Matchup');
+  const games = screen.getAllByTestId('live-game-status');
+  expect(games.map((g) => g.textContent)).toEqual(['20260910_BUF@KC', '20260913_SF@LAR']);
+});
+
+test('does not render the live-game ticker once the matchup is final', async () => {
+  useFantasyMatchupGames.mockReturnValue({
+    realGameIds: ['20260910_BUF@KC'],
+    loading: false,
+    error: null,
+  });
+  apiClient.get.mockResolvedValue(matchupResponse({ matchup: { final: true } }));
+
+  renderDetail();
+
+  await screen.findByText('Week 3 Matchup');
+  expect(screen.queryByTestId('live-game-status')).not.toBeInTheDocument();
 });

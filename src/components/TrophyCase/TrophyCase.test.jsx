@@ -36,6 +36,17 @@ const trophies = [
     data: {},
     awarded_at: '2025-12-30T00:00:00.000Z',
   },
+  {
+    id: 3,
+    type: 'closest_game',
+    label: 'Closest Game',
+    week: 4,
+    season: 2026,
+    team_id: 12,
+    team_name: 'Cardiac Comebacks',
+    data: { margin: 0.01 },
+    awarded_at: '2026-07-01T00:00:00.000Z',
+  },
 ];
 
 test('renders trophies with team names, defaulting to the current (latest) season', async () => {
@@ -46,6 +57,8 @@ test('renders trophies with team names, defaulting to the current (latest) seaso
   expect(await screen.findByTestId('trophy-case')).toBeInTheDocument();
   expect(screen.getByText(/Weekly High Score/)).toBeInTheDocument();
   expect(screen.getByText(/Sunday Ballers/)).toBeInTheDocument();
+  expect(screen.getByText(/Closest Game/)).toBeInTheDocument();
+  expect(screen.getByText(/Cardiac Comebacks/)).toBeInTheDocument();
   // 2025's champion trophy should not show by default since 2026 is the latest season
   expect(screen.queryByText(/League Champion/)).not.toBeInTheDocument();
 });

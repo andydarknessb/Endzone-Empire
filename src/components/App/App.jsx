@@ -1,12 +1,15 @@
-import React, { useEffect } from 'react';
+import React, { lazy, Suspense, useEffect } from 'react';
 import {
   HashRouter as Router,
   Navigate,
   Route,
   Routes,
+  useLocation,
 } from 'react-router-dom';
 
 import { useDispatch, useSelector } from 'react-redux';
+import Box from '@mui/material/Box';
+import CircularProgress from '@mui/material/CircularProgress';
 
 import Nav from '../Nav/Nav';
 import Footer from '../Footer/Footer';
@@ -19,33 +22,51 @@ import InfoPage from '../InfoPage/InfoPage';
 import LandingPage from '../LandingPage/LandingPage';
 import LoginPage from '../LoginPage/LoginPage';
 import RegisterPage from '../RegisterPage/RegisterPage';
-
-import LeagueManagement from '../LeagueManagement/LeagueManagement';
-import LeagueDiscovery from '../LeagueDiscovery/LeagueDiscovery';
-import TeamManagement from '../TeamManagement/TeamManagement';
-import PlayerManagement from '../PlayerManagement/PlayerManagement';
-import LeagueDashboard from '../LeagueDashboard/LeagueDashboard';
-import MatchupScreen from '../MatchupScreen/MatchupScreen';
-import MatchupDetail from '../MatchupDetail/MatchupDetail';
-import DraftBoard from '../DraftBoard/DraftBoard';
-import LineupScreen from '../LineupScreen/LineupScreen';
-import WaiverWire from '../WaiverWire/WaiverWire';
-import TradeCenter from '../TradeCenter/TradeCenter';
-import TransactionLog from '../TransactionLog/TransactionLog';
-import PowerRankings from '../PowerRankings/PowerRankings';
-import LeagueHistory from '../LeagueHistory/LeagueHistory';
-import NotificationPrefs from '../NotificationPrefs/NotificationPrefs';
-import PlayerDetail from '../PlayerDetail/PlayerDetail';
-import AdminDashboard from '../AdminDashboard/AdminDashboard';
 import ForgotPassword from '../ForgotPassword/ForgotPassword';
 import ResetPassword from '../ResetPassword/ResetPassword';
 import VerifyEmail from '../VerifyEmail/VerifyEmail';
 import AppThemeProvider from '../../theme/AppThemeProvider';
 import OfflineBanner from '../OfflineBanner/OfflineBanner';
 import NotFound from '../NotFound/NotFound';
-
+import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
+import NavigationGuard from '../NavigationGuard/NavigationGuard';
 
 import './App.css';
+
+const LeagueManagement = lazy(() => import('../LeagueManagement/LeagueManagement'));
+const LeagueDiscovery = lazy(() => import('../LeagueDiscovery/LeagueDiscovery'));
+const TeamManagement = lazy(() => import('../TeamManagement/TeamManagement'));
+const PlayerManagement = lazy(() => import('../PlayerManagement/PlayerManagement'));
+const LeagueDashboard = lazy(() => import('../LeagueDashboard/LeagueDashboard'));
+const MatchupDetail = lazy(() => import('../MatchupDetail/MatchupDetail'));
+const GameCenter = lazy(() => import('../GameCenter/GameCenter'));
+const DraftBoard = lazy(() => import('../DraftBoard/DraftBoard'));
+const DraftSettings = lazy(() => import('../DraftSettings/DraftSettings'));
+const DraftPresenter = lazy(() => import('../DraftPresenter/DraftPresenter'));
+const LineupScreen = lazy(() => import('../LineupScreen/LineupScreen'));
+const WaiverWire = lazy(() => import('../WaiverWire/WaiverWire'));
+const TradeCenter = lazy(() => import('../TradeCenter/TradeCenter'));
+const TransactionLog = lazy(() => import('../TransactionLog/TransactionLog'));
+const PowerRankings = lazy(() => import('../PowerRankings/PowerRankings'));
+const LeagueHistory = lazy(() => import('../LeagueHistory/LeagueHistory'));
+const NotificationPrefs = lazy(() => import('../NotificationPrefs/NotificationPrefs'));
+const AuthenticatedPlayerProfilePage = lazy(() => import('../PlayerDetail/AuthenticatedPlayerProfilePage'));
+const AdminDashboard = lazy(() => import('../AdminDashboard/AdminDashboard'));
+
+function AppLayout({ children }) {
+  const { pathname } = useLocation();
+  const isPresenter = pathname.startsWith('/present/');
+
+  return (
+    <Box sx={isPresenter ? { minHeight: '100vh' } : { display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+      {!isPresenter && <Nav />}
+      <Box sx={isPresenter ? undefined : { flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+        {children}
+      </Box>
+      {!isPresenter && <Footer />}
+    </Box>
+  );
+}
 
 function App() {
   const dispatch = useDispatch();
@@ -58,19 +79,30 @@ function App() {
 
   return (
     <AppThemeProvider>
+    <SnackbarProvider>
     <OfflineBanner />
     <Router>
-      <div>
-        <Nav />
+      <NavigationGuard>
+      <AppLayout>
+        <Suspense
+          fallback={(
+            <Box role="status" aria-label="Loading page" sx={{ py: 8, textAlign: 'center' }}>
+              <CircularProgress />
+            </Box>
+          )}
+        >
         <Routes>
+          <Route path="/present/:token" element={<DraftPresenter />} />
           <Route path="/league" element={<ProtectedRoute><LeagueManagement /></ProtectedRoute>} />
+          <Route path="/league/join" element={<ProtectedRoute><LeagueManagement /></ProtectedRoute>} />
           <Route path="/discover" element={<ProtectedRoute><LeagueDiscovery /></ProtectedRoute>} />
           <Route path="/team" element={<ProtectedRoute><TeamManagement /></ProtectedRoute>} />
           <Route path="/player" element={<ProtectedRoute><PlayerManagement /></ProtectedRoute>} />
           <Route path="/league/:leagueId" element={<ProtectedRoute><LeagueDashboard /></ProtectedRoute>} />
-          <Route path="/league/:leagueId/matchups" element={<ProtectedRoute><MatchupScreen /></ProtectedRoute>} />
           <Route path="/league/:leagueId/matchups/:matchupId" element={<ProtectedRoute><MatchupDetail /></ProtectedRoute>} />
+          <Route path="/league/:leagueId/game-center" element={<ProtectedRoute><GameCenter /></ProtectedRoute>} />
           <Route path="/league/:leagueId/draft" element={<ProtectedRoute><DraftBoard /></ProtectedRoute>} />
+          <Route path="/league/:leagueId/draft-settings" element={<ProtectedRoute><DraftSettings /></ProtectedRoute>} />
           <Route path="/league/:leagueId/lineup" element={<ProtectedRoute><LineupScreen /></ProtectedRoute>} />
           <Route path="/league/:leagueId/waivers" element={<ProtectedRoute><WaiverWire /></ProtectedRoute>} />
           <Route path="/league/:leagueId/trades" element={<ProtectedRoute><TradeCenter /></ProtectedRoute>} />
@@ -78,7 +110,7 @@ function App() {
           <Route path="/league/:leagueId/power-rankings" element={<ProtectedRoute><PowerRankings /></ProtectedRoute>} />
           <Route path="/league/:leagueId/history" element={<ProtectedRoute><LeagueHistory /></ProtectedRoute>} />
           <Route path="/settings/notifications" element={<ProtectedRoute><NotificationPrefs /></ProtectedRoute>} />
-          <Route path="/players/:playerId" element={<ProtectedRoute><PlayerDetail /></ProtectedRoute>} />
+          <Route path="/players/:playerId" element={<ProtectedRoute><AuthenticatedPlayerProfilePage /></ProtectedRoute>} />
           <Route path="/admin" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
@@ -151,9 +183,11 @@ function App() {
           {/* If none of the other routes matched, we will show a 404. */}
           <Route path="*" element={<NotFound />} />
         </Routes>
-        <Footer />
-      </div>
+        </Suspense>
+      </AppLayout>
+      </NavigationGuard>
     </Router>
+    </SnackbarProvider>
     </AppThemeProvider>
   );
 }

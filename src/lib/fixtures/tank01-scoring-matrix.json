@@ -1,0 +1,63 @@
+{
+  "games": [
+    {
+      "gameID": "20260913_SEA@BAL",
+      "away": "SEA",
+      "home": "BAL"
+    }
+  ],
+  "boxScore": {
+    "playerStats": {
+      "rush-99": {
+        "playerID": "rush-99",
+        "Rushing": {
+          "rushYds": "99",
+          "rushTD": "0"
+        }
+      },
+      "kick-53": {
+        "playerID": "kick-53",
+        "Kicking": {
+          "fgMade": "1",
+          "xpMade": "0"
+        }
+      },
+      "idp-1": {
+        "playerID": "idp-1",
+        "Defense": {
+          "totalTackles": "7",
+          "soloTackles": "4",
+          "sacks": "1"
+        }
+      }
+    },
+    "allPlayByPlay": [
+      {
+        "playerStats": {
+          "kick-53": {
+            "Kicking": {
+              "fgMade": "1",
+              "fgYds": "53"
+            }
+          }
+        }
+      }
+    ],
+    "DST": {},
+    "teamStats": {}
+  },
+  "edgeCases": {
+    "fractionalYardage": {
+      "passingYards": 0,
+      "rushingYards": 99
+    },
+    "yardageBonusBoundaries": [99, 100, 149, 150, 151],
+    "fieldGoalDistances": [1, 39, 40, 49, 50, 53],
+    "idp": {
+      "soloTackle": 4,
+      "assistedTackle": 3,
+      "idpSack": 1,
+      "idpSackYards": 8
+    }
+  }
+}

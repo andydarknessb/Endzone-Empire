@@ -7,7 +7,7 @@ test('detects a new rushing touchdown from a stat delta', () => {
   const next = { rushingYards: 62, rushingTDs: 1 };
   const events = detectScoringEvents(prev, next);
   assert.equal(events.length, 1);
-  assert.deepEqual(events[0], { type: 'rushing', statKey: 'rushingTDs', tdDelta: 1 });
+  assert.deepEqual(events[0], { type: 'rushing', statKey: 'rushingTDs', tdDelta: 1, isTouchdown: true });
 });
 
 test('first observation of the week (no prior row) counts as a TD', () => {
@@ -52,4 +52,11 @@ test('a multi-TD jump reports the delta, not just a boolean', () => {
 test('a defensive touchdown is typed as defensive', () => {
   const events = detectScoringEvents({ defensiveTD: 0 }, { defensiveTD: 1 });
   assert.equal(events[0].type, 'defensive');
+  assert.equal(events[0].isTouchdown, true);
+});
+
+test('a sack is a non-touchdown moment event', () => {
+  const events = detectScoringEvents({ sack: 0 }, { sack: 1 });
+  assert.equal(events[0].type, 'sack');
+  assert.equal(events[0].isTouchdown, false);
 });

@@ -1,0 +1,127 @@
+services:
+  - type: keyvalue
+    name: endzone-empire-cache
+    plan: starter
+    region: virginia
+    ipAllowList: []
+    maxmemoryPolicy: allkeys-lru
+    persistenceMode: off
+
+  - type: web
+    name: endzone-empire-api
+    runtime: node
+    plan: starter
+    region: virginia
+    numInstances: 1
+    buildCommand: npm ci --omit=dev --prefix server
+    preDeployCommand: npm --prefix server run migrate
+    startCommand: node server/server.js
+    healthCheckPath: /api/health/readyz
+    maxShutdownDelaySeconds: 60
+    autoDeployTrigger: off
+    domains:
+      - api.endzoneempire.gg
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "24"
+      - key: SERVICE_NAME
+        value: endzone-empire-api
+      - key: RUN_JOBS_IN_WEB
+        value: "false"
+      - key: APP_ORIGIN
+        value: https://endzoneempire.gg
+      - key: CLIENT_ORIGINS
+        value: https://endzoneempire.gg,https://www.endzoneempire.gg
+      - key: DATABASE_URL_RUNTIME
+        sync: false
+      - key: DATABASE_URL_MIGRATIONS
+        sync: false
+      - key: DB_SSL_CA
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: endzone-empire-cache
+          property: connectionString
+      - key: SMTP_URL
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: SENTRY_TRACES_SAMPLE_RATE
+        value: "0.05"
+      - key: PGPOOL_MAX
+        value: "10"
+      - key: PGPOOL_IDLE_TIMEOUT_MS
+        value: "30000"
+      - key: PGPOOL_CONNECTION_TIMEOUT_MS
+        value: "5000"
+      - key: PG_STATEMENT_TIMEOUT_MS
+        value: "15000"
+      - key: RAPID_API_KEY
+        sync: false
+      - key: RAPID_API_HOST
+        value: tank01-nfl-live-in-game-real-time-statistics-nfl.p.rapidapi.com
+      - key: SPORTSDB_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+
+  - type: worker
+    name: endzone-empire-worker
+    runtime: node
+    plan: starter
+    region: virginia
+    buildCommand: npm ci --omit=dev --prefix server
+    startCommand: node server/worker.js
+    maxShutdownDelaySeconds: 60
+    autoDeployTrigger: off
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "24"
+      - key: SERVICE_NAME
+        value: endzone-empire-worker
+      - key: APP_ORIGIN
+        value: https://endzoneempire.gg
+      - key: CLIENT_ORIGINS
+        value: https://endzoneempire.gg,https://www.endzoneempire.gg
+      - key: DATABASE_URL_RUNTIME
+        sync: false
+      - key: DB_SSL_CA
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: endzone-empire-cache
+          property: connectionString
+      - key: SMTP_URL
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: SENTRY_TRACES_SAMPLE_RATE
+        value: "0.05"
+      - key: PGPOOL_MAX
+        value: "5"
+      - key: PG_STATEMENT_TIMEOUT_MS
+        value: "30000"
+      - key: RAPID_API_KEY
+        sync: false
+      - key: RAPID_API_HOST
+        value: tank01-nfl-live-in-game-real-time-statistics-nfl.p.rapidapi.com
+      - key: SPORTSDB_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
