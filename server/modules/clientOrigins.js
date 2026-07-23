@@ -5,7 +5,9 @@ function getClientOrigins(env = process.env) {
 
 function getCorsOptions(env = process.env) {
   const origins = getClientOrigins(env);
-  return origins.length ? { origin: origins } : { origin: false };
+  return origins.length
+    ? { origin: origins, credentials: true, optionsSuccessStatus: 204 }
+    : { origin: false, credentials: true, optionsSuccessStatus: 204 };
 }
 
 module.exports = { getClientOrigins, getCorsOptions };

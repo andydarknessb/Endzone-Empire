@@ -13,6 +13,8 @@ test('CLIENT_ORIGINS is parsed, trimmed, and deduplicated', () => {
   ]);
   assert.deepEqual(getCorsOptions(env), {
     origin: ['https://endzoneempire.gg', 'https://www.endzoneempire.gg'],
+    credentials: true,
+    optionsSuccessStatus: 204,
   });
 });
 
@@ -23,5 +25,9 @@ test('APP_ORIGIN remains the single-origin fallback', () => {
 });
 
 test('cross-origin access is disabled when no client origin is configured', () => {
-  assert.deepEqual(getCorsOptions({}), { origin: false });
+  assert.deepEqual(getCorsOptions({}), {
+    origin: false,
+    credentials: true,
+    optionsSuccessStatus: 204,
+  });
 });

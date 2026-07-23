@@ -1,3 +1,6 @@
+const crypto = require('crypto');
+const { logger } = require('./logger');
+
 /**
  * Structured request logging: one JSON line per request, emitted on
  * `finish` so the real status code and duration are known. Restricted to
@@ -28,22 +31,28 @@ function formatLine(info, status, ms) {
     status,
     ms,
     userId: info.userId ?? null,
+    requestId: info.requestId ?? null,
   });
 }
 
 /** Express middleware: logs one JSON line per /api request on finish. */
 function requestLogMiddleware(req, res, next) {
+  const suppliedId = req.get('x-request-id');
+  req.id = suppliedId && /^[a-zA-Z0-9._-]{8,100}$/.test(suppliedId)
+    ? suppliedId
+    : crypto.randomUUID();
+  res.set('X-Request-ID', req.id);
   const startedAt = process.hrtime.bigint();
   res.on('finish', () => {
     const path = req.path;
     if (!shouldLog(path)) return;
     const ms = Number(process.hrtime.bigint() - startedAt) / 1e6;
     const line = formatLine(
-      { method: req.method, path, userId: req.user?.id },
+      { method: req.method, path, userId: req.user?.id, requestId: req.id },
       res.statusCode,
       Math.round(ms)
     );
-    console.log(line);
+    logger.info(JSON.parse(line), 'request completed');
   });
   next();
 }

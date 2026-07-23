@@ -1,49 +1,49 @@
-/**
- * Optional Sentry error reporting. `@sentry/node` is NOT an installed
- * dependency — this module only attempts to require() it when SENTRY_DSN
- * is configured, and swallows any failure (missing package, bad DSN, etc.)
- * so the app behaves identically with or without Sentry available.
- */
+const { logger } = require('./logger');
 
 let sentry = null;
-
-// Local error tally so the admin dashboard has an error-rate signal even
-// when Sentry itself isn't configured (Sentry has no query API to pull
-// counts back from anyway).
 let errorCount = 0;
 let lastErrorAt = null;
 let lastErrorMessage = null;
 
-/** Call once at boot. No-ops unless SENTRY_DSN is set and the package resolves. */
-function initSentry(app) {
+function initSentry() {
   if (!process.env.SENTRY_DSN) return;
   try {
-    // eslint-disable-next-line global-require -- conditional by design
     sentry = require('@sentry/node');
-    sentry.init({ dsn: process.env.SENTRY_DSN });
-    if (app && sentry.Handlers && typeof sentry.Handlers.requestHandler === 'function') {
-      app.use(sentry.Handlers.requestHandler());
-    }
-  } catch (err) {
-    console.error('Sentry init skipped (package unavailable):', err.message);
+    sentry.init({
+      dsn: process.env.SENTRY_DSN,
+      environment: process.env.NODE_ENV,
+      release: process.env.RENDER_GIT_COMMIT || process.env.APP_RELEASE,
+      sendDefaultPii: false,
+      tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE || 0.05),
+    });
+  } catch (error) {
+    logger.error({ err: error }, 'sentry initialization failed');
     sentry = null;
+    if (process.env.NODE_ENV === 'production') throw error;
   }
 }
 
-/** Report an error to Sentry if it's available; always safe to call. */
-function captureError(err) {
+function setupSentryErrorHandler(app) {
+  if (sentry && app && typeof sentry.setupExpressErrorHandler === 'function') {
+    sentry.setupExpressErrorHandler(app);
+  }
+}
+
+function captureError(error, context = {}) {
   errorCount += 1;
   lastErrorAt = new Date().toISOString();
-  lastErrorMessage = err && err.message ? String(err.message).slice(0, 200) : null;
+  lastErrorMessage = error?.message ? String(error.message).slice(0, 200) : null;
   if (!sentry || typeof sentry.captureException !== 'function') return;
-  try {
-    sentry.captureException(err);
-  } catch (captureErr) {
-    console.error('Sentry captureException failed:', captureErr.message);
-  }
+  sentry.withScope((scope) => {
+    for (const [key, value] of Object.entries(context)) scope.setExtra(key, value);
+    sentry.captureException(error);
+  });
 }
 
-/** Error summary for the admin dashboard (in-process, since boot). */
+async function flushSentry(timeoutMs = 2000) {
+  if (sentry && typeof sentry.flush === 'function') await sentry.flush(timeoutMs);
+}
+
 function getErrorStats() {
   return {
     sentryConfigured: Boolean(sentry),
@@ -53,4 +53,10 @@ function getErrorStats() {
   };
 }
 
-module.exports = { initSentry, captureError, getErrorStats };
+module.exports = {
+  captureError,
+  flushSentry,
+  getErrorStats,
+  initSentry,
+  setupSentryErrorHandler,
+};

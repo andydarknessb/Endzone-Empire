@@ -10,16 +10,19 @@ const poolOptions = {
   max: positiveInteger(process.env.PGPOOL_MAX, 10),
   idleTimeoutMillis: positiveInteger(process.env.PGPOOL_IDLE_TIMEOUT_MS, 30000),
   connectionTimeoutMillis: positiveInteger(process.env.PGPOOL_CONNECTION_TIMEOUT_MS, 5000),
+  statement_timeout: positiveInteger(process.env.PG_STATEMENT_TIMEOUT_MS, 15000),
+  application_name: process.env.SERVICE_NAME || 'endzone-empire-api',
 };
 
 // Connection settings come from the environment only — see .env.example.
 // DATABASE_URL wins (production); otherwise the standard PG* variables are
 // read by the pg driver itself, with sensible local defaults.
-const pool = process.env.DATABASE_URL
+const runtimeDatabaseUrl = process.env.DATABASE_URL_RUNTIME || process.env.DATABASE_URL;
+const pool = runtimeDatabaseUrl
   ? new pg.Pool({
       ...poolOptions,
-      connectionString: process.env.DATABASE_URL,
-      ssl: sslForConnection(process.env.DATABASE_URL),
+      connectionString: runtimeDatabaseUrl,
+      ssl: sslForConnection(runtimeDatabaseUrl),
     })
   : new pg.Pool({
       ...poolOptions,
