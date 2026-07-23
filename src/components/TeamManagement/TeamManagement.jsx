@@ -15,6 +15,7 @@ import PlayerAvatar from '../PlayerQuickView/PlayerAvatar';
 import PositionChip from '../PlayerQuickView/PositionChip';
 import TeamAvatarUploader from '../common/TeamAvatarUploader';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
+import { deriveLeaguePhase, LEAGUE_PHASE } from '../../lib/leaguePhase';
 
 // Injury status -> chip fill. Not backed by real data yet (players has no
 // injury_status column), so this only lights up once that field exists;
@@ -91,6 +92,7 @@ function TeamManagement() {
   const notify = useSnackbar();
   const activeLeague = leagues.find((league) => league.id === selectedLeague);
   const activeTeamId = activeLeague?.my_team_id;
+  const leaguePhase = deriveLeaguePhase(activeLeague);
 
   useEffect(() => {
     fetchLeagues();
@@ -182,7 +184,7 @@ function TeamManagement() {
 
   const teamName = activeLeague?.my_team_name || 'My Team';
   const showEmptyState = !loading && roster.length === 0;
-  const draftInProgress = activeLeague?.draft_status === 'pending' || activeLeague?.draft_status === 'active';
+  const draftInProgress = leaguePhase === LEAGUE_PHASE.PRE_DRAFT || leaguePhase === LEAGUE_PHASE.DRAFTING;
 
   const handleAvatarUpdated = (team) => {
     setLeagues((prev) => prev.map((league) => (league.id === selectedLeague
