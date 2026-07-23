@@ -77,7 +77,7 @@ test('shows the server error message when the upload fails', async () => {
   expect(await screen.findByText('unsupported file type')).toBeInTheDocument();
 });
 
-test('removes the avatar via the remove affordance', async () => {
+test('confirms before removing the avatar', async () => {
   const user = userEvent.setup();
   mock.onDelete('/api/team/5/avatar').reply(200, { id: 5, avatar_url: null, avatar_static_url: null });
   const onUpdated = jest.fn();
@@ -91,6 +91,9 @@ test('removes the avatar via the remove affordance', async () => {
   );
 
   await user.click(screen.getByRole('button', { name: /remove sunday ballers avatar/i }));
+  expect(screen.getByRole('dialog', { name: /remove team logo/i })).toBeInTheDocument();
+  expect(mock.history.delete).toHaveLength(0);
+  await user.click(screen.getByRole('button', { name: /^remove logo$/i }));
   await waitFor(() => expect(onUpdated).toHaveBeenCalledWith(
     expect.objectContaining({ avatar_url: null })
   ));

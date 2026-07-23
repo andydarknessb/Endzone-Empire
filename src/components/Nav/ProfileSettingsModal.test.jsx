@@ -217,6 +217,8 @@ test('staging a file, removing, then picking another file uploads the last file'
   await user.upload(input, new File(['a'], 'first.png', { type: 'image/png' }));
   // Remove the just-staged file...
   await user.click(await screen.findByRole('button', { name: /Remove Alice's Team avatar/i }));
+  expect(screen.getByRole('dialog', { name: /Remove team logo/i })).toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Remove logo' }));
   // ...then stage a different one in its place.
   await user.upload(input, new File(['bcd'], 'second.png', { type: 'image/png' }));
 

@@ -1,5 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Box, CircularProgress, IconButton, Typography } from '@mui/material';
+import {
+  Box, Button, CircularProgress, Dialog, DialogActions, DialogContent,
+  DialogContentText, DialogTitle, IconButton, Typography,
+} from '@mui/material';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import CloseIcon from '@mui/icons-material/Close';
 import TeamAvatar from './TeamAvatar';
@@ -36,6 +39,7 @@ function TeamAvatarUploader({ teamId, teamName, avatarUrl, avatarStaticUrl, onUp
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState(null);
+  const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
 
   // In deferred mode the object URL lives until the component unmounts (parent
   // remounts it via a key bump after a successful save), so revoke it then to
@@ -160,7 +164,7 @@ function TeamAvatarUploader({ teamId, teamName, avatarUrl, avatarStaticUrl, onUp
         {((deferred ? previewUrl || (avatarUrl && !stagedRemove) : avatarUrl)) && !busy && (
           <IconButton
             size="small"
-            onClick={handleRemove}
+            onClick={() => setRemoveConfirmOpen(true)}
             aria-label={`Remove ${teamName || 'team'} avatar`}
             sx={{
               position: 'absolute',
@@ -168,7 +172,8 @@ function TeamAvatarUploader({ teamId, teamName, avatarUrl, avatarStaticUrl, onUp
               right: -4,
               bgcolor: 'background.paper',
               border: '1px solid',
-              borderColor: 'divider',
+              borderColor: 'error.main',
+              color: 'error.main',
               '&:hover': { bgcolor: 'background.paper' },
             }}
           >
@@ -188,6 +193,27 @@ function TeamAvatarUploader({ teamId, teamName, avatarUrl, avatarStaticUrl, onUp
           {error}
         </Typography>
       )}
+      <Dialog open={removeConfirmOpen} onClose={() => setRemoveConfirmOpen(false)}>
+        <DialogTitle>Remove team logo?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            The current team logo will be removed and replaced with the team&apos;s initials.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRemoveConfirmOpen(false)}>Cancel</Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => {
+              setRemoveConfirmOpen(false);
+              handleRemove();
+            }}
+          >
+            Remove logo
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
