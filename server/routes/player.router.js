@@ -93,6 +93,8 @@ router.get('/', requireAuth, async (req, res) => {
     orderBy = `"name" ${dir}, "id"`;
   } else if (req.query.sort === 'adp') {
     orderBy = `"adp" ${dir} NULLS LAST, "id"`;
+  } else if (req.query.sort === 'position_rank') {
+    orderBy = `"position_rank" ${dir} NULLS LAST, "name", "id"`;
   } else {
     orderBy = `"id"`;
   }
@@ -115,7 +117,13 @@ router.get('/', requireAuth, async (req, res) => {
 
   if (!projectionSort) params.push(PAGE_SIZE, offset);
   const queryText = `
-    SELECT "players".*, COUNT(*) OVER() AS total_count
+    SELECT "players".*,
+           CASE WHEN "players"."adp" IS NULL THEN NULL ELSE 1 + (
+             SELECT COUNT(*)::int FROM "players" AS "position_peers"
+             WHERE "position_peers"."position" = "players"."position"
+               AND "position_peers"."adp" < "players"."adp"
+           ) END AS "position_rank",
+           COUNT(*) OVER() AS total_count
     FROM "players"
     ${whereSql}
     ORDER BY ${orderBy}
