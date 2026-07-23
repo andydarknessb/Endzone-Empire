@@ -791,12 +791,18 @@ router.get('/:id/rosters', async (req, res) => {
     if (!membership.rows[0]) return res.status(403).json({ error: 'not a member of this league' });
 
     const leagueRow = await pool.query(
-      `SELECT "current_season", "current_week" FROM "leagues" WHERE "id" = $1`,
+      `SELECT "current_season", "current_week", "regular_season_weeks" FROM "leagues" WHERE "id" = $1`,
       [leagueId]
     );
     const season = leagueRow.rows[0]?.current_season ?? null;
     const week = leagueRow.rows[0]?.current_week ?? null;
     const weeklyByPlayer = await projectionService.getWeekProjections({ season, week });
+    const throughWeek = leagueRow.rows[0]?.regular_season_weeks ?? null;
+    const rosByPlayer = await projectionService.getRestOfSeasonProjections({
+      season,
+      fromWeek: week,
+      throughWeek,
+    });
 
     const result = await pool.query(
       `SELECT "teams"."id" AS "team_id", "teams"."name" AS "team_name", "teams"."owner_id",
@@ -827,9 +833,12 @@ router.get('/:id/rosters', async (req, res) => {
           projection && Number.isFinite(Number(projection.points))
             ? Number(projection.points)
             : null;
+        const ros = rosByPlayer.get(row.id);
+        row.rest_of_season_points = Number.isFinite(Number(ros)) ? Number(ros) : null;
         teams.get(row.team_id).players.push({
           id: row.id, name: row.name, position: row.position, nfl_team: row.nfl_team,
           projected_weekly_points: row.projected_weekly_points,
+          rest_of_season_points: row.rest_of_season_points,
         });
       }
     }

@@ -62,8 +62,9 @@ test('GET team roster maps weekly projections by player id, preserving zero and 
   );
 });
 
-test('GET league rosters maps weekly projections by player id, preserving zero and null', async (t) => {
+test('GET league rosters maps weekly and rest-of-season projections by player id', async (t) => {
   const projectionCalls = [];
+  const rosCalls = [];
   t.mock.method(projectionService, 'getWeekProjections', async (options) => {
     projectionCalls.push(options);
     return new Map([
@@ -71,11 +72,18 @@ test('GET league rosters maps weekly projections by player id, preserving zero a
       [11, { points: 19.75, source: 'external' }],
     ]);
   });
+  t.mock.method(projectionService, 'getRestOfSeasonProjections', async (options) => {
+    rosCalls.push(options);
+    return new Map([
+      [12, 0],
+      [11, 180.2],
+    ]);
+  });
   t.mock.method(pool, 'query', async (sql) => {
     const text = String(sql);
     if (text.includes('SELECT 1 FROM "teams"')) return { rows: [{ '?column?': 1 }] };
     if (text.includes('FROM "leagues"')) {
-      return { rows: [{ current_season: 2026, current_week: 9 }] };
+      return { rows: [{ current_season: 2026, current_week: 9, regular_season_weeks: 17 }] };
     }
     if (text.includes('FROM "teams"')) {
       return {
@@ -95,13 +103,18 @@ test('GET league rosters maps weekly projections by player id, preserving zero a
 
   assert.equal(response.status, 200);
   assert.deepEqual(projectionCalls, [{ season: 2026, week: 9 }]);
+  assert.deepEqual(rosCalls, [{ season: 2026, fromWeek: 9, throughWeek: 17 }]);
   assert.deepEqual(
     response.body.flatMap((team) => team.players)
-      .map(({ id, projected_weekly_points }) => ({ id, projected_weekly_points })),
+      .map(({ id, projected_weekly_points, rest_of_season_points }) => ({
+        id,
+        projected_weekly_points,
+        rest_of_season_points,
+      })),
     [
-      { id: 11, projected_weekly_points: 19.75 },
-      { id: 12, projected_weekly_points: 0 },
-      { id: 13, projected_weekly_points: null },
+      { id: 11, projected_weekly_points: 19.75, rest_of_season_points: 180.2 },
+      { id: 12, projected_weekly_points: 0, rest_of_season_points: 0 },
+      { id: 13, projected_weekly_points: null, rest_of_season_points: null },
     ]
   );
 });

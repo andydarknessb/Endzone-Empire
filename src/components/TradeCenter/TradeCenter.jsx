@@ -182,11 +182,11 @@ function RosterColumn({ label, players, selectedIds, onToggle, testId }) {
                   onChange={() => onToggle(player.id)}
                 />
               }
-              label={
-                player.projected_weekly_points != null
-                  ? `${player.name} (${player.position}) · weekly proj ${player.projected_weekly_points}`
-                  : `${player.name} (${player.position})`
-              }
+              label={[
+                `${player.name} (${player.position})`,
+                player.projected_weekly_points != null ? `weekly proj ${player.projected_weekly_points}` : null,
+                player.rest_of_season_points != null ? `ROS ${player.rest_of_season_points}` : null,
+              ].filter(Boolean).join(' · ')}
             />
           ))}
         </Box>
