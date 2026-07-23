@@ -1,22 +1,46 @@
 version: 2
 updates:
-  # Maintain dependencies for npm
-  - package-ecosystem: "npm"
-    directory: "/"
+  - package-ecosystem: npm
+    directory: /
     schedule:
-      interval: "monthly"
-    commit-message:
-      # Prefix all commit messages
-      prefix: "[Dependabot] npm"
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
     labels:
-      # Add these labels to the Generated PR
-      - "npm"
-      - "dependencies"
-      - "update"
-    allow:
-      # Allow specific libraries to be updated
-      # By default, it would check everything, even in the lock
-      - "react*"
-      - "redux*"
-      - 
-    
+      - dependencies
+      - npm
+    groups:
+      client-safe-updates:
+        dependency-type: production
+        update-types:
+          - minor
+          - patch
+      development-tooling:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: npm
+    directory: /server
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - api
+    groups:
+      server-safe-updates:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    labels:
+      - dependencies
+      - ci

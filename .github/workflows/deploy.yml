@@ -1,0 +1,75 @@
+name: Promote deployment
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      promote_production:
+        description: Deploy the verified commit to production
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deployment
+  cancel-in-progress: false
+
+jobs:
+  staging:
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trigger staging services
+        env:
+          RENDER_HOOK: ${{ secrets.RENDER_STAGING_DEPLOY_HOOK }}
+          NETLIFY_HOOK: ${{ secrets.NETLIFY_STAGING_BUILD_HOOK }}
+        run: |
+          test -n "$RENDER_HOOK" && test -n "$NETLIFY_HOOK"
+          curl --fail --silent --show-error --request POST "$RENDER_HOOK"
+          curl --fail --silent --show-error --request POST "$NETLIFY_HOOK"
+      - name: Verify staging readiness
+        env:
+          API_URL: ${{ vars.STAGING_API_URL }}
+          WEB_URL: ${{ vars.STAGING_WEB_URL }}
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent "$API_URL/api/health/readyz" >/dev/null &&
+               curl --fail --silent "$WEB_URL/" >/dev/null; then
+              exit 0
+            fi
+            sleep 10
+          done
+          exit 1
+
+  production:
+    if: github.event_name == 'workflow_dispatch' && inputs.promote_production
+    needs: staging
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Trigger production services
+        env:
+          RENDER_HOOK: ${{ secrets.RENDER_PRODUCTION_DEPLOY_HOOK }}
+          NETLIFY_HOOK: ${{ secrets.NETLIFY_PRODUCTION_BUILD_HOOK }}
+        run: |
+          test -n "$RENDER_HOOK" && test -n "$NETLIFY_HOOK"
+          curl --fail --silent --show-error --request POST "$RENDER_HOOK"
+          curl --fail --silent --show-error --request POST "$NETLIFY_HOOK"
+      - name: Verify production readiness
+        env:
+          API_URL: ${{ vars.PRODUCTION_API_URL }}
+          WEB_URL: ${{ vars.PRODUCTION_WEB_URL }}
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent "$API_URL/api/health/readyz" >/dev/null &&
+               curl --fail --silent "$WEB_URL/" >/dev/null; then
+              exit 0
+            fi
+            sleep 10
+          done
+          exit 1
