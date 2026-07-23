@@ -67,11 +67,11 @@ export default function () {
 // supabase, docker) — never user or network input — so there's nothing here
 // for an attacker to control.
 function commandExists(command, args = ['--version']) {
-  return spawnSync(command, args, {
+  return spawnSync(command, args, { // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
     cwd: ROOT,
     stdio: 'ignore',
     windowsHide: true,
-  }).status === 0; // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
+  }).status === 0;
 }
 
 function append(stream, source, message) {
@@ -117,12 +117,12 @@ function startLogCollector(stream) {
     // triage script plug in their own log-tail command (e.g. a piped
     // `docker compose logs -f | grep ...`). It's set by that same operator in
     // their own shell, not attacker-controlled input.
-    const child = spawn(process.env.LOAD_LOG_COMMAND, {
+    const child = spawn(process.env.LOAD_LOG_COMMAND, { // nosemgrep: javascript.lang.security.audit.spawn-shell-true.spawn-shell-true
       cwd: ROOT,
       shell: true,
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
-    }); // nosemgrep: javascript.lang.security.audit.spawn-shell-true.spawn-shell-true
+    });
     pipeChild(child, stream, 'configured-logs');
     return child;
   }
