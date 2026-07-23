@@ -45,6 +45,7 @@ import TrophyCase from '../TrophyCase/TrophyCase';
 import DraftGradesCard from '../DraftGradesCard/DraftGradesCard';
 import Countdown from '../Countdown/Countdown';
 import CommissionerTools from './CommissionerTools';
+import AbbreviationTooltip from '../common/AbbreviationTooltip';
 import { deriveLeaguePhase, LEAGUE_PHASE } from '../../lib/leaguePhase';
 
 const SEASON_STATUS_CHIP = {
@@ -313,8 +314,8 @@ function LeagueDashboard() {
       <Typography variant="h6" sx={{ mb: 2 }}>
         Standings
       </Typography>
-      <TableContainer component={Paper} sx={{ mb: 3 }}>
-        <Table>
+      <TableContainer component={Paper} sx={{ mb: 3, maxWidth: '100%', overflowX: 'auto' }}>
+        <Table sx={{ minWidth: 680 }}>
           <TableHead>
             <TableRow
               sx={{
@@ -331,8 +332,8 @@ function LeagueDashboard() {
               <TableCell>Team</TableCell>
               <TableCell>Owner</TableCell>
               <TableCell align="right">W-L-T</TableCell>
-              <TableCell align="right">PF</TableCell>
-              <TableCell align="right">PA</TableCell>
+              <TableCell align="right"><AbbreviationTooltip term="PF" /></TableCell>
+              <TableCell align="right"><AbbreviationTooltip term="PA" /></TableCell>
               <TableCell align="right">Streak</TableCell>
             </TableRow>
           </TableHead>

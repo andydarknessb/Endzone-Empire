@@ -170,6 +170,13 @@ test('standings table renders W-L-T, PF, PA, and a streak chip (no redundant pla
   expect(screen.getByText('312.5')).toBeInTheDocument();
   expect(screen.getByText('280.1')).toBeInTheDocument();
   expect(screen.getByText('W2')).toBeInTheDocument();
+  const pointsForHeader = screen.getByLabelText(/PF: Points for:/i);
+  expect(screen.getByLabelText(/PA: Points against:/i)).toBeInTheDocument();
+  expect(pointsForHeader.closest('table')).toHaveStyle({ minWidth: '680px' });
+  expect(pointsForHeader.closest('.MuiTableContainer-root')).toHaveStyle({
+    maxWidth: '100%',
+    overflowX: 'auto',
+  });
   // The rank column is the single source of truth for standing; the old
   // green "#1" playoff-seed pill next to the team name is gone.
   expect(screen.queryByText('#1')).not.toBeInTheDocument();
