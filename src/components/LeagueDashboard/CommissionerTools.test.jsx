@@ -95,6 +95,15 @@ test('renders all six tabs, defaulting to General Settings', () => {
   expect(screen.getByRole('checkbox', { name: 'Lock Transactions' })).toBeInTheDocument();
 });
 
+test('calls out immediate general-setting effects and destructive team removal', () => {
+  renderTools({ league: league({ is_public: true, join_approval: true }) });
+
+  expect(screen.getByText(/Applies immediately\. Freezes adds/)).toBeInTheDocument();
+  expect(screen.getByText('Destructive actions')).toBeInTheDocument();
+  expect(screen.getByText('Remove a team')).toBeInTheDocument();
+  expect(screen.getByText('Approve and deny decisions apply immediately.')).toBeInTheDocument();
+});
+
 // --- Roster Settings ---
 
 test('Roster Settings renders configured slots and computes the total roster size', async () => {

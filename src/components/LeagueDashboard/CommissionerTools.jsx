@@ -200,7 +200,7 @@ function GeneralSettingsPanel({ leagueId, league, teams, user, standingsLeague, 
           label="Lock Transactions"
         />
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4.5 }}>
-          Freezes adds, drops, waiver claims, and trades for the entire league.
+          Applies immediately. Freezes adds, drops, waiver claims, and trades for the entire league.
         </Typography>
       </Box>
 
@@ -232,7 +232,8 @@ function GeneralSettingsPanel({ leagueId, league, teams, user, standingsLeague, 
       )}
 
       {removableTeams.length > 0 && (
-        <Box>
+        <Paper variant="outlined" sx={{ p: 2, borderColor: 'error.main' }}>
+          <Typography variant="overline" color="error.main">Destructive actions</Typography>
           <Typography variant="subtitle2" sx={{ mb: 1 }}>Remove a team</Typography>
           <List dense sx={{ bgcolor: 'background.default', borderRadius: 1 }}>
             {removableTeams.map((team) => (
@@ -253,7 +254,7 @@ function GeneralSettingsPanel({ leagueId, league, teams, user, standingsLeague, 
               </ListItem>
             ))}
           </List>
-        </Box>
+        </Paper>
       )}
 
       <Dialog open={!!removeTarget} onClose={() => setRemoveTarget(null)}>
@@ -276,6 +277,9 @@ function GeneralSettingsPanel({ leagueId, league, teams, user, standingsLeague, 
             <Typography variant="subtitle2">Join Requests</Typography>
             <Chip size="small" label={joinRequests.length} color={joinRequests.length > 0 ? 'primary' : 'default'} />
           </Box>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+            Approve and deny decisions apply immediately.
+          </Typography>
           {joinRequests.length === 0 ? (
             <Typography variant="body2" color="text.secondary">No pending join requests</Typography>
           ) : (
