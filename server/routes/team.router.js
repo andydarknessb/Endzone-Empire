@@ -8,6 +8,7 @@ const { getLineup, setLineup } = require('../services/lineup.service');
 const { startSitAdvice, weekHindsight, seasonHindsight } = require('../services/decision.service');
 const { uploadTeamAvatar, removeTeamAvatar, MAX_UPLOAD_BYTES } = require('../services/avatar.service');
 const { computeByeWeeks } = require('../services/bye.service');
+const projectionService = require('../services/projection.service');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -40,15 +41,22 @@ router.get('/roster', async (req, res) => {
     // each roster row with its NFL team's bye for the league's current season.
     // Batched: a full roster resolves in one nfl_games query, not one per slot.
     const leagueRow = await pool.query(
-      `SELECT "current_season" FROM "leagues" WHERE "id" = $1`,
+      `SELECT "current_season", "current_week" FROM "leagues" WHERE "id" = $1`,
       [Number(leagueId)]
     );
     const season = leagueRow.rows[0]?.current_season ?? null;
+    const week = leagueRow.rows[0]?.current_week ?? null;
+    const weeklyByPlayer = await projectionService.getWeekProjections({ season, week });
     const byeByTeam = await computeByeWeeks(
       result.rows.map((row) => row.nfl_team),
       season
     );
     for (const row of result.rows) {
+      const projection = weeklyByPlayer.get(row.id);
+      row.projected_weekly_points =
+        projection && Number.isFinite(Number(projection.points))
+          ? Number(projection.points)
+          : null;
       row.bye_week = byeByTeam.get(row.nfl_team) ?? null;
     }
     res.json(result.rows);

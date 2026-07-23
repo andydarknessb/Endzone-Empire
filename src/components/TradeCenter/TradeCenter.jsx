@@ -183,8 +183,8 @@ function RosterColumn({ label, players, selectedIds, onToggle, testId }) {
                 />
               }
               label={
-                player.projected_points != null
-                  ? `${player.name} (${player.position}) · proj ${player.projected_points}`
+                player.projected_weekly_points != null
+                  ? `${player.name} (${player.position}) · weekly proj ${player.projected_weekly_points}`
                   : `${player.name} (${player.position})`
               }
             />

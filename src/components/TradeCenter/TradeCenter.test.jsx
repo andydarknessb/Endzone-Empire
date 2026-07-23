@@ -59,6 +59,19 @@ const rosters = [
   },
 ];
 
+const weeklyProjectionByPlayer = new Map([
+  [100, 22.4],
+  [101, 15.1],
+  [200, 18.7],
+]);
+const rostersWithWeeklyProjections = rosters.map((team) => ({
+  ...team,
+  players: team.players.map((player) => ({
+    ...player,
+    projected_weekly_points: weeklyProjectionByPlayer.get(player.id) ?? null,
+  })),
+}));
+
 const leagueResponse = (overrides = {}) => ({
   league: { id: 1, name: 'Test League', owner_id: 1, ...overrides },
   teams: [],
@@ -201,6 +214,21 @@ test('propose dialog roster columns stack full width on mobile (xs=12, sm=6) and
   // Alice Squad's roster has a QB and a WR — grouped under position subheaders.
   expect(within(sendColumn).getByText('QB')).toBeInTheDocument();
   expect(within(sendColumn).getByText('WR')).toBeInTheDocument();
+});
+
+test('propose dialog displays the renamed weekly projection field with an explicit label', async () => {
+  mockGetSequence({ trades: [], rostersData: rostersWithWeeklyProjections });
+
+  renderScreen();
+  await screen.findByText('No Pending Trades');
+
+  await userEvent.click(screen.getByRole('button', { name: 'Propose Trade' }));
+  await userEvent.click(screen.getByLabelText('Trade with'));
+  await userEvent.click(await screen.findByRole('option', { name: 'Bob Squad' }));
+
+  expect(await screen.findByLabelText('Josh Allen (QB) · weekly proj 22.4')).toBeInTheDocument();
+  expect(screen.getByLabelText('Tyreek Hill (WR) · weekly proj 18.7')).toBeInTheDocument();
+  expect(screen.getByLabelText('Travis Kelce (TE)')).toBeInTheDocument();
 });
 
 test('live summary chip rows reflect the current selection on each side', async () => {

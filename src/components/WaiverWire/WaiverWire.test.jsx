@@ -57,9 +57,9 @@ const rosterResponse = () => [
 ];
 
 const rosterWithProjectionsResponse = () => [
-  { id: 20, name: 'Josh Allen', position: 'QB', nfl_team: 'Buffalo Bills', projected_points: 22.4 },
-  { id: 21, name: 'Tyreek Hill', position: 'WR', nfl_team: 'Miami Dolphins', projected_points: 15.1 },
-  { id: 22, name: 'Bench Warmer', position: 'WR', nfl_team: 'Free Agent', projected_points: 3.2 },
+  { id: 20, name: 'Josh Allen', position: 'QB', nfl_team: 'Buffalo Bills', projected_weekly_points: 22.4 },
+  { id: 21, name: 'Tyreek Hill', position: 'WR', nfl_team: 'Miami Dolphins', projected_weekly_points: 15.1 },
+  { id: 22, name: 'Bench Warmer', position: 'WR', nfl_team: 'Free Agent', projected_weekly_points: 3.2 },
 ];
 
 const suggestionsResponse = (overrides = {}) => ({
@@ -268,7 +268,7 @@ test('selecting a drop player includes its id in the claim request', async () =>
   );
 });
 
-test('drop-select options are sorted worst-projection-first with a proj caption', async () => {
+test('drop-select options are sorted worst-weekly-projection-first with a weekly proj caption', async () => {
   setupGet({ waivers: waiversResponse(), roster: rosterWithProjectionsResponse() });
   renderScreen();
 
@@ -277,9 +277,9 @@ test('drop-select options are sorted worst-projection-first with a proj caption'
   await userEvent.click(screen.getByLabelText('Drop a player (optional)'));
 
   const options = await screen.findAllByRole('option');
-  // "No drop" first, then worst projected_points -> best.
+  // "No drop" first, then worst projected_weekly_points -> best.
   expect(within(options[1]).getByText(/Bench Warmer \(WR\)/)).toBeInTheDocument();
-  expect(within(options[1]).getByText('proj 3.2')).toBeInTheDocument();
+  expect(within(options[1]).getByText('weekly proj 3.2')).toBeInTheDocument();
   expect(within(options[2]).getByText(/Tyreek Hill \(WR\)/)).toBeInTheDocument();
   expect(within(options[3]).getByText(/Josh Allen \(QB\)/)).toBeInTheDocument();
 });

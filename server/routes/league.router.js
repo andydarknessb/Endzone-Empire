@@ -2,6 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
+const projectionService = require('../services/projection.service');
 const {
   VALID_SCORING_PRESETS,
   VALID_DISCOVER_SORTS,
@@ -789,6 +790,14 @@ router.get('/:id/rosters', async (req, res) => {
     );
     if (!membership.rows[0]) return res.status(403).json({ error: 'not a member of this league' });
 
+    const leagueRow = await pool.query(
+      `SELECT "current_season", "current_week" FROM "leagues" WHERE "id" = $1`,
+      [leagueId]
+    );
+    const season = leagueRow.rows[0]?.current_season ?? null;
+    const week = leagueRow.rows[0]?.current_week ?? null;
+    const weeklyByPlayer = await projectionService.getWeekProjections({ season, week });
+
     const result = await pool.query(
       `SELECT "teams"."id" AS "team_id", "teams"."name" AS "team_name", "teams"."owner_id",
               "teams"."avatar_url", "teams"."avatar_static_url",
@@ -813,8 +822,14 @@ router.get('/:id/rosters', async (req, res) => {
         });
       }
       if (row.id) {
+        const projection = weeklyByPlayer.get(row.id);
+        row.projected_weekly_points =
+          projection && Number.isFinite(Number(projection.points))
+            ? Number(projection.points)
+            : null;
         teams.get(row.team_id).players.push({
           id: row.id, name: row.name, position: row.position, nfl_team: row.nfl_team,
+          projected_weekly_points: row.projected_weekly_points,
         });
       }
     }

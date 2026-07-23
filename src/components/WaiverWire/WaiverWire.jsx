@@ -51,11 +51,12 @@ const stickyActionHeadSx = {
 const stickyActionCellSx = { position: 'sticky', right: 0, bgcolor: 'background.paper', zIndex: 1 };
 
 // Worst-projection-first so the natural cut order comes first; roster entries
-// without a projection (the /api/team/roster response doesn't currently
-// return one) sort after ones that have it and fall back to server order
-// (position, name) among themselves.
+// without a weekly projection sort after ones that have it and fall back to
+// server order (position, name) among themselves.
 function sortRosterForDrop(roster) {
-  const projectionOf = (p) => (p.projected_points != null ? Number(p.projected_points) : null);
+  const projectionOf = (p) => (
+    p.projected_weekly_points != null ? Number(p.projected_weekly_points) : null
+  );
   return [...roster].sort((a, b) => {
     const av = projectionOf(a);
     const bv = projectionOf(b);
@@ -397,9 +398,9 @@ function WaiverWire() {
               {sortedRosterForDrop.map((p) => (
                 <MenuItem key={p.id} value={p.id}>
                   {p.name} ({p.position})
-                  {p.projected_points != null && (
+                  {p.projected_weekly_points != null && (
                     <Typography component="span" variant="caption" sx={{ color: 'text.secondary', ml: 1 }}>
-                      proj {p.projected_points}
+                      weekly proj {p.projected_weekly_points}
                     </Typography>
                   )}
                 </MenuItem>

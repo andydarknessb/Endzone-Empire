@@ -4,6 +4,7 @@ const express = require('express');
 const request = require('supertest');
 const pool = require('../modules/pool');
 const { signToken } = require('../modules/auth');
+const projectionService = require('../services/projection.service');
 const teamRouter = require('../routes/team.router');
 
 const previousSecret = process.env.JWT_SECRET;
@@ -35,10 +36,12 @@ test('GET roster annotates each player with a schedule-derived bye_week', async 
   ];
   let nflGamesTeams = null;
 
+  t.mock.method(projectionService, 'getWeekProjections', async () => new Map());
+
   t.mock.method(pool, 'query', async (sql, params) => {
     const text = String(sql);
     if (text.includes('FROM "team_players"')) return { rows: rosterRows };
-    if (text.includes('FROM "leagues"')) return { rows: [{ current_season: 2026 }] };
+    if (text.includes('FROM "leagues"')) return { rows: [{ current_season: 2026, current_week: 8 }] };
     if (text.includes('FROM "nfl_games"')) {
       nflGamesTeams = params[1]; // batched: one query for every roster team
       return { rows: minScheduleRows() }; // BUF absent -> undetermined
