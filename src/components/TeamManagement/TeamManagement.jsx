@@ -262,7 +262,7 @@ function TeamManagement() {
               <>
                 <Typography color="text.secondary">
                   {draftInProgress
-                    ? 'No players rostered yet. Head to the Draft Room to build your team.'
+                    ? 'Your roster fills during the draft. Head to the Draft Room when it is time to pick.'
                     : 'No players rostered yet. Head to the player pool to add players to your team.'}
                 </Typography>
                 <Button
@@ -277,10 +277,25 @@ function TeamManagement() {
           </Stack>
         </Paper>
       ) : (
-        <TableContainer component={Paper} sx={{ bgcolor: 'background.paper' }}>
-          <Table sx={{ minWidth: 650 }}>
+        <Paper sx={{ bgcolor: 'background.paper', overflow: 'hidden' }}>
+          {!loading && roster.length > 0 && (
+            <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'center' }} spacing={1} sx={{ p: 2 }}>
+              <Box>
+                <Typography variant="h6">Current lineup</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Starter and bench assignments reflect the current week. Position eligibility is shown for every player.
+                </Typography>
+              </Box>
+              <Button component={RouterLink} to={`/league/${selectedLeague}/lineup`} variant="contained">
+                Set Lineup
+              </Button>
+            </Stack>
+          )}
+          <TableContainer sx={{ overflowX: 'auto' }}>
+          <Table sx={{ minWidth: 760 }}>
             <TableHead>
               <TableRow>
+                <TableCell>Slot</TableCell>
                 <TableCell>POS</TableCell>
                 <TableCell>Player</TableCell>
                 <TableCell>Bye</TableCell>
@@ -293,7 +308,7 @@ function TeamManagement() {
               {loading &&
                 Array.from({ length: 3 }).map((_, i) => (
                   <TableRow key={`skeleton-${i}`} data-testid="roster-skeleton">
-                    {Array.from({ length: 6 }).map((__, j) => (
+                    {Array.from({ length: 7 }).map((__, j) => (
                       <TableCell key={j}>
                         <Skeleton variant="text" />
                       </TableCell>
@@ -303,6 +318,14 @@ function TeamManagement() {
               {!loading &&
                 roster.map((player) => (
                   <TableRow key={player.id} hover>
+                    <TableCell>
+                      <Chip
+                        size="small"
+                        label={player.lineup_slot || 'Not set'}
+                        variant={player.lineup_slot && !['BENCH', 'IR'].includes(player.lineup_slot) ? 'filled' : 'outlined'}
+                        color={player.lineup_slot && !['BENCH', 'IR'].includes(player.lineup_slot) ? 'primary' : 'default'}
+                      />
+                    </TableCell>
                     <TableCell component="th" scope="row">
                       <PositionChip position={player.position} />
                     </TableCell>
@@ -358,7 +381,8 @@ function TeamManagement() {
                 ))}
             </TableBody>
           </Table>
-        </TableContainer>
+          </TableContainer>
+        </Paper>
       )}
 
       <PlayerQuickView

@@ -90,7 +90,24 @@ test('renders a pre-draft summary and directs an empty roster to the Draft Room'
   renderWithProviders(<TeamManagement />);
 
   expect(await screen.findByText('No record yet · Waiver order not set')).toBeInTheDocument();
+  expect(screen.getByText(/Your roster fills during the draft/)).toBeInTheDocument();
   expect(screen.getByRole('link', { name: 'Draft Room' })).toHaveAttribute('href', '/league/1/draft');
+});
+
+test('shows current starter and bench slots with a Set Lineup entry point', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/league') return Promise.resolve({ data: [makeLeague()] });
+    if (url.includes('/standings')) return Promise.resolve(standingsResponse([makeStanding({ wins: 1 })]));
+    return Promise.resolve({ data: [
+      { id: 10, name: 'Starting Quarterback', position: 'QB', nfl_team: 'KC', lineup_slot: 'QB' },
+      { id: 11, name: 'Bench Receiver', position: 'WR', nfl_team: 'CHI', lineup_slot: 'BENCH' },
+    ] });
+  });
+  renderWithProviders(<TeamManagement />);
+
+  expect(await screen.findByText('Starting Quarterback')).toBeInTheDocument();
+  expect(screen.getByText('BENCH')).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Set Lineup' })).toHaveAttribute('href', '/league/1/lineup');
 });
 
 test('post-draft zero-game summary omits rank and keeps the real waiver priority', async () => {

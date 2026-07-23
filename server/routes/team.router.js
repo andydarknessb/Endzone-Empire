@@ -29,12 +29,19 @@ router.get('/roster', async (req, res) => {
   }
   try {
     const result = await pool.query(
-      `SELECT "players".*, "team_players"."created_at" AS "acquired_at", "teams"."id" AS "team_id"
+      `SELECT "players".*, "team_players"."created_at" AS "acquired_at", "teams"."id" AS "team_id",
+              "lineup_entries"."slot" AS "lineup_slot"
        FROM "team_players"
        JOIN "players" ON "players"."id" = "team_players"."player_id"
        JOIN "teams" ON "teams"."id" = "team_players"."team_id"
+       JOIN "leagues" ON "leagues"."id" = "teams"."league_id"
+       LEFT JOIN "lineup_entries" ON "lineup_entries"."team_id" = "teams"."id"
+         AND "lineup_entries"."player_id" = "players"."id"
+         AND "lineup_entries"."season" = "leagues"."current_season"
+         AND "lineup_entries"."week" = "leagues"."current_week"
        WHERE "teams"."league_id" = $1 AND "teams"."owner_id" = $2
-       ORDER BY "players"."position", "players"."name"`,
+       ORDER BY CASE WHEN "lineup_entries"."slot" IN ('BENCH', 'IR') OR "lineup_entries"."slot" IS NULL THEN 1 ELSE 0 END,
+                "lineup_entries"."slot", "players"."position", "players"."name"`,
       [Number(leagueId), req.user.id]
     );
     // Bye week is schedule-derived (not a stored players column), so annotate
