@@ -85,10 +85,7 @@ router.post('/login', async (req, res) => {
     delete user.password;
     const refreshToken = await tokens.issueRefreshToken({ userId: user.id });
     setRefreshCookie(res, refreshToken);
-    return res.json({
-      token: signToken(user, { authenticatedAt: rotated.authenticatedAt }),
-      user,
-    });
+    return res.json({ token: signToken(user), user });
   } catch (error) {
     logger.error({ err: error }, 'login failed');
     return res.status(500).json({ error: 'login failed' });
