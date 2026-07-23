@@ -21,15 +21,16 @@ test.describe('authentication lifecycle', () => {
     };
     let registerBody: unknown;
     let verificationBody: unknown;
+    let registered = false;
 
     await page.route('**/api/**', async (route) => {
       const request = route.request();
       const path = new URL(request.url()).pathname;
       if (request.method() === 'POST' && path === '/api/auth/register') {
         registerBody = request.postDataJSON();
+        registered = true;
         return json(route, 201, {
           token: 'pending-access-token',
-          refreshToken: 'pending-refresh-token',
           user: profile,
         });
       }
@@ -40,7 +41,12 @@ test.describe('authentication lifecycle', () => {
         profile.email_verified = true;
         return json(route, 200, { ok: true });
       }
-      if (request.method() === 'GET' && path === '/api/user') return json(route, 200, profile);
+      if (request.method() === 'GET' && path === '/api/user') {
+        return json(route, registered ? 200 : 401, registered ? profile : { error: 'signed out' });
+      }
+      if (request.method() === 'POST' && path === '/api/auth/refresh') {
+        return json(route, 401, { error: 'signed out' });
+      }
       if (request.method() === 'GET' && path === '/api/league') return json(route, 200, []);
       if (request.method() === 'GET' && path === '/api/news') return json(route, 200, []);
       if (request.method() === 'GET' && path === '/api/notifications') {
@@ -53,6 +59,7 @@ test.describe('authentication lifecycle', () => {
     await page.locator('#username').fill(profile.username);
     await page.locator('#email').fill(profile.email);
     await page.locator('#password').fill('InitialPass123!');
+    await page.locator('#age-confirmed').check();
     await page.locator('input[type="submit"][value="Register"]').click();
     await expect(page).toHaveURL(/#\/user$/);
     expect(registerBody).toEqual({

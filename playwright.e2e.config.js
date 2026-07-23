@@ -13,11 +13,11 @@ module.exports = defineConfig({
   webServer: process.env.E2E_BASE_URL
     ? undefined
     : {
-        command: 'npm start',
+        command: 'npm run client',
         url: 'http://127.0.0.1:4173',
         reuseExistingServer: !process.env.CI,
         timeout: 120_000,
-        env: { BROWSER: 'none', HOST: '127.0.0.1', PORT: '4173' },
+        env: { BROWSER: 'none', HOST: '0.0.0.0', PORT: '4173' },
       },
   use: {
     baseURL: process.env.E2E_BASE_URL || 'http://127.0.0.1:4173',

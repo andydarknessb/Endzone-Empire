@@ -1,5 +1,5 @@
 import type { Page, Request } from '@playwright/test';
-import { appOrigin } from './security-data';
+import { appOrigin, fixtureTokens } from './security-data';
 
 type JsonValue = Record<string, unknown> | unknown[] | string | number | boolean | null;
 
@@ -89,19 +89,28 @@ export async function browserJsonRequest(
   method: string,
   payload: Record<string, unknown>
 ) {
+  const role = await page.evaluate(() => window.localStorage.getItem('endzone_security_role'));
+  const token =
+    role === 'commissioner' || role === 'manager'
+      ? fixtureTokens[role]
+      : null;
   return page.evaluate(
-    async ({ requestPath, requestMethod, requestPayload }) => {
-      const token = window.localStorage.getItem('endzone_token');
+    async ({ requestPath, requestMethod, requestPayload, accessToken }) => {
       const response = await window.fetch(requestPath, {
         method: requestMethod,
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
         },
         body: JSON.stringify(requestPayload),
       });
       return { status: response.status, body: await response.json() };
     },
-    { requestPath: path, requestMethod: method, requestPayload: payload }
+    {
+      requestPath: path,
+      requestMethod: method,
+      requestPayload: payload,
+      accessToken: token,
+    }
   );
 }

@@ -1,5 +1,5 @@
 import { io } from 'socket.io-client';
-import { getToken, getRefreshToken, refreshTokens } from './apiClient';
+import { getToken, refreshTokens } from './apiClient';
 import { getSocketOrigin } from './origins';
 
 export function createDraftSocket() {
@@ -20,7 +20,7 @@ export function createDraftSocket() {
   // server rejects the handshake as unauthorized, refresh via REST — the next
   // reconnection attempt then reads the fresh token through the auth callback.
   socket.on('connect_error', (err) => {
-    if (String(err && err.message).includes('unauthorized') && getRefreshToken()) {
+    if (String(err && err.message).includes('unauthorized')) {
       refreshTokens().catch(() => {});
     }
   });
