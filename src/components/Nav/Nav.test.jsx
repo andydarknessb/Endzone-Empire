@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
@@ -38,6 +38,18 @@ test('shows the full authenticated nav when a user is logged in', async () => {
   expect(screen.getByRole('link', { name: 'Players' })).toHaveAttribute('href', '/player');
   expect(screen.getByRole('link', { name: 'Roster' })).toHaveAttribute('href', '/team');
   expect(screen.queryByRole('link', { name: /login \/ register/i })).not.toBeInTheDocument();
+});
+
+test('opens the authenticated mobile navigation drawer and closes it after navigation', async () => {
+  const user = userEvent.setup();
+  renderWithProviders(<Nav />, { state: { user: { id: 1, username: 'alice' } } });
+
+  await user.click(screen.getByRole('button', { name: /open navigation menu/i }));
+  const drawerHome = screen.getAllByRole('link', { name: 'Home' }).find((link) => link.closest('.MuiDrawer-root'));
+  expect(drawerHome).toHaveAttribute('href', '/user');
+
+  await user.click(drawerHome);
+  await waitFor(() => expect(drawerHome).not.toBeVisible());
 });
 
 test('exposes Notification Settings and Log Out from the profile menu', async () => {
