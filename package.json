@@ -12,7 +12,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@emotion/react": "^11.13.0",
     "@emotion/styled": "^11.13.0",
-    "@mui/icons-material": "^5.18.0",
+    "@mui/icons-material": "^9.2.0",
     "@mui/lab": "^5.0.0-alpha.170",
     "@mui/material": "^5.16.7",
     "@sentry/node": "^10.67.0",
