@@ -19,6 +19,8 @@ const league = (overrides = {}) => ({
   ...overrides,
 });
 
+const openNewLeague = () => userEvent.click(screen.getByRole('button', { name: 'New league' }));
+
 afterEach(() => {
   jest.clearAllMocks();
 });
@@ -85,6 +87,7 @@ test('creating a league posts the form data and shows the returned invite code',
 
   renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
   await screen.findByText(/you aren't in any leagues yet/i);
+  await openNewLeague();
 
   await userEvent.type(screen.getByLabelText(/League name/), 'Monday Mayhem');
   await userEvent.click(screen.getByRole('button', { name: 'Create League' }));
@@ -106,6 +109,7 @@ test('creating a league surfaces the server error on failure', async () => {
 
   renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
   await screen.findByText(/you aren't in any leagues yet/i);
+  await openNewLeague();
 
   await userEvent.type(screen.getByLabelText(/League name/), 'Dup League');
   await userEvent.click(screen.getByRole('button', { name: 'Create League' }));
@@ -117,6 +121,7 @@ test('the "Require commissioner approval" toggle only appears once "Public leagu
   apiClient.get.mockResolvedValue({ data: [] });
   renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
   await screen.findByText(/you aren't in any leagues yet/i);
+  await openNewLeague();
   await userEvent.click(screen.getByRole('button', { name: /advanced settings/i }));
 
   expect(screen.queryByLabelText('Require commissioner approval to join')).not.toBeInTheDocument();
@@ -129,6 +134,7 @@ test('the best-ball helper text only appears once "Best ball mode" is on', async
   apiClient.get.mockResolvedValue({ data: [] });
   renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
   await screen.findByText(/you aren't in any leagues yet/i);
+  await openNewLeague();
   await userEvent.click(screen.getByRole('button', { name: /advanced settings/i }));
 
   expect(screen.queryByText(/optimal lineup is set automatically/i)).not.toBeInTheDocument();
@@ -143,6 +149,7 @@ test('creating a league only sends the new optional fields the user actually set
 
   renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
   await screen.findByText(/you aren't in any leagues yet/i);
+  await openNewLeague();
 
   await userEvent.type(screen.getByLabelText(/League name/), 'Plain League');
   await userEvent.click(screen.getByRole('button', { name: 'Create League' }));
@@ -162,6 +169,7 @@ test('creating a public, approval-required, best-ball, PPR league with a draft d
 
   renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
   await screen.findByText(/you aren't in any leagues yet/i);
+  await openNewLeague();
 
   await userEvent.type(screen.getByLabelText(/League name/), 'Full Featured League');
   await userEvent.click(screen.getByRole('button', { name: /advanced settings/i }));
@@ -193,6 +201,7 @@ test('joining a league posts the trimmed invite code', async () => {
 
   renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
   await screen.findByText(/you aren't in any leagues yet/i);
+  await openNewLeague();
 
   await userEvent.click(screen.getByRole('tab', { name: 'Join League' }));
   await userEvent.type(screen.getByLabelText(/Invite code/), '  xyz789  ');

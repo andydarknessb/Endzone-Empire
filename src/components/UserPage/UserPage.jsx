@@ -4,7 +4,7 @@ import { Link as RouterLink } from 'react-router-dom';
 import {
   Typography, Button, Dialog, DialogTitle, DialogContent, DialogActions,
   TextField, Select, MenuItem, InputLabel, Alert, Switch, FormControlLabel,
-  FormControl, Container, Box, Card, CardActionArea, CardContent, Chip,
+  FormControl, Container, Box, Card, CardContent, Paper,
   Skeleton, Stack, List, ListItem, ListItemText, Link,
 } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2';
@@ -12,11 +12,42 @@ import { alpha } from '@mui/material/styles';
 import SportsFootballIcon from '@mui/icons-material/SportsFootball';
 import apiClient from '../../api/apiClient';
 import Countdown from '../Countdown/Countdown';
+import LeagueCard from '../common/LeagueCard';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
+import { deriveLeaguePhase, LEAGUE_PHASE } from '../../lib/leaguePhase';
 
-// Draft status -> readable chip on each league card.
-const STATUS_LABEL = { pending: 'Pre-draft', active: 'Draft live', complete: 'In season' };
-const STATUS_COLOR = { pending: 'default', active: 'warning', complete: 'success' };
+function nextUpFor(leagues, activityItems) {
+  const actionItem = activityItems.find((item) => /trade|invite|join request/i.test(item.message || ''));
+  if (actionItem) {
+    const trade = /trade/i.test(actionItem.message || '');
+    return {
+      eyebrow: 'Action needed',
+      title: actionItem.message,
+      action: trade ? 'Review trades' : 'Review league',
+      to: actionItem.league_id
+        ? `/league/${actionItem.league_id}${trade ? '/trades' : ''}`
+        : '/league',
+    };
+  }
+
+  const drafting = leagues.find((league) => deriveLeaguePhase(league) === LEAGUE_PHASE.DRAFTING);
+  if (drafting) {
+    return { eyebrow: 'Draft live', title: `${drafting.name} is on the clock.`, action: 'Open Draft Room', to: `/league/${drafting.id}/draft` };
+  }
+
+  const scheduled = leagues.find((league) => deriveLeaguePhase(league) === LEAGUE_PHASE.PRE_DRAFT && league.draft_date);
+  if (scheduled) {
+    return { eyebrow: 'Next up', title: `Draft day for ${scheduled.name}`, action: 'Draft Room', to: `/league/${scheduled.id}/draft`, draftDate: scheduled.draft_date };
+  }
+
+  const active = leagues.find((league) => [LEAGUE_PHASE.IN_SEASON, LEAGUE_PHASE.PLAYOFFS].includes(deriveLeaguePhase(league)));
+  if (active) {
+    const week = active.current_week ? `Week ${active.current_week} ` : '';
+    return { eyebrow: 'Action needed', title: `Review your ${week}lineup for ${active.name}.`, action: 'Set Lineup', to: `/league/${active.id}/lineup` };
+  }
+
+  return { eyebrow: 'Next up', title: 'Create or join a league to start your season.', action: 'View leagues', to: '/league' };
+}
 
 function UserPage() {
   const user = useSelector((store) => store.user);
@@ -54,6 +85,7 @@ function UserPage() {
   const [activityItems, setActivityItems] = useState([]);
   const [loadingActivity, setLoadingActivity] = useState(true);
   const [activityError, setActivityError] = useState(false);
+  const nextUp = nextUpFor(myLeagues, activityItems);
 
   const fetchMyLeagues = async () => {
     try {
@@ -217,7 +249,7 @@ function UserPage() {
                 role="presentation"
                 sx={{
                   position: 'relative',
-                  height: { sm: 160, md: 200 },
+                  height: myLeagues.length > 0 ? { sm: 120, md: 140 } : { sm: 160, md: 200 },
                   borderRadius: 2,
                   overflow: 'hidden',
                   backgroundImage: 'url(/endzone.jpeg)',
@@ -291,48 +323,32 @@ function UserPage() {
           <Grid container spacing={2}>
             {myLeagues.map((league) => (
               <Grid xs={12} sm={6} md={4} key={league.id}>
-                <Card variant="outlined" sx={{ height: '100%' }}>
-                  <CardActionArea
-                    component={RouterLink}
-                    to={`/league/${league.id}`}
-                    sx={{ height: '100%' }}
-                  >
-                    <CardContent>
-                      <Box
-                        sx={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'flex-start',
-                          gap: 1,
-                          mb: 1,
-                        }}
-                      >
-                        <Typography variant="h6" sx={{ fontWeight: 700 }}>
-                          {league.name}
-                        </Typography>
-                        <Chip
-                          size="small"
-                          label={STATUS_LABEL[league.draft_status] || league.draft_status}
-                          color={STATUS_COLOR[league.draft_status] || 'default'}
-                        />
-                      </Box>
-                      <Typography variant="body2" color="text.secondary">
-                        Team: {league.my_team_name}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                        {league.team_count != null ? league.team_count : '—'}
-                        {league.max_teams ? `/${league.max_teams}` : ''} teams
-                      </Typography>
-                      {league.draft_status === 'pending' && league.draft_date && (
-                        <Countdown variant="chip" date={league.draft_date} />
-                      )}
-                    </CardContent>
-                  </CardActionArea>
-                </Card>
+                <LeagueCard league={league} compact />
               </Grid>
             ))}
           </Grid>
         )}
+
+        <Paper
+          variant="outlined"
+          component="section"
+          aria-labelledby="next-up-heading"
+          sx={{ mt: 4, p: { xs: 2, sm: 3 }, borderLeft: '4px solid', borderLeftColor: 'primary.main' }}
+        >
+          <Stack
+            direction={{ xs: 'column', sm: 'row' }}
+            justifyContent="space-between"
+            alignItems={{ xs: 'flex-start', sm: 'center' }}
+            spacing={2}
+          >
+            <Box>
+              <Typography variant="overline" color="primary.main">{nextUp.eyebrow}</Typography>
+              <Typography id="next-up-heading" variant="h6">{nextUp.title}</Typography>
+              {nextUp.draftDate && <Countdown variant="chip" date={nextUp.draftDate} />}
+            </Box>
+            <Button component={RouterLink} to={nextUp.to} variant="contained">{nextUp.action}</Button>
+          </Stack>
+        </Paper>
 
         {/* Below-the-fold dashboard real estate: real cross-app widgets. */}
         <Box sx={{ mt: 5 }}>

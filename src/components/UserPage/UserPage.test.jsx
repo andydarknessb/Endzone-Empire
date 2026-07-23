@@ -115,7 +115,7 @@ test('renders NFL news headlines and cross-league activity from their own endpoi
     'href',
     'https://example.com/news/1'
   );
-  expect(screen.getByText('Sunday Ballers completed a trade')).toBeInTheDocument();
+  expect(screen.getAllByText('Sunday Ballers completed a trade')).toHaveLength(2);
 });
 
 test('shows a friendly message when the news or activity widgets fail to load', async () => {
@@ -129,6 +129,59 @@ test('shows a friendly message when the news or activity widgets fail to load', 
 
   expect(await screen.findByText("Couldn't load the latest news right now.")).toBeInTheDocument();
   expect(screen.getByText("Couldn't load recent activity right now.")).toBeInTheDocument();
+});
+
+// --- "Next up" hero (nextUpFor) -------------------------------------------
+// The hero distills the user's leagues + recent activity into one prioritized
+// CTA. Priority: an actionable notification (trade/invite/join request) > a
+// live draft > a scheduled draft > an in-season/playoff lineup nudge > the
+// create/join fallback. The action renders as a link, so assert on its href.
+const mockDashboard = ({ leagues = [], notifications = [] }) => {
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/notifications') return Promise.resolve({ data: { notifications, unread: 0 } });
+    if (url === '/api/news') return Promise.resolve({ data: [] });
+    return Promise.resolve({ data: leagues }); // /api/league
+  });
+};
+
+test('Next up hero prioritizes an actionable trade notification over league phase', async () => {
+  mockDashboard({
+    leagues: [league({ id: 9, draft_status: 'active' })], // a live draft would otherwise win
+    notifications: [{ id: 1, message: 'Bob proposed a trade', league_id: 9 }],
+  });
+  renderWithProviders(<UserPage />, { state: baseState });
+
+  expect(await screen.findByRole('link', { name: 'Review trades' })).toHaveAttribute('href', '/league/9/trades');
+  expect(screen.getByText('Action needed')).toBeInTheDocument();
+});
+
+test('Next up hero surfaces a live draft when nothing needs action', async () => {
+  mockDashboard({
+    leagues: [league({ id: 1, draft_status: 'active' })],
+    notifications: [{ id: 1, message: 'Week 1 scores posted' }],
+  });
+  renderWithProviders(<UserPage />, { state: baseState });
+
+  expect(await screen.findByRole('link', { name: 'Open Draft Room' })).toHaveAttribute('href', '/league/1/draft');
+  // "Draft live" also appears in the league card's phase chip, so scope to the hero region.
+  const hero = screen.getByRole('region', { name: /is on the clock/i });
+  expect(within(hero).getByText('Draft live')).toBeInTheDocument();
+});
+
+test('Next up hero nudges the in-season lineup once the draft is complete', async () => {
+  mockDashboard({
+    leagues: [league({ id: 3, draft_status: 'complete', season_status: 'regular', current_week: 5 })],
+  });
+  renderWithProviders(<UserPage />, { state: baseState });
+
+  expect(await screen.findByRole('link', { name: 'Set Lineup' })).toHaveAttribute('href', '/league/3/lineup');
+});
+
+test('Next up hero points to browsing leagues when the user has none', async () => {
+  mockDashboard({ leagues: [] });
+  renderWithProviders(<UserPage />, { state: baseState });
+
+  expect(await screen.findByRole('link', { name: 'View leagues' })).toHaveAttribute('href', '/league');
 });
 
 test('creating a league posts the form data, shows a notice, and refetches leagues', async () => {

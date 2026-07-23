@@ -1,99 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import {
-  Typography, TextField, Button, Paper, Stack, Chip, Alert, Divider,
+  Typography, TextField, Button, Paper, Stack, Alert,
   Switch, FormControlLabel, Select, MenuItem, InputLabel, FormControl,
   Tabs, Tab, Accordion, AccordionSummary, AccordionDetails, Box,
-  Card, CardContent, CardActions, IconButton, Menu,
-  Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
+  Dialog, DialogTitle, DialogContent, DialogActions,
 } from '@mui/material';
-import MoreVertIcon from '@mui/icons-material/MoreVert';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import apiClient from '../../api/apiClient';
-import Countdown from '../Countdown/Countdown';
 import DraftCentralCard from '../DraftCentral/DraftCentralCard';
+import LeagueCard from '../common/LeagueCard';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import './LeagueManagement.css';
-
-function LeagueCard({ league, isOwner, onDelete }) {
-  const [anchorEl, setAnchorEl] = useState(null);
-  const [confirmOpen, setConfirmOpen] = useState(false);
-
-  const confirmDelete = () => {
-    setConfirmOpen(false);
-    onDelete(league.id);
-  };
-
-  return (
-    <Card variant="outlined" sx={{ bgcolor: 'background.paper' }}>
-      <CardContent>
-        <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
-          <Box>
-            <Typography variant="h6">{league.name}</Typography>
-            <Typography variant="body2" color="text.secondary">{league.my_team_name}</Typography>
-            <Stack direction="row" spacing={1} rowGap={1} flexWrap="wrap" sx={{ mt: 1 }}>
-              <Chip
-                size="small"
-                label={`Draft: ${league.draft_status}`}
-                color={league.draft_status === 'active' ? 'warning' : league.draft_status === 'complete' ? 'success' : 'default'}
-              />
-              {league.team_count != null && (
-                <Chip size="small" label={`Teams: ${league.team_count}/${league.max_teams}`} />
-              )}
-              {league.draft_status === 'pending' && league.draft_date && (
-                <Countdown variant="chip" date={league.draft_date} />
-              )}
-            </Stack>
-          </Box>
-
-          {isOwner && (
-            <>
-              <IconButton
-                aria-label="League actions"
-                size="small"
-                onClick={(event) => setAnchorEl(event.currentTarget)}
-              >
-                <MoreVertIcon />
-              </IconButton>
-              <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={() => setAnchorEl(null)}>
-                <MenuItem
-                  sx={{ color: 'error.main' }}
-                  onClick={() => {
-                    setAnchorEl(null);
-                    setConfirmOpen(true);
-                  }}
-                >
-                  Delete
-                </MenuItem>
-              </Menu>
-              <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)}>
-                <DialogTitle>Delete {league.name}?</DialogTitle>
-                <DialogContent>
-                  <DialogContentText>
-                    This permanently removes the league, its roster, and its history for every
-                    member. This can&apos;t be undone.
-                  </DialogContentText>
-                </DialogContent>
-                <DialogActions>
-                  <Button onClick={() => setConfirmOpen(false)}>Cancel</Button>
-                  <Button color="error" variant="contained" onClick={confirmDelete}>
-                    Delete League
-                  </Button>
-                </DialogActions>
-              </Dialog>
-            </>
-          )}
-        </Stack>
-      </CardContent>
-      <CardActions sx={{ px: 2, pb: 2, pt: 0, flexWrap: 'wrap', gap: 1 }}>
-        <Button component={Link} to={`/league/${league.id}`} variant="contained">Dashboard</Button>
-        <Button component={Link} to={`/league/${league.id}/draft`} variant="outlined">Draft Room</Button>
-        <Button component={Link} to={`/league/${league.id}/game-center`} variant="outlined">Game Center</Button>
-      </CardActions>
-    </Card>
-  );
-}
 
 function LeagueManagement() {
   const user = useSelector((store) => store.user);
@@ -106,6 +25,7 @@ function LeagueManagement() {
   const [inviteCode, setInviteCode] = useState('');
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
+  const [newLeagueOpen, setNewLeagueOpen] = useState(false);
   const [searchParams] = useSearchParams();
   const joinButtonRef = useRef(null);
 
@@ -117,16 +37,17 @@ function LeagueManagement() {
     if (code) {
       setInviteCode(code);
       setActiveTab('join');
+      setNewLeagueOpen(true);
     }
   }, [searchParams]);
 
   // The Join button only exists in the DOM once the Join tab is active, so
   // the focus has to wait for that switch to actually render before firing.
   useEffect(() => {
-    if (activeTab === 'join' && searchParams.get('code')) {
-      joinButtonRef.current?.focus();
-    }
-  }, [activeTab, searchParams]);
+    if (activeTab !== 'join' || !newLeagueOpen || !searchParams.get('code')) return undefined;
+    const handle = setTimeout(() => joinButtonRef.current?.focus(), 0);
+    return () => clearTimeout(handle);
+  }, [activeTab, newLeagueOpen, searchParams]);
 
   // New league-creation options — all optional, sent only when the user
   // actually sets them (see createLeague).
@@ -175,6 +96,7 @@ function LeagueManagement() {
       setBestBall(false);
       setScoringPreset('');
       setDraftDate('');
+      setNewLeagueOpen(false);
       fetchLeagues();
     } catch (err) {
       report(err);
@@ -190,6 +112,7 @@ function LeagueManagement() {
       setNotice('Joined league!');
       notify('Joined league!');
       setInviteCode('');
+      setNewLeagueOpen(false);
       fetchLeagues();
     } catch (err) {
       report(err);
@@ -209,7 +132,10 @@ function LeagueManagement() {
 
   return (
     <div className="container">
-      <Typography variant="h4" gutterBottom>My Leagues</Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2, mb: 2 }}>
+        <Typography variant="h4">My Leagues</Typography>
+        <Button variant="contained" onClick={() => setNewLeagueOpen(true)}>New league</Button>
+      </Box>
       {error && <Alert severity="error" onClose={() => setError(null)}>{error}</Alert>}
       {notice && <Alert severity="success" onClose={() => setNotice(null)}>{notice}</Alert>}
 
@@ -232,14 +158,15 @@ function LeagueManagement() {
         </Stack>
       )}
 
-      <Divider sx={{ my: 3 }} />
+      <Dialog open={newLeagueOpen} onClose={() => setNewLeagueOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>New league</DialogTitle>
+        <DialogContent dividers>
+          <Tabs value={activeTab} onChange={(event, value) => setActiveTab(value)} sx={{ mb: 2 }}>
+            <Tab label="Create League" value="create" />
+            <Tab label="Join League" value="join" />
+          </Tabs>
 
-      <Tabs value={activeTab} onChange={(event, value) => setActiveTab(value)} sx={{ mb: 2 }}>
-        <Tab label="Create League" value="create" />
-        <Tab label="Join League" value="join" />
-      </Tabs>
-
-      {activeTab === 'create' ? (
+          {activeTab === 'create' ? (
         <Paper component="form" onSubmit={createLeague} sx={{ p: 2, bgcolor: 'background.paper' }}>
           <Stack spacing={2}>
             <TextField label="League name" size="small" required
@@ -331,7 +258,7 @@ function LeagueManagement() {
             <Button type="submit" variant="contained">Create League</Button>
           </Stack>
         </Paper>
-      ) : (
+          ) : (
         <Paper component="form" onSubmit={joinLeague} sx={{ p: 2, bgcolor: 'background.paper' }}>
           <Stack spacing={2}>
             <TextField label="Invite code" size="small" required
@@ -339,7 +266,12 @@ function LeagueManagement() {
             <Button ref={joinButtonRef} type="submit" variant="contained">Join League</Button>
           </Stack>
         </Paper>
-      )}
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setNewLeagueOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </div>
   );
 }
