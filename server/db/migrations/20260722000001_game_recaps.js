@@ -56,9 +56,18 @@ exports.up = async function (knex) {
   // Supabase exposes `public` through its Data API by default. The private
   // schema closes that surface structurally; RLS and explicit revocations are
   // defense in depth against accidental future grants or schema exposure.
-  await knex.raw('REVOKE ALL ON SCHEMA ?? FROM PUBLIC, anon, authenticated', [PRIVATE_SCHEMA]);
-  await knex.raw('REVOKE ALL ON TABLE ??.?? FROM PUBLIC, anon, authenticated', [PRIVATE_SCHEMA, RECAPS_TABLE]);
-  await knex.raw('REVOKE ALL ON SEQUENCE ??.?? FROM PUBLIC, anon, authenticated', [PRIVATE_SCHEMA, `${RECAPS_TABLE}_id_seq`]);
+  await knex.raw('REVOKE ALL ON SCHEMA ?? FROM PUBLIC', [PRIVATE_SCHEMA]);
+  await knex.raw('REVOKE ALL ON TABLE ??.?? FROM PUBLIC', [PRIVATE_SCHEMA, RECAPS_TABLE]);
+  await knex.raw('REVOKE ALL ON SEQUENCE ??.?? FROM PUBLIC', [PRIVATE_SCHEMA, `${RECAPS_TABLE}_id_seq`]);
+
+  const clientRoles = await knex('pg_roles')
+    .select('rolname')
+    .whereIn('rolname', ['anon', 'authenticated']);
+  for (const { rolname } of clientRoles) {
+    await knex.raw('REVOKE ALL ON SCHEMA ?? FROM ??', [PRIVATE_SCHEMA, rolname]);
+    await knex.raw('REVOKE ALL ON TABLE ??.?? FROM ??', [PRIVATE_SCHEMA, RECAPS_TABLE, rolname]);
+    await knex.raw('REVOKE ALL ON SEQUENCE ??.?? FROM ??', [PRIVATE_SCHEMA, `${RECAPS_TABLE}_id_seq`, rolname]);
+  }
 
   await knex.raw('GRANT USAGE ON SCHEMA ?? TO ??', [PRIVATE_SCHEMA, appRole]);
   await knex.raw('GRANT SELECT, INSERT, UPDATE ON TABLE ??.?? TO ??', [PRIVATE_SCHEMA, RECAPS_TABLE, appRole]);
