@@ -25,7 +25,10 @@ function sslForConnection(connectionString) {
   if (production && !ca) {
     throw new Error('DB_SSL_CA or DB_SSL_CA_PATH is required for production database verification');
   }
-  return ca ? { rejectUnauthorized: true, ca } : { rejectUnauthorized: false };
+  // The no-CA, rejectUnauthorized:false branch is unreachable in production —
+  // the guard above throws when NODE_ENV=production and no CA is configured.
+  // It only serves local/dev databases that don't ship a CA bundle.
+  return ca ? { rejectUnauthorized: true, ca } : { rejectUnauthorized: false }; // nosemgrep: problem-based-packs.insecure-transport.js-node.bypass-tls-verification.bypass-tls-verification
 }
 
 module.exports = { certificateAuthority, sslForConnection };

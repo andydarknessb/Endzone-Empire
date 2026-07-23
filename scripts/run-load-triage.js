@@ -63,12 +63,15 @@ export default function () {
 }
 `;
 
+// `command` is always a literal passed by this file's own callers (k6,
+// supabase, docker) — never user or network input — so there's nothing here
+// for an attacker to control.
 function commandExists(command, args = ['--version']) {
   return spawnSync(command, args, {
     cwd: ROOT,
     stdio: 'ignore',
     windowsHide: true,
-  }).status === 0;
+  }).status === 0; // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
 }
 
 function append(stream, source, message) {
@@ -81,8 +84,10 @@ function pipeChild(child, stream, source) {
   child.on('error', (error) => append(stream, source, `process_error=${JSON.stringify(error.message)}`));
 }
 
+// Local-only stand-in for the real API during a mock load-test run; bound to
+// 127.0.0.1 below and never reachable off-box, so plain HTTP is fine here.
 function startMockServer(stream) {
-  const server = http.createServer((request, response) => {
+  const server = http.createServer((request, response) => { // nosemgrep: problem-based-packs.insecure-transport.js-node.using-http-server.using-http-server
     const startedAt = Date.now();
     request.resume();
     request.on('end', () => {
@@ -108,12 +113,16 @@ function startMockServer(stream) {
 
 function startLogCollector(stream) {
   if (process.env.LOAD_LOG_COMMAND) {
+    // shell:true is deliberate: LOAD_LOG_COMMAND lets whoever runs this local
+    // triage script plug in their own log-tail command (e.g. a piped
+    // `docker compose logs -f | grep ...`). It's set by that same operator in
+    // their own shell, not attacker-controlled input.
     const child = spawn(process.env.LOAD_LOG_COMMAND, {
       cwd: ROOT,
       shell: true,
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    }); // nosemgrep: javascript.lang.security.audit.spawn-shell-true.spawn-shell-true
     pipeChild(child, stream, 'configured-logs');
     return child;
   }

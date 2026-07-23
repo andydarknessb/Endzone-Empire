@@ -118,7 +118,9 @@ function createDatabaseFixture() {
 }
 
 function createApp() {
-  const app = express();
+  // Test-only harness: mounts a single router in-process for supertest, never
+  // binds a port or serves real traffic, so CSRF middleware doesn't apply.
+  const app = express(); // nosemgrep: javascript.express.security.audit.express-check-csurf-middleware-usage.express-check-csurf-middleware-usage
   app.use(express.json());
   app.use('/api/team', teamRouter);
   return app;

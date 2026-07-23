@@ -37,7 +37,9 @@ const NAMED = /(?::\s*|['"])(goldenrod|whitesmoke|orange|lightgray|lightgrey|gai
 
 function walk(dir, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
+    // `entry.name` comes from fs.readdirSync of a fixed repo directory (SRC),
+    // not from user or network input, so there's no traversal here.
+    const full = path.join(dir, entry.name); // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
     if (entry.isDirectory()) {
       if (entry.name === 'node_modules') continue;
       walk(full, out);

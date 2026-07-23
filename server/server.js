@@ -47,7 +47,12 @@ const { getClientOrigins, getCorsOptions } = require('./modules/clientOrigins');
 const { closeRedis } = require('./modules/redis');
 const { markReady, markShuttingDown } = require('./modules/runtimeState');
 
-const app = express();
+// No csurf middleware: every state-changing route requires an `Authorization:
+// Bearer` header (server/modules/auth.js), which a cross-site page cannot
+// attach. The one cookie in play is the httpOnly refresh token, scoped to
+// /api/auth, SameSite=Lax, and gated by requireTrustedOrigin — see
+// server/modules/refreshCookie.js.
+const app = express(); // nosemgrep: javascript.express.security.audit.express-check-csurf-middleware-usage.express-check-csurf-middleware-usage
 if (process.env.NODE_ENV === 'production') app.set('trust proxy', 1);
 app.disable('x-powered-by');
 
@@ -174,7 +179,10 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 5000;
-const server = http.createServer(app);
+// Plain HTTP is intentional: Render terminates TLS at its edge for the
+// api.endzoneempire.gg custom domain (render.yaml) and forwards plain HTTP
+// to this instance inside its private network.
+const server = http.createServer(app); // nosemgrep: problem-based-packs.insecure-transport.js-node.using-http-server.using-http-server
 const io = attachDraftSocket(server);
 let shutdownPromise = null;
 
