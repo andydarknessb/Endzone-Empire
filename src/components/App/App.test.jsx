@@ -144,7 +144,10 @@ test('"/player" is protected: LoginPage when logged out, PlayerManagement when l
   unmount();
 
   renderApp('#/player', { user: loggedIn }, () => {
-    apiClient.get.mockResolvedValue({ data: { players: [], totalPages: 1 } });
+    apiClient.get.mockImplementation((url) => {
+      if (url === '/api/league') return Promise.resolve({ data: [] });
+      return Promise.resolve({ data: { players: [], totalPages: 1 } });
+    });
   });
   expect(await screen.findByRole('heading', { name: 'My Roster' })).toBeInTheDocument();
 });
@@ -379,7 +382,7 @@ test('an unmatched route shows the 404 page', async () => {
 test('always renders the Nav and Footer around the routed page', async () => {
   renderApp('#/about', { user: loggedOut });
   expect(await screen.findByRole('link', { name: 'Endzone Empire' })).toBeInTheDocument();
-  expect(screen.getByText('© Endzone Empire')).toBeInTheDocument();
+  expect(screen.getByRole('contentinfo')).toHaveTextContent('© Endzone Empire');
 });
 
 test('dispatches FETCH_USER on mount', () => {

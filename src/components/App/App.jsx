@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { lazy, Suspense, useEffect } from 'react';
 import {
   HashRouter as Router,
   Navigate,
@@ -9,6 +9,7 @@ import {
 
 import { useDispatch, useSelector } from 'react-redux';
 import Box from '@mui/material/Box';
+import CircularProgress from '@mui/material/CircularProgress';
 
 import Nav from '../Nav/Nav';
 import Footer from '../Footer/Footer';
@@ -21,26 +22,6 @@ import InfoPage from '../InfoPage/InfoPage';
 import LandingPage from '../LandingPage/LandingPage';
 import LoginPage from '../LoginPage/LoginPage';
 import RegisterPage from '../RegisterPage/RegisterPage';
-
-import LeagueManagement from '../LeagueManagement/LeagueManagement';
-import LeagueDiscovery from '../LeagueDiscovery/LeagueDiscovery';
-import TeamManagement from '../TeamManagement/TeamManagement';
-import PlayerManagement from '../PlayerManagement/PlayerManagement';
-import LeagueDashboard from '../LeagueDashboard/LeagueDashboard';
-import MatchupDetail from '../MatchupDetail/MatchupDetail';
-import GameCenter from '../GameCenter/GameCenter';
-import DraftBoard from '../DraftBoard/DraftBoard';
-import DraftSettings from '../DraftSettings/DraftSettings';
-import DraftPresenter from '../DraftPresenter/DraftPresenter';
-import LineupScreen from '../LineupScreen/LineupScreen';
-import WaiverWire from '../WaiverWire/WaiverWire';
-import TradeCenter from '../TradeCenter/TradeCenter';
-import TransactionLog from '../TransactionLog/TransactionLog';
-import PowerRankings from '../PowerRankings/PowerRankings';
-import LeagueHistory from '../LeagueHistory/LeagueHistory';
-import NotificationPrefs from '../NotificationPrefs/NotificationPrefs';
-import AuthenticatedPlayerProfilePage from '../PlayerDetail/AuthenticatedPlayerProfilePage';
-import AdminDashboard from '../AdminDashboard/AdminDashboard';
 import ForgotPassword from '../ForgotPassword/ForgotPassword';
 import ResetPassword from '../ResetPassword/ResetPassword';
 import VerifyEmail from '../VerifyEmail/VerifyEmail';
@@ -50,8 +31,27 @@ import NotFound from '../NotFound/NotFound';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 import NavigationGuard from '../NavigationGuard/NavigationGuard';
 
-
 import './App.css';
+
+const LeagueManagement = lazy(() => import('../LeagueManagement/LeagueManagement'));
+const LeagueDiscovery = lazy(() => import('../LeagueDiscovery/LeagueDiscovery'));
+const TeamManagement = lazy(() => import('../TeamManagement/TeamManagement'));
+const PlayerManagement = lazy(() => import('../PlayerManagement/PlayerManagement'));
+const LeagueDashboard = lazy(() => import('../LeagueDashboard/LeagueDashboard'));
+const MatchupDetail = lazy(() => import('../MatchupDetail/MatchupDetail'));
+const GameCenter = lazy(() => import('../GameCenter/GameCenter'));
+const DraftBoard = lazy(() => import('../DraftBoard/DraftBoard'));
+const DraftSettings = lazy(() => import('../DraftSettings/DraftSettings'));
+const DraftPresenter = lazy(() => import('../DraftPresenter/DraftPresenter'));
+const LineupScreen = lazy(() => import('../LineupScreen/LineupScreen'));
+const WaiverWire = lazy(() => import('../WaiverWire/WaiverWire'));
+const TradeCenter = lazy(() => import('../TradeCenter/TradeCenter'));
+const TransactionLog = lazy(() => import('../TransactionLog/TransactionLog'));
+const PowerRankings = lazy(() => import('../PowerRankings/PowerRankings'));
+const LeagueHistory = lazy(() => import('../LeagueHistory/LeagueHistory'));
+const NotificationPrefs = lazy(() => import('../NotificationPrefs/NotificationPrefs'));
+const AuthenticatedPlayerProfilePage = lazy(() => import('../PlayerDetail/AuthenticatedPlayerProfilePage'));
+const AdminDashboard = lazy(() => import('../AdminDashboard/AdminDashboard'));
 
 function AppLayout({ children }) {
   const { pathname } = useLocation();
@@ -84,6 +84,13 @@ function App() {
     <Router>
       <NavigationGuard>
       <AppLayout>
+        <Suspense
+          fallback={(
+            <Box role="status" aria-label="Loading page" sx={{ py: 8, textAlign: 'center' }}>
+              <CircularProgress />
+            </Box>
+          )}
+        >
         <Routes>
           <Route path="/present/:token" element={<DraftPresenter />} />
           <Route path="/league" element={<ProtectedRoute><LeagueManagement /></ProtectedRoute>} />
@@ -176,6 +183,7 @@ function App() {
           {/* If none of the other routes matched, we will show a 404. */}
           <Route path="*" element={<NotFound />} />
         </Routes>
+        </Suspense>
       </AppLayout>
       </NavigationGuard>
     </Router>
