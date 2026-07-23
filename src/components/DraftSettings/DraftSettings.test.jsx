@@ -187,10 +187,19 @@ test('guards browser back navigation when the active tab has unsaved changes', a
   const goSpy = jest.spyOn(window.history, 'go').mockImplementation(() => {});
   try {
     mockData();
-    renderSettings();
+    renderSettings({ withLeaveLink: true });
     await screen.findByText('Sunday Ballers');
     await userEvent.click(screen.getByRole('radio', { name: /Offline/i }));
-    await act(async () => {});
+
+    // Deterministically confirm the guard is armed before the one-shot popstate.
+    // A SPA navigation attempt opens the dialog only once unsavedChangesRef is
+    // committed; "Keep editing" cancels it without touching history or clearing
+    // the flag (it's a ref), so the popstate below reliably hits the POP guard
+    // instead of racing the unsaved-changes effect.
+    await userEvent.click(screen.getByRole('link', { name: 'Leave settings' }));
+    await screen.findByText('You have unsaved changes — discard them?');
+    await userEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
+    await waitFor(() => expect(screen.queryByText('You have unsaved changes — discard them?')).not.toBeInTheDocument());
 
     act(() => {
       window.dispatchEvent(new PopStateEvent('popstate', { state: { idx: 4 } }));
