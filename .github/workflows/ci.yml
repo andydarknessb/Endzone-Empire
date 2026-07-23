@@ -32,8 +32,6 @@ jobs:
           CI: "true"
           GENERATE_SOURCEMAP: "false"
       - run: npm run check:bundle
-      - run: npm audit --omit=dev --audit-level=high
-      - run: npm audit --prefix server --omit=dev --audit-level=high
       - run: npm sbom --sbom-format cyclonedx > sbom.cdx.json
       - uses: actions/upload-artifact@v4
         with:
@@ -95,13 +93,23 @@ jobs:
       - run: npm run migrate:rollback
       - run: npm run migrate
 
-  dependency-review:
-    if: github.event_name == 'pull_request'
-    permissions:
-      contents: read
+  dependency-audit-root:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/dependency-review-action@v4
+      - uses: actions/setup-node@v4
         with:
-          fail-on-severity: high
+          node-version: 24
+          cache: npm
+      - run: npm audit --omit=dev --audit-level=high
+
+  dependency-audit-server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm audit --prefix server --omit=dev --audit-level=high

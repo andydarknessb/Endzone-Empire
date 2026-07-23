@@ -1,0 +1,25 @@
+name: Semgrep CE
+
+on:
+  push:
+    branches: [main, integration]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 9 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: semgrep-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep:1.153.0
+    steps:
+      - uses: actions/checkout@v4
+      - run: semgrep scan --config auto --error --strict
