@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen, act } from '@testing-library/react';
+import { screen, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
@@ -129,11 +129,23 @@ test('renders the viewer matchup as a hero card, out of the grid', async () => {
   expect(screen.getByText('My Team')).toBeInTheDocument();
   expect(screen.queryByText('Rival (20)')).not.toBeInTheDocument();
   expect(screen.getByText('Other A (0)')).toBeInTheDocument();
-  // Pre-game context: win probability bar plus the projected/PMR placeholders.
+  // A completed matchup shows win probability; fabricated projections are gone.
   expect(screen.getByText('Win Probability')).toBeInTheDocument();
-  expect(screen.getByText('Projected: 115.4')).toBeInTheDocument();
-  expect(screen.getByText('Projected: 108.2')).toBeInTheDocument();
-  expect(screen.getAllByText('PMR: —')).toHaveLength(2);
+  expect(screen.queryByText(/Projected:/)).not.toBeInTheDocument();
+  expect(screen.getAllByLabelText(/PMR: Players remaining/i)).toHaveLength(2);
+  expect(screen.getByRole('region', { name: 'Live scoring feed' })).toHaveTextContent('No scoring plays yet');
+});
+
+test('shows not started instead of a 50/50 probability before kickoff', async () => {
+  mockApi({
+    matchups: [matchup()],
+    league: { id: 1, name: 'Sunday Ballers', current_week: 1 },
+    rosters: [{ teamId: 10, teamName: 'Home Team', ownerId: 1 }],
+  });
+  renderScreen(1, { user: { id: 1 } });
+
+  expect(await screen.findByText('Not started · Week 1')).toBeInTheDocument();
+  expect(screen.queryByText('Win Probability')).not.toBeInTheDocument();
 });
 
 test('shows an idle message in the live-action ticker before any plays arrive', async () => {
@@ -171,6 +183,8 @@ test('attributes a live scoring play to the scoring player\'s real fantasy team'
   expect(ticker).toHaveTextContent('Speedy Runner');
   expect(ticker).toHaveTextContent('rushing TD');
   expect(ticker).toHaveTextContent('Home Team');
+  const feed = screen.getByRole('region', { name: 'Live scoring feed' });
+  expect(within(feed).getByText('🏈 TD: Speedy Runner — rushing TD (+6 pts to Home Team)')).toBeInTheDocument();
 });
 
 test('ignores a scoring play from a week other than the one on screen', async () => {

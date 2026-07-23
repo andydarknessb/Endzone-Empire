@@ -32,6 +32,7 @@ import { playLabel } from '../../lib/scoringEvents';
 import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../lib/teamProfileEvents';
 import { MatchupStatusChip } from '../MatchupDetail/MatchupExtras';
 import TeamAvatar from '../common/TeamAvatar';
+import AbbreviationTooltip from '../common/AbbreviationTooltip';
 
 const LIVE_INDICATOR_MS = 10000;
 
@@ -170,6 +171,26 @@ function LiveActionTicker({ items }) {
           </Typography>
         ))}
       </Box>
+    </Paper>
+  );
+}
+
+function LiveScoringFeed({ items }) {
+  return (
+    <Paper component="section" variant="outlined" aria-label="Live scoring feed" sx={{ p: 2, mb: 4 }}>
+      <Typography variant="h6">Live scoring feed</Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+        Recent scoring plays remain here while you follow the week.
+      </Typography>
+      {!items.length ? (
+        <Typography variant="body2" color="text.secondary">No scoring plays yet.</Typography>
+      ) : (
+        <Stack spacing={1} divider={<Box sx={{ borderBottom: 1, borderColor: 'divider' }} />}>
+          {items.map((item, index) => (
+            <Typography key={`${item.playerId}-${index}`} variant="body2">🏈 {tickerLine(item)}</Typography>
+          ))}
+        </Stack>
+      )}
     </Paper>
   );
 }
@@ -366,6 +387,9 @@ function GameCenter() {
         awayProjectedTotal: 0,
       })
     : null;
+  const heroStarted = !!heroMatchup && (
+    heroMatchup.final || showLive || heroHomeScore !== 0 || heroAwayScore !== 0
+  );
 
   const weekIndex = weekFilter === 'All' || weekFilter == null ? -1 : weeks.indexOf(weekFilter);
 
@@ -458,12 +482,18 @@ function GameCenter() {
                   <MatchupStatusChip matchup={heroMatchup} showLive={showLive} />
                 </Box>
 
-                {heroWinProb && (
+                {heroStarted && heroWinProb ? (
                   <WinProbabilitySplitBar
                     homeName={heroMatchup.home_team_name}
                     awayName={heroMatchup.away_team_name}
                     homeProb={heroWinProb.home}
                   />
+                ) : (
+                  <Paper variant="outlined" sx={{ mt: 2, py: 1, px: 1.5, textAlign: 'center', bgcolor: 'background.default' }}>
+                    <Typography variant="body2" color="text.secondary">
+                      Not started · Week {heroMatchup.week}
+                    </Typography>
+                  </Paper>
                 )}
 
                 <Grid container spacing={2} alignItems="center" sx={{ mt: 0.5 }}>
@@ -477,11 +507,8 @@ function GameCenter() {
                     >
                       {heroHomeScore}
                     </Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                      Projected: 115.4
-                    </Typography>
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                      PMR: —
+                      <AbbreviationTooltip term="PMR" />: —
                     </Typography>
                   </Grid>
                   <Grid xs={2} sx={{ textAlign: 'center' }}>
@@ -499,11 +526,8 @@ function GameCenter() {
                     >
                       {heroAwayScore}
                     </Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                      Projected: 108.2
-                    </Typography>
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                      PMR: —
+                      <AbbreviationTooltip term="PMR" />: —
                     </Typography>
                   </Grid>
                 </Grid>
@@ -588,6 +612,12 @@ function GameCenter() {
           );
         })}
         </Grid>
+        {restMatchups.length === 0 && (
+          <Paper variant="outlined" sx={{ p: 3, mb: 4, textAlign: 'center' }}>
+            <Typography color="text.secondary">No other league matchups this week.</Typography>
+          </Paper>
+        )}
+        <LiveScoringFeed items={ticker} />
       </Container>
     </Container>
   );
