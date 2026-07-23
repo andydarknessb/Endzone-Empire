@@ -43,6 +43,32 @@ dashboard (SMTP, VAPID, Sentry, Anthropic, and platform-admin IDs).
 the assigned Netlify URL, such as `https://<site-name>.netlify.app`, then remove it if
 only the custom domains should be permitted. Do not use `*`.
 
+## Database role privileges
+
+The app connects as a scoped Postgres role (`endzone_app` in the current project), not
+the Supabase project's superuser. `knexfile.js` picks the connection string in this
+order: `DATABASE_URL_MIGRATIONS`, then `DATABASE_URL_RUNTIME`, then `DATABASE_URL`. In
+Render these are distinct secrets (see `render.yaml`); locally, only `DATABASE_URL` is
+usually set, so the same role runs both migrations and runtime queries.
+
+By default that role can `CREATE`/`ALTER TABLE` inside `public` but cannot
+`CREATE SCHEMA` — Postgres schema creation requires `CREATE` on the *database*, which
+isn't implied by table-level grants. A migration that creates a new schema (for example
+`20260722000001_game_recaps.js`'s `private` schema) fails with
+`permission denied for database postgres` until that's granted once:
+
+```sql
+GRANT CREATE ON DATABASE postgres TO endzone_app;
+```
+
+This is a one-time grant on the role, not part of any migration (a role that lacks
+`CREATE` can't grant itself `CREATE` either, so it can't be self-healing via a migration
+file). Before the first deploy against a new database — a fresh Supabase project, a
+disaster-recovery restore, a staging clone — confirm whichever role
+`DATABASE_URL_MIGRATIONS` resolves to in that environment already has this grant, or
+`npm run migrate` (and Render's `preDeployCommand`, which runs the same command) will
+fail on the next schema-creating migration.
+
 ## First manual deployment
 
 1. Push the reviewed production commit to the intended production branch.
