@@ -13,9 +13,9 @@ jest.mock('../../api/apiClient', () => ({
 
 const player = (overrides = {}) => ({ id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'Kansas City Chiefs', ...overrides });
 
-function mockDefaultApi({ players = [player()], roster = [], totalPages = 1 } = {}) {
+function mockDefaultApi({ players = [player()], roster = [], totalPages = 1, league = { id: 1, name: 'Sunday Ballers' } } = {}) {
   apiClient.get.mockImplementation((url, config) => {
-    if (url === '/api/league') return Promise.resolve({ data: [{ id: 1, name: 'Sunday Ballers' }] });
+    if (url === '/api/league') return Promise.resolve({ data: [league] });
     if (url === '/api/players') return Promise.resolve({ data: { players, totalPages } });
     if (String(url).startsWith('/api/team/roster')) return Promise.resolve({ data: roster });
     return Promise.reject(new Error(`unexpected GET ${url}`));
@@ -45,6 +45,28 @@ test('fetches players filtered by page and position', async () => {
   expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
     params: { page: 1, position: 'All', sort: 'adp' },
   });
+});
+
+test('jump-to-page clamps entries to the available page range', async () => {
+  mockDefaultApi({ totalPages: 5 });
+  renderWithProviders(<PlayerManagement />);
+  await screen.findByText('Patrick Mahomes');
+
+  const jumpInput = screen.getByLabelText('Jump to page');
+  await userEvent.type(jumpInput, '99{enter}');
+  await waitFor(() =>
+    expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
+      params: { page: 5, position: 'All', sort: 'adp' },
+    })
+  );
+
+  apiClient.get.mockClear();
+  await userEvent.type(jumpInput, '0{enter}');
+  await waitFor(() =>
+    expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
+      params: { page: 1, position: 'All', sort: 'adp' },
+    })
+  );
 });
 
 test('sorting by Name refetches with sort=name and persists to the URL', async () => {
@@ -91,23 +113,34 @@ test('clicking "Add to Roster" posts the player and league, then refetches the r
   renderWithProviders(<PlayerManagement />);
   await screen.findByText('Free Agent');
 
-  await userEvent.click(screen.getByRole('button', { name: 'Add to Roster' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Add free agent' }));
 
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/team/roster/8', { leagueId: 1 })
   );
 });
 
-test('player stat headers expose shared definitions and keep projection sorting', async () => {
-  mockDefaultApi({
-    players: [player({ position_rank: 2, projected_points: 211.4 })],
-  });
+test.each([
+  [{ draft_status: 'pending' }, 'Draft not started'],
+  [{ draft_status: 'active' }, 'Open Draft Room'],
+  [{ draft_status: 'complete', season_status: 'complete' }, 'Season complete'],
+])('disables ambiguous roster adds for the current league phase', async (phase, label) => {
+  mockDefaultApi({ league: { id: 1, name: 'Sunday Ballers', ...phase } });
   renderWithProviders(<PlayerManagement />);
 
-  await screen.findByText('Patrick Mahomes');
+  expect(await screen.findByRole('button', { name: label })).toBeDisabled();
+});
+
+test('renders bye and injury badges and supports additional sortable columns', async () => {
+  mockDefaultApi({ players: [player({ bye_week: 6, injury_status: 'Q', position_rank: 2, projected_points: 211.4 })] });
+  renderWithProviders(<PlayerManagement />);
+
+  expect(await screen.findByText('Bye 6')).toBeInTheDocument();
+  expect(screen.getByText('Q')).toBeInTheDocument();
   expect(screen.getByLabelText(/Pos rank: Position rank:/)).toBeInTheDocument();
   expect(screen.getByLabelText(/ADP: Average draft position:/)).toBeInTheDocument();
   const projectedSort = screen.getByRole('button', { name: /Projected fantasy points:/ });
+  expect(screen.getByLabelText(/Projected: Projected fantasy points:/)).toBeInTheDocument();
   await userEvent.click(projectedSort);
   await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
     params: { page: 1, position: 'All', sort: 'projected_points' },
