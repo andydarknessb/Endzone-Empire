@@ -33,6 +33,7 @@ import apiClient from '../../api/apiClient';
 import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../lib/teamProfileEvents';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import TeamAvatar from '../common/TeamAvatar';
+import AbbreviationTooltip from '../common/AbbreviationTooltip';
 
 const MEDAL_EMOJI = { 1: '🥇', 2: '🥈', 3: '🥉' };
 
@@ -161,7 +162,7 @@ function SeasonPanel({ season, defaultExpanded }) {
                 <TableCell>Rank</TableCell>
                 <TableCell>Team</TableCell>
                 <TableCell align="right">W-L</TableCell>
-                <TableCell align="right">PF</TableCell>
+                <TableCell align="right"><AbbreviationTooltip term="PF" /></TableCell>
               </TableRow>
             </TableHead>
             <TableBody>

@@ -22,6 +22,7 @@ import InjuryBadge from '../InjuryBadge/InjuryBadge';
 import PlayerAvatar from '../PlayerQuickView/PlayerAvatar';
 import PositionChip from '../PlayerQuickView/PositionChip';
 import { statLine } from '../PlayerQuickView/statLine';
+import AbbreviationTooltip from '../common/AbbreviationTooltip';
 
 function PlayerDetail() {
   const { playerId } = useParams();
@@ -124,7 +125,9 @@ function PlayerDetail() {
 
       {hasFantasy && (
         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 3 }} data-testid="fantasy-strip">
-          {fantasy.adp != null && <Chip variant="outlined" label={`ADP ${fantasy.adp}`} />}
+          {fantasy.adp != null && (
+            <Chip variant="outlined" label={<><AbbreviationTooltip term="ADP" /> {fantasy.adp}</>} />
+          )}
           {fantasy.projectedPoints != null && (
             <Chip color="info" label={`${fantasy.projectionSeason} proj: ${fantasy.projectedPoints} pts`} />
           )}

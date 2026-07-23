@@ -92,7 +92,8 @@ test('renders the player header, fantasy strip, and current-season stat lines', 
   expect(screen.getByText('Kansas City Chiefs')).toBeInTheDocument();
   expect(screen.getByText('#15')).toBeInTheDocument();
   expect(screen.getByText('Bye: Wk 10')).toBeInTheDocument();
-  expect(screen.getByText('ADP 24.5')).toBeInTheDocument();
+  expect(screen.getByTestId('fantasy-strip')).toHaveTextContent('ADP 24.5');
+  expect(screen.getByLabelText(/ADP: Average draft position/i)).toBeInTheDocument();
   expect(screen.getByText('Games: 2')).toBeInTheDocument();
   expect(screen.getByText('Fantasy Points: 40')).toBeInTheDocument();
   expect(screen.getByText('300 Pass Yds, 2 Pass TD, 1 INT')).toBeInTheDocument();
