@@ -207,10 +207,7 @@ async function getLineup({ leagueId, userId, week }) {
 
     const entriesResult = await client.query(
       `SELECT "players"."id", "players"."name", "players"."position", "players"."nfl_team",
-              "players"."injury_status", "lineup_entries"."slot",
-              (SELECT ROUND(AVG("fantasy_points"), 1) FROM "player_stats"
-               WHERE "player_stats"."player_id" = "players"."id"
-                 AND "player_stats"."season" = $2) AS "projected_points"
+              "players"."injury_status", "lineup_entries"."slot"
        FROM "lineup_entries"
        JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
          AND "team_players"."player_id" = "lineup_entries"."player_id"
@@ -220,6 +217,35 @@ async function getLineup({ leagueId, userId, week }) {
        ORDER BY "players"."position", "players"."name"`,
       [team.id, season, targetWeek]
     );
+
+    // scoring.service imports lineup.service, so load these after module
+    // initialization to avoid a circular top-level dependency.
+    const { projectSeasonPoints, rulesForLeague } = require('./scoring.service');
+    const playerIds = entriesResult.rows.map((row) => row.id);
+    const seasonByPlayer = new Map();
+    if (playerIds.length > 0) {
+      const seasonResult = await client.query(
+        `SELECT "player_id", "season", "games_played", "stats"
+         FROM "player_season_stats" WHERE "player_id" = ANY($1)`,
+        [playerIds]
+      );
+      for (const row of seasonResult.rows) {
+        if (!seasonByPlayer.has(row.player_id)) seasonByPlayer.set(row.player_id, []);
+        seasonByPlayer.get(row.player_id).push(row);
+      }
+    }
+    const projectionRules = rulesForLeague(league);
+    for (const entry of entriesResult.rows) {
+      const seasonProjection = projectSeasonPoints({
+        seasonRows: seasonByPlayer.get(entry.id) || [],
+        rules: projectionRules,
+        currentSeasonYear: season,
+      });
+      entry.projected_points = seasonProjection == null
+        ? null
+        : Math.round((seasonProjection / 17) * 10) / 10;
+    }
+
     const locked = await lockedNflTeams(client, { season, week: targetWeek });
     const byeByTeam = await computeByeWeeks(entriesResult.rows.map((row) => row.nfl_team), season);
     await client.query('COMMIT');

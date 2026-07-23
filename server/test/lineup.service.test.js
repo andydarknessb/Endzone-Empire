@@ -1,11 +1,13 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const pool = require('../modules/pool');
 const { byeWeekFromPlayedWeeks, REG_SEASON_WEEKS } = require('../services/bye.service');
 const {
   slotEligible,
   validateLineup,
   parseLineupSettings,
   annotateLineupEntries,
+  getLineup,
   DEFAULT_ROSTER_SLOTS,
 } = require('../services/lineup.service');
 
@@ -50,6 +52,63 @@ test('annotateLineupEntries does not treat an incomplete schedule gap as a bye',
 
   assert.equal(entry.bye_week, null);
   assert.equal(entry.onBye, false);
+});
+
+test('getLineup batches completed-season projections and preserves weekly null semantics', async (t) => {
+  const entries = [
+    { id: 1, name: 'Projected Player', position: 'RB', nfl_team: null, injury_status: null, slot: 'RB' },
+    { id: 2, name: 'Small Sample', position: 'WR', nfl_team: null, injury_status: null, slot: 'WR' },
+    { id: 3, name: 'No History', position: 'TE', nfl_team: null, injury_status: null, slot: 'TE' },
+  ];
+  const seasonQueries = [];
+  const client = {
+    query: async (sql, params) => {
+      const text = String(sql);
+      if (text === 'BEGIN' || text === 'COMMIT') return { rows: [] };
+      if (text.includes('SELECT * FROM "leagues"')) {
+        return { rows: [{ id: 5, current_season: 2026, current_week: 8 }] };
+      }
+      if (text.includes('SELECT * FROM "teams"')) return { rows: [{ id: 10 }] };
+      if (text.includes('SELECT "team_players"."player_id"')) {
+        return { rows: entries.map(({ id, position }) => ({ player_id: id, position })) };
+      }
+      if (text.includes('SELECT "player_id" FROM "lineup_entries"')) {
+        return { rows: entries.map(({ id }) => ({ player_id: id })) };
+      }
+      if (text.includes('SELECT "players"."id"')) return { rows: entries };
+      if (text.includes('FROM "player_season_stats"')) {
+        seasonQueries.push({ text, params });
+        return {
+          rows: [
+            {
+              player_id: 1,
+              season: 2025,
+              games_played: 10,
+              stats: { rushingYards: 1000, rushingTDs: 10 },
+            },
+            {
+              player_id: 2,
+              season: 2025,
+              games_played: 3,
+              stats: { receivingYards: 300, receivingTDs: 3 },
+            },
+          ],
+        };
+      }
+      if (text.includes('SELECT "nfl_team" FROM "nfl_games"')) return { rows: [] };
+      throw new Error(`unexpected query: ${text}`);
+    },
+    release: () => {},
+  };
+  t.mock.method(pool, 'connect', async () => client);
+
+  const lineup = await getLineup({ leagueId: 5, userId: 7, week: 8 });
+
+  assert.equal(seasonQueries.length, 1);
+  assert.deepEqual(seasonQueries[0].params, [[1, 2, 3]]);
+  assert.equal(lineup.entries[0].projected_points, 16);
+  assert.equal(lineup.entries[1].projected_points, null);
+  assert.equal(lineup.entries[2].projected_points, null);
 });
 
 test('slotEligible: exact-position slots take only that position', () => {
