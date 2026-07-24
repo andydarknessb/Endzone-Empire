@@ -2,6 +2,11 @@
 
 ## Promotion
 
+Target state. No staging environment exists yet, so step 2 has nothing to deploy to and
+`.github/workflows/deploy.yml` currently promotes straight to production on a manual
+`workflow_dispatch`. Steps 3-5 still apply; run step 3's smoke tests against production
+immediately after the deploy rather than ahead of it.
+
 1. Pull request: required CI, dependency review, CodeQL, secret scan, unit/server/security/E2E tests, migration smoke test, build, and bundle budget.
 2. Merge to `main`: deploy the immutable commit to staging.
 3. Apply backward-compatible migrations, then smoke-test `/api/health/readyz`, CORS, refresh-cookie rotation, Socket.IO reconnect, public pages, account export, and worker heartbeat.

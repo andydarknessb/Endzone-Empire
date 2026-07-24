@@ -43,6 +43,28 @@ dashboard (SMTP, VAPID, Sentry, Anthropic, and platform-admin IDs).
 the assigned Netlify URL, such as `https://<site-name>.netlify.app`, then remove it if
 only the custom domains should be permitted. Do not use `*`.
 
+After saving secrets in Render's Environment tab, hard-reload the dashboard and re-read
+every field before deploying. Edits there have been observed not to persist on save, and
+a paste that includes the leading `KEY=` stores the key name inside the value — a
+`SUPABASE_URL` of `SUPABASE_URL=https://...` fails at startup with `Invalid supabaseUrl`
+rather than at save time. Verify the reloaded values, not the in-page state.
+
+## Database connection hosts
+
+Supabase exposes two Postgres endpoints, and only one of them works from Render:
+
+| Endpoint | Host | Notes |
+| --- | --- | --- |
+| Connection pooler | `aws-0-<region>.pooler.supabase.com:6543` | pgbouncer, IPv4 |
+| Direct connection | `db.<project-ref>.supabase.co:5432` | IPv6 only |
+
+Point both `DATABASE_URL_RUNTIME` and `DATABASE_URL_MIGRATIONS` at the pooler host.
+Render's build and pre-deploy environment has no outbound IPv6, so the direct host fails
+there with `connect ENETUNREACH` against an IPv6 address — during `preDeployCommand`
+(`npm run migrate`), before the service ever starts. The failure looks like a database
+outage, not a networking mismatch, so check the host first. The pooler is also the
+correct runtime target; there is no reason to use the direct host in this deployment.
+
 ## Database role privileges
 
 The app connects as a scoped Postgres role (`endzone_app` in the current project), not
@@ -157,6 +179,35 @@ Deploys page. If the server fails, use Render's Rollback action for the prior de
 Do not run `npm run migrate:rollback` automatically: production database rollback is a
 separate, destructive decision and should only be used after reviewing that migration's
 down path and current data.
+
+## Deploy automation
+
+`.github/workflows/deploy.yml` runs the release described above. It is
+`workflow_dispatch` only — Actions > Promote deployment > Run workflow, with
+`promote_production` checked — so nothing deploys on a push to `main`. It triggers
+Render, waits for `/api/health/readyz`, then triggers the Netlify build, preserving the
+API-first order. Render and Netlify auto-deploy stay off; this workflow is the only
+automated path.
+
+Before the first run, configure in GitHub:
+
+| Kind | Name | Value |
+| --- | --- | --- |
+| Environment | `production` | Required reviewers enabled |
+| Secret | `RENDER_PRODUCTION_DEPLOY_HOOK` | Render > `endzone-empire-api` > Settings > Deploy Hook |
+| Secret | `NETLIFY_PRODUCTION_BUILD_HOOK` | Netlify > Build & deploy > Build hooks |
+| Variable | `PRODUCTION_API_URL` | `https://api.endzoneempire.gg` |
+| Variable | `PRODUCTION_WEB_URL` | `https://endzoneempire.gg` |
+
+Scope both secrets to the `production` environment, not the repository, so the required
+reviewer gate actually protects them. The worker service is not triggered separately;
+it redeploys from the same Blueprint commit.
+
+The workflow is production-only because no staging environment exists. Its readiness
+wait can pass against the still-running old instance, so it proves the API is up, not
+that the new commit is live — confirm the deployed commit in Render before signing off
+a release. When staging is stood up, restore a `staging` job with its own hooks and
+variables and gate production behind `needs: staging`.
 
 ## Provider references
 
