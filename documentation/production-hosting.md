@@ -126,16 +126,42 @@ than entering `@`.
 
 | Dynadot section | Host | Type | Target/value | TTL |
 | --- | --- | --- | --- | --- |
-| Domain Record | blank | `ANAME` | `apex-loadbalancer.netlify.com` | 300 during cutover |
+| Domain Record | blank | `A` | `75.2.60.5` | 300 during cutover |
 | Subdomain Records | `www` | `CNAME` | `<site-name>.netlify.app` | 300 during cutover |
 | Subdomain Records | `api` | `CNAME` | `<render-service>.onrender.com` | 300 during cutover |
 
 Use the exact Netlify and Render hostnames shown in their dashboards. Do not include
 `https://` or a path in DNS values. Do not configure an apex ANAME and A record at the
-same time. If ANAME fails, Netlify's supported fallback is a single apex A record to
-`75.2.60.5`. Remove conflicting apex A/AAAA records and conflicting `www` or `api`
-records. If CAA records are later added, permit both `letsencrypt.org` and `pki.goog`
+same time. If CAA records are later added, permit both `letsencrypt.org` and `pki.goog`
 because the two hosts use managed certificate authorities from that set.
+
+**Do not use an apex `ANAME` on Dynadot.** An `ANAME` to
+`apex-loadbalancer.netlify.com` makes Dynadot's nameservers answer *every* query type
+for the apex with A records. Strict validating resolvers reject that: Google returned
+SERVFAIL for CAA, TXT, MX, SRV, HTTPS and TLSA. A SERVFAIL on CAA hard-blocks Let's
+Encrypt, which must check CAA before issuing, so managed certificates never provision.
+The plain apex A record above is Netlify's supported fallback and resolves this; CAA
+now returns a clean NODATA from all four Dynadot backends and from public resolvers.
+
+### Known defect: `api` resolves inconsistently
+
+Dynadot's nameservers answer `api.endzoneempire.gg` A-queries nondeterministically:
+most responses are a bare `A 185.53.179.146` (Dynadot's parking IP) instead of the
+configured `CNAME`. Polling all four authoritative backends returned the parking IP in
+7 of 8 responses. This is **not** a stray record — the DNS panel has exactly one `api`
+row, the correct CNAME — so it appears to come from a Dynadot forwarding/parking
+feature that lives outside the records table.
+
+Impact is real, not theoretical: resolvers that take the parking answer send clients to
+Dynadot parking rather than Render, and `https://api.endzoneempire.gg` then fails its
+TLS handshake outright. The certificate itself is valid — connecting to Render's IP
+with SNI `api.endzoneempire.gg` returns `CN=api.endzoneempire.gg` with no policy
+errors. Google and Cloudflare currently resolve `api` correctly, so the failure is
+intermittent and resolver-dependent, which makes it easy to mistake for a client bug.
+
+`www` and the apex do **not** show this behaviour (`www` was clean across 12 polls), so
+it is specific to `api`. Resolve it with Dynadot support or by moving DNS to a provider
+that does not overlay parking on delegated records.
 
 ## HTTPS/TLS verification
 
@@ -143,9 +169,10 @@ Run after both dashboards report that DNS verification and certificate provision
 are complete:
 
 ```powershell
-Resolve-DnsName endzoneempire.gg
-Resolve-DnsName www.endzoneempire.gg
-Resolve-DnsName api.endzoneempire.gg
+# Always resolve against a public resolver, not the local one - see the caveat below.
+Resolve-DnsName endzoneempire.gg -Server 8.8.8.8
+Resolve-DnsName www.endzoneempire.gg -Server 8.8.8.8
+Resolve-DnsName api.endzoneempire.gg -Server 8.8.8.8
 
 curl.exe -I http://endzoneempire.gg
 curl.exe -I https://endzoneempire.gg
@@ -153,6 +180,29 @@ curl.exe -I https://www.endzoneempire.gg
 curl.exe https://api.endzoneempire.gg/api/health
 curl.exe "https://api.endzoneempire.gg/socket.io/?EIO=4&transport=polling"
 ```
+
+**Caveat: a TLS failure here may be a resolution failure.** Because of the `api`
+defect above, a workstation whose resolver returns the parking IP cannot reach the API
+at all, and the tooling reports this as a certificate problem — `curl.exe` says
+`SEC_E_WRONG_PRINCIPAL` via schannel, `Invoke-WebRequest` says "could not establish
+trust relationship". Neither message mentions DNS. Before concluding the certificate is
+broken, check which IP the name actually resolved to locally:
+
+```powershell
+[System.Net.Dns]::GetHostAddresses('api.endzoneempire.gg')
+```
+
+If that returns `185.53.179.146`, the local resolver took the parking answer and the
+result says nothing about the certificate. Pin the connection to a real origin IP to
+test TLS independently of resolution:
+
+```powershell
+curl.exe --resolve api.endzoneempire.gg:443:216.24.57.8 https://api.endzoneempire.gg/api/health
+```
+
+Note that PowerShell 5.1 defaults to TLS 1.0 and fails against modern endpoints with a
+misleading trust error; set `[Net.ServicePointManager]::SecurityProtocol =
+[Net.SecurityProtocolType]::Tls12` before using `Invoke-WebRequest` for these checks.
 
 Pass criteria:
 
@@ -191,17 +241,31 @@ automated path.
 
 Before the first run, configure in GitHub:
 
-| Kind | Name | Value |
-| --- | --- | --- |
-| Environment | `production` | Required reviewers enabled |
-| Secret | `RENDER_PRODUCTION_DEPLOY_HOOK` | Render > `endzone-empire-api` > Settings > Deploy Hook |
-| Secret | `NETLIFY_PRODUCTION_BUILD_HOOK` | Netlify > Build & deploy > Build hooks |
-| Variable | `PRODUCTION_API_URL` | `https://api.endzoneempire.gg` |
-| Variable | `PRODUCTION_WEB_URL` | `https://endzoneempire.gg` |
+| Kind | Name | Value | State |
+| --- | --- | --- | --- |
+| Environment | `production` | See note on reviewers below | Created |
+| Variable | `PRODUCTION_API_URL` | `https://api.endzoneempire.gg` | Set |
+| Variable | `PRODUCTION_WEB_URL` | `https://endzoneempire.gg` | Set |
+| Secret | `RENDER_PRODUCTION_DEPLOY_HOOK` | Render > `endzone-empire-api` > Settings > Deploy Hook | **Outstanding** |
+| Secret | `NETLIFY_PRODUCTION_BUILD_HOOK` | Netlify > Build & deploy > Build hooks | **Outstanding** |
 
-Scope both secrets to the `production` environment, not the repository, so the required
-reviewer gate actually protects them. The worker service is not triggered separately;
-it redeploys from the same Blueprint commit.
+Scope both secrets to the `production` environment, not the repository. Each hook URL is
+itself the credential — anyone holding it can trigger a deploy — so copy them straight
+from the provider dashboards into GitHub. The worker service is not triggered
+separately; it redeploys from the same Blueprint commit.
+
+Required reviewers could not be enabled: GitHub rejects environment protection rules on
+a private repository under this billing plan (HTTP 422). The `production` environment
+therefore has no approval gate, and the workflow's `workflow_dispatch`-only trigger plus
+its `promote_production` checkbox are currently the only things standing between a click
+and a production deploy. Enable required reviewers if the repo moves to a plan that
+supports them, or make it public.
+
+The apex certificate issued on 2026-07-24, so the final step's `$WEB_URL/` curl now
+passes. One risk remains: the readiness steps curl `$API_URL`, which is subject to the
+`api` resolution defect above. A runner that draws the parking answer will fail the wait
+and the job even though the service is healthy, so treat a readiness timeout as a
+suspected DNS result until the resolved IP is checked.
 
 The workflow is production-only because no staging environment exists. Its readiness
 wait can pass against the still-running old instance, so it proves the API is up, not

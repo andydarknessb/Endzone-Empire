@@ -18,6 +18,11 @@ owner, evidence link, completion date, and independent reviewer.
   deploy hooks, previous-deploy rollback, and DNS/TLS.
 - [ ] Enable protected GitHub branches/environments, required checks,
   deployment approval, secret scanning/push protection, and restricted secrets.
+  - Blocked as written: the `production` environment exists with its two
+    variables set, but GitHub rejects environment protection rules on a private
+    repo under the current billing plan (HTTP 422), so **deployment approval
+    cannot be enabled**. Satisfying this item requires a plan upgrade, making
+    the repo public, or a documented, accepted exception.
 - [ ] Approve a named, time-bounded exception for the 29 CRA development-only
   audit findings or complete the Vite migration; deployable frontend/API
   dependency audits must remain at zero.
