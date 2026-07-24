@@ -38,6 +38,12 @@
     Cache-Control = "no-cache"
 
 [[redirects]]
+  from = "https://endzoneempire.netlify.app/*"
+  to = "https://endzoneempire.gg/:splat"
+  status = 301
+  force = true
+
+[[redirects]]
   from = "/api/*"
   to = "https://api.endzoneempire.gg/api/:splat"
   status = 200
