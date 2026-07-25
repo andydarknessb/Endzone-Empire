@@ -24,7 +24,9 @@ function TeamAvatar({ name, avatarUrl, avatarStaticUrl, size = 32 }) {
         height: size,
         fontSize: size * 0.4,
         bgcolor: 'action.selected',
-        color: 'text.secondary',
+        // Initials need to clear AA against the tinted fill in both themes;
+        // text.secondary was short of it on dark.
+        color: 'text.primary',
       }}
     >
       {initialsFor(name)}

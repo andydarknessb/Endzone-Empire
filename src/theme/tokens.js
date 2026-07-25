@@ -63,15 +63,18 @@ export const colorTokens = {
     'text-inverse': '#0f1419',
     'border-subtle': '#2a3441',
     'border-strong': '#3a4756',
-    accent: '#4f8cff',
-    'accent-hover': '#6ea1ff',
-    'accent-soft': 'rgba(79, 140, 255, 0.16)',
+    // Lightened from #4f8cff, which cleared AA on `bg-page`/`surface` but came
+    // in at 4.4:1 against `surface-raised` — the app bar, where the active nav
+    // link lives. See tokens.contrast.test.js.
+    accent: '#5c93ff',
+    'accent-hover': '#7fb0ff',
+    'accent-soft': 'rgba(92, 147, 255, 0.16)',
     'on-accent': '#0b1220',
     secondary: '#7ee2a8',
     success: '#7ee2a8',
     danger: '#ff6b6b',
     warning: '#f0b34e',
-    'focus-ring': 'rgba(79, 140, 255, 0.6)',
+    'focus-ring': 'rgba(92, 147, 255, 0.6)',
     overlay: 'rgba(0, 0, 0, 0.6)',
     // Fantasy position palette (data encoding). Dark theme: lighter, brighter
     // fills that carry the dark `text-inverse` label at AA.

@@ -375,8 +375,10 @@ function UserPage() {
                     </Typography>
                   ) : (
                     <List dense disablePadding>
-                      {newsItems.map((item) => (
-                        <ListItem key={item.link} disableGutters>
+                      {/* The feed can carry two headlines pointing at the same
+                          URL, so the link alone isn't a unique key. */}
+                      {newsItems.map((item, index) => (
+                        <ListItem key={`${item.link}-${index}`} disableGutters>
                           <ListItemText
                             primary={
                               <Link

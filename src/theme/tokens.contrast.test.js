@@ -15,6 +15,11 @@ const PAIRINGS = [
   ['text-muted', 'bg-page', AA_TEXT, 'muted text on the page'],
   ['accent', 'bg-page', AA_TEXT, 'links on the page'],
   ['accent', 'surface', AA_TEXT, 'links on cards'],
+  // The app bar and other raised surfaces: the active nav link sits here, and
+  // this pairing was the one the other two didn't cover.
+  ['accent', 'surface-raised', AA_TEXT, 'active nav link on the app bar'],
+  ['text-primary', 'surface-raised', AA_TEXT, 'body text on a raised surface'],
+  ['text-muted', 'surface-raised', AA_TEXT, 'muted text on a raised surface'],
   ['on-accent', 'accent', AA_LARGE, 'button label on accent'],
   ['text-inverse', 'danger', AA_LARGE, 'alert banner text'],
   ['danger', 'surface', AA_TEXT, 'error text on cards'],
