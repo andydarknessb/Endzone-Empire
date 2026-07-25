@@ -1,4 +1,5 @@
-const { rapidApiClient, tank01Body } = require('./scoring.service');
+const { tank01Body } = require('./scoring.service');
+const { tank01Get } = require('../modules/tank01Client');
 
 const MAX_ITEMS = 6;
 
@@ -13,9 +14,11 @@ function normalizeNewsItems(items) {
  * already used for live scoring — no separate key).
  */
 async function getLatestNews() {
-  const api = rapidApiClient();
-  const response = await api.get('/getNFLNews', {
+  // 'low' priority — headlines are the first thing shed when quota gets tight
+  // (see modules/tank01Client), which is why the cache below serves stale.
+  const response = await tank01Get('/getNFLNews', {
     params: { fantasyNews: true, maxItems: MAX_ITEMS },
+    priority: 'low',
   });
   return normalizeNewsItems(tank01Body(response.data));
 }

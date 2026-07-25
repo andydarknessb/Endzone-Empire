@@ -67,6 +67,19 @@ services:
         sync: false
       - key: RAPID_API_HOST
         value: tank01-nfl-live-in-game-real-time-statistics-nfl.p.rapidapi.com
+      # Tank01 allows ~1,000 requests per MONTH. Both services spend from that
+      # one allowance (web: news + admin syncs, worker: live engine +
+      # scheduler), so they must agree — usage itself is counted in
+      # private.api_usage, shared via Postgres. See modules/tank01Client.js.
+      - key: TANK01_MONTHLY_BUDGET
+        value: "950"
+      - key: TANK01_SOFT_PCT
+        value: "80"
+      - key: TANK01_HARD_CEILING
+        value: "1000"
+      # Day of month the RapidAPI billing cycle resets (1-28).
+      - key: TANK01_BILLING_ANCHOR_DAY
+        value: "1"
       - key: SPORTSDB_API_KEY
         sync: false
       - key: SUPABASE_URL
@@ -119,6 +132,19 @@ services:
         sync: false
       - key: RAPID_API_HOST
         value: tank01-nfl-live-in-game-real-time-statistics-nfl.p.rapidapi.com
+      # Tank01 allows ~1,000 requests per MONTH. Both services spend from that
+      # one allowance (web: news + admin syncs, worker: live engine +
+      # scheduler), so they must agree — usage itself is counted in
+      # private.api_usage, shared via Postgres. See modules/tank01Client.js.
+      - key: TANK01_MONTHLY_BUDGET
+        value: "950"
+      - key: TANK01_SOFT_PCT
+        value: "80"
+      - key: TANK01_HARD_CEILING
+        value: "1000"
+      # Day of month the RapidAPI billing cycle resets (1-28).
+      - key: TANK01_BILLING_ANCHOR_DAY
+        value: "1"
       - key: SPORTSDB_API_KEY
         sync: false
       - key: SUPABASE_URL

@@ -1,6 +1,7 @@
 const axios = require('axios');
 const pool = require('../modules/pool');
 const { isTransientDatabaseError } = require('../modules/dbRetry');
+const { tank01Get } = require('../modules/tank01Client');
 const { materializeLineup, optimalLineup, parseLineupSettings, POSITION_GROUPS } = require('./lineup.service');
 const { getIo } = require('../modules/io');
 
@@ -652,8 +653,7 @@ function detectScoringEvents(prevStats, newStats) {
  * re-sync or a stat correction never fabricates one.
  */
 async function syncWeekStats({ season, week, pauseMs = 0 }) {
-  const api = rapidApiClient();
-  const gamesResponse = await api.get('/getNFLGamesForWeek', {
+  const gamesResponse = await tank01Get('/getNFLGamesForWeek', {
     params: { week, seasonType: 'reg', season },
   });
   const games = tank01Body(gamesResponse.data) || [];
@@ -710,7 +710,7 @@ async function syncWeekStats({ season, week, pauseMs = 0 }) {
       if (pauseMs > 0 && gamesProcessed > 0) {
         await new Promise((resolve) => setTimeout(resolve, pauseMs));
       }
-      const boxResponse = await api.get('/getNFLBoxScore', {
+      const boxResponse = await tank01Get('/getNFLBoxScore', {
         params: { gameID: game.gameID, playByPlay: 'true', fantasyPoints: 'false' },
       });
       const box = tank01Body(boxResponse.data) || {};
@@ -826,8 +826,7 @@ function normalizeInjuryStatus(raw) {
  * no current designation are cleared back to healthy.
  */
 async function syncInjuries() {
-  const api = rapidApiClient();
-  const response = await api.get('/getNFLPlayerList');
+  const response = await tank01Get('/getNFLPlayerList');
   const entries = tank01Body(response.data) || [];
   if (!Array.isArray(entries)) {
     const err = new Error('unexpected getNFLPlayerList response shape');
@@ -882,11 +881,10 @@ function normalizeTank01Game(entry) {
  * getNFLGamesForWeek call per regular-season week; idempotent upserts.
  */
 async function syncSchedule({ season }) {
-  const api = rapidApiClient();
   let upserted = 0;
   for (let week = 1; week <= 18; week++) {
     try {
-      const response = await api.get('/getNFLGamesForWeek', {
+      const response = await tank01Get('/getNFLGamesForWeek', {
         params: { week, seasonType: 'reg', season },
       });
       const games = tank01Body(response.data) || [];
@@ -973,8 +971,7 @@ function normalizePlayerEntry(entry) {
  * POST /api/scoring/sync-players.
  */
 async function syncPlayers({ season }) {
-  const api = rapidApiClient();
-  const response = await api.get('/getNFLPlayerList');
+  const response = await tank01Get('/getNFLPlayerList');
   const entries = tank01Body(response.data) || [];
   if (!Array.isArray(entries)) {
     const err = new Error('unexpected getNFLPlayerList response shape');

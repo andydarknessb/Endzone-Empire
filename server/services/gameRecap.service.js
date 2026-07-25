@@ -22,7 +22,8 @@ const {
   DATA_VERSION,
   GENERATOR_VERSION,
 } = require('../modules/recapStorage');
-const { rapidApiClient, tank01Body } = require('./scoring.service');
+const { tank01Body } = require('./scoring.service');
+const { tank01Get, retryAfterMs } = require('../modules/tank01Client');
 const { statLine } = require('./publicRead.service');
 
 // ---- pure normalizers -------------------------------------------------------
@@ -277,9 +278,12 @@ async function generateForGame(tank01GameId, { api, client } = {}) {
     return null;
   }
 
-  const client01 = api || rapidApiClient();
-  const boxResponse = await client01.get('/getNFLBoxScore', {
+  // 'essential' priority: this is the last Tank01 call we'd ever shed, because
+  // one fetch serves BOTH the recap and this game's final stat ingest below.
+  const boxResponse = await tank01Get('/getNFLBoxScore', {
     params: { gameID: tank01GameId, playByPlay: 'true', fantasyPoints: 'false' },
+    priority: 'essential',
+    transport: api, // tests inject a fake client; uncounted when present
   });
   const box = tank01Body(boxResponse.data) || {};
 
@@ -361,20 +365,9 @@ const RECAP_MAX_RETRIES = 4;
 const SWEEP_MAX_AGE_DAYS = Number(process.env.RECAP_SWEEP_MAX_AGE_DAYS) || 14;
 const SWEEP_LIMIT = 100;
 
-/**
- * Backoff (ms) to honor for a thrown request error, or null if it isn't a
- * rate-limit response. Honors a numeric `Retry-After` header (capped), else a
- * sane default. Config errors (no `.response`) return null — not retriable.
- */
-function retryAfterMs(err) {
-  const status = err && err.response && err.response.status;
-  if (status !== 429) return null;
-  const headers = err.response.headers || {};
-  const raw = headers['retry-after'] ?? headers['Retry-After'];
-  const secs = Number(raw);
-  if (Number.isFinite(secs) && secs >= 0) return Math.min(secs, 120) * 1000;
-  return 30_000;
-}
+// `retryAfterMs` now lives in modules/tank01Client (one definition shared by the
+// metered client's own backoff and this queue) and is re-exported below so the
+// queue's default `backoffFor` and existing tests keep importing it from here.
 
 /**
  * In-process work queue with a hard concurrency cap and dedupe by game id.

@@ -4,6 +4,7 @@ const { getSchedulerStatus } = require('../modules/scheduler');
 const { getLiveGameEngineStatus } = require('../modules/liveGameEngine');
 const { getRuntimeState } = require('../modules/runtimeState');
 const { getRedisClient } = require('../modules/redis');
+const { getQuotaState } = require('../modules/tank01Client');
 
 const router = express.Router();
 const WORKER_STALE_MS = Number(process.env.WORKER_STALE_MS || 15 * 60 * 1000);
@@ -96,11 +97,32 @@ router.get('/worker', async (req, res) => {
   res.status(worker.ok ? 200 : 503).json(worker);
 });
 
+/**
+ * Tank01 spend, trimmed to what a health check should show. Never fails the
+ * check — a missing quota table (pre-migration) just reports unavailable.
+ */
+async function quotaStatus() {
+  try {
+    const state = await getQuotaState();
+    return {
+      provider: state.provider,
+      mode: state.mode,
+      used: state.used,
+      budget: state.budget,
+      remaining: state.remaining,
+      cycleStart: state.cycleStart,
+    };
+  } catch (error) {
+    return { unavailable: true };
+  }
+}
+
 router.get('/', async (req, res) => {
-  const [db, redis, worker] = await Promise.all([
+  const [db, redis, worker, quota] = await Promise.all([
     databaseStatus(),
     redisStatus(),
     workerStatus(),
+    quotaStatus(),
   ]);
   const runtime = getRuntimeState();
   const ok = runtime.ready && db.ok && redis.ok;
@@ -110,6 +132,7 @@ router.get('/', async (req, res) => {
     redis,
     runtime,
     worker,
+    quota,
     scheduler: getSchedulerStatus(),
     liveGameEngine: getLiveGameEngineStatus(),
     uptimeSec: Math.round(process.uptime()),

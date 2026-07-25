@@ -2,6 +2,8 @@ const express = require('express');
 const pool = require('../modules/pool');
 const { requireAuth, requirePlatformAdmin } = require('../modules/auth');
 const { getSchedulerStatus } = require('../modules/scheduler');
+const { getLiveGameEngineStatus } = require('../modules/liveGameEngine');
+const { getQuotaState, readQuotaBreakdown } = require('../modules/tank01Client');
 const { getErrorStats } = require('../modules/sentry');
 
 const router = express.Router();
@@ -10,7 +12,7 @@ router.use(requireAuth, requirePlatformAdmin);
 // GET /api/admin/overview — platform health at a glance
 router.get('/overview', async (req, res) => {
   try {
-    const [users, growth, leaguesByStatus, recentSignups, statsCoverage] = await Promise.all([
+    const [users, growth, leaguesByStatus, recentSignups, statsCoverage, quota] = await Promise.all([
       pool.query(`SELECT COUNT(*)::int AS "total" FROM "users"`),
       pool.query(
         `SELECT
@@ -33,6 +35,10 @@ router.get('/overview', async (req, res) => {
                 COUNT(*)::int AS "rows"
          FROM "player_stats"`
       ),
+      // Quota is the operational number that matters most now that the Tank01
+      // plan is ~1,000 calls/MONTH: surface it here so a burn is visible
+      // without log-diving.
+      getQuotaState().catch(() => null),
     ]);
 
     res.json({
@@ -45,8 +51,10 @@ router.get('/overview', async (req, res) => {
       recentSignups: recentSignups.rows,
       sync: {
         scheduler: getSchedulerStatus(),
+        liveGameEngine: getLiveGameEngineStatus(),
         statsCoverage: statsCoverage.rows[0],
         rapidApiConfigured: Boolean(process.env.RAPID_API_KEY && process.env.RAPID_API_HOST),
+        quota,
       },
       errors: getErrorStats(),
       uptimeSec: Math.round(process.uptime()),
@@ -54,6 +62,34 @@ router.get('/overview', async (req, res) => {
   } catch (error) {
     console.error('Admin overview failed:', error);
     res.status(500).json({ error: 'failed to load admin overview' });
+  }
+});
+
+// GET /api/admin/quota — Tank01 spend for the current billing cycle plus a
+// 14-day per-endpoint breakdown, so it's obvious WHICH call site is burning the
+// ~1,000-request monthly allowance.
+router.get('/quota', async (req, res) => {
+  const days = Math.min(Math.max(Number(req.query.days) || 14, 1), 60);
+  try {
+    const [state, breakdown] = await Promise.all([
+      getQuotaState({ refresh: true }),
+      readQuotaBreakdown({ days }),
+    ]);
+    const byEndpoint = new Map();
+    for (const row of breakdown) {
+      byEndpoint.set(row.endpoint, (byEndpoint.get(row.endpoint) || 0) + row.calls);
+    }
+    res.json({
+      ...state,
+      breakdownDays: days,
+      byEndpoint: [...byEndpoint.entries()]
+        .map(([endpoint, calls]) => ({ endpoint, calls }))
+        .sort((a, b) => b.calls - a.calls),
+      daily: breakdown,
+    });
+  } catch (error) {
+    console.error('Admin quota view failed:', error);
+    res.status(500).json({ error: 'failed to load api quota' });
   }
 });
 
