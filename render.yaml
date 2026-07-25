@@ -86,6 +86,9 @@ services:
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
+      # The live clock and stat-sync cadence vars live on the worker below —
+      # that's where the jobs run (RUN_JOBS_IN_WEB=false). Code defaults apply
+      # here, so flipping RUN_JOBS_IN_WEB still behaves identically.
 
   - type: worker
     name: endzone-empire-worker
@@ -145,6 +148,18 @@ services:
       # Day of month the RapidAPI billing cycle resets (1-28).
       - key: TANK01_BILLING_ANCHOR_DAY
         value: "1"
+      # Live NFL clock. ESPN's free scoreboard is the default source (zero
+      # quota at ~30s); Tank01 is the automatic fallback after 3 consecutive
+      # ESPN failures, at LIVE_FAST_POLL_MS. Between games the loop only does a
+      # DB check every LIVE_IDLE_CHECK_MS and spends nothing.
+      - key: LIVE_CLOCK_SOURCE
+        value: espn
+      - key: ESPN_POLL_MS
+        value: "30000"
+      - key: LIVE_FAST_POLL_MS
+        value: "600000"
+      - key: LIVE_IDLE_CHECK_MS
+        value: "60000"
       - key: SPORTSDB_API_KEY
         sync: false
       - key: SUPABASE_URL

@@ -1,0 +1,731 @@
+{
+ "season": {
+  "type": 2,
+  "year": 2025
+ },
+ "week": {
+  "number": 1
+ },
+ "events": [
+  {
+   "id": "401772510",
+   "name": "Dallas Cowboys at Philadelphia Eagles",
+   "shortName": "DAL @ PHI",
+   "date": "2025-09-05T00:20Z",
+   "competitions": [
+    {
+     "id": "401772510",
+     "date": "2025-09-05T00:20Z",
+     "status": {
+      "clock": 0,
+      "displayClock": "0:00",
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true,
+       "description": "Final",
+       "detail": "Final",
+       "shortDetail": "Final"
+      },
+      "isTBDFlex": false
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "score": "24",
+       "team": {
+        "abbreviation": "PHI",
+        "displayName": "Philadelphia Eagles"
+       }
+      },
+      {
+       "homeAway": "away",
+       "score": "20",
+       "team": {
+        "abbreviation": "DAL",
+        "displayName": "Dallas Cowboys"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401772714",
+   "name": "Kansas City Chiefs at Los Angeles Chargers",
+   "shortName": "KC VS LAC",
+   "date": "2025-09-06T00:00Z",
+   "competitions": [
+    {
+     "id": "401772714",
+     "date": "2025-09-06T00:00Z",
+     "status": {
+      "clock": 0,
+      "displayClock": "0:00",
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true,
+       "description": "Final",
+       "detail": "Final",
+       "shortDetail": "Final"
+      },
+      "isTBDFlex": false
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "score": "27",
+       "team": {
+        "abbreviation": "LAC",
+        "displayName": "Los Angeles Chargers"
+       }
+      },
+      {
+       "homeAway": "away",
+       "score": "21",
+       "team": {
+        "abbreviation": "KC",
+        "displayName": "Kansas City Chiefs"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401772830",
+   "name": "Tampa Bay Buccaneers at Atlanta Falcons",
+   "shortName": "TB @ ATL",
+   "date": "2025-09-07T17:00Z",
+   "competitions": [
+    {
+     "id": "401772830",
+     "date": "2025-09-07T17:00Z",
+     "status": {
+      "clock": 0,
+      "displayClock": "0:00",
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true,
+       "description": "Final",
+       "detail": "Final",
+       "shortDetail": "Final"
+      },
+      "isTBDFlex": false
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "score": "20",
+       "team": {
+        "abbreviation": "ATL",
+        "displayName": "Atlanta Falcons"
+       }
+      },
+      {
+       "homeAway": "away",
+       "score": "23",
+       "team": {
+        "abbreviation": "TB",
+        "displayName": "Tampa Bay Buccaneers"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401772829",
+   "name": "Cincinnati Bengals at Cleveland Browns",
+   "shortName": "CIN @ CLE",
+   "date": "2025-09-07T17:00Z",
+   "competitions": [
+    {
+     "id": "401772829",
+     "date": "2025-09-07T17:00Z",
+     "status": {
+      "clock": 0,
+      "displayClock": "0:00",
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true,
+       "description": "Final",
+       "detail": "Final",
+       "shortDetail": "Final"
+      },
+      "isTBDFlex": false
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "score": "16",
+       "team": {
+        "abbreviation": "CLE",
+        "displayName": "Cleveland Browns"
+       }
+      },
+      {
+       "homeAway": "away",
+       "score": "17",
+       "team": {
+        "abbreviation": "CIN",
+        "displayName": "Cincinnati Bengals"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401772719",
+   "name": "Miami Dolphins at Indianapolis Colts",
+   "shortName": "MIA @ IND",
+   "date": "2025-09-07T17:00Z",
+   "competitions": [
+    {
+     "id": "401772719",
+     "date": "2025-09-07T17:00Z",
+     "status": {
+      "clock": 0,
+      "displayClock": "0:00",
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true,
+       "description": "Final",
+       "detail": "Final",
+       "shortDetail": "Final"
+      },
+      "isTBDFlex": false
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "score": "33",
+       "team": {
+        "abbreviation": "IND",
+        "displayName": "Indianapolis Colts"
+       }
+      },
+      {
+       "homeAway": "away",
+       "score": "8",
+       "team": {
+        "abbreviation": "MIA",
+        "displayName": "Miami Dolphins"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401772720",
+   "name": "Las Vegas Raiders at New England Patriots",
+   "shortName": "LV @ NE",
+   "date": "2025-09-07T17:00Z",
+   "competitions": [
+    {
+     "id": "401772720",
+     "date": "2025-09-07T17:00Z",
+     "status": {
+      "clock": 0,
+      "displayClock": "0:00",
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true,
+       "description": "Final",
+       "detail": "Final",
+       "shortDetail": "Final"
+      },
+      "isTBDFlex": false
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "score": "13",
+       "team": {
+        "abbreviation": "NE",
+        "displayName": "New England Patriots"
+       }
+      },
+      {
+       "homeAway": "away",
+       "score": "20",
+       "team": {
+        "abbreviation": "LV",
+        "displayName": "Las Vegas Raiders"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401772718",
+   "name": "Arizona Cardinals at New Orleans Saints",
+   "shortName": "ARI @ NO",
+   "date": "2025-09-07T17:00Z",
+   "competitions": [
+    {
+     "id": "401772718",
+     "date": "2025-09-07T17:00Z",
+     "status": {
+      "clock": 0,
+      "displayClock": "0:00",
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true,
+       "description": "Final",
+       "detail": "Final",
+       "shortDetail": "Final"
+      },
+      "isTBDFlex": false
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "score": "13",
+       "team": {
+        "abbreviation": "NO",
+        "displayName": "New Orleans Saints"
+       }
+      },
+      {
+       "homeAway": "away",
+       "score": "20",
+       "team": {
+        "abbreviation": "ARI",
+        "displayName": "Arizona Cardinals"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401772721",
+   "name": "Pittsburgh Steelers at New York Jets",
+   "shortName": "PIT @ NYJ",
+   "date": "2025-09-07T17:00Z",
+   "competitions": [
+    {
+     "id": "401772721",
+     "date": "2025-09-07T17:00Z",
+     "status": {
+      "clock": 0,
+      "displayClock": "0:00",
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true,
+       "description": "Final",
+       "detail": "Final",
+       "shortDetail": "Final"
+      },
+      "isTBDFlex": false
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "score": "32",
+       "team": {
+        "abbreviation": "NYJ",
+        "displayName": "New York Jets"
+       }
+      },
+      {
+       "homeAway": "away",
+       "score": "34",
+       "team": {
+        "abbreviation": "PIT",
+        "displayName": "Pittsburgh Steelers"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401772827",
+   "name": "New York Giants at Washington Commanders",
+   "shortName": "NYG @ WSH",
+   "date": "2025-09-07T17:00Z",
+   "competitions": [
+    {
+     "id": "401772827",
+     "date": "2025-09-07T17:00Z",
+     "status": {
+      "clock": 0,
+      "displayClock": "0:00",
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true,
+       "description": "Final",
+       "detail": "Final",
+       "shortDetail": "Final"
+      },
+      "isTBDFlex": false
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "score": "21",
+       "team": {
+        "abbreviation": "WSH",
+        "displayName": "Washington Commanders"
+       }
+      },
+      {
+       "homeAway": "away",
+       "score": "6",
+       "team": {
+        "abbreviation": "NYG",
+        "displayName": "New York Giants"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401772828",
+   "name": "Carolina Panthers at Jacksonville Jaguars",
+   "shortName": "CAR @ JAX",
+   "date": "2025-09-07T17:00Z",
+   "competitions": [
+    {
+     "id": "401772828",
+     "date": "2025-09-07T17:00Z",
+     "status": {
+      "clock": 0,
+      "displayClock": "0:00",
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true,
+       "description": "Final",
+       "detail": "Final",
+       "shortDetail": "Final"
+      },
+      "isTBDFlex": false
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "score": "26",
+       "team": {
+        "abbreviation": "JAX",
+        "displayName": "Jacksonville Jaguars"
+       }
+      },
+      {
+       "homeAway": "away",
+       "score": "10",
+       "team": {
+        "abbreviation": "CAR",
+        "displayName": "Carolina Panthers"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401772832",
+   "name": "Tennessee Titans at Denver Broncos",
+   "shortName": "TEN @ DEN",
+   "date": "2025-09-07T20:05Z",
+   "competitions": [
+    {
+     "id": "401772832",
+     "date": "2025-09-07T20:05Z",
+     "status": {
+      "clock": 0,
+      "displayClock": "0:00",
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true,
+       "description": "Final",
+       "detail": "Final",
+       "shortDetail": "Final"
+      },
+      "isTBDFlex": false
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "score": "20",
+       "team": {
+        "abbreviation": "DEN",
+        "displayName": "Denver Broncos"
+       }
+      },
+      {
+       "homeAway": "away",
+       "score": "12",
+       "team": {
+        "abbreviation": "TEN",
+        "displayName": "Tennessee Titans"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401772831",
+   "name": "San Francisco 49ers at Seattle Seahawks",
+   "shortName": "SF @ SEA",
+   "date": "2025-09-07T20:05Z",
+   "competitions": [
+    {
+     "id": "401772831",
+     "date": "2025-09-07T20:05Z",
+     "status": {
+      "clock": 0,
+      "displayClock": "0:00",
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true,
+       "description": "Final",
+       "detail": "Final",
+       "shortDetail": "Final"
+      },
+      "isTBDFlex": false
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "score": "13",
+       "team": {
+        "abbreviation": "SEA",
+        "displayName": "Seattle Seahawks"
+       }
+      },
+      {
+       "homeAway": "away",
+       "score": "17",
+       "team": {
+        "abbreviation": "SF",
+        "displayName": "San Francisco 49ers"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401772722",
+   "name": "Detroit Lions at Green Bay Packers",
+   "shortName": "DET @ GB",
+   "date": "2025-09-07T20:25Z",
+   "competitions": [
+    {
+     "id": "401772722",
+     "date": "2025-09-07T20:25Z",
+     "status": {
+      "clock": 0,
+      "displayClock": "0:00",
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true,
+       "description": "Final",
+       "detail": "Final",
+       "shortDetail": "Final"
+      },
+      "isTBDFlex": false
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "score": "27",
+       "team": {
+        "abbreviation": "GB",
+        "displayName": "Green Bay Packers"
+       }
+      },
+      {
+       "homeAway": "away",
+       "score": "13",
+       "team": {
+        "abbreviation": "DET",
+        "displayName": "Detroit Lions"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401772723",
+   "name": "Houston Texans at Los Angeles Rams",
+   "shortName": "HOU @ LAR",
+   "date": "2025-09-07T20:25Z",
+   "competitions": [
+    {
+     "id": "401772723",
+     "date": "2025-09-07T20:25Z",
+     "status": {
+      "clock": 0,
+      "displayClock": "0:00",
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true,
+       "description": "Final",
+       "detail": "Final",
+       "shortDetail": "Final"
+      },
+      "isTBDFlex": false
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "score": "14",
+       "team": {
+        "abbreviation": "LAR",
+        "displayName": "Los Angeles Rams"
+       }
+      },
+      {
+       "homeAway": "away",
+       "score": "9",
+       "team": {
+        "abbreviation": "HOU",
+        "displayName": "Houston Texans"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401772918",
+   "name": "Baltimore Ravens at Buffalo Bills",
+   "shortName": "BAL @ BUF",
+   "date": "2025-09-08T00:20Z",
+   "competitions": [
+    {
+     "id": "401772918",
+     "date": "2025-09-08T00:20Z",
+     "status": {
+      "clock": 0,
+      "displayClock": "0:00",
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true,
+       "description": "Final",
+       "detail": "Final",
+       "shortDetail": "Final"
+      },
+      "isTBDFlex": false
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "score": "41",
+       "team": {
+        "abbreviation": "BUF",
+        "displayName": "Buffalo Bills"
+       }
+      },
+      {
+       "homeAway": "away",
+       "score": "40",
+       "team": {
+        "abbreviation": "BAL",
+        "displayName": "Baltimore Ravens"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401772810",
+   "name": "Minnesota Vikings at Chicago Bears",
+   "shortName": "MIN @ CHI",
+   "date": "2025-09-09T00:15Z",
+   "competitions": [
+    {
+     "id": "401772810",
+     "date": "2025-09-09T00:15Z",
+     "status": {
+      "clock": 0,
+      "displayClock": "0:00",
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true,
+       "description": "Final",
+       "detail": "Final",
+       "shortDetail": "Final"
+      },
+      "isTBDFlex": false
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "score": "24",
+       "team": {
+        "abbreviation": "CHI",
+        "displayName": "Chicago Bears"
+       }
+      },
+      {
+       "homeAway": "away",
+       "score": "27",
+       "team": {
+        "abbreviation": "MIN",
+        "displayName": "Minnesota Vikings"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

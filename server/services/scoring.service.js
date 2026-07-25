@@ -1375,6 +1375,7 @@ module.exports = {
   extractPlayByPlayBonusStats,
   normalizeTank01DstStats,
   normalizeTeamAbbr,
+  NFL_TEAM_NAME_TO_ABBR,
   missingTeamDefenses,
   syncTeamDefenses,
   normalizeTank01Game,
