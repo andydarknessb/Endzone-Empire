@@ -308,6 +308,37 @@ function GeneralSettingsPanel({ leagueId, league, teams, user, standingsLeague, 
 const ROSTER_POSITION_OPTIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF', 'DL', 'LB', 'DB'];
 const DP_GROUP_KEYS = ['DL', 'LB', 'DB'];
 
+// One-click lineup templates: known-good slot arrays a commissioner can stamp
+// in instead of hand-building rows. Applying one only replaces the local form
+// state — nothing is saved until Save Roster Settings.
+const STANDARD_LINEUP = [
+  { key: 'QB', count: 1, eligiblePositions: ['QB'] },
+  { key: 'RB', count: 2, eligiblePositions: ['RB'] },
+  { key: 'WR', count: 2, eligiblePositions: ['WR'] },
+  { key: 'TE', count: 1, eligiblePositions: ['TE'] },
+  { key: 'FLEX', count: 1, eligiblePositions: ['RB', 'WR', 'TE'] },
+  { key: 'K', count: 1, eligiblePositions: ['K'] },
+  { key: 'DEF', count: 1, eligiblePositions: ['DEF'] },
+];
+const LINEUP_TEMPLATES = [
+  { name: 'Standard', slots: STANDARD_LINEUP, dpEnabled: false },
+  {
+    name: 'Superflex',
+    slots: [...STANDARD_LINEUP, { key: 'SFLX', count: 1, eligiblePositions: ['QB', 'RB', 'WR', 'TE'] }],
+    dpEnabled: false,
+  },
+  {
+    name: 'IDP starter',
+    slots: [
+      ...STANDARD_LINEUP,
+      { key: 'DL', count: 1, eligiblePositions: ['DL'] },
+      { key: 'LB', count: 1, eligiblePositions: ['LB'] },
+      { key: 'DB', count: 1, eligiblePositions: ['DB'] },
+    ],
+    dpEnabled: true,
+  },
+];
+
 function RosterSettingsPanel({ leagueId, league, onRefresh, notify }) {
   const [slots, setSlots] = useState(
     (league.roster_slots || []).map((s, i) => ({ ...s, _id: i }))
@@ -364,6 +395,22 @@ function RosterSettingsPanel({ leagueId, league, onRefresh, notify }) {
 
       <Box>
         <Typography variant="subtitle2" sx={{ mb: 1 }}>Starting Lineup Slots</Typography>
+        <Stack direction="row" spacing={1} sx={{ mb: 1.5, flexWrap: 'wrap' }}>
+          <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center' }}>
+            Templates:
+          </Typography>
+          {LINEUP_TEMPLATES.map((template) => (
+            <Chip
+              key={template.name} label={template.name} size="small" variant="outlined"
+              disabled={frozen}
+              onClick={() => {
+                setSlots(template.slots.map((s, i) => ({ ...s, _id: nextId + i })));
+                setNextId((n) => n + template.slots.length);
+                if (template.dpEnabled) setDpEnabled(true);
+              }}
+            />
+          ))}
+        </Stack>
         <Stack spacing={1.5}>
           {slots.map((slot) => (
             <Box key={slot._id} sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -424,7 +471,7 @@ function RosterSettingsPanel({ leagueId, league, onRefresh, notify }) {
       <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
         <TextField
           label="Bench Slots" type="number" size="small" disabled={frozen}
-          inputProps={{ min: 0, max: 5 }}
+          inputProps={{ min: 0, max: 8 }}
           value={benchSlots} onChange={(e) => setBenchSlots(e.target.value)}
           sx={{ width: 130 }}
         />
@@ -450,22 +497,47 @@ function RosterSettingsPanel({ leagueId, league, onRefresh, notify }) {
 
 const RULE_CATEGORIES = ['passing', 'rushing', 'receiving', 'misc', 'kicking', 'teamDefense', 'idp'];
 const CATEGORY_LABELS = {
-  passing: 'Passing', rushing: 'Rushing', receiving: 'Receiving', misc: 'Misc',
+  passing: 'Passing', rushing: 'Rushing', receiving: 'Receiving', misc: 'Misc & Returns',
   kicking: 'Kicking', teamDefense: 'Team Defense', idp: 'Individual Defense (IDP)',
 };
 const LEAF_LABELS = {
   yards: 'Per Yard', touchdowns: 'Touchdown', interceptions: 'Interception',
   twoPointConversions: '2-Pt Conversion', reception: 'Reception', fumblesLost: 'Fumble Lost',
-  extraPoint: 'Extra Point', sack: 'Sack', interception: 'Interception',
+  returnTDs: 'Kick/Punt Return TD', puntReturnYards: 'Per Punt Return Yard',
+  kickReturnYards: 'Per Kick Return Yard',
+  extraPoint: 'Extra Point', extraPointMissed: 'Extra Point Missed',
+  fieldGoalMissed: 'Field Goal Missed', sack: 'Sack', interception: 'Interception',
   fumbleRecovery: 'Fumble Recovery', defensiveTD: 'Defensive TD', safety: 'Safety',
   blockedKick: 'Blocked Kick', soloTackle: 'Solo Tackle', assistedTackle: 'Assisted Tackle',
   forcedFumble: 'Forced Fumble', passDeflection: 'Pass Deflection', qbHit: 'QB Hit',
   tacklesForLoss: 'Tackle For Loss', twoPointReturn: '2-Pt Return',
+  sackYards: 'Per Sack Yard', tacklesForLossYards: 'Per TFL Yard',
+  fumbleReturnYards: 'Per Fumble Return Yard',
 };
 const TIER_LABELS = {
   fieldGoal: 'Field Goal (by distance)', pointsAllowed: 'Points Allowed', yardsAllowed: 'Yards Allowed',
-  yardageBonus: 'Yardage Bonus',
+  yardageBonus: 'Yardage Bonus', tdLengthBonus: 'TD Length Bonus',
 };
+
+// Per-yard rate leaves get a "1 pt per N yds" translation so a commissioner
+// used to NFL.com's phrasing can sanity-check the decimal.
+const PER_YARD_KEYS = new Set([
+  'yards', 'puntReturnYards', 'kickReturnYards', 'sackYards', 'tacklesForLossYards', 'fumbleReturnYards',
+]);
+function perYardHelper(key, value) {
+  if (!PER_YARD_KEYS.has(key)) return undefined;
+  const rate = Number(value);
+  if (!Number.isFinite(rate) || rate <= 0 || rate > 1) return undefined;
+  return `= 1 pt per ${Math.round(1 / rate)} yds`;
+}
+
+// The three PPR-ness presets differ only in the reception rate — mirroring
+// the server's SCORING_PRESETS (scoring.service.js withReceptionRate).
+const RECEPTION_PRESETS = [
+  { name: 'Standard', reception: 0 },
+  { name: 'Half PPR', reception: 0.5 },
+  { name: 'Full PPR', reception: 1 },
+];
 
 // Client-side mirror of scoring.service.js's mergeRuleCategory — only used
 // to seed the editor's initial values from a league's stored (possibly
@@ -506,6 +578,8 @@ function buildInitialRules(defaults, custom) {
 function ScoringSettingsPanel({ leagueId, league, onRefresh, notify }) {
   const [defaults, setDefaults] = useState(null);
   const [rules, setRules] = useState(null);
+  // Two-step reset guard: first click arms, second click actually resets.
+  const [confirmReset, setConfirmReset] = useState(false);
   const report = fail(notify);
   const frozen = league.draft_status !== 'pending';
 
@@ -536,6 +610,40 @@ function ScoringSettingsPanel({ leagueId, league, onRefresh, notify }) {
       return { ...prev, [category]: { ...prev[category], [key]: tiers } };
     });
 
+  // Tier arrays end with an open-ended "and up" row, so a naive append would
+  // always overlap it (and be rejected on save). Instead, close the current
+  // tail one bucket wide and make the new row the open-ended one — e.g.
+  // adding to FG [.., 50+] yields [.., 50-59, 60+].
+  const addTier = (category, key) =>
+    setRules((prev) => {
+      const tiers = prev[category][key];
+      const last = tiers[tiers.length - 1];
+      if (!last) {
+        return { ...prev, [category]: { ...prev[category], [key]: [{ min: 0, max: null, points: 0 }] } };
+      }
+      if (last.max === null || last.max === '') {
+        const closedLast = { ...last, max: Number(last.min) + 9 };
+        const newTail = { min: Number(last.min) + 10, max: null, points: last.points };
+        return {
+          ...prev,
+          [category]: { ...prev[category], [key]: [...tiers.slice(0, -1), closedLast, newTail] },
+        };
+      }
+      return {
+        ...prev,
+        [category]: { ...prev[category], [key]: [...tiers, { min: Number(last.max) + 1, max: null, points: 0 }] },
+      };
+    });
+
+  const removeTier = (category, key, index) =>
+    setRules((prev) => ({
+      ...prev,
+      [category]: { ...prev[category], [key]: prev[category][key].filter((_, i) => i !== index) },
+    }));
+
+  const applyReceptionPreset = (rate) =>
+    setRules((prev) => ({ ...prev, receiving: { ...prev.receiving, reception: rate } }));
+
   const handleReset = () => setRules(buildInitialRules(defaults, null));
 
   const handleSave = async () => {
@@ -564,7 +672,11 @@ function ScoringSettingsPanel({ leagueId, league, onRefresh, notify }) {
     }
   };
 
-  const categories = RULE_CATEGORIES.filter((c) => c in rules && (c !== 'idp' || league.dp_enabled));
+  // IDP is always listed so the options are discoverable; its fields are
+  // disabled (with an inline enable hint) until the league turns DP on in
+  // Roster Settings.
+  const categories = RULE_CATEGORIES.filter((c) => c in rules);
+  const activeReception = Number(rules.receiving && rules.receiving.reception);
 
   return (
     <Stack spacing={3}>
@@ -574,18 +686,43 @@ function ScoringSettingsPanel({ leagueId, league, onRefresh, notify }) {
         </Alert>
       )}
 
+      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
+        <Typography variant="caption" color="text.secondary">Quick preset:</Typography>
+        {RECEPTION_PRESETS.map(({ name, reception }) => (
+          <Chip
+            key={name} label={name} size="small" disabled={frozen}
+            color={activeReception === reception ? 'primary' : 'default'}
+            variant={activeReception === reception ? 'filled' : 'outlined'}
+            onClick={() => applyReceptionPreset(reception)}
+          />
+        ))}
+        <Typography variant="caption" color="text.secondary">
+          — sets the reception rate; every other rule stays as configured.
+        </Typography>
+      </Stack>
+
       {categories.map((category) => {
+        const idpLocked = category === 'idp' && !league.dp_enabled;
+        const fieldsDisabled = frozen || idpLocked;
         const leaves = Object.entries(rules[category]).filter(([, v]) => !Array.isArray(v));
         const tiers = Object.entries(rules[category]).filter(([, v]) => Array.isArray(v));
         return (
           <Box key={category}>
             <Typography variant="subtitle2" sx={{ mb: 1 }}>{CATEGORY_LABELS[category]}</Typography>
+            {idpLocked && (
+              <Alert severity="info" sx={{ mb: 1.5 }}>
+                Enable Defensive Players (IDP) in Roster Settings to score individual defenders.
+                These values are saved either way and take effect once IDP is on.
+              </Alert>
+            )}
             {leaves.length > 0 && (
               <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: tiers.length > 0 ? 2 : 0 }}>
                 {leaves.map(([key, value]) => (
                   <TextField
-                    key={key} label={LEAF_LABELS[key] || key} type="number" size="small" disabled={frozen}
+                    key={key} label={LEAF_LABELS[key] || key} type="number" size="small"
+                    disabled={fieldsDisabled}
                     inputProps={{ step: 0.1, min: -50, max: 50 }}
+                    helperText={perYardHelper(key, value)}
                     value={value} onChange={(e) => setLeaf(category, key, e.target.value)}
                     sx={{ width: 160 }}
                   />
@@ -599,46 +736,66 @@ function ScoringSettingsPanel({ leagueId, league, onRefresh, notify }) {
                 </Typography>
                 <Stack spacing={1}>
                   {tierArray.map((tier, i) => (
-                    <Box key={i} sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                    <Box key={i} sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
                       <TextField
-                        label="Min" type="number" size="small" disabled={frozen}
+                        label="Min" type="number" size="small" disabled={fieldsDisabled}
                         value={tier.min} onChange={(e) => setTier(category, key, i, 'min', e.target.value)}
                         sx={{ width: 90 }}
                       />
                       <TextField
-                        label="Max" type="number" size="small" disabled={frozen} placeholder="and up"
+                        label="Max" type="number" size="small" disabled={fieldsDisabled} placeholder="and up"
                         value={tier.max === null ? '' : tier.max}
                         onChange={(e) => setTier(category, key, i, 'max', e.target.value === '' ? null : e.target.value)}
                         sx={{ width: 90 }}
                       />
                       <TextField
-                        label="Points" type="number" size="small" disabled={frozen}
+                        label="Points" type="number" size="small" disabled={fieldsDisabled}
                         value={tier.points} onChange={(e) => setTier(category, key, i, 'points', e.target.value)}
                         sx={{ width: 90 }}
                       />
                       {tier.pointsPerYardOverMin !== undefined && (
                         <TextField
-                          label="Per Yard Over Min" type="number" size="small" disabled={frozen}
+                          label="Per Yard Over Min" type="number" size="small" disabled={fieldsDisabled}
                           inputProps={{ step: 0.1 }} value={tier.pointsPerYardOverMin}
                           onChange={(e) => setTier(category, key, i, 'pointsPerYardOverMin', e.target.value)}
                           sx={{ width: 150 }}
                         />
                       )}
+                      <IconButton
+                        aria-label={`Remove ${TIER_LABELS[key] || key} tier ${i + 1}`} size="small"
+                        disabled={fieldsDisabled || tierArray.length <= 1}
+                        onClick={() => removeTier(category, key, i)}
+                      >
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
                     </Box>
                   ))}
                 </Stack>
+                <Button size="small" sx={{ mt: 0.5 }} disabled={fieldsDisabled} onClick={() => addTier(category, key)}>
+                  + Add Tier
+                </Button>
               </Box>
             ))}
           </Box>
         );
       })}
 
-      <Box sx={{ display: 'flex', gap: 2 }}>
+      <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
         <Button variant="outlined" size="small" disabled={frozen} onClick={handleSave}>
           Save Scoring Settings
         </Button>
-        <Button size="small" disabled={frozen} onClick={handleReset}>
-          Reset Scoring Settings
+        <Button
+          size="small" disabled={frozen} color={confirmReset ? 'error' : 'primary'}
+          onClick={() => {
+            if (!confirmReset) {
+              setConfirmReset(true);
+              return;
+            }
+            handleReset();
+            setConfirmReset(false);
+          }}
+        >
+          {confirmReset ? 'Click again to confirm reset' : 'Reset Scoring Settings'}
         </Button>
       </Box>
     </Stack>

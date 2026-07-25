@@ -174,7 +174,7 @@ const mockScoringRules = () => mockGetByUrl({
   '/api/scoring/rules': { data: { defaults: SCORING_DEFAULTS_FIXTURE, presets: {} } },
 });
 
-test('Scoring Settings renders category fields and tier rows from the defaults, hiding IDP when dpEnabled is false', async () => {
+test('Scoring Settings always lists IDP — locked with an enable hint while dpEnabled is false', async () => {
   mockScoringRules();
   renderTools();
   await userEvent.click(screen.getByRole('tab', { name: 'Scoring Settings' }));
@@ -184,16 +184,54 @@ test('Scoring Settings renders category fields and tier rows from the defaults, 
   expect(screen.getByLabelText('Touchdown')).toHaveValue(4);
   expect(screen.getByText('Field Goal (by distance)')).toBeInTheDocument();
   expect(screen.getAllByLabelText('Min')).toHaveLength(3); // 3 FG tiers
-  expect(screen.queryByText('Individual Defense (IDP)')).not.toBeInTheDocument();
+  // The section is visible for discoverability, but locked until DP is on.
+  expect(screen.getByText('Individual Defense (IDP)')).toBeInTheDocument();
+  expect(screen.getByText(/Enable Defensive Players \(IDP\) in Roster Settings/)).toBeInTheDocument();
+  expect(screen.getByLabelText('Solo Tackle')).toBeDisabled();
 });
 
-test('Scoring Settings shows the IDP section when the league has DP enabled', async () => {
+test('Scoring Settings unlocks the IDP fields when the league has DP enabled', async () => {
   mockScoringRules();
   renderTools({ league: league({ dp_enabled: true }) });
   await userEvent.click(screen.getByRole('tab', { name: 'Scoring Settings' }));
 
   expect(await screen.findByText('Individual Defense (IDP)')).toBeInTheDocument();
+  expect(screen.queryByText(/Enable Defensive Players \(IDP\) in Roster Settings/)).not.toBeInTheDocument();
   expect(screen.getByLabelText('Solo Tackle')).toHaveValue(1);
+  expect(screen.getByLabelText('Solo Tackle')).toBeEnabled();
+});
+
+test('the PPR preset chips set only the reception rate', async () => {
+  mockGetByUrl({
+    '/api/scoring/rules': { data: { defaults: {
+      ...SCORING_DEFAULTS_FIXTURE,
+      receiving: { yards: 0.1, reception: 0.5, touchdowns: 6 },
+    }, presets: {} } },
+  });
+  renderTools();
+  await userEvent.click(screen.getByRole('tab', { name: 'Scoring Settings' }));
+
+  expect(await screen.findByLabelText('Reception')).toHaveValue(0.5);
+  await userEvent.click(screen.getByRole('button', { name: 'Full PPR' }));
+  expect(screen.getByLabelText('Reception')).toHaveValue(1);
+  expect(screen.getAllByLabelText('Per Yard')[1]).toHaveValue(0.1); // receiving yards untouched
+  await userEvent.click(screen.getByRole('button', { name: 'Standard' }));
+  expect(screen.getByLabelText('Reception')).toHaveValue(0);
+});
+
+test('tier rows can be added and removed', async () => {
+  mockScoringRules();
+  renderTools();
+  await userEvent.click(screen.getByRole('tab', { name: 'Scoring Settings' }));
+
+  await screen.findByText('Field Goal (by distance)');
+  expect(screen.getAllByLabelText('Min')).toHaveLength(3);
+
+  await userEvent.click(screen.getByRole('button', { name: '+ Add Tier' }));
+  expect(screen.getAllByLabelText('Min')).toHaveLength(4);
+
+  await userEvent.click(screen.getByRole('button', { name: 'Remove Field Goal (by distance) tier 4' }));
+  expect(screen.getAllByLabelText('Min')).toHaveLength(3);
 });
 
 test('Scoring Settings is frozen once the draft has started', async () => {
@@ -243,7 +281,7 @@ test('editing a leaf value and a tier field, then saving, sends the full nested 
   expect(onRefresh).toHaveBeenCalled();
 });
 
-test('Reset Scoring Settings reverts an edited field back to its default value', async () => {
+test('Reset Scoring Settings requires a confirming second click before reverting', async () => {
   mockScoringRules();
   renderTools();
   await userEvent.click(screen.getByRole('tab', { name: 'Scoring Settings' }));
@@ -254,7 +292,22 @@ test('Reset Scoring Settings reverts an edited field back to its default value',
   expect(touchdownField).toHaveValue(99);
 
   await userEvent.click(screen.getByRole('button', { name: 'Reset Scoring Settings' }));
+  expect(touchdownField).toHaveValue(99); // first click only arms the reset
+
+  await userEvent.click(screen.getByRole('button', { name: 'Click again to confirm reset' }));
   expect(touchdownField).toHaveValue(4);
+});
+
+test('a lineup template chip stamps in its slots and enables DP for the IDP template', async () => {
+  renderTools();
+  await userEvent.click(screen.getByRole('tab', { name: 'Roster Settings' }));
+
+  expect(screen.getAllByLabelText('Slot Name')).toHaveLength(2);
+  await userEvent.click(screen.getByRole('button', { name: 'IDP starter' }));
+
+  const slotNames = screen.getAllByLabelText('Slot Name').map((el) => el.value);
+  expect(slotNames).toEqual(['QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF', 'DL', 'LB', 'DB']);
+  expect(screen.getByLabelText('Enable Defensive Players (IDP)')).toBeChecked();
 });
 
 test('a league\'s existing custom scoring_rules seed the editor over the defaults', async () => {
