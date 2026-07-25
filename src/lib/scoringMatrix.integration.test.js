@@ -213,6 +213,14 @@ describe('isolated Tank01 ingestion and database update', () => {
       throw new Error(`Unexpected Tank01 path: ${path}`);
     });
     pool.query.mockImplementation(async (sql) => {
+      // Quota metering (modules/tank01Client) counts every Tank01 call in
+      // private.api_usage; inert here.
+      if (sql.includes('"private"."api_usage"') || sql.includes('"private"."api_quota_snapshots"')) {
+        return { rows: [] };
+      }
+      // No live_game_states rows for this week, so syncWeekStats falls back to
+      // the one counted /getNFLGamesForWeek call asserted below.
+      if (sql.includes('FROM "live_game_states"')) return { rows: [] };
       if (sql.includes('FROM "players" WHERE "external_id" IS NOT NULL')) {
         return {
           rows: [
@@ -236,6 +244,7 @@ describe('isolated Tank01 ingestion and database update', () => {
       week: 1,
       playersUpdated: 3,
       gamesProcessed: 1,
+      gamesSkipped: 0,
       plays: [
         {
           playerId: 102,

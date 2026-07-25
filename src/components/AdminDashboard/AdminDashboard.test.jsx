@@ -245,3 +245,53 @@ test('a 503 from the server while syncing is surfaced as an error alert', async 
 
   expect(await screen.findByText('RapidAPI credentials are not set')).toBeInTheDocument();
 });
+
+// --- Tank01 quota + live clock source on the Sync Health card ----------------
+//
+// The plan allows ~1,000 calls a MONTH, so a burn or an ESPN outage has to be
+// visible here rather than in logs.
+
+const withQuota = (quota, liveGameEngine) =>
+  overviewResponse({
+    sync: { ...overviewResponse().sync, quota, liveGameEngine },
+  });
+
+test('sync health shows quota usage, mode, and the active clock source', async () => {
+  apiClient.get.mockResolvedValue({
+    data: withQuota(
+      { provider: 'tank01', used: 312, budget: 950, hardCeiling: 1000, mode: 'ok', cycleStart: '2026-09-01' },
+      { clockSource: 'espn', configuredClockSource: 'espn', espnConsecutiveFailures: 0, lastRunAt: '2026-09-13T18:00:00.000Z', lastError: null }
+    ),
+  });
+  renderScreen();
+
+  expect(await screen.findByTestId('quota-usage')).toHaveTextContent(
+    'Tank01 quota: 312 / 950 calls this cycle'
+  );
+  expect(screen.getByTestId('quota-usage')).toHaveTextContent('hard ceiling 1000');
+  expect(screen.getByTestId('quota-mode-chip')).toHaveTextContent('Quota ok');
+  expect(screen.getByTestId('clock-source-chip')).toHaveTextContent('Clock: espn');
+});
+
+test('sync health flags a quota block and an ESPN fallback', async () => {
+  apiClient.get.mockResolvedValue({
+    data: withQuota(
+      { provider: 'tank01', used: 1002, budget: 950, hardCeiling: 1000, mode: 'blocked', cycleStart: '2026-09-01' },
+      { clockSource: 'tank01', configuredClockSource: 'espn', espnConsecutiveFailures: 4, lastRunAt: null, lastError: 'ESPN scoreboard timeout' }
+    ),
+  });
+  renderScreen();
+
+  expect(await screen.findByTestId('quota-mode-chip')).toHaveTextContent('Quota blocked');
+  expect(screen.getByTestId('clock-source-chip')).toHaveTextContent('Clock: tank01');
+  expect(screen.getByText(/fallback — ESPN failed 4x/)).toBeInTheDocument();
+  expect(screen.getByText(/Live clock error: ESPN scoreboard timeout/)).toBeInTheDocument();
+});
+
+test('sync health still renders on an older payload with no quota block', async () => {
+  apiClient.get.mockResolvedValue({ data: overviewResponse() });
+  renderScreen();
+  expect(await screen.findByTestId('sync-health-card')).toBeInTheDocument();
+  expect(screen.queryByTestId('quota-usage')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('clock-source-chip')).not.toBeInTheDocument();
+});

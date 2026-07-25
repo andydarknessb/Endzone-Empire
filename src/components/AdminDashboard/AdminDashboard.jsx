@@ -50,6 +50,17 @@ const FREE_SYNC_JOBS = [
   { job: 'defenses', label: 'Sync Team Defenses' },
 ];
 
+// Tank01 allows ~1,000 requests a MONTH, so quota is an operational number, not
+// a curiosity: at 'degraded' news stops and pollers slow down, at
+// 'essential-only' only a finalized game's box score still goes out. Surfaced
+// here so a burn is obvious without reading logs.
+const QUOTA_MODE_COLOR = {
+  ok: 'success',
+  degraded: 'warning',
+  'essential-only': 'warning',
+  blocked: 'error',
+};
+
 function StatTile({ label, value, caption, tone }) {
   return (
     <Grid xs={12} sm={6} md={3}>
@@ -270,12 +281,50 @@ function AdminDashboard() {
               ? `${sync.statsCoverage.rows} stat rows through season ${sync.statsCoverage.season} week ${sync.statsCoverage.week}`
               : 'No stats synced yet'}
           </Typography>
-          <Box>
+          {sync.quota && (
+            <Typography variant="body2" data-testid="quota-usage">
+              {`Tank01 quota: ${sync.quota.used} / ${sync.quota.budget} calls this cycle `}
+              {`(since ${sync.quota.cycleStart}, hard ceiling ${sync.quota.hardCeiling})`}
+            </Typography>
+          )}
+          {sync.liveGameEngine && (
+            <Typography variant="body2">
+              {`Live clock source: ${sync.liveGameEngine.clockSource}`}
+              {sync.liveGameEngine.clockSource !== sync.liveGameEngine.configuredClockSource
+                ? ` (fallback — ESPN failed ${sync.liveGameEngine.espnConsecutiveFailures}x)`
+                : ''}
+              {sync.liveGameEngine.lastRunAt
+                ? `, last tick ${new Date(sync.liveGameEngine.lastRunAt).toLocaleString()}`
+                : ''}
+            </Typography>
+          )}
+          {sync.liveGameEngine?.lastError && (
+            <Typography variant="body2" sx={{ color: 'error.main' }}>
+              Live clock error: {sync.liveGameEngine.lastError}
+            </Typography>
+          )}
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
             <Chip
               label={rapidApiConfigured ? 'RapidAPI configured' : 'RapidAPI missing'}
               color={rapidApiConfigured ? 'success' : 'warning'}
               size="small"
             />
+            {sync.quota && (
+              <Chip
+                label={`Quota ${sync.quota.mode}`}
+                color={QUOTA_MODE_COLOR[sync.quota.mode] || 'default'}
+                size="small"
+                data-testid="quota-mode-chip"
+              />
+            )}
+            {sync.liveGameEngine && (
+              <Chip
+                label={`Clock: ${sync.liveGameEngine.clockSource}`}
+                color={sync.liveGameEngine.clockSource === 'espn' ? 'success' : 'warning'}
+                size="small"
+                data-testid="clock-source-chip"
+              />
+            )}
           </Box>
         </Box>
       </Paper>
