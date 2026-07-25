@@ -357,15 +357,16 @@ async function getPlayerProfile(playerId, { season } = {}) {
   const weeklyCount = Number(weeklyCountRes.rows[0] && weeklyCountRes.rows[0].n) || 0;
   const weeklyLogPartial = weeklyCount < (seasonSummary ? seasonSummary.gamesPlayed : 0);
 
-  // Recent games: last ~6 weekly rows for the target season, opponent via schedule.
+  // Game log: every weekly row for the target season (18 rows at most —
+  // an uncapped fetch is still a tiny payload), opponent via schedule. The
+  // serialized field keeps its historical name `recentGames`.
   const recentRes = await pool.query(
     `SELECT "ps"."season", "ps"."week", "ps"."fantasy_points", "ps"."stats", "ng"."opponent"
      FROM "player_stats" "ps"
      LEFT JOIN "nfl_games" "ng"
        ON "ng"."season" = "ps"."season" AND "ng"."week" = "ps"."week" AND "ng"."nfl_team" = $2
      WHERE "ps"."player_id" = $1 AND "ps"."season" = $3
-     ORDER BY "ps"."season" DESC, "ps"."week" DESC
-     LIMIT 6`,
+     ORDER BY "ps"."season" DESC, "ps"."week" DESC`,
     [id, player.nfl_team, targetSeason]
   );
 

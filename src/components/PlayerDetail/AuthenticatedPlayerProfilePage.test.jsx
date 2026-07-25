@@ -90,7 +90,7 @@ test('renders the scoring switcher, points sparkline, game log, and partial-week
   expect(screen.getByRole('button', { name: 'Half-PPR' })).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Full PPR' })).toBeInTheDocument();
   expect(screen.getByRole('img', { name: /Fantasy points over 2 recent games/i })).toBeInTheDocument();
-  expect(screen.getByRole('table', { name: 'Recent games' })).toBeInTheDocument();
+  expect(screen.getByRole('table', { name: 'Game log' })).toBeInTheDocument();
   expect(screen.getByText(/Weekly breakdown is partial/)).toBeInTheDocument();
   expect(screen.getByText(/reflects all 17 games/)).toBeInTheDocument();
 });
@@ -117,6 +117,6 @@ test('keeps the no-current-season state honest', async () => {
   renderPage('/players/42?season=2026');
 
   expect(await screen.findByText(/2026 season hasn.t started yet/i)).toBeInTheDocument();
-  expect(screen.queryByRole('table', { name: 'Recent games' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('table', { name: 'Game log' })).not.toBeInTheDocument();
   expect(screen.queryByRole('img', { name: /Fantasy points over/i })).not.toBeInTheDocument();
 });
