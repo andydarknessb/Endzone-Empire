@@ -67,11 +67,26 @@ const SCORING_RULES = {
   },
   misc: {
     fumblesLost: -2,
+    // NFL.com-parity return scoring: a kick/punt return TD is worth a
+    // touchdown by default; return YARDAGE rates default to 0 (opt-in),
+    // matching NFL.com's standard scoring.
+    returnTDs: 6,
+    puntReturnYards: 0,
+    kickReturnYards: 0,
   },
   kicking: {
     extraPoint: 1,
+    // Miss penalties default to 0 (NFL.com standard) — commissioners can
+    // set them negative.
+    extraPointMissed: 0,
+    fieldGoalMissed: 0,
+    // Five NFL.com-style distance buckets. Same prices as the previous
+    // three-tier default (0-39 all paid 3), so historical totals are
+    // unchanged — the extra buckets just give commissioners finer control.
     fieldGoal: [
-      { min: 0, max: 39, points: 3 },
+      { min: 0, max: 19, points: 3 },
+      { min: 20, max: 29, points: 3 },
+      { min: 30, max: 39, points: 3 },
       { min: 40, max: 49, points: 4 },
       { min: 50, max: null, points: 5, pointsPerYardOverMin: 0 },
     ],
@@ -150,7 +165,12 @@ const STAT_KEY_PATHS = {
   receivingTwoPt: { path: ['receiving', 'twoPointConversions'] },
   receivingTDLengths: { path: ['receiving', 'tdLengthBonus'], tierMode: 'perValue' },
   fumbles: { path: ['misc', 'fumblesLost'] },
+  returnTDs: { path: ['misc', 'returnTDs'] },
+  puntReturnYards: { path: ['misc', 'puntReturnYards'] },
+  kickReturnYards: { path: ['misc', 'kickReturnYards'] },
   extraPoint: { path: ['kicking', 'extraPoint'] },
+  extraPointMissed: { path: ['kicking', 'extraPointMissed'] },
+  fieldGoalMissed: { path: ['kicking', 'fieldGoalMissed'] },
   fieldGoalDistances: { path: ['kicking', 'fieldGoal'], tierMode: 'perValue' },
   sack: { path: ['teamDefense', 'sack'] },
   interceptionReturn: { path: ['teamDefense', 'interception'] },
@@ -369,10 +389,17 @@ function normalizeTank01Stats(entry) {
     // across versions — accept either.
     fumbles: num(defense.fumblesLost, e.fumblesLost),
     fieldGoal: num(kicking.fgMade),
+    // Misses derived from attempts-minus-made; a missing attempts field
+    // yields 0 rather than a negative.
+    fieldGoalMissed: Math.max(num(kicking.fgAttempts) - num(kicking.fgMade), 0),
     extraPoint: num(kicking.xpMade),
+    extraPointMissed: Math.max(num(kicking.xpAttempts) - num(kicking.xpMade), 0),
     returnTDs: num(punting.puntReturnTD),
     puntReturns: num(punting.puntReturns),
     puntReturnYards: num(punting.puntReturnYds),
+    // Tank01 has no kickoff-return category at all (see the comment above),
+    // so kickReturnYards has no live source; the nflverse finalization /
+    // backfill passes are the only place it can come from.
   };
 }
 

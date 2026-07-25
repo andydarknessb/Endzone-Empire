@@ -23,10 +23,20 @@ test('SCORING_RULES is defined', () => {
   assert.equal(SCORING_RULES.rushing.touchdowns, 6);
   assert.equal(SCORING_RULES.receiving.reception, 0.5);
   assert.equal(SCORING_RULES.receiving.yards, 0.1);
-  // Tiered stats are sorted, non-overlapping tier arrays
-  assert.deepEqual(SCORING_RULES.kicking.fieldGoal[0], { min: 0, max: 39, points: 3 });
+  // Tiered stats are sorted, non-overlapping tier arrays. FG uses the five
+  // NFL.com distance buckets, priced identically to the old three (0-39 = 3).
+  assert.deepEqual(SCORING_RULES.kicking.fieldGoal.map((t) => [t.min, t.max, t.points]), [
+    [0, 19, 3], [20, 29, 3], [30, 39, 3], [40, 49, 4], [50, null, 5],
+  ]);
   assert.equal(SCORING_RULES.teamDefense.pointsAllowed.at(-1).max, null);
   assert.equal(SCORING_RULES.idp.sack, 2);
+  // NFL.com-parity leaves: return TD scores like a touchdown by default;
+  // yardage rates and kick-miss penalties default to 0 (opt-in).
+  assert.equal(SCORING_RULES.misc.returnTDs, 6);
+  assert.equal(SCORING_RULES.misc.puntReturnYards, 0);
+  assert.equal(SCORING_RULES.misc.kickReturnYards, 0);
+  assert.equal(SCORING_RULES.kicking.fieldGoalMissed, 0);
+  assert.equal(SCORING_RULES.kicking.extraPointMissed, 0);
 });
 
 test('calculateFantasyPoints returns 0 for empty object', () => {
@@ -56,6 +66,15 @@ test('calculateFantasyPoints: RB line {rushingYards: 100, rushingTDs: 1, recepti
   };
   const result = calculateFantasyPoints(stats);
   assert.equal(result, 20.5);
+});
+
+test('calculateFantasyPoints: a return TD scores 6 by default; return yards and kick misses are 0 until configured', () => {
+  assert.equal(calculateFantasyPoints({ returnTDs: 1, puntReturnYards: 40, kickReturnYards: 55 }), 6);
+  assert.equal(calculateFantasyPoints({ fieldGoalMissed: 2, extraPointMissed: 1 }), 0);
+  const missPenaltyRules = JSON.parse(JSON.stringify(SCORING_RULES));
+  missPenaltyRules.kicking.fieldGoalMissed = -1;
+  missPenaltyRules.misc.puntReturnYards = 0.04; // 1 pt / 25 yds
+  assert.equal(calculateFantasyPoints({ fieldGoalMissed: 2, puntReturnYards: 50 }, missPenaltyRules), 0);
 });
 
 test('calculateFantasyPoints ignores unknown stat keys', () => {
@@ -98,7 +117,7 @@ test('normalizeTank01Stats maps a full box-score entry', () => {
     Passing: { passYds: '312', passTD: '2', int: '1' },
     Rushing: { carries: '4', rushYds: '22', rushTD: '1' },
     Receiving: { targets: '1', receptions: '1', recYds: '8', recTD: '0' },
-    Kicking: { fgMade: '2', xpMade: '3' },
+    Kicking: { fgMade: '2', fgAttempts: '3', xpMade: '3', xpAttempts: '3' },
     Defense: { fumblesLost: '1' },
     Punting: { puntReturns: '2', puntReturnYds: '18', puntReturnTD: '0' },
   };
@@ -113,7 +132,9 @@ test('normalizeTank01Stats maps a full box-score entry', () => {
     receptions: 1,
     fumbles: 1,
     fieldGoal: 2,
+    fieldGoalMissed: 1, // 3 attempts - 2 made
     extraPoint: 3,
+    extraPointMissed: 0,
     returnTDs: 0,
     puntReturns: 2,
     puntReturnYards: 18,

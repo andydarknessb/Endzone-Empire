@@ -167,14 +167,27 @@ test('nflverseTeamToOurAbbr maps only the Rams', () => {
   assert.equal(nflverseTeamToOurAbbr('KC'), 'KC');
 });
 
-test('normalizeNflversePlayerStats maps a kicker row with exact FG distances', () => {
+test('normalizeNflversePlayerStats maps a kicker row with exact FG distances and miss counts', () => {
   const stats = normalizeNflversePlayerStats({
-    fg_made: '3', fg_made_list: '25;43;32', pat_made: '2',
+    fg_made: '3', fg_made_list: '25;43;32', fg_missed: '1', pat_made: '2', pat_missed: '1',
   });
   assert.equal(stats.fieldGoal, 3);
   assert.deepEqual(stats.fieldGoalDistances, [25, 43, 32]);
+  assert.equal(stats.fieldGoalMissed, 1);
   assert.equal(stats.extraPoint, 2);
+  assert.equal(stats.extraPointMissed, 1);
   assert.equal(stats.passingYards, 0);
+});
+
+test('normalizeNflversePlayerStats maps punt AND kickoff return yardage (Tank01 only sees punts)', () => {
+  const stats = normalizeNflversePlayerStats({
+    punt_returns: '2', punt_return_yards: '31', kickoff_returns: '3', kickoff_return_yards: '74',
+    special_teams_tds: '1',
+  });
+  assert.equal(stats.puntReturnYards, 31);
+  assert.equal(stats.kickReturns, 3);
+  assert.equal(stats.kickReturnYards, 74);
+  assert.equal(stats.returnTDs, 1);
 });
 
 test('normalizeNflversePlayerStats maps offense including per-category two-point conversions', () => {
