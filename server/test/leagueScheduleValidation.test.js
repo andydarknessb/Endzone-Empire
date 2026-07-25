@@ -19,6 +19,69 @@ app.use(express.json());
 app.use('/api/league', leagueRouter);
 const authorization = () => `Bearer ${signToken({ id: 7, username: 'commissioner' })}`;
 
+// --- roster slot validation (no DB needed — all reject before any query) ----
+
+const SLOT = (key, eligiblePositions, count = 1) => ({ key, count, eligiblePositions });
+
+test('roster slots: an "IDP FLEX" slot with a space in the name and DL/LB/DB eligibility validates', async (t) => {
+  t.mock.method(pool, 'query', async (sql) => {
+    const text = String(sql);
+    if (text.includes('SELECT "draft_status"')) {
+      return { rows: [{
+        draft_status: 'pending', draft_type: 'snake', min_teams: 2, max_teams: 12, draft_date: null,
+        roster_slots: [], bench_slots: 5, ir_slots: 1, position_caps: {}, roster_limit: 15,
+        keepers_enabled: false, keeper_count: 0, team_count: 2,
+      }] };
+    }
+    if (text.startsWith('UPDATE "leagues"')) {
+      return { rows: [{ id: 1, owner_id: 7 }] };
+    }
+    throw new Error(`Unexpected SQL: ${text}`);
+  });
+
+  const response = await request(app)
+    .put('/api/league/1')
+    .set('Authorization', authorization())
+    .send({ rosterSlots: [SLOT('QB', ['QB']), SLOT('IDP FLEX', ['DL', 'LB', 'DB'])], dpEnabled: true });
+  assert.equal(response.status, 200);
+});
+
+test('roster slots: each failure mode gets a specific message, not the generic catch-all', async (t) => {
+  t.mock.method(pool, 'query', async () => {
+    throw new Error('validation failures must not reach the database');
+  });
+  const put = (rosterSlots) =>
+    request(app).put('/api/league/1').set('Authorization', authorization()).send({ rosterSlots });
+
+  let res = await put([SLOT('FLEX!IDP', ['DL'])]);
+  assert.equal(res.status, 400);
+  assert.match(res.body.error, /slot "FLEX!IDP": name must be 1-20 characters/);
+
+  res = await put([SLOT(' IDP', ['DL'])]); // leading space
+  assert.equal(res.status, 400);
+  assert.match(res.body.error, /cannot start with a space/);
+
+  res = await put([SLOT('BENCH', ['RB'])]);
+  assert.equal(res.status, 400);
+  assert.match(res.body.error, /reserved for the bench\/IR system/);
+
+  res = await put([SLOT('WR', [])]);
+  assert.equal(res.status, 400);
+  assert.match(res.body.error, /slot "WR": pick at least one eligible position/);
+
+  res = await put([SLOT('FLEX', ['RB', 'XX'])]);
+  assert.equal(res.status, 400);
+  assert.match(res.body.error, /unknown position "XX"/);
+
+  res = await put([SLOT('RB', ['RB']), SLOT('RB', ['RB'])]);
+  assert.equal(res.status, 400);
+  assert.match(res.body.error, /slot names must be unique/);
+
+  res = await put([SLOT('DL', ['DL'], 2), SLOT('LB', ['LB'], 2)]); // 4 DP starters
+  assert.equal(res.status, 400);
+  assert.match(res.body.error, /DP-eligible starting slots cannot exceed 3/);
+});
+
 test('rejects past and current draft schedules before querying the database', async (t) => {
   let queryCount = 0;
   t.mock.method(pool, 'query', async () => {

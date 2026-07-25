@@ -363,6 +363,26 @@ function RosterSettingsPanel({ leagueId, league, onRefresh, notify }) {
     setSlots((prev) => [...prev, { _id: nextId, key: '', count: 1, eligiblePositions: [] }]);
     setNextId((n) => n + 1);
   };
+  const addIdpFlexSlot = () => {
+    setSlots((prev) => [...prev, { _id: nextId, key: 'IDP FLEX', count: 1, eligiblePositions: [...DP_GROUP_KEYS] }]);
+    setNextId((n) => n + 1);
+    setDpEnabled(true);
+  };
+
+  // Mirror of the server's slot rules so a typo gets a specific message
+  // before the request instead of a generic 400 after it.
+  const slotValidationError = (payload) => {
+    for (const s of payload) {
+      const label = s.key ? `"${s.key}"` : 'an unnamed slot';
+      if (!/^[A-Za-z0-9_][A-Za-z0-9_ /-]{0,19}$/.test(s.key)) {
+        return `${label}: slot names are 1-20 characters — letters, numbers, spaces, hyphens, slashes, underscores`;
+      }
+      if (['BENCH', 'IR'].includes(s.key.toUpperCase())) return `${label} is reserved for the bench/IR system`;
+      if (!s.eligiblePositions.length) return `${label}: pick at least one eligible position`;
+    }
+    if (new Set(payload.map((s) => s.key)).size !== payload.length) return 'Slot names must be unique';
+    return null;
+  };
 
   const handleSave = async () => {
     const payload = slots.map(({ key, count, eligiblePositions }) => ({
@@ -370,6 +390,11 @@ function RosterSettingsPanel({ leagueId, league, onRefresh, notify }) {
       count: Number(count) || 0,
       eligiblePositions: eligiblePositions || [],
     }));
+    const validationError = slotValidationError(payload);
+    if (validationError) {
+      notify(validationError, { severity: 'error' });
+      return;
+    }
     try {
       await apiClient.put(`/api/league/${leagueId}`, {
         rosterSlots: payload,
@@ -450,6 +475,9 @@ function RosterSettingsPanel({ leagueId, league, onRefresh, notify }) {
           ))}
         </Stack>
         <Button size="small" sx={{ mt: 1 }} disabled={frozen} onClick={addSlot}>+ Add Slot</Button>
+        <Button size="small" sx={{ mt: 1 }} disabled={frozen} onClick={addIdpFlexSlot}>
+          + IDP Flex Slot (DL/LB/DB)
+        </Button>
       </Box>
 
       <Divider />

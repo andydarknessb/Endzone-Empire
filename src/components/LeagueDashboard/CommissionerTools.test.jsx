@@ -298,6 +298,36 @@ test('Reset Scoring Settings requires a confirming second click before reverting
   expect(touchdownField).toHaveValue(4);
 });
 
+test('+ IDP Flex Slot appends a DL/LB/DB slot and enables DP', async () => {
+  apiClient.put.mockResolvedValue({});
+  renderTools();
+  await userEvent.click(screen.getByRole('tab', { name: 'Roster Settings' }));
+
+  await userEvent.click(screen.getByRole('button', { name: '+ IDP Flex Slot (DL/LB/DB)' }));
+  const slotNames = screen.getAllByLabelText('Slot Name').map((el) => el.value);
+  expect(slotNames).toContain('IDP FLEX');
+  expect(screen.getByLabelText('Enable Defensive Players (IDP)')).toBeChecked();
+
+  await userEvent.click(screen.getByRole('button', { name: 'Save Roster Settings' }));
+  await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
+  const payload = apiClient.put.mock.calls[0][1];
+  expect(payload.rosterSlots).toContainEqual({ key: 'IDP FLEX', count: 1, eligiblePositions: ['DL', 'LB', 'DB'] });
+  expect(payload.dpEnabled).toBe(true);
+});
+
+test('an invalid slot name is rejected client-side with a specific message, no request sent', async () => {
+  renderTools();
+  await userEvent.click(screen.getByRole('tab', { name: 'Roster Settings' }));
+
+  await userEvent.click(screen.getByRole('button', { name: '+ Add Slot' }));
+  const nameFields = screen.getAllByLabelText('Slot Name');
+  await userEvent.type(nameFields[nameFields.length - 1], 'FLEX!');
+  await userEvent.click(screen.getByRole('button', { name: 'Save Roster Settings' }));
+
+  expect(await screen.findByText(/slot names are 1-20 characters/i)).toBeInTheDocument();
+  expect(apiClient.put).not.toHaveBeenCalled();
+});
+
 test('a lineup template chip stamps in its slots and enables DP for the IDP template', async () => {
   renderTools();
   await userEvent.click(screen.getByRole('tab', { name: 'Roster Settings' }));

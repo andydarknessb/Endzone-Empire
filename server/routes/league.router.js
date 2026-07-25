@@ -318,21 +318,42 @@ router.put('/:id', async (req, res) => {
   // POSITION_GROUPS) as well as a single offensive position.
   const positionKeys = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF', 'DL', 'LB', 'DB'];
   const DP_GROUP_KEYS = ['DL', 'LB', 'DB'];
-  const validRosterSlots = (arr) =>
-    Array.isArray(arr) && arr.length > 0 && arr.length <= 20 &&
-    arr.every((s) =>
-      s && typeof s === 'object' &&
-      typeof s.key === 'string' && /^[A-Za-z0-9_]{1,20}$/.test(s.key) &&
-      Number.isInteger(s.count) && s.count >= 0 && s.count <= 10 &&
-      Array.isArray(s.eligiblePositions) && s.eligiblePositions.length > 0 &&
-      s.eligiblePositions.every((p) => positionKeys.includes(p))
-    ) &&
-    new Set(arr.map((s) => s.key)).size === arr.length;
+  // Slot names allow spaces/hyphens/slashes after the first character (so
+  // "IDP FLEX" or "W/R/T" work); BENCH and IR are reserved by the lineup
+  // engine (lineup.service.js treats them as always-eligible pseudo-slots).
+  const SLOT_KEY_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9_ /-]{0,19}$/;
+  const RESERVED_SLOT_KEYS = ['BENCH', 'IR'];
+  // Returns a specific human-readable problem, or null when valid — the old
+  // single catch-all message made every mistake look like a position typo.
+  const rosterSlotsError = (arr) => {
+    if (!Array.isArray(arr) || arr.length === 0) return 'rosterSlots must be a non-empty array of slots';
+    if (arr.length > 20) return 'rosterSlots cannot have more than 20 slot rows';
+    for (let i = 0; i < arr.length; i++) {
+      const s = arr[i];
+      const label = s && typeof s.key === 'string' && s.key.trim() ? `slot "${s.key}"` : `slot ${i + 1}`;
+      if (!s || typeof s !== 'object') return `${label} must be an object`;
+      if (typeof s.key !== 'string' || !SLOT_KEY_PATTERN.test(s.key)) {
+        return `${label}: name must be 1-20 characters using letters, numbers, spaces, hyphens, slashes, or underscores (it cannot start with a space)`;
+      }
+      if (RESERVED_SLOT_KEYS.includes(s.key.trim().toUpperCase())) {
+        return `${label}: "${s.key}" is reserved for the bench/IR system`;
+      }
+      if (!Number.isInteger(s.count) || s.count < 0 || s.count > 10) {
+        return `${label}: count must be a whole number between 0 and 10`;
+      }
+      if (!Array.isArray(s.eligiblePositions) || s.eligiblePositions.length === 0) {
+        return `${label}: pick at least one eligible position`;
+      }
+      const bad = s.eligiblePositions.find((p) => !positionKeys.includes(p));
+      if (bad !== undefined) return `${label}: unknown position "${bad}" (allowed: ${positionKeys.join('/')})`;
+    }
+    if (new Set(arr.map((s) => s.key)).size !== arr.length) return 'slot names must be unique';
+    return null;
+  };
   if (rosterSlots !== undefined) {
-    if (!validRosterSlots(rosterSlots)) {
-      return res.status(400).json({
-        error: `rosterSlots must be a non-empty array of {key, count (0-10), eligiblePositions} with unique keys, eligiblePositions drawn from ${positionKeys.join('/')}`,
-      });
+    const slotsError = rosterSlotsError(rosterSlots);
+    if (slotsError) {
+      return res.status(400).json({ error: slotsError });
     }
     // A "DP-type" slot is one whose eligibility is entirely within the IDP
     // groups — cap their combined starting count at 3 (base + up to 2 more).
