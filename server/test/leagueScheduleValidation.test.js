@@ -136,7 +136,7 @@ test('switching a scheduled league to auction clears the schedule in the same up
   assert.equal(response.status, 200);
   assert.equal(response.body.draft_type, 'auction');
   assert.equal(response.body.draft_date, null);
-  assert.match(updateQuery, /WHEN \$27 = 'auction' THEN NULL/);
+  assert.match(updateQuery, /WHEN \$27::text = 'auction' THEN NULL/);
 });
 
 test('rejects a direct attempt to schedule an existing auction league', async (t) => {

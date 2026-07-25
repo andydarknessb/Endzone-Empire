@@ -346,8 +346,9 @@ router.put('/:id', async (req, res) => {
   if (positionCaps !== undefined && !validSlotMap(positionCaps, positionKeys)) {
     return res.status(400).json({ error: `positionCaps must map ${positionKeys.join('/')} to integers 0-10` });
   }
-  if (benchSlots !== undefined && (!Number.isInteger(benchSlots) || benchSlots < 0 || benchSlots > 5)) {
-    return res.status(400).json({ error: 'benchSlots must be an integer between 0 and 5' });
+  // Cap of 8 matches the NFL.com range (their default is 6-7 bench spots).
+  if (benchSlots !== undefined && (!Number.isInteger(benchSlots) || benchSlots < 0 || benchSlots > 8)) {
+    return res.status(400).json({ error: 'benchSlots must be an integer between 0 and 8' });
   }
   if (dpEnabled !== undefined && typeof dpEnabled !== 'boolean') {
     return res.status(400).json({ error: 'dpEnabled must be a boolean' });
@@ -626,16 +627,20 @@ router.put('/:id', async (req, res) => {
            "max_teams" = COALESCE($21, "max_teams"),
            "autodraft_delay_seconds" = COALESCE($24, "autodraft_delay_seconds"),
            "draft_date" = CASE
-             WHEN $27 = 'auction' THEN NULL
+             WHEN $27::text = 'auction' THEN NULL
              WHEN $22 THEN $23
              ELSE "draft_date"
            END,
            -- Rescheduling resets the reminder/auto-start bookkeeping so the
            -- new time gets a fresh set of reminders.
-           "draft_reminder_stage" = CASE WHEN $22 OR $27 = 'auction' THEN 0 ELSE "draft_reminder_stage" END,
-           "draft_autostart_failed" = CASE WHEN $22 OR $27 = 'auction' THEN false ELSE "draft_autostart_failed" END,
-           "draft_type" = COALESCE($27, "draft_type"),
-           "draft_rotation" = COALESCE($28, "draft_rotation"),
+           "draft_reminder_stage" = CASE WHEN $22 OR $27::text = 'auction' THEN 0 ELSE "draft_reminder_stage" END,
+           "draft_autostart_failed" = CASE WHEN $22 OR $27::text = 'auction' THEN false ELSE "draft_autostart_failed" END,
+           -- draft_type/draft_rotation are Postgres enums; the $27 = 'auction'
+           -- comparisons above type the parameter as text, so COALESCE needs an
+           -- explicit cast or Postgres rejects text vs enum (the bug that broke
+           -- every league update after the enum migration landed).
+           "draft_type" = COALESCE($27::draft_type, "draft_type"),
+           "draft_rotation" = COALESCE($28::draft_rotation_type, "draft_rotation"),
            "keepers_enabled" = COALESCE($29, "keepers_enabled"),
            "keeper_count" = COALESCE($30, "keeper_count"),
            "draft_order_overrides" = CASE WHEN $31::boolean THEN $32::jsonb ELSE "draft_order_overrides" END,
