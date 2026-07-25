@@ -134,6 +134,9 @@ const FINAL_STATE = {
   home_team: 'BUF', away_team: 'KC', game_status: 'final',
   current_score_home: 24, current_score_away: 27, quarter: 'Final',
   last_updated: '2026-01-12T23:30:00Z',
+  // Already stat-ingested, so these cases exercise recap building alone. See
+  // the "one fetch" tests at the bottom for the ingest path.
+  final_stats_synced_at: '2026-01-12T23:31:00Z',
 };
 
 function stubApi(box) {
@@ -331,4 +334,90 @@ test('generateForGame prefers the LLM narrative when a client is injected', asyn
   const data = await svc.generateForGame('20260112_KC@BUF', { api: stubApi({}), client });
   assert.equal(data.narrativeSource, 'llm');
   assert.equal(data.narrative, 'LLM enhanced.');
+});
+
+// ---- one box-score fetch serves the recap AND the final stat ingest ---------
+//
+// Before this, a finalized game was box-scored twice: once by syncWeekStats and
+// again here for the recap (~69 wasted calls a month against a ~1,000/month
+// plan). Now whichever path arrives first ingests the stats and stamps
+// final_stats_synced_at, and the other skips.
+
+test('generateForGame ingests final stats from the same box score and stamps the game', async (t) => {
+  const box = {
+    lineScore: { home: { Q1: '7', Q2: '7', Q3: '3', Q4: '7' }, away: { Q1: '10', Q2: '7', Q3: '3', Q4: '7' } },
+    playerStats: {
+      4433971: { playerID: '4433971', Rushing: { rushYds: '104', rushTD: '1' } },
+    },
+  };
+  const statUpserts = [];
+  let stamped = null;
+  t.mock.method(pool, 'query', async (sql, params) => {
+    const text = String(sql);
+    if (text.includes('FROM "live_game_states"')) {
+      return { rows: [{ ...FINAL_STATE, final_stats_synced_at: null }] };
+    }
+    if (text.includes('SET "final_stats_synced_at"')) {
+      stamped = params[0];
+      return { rows: [] };
+    }
+    if (text.includes('FROM "players" WHERE "external_id"')) {
+      return { rows: [{ id: 7, external_id: '4433971', name: 'Star Back', position: 'RB', nfl_team: 'KC' }] };
+    }
+    if (text.includes(`"position" = 'DEF'`)) return { rows: [] };
+    if (text.includes('INTO "player_stats"')) {
+      statUpserts.push(params);
+      return { rows: [] };
+    }
+    if (text.includes('FROM "player_stats" "ps"')) return { rows: [] }; // top performers
+    if (text.includes('FROM "player_stats"')) return { rows: [] }; // prior week stats
+    if (text.includes('FROM "nfl_games"')) return { rows: [] };
+    if (text.includes(`INTO ${RECAPS_TABLE_SQL}`)) return { rows: [{ tank01_game_id: params[0] }] };
+    throw new Error(`Unexpected SQL: ${text}`);
+  });
+
+  let fetches = 0;
+  const api = { get: async () => { fetches += 1; return { data: { body: box } }; } };
+  const data = await svc.generateForGame('20260112_KC@BUF', { api });
+
+  assert.equal(fetches, 1, 'exactly one box-score fetch');
+  assert.equal(statUpserts.length, 1, 'the game’s player stats were ingested');
+  assert.equal(JSON.parse(statUpserts[0][3]).rushingYards, 104);
+  assert.equal(stamped, '20260112_KC@BUF', 'stamped so syncWeekStats skips it');
+  assert.ok(data.narrative, 'the recap itself still got built');
+});
+
+test('generateForGame skips the ingest when the game was already stat-synced', async (t) => {
+  const statUpserts = [];
+  t.mock.method(pool, 'query', async (sql, params) => {
+    const text = String(sql);
+    if (text.includes('FROM "live_game_states"')) return { rows: [FINAL_STATE] }; // stamped
+    if (text.includes('INTO "player_stats"')) {
+      statUpserts.push(params);
+      return { rows: [] };
+    }
+    if (text.includes('FROM "player_stats" "ps"')) return { rows: [] };
+    if (text.includes(`INTO ${RECAPS_TABLE_SQL}`)) return { rows: [{ tank01_game_id: params[0] }] };
+    throw new Error(`Unexpected SQL: ${text}`);
+  });
+  const data = await svc.generateForGame('20260112_KC@BUF', { api: stubApi({}) });
+  assert.equal(statUpserts.length, 0);
+  assert.ok(data);
+});
+
+test('generateForGame still produces a recap when the stat ingest fails', async (t) => {
+  // A recap with stale stats beats no recap; the Mon-Thu nflverse pass is the
+  // authoritative backstop for stats either way.
+  t.mock.method(pool, 'query', async (sql, params) => {
+    const text = String(sql);
+    if (text.includes('FROM "live_game_states"')) {
+      return { rows: [{ ...FINAL_STATE, final_stats_synced_at: null }] };
+    }
+    if (text.includes('FROM "players" WHERE "external_id"')) throw new Error('players table exploded');
+    if (text.includes('FROM "player_stats" "ps"')) return { rows: [] };
+    if (text.includes(`INTO ${RECAPS_TABLE_SQL}`)) return { rows: [{ tank01_game_id: params[0] }] };
+    throw new Error(`Unexpected SQL: ${text}`);
+  });
+  const data = await svc.generateForGame('20260112_KC@BUF', { api: stubApi({}) });
+  assert.ok(data && data.narrative);
 });

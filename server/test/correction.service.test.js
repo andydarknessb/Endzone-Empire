@@ -133,3 +133,76 @@ test('manual correction fails closed for cross-season, week-one, and ambiguous t
     assert.throws(() => assertManualCorrectionWindow(attempt), CorrectionWindowError);
   }
 });
+
+// ---- scheduled corrections spend no Tank01 quota -----------------------------
+
+const poolModule = require('../modules/pool');
+const correctionSvc = require('../services/correction.service');
+const scoringSvc = require('../services/scoring.service');
+const nflverse = require('../services/nflverseSync.service');
+
+function stubOneInSeasonLeague(t) {
+  t.mock.method(poolModule, 'query', async (sql) => {
+    if (String(sql).includes('FROM "leagues"')) {
+      return { rows: [{ id: 42, current_season: 2026, current_week: 4 }] };
+    }
+    return { rows: [] };
+  });
+}
+
+test('resyncPriorWeeks defaults to nflverse and never calls Tank01', async (t) => {
+  stubOneInSeasonLeague(t);
+  let tankCalls = 0;
+  let nflverseArgs = null;
+  t.mock.method(scoringSvc, 'syncWeekStats', async () => {
+    tankCalls += 1;
+    return { plays: [] };
+  });
+  t.mock.method(nflverse, 'correctWeekFromNflverse', async (args) => {
+    nflverseArgs = args;
+    return { playersUpdated: 10 };
+  });
+  t.mock.method(correctionSvc, 'correctLeagueWeek', async () => ({ leagueId: 42, changes: [] }));
+
+  await correctionSvc.resyncPriorWeeks();
+
+  assert.equal(tankCalls, 0, 'no quota spent on a scheduled correction');
+  // Prior week of a league sitting on week 4, and league re-scoring is handled
+  // by the per-league loop below it, not twice.
+  assert.deepEqual(nflverseArgs, { season: 2026, week: 3, rescoreLeagues: false });
+});
+
+test('resyncPriorWeeks can still be asked for the Tank01 source explicitly', async (t) => {
+  stubOneInSeasonLeague(t);
+  let tankArgs = null;
+  t.mock.method(scoringSvc, 'syncWeekStats', async (args) => {
+    tankArgs = args;
+    return { plays: [] };
+  });
+  t.mock.method(correctionSvc, 'correctLeagueWeek', async () => ({ leagueId: 42, changes: [] }));
+
+  const prevKey = process.env.RAPID_API_KEY;
+  const prevHost = process.env.RAPID_API_HOST;
+  process.env.RAPID_API_KEY = 'test-key';
+  process.env.RAPID_API_HOST = 'test-host';
+  try {
+    await correctionSvc.resyncPriorWeeks({ source: 'tank01' });
+  } finally {
+    if (prevKey === undefined) delete process.env.RAPID_API_KEY;
+    else process.env.RAPID_API_KEY = prevKey;
+    if (prevHost === undefined) delete process.env.RAPID_API_HOST;
+    else process.env.RAPID_API_HOST = prevHost;
+  }
+  assert.deepEqual(tankArgs, { season: 2026, week: 3 });
+});
+
+test('resyncPriorWeeks skips the Tank01 source without credentials', async () => {
+  const prevKey = process.env.RAPID_API_KEY;
+  delete process.env.RAPID_API_KEY;
+  try {
+    const out = await correctionSvc.resyncPriorWeeks({ source: 'tank01' });
+    assert.match(out.skipped, /RapidAPI credentials/);
+  } finally {
+    if (prevKey !== undefined) process.env.RAPID_API_KEY = prevKey;
+  }
+});

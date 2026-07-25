@@ -264,7 +264,7 @@ async function generateForGame(tank01GameId, { api, client } = {}) {
   const stateRes = await pool.query(
     `SELECT "tank01_game_id", "season", "week", "home_team", "away_team",
             "game_status", "current_score_home", "current_score_away",
-            "quarter", "last_updated"
+            "quarter", "last_updated", "final_stats_synced_at"
      FROM "live_game_states" WHERE "tank01_game_id" = $1`,
     [tank01GameId]
   );
@@ -286,6 +286,22 @@ async function generateForGame(tank01GameId, { api, client } = {}) {
     transport: api, // tests inject a fake client; uncounted when present
   });
   const box = tank01Body(boxResponse.data) || {};
+
+  // Ingest this game's final stats from the SAME box score, before building the
+  // recap. syncWeekStats used to fetch it separately (2x per game); now whoever
+  // gets here first pays, and `final_stats_synced_at` tells the other path to
+  // skip. Never fatal: a recap with stale stats still beats no recap, and the
+  // Mon-Thu nflverse finalization pass is the authoritative backstop either way.
+  if (!state.final_stats_synced_at) {
+    try {
+      const scoring = require('./scoring.service');
+      const maps = await scoring.loadWeekMaps({ season: state.season, week: state.week });
+      await scoring.applyGameBoxScore({ box, season: state.season, week: state.week, maps });
+      await scoring.markFinalStatsSynced(tank01GameId);
+    } catch (err) {
+      console.error('gameRecap: final stat ingest failed for %s:', tank01GameId, err.message);
+    }
+  }
 
   const lineScore = normalizeLineScore(box);
   const scoringPlays = normalizeScoringPlays(box);

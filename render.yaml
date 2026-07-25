@@ -160,6 +160,10 @@ services:
         value: "600000"
       - key: LIVE_IDLE_CHECK_MS
         value: "60000"
+      # Scheduler ticks (5 min each) between Tank01 box-score syncs in a live
+      # window; doubles itself while quota is degraded. 6 = every ~30 min.
+      - key: SYNC_EVERY_TICKS
+        value: "6"
       - key: SPORTSDB_API_KEY
         sync: false
       - key: SUPABASE_URL

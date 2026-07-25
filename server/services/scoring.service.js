@@ -642,25 +642,10 @@ function detectScoringEvents(prevStats, newStats) {
 }
 
 /**
- * Fetch a week's real-world stats from Tank01: one getNFLGamesForWeek call,
- * then a box score per game (~16 calls) — every player in those games whose
- * external_id we know gets a player_stats upsert.
- *
- * Returns typed touchdown events (`plays`) detected by diffing each player's
- * prior stored stats against the fresh pull, decorated with the scoring
- * player's real NFL team and that week's opponent so the live UI can render a
- * team-accurate cutscene. Only genuine TD-stat increments produce a play, so a
- * re-sync or a stat correction never fabricates one.
+ * Every lookup table a box-score apply needs for one (season, week), loaded
+ * once and reused across the week's games.
  */
-async function syncWeekStats({ season, week, pauseMs = 0 }) {
-  const gamesResponse = await tank01Get('/getNFLGamesForWeek', {
-    params: { week, seasonType: 'reg', season },
-  });
-  const games = tank01Body(gamesResponse.data) || [];
-  if (!Array.isArray(games) || games.length === 0) {
-    return { season, week, playersUpdated: 0, gamesProcessed: 0, plays: [] };
-  }
-
+async function loadWeekMaps({ season, week }) {
   const knownPlayers = await pool.query(
     `SELECT "id", "external_id", "name", "position", "nfl_team"
      FROM "players" WHERE "external_id" IS NOT NULL`
@@ -699,114 +684,240 @@ async function syncWeekStats({ season, week, pauseMs = 0 }) {
   );
   const opponentByTeam = new Map(schedule.rows.map((r) => [r.nfl_team, r.opponent]));
 
+  return { idByExternal, metaById, defByAbbr, prevById, opponentByTeam };
+}
+
+/**
+ * Ingest ONE Tank01 box score into player_stats — every player in the game
+ * whose external_id we know, plus both team-defense aggregates.
+ *
+ * Extracted from syncWeekStats so a single box-score fetch can serve more than
+ * one purpose: gameRecap.generateForGame now calls this with the box score it
+ * already fetched for the recap, which is what eliminates the duplicate
+ * final-game fetch (~69 calls/month of pure waste).
+ *
+ * Returns the typed touchdown events (`plays`) detected by diffing each
+ * player's prior stored stats against this pull, decorated with the scoring
+ * player's real NFL team and that week's opponent so the live UI can render a
+ * team-accurate cutscene. Only genuine TD-stat increments produce a play, so a
+ * re-sync or a stat correction never fabricates one.
+ *
+ * @param {object} args
+ * @param {object} args.box   unwrapped Tank01 /getNFLBoxScore body
+ * @param {object} args.maps  from loadWeekMaps({ season, week })
+ */
+async function applyGameBoxScore({ box, season, week, maps }) {
+  const { idByExternal, metaById, defByAbbr, prevById, opponentByTeam } = maps;
+  const playerStats = (box && box.playerStats) || {};
+  const bonusByPlayer = extractPlayByPlayBonusStats(box && box.allPlayByPlay);
+  let updated = 0;
+  const plays = [];
+
+  for (const entry of Object.values(playerStats)) {
+    const playerId = idByExternal.get(String(entry && entry.playerID));
+    if (!playerId) continue; // not in our pool
+    const stats = {
+      ...normalizeTank01Stats(entry),
+      ...normalizeTank01IdpStats(entry),
+      ...(bonusByPlayer.get(String(entry.playerID)) || {}),
+    };
+    const points = calculateFantasyPoints(stats);
+    const prev = prevById.get(playerId);
+    const events = detectScoringEvents(prev, stats);
+    if (events.length > 0) {
+      const meta = metaById.get(playerId) || {};
+      const pointsDelta =
+        Math.round((points - calculateFantasyPoints(prev || {})) * 100) / 100;
+      for (const ev of events) {
+        plays.push({
+          playerId,
+          name: meta.name,
+          position: meta.position,
+          nflTeam: meta.nfl_team,
+          opponent: opponentByTeam.get(meta.nfl_team) || null,
+          type: ev.type,
+          tdDelta: ev.tdDelta,
+          pointsDelta,
+          isTouchdown: ev.isTouchdown,
+        });
+      }
+    }
+    await pool.query(
+      `INSERT INTO "player_stats" ("player_id", "season", "week", "stats", "fantasy_points")
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT ("player_id", "season", "week")
+       DO UPDATE SET "stats" = EXCLUDED."stats", "fantasy_points" = EXCLUDED."fantasy_points"`,
+      [playerId, season, week, JSON.stringify(stats), points]
+    );
+    // Keep the diff baseline current so a re-apply of the same box score (the
+    // recap path following a live sync) can't re-fire the same touchdown.
+    prevById.set(playerId, stats);
+    updated += 1;
+  }
+
+  // Team-defense scoring: Tank01's box score carries one aggregate DST
+  // line per side (sacks/interceptions/fumble recoveries/defensive TDs
+  // summed across every individual defender) rather than per-defender
+  // stats we could roster — this is the only real source for a DEF
+  // unit's fantasy points.
+  const dst = (box && box.DST) || {};
+  const teamStats = (box && box.teamStats) || {};
+  for (const side of ['home', 'away']) {
+    const dstSide = dst[side];
+    const abbr = dstSide && dstSide.teamAbv ? String(dstSide.teamAbv).toUpperCase() : null;
+    const defPlayer = abbr ? defByAbbr.get(abbr) : null;
+    if (!defPlayer) continue; // no rostered DEF unit for this team in our pool
+    const opponentSide = side === 'home' ? 'away' : 'home';
+    const stats = normalizeTank01DstStats(dstSide, teamStats[opponentSide]);
+    const points = calculateFantasyPoints(stats);
+    const prev = prevById.get(defPlayer.id);
+    const events = detectScoringEvents(prev, stats);
+    if (events.length > 0) {
+      const pointsDelta =
+        Math.round((points - calculateFantasyPoints(prev || {})) * 100) / 100;
+      for (const ev of events) {
+        plays.push({
+          playerId: defPlayer.id,
+          name: defPlayer.name,
+          position: 'DEF',
+          nflTeam: abbr,
+          opponent: opponentByTeam.get(abbr) || null,
+          type: ev.type,
+          tdDelta: ev.tdDelta,
+          pointsDelta,
+          isTouchdown: ev.isTouchdown,
+        });
+      }
+    }
+    await pool.query(
+      `INSERT INTO "player_stats" ("player_id", "season", "week", "stats", "fantasy_points")
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT ("player_id", "season", "week")
+       DO UPDATE SET "stats" = EXCLUDED."stats", "fantasy_points" = EXCLUDED."fantasy_points"`,
+      [defPlayer.id, season, week, JSON.stringify(stats), points]
+    );
+    prevById.set(defPlayer.id, stats);
+    updated += 1;
+  }
+
+  return { updated, plays };
+}
+
+/**
+ * Pure: which of a week's games still need a box-score fetch.
+ *
+ * This is the second-biggest quota saving in the app. The old loop box-scored
+ * every game in the week on every ~30-minute pass, so a finished 1pm game was
+ * re-fetched for the rest of the afternoon (~350 calls/Sunday). Now:
+ *  - `scheduled` games have no stats yet — never fetch
+ *  - `final` games already ingested (final_stats_synced_at set) — never again
+ *  - `in_progress` games, and finals not yet ingested, are the only fetches
+ *
+ * @param {Array<{tank01_game_id: string, game_status: string, final_stats_synced_at: ?Date}>} rows
+ * @returns {Array<{gameId: string, status: string, isFinal: boolean}>}
+ */
+function gamesNeedingBoxScore(rows) {
+  const out = [];
+  for (const row of rows || []) {
+    const gameId = row.tank01_game_id;
+    if (!gameId) continue;
+    const status = row.game_status;
+    if (status === 'scheduled') continue;
+    if (status === 'final' && row.final_stats_synced_at) continue;
+    out.push({ gameId, status, isFinal: status === 'final' });
+  }
+  return out;
+}
+
+/**
+ * Fetch a week's real-world stats from Tank01: a box score per game that still
+ * needs one (see gamesNeedingBoxScore) — every player in those games whose
+ * external_id we know gets a player_stats upsert.
+ *
+ * The week's game list comes from live_game_states, which the live engine keeps
+ * fresh for free off ESPN, so the old always-on `/getNFLGamesForWeek` call is
+ * now only a fallback for a week we have no live rows for.
+ *
+ * Returns typed touchdown events (`plays`) for the live UI — see
+ * applyGameBoxScore.
+ */
+async function syncWeekStats({ season, week, pauseMs = 0, api }) {
+  const stateRes = await pool.query(
+    `SELECT "tank01_game_id", "game_status", "final_stats_synced_at"
+       FROM "live_game_states" WHERE "season" = $1 AND "week" = $2`,
+    [season, week]
+  );
+
+  let targets;
+  if (stateRes.rows.length > 0) {
+    targets = gamesNeedingBoxScore(stateRes.rows);
+  } else {
+    // No live rows for this week (a historical week, or the engine hasn't run
+    // yet): fall back to one counted schedule call and treat every game as
+    // needing a fetch.
+    const gamesResponse = await tank01Get('/getNFLGamesForWeek', {
+      params: { week, seasonType: 'reg', season },
+      transport: api, // tests inject; uncounted when present
+    });
+    const games = tank01Body(gamesResponse.data) || [];
+    if (!Array.isArray(games)) {
+      return { season, week, playersUpdated: 0, gamesProcessed: 0, gamesSkipped: 0, plays: [] };
+    }
+    targets = games
+      .filter((g) => g && g.gameID)
+      .map((g) => ({ gameId: String(g.gameID), status: null, isFinal: false }));
+  }
+
+  const gamesSkipped = Math.max(stateRes.rows.length - targets.length, 0);
+  if (targets.length === 0) {
+    return { season, week, playersUpdated: 0, gamesProcessed: 0, gamesSkipped, plays: [] };
+  }
+
+  const maps = await loadWeekMaps({ season, week });
+
   let updated = 0;
   let gamesProcessed = 0;
   const plays = [];
-  for (const game of games) {
-    if (!game || !game.gameID) continue;
+  for (const target of targets) {
     try {
-      // Backfill callers pace the ~16 box-score calls to stay under the
-      // provider's per-second rate limit; live callers leave this at 0.
+      // Backfill callers pace the box-score calls to stay under the provider's
+      // per-second rate limit; live callers leave this at 0.
       if (pauseMs > 0 && gamesProcessed > 0) {
         await new Promise((resolve) => setTimeout(resolve, pauseMs));
       }
       const boxResponse = await tank01Get('/getNFLBoxScore', {
-        params: { gameID: game.gameID, playByPlay: 'true', fantasyPoints: 'false' },
+        params: { gameID: target.gameId, playByPlay: 'true', fantasyPoints: 'false' },
+        transport: api,
       });
       const box = tank01Body(boxResponse.data) || {};
-      const playerStats = box.playerStats || {};
-      const bonusByPlayer = extractPlayByPlayBonusStats(box.allPlayByPlay);
       gamesProcessed += 1;
-      for (const entry of Object.values(playerStats)) {
-        const playerId = idByExternal.get(String(entry && entry.playerID));
-        if (!playerId) continue; // not in our pool
-        const stats = {
-          ...normalizeTank01Stats(entry),
-          ...normalizeTank01IdpStats(entry),
-          ...(bonusByPlayer.get(String(entry.playerID)) || {}),
-        };
-        const points = calculateFantasyPoints(stats);
-        const prev = prevById.get(playerId);
-        const events = detectScoringEvents(prev, stats);
-        if (events.length > 0) {
-          const meta = metaById.get(playerId) || {};
-          const pointsDelta =
-            Math.round((points - calculateFantasyPoints(prev || {})) * 100) / 100;
-          for (const ev of events) {
-            plays.push({
-              playerId,
-              name: meta.name,
-              position: meta.position,
-              nflTeam: meta.nfl_team,
-              opponent: opponentByTeam.get(meta.nfl_team) || null,
-              type: ev.type,
-              tdDelta: ev.tdDelta,
-              pointsDelta,
-              isTouchdown: ev.isTouchdown,
-            });
-          }
-        }
-        await pool.query(
-          `INSERT INTO "player_stats" ("player_id", "season", "week", "stats", "fantasy_points")
-           VALUES ($1, $2, $3, $4, $5)
-           ON CONFLICT ("player_id", "season", "week")
-           DO UPDATE SET "stats" = EXCLUDED."stats", "fantasy_points" = EXCLUDED."fantasy_points"`,
-          [playerId, season, week, JSON.stringify(stats), points]
-        );
-        updated += 1;
-      }
-
-      // Team-defense scoring: Tank01's box score carries one aggregate DST
-      // line per side (sacks/interceptions/fumble recoveries/defensive TDs
-      // summed across every individual defender) rather than per-defender
-      // stats we could roster — this is the only real source for a DEF
-      // unit's fantasy points.
-      const dst = box.DST || {};
-      const teamStats = box.teamStats || {};
-      for (const side of ['home', 'away']) {
-        const dstSide = dst[side];
-        const abbr = dstSide && dstSide.teamAbv ? String(dstSide.teamAbv).toUpperCase() : null;
-        const defPlayer = abbr ? defByAbbr.get(abbr) : null;
-        if (!defPlayer) continue; // no rostered DEF unit for this team in our pool
-        const opponentSide = side === 'home' ? 'away' : 'home';
-        const stats = normalizeTank01DstStats(dstSide, teamStats[opponentSide]);
-        const points = calculateFantasyPoints(stats);
-        const prev = prevById.get(defPlayer.id);
-        const events = detectScoringEvents(prev, stats);
-        if (events.length > 0) {
-          const pointsDelta =
-            Math.round((points - calculateFantasyPoints(prev || {})) * 100) / 100;
-          for (const ev of events) {
-            plays.push({
-              playerId: defPlayer.id,
-              name: defPlayer.name,
-              position: 'DEF',
-              nflTeam: abbr,
-              opponent: opponentByTeam.get(abbr) || null,
-              type: ev.type,
-              tdDelta: ev.tdDelta,
-              pointsDelta,
-              isTouchdown: ev.isTouchdown,
-            });
-          }
-        }
-        await pool.query(
-          `INSERT INTO "player_stats" ("player_id", "season", "week", "stats", "fantasy_points")
-           VALUES ($1, $2, $3, $4, $5)
-           ON CONFLICT ("player_id", "season", "week")
-           DO UPDATE SET "stats" = EXCLUDED."stats", "fantasy_points" = EXCLUDED."fantasy_points"`,
-          [defPlayer.id, season, week, JSON.stringify(stats), points]
-        );
-        updated += 1;
-      }
+      const result = await applyGameBoxScore({ box, season, week, maps });
+      updated += result.updated;
+      plays.push(...result.plays);
+      // A final game's stats are now in: never fetch this box score again.
+      if (target.isFinal) await markFinalStatsSynced(target.gameId);
     } catch (err) {
       // Correction-route retries are safe because every stat write is an
       // upsert. Do not hide pool starvation as a single skipped NFL game.
       if (isTransientDatabaseError(err)) throw err;
-      console.error('Stat sync failed for game %s:', game.gameID, err.message);
+      console.error('Stat sync failed for game %s:', target.gameId, err.message);
     }
   }
-  return { season, week, playersUpdated: updated, gamesProcessed, plays };
+  return { season, week, playersUpdated: updated, gamesProcessed, gamesSkipped, plays };
+}
+
+/**
+ * Stamp a finalized game as stat-ingested. Idempotent, and deliberately
+ * separate from the recap row: a recap can be regenerated without re-spending a
+ * box-score call, and a stat re-sync (admin/correction route) can clear the
+ * stamp if it ever needs to.
+ */
+async function markFinalStatsSynced(tank01GameId) {
+  await pool.query(
+    `UPDATE "live_game_states" SET "final_stats_synced_at" = now(), "updated_at" = now()
+      WHERE "tank01_game_id" = $1`,
+    [tank01GameId]
+  );
 }
 
 /** Map a RapidAPI injury designation to our badge codes (Q/D/O/IR). */
@@ -1376,6 +1487,10 @@ module.exports = {
   normalizeTank01DstStats,
   normalizeTeamAbbr,
   NFL_TEAM_NAME_TO_ABBR,
+  loadWeekMaps,
+  applyGameBoxScore,
+  gamesNeedingBoxScore,
+  markFinalStatsSynced,
   missingTeamDefenses,
   syncTeamDefenses,
   normalizeTank01Game,

@@ -423,7 +423,15 @@ function buildDstStatUpdates({ teamRows, scoresByGameId }) {
  * re-sync of the same week simply converges the row back to the canonical
  * live-pipeline shape. Backfill-only: no league re-score, no play events.
  */
-async function applyNflverseFullWeek({ season, week, playerRows, teamRows, scoresByGameId, crosswalk }) {
+async function applyNflverseFullWeek({
+  season,
+  week,
+  playerRows,
+  teamRows,
+  scoresByGameId,
+  crosswalk,
+  preserveKeys = [],
+}) {
   const weekPlayerRows = filterRowsForWeek(playerRows, { season, week });
   const weekTeamRows = filterRowsForWeek(teamRows, { season, week });
 
@@ -431,6 +439,26 @@ async function applyNflverseFullWeek({ season, week, playerRows, teamRows, score
     `SELECT "id", "external_id" FROM "players" WHERE "external_id" IS NOT NULL`
   );
   const idByExternal = new Map(knownPlayers.rows.map((r) => [String(r.external_id), r.id]));
+
+  // When this runs over a week Tank01 already filled (the Tue/Wed correction
+  // path), carry forward the stat keys nflverse has no equivalent for — the
+  // play-by-play TD-length arrays. They're the only thing a wholesale nflverse
+  // upsert would silently destroy, and destroying them would zero out
+  // TD-length bonuses for exactly the leagues that opted into them.
+  const preserved = new Map();
+  if (preserveKeys.length > 0) {
+    const existing = await pool.query(
+      `SELECT "player_id", "stats" FROM "player_stats" WHERE "season" = $1 AND "week" = $2`,
+      [season, week]
+    );
+    for (const row of existing.rows) {
+      const carry = {};
+      for (const key of preserveKeys) {
+        if (row.stats && row.stats[key] !== undefined) carry[key] = row.stats[key];
+      }
+      if (Object.keys(carry).length > 0) preserved.set(row.player_id, carry);
+    }
+  }
 
   // Same abbreviation-keyed DEF-unit matching syncWeekStats uses.
   const defPlayers = await pool.query(
@@ -450,7 +478,9 @@ async function applyNflverseFullWeek({ season, week, playerRows, teamRows, score
   const dstUpdates = buildDstStatUpdates({ teamRows: weekTeamRows, scoresByGameId });
 
   let playersUpdated = 0;
-  for (const { playerId, stats } of playerUpdates) {
+  for (const { playerId, stats: fresh } of playerUpdates) {
+    const carry = preserved.get(playerId);
+    const stats = carry ? { ...fresh, ...carry } : fresh;
     const points = scoring.calculateFantasyPoints(stats);
     await pool.query(
       `INSERT INTO "player_stats" ("player_id", "season", "week", "stats", "fantasy_points")
@@ -478,6 +508,62 @@ async function applyNflverseFullWeek({ season, week, playerRows, teamRows, score
   }
 
   return { season, week, playersUpdated, dstUpdated, gamesInFile: Math.floor(weekTeamRows.length / 2) };
+}
+
+/**
+ * Stat keys only Tank01's play-by-play can produce, so a wholesale nflverse
+ * apply must carry them forward rather than overwrite them. nflverse DOES
+ * supply exact FG distances (fg_made_list -> fieldGoalDistances), so that key
+ * is deliberately absent here.
+ */
+const PBP_ONLY_STAT_KEYS = ['passingTDLengths', 'rushingTDLengths', 'receivingTDLengths'];
+
+/**
+ * The free replacement for a Tank01 stat-correction re-sync: rebuild one
+ * (season, week) wholesale from nflverse's published CSVs — offense, IDP,
+ * kicking and team-DST — then re-score every affected league through
+ * correction.service's existing correctLeagueWeek path.
+ *
+ * This is what takes the Tue/Wed correction pass from ~34 Tank01 calls a week
+ * to zero. nflverse is also the more accurate source by then: it's the same
+ * data the NFL's own corrections flow into, published nightly and "cleanest by
+ * Thursday" per nflverse's docs.
+ *
+ * @param {{season: number, week: number, rescoreLeagues?: boolean}} args
+ */
+async function correctWeekFromNflverse({ season, week, rescoreLeagues = true }) {
+  const [playerRows, teamRows, scoresByGameId, crosswalk] = await Promise.all([
+    fetchPlayerWeekStatsForSeason(season),
+    fetchTeamWeekStatsForSeason(season),
+    fetchGameScoresForSeason(season),
+    fetchPlayersCrosswalk(),
+  ]);
+  const applied = await applyNflverseFullWeek({
+    season,
+    week,
+    playerRows,
+    teamRows,
+    scoresByGameId,
+    crosswalk,
+    preserveKeys: PBP_ONLY_STAT_KEYS,
+  });
+  if (!rescoreLeagues) return { ...applied, leaguesRescored: 0, corrected: [] };
+
+  const leaguesResult = await pool.query(
+    `SELECT "id" FROM "leagues" WHERE "draft_status" = 'complete'`
+  );
+  const corrected = [];
+  for (const league of leaguesResult.rows) {
+    try {
+      // No-ops instantly for a league with no matchup rows at this
+      // (season, week) — safe to call broadly rather than pre-filtering.
+      const outcome = await correction.correctLeagueWeek({ leagueId: league.id, season, week });
+      if (outcome.changes.length > 0) corrected.push(outcome);
+    } catch (err) {
+      console.error('nflverse correction: re-score failed for league %s:', league.id, err.message);
+    }
+  }
+  return { ...applied, leaguesRescored: corrected.length, corrected };
 }
 
 /** Pure: is `date` in nflverse's own "nightly after each game day, cleanest
@@ -534,6 +620,8 @@ module.exports = {
   buildDstStatUpdates,
   applyNflverseWeek,
   applyNflverseFullWeek,
+  correctWeekFromNflverse,
+  PBP_ONLY_STAT_KEYS,
   syncNflverseWeek,
   isNflverseFinalizationDay,
   finalizePriorWeeks,

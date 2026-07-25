@@ -213,10 +213,18 @@ async function correctLeagueWeek({ leagueId, season, week }) {
 /**
  * Scheduler entry point: re-sync last week's stats and re-score it for every
  * in-season league. Groups leagues by (season, prior week) so each week's
- * stats are pulled from RapidAPI once. No-ops without API credentials.
+ * stats are pulled once.
+ *
+ * The source is nflverse, not Tank01 — free, and by Tuesday it's the better
+ * data (nflverse publishes nightly, "cleanest by Thursday", and the NFL's own
+ * stat corrections land there). The Tank01-based re-sync stays reachable
+ * through the manual admin/commissioner correction route for anyone who wants
+ * to spend quota on demand; scheduled corrections no longer do.
+ *
+ * @param {{source?: 'nflverse'|'tank01'}} [opts]
  */
-async function resyncPriorWeeks() {
-  if (!process.env.RAPID_API_KEY || !process.env.RAPID_API_HOST) {
+async function resyncPriorWeeks({ source = 'nflverse' } = {}) {
+  if (source === 'tank01' && (!process.env.RAPID_API_KEY || !process.env.RAPID_API_HOST)) {
     return { skipped: 'RapidAPI credentials not configured' };
   }
   const leaguesResult = await pool.query(
@@ -234,7 +242,15 @@ async function resyncPriorWeeks() {
   const results = [];
   for (const { season, week, leagueIds } of weeks.values()) {
     try {
-      await scoring.syncWeekStats({ season, week });
+      if (source === 'nflverse') {
+        // Lazy require: nflverseSync requires this module at load time.
+        const nflverseSync = require('./nflverseSync.service');
+        // League re-scoring happens per-league below, through the same
+        // correctLeagueWeek path, so skip its own re-score loop.
+        await nflverseSync.correctWeekFromNflverse({ season, week, rescoreLeagues: false });
+      } else {
+        await scoring.syncWeekStats({ season, week });
+      }
     } catch (err) {
       console.error('stat correction: sync failed for %s week %s:', season, week, err.message);
       continue; // don't re-score leagues from stale stats

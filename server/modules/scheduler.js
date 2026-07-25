@@ -13,7 +13,20 @@ const { withAdvisoryLock } = require('./advisoryLock');
  */
 const INTERVAL_MS = 5 * 60 * 1000;
 const DRAFT_CLOCK_MS = 10 * 1000; // pick timers need much finer granularity
-const SYNC_EVERY_TICKS = 6; // stat sync at most every ~30 min
+// Stat sync at most every ~30 min (6 ticks). This is the Tank01 box-score
+// cadence during live windows and the single biggest lever on monthly spend, so
+// it's env-tunable and doubles automatically once quota goes degraded.
+const SYNC_EVERY_TICKS = Number(process.env.SYNC_EVERY_TICKS) || 6;
+
+async function syncEveryTicks() {
+  try {
+    const { getQuotaState } = require('./tank01Client');
+    const { mode } = await getQuotaState();
+    return mode === 'degraded' ? SYNC_EVERY_TICKS * 2 : SYNC_EVERY_TICKS;
+  } catch (err) {
+    return SYNC_EVERY_TICKS;
+  }
+}
 
 let timer = null;
 let draftTimer = null;
@@ -72,7 +85,7 @@ async function tickUnlocked() {
       console.error('scheduled drafts failed:', err.message);
     }
     ticksSinceSync += 1;
-    if (ticksSinceSync >= SYNC_EVERY_TICKS) {
+    if (ticksSinceSync >= (await syncEveryTicks())) {
       const synced = await syncAndScoreLiveWeeks();
       if (synced) ticksSinceSync = 0;
     }
@@ -110,6 +123,12 @@ async function tick() {
  * re-score every league sitting on that week. Requires RapidAPI credentials;
  * silently skipped otherwise (the commissioner manual trigger still works).
  * Returns true if a sync ran.
+ *
+ * Scoring is deliberately decoupled from syncing: scoreMatchups reads only
+ * Postgres, so it runs on every eligible in-window tick even when the sync
+ * fetched nothing (every game final and already ingested, or quota exhausted).
+ * Finals ingested through the recap path still get scored promptly that way,
+ * and `scores:updated` still emits — with an empty `plays` list, which is fine.
  */
 async function syncAndScoreLiveWeeks() {
   if (!process.env.RAPID_API_KEY || !process.env.RAPID_API_HOST) return false;
@@ -140,10 +159,19 @@ async function syncAndScoreLiveWeeks() {
     );
     if (!live.rows[0]) continue; // no game window right now
     ranAny = true;
+
+    // A failed or fully-shed sync must not stop the DB-only re-score below.
+    let plays = [];
     try {
       // Typed touchdown events from this sync ride the scores:updated emit so
       // the live matchup UI can fire team-accurate cutscenes.
-      const { plays } = await scoring.syncWeekStats({ season, week });
+      const synced = await scoring.syncWeekStats({ season, week });
+      plays = synced.plays || [];
+    } catch (err) {
+      console.error('live stat sync failed for %s week %s:', season, week, err.message);
+    }
+
+    try {
       for (const leagueId of leagueIds) {
         const { scored } = await scoring.scoreMatchups({ leagueId, season, week, plays }); // emits scores:updated
         await alertCloseMatchups({ leagueId, week, scored });
@@ -160,7 +188,8 @@ async function syncAndScoreLiveWeeks() {
 /**
  * Tue/Wed stat-correction pass: re-pull last week's stats and re-score any
  * league whose scores moved (see correction.service). Runs at most once per
- * calendar day; no-ops without RapidAPI credentials.
+ * calendar day. Source is nflverse — free and, by Tuesday, more accurate than
+ * Tank01 — so this pass costs no quota and needs no credentials.
  */
 async function runDailyStatCorrections() {
   const correction = require('../services/correction.service');
@@ -285,6 +314,9 @@ module.exports = {
   draftTick,
   alertCloseMatchups,
   getSchedulerStatus,
+  syncAndScoreLiveWeeks,
+  syncEveryTicks,
   INTERVAL_MS,
   DRAFT_CLOCK_MS,
+  SYNC_EVERY_TICKS,
 };

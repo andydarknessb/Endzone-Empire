@@ -314,3 +314,99 @@ test('isNflverseFinalizationDay is false Friday through Sunday', () => {
     assert.equal(isNflverseFinalizationDay(new Date(2026, 6, day)), false, `day ${day}`);
   }
 });
+
+// ---- free stat corrections (no Tank01 quota) --------------------------------
+//
+// The Tue/Wed correction pass used to re-run Tank01's syncWeekStats (~34 calls a
+// week against a ~1,000/month plan). It now rebuilds the week wholesale from
+// nflverse instead — but a wholesale rebuild must not destroy the one thing
+// nflverse cannot supply: Tank01's play-by-play TD-length arrays, which price
+// TD-length bonuses for leagues that opted into them.
+
+const pool = require('../modules/pool');
+const nflverseSync = require('../services/nflverseSync.service');
+
+test('PBP_ONLY_STAT_KEYS covers the TD-length arrays and not FG distances', () => {
+  assert.deepEqual(nflverseSync.PBP_ONLY_STAT_KEYS, [
+    'passingTDLengths', 'rushingTDLengths', 'receivingTDLengths',
+  ]);
+  // nflverse DOES publish exact FG distances (fg_made_list), so that key is
+  // rebuilt rather than preserved.
+  assert.ok(!nflverseSync.PBP_ONLY_STAT_KEYS.includes('fieldGoalDistances'));
+});
+
+test('applyNflverseFullWeek carries forward preserved keys over the fresh stats', async (t) => {
+  const upserts = [];
+  t.mock.method(pool, 'query', async (sql, params) => {
+    const text = String(sql);
+    if (text.includes('FROM "players" WHERE "external_id"')) {
+      return { rows: [{ id: 42, external_id: '4429795' }] };
+    }
+    if (text.includes(`"position" = 'DEF'`)) return { rows: [] };
+    if (text.includes('FROM "player_stats"')) {
+      // What Tank01 wrote live: pbp arrays plus a now-corrected yardage figure.
+      return {
+        rows: [
+          {
+            player_id: 42,
+            stats: { passingYards: 288, passingTDLengths: [42, 7], receivingTDLengths: [] },
+          },
+        ],
+      };
+    }
+    if (text.includes('INTO "player_stats"')) {
+      upserts.push(params);
+      return { rows: [] };
+    }
+    throw new Error(`Unexpected SQL: ${text}`);
+  });
+
+  await nflverseSync.applyNflverseFullWeek({
+    season: 2025,
+    week: 3,
+    playerRows: [{ season: '2025', week: '3', season_type: 'REG', player_id: '00-0039924', passing_yards: '300' }],
+    teamRows: [],
+    scoresByGameId: new Map(),
+    crosswalk: new Map([['00-0039924', '4429795']]),
+    preserveKeys: nflverseSync.PBP_ONLY_STAT_KEYS,
+  });
+
+  assert.equal(upserts.length, 1);
+  const stats = JSON.parse(upserts[0][3]);
+  assert.equal(stats.passingYards, 300, 'nflverse’s corrected number wins');
+  assert.deepEqual(stats.passingTDLengths, [42, 7], 'the pbp-only array survived');
+  assert.deepEqual(stats.receivingTDLengths, []);
+});
+
+test('applyNflverseFullWeek preserves nothing by default (backfill behavior)', async (t) => {
+  const upserts = [];
+  let readExisting = false;
+  t.mock.method(pool, 'query', async (sql, params) => {
+    const text = String(sql);
+    if (text.includes('FROM "players" WHERE "external_id"')) {
+      return { rows: [{ id: 42, external_id: '4429795' }] };
+    }
+    if (text.includes(`"position" = 'DEF'`)) return { rows: [] };
+    if (text.includes('FROM "player_stats"')) {
+      readExisting = true;
+      return { rows: [] };
+    }
+    if (text.includes('INTO "player_stats"')) {
+      upserts.push(params);
+      return { rows: [] };
+    }
+    throw new Error(`Unexpected SQL: ${text}`);
+  });
+
+  await nflverseSync.applyNflverseFullWeek({
+    season: 2025,
+    week: 3,
+    playerRows: [{ season: '2025', week: '3', season_type: 'REG', player_id: '00-0039924', passing_yards: '300' }],
+    teamRows: [],
+    scoresByGameId: new Map(),
+    crosswalk: new Map([['00-0039924', '4429795']]),
+  });
+
+  assert.equal(readExisting, false, 'no extra read when nothing needs preserving');
+  assert.equal(JSON.parse(upserts[0][3]).passingTDLengths, undefined);
+});
