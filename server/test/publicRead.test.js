@@ -112,7 +112,7 @@ test('recap serializers expose version metadata and recursively whitelist stored
 
 // ---- getRankings integration (stubbed pool) --------------------------------
 
-test('getRankings ranks by projected points and caps at the limit', async (t) => {
+test('getRankings ranks by season total points and caps at the limit', async (t) => {
   t.mock.method(pool, 'query', async (sql) => {
     const text = String(sql);
     if (text.includes('FROM "player_projections"')) {
@@ -137,8 +137,35 @@ test('getRankings ranks by projected points and caps at the limit', async (t) =>
 
   const { rankings } = await svc.getRankings({ position: 'RB', season: 2026, week: 5, limit: 2 });
   assert.equal(rankings.length, 2);
-  assert.deepEqual(rankings.map((r) => r.playerId), [2, 3]); // 30 then 20
+  assert.deepEqual(rankings.map((r) => r.playerId), [3, 1]); // totals 60 then 50
   assert.deepEqual(rankings.map((r) => r.rank), [1, 2]);
+});
+
+test('getRankings: a hot per-game average never outranks a full-season total', async (t) => {
+  t.mock.method(pool, 'query', async (sql) => {
+    const text = String(sql);
+    if (text.includes('FROM "player_projections"')) {
+      // The two-game wonder holds the highest projection (per-game average)…
+      return { rows: [{ player_id: 2, projected_points: '22.4', source: 'extrapolated' }] };
+    }
+    if (text.includes('FROM "players" "p"')) {
+      // …but a fraction of the season total of the every-week performer, who
+      // has no projection row at all.
+      return { rows: [
+        { id: 1, name: 'Full Season', position: 'WR', nfl_team: 'CIN', photo_url: null, injury_status: null, season_points: '280' },
+        { id: 2, name: 'Two Games', position: 'WR', nfl_team: 'LAC', photo_url: null, injury_status: null, season_points: '34.3' },
+      ] };
+    }
+    if (text.includes('"week" <= $3')) {
+      return { rows: [] };
+    }
+    throw new Error(`Unexpected SQL: ${text}`);
+  });
+
+  const { rankings } = await svc.getRankings({ position: 'WR', season: 2025, week: 18, limit: 10 });
+  assert.deepEqual(rankings.map((r) => r.playerId), [1, 2]);
+  assert.equal(rankings[0].projectedPoints, null); // missing projection stays null, not 0.0
+  assert.equal(rankings[1].projectedPoints, 22.4);
 });
 
 test('getRankings returns empty when there is no stat data', async (t) => {

@@ -119,8 +119,11 @@ function trendFromWeeks(weekRows) {
 }
 
 /**
- * Ranked player rows for the rankings page. Ranks by projected points for the
- * target week (desc), tie-broken by season points, then name. Caps at 100.
+ * Ranked player rows for the rankings page. Ranks by season total points
+ * (desc), tie-broken by projected points, then name. Totals are the ranking
+ * key on purpose: projections here are bare per-game averages with no
+ * minimum-games floor, so a two-game hot streak would outrank a full-season
+ * performer. Caps at 100.
  */
 async function getRankings({ position = 'ALL', season, week, limit = 50 } = {}) {
   const resolvedLimit = Math.min(Math.max(Number(limit) || 50, 1), MAX_RANKINGS_LIMIT);
@@ -168,16 +171,17 @@ async function getRankings({ position = 'ALL', season, week, limit = 50 } = {}) 
     params
   );
 
-  // Rank by projected points, tie-break on season points then name.
+  // Rank by season points, tie-break on projected points then name. A
+  // missing projection stays null (rendered as a dash), never a fake 0.0.
   const ranked = candidatesRes.rows
     .map((row) => ({
       row,
-      projected: projections.has(row.id) ? Number(projections.get(row.id).points) : 0,
+      projected: projections.has(row.id) ? Number(projections.get(row.id).points) : null,
       seasonPoints: Number(row.season_points) || 0,
     }))
     .sort((a, b) =>
-      b.projected - a.projected ||
       b.seasonPoints - a.seasonPoints ||
+      (b.projected ?? 0) - (a.projected ?? 0) ||
       String(a.row.name).localeCompare(String(b.row.name))
     )
     .slice(0, resolvedLimit);
@@ -225,7 +229,7 @@ function serializeRankingRow({ rank, row, projectedPoints, seasonPoints, lastWee
     nflTeam: row.nfl_team,
     photoUrl: row.photo_url,
     injuryStatus: row.injury_status,
-    projectedPoints: round1(projectedPoints),
+    projectedPoints: projectedPoints == null ? null : round1(projectedPoints),
     lastWeekPoints: lastWeekPoints == null ? null : round1(lastWeekPoints),
     seasonPoints: round1(seasonPoints),
     trend,
@@ -353,15 +357,16 @@ async function getPlayerProfile(playerId, { season } = {}) {
   const weeklyCount = Number(weeklyCountRes.rows[0] && weeklyCountRes.rows[0].n) || 0;
   const weeklyLogPartial = weeklyCount < (seasonSummary ? seasonSummary.gamesPlayed : 0);
 
-  // Recent games: last ~6 weekly rows for the target season, opponent via schedule.
+  // Game log: every weekly row for the target season (18 rows at most —
+  // an uncapped fetch is still a tiny payload), opponent via schedule. The
+  // serialized field keeps its historical name `recentGames`.
   const recentRes = await pool.query(
     `SELECT "ps"."season", "ps"."week", "ps"."fantasy_points", "ps"."stats", "ng"."opponent"
      FROM "player_stats" "ps"
      LEFT JOIN "nfl_games" "ng"
        ON "ng"."season" = "ps"."season" AND "ng"."week" = "ps"."week" AND "ng"."nfl_team" = $2
      WHERE "ps"."player_id" = $1 AND "ps"."season" = $3
-     ORDER BY "ps"."season" DESC, "ps"."week" DESC
-     LIMIT 6`,
+     ORDER BY "ps"."season" DESC, "ps"."week" DESC`,
     [id, player.nfl_team, targetSeason]
   );
 

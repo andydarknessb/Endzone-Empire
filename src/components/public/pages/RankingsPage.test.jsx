@@ -85,3 +85,25 @@ test('position selection filters API-shaped mixed rows before tier computation',
     expect.objectContaining({ params: expect.objectContaining({ position: 'WR' }) })
   );
 });
+
+test('searching does not re-tier the surviving rows', async () => {
+  publicApiClient.get.mockResolvedValue({
+    data: {
+      season: 2026,
+      week: 3,
+      rankings: [
+        // WR Alpha anchors Tier 1; WR Bravo sits a full tier below. If tiers
+        // were recomputed on the search-filtered subset, Bravo alone would
+        // anchor his own list and jump to Tier 1.
+        { rank: 1, playerId: 1, name: 'WR Alpha', position: 'WR', nflTeam: 'MIN', projectedPoints: 24.6, seasonPoints: 60, trend: 'up' },
+        { rank: 2, playerId: 2, name: 'WR Bravo', position: 'WR', nflTeam: 'TB', projectedPoints: 21.6, seasonPoints: 45, trend: 'down' },
+      ],
+    },
+  });
+  renderPage();
+
+  await screen.findByText('WR Bravo');
+  fireEvent.change(screen.getByLabelText('Search players or teams'), { target: { value: 'bravo' } });
+  expect(screen.queryByText('WR Alpha')).not.toBeInTheDocument();
+  expect(screen.getByText('WR · Tier 2')).toBeInTheDocument();
+});

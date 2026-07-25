@@ -68,8 +68,24 @@ const renderQuickView = (props = {}) =>
     <PlayerQuickView open onClose={jest.fn()} playerId={7} {...props} />
   );
 
+// Desktop by default so every existing assertion keeps hitting the table branch.
+// Mobile tests flip this before rendering; the mock reads the flag at call time,
+// which is when useMediaQuery runs during render.
+let matchMediaMatches = false;
+
 beforeEach(() => {
   apiClient.get.mockResolvedValue(summaryResponse());
+  matchMediaMatches = false;
+  window.matchMedia = jest.fn().mockImplementation((query) => ({
+    matches: matchMediaMatches,
+    media: query,
+    onchange: null,
+    addListener: jest.fn(),
+    removeListener: jest.fn(),
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
+    dispatchEvent: jest.fn(),
+  }));
 });
 
 test('renders header (name, position) after a successful fetch', async () => {
@@ -367,4 +383,58 @@ test('clicking the X (aria-label Close) calls onClose', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Close' }));
 
   expect(onClose).toHaveBeenCalled();
+});
+
+describe('mobile layout (below the sm breakpoint)', () => {
+  beforeEach(() => {
+    matchMediaMatches = true;
+  });
+
+  test('opens full screen instead of a floating sm dialog', async () => {
+    renderQuickView();
+
+    await screen.findByText('Justin Jefferson');
+    expect(screen.getByRole('dialog')).toHaveClass('MuiDialog-paperFullScreen');
+  });
+
+  test('renders current-season weeks as stacked cards instead of a table', async () => {
+    renderQuickView();
+    await screen.findByText('Justin Jefferson');
+    // lastView is module-level state shared across tests — force the view we assert on.
+    fireEvent.click(screen.getByRole('button', { name: 'Current Season' }));
+
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    const list = screen.getByRole('list', {
+      name: 'Justin Jefferson current-season weekly statistics',
+    });
+    const cards = within(list).getAllByRole('listitem');
+    expect(cards).toHaveLength(2);
+    expect(within(cards[0]).getByText('Week 1')).toBeInTheDocument();
+    expect(within(cards[0]).getByText('8 Rec, 120 Rec Yds, 1 Rec TD')).toBeInTheDocument();
+    // The headline wraps a nested caption span, so no element's text is exactly "20".
+    expect(cards[0]).toHaveTextContent('20 FPTS');
+  });
+
+  test('renders previous seasons as stacked cards with games and per-game splits', async () => {
+    renderQuickView();
+    await screen.findByText('Justin Jefferson');
+    fireEvent.click(screen.getByRole('button', { name: 'Previous Seasons' }));
+
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    const list = screen.getByRole('list', {
+      name: 'Justin Jefferson previous-season statistics',
+    });
+    const [card] = within(list).getAllByRole('listitem');
+    expect(within(card).getByText('2025')).toBeInTheDocument();
+    expect(within(card).getByText('110 Rec, 1500 Rec Yds, 10 Rec TD')).toBeInTheDocument();
+    expect(card).toHaveTextContent('300 FPTS');
+    expect(within(card).getByText('Games')).toBeInTheDocument();
+    expect(within(card).getByText('17')).toBeInTheDocument();
+    expect(within(card).getByText('17.6')).toBeInTheDocument();
+    expect(
+      within(card).getByLabelText('FPTS/G: Fantasy points per game: total fantasy points divided by games played.')
+    ).toBeInTheDocument();
+    // Leave the shared toggle back on Current Season for any later test.
+    fireEvent.click(screen.getByRole('button', { name: 'Current Season' }));
+  });
 });

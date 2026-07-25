@@ -158,6 +158,22 @@ test('GET /players/:id returns a whitelisted profile with per-format points and 
   assertNoLeakyKeys(res.body);
 });
 
+test('GET /players/:id returns the FULL season game log, not a capped recent slice', async (t) => {
+  const fullSeason = Array.from({ length: 18 }, (_, i) => ({
+    season: 2025, week: 18 - i, fantasy_points: '10',
+    stats: { rushingYards: 100 }, opponent: 'DEN',
+  }));
+  installPool(t, profileHandlers({
+    recent: { rows: fullSeason },
+    count: { rows: [{ n: 18 }] },
+  }));
+
+  const res = await request(makeApp()).get('/api/public/players/1');
+  assert.equal(res.status, 200);
+  assert.equal(res.body.recentGames.length, 18); // every week serialized — no LIMIT
+  assert.deepEqual(res.body.recentGames.map((g) => g.week).slice(0, 3), [18, 17, 16]);
+});
+
 test('GET /players/:id?season= renders the pending upcoming season, not an error', async (t) => {
   installPool(t, profileHandlers());
 

@@ -262,8 +262,8 @@ export function ProfileBody({
             <Grid xs={6} md={3}><StatCard label="ADP" value={player.adp} tooltip={STAT_DEFINITIONS.ADP} /></Grid>
           </Grid>
 
-          {/* Recent games */}
-          <Typography variant="h5" component="h2" sx={{ fontWeight: 700, mb: 1.5 }}>Recent games</Typography>
+          {/* Full-season game log (the API's recentGames field is uncapped) */}
+          <Typography variant="h5" component="h2" sx={{ fontWeight: 700, mb: 1.5 }}>Game log</Typography>
           {player.weeklyLogPartial && (
             <Typography variant="body2" sx={{ color: 'text.secondary', mb: 1.5 }}>
               Weekly breakdown is partial — the season total above reflects all {s.gamesPlayed} games.
@@ -273,7 +273,7 @@ export function ProfileBody({
             <>
               <GameLogSparkline games={orderedGames} format={format} />
               <TableContainer sx={{ overflowX: 'auto' }}>
-                <Table size="small" aria-label="Recent games">
+                <Table size="small" aria-label="Game log">
                 <TableHead>
                   <TableRow>
                     <TableCell sx={{ fontWeight: 700 }}>Wk</TableCell>

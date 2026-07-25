@@ -21,7 +21,11 @@ import {
   Tooltip,
   ToggleButtonGroup,
   ToggleButton,
+  Card,
+  Stack,
+  useMediaQuery,
 } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import CloseIcon from '@mui/icons-material/Close';
 import apiClient from '../../api/apiClient';
 import InjuryBadge from '../InjuryBadge/InjuryBadge';
@@ -75,6 +79,60 @@ function ComparisonCard({ summary }) {
 }
 
 /**
+ * Mobile presentation of a stat table: one outlined card per row, so a long
+ * comma-joined stat line gets the full dialog width instead of crushing the
+ * numeric columns to nothing in a 3-5 column table on a 375px screen.
+ *
+ * `label` deliberately reuses the desktop table's aria-label so both layouts
+ * expose the same accessible name; only the role differs. Exactly one of the
+ * two layouts renders at a time, so the name is never duplicated in the tree.
+ */
+function StatCardList({ label, rows }) {
+  return (
+    <Stack spacing={1.5} role="list" aria-label={label}>
+      {rows.map((row) => (
+        <Card key={row.key} variant="outlined" role="listitem" sx={{ p: 1.5 }}>
+          <Stack direction="row" alignItems="baseline" justifyContent="space-between" spacing={1}>
+            {/* component="div" on purpose: subtitle2 renders <h6> by default, and we
+                don't want a heading per week competing with the dialog title. */}
+            <Typography variant="subtitle2" component="div" sx={{ fontWeight: 700 }}>
+              {row.title}
+            </Typography>
+            <Typography variant="stat" sx={{ fontWeight: 800, whiteSpace: 'nowrap' }}>
+              {row.points ?? '—'}{' '}
+              <Typography component="span" variant="caption" sx={{ color: 'text.secondary' }}>
+                FPTS
+              </Typography>
+            </Typography>
+          </Stack>
+          <Typography variant="body2" sx={{ mt: 0.75, color: 'text.secondary' }}>
+            {row.statLine}
+          </Typography>
+          {row.meta && row.meta.length > 0 && (
+            <Stack
+              direction="row"
+              divider={<Box sx={{ borderLeft: '1px solid var(--border-subtle)' }} />}
+              sx={{ mt: 1.25, pt: 1, borderTop: '1px solid var(--border-subtle)' }}
+            >
+              {row.meta.map((item, i) => (
+                <Box key={item.id} sx={{ flex: 1, ...(i > 0 && { pl: 2 }) }}>
+                  <Typography variant="caption" component="div" sx={{ color: 'text.secondary' }}>
+                    {item.label}
+                  </Typography>
+                  <Typography variant="stat" component="div" sx={{ fontWeight: 800 }}>
+                    {item.value ?? '—'}
+                  </Typography>
+                </Box>
+              ))}
+            </Stack>
+          )}
+        </Card>
+      ))}
+    </Stack>
+  );
+}
+
+/**
  * @param playerIds  Optional ordered id list the dialog was opened from; enables
  *                   prev/next arrows + Left/Right arrow-key navigation.
  * @param onNavigate (id) => void — called with the new id on prev/next.
@@ -87,6 +145,8 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
   const [error, setError] = useState(null);
   const [view, setView] = useState(lastView);
   const [pinnedComparison, setPinnedComparison] = useState(null);
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
   const navIds = Array.isArray(playerIds) ? playerIds : null;
   const navIndex = navIds ? navIds.indexOf(playerId) : -1;
@@ -162,6 +222,7 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
       aria-labelledby="player-quickview-title"
       fullWidth
       maxWidth="sm"
+      fullScreen={isMobile}
       transitionDuration={{ appear: 0, enter: 0, exit: 120 }}
       PaperProps={{ sx: { backgroundImage: 'none' } }}
     >
@@ -171,23 +232,35 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
           display: 'flex',
           alignItems: 'flex-start',
           justifyContent: 'space-between',
-          gap: 2,
-          px: 3,
-          py: 2,
+          gap: { xs: 1, sm: 2 },
+          px: { xs: 2, sm: 3 },
+          py: { xs: 1.5, sm: 2 },
           flex: '0 0 auto',
         }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: { xs: 1.5, sm: 2 },
+            flexWrap: 'wrap',
+            minWidth: 0,
+          }}
+        >
           {player && (
             <>
               <PlayerAvatar
                 name={player.name}
                 position={player.position}
                 photoUrl={player.photo_url}
-                size={72}
+                size={isMobile ? 48 : 72}
               />
-              <Box>
-                <Typography id="player-quickview-title" variant="h5" component="h2">
+              <Box sx={{ minWidth: 0 }}>
+                <Typography
+                  id="player-quickview-title"
+                  component="h2"
+                  sx={{ typography: { xs: 'h6', sm: 'h5' } }}
+                >
                   {player.name}
                   {player.jersey_number != null && (
                     <Typography component="span" variant="body1" sx={{ color: 'text.secondary', ml: 1 }}>
@@ -209,7 +282,11 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
             </>
           )}
           {!player && (
-            <Typography id="player-quickview-title" variant="h5" component="h2">
+            <Typography
+              id="player-quickview-title"
+              component="h2"
+              sx={{ typography: { xs: 'h6', sm: 'h5' } }}
+            >
               Player details
             </Typography>
           )}
@@ -329,44 +406,98 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
                       <Chip label={<><AbbreviationTooltip term="FPTS/G" />: {currentSeason.perGame}</>} color="info" />
                     )}
                   </Box>
-                  <TableContainer component={Paper}>
-                    <Table size="small" aria-label={`${player.name} current-season weekly statistics`}>
-                      <TableHead>
-                        <TableRow sx={{ bgcolor: 'primary.main' }}>
-                          <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>Week</TableCell>
-                          <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>
-                            Stat Line
-                          </TableCell>
-                          <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }} align="right">
-                            Fantasy Pts
-                          </TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {currentSeason.weekly.map((row) => (
-                          <TableRow key={row.week}>
-                            <TableCell>{row.week}</TableCell>
-                            <TableCell>{statLine(row.stats)}</TableCell>
-                            <TableCell align="right">{row.fantasy_points}</TableCell>
+                  {isMobile ? (
+                    <StatCardList
+                      label={`${player.name} current-season weekly statistics`}
+                      rows={currentSeason.weekly.map((row) => ({
+                        key: row.week,
+                        title: `Week ${row.week}`,
+                        points: row.fantasy_points,
+                        statLine: statLine(row.stats),
+                      }))}
+                    />
+                  ) : (
+                    <TableContainer component={Paper} sx={{ overflowX: 'auto' }}>
+                      <Table
+                        size="small"
+                        aria-label={`${player.name} current-season weekly statistics`}
+                        sx={{
+                          minWidth: 420,
+                          // Only the stat line wraps; the numeric columns stay on one
+                          // line so they can't be squeezed to a character per row.
+                          '& th, & td': { whiteSpace: 'nowrap' },
+                          '& .stat-line-cell': { whiteSpace: 'normal', minWidth: 180 },
+                        }}
+                      >
+                        <TableHead>
+                          <TableRow sx={{ bgcolor: 'primary.main' }}>
+                            <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>Week</TableCell>
+                            <TableCell
+                              className="stat-line-cell"
+                              sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}
+                            >
+                              Stat Line
+                            </TableCell>
+                            <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }} align="right">
+                              Fantasy Pts
+                            </TableCell>
                           </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
+                        </TableHead>
+                        <TableBody>
+                          {currentSeason.weekly.map((row) => (
+                            <TableRow key={row.week}>
+                              <TableCell>{row.week}</TableCell>
+                              <TableCell className="stat-line-cell">{statLine(row.stats)}</TableCell>
+                              <TableCell align="right">{row.fantasy_points}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  )}
                 </>
               )
             ) : previousSeasons.length === 0 ? (
               <Typography sx={{ color: 'text.secondary' }}>
                 No previous-season data available for this player.
               </Typography>
+            ) : isMobile ? (
+              <StatCardList
+                label={`${player.name} previous-season statistics`}
+                rows={previousSeasons.map((row) => ({
+                  key: row.season,
+                  title: String(row.season),
+                  points: row.points,
+                  statLine: statLine(row.stats),
+                  meta: [
+                    { id: 'games', label: 'Games', value: row.games },
+                    { id: 'perGame', label: <AbbreviationTooltip term="FPTS/G" />, value: row.perGame },
+                  ],
+                }))}
+              />
             ) : (
-              <TableContainer component={Paper}>
-                <Table size="small" aria-label={`${player.name} previous-season statistics`}>
+              <TableContainer component={Paper} sx={{ overflowX: 'auto' }}>
+                <Table
+                  size="small"
+                  aria-label={`${player.name} previous-season statistics`}
+                  sx={{
+                    minWidth: 560,
+                    // Only the stat line wraps; the numeric columns stay on one
+                    // line so they can't be squeezed to a character per row.
+                    '& th, & td': { whiteSpace: 'nowrap' },
+                    '& .stat-line-cell': { whiteSpace: 'normal', minWidth: 180 },
+                  }}
+                >
                   <TableHead>
                     <TableRow sx={{ bgcolor: 'primary.main' }}>
                       <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>Season</TableCell>
                       <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>G</TableCell>
-                      <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>Stat Line</TableCell>
+                      <TableCell
+                        className="stat-line-cell"
+                        sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}
+                      >
+                        Stat Line
+                      </TableCell>
                       <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }} align="right">
                         FPTS
                       </TableCell>
@@ -380,7 +511,7 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
                       <TableRow key={row.season}>
                         <TableCell>{row.season}</TableCell>
                         <TableCell>{row.games}</TableCell>
-                        <TableCell>{statLine(row.stats)}</TableCell>
+                        <TableCell className="stat-line-cell">{statLine(row.stats)}</TableCell>
                         <TableCell align="right">{row.points}</TableCell>
                         <TableCell align="right">{row.perGame}</TableCell>
                       </TableRow>

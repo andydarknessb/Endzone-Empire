@@ -2,13 +2,13 @@ import { selectWaiverCandidates, WAIVER_POSITIONS } from './waiverCandidates';
 
 const EXCLUDED = ['QB', 'K', 'DEF'];
 
-/** Build rows with sequential ids/ranks from [position, projection] pairs. */
+/** Build rows with sequential ids/ranks from [position, season points] pairs. */
 function rowsFrom(pairs) {
-  return pairs.map(([position, projectedPoints], index) => ({
+  return pairs.map(([position, seasonPoints], index) => ({
     playerId: `${position}-${index}`,
     name: `${position} Player ${index}`,
     position,
-    projectedPoints,
+    seasonPoints,
     rank: index + 1,
   }));
 }
@@ -22,7 +22,7 @@ function countByPosition(candidates) {
 
 test('selects a position-balanced RB/WR/TE set beyond each position leading tier', () => {
   const rows = rowsFrom([
-    // Excluded positions have the highest projections — the old bug flooded the
+    // Excluded positions have the highest season points — the old bug flooded the
     // module with these. They must never appear.
     ['QB', 32], ['QB', 30], ['QB', 28],
     ['K', 12], ['DEF', 11],
@@ -54,15 +54,15 @@ test('selects a position-balanced RB/WR/TE set beyond each position leading tier
   expect(result.every((row) => Number.isInteger(row.positionRank))).toBe(true);
 });
 
-test('exposes position rank as the projection order within a position', () => {
+test('exposes position rank as the season-points order within a position', () => {
   const rows = rowsFrom([
     ['WR', 30], ['WR', 28], ['WR', 20], ['WR', 18], ['WR', 16],
     ['RB', 22], ['RB', 21], ['RB', 12],
   ]);
 
   const result = selectWaiverCandidates(rows);
-  const wr20 = result.find((row) => row.position === 'WR' && row.projectedPoints === 20);
-  // Two WRs project higher (30, 28), so the 20-point WR ranks 3rd at his position.
+  const wr20 = result.find((row) => row.position === 'WR' && row.seasonPoints === 20);
+  // Two WRs total higher (30, 28), so the 20-point WR ranks 3rd at his position.
   expect(wr20.positionRank).toBe(3);
 });
 
@@ -97,7 +97,7 @@ test('fills from a single in-scope position without erroring', () => {
   expect(result.every((row) => row.tier > 1)).toBe(true);
 });
 
-test('never surfaces excluded positions even when they dominate projections', () => {
+test('never surfaces excluded positions even when they dominate season points', () => {
   const rows = rowsFrom([
     ['QB', 35], ['QB', 34], ['QB', 33], ['QB', 32], ['QB', 31], ['QB', 30],
     ['K', 14], ['K', 13], ['DEF', 12], ['DEF', 11],

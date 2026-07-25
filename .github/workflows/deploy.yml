@@ -1,8 +1,9 @@
 name: Promote deployment
 
+# Production-only until a staging environment exists. When staging is stood up,
+# reintroduce a `staging` job and gate this one behind `needs: staging`.
+
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
       promote_production:
@@ -19,46 +20,33 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  staging:
+  production:
+    if: inputs.promote_production
     runs-on: ubuntu-latest
-    environment: staging
+    environment: production
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Trigger staging services
+      - name: Trigger production API deploy
         env:
-          RENDER_HOOK: ${{ secrets.RENDER_STAGING_DEPLOY_HOOK }}
-          NETLIFY_HOOK: ${{ secrets.NETLIFY_STAGING_BUILD_HOOK }}
+          RENDER_HOOK: ${{ secrets.RENDER_PRODUCTION_DEPLOY_HOOK }}
         run: |
-          test -n "$RENDER_HOOK" && test -n "$NETLIFY_HOOK"
+          test -n "$RENDER_HOOK"
           curl --fail --silent --show-error --request POST "$RENDER_HOOK"
-          curl --fail --silent --show-error --request POST "$NETLIFY_HOOK"
-      - name: Verify staging readiness
+      - name: Wait for production API readiness
         env:
-          API_URL: ${{ vars.STAGING_API_URL }}
-          WEB_URL: ${{ vars.STAGING_WEB_URL }}
+          API_URL: ${{ vars.PRODUCTION_API_URL }}
         run: |
           for attempt in $(seq 1 30); do
-            if curl --fail --silent "$API_URL/api/health/readyz" >/dev/null &&
-               curl --fail --silent "$WEB_URL/" >/dev/null; then
+            if curl --fail --silent "$API_URL/api/health/readyz" >/dev/null; then
               exit 0
             fi
             sleep 10
           done
           exit 1
-
-  production:
-    if: github.event_name == 'workflow_dispatch' && inputs.promote_production
-    needs: staging
-    runs-on: ubuntu-latest
-    environment: production
-    steps:
-      - name: Trigger production services
+      - name: Trigger production client build
         env:
-          RENDER_HOOK: ${{ secrets.RENDER_PRODUCTION_DEPLOY_HOOK }}
           NETLIFY_HOOK: ${{ secrets.NETLIFY_PRODUCTION_BUILD_HOOK }}
         run: |
-          test -n "$RENDER_HOOK" && test -n "$NETLIFY_HOOK"
-          curl --fail --silent --show-error --request POST "$RENDER_HOOK"
+          test -n "$NETLIFY_HOOK"
           curl --fail --silent --show-error --request POST "$NETLIFY_HOOK"
       - name: Verify production readiness
         env:
