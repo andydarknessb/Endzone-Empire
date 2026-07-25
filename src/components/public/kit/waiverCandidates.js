@@ -1,4 +1,4 @@
-import { deriveProjectionTiers, compareByProjection } from './rankingTiers';
+import { deriveRankingTiers, compareByRankingPoints } from './rankingTiers';
 
 /**
  * Positions where waiver-wire depth actually matters. QB, K, and DEF are
@@ -23,32 +23,32 @@ export const DEFAULT_WAIVER_OPTIONS = {
  * Rules:
  *  - Only in-scope positions (RB/WR/TE by default) are ever eligible.
  *  - "Beyond the leading tiers": a candidate must sit outside its position's top
- *    `leadingTiers` projection tiers (reusing {@link deriveProjectionTiers}), so
+ *    `leadingTiers` ranking tiers (reusing {@link deriveRankingTiers}), so
  *    a lower-tier player is preferred over a top-tier stud.
  *  - Balance: at most `perPositionCap` per position on the first pass.
  *  - Backfill: if positions come up short, remaining slots are filled from the
- *    other in-scope positions by projection — never from excluded positions.
+ *    other in-scope positions by season points — never from excluded positions.
  *
  * Each returned row is a shallow copy of the original plus `positionRank`
- * (1-indexed rank within its position by projection) and `tier`.
+ * (1-indexed rank within its position by season points) and `tier`.
  */
 export function selectWaiverCandidates(rows = [], options = {}) {
   const { positions, leadingTiers, perPositionCap, limit } = { ...DEFAULT_WAIVER_OPTIONS, ...options };
-  const tiers = deriveProjectionTiers(rows);
+  const tiers = deriveRankingTiers(rows);
 
-  // Per-position, projection-sorted groups so position rank reflects the true
+  // Per-position, points-sorted groups so position rank reflects the true
   // depth of the fetched pool (e.g. "WR · Rank 24"), then keep only the players
   // beyond each position's leading tier(s).
   const candidatesByPosition = new Map();
   for (const position of positions) {
     const ranked = rows
       .filter((row) => row.position === position)
-      .sort(compareByProjection)
+      .sort(compareByRankingPoints)
       .map((row, index) => ({ ...row, positionRank: index + 1, tier: tiers.get(row.playerId) || 1 }));
     candidatesByPosition.set(position, ranked.filter((row) => row.tier > leadingTiers));
   }
 
-  // First pass: up to perPositionCap per position, best projection first.
+  // First pass: up to perPositionCap per position, best season points first.
   const selected = [];
   const selectedIds = new Set();
   for (const position of positions) {
@@ -64,7 +64,7 @@ export function selectWaiverCandidates(rows = [], options = {}) {
     const leftovers = positions
       .flatMap((position) => candidatesByPosition.get(position) || [])
       .filter((row) => !selectedIds.has(row.playerId))
-      .sort(compareByProjection);
+      .sort(compareByRankingPoints);
     for (const row of leftovers) {
       if (selected.length >= limit) break;
       selected.push(row);
@@ -72,7 +72,7 @@ export function selectWaiverCandidates(rows = [], options = {}) {
     }
   }
 
-  return selected.sort(compareByProjection).slice(0, limit);
+  return selected.sort(compareByRankingPoints).slice(0, limit);
 }
 
 export default selectWaiverCandidates;

@@ -13,7 +13,7 @@ import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import SwapVertIcon from '@mui/icons-material/SwapVert';
 import { positionColorVar } from './positionColor';
 import { LoadingRows, EmptyState, ErrorState } from './DataState';
-import { deriveProjectionTiers, orderRowsByPosition } from './rankingTiers';
+import { deriveRankingTiers, orderRowsByPosition } from './rankingTiers';
 import AbbreviationTooltip from '../../common/AbbreviationTooltip';
 
 const TREND_VALUES = { down: -1, flat: 0, up: 1 };
@@ -128,15 +128,18 @@ function MobileRankings({ rows, tiers, showTierBands, orderBy, order, sortHandle
   );
 }
 
-function RankingTable({ rows = [], loading = false, error = false, onRetry, emptyMessage }) {
+function RankingTable({ rows = [], tierRows, loading = false, error = false, onRetry, emptyMessage }) {
   const theme = useTheme();
   const mobile = useMediaQuery(theme.breakpoints.down('md'));
   const [orderBy, setOrderBy] = useState('rank');
   const [order, setOrder] = useState('asc');
   const hasLastWeekData = rows.some((row) => row.lastWeekPoints != null);
-  const tiers = useMemo(() => deriveProjectionTiers(rows), [rows]);
+  // Tiers derive from tierRows (the unfiltered list) when provided, so a
+  // caller's search filter narrows the rows without re-tiering the survivors.
+  const tierSource = tierRows || rows;
+  const tiers = useMemo(() => deriveRankingTiers(tierSource), [tierSource]);
 
-  // Projection tiers are meaningful only in the default contiguous position layout.
+  // Ranking tiers are meaningful only in the default contiguous position layout.
   // Custom metric sorts intentionally hide them instead of fragmenting stale bands.
   const showTierBands = orderBy === 'rank';
   const sorted = useMemo(() => {

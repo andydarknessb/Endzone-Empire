@@ -119,6 +119,7 @@ function RankingsPage() {
       )}
       <RankingTable
         rows={filteredRankings}
+        tierRows={positionRankings}
         loading={loading}
         error={error}
         onRetry={retry}
