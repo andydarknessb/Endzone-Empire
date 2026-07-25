@@ -34,7 +34,66 @@ export const LEGS_B = [
   '...BBB....BBB...',
 ];
 
-export const FIXED = { S: '#e8b58b', F: '#c8ccd0', B: '#1b1d22', '.': null };
+export const FIXED = {
+  S: '#e8b58b', // skin
+  F: '#c8ccd0', // facemask
+  B: '#1b1d22', // boot black (also referee cap/stripes/socks)
+  W: '#f2f4f8', // referee white (stripes, knickers)
+  Y: '#ffd23f', // goal-post yellow (matches the cutscene title yellow)
+  '.': null,
+};
+
+// 16x16 referee signaling touchdown — striped shirt, white knickers, both arms
+// up. Two full frames (the arms are what animate, so no body/legs split): B is
+// arms fully extended and A drops them 1px lower/wider for a bounce cycle.
+export const REF_UP_A = [
+  '...S........S...',
+  '...W........W...',
+  '...W..BBBB..W...',
+  '...B.BBBBBB.B...',
+  '...W..SSSS..W...',
+  '...W..SSSS..W...',
+  '....WW.SS.WW....',
+  '....WBWBWBWB....',
+  '....WBWBWBWB....',
+  '....WBWBWBWB....',
+  '.....BBBBBB.....',
+  '.....WWWWWW.....',
+  '....WWW..WWW....',
+  '....BB....BB....',
+  '....BB....BB....',
+  '...BBB....BBB...',
+];
+export const REF_UP_B = [
+  '................',
+  '..S..........S..',
+  '..W...BBBB...W..',
+  '..B..BBBBBB..B..',
+  '..W...SSSS...W..',
+  '...W..SSSS..W...',
+  '....WW.SS.WW....',
+  ...REF_UP_A.slice(7),
+];
+
+// 16x16 chunky goal post — uprights, crossbar, center pole, base.
+export const GOAL_POST = [
+  'YY............YY',
+  'YY............YY',
+  'YY............YY',
+  'YY............YY',
+  'YY............YY',
+  'YYYYYYYYYYYYYYYY',
+  '.......YY.......',
+  '.......YY.......',
+  '.......YY.......',
+  '.......YY.......',
+  '.......YY.......',
+  '.......YY.......',
+  '.......YY.......',
+  '.......YY.......',
+  '......YYYY......',
+  '.....YYYYYY.....',
+];
 
 export function rowsToRects(rows, kit) {
   const color = (ch) => {
@@ -73,5 +132,48 @@ export function Sprite({ kit, frame, className }) {
 Sprite.propTypes = {
   kit: PropTypes.object.isRequired,
   frame: PropTypes.number.isRequired,
+  className: PropTypes.string,
+};
+
+// The referee and goal post use only FIXED colors — no team kit letters — so
+// rowsToRects gets an empty kit and the H/J/P/A branches never match.
+const EMPTY_KIT = {};
+
+/** Touchdown referee, arms up; `frame` (0|1) picks the bounce pose. */
+export function RefereeSprite({ frame, className }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 16 16"
+      shapeRendering="crispEdges"
+      aria-hidden="true"
+      focusable="false"
+    >
+      {rowsToRects(frame === 0 ? REF_UP_A : REF_UP_B, EMPTY_KIT)}
+    </svg>
+  );
+}
+
+RefereeSprite.propTypes = {
+  frame: PropTypes.number.isRequired,
+  className: PropTypes.string,
+};
+
+/** Static pixel goal post. */
+export function GoalPostSprite({ className }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 16 16"
+      shapeRendering="crispEdges"
+      aria-hidden="true"
+      focusable="false"
+    >
+      {rowsToRects(GOAL_POST, EMPTY_KIT)}
+    </svg>
+  );
+}
+
+GoalPostSprite.propTypes = {
   className: PropTypes.string,
 };

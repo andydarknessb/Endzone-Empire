@@ -11,6 +11,16 @@
   color-scheme: light dark;
 }
 
+/* Pixel font for the Tecmo cutscene (self-hosted latin subset, SIL OFL —
+   license alongside the file). swap keeps the Courier New fallback graceful. */
+@font-face {
+  font-family: 'Press Start 2P';
+  src: url('../assets/fonts/PressStart2P-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 html,
 body,
 #react-root {
