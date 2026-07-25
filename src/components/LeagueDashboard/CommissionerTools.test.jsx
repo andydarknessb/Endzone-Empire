@@ -298,7 +298,7 @@ test('Reset Scoring Settings requires a confirming second click before reverting
   expect(touchdownField).toHaveValue(4);
 });
 
-test('+ IDP Flex Slot appends a DL/LB/DB slot and enables DP', async () => {
+test('+ IDP Flex Slot appends a DL/LB/DB slot and enables DP; a second click raises its count', async () => {
   apiClient.put.mockResolvedValue({});
   renderTools();
   await userEvent.click(screen.getByRole('tab', { name: 'Roster Settings' }));
@@ -308,10 +308,15 @@ test('+ IDP Flex Slot appends a DL/LB/DB slot and enables DP', async () => {
   expect(slotNames).toContain('IDP FLEX');
   expect(screen.getByLabelText('Enable Defensive Players (IDP)')).toBeChecked();
 
+  // Second click must NOT duplicate the row (names are unique identifiers) —
+  // it bumps the existing slot's count, the model for two identical spots.
+  await userEvent.click(screen.getByRole('button', { name: '+ IDP Flex Slot (DL/LB/DB)' }));
+  expect(screen.getAllByLabelText('Slot Name').map((el) => el.value).filter((v) => v === 'IDP FLEX')).toHaveLength(1);
+
   await userEvent.click(screen.getByRole('button', { name: 'Save Roster Settings' }));
   await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
   const payload = apiClient.put.mock.calls[0][1];
-  expect(payload.rosterSlots).toContainEqual({ key: 'IDP FLEX', count: 1, eligiblePositions: ['DL', 'LB', 'DB'] });
+  expect(payload.rosterSlots).toContainEqual({ key: 'IDP FLEX', count: 2, eligiblePositions: ['DL', 'LB', 'DB'] });
   expect(payload.dpEnabled).toBe(true);
 });
 

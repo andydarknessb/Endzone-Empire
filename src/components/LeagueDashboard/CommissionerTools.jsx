@@ -364,7 +364,16 @@ function RosterSettingsPanel({ leagueId, league, onRefresh, notify }) {
     setNextId((n) => n + 1);
   };
   const addIdpFlexSlot = () => {
-    setSlots((prev) => [...prev, { _id: nextId, key: 'IDP FLEX', count: 1, eligiblePositions: [...DP_GROUP_KEYS] }]);
+    setSlots((prev) => {
+      // A second identical flex spot is the same slot with a higher count —
+      // slot names are identifiers and must stay unique, so clicking again
+      // bumps the existing row instead of duplicating it.
+      const existing = prev.find((s) => String(s.key).trim().toUpperCase() === 'IDP FLEX');
+      if (existing) {
+        return prev.map((s) => (s === existing ? { ...s, count: (Number(s.count) || 0) + 1 } : s));
+      }
+      return [...prev, { _id: nextId, key: 'IDP FLEX', count: 1, eligiblePositions: [...DP_GROUP_KEYS] }];
+    });
     setNextId((n) => n + 1);
     setDpEnabled(true);
   };
@@ -380,7 +389,9 @@ function RosterSettingsPanel({ leagueId, league, onRefresh, notify }) {
       if (['BENCH', 'IR'].includes(s.key.toUpperCase())) return `${label} is reserved for the bench/IR system`;
       if (!s.eligiblePositions.length) return `${label}: pick at least one eligible position`;
     }
-    if (new Set(payload.map((s) => s.key)).size !== payload.length) return 'Slot names must be unique';
+    if (new Set(payload.map((s) => s.key)).size !== payload.length) {
+      return 'Slot names must be unique — for two of the same slot, raise that slot\'s Count instead';
+    }
     return null;
   };
 
