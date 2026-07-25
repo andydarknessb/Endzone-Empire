@@ -624,7 +624,7 @@ function detectScoringEvents(prevStats, newStats) {
  * team-accurate cutscene. Only genuine TD-stat increments produce a play, so a
  * re-sync or a stat correction never fabricates one.
  */
-async function syncWeekStats({ season, week }) {
+async function syncWeekStats({ season, week, pauseMs = 0 }) {
   const api = rapidApiClient();
   const gamesResponse = await api.get('/getNFLGamesForWeek', {
     params: { week, seasonType: 'reg', season },
@@ -678,6 +678,11 @@ async function syncWeekStats({ season, week }) {
   for (const game of games) {
     if (!game || !game.gameID) continue;
     try {
+      // Backfill callers pace the ~16 box-score calls to stay under the
+      // provider's per-second rate limit; live callers leave this at 0.
+      if (pauseMs > 0 && gamesProcessed > 0) {
+        await new Promise((resolve) => setTimeout(resolve, pauseMs));
+      }
       const boxResponse = await api.get('/getNFLBoxScore', {
         params: { gameID: game.gameID, playByPlay: 'true', fantasyPoints: 'false' },
       });

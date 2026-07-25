@@ -2,8 +2,13 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   parseCsv,
-  filterDefRowsForWeek,
+  filterRowsForWeek,
   buildStatUpdates,
+  parseFgMadeList,
+  nflverseTeamToOurAbbr,
+  normalizeNflversePlayerStats,
+  buildFullStatUpdates,
+  buildDstStatUpdates,
   isNflverseFinalizationDay,
 } = require('../services/nflverseSync.service');
 
@@ -38,7 +43,7 @@ test('parseCsv on empty text is an empty array', () => {
   assert.deepEqual(parseCsv(null), []);
 });
 
-// --- filterDefRowsForWeek --------------------------------------------------
+// --- filterRowsForWeek -------------------------------------------------------
 
 const DEF_ROWS = [
   { season: '2025', week: '3', season_type: 'REG', player_id: '00-0039924' },
@@ -47,14 +52,14 @@ const DEF_ROWS = [
   { season: '2024', week: '3', season_type: 'REG', player_id: '00-0022222' },
 ];
 
-test('filterDefRowsForWeek keeps only the matching season/week/REG rows', () => {
-  const result = filterDefRowsForWeek(DEF_ROWS, { season: 2025, week: 3 });
+test('filterRowsForWeek keeps only the matching season/week/REG rows', () => {
+  const result = filterRowsForWeek(DEF_ROWS, { season: 2025, week: 3 });
   assert.deepEqual(result.map((r) => r.player_id), ['00-0039924']);
 });
 
-test('filterDefRowsForWeek on missing/empty input is empty', () => {
-  assert.deepEqual(filterDefRowsForWeek(null, { season: 2025, week: 3 }), []);
-  assert.deepEqual(filterDefRowsForWeek([], { season: 2025, week: 3 }), []);
+test('filterRowsForWeek on missing/empty input is empty', () => {
+  assert.deepEqual(filterRowsForWeek(null, { season: 2025, week: 3 }), []);
+  assert.deepEqual(filterRowsForWeek([], { season: 2025, week: 3 }), []);
 });
 
 // --- buildStatUpdates -------------------------------------------------------
@@ -63,8 +68,8 @@ test('buildStatUpdates joins gsis_id -> espn_id -> our player id and extracts th
   const defRows = [{
     player_id: '00-0039924',
     def_sack_yards: '9', def_tackles_for_loss_yards: '2',
-    def_fumble_recovery_yards_opp: '15', def_fumble_recovery_yards_own: '99',
-    def_safety: '1',
+    fumble_recovery_yards_opp: '15', fumble_recovery_yards_own: '99',
+    def_safeties: '1',
   }];
   const crosswalk = new Map([['00-0039924', '4429795']]);
   const knownPlayersByExternalId = new Map([['4429795', 42]]);
@@ -79,6 +84,33 @@ test('buildStatUpdates joins gsis_id -> espn_id -> our player id and extracts th
       idpSafety: 1,
     },
   }]);
+});
+
+test('buildStatUpdates still reads the pre-2025 column names (def_ prefix, singular safety)', () => {
+  const defRows = [{
+    player_id: '00-0039924',
+    def_sack_yards: '9', def_tackles_for_loss_yards: '2',
+    def_fumble_recovery_yards_opp: '15', def_fumble_recovery_yards_own: '99',
+    def_safety: '1',
+  }];
+  const updates = buildStatUpdates({
+    defRows,
+    crosswalk: new Map([['00-0039924', '4429795']]),
+    knownPlayersByExternalId: new Map([['4429795', 42]]),
+  });
+  assert.deepEqual(updates[0].patch, {
+    idpSackYards: 9, idpTacklesForLossYards: 2, idpFumbleReturnYards: 15, idpSafety: 1,
+  });
+});
+
+test('buildStatUpdates skips all-zero patches — the combined file lists every offensive player too', () => {
+  const defRows = [{ player_id: '00-0011111', def_sack_yards: '0', def_safeties: '0' }];
+  const updates = buildStatUpdates({
+    defRows,
+    crosswalk: new Map([['00-0011111', '5555']]),
+    knownPlayersByExternalId: new Map([['5555', 7]]),
+  });
+  assert.deepEqual(updates, []);
 });
 
 test('buildStatUpdates skips nflverse\'s placeholder rows (player_id "0" / blank)', () => {
@@ -109,16 +141,149 @@ test('buildStatUpdates skips a row whose crosswalked espn_id isn\'t one of our r
   assert.deepEqual(updates, []);
 });
 
-test('buildStatUpdates defaults missing/non-numeric yardage fields to 0', () => {
-  const defRows = [{ player_id: '00-0039924' }]; // no def_* fields at all
+test('buildStatUpdates treats missing/non-numeric yardage fields as 0 (and so skips the row)', () => {
+  const defRows = [{ player_id: '00-0039924', def_sack_yards: 'not-a-number' }];
   const updates = buildStatUpdates({
     defRows,
     crosswalk: new Map([['00-0039924', '4429795']]),
     knownPlayersByExternalId: new Map([['4429795', 42]]),
   });
-  assert.deepEqual(updates[0].patch, {
-    idpSackYards: 0, idpTacklesForLossYards: 0, idpFumbleReturnYards: 0, idpSafety: 0,
+  assert.deepEqual(updates, []); // all four coerced to 0 -> no-op patch, skipped
+});
+
+// --- full-week backfill helpers ----------------------------------------------
+
+test('parseFgMadeList splits fg_made_list into numeric distances', () => {
+  assert.deepEqual(parseFgMadeList('25;43;32'), [25, 43, 32]);
+  assert.deepEqual(parseFgMadeList('52'), [52]);
+  assert.deepEqual(parseFgMadeList(''), []);
+  assert.deepEqual(parseFgMadeList(undefined), []);
+  assert.deepEqual(parseFgMadeList('25;;x'), [25]);
+});
+
+test('nflverseTeamToOurAbbr maps only the Rams', () => {
+  assert.equal(nflverseTeamToOurAbbr('LA'), 'LAR');
+  assert.equal(nflverseTeamToOurAbbr('LAC'), 'LAC');
+  assert.equal(nflverseTeamToOurAbbr('KC'), 'KC');
+});
+
+test('normalizeNflversePlayerStats maps a kicker row with exact FG distances', () => {
+  const stats = normalizeNflversePlayerStats({
+    fg_made: '3', fg_made_list: '25;43;32', pat_made: '2',
   });
+  assert.equal(stats.fieldGoal, 3);
+  assert.deepEqual(stats.fieldGoalDistances, [25, 43, 32]);
+  assert.equal(stats.extraPoint, 2);
+  assert.equal(stats.passingYards, 0);
+});
+
+test('normalizeNflversePlayerStats maps offense including per-category two-point conversions', () => {
+  const stats = normalizeNflversePlayerStats({
+    passing_yards: '244', passing_tds: '4', passing_interceptions: '1',
+    passing_2pt_conversions: '1', rushing_yards: '12', rushing_tds: '1',
+    rushing_2pt_conversions: '0', receptions: '5', receiving_yards: '61',
+    receiving_tds: '0', receiving_2pt_conversions: '1',
+    fumbles_lost_total: '1', special_teams_tds: '1',
+    punt_returns: '2', punt_return_yards: '31',
+  });
+  assert.equal(stats.passingYards, 244);
+  assert.equal(stats.passingTDs, 4);
+  assert.equal(stats.interceptions, 1);
+  assert.equal(stats.passingTwoPt, 1);
+  assert.equal(stats.receivingTwoPt, 1);
+  assert.equal(stats.fumbles, 1);
+  assert.equal(stats.returnTDs, 1);
+  assert.equal(stats.puntReturnYards, 31);
+});
+
+test('normalizeNflversePlayerStats maps IDP including the finalization-only yardage keys', () => {
+  const stats = normalizeNflversePlayerStats({
+    def_tackles_solo: '6', def_tackle_assists: '3', def_sacks: '1.5',
+    def_sack_yards: '11', def_interceptions: '1', def_fumbles_forced: '1',
+    fumble_recovery_opp: '1', fumble_recovery_yards_opp: '15',
+    fumble_recovery_tds: '1', def_pass_defended: '2', def_qb_hits: '3',
+    def_tackles_for_loss: '2', def_tackles_for_loss_yards: '5', def_safeties: '1',
+  });
+  assert.equal(stats.soloTackle, 6);
+  assert.equal(stats.assistedTackle, 3);
+  assert.equal(stats.idpSack, 1.5);
+  assert.equal(stats.idpSackYards, 11);
+  assert.equal(stats.idpFumbleRecovery, 1);
+  assert.equal(stats.idpFumbleReturnYards, 15);
+  assert.equal(stats.idpDefensiveTD, 1);
+  assert.equal(stats.idpSafety, 1);
+  assert.equal(stats.twoPointReturn, 0); // no nflverse weekly column
+});
+
+test('buildFullStatUpdates joins via the crosswalk and skips unknown players', () => {
+  const rows = [
+    { player_id: '00-0039924', passing_yards: '300' },
+    { player_id: '00-0000001', passing_yards: '250' }, // no crosswalk entry
+    { player_id: '0', passing_yards: '99' },           // placeholder row
+  ];
+  const updates = buildFullStatUpdates({
+    rows,
+    crosswalk: new Map([['00-0039924', '4429795']]),
+    knownPlayersByExternalId: new Map([['4429795', 42]]),
+  });
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].playerId, 42);
+  assert.equal(updates[0].stats.passingYards, 300);
+});
+
+test('buildDstStatUpdates builds one DST line per team from its own defense + opponent allowances', () => {
+  const teamRows = [
+    {
+      game_id: '2025_01_BAL_BUF', team: 'BUF', opponent_team: 'BAL',
+      def_sacks: '2', def_interceptions: '1', fumble_recovery_opp: '1',
+      def_tds: '1', def_safeties: '0',
+      passing_yards: '394', sack_yards_lost: '-5', rushing_yards: '108',
+      fg_blocked: '0', pat_blocked: '0', pt_blocked: '0',
+    },
+    {
+      game_id: '2025_01_BAL_BUF', team: 'BAL', opponent_team: 'BUF',
+      def_sacks: '1', def_interceptions: '0', fumble_recovery_opp: '0',
+      def_tds: '0', def_safeties: '0',
+      passing_yards: '209', sack_yards_lost: '-15', rushing_yards: '238',
+      fg_blocked: '1', pat_blocked: '1', pt_blocked: '0',
+    },
+  ];
+  const scoresByGameId = new Map([
+    ['2025_01_BAL_BUF', { homeTeam: 'BUF', awayTeam: 'BAL', homeScore: 41, awayScore: 40 }],
+  ]);
+
+  const updates = buildDstStatUpdates({ teamRows, scoresByGameId });
+  const buf = updates.find((u) => u.teamAbbr === 'BUF');
+  const bal = updates.find((u) => u.teamAbbr === 'BAL');
+
+  // BUF's defense: its own def_* columns; what it allowed comes from BAL's row.
+  assert.deepEqual(buf.stats, {
+    sack: 2, interceptionReturn: 1, fumbleRecovery: 1, defensiveTD: 1, safety: 0,
+    blockedKick: 2,          // BAL's own fg_blocked + pat_blocked + pt_blocked
+    pointsAllowed: 40,       // away score — BUF is home
+    yardsAllowed: 432,       // BAL net: 209 + (-15) + 238
+  });
+  assert.equal(bal.stats.pointsAllowed, 41);
+  assert.equal(bal.stats.yardsAllowed, 394 - 5 + 108);
+  assert.equal(bal.stats.blockedKick, 0);
+});
+
+test('buildDstStatUpdates maps the Rams to LAR and drops games with no score row', () => {
+  const teamRows = [
+    { game_id: '2025_02_LA_SF', team: 'LA', opponent_team: 'SF', def_sacks: '3', passing_yards: '0', sack_yards_lost: '0', rushing_yards: '0' },
+    { game_id: '2025_02_LA_SF', team: 'SF', opponent_team: 'LA', def_sacks: '1', passing_yards: '0', sack_yards_lost: '0', rushing_yards: '0' },
+    { game_id: '2025_02_KC_NE', team: 'KC', opponent_team: 'NE', def_sacks: '4', passing_yards: '0', sack_yards_lost: '0', rushing_yards: '0' },
+    // NE row missing -> KC has no opponent row either way
+  ];
+  const scoresByGameId = new Map([
+    ['2025_02_LA_SF', { homeTeam: 'SF', awayTeam: 'LA', homeScore: 20, awayScore: 17 }],
+    // 2025_02_KC_NE deliberately absent
+  ]);
+
+  const updates = buildDstStatUpdates({ teamRows, scoresByGameId });
+  assert.deepEqual(updates.map((u) => u.teamAbbr).sort(), ['LAR', 'SF']);
+  const lar = updates.find((u) => u.teamAbbr === 'LAR');
+  assert.equal(lar.stats.pointsAllowed, 20); // LA is away, allows the home score
 });
 
 // --- isNflverseFinalizationDay ---------------------------------------------
