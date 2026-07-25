@@ -19,7 +19,7 @@ export const LEAF_LABELS = {
   fieldGoalMissed: 'Field Goal Missed', sack: 'Sack', interception: 'Interception',
   fumbleRecovery: 'Fumble Recovery', defensiveTD: 'Defensive TD', safety: 'Safety',
   blockedKick: 'Blocked Kick', soloTackle: 'Solo Tackle', assistedTackle: 'Assisted Tackle',
-  forcedFumble: 'Forced Fumble', passDeflection: 'Pass Deflection', qbHit: 'QB Hit',
+  forcedFumble: 'Forced Fumble', passDeflection: 'Pass Defended', qbHit: 'QB Hit',
   tacklesForLoss: 'Tackle For Loss', twoPointReturn: '2-Pt Return',
   sackYards: 'Per Sack Yard', tacklesForLossYards: 'Per TFL Yard',
   fumbleReturnYards: 'Per Fumble Return Yard',
