@@ -35,6 +35,7 @@ import LocalFireDepartmentIcon from '@mui/icons-material/LocalFireDepartment';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
 import CloseIcon from '@mui/icons-material/Close';
 import SettingsIcon from '@mui/icons-material/Settings';
+import MenuBookIcon from '@mui/icons-material/MenuBook';
 import apiClient from '../../api/apiClient';
 import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../lib/teamProfileEvents';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
@@ -80,7 +81,8 @@ const NAV_GROUPS = [
       { label: 'Activity', slug: 'activity', icon: TimelineIcon },
       { label: 'Power Rankings', slug: 'power-rankings', icon: TrendingUpIcon },
       { label: 'History', slug: 'history', icon: EmojiEventsIcon },
-      { label: 'Draft Settings', slug: 'draft-settings', icon: SettingsIcon, ownerOnly: true },
+      { label: 'League Rules', slug: 'rules', icon: MenuBookIcon },
+      { label: 'Draft Settings', slug: 'draft-settings', icon: SettingsIcon, commissionerOnly: true },
     ],
   },
 ];
@@ -88,7 +90,7 @@ const NAV_GROUPS = [
 // Streak chip styling: green for a win streak, red for a loss streak, and a
 // flame once a win streak reaches 3+ games.
 function streakChipProps(streak) {
-  if (!streak || streak === '—') return { color: 'default', icon: undefined };
+  if (!streak || streak === 'â€”') return { color: 'default', icon: undefined };
   const result = streak[0];
   const length = Number(streak.slice(1)) || 0;
   if (result === 'W') {
@@ -126,7 +128,7 @@ function LeagueDashboard() {
 
   const fetchLeagueAndUser = async () => {
     try {
-      // Only show the full-page spinner on the first load — a background
+      // Only show the full-page spinner on the first load â€” a background
       // refresh (e.g. after a Commissioner Tools action) shouldn't unmount
       // the dashboard and lose the selected tab / in-progress form state.
       if (!league) setLoading(true);
@@ -228,9 +230,12 @@ function LeagueDashboard() {
     );
   }
 
+  // isOwner gates the two powers the owner can't delegate (deleting the league,
+  // managing co-commissioners); isCommissioner gates everything else.
   const isOwner = user.id === league.owner_id;
+  const isCommissioner = !!league.is_commissioner || isOwner;
   // Below the configured minimum, the draft can't start yet (min_teams may be
-  // absent in older data — treat that as no gate).
+  // absent in older data â€” treat that as no gate).
   const belowMin = league.min_teams != null && teams.length < league.min_teams;
   const auctionUnsupported = league.draft_type === 'auction';
   const leaguePhase = deriveLeaguePhase({
@@ -361,7 +366,7 @@ function LeagueDashboard() {
                   <TableCell align="right">{team.pf}</TableCell>
                   <TableCell align="right">{team.pa}</TableCell>
                   <TableCell align="right">
-                    {team.streak && team.streak !== '—' ? (
+                    {team.streak && team.streak !== 'â€”' ? (
                       <Chip label={team.streak} size="small" color={streakColor} icon={streakIcon} />
                     ) : (
                       team.streak
@@ -384,13 +389,13 @@ function LeagueDashboard() {
       </Box>
 
       {/* Contextual actions: only shown when they apply */}
-      {((isOwner && league.draft_status === 'pending') ||
-        (isOwner &&
+      {((isCommissioner && league.draft_status === 'pending') ||
+        (isCommissioner &&
           league.draft_status === 'complete' &&
           standingsLeague &&
           standingsLeague.season_status !== 'complete')) && (
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 3 }}>
-          {isOwner && league.draft_status === 'pending' && (
+          {isCommissioner && league.draft_status === 'pending' && (
             <Box>
               <Tooltip
                 title={
@@ -424,7 +429,7 @@ function LeagueDashboard() {
               )}
             </Box>
           )}
-          {isOwner &&
+          {isCommissioner &&
             league.draft_status === 'complete' &&
             standingsLeague &&
             standingsLeague.season_status !== 'complete' && (
@@ -447,7 +452,7 @@ function LeagueDashboard() {
               {group.label}
             </Typography>
             <Grid container spacing={1.5}>
-              {group.links.filter((l) => !l.ownerOnly || isOwner).map((l) => {
+              {group.links.filter((l) => !l.commissionerOnly || isCommissioner).map((l) => {
                 const Icon = l.icon;
                 const primary = primarySlugs.has(l.slug);
                 return (
@@ -489,12 +494,13 @@ function LeagueDashboard() {
         ))}
       </Box>
 
-      {isOwner && (
+      {isCommissioner && (
         <CommissionerTools
           leagueId={leagueId}
           league={league}
           teams={teams}
           user={user}
+          isOwner={isOwner}
           standingsLeague={standingsLeague}
           onRefresh={fetchLeagueAndUser}
         />

@@ -42,6 +42,7 @@ const MatchupDetail = lazy(() => import('../MatchupDetail/MatchupDetail'));
 const GameCenter = lazy(() => import('../GameCenter/GameCenter'));
 const DraftBoard = lazy(() => import('../DraftBoard/DraftBoard'));
 const DraftSettings = lazy(() => import('../DraftSettings/DraftSettings'));
+const LeagueRules = lazy(() => import('../LeagueRules/LeagueRules'));
 const DraftPresenter = lazy(() => import('../DraftPresenter/DraftPresenter'));
 const LineupScreen = lazy(() => import('../LineupScreen/LineupScreen'));
 const WaiverWire = lazy(() => import('../WaiverWire/WaiverWire'));
@@ -103,6 +104,7 @@ function App() {
           <Route path="/league/:leagueId/game-center" element={<ProtectedRoute><GameCenter /></ProtectedRoute>} />
           <Route path="/league/:leagueId/draft" element={<ProtectedRoute><DraftBoard /></ProtectedRoute>} />
           <Route path="/league/:leagueId/draft-settings" element={<ProtectedRoute><DraftSettings /></ProtectedRoute>} />
+          <Route path="/league/:leagueId/rules" element={<ProtectedRoute><LeagueRules /></ProtectedRoute>} />
           <Route path="/league/:leagueId/lineup" element={<ProtectedRoute><LineupScreen /></ProtectedRoute>} />
           <Route path="/league/:leagueId/waivers" element={<ProtectedRoute><WaiverWire /></ProtectedRoute>} />
           <Route path="/league/:leagueId/trades" element={<ProtectedRoute><TradeCenter /></ProtectedRoute>} />

@@ -6,6 +6,7 @@
 const pool = require('../modules/pool');
 const { notify } = require('./activity.service');
 const { SCORING_PRESETS } = require('./scoring.service');
+const { commissionerPredicate } = require('./leagueRole.service');
 
 class DiscoveryError extends Error {
   constructor(statusCode, message) {
@@ -206,8 +207,11 @@ async function joinPublicLeague({ leagueId, userId, username, teamName }) {
 
 /** Commissioner queue: pending join requests for a league the caller owns. */
 async function listJoinRequests({ leagueId, ownerId }) {
-  const owner = await pool.query(`SELECT 1 FROM "leagues" WHERE "id" = $1 AND "owner_id" = $2`, [leagueId, ownerId]);
-  if (!owner.rows[0]) throw new DiscoveryError(403, 'league not found or you are not the owner');
+  const commish = await pool.query(
+    `SELECT 1 FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)}`,
+    [leagueId, ownerId]
+  );
+  if (!commish.rows[0]) throw new DiscoveryError(403, 'league not found or you are not the commissioner');
 
   const result = await pool.query(
     `SELECT "join_requests"."id", "join_requests"."team_name", "join_requests"."created_at",
@@ -227,11 +231,11 @@ async function decideJoinRequest({ leagueId, ownerId, requestId, approve }) {
   try {
     await client.query('BEGIN');
     const leagueResult = await client.query(
-      `SELECT * FROM "leagues" WHERE "id" = $1 AND "owner_id" = $2 FOR UPDATE`,
+      `SELECT * FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)} FOR UPDATE`,
       [leagueId, ownerId]
     );
     const league = leagueResult.rows[0];
-    if (!league) throw new DiscoveryError(403, 'league not found or you are not the owner');
+    if (!league) throw new DiscoveryError(403, 'league not found or you are not the commissioner');
 
     const requestResult = await client.query(
       `SELECT "join_requests".*, "users"."username" FROM "join_requests"

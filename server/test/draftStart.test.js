@@ -27,6 +27,8 @@ function draftClient({ league = baseLeague, keepers = [] } = {}) {
       calls.push(text);
       if (text === 'BEGIN' || text === 'COMMIT' || text === 'ROLLBACK') return { rows: [] };
       if (text.includes('SELECT * FROM "leagues"')) return { rows: [league] };
+      // isLeagueCommissioner's owner-or-co-commissioner probe.
+      if (text.includes('SELECT 1 FROM "leagues"')) return { rows: [{ '?column?': 1 }] };
       if (text.includes('FROM "teams"')) {
         return { rows: [{ id: 11, owner_id: 7, draft_position: 1, autodraft: false, locked: false }] };
       }

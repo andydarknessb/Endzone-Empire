@@ -1,6 +1,7 @@
 const express = require('express');
 const pool = require('../modules/pool');
 const { requireAuth, isPlatformAdmin } = require('../modules/auth');
+const { isLeagueCommissioner, commissionerPredicate } = require('../services/leagueRole.service');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -77,11 +78,8 @@ router.post('/reports', async (req, res) => {
 
 router.get('/reports/:leagueId', async (req, res) => {
   const leagueId = Number(req.params.leagueId);
-  const owner = await pool.query(
-    `SELECT 1 FROM "leagues" WHERE "id" = $1 AND "owner_id" = $2`,
-    [leagueId, req.user.id]
-  );
-  if (!owner.rows[0] && !isPlatformAdmin(req.user.id)) {
+  const isCommissioner = await isLeagueCommissioner(pool, leagueId, req.user.id);
+  if (!isCommissioner && !isPlatformAdmin(req.user.id)) {
     return res.status(403).json({ error: 'moderator access required' });
   }
   const result = await pool.query(
@@ -108,7 +106,7 @@ router.put('/reports/:id', async (req, res) => {
        EXISTS (
          SELECT 1 FROM "leagues"
          WHERE "leagues"."id" = "content_reports"."league_id"
-           AND "leagues"."owner_id" = $2
+           AND ${commissionerPredicate(2)}
        )
        OR $4::boolean = true
      )

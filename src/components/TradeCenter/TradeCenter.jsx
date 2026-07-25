@@ -398,7 +398,7 @@ function TradeCenter() {
   const myRoster = rosters.find((r) => r.teamId === myTeamId);
   const otherTeams = rosters.filter((r) => r.teamId !== myTeamId);
   const theirRoster = rosters.find((r) => r.teamId === selectedTeamId);
-  const isCommissioner = !!(league && user && league.owner_id === user.id);
+  const isCommissioner = !!(league && user && (league.is_commissioner || league.owner_id === user.id));
 
   const pendingTrades = (trades || []).filter((t) => ACTIVE_STATUSES.has(t.status));
   const completedTrades = (trades || []).filter((t) => !ACTIVE_STATUSES.has(t.status));

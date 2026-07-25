@@ -9,6 +9,7 @@ const { computeStandings } = require('./season.service');
 const { placeOnWaivers } = require('./waiver.service');
 const { assertManualCorrectionWindow } = require('./correction.service');
 const { deleteAvatarObjects } = require('./avatar.service');
+const { commissionerPredicate } = require('./leagueRole.service');
 
 class CommissionerError extends Error {
   constructor(statusCode, message) {
@@ -17,14 +18,21 @@ class CommissionerError extends Error {
   }
 }
 
+/**
+ * The commissioner gate for every commissioner-only operation: the league
+ * owner, or anyone the owner made a co-commissioner. New commissioner powers
+ * should route through here (or leagueRole.service directly) rather than
+ * comparing owner_id, so co-commissioners aren't silently excluded.
+ */
 async function requireCommissioner(client, { leagueId, userId, forUpdate = false }) {
   const result = await client.query(
-    `SELECT * FROM "leagues" WHERE "id" = $1${forUpdate ? ' FOR UPDATE' : ''}`,
-    [leagueId]
+    `SELECT *, ${commissionerPredicate(2)} AS "is_commissioner"
+       FROM "leagues" WHERE "id" = $1${forUpdate ? ' FOR UPDATE' : ''}`,
+    [leagueId, userId]
   );
   const league = result.rows[0];
   if (!league) throw new CommissionerError(404, 'league not found');
-  if (league.owner_id !== userId) {
+  if (!league.is_commissioner) {
     throw new CommissionerError(403, 'only the commissioner can do this');
   }
   return league;
@@ -50,6 +58,11 @@ async function removeTeam({ leagueId, userId, teamId }) {
       throw new CommissionerError(409, "the commissioner's own team can't be removed");
     }
     await client.query(`DELETE FROM "teams" WHERE "id" = $1`, [teamId]);
+    // Leaving the league gives up commissioner powers with it.
+    await client.query(
+      `DELETE FROM "league_commissioners" WHERE "league_id" = $1 AND "user_id" = $2`,
+      [leagueId, team.owner_id]
+    );
     await logTransaction(client, {
       leagueId,
       teamId: null,

@@ -33,6 +33,9 @@ function LeagueCard({ league, isOwner = false, onDelete, compact = false }) {
         {league.scoring_preset && (
           <Chip size="small" variant="outlined" label={league.scoring_preset.replace('_', ' ').toUpperCase()} />
         )}
+        {(isOwner || league.is_commissioner) && (
+          <Chip size="small" color="primary" variant="outlined" label={isOwner ? 'Commissioner' : 'Co-Commissioner'} />
+        )}
         {phase === LEAGUE_PHASE.PRE_DRAFT && league.draft_date && (
           <Countdown variant="chip" date={league.draft_date} />
         )}

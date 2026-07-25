@@ -3,6 +3,7 @@ const { placeOnWaivers, isOnWaivers } = require('./waiver.service');
 const { logTransaction } = require('./activity.service');
 const { teamForPick, nextOpenPickNumber } = require('./draftOrder.service');
 const { POSITION_GROUPS } = require('./lineup.service');
+const { isLeagueCommissioner } = require('./leagueRole.service');
 
 class DraftError extends Error {
   constructor(statusCode, message) {
@@ -95,7 +96,7 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommiss
     if (league.draft_status === 'pending') {
       throw new DraftError(409, 'draft has not started for this league');
     }
-    if (byCommissioner && league.owner_id !== userId) {
+    if (byCommissioner && !(await isLeagueCommissioner(client, leagueId, userId))) {
       throw new DraftError(403, 'only the commissioner can enter picks for this draft');
     }
 

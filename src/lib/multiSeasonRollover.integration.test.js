@@ -81,8 +81,10 @@ function transactionHarness(state) {
         state.rolledBack = true;
         return { rows: [] };
       }
-      if (normalized.includes('SELECT * FROM "leagues"') && normalized.includes('FOR UPDATE')) {
-        return { rows: [{ ...state.league }] };
+      // requireCommissioner selects the league plus an is_commissioner flag
+      // (owner or co-commissioner) — the caller here is the owner.
+      if (normalized.includes('FROM "leagues"') && normalized.includes('FOR UPDATE')) {
+        return { rows: [{ ...state.league, is_commissioner: true }] };
       }
       if (normalized.includes('SELECT "id", "name", "owner_id" FROM "teams"')) {
         return { rows: state.teams.map((team) => ({ ...team })) };

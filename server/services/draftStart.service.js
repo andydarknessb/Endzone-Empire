@@ -2,6 +2,7 @@ const pool = require('../modules/pool');
 const { meetsMinimum } = require('./leagueSize');
 const { DraftError } = require('./draft.service');
 const { startPlan } = require('./draftValidation.service');
+const { isLeagueCommissioner } = require('./leagueRole.service');
 
 /** Re-broadcast the full draft state so connected clients pick up the new status/order. */
 async function broadcastDraftState(leagueId) {
@@ -38,7 +39,7 @@ async function startDraft({ leagueId, userId = null }) {
     );
     const league = leagueResult.rows[0];
     if (!league) throw new DraftError(404, 'league not found');
-    if (userId != null && league.owner_id !== userId) {
+    if (userId != null && !(await isLeagueCommissioner(client, leagueId, userId))) {
       throw new DraftError(403, 'only the commissioner can start this draft');
     }
     if (league.draft_status !== 'pending') {

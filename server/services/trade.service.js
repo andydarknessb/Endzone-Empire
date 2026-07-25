@@ -1,5 +1,6 @@
 const pool = require('../modules/pool');
 const { logTransaction, notify, notifyLeague } = require('./activity.service');
+const { isLeagueCommissioner } = require('./leagueRole.service');
 
 class TradeError extends Error {
   constructor(statusCode, message) {
@@ -314,13 +315,15 @@ async function vetoTrade({ tradeId, userId }) {
   }
 }
 
-/** Commissioner (league owner) force-approves or vetoes a pending/accepted trade. */
+/** Commissioner (owner or co-commissioner) force-approves or vetoes a pending/accepted trade. */
 async function commissionerDecide({ tradeId, userId, approve }) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const { trade, league, items, teams } = await loadTrade(client, tradeId);
-    if (league.owner_id !== userId) throw new TradeError(403, 'only the commissioner can do this');
+    if (!(await isLeagueCommissioner(client, league.id, userId))) {
+      throw new TradeError(403, 'only the commissioner can do this');
+    }
     if (!['pending', 'accepted'].includes(trade.status)) {
       throw new TradeError(409, `trade is ${trade.status}`);
     }

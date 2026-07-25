@@ -7,6 +7,7 @@ const { getDraftState } = require('../modules/draftSocket');
 const { teamForPick } = require('../services/draftOrder.service');
 const { draftPlayer, DraftError, nextPickClockSeconds } = require('../services/draft.service');
 const { validateKeepers, undoTargets } = require('../services/draftValidation.service');
+const { isLeagueCommissioner, commissionerPredicate } = require('../services/leagueRole.service');
 
 const router = express.Router();
 
@@ -136,12 +137,12 @@ router.post('/league/:id/order', async (req, res) => {
   try {
     await client.query('BEGIN');
     const leagueResult = await client.query(
-      `SELECT * FROM "leagues" WHERE "id" = $1 AND "owner_id" = $2 FOR UPDATE`,
+      `SELECT * FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)} FOR UPDATE`,
       [leagueId, req.user.id]
     );
     if (!leagueResult.rows[0]) {
       await client.query('ROLLBACK');
-      return res.status(403).json({ error: 'league not found or you are not the owner' });
+      return res.status(403).json({ error: 'league not found or you are not the commissioner' });
     }
     if (leagueResult.rows[0].draft_status !== 'pending') {
       await client.query('ROLLBACK');
@@ -203,12 +204,12 @@ router.post('/league/:id/pause', async (req, res) => {
              ELSE NULL
            END,
            "updated_at" = now()
-       WHERE "id" = $2 AND "owner_id" = $3 AND "draft_status" = 'active'
+       WHERE "id" = $2 AND ${commissionerPredicate(3)} AND "draft_status" = 'active'
        RETURNING "id", "draft_paused", "pick_deadline_at"`,
       [paused, leagueId, req.user.id]
     );
     if (!result.rows[0]) {
-      return res.status(403).json({ error: 'league not found, not owner, or draft not active' });
+      return res.status(403).json({ error: 'league not found, not commissioner, or draft not active' });
     }
     const io = getIo();
     if (io) {
@@ -258,7 +259,7 @@ router.post('/league/:id/teams/:teamId/autodraft', async (req, res) => {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'team not found in this league' });
     }
-    const isCommissioner = league.owner_id === req.user.id;
+    const isCommissioner = await isLeagueCommissioner(client, leagueId, req.user.id);
     const isTeamOwner = team.owner_id === req.user.id;
     if (!isCommissioner && !isTeamOwner) {
       await client.query('ROLLBACK');
@@ -321,12 +322,12 @@ router.post('/league/:id/clock', async (req, res) => {
   try {
     const result = await pool.query(
       `UPDATE "leagues" SET "pick_time_seconds" = $1, "updated_at" = now()
-       WHERE "id" = $2 AND "owner_id" = $3 AND "draft_status" IN ('pending', 'active')
+       WHERE "id" = $2 AND ${commissionerPredicate(3)} AND "draft_status" IN ('pending', 'active')
        RETURNING "id"`,
       [pickTimeSeconds, leagueId, req.user.id]
     );
     if (!result.rows[0]) {
-      return res.status(403).json({ error: 'league not found, not owner, or the draft has already finished' });
+      return res.status(403).json({ error: 'league not found, not commissioner, or the draft has already finished' });
     }
     const io = getIo();
     if (io) io.to(`league:${leagueId}`).emit('draft:state', await getDraftState(leagueId));
@@ -353,13 +354,13 @@ router.post('/league/:id/undo', async (req, res) => {
   try {
     await client.query('BEGIN');
     const leagueResult = await client.query(
-      `SELECT * FROM "leagues" WHERE "id" = $1 AND "owner_id" = $2 AND "draft_status" = 'active' FOR UPDATE`,
+      `SELECT * FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)} AND "draft_status" = 'active' FOR UPDATE`,
       [leagueId, req.user.id]
     );
     const league = leagueResult.rows[0];
     if (!league) {
       await client.query('ROLLBACK');
-      return res.status(403).json({ error: 'league not found, not owner, or draft not active' });
+      return res.status(403).json({ error: 'league not found, not commissioner, or draft not active' });
     }
     const picksResult = await client.query(
       `SELECT "pick_number", "team_id", "player_id", "is_keeper" FROM "draft_picks"
@@ -428,12 +429,12 @@ router.post('/league/:id/reset', async (req, res) => {
   try {
     await client.query('BEGIN');
     const leagueResult = await client.query(
-      `SELECT "id" FROM "leagues" WHERE "id" = $1 AND "owner_id" = $2 AND "draft_status" = 'active' FOR UPDATE`,
+      `SELECT "id" FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)} AND "draft_status" = 'active' FOR UPDATE`,
       [leagueId, req.user.id]
     );
     if (!leagueResult.rows[0]) {
       await client.query('ROLLBACK');
-      return res.status(403).json({ error: 'league not found, not owner, or draft not active' });
+      return res.status(403).json({ error: 'league not found, not commissioner, or draft not active' });
     }
     await client.query(`DELETE FROM "team_players" WHERE "league_id" = $1`, [leagueId]);
     await client.query(`DELETE FROM "draft_picks" WHERE "league_id" = $1`, [leagueId]);
@@ -526,11 +527,9 @@ router.get('/league/:id/keeper-candidates', async (req, res) => {
   const leagueId = intOrNull(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
   try {
-    const owner = await pool.query(
-      `SELECT "id" FROM "leagues" WHERE "id" = $1 AND "owner_id" = $2`,
-      [leagueId, req.user.id]
-    );
-    if (!owner.rows[0]) return res.status(403).json({ error: 'league not found or you are not the owner' });
+    if (!(await isLeagueCommissioner(pool, leagueId, req.user.id))) {
+      return res.status(403).json({ error: 'league not found or you are not the commissioner' });
+    }
     const result = await pool.query(
       `SELECT "team_players"."team_id", "players"."id", "players"."name", "players"."position", "players"."nfl_team"
        FROM "team_players" JOIN "players" ON "players"."id" = "team_players"."player_id"
@@ -558,14 +557,15 @@ router.put('/league/:id/keepers', async (req, res) => {
   try {
     await client.query('BEGIN');
     const leagueResult = await client.query(
-      `SELECT "owner_id", "draft_status", "roster_limit", "keeper_count", "keeper_lock_at", "draft_date"
+      `SELECT "draft_status", "roster_limit", "keeper_count", "keeper_lock_at", "draft_date",
+              ${commissionerPredicate(2)} AS "is_commissioner"
        FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
-      [leagueId]
+      [leagueId, req.user.id]
     );
     const league = leagueResult.rows[0];
-    if (!league || league.owner_id !== req.user.id) {
+    if (!league || !league.is_commissioner) {
       await client.query('ROLLBACK');
-      return res.status(403).json({ error: 'league not found or you are not the owner' });
+      return res.status(403).json({ error: 'league not found or you are not the commissioner' });
     }
     if (league.draft_status !== 'pending') {
       await client.query('ROLLBACK');
@@ -631,12 +631,13 @@ router.post('/league/:id/offline-picks', async (req, res) => {
   }
   try {
     const leagueResult = await pool.query(
-      `SELECT "owner_id", "draft_status", "draft_type" FROM "leagues" WHERE "id" = $1`,
-      [leagueId]
+      `SELECT "draft_status", "draft_type", ${commissionerPredicate(2)} AS "is_commissioner"
+       FROM "leagues" WHERE "id" = $1`,
+      [leagueId, req.user.id]
     );
     const league = leagueResult.rows[0];
-    if (!league || league.owner_id !== req.user.id) {
-      return res.status(403).json({ error: 'league not found or you are not the owner' });
+    if (!league || !league.is_commissioner) {
+      return res.status(403).json({ error: 'league not found or you are not the commissioner' });
     }
     if (league.draft_type !== 'offline' || league.draft_status !== 'active') {
       return res.status(409).json({ error: 'offline pick entry requires an active offline draft' });
@@ -672,12 +673,12 @@ router.post('/league/:id/share-token', async (req, res) => {
   try {
     const result = await pool.query(
       `UPDATE "leagues" SET "draft_share_token" = $1, "updated_at" = now()
-       WHERE "id" = $2 AND "owner_id" = $3
+       WHERE "id" = $2 AND ${commissionerPredicate(3)}
        RETURNING "id"`,
       [token, leagueId, req.user.id]
     );
     if (!result.rows[0]) {
-      return res.status(403).json({ error: 'league not found or you are not the owner' });
+      return res.status(403).json({ error: 'league not found or you are not the commissioner' });
     }
     res.json({ leagueId, token, url: `/#/present/${token}` });
   } catch (error) {
@@ -695,7 +696,7 @@ router.get('/mine', async (req, res) => {
               (SELECT COUNT(*)::int FROM "draft_picks" WHERE "draft_picks"."league_id" = "leagues"."id") AS "picks_made",
               (SELECT COUNT(*)::int FROM "teams" WHERE "teams"."league_id" = "leagues"."id") AS "team_count"
        FROM "leagues"
-       WHERE "owner_id" = $1
+       WHERE ${commissionerPredicate(1)}
          AND "draft_status" IN ('active', 'pending')
        ORDER BY ("draft_status" = 'active') DESC, "draft_date" NULLS LAST`,
       [req.user.id]

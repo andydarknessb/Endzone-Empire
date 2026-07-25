@@ -20,6 +20,7 @@ import {
   Button,
   IconButton,
   Chip,
+  Tooltip,
   List,
   ListItem,
   ListItemText,
@@ -32,8 +33,19 @@ import {
   DialogActions,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
+import PersonRemoveIcon from '@mui/icons-material/PersonRemove';
 import apiClient from '../../api/apiClient';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
+import {
+  ROSTER_POSITION_OPTIONS,
+  DP_GROUP_KEYS,
+  RULE_CATEGORIES,
+  CATEGORY_LABELS,
+  LEAF_LABELS,
+  TIER_LABELS,
+  perYardHelper,
+  buildInitialRules,
+} from '../../lib/leagueRulesFormat';
 
 const PLAYOFF_TEAM_OPTIONS = [4, 6, 8];
 const PLAYOFF_START_WEEK_OPTIONS = [14, 15, 16, 17, 18];
@@ -117,7 +129,131 @@ function PlayerSearchField({ label, helperText, disabled, onSelect }) {
   );
 }
 
-function GeneralSettingsPanel({ leagueId, league, teams, user, standingsLeague, onRefresh, notify }) {
+// Promote/demote co-commissioners. Owner-only: a co-commissioner can run the
+// league but can't recruit more or unseat the ones the owner picked.
+function CoCommissionerCard({ leagueId, league, teams, onRefresh, notify }) {
+  const [promoteId, setPromoteId] = useState('');
+  const [revokeTarget, setRevokeTarget] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const report = fail(notify);
+
+  const grantedIds = new Set((league.co_commissioners || []).map((c) => c.user_id));
+  const teamByOwner = new Map(teams.filter((t) => t.owner_id != null).map((t) => [t.owner_id, t]));
+  // Carry each co-commissioner's team name through so the list identifies
+  // people the same way the picker below it does.
+  const coCommissioners = (league.co_commissioners || []).map((c) => ({
+    ...c,
+    teamName: teamByOwner.get(c.user_id)?.name || null,
+  }));
+  const eligible = teams.filter(
+    (team) => team.owner_id != null && team.owner_id !== league.owner_id && !grantedIds.has(team.owner_id)
+  );
+
+  const handlePromote = async () => {
+    setBusy(true);
+    try {
+      await apiClient.post(`/api/league/${leagueId}/co-commissioners`, { userId: Number(promoteId) });
+      notify('Co-commissioner added');
+      setPromoteId('');
+      onRefresh();
+    } catch (err) {
+      report(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleRevoke = async () => {
+    const target = revokeTarget;
+    setRevokeTarget(null);
+    try {
+      await apiClient.delete(`/api/league/${leagueId}/co-commissioners/${target.user_id}`);
+      notify('Co-commissioner removed');
+      onRefresh();
+    } catch (err) {
+      report(err);
+    }
+  };
+
+  return (
+    <Box>
+      <Typography variant="subtitle2" sx={{ mb: 0.5 }}>Co-commissioners</Typography>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+        Co-commissioners get every commissioner power except deleting the league
+        and managing this list.
+      </Typography>
+      {coCommissioners.length > 0 ? (
+        <List dense sx={{ bgcolor: 'background.default', borderRadius: 1, mb: 1 }}>
+          {coCommissioners.map((c) => (
+            <ListItem
+              key={c.user_id}
+              secondaryAction={
+                <Tooltip title={`Remove ${c.username} as co-commissioner`}>
+                  <IconButton
+                    edge="end"
+                    aria-label={`Remove ${c.username} as co-commissioner`}
+                    onClick={() => setRevokeTarget(c)}
+                  >
+                    {/* Not a delete: they keep their team, they just lose the
+                        role — so this deliberately isn't the trash can used by
+                        the destructive "Remove a team" list below. */}
+                    <PersonRemoveIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              }
+            >
+              <ListItemText primary={c.username} secondary={c.teamName} />
+            </ListItem>
+          ))}
+        </List>
+      ) : (
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+          No co-commissioners yet — you&apos;re running this league on your own.
+        </Typography>
+      )}
+      <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+        <FormControl size="small" sx={{ minWidth: 220 }} disabled={eligible.length === 0}>
+          <InputLabel id="promote-co-commissioner-label">Add a co-commissioner</InputLabel>
+          <Select
+            labelId="promote-co-commissioner-label"
+            label="Add a co-commissioner"
+            value={promoteId}
+            onChange={(e) => setPromoteId(e.target.value)}
+          >
+            {eligible.map((team) => (
+              <MenuItem key={team.owner_id} value={team.owner_id}>
+                {team.owner} — {team.name}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+        <Button variant="outlined" size="small" disabled={!promoteId || busy} onClick={handlePromote}>
+          Promote
+        </Button>
+      </Box>
+      {eligible.length === 0 && coCommissioners.length === 0 && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+          Other managers need to join the league before you can share commissioner duties.
+        </Typography>
+      )}
+
+      <Dialog open={!!revokeTarget} onClose={() => setRevokeTarget(null)}>
+        <DialogTitle>Remove {revokeTarget?.username} as co-commissioner?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            They keep their team and stay in the league, but lose all commissioner powers.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRevokeTarget(null)}>Cancel</Button>
+          <Button color="error" variant="contained" onClick={handleRevoke}>Remove</Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
+  );
+}
+
+function GeneralSettingsPanel({ leagueId, league, teams, user, isOwner, standingsLeague, onRefresh, notify }) {
   const [sizeMin, setSizeMin] = useState(league.min_teams ?? '');
   const [sizeMax, setSizeMax] = useState(league.max_teams ?? '');
   const [removeTarget, setRemoveTarget] = useState(null);
@@ -203,6 +339,16 @@ function GeneralSettingsPanel({ leagueId, league, teams, user, standingsLeague, 
           Applies immediately. Freezes adds, drops, waiver claims, and trades for the entire league.
         </Typography>
       </Box>
+
+      {isOwner && (
+        <CoCommissionerCard
+          leagueId={leagueId}
+          league={league}
+          teams={teams}
+          onRefresh={onRefresh}
+          notify={notify}
+        />
+      )}
 
       {standingsLeague && standingsLeague.season_status === 'complete' && (
         <Box>
@@ -304,9 +450,6 @@ function GeneralSettingsPanel({ leagueId, league, teams, user, standingsLeague, 
     </Stack>
   );
 }
-
-const ROSTER_POSITION_OPTIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF', 'DL', 'LB', 'DB'];
-const DP_GROUP_KEYS = ['DL', 'LB', 'DB'];
 
 // One-click lineup templates: known-good slot arrays a commissioner can stamp
 // in instead of hand-building rows. Applying one only replaces the local form
@@ -534,42 +677,6 @@ function RosterSettingsPanel({ leagueId, league, onRefresh, notify }) {
   );
 }
 
-const RULE_CATEGORIES = ['passing', 'rushing', 'receiving', 'misc', 'kicking', 'teamDefense', 'idp'];
-const CATEGORY_LABELS = {
-  passing: 'Passing', rushing: 'Rushing', receiving: 'Receiving', misc: 'Misc & Returns',
-  kicking: 'Kicking', teamDefense: 'Team Defense', idp: 'Individual Defense (IDP)',
-};
-const LEAF_LABELS = {
-  yards: 'Per Yard', touchdowns: 'Touchdown', interceptions: 'Interception',
-  twoPointConversions: '2-Pt Conversion', reception: 'Reception', fumblesLost: 'Fumble Lost',
-  returnTDs: 'Kick/Punt Return TD', puntReturnYards: 'Per Punt Return Yard',
-  kickReturnYards: 'Per Kick Return Yard',
-  extraPoint: 'Extra Point', extraPointMissed: 'Extra Point Missed',
-  fieldGoalMissed: 'Field Goal Missed', sack: 'Sack', interception: 'Interception',
-  fumbleRecovery: 'Fumble Recovery', defensiveTD: 'Defensive TD', safety: 'Safety',
-  blockedKick: 'Blocked Kick', soloTackle: 'Solo Tackle', assistedTackle: 'Assisted Tackle',
-  forcedFumble: 'Forced Fumble', passDeflection: 'Pass Deflection', qbHit: 'QB Hit',
-  tacklesForLoss: 'Tackle For Loss', twoPointReturn: '2-Pt Return',
-  sackYards: 'Per Sack Yard', tacklesForLossYards: 'Per TFL Yard',
-  fumbleReturnYards: 'Per Fumble Return Yard',
-};
-const TIER_LABELS = {
-  fieldGoal: 'Field Goal (by distance)', pointsAllowed: 'Points Allowed', yardsAllowed: 'Yards Allowed',
-  yardageBonus: 'Yardage Bonus', tdLengthBonus: 'TD Length Bonus',
-};
-
-// Per-yard rate leaves get a "1 pt per N yds" translation so a commissioner
-// used to NFL.com's phrasing can sanity-check the decimal.
-const PER_YARD_KEYS = new Set([
-  'yards', 'puntReturnYards', 'kickReturnYards', 'sackYards', 'tacklesForLossYards', 'fumbleReturnYards',
-]);
-function perYardHelper(key, value) {
-  if (!PER_YARD_KEYS.has(key)) return undefined;
-  const rate = Number(value);
-  if (!Number.isFinite(rate) || rate <= 0 || rate > 1) return undefined;
-  return `= 1 pt per ${Math.round(1 / rate)} yds`;
-}
-
 // The three PPR-ness presets differ only in the reception rate — mirroring
 // the server's SCORING_PRESETS (scoring.service.js withReceptionRate).
 const RECEPTION_PRESETS = [
@@ -577,42 +684,6 @@ const RECEPTION_PRESETS = [
   { name: 'Half PPR', reception: 0.5 },
   { name: 'Full PPR', reception: 1 },
 ];
-
-// Client-side mirror of scoring.service.js's mergeRuleCategory — only used
-// to seed the editor's initial values from a league's stored (possibly
-// partial) scoring_rules; the server re-validates and re-merges on save.
-function mergeCategoryClient(defaults, custom) {
-  const merged = { ...defaults };
-  for (const [key, value] of Object.entries(custom || {})) {
-    if (!(key in defaults)) continue;
-    if (Array.isArray(defaults[key])) {
-      if (Array.isArray(value) && value.length > 0) {
-        merged[key] = value.map((t) => ({
-          min: Number(t.min),
-          max: t.max === null || t.max === undefined ? null : Number(t.max),
-          points: Number(t.points),
-          ...(t.pointsPerYardOverMin === undefined
-            ? {}
-            : { pointsPerYardOverMin: Number(t.pointsPerYardOverMin) }),
-        }));
-      }
-    } else if (Number.isFinite(Number(value))) {
-      merged[key] = Number(value);
-    }
-  }
-  return merged;
-}
-
-function buildInitialRules(defaults, custom) {
-  const rules = {};
-  for (const [category, catDefaults] of Object.entries(defaults)) {
-    const customCategory = custom && typeof custom === 'object' ? custom[category] : null;
-    rules[category] = customCategory && typeof customCategory === 'object' && !Array.isArray(customCategory)
-      ? mergeCategoryClient(catDefaults, customCategory)
-      : { ...catDefaults };
-  }
-  return rules;
-}
 
 function ScoringSettingsPanel({ leagueId, league, onRefresh, notify }) {
   const [defaults, setDefaults] = useState(null);
@@ -1392,7 +1463,7 @@ function SystemOverridesPanel({ leagueId, teams, notify, onRefresh }) {
   );
 }
 
-function CommissionerTools({ leagueId, league, teams, user, standingsLeague, onRefresh }) {
+function CommissionerTools({ leagueId, league, teams, user, isOwner = true, standingsLeague, onRefresh }) {
   const notify = useSnackbar();
   const [tab, setTab] = useState('general');
 
@@ -1418,7 +1489,7 @@ function CommissionerTools({ leagueId, league, teams, user, standingsLeague, onR
       <Box sx={{ p: 2 }}>
         {tab === 'general' && (
           <GeneralSettingsPanel
-            leagueId={leagueId} league={league} teams={teams} user={user}
+            leagueId={leagueId} league={league} teams={teams} user={user} isOwner={isOwner}
             standingsLeague={standingsLeague} onRefresh={onRefresh} notify={notify}
           />
         )}

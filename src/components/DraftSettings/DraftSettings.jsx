@@ -201,7 +201,7 @@ export default function DraftSettings() {
   if (loading && !league) return <Container maxWidth="lg" sx={{ py: 4 }}><Skeleton height={50} /><Skeleton variant="rounded" height={420} /></Container>;
   if (error && !league) return <Container maxWidth="lg" sx={{ py: 4 }}><Alert severity="error" action={<Button color="inherit" size="small" onClick={refetch}>Retry league settings</Button>}>Unable to load league settings: {error}</Alert></Container>;
   if (!league) return null;
-  if (user?.id && user.id !== league.owner_id) return <Navigate to={`/league/${leagueId}`} replace />;
+  if (user?.id && !league.is_commissioner && user.id !== league.owner_id) return <Navigate to={`/league/${leagueId}`} replace />;
   const frozen = league.draft_status !== 'pending';
   const common = { league, frozen, onSave: saveLeague, saving, onDirtyChange: setPanelDirty };
   const teamData = (panel) => {

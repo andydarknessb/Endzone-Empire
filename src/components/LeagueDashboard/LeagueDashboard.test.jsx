@@ -471,9 +471,9 @@ test('Advance Week is absent once the season is complete', async () => {
 
 // --- Commissioner tools ---
 
-test('Commissioner Tools panel shows only for the owner', async () => {
+test('Commissioner Tools panel is hidden from a plain member', async () => {
   mockGetByUrl({
-    '/api/league/1': leagueResponse({ owner_id: 99 }),
+    '/api/league/1': leagueResponse({ owner_id: 99, is_commissioner: false }),
     '/api/user': userResponse(),
     '/standings': standingsResponse(),
   });
@@ -481,6 +481,47 @@ test('Commissioner Tools panel shows only for the owner', async () => {
   await screen.findByText('Sunday Ballers');
 
   expect(screen.queryByText('Commissioner Tools')).not.toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: /Draft Settings/ })).not.toBeInTheDocument();
+});
+
+test('a co-commissioner gets Commissioner Tools and Draft Settings, but not the co-commissioner list', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse({ owner_id: 99, is_commissioner: true }),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  expect(screen.getByText('Commissioner Tools')).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: /Draft Settings/ })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Start Draft' })).toBeInTheDocument();
+  // Managing co-commissioners stays with the owner.
+  expect(screen.queryByText('Co-commissioners')).not.toBeInTheDocument();
+});
+
+test('the owner also sees the co-commissioner controls', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse({ owner_id: 1, is_commissioner: true }),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  expect(screen.getByText('Co-commissioners')).toBeInTheDocument();
+});
+
+test('every member sees the read-only League Rules link', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse({ owner_id: 99, is_commissioner: false }),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  expect(screen.getByRole('link', { name: /League Rules/ })).toHaveAttribute('href', '/league/1/rules');
 });
 
 test('Lock Transactions toggles via the commissioner endpoint', async () => {

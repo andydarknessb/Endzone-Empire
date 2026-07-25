@@ -10,17 +10,16 @@ const season = require('../services/season.service');
 const correction = require('../services/correction.service');
 const commissioner = require('../services/commissioner.service');
 const montecarlo = require('../services/montecarlo.service');
+const { isLeagueCommissioner, commissionerPredicate } = require('../services/leagueRole.service');
 
 const router = express.Router();
 router.use(requireAuth);
 
-async function requireLeagueOwner(req, res, leagueId) {
-  const owner = await pool.query(
-    `SELECT 1 FROM "leagues" WHERE "id" = $1 AND "owner_id" = $2`,
-    [leagueId, req.user.id]
-  );
-  if (!owner.rows[0]) {
-    res.status(403).json({ error: 'only the league owner can do this' });
+// The commissioner or one of their co-commissioners. Responds 403 and returns
+// false when the caller is neither, so callers can `if (!(await ...)) return;`.
+async function requireLeagueCommissioner(req, res, leagueId) {
+  if (!(await isLeagueCommissioner(pool, leagueId, req.user.id))) {
+    res.status(403).json({ error: 'only the commissioner can do this' });
     return false;
   }
   return true;
@@ -63,11 +62,7 @@ router.post('/league/:id/matchups', async (req, res) => {
   if (!sw) return;
   const leagueId = Number(req.params.id);
   try {
-    const owner = await pool.query(
-      `SELECT 1 FROM "leagues" WHERE "id" = $1 AND "owner_id" = $2`,
-      [leagueId, req.user.id]
-    );
-    if (!owner.rows[0]) return res.status(403).json({ error: 'only the league owner can do this' });
+    if (!(await requireLeagueCommissioner(req, res, leagueId))) return;
     const result = await scoring.generateMatchups({ leagueId, ...sw });
     res.status(201).json(result);
   } catch (error) {
@@ -85,11 +80,7 @@ router.post('/league/:id/score', async (req, res) => {
   if (!sw) return;
   const leagueId = Number(req.params.id);
   try {
-    const owner = await pool.query(
-      `SELECT 1 FROM "leagues" WHERE "id" = $1 AND "owner_id" = $2`,
-      [leagueId, req.user.id]
-    );
-    if (!owner.rows[0]) return res.status(403).json({ error: 'only the league owner can do this' });
+    if (!(await requireLeagueCommissioner(req, res, leagueId))) return;
     const result = await scoring.scoreMatchups({ leagueId, ...sw });
     res.json(result);
   } catch (error) {
@@ -114,14 +105,14 @@ router.post('/league/:id/correct-week', async (req, res) => {
   try {
     const leagueResult = await withDatabaseRetry(() =>
       pool.query(
-        `SELECT "owner_id", "current_season", "current_week"
+        `SELECT "current_season", "current_week", ${commissionerPredicate(2)} AS "is_commissioner"
          FROM "leagues" WHERE "id" = $1`,
-        [correctionRequest.leagueId]
+        [correctionRequest.leagueId, req.user.id]
       )
     );
     const league = leagueResult.rows[0];
-    if (!league || league.owner_id !== req.user.id) {
-      return res.status(403).json({ error: 'only the league owner can do this' });
+    if (!league || !league.is_commissioner) {
+      return res.status(403).json({ error: 'only the commissioner can do this' });
     }
     correction.assertManualCorrectionWindow({
       requestedSeason: sw.season,
@@ -389,7 +380,7 @@ router.post('/league/:id/power-rankings', async (req, res) => {
   }
   const leagueId = Number(req.params.id);
   try {
-    if (!(await requireLeagueOwner(req, res, leagueId))) return;
+    if (!(await requireLeagueCommissioner(req, res, leagueId))) return;
     const data = await montecarlo.computeLeagueOdds({ leagueId });
     if (!data) return res.status(409).json({ error: 'league is not ready for simulations' });
     res.json(data);
@@ -406,7 +397,7 @@ router.post('/league/:id/schedule', async (req, res) => {
   }
   const leagueId = Number(req.params.id);
   try {
-    if (!(await requireLeagueOwner(req, res, leagueId))) return;
+    if (!(await requireLeagueCommissioner(req, res, leagueId))) return;
     const result = await season.generateRegularSeason({ leagueId });
     res.status(201).json(result);
   } catch (error) {
@@ -425,7 +416,7 @@ router.post('/league/:id/advance-week', async (req, res) => {
   }
   const leagueId = Number(req.params.id);
   try {
-    if (!(await requireLeagueOwner(req, res, leagueId))) return;
+    if (!(await requireLeagueCommissioner(req, res, leagueId))) return;
     const leagueResult = await pool.query(
       `SELECT "current_season", "current_week" FROM "leagues" WHERE "id" = $1`,
       [leagueId]

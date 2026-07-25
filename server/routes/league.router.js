@@ -17,6 +17,13 @@ const {
   createSizeError,
   editSizeError,
 } = require('../services/leagueSize');
+const {
+  commissionerPredicate,
+  isLeagueCommissioner,
+  listCoCommissioners,
+  grantCoCommissioner,
+  revokeCoCommissioner,
+} = require('../services/leagueRole.service');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -215,7 +222,8 @@ router.get('/', async (req, res) => {
               "teams"."avatar_static_url" AS "my_team_avatar_static_url",
               "teams"."waiver_priority" AS "my_team_waiver_priority",
               "teams"."faab_remaining" AS "my_team_faab_remaining",
-              (SELECT COUNT(*)::int FROM "teams" "t" WHERE "t"."league_id" = "leagues"."id") AS "team_count"
+              (SELECT COUNT(*)::int FROM "teams" "t" WHERE "t"."league_id" = "leagues"."id") AS "team_count",
+              ${commissionerPredicate(1)} AS "is_commissioner"
        FROM "leagues"
        JOIN "teams" ON "teams"."league_id" = "leagues"."id"
        WHERE "teams"."owner_id" = $1
@@ -234,7 +242,12 @@ router.get('/:id', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
   try {
-    const leagueResult = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
+    const leagueResult = await pool.query(
+      `SELECT "leagues".*, "users"."username" AS "owner_username"
+         FROM "leagues" JOIN "users" ON "users"."id" = "leagues"."owner_id"
+        WHERE "leagues"."id" = $1`,
+      [leagueId]
+    );
     const league = leagueResult.rows[0];
     if (!league) return res.status(404).json({ error: 'league not found' });
 
@@ -248,6 +261,7 @@ router.get('/:id', async (req, res) => {
       `SELECT "teams"."id", "teams"."name", "teams"."draft_position",
               "teams"."faab_remaining", "teams"."locked", "teams"."draft_ready",
               "teams"."avatar_url", "teams"."avatar_static_url",
+              "teams"."owner_id",
               "users"."username" AS "owner",
               COUNT("team_players"."id")::int AS "roster_count",
               COALESCE(SUM(CASE WHEN "matchups"."home_team_id" = "teams"."id" THEN "matchups"."home_score"
@@ -263,8 +277,14 @@ router.get('/:id', async (req, res) => {
        ORDER BY "total_points" DESC, "teams"."draft_position"`,
       [leagueId]
     );
-    // Only the owner should see the invite code
-    if (league.owner_id !== req.user.id) delete league.invite_code;
+    // is_commissioner is the viewer's effective role (owner or co-commissioner)
+    // — every client-side commissioner gate reads it. The roster of
+    // co-commissioners is visible to all members: knowing who can rule on your
+    // trade isn't sensitive, and it saves a second request.
+    league.is_commissioner = await isLeagueCommissioner(pool, leagueId, req.user.id);
+    league.co_commissioners = await listCoCommissioners(pool, leagueId);
+    // Only a commissioner should see the invite code
+    if (!league.is_commissioner) delete league.invite_code;
     res.json({ league, teams: teamsResult.rows });
   } catch (error) {
     console.error('Error fetching league details', error);
@@ -542,7 +562,7 @@ router.put('/:id', async (req, res) => {
                 "roster_slots", "bench_slots", "ir_slots", "position_caps", "roster_limit",
                 "keepers_enabled", "keeper_count",
                 (SELECT COUNT(*)::int FROM "teams" WHERE "teams"."league_id" = "leagues"."id") AS "team_count"
-         FROM "leagues" WHERE "id" = $1 AND "owner_id" = $2${ownerLockedSettingsProvided ? ' FOR UPDATE' : ''}`,
+         FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)}${ownerLockedSettingsProvided ? ' FOR UPDATE' : ''}`,
         [leagueId, req.user.id]
       );
       const current = statusResult.rows[0];
@@ -670,7 +690,7 @@ router.put('/:id', async (req, res) => {
            "auction_settings" = CASE WHEN $33::boolean THEN $34::jsonb ELSE "auction_settings" END,
            "keeper_lock_at" = CASE WHEN $35::boolean THEN $36::timestamptz ELSE "keeper_lock_at" END,
            "updated_at" = now()
-       WHERE "id" = $17 AND "owner_id" = $18
+       WHERE "id" = $17 AND ${commissionerPredicate(18)}
          ${frozenRequested.length > 0 ? `AND "draft_status" = 'pending'` : ''}
          ${schedulingNonAuction ? `AND "draft_type" <> 'auction'` : ''}
        RETURNING *`,
@@ -719,7 +739,7 @@ router.put('/:id', async (req, res) => {
       // type to report the auction conflict distinctly from a draft that started.
       if (schedulingNonAuction && pendingStatusVerified) {
         const recheck = await db.query(
-          `SELECT "draft_type" FROM "leagues" WHERE "id" = $1 AND "owner_id" = $2`,
+          `SELECT "draft_type" FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)}`,
           [leagueId, req.user.id]
         );
         if (recheck.rows[0]?.draft_type === 'auction') {
@@ -729,7 +749,7 @@ router.put('/:id', async (req, res) => {
       if (pendingStatusVerified) {
         return await rejectUpdate(409, `these settings are locked once the draft starts: ${frozenRequested.join(', ')}`);
       }
-      return await rejectUpdate(403, 'league not found or you are not the owner');
+      return await rejectUpdate(403, 'league not found or you are not the commissioner');
     }
     const changed = draftDateProvided &&
       String(previousDraftDate ? new Date(previousDraftDate).toISOString() : null) !== String(draftDateValue);
@@ -804,6 +824,39 @@ router.delete('/:id', async (req, res) => {
   } catch (error) {
     console.error('Error deleting league', error);
     res.status(500).json({ error: 'failed to delete league' });
+  }
+});
+
+// POST /api/league/:id/co-commissioners — owner grants commissioner powers to
+// a member. Owner-only: a co-commissioner can run the league but can't recruit
+// more co-commissioners or unseat the ones the owner picked.
+router.post('/:id/co-commissioners', async (req, res) => {
+  const leagueId = intParam(req.params.id);
+  if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
+  const targetUserId = intParam(req.body && req.body.userId);
+  if (!targetUserId) return res.status(400).json({ error: 'userId must be a positive integer' });
+  try {
+    res.json(await grantCoCommissioner({ leagueId, userId: req.user.id, targetUserId }));
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    console.error('Error granting co-commissioner', error);
+    res.status(500).json({ error: 'failed to grant co-commissioner' });
+  }
+});
+
+// DELETE /api/league/:id/co-commissioners/:userId — owner revokes those powers
+router.delete('/:id/co-commissioners/:userId', async (req, res) => {
+  const leagueId = intParam(req.params.id);
+  const targetUserId = intParam(req.params.userId);
+  if (!leagueId || !targetUserId) {
+    return res.status(400).json({ error: 'league id and user id must be positive integers' });
+  }
+  try {
+    res.json(await revokeCoCommissioner({ leagueId, userId: req.user.id, targetUserId }));
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    console.error('Error revoking co-commissioner', error);
+    res.status(500).json({ error: 'failed to revoke co-commissioner' });
   }
 });
 

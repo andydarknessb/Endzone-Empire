@@ -642,3 +642,85 @@ test('Lock Specific Team toggles a single team without touching the league-wide 
   );
   expect(onRefresh).toHaveBeenCalled();
 });
+
+// --- Co-commissioners (owner-only) ---
+
+const withOwnerIds = [
+  { id: 1, name: "Alice's Team", owner: 'alice', owner_id: 1, faab_remaining: 100, locked: false },
+  { id: 2, name: "Bob's Team", owner: 'bob', owner_id: 2, faab_remaining: 60, locked: false },
+];
+
+test('the co-commissioner section is owner-only', () => {
+  const { unmount } = renderTools({ isOwner: false, teams: withOwnerIds });
+  expect(screen.queryByText('Co-commissioners')).not.toBeInTheDocument();
+  unmount();
+
+  renderTools({ isOwner: true, teams: withOwnerIds });
+  expect(screen.getByText('Co-commissioners')).toBeInTheDocument();
+});
+
+test('the owner promotes a member by user id and refreshes', async () => {
+  apiClient.post.mockResolvedValue({ data: { coCommissioners: [] } });
+  const onRefresh = jest.fn();
+  renderTools({ isOwner: true, teams: withOwnerIds, onRefresh });
+
+  await userEvent.click(screen.getByRole('combobox', { name: 'Add a co-commissioner' }));
+  await userEvent.click(await screen.findByRole('option', { name: /bob/ }));
+  await userEvent.click(screen.getByRole('button', { name: 'Promote' }));
+
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/league/1/co-commissioners', { userId: 2 })
+  );
+  expect(onRefresh).toHaveBeenCalled();
+});
+
+test('the owner is never offered as a co-commissioner candidate', async () => {
+  renderTools({ isOwner: true, teams: withOwnerIds });
+
+  await userEvent.click(screen.getByRole('combobox', { name: 'Add a co-commissioner' }));
+
+  expect(await screen.findByRole('option', { name: /bob/ })).toBeInTheDocument();
+  expect(screen.queryByRole('option', { name: /alice/ })).not.toBeInTheDocument();
+});
+
+test('an existing co-commissioner is listed and can be revoked after confirming', async () => {
+  apiClient.delete.mockResolvedValue({ data: { coCommissioners: [] } });
+  const onRefresh = jest.fn();
+  renderTools({
+    isOwner: true,
+    teams: withOwnerIds,
+    onRefresh,
+    league: league({ co_commissioners: [{ user_id: 2, username: 'bob' }] }),
+  });
+
+  await userEvent.click(screen.getByRole('button', { name: 'Remove bob as co-commissioner' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Remove' }));
+
+  await waitFor(() =>
+    expect(apiClient.delete).toHaveBeenCalledWith('/api/league/1/co-commissioners/2')
+  );
+  expect(onRefresh).toHaveBeenCalled();
+});
+
+test('cancelling the revoke dialog leaves the co-commissioner in place', async () => {
+  renderTools({
+    isOwner: true,
+    teams: withOwnerIds,
+    league: league({ co_commissioners: [{ user_id: 2, username: 'bob' }] }),
+  });
+
+  await userEvent.click(screen.getByRole('button', { name: 'Remove bob as co-commissioner' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+  expect(apiClient.delete).not.toHaveBeenCalled();
+});
+
+test('an already-promoted member drops out of the candidate list', () => {
+  renderTools({
+    isOwner: true,
+    teams: withOwnerIds,
+    league: league({ co_commissioners: [{ user_id: 2, username: 'bob' }] }),
+  });
+
+  expect(screen.getByRole('combobox', { name: 'Add a co-commissioner' })).toHaveAttribute('aria-disabled', 'true');
+});

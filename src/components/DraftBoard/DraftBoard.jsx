@@ -150,7 +150,7 @@ function DraftBoard() {
     );
   }
 
-  const isCommissioner = !!(league && user && league.owner_id === user.id);
+  const isCommissioner = !!(league && user && (league.is_commissioner || league.owner_id === user.id));
 
   // Derive the "Drafted by X" banner for the open quick-view from live draft
   // state: if the viewed player already appears in the pick history, name the

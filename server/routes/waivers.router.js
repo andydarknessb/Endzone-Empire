@@ -3,6 +3,7 @@ const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
 const waivers = require('../services/waiver.service');
 const { waiverSuggestions } = require('../services/decision.service');
+const { isLeagueCommissioner } = require('../services/leagueRole.service');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -135,11 +136,9 @@ router.post('/process', async (req, res) => {
     return res.status(400).json({ error: 'leagueId (integer) is required' });
   }
   try {
-    const owner = await pool.query(
-      `SELECT 1 FROM "leagues" WHERE "id" = $1 AND "owner_id" = $2`,
-      [leagueId, req.user.id]
-    );
-    if (!owner.rows[0]) return res.status(403).json({ error: 'only the league owner can do this' });
+    if (!(await isLeagueCommissioner(pool, leagueId, req.user.id))) {
+      return res.status(403).json({ error: 'only the commissioner can do this' });
+    }
     const result = await waivers.processWaivers({ leagueId });
     res.json(result);
   } catch (error) {

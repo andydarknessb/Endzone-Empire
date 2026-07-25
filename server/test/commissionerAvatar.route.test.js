@@ -37,7 +37,10 @@ test('DELETE .../teams/:teamId/avatar requires the commissioner', async (t) => {
   withMockClient(t, [
     [/^BEGIN$/, () => ({})],
     [/^ROLLBACK$/, () => ({})],
-    [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 1, owner_id: 999, current_season: 2026, current_week: 1 }] })],
+    [
+      /^SELECT \*, \("leagues"\."owner_id" = \$2 OR EXISTS/,
+      () => ({ rows: [{ id: 1, owner_id: 999, is_commissioner: false, current_season: 2026, current_week: 1 }] }),
+    ],
   ]);
   const token = signToken({ id: 7, username: 'not-the-commish' });
   const response = await request(app)
@@ -52,7 +55,10 @@ test('DELETE .../teams/:teamId/avatar clears the avatar and privately notifies t
   withMockClient(t, [
     [/^BEGIN$/, () => ({})],
     [/^COMMIT$/, () => ({})],
-    [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 1, owner_id: 7, current_season: 2026, current_week: 1 }] })],
+    [
+      /^SELECT \*, \("leagues"\."owner_id" = \$2 OR EXISTS/,
+      () => ({ rows: [{ id: 1, owner_id: 7, is_commissioner: true, current_season: 2026, current_week: 1 }] }),
+    ],
     [
       /^SELECT "owner_id", "avatar_url", "avatar_static_url" FROM "teams"/,
       () => ({ rows: [{ owner_id: 42, avatar_url: null, avatar_static_url: null }] }),
@@ -89,7 +95,10 @@ test('DELETE .../teams/:teamId/avatar 404s when the team is not in that league',
   withMockClient(t, [
     [/^BEGIN$/, () => ({})],
     [/^ROLLBACK$/, () => ({})],
-    [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 1, owner_id: 7, current_season: 2026, current_week: 1 }] })],
+    [
+      /^SELECT \*, \("leagues"\."owner_id" = \$2 OR EXISTS/,
+      () => ({ rows: [{ id: 1, owner_id: 7, is_commissioner: true, current_season: 2026, current_week: 1 }] }),
+    ],
     [/^SELECT "owner_id", "avatar_url", "avatar_static_url" FROM "teams"/, () => ({ rows: [] })],
   ]);
   const token = signToken({ id: 7, username: 'commissioner' });
