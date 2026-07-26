@@ -53,3 +53,56 @@ test('GET players?sort=position_rank orders by the derived rank in SQL and passe
     ]
   );
 });
+
+test('the derived rank falls back to rollup points for IDP rows only', async (t) => {
+  let playersSql = null;
+  let playersParams = null;
+  t.mock.method(pool, 'query', async (sql, params) => {
+    const text = String(sql);
+    if (text.includes('COUNT(*) OVER()')) {
+      playersSql = text;
+      playersParams = params;
+      return {
+        rows: [
+          // What the DB would derive: LB ranked from rollup points, rookie
+          // LB (no rollup row) and undrafted WR both null. nfl_team stays null
+          // so the bye-week lookup doesn't add a query to mock.
+          { id: 10, name: 'Zaire Franklin', position: 'LB', nfl_team: null, adp: null, position_rank: 2, total_count: '3' },
+          { id: 11, name: 'Rookie Backer', position: 'LB', nfl_team: null, adp: null, position_rank: null, total_count: '3' },
+          { id: 12, name: 'Deep Bench Wide', position: 'WR', nfl_team: null, adp: null, position_rank: null, total_count: '3' },
+        ],
+      };
+    }
+    if (text.includes('FROM "player_season_stats"')) return { rows: [] };
+    throw new Error(`unexpected query: ${text}`);
+  });
+
+  const token = signToken({ id: 7, username: 'member' });
+  const res = await request(app)
+    .get('/api/players')
+    .set('Authorization', `Bearer ${token}`);
+
+  assert.equal(res.status, 200);
+  // Market branch keys off ADP presence; the IDP fallback comes from a
+  // once-per-query ranked CTE (global — deliberately not under the outer
+  // WHERE) joined 1:1, with a NOT NULL guard so a missing/void rollup can
+  // never rank a player 1st.
+  assert.match(playersSql, /WITH "idp_ranks" AS \(/);
+  assert.match(playersSql, /RANK\(\) OVER \(\s*PARTITION BY "p"\."position" ORDER BY "pss"\."fantasy_points" DESC\s*\)/);
+  assert.match(playersSql, /"p"\."position" = ANY\(\$\d+\)/);
+  assert.match(playersSql, /"pss"\."fantasy_points" IS NOT NULL/);
+  assert.match(playersSql, /WHEN "players"\."adp" IS NOT NULL THEN/);
+  assert.match(playersSql, /ELSE "idp_ranks"\."rank" END AS "position_rank"/);
+  assert.match(playersSql, /LEFT JOIN "idp_ranks" ON "idp_ranks"\."player_id" = "players"\."id"/);
+  // The bound inputs: the IDP position list and the last completed season.
+  assert.ok(playersParams.some((p) => Array.isArray(p) && p.includes('LB') && p.includes('CB') && !p.includes('DEF')));
+  assert.ok(playersParams.includes(2025)); // default currentSeasonYear 2026 - 1
+  assert.deepEqual(
+    res.body.players.map((p) => ({ id: p.id, position_rank: p.position_rank })),
+    [
+      { id: 10, position_rank: 2 },
+      { id: 11, position_rank: null },
+      { id: 12, position_rank: null },
+    ]
+  );
+});

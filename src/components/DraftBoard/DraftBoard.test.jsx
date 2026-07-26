@@ -749,6 +749,30 @@ test('shows projected points and injury badges in the available players table', 
   expect(screen.getByRole('button', { name: 'Patrick Mahomes' })).toBeInTheDocument();
 });
 
+test('shows a sortable Pos rank column so IDP players (no ADP) still order sensibly', async () => {
+  apiClient.get.mockResolvedValue(
+    playersPage([
+      // An IDP player: no ADP by design, ranked from last season's points.
+      { id: 3, name: 'Jordyn Brooks', position: 'LB', nfl_team: 'DET', adp: null, position_rank: 1, projected_points: 160.2 },
+      { id: 4, name: 'Rookie Backer', position: 'LB', nfl_team: 'DAL', adp: null, position_rank: null, projected_points: null },
+    ])
+  );
+  renderBoard(1);
+
+  await screen.findByText('Jordyn Brooks');
+  expect(screen.getByText('#1')).toBeInTheDocument();
+  expect(screen.getByLabelText(/Pos rank: Position rank:/)).toBeInTheDocument();
+
+  // Clicking the header re-fetches with the server's whitelisted sort key.
+  apiClient.get.mockClear();
+  await userEvent.click(screen.getByText('Pos rank'));
+  await waitFor(() =>
+    expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
+      params: expect.objectContaining({ sort: 'position_rank' }),
+    })
+  );
+});
+
 test('clicking a player name opens the quick-view dialog and never drafts the player', async () => {
   apiClient.get.mockImplementation((url) =>
     url.endsWith('/summary')

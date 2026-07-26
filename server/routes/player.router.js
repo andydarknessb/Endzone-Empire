@@ -4,6 +4,7 @@ const { requireAuth } = require('../modules/auth');
 const { draftPlayer } = require('../services/draft.service');
 const {
   rulesForLeague, buildPlayerSummary, projectSeasonPoints, getSeasonPositionRank,
+  IDP_POSITIONS,
 } = require('../services/scoring.service');
 const { computeByeWeek, computeByeWeeks } = require('../services/bye.service');
 
@@ -117,16 +118,42 @@ router.get('/', requireAuth, async (req, res) => {
   }
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
+  // Fallback rank inputs for IDP rows: individual defenders never carry ADP
+  // (no market data exists — see adp.service.js), so their position_rank comes
+  // from last completed season's stored rollup points instead. Offense/DEF
+  // without an ADP stay null: for them a market rank is possible, and mixing
+  // market and production ranks in one position's column would mislead.
+  params.push(IDP_POSITIONS);
+  const idpParam = params.length;
+  params.push(currentSeasonYear - 1);
+  const rankSeasonParam = params.length;
+
   if (!projectionSort) params.push(PAGE_SIZE, offset);
+  // The idp_ranks CTE is computed once per query and joined 1:1, NOT filtered
+  // by the outer WHERE — ranks must stay global ("LB #5" can't become "#1"
+  // because four LBs are rostered in this league). A per-row correlated
+  // subquery here was ~15x slower on the unfiltered rank sort.
   const queryText = `
+    WITH "idp_ranks" AS (
+      SELECT "pss"."player_id",
+             RANK() OVER (
+               PARTITION BY "p"."position" ORDER BY "pss"."fantasy_points" DESC
+             )::int AS "rank"
+      FROM "player_season_stats" "pss"
+      JOIN "players" "p" ON "p"."id" = "pss"."player_id"
+      WHERE "pss"."season" = $${rankSeasonParam}
+        AND "p"."position" = ANY($${idpParam})
+        AND "pss"."fantasy_points" IS NOT NULL
+    )
     SELECT "players".*,
-           CASE WHEN "players"."adp" IS NULL THEN NULL ELSE 1 + (
+           CASE WHEN "players"."adp" IS NOT NULL THEN 1 + (
              SELECT COUNT(*)::int FROM "players" AS "position_peers"
              WHERE "position_peers"."position" = "players"."position"
                AND "position_peers"."adp" < "players"."adp"
-           ) END AS "position_rank",
+           ) ELSE "idp_ranks"."rank" END AS "position_rank",
            COUNT(*) OVER() AS total_count
     FROM "players"
+    LEFT JOIN "idp_ranks" ON "idp_ranks"."player_id" = "players"."id"
     ${whereSql}
     ORDER BY ${orderBy}
     ${projectionSort ? '' : `LIMIT $${params.length - 1} OFFSET $${params.length}`}

@@ -181,6 +181,15 @@ function PlayerPoolTable({
               </TableCell>
               <TableCell sx={headCellSx} align="right">
                 <TableSortLabel
+                  active={sort === 'position_rank'}
+                  direction={sort === 'position_rank' ? dir : 'asc'}
+                  onClick={() => onSort('position_rank')}
+                >
+                  <AbbreviationTooltip term="Pos rank" />
+                </TableSortLabel>
+              </TableCell>
+              <TableCell sx={headCellSx} align="right">
+                <TableSortLabel
                   active={sort === 'proj'}
                   direction={sort === 'proj' ? dir : 'asc'}
                   onClick={() => onSort('proj')}
@@ -196,7 +205,7 @@ function PlayerPoolTable({
           <TableBody>
             {displayPlayers.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} sx={{ color: 'text.secondary', textAlign: 'center' }}>
+                <TableCell colSpan={8} sx={{ color: 'text.secondary', textAlign: 'center' }}>
                   {search ? `No available players matching “${search}”` : 'No available players'}
                 </TableCell>
               </TableRow>
@@ -228,6 +237,9 @@ function PlayerPoolTable({
                   </TableCell>
                   <TableCell>{player.nfl_team}</TableCell>
                   <TableCell align="right">{player.adp != null ? player.adp : '—'}</TableCell>
+                  <TableCell align="right">
+                    {player.position_rank != null ? `#${player.position_rank}` : '—'}
+                  </TableCell>
                   <TableCell align="right">
                     {player.projected_points != null ? player.projected_points : '—'}
                   </TableCell>
