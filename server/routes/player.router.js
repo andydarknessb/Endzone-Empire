@@ -2,7 +2,9 @@ const express = require('express');
 const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
 const { draftPlayer } = require('../services/draft.service');
-const { rulesForLeague, buildPlayerSummary, projectSeasonPoints } = require('../services/scoring.service');
+const {
+  rulesForLeague, buildPlayerSummary, projectSeasonPoints, getSeasonPositionRank,
+} = require('../services/scoring.service');
 const { computeByeWeek, computeByeWeeks } = require('../services/bye.service');
 
 const router = express.Router();
@@ -288,6 +290,14 @@ router.get('/:id/summary', requireAuth, async (req, res) => {
     );
     const byeWeek = await computeByeWeek(player.nfl_team, currentSeasonYear);
 
+    // Points-based rank within the position for the latest completed season
+    // (rows arrive season DESC, so find() takes the newest one).
+    const lastCompletedRow =
+      seasonResult.rows.find((r) => Number(r.season) < currentSeasonYear) || null;
+    const rankInfo = lastCompletedRow
+      ? await getSeasonPositionRank(playerId, player.position, Number(lastCompletedRow.season))
+      : null;
+
     const payload = buildPlayerSummary({
       player,
       weeklyRows: weeklyResult.rows,
@@ -295,6 +305,7 @@ router.get('/:id/summary', requireAuth, async (req, res) => {
       rules,
       byeWeek,
       currentSeasonYear,
+      posRank: rankInfo ? { season: Number(lastCompletedRow.season), ...rankInfo } : null,
     });
 
     summaryCacheSet(cacheKey, payload);

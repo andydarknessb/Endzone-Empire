@@ -30,6 +30,9 @@ const summaryResponse = (overrides = {}) => ({
         ? overrides.fantasy
         : {
             adp: 3.4,
+            posRank: 2,
+            posRankOf: 88,
+            posRankSeason: 2025,
             previousSeasonYear: 2025,
             previousSeasonTotal: 300,
             projectionSeason: 2026,
@@ -298,23 +301,25 @@ test('preserves league context in the full-profile link', async () => {
   );
 });
 
-test('shows the fantasy strip: ADP, projection, and last-season total', async () => {
+test('shows the fantasy strip: ADP, pos rank, projection, and last-season total', async () => {
   renderQuickView();
 
   expect(await screen.findByText('Justin Jefferson')).toBeInTheDocument();
   const strip = screen.getByTestId('fantasy-strip');
   expect(strip).toHaveTextContent('ADP 3.4');
+  expect(strip).toHaveTextContent('Pos rank #2');
   expect(strip).toHaveTextContent('Projected (2026): 299.2 pts');
   expect(strip).toHaveTextContent('2025: 300 pts');
   expect(screen.getByLabelText(/ADP: Average draft position:/)).toBeInTheDocument();
+  expect(screen.getByLabelText(/Pos rank: Position rank:/)).toBeInTheDocument();
   expect(screen.getByLabelText(/Projected: Projected fantasy points:/)).toBeInTheDocument();
   expect(screen.getByLabelText(/FPTS\/G: Fantasy points per game:/)).toBeInTheDocument();
 });
 
-test('fantasy strip is hidden when there is no ADP/projection/prior data', async () => {
+test('fantasy strip is hidden when there is no ADP/rank/projection/prior data', async () => {
   apiClient.get.mockResolvedValue(
     summaryResponse({
-      fantasy: { adp: null, previousSeasonTotal: null, projectedPoints: null },
+      fantasy: { adp: null, posRank: null, previousSeasonTotal: null, projectedPoints: null },
       previousSeasons: [],
     })
   );
@@ -322,6 +327,24 @@ test('fantasy strip is hidden when there is no ADP/projection/prior data', async
 
   expect(await screen.findByText('Justin Jefferson')).toBeInTheDocument();
   expect(screen.queryByTestId('fantasy-strip')).not.toBeInTheDocument();
+});
+
+test('a pos rank alone keeps the fantasy strip visible (IDP has no ADP)', async () => {
+  apiClient.get.mockResolvedValue(
+    summaryResponse({
+      fantasy: {
+        adp: null, posRank: 4, posRankOf: 320, posRankSeason: 2025,
+        previousSeasonTotal: null, projectedPoints: null,
+      },
+      previousSeasons: [],
+    })
+  );
+  renderQuickView();
+
+  expect(await screen.findByText('Justin Jefferson')).toBeInTheDocument();
+  const strip = screen.getByTestId('fantasy-strip');
+  expect(strip).toHaveTextContent('Pos rank #4');
+  expect(strip).not.toHaveTextContent('ADP');
 });
 
 test('toggle switches from Current Season weekly table to Previous Seasons table', async () => {

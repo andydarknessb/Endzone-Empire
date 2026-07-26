@@ -76,7 +76,8 @@ function PlayerDetail() {
 
   const { player, fantasy = {}, currentSeason, previousSeasons = [] } = summary;
   const hasFantasy =
-    fantasy.adp != null || fantasy.projectedPoints != null || fantasy.previousSeasonTotal != null;
+    fantasy.adp != null || fantasy.posRank != null
+    || fantasy.projectedPoints != null || fantasy.previousSeasonTotal != null;
 
   return (
     <Container maxWidth="md" sx={{ py: 4 }}>
@@ -127,6 +128,9 @@ function PlayerDetail() {
         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 3 }} data-testid="fantasy-strip">
           {fantasy.adp != null && (
             <Chip variant="outlined" label={<><AbbreviationTooltip term="ADP" /> {fantasy.adp}</>} />
+          )}
+          {fantasy.posRank != null && (
+            <Chip variant="outlined" label={<><AbbreviationTooltip term="Pos rank" /> #{fantasy.posRank}</>} />
           )}
           {fantasy.projectedPoints != null && (
             <Chip color="info" label={`${fantasy.projectionSeason} proj: ${fantasy.projectedPoints} pts`} />

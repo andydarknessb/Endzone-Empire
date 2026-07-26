@@ -22,7 +22,9 @@ const {
   isMissingRecapStorage,
 } = require('../modules/recapStorage');
 const { getWeekProjections } = require('./projection.service');
-const { calculateFantasyPoints, SCORING_PRESETS, IDP_POSITIONS } = require('./scoring.service');
+const {
+  calculateFantasyPoints, SCORING_PRESETS, IDP_POSITIONS, getSeasonPositionRank,
+} = require('./scoring.service');
 
 const POSITION_WHITELIST = ['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF', ...IDP_POSITIONS];
 const MAX_RANKINGS_LIMIT = 100;
@@ -416,13 +418,15 @@ async function getPlayerProfile(playerId, { season } = {}) {
     [id, player.nfl_team, targetSeason]
   );
 
+  const posRank = await getSeasonPositionRank(id, player.position, targetSeason);
+
   return serializePlayerProfile({
     player, season: targetSeason, seasons, seasonSummary, weeklyLogPartial,
-    recentRows: recentRes.rows,
+    recentRows: recentRes.rows, posRank,
   });
 }
 
-function serializePlayerProfile({ player, season, seasons, seasonSummary, weeklyLogPartial, recentRows }) {
+function serializePlayerProfile({ player, season, seasons, seasonSummary, weeklyLogPartial, recentRows, posRank }) {
   return {
     playerId: player.id,
     name: player.name,
@@ -434,6 +438,10 @@ function serializePlayerProfile({ player, season, seasons, seasonSummary, weekly
     injuryDetail: player.injury_detail,
     news: player.news,
     adp: player.adp == null ? null : Number(player.adp),
+    // Rank within the same position code by the viewed season's stored points
+    // (null for pending/unavailable seasons). posRankOf = peers with a rollup.
+    posRank: posRank ? posRank.rank : null,
+    posRankOf: posRank ? posRank.groupSize : null,
     season: season == null ? null : Number(season),
     seasons,
     seasonSummary,

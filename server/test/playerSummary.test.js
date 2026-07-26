@@ -1,12 +1,37 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const pool = require('../modules/pool');
 const {
   aggregateSeasonStats,
   buildPlayerSummary,
   projectSeasonPoints,
   hasTeamDefenseTiers,
+  getSeasonPositionRank,
   SCORING_PRESETS,
 } = require('../services/scoring.service');
+
+// --- getSeasonPositionRank --------------------------------------------------
+
+test('getSeasonPositionRank ranks within the literal position by stored points', async (t) => {
+  let captured = null;
+  t.mock.method(pool, 'query', async (sql, params) => {
+    captured = { sql: String(sql), params };
+    return { rows: [{ rank: '4', group_size: 320 }] };
+  });
+  const out = await getSeasonPositionRank(900, 'LB', 2025);
+  assert.deepEqual(out, { rank: 4, groupSize: 320 });
+  assert.deepEqual(captured.params, [900, 'LB', 2025]);
+  // Ranks on the stored (weekly-summed for DEF) points — never re-scores stats.
+  assert.match(captured.sql, /RANK\(\) OVER \(ORDER BY "pss"\."fantasy_points" DESC\)/);
+  assert.match(captured.sql, /"p"\."position" = \$2/);
+});
+
+test('getSeasonPositionRank is null without a rollup row, position, or season', async (t) => {
+  t.mock.method(pool, 'query', async () => ({ rows: [] }));
+  assert.equal(await getSeasonPositionRank(900, 'LB', 2025), null); // no row
+  assert.equal(await getSeasonPositionRank(900, null, 2025), null);
+  assert.equal(await getSeasonPositionRank(900, 'LB', 'not-a-year'), null);
+});
 
 // --- projectSeasonPoints ----------------------------------------------------
 
@@ -190,6 +215,22 @@ test('buildPlayerSummary fantasy fields are null with no prior data', () => {
   assert.equal(out.fantasy.adp, null);
   assert.equal(out.fantasy.previousSeasonTotal, null);
   assert.equal(out.fantasy.projectedPoints, null);
+  assert.equal(out.fantasy.posRank, null);
+  assert.equal(out.fantasy.posRankOf, null);
+  assert.equal(out.fantasy.posRankSeason, null);
+});
+
+test('buildPlayerSummary passes a supplied position rank through to fantasy', () => {
+  const out = buildPlayerSummary({
+    player: PLAYER,
+    weeklyRows: [],
+    seasonRows: SEASONS,
+    currentSeasonYear: 2026,
+    posRank: { season: 2025, rank: 4, groupSize: 320 },
+  });
+  assert.equal(out.fantasy.posRank, 4);
+  assert.equal(out.fantasy.posRankOf, 320);
+  assert.equal(out.fantasy.posRankSeason, 2025);
 });
 
 test('buildPlayerSummary perGame is zero-safe when a season has zero games', () => {

@@ -17,6 +17,8 @@ const COMPLETE_PROFILE = {
   position: 'RB',
   nflTeam: 'KC',
   adp: 12.5,
+  posRank: 7,
+  posRankOf: 60,
   season: 2025,
   seasons: [
     { season: 2026, status: 'pending' },
@@ -126,6 +128,18 @@ test('stat labels expose the shared FPTS/G definition and preserve the ADP defin
   )).toBeInTheDocument();
 });
 
+test('shows a points-based Pos rank card with its definition', async () => {
+  renderPage();
+  await screen.findByRole('heading', { name: 'Alpha Back' });
+
+  expect(screen.getByText('Pos rank').closest('.MuiCardContent-root')).toHaveTextContent('#7');
+  const rankDefinition = screen.getByLabelText('Pos rank definition');
+  fireEvent.mouseOver(rankDefinition);
+  expect(await screen.findByText(
+    "Position rank: this player's rank among players at the same position."
+  )).toBeInTheDocument();
+});
+
 test('shows the partial-weekly affordance when weekly rows lag games played', async () => {
   renderPage();
   await screen.findByRole('heading', { name: 'Alpha Back' });
@@ -174,6 +188,8 @@ const DEF_PROFILE = {
   position: 'DEF',
   nflTeam: 'Denver Broncos',
   adp: null,
+  posRank: 3,
+  posRankOf: 32,
   seasonSummary: {
     season: 2025,
     gamesPlayed: 17,
@@ -208,6 +224,8 @@ test('hides the scoring-format toggle for a team defense, whose formats are iden
   expect(screen.getByText('2 Sk, 6 PA, 231 YdA')).toBeInTheDocument();
   // A DEF unit has no ADP; the card shows a dash rather than a bogus number.
   expect(screen.getByText('ADP').closest('.MuiCardContent-root')).toHaveTextContent('—');
+  // But it does have a points-based position rank.
+  expect(screen.getByText('Pos rank').closest('.MuiCardContent-root')).toHaveTextContent('#3');
 });
 
 test('hides the scoring-format toggle for an individual defender too', async () => {
@@ -217,6 +235,8 @@ test('hides the scoring-format toggle for an individual defender too', async () 
     name: 'Zaire Franklin',
     position: 'LB',
     nflTeam: 'IND',
+    posRank: null,
+    posRankOf: null,
     recentGames: [
       { season: 2025, week: 1, opponent: 'HOU', statLine: '6 Solo, 3 Ast, 1 Sk', fantasyPoints: 11, points: { standard: 11, halfPpr: 11, ppr: 11 } },
     ],
@@ -226,6 +246,8 @@ test('hides the scoring-format toggle for an individual defender too', async () 
 
   expect(screen.queryByRole('button', { name: 'Full PPR' })).not.toBeInTheDocument();
   expect(screen.getByText('6 Solo, 3 Ast, 1 Sk')).toBeInTheDocument();
+  // Without a season rollup the rank degrades to the same dash as ADP.
+  expect(screen.getByText('Pos rank').closest('.MuiCardContent-root')).toHaveTextContent('—');
 });
 
 test('keeps the scoring-format toggle for a pass-catching position', async () => {

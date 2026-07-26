@@ -213,7 +213,8 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
   const currentSeason = data?.currentSeason;
   const previousSeasons = data?.previousSeasons || [];
   const hasFantasy =
-    fantasy.adp != null || fantasy.projectedPoints != null || fantasy.previousSeasonTotal != null;
+    fantasy.adp != null || fantasy.posRank != null
+    || fantasy.projectedPoints != null || fantasy.previousSeasonTotal != null;
 
   return (
     <Dialog
@@ -363,6 +364,13 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 2 }} data-testid="fantasy-strip">
                 {fantasy.adp != null && (
                   <Chip size="small" variant="outlined" label={<><AbbreviationTooltip term="ADP" /> {fantasy.adp}</>} />
+                )}
+                {fantasy.posRank != null && (
+                  <Chip
+                    size="small"
+                    variant="outlined"
+                    label={<><AbbreviationTooltip term="Pos rank" /> #{fantasy.posRank}</>}
+                  />
                 )}
                 {fantasy.projectedPoints != null && (
                   <Chip

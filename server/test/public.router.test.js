@@ -107,6 +107,9 @@ const PLAYER_ROW = {
 
 function profileHandlers(overrides = {}) {
   return [
+    // Must precede the rollup needle: the rank window query also reads
+    // player_season_stats.
+    ['RANK() OVER', overrides.posRank || { rows: [{ rank: 3, group_size: 60 }] }],
     ['UNION SELECT DISTINCT "season"', overrides.seasons || { rows: [{ season: 2025 }] }],
     ['EXTRACT(MONTH FROM CURRENT_DATE)', overrides.upcoming || { rows: [{ season: 2026 }] }],
     ['FROM "player_season_stats"', overrides.rollup || { rows: [{
@@ -130,6 +133,8 @@ test('GET /players/:id returns a whitelisted profile with per-format points and 
   assert.equal(res.headers['cache-control'], 'public, max-age=300, s-maxage=3600');
   assert.equal(res.body.playerId, 1);
   assert.equal(res.body.adp, 12.5);
+  assert.equal(res.body.posRank, 3);
+  assert.equal(res.body.posRankOf, 60);
   assert.equal(res.body.season, 2025);
 
   // Season summary sourced from the complete rollup (17 games), carried in all
@@ -227,6 +232,9 @@ test('GET /players/:id prices a team defense from weekly rows, never the rollup'
     { season: 2025, week: 1, fantasy_points: '22', stats: { sack: 2, pointsAllowed: 0, yardsAllowed: 90 }, opponent: 'NYG' },
   ];
   installPool(t, [
+    // The rank query reads player_season_stats too, but only its stored
+    // (weekly-summed) fantasy_points — never pricing the aggregate.
+    ['RANK() OVER', { rows: [{ rank: 5, group_size: 32 }] }],
     ['UNION SELECT DISTINCT "season"', { rows: [{ season: 2025 }] }],
     ['EXTRACT(MONTH FROM CURRENT_DATE)', { rows: [{ season: 2026 }] }],
     // Present but must be ignored for DEF — an aggregate we could never price.
@@ -251,6 +259,8 @@ test('GET /players/:id prices a team defense from weekly rows, never the rollup'
   assert.equal(res.body.recentGames[0].statLine, '2 Sk, 0 PA, 95 YdA');
   assert.equal(res.body.recentGames[0].opponent, 'LV');
   assert.equal(res.body.adp, null);
+  assert.equal(res.body.posRank, 5);
+  assert.equal(res.body.posRankOf, 32);
   assertNoLeakyKeys(res.body);
 });
 
@@ -259,6 +269,8 @@ test('GET /players/:id passes the DEF unit\'s raw team through to the normalizin
   // The SQL normalizes both sides, so the bind stays the raw players value.
   let recentParams = null;
   installPool(t, [
+    // No rollup row for this season -> the profile simply carries a null rank.
+    ['RANK() OVER', { rows: [] }],
     ['UNION SELECT DISTINCT "season"', { rows: [{ season: 2025 }] }],
     ['EXTRACT(MONTH FROM CURRENT_DATE)', { rows: [{ season: 2026 }] }],
     ['FROM "player_stats" "agg"', { rows: [{ stats: { sack: 1, pointsAllowed: 20, yardsAllowed: 300 } }] }],
@@ -291,6 +303,8 @@ test('GET /players/:id keeps the rollup path for an IDP player (linear rules)', 
   assert.equal(res.body.seasonSummary.fantasyPoints, 144);
   assert.equal(res.body.seasonSummary.points.standard, 144);
   assert.equal(res.body.recentGames[0].statLine, '6 Solo, 3 Ast, 1 Sk');
+  // IDP players rank off the same rollup table (no ADP required).
+  assert.equal(res.body.posRank, 3);
 });
 
 test('GET /rankings accepts an IDP position so profile peer links resolve', async (t) => {

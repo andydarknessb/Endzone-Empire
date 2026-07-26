@@ -1214,6 +1214,9 @@ function buildPlayerSummary({
   rules = SCORING_RULES,
   byeWeek = null,
   currentSeasonYear = 2026,
+  // { season, rank, groupSize } from getSeasonPositionRank, or null. Passed in
+  // (not queried here) so this builder stays pure over its row inputs.
+  posRank = null,
 }) {
   const currentYear = Number(currentSeasonYear) || 2026;
 
@@ -1267,6 +1270,9 @@ function buildPlayerSummary({
   const canProject = lastCompleted && lastCompleted.games >= MIN_PROJECTION_GAMES && lastCompleted.perGame;
   const fantasy = {
     adp,
+    posRank: posRank ? posRank.rank : null,
+    posRankOf: posRank ? posRank.groupSize : null,
+    posRankSeason: posRank ? posRank.season : null,
     previousSeasonYear: lastCompleted ? lastCompleted.season : null,
     previousSeasonTotal: lastCompleted ? lastCompleted.points : null,
     projectionSeason: currentYear,
@@ -1374,6 +1380,35 @@ async function syncPlayerSeasonStats({ currentSeason, positions } = {}) {
     }
   }
   return { cutoffSeason: cutoff, seasonsUpserted: upserted };
+}
+
+/**
+ * A player's rank among the same literal position code (CB ranks against CB,
+ * not the DB group) by stored season fantasy_points, from player_season_stats.
+ * The stored points are the app-default (half-PPR) values — for DEF they're
+ * weekly-summed, so ranking on them never re-scores a season aggregate against
+ * the per-game pointsAllowed/yardsAllowed tiers. One number regardless of any
+ * client scoring-format toggle.
+ *
+ * Returns { rank, groupSize } or null when the player has no rollup row for
+ * that season. Ties share a rank (RANK(), not ROW_NUMBER()).
+ */
+async function getSeasonPositionRank(playerId, position, season) {
+  if (!position || !Number.isInteger(Number(season))) return null;
+  const result = await pool.query(
+    `SELECT "rank", "group_size" FROM (
+       SELECT "pss"."player_id",
+              RANK() OVER (ORDER BY "pss"."fantasy_points" DESC) AS "rank",
+              COUNT(*) OVER ()::int AS "group_size"
+       FROM "player_season_stats" "pss"
+       JOIN "players" "p" ON "p"."id" = "pss"."player_id"
+       WHERE "p"."position" = $2 AND "pss"."season" = $3
+     ) "ranked" WHERE "player_id" = $1`,
+    [playerId, position, season]
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return { rank: Number(row.rank), groupSize: Number(row.group_size) };
 }
 
 /**
@@ -1572,6 +1607,7 @@ module.exports = {
   syncInjuries,
   syncPlayers,
   syncPlayerSeasonStats,
+  getSeasonPositionRank,
   generateMatchups,
   scoreMatchups,
 };

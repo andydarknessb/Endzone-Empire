@@ -12,10 +12,11 @@ test('normalizeAdpPosition maps FFC PK to our K, passes others through', () => {
   assert.equal(normalizeAdpPosition('DEF'), 'DEF');
 });
 
-test('normalizeAdpEntry extracts name key, position, and numeric adp', () => {
+test('normalizeAdpEntry extracts name key, position, team code, and numeric adp', () => {
   const out = normalizeAdpEntry({ name: 'Bijan Robinson', position: 'RB', team: 'ATL', adp: '1.6' });
   assert.equal(out.nameKey, 'bijan robinson');
   assert.equal(out.position, 'RB');
+  assert.equal(out.teamAbbr, 'ATL');
   assert.equal(out.adp, 1.6);
 });
 
@@ -44,4 +45,51 @@ test('buildAdpUpdates disambiguates same-named players by position', () => {
 test('buildAdpUpdates leaves unmatched (undrafted) players out', () => {
   const updates = buildAdpUpdates([{ id: 2, name: 'Deep Sleeper', position: 'WR' }], entries);
   assert.deepEqual(updates, []);
+});
+
+// FFC names defenses "Denver Defense" while our DEF rows are "Denver Broncos" —
+// the team code is the only key that lines up, so DEF matches on it alone.
+const defEntries = [
+  { name: 'Denver Defense', nameKey: 'denver defense', position: 'DEF', teamAbbr: 'DEN', adp: 101.1 },
+  { name: 'LA Rams Defense', nameKey: 'la rams defense', position: 'DEF', teamAbbr: 'LAR', adp: 108.7 },
+];
+
+test('buildAdpUpdates matches a DEF row by team code, not name', () => {
+  const updates = buildAdpUpdates(
+    [
+      { id: 50, name: 'Denver Broncos', position: 'DEF', nfl_team: 'Denver Broncos' },
+      { id: 51, name: 'Los Angeles Rams', position: 'DEF', nfl_team: 'Los Angeles Rams' },
+    ],
+    defEntries
+  );
+  assert.deepEqual(updates, [{ id: 50, adp: 101.1 }, { id: 51, adp: 108.7 }]);
+});
+
+test('buildAdpUpdates leaves a DEF with no FFC entry (undrafted defense) null', () => {
+  const updates = buildAdpUpdates(
+    [{ id: 52, name: 'Carolina Panthers', position: 'DEF', nfl_team: 'Carolina Panthers' }],
+    defEntries
+  );
+  assert.deepEqual(updates, []);
+});
+
+test('buildAdpUpdates matches a DEF row whose nfl_team is already an abbreviation', () => {
+  const updates = buildAdpUpdates(
+    [{ id: 53, name: 'Denver Broncos', position: 'DEF', nfl_team: 'DEN' }],
+    defEntries
+  );
+  assert.deepEqual(updates, [{ id: 53, adp: 101.1 }]);
+});
+
+test('an IDP player never inherits a same-named offensive player\'s ADP', () => {
+  // Real hazard, live in the players table: Browns LB Justin Jefferson vs the
+  // Vikings WR. FFC has no IDP entries, so any IDP name hit is a false one.
+  const updates = buildAdpUpdates(
+    [
+      { id: 60, name: 'Justin Jefferson', position: 'LB', nfl_team: 'CLE' },
+      { id: 61, name: 'Justin Jefferson', position: 'WR', nfl_team: 'MIN' },
+    ],
+    [{ name: 'Justin Jefferson', nameKey: 'justin jefferson', position: 'WR', teamAbbr: 'MIN', adp: 13.7 }]
+  );
+  assert.deepEqual(updates, [{ id: 61, adp: 13.7 }]); // the WR only
 });

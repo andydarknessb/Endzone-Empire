@@ -35,6 +35,9 @@ const summaryResponse = (overrides = {}) => ({
         ? overrides.fantasy
         : {
             adp: 24.5,
+            posRank: 3,
+            posRankOf: 70,
+            posRankSeason: 2025,
             projectionSeason: 2026,
             projectedPoints: 320.1,
             previousSeasonYear: 2025,
@@ -93,7 +96,9 @@ test('renders the player header, fantasy strip, and current-season stat lines', 
   expect(screen.getByText('#15')).toBeInTheDocument();
   expect(screen.getByText('Bye: Wk 10')).toBeInTheDocument();
   expect(screen.getByTestId('fantasy-strip')).toHaveTextContent('ADP 24.5');
+  expect(screen.getByTestId('fantasy-strip')).toHaveTextContent('Pos rank #3');
   expect(screen.getByLabelText(/ADP: Average draft position/i)).toBeInTheDocument();
+  expect(screen.getByLabelText(/Pos rank: Position rank/i)).toBeInTheDocument();
   expect(screen.getByText('Games: 2')).toBeInTheDocument();
   expect(screen.getByText('Fantasy Points: 40')).toBeInTheDocument();
   expect(screen.getByText('300 Pass Yds, 2 Pass TD, 1 INT')).toBeInTheDocument();

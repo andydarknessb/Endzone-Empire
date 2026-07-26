@@ -256,12 +256,19 @@ export function ProfileBody({
         )
       ) : (
         <>
-          {/* Stat cards */}
+          {/* Stat cards (fractional md — five across on desktop) */}
           <Grid container spacing={2} sx={{ mb: 3 }}>
-            <Grid xs={6} md={3}><StatCard label="Games" value={s?.gamesPlayed} /></Grid>
-            <Grid xs={6} md={3}><StatCard label="FPTS/G" value={perGame} tooltip={STAT_DEFINITIONS['FPTS/G']} /></Grid>
-            <Grid xs={6} md={3}><StatCard label="Season points" value={seasonPoints} /></Grid>
-            <Grid xs={6} md={3}><StatCard label="ADP" value={player.adp} tooltip={STAT_DEFINITIONS.ADP} /></Grid>
+            <Grid xs={6} md={2.4}><StatCard label="Games" value={s?.gamesPlayed} /></Grid>
+            <Grid xs={6} md={2.4}><StatCard label="FPTS/G" value={perGame} tooltip={STAT_DEFINITIONS['FPTS/G']} /></Grid>
+            <Grid xs={6} md={2.4}><StatCard label="Season points" value={seasonPoints} /></Grid>
+            <Grid xs={6} md={2.4}>
+              <StatCard
+                label="Pos rank"
+                value={player.posRank != null ? `#${player.posRank}` : null}
+                tooltip={STAT_DEFINITIONS['Pos rank']}
+              />
+            </Grid>
+            <Grid xs={6} md={2.4}><StatCard label="ADP" value={player.adp} tooltip={STAT_DEFINITIONS.ADP} /></Grid>
           </Grid>
 
           {/* Full-season game log (the API's recentGames field is uncapped) */}
