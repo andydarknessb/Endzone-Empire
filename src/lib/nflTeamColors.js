@@ -126,6 +126,29 @@ export function getSpriteColors(runnerAbbr, defenderAbbr) {
   return { runner: normalizeKit(runner), defender: normalizeKit(defender) };
 }
 
+// The BOOM band behind the scorer's name in the cutscene's referee frame.
+const BAND_BLACK = '#000000';
+
+/**
+ * Colors for the scorer's name on the black BOOM band: `text` is the first kit
+ * color readable on black, `shadow` a second distinct kit color for the
+ * two-tone pixel-text look, `stripe` the raw jersey for the band's decorative
+ * top border (no contrast guard needed — it never sits behind text).
+ */
+export function getNameColors(abbr) {
+  const kit = getTeamKit(abbr);
+  const candidates = [kit.jersey, kit.accent, kit.helmet, kit.pants, '#ffffff'];
+  const text = candidates.find(
+    (c) => c && colorDistance(c, BAND_BLACK) >= CONTRAST_THRESHOLD
+  ) || '#ffffff';
+  const shadow = candidates.find(
+    (c) => c && c !== text
+      && colorDistance(c, text) >= CONTRAST_THRESHOLD
+      && colorDistance(c, BAND_BLACK) >= 60
+  ) || '#b3251f';
+  return { text, shadow, stripe: kit.jersey };
+}
+
 /** Ensure a kit has all four roles (accent falls back to helmet). */
 function normalizeKit(kit) {
   return {
