@@ -11,6 +11,7 @@ const MAX_SITEMAP_URLS = 50_000;
 // appended from the league-free public tables below.
 const STATIC_PUBLIC_PATHS = [
   '/rankings',
+  '/draft-simulator',
   '/waiver-wire',
   '/strategy',
   '/strategy/draft-by-tiers',

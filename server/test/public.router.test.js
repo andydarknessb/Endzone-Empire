@@ -352,6 +352,172 @@ test('GET /players/:id rejects a zero season with 400', async (t) => {
   assert.equal(res.status, 400);
 });
 
+// ---------------------------------------------------------------------------
+// GET /draft-pool — bulk pool for the client-side Draft Simulator
+// ---------------------------------------------------------------------------
+
+const POOL_MAIN_ROWS = [
+  {
+    id: 1, name: 'Alpha Back', position: 'RB', nfl_team: 'KC', photo_url: 'http://x/1.png',
+    injury_status: null, adp: '1.4', position_rank: 1,
+    // decoys that must NOT survive the serializer:
+    user_id: 9, league_id: 4,
+  },
+  {
+    id: 2, name: 'Bravo Wide', position: 'WR', nfl_team: 'BUF', photo_url: null,
+    injury_status: 'Q', adp: '8.2', position_rank: 2,
+  },
+];
+
+const POOL_IDP_ROWS = [
+  {
+    id: 3, name: 'Charlie Backer', position: 'LB', nfl_team: 'KC', photo_url: null,
+    injury_status: null, position_rank: 1,
+  },
+];
+
+function draftPoolHandlers(overrides = {}) {
+  return [
+    // Both pool queries carry RANK() OVER, so route on the CTE names.
+    ['"market_ranks" AS', overrides.main || { rows: POOL_MAIN_ROWS }],
+    ['"idp_ranks" AS', overrides.idp || { rows: POOL_IDP_ROWS }],
+    ['EXTRACT(MONTH FROM CURRENT_DATE)', overrides.upcoming || { rows: [{ season: 2026 }] }],
+    ['FROM "player_season_stats" WHERE "player_id" = ANY', overrides.rollup || { rows: [
+      // 17 games of 10 points => 10 pts/game => 170 projected.
+      { player_id: 1, season: 2025, games_played: 17, stats: { rushingYards: 1700 }, fantasy_points: '170' },
+      // Below MIN_PROJECTION_GAMES -> null projection, not a fake 0.
+      { player_id: 2, season: 2025, games_played: 2, stats: { receivingYards: 100 }, fantasy_points: '10' },
+    ] }],
+    ['fn_normalize_nfl_team', overrides.bye || (() => {
+      const rows = [];
+      for (let week = 1; week <= 18; week++) {
+        if (week !== 10) rows.push({ nfl_team: 'KC', week });
+        if (week !== 7) rows.push({ nfl_team: 'BUF', week });
+      }
+      return { rows };
+    })],
+  ];
+}
+
+test('GET /draft-pool serves an ADP-ordered pool with a long Cache-Control and no leaky keys', async (t) => {
+  installPool(t, draftPoolHandlers());
+
+  const res = await request(makeApp()).get('/api/public/draft-pool');
+
+  assert.equal(res.status, 200);
+  assert.equal(res.headers['cache-control'], 'public, max-age=300, s-maxage=3600');
+  assert.equal(res.body.season, 2026);
+  assert.equal(res.body.includeIdp, false);
+  assert.equal(res.body.players.length, 2); // IDP tranche not requested
+
+  const top = res.body.players[0];
+  assert.deepEqual(Object.keys(top).sort(), [
+    'adp', 'byeWeek', 'injuryStatus', 'name', 'nflTeam', 'photoUrl',
+    'playerId', 'position', 'positionRank', 'projectedPoints',
+  ]);
+  assert.equal(top.playerId, 1);
+  assert.equal(top.adp, 1.4);
+  assert.equal(top.positionRank, 1);
+  assert.equal(top.projectedPoints, 170);
+  assert.equal(top.byeWeek, 10); // KC's sole 2026 schedule gap
+  // Too few games to project -> null, never 0.
+  assert.equal(res.body.players[1].projectedPoints, null);
+  assert.equal(res.body.players[1].byeWeek, 7);
+
+  assertNoLeakyKeys(res.body);
+});
+
+test('GET /draft-pool?idp=1 appends individual defenders with a null ADP', async (t) => {
+  installPool(t, draftPoolHandlers());
+
+  const res = await request(makeApp()).get('/api/public/draft-pool?idp=1');
+
+  assert.equal(res.status, 200);
+  assert.equal(res.body.includeIdp, true);
+  assert.equal(res.body.players.length, 3);
+
+  const idp = res.body.players[2];
+  assert.equal(idp.playerId, 3);
+  assert.equal(idp.position, 'LB');
+  // No free redraft IDP market exists — the client owns the effAdp fallback.
+  assert.equal(idp.adp, null);
+  assert.equal(idp.positionRank, 1);
+  assertNoLeakyKeys(res.body);
+});
+
+test('GET /draft-pool rejects a non-boolean idp with 400', async (t) => {
+  installPool(t, draftPoolHandlers());
+  const res = await request(makeApp()).get('/api/public/draft-pool?idp=maybe');
+  assert.equal(res.status, 400);
+});
+
+test('GET /draft-pool serves the second request from its TTL cache', async (t) => {
+  let mainQueries = 0;
+  installPool(t, draftPoolHandlers({
+    main: () => {
+      mainQueries += 1;
+      return { rows: POOL_MAIN_ROWS };
+    },
+  }));
+
+  const app = makeApp();
+  const first = await request(app).get('/api/public/draft-pool');
+  const second = await request(app).get('/api/public/draft-pool');
+
+  assert.equal(first.status, 200);
+  assert.equal(second.status, 200);
+  assert.equal(mainQueries, 1);
+  assert.deepEqual(second.body, first.body);
+  // Cached responses still carry the caching header.
+  assert.equal(second.headers['cache-control'], 'public, max-age=300, s-maxage=3600');
+});
+
+test('GET /draft-pool caches the IDP variant separately from the base pool', async (t) => {
+  let idpQueries = 0;
+  installPool(t, draftPoolHandlers({
+    idp: () => {
+      idpQueries += 1;
+      return { rows: POOL_IDP_ROWS };
+    },
+  }));
+
+  const app = makeApp();
+  await request(app).get('/api/public/draft-pool');
+  assert.equal(idpQueries, 0); // base pool never runs the IDP query
+  const withIdp = await request(app).get('/api/public/draft-pool?idp=1');
+  assert.equal(withIdp.body.players.length, 3);
+  assert.equal(idpQueries, 1);
+});
+
+test('GET /draft-pool degrades to null byes rather than 500ing when the schedule read fails', async (t) => {
+  const errors = [];
+  t.mock.method(console, 'error', (...args) => errors.push(args));
+  installPool(t, draftPoolHandlers({
+    bye: () => {
+      throw new Error('schedule unavailable');
+    },
+  }));
+
+  const res = await request(makeApp()).get('/api/public/draft-pool');
+  assert.equal(res.status, 200);
+  assert.equal(res.body.players[0].byeWeek, null);
+  assert.equal(errors.length, 1);
+});
+
+test('GET /draft-pool surfaces a real query failure as 500', async (t) => {
+  const errors = [];
+  t.mock.method(console, 'error', (...args) => errors.push(args));
+  installPool(t, draftPoolHandlers({
+    main: () => {
+      throw new Error('pool read exploded');
+    },
+  }));
+
+  const res = await request(makeApp()).get('/api/public/draft-pool');
+  assert.equal(res.status, 500);
+  assert.deepEqual(res.body, { error: 'failed to fetch the draft pool' });
+});
+
 test('GET /recaps lists recaps with version metadata and no leaky keys', async (t) => {
   installPool(t, [['FROM "private"."game_recaps"', { rows: [{
     tank01_game_id: '20260112_KC@BUF', season: 2026, week: 19, home_team: 'BUF', away_team: 'KC',
@@ -497,6 +663,7 @@ test('GET /sitemap.xml serves static, player, and recap public URLs', async (t) 
   assert.match(res.headers['content-type'], /^application\/xml/);
   assert.equal(res.headers['cache-control'], 'public, max-age=300, s-maxage=3600');
   assert.match(res.text, /https:\/\/endzoneempire\.gg\/rankings/);
+  assert.match(res.text, /https:\/\/endzoneempire\.gg\/draft-simulator/);
   assert.match(res.text, /https:\/\/endzoneempire\.gg\/strategy\/draft-by-tiers/);
   assert.match(res.text, /https:\/\/endzoneempire\.gg\/players\/42/);
   assert.match(res.text, /https:\/\/endzoneempire\.gg\/recaps\/20260112_KC%40BUF/);

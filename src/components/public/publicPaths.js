@@ -12,6 +12,7 @@
  */
 export const PUBLIC_PATH_PREFIXES = [
   '/rankings',
+  '/draft-simulator',
   '/players',
   '/waiver-wire',
   '/strategy',

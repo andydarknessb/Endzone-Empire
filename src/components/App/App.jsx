@@ -43,6 +43,7 @@ const GameCenter = lazy(() => import('../GameCenter/GameCenter'));
 const DraftBoard = lazy(() => import('../DraftBoard/DraftBoard'));
 const DraftSettings = lazy(() => import('../DraftSettings/DraftSettings'));
 const LeagueRules = lazy(() => import('../LeagueRules/LeagueRules'));
+const LeaguePickem = lazy(() => import('../LeaguePickem/LeaguePickem'));
 const DraftPresenter = lazy(() => import('../DraftPresenter/DraftPresenter'));
 const LineupScreen = lazy(() => import('../LineupScreen/LineupScreen'));
 const WaiverWire = lazy(() => import('../WaiverWire/WaiverWire'));
@@ -53,6 +54,7 @@ const LeagueHistory = lazy(() => import('../LeagueHistory/LeagueHistory'));
 const NotificationPrefs = lazy(() => import('../NotificationPrefs/NotificationPrefs'));
 const AuthenticatedPlayerProfilePage = lazy(() => import('../PlayerDetail/AuthenticatedPlayerProfilePage'));
 const AdminDashboard = lazy(() => import('../AdminDashboard/AdminDashboard'));
+const DraftSimScreen = lazy(() => import('../DraftSim/DraftSimScreen'));
 
 function AppLayout({ children }) {
   const { pathname } = useLocation();
@@ -105,12 +107,14 @@ function App() {
           <Route path="/league/:leagueId/draft" element={<ProtectedRoute><DraftBoard /></ProtectedRoute>} />
           <Route path="/league/:leagueId/draft-settings" element={<ProtectedRoute><DraftSettings /></ProtectedRoute>} />
           <Route path="/league/:leagueId/rules" element={<ProtectedRoute><LeagueRules /></ProtectedRoute>} />
+          <Route path="/league/:leagueId/pickem" element={<ProtectedRoute><LeaguePickem /></ProtectedRoute>} />
           <Route path="/league/:leagueId/lineup" element={<ProtectedRoute><LineupScreen /></ProtectedRoute>} />
           <Route path="/league/:leagueId/waivers" element={<ProtectedRoute><WaiverWire /></ProtectedRoute>} />
           <Route path="/league/:leagueId/trades" element={<ProtectedRoute><TradeCenter /></ProtectedRoute>} />
           <Route path="/league/:leagueId/activity" element={<ProtectedRoute><TransactionLog /></ProtectedRoute>} />
           <Route path="/league/:leagueId/power-rankings" element={<ProtectedRoute><PowerRankings /></ProtectedRoute>} />
           <Route path="/league/:leagueId/history" element={<ProtectedRoute><LeagueHistory /></ProtectedRoute>} />
+          <Route path="/draft-sim" element={<ProtectedRoute><DraftSimScreen /></ProtectedRoute>} />
           <Route path="/settings/notifications" element={<ProtectedRoute><NotificationPrefs /></ProtectedRoute>} />
           <Route path="/players/:playerId" element={<ProtectedRoute><AuthenticatedPlayerProfilePage /></ProtectedRoute>} />
           <Route path="/admin" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />

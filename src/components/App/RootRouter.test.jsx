@@ -32,6 +32,13 @@ describe('RootRouter dual-router shell', () => {
     expect(screen.getByText('PUBLIC APP')).toBeInTheDocument();
   });
 
+  it('mounts the public shell for the mock draft simulator', () => {
+    window.history.pushState({}, '', '/draft-simulator');
+    render(<RootRouter />);
+    expect(screen.getByText('PUBLIC APP')).toBeInTheDocument();
+    expect(screen.queryByText('AUTHED APP')).not.toBeInTheDocument();
+  });
+
   it('mounts the authed app for a non-public path', () => {
     window.history.pushState({}, '', '/');
     render(<RootRouter />);

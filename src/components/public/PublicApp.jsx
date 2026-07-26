@@ -8,6 +8,7 @@ import { LoadingRows } from './kit/DataState';
 // Lazy-load every public page so the authed bundle doesn't grow — the public
 // tree is only ever fetched when a visitor lands on a public URL.
 const RankingsPage = lazy(() => import('./pages/RankingsPage'));
+const DraftSimPage = lazy(() => import('./pages/DraftSimPage'));
 const PlayerProfilePage = lazy(() => import('./pages/PlayerProfilePage'));
 const WaiverWirePage = lazy(() => import('./pages/WaiverWirePage'));
 const StrategyIndexPage = lazy(() => import('./pages/StrategyIndexPage'));
@@ -38,6 +39,7 @@ function PublicApp() {
           <Suspense fallback={<SuspenseFallback />}>
             <Routes>
               <Route path="/rankings" element={<RankingsPage />} />
+              <Route path="/draft-simulator" element={<DraftSimPage />} />
               <Route path="/players/:id" element={<PlayerProfilePage />} />
               <Route path="/waiver-wire" element={<WaiverWirePage />} />
               <Route path="/strategy" element={<StrategyIndexPage />} />

@@ -40,6 +40,7 @@ const MAIN_LINKS = [
   { label: 'Discover', to: '/discover' },
   { label: 'Players', to: '/player' },
   { label: 'Roster', to: '/team' },
+  { label: 'Mock Draft', to: '/draft-sim' },
 ];
 
 function Nav() {

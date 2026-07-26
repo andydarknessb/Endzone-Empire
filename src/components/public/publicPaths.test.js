@@ -12,6 +12,7 @@ describe('isPublicPath', () => {
     expect(isPublicPath('/recaps/20260112_KC@BUF')).toBe(true);
     expect(isPublicPath('/strategy/draft-by-tiers')).toBe(true);
     expect(isPublicPath('/rankings')).toBe(true);
+    expect(isPublicPath('/draft-simulator')).toBe(true);
     expect(isPublicPath('/players/12345/')).toBe(true); // trailing slash tolerated
   });
 
@@ -26,5 +27,8 @@ describe('isPublicPath', () => {
     expect(isPublicPath('/playersfoo')).toBe(false);
     expect(isPublicPath('/rankings-abuse')).toBe(false);
     expect(isPublicPath('/waiver-wired')).toBe(false);
+    // The authed mock draft lives at /#/draft-sim — its pathname is '/'.
+    expect(isPublicPath('/draft-sim')).toBe(false);
+    expect(isPublicPath('/draft-simulator-x')).toBe(false);
   });
 });

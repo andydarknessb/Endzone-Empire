@@ -36,6 +36,7 @@ describe('PublicHeader', () => {
   it('renders the primary nav links', () => {
     renderHeader();
     expect(screen.getByRole('link', { name: 'Rankings' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Mock Draft' })).toHaveAttribute('href', '/draft-simulator');
     expect(screen.getByRole('link', { name: 'Waiver Wire' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Strategy' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Recaps' })).toBeInTheDocument();

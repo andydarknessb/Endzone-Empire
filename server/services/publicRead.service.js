@@ -25,10 +25,17 @@ const { getWeekProjections } = require('./projection.service');
 const { computeByeWeeks } = require('./bye.service');
 const {
   calculateFantasyPoints, SCORING_PRESETS, IDP_POSITIONS, getSeasonPositionRank,
+  projectSeasonPoints,
 } = require('./scoring.service');
 
 const POSITION_WHITELIST = ['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF', ...IDP_POSITIONS];
 const MAX_RANKINGS_LIMIT = 100;
+
+// Draft-pool sizing. 260 offensive/K/DEF players covers a 14-team × 16-round
+// mock with room to spare; the IDP tranche is appended only when asked for.
+const DRAFT_POOL_POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
+const DRAFT_POOL_LIMIT = 260;
+const DRAFT_POOL_IDP_LIMIT = 90;
 
 // A compact "key stat line" for a weekly/game row: the handful of normalized
 // stat keys worth showing, in a stable order, skipping zeros. Keys match
@@ -482,6 +489,127 @@ function serializePlayerProfile({ player, season, seasons, seasonSummary, weekly
   };
 }
 
+/**
+ * The bulk player pool the client-side Draft Simulator drafts from: one flat,
+ * ADP-ordered list of every player a mock draft could plausibly reach, plus an
+ * optional IDP tranche.
+ *
+ * Deliberately a single bulk read rather than a paginated one — the simulator
+ * is a pure client-side engine that needs the whole board in memory before the
+ * first pick, and the payload (~350 thin rows) is smaller than one page of the
+ * authed player list once stats are attached.
+ *
+ * IDP rows carry `adp: null` ON PURPOSE. No free redraft IDP market exists (see
+ * adp.service.js), so instead of inventing a number here the client owns the
+ * fallback (see src/lib/draftSim/cpuBrain.js effAdp) and the report labels those
+ * picks `no-market` instead of grading them as steals/reaches.
+ */
+async function getDraftPool({ includeIdp = false } = {}) {
+  // Season context: the upcoming NFL season drives both the projection's
+  // "which season is complete" cut and the bye-week schedule lookup.
+  const upcoming = await upcomingNflSeason();
+  const currentSeasonYear = upcoming == null ? new Date().getUTCFullYear() : upcoming;
+
+  // Market position rank as a single window function over the whole players
+  // table. RANK() is exactly `1 + peers with a lower ADP`, matching the
+  // correlated-subquery definition player.router.js uses, without running 260
+  // correlated subqueries.
+  const mainRes = await pool.query(
+    `WITH "market_ranks" AS (
+       SELECT "id", RANK() OVER (PARTITION BY "position" ORDER BY "adp")::int AS "rank"
+       FROM "players" WHERE "adp" IS NOT NULL
+     )
+     SELECT "p"."id", "p"."name", "p"."position", "p"."nfl_team", "p"."photo_url",
+            "p"."injury_status", "p"."adp", "market_ranks"."rank" AS "position_rank"
+     FROM "players" "p"
+     LEFT JOIN "market_ranks" ON "market_ranks"."id" = "p"."id"
+     WHERE "p"."position" = ANY($1)
+     ORDER BY "p"."adp" ASC NULLS LAST, "p"."default_rank" ASC NULLS LAST, "p"."id"
+     LIMIT $2`,
+    [DRAFT_POOL_POSITIONS, DRAFT_POOL_LIMIT]
+  );
+
+  let idpRows = [];
+  if (includeIdp) {
+    // Individual defenders have no market, so they're ordered by last completed
+    // season's production rank within their own position code.
+    const idpRes = await pool.query(
+      `WITH "idp_ranks" AS (
+         SELECT "pss"."player_id",
+                RANK() OVER (
+                  PARTITION BY "p"."position" ORDER BY "pss"."fantasy_points" DESC
+                )::int AS "rank"
+         FROM "player_season_stats" "pss"
+         JOIN "players" "p" ON "p"."id" = "pss"."player_id"
+         WHERE "pss"."season" = $1
+           AND "p"."position" = ANY($2)
+           AND "pss"."fantasy_points" IS NOT NULL
+       )
+       SELECT "p"."id", "p"."name", "p"."position", "p"."nfl_team", "p"."photo_url",
+              "p"."injury_status", "idp_ranks"."rank" AS "position_rank"
+       FROM "players" "p"
+       JOIN "idp_ranks" ON "idp_ranks"."player_id" = "p"."id"
+       ORDER BY "idp_ranks"."rank" ASC, "p"."id"
+       LIMIT $3`,
+      [currentSeasonYear - 1, IDP_POSITIONS, DRAFT_POOL_IDP_LIMIT]
+    );
+    idpRows = idpRes.rows;
+  }
+
+  const rows = [...mainRes.rows, ...idpRows];
+  if (rows.length === 0) return { season: currentSeasonYear, includeIdp, players: [] };
+
+  // Full-season projection from the last completed season's rollup — the same
+  // projectSeasonPoints call the authed player list makes, under default rules
+  // (a mock draft has no league scoring settings to read).
+  const ids = rows.map((r) => r.id);
+  const seasonByPlayer = new Map();
+  const seasonRes = await pool.query(
+    `SELECT "player_id", "season", "games_played", "stats", "fantasy_points"
+     FROM "player_season_stats" WHERE "player_id" = ANY($1)`,
+    [ids]
+  );
+  for (const row of seasonRes.rows) {
+    if (!seasonByPlayer.has(row.player_id)) seasonByPlayer.set(row.player_id, []);
+    seasonByPlayer.get(row.player_id).push(row);
+  }
+
+  // Byes degrade to nulls rather than 500ing the whole pool (same soft-fail
+  // posture as the rankings page).
+  let byeByTeam = new Map();
+  try {
+    byeByTeam = await computeByeWeeks(rows.map((r) => r.nfl_team), currentSeasonYear);
+  } catch (err) {
+    console.error('public draft pool: bye lookup failed', err.message);
+  }
+
+  const players = rows.map((row) => serializeDraftPoolRow({
+    row,
+    projectedPoints: projectSeasonPoints({
+      seasonRows: seasonByPlayer.get(row.id) || [],
+      currentSeasonYear,
+    }),
+    byeWeek: byeByTeam.get(row.nfl_team) ?? null,
+  }));
+
+  return { season: currentSeasonYear, includeIdp, players };
+}
+
+function serializeDraftPoolRow({ row, projectedPoints, byeWeek }) {
+  return {
+    playerId: row.id,
+    name: row.name,
+    position: row.position,
+    nflTeam: row.nfl_team,
+    photoUrl: row.photo_url == null ? null : String(row.photo_url),
+    injuryStatus: row.injury_status == null ? null : String(row.injury_status),
+    adp: row.adp == null ? null : Number(row.adp),
+    positionRank: row.position_rank == null ? null : Number(row.position_rank),
+    projectedPoints: projectedPoints == null ? null : round1(projectedPoints),
+    byeWeek: byeWeek == null ? null : Number(byeWeek),
+  };
+}
+
 /** First sentence of a narrative, for one-line list hooks. */
 function firstSentence(text) {
   if (!text || typeof text !== 'string') return '';
@@ -626,8 +754,12 @@ function serializeRecapDetail(row) {
 module.exports = {
   POSITION_WHITELIST,
   MAX_RANKINGS_LIMIT,
+  DRAFT_POOL_POSITIONS,
+  DRAFT_POOL_LIMIT,
+  DRAFT_POOL_IDP_LIMIT,
   getRankings,
   getPlayerProfile,
+  getDraftPool,
   listRecaps,
   getRecap,
   // exported for unit tests
@@ -635,6 +767,7 @@ module.exports = {
   trendFromWeeks,
   firstSentence,
   serializeRankingRow,
+  serializeDraftPoolRow,
   serializePlayerProfile,
   serializeRecapListRow,
   serializeRecapDetail,

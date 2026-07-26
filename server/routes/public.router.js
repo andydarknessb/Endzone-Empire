@@ -19,6 +19,7 @@ const {
   POSITION_WHITELIST,
   getRankings,
   getPlayerProfile,
+  getDraftPool,
   listRecaps,
   getRecap,
 } = require('../services/publicRead.service');
@@ -58,6 +59,24 @@ function rankingsCacheGet(key) {
 function rankingsCacheSet(key, value) {
   if (rankingsCache.size > 500) rankingsCache.clear();
   rankingsCache.set(key, { value, expires: Date.now() + RANKINGS_TTL_MS });
+}
+
+// The draft pool is a bulk read (one window function + one rollup fan-out) that
+// every mock draft opens with, and it changes at most once a day, so it gets a
+// much longer module TTL than rankings. Two entries at most (idp on/off).
+const DRAFT_POOL_TTL_MS = 600_000;
+const draftPoolCache = new Map();
+function draftPoolCacheGet(key) {
+  const hit = draftPoolCache.get(key);
+  if (!hit) return null;
+  if (hit.expires <= Date.now()) {
+    draftPoolCache.delete(key);
+    return null;
+  }
+  return hit.value;
+}
+function draftPoolCacheSet(key, value) {
+  draftPoolCache.set(key, { value, expires: Date.now() + DRAFT_POOL_TTL_MS });
 }
 
 // Validate an optional positive-integer query param. Returns { ok, value } —
@@ -104,6 +123,36 @@ router.get('/rankings', async (req, res) => {
   } catch (error) {
     console.error('GET /api/public/rankings failed', error);
     res.status(500).json({ error: 'failed to fetch rankings' });
+  }
+});
+
+// GET /api/public/draft-pool?idp=1 — bulk player pool for the client-side
+// Draft Simulator (both the public page and the authed one read this).
+router.get('/draft-pool', async (req, res) => {
+  const raw = req.query.idp;
+  let includeIdp = false;
+  if (raw !== undefined && raw !== '') {
+    const value = String(raw).toLowerCase();
+    if (value === '1' || value === 'true') includeIdp = true;
+    else if (value === '0' || value === 'false') includeIdp = false;
+    else return res.status(400).json({ error: 'idp must be 0 or 1' });
+  }
+
+  const cacheKey = includeIdp ? 'idp' : 'base';
+  const cached = draftPoolCacheGet(cacheKey);
+  if (cached) {
+    res.set('Cache-Control', DETAIL_CACHE);
+    return res.json(cached);
+  }
+
+  try {
+    const payload = await getDraftPool({ includeIdp });
+    draftPoolCacheSet(cacheKey, payload);
+    res.set('Cache-Control', DETAIL_CACHE);
+    res.json(payload);
+  } catch (error) {
+    console.error('GET /api/public/draft-pool failed', error);
+    res.status(500).json({ error: 'failed to fetch the draft pool' });
   }
 });
 

@@ -63,6 +63,31 @@ test('player profile emits its real canonical URL and points-based OG/Twitter me
   expect(meta('meta[name="twitter:card"]')).toHaveAttribute('content', 'summary_large_image');
 });
 
+test('the mock draft simulator is an indexable public page with its own canonical URL', async () => {
+  // The simulator fetches its pool only after a draft starts, so the landing
+  // state renders with no request at all.
+  window.history.pushState({}, '', '/draft-simulator');
+
+  render(<PublicApp />);
+
+  await screen.findByRole('heading', { name: 'Mock Draft Simulator' }, { timeout: 5000 });
+  await waitFor(() =>
+    expect(document.title).toBe('Fantasy Football Mock Draft Simulator | Endzone Empire')
+  );
+
+  expect(canonical()).toHaveAttribute('href', 'https://endzoneempire.gg/draft-simulator');
+  expect(meta('meta[property="og:title"]')).toHaveAttribute('content', document.title);
+  expect(meta('meta[property="og:url"]')).toHaveAttribute(
+    'content',
+    'https://endzoneempire.gg/draft-simulator'
+  );
+  expect(meta('meta[name="description"]')).toHaveAttribute(
+    'content',
+    expect.stringContaining('mock draft')
+  );
+  expect(publicApiClient.get).not.toHaveBeenCalled();
+});
+
 test('recap detail puts the final scoreboard in canonical OG metadata', async () => {
   publicApiClient.get.mockResolvedValue({
     data: {
