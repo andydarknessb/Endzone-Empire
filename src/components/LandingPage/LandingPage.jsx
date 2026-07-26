@@ -7,6 +7,7 @@ import {
   Button,
   Card,
   CardContent,
+  Link as MuiLink,
   Stack,
 } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2';
@@ -18,6 +19,8 @@ import ScoreboardIcon from '@mui/icons-material/Scoreboard';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
 import ChatIcon from '@mui/icons-material/Chat';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
+import SmartToyIcon from '@mui/icons-material/SmartToy';
+import FactCheckIcon from '@mui/icons-material/FactCheck';
 import LandingPublicBand from './LandingPublicBand';
 import './LandingPage.css';
 
@@ -61,6 +64,16 @@ const FEATURES = [
     title: 'Commissioner Tools',
     description: 'Manage rosters, settings, and disputes without leaving the app.',
     Icon: AdminPanelSettingsIcon,
+  },
+  {
+    title: "League Pick'em",
+    description: 'Pick NFL winners against your league every week — straight up or with confidence points.',
+    Icon: FactCheckIcon,
+  },
+  {
+    title: 'Mock Draft Simulator',
+    description: 'Practice against CPU managers and get an instant A–F grade with pick-by-pick analysis.',
+    Icon: SmartToyIcon,
   },
 ];
 
@@ -118,6 +131,10 @@ function LandingPage() {
                 Log In
               </Button>
             </Stack>
+            {/* Plain <a href>: /draft-simulator lives in the public BrowserRouter tree. */}
+            <MuiLink href="/draft-simulator" underline="hover" sx={{ fontWeight: 600 }}>
+              Or try a free mock draft — no account needed →
+            </MuiLink>
           </Stack>
         </Container>
       </Box>

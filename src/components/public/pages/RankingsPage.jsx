@@ -6,6 +6,7 @@ import {
 import SearchIcon from '@mui/icons-material/Search';
 import PublicLayout from '../PublicLayout';
 import PublicSeo from '../PublicSeo';
+import FeaturePromos from '../kit/FeaturePromos';
 import RankingTable from '../kit/RankingTable';
 import { usePublicResource } from '../kit/usePublicResource';
 import publicApiClient from '../../../api/publicApiClient';
@@ -62,6 +63,8 @@ function RankingsPage() {
           {season ? ` · ${season} season` : ''}
         </Typography>
       </Box>
+
+      <FeaturePromos />
 
       {/* Sticky filter bar */}
       <Stack

@@ -34,6 +34,15 @@ describe('LandingPublicBand', () => {
     expect(screen.getByText('Star Back').closest('a')).toHaveAttribute('href', '/players/9');
   });
 
+  it('advertises the mock draft simulator as a free tool', async () => {
+    mockEndpoints({ rankings: [], recaps: [] });
+    render(<LandingPublicBand />);
+    expect(
+      screen.getByRole('link', { name: 'Try the Mock Draft Simulator' })
+    ).toHaveAttribute('href', '/draft-simulator');
+    await waitFor(() => expect(publicApiClient.get).toHaveBeenCalled());
+  });
+
   it('degrades gracefully: a failed fetch hides that teaser but never breaks the band', async () => {
     mockEndpoints({ fail: true });
     render(<LandingPublicBand />);

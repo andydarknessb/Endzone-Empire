@@ -33,9 +33,18 @@ test('renders the feature grid covering the core product areas', () => {
     'Playoffs & Standings',
     'League Chat',
     'Commissioner Tools',
+    "League Pick'em",
+    'Mock Draft Simulator',
   ].forEach((title) => {
     expect(screen.getByRole('heading', { name: title })).toBeInTheDocument();
   });
+});
+
+test('the hero offers the free mock draft as a no-account entry point', () => {
+  renderWithProviders(<LandingPage />);
+  expect(
+    screen.getByRole('link', { name: /try a free mock draft/i })
+  ).toHaveAttribute('href', '/draft-simulator');
 });
 
 test('the bottom CTA links to the registration page', () => {

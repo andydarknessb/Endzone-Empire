@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Box, Container, Typography, Card, CardContent, Stack, Link, Divider } from '@mui/material';
+import { Box, Button, Container, Typography, Card, CardContent, Stack, Link, Divider } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2';
 import publicApiClient from '../../api/publicApiClient';
 import { featuredArticles } from '../../content/articles';
@@ -65,6 +65,10 @@ function LandingPublicBand() {
             Browse rankings, player profiles, auto-generated game recaps, and fantasy strategy without
             signing up. Bring the whole thing to your league when you&apos;re ready.
           </Typography>
+          {/* Plain <a href>: the simulator lives in the public BrowserRouter tree. */}
+          <Button component="a" href="/draft-simulator" variant="contained" sx={{ mt: 1, fontWeight: 700 }}>
+            Try the Mock Draft Simulator
+          </Button>
         </Stack>
 
         <Grid container spacing={3} alignItems="stretch">
