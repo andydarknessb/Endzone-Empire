@@ -13,7 +13,7 @@ import { usePublicResource } from '../kit/usePublicResource';
 import { LoadingRows, EmptyState, ErrorState } from '../kit/DataState';
 import { positionColorVar } from '../kit/positionColor';
 import { sortGamesByWeek } from '../kit/gameLog';
-import { SCORING_FORMATS, DEFAULT_FORMAT, formatLabel, pointsFor } from '../kit/scoringFormat';
+import { SCORING_FORMATS, DEFAULT_FORMAT, formatLabel, pointsFor, hasFormatVariants } from '../kit/scoringFormat';
 import publicApiClient from '../../../api/publicApiClient';
 import { STAT_DEFINITIONS } from '../../common/AbbreviationTooltip';
 
@@ -175,7 +175,9 @@ export function ProfileBody({
   // Status of the season currently being viewed (echoed even when not selectable).
   const activeSeasonEntry = (player.seasons || []).find((x) => x.season === player.season) || null;
   const seasonStatus = activeSeasonEntry ? activeSeasonEntry.status : (s ? 'complete' : 'pending');
-  const multiFormat = !!(s && s.points); // real per-format payload (not a scalar/mock)
+  // Real per-format payload (not a scalar/mock), and a position whose formats
+  // actually differ — a DEF/IDP toggle would offer three identical numbers.
+  const multiFormat = !!(s && s.points) && hasFormatVariants(player.position);
   // Endpoint returns newest-first; render oldest-to-newest to match the label.
   const orderedGames = sortGamesByWeek(player.recentGames || []);
   const seasonPoints = pointsFor(s?.points, format, s?.fantasyPoints);

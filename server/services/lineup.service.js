@@ -225,7 +225,7 @@ async function getLineup({ leagueId, userId, week }) {
     const seasonByPlayer = new Map();
     if (playerIds.length > 0) {
       const seasonResult = await client.query(
-        `SELECT "player_id", "season", "games_played", "stats"
+        `SELECT "player_id", "season", "games_played", "stats", "fantasy_points"
          FROM "player_season_stats" WHERE "player_id" = ANY($1)`,
         [playerIds]
       );

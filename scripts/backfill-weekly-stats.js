@@ -21,9 +21,11 @@
  * (weeks 1-18); stored fantasy_points use the default half-PPR rules like
  * every other player_stats row.
  *
- * Do NOT follow this with the backfill-seasons job for past seasons — it
- * would overwrite the richer Sleeper-sourced player_season_stats rollups
- * (Tank01 has no two-point-conversion keys).
+ * Do NOT follow this with the UNSCOPED backfill-seasons job for past seasons —
+ * it would overwrite the richer Sleeper-sourced player_season_stats rollups
+ * (Tank01 has no two-point-conversion keys). To roll up the DEF/IDP season
+ * totals Sleeper never writes, run scripts/backfill-defense-season-stats.js
+ * instead — it scopes the upsert to defensive positions.
  *
  * Usage:
  *   node scripts/backfill-weekly-stats.js [--season N]... [--week N]...

@@ -165,6 +165,75 @@ test('offers the sole valid season when an unavailable shared season is active',
   expect(screen.queryByRole('button', { name: '2024' })).not.toBeInTheDocument();
 });
 
+// A team defense: no receptions anywhere in its scoring, so the three formats
+// are always the same number and offering a toggle would imply a difference.
+const DEF_PROFILE = {
+  ...COMPLETE_PROFILE,
+  playerId: 6721,
+  name: 'Denver Broncos',
+  position: 'DEF',
+  nflTeam: 'Denver Broncos',
+  adp: null,
+  seasonSummary: {
+    season: 2025,
+    gamesPlayed: 17,
+    points: { standard: 187, halfPpr: 187, ppr: 187 },
+    pointsPerGame: { standard: 11, halfPpr: 11, ppr: 11 },
+    fantasyPoints: 187,
+  },
+  weeklyLogPartial: false,
+  recentGames: [
+    { season: 2025, week: 1, opponent: 'NYG', statLine: '2 Sk, 6 PA, 231 YdA', fantasyPoints: 13, points: { standard: 13, halfPpr: 13, ppr: 13 } },
+  ],
+};
+
+function mockProfile(profile) {
+  publicApiClient.get.mockImplementation((url) => {
+    if (String(url).includes('/rankings')) return Promise.resolve({ data: { rankings: [] } });
+    return Promise.resolve({ data: profile });
+  });
+}
+
+test('hides the scoring-format toggle for a team defense, whose formats are identical', async () => {
+  mockProfile(DEF_PROFILE);
+  renderPage('/players/6721');
+  await screen.findByRole('heading', { name: 'Denver Broncos' });
+
+  expect(screen.queryByRole('button', { name: 'Full PPR' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Standard' })).not.toBeInTheDocument();
+  // The headline also drops the format qualifier it can no longer switch.
+  expect(screen.getByText('2025 fantasy points')).toBeInTheDocument();
+  // Points still render, and the defensive stat line comes through.
+  expect(screen.getAllByText('187').length).toBeGreaterThan(0);
+  expect(screen.getByText('2 Sk, 6 PA, 231 YdA')).toBeInTheDocument();
+  // A DEF unit has no ADP; the card shows a dash rather than a bogus number.
+  expect(screen.getByText('ADP').closest('.MuiCardContent-root')).toHaveTextContent('—');
+});
+
+test('hides the scoring-format toggle for an individual defender too', async () => {
+  mockProfile({
+    ...DEF_PROFILE,
+    playerId: 900,
+    name: 'Zaire Franklin',
+    position: 'LB',
+    nflTeam: 'IND',
+    recentGames: [
+      { season: 2025, week: 1, opponent: 'HOU', statLine: '6 Solo, 3 Ast, 1 Sk', fantasyPoints: 11, points: { standard: 11, halfPpr: 11, ppr: 11 } },
+    ],
+  });
+  renderPage('/players/900');
+  await screen.findByRole('heading', { name: 'Zaire Franklin' });
+
+  expect(screen.queryByRole('button', { name: 'Full PPR' })).not.toBeInTheDocument();
+  expect(screen.getByText('6 Solo, 3 Ast, 1 Sk')).toBeInTheDocument();
+});
+
+test('keeps the scoring-format toggle for a pass-catching position', async () => {
+  renderPage();
+  await screen.findByRole('heading', { name: 'Alpha Back' });
+  expect(screen.getByRole('button', { name: 'Full PPR' })).toBeInTheDocument();
+});
+
 test('switching to the pending upcoming season renders a not-started state, not an error', async () => {
   renderPage();
   await screen.findByRole('heading', { name: 'Alpha Back' });

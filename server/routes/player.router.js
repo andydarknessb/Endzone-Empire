@@ -143,7 +143,7 @@ router.get('/', requireAuth, async (req, res) => {
     const seasonByPlayer = new Map();
     if (ids.length > 0) {
       const seasonRes = await pool.query(
-        `SELECT "player_id", "season", "games_played", "stats"
+        `SELECT "player_id", "season", "games_played", "stats", "fantasy_points"
          FROM "player_season_stats" WHERE "player_id" = ANY($1)`,
         [ids]
       );

@@ -14,6 +14,37 @@ test('statLine skips zeros and orders/labels known stat keys', () => {
   assert.equal(svc.statLine({}), '');
 });
 
+test('statLine renders a team-defense line, keeping a shutout visible', () => {
+  assert.equal(
+    svc.statLine({
+      sack: 4, interceptionReturn: 2, fumbleRecovery: 1, defensiveTD: 0,
+      safety: 0, blockedKick: 0, pointsAllowed: 13, yardsAllowed: 310,
+    }),
+    '4 Sk, 2 INT, 1 FR, 13 PA, 310 YdA'
+  );
+  // Zero points allowed is the headline stat of the week, not an absent one.
+  assert.equal(
+    svc.statLine({ sack: 2, pointsAllowed: 0, yardsAllowed: 95 }),
+    '2 Sk, 0 PA, 95 YdA'
+  );
+});
+
+test('statLine renders an IDP line and omits the bonus-only yardage keys', () => {
+  assert.equal(
+    svc.statLine({
+      soloTackle: 6, assistedTackle: 3, idpSack: 1, idpInterception: 0,
+      forcedFumble: 1, passDeflection: 2, qbHit: 1, tacklesForLoss: 1,
+      idpSackYards: 8, idpTacklesForLossYards: 3,
+    }),
+    '6 Solo, 3 Ast, 1 Sk, 1 FF, 2 PD, 1 QBH, 1 TFL'
+  );
+});
+
+test('statLine leaves an offensive line untouched by the always-show rule', () => {
+  // No pointsAllowed key at all -> nothing extra appended.
+  assert.equal(svc.statLine({ receptions: 8, receivingYards: 92 }), '8 rec, 92 rec yds');
+});
+
 test('trendFromWeeks compares the last two played weeks', () => {
   assert.equal(svc.trendFromWeeks([]), 'flat');
   assert.equal(svc.trendFromWeeks([{ week: 1, fantasy_points: 10 }]), 'flat');

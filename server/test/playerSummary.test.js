@@ -4,6 +4,7 @@ const {
   aggregateSeasonStats,
   buildPlayerSummary,
   projectSeasonPoints,
+  hasTeamDefenseTiers,
   SCORING_PRESETS,
 } = require('../services/scoring.service');
 
@@ -198,4 +199,85 @@ test('buildPlayerSummary perGame is zero-safe when a season has zero games', () 
     seasonRows: [{ season: 2023, games_played: 0, stats: {} }],
   });
   assert.equal(out.previousSeasons[0].perGame, 0);
+});
+
+// --- team defense: per-game tiers can't be scored as a season aggregate ------
+
+const DEF_PLAYER = {
+  id: 6721, name: 'Denver Broncos', position: 'DEF', nfl_team: 'Denver Broncos',
+  jersey_number: null, external_id: null, injury_status: null, injury_detail: null,
+  news: null, photo_url: null,
+};
+
+// Two shutout-ish weeks: each is 2 sacks (2) + 0 PA (10) + sub-100 yards (10) = 22.
+const DEF_WEEKLY = [
+  { season: 2025, week: 1, stats: { sack: 2, pointsAllowed: 0, yardsAllowed: 90 } },
+  { season: 2025, week: 2, stats: { sack: 2, pointsAllowed: 0, yardsAllowed: 95 } },
+];
+// The aggregate of those weeks: 4 sacks, 0 PA, 185 yards -> 4 + 10 + 7 = 21,
+// which is NOT 44. That gap is the whole point of the weekly-sum path.
+const DEF_SEASON_STATS = { sack: 4, pointsAllowed: 0, yardsAllowed: 185 };
+
+test('hasTeamDefenseTiers flags rows carrying per-game tier stats only', () => {
+  assert.equal(hasTeamDefenseTiers({ pointsAllowed: 0 }), true);
+  assert.equal(hasTeamDefenseTiers({ yardsAllowed: 300 }), true);
+  assert.equal(hasTeamDefenseTiers({ soloTackle: 6, idpSack: 1 }), false);
+  assert.equal(hasTeamDefenseTiers({ receivingYards: 100 }), false);
+  assert.equal(hasTeamDefenseTiers(null), false);
+});
+
+test('buildPlayerSummary prices a DEF season from its weekly lines, not the aggregate', () => {
+  const out = buildPlayerSummary({
+    player: DEF_PLAYER,
+    weeklyRows: DEF_WEEKLY,
+    seasonRows: [{ season: 2025, games_played: 2, stats: DEF_SEASON_STATS, fantasy_points: 44 }],
+    currentSeasonYear: 2026,
+  });
+  assert.equal(out.previousSeasons[0].points, 44); // 22 + 22, tiers hit once per game
+  assert.equal(out.previousSeasons[0].perGame, 22);
+  assert.equal(out.fantasy.previousSeasonTotal, 44);
+});
+
+test('buildPlayerSummary falls back to aggregate scoring for a DEF season with no weeklies', () => {
+  const out = buildPlayerSummary({
+    player: DEF_PLAYER,
+    weeklyRows: [],
+    seasonRows: [{ season: 2025, games_played: 2, stats: DEF_SEASON_STATS, fantasy_points: 44 }],
+    currentSeasonYear: 2026,
+  });
+  assert.equal(out.previousSeasons[0].points, 21); // aggregate-scored, all we can do
+});
+
+test('buildPlayerSummary scores an IDP season from the aggregate (linear rules, no tiers)', () => {
+  const out = buildPlayerSummary({
+    player: { ...DEF_PLAYER, id: 900, name: 'Zaire Franklin', position: 'LB', nfl_team: 'IND' },
+    weeklyRows: [
+      { season: 2025, week: 1, stats: { soloTackle: 6, assistedTackle: 4, idpSack: 1 } },
+      { season: 2025, week: 2, stats: { soloTackle: 8, assistedTackle: 2, idpSack: 0 } },
+    ],
+    seasonRows: [{ season: 2025, games_played: 2, stats: { soloTackle: 14, assistedTackle: 6, idpSack: 1 }, fantasy_points: 19 }],
+    currentSeasonYear: 2026,
+  });
+  // 14 solo + 6*0.5 assists + 1 sack*2 = 19 either way — the aggregate is safe.
+  assert.equal(out.previousSeasons[0].points, 19);
+});
+
+test('projectSeasonPoints uses the stored total for DEF instead of scoring the aggregate', () => {
+  const proj = projectSeasonPoints({
+    seasonRows: [{ season: 2025, games_played: 17, stats: { sack: 40, pointsAllowed: 340, yardsAllowed: 5600 }, fantasy_points: 170 }],
+    currentSeasonYear: 2026,
+  });
+  assert.equal(proj, 170); // 170/17 = 10/g over 17 games
+});
+
+test('projectSeasonPoints returns null for a DEF row with no stored total', () => {
+  // Guards the pre-backfill state: a tiered row we cannot price yields no
+  // projection rather than the wildly negative one aggregate scoring gives.
+  assert.equal(
+    projectSeasonPoints({
+      seasonRows: [{ season: 2025, games_played: 17, stats: { pointsAllowed: 340, yardsAllowed: 5600 } }],
+      currentSeasonYear: 2026,
+    }),
+    null
+  );
 });

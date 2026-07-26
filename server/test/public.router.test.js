@@ -213,6 +213,94 @@ test('GET /players/:id clears the partial-log flag once weekly rows match games 
   assert.equal(res.body.weeklyLogPartial, false);
 });
 
+const DEF_PLAYER_ROW = {
+  id: 6721, name: 'Denver Broncos', position: 'DEF', nfl_team: 'Denver Broncos',
+  photo_url: null, jersey_number: null, injury_status: null, injury_detail: null,
+  news: null, adp: null,
+};
+
+test('GET /players/:id prices a team defense from weekly rows, never the rollup', async (t) => {
+  // Two 22-point weeks (2 sacks + shutout + sub-100 yards each). Scoring the
+  // season AGGREGATE of the same stats would tier-match once and yield 21.
+  const weeks = [
+    { season: 2025, week: 2, fantasy_points: '22', stats: { sack: 2, pointsAllowed: 0, yardsAllowed: 95 }, opponent: 'LV' },
+    { season: 2025, week: 1, fantasy_points: '22', stats: { sack: 2, pointsAllowed: 0, yardsAllowed: 90 }, opponent: 'NYG' },
+  ];
+  installPool(t, [
+    ['UNION SELECT DISTINCT "season"', { rows: [{ season: 2025 }] }],
+    ['EXTRACT(MONTH FROM CURRENT_DATE)', { rows: [{ season: 2026 }] }],
+    // Present but must be ignored for DEF — an aggregate we could never price.
+    ['FROM "player_season_stats"', () => {
+      throw new Error('DEF profile must not read the season rollup');
+    }],
+    ['FROM "player_stats" "agg"', { rows: weeks.map((w) => ({ stats: w.stats })) }],
+    ['COUNT(*)::int AS "n"', { rows: [{ n: 2 }] }],
+    ['LEFT JOIN "nfl_games"', { rows: weeks }],
+    ['FROM "players" WHERE "id" = $1', { rows: [DEF_PLAYER_ROW] }],
+  ]);
+
+  const res = await request(makeApp()).get('/api/public/players/6721');
+  assert.equal(res.status, 200);
+  assert.equal(res.body.seasonSummary.gamesPlayed, 2);
+  assert.equal(res.body.seasonSummary.fantasyPoints, 44);
+  // All three formats agree — the presets differ only in points per reception.
+  const p = res.body.seasonSummary.points;
+  assert.equal(p.standard, 44);
+  assert.equal(p.ppr, 44);
+  assert.equal(res.body.weeklyLogPartial, false);
+  assert.equal(res.body.recentGames[0].statLine, '2 Sk, 0 PA, 95 YdA');
+  assert.equal(res.body.recentGames[0].opponent, 'LV');
+  assert.equal(res.body.adp, null);
+  assertNoLeakyKeys(res.body);
+});
+
+test('GET /players/:id passes the DEF unit\'s raw team through to the normalizing join', async (t) => {
+  // nfl_games keys teams by abbreviation; a DEF row's nfl_team is a full name.
+  // The SQL normalizes both sides, so the bind stays the raw players value.
+  let recentParams = null;
+  installPool(t, [
+    ['UNION SELECT DISTINCT "season"', { rows: [{ season: 2025 }] }],
+    ['EXTRACT(MONTH FROM CURRENT_DATE)', { rows: [{ season: 2026 }] }],
+    ['FROM "player_stats" "agg"', { rows: [{ stats: { sack: 1, pointsAllowed: 20, yardsAllowed: 300 } }] }],
+    ['COUNT(*)::int AS "n"', { rows: [{ n: 1 }] }],
+    ['LEFT JOIN "nfl_games"', (params) => {
+      recentParams = params;
+      return { rows: [] };
+    }],
+    ['FROM "players" WHERE "id" = $1', { rows: [DEF_PLAYER_ROW] }],
+  ]);
+
+  const res = await request(makeApp()).get('/api/public/players/6721');
+  assert.equal(res.status, 200);
+  assert.deepEqual(recentParams, [6721, 'Denver Broncos', 2025]);
+});
+
+test('GET /players/:id keeps the rollup path for an IDP player (linear rules)', async (t) => {
+  installPool(t, profileHandlers({
+    player: { rows: [{ ...PLAYER_ROW, id: 900, name: 'Zaire Franklin', position: 'LB', nfl_team: 'IND' }] },
+    rollup: { rows: [{ games_played: 17, stats: { soloTackle: 120, assistedTackle: 40, idpSack: 2 } }] },
+    recent: { rows: [
+      { season: 2025, week: 3, fantasy_points: '11', stats: { soloTackle: 6, assistedTackle: 3, idpSack: 1 }, opponent: 'HOU' },
+    ] },
+  }));
+
+  const res = await request(makeApp()).get('/api/public/players/900');
+  assert.equal(res.status, 200);
+  // 120 solo + 40*0.5 assists + 2 sacks*2 = 144, identical in all three formats.
+  assert.equal(res.body.seasonSummary.gamesPlayed, 17);
+  assert.equal(res.body.seasonSummary.fantasyPoints, 144);
+  assert.equal(res.body.seasonSummary.points.standard, 144);
+  assert.equal(res.body.recentGames[0].statLine, '6 Solo, 3 Ast, 1 Sk');
+});
+
+test('GET /rankings accepts an IDP position so profile peer links resolve', async (t) => {
+  installPool(t, RANKINGS_HANDLERS);
+  for (const position of ['LB', 'CB', 'DE', 'S']) {
+    const res = await request(makeApp()).get(`/api/public/rankings?position=${position}`);
+    assert.equal(res.status, 200, `expected 200 for position=${position}`);
+  }
+});
+
 test('GET /players/:id returns 404 when the player is missing', async (t) => {
   installPool(t, [['FROM "players" WHERE "id" = $1', { rows: [] }]]);
   const res = await request(makeApp()).get('/api/public/players/999');

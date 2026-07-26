@@ -22,14 +22,17 @@ const {
   isMissingRecapStorage,
 } = require('../modules/recapStorage');
 const { getWeekProjections } = require('./projection.service');
-const { calculateFantasyPoints, SCORING_PRESETS } = require('./scoring.service');
+const { calculateFantasyPoints, SCORING_PRESETS, IDP_POSITIONS } = require('./scoring.service');
 
-const POSITION_WHITELIST = ['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
+const POSITION_WHITELIST = ['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF', ...IDP_POSITIONS];
 const MAX_RANKINGS_LIMIT = 100;
 
 // A compact "key stat line" for a weekly/game row: the handful of normalized
 // stat keys worth showing, in a stable order, skipping zeros. Keys match
-// scoring.service.normalizeTank01Stats output.
+// scoring.service.normalizeTank01Stats / normalizeTank01DstStats /
+// normalizeTank01IdpStats output. Offensive and defensive keys never co-occur
+// on one row, so a single ordered list serves every position.
+// Keep in sync with src/components/PlayerQuickView/statLine.js.
 const STAT_LINE_FIELDS = [
   ['passingYards', 'pass yds'],
   ['passingTDs', 'pass TD'],
@@ -41,14 +44,42 @@ const STAT_LINE_FIELDS = [
   ['receivingTDs', 'rec TD'],
   ['fieldGoal', 'FG'],
   ['extraPoint', 'XP'],
+  // Team defense
+  ['sack', 'Sk'],
+  ['interceptionReturn', 'INT'],
+  ['fumbleRecovery', 'FR'],
+  ['defensiveTD', 'TD'],
+  ['safety', 'Sfty'],
+  ['blockedKick', 'Blk'],
+  ['pointsAllowed', 'PA'],
+  ['yardsAllowed', 'YdA'],
+  // Individual defenders (IDP). Sack/TFL/fumble-return YARDAGE keys are
+  // deliberately omitted — they're opt-in bonus inputs, not headline stats.
+  ['soloTackle', 'Solo'],
+  ['assistedTackle', 'Ast'],
+  ['idpSack', 'Sk'],
+  ['idpInterception', 'INT'],
+  ['forcedFumble', 'FF'],
+  ['idpFumbleRecovery', 'FR'],
+  ['passDeflection', 'PD'],
+  ['qbHit', 'QBH'],
+  ['tacklesForLoss', 'TFL'],
+  ['idpSafety', 'Sfty'],
+  ['idpDefensiveTD', 'TD'],
+  ['twoPointReturn', '2pt Ret'],
 ];
+
+// Stats whose zero is itself the story — a defense that pitched a shutout
+// should read "0 PA", not drop the field entirely.
+const ALWAYS_SHOW_STATS = new Set(['pointsAllowed']);
 
 function statLine(stats) {
   if (!stats || typeof stats !== 'object') return '';
   const parts = [];
   for (const [key, label] of STAT_LINE_FIELDS) {
     const value = Number(stats[key]);
-    if (Number.isFinite(value) && value !== 0) parts.push(`${value} ${label}`);
+    if (!Number.isFinite(value)) continue;
+    if (value !== 0 || ALWAYS_SHOW_STATS.has(key)) parts.push(`${value} ${label}`);
   }
   return parts.join(', ');
 }
@@ -72,9 +103,11 @@ function pointsByFormat(stats) {
   };
 }
 
-/** Sum per-format points across a season's weekly stat lines (fallback source
- * when no player_season_stats rollup exists). Under the default rules all
- * tiered bonuses are 0, so a per-game sum equals scoring the aggregate. */
+/** Sum per-format points across a season's weekly stat lines. Used when no
+ * player_season_stats rollup exists, and ALWAYS for team defenses: the
+ * teamDefense pointsAllowed/yardsAllowed rules are per-game tier tables, so
+ * scoring a season aggregate would tier-match the season total once instead of
+ * once per game. Summing per week is the only correct DEF computation. */
 function sumPointsByFormat(statsList) {
   const totals = { standard: 0, halfPpr: 0, ppr: 0 };
   for (const stats of statsList) {
@@ -322,12 +355,19 @@ async function getPlayerProfile(playerId, { season } = {}) {
     });
   }
 
-  // Season summary — prefer the complete player_season_stats rollup.
-  const rollupRes = await pool.query(
-    `SELECT "games_played", "stats" FROM "player_season_stats"
-     WHERE "player_id" = $1 AND "season" = $2`,
-    [id, targetSeason]
-  );
+  // Season summary — prefer the complete player_season_stats rollup, EXCEPT for
+  // team defenses, whose points can only be summed per week (their
+  // pointsAllowed/yardsAllowed rules are per-game tiers, so scoring the season
+  // aggregate is wrong). DEF weekly coverage is complete, so the weekly path
+  // below yields the same games count the rollup would.
+  const isTeamDefense = player.position === 'DEF';
+  const rollupRes = isTeamDefense
+    ? { rows: [] }
+    : await pool.query(
+        `SELECT "games_played", "stats" FROM "player_season_stats"
+         WHERE "player_id" = $1 AND "season" = $2`,
+        [id, targetSeason]
+      );
   let seasonSummary = null;
   if (rollupRes.rows[0]) {
     const games = Number(rollupRes.rows[0].games_played) || 0;
@@ -364,9 +404,15 @@ async function getPlayerProfile(playerId, { season } = {}) {
     `SELECT "ps"."season", "ps"."week", "ps"."fantasy_points", "ps"."stats", "ng"."opponent"
      FROM "player_stats" "ps"
      LEFT JOIN "nfl_games" "ng"
-       ON "ng"."season" = "ps"."season" AND "ng"."week" = "ps"."week" AND "ng"."nfl_team" = $2
+       ON "ng"."season" = "ps"."season" AND "ng"."week" = "ps"."week"
+      AND fn_normalize_nfl_team("ng"."nfl_team") = fn_normalize_nfl_team($2)
      WHERE "ps"."player_id" = $1 AND "ps"."season" = $3
      ORDER BY "ps"."season" DESC, "ps"."week" DESC`,
+    // nfl_games keys teams by Tank01 abbreviation, but a DEF unit's nfl_team
+    // holds the full team name ("Denver Broncos"), so a raw string match leaves
+    // every DEF game log without an opponent. fn_normalize_nfl_team collapses
+    // full names AND alias codes (notably Tank01's WSH vs. WAS) to one
+    // canonical abbreviation on both sides.
     [id, player.nfl_team, targetSeason]
   );
 

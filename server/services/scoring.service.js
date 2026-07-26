@@ -1032,6 +1032,16 @@ const FANTASY_POSITIONS = new Set([
   ...POSITION_GROUPS.DL, ...POSITION_GROUPS.LB, ...POSITION_GROUPS.DB,
 ]);
 
+// Individual-defender position codes as stored on players rows (Tank01's
+// specific codes, not the DL/LB/DB roster-group keys).
+const IDP_POSITIONS = [...POSITION_GROUPS.DL, ...POSITION_GROUPS.LB, ...POSITION_GROUPS.DB];
+
+// Every position whose season rollups come from our own player_stats weeklies
+// rather than the Sleeper season sync (which covers offense/K only). Safe to
+// pass to syncPlayerSeasonStats({ positions }) — Sleeper never writes rows for
+// these positions, so a scoped upsert cannot clobber a Sleeper rollup.
+const DEFENSIVE_POSITIONS = ['DEF', ...IDP_POSITIONS];
+
 /**
  * Resolve a headshot URL for a Tank01 player entry. Prefer the provider's own
  * `espnHeadshot` URL when present; otherwise build the public ESPN headshot
@@ -1160,6 +1170,19 @@ function aggregateSeasonStats(weeklyStats) {
 const MIN_PROJECTION_GAMES = 4;
 
 /**
+ * True when a stats object carries team-defense tier stats. The teamDefense
+ * pointsAllowed/yardsAllowed rules are per-game tier tables, so a season
+ * AGGREGATE of such stats must never go through calculateFantasyPoints —
+ * it would tier-match the season total once instead of once per week.
+ * Self-describing (keyed off the stats themselves), so callers don't need
+ * the player's position on hand.
+ */
+function hasTeamDefenseTiers(stats) {
+  return !!stats && typeof stats === 'object'
+    && ('pointsAllowed' in stats || 'yardsAllowed' in stats);
+}
+
+/**
  * Guarded full-season projection: the most recent completed season's per-game
  * pace under `rules`, extrapolated over a 17-game slate. Returns null when the
  * sample is too small (< MIN_PROJECTION_GAMES) or there's no prior season, so
@@ -1173,8 +1196,14 @@ function projectSeasonPoints({ seasonRows = [], rules = SCORING_RULES, currentSe
   if (!lastCompleted) return null;
   const games = Number(lastCompleted.games_played) || 0;
   if (games < MIN_PROJECTION_GAMES) return null;
-  const perGame = calculateFantasyPoints(lastCompleted.stats, rules) / games;
-  if (!perGame) return null;
+  // DEF rollups can't be scored as aggregates (see hasTeamDefenseTiers) — use
+  // the stored weekly-summed season total instead. Accepted deviation: that
+  // total is under default rules, so custom league DEF tiers don't move it.
+  const seasonTotal = hasTeamDefenseTiers(lastCompleted.stats)
+    ? Number(lastCompleted.fantasy_points)
+    : calculateFantasyPoints(lastCompleted.stats, rules);
+  const perGame = seasonTotal / games;
+  if (!perGame || !Number.isFinite(perGame)) return null;
   return Math.round(perGame * 17 * 10) / 10;
 }
 
@@ -1209,7 +1238,16 @@ function buildPlayerSummary({
     .filter((r) => r.season < currentYear)
     .sort((a, b) => b.season - a.season)
     .map((r) => {
-      const points = calculateFantasyPoints(r.stats, rules);
+      // A DEF rollup can't be scored as an aggregate (see hasTeamDefenseTiers);
+      // price its weekly lines individually so the per-game tiers land once per
+      // game, under this league's own rules. Falls back to aggregate scoring
+      // only when we hold no weeklies for that season.
+      const seasonWeeklies = hasTeamDefenseTiers(r.stats)
+        ? weeklyRows.filter((w) => w.season === r.season)
+        : [];
+      const points = seasonWeeklies.length
+        ? Math.round(seasonWeeklies.reduce((sum, w) => sum + calculateFantasyPoints(w.stats, rules), 0) * 100) / 100
+        : calculateFantasyPoints(r.stats, rules);
       const games = Number(r.games_played) || 0;
       return {
         season: r.season,
@@ -1268,33 +1306,58 @@ function buildPlayerSummary({
  * /api/scoring/backfill-seasons), not on the scheduler. Seasons for which we
  * have no weekly data simply produce no rows, so players without prior-season
  * history degrade gracefully to the dialog's "no data" state.
+ *
+ * WARNING: an unscoped run upserts EVERY player:season pair and would clobber
+ * the richer Sleeper-sourced offense/K rollups. Pass
+ * `positions: DEFENSIVE_POSITIONS` (or run
+ * scripts/backfill-defense-season-stats.js) to roll up DEF/IDP only — Sleeper
+ * never writes rows for those positions, so the scoped upsert is safe.
  */
-async function syncPlayerSeasonStats({ currentSeason } = {}) {
+async function syncPlayerSeasonStats({ currentSeason, positions } = {}) {
   let cutoff = Number(currentSeason);
   if (!Number.isInteger(cutoff)) {
     const r = await pool.query(`SELECT MAX("current_season") AS s FROM "leagues"`);
     cutoff = r.rows[0] && r.rows[0].s != null ? Number(r.rows[0].s) : 2026;
   }
 
-  const weekly = await pool.query(
-    `SELECT "player_id", "season", "stats" FROM "player_stats"
-     WHERE "season" < $1
-     ORDER BY "player_id", "season"`,
-    [cutoff]
-  );
+  const scoped = Array.isArray(positions) && positions.length > 0;
+  const weekly = scoped
+    ? await pool.query(
+        `SELECT "ps"."player_id", "ps"."season", "ps"."stats", "ps"."fantasy_points"
+         FROM "player_stats" "ps"
+         JOIN "players" "p" ON "p"."id" = "ps"."player_id"
+         WHERE "ps"."season" < $1 AND "p"."position" = ANY($2)
+         ORDER BY "ps"."player_id", "ps"."season"`,
+        [cutoff, positions]
+      )
+    : await pool.query(
+        `SELECT "player_id", "season", "stats", "fantasy_points" FROM "player_stats"
+         WHERE "season" < $1
+         ORDER BY "player_id", "season"`,
+        [cutoff]
+      );
 
   // Group weekly rows by player+season.
   const byKey = new Map();
   for (const row of weekly.rows) {
     const key = `${row.player_id}:${row.season}`;
     if (!byKey.has(key)) byKey.set(key, { playerId: row.player_id, season: row.season, rows: [] });
-    byKey.get(key).rows.push(row.stats);
+    byKey.get(key).rows.push(row);
   }
 
   let upserted = 0;
   for (const { playerId, season, rows } of byKey.values()) {
-    const { games, stats } = aggregateSeasonStats(rows);
-    const points = calculateFantasyPoints(stats);
+    const { games, stats } = aggregateSeasonStats(rows.map((r) => r.stats));
+    // Sum the stored weekly points rather than scoring the aggregate: the
+    // teamDefense pointsAllowed/yardsAllowed rules are per-game tier tables,
+    // so scoring a season total tier-matches once instead of once per week.
+    // For linear categories the two are identical under default rules.
+    const points = Math.round(rows.reduce((sum, r) => {
+      // Careful: Number(null) is 0, which would silently score a missing week
+      // as zero instead of recomputing it.
+      const weekPoints = r.fantasy_points == null ? NaN : Number(r.fantasy_points);
+      return sum + (Number.isFinite(weekPoints) ? weekPoints : calculateFantasyPoints(r.stats));
+    }, 0) * 100) / 100;
     try {
       await pool.query(
         `INSERT INTO "player_season_stats" ("player_id", "season", "games_played", "stats", "fantasy_points")
@@ -1500,6 +1563,9 @@ module.exports = {
   aggregateSeasonStats,
   buildPlayerSummary,
   projectSeasonPoints,
+  hasTeamDefenseTiers,
+  IDP_POSITIONS,
+  DEFENSIVE_POSITIONS,
   detectScoringEvents,
   syncWeekStats,
   syncSchedule,

@@ -30,4 +30,23 @@ export function pointsFor(points, formatId, fallback = null) {
   return value == null ? fallback : value;
 }
 
+// Positions that score identically in all three formats: the presets differ
+// only in points-per-reception, and defenses/defenders never catch passes.
+const SINGLE_FORMAT_POSITIONS = new Set([
+  'DEF',
+  'DL', 'DE', 'DT', 'NT',
+  'LB', 'ILB', 'OLB',
+  'DB', 'CB', 'S', 'FS', 'SS',
+]);
+
+/**
+ * Whether a position's points actually change between scoring formats. False
+ * for defenses and individual defenders, whose three format values are always
+ * the same number — offering a toggle there implies a difference that isn't
+ * real.
+ */
+export function hasFormatVariants(position) {
+  return !SINGLE_FORMAT_POSITIONS.has(String(position || '').toUpperCase());
+}
+
 export default SCORING_FORMATS;
