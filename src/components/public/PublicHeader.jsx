@@ -9,7 +9,8 @@ import CloseIcon from '@mui/icons-material/Close';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
 import LightModeIcon from '@mui/icons-material/LightMode';
 import { useThemeMode } from '../../theme/AppThemeProvider';
-import { PUBLIC_NAV_LINKS, LOGIN_HREF, REGISTER_HREF } from './kit/navLinks';
+import { hasSessionHint } from '../../lib/sessionHint';
+import { PUBLIC_NAV_LINKS, LOGIN_HREF, REGISTER_HREF, DASHBOARD_HREF } from './kit/navLinks';
 
 function Wordmark() {
   return (
@@ -57,9 +58,14 @@ const navLinkSx = ({ isActive }) => ({
  * The public header: gradient wordmark, slim primary nav, theme toggle, and the
  * ghost "Log In" / filled "Register" auth CTAs (plain <a> — they cross into the
  * hash app). Collapses to a hamburger Drawer under md.
+ *
+ * A visitor with a session on this device gets "My Dashboard" instead. The
+ * public tree can't read auth state, so this is the localStorage hint, not a
+ * real check — a stale hint just lands them on the login screen.
  */
 function PublicHeader() {
   const [open, setOpen] = useState(false);
+  const loggedIn = hasSessionHint();
 
   return (
     <AppBar
@@ -89,8 +95,14 @@ function PublicHeader() {
 
           <Stack direction="row" spacing={1} alignItems="center" sx={{ display: { xs: 'none', md: 'flex' } }}>
             <ThemeToggle />
-            <Button component="a" href={LOGIN_HREF} variant="text" color="inherit">Log In</Button>
-            <Button component="a" href={REGISTER_HREF} variant="contained">Register</Button>
+            {loggedIn ? (
+              <Button component="a" href={DASHBOARD_HREF} variant="contained">My Dashboard</Button>
+            ) : (
+              <>
+                <Button component="a" href={LOGIN_HREF} variant="text" color="inherit">Log In</Button>
+                <Button component="a" href={REGISTER_HREF} variant="contained">Register</Button>
+              </>
+            )}
           </Stack>
 
           {/* Mobile controls */}
@@ -123,8 +135,14 @@ function PublicHeader() {
           </List>
           <Divider />
           <Stack spacing={1} sx={{ p: 2 }}>
-            <Button component="a" href={LOGIN_HREF} variant="outlined" fullWidth>Log In</Button>
-            <Button component="a" href={REGISTER_HREF} variant="contained" fullWidth>Register</Button>
+            {loggedIn ? (
+              <Button component="a" href={DASHBOARD_HREF} variant="contained" fullWidth>My Dashboard</Button>
+            ) : (
+              <>
+                <Button component="a" href={LOGIN_HREF} variant="outlined" fullWidth>Log In</Button>
+                <Button component="a" href={REGISTER_HREF} variant="contained" fullWidth>Register</Button>
+              </>
+            )}
           </Stack>
         </Box>
       </Drawer>

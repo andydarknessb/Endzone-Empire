@@ -14,3 +14,5 @@ export const PUBLIC_NAV_LINKS = [
 // Cross-boundary auth links (the authed app lives in the hash fragment).
 export const LOGIN_HREF = '/#/login';
 export const REGISTER_HREF = '/#/registration';
+// Same crossing, for visitors who already have a session on this device.
+export const DASHBOARD_HREF = '/#/user';

@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { apiUrl, getApiOrigin } from './origins';
+import { setSessionHint } from '../lib/sessionHint';
 
 let accessToken = null;
 
@@ -12,12 +13,16 @@ export function getToken() {
   return accessToken;
 }
 
+// Every login, registration, silent refresh and logout funnels through these
+// two, so they're the one place the public-tree session hint has to be kept in
+// step with the token. The hint is a UX marker only — see lib/sessionHint.
 export function setToken(token) {
   accessToken = token || null;
+  setSessionHint(accessToken);
 }
 
 export function clearToken() {
-  accessToken = null;
+  setToken(null);
 }
 
 const apiClient = axios.create({

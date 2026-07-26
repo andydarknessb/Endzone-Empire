@@ -1,6 +1,7 @@
 import MockAdapter from 'axios-mock-adapter';
 import axios from 'axios';
 import apiClient, { clearToken, getToken, refreshTokens, setToken } from './apiClient';
+import { hasSessionHint } from '../lib/sessionHint';
 
 describe('in-memory access token', () => {
   afterEach(clearToken);
@@ -16,6 +17,19 @@ describe('in-memory access token', () => {
     setToken('abc123');
     clearToken();
     expect(getToken()).toBeNull();
+  });
+});
+
+describe('public-tree session hint', () => {
+  afterEach(clearToken);
+
+  test('follows the token lifecycle without ever storing the token', () => {
+    expect(hasSessionHint()).toBe(false);
+    setToken('abc123');
+    expect(hasSessionHint()).toBe(true);
+    expect(localStorage.getItem('endzone_session_hint')).toBe('1');
+    clearToken();
+    expect(hasSessionHint()).toBe(false);
   });
 });
 
@@ -72,6 +86,7 @@ describe('cookie-backed refresh', () => {
 
     await expect(apiClient.get('/api/team')).resolves.toMatchObject({ data: { ok: true } });
     expect(getToken()).toBe('fresh-jwt');
+    expect(hasSessionHint()).toBe(true);
     expect(axiosMock.history.post[0].withCredentials).toBe(true);
     expect(localStorage.getItem('endzone_refresh')).toBeNull();
   });
@@ -98,6 +113,7 @@ describe('cookie-backed refresh', () => {
       response: { status: 401 },
     });
     expect(getToken()).toBeNull();
+    expect(hasSessionHint()).toBe(false);
     expect(expired).toHaveBeenCalled();
     expect(axiosMock.history.post).toHaveLength(2);
     window.removeEventListener('auth:session-expired', expired);
