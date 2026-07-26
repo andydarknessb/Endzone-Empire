@@ -290,7 +290,11 @@ test('"/league/:leagueId/activity" is protected and renders TransactionLog when 
   unmount();
 
   renderApp('#/league/1/activity', { user: loggedIn });
-  expect(await screen.findByText('League Activity')).toBeInTheDocument();
+  // TransactionLog is a lazy route, so this waits on a dynamic import as well
+  // as a mount. Testing Library's 1s default is too tight for that once enough
+  // suites run in parallel to contend for workers — same reason
+  // PublicApp.seo.test.jsx passes an explicit timeout.
+  expect(await screen.findByText('League Activity', {}, { timeout: 5000 })).toBeInTheDocument();
 });
 
 test('"/players/:playerId" is protected and renders the format-aware profile when logged in', async () => {
