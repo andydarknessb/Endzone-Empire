@@ -343,3 +343,24 @@ test('Cancel closes the Create League dialog without making a write request', as
   await waitFor(() => expect(screen.queryByText('Create a New League')).not.toBeInTheDocument());
   expect(apiClient.post).not.toHaveBeenCalled();
 });
+
+test('surfaces the public-layer highlights section (lazy) for logged-in users', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/public/rankings') {
+      return Promise.resolve({
+        data: { rankings: [{ rank: 1, playerId: 7, name: 'Top Back', position: 'RB', nflTeam: 'KC', seasonPoints: 300 }] },
+      });
+    }
+    if (url === '/api/public/recaps') return Promise.resolve({ data: { recaps: [] } });
+    if (url === '/api/notifications') return Promise.resolve({ data: { notifications: [] } });
+    return Promise.resolve({ data: [] });
+  });
+  renderWithProviders(<UserPage />, { state: baseState });
+
+  // The section is a lazy chunk (it carries the strategy-article registry),
+  // so it arrives after the initial render.
+  expect(await screen.findByText('Around the League')).toBeInTheDocument();
+  expect(await screen.findByRole('link', { name: '#1 Top Back' })).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Waiver Wire' })).toHaveAttribute('href', '/waiver-wire');
+  expect(screen.getByRole('link', { name: 'All strategy articles' })).toHaveAttribute('href', '/strategy');
+});

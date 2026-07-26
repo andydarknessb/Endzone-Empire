@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { useSelector } from 'react-redux';
 import { Link as RouterLink } from 'react-router-dom';
 import {
@@ -15,6 +15,11 @@ import Countdown from '../Countdown/Countdown';
 import LeagueCard from '../common/LeagueCard';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import { deriveLeaguePhase, LEAGUE_PHASE } from '../../lib/leaguePhase';
+
+// Lazy: PublicHighlights imports the strategy-article registry (full JSX
+// bodies), which must not ride in the initial main bundle. See the note in
+// PublicHighlights.jsx.
+const PublicHighlights = lazy(() => import('./PublicHighlights'));
 
 function nextUpFor(leagues, activityItems) {
   const actionItem = activityItems.find((item) => /trade|invite|join request/i.test(item.message || ''));
@@ -440,6 +445,12 @@ function UserPage() {
             </Grid>
           </Grid>
         </Box>
+
+        {/* Public-layer content (rankings, recaps, strategy) surfaced for
+            logged-in users; links cross into the public site. */}
+        <Suspense fallback={<Skeleton variant="rounded" height={220} sx={{ mt: 5 }} />}>
+          <PublicHighlights />
+        </Suspense>
 
         <Dialog open={openCreateDialog} onClose={handleCloseCreateDialog} className="dialogContainer">
           <DialogTitle className="dialogTitle">Create a New League</DialogTitle>
