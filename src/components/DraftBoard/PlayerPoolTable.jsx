@@ -170,6 +170,7 @@ function PlayerPoolTable({
               </TableCell>
               <TableCell sx={headCellSx}>Pos</TableCell>
               <TableCell sx={headCellSx}>NFL Team</TableCell>
+              <TableCell sx={headCellSx} align="right">Bye</TableCell>
               <TableCell sx={headCellSx} align="right">
                 <TableSortLabel
                   active={sort === 'adp'}
@@ -205,7 +206,7 @@ function PlayerPoolTable({
           <TableBody>
             {displayPlayers.length === 0 && (
               <TableRow>
-                <TableCell colSpan={8} sx={{ color: 'text.secondary', textAlign: 'center' }}>
+                <TableCell colSpan={9} sx={{ color: 'text.secondary', textAlign: 'center' }}>
                   {search ? `No available players matching “${search}”` : 'No available players'}
                 </TableCell>
               </TableRow>
@@ -236,6 +237,7 @@ function PlayerPoolTable({
                     <PositionChip position={player.position} />
                   </TableCell>
                   <TableCell>{player.nfl_team}</TableCell>
+                  <TableCell align="right">{player.bye_week != null ? player.bye_week : '—'}</TableCell>
                   <TableCell align="right">{player.adp != null ? player.adp : '—'}</TableCell>
                   <TableCell align="right">
                     {player.position_rank != null ? `#${player.position_rank}` : '—'}
@@ -278,7 +280,7 @@ function PlayerPoolTable({
             })}
             {loadingMore && (
               <TableRow>
-                <TableCell colSpan={7} sx={{ textAlign: 'center', py: 2 }}>
+                <TableCell colSpan={9} sx={{ textAlign: 'center', py: 2 }}>
                   <CircularProgress size={20} />
                 </TableCell>
               </TableRow>

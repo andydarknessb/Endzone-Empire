@@ -118,6 +118,10 @@ function MobileRankings({ rows, tiers, showTierBands, orderBy, order, sortHandle
                     <Typography variant="caption" sx={{ color: 'text.secondary' }}>Season</Typography>
                     <Typography variant="stat" component="div" sx={{ fontWeight: 800 }}>{row.seasonPoints ?? '—'}</Typography>
                   </Box>
+                  <Box sx={{ flex: 1, pl: 2 }}>
+                    <Typography variant="caption" sx={{ color: 'text.secondary' }}>Bye</Typography>
+                    <Typography variant="stat" component="div" sx={{ fontWeight: 800 }}>{row.byeWeek ?? '—'}</Typography>
+                  </Box>
                 </Stack>
               </Card>
             </Fragment>
@@ -177,7 +181,7 @@ function RankingTable({ rows = [], tierRows, loading = false, error = false, onR
   }
 
   let previousTier = null;
-  const columnCount = hasLastWeekData ? 6 : 5;
+  const columnCount = hasLastWeekData ? 7 : 6;
   return (
     <>
       <TrendLegend />
@@ -191,10 +195,11 @@ function RankingTable({ rows = [], tierRows, loading = false, error = false, onR
                 ['projectedPoints', 'Proj'],
                 ...(hasLastWeekData ? [['lastWeekPoints', 'Last Wk']] : []),
                 ['seasonPoints', 'Season'],
+                ['byeWeek', 'Bye'],
                 ['trend', 'Trend'],
               ].map(([key, label]) => (
                 <TableCell key={key} align={key === 'trend' ? 'center' : 'right'} sortDirection={orderBy === key ? order : false} sx={{ fontWeight: 700 }}>
-                  {key === 'lastWeekPoints' ? label : (
+                  {key === 'lastWeekPoints' || key === 'byeWeek' ? label : (
                     <TableSortLabel active={orderBy === key} direction={orderBy === key ? order : 'desc'} onClick={sortHandler(key)}>
                       {key === 'projectedPoints' ? <AbbreviationTooltip term="Projected" label={label} /> : label}
                     </TableSortLabel>
@@ -224,6 +229,7 @@ function RankingTable({ rows = [], tierRows, loading = false, error = false, onR
                     <TableCell align="right"><Typography variant="stat" component="span">{row.projectedPoints ?? '—'}</Typography></TableCell>
                     {hasLastWeekData && <TableCell align="right"><Typography variant="stat" component="span">{row.lastWeekPoints ?? '—'}</Typography></TableCell>}
                     <TableCell align="right"><Typography variant="stat" component="span">{row.seasonPoints ?? '—'}</Typography></TableCell>
+                    <TableCell align="right"><Typography variant="stat" component="span">{row.byeWeek ?? '—'}</Typography></TableCell>
                     <TableCell align="center"><TrendArrow trend={row.trend} /></TableCell>
                   </TableRow>
                 </Fragment>

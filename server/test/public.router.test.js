@@ -53,6 +53,17 @@ const RANKINGS_HANDLERS = [
   ] }],
   ['MAX("season")::int', { rows: [{ season: 2026 }] }],
   ['MAX("week")::int', { rows: [{ week: 3 }] }],
+  // Bye lookup: the calendar-season resolver, then computeByeWeeks' normalized
+  // schedule join (KC's only 2026 gap is week 10, BUF's is week 7).
+  ['EXTRACT(MONTH FROM CURRENT_DATE)', { rows: [{ season: 2026 }] }],
+  ['fn_normalize_nfl_team', () => {
+    const rows = [];
+    for (let week = 1; week <= 18; week++) {
+      if (week !== 10) rows.push({ nfl_team: 'KC', week });
+      if (week !== 7) rows.push({ nfl_team: 'BUF', week });
+    }
+    return { rows };
+  }],
   ['FROM "players" "p"', { rows: [
     { id: 1, name: 'Alpha Back', position: 'RB', nfl_team: 'KC', photo_url: 'http://x/1.png', injury_status: null, season_points: '120.5' },
     { id: 2, name: 'Bravo Wide', position: 'WR', nfl_team: 'BUF', photo_url: null, injury_status: 'Q', season_points: '90.0' },
@@ -82,7 +93,9 @@ test('GET /rankings returns ranked rows with Cache-Control and no leaky keys', a
   assert.equal(top.projectedPoints, 22.4);
   assert.equal(top.lastWeekPoints, 15); // week 2 (targetWeek - 1)
   assert.equal(top.trend, 'up'); // 15 -> 20
+  assert.equal(top.byeWeek, 10); // KC's sole 2026 schedule gap
   assert.equal(res.body.rankings[1].trend, 'down'); // 12 -> 8
+  assert.equal(res.body.rankings[1].byeWeek, 7);
   assertNoLeakyKeys(res.body);
 });
 

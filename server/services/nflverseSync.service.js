@@ -283,6 +283,88 @@ function nflverseTeamToOurAbbr(team) {
   return abbr === 'LA' ? 'LAR' : abbr;
 }
 
+// nfl_games speaks Tank01's vocabulary — syncSchedule writes WSH, and Tank01
+// game ids are spelled WSH (see modules/espnScoreboard.js) — while games.csv
+// says WAS and LA. Schedule rows must be written in Tank01 codes so a
+// backfilled week joins cleanly against Tank01-written weeks. This is a
+// DIFFERENT target than nflverseTeamToOurAbbr above: DST stat matching goes
+// through normalizeTeamAbbr, whose Washington code is WAS.
+const NFLVERSE_TO_TANK01_SCHEDULE_ABBR = { LA: 'LAR', WAS: 'WSH' };
+function nflverseTeamToScheduleAbbr(team) {
+  const abbr = String(team || '').toUpperCase();
+  if (!abbr) return null;
+  return NFLVERSE_TO_TANK01_SCHEDULE_ABBR[abbr] || abbr;
+}
+
+/**
+ * Pure: a games.csv Eastern-time kickoff (gameday 'YYYY-MM-DD' + gametime
+ * 'HH:MM') -> UTC Date. The IANA TZ database resolves EST vs. EDT for the
+ * date; NFL kickoffs never fall inside the 2am DST transition window, so
+ * probing the day's offset at noon UTC is exact.
+ */
+function etKickoffToUtc(gameday, gametime) {
+  const day = String(gameday || '').trim();
+  const time = String(gametime || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !/^\d{1,2}:\d{2}$/.test(time)) return null;
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    timeZoneName: 'longOffset',
+  }).formatToParts(new Date(`${day}T12:00:00Z`));
+  const zone = (parts.find((p) => p.type === 'timeZoneName') || {}).value || '';
+  const offset = zone.match(/GMT([+-]\d{2}:\d{2})/);
+  if (!offset) return null;
+  const [hh, mm] = time.split(':');
+  const date = new Date(`${day}T${hh.padStart(2, '0')}:${mm}:00${offset[1]}`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/**
+ * Pure: games.csv rows -> one season's REG-season nfl_games rows (both team
+ * perspectives per game), kickoffs converted from ET, team codes mapped to
+ * Tank01 vocabulary.
+ */
+function buildScheduleRows(rows, { season }) {
+  const out = [];
+  for (const row of rows || []) {
+    if (Number(row.season) !== Number(season) || row.game_type !== 'REG') continue;
+    const week = Number(row.week);
+    if (!Number.isInteger(week) || week < 1 || week > 18) continue;
+    const home = nflverseTeamToScheduleAbbr(row.home_team);
+    const away = nflverseTeamToScheduleAbbr(row.away_team);
+    const kickoffAt = etKickoffToUtc(row.gameday, row.gametime);
+    if (!home || !away || !kickoffAt) continue; // kickoff_at is NOT NULL
+    out.push({ season: Number(season), week, nflTeam: home, opponent: away, kickoffAt });
+    out.push({ season: Number(season), week, nflTeam: away, opponent: home, kickoffAt });
+  }
+  return out;
+}
+
+/**
+ * Backfill one season's schedule into nfl_games from games.csv — free (no
+ * Tank01 quota) and complete even for weeks whose kickoff times are still
+ * placeholders (week 18 is listed at Sunday 1pm ET until flexed; Tank01's
+ * feed drops those games entirely, which is how 2026 ended up with no week-18
+ * rows and every bye underivable). INSERT-only: an existing row keeps its
+ * Tank01-synced kickoff, so this can run any time without degrading live
+ * data, and a later Tank01 re-sync still corrects placeholder times. Bye
+ * derivation needs every week's ROW to exist, not exact times.
+ */
+async function syncScheduleFromNflverse({ season }) {
+  const rows = parseCsv(await fetchCsvText(NFLVERSE_GAMES_URL));
+  const scheduleRows = buildScheduleRows(rows, { season });
+  let rowsInserted = 0;
+  for (const game of scheduleRows) {
+    const res = await pool.query(
+      `INSERT INTO "nfl_games" ("season", "week", "nfl_team", "opponent", "kickoff_at")
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT ("season", "week", "nfl_team") DO NOTHING`,
+      [game.season, game.week, game.nflTeam, game.opponent, game.kickoffAt]
+    );
+    rowsInserted += res.rowCount || 0;
+  }
+  return { season: Number(season), gamesInFile: scheduleRows.length / 2, rowsInserted };
+}
+
 /**
  * Pure: one combined-file player row -> our full flat stat line, mirroring
  * what normalizeTank01Stats + normalizeTank01IdpStats produce for a live
@@ -615,6 +697,10 @@ module.exports = {
   buildStatUpdates,
   parseFgMadeList,
   nflverseTeamToOurAbbr,
+  nflverseTeamToScheduleAbbr,
+  etKickoffToUtc,
+  buildScheduleRows,
+  syncScheduleFromNflverse,
   normalizeNflversePlayerStats,
   buildFullStatUpdates,
   buildDstStatUpdates,

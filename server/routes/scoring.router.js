@@ -8,6 +8,7 @@ const adp = require('../services/adp.service');
 const sleeper = require('../services/sleeper.service');
 const season = require('../services/season.service');
 const correction = require('../services/correction.service');
+const nflverseSync = require('../services/nflverseSync.service');
 const commissioner = require('../services/commissioner.service');
 const montecarlo = require('../services/montecarlo.service');
 const { isLeagueCommissioner, commissionerPredicate } = require('../services/leagueRole.service');
@@ -168,14 +169,24 @@ router.get('/rules', (req, res) => {
   res.json({ defaults: scoring.SCORING_RULES, presets: scoring.SCORING_PRESETS });
 });
 
-// POST /api/scoring/sync-schedule — pull the NFL schedule into nfl_games
+// POST /api/scoring/sync-schedule — pull the NFL schedule into nfl_games.
+// source 'tank01' (default) spends 18 metered requests and drops games whose
+// kickoff time is still TBD; source 'nflverse' is free, insert-only, and
+// covers TBD-time games (week 18) with placeholder kickoffs — use it to
+// complete a season Tank01 left with schedule gaps (unfillable byes).
 router.post('/sync-schedule', async (req, res) => {
   const seasonYear = Number(req.body && req.body.season);
   if (!Number.isInteger(seasonYear) || seasonYear < 2000 || seasonYear > 2100) {
     return res.status(400).json({ error: 'season (integer year) is required' });
   }
+  const source = req.body && req.body.source ? String(req.body.source) : 'tank01';
+  if (!['tank01', 'nflverse'].includes(source)) {
+    return res.status(400).json({ error: "source must be 'tank01' or 'nflverse'" });
+  }
   try {
-    const result = await scoring.syncSchedule({ season: seasonYear });
+    const result = source === 'nflverse'
+      ? await nflverseSync.syncScheduleFromNflverse({ season: seasonYear })
+      : await scoring.syncSchedule({ season: seasonYear });
     res.json(result);
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });

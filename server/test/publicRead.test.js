@@ -81,13 +81,15 @@ test('serializeRankingRow rounds and exposes only whitelisted fields', () => {
     seasonPoints: 120.55,
     lastWeekPoints: 15.06,
     trend: 'up',
+    byeWeek: '10',
   });
   assert.deepEqual(Object.keys(out).sort(), [
-    'injuryStatus', 'lastWeekPoints', 'name', 'nflTeam', 'photoUrl',
+    'byeWeek', 'injuryStatus', 'lastWeekPoints', 'name', 'nflTeam', 'photoUrl',
     'playerId', 'position', 'projectedPoints', 'rank', 'seasonPoints', 'trend',
   ]);
   assert.equal(out.projectedPoints, 22.4);
   assert.equal(out.lastWeekPoints, 15.1);
+  assert.equal(out.byeWeek, 10); // coerced to a number, omitted -> null
 });
 
 test('serializeRecapDetail defaults missing structured fields safely', () => {

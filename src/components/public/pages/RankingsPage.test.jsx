@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { HelmetProvider } from 'react-helmet-async';
 import AppThemeProvider from '../../../theme/AppThemeProvider';
@@ -25,8 +25,8 @@ beforeEach(() => {
       season: 2026,
       week: 3,
       rankings: [
-        { rank: 1, playerId: 1, name: 'Alpha Runner', position: 'RB', nflTeam: 'KC', projectedPoints: 20, seasonPoints: 55, trend: 'up' },
-        { rank: 2, playerId: 2, name: 'Bravo Receiver', position: 'WR', nflTeam: 'BUF', projectedPoints: 18, seasonPoints: 48, trend: 'flat' },
+        { rank: 1, playerId: 1, name: 'Alpha Runner', position: 'RB', nflTeam: 'KC', projectedPoints: 20, seasonPoints: 55, trend: 'up', byeWeek: 10 },
+        { rank: 2, playerId: 2, name: 'Bravo Receiver', position: 'WR', nflTeam: 'BUF', projectedPoints: 18, seasonPoints: 48, trend: 'flat', byeWeek: null },
       ],
     },
   });
@@ -53,6 +53,15 @@ test('rankings search filters by player name and team without refetching', async
   expect(screen.getByText('Bravo Receiver')).toBeInTheDocument();
   expect(screen.getByText('1 result')).toBeInTheDocument();
   expect(publicApiClient.get).toHaveBeenCalledTimes(1);
+});
+
+test('shows each player\'s bye week, with an em dash when the schedule is unknown', async () => {
+  renderPage();
+
+  await screen.findByText('Alpha Runner');
+  expect(screen.getByText('Bye')).toBeInTheDocument();
+  expect(within(screen.getByText('Alpha Runner').closest('tr')).getByText('10')).toBeInTheDocument();
+  expect(within(screen.getByText('Bravo Receiver').closest('tr')).getByText('—')).toBeInTheDocument();
 });
 
 test('position selection filters API-shaped mixed rows before tier computation', async () => {

@@ -33,9 +33,18 @@ async function computeByeWeeks(nflTeams, season) {
   const byTeam = new Map(teams.map((team) => [team, null]));
   if (teams.length === 0) return byTeam;
 
+  // nfl_games keys teams by Tank01 abbreviation (WSH, LAR, ...), but callers
+  // pass players.nfl_team values, which for DEF units are full team names
+  // ("Denver Broncos") — a raw equality match left every DEF bye null.
+  // fn_normalize_nfl_team collapses full names AND alias codes (notably
+  // Tank01's WSH vs. WAS) on both sides; the SELECT returns the caller's
+  // original string so the result map stays keyed by caller vocabulary.
   const result = await pool.query(
-    `SELECT "nfl_team", "week" FROM "nfl_games"
-     WHERE "season" = $1 AND "nfl_team" = ANY($2) AND "week" BETWEEN 1 AND $3`,
+    `SELECT "t"."nfl_team", "ng"."week"
+     FROM "nfl_games" "ng"
+     JOIN unnest($2::text[]) AS "t"("nfl_team")
+       ON fn_normalize_nfl_team("ng"."nfl_team") = fn_normalize_nfl_team("t"."nfl_team")
+     WHERE "ng"."season" = $1 AND "ng"."week" BETWEEN 1 AND $3`,
     [season, teams, REG_SEASON_WEEKS]
   );
 

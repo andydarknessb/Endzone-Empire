@@ -22,6 +22,7 @@ const {
   isMissingRecapStorage,
 } = require('../modules/recapStorage');
 const { getWeekProjections } = require('./projection.service');
+const { computeByeWeeks } = require('./bye.service');
 const {
   calculateFantasyPoints, SCORING_PRESETS, IDP_POSITIONS, getSeasonPositionRank,
 } = require('./scoring.service');
@@ -142,6 +143,23 @@ async function latestSeasonWeek() {
   return { season, week: (weekRes.rows[0] && weekRes.rows[0].week) || null };
 }
 
+/**
+ * The current NFL season by calendar, resolved in SQL to stay on DB time:
+ * Jan/Feb still belong to the prior NFL season; March begins the next league
+ * year. This preserves the public read-model's global-data-only boundary
+ * (no league-scoped current_season lookups).
+ */
+async function upcomingNflSeason() {
+  const res = await pool.query(
+    `SELECT CASE
+       WHEN EXTRACT(MONTH FROM CURRENT_DATE) <= 2
+         THEN EXTRACT(YEAR FROM CURRENT_DATE)::int - 1
+       ELSE EXTRACT(YEAR FROM CURRENT_DATE)::int
+     END AS "season"`
+  );
+  return res.rows[0] && res.rows[0].season != null ? Number(res.rows[0].season) : null;
+}
+
 /** Trend from a player's played weeks: compare the last two played weeks. */
 function trendFromWeeks(weekRows) {
   if (!weekRows || weekRows.length < 2) return 'flat';
@@ -239,6 +257,20 @@ async function getRankings({ position = 'ALL', season, week, limit = 50 } = {}) 
     }
   }
 
+  // Bye weeks are always the UPCOMING/current NFL season's (the draft-prep
+  // fact a reader needs), even while the ranked stats are last season's.
+  // Soft-fail like projections: a bye lookup error degrades to dashes, never
+  // a 500 on the whole rankings page.
+  let byeByTeam = new Map();
+  try {
+    const byeSeason = await upcomingNflSeason();
+    if (byeSeason != null) {
+      byeByTeam = await computeByeWeeks(ranked.map((r) => r.row.nfl_team), byeSeason);
+    }
+  } catch (err) {
+    console.error('public rankings: bye lookup failed', err.message);
+  }
+
   const rankings = ranked.map((entry, index) => {
     const weekRows = weeksByPlayer.get(entry.row.id) || [];
     const lastWeekRow = weekRows.find((w) => w.week === targetWeek - 1);
@@ -249,13 +281,14 @@ async function getRankings({ position = 'ALL', season, week, limit = 50 } = {}) 
       seasonPoints: entry.seasonPoints,
       lastWeekPoints: lastWeekRow ? lastWeekRow.fantasy_points : null,
       trend: trendFromWeeks(weekRows),
+      byeWeek: byeByTeam.get(entry.row.nfl_team) ?? null,
     });
   });
 
   return { season: targetSeason, week: targetWeek, rankings };
 }
 
-function serializeRankingRow({ rank, row, projectedPoints, seasonPoints, lastWeekPoints, trend }) {
+function serializeRankingRow({ rank, row, projectedPoints, seasonPoints, lastWeekPoints, trend, byeWeek = null }) {
   return {
     rank,
     playerId: row.id,
@@ -268,6 +301,7 @@ function serializeRankingRow({ rank, row, projectedPoints, seasonPoints, lastWee
     lastWeekPoints: lastWeekPoints == null ? null : round1(lastWeekPoints),
     seasonPoints: round1(seasonPoints),
     trend,
+    byeWeek: byeWeek == null ? null : Number(byeWeek),
   };
 }
 
@@ -305,19 +339,7 @@ async function getPlayerProfile(playerId, { season } = {}) {
     .sort((a, b) => b - a);
 
   // The current NFL season is a "pending" placeholder until it has player data.
-  // Resolve it from the calendar rather than the league-scoped leagues table:
-  // Jan/Feb still belong to the prior NFL season; March begins the next league
-  // year. This preserves the public read-model's global-data-only boundary.
-  const upcomingRes = await pool.query(
-    `SELECT CASE
-       WHEN EXTRACT(MONTH FROM CURRENT_DATE) <= 2
-         THEN EXTRACT(YEAR FROM CURRENT_DATE)::int - 1
-       ELSE EXTRACT(YEAR FROM CURRENT_DATE)::int
-     END AS "season"`
-  );
-  const upcoming = upcomingRes.rows[0] && upcomingRes.rows[0].season != null
-    ? Number(upcomingRes.rows[0].season)
-    : null;
+  const upcoming = await upcomingNflSeason();
 
   const seasons = completeSeasons.map((s) => ({ season: s, status: 'complete' }));
   if (upcoming != null && !completeSeasons.includes(upcoming)) {

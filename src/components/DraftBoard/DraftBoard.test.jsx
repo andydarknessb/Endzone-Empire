@@ -773,6 +773,22 @@ test('shows a sortable Pos rank column so IDP players (no ADP) still order sensi
   );
 });
 
+test('shows each pool player\'s bye week, with an em dash when the schedule is unknown', async () => {
+  apiClient.get.mockResolvedValue(
+    playersPage([
+      { id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'KC', adp: 12.1, position_rank: 1, projected_points: 380.5, bye_week: 10 },
+      { id: 2, name: 'Rookie Backer', position: 'LB', nfl_team: 'DAL', adp: null, position_rank: null, projected_points: null, bye_week: null },
+    ])
+  );
+  renderBoard(1);
+
+  await screen.findByText('Patrick Mahomes');
+  expect(screen.getByText('Bye')).toBeInTheDocument();
+  expect(within(screen.getByText('Patrick Mahomes').closest('tr')).getByText('10')).toBeInTheDocument();
+  const rookieCells = within(screen.getByText('Rookie Backer').closest('tr')).getAllByText('—');
+  expect(rookieCells.length).toBeGreaterThan(0);
+});
+
 test('clicking a player name opens the quick-view dialog and never drafts the player', async () => {
   apiClient.get.mockImplementation((url) =>
     url.endsWith('/summary')

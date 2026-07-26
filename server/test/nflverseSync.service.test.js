@@ -1,11 +1,16 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const axios = require('axios');
 const {
   parseCsv,
   filterRowsForWeek,
   buildStatUpdates,
   parseFgMadeList,
   nflverseTeamToOurAbbr,
+  nflverseTeamToScheduleAbbr,
+  etKickoffToUtc,
+  buildScheduleRows,
+  syncScheduleFromNflverse,
   normalizeNflversePlayerStats,
   buildFullStatUpdates,
   buildDstStatUpdates,
@@ -409,4 +414,63 @@ test('applyNflverseFullWeek preserves nothing by default (backfill behavior)', a
 
   assert.equal(readExisting, false, 'no extra read when nothing needs preserving');
   assert.equal(JSON.parse(upserts[0][3]).passingTDLengths, undefined);
+});
+
+// --- nflverse schedule backfill ----------------------------------------------
+
+test('nflverseTeamToScheduleAbbr writes Tank01 schedule vocabulary: WAS -> WSH, LA -> LAR', () => {
+  assert.equal(nflverseTeamToScheduleAbbr('WAS'), 'WSH');
+  assert.equal(nflverseTeamToScheduleAbbr('LA'), 'LAR');
+  assert.equal(nflverseTeamToScheduleAbbr('KC'), 'KC');
+  assert.equal(nflverseTeamToScheduleAbbr(''), null);
+});
+
+test('etKickoffToUtc resolves EST vs EDT from the date', () => {
+  // January (EST, UTC-5) and September (EDT, UTC-4)
+  assert.equal(etKickoffToUtc('2027-01-10', '13:00').toISOString(), '2027-01-10T18:00:00.000Z');
+  assert.equal(etKickoffToUtc('2026-09-13', '13:00').toISOString(), '2026-09-13T17:00:00.000Z');
+});
+
+test('etKickoffToUtc rejects malformed inputs', () => {
+  assert.equal(etKickoffToUtc('', '13:00'), null);
+  assert.equal(etKickoffToUtc('2026-09-13', ''), null);
+  assert.equal(etKickoffToUtc('9/13/2026', '13:00'), null);
+  assert.equal(etKickoffToUtc('2026-09-13', 'TBD'), null);
+});
+
+test('buildScheduleRows emits both team perspectives in Tank01 codes for the target REG season only', () => {
+  const rows = [
+    { season: '2026', game_type: 'REG', week: '18', gameday: '2027-01-10', gametime: '13:00', home_team: 'WAS', away_team: 'LA' },
+    { season: '2026', game_type: 'POST', week: '1', gameday: '2027-01-16', gametime: '16:30', home_team: 'KC', away_team: 'BUF' },
+    { season: '2025', game_type: 'REG', week: '1', gameday: '2025-09-07', gametime: '13:00', home_team: 'KC', away_team: 'BUF' },
+  ];
+  const out = buildScheduleRows(rows, { season: 2026 });
+  assert.deepEqual(out.map((g) => [g.week, g.nflTeam, g.opponent]), [
+    [18, 'WSH', 'LAR'],
+    [18, 'LAR', 'WSH'],
+  ]);
+  assert.equal(out[0].kickoffAt.toISOString(), '2027-01-10T18:00:00.000Z');
+});
+
+test('syncScheduleFromNflverse is insert-only (DO NOTHING) so Tank01 kickoffs are never overwritten', async (t) => {
+  const csv = [
+    'game_id,season,game_type,week,gameday,weekday,gametime,away_team,away_score,home_team,home_score',
+    '2026_18_SF_ARI,2026,REG,18,2027-01-10,Sunday,13:00,SF,,ARI,',
+  ].join('\n');
+  t.mock.method(axios, 'get', async () => ({ data: csv }));
+  const calls = [];
+  t.mock.method(pool, 'query', async (sql, params) => {
+    calls.push({ sql: String(sql), params });
+    // Simulate the ARI perspective already existing from a Tank01 sync.
+    return { rowCount: params[2] === 'ARI' ? 0 : 1 };
+  });
+
+  const out = await syncScheduleFromNflverse({ season: 2026 });
+
+  assert.equal(calls.length, 2);
+  assert.match(calls[0].sql, /INSERT INTO "nfl_games"/);
+  assert.match(calls[0].sql, /ON CONFLICT \("season", "week", "nfl_team"\) DO NOTHING/);
+  assert.deepEqual(calls[0].params.slice(0, 4), [2026, 18, 'ARI', 'SF']);
+  assert.deepEqual(calls[1].params.slice(0, 4), [2026, 18, 'SF', 'ARI']);
+  assert.deepEqual(out, { season: 2026, gamesInFile: 1, rowsInserted: 1 });
 });
