@@ -18,6 +18,7 @@ const DEFAULT_PREFS = {
   tradeOffers: true,
   closeMatchups: true,
   draftReminders: true,
+  pickemReminder: true,
   // In-app: play the Tecmo touchdown cutscene when the viewer's own starter
   // scores on the live matchup page. Opt-out, like the rest.
   touchdownCelebrations: true,

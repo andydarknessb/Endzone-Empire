@@ -27,6 +27,7 @@ import Grid from '@mui/material/Unstable_Grid2';
 import GroupsIcon from '@mui/icons-material/Groups';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import LiveTvIcon from '@mui/icons-material/LiveTv';
+import FactCheckIcon from '@mui/icons-material/FactCheck';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
 import TimelineIcon from '@mui/icons-material/Timeline';
@@ -67,6 +68,7 @@ const NAV_GROUPS = [
       { label: 'Draft Room', slug: 'draft', icon: GroupsIcon },
       { label: 'Set Lineup', slug: 'lineup', icon: AssignmentIcon },
       { label: 'Game Center', slug: 'game-center', icon: LiveTvIcon },
+      { label: "Pick'em", slug: 'pickem', icon: FactCheckIcon },
     ],
   },
   {

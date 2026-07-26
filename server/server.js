@@ -33,6 +33,7 @@ const tradesRouter = require('./routes/trades.router');
 const notificationsRouter = require('./routes/notifications.router');
 const newsRouter = require('./routes/news.router');
 const commissionerRouter = require('./routes/commissioner.router');
+const pickemRouter = require('./routes/pickem.router');
 const healthRouter = require('./routes/health.router');
 const adminRouter = require('./routes/admin.router');
 const publicRouter = require('./routes/public.router');
@@ -134,6 +135,7 @@ app.use('/api/trades', tradesRouter);
 app.use('/api/notifications', notificationsRouter);
 app.use('/api/news', newsRouter);
 app.use('/api/commissioner', commissionerRouter);
+app.use('/api/pickem', pickemRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/safety', safetyRouter);
 app.use('/api/public', (req, res, next) => {

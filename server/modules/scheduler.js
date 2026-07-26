@@ -74,6 +74,12 @@ async function tickUnlocked() {
     } catch (err) {
       console.error('lineup reminders failed:', err.message);
     }
+    try {
+      const digest = require('../services/digest.service');
+      await digest.sendPickemReminders(); // same pre-kickoff window, Pick'em leagues only
+    } catch (err) {
+      console.error("pick'em reminders failed:", err.message);
+    }
     const trades = await processDueTrades();
     if (trades.length > 0) console.log(`scheduler: settled ${trades.length} trade(s)`);
     try {

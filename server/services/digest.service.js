@@ -257,9 +257,128 @@ async function sendLineupReminders() {
   return { remindersSent };
 }
 
+// Same in-process, one-shot-per-(league, user, week) bookkeeping as
+// remindedTeamWeeks above, kept separate so a lineup reminder and a Pick'em
+// reminder don't suppress each other.
+const pickemRemindedUserWeeks = new Set();
+
+/**
+ * Pre-kickoff Pick'em reminders: when a Pick'em-enabled league's current week
+ * has an NFL game kicking off within the next 2 hours, nudge members who still
+ * have unpicked games that HAVEN'T locked yet. Games already past kickoff are
+ * excluded — there is nothing left for the manager to do about those.
+ */
+async function sendPickemReminders() {
+  let leagues;
+  try {
+    leagues = await pool.query(
+      `SELECT "leagues"."id", "leagues"."name",
+              "leagues"."current_season" AS "season", "leagues"."current_week" AS "week"
+         FROM "leagues"
+         JOIN "pickem_settings" ON "pickem_settings"."league_id" = "leagues"."id"
+        WHERE "pickem_settings"."enabled" = true
+          AND "leagues"."season_status" != 'complete'`
+    );
+  } catch (error) {
+    // undefined_table: the Pick'em migration hasn't been applied to this
+    // database yet. Nothing to remind anyone about, and the scheduler tick
+    // shouldn't log an error every minute until it is.
+    if (error && error.code === '42P01') return { remindersSent: 0 };
+    throw error;
+  }
+  let remindersSent = 0;
+
+  for (const league of leagues.rows) {
+    const upcoming = await pool.query(
+      `SELECT 1 FROM "nfl_games"
+       WHERE "season" = $1 AND "week" = $2
+         AND "kickoff_at" BETWEEN now() AND now() + interval '2 hours'
+       LIMIT 1`,
+      [league.season, league.week]
+    );
+    if (!upcoming.rows[0]) continue;
+
+    const pickem = require('./pickem.service');
+    const slate = await pickem.getWeekSlate({ season: league.season, week: league.week });
+    const now = new Date();
+    const openKeys = slate
+      .filter((game) => !pickem.isGameLocked(game, now))
+      .map((game) => game.gameKey);
+    if (openKeys.length === 0) continue;
+
+    const members = await pool.query(
+      `SELECT "teams"."owner_id", "users"."email"
+         FROM "teams" JOIN "users" ON "users"."id" = "teams"."owner_id"
+        WHERE "teams"."league_id" = $1`,
+      [league.id]
+    );
+    const stored = await pool.query(
+      `SELECT "user_id", "team_pair" FROM "pickem_picks"
+        WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3`,
+      [league.id, league.season, league.week]
+    );
+    const madeByUser = new Map();
+    for (const row of stored.rows) {
+      if (!madeByUser.has(row.user_id)) madeByUser.set(row.user_id, new Set());
+      madeByUser.get(row.user_id).add(row.team_pair);
+    }
+    const wanted = new Set(
+      await usersWanting(members.rows.map((m) => m.owner_id), 'pickemReminder')
+    );
+
+    for (const member of members.rows) {
+      const key = `${league.id}:${member.owner_id}:${league.season}:${league.week}`;
+      if (pickemRemindedUserWeeks.has(key) || !wanted.has(member.owner_id)) continue;
+
+      const made = madeByUser.get(member.owner_id) || new Set();
+      const missing = openKeys.filter((gameKey) => !made.has(gameKey));
+      pickemRemindedUserWeeks.add(key);
+      if (missing.length === 0) continue; // fully picked — don't re-check this week
+
+      remindersSent += 1;
+      const message =
+        `Week ${league.week} Pick'em: ${missing.length} game` +
+        `${missing.length === 1 ? '' : 's'} still unpicked before kickoff.`;
+      try {
+        const push = require('./push.service');
+        await push.sendPushToUsers([member.owner_id], {
+          title: "Make your Pick'em picks — kickoff soon",
+          body: message,
+          url: `/#/league/${league.id}/pickem`,
+        });
+      } catch (err) {
+        console.error("pick'em reminder push failed:", err.message);
+      }
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await notify(client, {
+          userId: member.owner_id,
+          leagueId: league.id,
+          type: 'pickem_reminder',
+          message,
+        });
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK');
+        console.error("pick'em reminder notification failed:", error.message);
+      } finally {
+        client.release();
+      }
+      await deliverEmail({
+        to: member.email,
+        subject: `Pick'em picks due — ${league.name}`,
+        text: `${message}\n\nMake them here: ${appOrigin()}/#/league/${league.id}/pickem`,
+      });
+    }
+  }
+  return { remindersSent };
+}
+
 module.exports = {
   lineupProblems,
   sendWeeklyRecapDigest,
   sendWaiverResultsDigest,
   sendLineupReminders,
+  sendPickemReminders,
 };
