@@ -1032,6 +1032,66 @@ router.get('/:id/chat', async (req, res) => {
   }
 });
 
+// GET /api/league/:id/chat/unread — how many of OTHER members' messages are
+// newer than the caller's last-read marker. Blocked users are excluded with
+// the same predicate as the history endpoint, so the badge never counts a
+// message the user will never see. A user with no marker yet counts all of it.
+router.get('/:id/chat/unread', async (req, res) => {
+  const leagueId = intParam(req.params.id);
+  if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
+  try {
+    const membership = await pool.query(
+      `SELECT 1 FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
+      [leagueId, req.user.id]
+    );
+    if (!membership.rows[0]) return res.status(403).json({ error: 'not a member of this league' });
+    const result = await pool.query(
+      `SELECT COUNT(*)::int AS "unread"
+       FROM "chat_messages"
+       WHERE "chat_messages"."league_id" = $1
+         AND "chat_messages"."user_id" <> $2
+         AND "chat_messages"."created_at" > COALESCE(
+           (SELECT "last_read_at" FROM "chat_reads"
+            WHERE "league_id" = $1 AND "user_id" = $2),
+           to_timestamp(0)
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM "user_blocks"
+           WHERE "user_blocks"."blocker_id" = $2
+             AND "user_blocks"."blocked_id" = "chat_messages"."user_id"
+         )`,
+      [leagueId, req.user.id]
+    );
+    res.json({ unread: result.rows[0].unread });
+  } catch (error) {
+    console.error('Error fetching chat unread count', error);
+    res.status(500).json({ error: 'failed to fetch unread count' });
+  }
+});
+
+// POST /api/league/:id/chat/read — move the caller's read marker to now.
+router.post('/:id/chat/read', async (req, res) => {
+  const leagueId = intParam(req.params.id);
+  if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
+  try {
+    const membership = await pool.query(
+      `SELECT 1 FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
+      [leagueId, req.user.id]
+    );
+    if (!membership.rows[0]) return res.status(403).json({ error: 'not a member of this league' });
+    await pool.query(
+      `INSERT INTO "chat_reads" ("league_id", "user_id", "last_read_at")
+       VALUES ($1, $2, now())
+       ON CONFLICT ("league_id", "user_id") DO UPDATE SET "last_read_at" = now()`,
+      [leagueId, req.user.id]
+    );
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Error updating chat read marker', error);
+    res.status(500).json({ error: 'failed to update read marker' });
+  }
+});
+
 // GET /api/league/:id/matchups/:matchupId — matchup detail: both starting
 // lineups with per-player points under the league's scoring rules
 router.get('/:id/matchups/:matchupId', async (req, res) => {

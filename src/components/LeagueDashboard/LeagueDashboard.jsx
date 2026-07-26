@@ -21,6 +21,7 @@ import {
   Drawer,
   Fab,
   IconButton,
+  Badge,
 } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2';
 import GroupsIcon from '@mui/icons-material/Groups';
@@ -111,6 +112,7 @@ function LeagueDashboard() {
   const [error, setError] = useState(null);
   const notify = useSnackbar();
   const [chatOpen, setChatOpen] = useState(false);
+  const [chatUnread, setChatUnread] = useState(0);
 
   useEffect(() => {
     fetchLeagueAndUser();
@@ -510,9 +512,15 @@ function LeagueDashboard() {
         color="primary"
         onClick={() => setChatOpen(true)}
         sx={{ position: 'fixed', bottom: 24, right: 24 }}
-        aria-label="Open league chat"
+        aria-label={
+          chatUnread > 0
+            ? `Open league chat, ${chatUnread} unread message${chatUnread === 1 ? '' : 's'}`
+            : 'Open league chat'
+        }
       >
-        <ChatBubbleOutlineIcon />
+        <Badge badgeContent={chatUnread} color="error" max={99} overlap="circular">
+          <ChatBubbleOutlineIcon />
+        </Badge>
       </Fab>
       <Drawer
         anchor="right"
@@ -539,7 +547,12 @@ function LeagueDashboard() {
             </IconButton>
           </Box>
           <Box sx={{ flex: 1, overflowY: 'auto', px: 1 }}>
-            <ChatPanel leagueId={leagueId} />
+            <ChatPanel
+              leagueId={leagueId}
+              open={chatOpen}
+              currentUserId={user ? user.id : null}
+              onUnreadChange={setChatUnread}
+            />
           </Box>
         </Box>
       </Drawer>

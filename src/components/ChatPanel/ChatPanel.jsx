@@ -3,11 +3,27 @@ import { Paper, Typography, Box, TextField, Button, Alert } from '@mui/material'
 import apiClient from '../../api/apiClient';
 import { createDraftSocket, onReconnect } from '../../api/socket';
 
-function ChatPanel({ leagueId }) {
+/**
+ * League chat with unread tracking. The panel stays mounted (and its socket
+ * connected) inside a persistent drawer even while the drawer is closed, so
+ * it is the natural owner of the unread count:
+ *  - closed + someone else's message arrives -> unread goes up
+ *  - open (or opening) -> the server-side read marker moves to now and the
+ *    count resets, so the badge survives reloads without ever double-counting
+ * The parent renders the badge from onUnreadChange.
+ */
+function ChatPanel({ leagueId, open = true, currentUserId = null, onUnreadChange = null }) {
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
   const [error, setError] = useState(null);
+  const [unread, setUnread] = useState(0);
   const socketRef = useRef(null);
+  // Refs mirror props the socket handler needs: the handler is bound once per
+  // league, and reading stale `open`/`currentUserId` from its closure would
+  // count messages wrong after the drawer toggles or the user finishes loading.
+  const openRef = useRef(open);
+  const currentUserIdRef = useRef(currentUserId);
+  currentUserIdRef.current = currentUserId;
 
   const fetchHistory = () => {
     apiClient
@@ -16,11 +32,44 @@ function ChatPanel({ leagueId }) {
       .catch(() => {});
   };
 
+  // Server-persisted unread count (badge survives reloads). Only meaningful
+  // while closed — opening resets it via markRead below.
+  const fetchUnread = () => {
+    if (openRef.current) return;
+    apiClient
+      .get(`/api/league/${leagueId}/chat/unread`)
+      .then((res) => {
+        const count = Number(res.data && res.data.unread);
+        if (Number.isFinite(count) && !openRef.current) setUnread(count);
+      })
+      .catch(() => {});
+  };
+
+  const markRead = () => {
+    apiClient.post(`/api/league/${leagueId}/chat/read`).catch(() => {});
+  };
+
+  useEffect(() => {
+    if (onUnreadChange) onUnreadChange(unread);
+  }, [unread, onUnreadChange]);
+
   useEffect(() => {
     fetchHistory();
-    // fetchHistory closes over leagueId, which is the explicit trigger.
+    fetchUnread();
+    // fetchHistory/fetchUnread close over leagueId, which is the explicit trigger.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leagueId]);
+
+  // Opening the drawer reads everything currently in it.
+  useEffect(() => {
+    openRef.current = open;
+    if (open) {
+      setUnread(0);
+      markRead();
+    }
+    // markRead closes over leagueId; open/leagueId are the triggers.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, leagueId]);
 
   useEffect(() => {
     const newSocket = createDraftSocket();
@@ -30,13 +79,22 @@ function ChatPanel({ leagueId }) {
 
     newSocket.on('chat:message', (data) => {
       setMessages((prev) => [...prev, data]);
+      if (openRef.current) {
+        // Reading live: keep the server-side marker current so a later
+        // reload doesn't resurrect these as unread.
+        markRead();
+      } else if (data.userId !== currentUserIdRef.current) {
+        setUnread((count) => count + 1);
+      }
     });
 
     // On reconnect: re-join the room (server re-adds us) and re-fetch chat
     // history via REST so any messages sent while we were offline appear.
+    // The unread count re-syncs from the server for the same reason.
     const offReconnect = onReconnect(newSocket, () => {
       newSocket.emit('league:join', { leagueId: Number(leagueId) });
       fetchHistory();
+      fetchUnread();
     });
 
     return () => {

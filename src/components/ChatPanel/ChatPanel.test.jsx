@@ -8,7 +8,7 @@ import ChatPanel from './ChatPanel';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
-  default: { get: jest.fn() },
+  default: { get: jest.fn(), post: jest.fn() },
 }));
 
 jest.mock('../../api/socket', () => ({
@@ -46,7 +46,17 @@ beforeEach(() => {
   };
   createDraftSocket.mockReturnValue(mockSocket);
   onReconnect.mockImplementation((socket, handler) => socket.io.on('reconnect', handler));
+  apiClient.post.mockResolvedValue({ data: { ok: true } });
 });
+
+// Route the two GET endpoints the panel uses: chat history and unread count.
+const mockGets = ({ history = [], unread = 0 } = {}) => {
+  apiClient.get.mockImplementation((url) =>
+    url.endsWith('/chat/unread')
+      ? Promise.resolve({ data: { unread } })
+      : Promise.resolve({ data: history })
+  );
+};
 
 afterEach(() => {
   jest.clearAllMocks();
@@ -150,6 +160,72 @@ test('joins the league room on mount and disconnects on unmount', async () => {
 
   unmount();
   expect(mockSocket.disconnect).toHaveBeenCalled();
+});
+
+test('while closed, unread starts from the server count and grows with others\' messages only', async () => {
+  mockGets({ unread: 2 });
+  const onUnreadChange = jest.fn();
+
+  renderWithProviders(
+    <ChatPanel leagueId={1} open={false} currentUserId={9} onUnreadChange={onUnreadChange} />
+  );
+  await screen.findByText('No messages yet');
+
+  // Server-persisted count (survives reloads) seeds the badge.
+  await waitFor(() => expect(onUnreadChange).toHaveBeenCalledWith(2));
+  expect(apiClient.get).toHaveBeenCalledWith('/api/league/1/chat/unread');
+
+  // Someone else's live message increments...
+  act(() => {
+    socketHandlers['chat:message']({
+      id: 2, leagueId: 1, userId: 2, username: 'bob', message: 'yo', created_at: '2026-01-01T12:05:00Z',
+    });
+  });
+  await waitFor(() => expect(onUnreadChange).toHaveBeenLastCalledWith(3));
+
+  // ...but the user's own broadcast echo does not.
+  act(() => {
+    socketHandlers['chat:message']({
+      id: 3, leagueId: 1, userId: 9, username: 'me', message: 'mine', created_at: '2026-01-01T12:06:00Z',
+    });
+  });
+  await screen.findByText('mine');
+  expect(onUnreadChange).toHaveBeenLastCalledWith(3);
+  // Closed panel never touches the read marker.
+  expect(apiClient.post).not.toHaveBeenCalled();
+});
+
+test('opening the chat resets unread and moves the server-side read marker', async () => {
+  mockGets({ unread: 5 });
+  const onUnreadChange = jest.fn();
+
+  const { rerender } = renderWithProviders(
+    <ChatPanel leagueId={1} open={false} currentUserId={9} onUnreadChange={onUnreadChange} />
+  );
+  await waitFor(() => expect(onUnreadChange).toHaveBeenCalledWith(5));
+
+  // ChatPanel needs no providers, so a bare rerender flips the drawer open.
+  rerender(<ChatPanel leagueId={1} open currentUserId={9} onUnreadChange={onUnreadChange} />);
+
+  await waitFor(() => expect(onUnreadChange).toHaveBeenLastCalledWith(0));
+  expect(apiClient.post).toHaveBeenCalledWith('/api/league/1/chat/read');
+});
+
+test('messages arriving while open are marked read on the server immediately', async () => {
+  mockGets();
+
+  renderWithProviders(<ChatPanel leagueId={4} open currentUserId={9} />);
+  await screen.findByText('No messages yet');
+  apiClient.post.mockClear(); // drop the mount-time mark-read
+
+  act(() => {
+    socketHandlers['chat:message']({
+      id: 2, leagueId: 4, userId: 2, username: 'bob', message: 'seen live', created_at: '2026-01-01T12:05:00Z',
+    });
+  });
+
+  await screen.findByText('seen live');
+  await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith('/api/league/4/chat/read'));
 });
 
 test('re-joins the league room and re-fetches chat history on reconnect', async () => {

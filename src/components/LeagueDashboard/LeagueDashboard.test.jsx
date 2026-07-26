@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
@@ -24,6 +24,9 @@ beforeEach(() => {
     emit: jest.fn(),
     disconnect: jest.fn(),
   });
+  // ChatPanel marks the chat read (fire-and-forget POST) whenever the drawer
+  // opens; resolve it so opening the drawer in any test can't reject.
+  apiClient.post.mockResolvedValue({ data: { ok: true } });
 });
 
 const renderDashboard = (leagueId = 1) =>
@@ -745,6 +748,42 @@ test('League Chat lives in a collapsible drawer, opened via a floating action bu
 
   await userEvent.click(openChatButton);
   expect(await screen.findByRole('button', { name: 'Close chat' })).toBeInTheDocument();
+});
+
+test('the chat FAB shows an unread badge for messages arriving while the drawer is closed, cleared on open', async () => {
+  const handlers = {};
+  createDraftSocket.mockReturnValue({
+    on: jest.fn((event, cb) => {
+      handlers[event] = cb;
+    }),
+    io: { on: jest.fn() },
+    emit: jest.fn(),
+    disconnect: jest.fn(),
+  });
+  mockGetByUrl({
+    '/api/league/1': leagueResponse(),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
+
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+  await screen.findByText('League Chat');
+
+  // Another member (userId 2 ≠ alice's 1) chats while the drawer is closed.
+  act(() => {
+    handlers['chat:message']({
+      id: 5, leagueId: 1, userId: 2, username: 'bob', message: 'trade?', created_at: '2026-01-01T12:00:00Z',
+    });
+  });
+
+  const fab = await screen.findByRole('button', { name: 'Open league chat, 1 unread message' });
+  expect(within(fab).getByText('1')).toBeInTheDocument();
+
+  // Opening the drawer clears the badge and persists the read on the server.
+  await userEvent.click(fab);
+  await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith('/api/league/1/chat/read'));
+  expect(screen.getByRole('button', { name: 'Open league chat' })).toBeInTheDocument();
 });
 
 // --- Recap / Trophy Case / Draft Grades / History integration ---

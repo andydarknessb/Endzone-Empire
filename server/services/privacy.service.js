@@ -19,6 +19,7 @@ async function exportUserData(userId) {
     ownedLeagues,
     notifications,
     chatMessages,
+    chatReads,
     privacyRequests,
   ] = await Promise.all([
     pool.query(
@@ -49,6 +50,11 @@ async function exportUserData(userId) {
       [userId]
     ),
     pool.query(
+      `SELECT "league_id", "last_read_at"
+       FROM "chat_reads" WHERE "user_id" = $1 ORDER BY "league_id"`,
+      [userId]
+    ),
+    pool.query(
       `SELECT "request_type", "status", "created_at", "completed_at"
        FROM "data_privacy_requests" WHERE "user_id" = $1 ORDER BY "created_at"`,
       [userId]
@@ -70,6 +76,7 @@ async function exportUserData(userId) {
     ownedLeagues: ownedLeagues.rows,
     notifications: notifications.rows,
     chatMessages: chatMessages.rows,
+    chatReads: chatReads.rows,
     privacyRequests: privacyRequests.rows,
   };
 }
@@ -123,6 +130,7 @@ async function deleteUserAccount({ userId, confirmation }) {
       [userId]
     );
     await client.query('DELETE FROM "chat_messages" WHERE "user_id" = $1', [userId]);
+    await client.query('DELETE FROM "chat_reads" WHERE "user_id" = $1', [userId]);
     await client.query('DELETE FROM "notifications" WHERE "user_id" = $1', [userId]);
     await client.query('DELETE FROM "notification_prefs" WHERE "user_id" = $1', [userId]);
     await client.query('DELETE FROM "push_subscriptions" WHERE "user_id" = $1', [userId]);
