@@ -362,17 +362,17 @@ function PlayerManagement() {
                   </Box>
                 </TableCell>
                 <TableCell align="right"><PositionChip position={player.position} /></TableCell>
-                <TableCell align="right">{player.position_rank != null ? `#${player.position_rank}` : '—'}</TableCell>
+                <TableCell align="right">{player.position_rank != null ? `#${player.position_rank}` : '-'}</TableCell>
                 <TableCell align="right">{player.nfl_team}</TableCell>
                 <TableCell align="right">
                   <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                    <Chip size="small" label={player.bye_week ? `Bye ${player.bye_week}` : 'Bye —'} variant="outlined" />
+                    <Chip size="small" label={player.bye_week ? `Bye ${player.bye_week}` : 'Bye -'} variant="outlined" />
                     {player.injury_status && <Chip size="small" label={player.injury_status} color="warning" />}
                   </Box>
                 </TableCell>
-                <TableCell align="right">{player.adp != null ? player.adp : '—'}</TableCell>
+                <TableCell align="right">{player.adp != null ? player.adp : '-'}</TableCell>
                 <TableCell align="right">
-                  {player.projected_points != null ? Number(player.projected_points).toFixed(1) : '—'}
+                  {player.projected_points != null ? Number(player.projected_points).toFixed(1) : '-'}
                 </TableCell>
                 <TableCell align="right" sx={stickyActionCellSx}>
                   <Tooltip title={!selectedLeague ? 'Select a league first' : rosterAction.helper}>

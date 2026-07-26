@@ -85,7 +85,7 @@ test('renders without crashing when a touchdown play is active', () => {
 
 test('flashes a plain-English banner for a non-touchdown moment play', () => {
   renderField({ activePlay: { side: 'away', type: 'sack', isTouchdown: false, nflTeam: 'BUF', opponent: 'KC' } });
-  expect(screen.getByRole('status')).toHaveTextContent('BUF — SACK');
+  expect(screen.getByRole('status')).toHaveTextContent('BUF · SACK');
 });
 
 test('no banner renders when there is no active play', () => {

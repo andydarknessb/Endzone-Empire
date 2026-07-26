@@ -290,7 +290,7 @@ async function setLineup({ leagueId, userId, week, moves }) {
     await client.query('BEGIN');
     const { league, team } = await loadLeagueAndTeam(client, { leagueId, userId, forUpdate: true });
     if (league.best_ball) {
-      throw new LineupError(409, 'best-ball leagues set lineups automatically — nothing to manage');
+      throw new LineupError(409, 'best-ball leagues set lineups automatically, so there is nothing to manage');
     }
     const season = league.current_season;
     const targetWeek = week || league.current_week;
@@ -320,7 +320,7 @@ async function setLineup({ leagueId, userId, week, moves }) {
       if (!entry) throw new LineupError(404, `player ${move.playerId} is not on your roster`);
       if (entry.slot === move.slot) continue;
       if (locked.has(entry.nfl_team)) {
-        throw new LineupError(409, 'that player is locked — his game has started', 'LINEUP_LOCKED');
+        throw new LineupError(409, 'that player is locked; his game has started', 'LINEUP_LOCKED');
       }
       entry.slot = move.slot;
       changed.push(entry);

@@ -181,7 +181,7 @@ async function respondToTrade({ tradeId, userId, action }) {
       await notifyLeague(client, {
         leagueId: league.id,
         type: 'trade_review',
-        message: `Trade accepted between ${proposing.name} and ${receiving.name} — league review is open`,
+        message: `Trade accepted between ${proposing.name} and ${receiving.name}. League review is open`,
         data: { tradeId },
         excludeUserIds: [proposing.owner_id, receiving.owner_id],
       });
@@ -189,7 +189,7 @@ async function respondToTrade({ tradeId, userId, action }) {
         userId: proposing.owner_id,
         leagueId: league.id,
         type: 'trade_result',
-        message: `${receiving.name} accepted your trade — it executes after league review`,
+        message: `${receiving.name} accepted your trade; it executes after league review`,
         data: { tradeId },
       });
       await client.query('COMMIT');

@@ -21,7 +21,7 @@
 
 - The kickoff query receives the fake server timestamp as a bound `timestamptz` parameter.
 - A rejected swap leaves both lineup slots unchanged and rolls back the transaction.
-- The error response is `{ error: "LINEUP_LOCKED", message: "that player is locked — his game has started" }`.
+- The error response is `{ error: "LINEUP_LOCKED", message: "that player is locked; his game has started" }`.
 - Player B is absent from the locked-team set at `13:01:00` and can be dropped normally.
 - The successful drop removes Player B, creates the waiver hold, and writes the drop transaction.
 

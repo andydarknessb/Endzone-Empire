@@ -41,7 +41,7 @@ function AvailableTypeAdds() {
         Top Available-Type Adds
       </Typography>
       <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.75, mb: 2.5, maxWidth: 760 }}>
-        Flex-relevant RB, WR, and TE depth beyond each position&apos;s leading tiers—the kind of names waiver claims are usually spent on. Actual availability depends on your league, but these are useful players to monitor before claims run.
+        Flex-relevant RB, WR, and TE depth beyond each position&apos;s leading tiers, the kind of names waiver claims are usually spent on. Actual availability depends on your league, but these are useful players to monitor before claims run.
       </Typography>
       {loading && <LoadingRows rows={3} height={76} />}
       {!loading && error && <ErrorState message="We couldn't load players to monitor." onRetry={retry} />}
@@ -82,7 +82,7 @@ function WaiverWirePage() {
               </P>
               <P>
                 The guides below cover the two systems, how to stream volatile positions, and how to bank the
-                right assets before the playoffs—none of it tied to any single league.
+                right assets before the playoffs, none of it tied to any single league.
               </P>
             </Prose>
           </Box>

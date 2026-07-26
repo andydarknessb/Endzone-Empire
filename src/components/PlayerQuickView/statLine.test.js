@@ -31,7 +31,7 @@ test('renders an IDP line and omits the bonus-only yardage keys', () => {
 });
 
 test('falls back to a dash with nothing to show', () => {
-  expect(statLine(null)).toBe('—');
-  expect(statLine({})).toBe('—');
-  expect(statLine({ receivingYards: 0 })).toBe('—');
+  expect(statLine(null)).toBe('-');
+  expect(statLine({})).toBe('-');
+  expect(statLine({ receivingYards: 0 })).toBe('-');
 });

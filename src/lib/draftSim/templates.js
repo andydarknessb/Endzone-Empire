@@ -95,7 +95,7 @@ export const LEAGUE_TEMPLATES = [
   {
     id: 'superflex',
     name: 'Superflex',
-    description: 'Standard plus a SFLX slot — a second QB is startable',
+    description: 'Standard plus a SFLX slot, so a second QB is startable',
     slots: SUPERFLEX_LINEUP,
     needsIdp: false,
   },

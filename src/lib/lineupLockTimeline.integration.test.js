@@ -189,7 +189,7 @@ describe('individual-player lineup lock timeline', () => {
     expect(swapResponse.status).toBe(409);
     expect(swapResponse.body).toEqual({
       error: 'LINEUP_LOCKED',
-      message: 'that player is locked — his game has started',
+      message: 'that player is locked; his game has started',
     });
     expect(state.slots.get(fixture.players.playerA.id)).toBe('FLEX');
     expect(state.slots.get(fixture.players.playerB.id)).toBe('BENCH');

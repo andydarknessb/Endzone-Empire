@@ -24,7 +24,7 @@ function StrategyIndexPage() {
       <Box sx={{ mb: 4 }}>
         <Typography variant="h3" component="h1" sx={{ fontWeight: 800 }}>Fantasy Football Strategy</Typography>
         <Typography variant="body1" sx={{ color: 'text.secondary', mt: 1, maxWidth: 720 }}>
-          Evergreen tactics for drafting, waivers, trades, and the playoff run — written to help you win
+          Evergreen tactics for drafting, waivers, trades, and the playoff run, written to help you win
           your league, whatever platform you play on.
         </Typography>
       </Box>

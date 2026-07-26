@@ -5,7 +5,7 @@ const article = {
   slug: 'draft-by-tiers',
   title: 'Draft by Tiers, Not by Rank',
   category: 'Draft',
-  excerpt: 'Ranked lists make every pick feel like a cliff. Tiers tell you when a cliff is actually there — and when it is safe to wait.',
+  excerpt: 'Ranked lists make every pick feel like a cliff. Tiers tell you when a cliff is actually there, and when it is safe to wait.',
   readMinutes: 5,
   date: '2026-08-01',
   Body: () => (
@@ -22,12 +22,12 @@ const article = {
       <H2>How to build tiers</H2>
       <P>
         Go position by position and draw a line every time you feel a meaningful drop in comfort. Do not
-        overthink the number of tiers — three to six per position is plenty. The lines matter more than
+        overthink the number of tiers. Three to six per position is plenty. The lines matter more than
         the order inside each tier.
       </P>
       <UL>
         <LI>Players in the same tier are roughly interchangeable. Take the one with the safer role.</LI>
-        <LI>When a tier has only one player left, that player just got more valuable — a mini-run is coming.</LI>
+        <LI>When a tier has only one player left, that player just got more valuable, and a mini-run is coming.</LI>
         <LI>If two positions have a full tier available, take the scarcer position and wait on the deep one.</LI>
       </UL>
       <H2>Using tiers live</H2>

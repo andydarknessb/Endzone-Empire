@@ -538,7 +538,7 @@ async function putSettings({ leagueId, enabled, mode }) {
         throw new PickemError(
           409,
           'PICKEM_MODE_LOCKED',
-          'picks have already been made this season — the scoring mode is locked until next season'
+          'picks have already been made this season; the scoring mode is locked until next season'
         );
       }
     }

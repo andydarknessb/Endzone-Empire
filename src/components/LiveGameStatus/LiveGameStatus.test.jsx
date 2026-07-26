@@ -39,7 +39,7 @@ test('renders the live chip with quarter/clock and the score line', () => {
   });
   render(<LiveGameStatus gameId="x" />);
   expect(screen.getByText('Q3 8:42')).toBeInTheDocument();
-  expect(screen.getByText(/DEN 10 — 17 KC/)).toBeInTheDocument();
+  expect(screen.getByText(/DEN 10 - 17 KC/)).toBeInTheDocument();
 });
 
 test('renders a FINAL chip for a completed game', () => {

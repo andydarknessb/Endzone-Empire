@@ -8,7 +8,7 @@ import RuleRow from './RuleRow';
 // on whether a vote threshold is set.
 function tradeReview(league) {
   if ((league.trade_review_hours ?? 0) === 0) {
-    return { value: 'Instant', detail: 'Trades execute immediately — no review window, no vetoes.' };
+    return { value: 'Instant', detail: 'Trades execute immediately, with no review window and no vetoes.' };
   }
   if ((league.trade_veto_votes ?? 0) === 0) {
     return {

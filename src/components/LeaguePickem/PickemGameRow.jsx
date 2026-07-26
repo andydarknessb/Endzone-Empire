@@ -91,7 +91,7 @@ export default function PickemGameRow({
           </Stack>
           {played && (
             <Typography variant="body2" color="text.secondary">
-              {`${game.awayTeam} ${game.awayScore} — ${game.homeTeam} ${game.homeScore}`}
+              {`${game.awayTeam} ${game.awayScore} - ${game.homeTeam} ${game.homeScore}`}
               {game.quarter ? ` · ${game.quarter}` : ''}
               {game.timeRemaining ? ` ${game.timeRemaining}` : ''}
             </Typography>
@@ -146,7 +146,7 @@ export default function PickemGameRow({
           {game.locked && !picked && (
             <Chip size="small" variant="outlined" label="No pick" />
           )}
-          {game.isTie && <Chip size="small" label="Tie — no credit" />}
+          {game.isTie && <Chip size="small" label="Tie: no credit" />}
           {game.winner && (
             <Chip size="small" color="success" variant="outlined" label={`${game.winner} won`} />
           )}

@@ -26,7 +26,7 @@ export default function LiveGameStatus({ gameId }) {
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
       <Chip size="small" color={isLive ? 'success' : isFinal ? 'default' : 'info'} label={label} />
       <Typography variant="body2">
-        {state.away_team} {state.current_score_away} — {state.current_score_home} {state.home_team}
+        {state.away_team} {state.current_score_away} - {state.current_score_home} {state.home_team}
       </Typography>
     </Box>
   );

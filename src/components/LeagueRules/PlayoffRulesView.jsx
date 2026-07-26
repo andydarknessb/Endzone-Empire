@@ -39,7 +39,7 @@ export default function PlayoffRulesView({ league }) {
           <RuleRow
             label="Best ball"
             value="On"
-            detail="Lineups score automatically from your best possible starters — no lineup setting."
+            detail="Lineups score automatically from your best possible starters, with no lineup setting."
           />
         )}
       </Box>

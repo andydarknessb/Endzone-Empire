@@ -92,7 +92,7 @@ function DraftRail({
         </Typography>
         {queue.length === 0 ? (
           <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-            Queue is empty — add players from the list below.
+            Queue is empty. Add players from the list below.
           </Typography>
         ) : (
           queue.map((player, index) => {
@@ -172,7 +172,7 @@ function DraftRail({
               return (
                 <Box key={team.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                   <Typography variant="body2" sx={{ minWidth: 22, color: 'text.secondary' }}>
-                    {team.draft_position != null ? `${team.draft_position}.` : '—'}
+                    {team.draft_position != null ? `${team.draft_position}.` : '-'}
                   </Typography>
                   <Typography variant="body2" sx={{ fontWeight: onClock ? 'bold' : 'normal', flexGrow: 1 }}>
                     {team.name}

@@ -120,6 +120,6 @@ export function tierRangeLabel(tier) {
 // number of decimals, so per-yard rates stay readable next to whole-point TDs.
 export function formatPoints(value) {
   const points = Number(value);
-  if (!Number.isFinite(points)) return '—';
+  if (!Number.isFinite(points)) return '-';
   return String(points);
 }

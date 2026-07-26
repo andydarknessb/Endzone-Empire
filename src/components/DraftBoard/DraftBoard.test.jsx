@@ -744,7 +744,7 @@ test('shows projected points and injury badges in the available players table', 
   expect(screen.getByText('Q')).toBeInTheDocument();
   expect(screen.getByText('3.2')).toBeInTheDocument(); // Josh Allen's ADP
   expect(screen.getByLabelText(/Season Proj: Projected fantasy points:/)).toBeInTheDocument();
-  expect(screen.getAllByText('—').length).toBeGreaterThan(0); // missing proj/adp render as —
+  expect(screen.getAllByText('-').length).toBeGreaterThan(0); // missing proj/adp render as -
   // The name is a quick-view trigger (a button), not a navigation link.
   expect(screen.getByRole('button', { name: 'Patrick Mahomes' })).toBeInTheDocument();
 });
@@ -785,7 +785,7 @@ test('shows each pool player\'s bye week, with an em dash when the schedule is u
   await screen.findByText('Patrick Mahomes');
   expect(screen.getByText('Bye')).toBeInTheDocument();
   expect(within(screen.getByText('Patrick Mahomes').closest('tr')).getByText('10')).toBeInTheDocument();
-  const rookieCells = within(screen.getByText('Rookie Backer').closest('tr')).getAllByText('—');
+  const rookieCells = within(screen.getByText('Rookie Backer').closest('tr')).getAllByText('-');
   expect(rookieCells.length).toBeGreaterThan(0);
 });
 

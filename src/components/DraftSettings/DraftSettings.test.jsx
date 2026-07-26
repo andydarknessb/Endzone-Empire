@@ -134,15 +134,15 @@ test('confirms before discarding unsaved edits when switching tabs', async () =>
   await userEvent.click(screen.getByRole('radio', { name: /Autopick/i }));
   await userEvent.click(screen.getByRole('tab', { name: 'Timer' }));
 
-  expect(screen.getByText('You have unsaved changes — discard them?')).toBeInTheDocument();
+  expect(screen.getByText('You have unsaved changes. Discard them?')).toBeInTheDocument();
   await userEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
-  await waitFor(() => expect(screen.queryByText('You have unsaved changes — discard them?')).not.toBeInTheDocument());
+  await waitFor(() => expect(screen.queryByText('You have unsaved changes. Discard them?')).not.toBeInTheDocument());
   expect(screen.getByRole('tab', { name: 'Draft type' })).toHaveAttribute('aria-selected', 'true');
   expect(screen.getByRole('radio', { name: /Autopick/i })).toBeChecked();
 
   await userEvent.click(screen.getByRole('tab', { name: 'Timer' }));
   await userEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
-  await waitFor(() => expect(screen.queryByText('You have unsaved changes — discard them?')).not.toBeInTheDocument());
+  await waitFor(() => expect(screen.queryByText('You have unsaved changes. Discard them?')).not.toBeInTheDocument());
   expect(screen.getByRole('tab', { name: 'Timer' })).toHaveAttribute('aria-selected', 'true');
   expect(screen.getByRole('button', { name: 'Save timer' })).toBeInTheDocument();
 });
@@ -155,9 +155,9 @@ test('uses the same confirmation before navigating away from draft settings', as
   await userEvent.click(screen.getByRole('radio', { name: /Offline/i }));
   await userEvent.click(screen.getByRole('link', { name: 'Leave settings' }));
 
-  expect(screen.getByText('You have unsaved changes — discard them?')).toBeInTheDocument();
+  expect(screen.getByText('You have unsaved changes. Discard them?')).toBeInTheDocument();
   await userEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
-  await waitFor(() => expect(screen.queryByText('You have unsaved changes — discard them?')).not.toBeInTheDocument());
+  await waitFor(() => expect(screen.queryByText('You have unsaved changes. Discard them?')).not.toBeInTheDocument());
   expect(screen.getByText('Sunday Ballers')).toBeInTheDocument();
 
   await userEvent.click(screen.getByRole('link', { name: 'Leave settings' }));
@@ -172,10 +172,10 @@ test('does not expose auction settings from an unsaved draft type selection', as
 
   await userEvent.click(screen.getByRole('radio', { name: /Salary-cap auction/i }));
   await userEvent.click(screen.getByRole('tab', { name: 'Auction' }));
-  expect(screen.getByText('You have unsaved changes — discard them?')).toBeInTheDocument();
+  expect(screen.getByText('You have unsaved changes. Discard them?')).toBeInTheDocument();
 
   await userEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
-  await waitFor(() => expect(screen.queryByText('You have unsaved changes — discard them?')).not.toBeInTheDocument());
+  await waitFor(() => expect(screen.queryByText('You have unsaved changes. Discard them?')).not.toBeInTheDocument());
   expect(screen.getByText(/Select Salary-cap auction under Draft type/)).toBeInTheDocument();
   expect(screen.queryByRole('spinbutton', { name: 'Budget' })).not.toBeInTheDocument();
 });
@@ -197,9 +197,9 @@ test('guards browser back navigation when the active tab has unsaved changes', a
     // the flag (it's a ref), so the popstate below reliably hits the POP guard
     // instead of racing the unsaved-changes effect.
     await userEvent.click(screen.getByRole('link', { name: 'Leave settings' }));
-    await screen.findByText('You have unsaved changes — discard them?');
+    await screen.findByText('You have unsaved changes. Discard them?');
     await userEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
-    await waitFor(() => expect(screen.queryByText('You have unsaved changes — discard them?')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText('You have unsaved changes. Discard them?')).not.toBeInTheDocument());
 
     act(() => {
       window.dispatchEvent(new PopStateEvent('popstate', { state: { idx: 4 } }));

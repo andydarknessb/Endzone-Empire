@@ -29,7 +29,7 @@ function OfflineBanner() {
   return (
     <Box sx={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: (theme) => theme.zIndex.snackbar }}>
       <Alert severity="warning" variant="filled" square>
-        You&apos;re offline — showing cached data
+        You&apos;re offline, showing cached data
       </Alert>
     </Box>
   );

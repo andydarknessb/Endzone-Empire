@@ -175,7 +175,7 @@ async function llmNarrative(facts, { client: suppliedClient } = {}) {
       system:
         'You write short, punchy NFL game recaps for a fantasy football audience. ' +
         'Two short paragraphs max. Lead with the result, then the fantasy angle. Use ONLY ' +
-        'the facts provided — never invent players, scores, or events. Plain text, no headings.',
+        'the facts provided. Never invent players, scores, or events. Plain text, no headings, no em dashes.',
       messages: [
         { role: 'user', content: `Write a recap of this NFL game from these facts:\n${JSON.stringify(facts, null, 2)}` },
       ],
@@ -274,7 +274,7 @@ async function generateForGame(tank01GameId, { api, client } = {}) {
     return null;
   }
   if (state.game_status !== 'final') {
-    console.log(`gameRecap: ${tank01GameId} is ${state.game_status}, not final — skipping`);
+    console.log(`gameRecap: ${tank01GameId} is ${state.game_status}, not final; skipping`);
     return null;
   }
 

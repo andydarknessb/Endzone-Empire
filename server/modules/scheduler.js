@@ -260,7 +260,7 @@ async function alertCloseMatchups({ leagueId, week, scored }) {
         await usersWanting(owners.rows.map((r) => r.owner_id), 'closeMatchups'),
         {
           title: 'Your matchup is close!',
-          body: `Week ${week}: separated by just ${Math.round(margin * 10) / 10} points — keep watching.`,
+          body: `Week ${week}: separated by just ${Math.round(margin * 10) / 10} points. Keep watching.`,
           url: `/#/league/${leagueId}/game-center`,
         }
       );

@@ -118,7 +118,7 @@ async function llmNarrative(facts, { client: suppliedClient } = {}) {
       system:
         'You write short, punchy fantasy football weekly recaps for a league of friends. ' +
         'Two paragraphs max. Fun trash-talk energy, never mean-spirited. Use ONLY the facts ' +
-        'provided — never invent players, scores, or events. Plain text, no headings.',
+        'provided. Never invent players, scores, or events. Plain text, no headings, no em dashes.',
       messages: [
         { role: 'user', content: `Write the week ${facts.week} recap from these facts:\n${JSON.stringify(facts, null, 2)}` },
       ],

@@ -216,7 +216,7 @@ function LineupScreen() {
         moves,
       });
       if (result.queued) {
-        notify('Lineup change saved offline — it will sync when you reconnect', { severity: 'info' });
+        notify('Lineup change saved offline. It will sync when you reconnect', { severity: 'info' });
       } else {
         notify('Lineup saved');
       }
@@ -306,9 +306,9 @@ function LineupScreen() {
                   <PlayerNameLink name={entry.name} playerId={entry.id} onOpen={setQuickViewId} />
                 </Typography>
                 <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                  {entry.position} — {entry.nfl_team}
+                  {entry.position} · {entry.nfl_team}
                   {entry.opponent && ` · vs ${entry.opponent}`}
-                  {entry.projected_points != null && ` — proj ${entry.projected_points}`}
+                  {entry.projected_points != null && ` · proj ${entry.projected_points}`}
                 </Typography>
               </Box>
               <InjuryBadge status={entry.injury_status} />
@@ -499,7 +499,7 @@ function LineupScreen() {
                 </Button>
               )}
               {showLineupWarning && (
-                <Tooltip title={`${lineupWarningText} Changes save automatically — set your lineup before kickoff.`}>
+                <Tooltip title={`${lineupWarningText} Changes save automatically. Set your lineup before kickoff.`}>
                   <Chip
                     icon={<WarningAmberIcon fontSize="small" />}
                     label="Needs attention"
@@ -556,7 +556,7 @@ function LineupScreen() {
               <Collapse in={adviceExpanded}>
                 <Box sx={{ mt: 2 }}>
                   <Typography variant="body2" sx={{ mb: 2, color: 'text.secondary' }}>
-                    Projected {advice.projectedTotal} pts — Optimal {advice.optimalTotal} pts
+                    Projected {advice.projectedTotal} pts · Optimal {advice.optimalTotal} pts
                   </Typography>
                   {advice.suggestions.length === 0 ? (
                     <Typography sx={{ color: 'text.secondary' }}>
@@ -620,7 +620,7 @@ function LineupScreen() {
                   }}
                 >
                   <Typography variant="body2">
-                    Moving {selectedEntry.name} — tap a highlighted slot
+                    Moving {selectedEntry.name}: tap a highlighted slot
                   </Typography>
                   <Button size="small" onClick={() => setSelectedEntry(null)}>
                     Cancel

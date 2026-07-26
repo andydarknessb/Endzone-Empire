@@ -21,7 +21,7 @@ import apiClient from '../../api/apiClient';
 
 // Turns a whole number of seconds into a short humanized string, e.g. "3h 42m".
 function humanizeUptime(uptimeSec) {
-  if (uptimeSec == null || Number.isNaN(uptimeSec)) return '—';
+  if (uptimeSec == null || Number.isNaN(uptimeSec)) return '-';
   const totalSeconds = Math.max(0, Math.floor(uptimeSec));
   const days = Math.floor(totalSeconds / 86400);
   const hours = Math.floor((totalSeconds % 86400) / 3600);
@@ -291,7 +291,7 @@ function AdminDashboard() {
             <Typography variant="body2">
               {`Live clock source: ${sync.liveGameEngine.clockSource}`}
               {sync.liveGameEngine.clockSource !== sync.liveGameEngine.configuredClockSource
-                ? ` (fallback — ESPN failed ${sync.liveGameEngine.espnConsecutiveFailures}x)`
+                ? ` (fallback: ESPN failed ${sync.liveGameEngine.espnConsecutiveFailures}x)`
                 : ''}
               {sync.liveGameEngine.lastRunAt
                 ? `, last tick ${new Date(sync.liveGameEngine.lastRunAt).toLocaleString()}`
@@ -364,7 +364,7 @@ function AdminDashboard() {
 
         {!rapidApiConfigured && (
           <Alert severity="warning" sx={{ mb: 2 }}>
-            RapidAPI credentials are not configured — sync buttons are disabled.
+            RapidAPI credentials are not configured, so sync buttons are disabled.
           </Alert>
         )}
 

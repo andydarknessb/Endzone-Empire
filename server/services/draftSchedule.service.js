@@ -118,7 +118,7 @@ async function runAction(league, action) {
         userId: league.owner_id,
         leagueId: league.id,
         type: 'draft_understaffed',
-        message: `${league.name} couldn't auto-start: salary-cap auction drafts aren't supported yet — change the draft type or start it manually once that ships.`,
+        message: `${league.name} couldn't auto-start: salary-cap auction drafts aren't supported yet. Change the draft type or start it manually once that ships.`,
         data: { url: `/#/league/${league.id}` },
       });
     } else {
@@ -187,7 +187,7 @@ async function runStartAction(league) {
   const owners = await pool.query(`SELECT "owner_id" FROM "teams" WHERE "league_id" = $1`, [league.id]);
   await pushDraftAlert(league.id, owners.rows.map((r) => r.owner_id), {
     title: 'Draft starting now',
-    body: `${league.name}'s draft is live — join the room.`,
+    body: `${league.name}'s draft is live. Join the room.`,
   });
 }
 

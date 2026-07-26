@@ -23,7 +23,7 @@ const article = {
       </P>
       <UL>
         <LI>Prioritize players whose Week 15–17 opponents are weak against their position.</LI>
-        <LI>Beware players on teams likely to rest starters if they clinch a bye — that is a real Week 17 risk.</LI>
+        <LI>Beware players on teams likely to rest starters if they clinch a bye. That is a real Week 17 risk.</LI>
         <LI>Handcuff your league-winning running back before the playoffs, not after he gets hurt.</LI>
       </UL>
       <H2>Bench depth becomes king</H2>
@@ -39,7 +39,7 @@ const article = {
       <P>
         Once you have clinched, resist the urge to churn your roster for tiny weekly edges. Lock in your core,
         keep one flexible bench spot for a matchup-based streamer, and go into the playoffs with the team that
-        got you there — a little sharper at the edges.
+        got you there, a little sharper at the edges.
       </P>
     </>
   ),

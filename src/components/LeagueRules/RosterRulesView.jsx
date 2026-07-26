@@ -39,7 +39,7 @@ export default function RosterRulesView({ league }) {
                 <TableRow key={slot.key}>
                   <TableCell>{slot.label || slot.key}</TableCell>
                   <TableCell align="right">{Number(slot.count) || 0}</TableCell>
-                  <TableCell>{(slot.eligiblePositions || []).join(', ') || '—'}</TableCell>
+                  <TableCell>{(slot.eligiblePositions || []).join(', ') || '-'}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -51,7 +51,7 @@ export default function RosterRulesView({ league }) {
         <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>Draft position limits</Typography>
         {cappedPositions.length === 0 ? (
           <Typography variant="body2" color="text.secondary">
-            No position limits — you can draft any mix of positions.
+            No position limits. You can draft any mix of positions.
           </Typography>
         ) : (
           <>

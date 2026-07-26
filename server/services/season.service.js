@@ -82,7 +82,7 @@ function computeStandings(teams, matchups) {
     const games = r.wins + r.losses + r.ties;
     const winPct = games === 0 ? 0 : (r.wins + r.ties / 2) / games;
     // Trailing streak, e.g. W3 / L1 / T2
-    let streak = '—';
+    let streak = '-';
     if (r.results.length > 0) {
       const last = r.results[r.results.length - 1].result;
       let n = 0;
@@ -277,7 +277,7 @@ async function finalizeWeekAndAdvance({ leagueId }) {
       [leagueId, season, week]
     );
     if (weekMatchups.rows.length === 0) {
-      throw new SeasonError(409, `no matchups exist for week ${week} — generate the schedule first`);
+      throw new SeasonError(409, `no matchups exist for week ${week}; generate the schedule first`);
     }
     await client.query(
       `UPDATE "matchups" SET "final" = true WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3`,
@@ -330,7 +330,7 @@ async function finalizeWeekAndAdvance({ leagueId }) {
       await notifyLeague(client, {
         leagueId,
         type: 'season',
-        message: 'The regular season is over — playoffs start this week!',
+        message: 'The regular season is over. Playoffs start this week!',
       });
       outcome = { advancedTo: nextWeek, seasonStatus: 'playoffs', playoffRound: 1 };
     } else if (league.season_status === 'playoffs') {

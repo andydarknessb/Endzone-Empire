@@ -370,7 +370,7 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
     await notifyLeague(client, {
       leagueId,
       type: 'season',
-      message: `A new season has begun! ${keeperPairs.length > 0 ? 'Keepers are locked in — ' : ''}the draft is open to be scheduled.`,
+      message: `A new season has begun! ${keeperPairs.length > 0 ? 'Keepers are locked in and ' : ''}the draft is open to be scheduled.`,
     });
     await client.query('COMMIT');
     return { leagueId, archivedSeason: league.current_season, newSeason, championTeamId, championUserId };
@@ -405,7 +405,7 @@ async function setTeamLocked({ leagueId, userId, teamId, locked }) {
       leagueId,
       type: 'league',
       message: locked
-        ? 'Your team was locked by the commissioner — roster moves are frozen until it is unlocked'
+        ? 'Your team was locked by the commissioner; roster moves are frozen until it is unlocked'
         : 'Your team was unlocked by the commissioner',
     });
     await client.query('COMMIT');
@@ -487,7 +487,7 @@ async function forceTransaction({ leagueId, userId, teamId, action, playerId }) 
         );
       } catch (error) {
         if (error.code === '23505') {
-          throw new CommissionerError(409, 'player is already rostered in this league — drop them first');
+          throw new CommissionerError(409, 'player is already rostered in this league; drop them first');
         }
         throw error;
       }

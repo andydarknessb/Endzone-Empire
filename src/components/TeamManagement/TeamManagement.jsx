@@ -30,7 +30,7 @@ const STATUS_STYLE = {
 
 function StatusChip({ status }) {
   if (!status) {
-    return <Typography variant="body2" color="text.secondary">—</Typography>;
+    return <Typography variant="body2" color="text.secondary">-</Typography>;
   }
   return (
     <Chip
@@ -258,7 +258,7 @@ function TeamManagement() {
             {leagues.length === 0 ? (
               <>
                 <Typography color="text.secondary">
-                  You&apos;re not in a league yet — create or join one to start building your team.
+                  You&apos;re not in a league yet. Create or join one to start building your team.
                 </Typography>
                 <Button component={RouterLink} to="/league" variant="contained">
                   Go to Leagues
@@ -346,17 +346,17 @@ function TeamManagement() {
                             sx={{ fontWeight: 600, display: 'block' }}
                           />
                           <Typography variant="body2" color="text.secondary">
-                            {player.nfl_team || '—'} &middot; {player.position}
+                            {player.nfl_team || '-'} &middot; {player.position}
                           </Typography>
                         </Box>
                       </Stack>
                     </TableCell>
-                    <TableCell>{player.bye_week ?? '—'}</TableCell>
+                    <TableCell>{player.bye_week ?? '-'}</TableCell>
                     <TableCell>
                       <StatusChip status={player.injury_status} />
                     </TableCell>
                     <TableCell>
-                      {player.acquired_at ? new Date(player.acquired_at).toLocaleDateString() : '—'}
+                      {player.acquired_at ? new Date(player.acquired_at).toLocaleDateString() : '-'}
                     </TableCell>
                     <TableCell align="right">
                       <Stack direction="row" spacing={0.5} justifyContent="flex-end">

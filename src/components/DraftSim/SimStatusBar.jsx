@@ -55,7 +55,7 @@ function SimStatusBar({
             </Typography>
             <Stack direction="row" spacing={1} alignItems="center">
               <Typography variant="h6" sx={{ fontWeight: 800 }}>
-                {onTheClockName || '—'}
+                {onTheClockName || '-'}
               </Typography>
               {myTurn && <Chip size="small" color="primary" label="You're up" />}
             </Stack>

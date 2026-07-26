@@ -145,7 +145,7 @@ function LeagueManagement() {
 
       {leagues.length === 0 ? (
         <Typography color="text.secondary" sx={{ my: 2 }}>
-          You aren&apos;t in any leagues yet — create one or join with an invite code.
+          You aren&apos;t in any leagues yet. Create one or join with an invite code.
         </Typography>
       ) : (
         <Stack spacing={2} sx={{ my: 2 }}>
@@ -250,7 +250,7 @@ function LeagueManagement() {
                   />
                   {bestBall && (
                     <Typography variant="caption" color="text.secondary">
-                      Best ball: an optimal lineup is set automatically each week — no manual lineup edits.
+                      Best ball: an optimal lineup is set automatically each week, with no manual lineup edits.
                     </Typography>
                   )}
                 </Stack>

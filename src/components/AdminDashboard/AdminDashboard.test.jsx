@@ -284,7 +284,7 @@ test('sync health flags a quota block and an ESPN fallback', async () => {
 
   expect(await screen.findByTestId('quota-mode-chip')).toHaveTextContent('Quota blocked');
   expect(screen.getByTestId('clock-source-chip')).toHaveTextContent('Clock: tank01');
-  expect(screen.getByText(/fallback — ESPN failed 4x/)).toBeInTheDocument();
+  expect(screen.getByText(/fallback: ESPN failed 4x/)).toBeInTheDocument();
   expect(screen.getByText(/Live clock error: ESPN scoreboard timeout/)).toBeInTheDocument();
 });
 

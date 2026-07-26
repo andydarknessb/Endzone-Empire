@@ -20,9 +20,9 @@ const article = {
         The whole game is deciding when a player is worth burning your spot near the front.
       </P>
       <UL>
-        <LI>Protect a high priority for a true difference-maker — a lead back who just inherited a job.</LI>
+        <LI>Protect a high priority for a true difference-maker, a lead back who just inherited a job.</LI>
         <LI>Do not spend the #1 slot on a dart-throw you would drop in two weeks.</LI>
-        <LI>Late in the week, low-priority managers can still win uncontested add — check who nobody claimed.</LI>
+        <LI>Late in the week, low-priority managers can still win uncontested add. Check who nobody claimed.</LI>
       </UL>
       <H2>FAAB (free-agent budget)</H2>
       <P>

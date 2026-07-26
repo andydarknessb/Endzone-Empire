@@ -150,7 +150,7 @@ export default function PickemWeekBoard({ view, saving, saveError, onSave, onDir
               label={view.mode === 'confidence' ? 'Confidence points' : 'Straight up'}
             />
             <Typography variant="body2" color="text.secondary">
-              All games this week have kicked off — picks are locked.
+              All games this week have kicked off, so picks are locked.
             </Typography>
           </Stack>
         ) : (

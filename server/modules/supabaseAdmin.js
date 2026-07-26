@@ -14,7 +14,7 @@ const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!supabaseUrl || !supabaseServiceRoleKey) {
   console.warn(
-    'supabaseAdmin: SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set — avatar uploads disabled'
+    'supabaseAdmin: SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set; avatar uploads disabled'
   );
 }
 

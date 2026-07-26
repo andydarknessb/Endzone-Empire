@@ -69,7 +69,7 @@ async function sendWeeklyRecapDigest({ leagueId, season, week }) {
     if (!wanted.has(member.id)) continue;
     await deliverEmail({
       to: member.email,
-      subject: `Week ${week} recap — ${member.league_name}`,
+      subject: `Week ${week} recap: ${member.league_name}`,
       text: `${recap.narrative}\n\nFull standings and matchups: ${appOrigin()}/#/league/${leagueId}`,
     });
     sent += 1;
@@ -123,7 +123,7 @@ async function sendWaiverResultsDigest({ leagueId }) {
     byOwner.get(row.owner_id).lines.push(
       row.status === 'won'
         ? `WON: ${row.player_name}${bid}`
-        : `LOST: ${row.player_name}${bid}${row.note ? ` — ${row.note}` : ''}`
+        : `LOST: ${row.player_name}${bid}${row.note ? ` · ${row.note}` : ''}`
     );
   }
   const wanted = new Set(await usersWanting([...byOwner.keys()], 'waiverResults'));
@@ -133,13 +133,13 @@ async function sendWaiverResultsDigest({ leagueId }) {
     if (!wanted.has(ownerId)) continue;
     await deliverEmail({
       to: email,
-      subject: `Waiver results — ${leagueName}`,
+      subject: `Waiver results: ${leagueName}`,
       text: `Your waiver claims cleared:\n\n${lines.join('\n')}\n\n${appOrigin()}/#/league/${leagueId}/waivers`,
     });
     try {
       const push = require('./push.service');
       await push.sendPushToUsers([ownerId], {
-        title: `Waiver results — ${leagueName}`,
+        title: `Waiver results: ${leagueName}`,
         body: lines.join(' · '),
         url: `/#/league/${leagueId}/waivers`,
       });
@@ -224,7 +224,7 @@ async function sendLineupReminders() {
       try {
         const push = require('./push.service');
         await push.sendPushToUsers([team.owner_id], {
-          title: 'Set your lineup — kickoff soon',
+          title: 'Set your lineup before kickoff',
           body: message,
           url: `/#/league/${leagueId}/lineup`,
         });
@@ -249,7 +249,7 @@ async function sendLineupReminders() {
       }
       await deliverEmail({
         to: team.email,
-        subject: `Set your lineup — kickoff soon (${team.name})`,
+        subject: `Set your lineup before kickoff (${team.name})`,
         text: `${message}\n\nFix it here: ${appOrigin()}/#/league/${leagueId}/lineup`,
       });
     }
@@ -342,7 +342,7 @@ async function sendPickemReminders() {
       try {
         const push = require('./push.service');
         await push.sendPushToUsers([member.owner_id], {
-          title: "Make your Pick'em picks — kickoff soon",
+          title: "Make your Pick'em picks before kickoff",
           body: message,
           url: `/#/league/${league.id}/pickem`,
         });
@@ -367,7 +367,7 @@ async function sendPickemReminders() {
       }
       await deliverEmail({
         to: member.email,
-        subject: `Pick'em picks due — ${league.name}`,
+        subject: `Pick'em picks due: ${league.name}`,
         text: `${message}\n\nMake them here: ${appOrigin()}/#/league/${league.id}/pickem`,
       });
     }

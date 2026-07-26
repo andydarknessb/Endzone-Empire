@@ -28,7 +28,7 @@ function DraftSimPage() {
         </Typography>
         <Typography variant="body1" sx={{ color: 'text.secondary', mt: 1, maxWidth: 720 }}>
           Draft a full roster against CPU managers who actually chase roster needs and positional
-          scarcity. Choose your league size, draft slot, format, and pick clock — then get an
+          scarcity. Choose your league size, draft slot, format, and pick clock, then get an
           A&ndash;F grade, a per-pick market read, and concrete notes on what to do differently.
         </Typography>
       </Box>

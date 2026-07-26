@@ -14,7 +14,7 @@ function PublicFooter() {
               Endzone Empire
             </Typography>
             <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.5, maxWidth: 360 }}>
-              Free NFL rankings, player profiles, recaps, and fantasy strategy — no account needed.
+              Free NFL rankings, player profiles, recaps, and fantasy strategy. No account needed.
             </Typography>
           </Box>
           <Stack component="nav" aria-label="Footer" direction="row" flexWrap="wrap" spacing={2.5} rowGap={1}>

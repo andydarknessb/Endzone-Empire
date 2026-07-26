@@ -14,14 +14,14 @@ const IDP_FILTERS = ['DL', 'LB', 'DB'];
 const VISIBLE_ROWS = 60;
 
 function numberCell(value, digits = 1) {
-  if (value == null || !Number.isFinite(Number(value))) return '—';
+  if (value == null || !Number.isFinite(Number(value))) return '-';
   return Number(value).toFixed(digits);
 }
 
 /** One line of stats for the mobile card: "Bye 6 · ADP 1.5 · RB1 · Proj 328". */
 function statLine(player) {
   const parts = [];
-  parts.push(`Bye ${player.byeWeek ?? '—'}`);
+  parts.push(`Bye ${player.byeWeek ?? '-'}`);
   parts.push(`ADP ${numberCell(player.adp)}`);
   if (player.positionRank != null) parts.push(`${positionGroupKey(player.position)}${player.positionRank}`);
   parts.push(`Proj ${numberCell(player.projectedPoints)}`);
@@ -98,7 +98,7 @@ function SimPlayerPool({ players, includeIdp = false, onDraft, myTurn }) {
                 <Box sx={{ flexGrow: 1, minWidth: 0 }}>
                   <Typography variant="body2" noWrap sx={{ fontWeight: 600 }}>{player.name}</Typography>
                   <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
-                    {player.nflTeam || '—'}
+                    {player.nflTeam || '-'}
                     {player.injuryStatus ? ` · ${player.injuryStatus}` : ''}
                   </Typography>
                   <Typography variant="caption" sx={{ color: 'text.secondary' }}>
@@ -140,16 +140,16 @@ function SimPlayerPool({ players, includeIdp = false, onDraft, myTurn }) {
                       <Box>
                         <Typography variant="body2" sx={{ fontWeight: 600 }}>{player.name}</Typography>
                         <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                          {player.nflTeam || '—'}
+                          {player.nflTeam || '-'}
                           {player.injuryStatus ? ` · ${player.injuryStatus}` : ''}
                         </Typography>
                       </Box>
                     </Stack>
                   </TableCell>
-                  <TableCell align="right">{player.byeWeek ?? '—'}</TableCell>
+                  <TableCell align="right">{player.byeWeek ?? '-'}</TableCell>
                   <TableCell align="right">{numberCell(player.adp)}</TableCell>
                   <TableCell align="right">
-                    {player.positionRank == null ? '—' : `${positionGroupKey(player.position)}${player.positionRank}`}
+                    {player.positionRank == null ? '-' : `${positionGroupKey(player.position)}${player.positionRank}`}
                   </TableCell>
                   <TableCell align="right">{numberCell(player.projectedPoints)}</TableCell>
                   <TableCell align="right">
@@ -172,7 +172,7 @@ function SimPlayerPool({ players, includeIdp = false, onDraft, myTurn }) {
 
       {filtered.length > visible.length && (
         <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 1 }}>
-          Showing the top {visible.length} of {filtered.length} available — search to narrow it down.
+          Showing the top {visible.length} of {filtered.length} available. Search to narrow it down.
         </Typography>
       )}
     </Paper>

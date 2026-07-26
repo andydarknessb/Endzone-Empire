@@ -22,7 +22,7 @@ function StatCard({ label, value, tooltip }) {
     <Card variant="outlined" sx={{ height: '100%' }}>
       <CardContent sx={{ textAlign: 'center', py: 2 }}>
         <Typography variant="stat" component="div" sx={{ fontSize: '1.6rem', fontWeight: 800 }}>
-          {value ?? '—'}
+          {value ?? '-'}
         </Typography>
         <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="center">
           <Typography variant="caption" sx={{ color: 'text.secondary' }}>{label}</Typography>
@@ -99,7 +99,7 @@ function PeerLinks({ player }) {
               to={`/players/${peer.playerId}`}
               clickable
               avatar={<Avatar src={peer.photoUrl || undefined} alt="" />}
-              label={`${peer.name} · ${peer.projectedPoints ?? '—'} proj`}
+              label={`${peer.name} · ${peer.projectedPoints ?? '-'} proj`}
               variant="outlined"
             />
           ))}
@@ -211,7 +211,7 @@ export function ProfileBody({
             {s && (
               <Box sx={{ textAlign: { xs: 'left', sm: 'right' } }}>
                 <Typography variant="stat" component="div" sx={{ fontSize: '2.5rem', fontWeight: 800, color: 'var(--accent)', lineHeight: 1 }}>
-                  {seasonPoints ?? '—'}
+                  {seasonPoints ?? '-'}
                 </Typography>
                 <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                   {s.season} fantasy points{multiFormat ? ` · ${formatLabel(format)}` : ''}
@@ -275,7 +275,7 @@ export function ProfileBody({
           <Typography variant="h5" component="h2" sx={{ fontWeight: 700, mb: 1.5 }}>Game log</Typography>
           {player.weeklyLogPartial && (
             <Typography variant="body2" sx={{ color: 'text.secondary', mb: 1.5 }}>
-              Weekly breakdown is partial — the season total above reflects all {s.gamesPlayed} games.
+              Weekly breakdown is partial. The season total above reflects all {s.gamesPlayed} games.
             </Typography>
           )}
           {orderedGames.length ? (
@@ -295,8 +295,8 @@ export function ProfileBody({
                   {orderedGames.map((g, index) => (
                     <TableRow key={`${g.season}-${g.week}-${index}`} hover>
                       <TableCell>{g.week}</TableCell>
-                      <TableCell>{g.opponent || '—'}</TableCell>
-                      <TableCell sx={{ color: 'text.secondary' }}>{g.statLine || '—'}</TableCell>
+                      <TableCell>{g.opponent || '-'}</TableCell>
+                      <TableCell sx={{ color: 'text.secondary' }}>{g.statLine || '-'}</TableCell>
                       <TableCell align="right"><Typography variant="stat" component="span">{pointsFor(g.points, format, g.fantasyPoints)}</Typography></TableCell>
                     </TableRow>
                   ))}
@@ -336,7 +336,7 @@ function PlayerProfilePage() {
   );
   const seasonPoints = data?.seasonSummary?.fantasyPoints;
   const title = data
-    ? `${data.name} \u2014 ${seasonPoints == null ? 'Fantasy Profile' : `${seasonPoints} Fantasy Points`}`
+    ? `${data.name}: ${seasonPoints == null ? 'Fantasy Profile' : `${seasonPoints} Fantasy Points`}`
     : `NFL Player ${id} Fantasy Profile`;
   const description = data
     ? `${data.name} has ${seasonPoints == null ? 'a public fantasy profile' : `${seasonPoints} fantasy points${data.seasonSummary?.season ? ` in the ${data.seasonSummary.season} season` : ''}`}. View team, position, per-game production, and recent results.`

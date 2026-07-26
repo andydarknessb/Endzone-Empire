@@ -28,7 +28,7 @@ function LeagueCard({ league, isOwner = false, onDelete, compact = false }) {
       </Stack>
       <Stack direction="row" spacing={1} rowGap={1} flexWrap="wrap" useFlexGap sx={{ mt: 1.5 }}>
         {league.team_count != null && (
-          <Chip size="small" variant="outlined" label={`${league.team_count}/${league.max_teams || '—'} teams`} />
+          <Chip size="small" variant="outlined" label={`${league.team_count}/${league.max_teams || '-'} teams`} />
         )}
         {league.scoring_preset && (
           <Chip size="small" variant="outlined" label={league.scoring_preset.replace('_', ' ').toUpperCase()} />

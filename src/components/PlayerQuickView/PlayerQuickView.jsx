@@ -66,10 +66,10 @@ function ComparisonCard({ summary }) {
     <Paper variant="outlined" sx={{ p: 1.5, minWidth: 0 }}>
       <Typography variant="subtitle2" noWrap>{line.player?.name}</Typography>
       <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-        <AbbreviationTooltip term="Projected" />: {line.projected ?? '—'}
+        <AbbreviationTooltip term="Projected" />: {line.projected ?? '-'}
       </Typography>
       <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-        FPTS: {line.points ?? '—'} · <AbbreviationTooltip term="FPTS/G" />: {line.perGame ?? '—'}
+        FPTS: {line.points ?? '-'} · <AbbreviationTooltip term="FPTS/G" />: {line.perGame ?? '-'}
       </Typography>
       <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'text.secondary' }}>
         {line.latest || 'No current-season stat line'}
@@ -99,7 +99,7 @@ function StatCardList({ label, rows }) {
               {row.title}
             </Typography>
             <Typography variant="stat" sx={{ fontWeight: 800, whiteSpace: 'nowrap' }}>
-              {row.points ?? '—'}{' '}
+              {row.points ?? '-'}{' '}
               <Typography component="span" variant="caption" sx={{ color: 'text.secondary' }}>
                 FPTS
               </Typography>
@@ -120,7 +120,7 @@ function StatCardList({ label, rows }) {
                     {item.label}
                   </Typography>
                   <Typography variant="stat" component="div" sx={{ fontWeight: 800 }}>
-                    {item.value ?? '—'}
+                    {item.value ?? '-'}
                   </Typography>
                 </Box>
               ))}

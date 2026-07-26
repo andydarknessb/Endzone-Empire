@@ -180,8 +180,8 @@ async function correctLeagueWeek({ leagueId, season, week }) {
           type: 'stat_correction',
           message:
             `A stat correction flipped the result of ${playoffFlips.length} settled playoff ` +
-            `matchup(s) in week ${week}. Later rounds were NOT changed automatically — ` +
-            `review the bracket with your commissioner tools.`,
+            `matchup(s) in week ${week}. Later rounds were NOT changed automatically. ` +
+            `Review the bracket with your commissioner tools.`,
           data: { season, week, matchupIds: playoffFlips.map((c) => c.matchupId) },
         });
       }

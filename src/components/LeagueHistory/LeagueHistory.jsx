@@ -206,7 +206,7 @@ function SeasonPanel({ season, defaultExpanded }) {
                   <Chip
                     key={trophy.id}
                     variant="outlined"
-                    label={`${TROPHY_EMOJI[trophy.type] || '🎖️'} ${trophy.label} — ${trophy.team_name}`}
+                    label={`${TROPHY_EMOJI[trophy.type] || '🎖️'} ${trophy.label} · ${trophy.team_name}`}
                   />
                 ))}
               </Box>
@@ -366,7 +366,7 @@ function LeagueHistory() {
               data-testid="hall-of-fame-preview-chip"
             />
             <Typography variant="body2" color="text.secondary">
-              Multi-season Hall of Fame — full year-by-year and all-time data coming soon
+              Multi-season Hall of Fame: full year-by-year and all-time data coming soon
             </Typography>
           </Stack>
 
@@ -410,8 +410,8 @@ function LeagueHistory() {
                   <TableRow key={rank}>
                     <TableCell>{rank}</TableCell>
                     <TableCell sx={{ color: 'text.disabled', fontStyle: 'italic' }}>Team Name</TableCell>
-                    <TableCell align="right" sx={{ color: 'text.disabled' }}>—</TableCell>
-                    <TableCell align="right" sx={{ color: 'text.disabled' }}>—</TableCell>
+                    <TableCell align="right" sx={{ color: 'text.disabled' }}>-</TableCell>
+                    <TableCell align="right" sx={{ color: 'text.disabled' }}>-</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

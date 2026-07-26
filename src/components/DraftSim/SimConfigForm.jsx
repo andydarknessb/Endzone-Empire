@@ -64,7 +64,7 @@ function SimConfigForm({ onStart, loading = false, error = false, savedSummary =
             </Stack>
           )}
         >
-          You have a mock draft in progress — {savedSummary.totalTeams}-team{' '}
+          You have a mock draft in progress: {savedSummary.totalTeams}-team{' '}
           {templateFor(savedSummary.leagueType).name}, round {savedSummary.round} of{' '}
           {savedSummary.rounds}, saved {relativeTime(savedSummary.updatedAt)}.
         </Alert>
@@ -172,7 +172,7 @@ function SimConfigForm({ onStart, loading = false, error = false, savedSummary =
           <Typography variant="body2" sx={{ color: 'text.secondary', mt: 1 }}>
             {clockSeconds > 0
               ? 'Run out of time and the auto-drafter takes the best available player for you.'
-              : 'Take as long as you like — nothing auto-drafts.'}
+              : 'Take as long as you like. Nothing auto-drafts.'}
           </Typography>
         </Box>
 

@@ -16,7 +16,7 @@ function SimPickFeed({ picks, teamsById, playersById, teamCount, limit = 25 }) {
       <Typography variant="h6" sx={{ mb: 1 }}>Recent picks</Typography>
       {recent.length === 0 ? (
         <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-          No picks yet — the draft is about to start.
+          No picks yet. The draft is about to start.
         </Typography>
       ) : (
         <List dense disablePadding aria-label="Recent picks">

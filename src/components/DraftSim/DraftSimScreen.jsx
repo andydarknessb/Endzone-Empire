@@ -17,7 +17,7 @@ function DraftSimScreen() {
         </Typography>
         <Typography variant="body1" sx={{ color: 'text.secondary', mt: 1, maxWidth: 720 }}>
           Practice your draft against CPU managers before the real thing. Nothing here touches your
-          leagues — it&apos;s a sandbox, and your in-progress draft survives a refresh.
+          leagues. It&apos;s a sandbox, and your in-progress draft survives a refresh.
         </Typography>
       </Box>
       <DraftSimulator />

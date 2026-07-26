@@ -236,7 +236,7 @@ function UserPage() {
                 Welcome, {user.username}!
               </Typography>
               <Typography variant="body1" color="text.secondary" sx={{ mb: 3, maxWidth: 460 }}>
-                Your command center for every league you manage — drafts, matchups,
+                Your command center for every league you manage: drafts, matchups,
                 waivers, and trades, all in one place.
               </Typography>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
@@ -504,7 +504,7 @@ function UserPage() {
             />
             {bestBall && (
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                Best ball: an optimal lineup is set automatically each week — no manual lineup edits.
+                Best ball: an optimal lineup is set automatically each week, with no manual lineup edits.
               </Typography>
             )}
 

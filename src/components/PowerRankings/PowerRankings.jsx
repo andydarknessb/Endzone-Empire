@@ -77,7 +77,7 @@ function MovementCell({ change }) {
 }
 
 function formatRecord(record) {
-  if (!record) return '—';
+  if (!record) return '-';
   return record.ties ? `${record.wins}-${record.losses}-${record.ties}` : `${record.wins}-${record.losses}`;
 }
 

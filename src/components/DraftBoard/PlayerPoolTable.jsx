@@ -237,13 +237,13 @@ function PlayerPoolTable({
                     <PositionChip position={player.position} />
                   </TableCell>
                   <TableCell>{player.nfl_team}</TableCell>
-                  <TableCell align="right">{player.bye_week != null ? player.bye_week : '—'}</TableCell>
-                  <TableCell align="right">{player.adp != null ? player.adp : '—'}</TableCell>
+                  <TableCell align="right">{player.bye_week != null ? player.bye_week : '-'}</TableCell>
+                  <TableCell align="right">{player.adp != null ? player.adp : '-'}</TableCell>
                   <TableCell align="right">
-                    {player.position_rank != null ? `#${player.position_rank}` : '—'}
+                    {player.position_rank != null ? `#${player.position_rank}` : '-'}
                   </TableCell>
                   <TableCell align="right">
-                    {player.projected_points != null ? player.projected_points : '—'}
+                    {player.projected_points != null ? player.projected_points : '-'}
                   </TableCell>
                   <TableCell align="center" sx={stickyActionCellSx}>
                     <Stack direction="row" spacing={1} justifyContent="center" alignItems="center">

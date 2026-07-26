@@ -193,7 +193,7 @@ describe('StickyScoreboard', () => {
         isLive
       />
     );
-    expect(screen.getByText('Team A 78.4 — 65.2 Team B')).toBeInTheDocument();
+    expect(screen.getByText('Team A 78.4 - 65.2 Team B')).toBeInTheDocument();
     expect(screen.getByText('LIVE')).toBeInTheDocument();
   });
 

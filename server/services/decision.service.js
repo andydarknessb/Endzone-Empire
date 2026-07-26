@@ -131,7 +131,7 @@ async function startSitAdvice({ leagueId, userId, week }) {
     [leagueId]
   );
   if (leagueCheck.rows[0] && leagueCheck.rows[0].best_ball) {
-    throw new DecisionError(409, 'best-ball leagues set lineups automatically — no advice to give');
+    throw new DecisionError(409, 'best-ball leagues set lineups automatically, so there is no advice to give');
   }
   const lineup = await getLineup({ leagueId, userId, week });
   // The lineup's own season is authoritative — a caller-supplied season that

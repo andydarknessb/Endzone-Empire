@@ -125,7 +125,7 @@ test('renders the viewer matchup as a hero card, out of the grid', async () => {
 
   renderScreen(1, { user: { id: 1 } });
 
-  expect(await screen.findByText('Your Matchup — Week 1')).toBeInTheDocument();
+  expect(await screen.findByText('Your Matchup · Week 1')).toBeInTheDocument();
   expect(screen.getByText('My Team')).toBeInTheDocument();
   expect(screen.queryByText('Rival (20)')).not.toBeInTheDocument();
   expect(screen.getByText('Other A (0)')).toBeInTheDocument();
@@ -184,7 +184,7 @@ test('attributes a live scoring play to the scoring player\'s real fantasy team'
   expect(ticker).toHaveTextContent('rushing TD');
   expect(ticker).toHaveTextContent('Home Team');
   const feed = screen.getByRole('region', { name: 'Live scoring feed' });
-  expect(within(feed).getByText('🏈 TD: Speedy Runner — rushing TD (+6 pts to Home Team)')).toBeInTheDocument();
+  expect(within(feed).getByText('🏈 TD: Speedy Runner · rushing TD (+6 pts to Home Team)')).toBeInTheDocument();
 });
 
 test('ignores a scoring play from a week other than the one on screen', async () => {

@@ -30,12 +30,12 @@ function VerifyEmail() {
           Verify Email
         </Typography>
         {status === 'missing' && (
-          <Alert severity="error">Missing verification token — use the link from your email.</Alert>
+          <Alert severity="error">Missing verification token. Use the link from your email.</Alert>
         )}
         {status === 'pending' && <CircularProgress />}
         {status === 'done' && (
           <>
-            <Alert severity="success" sx={{ mb: 2 }}>Email verified — you're all set!</Alert>
+            <Alert severity="success" sx={{ mb: 2 }}>Email verified. You're all set!</Alert>
             <Link to="/user">Go to your dashboard</Link>
           </>
         )}

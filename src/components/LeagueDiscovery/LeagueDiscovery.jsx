@@ -212,12 +212,12 @@ function LeagueDiscovery() {
       {leagues.length === 0 ? (
         hasActiveFilters ? (
           <Typography color="text.secondary">
-            No leagues match your filters — try widening your search.
+            No leagues match your filters. Try widening your search.
           </Typography>
         ) : (
           <Box sx={{ textAlign: 'center', py: 5 }}>
             <Typography color="text.secondary" gutterBottom>
-              No public leagues yet — be the first to start one.
+              No public leagues yet. Be the first to start one.
             </Typography>
             <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="center" spacing={1.5} sx={{ mt: 2 }}>
               <Button component={Link} to="/league" variant="contained">Create a League</Button>

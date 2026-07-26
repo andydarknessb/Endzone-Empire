@@ -43,14 +43,14 @@ async function processUpload(buffer) {
   }
   const sniffed = sniffImageType(buffer);
   if (!sniffed) {
-    throw new AvatarError(400, 'unsupported file type — must be PNG, JPEG, WEBP, or GIF');
+    throw new AvatarError(400, 'unsupported file type; must be PNG, JPEG, WEBP, or GIF');
   }
 
   let metadata;
   try {
     metadata = await sharp(buffer, { animated: sniffed.ext === 'gif' }).metadata();
   } catch (error) {
-    throw new AvatarError(400, 'could not read image dimensions — file may be corrupt');
+    throw new AvatarError(400, 'could not read image dimensions; file may be corrupt');
   }
   if (
     !metadata.width || !metadata.height

@@ -5,7 +5,7 @@ const article = {
   slug: 'streaming-defense-and-kicker',
   title: 'Streaming Defenses and Kickers',
   category: 'Streaming',
-  excerpt: 'Stop drafting a defense in the double-digit rounds. Play the matchup every week instead — here is the streaming playbook.',
+  excerpt: 'Stop drafting a defense in the double-digit rounds. Play the matchup every week instead. Here is the streaming playbook.',
   readMinutes: 4,
   date: '2026-07-20',
   Body: () => (
@@ -16,7 +16,7 @@ const article = {
       </Lead>
       <H2>Why streaming works</H2>
       <P>
-        Team defense scoring is dominated by turnovers, sacks, and defensive touchdowns — events that swing
+        Team defense scoring is dominated by turnovers, sacks, and defensive touchdowns, events that swing
         wildly week to week and depend heavily on the opponent. A middling defense facing a turnover-prone
         backup quarterback will usually out-score an elite defense facing a clean, high-powered offense.
       </P>
@@ -24,7 +24,7 @@ const article = {
       <UL>
         <LI>Opposing offenses starting a backup or rookie quarterback.</LI>
         <LI>Teams on the road, in bad weather, or on a short week.</LI>
-        <LI>High team totals against — Vegas implied points are a great cheat sheet.</LI>
+        <LI>High team totals against: Vegas implied points are a great cheat sheet.</LI>
         <LI>For kickers: a strong offense that stalls in the red zone, indoors or in a dome.</LI>
       </UL>
       <Quote>
@@ -34,8 +34,8 @@ const article = {
       <P>
         Roster one defense and one kicker, and each week grab the best available streamer for the coming
         matchup rather than clinging to a name. In deeper leagues you may need to plan a week ahead so the
-        matchup you want is not claimed first. The saved bench spot — used on an upside skill player instead
-        of a second defense — is the quiet edge that compounds all season.
+        matchup you want is not claimed first. The saved bench spot, used on an upside skill player instead
+        of a second defense, is the quiet edge that compounds all season.
       </P>
     </>
   ),

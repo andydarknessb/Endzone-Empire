@@ -86,5 +86,5 @@ export function statLine(stats) {
   const parts = STAT_ORDER.filter(
     (key) => s[key] != null && (Number(s[key]) !== 0 || ALWAYS_SHOW.has(key))
   ).map((key) => `${s[key]} ${STAT_LABELS[key]}`);
-  return parts.length > 0 ? parts.join(', ') : '—';
+  return parts.length > 0 ? parts.join(', ') : '-';
 }

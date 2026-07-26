@@ -208,7 +208,7 @@ function CoCommissionerCard({ leagueId, league, teams, onRefresh, notify }) {
         </List>
       ) : (
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-          No co-commissioners yet — you&apos;re running this league on your own.
+          No co-commissioners yet. You&apos;re running this league on your own.
         </Typography>
       )}
       <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -222,7 +222,7 @@ function CoCommissionerCard({ leagueId, league, teams, onRefresh, notify }) {
           >
             {eligible.map((team) => (
               <MenuItem key={team.owner_id} value={team.owner_id}>
-                {team.owner} — {team.name}
+                {team.owner} · {team.name}
               </MenuItem>
             ))}
           </Select>
@@ -433,7 +433,7 @@ function GeneralSettingsPanel({ leagueId, league, teams, user, isOwner, standing
               {joinRequests.map((request) => (
                 <Box key={request.id} sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
                   <Typography sx={{ flexGrow: 1 }}>
-                    {request.username} — {request.team_name} — {new Date(request.created_at).toLocaleString()}
+                    {request.username} · {request.team_name} · {new Date(request.created_at).toLocaleString()}
                   </Typography>
                   <Button size="small" variant="contained" color="success" onClick={() => handleDecideJoinRequest(request.id, true)}>
                     Approve
@@ -527,13 +527,13 @@ function RosterSettingsPanel({ leagueId, league, onRefresh, notify }) {
     for (const s of payload) {
       const label = s.key ? `"${s.key}"` : 'an unnamed slot';
       if (!/^[A-Za-z0-9_][A-Za-z0-9_ /-]{0,19}$/.test(s.key)) {
-        return `${label}: slot names are 1-20 characters — letters, numbers, spaces, hyphens, slashes, underscores`;
+        return `${label}: slot names are 1-20 characters: letters, numbers, spaces, hyphens, slashes, underscores`;
       }
       if (['BENCH', 'IR'].includes(s.key.toUpperCase())) return `${label} is reserved for the bench/IR system`;
       if (!s.eligiblePositions.length) return `${label}: pick at least one eligible position`;
     }
     if (new Set(payload.map((s) => s.key)).size !== payload.length) {
-      return 'Slot names must be unique — for two of the same slot, raise that slot\'s Count instead';
+      return 'Slot names must be unique. For two of the same slot, raise that slot\'s Count instead';
     }
     return null;
   };
@@ -644,7 +644,7 @@ function RosterSettingsPanel({ leagueId, league, onRefresh, notify }) {
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4.5 }}>
           Lets slots target DL/LB/DB position groups (e.g. a "Flex IDP" slot). Combined
           DP-eligible starting slots are capped at 3 (base + up to 2 additional)
-          {dpEnabled ? ` — currently ${dpStarters}/3.` : '.'}
+          {dpEnabled ? `, currently ${dpStarters}/3.` : '.'}
         </Typography>
       </Box>
 
@@ -807,7 +807,7 @@ function ScoringSettingsPanel({ leagueId, league, onRefresh, notify }) {
           />
         ))}
         <Typography variant="caption" color="text.secondary">
-          — sets the reception rate; every other rule stays as configured.
+          Sets the reception rate; every other rule stays as configured.
         </Typography>
       </Stack>
 
@@ -1091,7 +1091,7 @@ function WaiverTradePanel({ leagueId, league, onRefresh, notify }) {
           </Typography>
           <FormControlLabel value="instant" control={<Radio />} label="Instant Process" />
           <Typography variant="caption" color="text.secondary" sx={{ ml: 4 }}>
-            Trades execute immediately — no review window, no vetoes.
+            Trades execute immediately, with no review window and no vetoes.
           </Typography>
         </RadioGroup>
         {reviewMode === 'vote' && (
@@ -1140,7 +1140,7 @@ function ForceRosterMoveCard({ leagueId, teams, notify, onRefresh }) {
     <Box>
       <Typography variant="subtitle2" sx={{ mb: 1 }}>Force Roster Move</Typography>
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
-        Add or drop a player on any manager's behalf — bypasses waivers and roster locks.
+        Add or drop a player on any manager's behalf. Bypasses waivers and roster locks.
       </Typography>
       <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start', flexWrap: 'wrap' }}>
         <TeamSelect label="Team" teams={teams} value={teamId} onChange={setTeamId} />

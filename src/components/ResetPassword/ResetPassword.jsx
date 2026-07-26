@@ -34,7 +34,7 @@ function ResetPassword() {
         <Typography variant="h4" sx={{ mb: 2 }}>
           Reset Password
         </Typography>
-        {!token && <Alert severity="error">Missing reset token — use the link from your email.</Alert>}
+        {!token && <Alert severity="error">Missing reset token. Use the link from your email.</Alert>}
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
         {done ? (
           <>

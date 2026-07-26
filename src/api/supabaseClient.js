@@ -9,7 +9,7 @@ const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
   console.warn(
-    'supabaseClient: REACT_APP_SUPABASE_URL / REACT_APP_SUPABASE_ANON_KEY not set — live game realtime disabled'
+    'supabaseClient: REACT_APP_SUPABASE_URL / REACT_APP_SUPABASE_ANON_KEY not set; live game realtime disabled'
   );
 }
 

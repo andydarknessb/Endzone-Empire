@@ -112,15 +112,15 @@ function MobileRankings({ rows, tiers, showTierBands, orderBy, order, sortHandle
                 <Stack direction="row" divider={<Box sx={{ borderLeft: '1px solid var(--border-subtle)' }} />} sx={{ mt: 1.5, pt: 1.25, borderTop: '1px solid var(--border-subtle)' }}>
                   <Box sx={{ flex: 1 }}>
                     <Typography variant="caption" sx={{ color: 'text.secondary' }}><AbbreviationTooltip term="Projected" /></Typography>
-                    <Typography variant="stat" component="div" sx={{ fontWeight: 800 }}>{row.projectedPoints ?? '—'}</Typography>
+                    <Typography variant="stat" component="div" sx={{ fontWeight: 800 }}>{row.projectedPoints ?? '-'}</Typography>
                   </Box>
                   <Box sx={{ flex: 1, pl: 2 }}>
                     <Typography variant="caption" sx={{ color: 'text.secondary' }}>Season</Typography>
-                    <Typography variant="stat" component="div" sx={{ fontWeight: 800 }}>{row.seasonPoints ?? '—'}</Typography>
+                    <Typography variant="stat" component="div" sx={{ fontWeight: 800 }}>{row.seasonPoints ?? '-'}</Typography>
                   </Box>
                   <Box sx={{ flex: 1, pl: 2 }}>
                     <Typography variant="caption" sx={{ color: 'text.secondary' }}>Bye</Typography>
-                    <Typography variant="stat" component="div" sx={{ fontWeight: 800 }}>{row.byeWeek ?? '—'}</Typography>
+                    <Typography variant="stat" component="div" sx={{ fontWeight: 800 }}>{row.byeWeek ?? '-'}</Typography>
                   </Box>
                 </Stack>
               </Card>
@@ -226,10 +226,10 @@ function RankingTable({ rows = [], tierRows, loading = false, error = false, onR
                   <TableRow hover>
                     <TableCell sx={{ fontWeight: 800, color: 'text.secondary' }}>{row.rank}</TableCell>
                     <TableCell><PlayerIdentity row={row} /></TableCell>
-                    <TableCell align="right"><Typography variant="stat" component="span">{row.projectedPoints ?? '—'}</Typography></TableCell>
-                    {hasLastWeekData && <TableCell align="right"><Typography variant="stat" component="span">{row.lastWeekPoints ?? '—'}</Typography></TableCell>}
-                    <TableCell align="right"><Typography variant="stat" component="span">{row.seasonPoints ?? '—'}</Typography></TableCell>
-                    <TableCell align="right"><Typography variant="stat" component="span">{row.byeWeek ?? '—'}</Typography></TableCell>
+                    <TableCell align="right"><Typography variant="stat" component="span">{row.projectedPoints ?? '-'}</Typography></TableCell>
+                    {hasLastWeekData && <TableCell align="right"><Typography variant="stat" component="span">{row.lastWeekPoints ?? '-'}</Typography></TableCell>}
+                    <TableCell align="right"><Typography variant="stat" component="span">{row.seasonPoints ?? '-'}</Typography></TableCell>
+                    <TableCell align="right"><Typography variant="stat" component="span">{row.byeWeek ?? '-'}</Typography></TableCell>
                     <TableCell align="center"><TrendArrow trend={row.trend} /></TableCell>
                   </TableRow>
                 </Fragment>

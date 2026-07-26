@@ -277,7 +277,7 @@ function RetroField({
                   textShadow: `0 0 6px ${alpha(led, 0.65)}`,
                 }}
               >
-                {(momentPlay.nflTeam ? `${momentPlay.nflTeam} — ` : '') + playLabel(momentPlay)}
+                {(momentPlay.nflTeam ? `${momentPlay.nflTeam} · ` : '') + playLabel(momentPlay)}
               </Typography>
             </Box>
           )}
@@ -308,7 +308,7 @@ function RetroField({
           {bench.map(({ label, players }) => (
             <Box key={label} sx={{ flex: '1 1 260px', maxWidth: 320 }}>
               <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.5 }}>
-                {label} — Bench
+                {label} Bench
               </Typography>
               {players.length === 0 && (
                 <Typography variant="body2" sx={{ color: 'text.secondary' }}>

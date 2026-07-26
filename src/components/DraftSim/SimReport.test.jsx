@@ -97,7 +97,7 @@ describe('SimReport', () => {
     expect(screen.getByText('No market')).toBeInTheDocument();
     // A pick with no market ADP shows a dash rather than a fake 0 delta.
     const row = screen.getByText('Star Backer').closest('tr');
-    expect(row.textContent).toContain('—');
+    expect(row.textContent).toContain('-');
   });
 
   it('flags auto-drafted picks so a timeout is never silent', () => {

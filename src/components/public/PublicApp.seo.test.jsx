@@ -48,7 +48,7 @@ test('player profile emits its real canonical URL and points-based OG/Twitter me
   render(<PublicApp />);
 
   await screen.findByRole('heading', { name: 'Alpha Back' }, { timeout: 5000 });
-  await waitFor(() => expect(document.title).toBe('Alpha Back — 45.6 Fantasy Points | Endzone Empire'));
+  await waitFor(() => expect(document.title).toBe('Alpha Back: 45.6 Fantasy Points | Endzone Empire'));
 
   expect(canonical()).toHaveAttribute('href', 'https://endzoneempire.gg/players/42');
   expect(meta('meta[property="og:title"]')).toHaveAttribute('content', document.title);

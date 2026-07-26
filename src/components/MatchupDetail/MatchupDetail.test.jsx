@@ -248,7 +248,7 @@ test('a non-touchdown moment play (e.g. a sack) flashes a retro banner in Scoreb
     });
   });
 
-  expect(await screen.findByRole('status')).toHaveTextContent('KC — SACK');
+  expect(await screen.findByRole('status')).toHaveTextContent('KC · SACK');
 });
 
 test('shows an error alert when the fetch fails', async () => {

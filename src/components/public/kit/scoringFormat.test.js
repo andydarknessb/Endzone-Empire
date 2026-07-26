@@ -24,6 +24,6 @@ test('pointsFor tolerates a scalar payload (older/mocked responses)', () => {
 });
 
 test('pointsFor returns the fallback when points are missing', () => {
-  expect(pointsFor(null, 'halfPpr', '—')).toBe('—');
+  expect(pointsFor(null, 'halfPpr', '-')).toBe('-');
   expect(pointsFor({ standard: 5 }, 'ppr', 0)).toBe(0); // key absent
 });

@@ -37,7 +37,7 @@ const FEATURES = [
   },
   {
     title: 'Waiver Wire',
-    description: 'Claim free agents with priority order or a FAAB budget — your league, your rules.',
+    description: 'Claim free agents with priority order or a FAAB budget. Your league, your rules.',
     Icon: PersonAddIcon,
   },
   {
@@ -67,7 +67,7 @@ const FEATURES = [
   },
   {
     title: "League Pick'em",
-    description: 'Pick NFL winners against your league every week — straight up or with confidence points.',
+    description: 'Pick NFL winners against your league every week, straight up or with confidence points.',
     Icon: FactCheckIcon,
   },
   {
@@ -133,7 +133,7 @@ function LandingPage() {
             </Stack>
             {/* Plain <a href>: /draft-simulator lives in the public BrowserRouter tree. */}
             <MuiLink href="/draft-simulator" underline="hover" sx={{ fontWeight: 600 }}>
-              Or try a free mock draft — no account needed →
+              Or try a free mock draft, no account needed →
             </MuiLink>
           </Stack>
         </Container>

@@ -92,9 +92,9 @@ function WinProbabilitySplitBar({ homeName, awayName, homeProb }) {
 
 const TICKER_LIMIT = 10;
 
-/** One line of ticker text: "🏈 TD: <player> — <type> TD (+<pts> pts to <team>)". */
+/** One line of ticker text: "🏈 TD: <player> · <type> TD (+<pts> pts to <team>)". */
 function tickerLine(item) {
-  return `TD: ${item.name} — ${playLabel(item)} (+${Math.round((Number(item.pointsDelta) || 0) * 10) / 10} pts to ${item.teamName})`;
+  return `TD: ${item.name} · ${playLabel(item)} (+${Math.round((Number(item.pointsDelta) || 0) * 10) / 10} pts to ${item.teamName})`;
 }
 
 /**
@@ -429,7 +429,7 @@ function GameCenter() {
         sx={{ mb: 3 }}
       >
         <Typography variant="h4">
-          Game Center {league && `— ${league.name}`}
+          Game Center {league && `· ${league.name}`}
         </Typography>
 
         <Stack direction="row" spacing={0.5} alignItems="center">
@@ -479,7 +479,7 @@ function GameCenter() {
               <CardContent>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                   <Typography variant="overline" sx={{ color: 'text.secondary' }}>
-                    Your Matchup — Week {heroMatchup.week}
+                    Your Matchup · Week {heroMatchup.week}
                   </Typography>
                   <MatchupStatusChip matchup={heroMatchup} showLive={showLive} />
                 </Box>
@@ -510,7 +510,7 @@ function GameCenter() {
                       {heroHomeScore}
                     </Typography>
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                      <AbbreviationTooltip term="PMR" />: —
+                      <AbbreviationTooltip term="PMR" />: -
                     </Typography>
                   </Grid>
                   <Grid xs={2} sx={{ textAlign: 'center' }}>
@@ -529,7 +529,7 @@ function GameCenter() {
                       {heroAwayScore}
                     </Typography>
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                      <AbbreviationTooltip term="PMR" />: —
+                      <AbbreviationTooltip term="PMR" />: -
                     </Typography>
                   </Grid>
                 </Grid>
@@ -579,7 +579,7 @@ function GameCenter() {
                             {matchup.home_team_name} ({homeScore})
                           </Typography>
                           <Typography variant="caption" sx={{ color: 'text.disabled', fontStyle: 'italic' }}>
-                            Proj: —
+                            Proj: -
                           </Typography>
                         </Box>
                       </Box>
@@ -602,7 +602,7 @@ function GameCenter() {
                             {matchup.away_team_name} ({awayScore})
                           </Typography>
                           <Typography variant="caption" sx={{ color: 'text.disabled', fontStyle: 'italic' }}>
-                            Proj: —
+                            Proj: -
                           </Typography>
                         </Box>
                       </Box>

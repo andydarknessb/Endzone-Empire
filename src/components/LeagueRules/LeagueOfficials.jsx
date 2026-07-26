@@ -13,10 +13,10 @@ export default function LeagueOfficials({ league }) {
     <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mb: 3 }}>
       <Typography variant="body2" color="text.secondary">Who can change these:</Typography>
       {league.owner_username && (
-        <Chip size="small" variant="outlined" label={`${league.owner_username} — commissioner`} />
+        <Chip size="small" variant="outlined" label={`${league.owner_username} · commissioner`} />
       )}
       {coCommissioners.map((c) => (
-        <Chip key={c.user_id} size="small" variant="outlined" label={`${c.username} — co-commissioner`} />
+        <Chip key={c.user_id} size="small" variant="outlined" label={`${c.username} · co-commissioner`} />
       ))}
     </Stack>
   );

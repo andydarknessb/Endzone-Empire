@@ -5,7 +5,7 @@ import publicApiClient from '../../api/publicApiClient';
 import { featuredArticles } from '../../content/articles';
 
 /**
- * "Free tools & NFL coverage — no account needed" band on the landing page.
+ * "Free tools & NFL coverage, no account needed" band on the landing page.
  *
  * Lives inside the hash app, so every link into the public layer is a plain
  * <a href> (a real document navigation that hands off to the public
@@ -59,7 +59,7 @@ function LandingPublicBand() {
       <Container maxWidth="lg">
         <Stack spacing={1} alignItems="center" textAlign="center" sx={{ mb: 4 }}>
           <Typography variant="h4" component="h2" sx={{ fontWeight: 800 }}>
-            Free tools &amp; NFL coverage — no account needed
+            Free tools &amp; NFL coverage, no account needed
           </Typography>
           <Typography variant="body1" sx={{ color: 'text.secondary', maxWidth: 620 }}>
             Browse rankings, player profiles, auto-generated game recaps, and fantasy strategy without

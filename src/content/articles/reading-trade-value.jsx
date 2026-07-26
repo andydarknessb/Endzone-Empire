@@ -5,14 +5,14 @@ const article = {
   slug: 'reading-trade-value',
   title: 'How to Read Trade Value',
   category: 'Trades',
-  excerpt: 'Winning trades are not about robbing your league-mates. They are about trading from surplus to fill a need — on both sides.',
+  excerpt: 'Winning trades are not about robbing your league-mates. They are about trading from surplus to fill a need, on both sides.',
   readMinutes: 5,
   date: '2026-07-24',
   Body: () => (
     <>
       <Lead>
         The best traders in your league are not sharks. They are the managers who make deals that help
-        both teams — because those are the deals that actually get accepted.
+        both teams, because those are the deals that actually get accepted.
       </Lead>
       <H2>Trade from surplus, not from panic</H2>
       <P>
@@ -23,12 +23,12 @@ const article = {
       <UL>
         <LI>Two solid starters for one great one usually helps the team getting the great one.</LI>
         <LI>Buy players coming off a quiet game; sell players coming off their career day.</LI>
-        <LI>Bye weeks create fake urgency — do not sell a season-long asset to patch one week.</LI>
+        <LI>Bye weeks create fake urgency. Do not sell a season-long asset to patch one week.</LI>
       </UL>
       <H2>Frame the offer honestly</H2>
       <P>
         Lead with why the deal helps the other manager. &quot;You are thin at running back and I am
-        overloaded — here is a starter for your spare receiver&quot; gets a reply. A lopsided lowball just
+        overloaded. Here is a starter for your spare receiver&quot; gets a reply. A lopsided lowball just
         teaches the league not to trade with you, which quietly costs you all season.
       </P>
       <Quote>

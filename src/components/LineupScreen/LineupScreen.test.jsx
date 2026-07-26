@@ -441,7 +441,7 @@ test('selecting a player highlights eligible slots and disables ineligible ones 
 
   // The helper strip announces the move.
   expect(
-    screen.getByText('Moving Patrick Mahomes — tap a highlighted slot')
+    screen.getByText('Moving Patrick Mahomes: tap a highlighted slot')
   ).toBeInTheDocument();
 
   // Derrick Henry (RB, unlocked) can't take a QB — ineligible, so disabled.
@@ -663,8 +663,9 @@ test('appends the opponent to the row caption when provided, and omits it when m
   expect(
     within(screen.getByTestId('slot-row-QB-0')).getByText(/· vs DAL/)
   ).toBeInTheDocument();
-  // Derrick Henry has no opponent field on this fixture — no dangling separator.
+  // Derrick Henry has no opponent field on this fixture, so no opponent
+  // segment renders at all (no dangling "· vs").
   expect(
-    within(screen.getByTestId('slot-row-RB-1')).queryByText(/·/)
+    within(screen.getByTestId('slot-row-RB-1')).queryByText(/vs/)
   ).not.toBeInTheDocument();
 });

@@ -49,7 +49,7 @@ function ScoringTimeline({ plays }) {
   // Group chronologically by quarter.
   const groups = [];
   for (const play of plays) {
-    const q = play.quarter || '—';
+    const q = play.quarter || '-';
     let group = groups.find((g) => g.quarter === q);
     if (!group) {
       group = { quarter: q, plays: [] };

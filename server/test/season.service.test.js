@@ -132,7 +132,7 @@ test('computeStandings: unfinished and playoff games are excluded', () => {
   ]);
   const a = standings.find((s) => s.teamId === 1);
   assert.equal(a.wins + a.losses + a.ties, 0);
-  assert.equal(a.streak, '—');
+  assert.equal(a.streak, '-');
 });
 
 // --- getStandings ---

@@ -162,8 +162,8 @@ describe('LeagueRules', () => {
     });
     renderPage();
 
-    expect(await screen.findByText('alice — commissioner')).toBeInTheDocument();
-    expect(screen.getByText('bob — co-commissioner')).toBeInTheDocument();
+    expect(await screen.findByText('alice · commissioner')).toBeInTheDocument();
+    expect(screen.getByText('bob · co-commissioner')).toBeInTheDocument();
   });
 
   it('offers a retry when the league request fails', async () => {

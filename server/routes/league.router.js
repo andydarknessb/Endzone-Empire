@@ -368,7 +368,7 @@ router.put('/:id', async (req, res) => {
       if (bad !== undefined) return `${label}: unknown position "${bad}" (allowed: ${positionKeys.join('/')})`;
     }
     if (new Set(arr.map((s) => s.key)).size !== arr.length) {
-      return 'slot names must be unique — for two of the same slot, raise that slot\'s count instead';
+      return 'slot names must be unique; for two of the same slot, raise that slot\'s count instead';
     }
     return null;
   };

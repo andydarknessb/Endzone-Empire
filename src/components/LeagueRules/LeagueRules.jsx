@@ -99,7 +99,7 @@ export default function LeagueRules() {
       <LeagueBreadcrumb name={league.name} />
       <Typography variant="h4" sx={{ mb: 0.5 }}>League Rules</Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        {league.name} — view only. Only the commissioner can change these settings.
+        {league.name} · view only. Only the commissioner can change these settings.
       </Typography>
       <LeagueOfficials league={league} />
       {error && (

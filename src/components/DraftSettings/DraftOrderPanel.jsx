@@ -34,7 +34,7 @@ export default function DraftOrderPanel({ league, teams, frozen, onSave, onSetOr
       <Typography variant="subtitle2">Round overrides</Typography>
       {Array.from({ length: Math.min(Number(league.roster_limit) || 0, 18) }, (_, index) => index + 1).map((round) => {
         const rows = labels(overrides[round] || effectiveOrder(order, league.draft_rotation || 'snake', round).map((team) => team.id));
-        return <Accordion key={round} disabled={frozen}><AccordionSummary expandIcon={<ExpandMoreIcon />}>Round {round}{overrides[round] ? ' — custom' : ''}</AccordionSummary><AccordionDetails><Stack spacing={1}><SortableTeamList items={rows} onChange={(next) => setRound(round, next)} disabled={frozen} /><Box><Button size="small" disabled={!overrides[round]} onClick={() => setOverrides((current) => { const next = { ...current }; delete next[round]; return next; })}>Clear round override</Button></Box></Stack></AccordionDetails></Accordion>;
+        return <Accordion key={round} disabled={frozen}><AccordionSummary expandIcon={<ExpandMoreIcon />}>Round {round}{overrides[round] ? ' (custom)' : ''}</AccordionSummary><AccordionDetails><Stack spacing={1}><SortableTeamList items={rows} onChange={(next) => setRound(round, next)} disabled={frozen} /><Box><Button size="small" disabled={!overrides[round]} onClick={() => setOverrides((current) => { const next = { ...current }; delete next[round]; return next; })}>Clear round override</Button></Box></Stack></AccordionDetails></Accordion>;
       })}
       <Box><Button variant="contained" disabled={frozen || saving || insufficientTeams} onClick={saveOverrides}>Save round overrides</Button></Box>
     </Stack>

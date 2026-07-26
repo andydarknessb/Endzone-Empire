@@ -215,7 +215,7 @@ function undoTargets(picks, count = 1) {
 function startPlan(league, teams, keepers = []) {
   if (league.draft_type === 'auction') {
     return {
-      error: { status: 501, message: 'Salary cap / auction drafts are not supported yet — this league cannot start its draft until that ships.' },
+      error: { status: 501, message: 'Salary cap / auction drafts are not supported yet. This league cannot start its draft until that ships.' },
     };
   }
 
@@ -225,7 +225,7 @@ function startPlan(league, teams, keepers = []) {
 
   const overridesError = validateOrderOverrides(league.draft_order_overrides, teamIds, league.roster_limit);
   if (overridesError) {
-    return { error: { status: 409, message: `draft order overrides are stale — ${overridesError}` } };
+    return { error: { status: 409, message: `draft order overrides are stale: ${overridesError}` } };
   }
 
   const activeKeepers = league.keepers_enabled ? keepers : [];
@@ -251,12 +251,12 @@ function startPlan(league, teams, keepers = []) {
       pickNumber,
     }));
   } catch (err) {
-    return { error: { status: 409, message: `keepers are stale — ${err.message}` } };
+    return { error: { status: 409, message: `keepers are stale: ${err.message}` } };
   }
 
   const takenSet = new Set(keeperPicks.map((k) => k.pickNumber));
   if (takenSet.size !== keeperPicks.length) {
-    return { error: { status: 409, message: 'two keepers resolve to the same draft pick — recheck round assignments' } };
+    return { error: { status: 409, message: 'two keepers resolve to the same draft pick; recheck round assignments' } };
   }
 
   const clockless = league.draft_type === 'offline';

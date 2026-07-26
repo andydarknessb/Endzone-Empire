@@ -69,12 +69,12 @@ export default function PickemSettingsPanel({ settings, saving, error, onSave, e
             <FormControlLabel
               value="straight"
               control={<Radio />}
-              label="Straight up — 1 point per correct pick"
+              label="Straight up: 1 point per correct pick"
             />
             <FormControlLabel
               value="confidence"
               control={<Radio />}
-              label="Confidence — rank every game, earn the rank you assigned"
+              label="Confidence: rank every game, earn the rank you assigned"
             />
           </RadioGroup>
         </FormControl>

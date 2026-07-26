@@ -299,7 +299,7 @@ test('renders an acquired date when present, and an em dash when absent', async 
   await screen.findByText('Has Date');
   expect(screen.getByText(new Date('2026-01-15T00:00:00.000Z').toLocaleDateString())).toBeInTheDocument();
   const noDateRow = screen.getByText('No Date').closest('tr');
-  expect(noDateRow).toHaveTextContent('—');
+  expect(noDateRow).toHaveTextContent('-');
 });
 
 test('dropping a player calls the delete endpoint with the selected league and refetches', async () => {

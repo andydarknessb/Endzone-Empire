@@ -357,7 +357,7 @@ function createTank01Client({ store = pgStore, transport, now = () => new Date()
     const state = await getQuotaState();
     if (!priorityAllowed(priority, state.mode)) {
       throw new QuotaExhaustedError(
-        `Tank01 quota ${state.mode} (${state.used}/${state.budget} this cycle) — ${priority} calls suspended`,
+        `Tank01 quota ${state.mode} (${state.used}/${state.budget} this cycle): ${priority} calls suspended`,
         { mode: state.mode, used: state.used, budget: state.budget, hardCeiling: state.hardCeiling, priority }
       );
     }

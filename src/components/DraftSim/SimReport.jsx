@@ -76,11 +76,11 @@ function SimReport({ report, config, onRestart, showCta = false }) {
             <Typography variant="body1" sx={{ color: 'text.secondary', mt: 0.5 }}>
               {report.rank ? `${report.rank} of ${report.teamCount}` : 'Ungraded'} in this{' '}
               {config.totalTeams}-team {template.name} mock. Grades compare every team&apos;s picks
-              against market ADP — the same math the app uses to grade real league drafts.
+              against market ADP, the same math the app uses to grade real league drafts.
             </Typography>
             {report.gradeCapped && (
               <Typography variant="body2" sx={{ color: 'warning.main', fontWeight: 600, mt: 1 }}>
-                Graded down from {report.valueGrade} on market value —{' '}
+                Graded down from {report.valueGrade} on market value:{' '}
                 {report.criticalCount} critical roster gap{report.criticalCount === 1 ? '' : 's'} below
                 cap{report.criticalCount === 1 ? 's' : ''} the grade at C. A lineup you can&apos;t field
                 scores zero.
@@ -122,7 +122,7 @@ function SimReport({ report, config, onRestart, showCta = false }) {
       {report.issues.length === 0 && (
         <Alert severity="success">
           <AlertTitle>Clean build</AlertTitle>
-          Nothing to flag — every starting slot is filled, byes are spread, and you have depth where
+          Nothing to flag. Every starting slot is filled, byes are spread, and you have depth where
           it matters.
         </Alert>
       )}
@@ -188,18 +188,18 @@ function SimReport({ report, config, onRestart, showCta = false }) {
                         <Box>
                           <Typography variant="body2" sx={{ fontWeight: 600 }}>{pick.name}</Typography>
                           <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                            {pick.nflTeam || '—'}{pick.auto ? ' · auto-drafted' : ''}
+                            {pick.nflTeam || '-'}{pick.auto ? ' · auto-drafted' : ''}
                           </Typography>
                         </Box>
                       </Stack>
                     </TableCell>
-                    <TableCell align="right">{pick.adp == null ? '—' : pick.adp}</TableCell>
+                    <TableCell align="right">{pick.adp == null ? '-' : pick.adp}</TableCell>
                     <TableCell align="right">
-                      {pick.adpFallback ? '—' : signed(pick.draftValueScore)}
+                      {pick.adpFallback ? '-' : signed(pick.draftValueScore)}
                     </TableCell>
-                    <TableCell align="right">{pick.byeWeek ?? '—'}</TableCell>
+                    <TableCell align="right">{pick.byeWeek ?? '-'}</TableCell>
                     <TableCell align="right">
-                      {pick.projectedPoints == null ? '—' : Math.round(pick.projectedPoints)}
+                      {pick.projectedPoints == null ? '-' : Math.round(pick.projectedPoints)}
                     </TableCell>
                     <TableCell>
                       {chip ? <Chip size="small" label={chip.label} color={chip.color} /> : null}

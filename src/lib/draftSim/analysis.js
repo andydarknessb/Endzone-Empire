@@ -308,7 +308,7 @@ export function rosterConstruction(state, teamId) {
       severity: 'warn',
       title: `Kicker in round ${earlyKicker.round}`,
       detail: `${earlyKicker.name} came off the board at pick ${earlyKicker.pickNumber}, ${kdefOpenRound - earlyKicker.round} round(s) before kickers are worth a pick.`,
-      suggestion: 'Kickers are close to interchangeable week to week — take one in the last two rounds and spend that pick on a starter or a high-upside bench bat.',
+      suggestion: 'Kickers are close to interchangeable week to week. Take one in the last two rounds and spend that pick on a starter or a high-upside bench bat.',
     });
   }
 
@@ -319,7 +319,7 @@ export function rosterConstruction(state, teamId) {
       severity: 'warn',
       title: `Defense in round ${earlyDef.round}`,
       detail: `${earlyDef.name} at pick ${earlyDef.pickNumber} spends real draft capital on the most streamable position in fantasy.`,
-      suggestion: 'Wait on team defense and stream the best weekly matchup instead — the difference between DEF1 and DEF12 is a fraction of a starting flex.',
+      suggestion: 'Wait on team defense and stream the best weekly matchup instead. The difference between DEF1 and DEF12 is a fraction of a starting flex.',
     });
   }
 
@@ -330,7 +330,7 @@ export function rosterConstruction(state, teamId) {
       id: 'late-rb',
       severity: 'warn',
       title: `Only ${rbByRoundSix} running back through six rounds`,
-      detail: 'Running back is the thinnest position on the board — waiting this long usually means starting a committee back you did not want.',
+      detail: 'Running back is the thinnest position on the board, so waiting this long usually means starting a committee back you did not want.',
       suggestion: 'Even a zero-RB build wants two backs by the end of round 6. Target the last starter-volume back before the tier breaks.',
     });
   }
@@ -360,7 +360,7 @@ export function rosterConstruction(state, teamId) {
       severity: 'warn',
       title: `No bench depth at ${thinPositions.join(' or ')}`,
       detail: 'Every rostered player at that position is a starter, so one injury or bye leaves an empty slot in your lineup.',
-      suggestion: 'Spend a late pick on a backup with standalone value behind a fragile starter — bye weeks alone guarantee you will need one.',
+      suggestion: 'Spend a late pick on a backup with standalone value behind a fragile starter. Bye weeks alone guarantee you will need one.',
     });
   }
 
@@ -374,7 +374,7 @@ export function rosterConstruction(state, teamId) {
       severity: 'info',
       title: `${teCount} tight ends rostered`,
       detail: `Only ${teStarters} starts at tight end in this format, so the extras occupy bench spots that could hold upside.`,
-      suggestion: 'One starting tight end plus at most one backup is enough — spend the rest on running back or receiver lottery tickets.',
+      suggestion: 'One starting tight end plus at most one backup is enough. Spend the rest on running back or receiver lottery tickets.',
     });
   }
 
@@ -384,7 +384,7 @@ export function rosterConstruction(state, teamId) {
       severity: stack.severity,
       title: `${stack.count} starters on bye in week ${stack.week}`,
       detail: `${stack.names.join(', ')} are all off that week.`,
-      suggestion: 'Spread byes across the schedule when two players grade out the same — or plan a waiver move now for that week.',
+      suggestion: 'Spread byes across the schedule when two players grade out the same, or plan a waiver move now for that week.',
     });
   }
 
@@ -395,7 +395,7 @@ export function rosterConstruction(state, teamId) {
       severity: 'critical',
       title: `Cannot field a starting ${row.position}`,
       detail: `You rostered ${row.count} but the lineup requires ${row.min}.`,
-      suggestion: `Add a ${row.position} before week 1 — an empty starting slot scores zero every week.`,
+      suggestion: `Add a ${row.position} before week 1. An empty starting slot scores zero every week.`,
     });
   }
 

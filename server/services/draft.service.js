@@ -123,7 +123,7 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommiss
       // commissioner's own force-add tool bypasses this via a separate path.
       if (myTeam.locked) throw new DraftError(409, 'your team is locked by the commissioner');
       if (league.draft_status === 'active' && league.draft_type === 'offline') {
-        throw new DraftError(409, 'this is an offline draft — the commissioner enters every pick');
+        throw new DraftError(409, 'this is an offline draft; the commissioner enters every pick');
       }
     }
 
@@ -148,7 +148,7 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommiss
     // claimed through the waiver process instead.
     if (league.draft_status === 'complete' &&
         await isOnWaivers(client, { league, playerId })) {
-      throw new DraftError(409, 'player is on waivers — submit a waiver claim instead');
+      throw new DraftError(409, 'player is on waivers; submit a waiver claim instead');
     }
 
     let pickNumber = null;
@@ -357,7 +357,7 @@ async function undoDrop({ leagueId, userId, playerId }) {
       [leagueId, playerId, team.id]
     );
     if (!holdResult.rows[0]) {
-      throw new DraftError(409, 'too late to undo — submit a waiver claim instead');
+      throw new DraftError(409, 'too late to undo; submit a waiver claim instead');
     }
 
     const rosterCountResult = await client.query(

@@ -110,7 +110,7 @@ export function StickyScoreboard({ homeName, awayName, homeScore, awayScore, hom
           noWrap
           sx={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums', minWidth: 0 }}
         >
-          {homeName} {Number(homeScore || 0).toFixed(1)} — {Number(awayScore || 0).toFixed(1)} {awayName}
+          {homeName} {Number(homeScore || 0).toFixed(1)} - {Number(awayScore || 0).toFixed(1)} {awayName}
         </Typography>
         {isFinal
           ? <Chip label="Final" color="success" size="small" />
@@ -182,7 +182,7 @@ function PaceBar({ actual, projected }) {
       <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.25 }}>
         <Typography variant="caption" sx={{ color: 'text.secondary' }}>Pace</Typography>
         <Typography variant="caption" sx={{ fontVariantNumeric: 'tabular-nums', color: ahead ? 'success.main' : 'text.secondary' }}>
-          {act.toFixed(1)} / {proj ? proj.toFixed(1) : '—'} proj
+          {act.toFixed(1)} / {proj ? proj.toFixed(1) : '-'} proj
         </Typography>
       </Box>
       <LinearProgress
@@ -226,7 +226,7 @@ export function StarterList({ starters, expandedId, onToggle }) {
                   <InjuryBadge status={player.injury_status} />
                 </Box>
                 <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                  {player.position} — {player.nfl_team}
+                  {player.position} · {player.nfl_team}
                   {player.opponent ? ` vs ${player.opponent}` : ''}
                 </Typography>
               </Box>
@@ -502,7 +502,7 @@ export function LiveTicker({ items }) {
           noWrap
           sx={{ fontWeight: 600, color: lastColor }}
         >
-          Last: {last.name} — {playLabel(last)} (+{Math.round((Number(last.pointsDelta) || 0) * 10) / 10})
+          Last: {last.name} · {playLabel(last)} (+{Math.round((Number(last.pointsDelta) || 0) * 10) / 10})
         </Typography>
       </Box>
       <Box
@@ -531,7 +531,7 @@ export function LiveTicker({ items }) {
               color: ['away', 'opponent'].includes(item.side) ? 'secondary.main' : 'primary.main',
             }}
           >
-            {item.name} — {playLabel(item)} (+{Math.round((Number(item.pointsDelta) || 0) * 10) / 10})
+            {item.name} · {playLabel(item)} (+{Math.round((Number(item.pointsDelta) || 0) * 10) / 10})
           </Typography>
         ))}
       </Box>
@@ -584,7 +584,7 @@ export function BenchWhatIf({ whatIf, hasRoster, open, onToggle }) {
             </Box>
           ))}
           <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-            Informational — locked players can't be swapped.
+            Informational: locked players can't be swapped.
           </Typography>
         </Box>
       </Collapse>
@@ -622,7 +622,7 @@ function Toast({ toast, onDismiss }) {
     >
       <Typography variant="body2" sx={{ fontWeight: 600 }}>
         {toast.message
-          || `${toast.name} — ${playLabel(toast)} (+${Math.round((Number(toast.pointsDelta) || 0) * 10) / 10})`}
+          || `${toast.name} · ${playLabel(toast)} (+${Math.round((Number(toast.pointsDelta) || 0) * 10) / 10})`}
       </Typography>
     </Paper>
   );

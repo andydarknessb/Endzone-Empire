@@ -51,7 +51,7 @@ function TierTable({ statKey, tiers }) {
               <PointsCell value={tier.points} />
               {hasPerYard && (
                 <TableCell align="right">
-                  {tier.pointsPerYardOverMin === undefined ? '—' : formatPoints(tier.pointsPerYardOverMin)}
+                  {tier.pointsPerYardOverMin === undefined ? '-' : formatPoints(tier.pointsPerYardOverMin)}
                 </TableCell>
               )}
             </TableRow>

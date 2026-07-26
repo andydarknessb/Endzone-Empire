@@ -121,7 +121,7 @@ export default function NavigationGuard({ children }) {
       <NavigationContext.Provider value={{ ...navigation, navigator: guardedNavigator }}>
         {children}
         <Dialog open={Boolean(pendingTransition)} onClose={() => setPendingTransition(null)}>
-          <DialogTitle>You have unsaved changes — discard them?</DialogTitle>
+          <DialogTitle>You have unsaved changes. Discard them?</DialogTitle>
           <DialogContent><DialogContentText>Your edits on this tab will be lost.</DialogContentText></DialogContent>
           <DialogActions>
             <Button onClick={() => setPendingTransition(null)}>Keep editing</Button>

@@ -14,7 +14,7 @@ test('shows the offline alert when the browser fires an "offline" event', () => 
     window.dispatchEvent(new Event('offline'));
   });
 
-  expect(screen.getByText(/you're offline — showing cached data/i)).toBeInTheDocument();
+  expect(screen.getByText(/you're offline, showing cached data/i)).toBeInTheDocument();
 });
 
 test('hides the alert again when the browser fires an "online" event', () => {
