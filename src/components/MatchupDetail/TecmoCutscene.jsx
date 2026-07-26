@@ -24,10 +24,12 @@ function BoomFrame({ play, refFrame, ptsLabel, isStatic }) {
   const nameColors = getNameColors(play.nflTeam);
   return (
     <div className={`tecmo-refscene${isStatic ? ' tecmo-refscene--static' : ''}`}>
-      <div className="tecmo-daysky" aria-hidden="true" />
-      <div className="tecmo-crowd" aria-hidden="true" />
-      <GoalPostSprite className="tecmo-goalpost" />
-      <RefereeSprite frame={refFrame} className="tecmo-ref" />
+      <div className="tecmo-refstage" aria-hidden="true">
+        <div className="tecmo-daysky" />
+        <div className="tecmo-crowd" />
+        <GoalPostSprite className="tecmo-goalpost" />
+        <RefereeSprite frame={refFrame} className="tecmo-ref" />
+      </div>
       <div className="tecmo-boomband" style={{ borderTopColor: nameColors.stripe }}>
         <div className="tecmo-boom">BOOM!</div>
         <div className="tecmo-boom-caption">
