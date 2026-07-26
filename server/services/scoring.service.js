@@ -140,6 +140,7 @@ const SCORING_RULES = {
     sackYards: 0,
     tacklesForLossYards: 0,
     fumbleReturnYards: 0,
+    interceptionReturnYards: 0,
   },
 };
 
@@ -196,6 +197,7 @@ const STAT_KEY_PATHS = {
   idpSackYards: { path: ['idp', 'sackYards'] },
   idpTacklesForLossYards: { path: ['idp', 'tacklesForLossYards'] },
   idpFumbleReturnYards: { path: ['idp', 'fumbleReturnYards'] },
+  idpInterceptionReturnYards: { path: ['idp', 'interceptionReturnYards'] },
 };
 
 /** True iff `arr` is a well-formed tier list: finite min/points, max is a
@@ -409,9 +411,9 @@ function normalizeTank01Stats(entry) {
  * scoring keys (individual defenders — DP roster slots). Confirmed live
  * field names: totalTackles, soloTackles, sacks, defensiveInterceptions
  * (+ interceptionTDs), forcedFumbles, fumblesRecovered, passDeflections,
- * qbHits, tfl, twoPointConversionReturn, defTD. Sack/TFL/fumble-return
- * YARDAGE has no Tank01 field at all — those score 0 here and are filled in
- * later by nflverseSync.service.js's post-game finalization pass.
+ * qbHits, tfl, twoPointConversionReturn, defTD. Sack/TFL/fumble-return/
+ * INT-return YARDAGE has no Tank01 field at all — those score 0 here and are
+ * filled in later by nflverseSync.service.js's post-game finalization pass.
  * `defTD - interceptionTDs` is scored as the generic defensiveTD bucket
  * (fumble-or-blocked-kick-return TD, per the roster/scoring plan — Tank01
  * doesn't separate those two, and individual blocked-kick attribution isn't

@@ -74,6 +74,7 @@ test('buildStatUpdates joins gsis_id -> espn_id -> our player id and extracts th
     player_id: '00-0039924',
     def_sack_yards: '9', def_tackles_for_loss_yards: '2',
     fumble_recovery_yards_opp: '15', fumble_recovery_yards_own: '99',
+    def_interception_yards: '27',
     def_safeties: '1',
   }];
   const crosswalk = new Map([['00-0039924', '4429795']]);
@@ -86,6 +87,7 @@ test('buildStatUpdates joins gsis_id -> espn_id -> our player id and extracts th
       idpSackYards: 9,
       idpTacklesForLossYards: 2,
       idpFumbleReturnYards: 15, // _opp only, never _own
+      idpInterceptionReturnYards: 27,
       idpSafety: 1,
     },
   }]);
@@ -104,7 +106,9 @@ test('buildStatUpdates still reads the pre-2025 column names (def_ prefix, singu
     knownPlayersByExternalId: new Map([['4429795', 42]]),
   });
   assert.deepEqual(updates[0].patch, {
-    idpSackYards: 9, idpTacklesForLossYards: 2, idpFumbleReturnYards: 15, idpSafety: 1,
+    idpSackYards: 9, idpTacklesForLossYards: 2, idpFumbleReturnYards: 15,
+    idpInterceptionReturnYards: 0, // column didn't exist in the old files
+    idpSafety: 1,
   });
 });
 
@@ -217,7 +221,8 @@ test('normalizeNflversePlayerStats maps offense including per-category two-point
 test('normalizeNflversePlayerStats maps IDP including the finalization-only yardage keys', () => {
   const stats = normalizeNflversePlayerStats({
     def_tackles_solo: '6', def_tackle_assists: '3', def_sacks: '1.5',
-    def_sack_yards: '11', def_interceptions: '1', def_fumbles_forced: '1',
+    def_sack_yards: '11', def_interceptions: '1', def_interception_yards: '34',
+    def_fumbles_forced: '1',
     fumble_recovery_opp: '1', fumble_recovery_yards_opp: '15',
     fumble_recovery_tds: '1', def_pass_defended: '2', def_qb_hits: '3',
     def_tackles_for_loss: '2', def_tackles_for_loss_yards: '5', def_safeties: '1',
@@ -226,6 +231,8 @@ test('normalizeNflversePlayerStats maps IDP including the finalization-only yard
   assert.equal(stats.assistedTackle, 3);
   assert.equal(stats.idpSack, 1.5);
   assert.equal(stats.idpSackYards, 11);
+  assert.equal(stats.idpInterception, 1);
+  assert.equal(stats.idpInterceptionReturnYards, 34);
   assert.equal(stats.idpFumbleRecovery, 1);
   assert.equal(stats.idpFumbleReturnYards, 15);
   assert.equal(stats.idpDefensiveTD, 1);

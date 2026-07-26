@@ -23,6 +23,7 @@ export const LEAF_LABELS = {
   tacklesForLoss: 'Tackle For Loss', twoPointReturn: '2-Pt Return',
   sackYards: 'Per Sack Yard', tacklesForLossYards: 'Per TFL Yard',
   fumbleReturnYards: 'Per Fumble Return Yard',
+  interceptionReturnYards: 'Per INT Return Yard',
 };
 export const TIER_LABELS = {
   fieldGoal: 'Field Goal (by distance)', pointsAllowed: 'Points Allowed', yardsAllowed: 'Yards Allowed',
@@ -63,6 +64,7 @@ export function receptionFormatLabel(rules) {
 // used to NFL.com's phrasing can sanity-check the decimal.
 export const PER_YARD_KEYS = new Set([
   'yards', 'puntReturnYards', 'kickReturnYards', 'sackYards', 'tacklesForLossYards', 'fumbleReturnYards',
+  'interceptionReturnYards',
 ]);
 export function perYardHelper(key, value) {
   if (!PER_YARD_KEYS.has(key)) return undefined;

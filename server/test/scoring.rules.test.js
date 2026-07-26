@@ -88,3 +88,20 @@ test('calculateFantasyPoints defaults to the standard rule set when rules omitte
   const stats = { rushingYards: 50 };
   assert.equal(calculateFantasyPoints(stats), 5);
 });
+
+test('idp interceptionReturnYards: 0 by default, priced when a league opts in', () => {
+  // The pick itself scores (6 default); the return yardage is a 0-rate bonus
+  // until a commissioner sets it — same contract as sackYards/TFL yards.
+  const stats = { idpInterception: 1, idpInterceptionReturnYards: 40 };
+  assert.equal(calculateFantasyPoints(stats), 6);
+
+  const rules = rulesForLeague({ scoring_rules: { idp: { interceptionReturnYards: 0.1 } } });
+  assert.equal(calculateFantasyPoints(stats, rules), 6 + 4);
+});
+
+test('rulesForLeague accepts interceptionReturnYards as a known idp key', () => {
+  const rules = rulesForLeague({ scoring_rules: { idp: { interceptionReturnYards: 0.05 } } });
+  assert.equal(rules.idp.interceptionReturnYards, 0.05);
+  // and the default tree carries it at 0 so the editor renders the field
+  assert.equal(SCORING_RULES.idp.interceptionReturnYards, 0);
+});

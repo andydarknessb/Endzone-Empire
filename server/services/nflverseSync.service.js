@@ -180,6 +180,7 @@ function buildStatUpdates({ defRows, crosswalk, knownPlayersByExternalId }) {
       idpSackYards: num(row.def_sack_yards),
       idpTacklesForLossYards: num(row.def_tackles_for_loss_yards),
       idpFumbleReturnYards: num(row.fumble_recovery_yards_opp ?? row.def_fumble_recovery_yards_opp),
+      idpInterceptionReturnYards: num(row.def_interception_yards),
       idpSafety: num(row.def_safeties ?? row.def_safety),
     };
     // The combined file has a row for EVERY player, not just defenders (the
@@ -427,6 +428,7 @@ function normalizeNflversePlayerStats(row) {
     idpSackYards: num(row.def_sack_yards),
     idpTacklesForLossYards: num(row.def_tackles_for_loss_yards),
     idpFumbleReturnYards: num(row.fumble_recovery_yards_opp),
+    idpInterceptionReturnYards: num(row.def_interception_yards),
     idpSafety: num(row.def_safeties),
   };
 }
