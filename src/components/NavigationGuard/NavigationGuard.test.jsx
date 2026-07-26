@@ -20,15 +20,32 @@ jest.mock('../../api/apiClient', () => ({
 // so they exercise the async gap between issuing a restoration and its POP
 // landing, which is exactly what the guard has to bridge.
 
+// Real-timer flush — used only by the DraftSettings integration test below.
 const flush = async (times = 6) => {
   for (let i = 0; i < times; i += 1) {
     // eslint-disable-next-line no-await-in-loop
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
   }
 };
+
+// Fake-timer pump: advances exactly ONE jsdom history-traversal hop per
+// iteration. jsdom delivers each history.go() as two chained setTimeout(0)
+// tasks, and jest.runOnlyPendingTimers fires only timers pending at call time
+// — a hop queued during the run waits for the next pump. That one-hop-per-pump
+// control is what makes the guard's transient restorationPending window
+// observable deterministically (runAllTimers would drain the whole chain and
+// close the window before it could be asserted).
+const pump = async (times = 1) => {
+  for (let i = 0; i < times; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    await act(async () => { jest.runOnlyPendingTimers(); });
+  }
+};
+
+// Only used inside the fake-timer describe below.
 const clickText = async (name) => {
   await act(async () => { screen.getByText(name).click(); });
-  await flush(1);
+  await pump(1);
 };
 const pressBack = async () => { await act(async () => { window.history.go(-1); }); };
 
@@ -70,75 +87,99 @@ function renderGuardedApp() {
 
 afterEach(() => { window.history.replaceState(null, '', '/'); });
 
-test('Keep editing after a restored back press leaves later navigation working', async () => {
-  renderGuardedApp();
-  await flush(1);
-  await clickText('Go /step');
-  await clickText('Go /editor');
-  await clickText('Make dirty');
+// Fake timers make the POP traversal dance deterministic: jsdom schedules
+// every history.go() hop through window.setTimeout, so pump() steps the
+// traversal state machine one hop at a time instead of guessing how many
+// real event-loop turns it needs (the old approach, which flaked on slow
+// CI runners when hops collapsed into a single timer drain).
+describe('guarded POP traversal (deterministic fake timers)', () => {
+  beforeEach(() => { jest.useFakeTimers(); });
+  afterEach(async () => {
+    // Drain in-flight traversal chains so a stale popstate can't fire into
+    // the next test or hold the jest worker open at exit.
+    await act(async () => { jest.runAllTimers(); });
+    jest.useRealTimers();
+  });
 
-  await pressBack();
-  await flush(6);
+  test('Keep editing after a restored back press leaves later navigation working', async () => {
+    renderGuardedApp();
+    await clickText('Go /step');
+    await clickText('Go /editor');
+    await clickText('Make dirty');
 
-  // The guard restored us to the editor and queued the confirmation.
-  expect(screen.getByText('Editor page')).toBeInTheDocument();
-  const dialog = await screen.findByRole('dialog', { name: /You have unsaved changes/ });
-  await act(async () => { within(dialog).getByRole('button', { name: 'Keep editing' }).click(); });
-  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-  expect(screen.getByText('Editor page')).toBeInTheDocument();
+    // Hop A queues the traversal; hop B fires popstate -> the guard blocks,
+    // restores, and raises the confirmation.
+    await pressBack();
+    await pump(2);
 
-  // A later navigation still works: mark the edit saved, then back reaches Step.
-  await clickText('Mark saved');
-  await pressBack();
-  await flush(6);
-  expect(screen.getByText('Step page')).toBeInTheDocument();
-  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-});
+    expect(screen.getByText('Editor page')).toBeInTheDocument();
+    const dialog = screen.getByRole('dialog', { name: /You have unsaved changes/ });
+    await act(async () => { within(dialog).getByRole('button', { name: 'Keep editing' }).click(); });
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(screen.getByText('Editor page')).toBeInTheDocument();
 
-test('Discard after a restored back press reaches exactly the attempted destination', async () => {
-  renderGuardedApp();
-  await flush(1);
-  await clickText('Go /step');
-  await clickText('Go /editor');
-  await clickText('Make dirty');
+    // Land the restoration traversal that was still in flight when the
+    // dialog was dismissed, so the next phase starts from a settled history.
+    await pump(2);
 
-  await pressBack();
+    // A later navigation still works: mark the edit saved, then back reaches Step.
+    await clickText('Mark saved');
+    await pressBack();
+    await pump(2);
+    expect(screen.getByText('Step page')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
 
-  // While the restoration POP is still in flight, Discard is disabled so the
-  // replayed traversal cannot fire against the wrong history position.
-  await flush(1);
-  const discardEarly = await screen.findByRole('button', { name: 'Discard changes' });
-  expect(discardEarly).toBeDisabled();
-  await flush(4);
-  expect(screen.getByRole('button', { name: 'Discard changes' })).toBeEnabled();
+  test('Discard after a restored back press reaches exactly the attempted destination', async () => {
+    renderGuardedApp();
+    await clickText('Go /step');
+    await clickText('Go /editor');
+    await clickText('Make dirty');
 
-  await act(async () => { screen.getByRole('button', { name: 'Discard changes' }).click(); });
-  await flush(6);
-  // Exactly one step back — the Step page the user aimed at, not Home.
-  expect(screen.getByText('Step page')).toBeInTheDocument();
-  expect(screen.queryByText('Editor page')).not.toBeInTheDocument();
-});
+    await pressBack(); // queues hop A
+    // A fires (queues B); B fires popstate -> guard blocks: dialog opens,
+    // restorationPending=true, and the restoring go() queues hop C.
+    await pump(2);
 
-test('rapid repeated back presses during restoration are coalesced without skipping entries', async () => {
-  renderGuardedApp();
-  await flush(1);
-  await clickText('Go /step');
-  await clickText('Go /editor');
-  await clickText('Make dirty');
+    // While the restoration POP is still in flight, Discard is disabled so the
+    // replayed traversal cannot fire against the wrong history position.
+    const discard = screen.getByRole('button', { name: 'Discard changes' });
+    expect(discard).toBeDisabled();
 
-  // Two Back presses before the restoration settles.
-  await act(async () => { window.history.go(-1); window.history.go(-1); });
-  await flush(8);
+    // C fires (queues D); D fires the restoration popstate -> pending clears.
+    await pump(2);
+    expect(discard).toBeEnabled();
 
-  // Guard held us on the editor and raised a single confirmation.
-  expect(screen.getByText('Editor page')).toBeInTheDocument();
-  expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    await act(async () => { discard.click(); }); // replay go() queues hop E
+    await pump(2); // E -> F: popstate lands the replayed traversal on Step
+    // Exactly one step back — the Step page the user aimed at, not Home.
+    expect(screen.getByText('Step page')).toBeInTheDocument();
+    expect(screen.queryByText('Editor page')).not.toBeInTheDocument();
+  });
 
-  await act(async () => { screen.getByRole('button', { name: 'Discard changes' }).click(); });
-  await flush(8);
-  // Only the first attempted step is honored: Step, not Home (no skipped entry).
-  expect(screen.getByText('Step page')).toBeInTheDocument();
-  expect(screen.queryByText('Home page')).not.toBeInTheDocument();
+  test('rapid repeated back presses during restoration are coalesced without skipping entries', async () => {
+    renderGuardedApp();
+    await clickText('Go /step');
+    await clickText('Go /editor');
+    await clickText('Make dirty');
+
+    // Two Back presses before the restoration settles. The coalescing
+    // bounce-back adds extra hops per press, so don't hop-count here —
+    // waitFor auto-advances the fake timers until the guard settles, and
+    // doubles as the enabled-guard so the click can't be swallowed by a
+    // still-disabled button.
+    await act(async () => { window.history.go(-1); window.history.go(-1); });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Discard changes' })).toBeEnabled());
+
+    // Guard held us on the editor and raised a single confirmation.
+    expect(screen.getByText('Editor page')).toBeInTheDocument();
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+
+    await act(async () => { screen.getByRole('button', { name: 'Discard changes' }).click(); });
+    // Only the first attempted step is honored: Step, not Home (no skipped entry).
+    await screen.findByText('Step page');
+    expect(screen.queryByText('Home page')).not.toBeInTheDocument();
+  });
 });
 
 // ---- Scenario 4: pending Keeper assignment edits use the same browser-back guard ----
