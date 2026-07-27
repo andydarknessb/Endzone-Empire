@@ -1,0 +1,156 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const backtest = require('../../scripts/backtest-weekly-projections');
+const { getExpertProvider, setExpertProvider, expertCoverage } = require('../services/expertProjection.provider');
+
+/**
+ * The backtest script is the only thing that entitles anyone to claim the new
+ * model is better than the old one, so its metrics are unit-tested against
+ * hand-computable fixtures rather than trusted because they run.
+ */
+
+const observation = (overrides) => ({
+  season: 2025, week: 3, position: 'RB', playerId: 1, predicted: 10, actual: 10, p10: null, p90: null,
+  ...overrides,
+});
+
+test('parseArgs defaults to a chronological in-season window and the shipped config', () => {
+  const args = backtest.parseArgs([]);
+  assert.deepEqual(args.seasons, [2025]);
+  assert.equal(args.weeks[0], 2, 'week 1 has no in-season history for the incumbent baseline');
+  assert.equal(args.weeks.at(-1), 18);
+  assert.deepEqual(args.configs, ['default']);
+  assert.equal(args.out, null, 'nothing is written unless --out is passed');
+});
+
+test('parseArgs accepts repeated seasons, weeks, positions and configs', () => {
+  const args = backtest.parseArgs([
+    '--season', '2024', '--season', '2025', '--week', '5', '--position', 'wr',
+    '--config', 'fast-recency', '--out', 'out.json',
+  ]);
+  assert.deepEqual(args.seasons, [2024, 2025]);
+  assert.deepEqual(args.weeks, [5]);
+  assert.deepEqual(args.positions, ['WR']);
+  assert.deepEqual(args.configs, ['fast-recency']);
+  assert.equal(args.out, 'out.json');
+});
+
+test('every named configuration is a real variation of the shipped constants', () => {
+  const model = require('../services/projectionModel');
+  const base = model.MODEL_CONSTANTS;
+  assert.equal(backtest.CONFIGURATIONS.default(base), base);
+  assert.equal(backtest.CONFIGURATIONS['fast-recency'](base).baseline.recencyHalfLifeWeeks, 2);
+  assert.equal(backtest.CONFIGURATIONS['slow-recency'](base).baseline.recencyHalfLifeWeeks, 8);
+  assert.equal(
+    backtest.CONFIGURATIONS['heavy-shrink'](base).baseline.priorSeasonPseudoGames,
+    base.baseline.priorSeasonPseudoGames * 2
+  );
+  // A sweep must never mutate the shipped constants out from under the app.
+  assert.equal(base.baseline.recencyHalfLifeWeeks, model.MODEL_CONSTANTS.baseline.recencyHalfLifeWeeks);
+});
+
+test('spearman is 1 for a perfectly ordered set and -1 when reversed', () => {
+  assert.equal(backtest.spearman([[1, 1], [2, 2], [3, 3], [4, 4]]), 1);
+  assert.equal(backtest.spearman([[1, 4], [2, 3], [3, 2], [4, 1]]), -1);
+  assert.equal(backtest.spearman([[1, 1]]), null, 'too few points to correlate');
+});
+
+test('pairwise accuracy counts only same-week, same-position pairs with different actuals', () => {
+  const observations = [
+    observation({ playerId: 1, predicted: 20, actual: 25 }),
+    observation({ playerId: 2, predicted: 10, actual: 12 }),
+    observation({ playerId: 3, predicted: 5, actual: 30 }), // ranked wrong
+    // A different position and a different week never pair with the above.
+    observation({ playerId: 4, position: 'WR', predicted: 9, actual: 1 }),
+    observation({ playerId: 5, week: 4, predicted: 9, actual: 1 }),
+  ];
+  const { accuracy, pairs } = backtest.pairwiseAccuracy(observations);
+  assert.equal(pairs, 3, 'three RB pairs in week 3');
+  assert.ok(Math.abs(accuracy - 1 / 3) < 1e-9, `got ${accuracy}`);
+});
+
+test('pairwise accuracy skips pairs where either prediction is missing', () => {
+  const { pairs } = backtest.pairwiseAccuracy([
+    observation({ playerId: 1, predicted: null, actual: 25 }),
+    observation({ playerId: 2, predicted: 10, actual: 12 }),
+  ]);
+  assert.equal(pairs, 0);
+});
+
+test('regret is zero when the model picks the lineup hindsight would have picked', () => {
+  const roster = [
+    ['QB', 20], ['RB', 18], ['RB', 16], ['WR', 14], ['WR', 12],
+    ['TE', 10], ['RB', 9], ['K', 8], ['DEF', 7], ['WR', 2],
+  ].map(([position, points], i) => observation({
+    playerId: i + 1, position, predicted: points, actual: points,
+  }));
+  const { meanRegret, weeks } = backtest.lineupRegret(roster, 10);
+  assert.equal(weeks, 1);
+  assert.equal(meanRegret, 0);
+});
+
+test('regret is positive when the model ranks the wrong player highest', () => {
+  const roster = [
+    ['QB', 20, 20], ['RB', 18, 18], ['RB', 16, 16], ['WR', 14, 14], ['WR', 12, 12],
+    ['TE', 10, 10], ['RB', 9, 9], ['K', 8, 8], ['DEF', 7, 7],
+    // The model thinks this WR is a bust; he actually outscores everyone.
+    ['WR', 1, 40],
+  ].map(([position, predicted, actual], i) => observation({
+    playerId: i + 1, position, predicted, actual,
+  }));
+  const { meanRegret } = backtest.lineupRegret(roster, 10);
+  assert.ok(meanRegret > 0, `expected regret, got ${meanRegret}`);
+});
+
+test('summarize separates missing predictions from zero-point predictions', () => {
+  const summary = backtest.summarize([
+    observation({ playerId: 1, predicted: 0, actual: 0 }),
+    observation({ playerId: 2, predicted: null, actual: 22 }),
+  ]);
+  assert.equal(summary.samples, 1, 'a missing prediction is not a 0-point prediction');
+  assert.equal(summary.missing, 1);
+  assert.equal(summary.mae, 0);
+});
+
+test('summarize reports p10-p90 coverage only over rows that carry an interval', () => {
+  const summary = backtest.summarize([
+    observation({ playerId: 1, predicted: 10, actual: 11, p10: 5, p90: 15 }), // inside
+    observation({ playerId: 2, predicted: 10, actual: 40, p10: 5, p90: 15 }), // outside
+    observation({ playerId: 3, predicted: 10, actual: 11 }), // no interval
+  ]);
+  assert.equal(summary.intervalSamples, 2);
+  assert.equal(summary.intervalCoverageP10P90, 0.5);
+});
+
+test('summarize computes MAE and RMSE over the errors it actually has', () => {
+  const summary = backtest.summarize([
+    observation({ playerId: 1, predicted: 10, actual: 13 }),
+    observation({ playerId: 2, predicted: 10, actual: 6 }),
+  ]);
+  assert.equal(summary.mae, 3.5);
+  assert.ok(Math.abs(summary.rmse - Math.sqrt((9 + 16) / 2)) < 1e-9);
+});
+
+// ---------------------------------------------------------------------------
+// Expert consensus boundary
+// ---------------------------------------------------------------------------
+
+test('the shipped expert provider is a no-op that reports itself unavailable', async () => {
+  const provider = getExpertProvider();
+  assert.equal(provider.available, false);
+  assert.equal(provider.name, null);
+  assert.equal((await provider.getWeeklyProjections()).size, 0);
+  assert.deepEqual(expertCoverage(), { status: 'unavailable', source: null });
+});
+
+test('a real provider would be reported as available by name', (t) => {
+  t.after(() => setExpertProvider(null));
+  setExpertProvider({
+    name: 'licensed-feed',
+    available: true,
+    async getWeeklyProjections() { return new Map(); },
+  });
+  assert.deepEqual(expertCoverage(), { status: 'available', source: 'licensed-feed' });
+  setExpertProvider(null);
+  assert.deepEqual(expertCoverage(), { status: 'unavailable', source: null });
+});
