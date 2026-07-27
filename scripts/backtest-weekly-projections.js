@@ -43,6 +43,15 @@
  *   slow-recency  half-life 8 weeks
  *   heavy-shrink  doubled prior-season and position pseudo-games
  *   light-shrink  halved prior-season and position pseudo-games
+ *   interval-130  residual draws scaled 1.30 (tighter band than the default)
+ *   interval-145  residual draws scaled 1.45 (what the default already ships)
+ *   interval-160  residual draws scaled 1.60 (wider band than the default)
+ *
+ * The interval-* sweep exists to re-check p10-p90 coverage, which the
+ * unscaled bootstrap under-delivered badly (near 0.6 against a 0.80 target).
+ * It widens dispersion without moving the projected mean, so cover10-90 is the
+ * column to read; the point metrics are scored off the draw MEDIAN and so
+ * still drift a little whenever the residual pool is not centered on zero.
  */
 require('dotenv').config();
 
@@ -69,10 +78,17 @@ const CONFIGURATIONS = {
     priorSeasonPseudoGames: MODEL.baseline.priorSeasonPseudoGames / 2,
     positionPseudoGames: MODEL.baseline.positionPseudoGames / 2,
   }),
+  'interval-130': (MODEL) => withSimulation(MODEL, { intervalScale: 1.30 }),
+  'interval-145': (MODEL) => withSimulation(MODEL, { intervalScale: 1.45 }),
+  'interval-160': (MODEL) => withSimulation(MODEL, { intervalScale: 1.60 }),
 };
 
 function withBaseline(constants, overrides) {
   return { ...constants, baseline: { ...constants.baseline, ...overrides } };
+}
+
+function withSimulation(constants, overrides) {
+  return { ...constants, simulation: { ...constants.simulation, ...overrides } };
 }
 
 function parseArgs(argv) {

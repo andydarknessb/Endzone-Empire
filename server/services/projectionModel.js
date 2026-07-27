@@ -15,15 +15,27 @@ const crypto = require('crypto');
  * - Every number is priced under the CALLER'S scoring rules. Nothing in here
  *   consumes a stored `fantasy_points` value; callers hand in points they
  *   already recomputed with calculateFantasyPoints(stats, rules).
- * - Nothing is claimed to be optimal. The constants below are conservative
- *   DEFAULTS chosen to be hard to embarrass, not fitted parameters. They are
- *   versioned with the model so a future re-fit is a visible model-version
- *   bump rather than a silent drift, and scripts/backtest-weekly-projections.js
- *   exists specifically to compare alternatives chronologically before anyone
- *   claims one is better.
+ * - Nothing here is claimed to be the best possible value. Most of the
+ *   constants below are conservative DEFAULTS chosen to be hard to embarrass;
+ *   the three noted in place (the two shrinkage pseudo-game counts and the
+ *   interval scale) were picked by running scripts/backtest-weekly-projections.js
+ *   chronologically over the stored 2024 and 2025 seasons, which makes them
+ *   backtest-selected on that history and nothing stronger. They are versioned
+ *   with the model so a future re-fit is a visible model-version bump rather
+ *   than a silent drift, and that backtest exists specifically to compare
+ *   alternatives chronologically before anyone claims one is better.
  */
 
-const MODEL_VERSION = 'free_baseline_v2';
+/**
+ * Cache identity for the whole engine, and the reason a constants change is
+ * never cosmetic. Cached projection runs are keyed by
+ * (season, week, scoring_hash, model_version), so this string is the ONLY
+ * thing standing between a row generated under a previous set of constants and
+ * that row being served as if it were current. ANY change to MODEL_CONSTANTS
+ * therefore requires a bump here, however small the tweak looks: production may
+ * already hold rows computed under the old numbers.
+ */
+const MODEL_VERSION = 'free_baseline_v2.1';
 
 /**
  * Model constants. DEFAULTS, not fitted optimums (see the file header).
@@ -38,10 +50,19 @@ const MODEL_CONSTANTS = {
     // fantasy scoring is noisy enough that aggressive recency overfits.
     recencyHalfLifeWeeks: 4,
     // Shrinkage is expressed in PSEUDO-GAMES: how many real games of evidence
-    // the fallback is worth. With 3, a player's own 3-game sample and his
-    // prior-season per-game pace count equally.
-    priorSeasonPseudoGames: 3,
-    positionPseudoGames: 2,
+    // the fallback is worth. With 1.5, a player's own 1.5 games of recency
+    // weight and his prior-season per-game pace count equally.
+    //
+    // These two values were SELECTED BY the chronological backtest over the
+    // stored 2024 and 2025 seasons (scripts/backtest-weekly-projections.js).
+    // Its "light-shrink" sweep, which halves the previous 3 / 2 defaults, beat
+    // those defaults on MAE, RMSE, Spearman rho, pairwise start/sit accuracy
+    // and interval coverage in BOTH seasons with lineup regret unchanged. Read
+    // that as backtest-selected on those two seasons and nothing more: two
+    // seasons of stored results is a comparison, not a proof, and a re-fit on
+    // more history is expected to move them again.
+    priorSeasonPseudoGames: 1.5,
+    positionPseudoGames: 1,
     // Below this many prior games we never trust the player's own sample
     // alone, even if a fallback is unavailable.
     lowConfidenceGames: 3,
@@ -87,6 +108,21 @@ const MODEL_CONSTANTS = {
   },
   simulation: {
     draws: 400,
+    // How far the resampled residuals are stretched about their own median
+    // before they are added to the mean. The raw bootstrap is too confident:
+    // across every configuration of the chronological backtest, empirical
+    // p10-p90 coverage sat near 0.6 against the 0.80 a calibrated band should
+    // hit, so a band this app prints as a likely range was wrong about twice
+    // as often as it claimed. 1.45 is calibrated on that same stored
+    // 2024-2025 backtest (scripts/backtest-weekly-projections.js), which is a
+    // calibration on two seasons, not a proof for all of them.
+    //
+    // The constraint simulateDistribution must keep: the scaling is CENTERED
+    // on the residual pool's median, so no value here can shift the point
+    // prediction. Scaling residuals about zero instead would amplify a skewed
+    // pool's bias into the draw median and quietly re-tune the projection
+    // itself, which measurably cost lineup regret on the 2024 backtest.
+    intervalScale: 1.45,
     // Fewer residuals than this and the player's own dispersion is not
     // usable; the position-level pooled dispersion is used instead.
     minPlayerResiduals: 3,
@@ -523,10 +559,26 @@ function simulateDistribution({
   }
 
   const rand = mulberry32(seed);
+  const scale = isNum(constants.intervalScale) ? Number(constants.intervalScale) : 1;
+  // Widening the band must not move the point estimate, so the stretch is
+  // CENTERED on the residual pool's own median instead of on zero. Scaling raw
+  // residuals (mean + scale * residual) multiplies whatever bias the pool
+  // carries and drags the draw median away from the projection: that is a
+  // point-estimate change wearing an interval-calibration costume, and on the
+  // 2024 backtest it alone regressed lineup regret from 11.22 to 15.05 at a
+  // scale of 1.45. Centering leaves the draw median at (mean + median
+  // residual) for every scale and moves only the spread.
+  //
+  // `quantile` requires ASCENDING input, hence the sorted copy. With scale 1
+  // both correction terms drop out and every draw is `mean + residual` to the
+  // bit, so a caller passing constants without an intervalScale gets exactly
+  // the sequence it always got.
+  const center = scale === 1 ? 0 : Number(quantile([...residuals].sort((a, b) => a - b), 0.5));
+  const origin = scale === 1 ? Number(mean) : Number(mean) + center;
   const draws = [];
   for (let i = 0; i < constants.draws; i++) {
     const residual = residuals[Math.floor(rand() * residuals.length) % residuals.length];
-    draws.push(Number(mean) + residual);
+    draws.push(origin + scale * (residual - center));
   }
   draws.sort((a, b) => a - b);
   return {

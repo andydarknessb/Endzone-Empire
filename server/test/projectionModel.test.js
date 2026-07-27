@@ -42,11 +42,21 @@ test('baselineProduction shrinks a thin sample toward the prior season', () => {
     priorGames: [{ points: 30, weeksAgo: 1 }],
     priorSeasonPerGame: 10,
   });
-  // One 30-point game against 3 pseudo-games of a 10-point pace lands much
-  // closer to 10 than to 30.
-  assert.ok(oneHotGame.value < 18, `expected heavy shrinkage, got ${oneHotGame.value}`);
+  // One 30-point game is worth ~0.84 recency-weighted games of evidence
+  // against 1.5 pseudo-games of a 10-point pace, so the prior still outweighs
+  // the hot game and the result lands on the prior's side of the midpoint.
+  assert.ok(oneHotGame.value < 20, `expected shrinkage toward the prior, got ${oneHotGame.value}`);
   assert.ok(oneHotGame.value > 10);
   assert.equal(oneHotGame.usedPriorSeason, true);
+
+  // The pseudo-game count is what controls how hard that pull is: more
+  // pseudo-games of prior season must land strictly closer to the prior.
+  const heavier = model.baselineProduction({
+    priorGames: [{ points: 30, weeksAgo: 1 }],
+    priorSeasonPerGame: 10,
+    constants: { ...model.MODEL_CONSTANTS.baseline, priorSeasonPseudoGames: 6 },
+  });
+  assert.ok(heavier.value < oneHotGame.value, 'more pseudo-games must shrink harder');
 });
 
 test('baselineProduction falls back to the position baseline, then to null', () => {
@@ -252,9 +262,47 @@ test('simulateDistribution keeps the mean and gives every player a distinct seed
   // Seeds are derived from the identity of the prediction, so two players in
   // the same week never share a draw sequence.
   assert.notEqual(
-    model.seedFrom('free_baseline_v2', 'hash', 2026, 5, 1),
-    model.seedFrom('free_baseline_v2', 'hash', 2026, 5, 2)
+    model.seedFrom(model.MODEL_VERSION, 'hash', 2026, 5, 1),
+    model.seedFrom(model.MODEL_VERSION, 'hash', 2026, 5, 2)
   );
+});
+
+test('intervalScale widens the band without moving the center', () => {
+  // A deliberately RIGHT-SKEWED residual pool: median 2, mean 4.2. Stretching
+  // these about zero rather than about their own median would drag the draw
+  // median to 12 + 1.45 * 2 = 14.9, which is not a wider interval, it is a
+  // different projection. That mistake cost real lineup regret on the 2024
+  // backtest, so the center is asserted as hard as the width here.
+  const args = { mean: 12, playerResiduals: [-3, -1, 2, 3, 20], seed: 1234 };
+  const shipped = model.simulateDistribution(args);
+  const unscaled = model.simulateDistribution({
+    ...args,
+    constants: { ...model.MODEL_CONSTANTS.simulation, intervalScale: 1 },
+  });
+  // What a `constants` object that predates the setting gets.
+  const legacy = model.simulateDistribution({
+    ...args,
+    constants: { draws: 400, minPlayerResiduals: 3, minPooledResiduals: 8 },
+  });
+  // Scale-independence is the real invariant, so a second, much larger scale
+  // has to hold the same center rather than 1.45 happening to be lucky.
+  const wide = model.simulateDistribution({
+    ...args,
+    constants: { ...model.MODEL_CONSTANTS.simulation, intervalScale: 2.5 },
+  });
+
+  assert.ok(model.MODEL_CONSTANTS.simulation.intervalScale > 1, 'backtested coverage was far under 0.80');
+  assert.equal(shipped.mean, 12, 'widening dispersion must never move the reported mean');
+  assert.equal(unscaled.median, 14, 'mean 12 plus the pool median residual of 2');
+  assert.equal(shipped.median, unscaled.median, 'the MEDIAN must survive scaling, or the band is re-tuning the projection');
+  assert.equal(wide.median, unscaled.median, 'and it must hold at any scale, not just the shipped one');
+  assert.deepEqual(legacy, unscaled, 'a constants object with no intervalScale behaves as before');
+  assert.ok(
+    shipped.p90 - shipped.p10 > unscaled.p90 - unscaled.p10,
+    `expected a wider p10-p90, got ${shipped.p90 - shipped.p10} vs ${unscaled.p90 - unscaled.p10}`
+  );
+  assert.ok(wide.p90 - wide.p10 > shipped.p90 - shipped.p10, 'a larger scale must widen further');
+  assert.ok(shipped.p10 < shipped.median && shipped.median < shipped.p90);
 });
 
 test('simulateDistribution does not clamp negative outcomes', () => {

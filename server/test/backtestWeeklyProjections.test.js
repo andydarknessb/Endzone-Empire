@@ -45,8 +45,18 @@ test('every named configuration is a real variation of the shipped constants', (
     backtest.CONFIGURATIONS['heavy-shrink'](base).baseline.priorSeasonPseudoGames,
     base.baseline.priorSeasonPseudoGames * 2
   );
+  assert.equal(backtest.CONFIGURATIONS['interval-130'](base).simulation.intervalScale, 1.30);
+  assert.equal(backtest.CONFIGURATIONS['interval-145'](base).simulation.intervalScale, 1.45);
+  assert.equal(backtest.CONFIGURATIONS['interval-160'](base).simulation.intervalScale, 1.60);
+  // The interval sweep must vary the interval and nothing else, or a coverage
+  // comparison would be confounded by a baseline change.
+  assert.deepEqual(
+    backtest.CONFIGURATIONS['interval-160'](base).baseline,
+    base.baseline
+  );
   // A sweep must never mutate the shipped constants out from under the app.
   assert.equal(base.baseline.recencyHalfLifeWeeks, model.MODEL_CONSTANTS.baseline.recencyHalfLifeWeeks);
+  assert.equal(base.simulation.intervalScale, model.MODEL_CONSTANTS.simulation.intervalScale);
 });
 
 test('spearman is 1 for a perfectly ordered set and -1 when reversed', () => {
