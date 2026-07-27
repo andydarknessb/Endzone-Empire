@@ -1,16 +1,23 @@
 const pool = require('../modules/pool');
+// The two service objects are kept whole (rather than destructured) where the
+// call is a seam a test needs to replace: a destructured binding is captured at
+// require time and cannot be mocked afterwards.
+const projectionService = require('./projection.service');
+const lineupService = require('./lineup.service');
 const {
   getWeekProjections,
+  toLegacyProjectionMap,
   getTradeProjectionMetrics,
-  getPositionDefense,
 } = require('./projection.service');
 const {
-  getLineup,
   optimalLineup,
   parseLineupSettings,
   slotEligible,
   materializeLineup,
+  DEFAULT_ROSTER_SLOTS,
 } = require('./lineup.service');
+const { optimalAssignment, buildSwapSuggestions } = require('./lineupOptimizer');
+const projectionModel = require('./projectionModel');
 
 class DecisionError extends Error {
   constructor(statusCode, message) {
@@ -21,6 +28,10 @@ class DecisionError extends Error {
 
 const BENCH = 'BENCH';
 const IR = 'IR';
+
+// Above this the suggested player is a real edge; at or below it the two
+// distributions overlap enough that the honest answer is "watch it".
+const TOSSUP_PROBABILITY = 0.6;
 
 function round2(x) {
   return Math.round(Number(x) * 100) / 100;
@@ -52,98 +63,255 @@ async function getWeekOpponents({ season, week }) {
 // 1. Start/sit advice
 // ---------------------------------------------------------------------------
 
+/** Accepts a raw number or a { points, ... } projection entry; missing/null -> null. */
+function detailOf(projections, playerId) {
+  const value = projections.get(playerId);
+  if (value == null) return { points: null };
+  if (typeof value !== 'object') {
+    return { points: Number.isFinite(Number(value)) ? Number(value) : null };
+  }
+  const points = Number.isFinite(Number(value.points)) ? Number(value.points) : null;
+  return { ...value, points };
+}
+
 /**
- * Pure: compare each starting slot's current player against the best eligible
- * bench player, suggesting a swap only when the bench player projects
- * strictly higher. A bench player is used for at most one suggestion.
+ * Pure: the exact best legal lineup, plus the subset of changes expressible as
+ * the one-for-one swap the Apply button performs.
  *
- * lineupEntries: [{ playerId, name, position, slot, locked? }] (slot includes
- * BENCH/IR). Locked players (game already kicked off) can't be moved by
- * setLineup, so they're excluded from both sides of any suggestion.
- * projections: Map playerId -> points (number or { points, source }).
+ * Replaces a greedy per-slot scan that could not see past a FLEX-style slot
+ * taking the player a dedicated slot needed (see lineupOptimizer.js for the
+ * worked counterexample), and that never noticed an EMPTY starting slot at
+ * all. Two deliberate behavior changes follow from that:
+ *
+ *  - a bench player is now recommended into an empty starting slot, not just
+ *    as a replacement for an occupied one;
+ *  - `optimalTotal` is the optimizer's own total rather than
+ *    `projectedTotal + sum(gains)`, so a three-way shuffle reports the real
+ *    ceiling even though only part of it is a displayable pairwise swap. The
+ *    complete answer is always in `movePlan`.
+ *
+ * Availability is applied BEFORE optimization, not as a haircut afterwards:
+ * a player on a bye, ruled Out, or on IR is not a candidate at all; a locked
+ * starter is pinned to his slot; a locked bench player can never be started;
+ * and a Doubtful bench player is never auto-promoted over a healthy starter,
+ * because there is no reliable active-probability data to make that trade
+ * against (see projectionModel.availabilityFor).
+ *
+ * lineupEntries: [{ playerId, name, position, slot, locked?, injuryStatus?,
+ * onBye? }] (slot includes BENCH/IR).
+ * projections: Map playerId -> points (number or { points, ... }).
  * defenseByPlayer: Map playerId -> { opponent, opponentPointsAllowed }.
- * Returns { projectedTotal, optimalTotal, suggestions }.
  */
 function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(), rosterSlots = undefined) {
-  const allStarters = lineupEntries.filter((e) => e.slot !== BENCH && e.slot !== IR);
-  const swappable = allStarters.filter((e) => !e.locked);
-  const bench = lineupEntries.filter((e) => e.slot === BENCH && !e.locked);
+  const slots = rosterSlots && rosterSlots.length > 0 ? rosterSlots : DEFAULT_ROSTER_SLOTS;
+  const entries = (lineupEntries || []).map((e) => ({ ...e, locked: Boolean(e.locked) }));
+  const isStarter = (e) => e.slot !== BENCH && e.slot !== IR;
+  const startingSlots = new Set(entries.filter(isStarter).map((e) => e.slot));
 
   const contextFor = (playerId) =>
     defenseByPlayer.get(playerId) || { opponent: null, opponentPointsAllowed: null };
 
+  const availabilityById = new Map();
+  const pinned = new Map();
+  const candidates = [];
+  for (const entry of entries) {
+    const availability = projectionModel.availabilityFor({
+      injuryStatus: entry.injuryStatus ?? entry.injury_status ?? null,
+      onBye: Boolean(entry.onBye),
+      locked: entry.locked,
+      lockedSlot: entry.slot,
+    });
+    availabilityById.set(entry.playerId, availability);
+    if (entry.slot === IR) continue; // IR is never a lineup candidate
+    if (entry.locked) {
+      // Locked starters keep their slot; locked bench players cannot be started.
+      if (isStarter(entry)) pinned.set(entry.playerId, entry.slot);
+      continue;
+    }
+    if (!availability.available) continue; // bye / Out / IR designation
+    if (availability.autoRecommend === false && !isStarter(entry)) continue; // Doubtful on the bench
+    candidates.push({ playerId: entry.playerId, position: entry.position });
+  }
+
+  // A player who cannot play is worth exactly 0 this week, so that is what
+  // every total and comparison uses. Without this a starter on a bye keeps his
+  // full projection, the lineup total overstates itself, and no replacement is
+  // ever recommended because the bye player "outprojects" the healthy bench.
+  const effectiveProjection = (playerId) => {
+    const detail = detailOf(projections, playerId);
+    const availability = availabilityById.get(playerId);
+    if (availability && !availability.available) {
+      // The DISTRIBUTION goes too, not just the mean. A player who cannot play
+      // has no distribution of outcomes, and keeping one produced the nonsense
+      // "0 (6.82-7.62)" — a zero next to a range that excludes zero. Dropping
+      // it also correctly makes probabilityBetter null: there are no odds to
+      // quote against someone who is not on the field.
+      return {
+        ...detail,
+        points: 0,
+        projection: null,
+        unavailable: true,
+        unavailableReason: availability.reason,
+      };
+    }
+    return detail;
+  };
+  const effectivePoints = (playerId) => {
+    const points = effectiveProjection(playerId).points;
+    return Number.isFinite(Number(points)) ? Number(points) : 0;
+  };
+  const effectivePointsFor = new Map(entries.map((e) => [e.playerId, effectivePoints(e.playerId)]));
+
   // The projected total covers the WHOLE lineup, locked starters included —
   // locking only limits which swaps can still be suggested.
   let projectedTotal = 0;
-  for (const starter of allStarters) projectedTotal += pointsOf(projections, starter.playerId);
+  for (const starter of entries.filter(isStarter)) {
+    projectedTotal += effectivePoints(starter.playerId);
+  }
   projectedTotal = round2(projectedTotal);
 
-  const usedBench = new Set();
-  const suggestions = [];
-  for (const starter of swappable) {
-    const currentProjection = pointsOf(projections, starter.playerId);
-    let best = null;
-    let bestProjection = -Infinity;
-    for (const candidate of bench) {
-      if (usedBench.has(candidate.playerId)) continue;
-      if (!slotEligible(starter.slot, candidate.position, rosterSlots)) continue;
-      const candidateProjection = pointsOf(projections, candidate.playerId);
-      if (candidateProjection > bestProjection) {
-        best = candidate;
-        bestProjection = candidateProjection;
-      }
-    }
-    if (best && bestProjection > currentProjection) {
-      usedBench.add(best.playerId);
-      suggestions.push({
-        slot: starter.slot,
-        current: {
-          playerId: starter.playerId,
-          name: starter.name,
-          projection: currentProjection,
-          ...contextFor(starter.playerId),
-        },
-        suggested: {
-          playerId: best.playerId,
-          name: best.name,
-          projection: bestProjection,
-          ...contextFor(best.playerId),
-        },
-        gain: round2(bestProjection - currentProjection),
-      });
-    }
+  const optimal = optimalAssignment({
+    rosterSlots: slots,
+    candidates,
+    pointsFor: effectivePointsFor,
+    pinned,
+  });
+
+  const { swaps, fills } = buildSwapSuggestions({
+    entries,
+    optimalAssignments: optimal.assignments,
+    optimalByPlayer: optimal.byPlayer,
+    projectionOf: effectiveProjection,
+    startingSlots,
+  });
+
+  const suggestions = swaps.map((swap) => {
+    const currentPoints = swap.currentProjection.points;
+    const suggestedPoints = swap.suggestedProjection.points;
+    const probability = projectionModel.probabilityBetter(
+      swap.suggestedProjection.projection,
+      swap.currentProjection.projection
+    );
+    return {
+      slot: swap.slot,
+      current: {
+        playerId: swap.out.playerId,
+        name: swap.out.name,
+        projection: currentPoints,
+        ...contextFor(swap.out.playerId),
+        distribution: swap.currentProjection.projection || null,
+        confidence: swap.currentProjection.confidence || null,
+        factors: swap.currentProjection.factors || null,
+        availability: availabilityById.get(swap.out.playerId) || null,
+      },
+      suggested: {
+        playerId: swap.in.playerId,
+        name: swap.in.name,
+        projection: suggestedPoints,
+        ...contextFor(swap.in.playerId),
+        distribution: swap.suggestedProjection.projection || null,
+        confidence: swap.suggestedProjection.confidence || null,
+        factors: swap.suggestedProjection.factors || null,
+        availability: availabilityById.get(swap.in.playerId) || null,
+      },
+      gain: round2(suggestedPoints - currentPoints),
+      probabilityBetter: probability,
+      // A comparison the intervals say is close to a coin flip is a watch
+      // item, not an instruction to change the lineup. The threshold is 0.6
+      // rather than something tighter because probabilityBetter is computed
+      // from five summary quantiles per side, so it resolves in steps of 0.04
+      // around 0.5 — anything at or below 0.6 is inside that grid's noise.
+      verdict: probability != null && probability <= TOSSUP_PROBABILITY ? 'tossup' : 'start',
+      confidence: swap.suggestedProjection.confidence || null,
+    };
+  });
+
+  // Empty starting slots a bench player should fill. The previous greedy
+  // recommender could not see these at all: it only ever compared an OCCUPIED
+  // slot against the bench, so a manager with an empty FLEX got silence.
+  const openSlotFills = fills.map((fill) => ({
+    slot: fill.slot,
+    playerId: fill.in.playerId,
+    name: fill.in.name,
+    projection: fill.suggestedProjection.points,
+    distribution: fill.suggestedProjection.projection || null,
+    confidence: fill.suggestedProjection.confidence || null,
+    factors: fill.suggestedProjection.factors || null,
+    ...contextFor(fill.in.playerId),
+  }));
+
+  // The complete answer, including shuffles no single swap can express.
+  const currentSlotById = new Map(entries.map((e) => [e.playerId, e.slot]));
+  const movePlan = [];
+  for (const assignment of optimal.assignments) {
+    if (assignment.playerId == null || assignment.locked) continue;
+    const from = currentSlotById.get(assignment.playerId);
+    if (from === assignment.slotKey) continue;
+    movePlan.push({ playerId: assignment.playerId, fromSlot: from ?? null, toSlot: assignment.slotKey });
+  }
+  for (const entry of entries) {
+    if (!isStarter(entry) || entry.locked) continue;
+    if (optimal.byPlayer.has(entry.playerId)) continue;
+    movePlan.push({ playerId: entry.playerId, fromSlot: entry.slot, toSlot: BENCH });
   }
 
-  const optimalTotal = round2(
-    projectedTotal + suggestions.reduce((sum, s) => sum + s.gain, 0)
-  );
+  const unavailable = entries
+    .filter((e) => {
+      const availability = availabilityById.get(e.playerId);
+      return availability && !availability.available;
+    })
+    .map((e) => ({
+      playerId: e.playerId,
+      name: e.name,
+      slot: e.slot,
+      reason: availabilityById.get(e.playerId).reason,
+    }));
 
-  return { projectedTotal, optimalTotal, suggestions };
+  return {
+    projectedTotal,
+    optimalTotal: optimal.total,
+    suggestions,
+    openSlotFills,
+    movePlan,
+    unavailable,
+  };
 }
 
 /**
- * Start/sit advice for the caller's team: the current lineup vs. the best
- * available swap at each starting slot, with opponent-difficulty context.
+ * Start/sit advice for the caller's team.
+ *
+ * Projections come from `free_baseline_v2`, scoped to the roster's player ids
+ * and priced under THIS league's scoring rules — the engine is never asked to
+ * project the entire NFL pool for one lineup view. Opponent difficulty is now
+ * an input to the projection rather than decoration hung off it, but the
+ * legacy `opponent` / `opponentPointsAllowed` display fields are still
+ * populated from getPositionDefense so no client field changes type.
  */
 async function startSitAdvice({ leagueId, userId, week }) {
-  const leagueCheck = await pool.query(
-    `SELECT "best_ball" FROM "leagues" WHERE "id" = $1`,
-    [leagueId]
-  );
-  if (leagueCheck.rows[0] && leagueCheck.rows[0].best_ball) {
+  const leagueResult = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
+  const league = leagueResult.rows[0];
+  if (!league) throw new DecisionError(404, 'league not found');
+  if (league.best_ball) {
     throw new DecisionError(409, 'best-ball leagues set lineups automatically, so there is no advice to give');
   }
-  const lineup = await getLineup({ leagueId, userId, week });
+  const lineup = await lineupService.getLineup({ leagueId, userId, week });
   // The lineup's own season is authoritative — a caller-supplied season that
   // disagreed with it would pair this lineup with another year's projections.
   const effectiveSeason = lineup.season;
   const effectiveWeek = lineup.week;
+  const playerIds = lineup.entries.map((e) => e.id);
 
-  const [projections, defense, opponents] = await Promise.all([
-    getWeekProjections({ season: effectiveSeason, week: effectiveWeek }),
-    getPositionDefense({ season: effectiveSeason, uptoWeek: effectiveWeek }),
+  const [run, defense, opponents] = await Promise.all([
+    projectionService.getWeeklyProjections({
+      season: effectiveSeason,
+      week: effectiveWeek,
+      league,
+      playerIds,
+    }),
+    projectionService.getPositionDefense({ season: effectiveSeason, uptoWeek: effectiveWeek }),
     getWeekOpponents({ season: effectiveSeason, week: effectiveWeek }),
   ]);
+  const projections = toLegacyProjectionMap(run);
 
   const defenseByPlayer = new Map();
   for (const entry of lineup.entries) {
@@ -159,16 +327,49 @@ async function startSitAdvice({ leagueId, userId, week }) {
     position: e.position,
     slot: e.slot,
     locked: Boolean(e.locked),
+    injuryStatus: e.injury_status || null,
+    onBye: Boolean(e.onBye),
   }));
 
-  const { projectedTotal, optimalTotal, suggestions } = buildSuggestions(
+  const plan = buildSuggestions(
     lineupEntries,
     projections,
     defenseByPlayer,
     lineup.rosterSlots
   );
 
-  return { week: effectiveWeek, season: effectiveSeason, projectedTotal, optimalTotal, suggestions };
+  const players = lineupEntries.map((entry) => {
+    const detail = detailOf(projections, entry.playerId);
+    return {
+      playerId: entry.playerId,
+      name: entry.name,
+      slot: entry.slot,
+      projection: detail.points,
+      distribution: detail.projection || null,
+      confidence: detail.confidence || null,
+      activeProbability: detail.activeProbability ?? null,
+      factors: detail.factors || null,
+      ...defenseByPlayer.get(entry.playerId),
+    };
+  });
+
+  return {
+    // Legacy fields, unchanged in name and type.
+    week: effectiveWeek,
+    season: effectiveSeason,
+    projectedTotal: plan.projectedTotal,
+    optimalTotal: plan.optimalTotal,
+    suggestions: plan.suggestions,
+    // Additive.
+    modelVersion: run.modelVersion,
+    generatedAt: run.generatedAt,
+    inputCutoff: run.inputCutoff,
+    sourceCoverage: run.sourceCoverage,
+    openSlotFills: plan.openSlotFills,
+    movePlan: plan.movePlan,
+    unavailable: plan.unavailable,
+    players,
+  };
 }
 
 // ---------------------------------------------------------------------------

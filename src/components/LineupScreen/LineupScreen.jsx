@@ -64,6 +64,97 @@ function isEligibleForSlot(position, slot, rosterSlots) {
   return slotEligiblePositions(rosterSlots, slot).includes(position);
 }
 
+// --- start/sit projection presentation -------------------------------------
+//
+// Everything below renders ONLY what the server actually sent. A factor the
+// model could not evaluate arrives as null and is simply not drawn — the panel
+// never prints "vs null", a 0 that looks like a measurement, or an opponent
+// difficulty nobody computed.
+
+const UNAVAILABLE_LABELS = { bye: 'on bye', out: 'out', ir: 'on IR' };
+
+/**
+ * What goes in the parentheses after a player's name. A player who cannot play
+ * gets the REASON, not a projection: "0 proj" invites the reader to compare a
+ * number that does not mean what a projection means. Every caller wraps this in
+ * parentheses of its own, so the p10-p90 range is spelled out inline rather
+ * than parenthesized again; the range is omitted when unknown.
+ */
+function describeSide(side) {
+  const availability = side && side.availability;
+  if (availability && availability.available === false) {
+    return UNAVAILABLE_LABELS[availability.reason] || 'unavailable';
+  }
+  if (!side || side.projection == null) return null;
+  const range = side.distribution;
+  if (!range || range.p10 == null || range.p90 == null) return `${side.projection} proj`;
+  return `${side.projection} proj, range ${range.p10}–${range.p90}`;
+}
+
+/**
+ * Whole-percent odds text, or null when the server declined to calibrate one.
+ * Both players are named: "he outscores him" is ambiguous read aloud and in a
+ * caption that sits two lines below the headline naming them.
+ */
+function formatProbability(probability, suggestedName, currentName) {
+  if (probability == null) return null;
+  return `${Math.round(probability * 100)}% chance ${suggestedName} outscores ${currentName}`;
+}
+
+/**
+ * Concise, factual chips for the factors that actually contributed. An
+ * unavailable factor produces nothing at all rather than a chip claiming a
+ * neutral result we never measured.
+ */
+function factorChipsFor(side) {
+  const factors = side && side.factors;
+  if (!factors) return [];
+  const chips = [];
+  const signed = (value) => `${value > 0 ? '+' : ''}${value}`;
+  const { opponent, homeAway, versusOpponent, weather, availability } = factors;
+  // The opponent's identity is already in the caption below the headline, so
+  // this chip carries only what the caption cannot: how many points the
+  // matchup actually moved the projection.
+  if (opponent && opponent.available && opponent.pointsContribution != null) {
+    chips.push({
+      key: 'opponent',
+      label: `Matchup ${signed(opponent.pointsContribution)}`,
+      title: `Opponent difficulty, measured over ${opponent.games} games and capped`,
+    });
+  }
+  if (homeAway && homeAway.available) {
+    chips.push({
+      key: 'homeAway',
+      label: homeAway.isHome ? 'Home' : 'Away',
+      title: 'Schedule orientation, measured from prior results at this position',
+    });
+  }
+  if (versusOpponent && versusOpponent.available) {
+    chips.push({
+      key: 'versusOpponent',
+      label: `${versusOpponent.meetings} prior meetings`,
+      title: 'Head-to-head history, weighted very lightly',
+    });
+  }
+  if (weather && weather.available && weather.shortForecast) {
+    chips.push({
+      key: 'weather',
+      label: weather.shortForecast,
+      title: 'Forecast context only. It is not scored into the projection.',
+    });
+  }
+  if (availability && availability.status) {
+    chips.push({
+      key: 'availability',
+      label: availability.status === 'Q' ? 'Questionable' : availability.status,
+      title: availability.activeProbability == null
+        ? 'Designation only. There is no reliable chance-to-play data behind it.'
+        : 'Injury designation',
+    });
+  }
+  return chips;
+}
+
 // Whether `selectedEntry` may legally land on this row: an empty slot only
 // needs the one-way check, but an occupied row is a swap, so both players
 // must be eligible for each other's slot. A locked occupant can never be a
@@ -176,6 +267,14 @@ function LineupScreen() {
       { playerId: currentEntry.id, slot: suggestedEntry.slot },
       { playerId: suggestedEntry.id, slot: currentEntry.slot },
     ]);
+  };
+
+  // An empty starting slot needs only the one move a manual slot-first pick
+  // would produce, so it reuses the same save path as everything else.
+  const handleFillSlot = (fill) => {
+    const entry = (lineup?.entries || []).find((e) => e.id === fill.playerId);
+    if (!entry) return;
+    performMove([{ playerId: entry.id, slot: fill.slot }]);
   };
 
   const changeWeek = (week) => {
@@ -449,6 +548,29 @@ function LineupScreen() {
   const currentWeekValue = lineup ? selectedWeek ?? lineup.week : null;
   const projectedTotal = advice?.projectedTotal;
   const optimalTotal = advice?.optimalTotal;
+  // Additive advice fields. Older responses (a cached tab mid-deploy, or the
+  // legacy fixture shape) simply do not carry them, and every consumer below
+  // degrades to rendering nothing rather than to rendering "undefined".
+  const openSlotFills = Array.isArray(advice?.openSlotFills) ? advice.openSlotFills : [];
+  const unavailablePlayers = Array.isArray(advice?.unavailable) ? advice.unavailable : [];
+  const expertUnavailable = advice?.sourceCoverage?.expertConsensus?.status === 'unavailable';
+  const weatherUnavailable = advice?.sourceCoverage?.weather?.status === 'unavailable';
+  const generatedAtText = (() => {
+    if (!advice?.generatedAt) return null;
+    const when = new Date(advice.generatedAt);
+    // Short date and time only: seconds are noise in a freshness stamp.
+    return Number.isNaN(when.getTime())
+      ? null
+      : when.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
+  })();
+  const provenanceText = [
+    advice?.modelVersion && `Model ${advice.modelVersion}`,
+    generatedAtText && `updated ${generatedAtText}`,
+    expertUnavailable && 'expert consensus unavailable',
+    weatherUnavailable && 'weather unavailable',
+  ]
+    .filter(Boolean)
+    .join(' · ');
   const optimalGain =
     typeof projectedTotal === 'number' && typeof optimalTotal === 'number'
       ? Number((optimalTotal - projectedTotal).toFixed(1))
@@ -558,40 +680,145 @@ function LineupScreen() {
                   <Typography variant="body2" sx={{ mb: 2, color: 'text.secondary' }}>
                     Projected {advice.projectedTotal} pts · Optimal {advice.optimalTotal} pts
                   </Typography>
-                  {advice.suggestions.length === 0 ? (
+                  {advice.suggestions.length === 0 && openSlotFills.length === 0 ? (
                     <Typography sx={{ color: 'text.secondary' }}>
                       {emptyStarterSlots > 0
                         ? 'Fill your starting lineup to unlock live optimization insights.'
                         : 'Your lineup is already optimal'}
                     </Typography>
                   ) : (
-                    advice.suggestions.map((s) => (
-                      <Box
-                        key={s.slot}
-                        data-testid={`suggestion-row-${s.slot}`}
-                        sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}
-                      >
-                        <Chip label={s.slot} size="small" sx={{ minWidth: 56 }} />
-                        <Box sx={{ flexGrow: 1 }}>
-                          <Typography variant="body2">
-                            Start {s.suggested.name} ({s.suggested.projection} proj) over{' '}
-                            {s.current.name} ({s.current.projection} proj)
-                          </Typography>
-                          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                            vs {s.suggested.opponent}, {s.suggested.opponentPointsAllowed} pts
-                            allowed to {s.slot}
-                          </Typography>
-                        </Box>
-                        <Chip label={`+${s.gain}`} size="small" color="success" />
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          onClick={() => handleApplySuggestion(s)}
+                    advice.suggestions.map((s) => {
+                      const suggestedText = describeSide(s.suggested);
+                      const currentText = describeSide(s.current);
+                      const probabilityText = formatProbability(
+                        s.probabilityBetter,
+                        s.suggested.name,
+                        s.current.name
+                      );
+                      const chips = factorChipsFor(s.suggested);
+                      const tossUp = s.verdict === 'tossup';
+                      return (
+                        <Box
+                          key={`${s.slot}-${s.current.playerId}-${s.suggested.playerId}`}
+                          data-testid={`suggestion-row-${s.slot}`}
+                          role="group"
+                          // Confidence belongs in the group label too: the chip
+                          // carries only the level, and its full phrasing lives
+                          // in a hover tooltip a virtual cursor never reaches.
+                          aria-label={`${s.slot}: start ${s.suggested.name} over ${s.current.name}, ${s.gain} projected points${
+                            s.confidence ? `, ${s.confidence} confidence` : ''
+                          }`}
+                          sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, mb: 2 }}
                         >
-                          Apply
-                        </Button>
-                      </Box>
-                    ))
+                          <Chip label={s.slot} size="small" sx={{ minWidth: 56, mt: 0.25 }} />
+                          <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+                            <Typography variant="body2">
+                              Start {s.suggested.name} ({suggestedText}) over{' '}
+                              {s.current.name} ({currentText})
+                            </Typography>
+                            {/* Only rendered when the server actually resolved
+                                both halves — the previous version printed
+                                "vs null, null pts allowed" for any player
+                                whose game or defensive sample was unknown. */}
+                            {s.suggested.opponent && s.suggested.opponentPointsAllowed != null && (
+                              <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary' }}>
+                                vs {s.suggested.opponent}, {s.suggested.opponentPointsAllowed} pts
+                                allowed to {s.slot}
+                              </Typography>
+                            )}
+                            {probabilityText && (
+                              <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary' }}>
+                                {probabilityText}
+                              </Typography>
+                            )}
+                            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
+                              {/* Just the level, not "medium confidence": at
+                                  390px the longer label truncated to
+                                  "medium confi…", which is worse than a chip
+                                  that needs its tooltip to be unambiguous. */}
+                              {s.confidence && (
+                                <Tooltip title={`Model confidence in this projection: ${s.confidence}`}>
+                                  <Chip
+                                    data-testid={`suggestion-confidence-${s.slot}`}
+                                    label={s.confidence}
+                                    size="small"
+                                    variant="outlined"
+                                  />
+                                </Tooltip>
+                              )}
+                              {tossUp && (
+                                <Chip label="Toss-up" size="small" variant="outlined" color="warning" />
+                              )}
+                              {chips.map((chip) => (
+                                <Tooltip key={chip.key} title={chip.title}>
+                                  <Chip label={chip.label} size="small" variant="outlined" />
+                                </Tooltip>
+                              ))}
+                            </Box>
+                          </Box>
+                          <Chip label={`+${s.gain}`} size="small" color="success" sx={{ mt: 0.25 }} />
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            sx={{ mt: 0.25 }}
+                            onClick={() => handleApplySuggestion(s)}
+                          >
+                            Apply
+                          </Button>
+                        </Box>
+                      );
+                    })
+                  )}
+
+                  {openSlotFills.length > 0 && (
+                    <Box sx={{ mt: 1 }} data-testid="lineup-open-slot-fills">
+                      <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                        Empty starting slots
+                      </Typography>
+                      {openSlotFills.map((fill) => (
+                        <Box
+                          key={`${fill.slot}-${fill.playerId}`}
+                          data-testid={`open-slot-fill-${fill.slot}`}
+                          role="group"
+                          aria-label={`${fill.slot} is empty: start ${fill.name}`}
+                          sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}
+                        >
+                          <Chip label={fill.slot} size="small" sx={{ minWidth: 56 }} />
+                          <Typography variant="body2" sx={{ flexGrow: 1 }}>
+                            Start {fill.name} ({describeSide(fill)}) in your empty{' '}
+                            {fill.slot}
+                          </Typography>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => handleFillSlot(fill)}
+                          >
+                            Start
+                          </Button>
+                        </Box>
+                      ))}
+                    </Box>
+                  )}
+
+                  {unavailablePlayers.length > 0 && (
+                    <Typography
+                      variant="caption"
+                      sx={{ display: 'block', mt: 1, color: 'text.secondary' }}
+                      data-testid="lineup-unavailable-note"
+                    >
+                      Not available this week:{' '}
+                      {unavailablePlayers.map((u) => `${u.name} (${u.reason})`).join(', ')}
+                    </Typography>
+                  )}
+
+                  {provenanceText && (
+                    <Typography
+                      variant="caption"
+                      sx={{ display: 'block', mt: 2, color: 'text.secondary' }}
+                      data-testid="lineup-advice-provenance"
+                    >
+                      {provenanceText}
+                    </Typography>
                   )}
                 </Box>
               </Collapse>

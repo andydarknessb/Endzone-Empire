@@ -11,9 +11,20 @@ const { DEFAULT_ROSTER_SLOTS } = require('../services/lineup.service');
 
 // ---------------------------------------------------------------------------
 // buildSuggestions
+//
+// buildSuggestions now runs the EXACT optimizer (see lineupOptimizer.js), so
+// these cases pin explicit rosterSlots instead of leaning on the default
+// 7-slot shape. Under the default shape a two-player lineup leaves five
+// starting slots empty, and the optimizer correctly wants to fill them — which
+// is a real improvement over the old greedy scan, but it is not what these
+// swap-semantics cases are about. Empty-slot behavior has its own tests below.
 // ---------------------------------------------------------------------------
 
 const entry = (playerId, position, slot, name = `p${playerId}`) => ({ playerId, name, position, slot });
+
+const RB1 = [{ key: 'RB', label: 'RB', count: 1, eligiblePositions: ['RB'] }];
+const RB2 = [{ key: 'RB', label: 'RB', count: 2, eligiblePositions: ['RB'] }];
+const FLEX1 = [{ key: 'FLEX', label: 'FLEX', count: 1, eligiblePositions: ['RB', 'WR', 'TE'] }];
 
 test('buildSuggestions: suggests a swap when a bench player projects strictly higher', () => {
   const lineup = [
@@ -21,7 +32,7 @@ test('buildSuggestions: suggests a swap when a bench player projects strictly hi
     entry(2, 'RB', 'BENCH'),
   ];
   const projections = new Map([[1, { points: 10 }], [2, { points: 15 }]]);
-  const result = buildSuggestions(lineup, projections);
+  const result = buildSuggestions(lineup, projections, new Map(), RB1);
   assert.equal(result.suggestions.length, 1);
   assert.equal(result.suggestions[0].slot, 'RB');
   assert.equal(result.suggestions[0].current.playerId, 1);
@@ -41,13 +52,16 @@ test('buildSuggestions: locked starters and locked bench players are never sugge
   const projections = new Map([
     [1, { points: 5 }], [2, { points: 8 }], [3, { points: 30 }], [4, { points: 12 }],
   ]);
-  const result = buildSuggestions(lineup, projections);
+  const result = buildSuggestions(lineup, projections, new Map(), RB2);
   // Only the unlocked pair (2 out, 4 in) is suggestible
   assert.equal(result.suggestions.length, 1);
   assert.equal(result.suggestions[0].current.playerId, 2);
   assert.equal(result.suggestions[0].suggested.playerId, 4);
   // Projected total still counts the locked starter's points
   assert.equal(result.projectedTotal, 13);
+  assert.equal(result.optimalTotal, 17);
+  // The locked bench player never appears anywhere in the plan.
+  assert.equal(result.movePlan.some((m) => m.playerId === 3), false);
 });
 
 test('buildSuggestions: no suggestion when the bench player projects lower', () => {
@@ -56,7 +70,7 @@ test('buildSuggestions: no suggestion when the bench player projects lower', () 
     entry(2, 'RB', 'BENCH'),
   ];
   const projections = new Map([[1, { points: 15 }], [2, { points: 10 }]]);
-  const result = buildSuggestions(lineup, projections);
+  const result = buildSuggestions(lineup, projections, new Map(), RB1);
   assert.equal(result.suggestions.length, 0);
   assert.equal(result.projectedTotal, 15);
   assert.equal(result.optimalTotal, 15);
@@ -68,14 +82,14 @@ test('buildSuggestions: no suggestion when equal (must be strictly higher)', () 
     entry(2, 'RB', 'BENCH'),
   ];
   const projections = new Map([[1, { points: 12 }], [2, { points: 12 }]]);
-  const result = buildSuggestions(lineup, projections);
+  const result = buildSuggestions(lineup, projections, new Map(), RB1);
   assert.equal(result.suggestions.length, 0);
 });
 
 test('buildSuggestions: no suggestion when the bench is empty', () => {
   const lineup = [entry(1, 'RB', 'RB')];
   const projections = new Map([[1, { points: 10 }]]);
-  const result = buildSuggestions(lineup, projections);
+  const result = buildSuggestions(lineup, projections, new Map(), RB1);
   assert.equal(result.suggestions.length, 0);
   assert.equal(result.optimalTotal, result.projectedTotal);
 });
@@ -87,7 +101,7 @@ test('buildSuggestions: respects slot eligibility (a bench QB cannot fill FLEX)'
     entry(3, 'RB', 'BENCH'), // eligible, but lower projection than starter
   ];
   const projections = new Map([[1, { points: 8 }], [2, { points: 30 }], [3, { points: 5 }]]);
-  const result = buildSuggestions(lineup, projections);
+  const result = buildSuggestions(lineup, projections, new Map(), FLEX1);
   assert.equal(result.suggestions.length, 0);
 });
 
@@ -97,7 +111,7 @@ test('buildSuggestions: FLEX-eligible bench player is a valid suggestion for FLE
     entry(2, 'TE', 'BENCH'),
   ];
   const projections = new Map([[1, { points: 8 }], [2, { points: 14 }]]);
-  const result = buildSuggestions(lineup, projections);
+  const result = buildSuggestions(lineup, projections, new Map(), FLEX1);
   assert.equal(result.suggestions.length, 1);
   assert.equal(result.suggestions[0].suggested.playerId, 2);
 });
@@ -108,8 +122,9 @@ test('buildSuggestions: ignores IR players entirely (not a bench candidate)', ()
     entry(2, 'RB', 'IR'),
   ];
   const projections = new Map([[1, { points: 5 }], [2, { points: 20 }]]);
-  const result = buildSuggestions(lineup, projections);
+  const result = buildSuggestions(lineup, projections, new Map(), RB1);
   assert.equal(result.suggestions.length, 0);
+  assert.equal(result.optimalTotal, 5);
 });
 
 test('buildSuggestions: a bench player is only recommended once across slots', () => {
@@ -119,9 +134,30 @@ test('buildSuggestions: a bench player is only recommended once across slots', (
     entry(3, 'RB', 'BENCH'), // best bench RB, can only fill one starting slot
   ];
   const projections = new Map([[1, { points: 5 }], [2, { points: 6 }], [3, { points: 20 }]]);
-  const result = buildSuggestions(lineup, projections);
+  const result = buildSuggestions(lineup, projections, new Map(), RB2);
   assert.equal(result.suggestions.length, 1);
   assert.equal(result.suggestions[0].current.playerId, 1); // the weaker starter is swapped
+});
+
+test('buildSuggestions: no player appears in two recommendations', () => {
+  const lineup = [
+    entry(1, 'RB', 'RB'),
+    entry(2, 'RB', 'RB'),
+    entry(3, 'RB', 'BENCH'),
+    entry(4, 'RB', 'BENCH'),
+  ];
+  const projections = new Map([
+    [1, { points: 4 }], [2, { points: 5 }], [3, { points: 22 }], [4, { points: 18 }],
+  ]);
+  const result = buildSuggestions(lineup, projections, new Map(), RB2);
+  const mentioned = [
+    ...result.suggestions.map((s) => s.current.playerId),
+    ...result.suggestions.map((s) => s.suggested.playerId),
+  ];
+  assert.equal(new Set(mentioned).size, mentioned.length);
+  const moved = result.movePlan.map((m) => m.playerId);
+  assert.equal(new Set(moved).size, moved.length);
+  assert.equal(result.optimalTotal, 40);
 });
 
 test('buildSuggestions: carries opponent context through when supplied', () => {
@@ -134,13 +170,16 @@ test('buildSuggestions: carries opponent context through when supplied', () => {
     [1, { opponent: 'NYG', opponentPointsAllowed: 10 }],
     [2, { opponent: 'DAL', opponentPointsAllowed: 22 }],
   ]);
-  const result = buildSuggestions(lineup, projections, defenseByPlayer);
-  assert.deepEqual(result.suggestions[0].current, {
-    playerId: 1, name: 'p1', projection: 5, opponent: 'NYG', opponentPointsAllowed: 10,
-  });
-  assert.deepEqual(result.suggestions[0].suggested, {
-    playerId: 2, name: 'p2', projection: 12, opponent: 'DAL', opponentPointsAllowed: 22,
-  });
+  const result = buildSuggestions(lineup, projections, defenseByPlayer, RB1);
+  const { current, suggested } = result.suggestions[0];
+  assert.equal(current.playerId, 1);
+  assert.equal(current.projection, 5);
+  assert.equal(current.opponent, 'NYG');
+  assert.equal(current.opponentPointsAllowed, 10);
+  assert.equal(suggested.playerId, 2);
+  assert.equal(suggested.projection, 12);
+  assert.equal(suggested.opponent, 'DAL');
+  assert.equal(suggested.opponentPointsAllowed, 22);
 });
 
 test('buildSuggestions: missing opponent context defaults to nulls', () => {
@@ -149,9 +188,125 @@ test('buildSuggestions: missing opponent context defaults to nulls', () => {
     entry(2, 'RB', 'BENCH'),
   ];
   const projections = new Map([[1, { points: 5 }], [2, { points: 12 }]]);
-  const result = buildSuggestions(lineup, projections);
+  const result = buildSuggestions(lineup, projections, new Map(), RB1);
   assert.equal(result.suggestions[0].current.opponent, null);
   assert.equal(result.suggestions[0].current.opponentPointsAllowed, null);
+});
+
+// --- new behavior: empty slots, availability, distributions ---------------
+
+test('buildSuggestions: an EMPTY starting slot is reported as a fill, not a swap', () => {
+  const lineup = [
+    entry(1, 'RB', 'RB'),
+    entry(2, 'RB', 'BENCH'),
+  ];
+  const projections = new Map([[1, { points: 10 }], [2, { points: 6 }]]);
+  const result = buildSuggestions(lineup, projections, new Map(), RB2);
+  assert.equal(result.suggestions.length, 0);
+  assert.deepEqual(
+    result.openSlotFills.map((f) => [f.slot, f.playerId, f.projection]),
+    [['RB', 2, 6]]
+  );
+  assert.equal(result.optimalTotal, 16);
+});
+
+test('buildSuggestions: a starter on a bye is worth zero and gets replaced', () => {
+  const lineup = [
+    { ...entry(1, 'RB', 'RB'), onBye: true },
+    entry(2, 'RB', 'BENCH'),
+  ];
+  const projections = new Map([[1, { points: 20 }], [2, { points: 8 }]]);
+  const result = buildSuggestions(lineup, projections, new Map(), RB1);
+  assert.equal(result.projectedTotal, 0, 'a player on a bye scores 0, not his projection');
+  assert.equal(result.optimalTotal, 8);
+  assert.equal(result.suggestions.length, 1);
+  assert.equal(result.suggestions[0].suggested.playerId, 2);
+  assert.deepEqual(result.unavailable, [{ playerId: 1, name: 'p1', slot: 'RB', reason: 'bye' }]);
+});
+
+test('buildSuggestions: Out and IR designations make a player unavailable', () => {
+  for (const [status, reason] of [['O', 'out'], ['IR', 'ir']]) {
+    const lineup = [
+      { ...entry(1, 'RB', 'RB'), injuryStatus: status },
+      entry(2, 'RB', 'BENCH'),
+    ];
+    const projections = new Map([[1, { points: 25 }], [2, { points: 4 }]]);
+    const result = buildSuggestions(lineup, projections, new Map(), RB1);
+    assert.equal(result.suggestions.length, 1, status);
+    assert.equal(result.suggestions[0].suggested.playerId, 2, status);
+    assert.equal(result.unavailable[0].reason, reason);
+  }
+});
+
+test('buildSuggestions: a Doubtful bench player is never auto-promoted', () => {
+  const lineup = [
+    entry(1, 'RB', 'RB'),
+    { ...entry(2, 'RB', 'BENCH'), injuryStatus: 'D' },
+  ];
+  const projections = new Map([[1, { points: 8 }], [2, { points: 25 }]]);
+  const result = buildSuggestions(lineup, projections, new Map(), RB1);
+  assert.equal(result.suggestions.length, 0, 'no active-probability data means no automatic swap');
+  assert.equal(result.optimalTotal, 8);
+});
+
+test('buildSuggestions: a Questionable bench player CAN be promoted, flagged as such', () => {
+  const lineup = [
+    entry(1, 'RB', 'RB'),
+    { ...entry(2, 'RB', 'BENCH'), injuryStatus: 'Q' },
+  ];
+  const projections = new Map([[1, { points: 8 }], [2, { points: 25 }]]);
+  const result = buildSuggestions(lineup, projections, new Map(), RB1);
+  assert.equal(result.suggestions.length, 1);
+  assert.equal(result.suggestions[0].suggested.availability.status, 'Q');
+  assert.equal(
+    result.suggestions[0].suggested.availability.activeProbability,
+    null,
+    'a Q designation must not be turned into a made-up probability'
+  );
+});
+
+test('buildSuggestions: a close call with overlapping ranges is a toss-up, not an instruction', () => {
+  const lineup = [
+    entry(1, 'RB', 'RB'),
+    entry(2, 'RB', 'BENCH'),
+  ];
+  const overlapping = (median) => ({
+    p10: median - 8, p25: median - 4, median, p75: median + 4, p90: median + 8,
+  });
+  const projections = new Map([
+    [1, { points: 10.0, projection: overlapping(10.0) }],
+    [2, { points: 10.4, projection: overlapping(10.4) }],
+  ]);
+  const result = buildSuggestions(lineup, projections, new Map(), RB1);
+  assert.equal(result.suggestions.length, 1);
+  assert.equal(result.suggestions[0].verdict, 'tossup');
+  assert.ok(result.suggestions[0].probabilityBetter <= 0.6);
+});
+
+test('buildSuggestions: a clear edge is a start recommendation with a probability', () => {
+  const lineup = [
+    entry(1, 'RB', 'RB'),
+    entry(2, 'RB', 'BENCH'),
+  ];
+  const projections = new Map([
+    [1, { points: 4, projection: { p10: 1, p25: 2, median: 4, p75: 6, p90: 8 } }],
+    [2, { points: 18, projection: { p10: 14, p25: 16, median: 18, p75: 21, p90: 25 } }],
+  ]);
+  const result = buildSuggestions(lineup, projections, new Map(), RB1);
+  assert.equal(result.suggestions[0].verdict, 'start');
+  assert.equal(result.suggestions[0].probabilityBetter, 1);
+});
+
+test('buildSuggestions: a missing projection never becomes a recommendation', () => {
+  const lineup = [
+    entry(1, 'RB', 'RB'),
+    entry(2, 'RB', 'BENCH'),
+  ];
+  // Player 2 has no projection at all (a rookie with no history, say).
+  const projections = new Map([[1, { points: 3 }], [2, { points: null, source: 'unavailable' }]]);
+  const result = buildSuggestions(lineup, projections, new Map(), RB1);
+  assert.equal(result.suggestions.length, 0);
+  assert.equal(result.openSlotFills.length, 0);
 });
 
 // ---------------------------------------------------------------------------
