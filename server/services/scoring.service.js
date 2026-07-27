@@ -977,8 +977,25 @@ async function syncInjuries() {
 }
 
 /**
+ * Pure: the stable identifier both per-team rows of one NFL game share.
+ * Deliberately spelled the way nflverse spells its own `game_id`
+ * (`2026_03_BUF_MIA`, season_week_away_home), so a Tank01-synced week and an
+ * nflverse-backfilled week produce the SAME key for the same game and a
+ * per-game lookup (weather, venue) never fans out to two half-games.
+ * Returns null when any component is missing.
+ */
+function buildGameKey({ season, week, away, home }) {
+  const w = Number(week);
+  if (!Number.isFinite(Number(season)) || !Number.isInteger(w) || !away || !home) return null;
+  return `${Number(season)}_${String(w).padStart(2, '0')}_${away}_${home}`;
+}
+
+/**
  * Pure: one Tank01 game entry -> { home, away, kickoffAt } (team
  * abbreviations; null when the entry is missing anything load-bearing).
+ * Home/away orientation was always present in the feed and previously
+ * discarded — it is carried through now so nfl_games can record which side of
+ * the game each row is.
  */
 function normalizeTank01Game(entry) {
   if (!entry || !entry.home || !entry.away) return null;
@@ -1005,13 +1022,21 @@ async function syncSchedule({ season }) {
       for (const entry of games) {
         const game = normalizeTank01Game(entry);
         if (!game) continue;
-        for (const [team, opponent] of [[game.home, game.away], [game.away, game.home]]) {
+        const gameKey = buildGameKey({ season, week, away: game.away, home: game.home });
+        for (const [team, opponent, side] of [
+          [game.home, game.away, 'home'],
+          [game.away, game.home, 'away'],
+        ]) {
+          // game_key/home_away are additive: Tank01 carries no venue, roof,
+          // surface or rest data, so those columns are left exactly as they
+          // are (an nflverse schedule pass fills them in).
           await pool.query(
-            `INSERT INTO "nfl_games" ("season", "week", "nfl_team", "opponent", "kickoff_at")
-             VALUES ($1, $2, $3, $4, $5)
+            `INSERT INTO "nfl_games" ("season", "week", "nfl_team", "opponent", "kickoff_at", "game_key", "home_away")
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
              ON CONFLICT ("season", "week", "nfl_team")
-             DO UPDATE SET "opponent" = EXCLUDED."opponent", "kickoff_at" = EXCLUDED."kickoff_at"`,
-            [season, week, team, opponent, game.kickoffAt]
+             DO UPDATE SET "opponent" = EXCLUDED."opponent", "kickoff_at" = EXCLUDED."kickoff_at",
+                           "game_key" = EXCLUDED."game_key", "home_away" = EXCLUDED."home_away"`,
+            [season, week, team, opponent, game.kickoffAt, gameKey, side]
           );
           upserted += 1;
         }
@@ -1593,6 +1618,7 @@ module.exports = {
   markFinalStatsSynced,
   missingTeamDefenses,
   syncTeamDefenses,
+  buildGameKey,
   normalizeTank01Game,
   normalizeInjuryStatus,
   normalizePlayerEntry,

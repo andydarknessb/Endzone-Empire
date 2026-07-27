@@ -319,10 +319,33 @@ function etKickoffToUtc(gameday, gametime) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+/** Pure: a games.csv value that may be absent -> the value, or null. Never 0. */
+function optionalNumber(value) {
+  if (value === undefined || value === null || String(value).trim() === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Pure: a games.csv text value that may be absent -> a trimmed string, or null. */
+function optionalText(value, maxLength) {
+  if (value === undefined || value === null) return null;
+  const text = String(value).trim();
+  if (!text || text.toUpperCase() === 'NA') return null;
+  return maxLength ? text.slice(0, maxLength) : text;
+}
+
 /**
  * Pure: games.csv rows -> one season's REG-season nfl_games rows (both team
  * perspectives per game), kickoffs converted from ET, team codes mapped to
  * Tank01 vocabulary.
+ *
+ * Game CONTEXT (orientation, venue, roof, surface, neutral site, rest days)
+ * was always in this file and previously discarded. It rides along now because
+ * the weekly projection engine needs it — home/away for its schedule factor,
+ * roof to know whether weather can even matter. Every context field is
+ * OPTIONAL: a column the file does not carry (or carries as blank/NA) becomes
+ * null, never a fabricated default. Latitude/longitude are deliberately absent
+ * here — games.csv has no coordinates, and this code will not invent any.
  */
 function buildScheduleRows(rows, { season }) {
   const out = [];
@@ -334,8 +357,25 @@ function buildScheduleRows(rows, { season }) {
     const away = nflverseTeamToScheduleAbbr(row.away_team);
     const kickoffAt = etKickoffToUtc(row.gameday, row.gametime);
     if (!home || !away || !kickoffAt) continue; // kickoff_at is NOT NULL
-    out.push({ season: Number(season), week, nflTeam: home, opponent: away, kickoffAt });
-    out.push({ season: Number(season), week, nflTeam: away, opponent: home, kickoffAt });
+    const location = optionalText(row.location);
+    const context = {
+      gameKey: scoring.buildGameKey({ season, week, away, home }),
+      // games.csv's `location` is 'Home' for a normal game and 'Neutral' for a
+      // neutral-site one. An absent column leaves the flag unknown (null)
+      // rather than asserting "not neutral".
+      neutralSite: location == null ? null : location.toLowerCase() === 'neutral',
+      venue: optionalText(row.stadium, 120),
+      roof: optionalText(row.roof, 24),
+      surface: optionalText(row.surface, 32),
+    };
+    out.push({
+      season: Number(season), week, nflTeam: home, opponent: away, kickoffAt,
+      homeAway: 'home', restDays: optionalNumber(row.home_rest), ...context,
+    });
+    out.push({
+      season: Number(season), week, nflTeam: away, opponent: home, kickoffAt,
+      homeAway: 'away', restDays: optionalNumber(row.away_rest), ...context,
+    });
   }
   return out;
 }
@@ -354,16 +394,40 @@ async function syncScheduleFromNflverse({ season }) {
   const rows = parseCsv(await fetchCsvText(NFLVERSE_GAMES_URL));
   const scheduleRows = buildScheduleRows(rows, { season });
   let rowsInserted = 0;
+  let contextUpdated = 0;
   for (const game of scheduleRows) {
+    // Still never overwrites `opponent` or `kickoff_at` on an existing row —
+    // a Tank01-synced kickoff stays authoritative. The ON CONFLICT branch
+    // exists only to fill in the additive game-context columns, and each one
+    // is COALESCEd so a null in this file cannot erase a value already there.
     const res = await pool.query(
-      `INSERT INTO "nfl_games" ("season", "week", "nfl_team", "opponent", "kickoff_at")
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT ("season", "week", "nfl_team") DO NOTHING`,
-      [game.season, game.week, game.nflTeam, game.opponent, game.kickoffAt]
+      `INSERT INTO "nfl_games"
+         ("season", "week", "nfl_team", "opponent", "kickoff_at",
+          "game_key", "home_away", "neutral_site", "venue", "roof", "surface", "rest_days")
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       ON CONFLICT ("season", "week", "nfl_team")
+       DO UPDATE SET "game_key" = COALESCE(EXCLUDED."game_key", "nfl_games"."game_key"),
+                     "home_away" = COALESCE(EXCLUDED."home_away", "nfl_games"."home_away"),
+                     "neutral_site" = COALESCE(EXCLUDED."neutral_site", "nfl_games"."neutral_site"),
+                     "venue" = COALESCE(EXCLUDED."venue", "nfl_games"."venue"),
+                     "roof" = COALESCE(EXCLUDED."roof", "nfl_games"."roof"),
+                     "surface" = COALESCE(EXCLUDED."surface", "nfl_games"."surface"),
+                     "rest_days" = COALESCE(EXCLUDED."rest_days", "nfl_games"."rest_days")
+       RETURNING ("xmax" = 0) AS "inserted"`,
+      [
+        game.season, game.week, game.nflTeam, game.opponent, game.kickoffAt,
+        game.gameKey, game.homeAway, game.neutralSite, game.venue, game.roof,
+        game.surface, game.restDays,
+      ]
     );
-    rowsInserted += res.rowCount || 0;
+    // xmax = 0 on the returned tuple distinguishes a fresh INSERT from an
+    // upsert that took the DO UPDATE branch, so the counts stay meaningful now
+    // that existing rows are touched to fill in context.
+    const inserted = res.rows && res.rows[0] ? res.rows[0].inserted === true : (res.rowCount || 0) > 0;
+    if (inserted) rowsInserted += 1;
+    else contextUpdated += 1;
   }
-  return { season: Number(season), gamesInFile: scheduleRows.length / 2, rowsInserted };
+  return { season: Number(season), gamesInFile: scheduleRows.length / 2, rowsInserted, contextUpdated };
 }
 
 /**
@@ -390,8 +454,26 @@ function normalizeNflversePlayerStats(row) {
     const n = Number(v);
     return Number.isFinite(n) ? n : 0;
   };
+  // Opportunity/role columns are OPTIONAL, so they use a null-preserving
+  // reader rather than `num`: a season whose file lacks `targets` must record
+  // "we don't know his target share", not "he had zero targets". The
+  // projection engine reads the presence of these keys to decide whether it
+  // has role data at all (see projectionFeatures.hasRoleSignal), and a
+  // fabricated 0 would make a missing column look like a benching.
+  const usage = (v) => {
+    if (v === undefined || v === null || String(v).trim() === '') return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
   const solo = num(row.def_tackles_solo);
   return {
+    // Not scored by any rule (calculateFantasyPoints ignores unknown keys) —
+    // carried purely as projection features.
+    usagePassAttempts: usage(row.attempts),
+    usageCompletions: usage(row.completions),
+    usageCarries: usage(row.carries),
+    usageTargets: usage(row.targets),
+    usageAirYards: usage(row.receiving_air_yards),
     passingYards: num(row.passing_yards),
     passingTDs: num(row.passing_tds),
     interceptions: num(row.passing_interceptions),
@@ -701,6 +783,8 @@ module.exports = {
   nflverseTeamToOurAbbr,
   nflverseTeamToScheduleAbbr,
   etKickoffToUtc,
+  optionalNumber,
+  optionalText,
   buildScheduleRows,
   syncScheduleFromNflverse,
   normalizeNflversePlayerStats,

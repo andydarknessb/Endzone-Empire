@@ -459,25 +459,72 @@ test('buildScheduleRows emits both team perspectives in Tank01 codes for the tar
   assert.equal(out[0].kickoffAt.toISOString(), '2027-01-10T18:00:00.000Z');
 });
 
-test('syncScheduleFromNflverse is insert-only (DO NOTHING) so Tank01 kickoffs are never overwritten', async (t) => {
+test('buildScheduleRows carries game context, and leaves absent columns null', () => {
+  const rows = [{
+    season: '2026', game_type: 'REG', week: '3', gameday: '2026-09-20', gametime: '13:00',
+    home_team: 'MIN', away_team: 'GB', location: 'Home', stadium: 'U.S. Bank Stadium',
+    roof: 'dome', surface: 'a_turf', home_rest: '7', away_rest: '10',
+  }];
+  const [home, away] = buildScheduleRows(rows, { season: 2026 });
+  // Both perspectives share one game key, spelled the way nflverse spells its
+  // own game_id, so a weather lookup happens once per GAME.
+  assert.equal(home.gameKey, '2026_03_GB_MIN');
+  assert.equal(away.gameKey, '2026_03_GB_MIN');
+  assert.equal(home.homeAway, 'home');
+  assert.equal(away.homeAway, 'away');
+  assert.equal(home.restDays, 7);
+  assert.equal(away.restDays, 10);
+  assert.equal(home.roof, 'dome');
+  assert.equal(home.surface, 'a_turf');
+  assert.equal(home.venue, 'U.S. Bank Stadium');
+  assert.equal(home.neutralSite, false);
+
+  // A file generation without the context columns must yield nulls, not zeros
+  // or fabricated defaults.
+  const [bare] = buildScheduleRows(
+    [{ season: '2026', game_type: 'REG', week: '3', gameday: '2026-09-20', gametime: '13:00', home_team: 'MIN', away_team: 'GB' }],
+    { season: 2026 }
+  );
+  assert.equal(bare.roof, null);
+  assert.equal(bare.surface, null);
+  assert.equal(bare.venue, null);
+  assert.equal(bare.restDays, null);
+  assert.equal(bare.neutralSite, null, 'unknown is not "not neutral"');
+});
+
+test('buildScheduleRows flags a neutral-site game', () => {
+  const [home] = buildScheduleRows(
+    [{ season: '2026', game_type: 'REG', week: '5', gameday: '2026-10-04', gametime: '09:30', home_team: 'JAX', away_team: 'NE', location: 'Neutral' }],
+    { season: 2026 }
+  );
+  assert.equal(home.neutralSite, true);
+});
+
+test('syncScheduleFromNflverse never overwrites a Tank01 kickoff, but does fill in game context', async (t) => {
   const csv = [
-    'game_id,season,game_type,week,gameday,weekday,gametime,away_team,away_score,home_team,home_score',
-    '2026_18_SF_ARI,2026,REG,18,2027-01-10,Sunday,13:00,SF,,ARI,',
+    'game_id,season,game_type,week,gameday,weekday,gametime,away_team,away_score,home_team,home_score,roof,surface,stadium',
+    '2026_18_SF_ARI,2026,REG,18,2027-01-10,Sunday,13:00,SF,,ARI,,closed,grass,State Farm Stadium',
   ].join('\n');
   t.mock.method(axios, 'get', async () => ({ data: csv }));
   const calls = [];
   t.mock.method(pool, 'query', async (sql, params) => {
     calls.push({ sql: String(sql), params });
     // Simulate the ARI perspective already existing from a Tank01 sync.
-    return { rowCount: params[2] === 'ARI' ? 0 : 1 };
+    const inserted = params[2] !== 'ARI';
+    return { rowCount: 1, rows: [{ inserted }] };
   });
 
   const out = await syncScheduleFromNflverse({ season: 2026 });
 
   assert.equal(calls.length, 2);
   assert.match(calls[0].sql, /INSERT INTO "nfl_games"/);
-  assert.match(calls[0].sql, /ON CONFLICT \("season", "week", "nfl_team"\) DO NOTHING/);
+  // The conflict branch touches ONLY the additive context columns.
+  assert.match(calls[0].sql, /ON CONFLICT \("season", "week", "nfl_team"\)\s*\n?\s*DO UPDATE SET/);
+  assert.equal(/DO UPDATE SET[\s\S]*"kickoff_at"/.test(calls[0].sql), false);
+  assert.equal(/DO UPDATE SET[\s\S]*"opponent" =/.test(calls[0].sql), false);
   assert.deepEqual(calls[0].params.slice(0, 4), [2026, 18, 'ARI', 'SF']);
+  assert.equal(calls[0].params[5], '2026_18_SF_ARI');
+  assert.equal(calls[0].params[9], 'closed');
   assert.deepEqual(calls[1].params.slice(0, 4), [2026, 18, 'SF', 'ARI']);
-  assert.deepEqual(out, { season: 2026, gamesInFile: 1, rowsInserted: 1 });
+  assert.deepEqual(out, { season: 2026, gamesInFile: 1, rowsInserted: 1, contextUpdated: 1 });
 });
