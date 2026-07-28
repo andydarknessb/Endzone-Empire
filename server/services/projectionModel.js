@@ -17,8 +17,9 @@ const crypto = require('crypto');
  *   already recomputed with calculateFantasyPoints(stats, rules).
  * - Nothing here is claimed to be the best possible value. Most of the
  *   constants below are conservative DEFAULTS chosen to be hard to embarrass;
- *   the three noted in place (the two shrinkage pseudo-game counts and the
- *   interval scale) were picked by running scripts/backtest-weekly-projections.js
+ *   the five noted in place (the two shrinkage pseudo-game counts, the
+ *   interval scale, the recency half-life and the current-season blend weight)
+ *   were picked by running scripts/backtest-weekly-projections.js
  *   chronologically over the stored 2024 and 2025 seasons, which makes them
  *   backtest-selected on that history and nothing stronger. They are versioned
  *   with the model so a future re-fit is a visible model-version bump rather
@@ -35,7 +36,7 @@ const crypto = require('crypto');
  * therefore requires a bump here, however small the tweak looks: production may
  * already hold rows computed under the old numbers.
  */
-const MODEL_VERSION = 'free_baseline_v2.1';
+const MODEL_VERSION = 'free_baseline_v2.2';
 
 /**
  * Model constants. DEFAULTS, not fitted optimums (see the file header).
@@ -45,10 +46,21 @@ const MODEL_VERSION = 'free_baseline_v2.1';
 const MODEL_CONSTANTS = {
   baseline: {
     // Exponential recency: a game N weeks before the target week carries
-    // weight 0.5^(N / halfLifeWeeks). Four weeks is roughly "last month
-    // counts double the month before" — deliberately mild, because weekly
-    // fantasy scoring is noisy enough that aggressive recency overfits.
-    recencyHalfLifeWeeks: 4,
+    // weight 0.5^(N / halfLifeWeeks). Eight weeks is deliberately mild, which
+    // is the direction the evidence pointed: weekly fantasy scoring is noisy
+    // enough that aggressive recency overfits, and every faster half-life in
+    // the sweep scored worse.
+    //
+    // BACKTEST-SELECTED, as a PAIR with currentSeasonMeanBlendWeight below:
+    // the two were swept crossed rather than one at a time, and 8 was chosen
+    // with 0.25, so neither number carries a separate claim and moving one
+    // without re-running the cross invalidates both. The
+    // `slow8-blend-25` configuration of scripts/backtest-weekly-projections.js
+    // beat the previous 4-week / no-blend defaults on MAE, Spearman rho,
+    // pairwise start/sit accuracy and lineup regret in BOTH stored seasons
+    // (2025 and 2024). Read that as selected on two seasons of stored results
+    // and nothing stronger, and expect a re-fit on more history to move it.
+    recencyHalfLifeWeeks: 8,
     // Shrinkage is expressed in PSEUDO-GAMES: how many real games of evidence
     // the fallback is worth. With 1.5, a player's own 1.5 games of recency
     // weight and his prior-season per-game pace count equally.
@@ -66,19 +78,22 @@ const MODEL_CONSTANTS = {
     // Below this many prior games we never trust the player's own sample
     // alone, even if a fallback is unavailable.
     lowConfidenceGames: 3,
-    // Optional blend toward the CURRENT season's UNWEIGHTED per-game mean,
-    // the incumbent "average what he has done so far this year" estimator that
-    // the backtest scores as its comparison baseline. The final baseline is
-    // (1 - b) * shrunkValue + b * currentSeasonMean.
+    // How much of the CURRENT season's UNWEIGHTED per-game mean to mix into
+    // the shrunk estimate: final = (1 - b) * shrunkValue + b * currentSeasonMean.
+    // That flat mean is the incumbent "average what he has done so far this
+    // year" estimator, so a quarter-weight is this model conceding that the
+    // dumb average carries signal its own weighting throws away.
     //
-    // 0 DISABLES it: at zero the blend is skipped entirely and every number
-    // this file produces is bit-identical to what it produced before the
-    // setting existed, which is why adding the key needs no MODEL_VERSION bump
-    // (no cached row was computed under different arithmetic). It exists so the
-    // blend-* sweeps in scripts/backtest-weekly-projections.js can measure
-    // whether any non-zero weight is worth shipping; nothing has been selected
-    // yet, so the default stays off.
-    currentSeasonMeanBlendWeight: 0,
+    // BACKTEST-SELECTED as a PAIR with recencyHalfLifeWeeks above (see that
+    // comment): 0.25 was swept crossed with the 8-week half-life, not chosen
+    // independently, and the pair is what won on the stored 2024 and 2025
+    // seasons. Interval coverage moved to 0.823 / 0.736 against a 0.80 target,
+    // the 2025 end sitting a hair above the band on the conservative side.
+    //
+    // 0 disables the blend entirely: the mean is then never computed and the
+    // value is exactly what the shrinkage chain produced, which is what every
+    // pre-2.2 cached row was scored under.
+    currentSeasonMeanBlendWeight: 0.25,
     // How many "weeks" a season boundary is worth when measuring recency.
     // 18 regular-season weeks plus an 8-week penalty for the offseason: last
     // season's Week 18 is treated as 9 weeks stale in a Week 1 projection, not

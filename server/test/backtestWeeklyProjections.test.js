@@ -35,6 +35,45 @@ test('parseArgs accepts repeated seasons, weeks, positions and configs', () => {
   assert.equal(args.out, 'out.json');
 });
 
+/**
+ * Since v2.2 shipped the swept `slow8-blend-25` pair as the defaults, several
+ * configurations that were real variations against the v2.1 reference now
+ * evaluate to the shipped constants exactly. That is a fact about the sweep
+ * having landed, not a bug, but it is asserted rather than left implicit: a
+ * config silently collapsing onto the defaults would otherwise show up in a
+ * future run as a mysteriously identical row.
+ *
+ * NOTE for whoever runs the next sweep: these configs override only the
+ * constants they name and inherit the rest from whatever is shipped, so their
+ * MEANING moved when the defaults moved. `blend-25` scored the 4-week
+ * half-life during the selection run; re-running it today scores the 8-week
+ * one. Reproducing the v2.1-era numbers means pinning the half-life explicitly.
+ */
+const COINCIDES_WITH_DEFAULTS = [
+  // Selected by the v2.2 cross, so all four are now the shipped constants.
+  'slow-recency', 'light-slow-8', 'blend-25', 'slow8-blend-25',
+  // Older, and deliberate: interval-145 has been the shipped intervalScale
+  // since v2.1. It exists as the labeled midpoint of the interval sweep.
+  'interval-145',
+];
+
+test('configurations that now equal the shipped defaults are known and listed', () => {
+  const model = require('../services/projectionModel');
+  const base = model.MODEL_CONSTANTS;
+  for (const [name, build] of Object.entries(backtest.CONFIGURATIONS)) {
+    if (name === 'default') continue;
+    const coincides = COINCIDES_WITH_DEFAULTS.includes(name);
+    const constants = build(base);
+    assert.equal(
+      JSON.stringify(constants) === JSON.stringify(base),
+      coincides,
+      coincides
+        ? `${name} is listed as coinciding with the defaults but no longer does`
+        : `${name} silently collapsed onto the shipped defaults and would score an identical row`
+    );
+  }
+});
+
 test('every named configuration is a real variation of the shipped constants', () => {
   const model = require('../services/projectionModel');
   const base = model.MODEL_CONSTANTS;
@@ -72,7 +111,11 @@ test('the half-life sweep varies the half-life and nothing else', () => {
     // confounded by a second changed constant.
     assert.equal(constants.baseline.priorSeasonPseudoGames, base.baseline.priorSeasonPseudoGames, name);
     assert.equal(constants.baseline.positionPseudoGames, base.baseline.positionPseudoGames, name);
-    assert.equal(constants.baseline.currentSeasonMeanBlendWeight, 0, `${name} must not also switch the blend on`);
+    assert.equal(
+      constants.baseline.currentSeasonMeanBlendWeight,
+      base.baseline.currentSeasonMeanBlendWeight,
+      `${name} must inherit the blend weight, not move it as well`
+    );
     assert.deepEqual(constants.simulation, base.simulation, name);
   }
   assert.equal(base.baseline.recencyHalfLifeWeeks, model.MODEL_CONSTANTS.baseline.recencyHalfLifeWeeks);
@@ -81,10 +124,9 @@ test('the half-life sweep varies the half-life and nothing else', () => {
 test('the blend sweep varies the current-season blend, crossed with the half-life', () => {
   const model = require('../services/projectionModel');
   const base = model.MODEL_CONSTANTS;
-  assert.equal(
-    base.baseline.currentSeasonMeanBlendWeight, 0,
-    'the shipped default must stay off; these are candidates, not selected values'
-  );
+  // v2.2 shipped 0.25 out of this sweep, so the sweep's own reference point is
+  // now a blended one. The configs still have to produce the weights they name.
+  assert.equal(base.baseline.currentSeasonMeanBlendWeight, 0.25);
   const expected = {
     'blend-25': [0.25, base.baseline.recencyHalfLifeWeeks],
     'blend-50': [0.50, base.baseline.recencyHalfLifeWeeks],
@@ -98,9 +140,10 @@ test('the blend sweep varies the current-season blend, crossed with the half-lif
     assert.equal(constants.baseline.recencyHalfLifeWeeks, halfLife, name);
     assert.deepEqual(constants.simulation, base.simulation, name);
   }
-  // Sweeping must not write the candidate weight back into the shipped object.
-  assert.equal(base.baseline.currentSeasonMeanBlendWeight, 0);
-  assert.equal(model.MODEL_CONSTANTS.baseline.currentSeasonMeanBlendWeight, 0);
+  // Sweeping must not write the candidate weight back into the shipped object:
+  // blend-75 ran above, so an in-place mutation would show up right here.
+  assert.equal(base.baseline.currentSeasonMeanBlendWeight, 0.25);
+  assert.equal(model.MODEL_CONSTANTS.baseline.currentSeasonMeanBlendWeight, 0.25);
 });
 
 test('every configuration name is documented in the usage block', () => {

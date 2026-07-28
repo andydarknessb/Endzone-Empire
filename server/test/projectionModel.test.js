@@ -42,9 +42,11 @@ test('baselineProduction shrinks a thin sample toward the prior season', () => {
     priorGames: [{ points: 30, weeksAgo: 1 }],
     priorSeasonPerGame: 10,
   });
-  // One 30-point game is worth ~0.84 recency-weighted games of evidence
-  // against 1.5 pseudo-games of a 10-point pace, so the prior still outweighs
-  // the hot game and the result lands on the prior's side of the midpoint.
+  // Under the shipped 8-week half-life, one 30-point game a week ago is worth
+  // ~0.92 recency-weighted games of evidence against 1.5 pseudo-games of a
+  // 10-point pace, so the prior still outweighs the hot game and the result
+  // lands on the prior's side of the midpoint. (The blend cannot fire here:
+  // the game carries no sameSeason flag, so there is no current-season mean.)
   assert.ok(oneHotGame.value < 20, `expected shrinkage toward the prior, got ${oneHotGame.value}`);
   assert.ok(oneHotGame.value > 10);
   assert.equal(oneHotGame.usedPriorSeason, true);
@@ -92,7 +94,7 @@ test('a Week 1 veteran with only prior-season games still projects', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Current-season mean blend (sweepable, shipped OFF)
+// Current-season mean blend
 // ---------------------------------------------------------------------------
 
 /**
@@ -104,9 +106,13 @@ test('a Week 1 veteran with only prior-season games still projects', () => {
  *  - a fifth game from the PRIOR season scored 0, so any implementation that
  *    lets it into the "current season" mean lands somewhere else again (14.4).
  *
- * weeksAgo values are multiples of the shipped 4-week half-life, so every
- * recency weight is an exact power of one half and the whole chain below is
- * rational arithmetic rather than a number copied out of a debugger.
+ * weeksAgo values are multiples of a 4-week half-life, so every recency weight
+ * is an exact power of one half and the whole chain below is rational
+ * arithmetic rather than a number copied out of a debugger. That half-life is
+ * PINNED in BLEND_CONSTANTS rather than read from the shipped defaults: these
+ * tests are about the blend machinery's arithmetic, and re-tuning the shipped
+ * half-life must not silently invalidate hand-derived numbers. The shipped
+ * VALUES are asserted separately, just below.
  */
 const BLEND_FIXTURE = {
   priorGames: [
@@ -130,21 +136,34 @@ const BLEND_FIXTURE_SHRUNK = 1084 / 111;          // ~9.7658
 // UNWEIGHTED mean of the four current-season games only: (6+6+30+30)/4.
 const BLEND_FIXTURE_FLAT_MEAN = 18;
 
-const withBlend = (weight) => ({
-  ...model.MODEL_CONSTANTS.baseline,
-  currentSeasonMeanBlendWeight: weight,
-});
+// The fixture arithmetic is derived under THIS half-life, not the shipped one.
+const BLEND_CONSTANTS = { ...model.MODEL_CONSTANTS.baseline, recencyHalfLifeWeeks: 4 };
+const withBlend = (weight) => ({ ...BLEND_CONSTANTS, currentSeasonMeanBlendWeight: weight });
 
-test('the shipped constants leave the current-season blend switched off', () => {
-  assert.equal(
-    model.MODEL_CONSTANTS.baseline.currentSeasonMeanBlendWeight,
-    0,
-    'a non-zero default would be an unselected constant shipping to production'
+test('the shipped constants switch the current-season blend ON at the selected pair', () => {
+  const { recencyHalfLifeWeeks, currentSeasonMeanBlendWeight } = model.MODEL_CONSTANTS.baseline;
+  // These two were swept CROSSED and selected together as `slow8-blend-25`, so
+  // they are asserted together: shipping one without the other is shipping a
+  // pair that was never measured.
+  assert.equal(recencyHalfLifeWeeks, 8, 'the selected half-life');
+  assert.equal(currentSeasonMeanBlendWeight, 0.25, 'the selected blend weight');
+  // Mutation guard: a blend weight of 0 is the neutral element, so a default
+  // that silently drifted back to it would leave every test below still
+  // passing while the shipped model quietly reverted to v2.1 behavior.
+  assert.notEqual(currentSeasonMeanBlendWeight, 0, 'a 0 default is the blend switched off, not a tuned value');
+  assert.ok(
+    currentSeasonMeanBlendWeight > 0 && currentSeasonMeanBlendWeight < 1,
+    'a weight of 1 would discard the model entirely in favor of the flat incumbent average'
   );
+  // A constants change without a version bump serves rows computed under the
+  // old numbers from cache as if they were current.
+  assert.equal(model.MODEL_VERSION, 'free_baseline_v2.2');
 });
 
 test('a zero or absent blend weight reproduces the pre-blend math exactly', () => {
-  const shipped = model.baselineProduction(BLEND_FIXTURE);
+  // Explicit legacy constants: this property is about the MACHINERY (weight 0
+  // is the identity), not about whatever the shipped weight happens to be.
+  const blendOff = model.baselineProduction({ ...BLEND_FIXTURE, constants: withBlend(0) });
 
   // The pre-blend composition, rebuilt here from the model's own (unchanged,
   // separately tested) primitives: recency-weighted mean, shrink to the prior
@@ -152,7 +171,7 @@ test('a zero or absent blend weight reproduces the pre-blend math exactly', () =
   let weightedSum = 0;
   let weightSum = 0;
   for (const game of BLEND_FIXTURE.priorGames) {
-    const w = model.recencyWeight(game.weeksAgo, model.MODEL_CONSTANTS.baseline.recencyHalfLifeWeeks);
+    const w = model.recencyWeight(game.weeksAgo, BLEND_CONSTANTS.recencyHalfLifeWeeks);
     weightedSum += w * game.points;
     weightSum += w;
   }
@@ -162,28 +181,26 @@ test('a zero or absent blend weight reproduces the pre-blend math exactly', () =
     BLEND_FIXTURE.positionBaselinePerGame,
     1
   );
-  assert.ok(Math.abs(shipped.value - legacyValue) < 1e-12, `got ${shipped.value}, legacy ${legacyValue}`);
+  assert.ok(Math.abs(blendOff.value - legacyValue) < 1e-12, `got ${blendOff.value}, legacy ${legacyValue}`);
   // Pinned, so a future refactor of those primitives cannot quietly move the
   // number and take this test with it.
   assert.ok(
-    Math.abs(shipped.value - BLEND_FIXTURE_SHRUNK) < 1e-12,
-    `expected the pinned 1084/111, got ${shipped.value}`
+    Math.abs(blendOff.value - BLEND_FIXTURE_SHRUNK) < 1e-12,
+    `expected the pinned 1084/111, got ${blendOff.value}`
   );
 
-  const explicitZero = model.baselineProduction({ ...BLEND_FIXTURE, constants: withBlend(0) });
   // A constants object from before the setting existed, key genuinely absent.
-  const { currentSeasonMeanBlendWeight, ...legacyConstants } = model.MODEL_CONSTANTS.baseline;
-  assert.equal(currentSeasonMeanBlendWeight, 0);
-  assert.equal('currentSeasonMeanBlendWeight' in legacyConstants, false);
-  const keyAbsent = model.baselineProduction({ ...BLEND_FIXTURE, constants: legacyConstants });
+  const { currentSeasonMeanBlendWeight, ...keyAbsentConstants } = BLEND_CONSTANTS;
+  assert.equal(currentSeasonMeanBlendWeight, 0.25, 'the key really was present to begin with');
+  assert.equal('currentSeasonMeanBlendWeight' in keyAbsentConstants, false);
+  const keyAbsent = model.baselineProduction({ ...BLEND_FIXTURE, constants: keyAbsentConstants });
 
-  assert.deepEqual(explicitZero, shipped, 'weight 0 must be the identity, not "almost" the identity');
-  assert.deepEqual(keyAbsent, shipped, 'a constants object with no blend key behaves as before');
+  assert.deepEqual(keyAbsent, blendOff, 'a constants object with no blend key behaves as before');
   // Non-numeric junk is treated as absent rather than coerced to a weight.
   for (const junk of [null, undefined, '', true, NaN, 'half']) {
     assert.deepEqual(
       model.baselineProduction({ ...BLEND_FIXTURE, constants: withBlend(junk) }),
-      shipped,
+      blendOff,
       `blend weight ${String(junk)} must be read as "off", never coerced`
     );
   }
@@ -204,7 +221,10 @@ test('an applied blend lands weakly between the shrunk value and the flat curren
     assert.ok(result.value > previous, `weight ${weight} did not move toward the flat mean`);
     previous = result.value;
     // The blend changes the estimate, never the evidence behind it.
-    assert.equal(result.effectiveGames, model.baselineProduction(BLEND_FIXTURE).effectiveGames);
+    assert.equal(
+      result.effectiveGames,
+      model.baselineProduction({ ...BLEND_FIXTURE, constants: withBlend(0) }).effectiveGames
+    );
     assert.equal(result.sampleSize, 5);
   }
   const full = model.baselineProduction({ ...BLEND_FIXTURE, constants: withBlend(1) });

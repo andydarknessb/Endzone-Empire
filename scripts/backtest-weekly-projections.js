@@ -58,13 +58,26 @@
  *
  * The light-* names date from when the shipped shrinkage was heavier: the
  * pseudo-game counts they once halved are now the DEFAULTS, so each of those
- * configs varies only the half-life (which makes light-slow-8 the same
- * constants as slow-recency, kept under both names so older run outputs stay
- * readable). They sweep toward less recency weighting, and blend-* sweeps the
- * separate question of mixing in the incumbent's flat current-season average;
- * the slow8-blend-* pair crosses the two so a gain from one is not mistaken for
- * a gain from the other. Every one of these is a candidate being measured, not
- * a value anybody has selected; the shipped defaults are unchanged.
+ * configs varies only the half-life. They sweep toward less recency weighting,
+ * and blend-* sweeps the separate question of mixing in the incumbent's flat
+ * current-season average; the slow8-blend-* pair crosses the two so a gain from
+ * one is not mistaken for a gain from the other.
+ *
+ * WHICH OF THESE NOW EQUAL THE DEFAULTS. That cross is what selected the
+ * `free_baseline_v2.2` defaults (half-life 8 with a 0.25 blend, better on MAE,
+ * rho, pairwise accuracy and regret in both stored seasons), so `slow8-blend-25`
+ * is now literally the shipped configuration, and `slow-recency`, `light-slow-8`
+ * and `blend-25` collapse onto it too. They are kept, not deleted: older run
+ * outputs name them, and re-running one against a future candidate is exactly
+ * how the next reference comparison gets made.
+ *
+ * A CAVEAT for the next sweep. Every config below overrides only the constants
+ * it names and inherits the rest from whatever is currently shipped, so these
+ * names describe a DELTA, not a fixed point in constant-space, and their meaning
+ * moved when the defaults moved: `blend-25` scored a 4-week half-life during the
+ * v2.2 selection run and scores an 8-week one today. Reproducing a published
+ * pre-v2.2 row means pinning the half-life in the config explicitly rather than
+ * trusting the name.
  *
  * The interval-* sweep exists to re-check p10-p90 coverage, which the
  * unscaled bootstrap under-delivered badly (near 0.6 against a 0.80 target).
