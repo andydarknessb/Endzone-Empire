@@ -84,6 +84,9 @@ test('every named configuration is a real variation of the shipped constants', (
     backtest.CONFIGURATIONS['heavy-shrink'](base).baseline.priorSeasonPseudoGames,
     base.baseline.priorSeasonPseudoGames * 2
   );
+  assert.equal(backtest.CONFIGURATIONS['usage-25'](base).usage.blendWeight, 0.25);
+  assert.equal(backtest.CONFIGURATIONS['usage-40'](base).usage.blendWeight, 0.40);
+  assert.equal(backtest.CONFIGURATIONS['usage-60'](base).usage.blendWeight, 0.60);
   assert.equal(backtest.CONFIGURATIONS['interval-130'](base).simulation.intervalScale, 1.30);
   assert.equal(backtest.CONFIGURATIONS['interval-145'](base).simulation.intervalScale, 1.45);
   assert.equal(backtest.CONFIGURATIONS['interval-160'](base).simulation.intervalScale, 1.60);
@@ -96,6 +99,53 @@ test('every named configuration is a real variation of the shipped constants', (
   // A sweep must never mutate the shipped constants out from under the app.
   assert.equal(base.baseline.recencyHalfLifeWeeks, model.MODEL_CONSTANTS.baseline.recencyHalfLifeWeeks);
   assert.equal(base.simulation.intervalScale, model.MODEL_CONSTANTS.simulation.intervalScale);
+  assert.equal(base.usage.blendWeight, model.MODEL_CONSTANTS.usage.blendWeight);
+});
+
+/**
+ * Unlike every other sweep here, this one is not re-checking a decision that
+ * already landed: the opportunity component ships at weight 0, so `default`
+ * scores it at no weight at all and these three configs are the ONLY way it
+ * gets measured. That makes two things load-bearing — that each config really
+ * produces the weight it names, and that the shipped default stays 0 until a
+ * run says otherwise.
+ */
+test('the usage sweep varies only the opportunity blend weight', () => {
+  const model = require('../services/projectionModel');
+  const base = model.MODEL_CONSTANTS;
+  assert.equal(base.usage.blendWeight, 0, 'the shipped component is off, so `default` is the w=0 arm');
+  const expected = { 'usage-25': 0.25, 'usage-40': 0.40, 'usage-60': 0.60 };
+  for (const [name, weight] of Object.entries(expected)) {
+    const constants = backtest.CONFIGURATIONS[name](base);
+    assert.equal(constants.usage.blendWeight, weight, name);
+    // The gate and the shrinkage move with neither the weight nor each other:
+    // a blend-weight comparison confounded by a different minimum usage-game
+    // count would not be measuring the blend at all.
+    assert.equal(constants.usage.minUsageGames, base.usage.minUsageGames, name);
+    assert.equal(
+      constants.usage.efficiencyPseudoOpportunities,
+      base.usage.efficiencyPseudoOpportunities,
+      name
+    );
+    assert.deepEqual(constants.baseline, base.baseline, name);
+    assert.deepEqual(constants.simulation, base.simulation, name);
+  }
+  // usage-60 ran above, so an in-place mutation would show up right here.
+  assert.equal(base.usage.blendWeight, 0);
+  assert.equal(model.MODEL_CONSTANTS.usage.blendWeight, 0);
+});
+
+test('the older sweeps inherit the usage block untouched', () => {
+  const model = require('../services/projectionModel');
+  const base = model.MODEL_CONSTANTS;
+  for (const [name, build] of Object.entries(backtest.CONFIGURATIONS)) {
+    if (name.startsWith('usage-') || name === 'default') continue;
+    assert.deepEqual(
+      build(base).usage,
+      base.usage,
+      `${name} must not switch the opportunity component on as a side effect`
+    );
+  }
 });
 
 test('the half-life sweep varies the half-life and nothing else', () => {

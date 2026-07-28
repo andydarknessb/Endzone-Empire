@@ -337,6 +337,10 @@ function projectFromBundle({
     priorGames,
     priorSeasonPerGame: priorSeasonPerGame(bundle.seasonRowsByPlayer.get(playerId), rules, season),
     positionBaselinePerGame: context ? context.baselinePerGame : null,
+    // Shrinkage target for the usage component's points-per-opportunity. Null
+    // whenever the scan found no rows with computable opportunities, which is
+    // every pre-enrichment database and every K/DEF/IDP group.
+    positionEfficiencyPerOpportunity: context ? context.efficiencyPerOpportunity : null,
     playerResiduals: playerResidualsFrom(priorGames),
     pooledResiduals: context ? context.residuals : [],
     opponent,

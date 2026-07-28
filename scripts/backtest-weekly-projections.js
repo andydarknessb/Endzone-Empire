@@ -55,6 +55,20 @@
  *   blend-75      75% weight on the current-season unweighted mean
  *   slow8-blend-25  half-life 8 plus a 25% current-season-mean blend
  *   slow8-blend-50  half-life 8 plus a 50% current-season-mean blend
+ *   usage-25      25% weight on the opportunity-weighted baseline
+ *   usage-40      40% weight on the opportunity-weighted baseline
+ *   usage-60      60% weight on the opportunity-weighted baseline
+ *
+ * The usage-* sweep is the one thing here that is not yet a re-check of a
+ * decision already taken: the opportunity component ships DISABLED
+ * (MODEL_CONSTANTS.usage.blendWeight is 0, so `default` scores it at no weight
+ * at all), and these three configs are how it gets its first chronological
+ * comparison. They price expected opportunities (pass attempts for QBs,
+ * carries + targets for RB/WR/TE) instead of projecting points directly, so
+ * they only move players whose stored stat lines carry the usage keys; K, DEF
+ * and IDP are structurally unaffected and should score identically to
+ * `default` in any run. A row where they do NOT means something is fabricating
+ * an opportunity count.
  *
  * The light-* names date from when the shipped shrinkage was heavier: the
  * pseudo-game counts they once halved are now the DEFAULTS, so each of those
@@ -133,6 +147,12 @@ const CONFIGURATIONS = {
     recencyHalfLifeWeeks: 8,
     currentSeasonMeanBlendWeight: 0.50,
   }),
+  // Opportunity-weighted baseline sweep. The shipped weight is 0, so unlike
+  // every sweep above this one is not re-checking a landed decision: it is the
+  // evidence that would justify switching the component on at all.
+  'usage-25': (MODEL) => withUsage(MODEL, { blendWeight: 0.25 }),
+  'usage-40': (MODEL) => withUsage(MODEL, { blendWeight: 0.40 }),
+  'usage-60': (MODEL) => withUsage(MODEL, { blendWeight: 0.60 }),
 };
 
 function withBaseline(constants, overrides) {
@@ -141,6 +161,10 @@ function withBaseline(constants, overrides) {
 
 function withSimulation(constants, overrides) {
   return { ...constants, simulation: { ...constants.simulation, ...overrides } };
+}
+
+function withUsage(constants, overrides) {
+  return { ...constants, usage: { ...constants.usage, ...overrides } };
 }
 
 function parseArgs(argv) {

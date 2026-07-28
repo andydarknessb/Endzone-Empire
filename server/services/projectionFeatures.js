@@ -86,6 +86,26 @@ function hasRoleSignal(stats) {
   return ROLE_KEYS.some((key) => stats[key] != null);
 }
 
+/**
+ * Pure: the opportunity counts a stored stat line carries, in the shape
+ * projectionModel.opportunitiesForGame reads.
+ *
+ * Null-preserving in the strict sense: an absent key, a null, or anything
+ * non-numeric becomes `null`, never 0. A genuine stored 0 (he dressed and
+ * touched the ball zero times) stays 0, because that one IS a measurement.
+ * Rows written before the usage enrichment landed simply produce three nulls,
+ * which is what lets the whole component degrade to "contributes nothing"
+ * instead of "his role collapsed".
+ */
+function usageFromStats(stats) {
+  const read = (key) => (stats && isNum(stats[key]) ? Number(stats[key]) : null);
+  return {
+    passAttempts: read('usagePassAttempts'),
+    carries: read('usageCarries'),
+    targets: read('usageTargets'),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Pure builders (no DB) — the DB layer below just hands them rows.
 // ---------------------------------------------------------------------------
@@ -117,6 +137,10 @@ function buildPriorGames({ statRows, rules, season, week, opponentByTeamWeek, pl
       opponent: sameSeason && schedule ? schedule.opponent : null,
       isHome: sameSeason && schedule ? schedule.isHome : null,
       hasRole: hasRoleSignal(row.stats),
+      // Opportunity counts for the model's usage component. Read from the same
+      // `stats` jsonb the history SELECT already returns, so this costs no
+      // extra query and no extra column.
+      usage: usageFromStats(row.stats),
     });
   }
   games.sort((a, b) => a.weeksAgo - b.weeksAgo);
@@ -133,7 +157,15 @@ function buildPriorGames({ statRows, rules, season, week, opponentByTeamWeek, pl
  *  - `leagueAllowedPerGame`: the league-average allowance to compare against,
  *  - `homeAway`: the empirical home/away split,
  *  - `residuals`: pooled per-game deviations from each player's own mean,
- *    which is what gives a thin-sample player a usable interval.
+ *    which is what gives a thin-sample player a usable interval,
+ *  - `efficiencyPerOpportunity`: league-scored points per opportunity, the
+ *    shrinkage target for the model's usage component.
+ *
+ * That last one is accumulated over the SAME scanned rows as everything else
+ * (one pass, one cap) and only over rows whose opportunity count is actually
+ * computable, so a group with no enrichment — or one that has no opportunity
+ * denominator at all, like K or DEF — reports `null` rather than a ratio
+ * assembled out of the rows that happened to have data.
  */
 function buildLeagueContext({ rows, rules, defenseGamesByTeam }) {
   const byGroup = new Map();
@@ -150,6 +182,9 @@ function buildLeagueContext({ rows, rules, defenseGamesByTeam }) {
         awayPoints: 0,
         awayGames: 0,
         residuals: [],
+        opportunityPoints: 0,
+        opportunities: 0,
+        opportunityGames: 0,
       });
     }
     return byGroup.get(group);
@@ -171,6 +206,16 @@ function buildLeagueContext({ rows, rules, defenseGamesByTeam }) {
     } else if (row.home_away === 'away') {
       bucket.awayPoints += points;
       bucket.awayGames += 1;
+    }
+    // Only rows whose opportunity count is knowable feed the efficiency rate,
+    // and both sides of the ratio come from the SAME rows: mixing a group's
+    // full point total with the opportunities of the subset that carried usage
+    // keys would inflate the rate by exactly the coverage gap.
+    const opportunities = model.opportunitiesForGame(usageFromStats(row.stats), group);
+    if (opportunities !== null) {
+      bucket.opportunityPoints += points;
+      bucket.opportunities += opportunities;
+      bucket.opportunityGames += 1;
     }
     if (!playerTotals.has(row.player_id)) playerTotals.set(row.player_id, { group, points: [] });
     playerTotals.get(row.player_id).points.push(points);
@@ -209,6 +254,10 @@ function buildLeagueContext({ rows, rules, defenseGamesByTeam }) {
         awayGames: bucket.awayGames,
       },
       residuals: bucket.residuals,
+      efficiencyPerOpportunity: bucket.opportunities > 0
+        ? bucket.opportunityPoints / bucket.opportunities
+        : null,
+      opportunityGames: bucket.opportunityGames,
     });
   }
   return context;
@@ -427,6 +476,7 @@ module.exports = {
   MAX_LEAGUE_SCAN_ROWS,
   ROLE_KEYS,
   hasRoleSignal,
+  usageFromStats,
   weeksAgo,
   assertNoFutureRows,
   buildPriorGames,

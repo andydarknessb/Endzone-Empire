@@ -35,6 +35,12 @@ const crypto = require('crypto');
  * that row being served as if it were current. ANY change to MODEL_CONSTANTS
  * therefore requires a bump here, however small the tweak looks: production may
  * already hold rows computed under the old numbers.
+ *
+ * The single admissible exception, and the reason it is admissible: a constant
+ * whose SHIPPED value provably cannot reach the output. `usage.blendWeight` is
+ * 0, which short-circuits the opportunity component before it is computed, so
+ * every cached v2.2 row is still exactly what this code produces today. Turning
+ * that weight on is what needs the bump.
  */
 const MODEL_VERSION = 'free_baseline_v2.2';
 
@@ -100,6 +106,33 @@ const MODEL_CONSTANTS = {
     // 1. Without this a veteran's whole prior season would pile up into a
     // high-confidence Week 1 number that a roster change could invalidate.
     seasonWeekSpan: 26,
+  },
+  // Opportunity-weighted baseline. Volume (pass attempts, carries, targets) is
+  // markedly stickier week to week than the efficiency applied to it, so this
+  // component projects OPPORTUNITIES and prices them, instead of projecting
+  // points directly the way `baseline` does.
+  usage: {
+    // 0 DISABLES the component outright: `opportunityBaseline` is never even
+    // called, no usage fields appear in the explanation, and every number this
+    // engine produces is bit-identical to what it produced before the block
+    // existed. That is deliberate. The block ships inert so the merge cannot
+    // move a single projection, and so no cached `free_baseline_v2.2` row is
+    // stale under it — which is why adding this group did NOT require the
+    // MODEL_VERSION bump the file header demands of a constants change. Turning
+    // it on is a separate decision that a chronological sweep
+    // (scripts/backtest-weekly-projections.js, configs `usage-25` / `usage-40`
+    // / `usage-60`) has to justify first, and THAT change would need the bump.
+    blendWeight: 0,
+    // STARTING DEFAULTS, not fitted values, and not backtest-selected: nothing
+    // has swept them yet. Below this many usage-bearing games the opportunity
+    // estimate is too thin to price at all.
+    minUsageGames: 3,
+    // Shrinkage for points-per-opportunity, denominated in OPPORTUNITIES (not
+    // games): the position-wide rate is worth 25 opportunities of evidence,
+    // roughly one starter's week of touches, so a player with 100 weighted
+    // opportunities behind him is mostly trusted on his own rate and a player
+    // with 10 is mostly priced at the league's.
+    efficiencyPseudoOpportunities: 25,
   },
   opponent: {
     // Fewest games a defense must have played before its positional
@@ -371,6 +404,108 @@ function baselineProduction({
     sampleSize: games.length,
     usedPriorSeason: isNum(priorSeasonPerGame),
     usedPositionBaseline: isNum(positionBaselinePerGame),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Opportunity-weighted baseline (OFF by default: see MODEL_CONSTANTS.usage)
+// ---------------------------------------------------------------------------
+
+/** Position groups whose opportunity count is carries + targets. */
+const TOUCH_GROUPS = new Set(['RB', 'WR', 'TE']);
+
+/**
+ * Pure: how many scoring opportunities one game represents, or null when that
+ * is not knowable.
+ *
+ * QB is pass attempts. RB/WR/TE are carries PLUS targets, and only when BOTH
+ * are present: a receiving back whose carries did not come through in the feed
+ * would otherwise be priced as a pure receiver, which is not a thinner
+ * measurement but a wrong one. Every other group (K, DEF, the IDP groups) is
+ * null by construction — no opportunity denominator this app stores means
+ * anything for them, and inventing one would be the fabricated zero this whole
+ * file exists to avoid.
+ *
+ * A null here is not a penalty. It removes the game from the opportunity
+ * component entirely; the points-only baseline still sees it.
+ */
+function opportunitiesForGame(usage, group) {
+  if (!usage || typeof usage !== 'object') return null;
+  const normalized = positionGroup(group);
+  if (!normalized) return null;
+  if (normalized === 'QB') {
+    return isNum(usage.passAttempts) ? Number(usage.passAttempts) : null;
+  }
+  if (!TOUCH_GROUPS.has(normalized)) return null;
+  // Both, or neither. A missing half is missing data, never a zero.
+  if (!isNum(usage.carries) || !isNum(usage.targets)) return null;
+  return Number(usage.carries) + Number(usage.targets);
+}
+
+/**
+ * Pure: a per-game baseline built as EXPECTED OPPORTUNITIES x POINTS PER
+ * OPPORTUNITY, both estimated from the player's own usage-bearing prior games.
+ *
+ * The two halves are deliberately estimated differently:
+ *
+ * - Opportunities are a recency-weighted MEAN per game, on the same half-life
+ *   the points baseline uses (a separate usage half-life would be a second
+ *   tuned number nobody has swept).
+ * - Efficiency is a recency-weighted RATIO OF SUMS (sum w*points over
+ *   sum w*opportunities), not a mean of per-game ratios, so a 3-touch week
+ *   cannot swing the rate the way a 25-touch week does. It is then shrunk
+ *   toward `efficiencyPrior` (the position group's league-wide rate) with the
+ *   evidence measured in OPPORTUNITIES rather than games, which is the unit the
+ *   rate is actually per: `efficiencyPseudoOpportunities` is how many
+ *   opportunities of league-average scoring the prior is worth.
+ *
+ * `value` is null — not 0 — whenever there are too few usage-bearing games or
+ * no positive expected opportunity count, which is what keeps a player with no
+ * enrichment (or a K, or a DEF) contributing nothing here instead of a zero.
+ */
+function opportunityBaseline({
+  priorGames = [],
+  group = null,
+  efficiencyPrior = null,
+  constants = MODEL_CONSTANTS,
+} = {}) {
+  const baselineConstants = (constants && constants.baseline) || MODEL_CONSTANTS.baseline;
+  const usageConstants = { ...MODEL_CONSTANTS.usage, ...((constants && constants.usage) || {}) };
+
+  let weightSum = 0;
+  let weightedOpportunities = 0;
+  let weightedPoints = 0;
+  let usageGames = 0;
+  for (const game of priorGames || []) {
+    if (!game || !isNum(game.points)) continue;
+    const opportunities = opportunitiesForGame(game.usage, group);
+    if (opportunities === null) continue;
+    const w = recencyWeight(game.weeksAgo, baselineConstants.recencyHalfLifeWeeks);
+    weightSum += w;
+    weightedOpportunities += w * opportunities;
+    weightedPoints += w * Number(game.points);
+    usageGames += 1;
+  }
+
+  const expectedOpportunities = weightSum > 0 ? weightedOpportunities / weightSum : null;
+  // Undefined rather than zero when nobody touched the ball: dividing points by
+  // no opportunities is not a 0.0 points-per-touch measurement.
+  const observedEfficiency = weightedOpportunities > 0 ? weightedPoints / weightedOpportunities : null;
+  const efficiency = shrinkToward(
+    observedEfficiency,
+    weightedOpportunities,
+    isNum(efficiencyPrior) ? Number(efficiencyPrior) : null,
+    usageConstants.efficiencyPseudoOpportunities
+  );
+
+  const enoughGames = usageGames >= Number(usageConstants.minUsageGames);
+  const usable = enoughGames && isNum(expectedOpportunities) && Number(expectedOpportunities) > 0
+    && isNum(efficiency);
+  return {
+    value: usable ? Number(expectedOpportunities) * Number(efficiency) : null,
+    usageGames,
+    expectedOpportunities: isNum(expectedOpportunities) ? Number(expectedOpportunities) : null,
+    efficiency: isNum(efficiency) ? Number(efficiency) : null,
   };
 }
 
@@ -735,6 +870,11 @@ function projectPlayer({
   priorGames = [],
   priorSeasonPerGame = null,
   positionBaselinePerGame = null,
+  // League-wide points per opportunity for this player's position group, the
+  // shrinkage target for his own efficiency. Null (a pre-enrichment database,
+  // or a group with no opportunity denominator) simply leaves his own observed
+  // rate unshrunk.
+  positionEfficiencyPerOpportunity = null,
   playerResiduals = [],
   pooledResiduals = [],
   opponent = null,
@@ -788,16 +928,56 @@ function projectPlayer({
     };
   }
 
-  let running = baseline.value;
+  // Opportunity-weighted component. Consulted ONLY when a positive blend weight
+  // asks for it, so at the shipped weight of 0 nothing here runs, nothing here
+  // is reported, and the object below is exactly the one v2.2 always built.
+  const usageBlendWeight = isNum(constants.usage && constants.usage.blendWeight)
+    ? Number(constants.usage.blendWeight)
+    : 0;
+  const usageComponent = usageBlendWeight > 0
+    ? opportunityBaseline({
+      priorGames,
+      group: positionGroup(position),
+      efficiencyPrior: positionEfficiencyPerOpportunity,
+      constants,
+    })
+    : null;
+  // The blend applies only when the component produced a real number. A player
+  // with no usage enrichment, or a K, keeps the points-only baseline untouched
+  // rather than being blended against a fabricated stand-in.
+  const usageApplied = !!(usageComponent && isNum(usageComponent.value));
+  const blendedBaseline = usageApplied
+    ? (1 - usageBlendWeight) * Number(baseline.value) + usageBlendWeight * Number(usageComponent.value)
+    : Number(baseline.value);
+
+  let running = blendedBaseline;
   factors.recentProduction = {
     available: true,
-    perGame: round2(baseline.value),
+    perGame: round2(blendedBaseline),
     games: baseline.sampleSize,
     effectiveGames: baseline.effectiveGames,
     usedPriorSeason: baseline.usedPriorSeason,
     usedPositionBaseline: baseline.usedPositionBaseline,
-    pointsContribution: round2(baseline.value),
+    pointsContribution: round2(blendedBaseline),
   };
+  if (usageComponent) {
+    // Reported so the explanation still adds up and nothing is implied that was
+    // not measured: `opportunityValue` null means the component was asked and
+    // had nothing to say, and `usageBlendWeight` is the weight ACTUALLY applied
+    // (0 in that case), not the one configured.
+    Object.assign(factors.recentProduction, {
+      pointsBaselinePerGame: round2(baseline.value),
+      opportunityValue: usageApplied ? round2(usageComponent.value) : null,
+      expectedOpportunities: usageComponent.expectedOpportunities == null
+        ? null
+        : round2(usageComponent.expectedOpportunities),
+      opportunityEfficiency: usageComponent.efficiency == null
+        ? null
+        : Math.round(Number(usageComponent.efficiency) * 10000) / 10000,
+      usageGames: usageComponent.usageGames,
+      usageBlendWeight: usageApplied ? usageBlendWeight : 0,
+    });
+  }
 
   const applyFactor = (key, factor) => {
     if (!factor || !factor.available) {
@@ -880,6 +1060,8 @@ module.exports = {
   recencyWeight,
   shrinkToward,
   baselineProduction,
+  opportunitiesForGame,
+  opportunityBaseline,
   opponentEffect,
   versusOpponentEffect,
   homeAwayEffect,

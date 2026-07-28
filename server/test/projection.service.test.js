@@ -2,8 +2,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const pool = require('../modules/pool');
 const projection = require('../services/projection.service');
+const features = require('../services/projectionFeatures');
 const model = require('../services/projectionModel');
-const { SCORING_PRESETS } = require('../services/scoring.service');
+const { SCORING_PRESETS, SCORING_RULES } = require('../services/scoring.service');
 
 /**
  * These tests drive the real engine against a mocked `pool`, so the SQL the
@@ -298,6 +299,183 @@ test('home/away stays neutral while the schedule carries no orientation', async 
   const homeAway = result.projections.get(1).factors.homeAway;
   assert.equal(homeAway.available, false);
   assert.equal(homeAway.pointsContribution, null, 'unknown must not render as an evaluated zero');
+});
+
+// ---------------------------------------------------------------------------
+// Usage / opportunity features
+// ---------------------------------------------------------------------------
+
+test('buildPriorGames carries usage counts through, preserving null as null and 0 as 0', () => {
+  const games = features.buildPriorGames({
+    statRows: [
+      // Enriched: an explicit 0 is a real measurement and must survive.
+      { season: SEASON, week: 1, stats: { rushingYards: 50, usageCarries: 0, usageTargets: 4, usagePassAttempts: null } },
+      // Pre-enrichment: the keys simply are not there.
+      { season: SEASON, week: 2, stats: { rushingYards: 40 } },
+      // Junk that a naive Number() would turn into a confident zero.
+      { season: SEASON, week: 3, stats: { rushingYards: 60, usageCarries: '', usageTargets: false, usagePassAttempts: 'x' } },
+      // A QB line: attempts present, no touch counts at all.
+      { season: SEASON, week: 4, stats: { passingYards: 250, usagePassAttempts: 31 } },
+    ],
+    rules: SCORING_RULES,
+    season: SEASON,
+    week: 5,
+    opponentByTeamWeek: new Map(),
+    playerTeam: 'BUF',
+  });
+  // Newest first: week 4 is one week ago, week 1 is four.
+  const byWeek = new Map(games.map((g) => [g.week, g]));
+  assert.deepEqual(byWeek.get(1).usage, { passAttempts: null, carries: 0, targets: 4 });
+  assert.deepEqual(byWeek.get(2).usage, { passAttempts: null, carries: null, targets: null });
+  assert.deepEqual(byWeek.get(3).usage, { passAttempts: null, carries: null, targets: null },
+    'empty string, false and non-numeric text are missing, never zero');
+  assert.deepEqual(byWeek.get(4).usage, { passAttempts: 31, carries: null, targets: null });
+  // The 0 really is distinguishable from the absence, which is the whole point.
+  assert.notEqual(byWeek.get(1).usage.carries, byWeek.get(2).usage.carries);
+  assert.equal(model.opportunitiesForGame(byWeek.get(1).usage, 'RB'), 4);
+  assert.equal(model.opportunitiesForGame(byWeek.get(2).usage, 'RB'), null);
+});
+
+test('buildLeagueContext derives points per opportunity from the rows that have both halves', () => {
+  const context = features.buildLeagueContext({
+    rows: [
+      // 100 rushing yards = 10 points on 15 + 5 = 20 opportunities.
+      { player_id: 1, week: 1, position: 'RB', stats: { rushingYards: 100, usageCarries: 15, usageTargets: 5 }, defense: 'NYJ', home_away: 'home' },
+      // 200 rushing yards = 20 points on 20 + 0 = 20 opportunities.
+      { player_id: 2, week: 1, position: 'RB', stats: { rushingYards: 200, usageCarries: 20, usageTargets: 0 }, defense: 'MIA', home_away: 'away' },
+      // Half-known: excluded from BOTH sides of the ratio, so its 50 points
+      // cannot inflate the rate against the other rows' opportunities.
+      { player_id: 3, week: 1, position: 'RB', stats: { rushingYards: 500, usageTargets: 6 }, defense: 'BUF', home_away: 'home' },
+    ],
+    rules: SCORING_RULES,
+    defenseGamesByTeam: new Map(),
+  });
+  const rb = context.get('RB');
+  assert.equal(rb.opportunityGames, 2);
+  assert.equal(rb.efficiencyPerOpportunity, 30 / 40, '(10 + 20) points over (20 + 20) opportunities');
+  // The points-per-GAME baseline still sees all three rows: the opportunity
+  // gate narrows the efficiency rate, not the rest of the context.
+  assert.equal(rb.playerGames, 3);
+});
+
+test('buildLeagueContext reports no efficiency at all when no row qualifies', () => {
+  const context = features.buildLeagueContext({
+    rows: [
+      // A pre-enrichment database: real rows, no usage keys anywhere.
+      { player_id: 1, week: 1, position: 'WR', stats: { receivingYards: 90, receptions: 6 }, defense: 'NYJ', home_away: 'home' },
+      // Groups with no opportunity denominator, stray keys and all.
+      { player_id: 2, week: 1, position: 'K', stats: { extraPoint: 3, fieldGoalDistances: [42], usageCarries: 4, usageTargets: 4 }, defense: 'MIA', home_away: 'away' },
+      { player_id: 3, week: 1, position: 'DEF', stats: { sack: 4, usageCarries: 2, usageTargets: 2 }, defense: 'BUF', home_away: 'home' },
+    ],
+    rules: SCORING_RULES,
+    defenseGamesByTeam: new Map(),
+  });
+  for (const group of ['WR', 'K', 'DEF']) {
+    assert.equal(context.get(group).efficiencyPerOpportunity, null, `${group} must report no rate, not 0`);
+    assert.equal(context.get(group).opportunityGames, 0);
+    assert.ok(context.get(group).baselinePerGame > 0, `${group} still has a points baseline`);
+  }
+});
+
+test('the shipped engine ignores usage keys entirely while the blend weight is 0', async (t) => {
+  const enriched = (week) => weeklyRow(1, week, {
+    rushingYards: 60, rushingTDs: 0, usageCarries: 14, usageTargets: 3,
+  });
+  const setup = (withUsage) => ({
+    players: [player(1, 'RB')],
+    weeklyStats: [1, 2, 3, 4].map((week) => (withUsage
+      ? enriched(week)
+      : weeklyRow(1, week, { rushingYards: 60, rushingTDs: 0 }))),
+  });
+
+  mockPool(t, setup(true));
+  const withUsage = await run({ season: SEASON, week: 5, league: league(), playerIds: [1] });
+  t.mock.restoreAll();
+  mockPool(t, setup(false));
+  const withoutUsage = await run({ season: SEASON, week: 5, league: league(), playerIds: [1] });
+
+  const enrichedProjection = withUsage.projections.get(1);
+  const bareProjection = withoutUsage.projections.get(1);
+  assert.equal(model.MODEL_CONSTANTS.usage.blendWeight, 0, 'the component ships disabled');
+  for (const field of ['mean', 'median', 'p10', 'p25', 'p75', 'p90', 'sampleSize', 'effectiveGames']) {
+    assert.equal(
+      enrichedProjection[field], bareProjection[field],
+      `enrichment moved ${field} while the blend weight is 0`
+    );
+  }
+  assert.deepEqual(
+    enrichedProjection.factors.recentProduction,
+    bareProjection.factors.recentProduction,
+    'a disabled component must leave no trace in the cached explanation'
+  );
+  // What enrichment DOES change, and has changed since before this component
+  // existed: usage keys are role signal (projectionFeatures.ROLE_KEYS), so the
+  // "no role data" confidence reason drops off. That is v2.2 behavior arriving
+  // with the data, not the opportunity blend firing.
+  assert.equal(enrichedProjection.factors.role.available, true);
+  assert.equal(bareProjection.factors.role, null);
+  assert.equal(enrichedProjection.confidence, bareProjection.confidence);
+});
+
+/**
+ * The wiring proof for the backtest sweep: `modelConstants` alone must be
+ * enough to turn the component on, and the league-context efficiency prior must
+ * genuinely reach it. If the prior were dropped somewhere between
+ * buildLeagueContext and projectPlayer the component would still produce a
+ * number, just an unshrunk one, and no other test here would notice.
+ */
+test('a modelConstants override switches the opportunity component on, prior and all', async (t) => {
+  const weeklyStats = [1, 2, 3, 4, 5].map((week) =>
+    weeklyRow(1, week, { rushingYards: 60, rushingTDs: 0, usageCarries: 14, usageTargets: 3 }));
+  // Two league backdrops that differ ONLY in how efficient everyone else is:
+  // 10 points per 20 touches against 10 points per 5 touches.
+  const scan = (touches) => Array.from({ length: 5 }, (_, i) => ({
+    player_id: 2, week: i + 1, position: 'RB',
+    stats: { rushingYards: 100, usageCarries: touches, usageTargets: 0 },
+    defense: 'MIA', home_away: 'away',
+  }));
+  const setup = (touches) => ({
+    players: [player(1, 'RB')],
+    weeklyStats,
+    leagueScan: scan(touches),
+    defenseGames: [{ team: 'MIA', games: 5 }],
+  });
+  const withUsage = (weight) => ({
+    ...model.MODEL_CONSTANTS,
+    usage: { ...model.MODEL_CONSTANTS.usage, blendWeight: weight },
+  });
+  const generate = (modelConstants) => projection.generateProjections({
+    season: SEASON, week: 6, rules: SCORING_RULES, playerIds: [1],
+    hashValue: 'h', weatherService: false, modelConstants,
+  });
+
+  mockPool(t, setup(20));
+  const offInefficientLeague = await generate(model.MODEL_CONSTANTS);
+  const onInefficientLeague = await generate(withUsage(0.6));
+  t.mock.restoreAll();
+  mockPool(t, setup(5));
+  const offEfficientLeague = await generate(model.MODEL_CONSTANTS);
+  const onEfficientLeague = await generate(withUsage(0.6));
+
+  const meanOf = (result) => result.projections.get(1).mean;
+  const recent = (result) => result.projections.get(1).factors.recentProduction;
+
+  // Off: the league's efficiency is irrelevant, because nothing consults it.
+  assert.equal(meanOf(offInefficientLeague), meanOf(offEfficientLeague));
+  assert.equal('opportunityValue' in recent(offEfficientLeague), false);
+
+  // On: the component fires, and the prior it shrinks toward is the one the
+  // scan produced, so a more efficient league moves the projection up.
+  assert.equal(recent(onEfficientLeague).usageBlendWeight, 0.6);
+  assert.equal(recent(onEfficientLeague).usageGames, 5, 'all five enriched weeks carry opportunities');
+  assert.equal(recent(onEfficientLeague).expectedOpportunities, 17, '14 carries plus 3 targets, every week');
+  assert.notEqual(meanOf(onEfficientLeague), meanOf(offEfficientLeague), 'the blend must move the number');
+  assert.ok(
+    recent(onEfficientLeague).opportunityEfficiency > recent(onInefficientLeague).opportunityEfficiency,
+    'the league efficiency prior is not reaching opportunityBaseline: ' +
+    `${recent(onEfficientLeague).opportunityEfficiency} vs ${recent(onInefficientLeague).opportunityEfficiency}`
+  );
+  assert.ok(meanOf(onEfficientLeague) > meanOf(onInefficientLeague));
 });
 
 // ---------------------------------------------------------------------------
