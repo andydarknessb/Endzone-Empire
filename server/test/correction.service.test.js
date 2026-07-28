@@ -206,3 +206,136 @@ test('resyncPriorWeeks skips the Tank01 source without credentials', async () =>
     if (prevKey !== undefined) process.env.RAPID_API_KEY = prevKey;
   }
 });
+
+// ---- corrections invalidate BOTH projection caches ---------------------------
+
+/**
+ * A stat correction rewrites the history the following week's projections were
+ * computed from. Two caches hold those numbers and they need opposite
+ * treatment: the legacy pool-wide `player_projections` cache is refreshed, and
+ * the versioned `projection_runs` cache (per scoring profile, per player) is
+ * invalidated and rebuilt lazily. Before this, only the first happened, so the
+ * start/sit engine kept serving pre-correction numbers indefinitely.
+ */
+const projectionSvc = require('../services/projection.service');
+
+/**
+ * Stubs the pool and records the per-league matchup reads.
+ *
+ * `correctLeagueWeek` is called through a module-local binding, so it cannot be
+ * mocked from outside; it is left to run for real and short-circuits on the
+ * empty `matchups` read. That read is therefore the honest observation point
+ * for "the per-league loop was still entered".
+ */
+function stubLeagues(t, leagues) {
+  const correctedLeagueIds = [];
+  t.mock.method(poolModule, 'query', async (sql, params) => {
+    const text = String(sql);
+    if (text.includes('FROM "leagues"')) return { rows: leagues };
+    if (text.includes('FROM "matchups"')) correctedLeagueIds.push(params[0]);
+    return { rows: [] };
+  });
+  return correctedLeagueIds;
+}
+
+/** Mocks the two cache-maintenance calls and records their arguments. */
+function stubCaches(t, { onLegacy, onInvalidate } = {}) {
+  const legacy = [];
+  const invalidated = [];
+  t.mock.method(nflverse, 'correctWeekFromNflverse', async () => ({ playersUpdated: 1 }));
+  t.mock.method(projectionSvc, 'getWeekProjections', async (args) => {
+    legacy.push(args);
+    if (onLegacy) return onLegacy(args);
+    return new Map();
+  });
+  t.mock.method(projectionSvc, 'invalidateWeeklyProjectionRuns', async (args) => {
+    invalidated.push(args);
+    if (onInvalidate) return onInvalidate(args);
+    return { deletedRuns: 2 };
+  });
+  return { legacy, invalidated };
+}
+
+test('a corrected week refreshes the legacy cache AND invalidates the versioned one', async (t) => {
+  stubLeagues(t, [{ id: 42, current_season: 2026, current_week: 4 }]);
+  const seen = stubCaches(t);
+
+  await correctionSvc.resyncPriorWeeks();
+
+  assert.equal(seen.legacy.length, 1, 'the legacy refresh must not be dropped');
+  assert.equal(seen.legacy[0].season, 2026);
+  assert.equal(seen.legacy[0].week, 4, 'the week AFTER the corrected week 3');
+  assert.equal(seen.legacy[0].refresh, true);
+
+  assert.equal(seen.invalidated.length, 1, 'the versioned cache must be invalidated too');
+  assert.deepEqual(seen.invalidated[0], { season: 2026, week: 4 });
+  // The corrected week itself is history now; what went stale is the week whose
+  // projections were computed FROM it.
+  assert.notEqual(seen.invalidated[0].week, 3, 'invalidating week 3 would clear the wrong cache');
+});
+
+test('invalidation runs once per corrected season/week, not once per league', async (t) => {
+  // Three leagues share week 3; a fourth is a week ahead, so it corrects week 4.
+  const correctedLeagueIds = stubLeagues(t, [
+    { id: 1, current_season: 2026, current_week: 4 },
+    { id: 2, current_season: 2026, current_week: 4 },
+    { id: 3, current_season: 2026, current_week: 4 },
+    { id: 4, current_season: 2026, current_week: 5 },
+  ]);
+  const seen = stubCaches(t);
+
+  await correctionSvc.resyncPriorWeeks();
+
+  assert.deepEqual(correctedLeagueIds.sort(), [1, 2, 3, 4], 'every league is still re-scored');
+  assert.equal(
+    seen.invalidated.length,
+    2,
+    'one invalidation per distinct (season, week), not one per league'
+  );
+  assert.deepEqual(
+    seen.invalidated.map((a) => a.week).sort(),
+    [4, 5],
+    'each corrected week invalidates the week after it'
+  );
+  assert.equal(seen.legacy.length, 2, 'the legacy refresh is also per-week, not per-league');
+});
+
+test('one cache-maintenance failure does not prevent attempting the other', async (t) => {
+  const logs = [];
+  t.mock.method(console, 'error', (...args) => { logs.push(args); });
+
+  const correctedLeagueIds = stubLeagues(t, [{ id: 42, current_season: 2026, current_week: 4 }]);
+  const seen = stubCaches(t, {
+    onLegacy: () => { throw new Error('legacy cache exploded'); },
+  });
+
+  await correctionSvc.resyncPriorWeeks();
+
+  assert.equal(
+    seen.invalidated.length,
+    1,
+    'a legacy refresh failure must not skip the versioned invalidation'
+  );
+  assert.deepEqual(correctedLeagueIds, [42], 'nor must it skip re-scoring the leagues');
+  const logged = logs.find((l) => String(l[0]).includes('legacy projection refresh failed'));
+  assert.ok(logged, 'the failure is logged');
+  assert.deepEqual(logged.slice(1, 3), [2026, 4], 'with season and week context');
+});
+
+test('a failed invalidation is logged and still lets the leagues be corrected', async (t) => {
+  const logs = [];
+  t.mock.method(console, 'error', (...args) => { logs.push(args); });
+
+  const correctedLeagueIds = stubLeagues(t, [{ id: 42, current_season: 2026, current_week: 4 }]);
+  const seen = stubCaches(t, {
+    onInvalidate: () => { throw new Error('delete failed'); },
+  });
+
+  await correctionSvc.resyncPriorWeeks();
+
+  assert.equal(seen.legacy.length, 1, 'the legacy refresh still happened');
+  assert.deepEqual(correctedLeagueIds, [42], 'and the correction itself is not abandoned');
+  const logged = logs.find((l) => String(l[0]).includes('invalidation failed'));
+  assert.ok(logged, 'the failure is logged rather than swallowed');
+  assert.deepEqual(logged.slice(1, 3), [2026, 4], 'with season and week context');
+});

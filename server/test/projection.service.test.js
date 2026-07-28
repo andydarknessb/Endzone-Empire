@@ -1102,3 +1102,129 @@ test('toLegacyProjectionMap keeps the { points, source } contract and adds field
   assert.equal(legacy.get(2).points, null);
   assert.equal(legacy.get(2).source, 'unavailable');
 });
+
+// ---------------------------------------------------------------------------
+// Cache invalidation after a stat correction
+// ---------------------------------------------------------------------------
+
+/**
+ * A fake client that ACTUALLY APPLIES the delete predicate to an in-memory
+ * table. It reads the `"column" = $n` pairs out of the statement's WHERE
+ * clause and matches rows against the corresponding parameters, so dropping a
+ * condition really does delete the wrong rows here rather than merely changing
+ * a string this test would have to know the exact spelling of. A statement
+ * with no WHERE at all matches every row, which is precisely the mutant worth
+ * catching.
+ */
+function fakeRunStore(rows) {
+  const table = rows.map((r) => ({ ...r }));
+  const statements = [];
+  return {
+    table,
+    statements,
+    async query(sql, params = []) {
+      const text = String(sql);
+      statements.push({ text, params });
+      assert.match(text, /DELETE FROM "projection_runs"/, 'the helper deletes runs, not something else');
+      const whereAt = text.indexOf('WHERE');
+      const where = whereAt === -1 ? '' : text.slice(whereAt);
+      const conditions = [...where.matchAll(/"(\w+)"\s*=\s*\$(\d+)/g)].map(([, column, index]) => ({
+        column,
+        value: params[Number(index) - 1],
+      }));
+      const survivors = table.filter(
+        (row) => !conditions.every((c) => String(row[c.column]) === String(c.value))
+      );
+      const rowCount = table.length - survivors.length;
+      table.length = 0;
+      table.push(...survivors);
+      return { rowCount, rows: [] };
+    },
+  };
+}
+
+const runRowFor = (season, week, hash, version = model.MODEL_VERSION) =>
+  ({ season, week, scoring_hash: hash, model_version: version });
+
+test('invalidation clears every scoring profile for the week, and nothing else', async () => {
+  const store = fakeRunStore([
+    // Target: same season+week+model, three different leagues' scoring hashes.
+    runRowFor(2026, 4, 'hash-half-ppr'),
+    runRowFor(2026, 4, 'hash-standard'),
+    runRowFor(2026, 4, 'hash-idp'),
+    // Must survive: neighbouring weeks, another season, an older model.
+    runRowFor(2026, 3, 'hash-half-ppr'),
+    runRowFor(2026, 5, 'hash-half-ppr'),
+    runRowFor(2025, 4, 'hash-half-ppr'),
+    runRowFor(2026, 4, 'hash-half-ppr', 'free_baseline_v2.2'),
+  ]);
+
+  const out = await projection.invalidateWeeklyProjectionRuns({
+    season: 2026, week: 4, client: store,
+  });
+
+  assert.equal(out.deletedRuns, 3, 'all three scoring profiles for the week');
+  assert.equal(out.season, 2026);
+  assert.equal(out.week, 4);
+  assert.equal(out.modelVersion, model.MODEL_VERSION);
+  assert.deepEqual(
+    store.table.map((r) => `${r.season}:${r.week}:${r.scoring_hash}:${r.model_version}`).sort(),
+    [
+      '2025:4:hash-half-ppr:free_baseline_v3.1',
+      '2026:3:hash-half-ppr:free_baseline_v3.1',
+      '2026:4:hash-half-ppr:free_baseline_v2.2',
+      '2026:5:hash-half-ppr:free_baseline_v3.1',
+    ],
+    'other weeks, other seasons and other model versions are untouched'
+  );
+});
+
+test('invalidation is one parameterized statement that leans on ON DELETE CASCADE', async () => {
+  const store = fakeRunStore([runRowFor(2026, 4, 'hash-a')]);
+  await projection.invalidateWeeklyProjectionRuns({ season: 2026, week: 4, client: store });
+
+  assert.equal(store.statements.length, 1, 'one indexed delete, not a per-profile loop');
+  const { text, params } = store.statements[0];
+  assert.deepEqual(params, [2026, 4, model.MODEL_VERSION], 'season, week and model version, in order');
+  assert.equal(text.includes('2026'), false, 'values are bound, never interpolated into the SQL');
+  assert.equal(text.includes('scoring_hash'), false, 'the hash is deliberately NOT in the predicate');
+  // Child rows go through the schema's ON DELETE CASCADE. Deleting them here
+  // instead would be a second statement that could silently drift out of sync
+  // with the parent predicate.
+  assert.equal(
+    text.includes('player_week_projections'), false,
+    'children must cascade, not be deleted separately'
+  );
+});
+
+test('invalidation defaults to the shipped model version but accepts an explicit one', async () => {
+  const store = fakeRunStore([
+    runRowFor(2026, 4, 'hash-a'),
+    runRowFor(2026, 4, 'hash-a-old', 'free_baseline_v3'),
+  ]);
+
+  const current = await projection.invalidateWeeklyProjectionRuns({ season: 2026, week: 4, client: store });
+  assert.equal(current.deletedRuns, 1, 'the default scope is the CURRENT model only');
+  assert.equal(store.statements[0].params[2], 'free_baseline_v3.1');
+
+  const older = await projection.invalidateWeeklyProjectionRuns({
+    season: 2026, week: 4, modelVersion: 'free_baseline_v3', client: store,
+  });
+  assert.equal(older.deletedRuns, 1, 'an explicit version reaches the predicate');
+  assert.equal(store.table.length, 0);
+});
+
+test('invalidation reports zero rather than throwing when there is nothing cached', async () => {
+  const store = fakeRunStore([]);
+  const out = await projection.invalidateWeeklyProjectionRuns({ season: 2026, week: 9, client: store });
+  assert.equal(out.deletedRuns, 0);
+});
+
+test('invalidation uses the injected client and never the ambient pool', async (t) => {
+  t.mock.method(pool, 'query', async () => {
+    throw new Error('the injected client must be used');
+  });
+  const store = fakeRunStore([runRowFor(2026, 4, 'hash-a')]);
+  const out = await projection.invalidateWeeklyProjectionRuns({ season: 2026, week: 4, client: store });
+  assert.equal(out.deletedRuns, 1);
+});

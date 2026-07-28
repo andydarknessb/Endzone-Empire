@@ -567,6 +567,55 @@ async function saveProjections({ runId, projections, client }) {
 }
 
 /**
+ * Drop every cached run for one (season, week) under the CURRENT model, across
+ * all scoring profiles.
+ *
+ * This exists because a stat correction rewrites the history the following
+ * week's projections were computed from, which makes every cached row for that
+ * week a number derived from data that no longer exists. The legacy
+ * `player_projections` cache has a `refresh: true` path; the versioned cache
+ * did not, so v3 runs survived corrections and were served indefinitely.
+ *
+ * DELETE rather than regenerate, deliberately. Regenerating would mean
+ * enumerating every league's scoring profile and every league's rosters and
+ * recomputing them synchronously inside a scheduled correction job, for weeks
+ * that may never be requested. Deleting is one indexed statement, and the next
+ * real request rebuilds exactly the players it needs through the normal cache
+ * miss. Child `player_week_projections` rows go with the run through the
+ * schema's ON DELETE CASCADE, so this must never be "optimized" into deleting
+ * children separately.
+ *
+ * Scoped by model version on purpose: rows belonging to an older version are
+ * already unreachable through `findRun` and are somebody else's cleanup, not
+ * this function's business.
+ *
+ * @param {object} args
+ * @param {number} args.season
+ * @param {number} args.week           the week whose cache is now stale
+ * @param {string} [args.modelVersion] defaults to the shipped model
+ * @param {object} [args.client]       injectable for tests / transactions
+ * @returns {Promise<{ season, week, modelVersion, deletedRuns }>}
+ */
+async function invalidateWeeklyProjectionRuns({
+  season,
+  week,
+  modelVersion = model.MODEL_VERSION,
+  client = pool,
+} = {}) {
+  const result = await client.query(
+    `DELETE FROM "projection_runs"
+     WHERE "season" = $1 AND "week" = $2 AND "model_version" = $3`,
+    [season, week, modelVersion]
+  );
+  return {
+    season,
+    week,
+    modelVersion,
+    deletedRuns: Number(result && result.rowCount) || 0,
+  };
+}
+
+/**
  * `free_baseline_v2` projections for a specific player set under a specific
  * league's scoring rules.
  *
@@ -695,6 +744,7 @@ module.exports = {
   getPositionDefense,
   // free_baseline_v2
   getWeeklyProjections,
+  invalidateWeeklyProjectionRuns,
   generateProjections,
   projectFromBundle,
   priorSeasonPerGame,

@@ -255,16 +255,42 @@ async function resyncPriorWeeks({ source = 'nflverse' } = {}) {
       console.error('stat correction: sync failed for %s week %s:', season, week, err.message);
       continue; // don't re-score leagues from stale stats
     }
-    // Corrected stats shift season averages — rebuild the following week's
-    // cached projections so start/sit advice and simulations see fresh data.
+    // Corrected stats shift season averages, so the following week's cached
+    // projections were computed from history that no longer exists. There are
+    // TWO caches and they need opposite treatment:
+    //
+    //  1. `player_projections` (legacy, pool-wide, default scoring) has a
+    //     refresh path and is cheap to rebuild for the whole pool at once.
+    //  2. `projection_runs` + `player_week_projections` (the versioned engine)
+    //     is per-scoring-profile and per-player. Regenerating it here would
+    //     mean enumerating every league's scoring profile and every league's
+    //     roster, so it is INVALIDATED instead and rebuilt lazily by whoever
+    //     asks next. Without this it was never invalidated at all: corrected
+    //     stats moved the legacy numbers while the start/sit engine kept
+    //     serving pre-correction ones.
+    //
+    // Both run ONCE per corrected (season, week) — this loop is already keyed
+    // that way — not once per league, and neither failing is allowed to skip
+    // the other, so they get independent try blocks.
+    const nextWeek = week + 1;
+    const projection = require('./projection.service');
     try {
-      const projection = require('./projection.service');
-      await projection.getWeekProjections({ season, week: week + 1, refresh: true });
+      await projection.getWeekProjections({ season, week: nextWeek, refresh: true });
     } catch (err) {
       console.error(
-        'stat correction: projection refresh failed for %s week %s:',
+        'stat correction: legacy projection refresh failed for %s week %s:',
         season,
-        week + 1,
+        nextWeek,
+        err.message
+      );
+    }
+    try {
+      await projection.invalidateWeeklyProjectionRuns({ season, week: nextWeek });
+    } catch (err) {
+      console.error(
+        'stat correction: weekly projection cache invalidation failed for %s week %s:',
+        season,
+        nextWeek,
         err.message
       );
     }
