@@ -1,5 +1,5 @@
 ﻿{
-    "generated":  "2026-07-28T18:35:04.4937057Z",
+    "generated":  "2026-07-28T19:37:50.5970590Z",
     "release":  "2c52e0f",
     "note":  "script paths rewritten to __dirname resolution post-archive; JSON evidence files unchanged",
     "files":  {
@@ -24,8 +24,8 @@
                                      "bytes":  1564
                                  },
                   "README.md":  {
-                                    "sha256":  "169d6da4f950f041ac1ccb4b9380f4c23f1ff566c9a2f3a0e9eeab8c4cb7af2c",
-                                    "bytes":  4439
+                                    "sha256":  "e17941db8e65886eac4706d441467ae4382fcac4154a0944eea0b103192a2ee5",
+                                    "bytes":  4571
                                 },
                   "replay-attrib.js":  {
                                            "sha256":  "cf0a17299110593f1313c61c13ec27d74585504c647a1ff7c88d0ec837e3e10b",

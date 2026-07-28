@@ -28,7 +28,7 @@ function byeWeekFromPlayedWeeks(playedWeeks) {
  * schedule rows (unsynced), multiple gaps (incomplete), or no gap maps to
  * null. Unknown/blank team codes are ignored.
  */
-async function computeByeWeeks(nflTeams, season) {
+async function computeByeWeeks(nflTeams, season, { client = pool } = {}) {
   const teams = [...new Set((nflTeams || []).filter(Boolean))];
   const byTeam = new Map(teams.map((team) => [team, null]));
   if (teams.length === 0) return byTeam;
@@ -39,7 +39,12 @@ async function computeByeWeeks(nflTeams, season) {
   // fn_normalize_nfl_team collapses full names AND alias codes (notably
   // Tank01's WSH vs. WAS) on both sides; the SELECT returns the caller's
   // original string so the result map stays keyed by caller vocabulary.
-  const result = await pool.query(
+  //
+  // `client` is injectable because the holdout capture reads its ENTIRE
+  // input set through one REPEATABLE READ transaction; a read through the
+  // global pool here would come from a different database snapshot than the
+  // schedule hash the capture certifies.
+  const result = await client.query(
     `SELECT "t"."nfl_team", "ng"."week"
      FROM "nfl_games" "ng"
      JOIN unnest($2::text[]) AS "t"("nfl_team")

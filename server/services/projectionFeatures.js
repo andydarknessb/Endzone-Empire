@@ -540,7 +540,11 @@ async function loadFeatureBundle({ season, week, playerIds, rules, client = pool
 
   const byeByTeam = await computeByeWeeks(
     playersResult.rows.map((r) => r.nfl_team),
-    season
+    season,
+    // The bundle's client, not the global pool: a transactional caller (the
+    // holdout capture) must see byes from the same snapshot as everything
+    // else in this bundle.
+    { client }
   );
 
   // The run-level cutoff is the EARLIEST kickoff in the week: past it, some

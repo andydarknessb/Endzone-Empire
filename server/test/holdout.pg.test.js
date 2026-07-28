@@ -171,6 +171,14 @@ if (!ENABLED) {
     process.env.APP_RELEASE = 'pg-test-sha';
     t.after(() => { delete process.env.APP_RELEASE; });
     const holdout = require('../services/holdout.service');
+    // The one-snapshot contract, enforced for real: if ANY read in the whole
+    // capture pipeline (features, byes, anything) goes through the global
+    // pool instead of the injected transaction connection, this throws and
+    // the capture fails. This is the REAL generateProjections, not a mock.
+    const poolModule = require('../modules/pool');
+    t.mock.method(poolModule, 'query', async () => {
+      throw new Error('capture leaked a read to the global pool');
+    });
     const season = 2081;
     await seedWeek({ season });
 

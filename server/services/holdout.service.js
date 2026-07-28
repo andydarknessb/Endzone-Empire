@@ -99,40 +99,94 @@ function requireReleaseSha() {
  * Structurally validate one week's schedule rows and derive what the header
  * records from them. Throws on anything that smells like a partial sync
  * (the Tank01 TBD-game history makes this a real hazard, not paranoia).
+ *
+ * Two layers:
+ *
+ * 1. **Per-game shape.** Every game key appears on exactly TWO rows, whose
+ *    teams are mutually reciprocal, whose home/away values are one 'home'
+ *    and one 'away', and whose kickoffs are identical. Every row carries a
+ *    kickoff, a game key, and an opponent.
+ *
+ * 2. **Season closure — the authoritative bye set.** Counting absent teams
+ *    and calling any even number <= 6 "byes" would certify a half-synced
+ *    week: 15 games of a 32-team week looks exactly like a two-bye week.
+ *    The authority that exists in the data is the SEASON's own closure:
+ *    across the synced season, a team is absent from at most ONE week (its
+ *    bye), so the target week's absent teams must be exactly the teams
+ *    whose single season-wide absence IS this week. A game row missing
+ *    anywhere gives its two teams a second absence and fails this check —
+ *    including the case where the missing game was the week's EARLIEST and
+ *    its absence would otherwise have slid `firstKickoffAt` late enough to
+ *    admit a post-kickoff capture.
+ *
+ * `seasonAbsences` is a Map<teamKey, Set<week>> of each team's absent weeks
+ * across every synced week of the season (built in-transaction by
+ * `snapshotWeek`, so it shares the snapshot the schedule hash certifies).
  */
-function validateSchedule({ rows, seasonTeamCount, season, week }) {
+function validateSchedule({ rows, seasonAbsences, season, week }) {
   if (!rows || rows.length === 0) {
     throw new Error(`no schedule rows for ${season} week ${week}`);
   }
-  if (rows.length % 2 !== 0) {
-    throw new Error(`schedule for ${season} week ${week} has an odd row count (${rows.length})`);
-  }
   const byTeam = new Map();
+  const byGame = new Map();
   for (const row of rows) {
     if (!row.kickoff_at) throw new Error(`schedule row without kickoff for ${season} week ${week} (${row.nfl_team})`);
     if (!row.game_key) throw new Error(`schedule row without game key for ${season} week ${week} (${row.nfl_team})`);
     if (!row.opponent) throw new Error(`schedule row without opponent for ${season} week ${week} (${row.nfl_team})`);
     byTeam.set(normalizeTeamKey(row.nfl_team), row);
+    if (!byGame.has(row.game_key)) byGame.set(row.game_key, []);
+    byGame.get(row.game_key).push(row);
   }
   if (byTeam.size !== rows.length) {
     throw new Error(`schedule for ${season} week ${week} lists a team twice`);
   }
-  for (const [teamKey, row] of byTeam) {
-    const reciprocal = byTeam.get(normalizeTeamKey(row.opponent));
-    if (!reciprocal || normalizeTeamKey(reciprocal.opponent) !== teamKey) {
-      throw new Error(`schedule for ${season} week ${week} is missing the reciprocal of ${row.nfl_team} vs ${row.opponent}`);
+  for (const [gameKey, pair] of byGame) {
+    if (pair.length !== 2) {
+      throw new Error(`schedule for ${season} week ${week}: game ${gameKey} has ${pair.length} row(s), expected exactly 2`);
     }
-    if (reciprocal.game_key !== row.game_key) {
-      throw new Error(`schedule for ${season} week ${week}: ${row.nfl_team} and ${row.opponent} disagree on game key`);
+    const [a, b] = pair;
+    if (normalizeTeamKey(a.opponent) !== normalizeTeamKey(b.nfl_team)
+      || normalizeTeamKey(b.opponent) !== normalizeTeamKey(a.nfl_team)) {
+      throw new Error(`schedule for ${season} week ${week}: game ${gameKey} rows are not reciprocal`);
+    }
+    const sides = [a.home_away, b.home_away].sort();
+    if (sides[0] !== 'away' || sides[1] !== 'home') {
+      throw new Error(`schedule for ${season} week ${week}: game ${gameKey} home/away must be one of each (got ${a.home_away}/${b.home_away})`);
+    }
+    if (new Date(a.kickoff_at).getTime() !== new Date(b.kickoff_at).getTime()) {
+      throw new Error(`schedule for ${season} week ${week}: game ${gameKey} rows disagree on kickoff`);
     }
   }
-  // Team accounting against the season's own authoritative team set: every
-  // team either plays or is on bye, and NFL byes come in even groups of at
-  // most six.
-  const byes = Number(seasonTeamCount) - rows.length;
-  if (byes < 0 || byes > 6 || byes % 2 !== 0) {
+  // Season closure. Absent-from-this-week teams must be exactly the teams
+  // whose ONLY season-wide absence is this week; any team anywhere with two
+  // absent weeks means the synced season is missing a game.
+  const absences = seasonAbsences || new Map();
+  for (const [teamKey, absentWeeks] of absences) {
+    if (absentWeeks.size > 1) {
+      throw new Error(
+        `schedule for season ${season} is incomplete: ${teamKey} is absent from weeks ` +
+        `${[...absentWeeks].sort((x, y) => x - y).join(', ')} — a synced season allows one bye at most`
+      );
+    }
+  }
+  const byeTeams = [...absences.entries()]
+    .filter(([, absentWeeks]) => absentWeeks.has(Number(week)))
+    .map(([teamKey]) => teamKey);
+  for (const teamKey of byeTeams) {
+    if (byTeam.has(teamKey)) {
+      throw new Error(`schedule for ${season} week ${week}: ${teamKey} both plays and is absent`);
+    }
+  }
+  const absentFromWeek = [...absences.keys()].filter((teamKey) => !byTeam.has(teamKey));
+  const unexplained = absentFromWeek.filter((teamKey) => !absences.get(teamKey).has(Number(week)));
+  if (unexplained.length > 0) {
     throw new Error(
-      `schedule for ${season} week ${week} fails team accounting: ${rows.length} of ${seasonTeamCount} teams playing (${byes} byes)`
+      `schedule for ${season} week ${week}: ${unexplained.join(', ')} absent without this week being their bye`
+    );
+  }
+  if (byeTeams.length > 6 || byeTeams.length % 2 !== 0) {
+    throw new Error(
+      `schedule for ${season} week ${week} fails bye accounting: ${byeTeams.length} bye team(s)`
     );
   }
   const digestInput = rows
@@ -179,13 +233,29 @@ async function snapshotWeek({ season, week, profileName, rules, client = pool })
        FROM "nfl_games" WHERE "season" = $1 AND "week" = $2 ORDER BY "nfl_team"`,
       [season, week]
     );
-    const teamCountResult = await conn.query(
-      `SELECT COUNT(DISTINCT "nfl_team")::int AS "teams" FROM "nfl_games" WHERE "season" = $1`,
+    // The season's full team-week matrix, from the SAME snapshot: which
+    // weeks each team appears in, and which weeks exist at all. Season
+    // closure (validateSchedule) derives the authoritative bye set from it.
+    const seasonMatrix = await conn.query(
+      `SELECT fn_normalize_nfl_team("nfl_team") AS "team_key",
+              array_agg(DISTINCT "week") AS "weeks"
+       FROM "nfl_games" WHERE "season" = $1
+       GROUP BY fn_normalize_nfl_team("nfl_team")`,
       [season]
+    );
+    const seasonWeeks = new Set();
+    for (const row of seasonMatrix.rows) {
+      for (const w of row.weeks) seasonWeeks.add(Number(w));
+    }
+    const seasonAbsences = new Map(
+      seasonMatrix.rows.map((row) => {
+        const played = new Set(row.weeks.map(Number));
+        return [row.team_key, new Set([...seasonWeeks].filter((w) => !played.has(w)))];
+      })
     );
     const schedule = validateSchedule({
       rows: scheduleResult.rows,
-      seasonTeamCount: teamCountResult.rows[0].teams,
+      seasonAbsences,
       season,
       week,
     });
@@ -226,13 +296,30 @@ async function snapshotWeek({ season, week, profileName, rules, client = pool })
     );
     const found = existing.rows[0];
     if (found) {
-      const complete = Number(found.rows) >= Number(found.cohort_size);
+      // EXACTLY the cohort, not "at least": extra rows are as much of an
+      // anomaly as missing ones.
+      const complete = Number(found.rows) === Number(found.cohort_size);
       const matches = found.cohort_hash === cohortHash
         && found.constants_hash === constantsHash()
         && found.schedule_hash === schedule.scheduleHash
         && found.release_sha === releaseSha
         && Number(found.protocol_version) === HOLDOUT_PROTOCOL_VERSION;
       if (complete && matches) {
+        // Trust nothing about the child rows either: their actual player-id
+        // digest must reproduce the header's cohort hash before the skip is
+        // honored as "this exact snapshot already exists".
+        const childIds = await conn.query(
+          `SELECT "player_id" FROM "projection_snapshot_players"
+           WHERE "snapshot_id" = $1 ORDER BY "player_id"`,
+          [found.id]
+        );
+        const childDigest = sha256(childIds.rows.map((r) => r.player_id).join(','));
+        if (childDigest !== found.cohort_hash) {
+          throw new Error(
+            `holdout snapshot conflict for ${season} week ${week} ${profileName}: ` +
+            'child rows do not reproduce the header cohort digest - refusing to touch an existing snapshot'
+          );
+        }
         await conn.query('ROLLBACK');
         return { season, week, profileName, snapshotId: found.id, skipped: 'already complete' };
       }
@@ -246,8 +333,13 @@ async function snapshotWeek({ season, week, profileName, rules, client = pool })
     const playerIds = cohort.map((r) => r.id);
     // The compute path, through THIS connection: no cache table is read or
     // written, and every input comes from the transaction's snapshot.
+    // Weather is EXCLUDED deliberately: it ships at maxEffect 0 (pure
+    // context, cannot move a point), its provider makes network calls, and
+    // its snapshot store reads through the global pool - all three violate
+    // the one-transaction, one-snapshot contract this capture certifies.
     const run = await projection.generateProjections({
       season, week, rules, playerIds, hashValue: scoringHash, client: conn,
+      weatherService: false,
     });
 
     const header = await conn.query(
@@ -393,9 +485,93 @@ async function captureDueSnapshots({ now = new Date(), client = pool } = {}) {
   return { captured, failures };
 }
 
+/** How far back reconciliation looks for obligations that should exist. */
+const RECONCILE_LOOKBACK_DAYS = 21;
+
+/**
+ * Derive every capture OBLIGATION whose window has opened - including weeks
+ * whose window came and went while nothing was running - and reconcile each
+ * against the immutable ledger and the durable status table.
+ *
+ * This is what makes a capture that NEVER STARTED visible: the due-window
+ * query in `captureDueSnapshots` only sees future kickoffs, so a worker that
+ * was down for a whole window would otherwise leave no snapshot, no status
+ * row, and no evidence anything was ever owed. Obligations are derived from
+ * the schedule itself (every (season, week) whose first kickoff falls inside
+ * [now - lookback, now + window]) crossed with the predeclared profiles, so
+ * nothing has to have run for the debt to show.
+ *
+ * Per obligation: `captured` (immutable snapshot exists), else `failed`
+ * (durable status says the last attempt failed), else `missed` (kickoff has
+ * passed - permanently uncapturable), else `pending`.
+ */
+async function reconcileObligations({ now = new Date(), client = pool } = {}) {
+  const windowEnd = new Date(now.getTime() + CAPTURE_WINDOW_HOURS * 3600 * 1000);
+  const lookbackStart = new Date(now.getTime() - RECONCILE_LOOKBACK_DAYS * 24 * 3600 * 1000);
+  const due = await client.query(
+    `SELECT "season", "week", MIN("kickoff_at") AS "first_kickoff"
+     FROM "nfl_games"
+     GROUP BY "season", "week"
+     HAVING MIN("kickoff_at") > $1 AND MIN("kickoff_at") <= $2`,
+    [lookbackStart, windowEnd]
+  );
+  if (due.rows.length === 0) return { ok: true, obligations: [] };
+
+  const seasons = [...new Set(due.rows.map((r) => Number(r.season)))];
+  const [snapshots, statuses] = [
+    await client.query(
+      `SELECT "season", "week", "scoring_hash" FROM "projection_snapshots"
+       WHERE "season" = ANY($1::int[]) AND "capture_kind" = 'scheduled'
+         AND "model_version" = $2`,
+      [seasons, model.MODEL_VERSION]
+    ),
+    await client.query(
+      `SELECT "season", "week", "scoring_profile", "status", "message", "attempts"
+       FROM "holdout_capture_status" WHERE "season" = ANY($1::int[])`,
+      [seasons]
+    ),
+  ];
+  const snapshotKeys = new Set(
+    snapshots.rows.map((r) => `${r.season}:${r.week}:${r.scoring_hash}`)
+  );
+  const statusByKey = new Map(
+    statuses.rows.map((r) => [`${r.season}:${r.week}:${r.scoring_profile}`, r])
+  );
+
+  const obligations = [];
+  for (const row of due.rows) {
+    const season = Number(row.season);
+    const week = Number(row.week);
+    const kickedOff = new Date(row.first_kickoff) <= now;
+    for (const profile of HOLDOUT_SCORING_PROFILES) {
+      const scoringHash = model.scoringHash(profile.rules);
+      const statusRow = statusByKey.get(`${season}:${week}:${profile.name}`) || null;
+      let state;
+      if (snapshotKeys.has(`${season}:${week}:${scoringHash}`)) state = 'captured';
+      else if (statusRow && statusRow.status === 'failed') state = 'failed';
+      else if (kickedOff) state = 'missed';
+      else state = 'pending';
+      obligations.push({
+        season,
+        week,
+        profile: profile.name,
+        state,
+        firstKickoffAt: row.first_kickoff,
+        message: statusRow ? statusRow.message : null,
+        attempts: statusRow ? statusRow.attempts : 0,
+      });
+    }
+  }
+  return {
+    ok: obligations.every((o) => o.state === 'captured' || o.state === 'pending'),
+    obligations,
+  };
+}
+
 module.exports = {
   HOLDOUT_PROTOCOL_VERSION,
   CAPTURE_WINDOW_HOURS,
+  RECONCILE_LOOKBACK_DAYS,
   HOLDOUT_POSITIONS,
   HOLDOUT_SCORING_PROFILES,
   constantsHash,
@@ -403,4 +579,5 @@ module.exports = {
   snapshotWeek,
   recordCaptureStatus,
   captureDueSnapshots,
+  reconcileObligations,
 };

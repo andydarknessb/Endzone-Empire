@@ -29,8 +29,10 @@ Scripts: `replay-driver.js` (produces a replay from any checkout),
 `replay-attrib.js` (commit-vs-ambient attribution), `qa-diff.js`
 (determinism + mean-preservation), `median-gate.js` (the release gate),
 `perf-test.js`, `data-checks.js` / `data-checks-scoped.js` (cohort and
-team-key audits). Paths inside them point at the session scratchpad; adjust
-to this directory to re-run.
+team-key audits). They resolve the repository root and their data files
+relative to this directory (`__dirname`), so they run from the archive
+as-is; `replay-driver.js` additionally takes an explicit checkout root as
+its first argument.
 
 ## Key measured results
 

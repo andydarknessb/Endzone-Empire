@@ -50,32 +50,20 @@ async function redisStatus() {
 }
 
 /**
- * Holdout-capture completeness, read from the durable status table the
- * worker upserts (getSchedulerStatus is in-memory and lives in the OTHER
- * process, so it cannot carry this). `ok` means no recent attempt is
- * sitting in `failed` — a transient failure that later succeeded upserts
- * itself back to captured/skipped.
+ * Holdout-capture health by RECONCILIATION, not by log-reading: obligations
+ * are derived from the schedule itself and checked against the immutable
+ * ledger and the durable status table, so a capture that never even STARTED
+ * (worker down for the whole window) shows up as `missed` instead of as
+ * silence. An unavailable status source is itself unhealthy — "I cannot
+ * tell" is not "fine".
  */
 async function holdoutStatus() {
   try {
-    const result = await pool.query(
-      `SELECT "season", "week", "scoring_profile", "status", "message", "attempts", "updated_at"
-       FROM "holdout_capture_status"
-       ORDER BY "season" DESC, "week" DESC, "scoring_profile"
-       LIMIT 12`
-    );
-    const rows = result.rows.map((row) => ({
-      season: row.season,
-      week: row.week,
-      profile: row.scoring_profile,
-      status: row.status,
-      message: row.message,
-      attempts: row.attempts,
-      updatedAt: row.updated_at,
-    }));
-    return { ok: rows.every((row) => row.status !== 'failed'), captures: rows };
+    const holdout = require('../services/holdout.service');
+    const { ok, obligations } = await holdout.reconcileObligations();
+    return { ok, obligations };
   } catch (error) {
-    return { ok: true, captures: [], unavailable: true };
+    return { ok: false, obligations: [], unavailable: true, error: error.message };
   }
 }
 
@@ -120,6 +108,15 @@ router.get('/readyz', async (req, res) => {
     redis,
     release: process.env.RENDER_GIT_COMMIT || process.env.APP_RELEASE || null,
   });
+});
+
+// The alertable holdout signal: 503 whenever any obligation is missed or
+// failed, or when the status source itself cannot be read. Point the
+// monitor here — the main health endpoint carries the same section as
+// context but does not fail the whole app for a holdout miss.
+router.get('/holdout', async (req, res) => {
+  const holdout = await holdoutStatus();
+  res.status(holdout.ok ? 200 : 503).json(holdout);
 });
 
 router.get('/worker', async (req, res) => {
