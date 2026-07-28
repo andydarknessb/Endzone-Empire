@@ -105,6 +105,11 @@ async function tickUnlocked() {
       console.error('daily stat corrections failed (will retry next tick):', err.message);
     }
     await runNflverseFinalization();
+    try {
+      await runHoldoutSnapshots();
+    } catch (err) {
+      console.error('holdout snapshot pass failed (will retry next tick):', err.message);
+    }
     await runRetention();
     lastTickError = null;
   } catch (err) {
@@ -225,6 +230,34 @@ async function runDailyStatCorrections() {
 }
 
 /**
+ * Prospective-holdout capture: when any week's first kickoff is inside the
+ * capture window, write the append-only pre-kickoff snapshot for each
+ * predeclared scoring profile (see holdout.service). No day-stamp on
+ * purpose: the snapshot's unique identity makes every retry idempotent, a
+ * completed snapshot costs one SELECT to skip, and outside the window the
+ * due-weeks query returns nothing. Failures are logged per profile with
+ * season/week context — a single line can be transient, REPEATED lines are
+ * actionable (the DB cutoff will eventually fail the week closed).
+ */
+async function runHoldoutSnapshots() {
+  const holdout = require('../services/holdout.service');
+  const { captured, failures } = await holdout.captureDueSnapshots();
+  const written = captured.filter((c) => !c.skipped);
+  if (written.length > 0) {
+    console.log(
+      `scheduler: captured ${written.length} holdout snapshot(s): ` +
+      written.map((c) => `${c.season} w${c.week} ${c.profileName} (${c.inserted} rows)`).join(', ')
+    );
+  }
+  for (const f of failures) {
+    console.error(
+      'holdout snapshot failed for %s week %s profile %s:',
+      f.season, f.week, f.profileName, f.message
+    );
+  }
+}
+
+/**
  * Mon-Thu nflverse IDP-finalization pass: patch in sack/TFL/fumble-return
  * yardage and individual safety for the prior week's defenders (see
  * nflverseSync.service) and re-score any league whose scores moved. Runs at
@@ -332,6 +365,7 @@ module.exports = {
   getSchedulerStatus,
   syncAndScoreLiveWeeks,
   syncEveryTicks,
+  runHoldoutSnapshots,
   INTERVAL_MS,
   DRAFT_CLOCK_MS,
   SYNC_EVERY_TICKS,
