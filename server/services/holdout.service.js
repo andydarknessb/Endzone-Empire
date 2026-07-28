@@ -62,7 +62,12 @@ const model = require('./projectionModel');
 const projection = require('./projection.service');
 const { normalizeTeamKey } = require('./projectionFeatures');
 const { SCORING_PRESETS } = require('./scoring.service');
-const { verifySeasonManifest } = require('./scheduleManifest');
+const {
+  verifySeasonManifest,
+  CANONICAL_TEAM_KEYS,
+  SEASON_WEEKS,
+  GAMES_PER_TEAM,
+} = require('./scheduleManifest');
 
 /** Bumped whenever the capture protocol changes shape or meaning. */
 const HOLDOUT_PROTOCOL_VERSION = 1;
@@ -70,22 +75,13 @@ const HOLDOUT_PROTOCOL_VERSION = 1;
 /** Capture opens this long before a week's first kickoff. */
 const CAPTURE_WINDOW_HOURS = 24;
 
-/**
- * The EXPECTED domain, independent of what happens to be synced: the 32 NFL
- * franchises in `normalizeTeamKey` vocabulary, an 18-week regular season,
- * and 17 games per team. Deriving any of these from observed `nfl_games`
- * rows would make schedule validation self-referential - a wholly missing
- * team or week creates no absence to detect against a universe built only
- * from what was observed.
- */
-const CANONICAL_TEAM_KEYS = Object.freeze([
-  'ARI', 'ATL', 'BAL', 'BUF', 'CAR', 'CHI', 'CIN', 'CLE', 'DAL', 'DEN',
-  'DET', 'GB', 'HOU', 'IND', 'JAX', 'KC', 'LAC', 'LAR', 'LV', 'MIA',
-  'MIN', 'NE', 'NO', 'NYG', 'NYJ', 'PHI', 'PIT', 'SEA', 'SF', 'TB',
-  'TEN', 'WAS',
-]);
-const SEASON_WEEKS = 18;
-const GAMES_PER_TEAM = 17;
+// The EXPECTED domain - 32 canonical franchises, 18 weeks, 17 games per
+// team - lives in scheduleManifest.js (constants, never inferred from
+// observed rows), shared by the manifest verifier, the generator, and the
+// schedule validation below. Deriving any of these from observed
+// `nfl_games` rows would make schedule validation self-referential - a
+// wholly missing team or week creates no absence to detect against a
+// universe built only from what was observed.
 
 /**
  * The INDEPENDENT schedule authority: exact (week, away, home) identities

@@ -186,6 +186,22 @@ const MATRIX = SEASON.matrixRows;
 const MANIFEST_WEEK1 = SEASON.manifest.games.filter((g) => g.week === 1);
 holdout.registerSeasonManifest(SEASON.manifest);
 test.after(() => { holdout.SEASON_MANIFESTS.delete(FIXTURE_SEASON); });
+
+// A second synthetic season modeling the Week 18 Saturday reserve: the
+// manifest's week-18 deadline is a date-flex override 24 hours EARLIER than
+// every stored (placeholder Sunday) kickoff - the real 2026 hazard, in
+// fixture form.
+const RESERVE_SEASON = 2076;
+const SEASON18_BASE = new Date('2076-09-10T00:20:00Z').getTime();
+const WK18_SUNDAY = new Date(SEASON18_BASE + 17 * 7 * 24 * 3600 * 1000); // derived earliest kickoff
+const WK18_RESERVE = new Date(WK18_SUNDAY.getTime() - 24 * 3600 * 1000); // the Saturday reserve
+const SEASON18 = buildSeason({
+  season: RESERVE_SEASON,
+  firstKickoff: new Date(SEASON18_BASE).toISOString(),
+  deadlineOverrides: { 18: WK18_RESERVE.toISOString() },
+});
+holdout.registerSeasonManifest(SEASON18.manifest);
+test.after(() => { holdout.SEASON_MANIFESTS.delete(RESERVE_SEASON); });
 const COHORT = [
   { id: 7, position: 'QB', nfl_team: 'KC', injury_status: null },
   { id: 8, position: 'WR', nfl_team: 'DET', injury_status: 'Questionable' },
@@ -769,9 +785,9 @@ function withOnlyFixtureManifest(t) {
 }
 
 /** All season rows as the runtime `nfl_games` would return them. */
-function dbRowsForSeason(season = FIXTURE_SEASON, mutate = (rows) => rows) {
+function dbRowsForSeason(season = FIXTURE_SEASON, mutate = (rows) => rows, fixture = SEASON) {
   const rows = [];
-  for (const [week, weekRows] of SEASON.rowsByWeek) {
+  for (const [week, weekRows] of fixture.rowsByWeek) {
     for (const r of weekRows) {
       rows.push({ season, week, nfl_team: r.nfl_team, opponent: r.opponent, kickoff_at: r.kickoff_at });
     }
@@ -1079,7 +1095,60 @@ test('a manifest that cannot prove itself is refused at registration', () => {
   });
   assert.throws(() => holdout.registerSeasonManifest(noWeek), /no games in week 3/);
 
-  assert.ok(!holdout.SEASON_MANIFESTS.has(2099), 'nothing was registered by the failed attempts');
+  // The digest binds PROVENANCE, not just games: recompute an honest digest
+  // first, THEN edit the source claim - the edit must be tamper-evident.
+  const sourceSwap = clone((m) => {
+    m.digest = computeManifestDigest(m);
+    m.source = 'a different origin story';
+  });
+  assert.throws(() => holdout.registerSeasonManifest(sourceSwap), /digest check/);
+
+  // Full-season invariants hold at registration even with a FRESH digest -
+  // a malformed schedule that hashes honestly is still not an authority.
+  const missingGame = clone((m) => {
+    m.games = m.games.slice(1);
+    m.digest = computeManifestDigest(m);
+  });
+  assert.throws(() => holdout.registerSeasonManifest(missingGame), /expected exactly 272/);
+
+  const unknownTeam = clone((m) => {
+    m.games[0].home = 'XYZ';
+    m.digest = computeManifestDigest(m);
+  });
+  assert.throws(() => holdout.registerSeasonManifest(unknownTeam), /unknown team XYZ/);
+
+  const doubled = clone((m) => {
+    m.games[1].away = m.games[0].away; // one franchise, two week-1 games
+    m.digest = computeManifestDigest(m);
+  });
+  assert.throws(() => holdout.registerSeasonManifest(doubled), /in two games/);
+
+  // Date-flex overrides are bound and enforced: edited terms are tamper-
+  // evident, and a stored deadline may tighten its override, never exceed it.
+  const clone18 = (mutate) => {
+    const m = JSON.parse(JSON.stringify(SEASON18.manifest));
+    m.season = 2098;
+    mutate(m);
+    return m;
+  };
+  const overrideSwap = clone18((m) => {
+    m.digest = computeManifestDigest(m);
+    m.deadlineOverrides['18'].authority = 'trust me';
+  });
+  assert.throws(() => holdout.registerSeasonManifest(overrideSwap), /digest check/);
+
+  const exceeded = clone18((m) => {
+    m.captureNotAfter['18'] = new Date(
+      new Date(m.deadlineOverrides['18'].captureNotAfter).getTime() + 3600 * 1000
+    ).toISOString();
+    m.digest = computeManifestDigest(m);
+  });
+  assert.throws(() => holdout.registerSeasonManifest(exceeded), /exceeds its date-flex override/);
+
+  assert.ok(
+    !holdout.SEASON_MANIFESTS.has(2099) && !holdout.SEASON_MANIFESTS.has(2098),
+    'nothing was registered by the failed attempts'
+  );
 });
 
 test('the committed 2026 manifest verifies, pins its source, and covers all 18 deadlines', () => {
@@ -1097,9 +1166,15 @@ test('the committed 2026 manifest verifies, pins its source, and covers all 18 d
     assert.ok(!Number.isNaN(deadline.getTime()), `week ${week} has a deadline`);
   }
   // Spot-check the timezone conversion at both DST regimes: week 1 is EDT
-  // (UTC-4), week 18 is EST (UTC-5).
+  // (UTC-4), week 18's dates are EST (UTC-5).
   assert.equal(manifest.captureNotAfter['1'], '2026-09-10T00:20:00.000Z');
-  assert.equal(manifest.captureNotAfter['18'], '2027-01-10T18:00:00.000Z');
+  // Week 18 must close at the SATURDAY reserve (Jan 9, 1:00 p.m. ET) - the
+  // league can assign up to three games there after Week 17, and the
+  // source's Sunday times are placeholders until then.
+  assert.equal(manifest.captureNotAfter['18'], '2027-01-09T18:00:00.000Z');
+  assert.equal(manifest.deadlineOverrides['18'].captureNotAfter, '2027-01-09T18:00:00.000Z');
+  assert.equal(manifest.deadlineOverrides['18'].sourceDerived, '2027-01-10T18:00:00.000Z');
+  assert.match(manifest.deadlineOverrides['18'].authority, /nfl\.com/);
 });
 
 test('a week the sync lost entirely is still ATTEMPTED on the manifest schedule, and fails durably', async (t) => {
@@ -1132,6 +1207,102 @@ test('stored kickoffs shifted later cannot reopen a closed capture window in due
   assert.deepEqual(out, { captured: [], failures: [] });
   assert.equal(seen.length, 0, 'no computation for a window the manifest says is closed');
   assert.equal(db.committed.status.length, 0, 'no attempt was even recorded');
+});
+
+// ---------------------------------------------------------------------------
+// Week 18: the Saturday reserve vs placeholder Sunday rows
+// ---------------------------------------------------------------------------
+
+const WK18_ROWS = SEASON18.rowsByWeek.get(18);
+const wk18Args = (db) => ({
+  season: RESERVE_SEASON, week: 18, profileName: 'half_ppr', rules: SCORING_PRESETS.half_ppr, client: db,
+});
+const wk18Db = (overrides = {}) => fakeDb({
+  schedule: WK18_ROWS, seasonMatrix: SEASON18.matrixRows, cohort: COHORT, ...overrides,
+});
+
+test('week 18 capture closes at the Saturday reserve, not the placeholder Sunday kickoffs', async (t) => {
+  withReleaseSha(t);
+  const seen = mockGenerate(t);
+  // Sanity: the fixture reproduces the hazard - every stored kickoff is a
+  // full day AFTER the manifest deadline, and the deadline IS the override.
+  assert.equal(SEASON18.manifest.captureNotAfter['18'], WK18_RESERVE.toISOString());
+  assert.ok(WK18_ROWS.every((r) => new Date(r.kickoff_at) > WK18_RESERVE));
+
+  // One hour past the earliest possible Saturday kickoff: refused, whatever
+  // the Sunday rows claim.
+  const late = wk18Db({ clock: () => new Date(WK18_RESERVE.getTime() + 3600 * 1000) });
+  await assert.rejects(holdout.snapshotWeek(wk18Args(late)), /capture window .* has closed/);
+  assert.equal(seen.length, 0, 'a post-reserve capture never computes');
+  assert.equal(late.committed.snapshots.length, 0);
+
+  // Before the reserve: captures fine, and the DATABASE guards inherit the
+  // reserve deadline - the header stores it, so the CHECK constraint and
+  // the child trigger judge Saturday, not the placeholder Sunday.
+  const ok = wk18Db({ clock: () => new Date(WK18_RESERVE.getTime() - 2 * 3600 * 1000) });
+  const out = await holdout.snapshotWeek(wk18Args(ok));
+  assert.equal(out.inserted, 3);
+  assert.equal(
+    new Date(ok.committed.snapshots[0].capture_not_after).toISOString(),
+    WK18_RESERVE.toISOString()
+  );
+});
+
+test('week 18 due selection closes at the reserve deadline despite Sunday observed kickoffs', async (t) => {
+  withReleaseSha(t);
+  const seen = mockGenerate(t);
+  const observed = [{ season: RESERVE_SEASON, week: 18, first_kickoff: WK18_ROWS[0].kickoff_at }];
+
+  // Past the reserve: nothing is due, nothing attempted, nothing recorded -
+  // the Sunday observed kickoff cannot hold the window open.
+  const closed = wk18Db({ due: observed });
+  const after = await holdout.captureDueSnapshots({
+    now: new Date(WK18_RESERVE.getTime() + 3600 * 1000), client: closed,
+  });
+  assert.deepEqual(after, { captured: [], failures: [] });
+  assert.equal(closed.committed.status.length, 0);
+  assert.equal(seen.length, 0);
+
+  // Inside the reserve window: every predeclared profile is captured.
+  const open = wk18Db({ due: observed, clock: () => new Date(WK18_RESERVE.getTime() - 2 * 3600 * 1000) });
+  const before = await holdout.captureDueSnapshots({
+    now: new Date(WK18_RESERVE.getTime() - 2 * 3600 * 1000), client: open,
+  });
+  assert.equal(before.failures.length, 0);
+  assert.equal(before.captured.length, 3);
+  assert.equal(open.committed.snapshots.length, 3);
+});
+
+test('week 18 reconciliation judges missed and pending at the reserve deadline with stale Sunday rows', async (t) => {
+  const saved = [...holdout.SEASON_MANIFESTS.entries()];
+  holdout.SEASON_MANIFESTS.clear();
+  holdout.SEASON_MANIFESTS.set(RESERVE_SEASON, SEASON18.manifest);
+  t.after(() => {
+    holdout.SEASON_MANIFESTS.clear();
+    for (const [k, v] of saved) holdout.SEASON_MANIFESTS.set(k, v);
+  });
+  const rows = dbRowsForSeason(RESERVE_SEASON, (r) => r, SEASON18);
+
+  // An hour past the reserve, the fully synced placeholder-Sunday schedule
+  // insists kickoff is tomorrow. The obligation is MISSED anyway.
+  const after = await holdout.reconcileObligations({
+    now: new Date(WK18_RESERVE.getTime() + 3600 * 1000),
+    client: reconcileFake({ scheduleRows: rows }),
+  });
+  assert.ok(
+    after.obligations.filter((o) => o.week === 18).every((o) => o.state === 'missed'),
+    'a valid schedule with placeholder times cannot outvote the reserve deadline'
+  );
+  assert.equal(after.ok, false);
+
+  // Two hours before the reserve the window is OPEN (pending). Under a
+  // Sunday-based cutoff this would read scheduled (26h out), so this pins
+  // WHICH instant reconciliation uses, not just the state ordering.
+  const before = await holdout.reconcileObligations({
+    now: new Date(WK18_RESERVE.getTime() - 2 * 3600 * 1000),
+    client: reconcileFake({ scheduleRows: rows }),
+  });
+  assert.ok(before.obligations.filter((o) => o.week === 18).every((o) => o.state === 'pending'));
 });
 
 // ---------------------------------------------------------------------------

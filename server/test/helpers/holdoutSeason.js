@@ -8,7 +8,7 @@
 const { CANONICAL_TEAM_KEYS, SEASON_WEEKS } = require('../../services/holdout.service');
 const { computeManifestDigest } = require('../../services/scheduleManifest');
 
-function buildSeason({ season, firstKickoff }) {
+function buildSeason({ season, firstKickoff, deadlineOverrides = null }) {
   const teams = [...CANONICAL_TEAM_KEYS];
   const base = new Date(firstKickoff).getTime();
   const byeByWeek = new Map();
@@ -48,15 +48,36 @@ function buildSeason({ season, firstKickoff }) {
   const matrixRows = teams.map((t) => ({ team_key: t, weeks: weeksByTeam.get(t).sort((a, b) => a - b) }));
 
   // The manifest's independent per-week deadline: this synthetic season's
-  // earliest kickoff per week. Tests that shift the DATABASE rows later
-  // exercise exactly the stale-schedule attack the deadline exists to stop,
-  // because the manifest deadline stays put.
+  // earliest kickoff per week, capped by any date-flex override (the same
+  // MIN rule the generator applies - e.g. a Week 18 Saturday reserve while
+  // the rows carry placeholder Sunday times). Tests that shift the DATABASE
+  // rows later exercise exactly the stale-schedule attack the deadline
+  // exists to stop, because the manifest deadline stays put.
   const captureNotAfter = {};
+  const overridesOut = {};
   for (let week = 1; week <= SEASON_WEEKS; week++) {
     const kicks = rowsByWeek.get(week).map((r) => new Date(r.kickoff_at).getTime());
-    captureNotAfter[String(week)] = new Date(Math.min(...kicks)).toISOString();
+    let deadline = new Date(Math.min(...kicks));
+    const override = deadlineOverrides && deadlineOverrides[String(week)];
+    if (override) {
+      overridesOut[String(week)] = {
+        captureNotAfter: override,
+        reason: 'date-flex reserve (synthetic)',
+        authority: 'test-fixture',
+        sourceDerived: deadline.toISOString(),
+      };
+      const cap = new Date(override);
+      if (cap < deadline) deadline = cap;
+    }
+    captureNotAfter[String(week)] = deadline.toISOString();
   }
-  const manifest = { season, source: 'synthetic test season', captureNotAfter, games: manifestGames };
+  const manifest = {
+    season,
+    source: 'synthetic test season',
+    ...(Object.keys(overridesOut).length > 0 ? { deadlineOverrides: overridesOut } : {}),
+    captureNotAfter,
+    games: manifestGames,
+  };
   manifest.digest = computeManifestDigest(manifest);
 
   return {

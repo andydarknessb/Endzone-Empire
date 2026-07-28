@@ -17,11 +17,19 @@
  * Deadline policy (`captureNotAfter`, one instant per week): the week's
  * earliest scheduled kickoff, taking `gameday` + `gametime` as
  * America/New_York wall time and converting to UTC. A game with no listed
- * time counts as 00:00 ET on its gameday. Both rules are CONSERVATIVE - the
- * derived deadline can be earlier than the true first kickoff (a flexed
- * game, a TBD time) but never later, which is the property the holdout
- * cutoff needs. Runtime schedule data may tighten this deadline further; it
- * must never extend it.
+ * time counts as 00:00 ET on its gameday. On top of that, DEADLINE_OVERRIDES
+ * models the league's date-flex reservations the source cannot express -
+ * weeks where games can still be MOVED EARLIER after the schedule release
+ * (e.g. the Week 18 Saturday reserve, assigned only after Week 17, while
+ * the source carries placeholder Sunday times). The effective deadline is
+ * MIN(source-derived, override). All three rules are CONSERVATIVE - the
+ * derived deadline can be earlier than the true first kickoff but never
+ * later, which is the property the holdout cutoff needs. Runtime schedule
+ * data may tighten this deadline further; it must never extend it.
+ *
+ * The CSV's bytes are verified against the pinned git blob SHA before
+ * anything is derived from them, so the manifest provably came from the
+ * revision it names.
  *
  * `--cross-check-db` additionally compares game identities against the
  * synced `nfl_games` rows (read-only; needs .env). The structural checks and
@@ -29,6 +37,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const args = process.argv.slice(2);
 const flag = (name) => {
@@ -41,14 +50,30 @@ if (CROSS_CHECK_DB) {
 }
 
 const { normalizeTeamKey } = require('../services/projectionFeatures');
-const { computeManifestDigest, SEASON_WEEKS } = require('../services/scheduleManifest');
+const {
+  computeManifestDigest,
+  verifySeasonManifest,
+  SEASON_WEEKS,
+  CANONICAL_TEAM_KEYS,
+} = require('../services/scheduleManifest');
 
-const CANONICAL_TEAM_KEYS = [
-  'ARI', 'ATL', 'BAL', 'BUF', 'CAR', 'CHI', 'CIN', 'CLE', 'DAL', 'DEN',
-  'DET', 'GB', 'HOU', 'IND', 'JAX', 'KC', 'LAC', 'LAR', 'LV', 'MIA',
-  'MIN', 'NE', 'NO', 'NYG', 'NYJ', 'PHI', 'PIT', 'SEA', 'SF', 'TB',
-  'TEN', 'WAS',
-];
+/**
+ * Date-flex reservations the source file cannot express: weeks where the
+ * league can still assign games to an EARLIER day after the schedule
+ * release. Each entry caps the week's deadline at the earliest possible
+ * kickoff of the reserved slot; the source's stored times for such weeks
+ * are placeholders and must not be treated as authoritative (the sync layer
+ * already documents this for Week 18 - see nflverseSync.service.js).
+ */
+const DEADLINE_OVERRIDES = {
+  2026: {
+    18: {
+      captureNotAfter: '2027-01-09T18:00:00.000Z', // Sat Jan 9, 1:00 p.m. ET (EST)
+      reason: 'NFL 2026 flexible scheduling reserves up to three Week 18 games for Saturday 2027-01-09 beginning 1:00 p.m. ET, assigned only after Week 17; the source carries placeholder Sunday times until then.',
+      authority: 'https://www.nfl.com/_amp/2026-flexible-scheduling-procedures-and-scheduling-for-week-18',
+    },
+  },
+};
 
 function splitCsvLine(line) {
   const fields = [];
@@ -104,7 +129,21 @@ function easternWallToUtc(dateStr, timeStr) {
       throw new Error('required: --csv <path> --commit <sha> --blob <sha> (the pinned nfldata revision)');
     }
 
-    const lines = fs.readFileSync(csvPath, 'utf8').trim().split(/\r?\n/);
+    // Prove the CSV is the pinned revision before deriving anything from it:
+    // git's blob SHA is sha1("blob <len>\0" + bytes).
+    const csvBytes = fs.readFileSync(csvPath);
+    const actualBlob = crypto.createHash('sha1')
+      .update(`blob ${csvBytes.length}\0`)
+      .update(csvBytes)
+      .digest('hex');
+    if (actualBlob !== blob) {
+      throw new Error(
+        `games.csv does not match the pinned blob SHA (file hashes to ${actualBlob}, pinned ${blob}) - ` +
+        'refusing to derive a manifest from bytes that are not the named revision'
+      );
+    }
+
+    const lines = csvBytes.toString('utf8').trim().split(/\r?\n/);
     const header = splitCsvLine(lines[0]);
     const col = Object.fromEntries(header.map((h, i) => [h, i]));
     for (const name of ['season', 'game_type', 'week', 'away_team', 'home_team', 'gameday', 'gametime']) {
@@ -142,10 +181,18 @@ function easternWallToUtc(dateStr, timeStr) {
     }
 
     const captureNotAfter = {};
+    const deadlineOverrides = {};
     for (let week = 1; week <= SEASON_WEEKS; week++) {
       const kicks = games.filter((g) => g.week === week).map((g) => g.kickoffUtc.getTime());
       if (kicks.length === 0) { errors.push(`week ${week} has no games`); continue; }
-      captureNotAfter[String(week)] = new Date(Math.min(...kicks)).toISOString();
+      let deadline = new Date(Math.min(...kicks));
+      const override = (DEADLINE_OVERRIDES[season] || {})[week];
+      if (override) {
+        deadlineOverrides[String(week)] = { ...override, sourceDerived: deadline.toISOString() };
+        const cap = new Date(override.captureNotAfter);
+        if (cap < deadline) deadline = cap; // MIN: an override tightens, never extends
+      }
+      captureNotAfter[String(week)] = deadline.toISOString();
     }
 
     if (CROSS_CHECK_DB) {
@@ -183,12 +230,16 @@ function easternWallToUtc(dateStr, timeStr) {
         blobSha: blob,
         fetchedAt,
         generator: 'server/scripts/generate-schedule-manifest.js',
-        deadlinePolicy: 'captureNotAfter per week = earliest scheduled kickoff (gameday+gametime as America/New_York, converted to UTC; a game with no listed time counts as 00:00 ET on its gameday). Conservative: never later than the true first kickoff. Runtime data may tighten, never extend.',
+        deadlinePolicy: 'captureNotAfter per week = MIN(earliest scheduled kickoff (gameday+gametime as America/New_York, converted to UTC; a game with no listed time counts as 00:00 ET on its gameday), any date-flex override in deadlineOverrides). Conservative: never later than the earliest possible kickoff. Runtime data may tighten, never extend.',
       },
+      ...(Object.keys(deadlineOverrides).length > 0 ? { deadlineOverrides } : {}),
       captureNotAfter,
       games: games.map(({ week, away, home }) => ({ week, away, home })),
     };
     manifest.digest = computeManifestDigest(manifest);
+    // The same gate the service runs at load: a manifest this generator
+    // cannot verify must never be written.
+    verifySeasonManifest(manifest);
 
     const outPath = flag('out') || path.join(__dirname, '..', 'data', `nfl-schedule-${season}.json`);
     fs.writeFileSync(outPath, JSON.stringify(manifest, null, 2) + '\n');

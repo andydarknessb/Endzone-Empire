@@ -8,7 +8,15 @@
     "blobSha": "4f1edd10f607152ad3a8a3286aac567929781c42",
     "fetchedAt": "2026-07-28T22:05:00.000Z",
     "generator": "server/scripts/generate-schedule-manifest.js",
-    "deadlinePolicy": "captureNotAfter per week = earliest scheduled kickoff (gameday+gametime as America/New_York, converted to UTC; a game with no listed time counts as 00:00 ET on its gameday). Conservative: never later than the true first kickoff. Runtime data may tighten, never extend."
+    "deadlinePolicy": "captureNotAfter per week = MIN(earliest scheduled kickoff (gameday+gametime as America/New_York, converted to UTC; a game with no listed time counts as 00:00 ET on its gameday), any date-flex override in deadlineOverrides). Conservative: never later than the earliest possible kickoff. Runtime data may tighten, never extend."
+  },
+  "deadlineOverrides": {
+    "18": {
+      "captureNotAfter": "2027-01-09T18:00:00.000Z",
+      "reason": "NFL 2026 flexible scheduling reserves up to three Week 18 games for Saturday 2027-01-09 beginning 1:00 p.m. ET, assigned only after Week 17; the source carries placeholder Sunday times until then.",
+      "authority": "https://www.nfl.com/_amp/2026-flexible-scheduling-procedures-and-scheduling-for-week-18",
+      "sourceDerived": "2027-01-10T18:00:00.000Z"
+    }
   },
   "captureNotAfter": {
     "1": "2026-09-10T00:20:00.000Z",
@@ -28,7 +36,7 @@
     "15": "2026-12-18T01:15:00.000Z",
     "16": "2026-12-25T01:15:00.000Z",
     "17": "2027-01-01T01:15:00.000Z",
-    "18": "2027-01-10T18:00:00.000Z"
+    "18": "2027-01-09T18:00:00.000Z"
   },
   "games": [
     {
@@ -1392,5 +1400,5 @@
       "home": "WAS"
     }
   ],
-  "digest": "131a4e8ff14a54b0eb47449ee1a5b07c3936e5aec4bb9421576c76a56f4dcd57"
+  "digest": "61396fd2b09bdf0996bb2468bc3205ec9cb6d629b0733d63811718b95df8f176"
 }
