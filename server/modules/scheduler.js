@@ -54,6 +54,29 @@ async function tickUnlocked() {
   if (running) return; // don't overlap slow runs
   running = true;
   try {
+    // Data-freshness and deadline duties FIRST, each in its own containment:
+    // corrections and finalization so the holdout captures corrected inputs,
+    // then the holdout capture itself — a duty with a hard real-world
+    // deadline must not sit behind waivers, trades, or live scoring, any of
+    // which can throw and abort the rest of a tick.
+    try {
+      await runDailyStatCorrections();
+    } catch (err) {
+      // The throw already did its real job: it fired before the correction day
+      // was stamped, so the next 5-minute tick retries the pass. Containing it
+      // here keeps one bad correction day from also skipping every other duty.
+      console.error('daily stat corrections failed (will retry next tick):', err.message);
+    }
+    try {
+      await runNflverseFinalization();
+    } catch (err) {
+      console.error('nflverse finalization failed (will retry next tick):', err.message);
+    }
+    try {
+      await runHoldoutSnapshots();
+    } catch (err) {
+      console.error('holdout snapshot pass failed (will retry next tick):', err.message);
+    }
     const waivers = await processAllDueWaivers();
     if (waivers.length > 0) {
       console.log(`scheduler: processed waivers for ${waivers.length} league(s)`);
@@ -94,21 +117,6 @@ async function tickUnlocked() {
     if (ticksSinceSync >= (await syncEveryTicks())) {
       const synced = await syncAndScoreLiveWeeks();
       if (synced) ticksSinceSync = 0;
-    }
-    try {
-      await runDailyStatCorrections();
-    } catch (err) {
-      // The throw already did its real job: it fired before the correction day
-      // was stamped, so the next 5-minute tick retries the pass. Containing it
-      // here keeps one bad correction day from also skipping the finalization
-      // and retention duties below.
-      console.error('daily stat corrections failed (will retry next tick):', err.message);
-    }
-    await runNflverseFinalization();
-    try {
-      await runHoldoutSnapshots();
-    } catch (err) {
-      console.error('holdout snapshot pass failed (will retry next tick):', err.message);
     }
     await runRetention();
     lastTickError = null;

@@ -92,6 +92,15 @@ jobs:
       - run: npm run migrate
       - run: npm run migrate:rollback
       - run: npm run migrate
+      # Holdout-ledger guarantees that only a real Postgres can prove:
+      # append-only triggers, the child kickoff cutoff, transactional
+      # atomicity, role/RLS compatibility, and the nonempty-rollback
+      # refusal. Runs LAST: these tests insert ledger rows that by design
+      # cannot be deleted, and the empty-ledger rollback smoke above must
+      # keep passing.
+      - run: npm run test:holdout-pg
+        env:
+          HOLDOUT_PG_TESTS: "1"
 
   dependency-audit-root:
     runs-on: ubuntu-latest

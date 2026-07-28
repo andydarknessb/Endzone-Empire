@@ -49,6 +49,36 @@ async function redisStatus() {
   }
 }
 
+/**
+ * Holdout-capture completeness, read from the durable status table the
+ * worker upserts (getSchedulerStatus is in-memory and lives in the OTHER
+ * process, so it cannot carry this). `ok` means no recent attempt is
+ * sitting in `failed` — a transient failure that later succeeded upserts
+ * itself back to captured/skipped.
+ */
+async function holdoutStatus() {
+  try {
+    const result = await pool.query(
+      `SELECT "season", "week", "scoring_profile", "status", "message", "attempts", "updated_at"
+       FROM "holdout_capture_status"
+       ORDER BY "season" DESC, "week" DESC, "scoring_profile"
+       LIMIT 12`
+    );
+    const rows = result.rows.map((row) => ({
+      season: row.season,
+      week: row.week,
+      profile: row.scoring_profile,
+      status: row.status,
+      message: row.message,
+      attempts: row.attempts,
+      updatedAt: row.updated_at,
+    }));
+    return { ok: rows.every((row) => row.status !== 'failed'), captures: rows };
+  } catch (error) {
+    return { ok: true, captures: [], unavailable: true };
+  }
+}
+
 async function workerStatus() {
   try {
     const result = await pool.query(
@@ -118,11 +148,12 @@ async function quotaStatus() {
 }
 
 router.get('/', async (req, res) => {
-  const [db, redis, worker, quota] = await Promise.all([
+  const [db, redis, worker, quota, holdout] = await Promise.all([
     databaseStatus(),
     redisStatus(),
     workerStatus(),
     quotaStatus(),
+    holdoutStatus(),
   ]);
   const runtime = getRuntimeState();
   const ok = runtime.ready && db.ok && redis.ok;
@@ -133,6 +164,7 @@ router.get('/', async (req, res) => {
     runtime,
     worker,
     quota,
+    holdout,
     scheduler: getSchedulerStatus(),
     liveGameEngine: getLiveGameEngineStatus(),
     uptimeSec: Math.round(process.uptime()),

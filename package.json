@@ -64,6 +64,7 @@
     "seed": "knex seed:run",
     "test": "react-scripts test --env=jsdom --watchAll=false",
     "test:server": "node --test server/test/**/*.test.js",
+    "test:holdout-pg": "node --test server/test/holdout.pg.test.js",
     "test:security": "playwright test --config=playwright.security.config.js",
     "test:e2e:auth-offline": "playwright test --config=playwright.e2e.config.js",
     "test:draft-autopick": "react-scripts test --env=node --watchAll=false --runInBand --runTestsByPath src/lib/draftAutopickClock.integration.test.js",
