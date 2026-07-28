@@ -95,7 +95,15 @@ async function tickUnlocked() {
       const synced = await syncAndScoreLiveWeeks();
       if (synced) ticksSinceSync = 0;
     }
-    await runDailyStatCorrections();
+    try {
+      await runDailyStatCorrections();
+    } catch (err) {
+      // The throw already did its real job: it fired before the correction day
+      // was stamped, so the next 5-minute tick retries the pass. Containing it
+      // here keeps one bad correction day from also skipping the finalization
+      // and retention duties below.
+      console.error('daily stat corrections failed (will retry next tick):', err.message);
+    }
     await runNflverseFinalization();
     await runRetention();
     lastTickError = null;
@@ -206,8 +214,10 @@ async function runDailyStatCorrections() {
   if (lastCorrectionDay === today) return;
   const result = await correction.resyncPriorWeeks();
   // Stamp the day only after a successful pass: a transient failure (bubbling
-  // to tick()'s catch) retries on the next 5-minute tick instead of silently
-  // skipping the rest of a correction day.
+  // to the caller's catch in tickUnlocked) retries on the next 5-minute tick
+  // instead of silently skipping the rest of a correction day. This covers
+  // projection-cache maintenance too — resyncPriorWeeks finishes the whole
+  // pass and then throws an aggregate error if any cache operation failed.
   lastCorrectionDay = today;
   if (result.corrected && result.corrected.length > 0) {
     console.log(`scheduler: stat corrections changed scores in ${result.corrected.length} league(s)`);

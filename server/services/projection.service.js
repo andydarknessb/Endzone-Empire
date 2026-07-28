@@ -567,14 +567,23 @@ async function saveProjections({ runId, projections, client }) {
 }
 
 /**
- * Drop every cached run for one (season, week) under the CURRENT model, across
- * all scoring profiles.
+ * Drop every cached run for `fromWeek` AND EVERY LATER WEEK of one season
+ * under the CURRENT model, across all scoring profiles.
  *
  * This exists because a stat correction rewrites the history the following
- * week's projections were computed from, which makes every cached row for that
- * week a number derived from data that no longer exists. The legacy
+ * weeks' projections were computed from, which makes every cached row for
+ * those weeks a number derived from data that no longer exists. The legacy
  * `player_projections` cache has a `refresh: true` path; the versioned cache
  * did not, so v3 runs survived corrections and were served indefinitely.
+ *
+ * `>=` rather than `=`, deliberately. A corrected week W is consumed as
+ * history by EVERY later target week, not just W+1, and later weeks really do
+ * get cached ahead of time: the advice API accepts any future week
+ * (lineup.service caps only PAST-week edits), so a run for W+3 requested
+ * before the correction would otherwise survive it and be served stale
+ * forever. Weeks up to and including W are untouched — their projections were
+ * computed from weeks strictly before W and the correction cannot have
+ * changed their inputs.
  *
  * DELETE rather than regenerate, deliberately. Regenerating would mean
  * enumerating every league's scoring profile and every league's rosters and
@@ -591,25 +600,26 @@ async function saveProjections({ runId, projections, client }) {
  *
  * @param {object} args
  * @param {number} args.season
- * @param {number} args.week           the week whose cache is now stale
+ * @param {number} args.fromWeek       first stale week — this one and every
+ *                                     later week of the season are dropped
  * @param {string} [args.modelVersion] defaults to the shipped model
  * @param {object} [args.client]       injectable for tests / transactions
- * @returns {Promise<{ season, week, modelVersion, deletedRuns }>}
+ * @returns {Promise<{ season, fromWeek, modelVersion, deletedRuns }>}
  */
 async function invalidateWeeklyProjectionRuns({
   season,
-  week,
+  fromWeek,
   modelVersion = model.MODEL_VERSION,
   client = pool,
 } = {}) {
   const result = await client.query(
     `DELETE FROM "projection_runs"
-     WHERE "season" = $1 AND "week" = $2 AND "model_version" = $3`,
-    [season, week, modelVersion]
+     WHERE "season" = $1 AND "week" >= $2 AND "model_version" = $3`,
+    [season, fromWeek, modelVersion]
   );
   return {
     season,
-    week,
+    fromWeek,
     modelVersion,
     deletedRuns: Number(result && result.rowCount) || 0,
   };

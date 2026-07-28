@@ -268,10 +268,11 @@ test('a corrected week refreshes the legacy cache AND invalidates the versioned 
   assert.equal(seen.legacy[0].refresh, true);
 
   assert.equal(seen.invalidated.length, 1, 'the versioned cache must be invalidated too');
-  assert.deepEqual(seen.invalidated[0], { season: 2026, week: 4 });
-  // The corrected week itself is history now; what went stale is the week whose
-  // projections were computed FROM it.
-  assert.notEqual(seen.invalidated[0].week, 3, 'invalidating week 3 would clear the wrong cache');
+  assert.deepEqual(seen.invalidated[0], { season: 2026, fromWeek: 4 });
+  // The corrected week itself is history now; what went stale is every week
+  // whose projections were computed FROM it — week 4 onward, which is what
+  // fromWeek (as opposed to an exact week) hands the helper.
+  assert.notEqual(seen.invalidated[0].fromWeek, 3, 'starting at week 3 would clear the wrong cache');
 });
 
 test('invalidation runs once per corrected season/week, not once per league', async (t) => {
@@ -293,9 +294,9 @@ test('invalidation runs once per corrected season/week, not once per league', as
     'one invalidation per distinct (season, week), not one per league'
   );
   assert.deepEqual(
-    seen.invalidated.map((a) => a.week).sort(),
+    seen.invalidated.map((a) => a.fromWeek).sort(),
     [4, 5],
-    'each corrected week invalidates the week after it'
+    'each corrected week invalidates from the week after it onward'
   );
   assert.equal(seen.legacy.length, 2, 'the legacy refresh is also per-week, not per-league');
 });
@@ -309,7 +310,11 @@ test('one cache-maintenance failure does not prevent attempting the other', asyn
     onLegacy: () => { throw new Error('legacy cache exploded'); },
   });
 
-  await correctionSvc.resyncPriorWeeks();
+  await assert.rejects(
+    correctionSvc.resyncPriorWeeks(),
+    /cache maintenance operation\(s\) failed/,
+    'the pass must surface the failure so the scheduler retries instead of stamping the day'
+  );
 
   assert.equal(
     seen.invalidated.length,
@@ -322,7 +327,7 @@ test('one cache-maintenance failure does not prevent attempting the other', asyn
   assert.deepEqual(logged.slice(1, 3), [2026, 4], 'with season and week context');
 });
 
-test('a failed invalidation is logged and still lets the leagues be corrected', async (t) => {
+test('a failed invalidation surfaces AFTER the leagues are corrected', async (t) => {
   const logs = [];
   t.mock.method(console, 'error', (...args) => { logs.push(args); });
 
@@ -331,11 +336,53 @@ test('a failed invalidation is logged and still lets the leagues be corrected', 
     onInvalidate: () => { throw new Error('delete failed'); },
   });
 
-  await correctionSvc.resyncPriorWeeks();
+  const rejection = await correctionSvc.resyncPriorWeeks().then(
+    () => assert.fail('a failed invalidation must reject, or the scheduler stamps the day'),
+    (err) => err
+  );
 
   assert.equal(seen.legacy.length, 1, 'the legacy refresh still happened');
-  assert.deepEqual(correctedLeagueIds, [42], 'and the correction itself is not abandoned');
+  assert.deepEqual(correctedLeagueIds, [42], 'and the correction itself ran to completion first');
+  assert.deepEqual(
+    rejection.cacheFailures,
+    [{ op: 'run invalidation', season: 2026, week: 4, message: 'delete failed' }],
+    'the aggregate error carries the exact failed operations'
+  );
   const logged = logs.find((l) => String(l[0]).includes('invalidation failed'));
-  assert.ok(logged, 'the failure is logged rather than swallowed');
+  assert.ok(logged, 'the failure is also logged as it happens');
   assert.deepEqual(logged.slice(1, 3), [2026, 4], 'with season and week context');
+});
+
+test('a failure in one corrected week does not skip cache maintenance for the next', async (t) => {
+  t.mock.method(console, 'error', () => {});
+
+  // Two distinct corrected weeks: leagues on week 4 (correcting week 3) and
+  // week 5 (correcting week 4). Week 4's invalidation fails; week 5's whole
+  // maintenance pass and every league correction must still run before the
+  // aggregate error is thrown.
+  const correctedLeagueIds = stubLeagues(t, [
+    { id: 1, current_season: 2026, current_week: 4 },
+    { id: 2, current_season: 2026, current_week: 5 },
+  ]);
+  const seen = stubCaches(t, {
+    onInvalidate: ({ fromWeek }) => {
+      if (fromWeek === 4) throw new Error('first week delete failed');
+      return { deletedRuns: 1 };
+    },
+  });
+
+  const rejection = await correctionSvc.resyncPriorWeeks().then(
+    () => assert.fail('the aggregate failure must still reject'),
+    (err) => err
+  );
+
+  assert.equal(seen.legacy.length, 2, 'both weeks got their legacy refresh');
+  assert.deepEqual(
+    seen.invalidated.map((a) => a.fromWeek).sort(),
+    [4, 5],
+    'both weeks got their invalidation ATTEMPT'
+  );
+  assert.deepEqual(correctedLeagueIds.sort(), [1, 2], 'every league was still corrected');
+  assert.equal(rejection.cacheFailures.length, 1, 'only the one real failure is reported');
+  assert.equal(rejection.cacheFailures[0].week, 4);
 });

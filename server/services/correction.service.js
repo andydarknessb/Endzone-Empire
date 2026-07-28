@@ -240,6 +240,7 @@ async function resyncPriorWeeks({ source = 'nflverse' } = {}) {
   }
 
   const results = [];
+  const cacheFailures = [];
   for (const { season, week, leagueIds } of weeks.values()) {
     try {
       if (source === 'nflverse') {
@@ -255,7 +256,7 @@ async function resyncPriorWeeks({ source = 'nflverse' } = {}) {
       console.error('stat correction: sync failed for %s week %s:', season, week, err.message);
       continue; // don't re-score leagues from stale stats
     }
-    // Corrected stats shift season averages, so the following week's cached
+    // Corrected stats shift season averages, so every LATER week's cached
     // projections were computed from history that no longer exists. There are
     // TWO caches and they need opposite treatment:
     //
@@ -264,14 +265,17 @@ async function resyncPriorWeeks({ source = 'nflverse' } = {}) {
     //  2. `projection_runs` + `player_week_projections` (the versioned engine)
     //     is per-scoring-profile and per-player. Regenerating it here would
     //     mean enumerating every league's scoring profile and every league's
-    //     roster, so it is INVALIDATED instead and rebuilt lazily by whoever
-    //     asks next. Without this it was never invalidated at all: corrected
-    //     stats moved the legacy numbers while the start/sit engine kept
-    //     serving pre-correction ones.
+    //     roster, so it is INVALIDATED instead — from week+1 THROUGH THE END
+    //     OF THE SEASON, because the advice API caches arbitrary future weeks
+    //     — and rebuilt lazily by whoever asks next. Without this it was never
+    //     invalidated at all: corrected stats moved the legacy numbers while
+    //     the start/sit engine kept serving pre-correction ones.
     //
     // Both run ONCE per corrected (season, week) — this loop is already keyed
     // that way — not once per league, and neither failing is allowed to skip
-    // the other, so they get independent try blocks.
+    // the other or the league corrections below, so failures are RECORDED
+    // rather than thrown here and surfaced as one aggregate error after the
+    // whole pass finishes (see the end of this function).
     const nextWeek = week + 1;
     const projection = require('./projection.service');
     try {
@@ -283,9 +287,10 @@ async function resyncPriorWeeks({ source = 'nflverse' } = {}) {
         nextWeek,
         err.message
       );
+      cacheFailures.push({ op: 'legacy refresh', season, week: nextWeek, message: err.message });
     }
     try {
-      await projection.invalidateWeeklyProjectionRuns({ season, week: nextWeek });
+      await projection.invalidateWeeklyProjectionRuns({ season, fromWeek: nextWeek });
     } catch (err) {
       console.error(
         'stat correction: weekly projection cache invalidation failed for %s week %s:',
@@ -293,6 +298,7 @@ async function resyncPriorWeeks({ source = 'nflverse' } = {}) {
         nextWeek,
         err.message
       );
+      cacheFailures.push({ op: 'run invalidation', season, week: nextWeek, message: err.message });
     }
     for (const leagueId of leagueIds) {
       try {
@@ -302,6 +308,24 @@ async function resyncPriorWeeks({ source = 'nflverse' } = {}) {
         console.error('stat correction failed for league %s:', leagueId, err.message);
       }
     }
+  }
+  // Cache maintenance failures surface AFTER the whole pass so the scheduler's
+  // stamp-only-on-success design actually covers them: swallowing one here
+  // would mark the correction day complete with stale projection rows still
+  // being served, and the five-minute retry the scheduler documents would
+  // never fire. Every week's sync, cache work and league corrections have
+  // already run by this point, so the retry the throw buys re-enters an
+  // idempotent pass.
+  if (cacheFailures.length > 0) {
+    const summary = cacheFailures
+      .map((f) => `${f.op} (${f.season} week ${f.week}): ${f.message}`)
+      .join('; ');
+    const err = new Error(
+      `stat correction: ${cacheFailures.length} projection cache maintenance operation(s) failed — ${summary}`
+    );
+    err.cacheFailures = cacheFailures;
+    err.corrected = results;
+    throw err;
   }
   return { corrected: results };
 }
