@@ -55,6 +55,10 @@ const COINCIDES_WITH_DEFAULTS = [
   // Older, and deliberate: interval-145 has been the shipped intervalScale
   // since v2.1. It exists as the labeled midpoint of the interval sweep.
   'interval-145',
+  // Selected by the v3 usage sweep on the enriched seasons. usage-40 and
+  // usage-60 stay real variations: they were REJECTED for regressing 2025
+  // lineup regret, so a run must still be able to reproduce that finding.
+  'usage-25',
 ];
 
 test('configurations that now equal the shipped defaults are known and listed', () => {
@@ -84,7 +88,8 @@ test('every named configuration is a real variation of the shipped constants', (
     backtest.CONFIGURATIONS['heavy-shrink'](base).baseline.priorSeasonPseudoGames,
     base.baseline.priorSeasonPseudoGames * 2
   );
-  assert.equal(backtest.CONFIGURATIONS['usage-25'](base).usage.blendWeight, 0.25);
+  assert.equal(backtest.CONFIGURATIONS['usage-25'](base).usage.blendWeight, 0.25); // == the default
+
   assert.equal(backtest.CONFIGURATIONS['usage-40'](base).usage.blendWeight, 0.40);
   assert.equal(backtest.CONFIGURATIONS['usage-60'](base).usage.blendWeight, 0.60);
   assert.equal(backtest.CONFIGURATIONS['interval-130'](base).simulation.intervalScale, 1.30);
@@ -103,17 +108,15 @@ test('every named configuration is a real variation of the shipped constants', (
 });
 
 /**
- * Unlike every other sweep here, this one is not re-checking a decision that
- * already landed: the opportunity component ships at weight 0, so `default`
- * scores it at no weight at all and these three configs are the ONLY way it
- * gets measured. That makes two things load-bearing — that each config really
- * produces the weight it names, and that the shipped default stays 0 until a
- * run says otherwise.
+ * `usage-25` won this sweep and became the v3 default, so the two heavier arms
+ * are the part that still has to work: they are the reproduction path for the
+ * finding that rejected them (2025 lineup regret 13.76 -> 14.54). A config that
+ * drifted off the weight it names would make that finding unreproducible.
  */
 test('the usage sweep varies only the opportunity blend weight', () => {
   const model = require('../services/projectionModel');
   const base = model.MODEL_CONSTANTS;
-  assert.equal(base.usage.blendWeight, 0, 'the shipped component is off, so `default` is the w=0 arm');
+  assert.equal(base.usage.blendWeight, 0.25, '`default` is now the selected 0.25 arm');
   const expected = { 'usage-25': 0.25, 'usage-40': 0.40, 'usage-60': 0.60 };
   for (const [name, weight] of Object.entries(expected)) {
     const constants = backtest.CONFIGURATIONS[name](base);
@@ -131,8 +134,8 @@ test('the usage sweep varies only the opportunity blend weight', () => {
     assert.deepEqual(constants.simulation, base.simulation, name);
   }
   // usage-60 ran above, so an in-place mutation would show up right here.
-  assert.equal(base.usage.blendWeight, 0);
-  assert.equal(model.MODEL_CONSTANTS.usage.blendWeight, 0);
+  assert.equal(base.usage.blendWeight, 0.25);
+  assert.equal(model.MODEL_CONSTANTS.usage.blendWeight, 0.25);
 });
 
 test('the older sweeps inherit the usage block untouched', () => {

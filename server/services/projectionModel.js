@@ -17,8 +17,9 @@ const crypto = require('crypto');
  *   already recomputed with calculateFantasyPoints(stats, rules).
  * - Nothing here is claimed to be the best possible value. Most of the
  *   constants below are conservative DEFAULTS chosen to be hard to embarrass;
- *   the five noted in place (the two shrinkage pseudo-game counts, the
- *   interval scale, the recency half-life and the current-season blend weight)
+ *   the six noted in place (the two shrinkage pseudo-game counts, the
+ *   interval scale, the recency half-life, the current-season blend weight and
+ *   the opportunity blend weight)
  *   were picked by running scripts/backtest-weekly-projections.js
  *   chronologically over the stored 2024 and 2025 seasons, which makes them
  *   backtest-selected on that history and nothing stronger. They are versioned
@@ -36,13 +37,16 @@ const crypto = require('crypto');
  * therefore requires a bump here, however small the tweak looks: production may
  * already hold rows computed under the old numbers.
  *
- * The single admissible exception, and the reason it is admissible: a constant
- * whose SHIPPED value provably cannot reach the output. `usage.blendWeight` is
- * 0, which short-circuits the opportunity component before it is computed, so
- * every cached v2.2 row is still exactly what this code produces today. Turning
- * that weight on is what needs the bump.
+ * v3 is that rule being obeyed rather than argued with. The opportunity
+ * component (MODEL_CONSTANTS.usage) merged inert at a blend weight of 0, which
+ * genuinely could not reach the output and so genuinely did not need a bump;
+ * the chronological sweep then selected a weight of 0.25, the component now
+ * moves every skill-position projection, and cached v2.2 rows are consequently
+ * numbers this code would no longer produce. Serving one would be serving a
+ * different model under the current model's name, which is exactly what the
+ * key exists to prevent.
  */
-const MODEL_VERSION = 'free_baseline_v2.2';
+const MODEL_VERSION = 'free_baseline_v3';
 
 /**
  * Model constants. DEFAULTS, not fitted optimums (see the file header).
@@ -112,20 +116,41 @@ const MODEL_CONSTANTS = {
   // component projects OPPORTUNITIES and prices them, instead of projecting
   // points directly the way `baseline` does.
   usage: {
-    // 0 DISABLES the component outright: `opportunityBaseline` is never even
-    // called, no usage fields appear in the explanation, and every number this
-    // engine produces is bit-identical to what it produced before the block
-    // existed. That is deliberate. The block ships inert so the merge cannot
-    // move a single projection, and so no cached `free_baseline_v2.2` row is
-    // stale under it — which is why adding this group did NOT require the
-    // MODEL_VERSION bump the file header demands of a constants change. Turning
-    // it on is a separate decision that a chronological sweep
-    // (scripts/backtest-weekly-projections.js, configs `usage-25` / `usage-40`
-    // / `usage-60`) has to justify first, and THAT change would need the bump.
-    blendWeight: 0,
-    // STARTING DEFAULTS, not fitted values, and not backtest-selected: nothing
-    // has swept them yet. Below this many usage-bearing games the opportunity
-    // estimate is too thin to price at all.
+    // How much of the final baseline comes from the opportunity component:
+    // baseline = (1 - w) * pointsBaseline + w * opportunityValue, applied ONLY
+    // when the component produced a real number.
+    //
+    // BACKTEST-SELECTED on the ENRICHED stored 2024 and 2025 seasons, which is
+    // a narrower claim than it sounds: the sweep could only run at all once
+    // player_stats carried the usage keys, so it is two seasons of re-scored
+    // history and nothing stronger. The `usage-25` configuration of
+    // scripts/backtest-weekly-projections.js improved or held every gate
+    // metric in BOTH seasons against the v2.2 reference (2025: MAE 4.12 ->
+    // 4.11, RMSE 5.95 -> 5.93, rho .594 -> .598, pairwise accuracy .701 ->
+    // .703, lineup regret unchanged at 13.76, coverage .828; 2024: MAE
+    // unchanged at 4.05, RMSE 5.89 -> 5.88, rho .626 -> .629, pairwise
+    // accuracy .709 -> .711, regret unchanged at 12.10, coverage .735). Small,
+    // consistent, and in the same direction twice.
+    //
+    // The heavier arms were REJECTED, and it is worth saying why rather than
+    // just recording the winner: `usage-40` and `usage-60` bought a little more
+    // rank correlation and gave back lineup regret on 2025 (13.76 -> 14.54).
+    // Regret is the metric that measures the decision this app actually makes
+    // for a manager, so a config that ranks marginally better while starting a
+    // worse lineup fails the gate no matter what rho says.
+    blendWeight: 0.25,
+    // 0 disables the component outright: `opportunityBaseline` is then never
+    // called, no usage fields appear in the explanation, and every number is
+    // exactly what v2.2 produced. That is the pre-v3 behavior, still reachable
+    // by a caller passing its own constants.
+    //
+    // The two below were HELD FIXED at these values for the entire weight
+    // sweep, so they are starting values that have never been swept
+    // individually and carry no backtest claim at all. A future sweep crossing
+    // them with the weight is the obvious next comparison.
+    //
+    // Below this many usage-bearing games the opportunity estimate is too thin
+    // to price at all.
     minUsageGames: 3,
     // Shrinkage for points-per-opportunity, denominated in OPPORTUNITIES (not
     // games): the position-wide rate is worth 25 opportunities of evidence,

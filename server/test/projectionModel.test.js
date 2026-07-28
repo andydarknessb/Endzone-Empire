@@ -157,7 +157,7 @@ test('the shipped constants switch the current-season blend ON at the selected p
   );
   // A constants change without a version bump serves rows computed under the
   // old numbers from cache as if they were current.
-  assert.equal(model.MODEL_VERSION, 'free_baseline_v2.2');
+  assert.equal(model.MODEL_VERSION, 'free_baseline_v3');
 });
 
 test('a zero or absent blend weight reproduces the pre-blend math exactly', () => {
@@ -321,15 +321,26 @@ const USAGE_GAMES = () => [
 /** The same games with every usage key removed: a pre-enrichment database. */
 const stripUsage = (games) => games.map(({ usage, ...rest }) => rest);
 
-test('the opportunity component ships switched OFF and inert', () => {
+test('the opportunity component ships switched ON at the selected weight', () => {
   const { blendWeight, minUsageGames, efficiencyPseudoOpportunities } = model.MODEL_CONSTANTS.usage;
-  assert.equal(blendWeight, 0, 'shipping this above 0 is a model change and needs a version bump');
-  // The other two are starting defaults, not swept values, but they are pinned
-  // so a drift shows up as a failing test rather than as a quietly different
-  // gate on every projection the day the weight is turned on.
+  assert.equal(blendWeight, 0.25, 'the weight the enriched two-season sweep selected');
+  // Mutation guard: 0 is the neutral element of this blend, so a default that
+  // drifted back to it would leave every machinery test below still passing
+  // while the shipped model quietly reverted to v2.2.
+  assert.notEqual(blendWeight, 0, 'a 0 default is the component switched off, not a selected value');
+  assert.ok(
+    blendWeight < 0.40,
+    'usage-40 was the first REJECTED arm (2025 lineup regret 13.76 -> 14.54); ' +
+    'shipping at or above it re-introduces the trade the sweep turned down'
+  );
+  // Held fixed for the whole weight sweep, so these two carry no backtest claim
+  // of their own. Pinned anyway: a drift would silently change the gate on
+  // every projection while the weight above still looked like the swept one.
   assert.equal(minUsageGames, 3);
   assert.equal(efficiencyPseudoOpportunities, 25);
-  assert.equal(model.MODEL_VERSION, 'free_baseline_v2.2', 'an inert block must not bump the version');
+  // A component that now reaches the output cannot share a cache key with the
+  // version that computed without it.
+  assert.equal(model.MODEL_VERSION, 'free_baseline_v3');
 });
 
 test('opportunitiesForGame counts attempts for a QB and touches for skill positions', () => {
@@ -854,28 +865,31 @@ const atBlend = (weight) => ({
   usage: { ...model.MODEL_CONSTANTS.usage, blendWeight: weight },
 });
 
-test('the opportunity component is INERT at blend weight 0, however much usage the games carry', () => {
-  const args = usageArgs();
-  // The pre-change reference, built from the model itself: the identical
-  // fixture with every usage key removed cannot possibly have run a component
-  // that needs them, so whatever it produces IS v2.2 behavior.
-  const preChange = model.projectPlayer(usageArgs({ priorGames: stripUsage(args.priorGames) }));
+test('a zero or absent blend weight reproduces v2.2 exactly, however much usage the games carry', () => {
+  // A property of the MACHINERY (weight 0 is the identity), not of whatever
+  // weight happens to ship, so every run here pins its own constants. The v2.2
+  // reference is built from the model itself: the identical fixture with every
+  // usage key removed, scored at weight 0, cannot have run a component that
+  // needs them.
+  const preChange = model.projectPlayer(usageArgs({
+    priorGames: stripUsage(usageArgs().priorGames),
+    constants: atBlend(0),
+  }));
 
-  assert.deepEqual(model.projectPlayer(args), preChange, 'the shipped defaults must not see the usage keys');
   assert.deepEqual(
     model.projectPlayer(usageArgs({ constants: atBlend(0) })),
     preChange,
-    'an explicit weight of 0 is the identity'
+    'an explicit weight of 0 is the identity, usage keys present or not'
   );
 
   // A constants object from before the block existed, key genuinely absent.
   const { usage, ...noUsageBlock } = model.MODEL_CONSTANTS;
   assert.equal('usage' in noUsageBlock, false);
-  assert.equal(usage.blendWeight, 0, 'the block really was present to begin with');
+  assert.equal(usage.blendWeight, 0.25, 'the block really was present to begin with');
   assert.deepEqual(
     model.projectPlayer(usageArgs({ constants: noUsageBlock })),
     preChange,
-    'a constants object with no usage block at all behaves exactly as before'
+    'a constants object with no usage block at all behaves exactly as v2.2 did'
   );
   // Non-numeric junk is read as "off", never coerced into a weight.
   for (const junk of [null, undefined, '', true, NaN, 'a quarter']) {
@@ -885,11 +899,36 @@ test('the opportunity component is INERT at blend weight 0, however much usage t
       `blend weight ${String(junk)} must be read as "off"`
     );
   }
-  // Inertness is structural, not numeric: an off component leaves no trace in
-  // the explanation either, so the cached `factors` jsonb is byte-identical to
-  // every v2.2 row already in production.
+  // Inertness is structural, not just numeric: an off component leaves no trace
+  // in the explanation either, so a caller pinning weight 0 gets a `factors`
+  // payload shaped exactly like the v2.2 rows already in production.
   assert.equal('opportunityValue' in preChange.factors.recentProduction, false);
   assert.equal('usageBlendWeight' in preChange.factors.recentProduction, false);
+});
+
+test('the SHIPPED defaults now price opportunities and say so in the explanation', () => {
+  // The other side of the property above: v3 ships a nonzero weight, so a
+  // fixture carrying usage keys must actually move, and must declare it.
+  const shipped = model.projectPlayer(usageArgs({ positionEfficiencyPerOpportunity: 0.35 }));
+  const v2 = model.projectPlayer(usageArgs({
+    positionEfficiencyPerOpportunity: 0.35, constants: atBlend(0),
+  }));
+  const recent = shipped.factors.recentProduction;
+
+  assert.notEqual(shipped.mean, v2.mean, 'the shipped weight is 0.25, so enrichment must move the number');
+  assert.equal(recent.usageBlendWeight, 0.25);
+  assert.equal(recent.usageGames, 4);
+  assert.ok(recent.opportunityValue != null && recent.expectedOpportunities > 0);
+  // The explanation still reconstructs the projection, and still reports the
+  // unblended points baseline alongside it, so a reader can see both halves
+  // rather than being handed one number and told to trust it.
+  assert.equal(recent.pointsBaselinePerGame, v2.factors.recentProduction.perGame);
+  assert.notEqual(recent.perGame, recent.pointsBaselinePerGame);
+  assert.ok(Math.abs(recent.pointsContribution - shipped.mean) < 0.05);
+  // Evidence and confidence stay driven by the points baseline alone.
+  assert.equal(shipped.effectiveGames, v2.effectiveGames);
+  assert.equal(shipped.sampleSize, v2.sampleSize);
+  assert.equal(shipped.confidence, v2.confidence);
 });
 
 test('stripping every usage key leaves the blend with nothing to apply, at any weight', () => {

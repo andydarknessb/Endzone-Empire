@@ -55,18 +55,22 @@
  *   blend-75      75% weight on the current-season unweighted mean
  *   slow8-blend-25  half-life 8 plus a 25% current-season-mean blend
  *   slow8-blend-50  half-life 8 plus a 50% current-season-mean blend
- *   usage-25      25% weight on the opportunity-weighted baseline
+ *   usage-25      25% weight on the opportunity-weighted baseline (shipped)
  *   usage-40      40% weight on the opportunity-weighted baseline
  *   usage-60      60% weight on the opportunity-weighted baseline
  *
- * The usage-* sweep is the one thing here that is not yet a re-check of a
- * decision already taken: the opportunity component ships DISABLED
- * (MODEL_CONSTANTS.usage.blendWeight is 0, so `default` scores it at no weight
- * at all), and these three configs are how it gets its first chronological
- * comparison. They price expected opportunities (pass attempts for QBs,
- * carries + targets for RB/WR/TE) instead of projecting points directly, so
- * they only move players whose stored stat lines carry the usage keys; K, DEF
- * and IDP are structurally unaffected and should score identically to
+ * The usage-* sweep priced expected opportunities (pass attempts for QBs,
+ * carries + targets for RB/WR/TE) instead of projecting points directly, and it
+ * is what selected the `free_baseline_v3` default: `usage-25` improved or held
+ * every gate metric in BOTH enriched stored seasons, so it is now literally the
+ * shipped configuration and coincides with `default`. `usage-40` and
+ * `usage-60` were rejected for regressing 2025 lineup regret (13.76 to 14.54)
+ * in exchange for a little more rank correlation, which is the wrong trade for
+ * a tool whose job is to pick a lineup. They stay as the labeled heavy arms of
+ * the sweep.
+ *
+ * These configs only move players whose stored stat lines carry the usage keys;
+ * K, DEF and IDP are structurally unaffected and should score identically to
  * `default` in any run. A row where they do NOT means something is fabricating
  * an opportunity count.
  *
@@ -81,17 +85,18 @@
  * `free_baseline_v2.2` defaults (half-life 8 with a 0.25 blend, better on MAE,
  * rho, pairwise accuracy and regret in both stored seasons), so `slow8-blend-25`
  * is now literally the shipped configuration, and `slow-recency`, `light-slow-8`
- * and `blend-25` collapse onto it too. They are kept, not deleted: older run
- * outputs name them, and re-running one against a future candidate is exactly
- * how the next reference comparison gets made.
+ * and `blend-25` collapse onto it too. `usage-25` joined them at v3. They are
+ * kept, not deleted: older run outputs name them, and re-running one against a
+ * future candidate is exactly how the next reference comparison gets made.
  *
  * A CAVEAT for the next sweep. Every config below overrides only the constants
  * it names and inherits the rest from whatever is currently shipped, so these
  * names describe a DELTA, not a fixed point in constant-space, and their meaning
  * moved when the defaults moved: `blend-25` scored a 4-week half-life during the
- * v2.2 selection run and scores an 8-week one today. Reproducing a published
- * pre-v2.2 row means pinning the half-life in the config explicitly rather than
- * trusting the name.
+ * v2.2 selection run and scores an 8-week one today, and every config now
+ * inherits a 0.25 opportunity blend that none of them scored under at all.
+ * Reproducing a published pre-v3 row means pinning the constants in the config
+ * explicitly rather than trusting the name.
  *
  * The interval-* sweep exists to re-check p10-p90 coverage, which the
  * unscaled bootstrap under-delivered badly (near 0.6 against a 0.80 target).
@@ -147,9 +152,9 @@ const CONFIGURATIONS = {
     recencyHalfLifeWeeks: 8,
     currentSeasonMeanBlendWeight: 0.50,
   }),
-  // Opportunity-weighted baseline sweep. The shipped weight is 0, so unlike
-  // every sweep above this one is not re-checking a landed decision: it is the
-  // evidence that would justify switching the component on at all.
+  // Opportunity-weighted baseline sweep. `usage-25` won it and is now the
+  // shipped weight, so this group has joined the collection above of configs
+  // that re-run a decision already taken.
   'usage-25': (MODEL) => withUsage(MODEL, { blendWeight: 0.25 }),
   'usage-40': (MODEL) => withUsage(MODEL, { blendWeight: 0.40 }),
   'usage-60': (MODEL) => withUsage(MODEL, { blendWeight: 0.60 }),

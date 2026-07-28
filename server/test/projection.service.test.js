@@ -377,15 +377,18 @@ test('buildLeagueContext reports no efficiency at all when no row qualifies', ()
   }
 });
 
-test('the shipped engine ignores usage keys entirely while the blend weight is 0', async (t) => {
-  const enriched = (week) => weeklyRow(1, week, {
-    rushingYards: 60, rushingTDs: 0, usageCarries: 14, usageTargets: 3,
-  });
-  const setup = (withUsage) => ({
+test('the shipped engine prices enriched usage and leaves bare rows on the points baseline', async (t) => {
+  // Steady 17 touches a week, but wildly varying yardage on them. That is the
+  // case the component exists for: the volume is the stable signal and the
+  // efficiency is the noise, so the two estimators cannot agree and the blend
+  // has something to do. (A perfectly flat fixture would make them identical
+  // and this test would prove nothing.)
+  const yards = { 1: 30, 2: 50, 3: 70, 4: 110 };
+  const setup = (enriched) => ({
     players: [player(1, 'RB')],
-    weeklyStats: [1, 2, 3, 4].map((week) => (withUsage
-      ? enriched(week)
-      : weeklyRow(1, week, { rushingYards: 60, rushingTDs: 0 }))),
+    weeklyStats: [1, 2, 3, 4].map((week) => weeklyRow(1, week, enriched
+      ? { rushingYards: yards[week], rushingTDs: 0, usageCarries: 14, usageTargets: 3 }
+      : { rushingYards: yards[week], rushingTDs: 0 })),
   });
 
   mockPool(t, setup(true));
@@ -396,35 +399,46 @@ test('the shipped engine ignores usage keys entirely while the blend weight is 0
 
   const enrichedProjection = withUsage.projections.get(1);
   const bareProjection = withoutUsage.projections.get(1);
-  assert.equal(model.MODEL_CONSTANTS.usage.blendWeight, 0, 'the component ships disabled');
-  for (const field of ['mean', 'median', 'p10', 'p25', 'p75', 'p90', 'sampleSize', 'effectiveGames']) {
-    assert.equal(
-      enrichedProjection[field], bareProjection[field],
-      `enrichment moved ${field} while the blend weight is 0`
-    );
+  const enrichedRecent = enrichedProjection.factors.recentProduction;
+  const bareRecent = bareProjection.factors.recentProduction;
+
+  assert.equal(model.MODEL_CONSTANTS.usage.blendWeight, 0.25, 'the component ships enabled at v3');
+  // Enriched: the component fires end to end, through the real feature builder.
+  assert.equal(enrichedRecent.usageBlendWeight, 0.25);
+  assert.equal(enrichedRecent.usageGames, 4, 'all four stored weeks carry both halves');
+  assert.equal(enrichedRecent.expectedOpportunities, 17, '14 carries plus 3 targets, every week');
+  assert.notEqual(enrichedProjection.mean, bareProjection.mean);
+
+  // Bare: an un-enriched row is NOT blended against a fabricated stand-in. It
+  // keeps the points baseline whole, which is the property that lets v3 ship
+  // against a partially enriched table.
+  assert.equal(bareRecent.opportunityValue, null);
+  assert.equal(bareRecent.usageGames, 0);
+  assert.equal(bareRecent.usageBlendWeight, 0, 'no opportunities means no weight applied');
+  assert.equal(bareRecent.perGame, bareRecent.pointsBaselinePerGame);
+
+  // Both still report the same evidence: the blend changes the estimate, not
+  // the sample behind it.
+  for (const field of ['sampleSize', 'effectiveGames', 'confidence']) {
+    assert.equal(enrichedProjection[field], bareProjection[field], field);
   }
-  assert.deepEqual(
-    enrichedProjection.factors.recentProduction,
-    bareProjection.factors.recentProduction,
-    'a disabled component must leave no trace in the cached explanation'
-  );
-  // What enrichment DOES change, and has changed since before this component
-  // existed: usage keys are role signal (projectionFeatures.ROLE_KEYS), so the
-  // "no role data" confidence reason drops off. That is v2.2 behavior arriving
-  // with the data, not the opportunity blend firing.
+  // Usage keys are ALSO role signal (projectionFeatures.ROLE_KEYS), which
+  // predates this component: that is why the bare row has no role factor.
   assert.equal(enrichedProjection.factors.role.available, true);
   assert.equal(bareProjection.factors.role, null);
-  assert.equal(enrichedProjection.confidence, bareProjection.confidence);
 });
 
 /**
- * The wiring proof for the backtest sweep: `modelConstants` alone must be
- * enough to turn the component on, and the league-context efficiency prior must
- * genuinely reach it. If the prior were dropped somewhere between
+ * The wiring proof: the league-context efficiency prior must genuinely reach
+ * `opportunityBaseline`. If it were dropped somewhere between
  * buildLeagueContext and projectPlayer the component would still produce a
  * number, just an unshrunk one, and no other test here would notice.
+ *
+ * Also the backtest's contract, from the other direction: `modelConstants`
+ * alone has to be able to turn the component back OFF, which is the arm every
+ * usage-* config was compared against.
  */
-test('a modelConstants override switches the opportunity component on, prior and all', async (t) => {
+test('the league efficiency prior reaches the component, and modelConstants can switch it off', async (t) => {
   const weeklyStats = [1, 2, 3, 4, 5].map((week) =>
     weeklyRow(1, week, { rushingYards: 60, rushingTDs: 0, usageCarries: 14, usageTargets: 3 }));
   // Two league backdrops that differ ONLY in how efficient everyone else is:
@@ -450,23 +464,24 @@ test('a modelConstants override switches the opportunity component on, prior and
   });
 
   mockPool(t, setup(20));
-  const offInefficientLeague = await generate(model.MODEL_CONSTANTS);
-  const onInefficientLeague = await generate(withUsage(0.6));
+  const offInefficientLeague = await generate(withUsage(0));
+  const onInefficientLeague = await generate(model.MODEL_CONSTANTS);
   t.mock.restoreAll();
   mockPool(t, setup(5));
-  const offEfficientLeague = await generate(model.MODEL_CONSTANTS);
-  const onEfficientLeague = await generate(withUsage(0.6));
+  const offEfficientLeague = await generate(withUsage(0));
+  const onEfficientLeague = await generate(model.MODEL_CONSTANTS);
 
   const meanOf = (result) => result.projections.get(1).mean;
   const recent = (result) => result.projections.get(1).factors.recentProduction;
 
-  // Off: the league's efficiency is irrelevant, because nothing consults it.
+  // Switched off by an override: the league's efficiency becomes irrelevant,
+  // because nothing consults it, and the explanation says nothing about it.
   assert.equal(meanOf(offInefficientLeague), meanOf(offEfficientLeague));
   assert.equal('opportunityValue' in recent(offEfficientLeague), false);
 
-  // On: the component fires, and the prior it shrinks toward is the one the
-  // scan produced, so a more efficient league moves the projection up.
-  assert.equal(recent(onEfficientLeague).usageBlendWeight, 0.6);
+  // Shipped: the component fires, and the prior it shrinks toward is the one
+  // the scan produced, so a more efficient league moves the projection up.
+  assert.equal(recent(onEfficientLeague).usageBlendWeight, 0.25);
   assert.equal(recent(onEfficientLeague).usageGames, 5, 'all five enriched weeks carry opportunities');
   assert.equal(recent(onEfficientLeague).expectedOpportunities, 17, '14 carries plus 3 targets, every week');
   assert.notEqual(meanOf(onEfficientLeague), meanOf(offEfficientLeague), 'the blend must move the number');
