@@ -484,6 +484,17 @@ async function loadFeatureBundle({ season, week, playerIds, rules, client = pool
   // League-wide scan for the positions actually requested. `fn_normalize_nfl_team`
   // on both sides is what lets DEF units (stored with a full team name) join
   // the schedule at all, and collapses the WSH/WAS alias split.
+  //
+  // The ORDER BY is a CORRECTNESS requirement, not a nicety. Postgres gives no
+  // row order without one, so an unordered `LIMIT` both picks an arbitrary
+  // SUBSET when it truncates and returns an arbitrary PERMUTATION when it does
+  // not. That order flows straight into `bucket.residuals` below, and
+  // `simulateDistribution` samples residuals BY INDEX: a plan change, a
+  // vacuum, or a parallel seq-scan could therefore hand two identical database
+  // states two different medians. Ordering by (player_id, week) also makes the
+  // truncation case whole-player-prefix rather than a random spray.
+  // `simulateDistribution` canonically sorts its pool as a second, independent
+  // defense; neither one alone is relied upon.
   const scanPositions = positions && positions.length > 0
     ? positions
     : [...new Set(playersResult.rows.map((r) => r.position).filter(Boolean))];
@@ -497,6 +508,7 @@ async function loadFeatureBundle({ season, week, playerIds, rules, client = pool
        LEFT JOIN "nfl_games" "ng" ON "ng"."season" = "ps"."season" AND "ng"."week" = "ps"."week"
          AND fn_normalize_nfl_team("ng"."nfl_team") = fn_normalize_nfl_team("p"."nfl_team")
        WHERE "ps"."season" = $1 AND "ps"."week" < $2 AND "p"."position" = ANY($3::text[])
+       ORDER BY "ps"."player_id", "ps"."week"
        LIMIT $4`,
       [season, week, scanPositions, MAX_LEAGUE_SCAN_ROWS]
     );

@@ -279,6 +279,39 @@ test('the opponent scan and defense-game counts are also limited to earlier week
   assert.deepEqual(scan.params.slice(0, 2), [SEASON, 6], 'scan is bounded by week < 6');
 });
 
+test('the league scan orders deterministically BEFORE its LIMIT', async (t) => {
+  // The scan's row order is not cosmetic: it becomes the pooled residual array,
+  // and simulateDistribution samples residuals by index. Postgres promises no
+  // order without an ORDER BY, so an unordered LIMIT makes both WHICH rows
+  // survive truncation and WHAT ORDER they arrive in a property of the query
+  // plan. Two identical databases could then serve two different medians.
+  let scanSql = null;
+  mockPool(t, {
+    players: [player(1, 'RB')],
+    weeklyStats: [weeklyRow(1, 1, { rushingYards: 60 })],
+    onQuery: (text) => {
+      if (text.includes('FROM "player_stats" "ps"')) scanSql = text;
+    },
+  });
+
+  await run({ season: SEASON, week: 6, league: league(), playerIds: [1] });
+
+  assert.ok(scanSql, 'the league scan ran');
+  const orderAt = scanSql.indexOf('ORDER BY');
+  const limitAt = scanSql.indexOf('LIMIT');
+  assert.notEqual(orderAt, -1, 'the scan must carry an ORDER BY');
+  assert.notEqual(limitAt, -1, 'the scan is still bounded');
+  assert.ok(orderAt < limitAt, 'ORDER BY must precede LIMIT or the limit truncates an arbitrary subset');
+  // The exact key, not merely "some ordering": (player_id, week) is a unique
+  // key of this scan, so it is a TOTAL order. Ordering by week alone would
+  // leave players within a week free to permute, which is the same bug.
+  assert.match(
+    scanSql.slice(orderAt, limitAt),
+    /ORDER BY\s+"ps"\."player_id",\s*"ps"\."week"/,
+    'ordering must be total, not just by week'
+  );
+});
+
 // ---------------------------------------------------------------------------
 // Opponent / schedule factors through the full engine
 // ---------------------------------------------------------------------------
@@ -860,6 +893,59 @@ test('a run generated for another scoring profile is never reused', async (t) =>
   assert.equal(lookups.length, 2);
   assert.notEqual(lookups[0][2], lookups[1][2], 'the scoring hash is part of the cache key');
   assert.equal(lookups[0][3], model.MODEL_VERSION, 'so is the model version');
+});
+
+test('the shipped model version is exactly free_baseline_v3.1', () => {
+  // Pinned in the service too, not only in the model: this is the string the
+  // cache key is built from, and the service re-exports it to callers.
+  assert.equal(model.MODEL_VERSION, 'free_baseline_v3.1');
+  assert.equal(projection.MODEL_VERSION, 'free_baseline_v3.1');
+  assert.notEqual(model.MODEL_VERSION, 'free_baseline_v3', 'v3 rows were drawn from unordered residuals');
+});
+
+test('a v3 cached run cannot satisfy a v3.1 lookup', async (t) => {
+  // v3 rows sampled their residuals in whatever order Postgres returned them,
+  // so their medians and quantiles are numbers this code will not necessarily
+  // reproduce. Serving one would be serving a different model under the
+  // current model's name.
+  const lookups = [];
+  let regenerated = false;
+  t.mock.method(pool, 'query', async (sql, params) => {
+    const text = String(sql);
+    if (text.includes('FROM "projection_runs"')) {
+      lookups.push(params);
+      // The database still holds a v3 run for this exact (season, week, hash).
+      const stale = { id: 7, input_cutoff: new Date(), source_coverage: {}, generated_at: new Date() };
+      return { rows: params[3] === 'free_baseline_v3' ? [stale] : [] };
+    }
+    if (text.includes('INSERT INTO "projection_runs"')) {
+      return { rows: [{ id: 8, generated_at: new Date(), input_cutoff: params[4] }] };
+    }
+    if (text.includes('FROM "player_week_projections"')) {
+      throw new Error('a v3.1 request must never read v3 child rows');
+    }
+    if (text.includes('INSERT INTO "player_week_projections"')) return { rows: [], rowCount: 1 };
+    if (text.includes('FROM "players" WHERE "id" = ANY')) {
+      regenerated = true;
+      return { rows: [player(1, 'RB')] };
+    }
+    if (text.includes('FROM "player_season_stats"')) return { rows: [] };
+    if (text.includes('FROM "player_stats" "ps"')) return { rows: [] };
+    if (text.includes('FROM "player_stats"')) return { rows: [weeklyRow(1, 1, { rushingYards: 70 })] };
+    if (text.includes('COUNT(*)::int AS "games"')) return { rows: [] };
+    if (text.includes('JOIN unnest(')) return { rows: [] };
+    if (text.includes('FROM "nfl_games"')) return { rows: [] };
+    if (text.includes('FROM "game_weather_snapshots"')) return { rows: [] };
+    throw new Error(`unexpected query: ${text.slice(0, 120)}`);
+  });
+
+  const result = await run({ season: SEASON, week: 5, league: league(), playerIds: [1] });
+
+  assert.equal(lookups.length, 1);
+  assert.equal(lookups[0][3], 'free_baseline_v3.1', 'the lookup asks for the CURRENT version');
+  assert.equal(regenerated, true, 'the stale v3 run must be ignored and the week regenerated');
+  assert.equal(result.projections.get(1).cached, undefined, 'nothing was served from the v3 cache');
+  assert.equal(result.projections.get(1).modelVersion, 'free_baseline_v3.1');
 });
 
 test('one cached row is NOT a cache hit for a multi-player request', async (t) => {

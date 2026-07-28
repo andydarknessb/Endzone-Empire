@@ -78,7 +78,9 @@
  *
  * The usage-* sweep priced expected opportunities (pass attempts for QBs,
  * carries + targets for RB/WR/TE) instead of projecting points directly, and it
- * is what selected the `free_baseline_v3` default: `usage-25` improved or held
+ * is what selected the shipped blend weight, first released as
+ * `free_baseline_v3` (the constants are unchanged under `free_baseline_v3.1`,
+ * which bumped only for deterministic residual ordering): `usage-25` improved or held
  * every gate metric in BOTH enriched stored seasons, so it is now literally the
  * shipped configuration and coincides with `default`. `usage-40` and
  * `usage-60` were rejected for regressing 2025 lineup regret (13.76 to 14.54)

@@ -45,8 +45,19 @@ const crypto = require('crypto');
  * numbers this code would no longer produce. Serving one would be serving a
  * different model under the current model's name, which is exactly what the
  * key exists to prevent.
+ *
+ * v3.1 is the same rule applied to a change that is NOT a constants change.
+ * No constant moved; what moved is that `simulateDistribution` now canonically
+ * sorts its residual pool before sampling it by index, and the league-wide
+ * scan in projectionFeatures now orders its rows before the LIMIT. Cached v3
+ * rows were drawn from residuals in whatever order Postgres happened to return
+ * them, so their medians and quantiles are values this code will not
+ * necessarily reproduce. A bump is the only thing that stops one being served
+ * as current, and the version string also feeds `seedFrom`, so every draw
+ * sequence is re-rolled with it. That re-roll is intended: the whole point is
+ * that the old sequences were a function of an input we never controlled.
  */
-const MODEL_VERSION = 'free_baseline_v3';
+const MODEL_VERSION = 'free_baseline_v3.1';
 
 /**
  * Model constants. DEFAULTS, not fitted optimums (see the file header).
@@ -761,6 +772,15 @@ function availabilityFor({ injuryStatus = null, onBye = false, locked = false, l
  * enough of them, otherwise from the pooled position-level residuals. Negative
  * draws are NOT clamped: IDP and DST scoring produce genuinely negative weeks,
  * and clipping them would quietly bias every interval upward.
+ *
+ * "Deterministic" here means deterministic in the CONTENT of its inputs, not
+ * merely in its seed. Residuals are sampled by INDEX, so the caller's array
+ * ORDER would otherwise be a hidden input: the same multiset arriving shuffled
+ * (a different query plan upstream, a row order Postgres never promised) would
+ * produce different draws, hence a different median and different quantiles,
+ * from identical data. The pool is therefore canonically sorted before any
+ * draw. The invariant is: same residual multiset, mean, constants and seed =>
+ * byte-identical output, whatever order the residuals came in.
  */
 function simulateDistribution({
   mean,
@@ -772,16 +792,31 @@ function simulateDistribution({
   if (!isNum(mean)) {
     return { mean: null, median: null, p10: null, p25: null, p75: null, p90: null, residualSource: null };
   }
+  // `.filter().map()` already yields fresh arrays, so nothing below can reach
+  // the caller's own arrays; the sort is applied to these copies deliberately
+  // and never to `playerResiduals` / `pooledResiduals` themselves.
   const own = (playerResiduals || []).filter(isNum).map(Number);
   const pooled = (pooledResiduals || []).filter(isNum).map(Number);
   let residuals = null;
   let residualSource = null;
+  // Selection is on the UNSORTED lengths, which sorting cannot change, so
+  // which pool wins is exactly what it always was: own residuals when the
+  // player has enough of them, pooled ones otherwise.
   if (own.length >= constants.minPlayerResiduals) {
     residuals = own;
     residualSource = 'player';
   } else if (pooled.length >= constants.minPooledResiduals) {
     residuals = pooled;
     residualSource = 'position';
+  }
+
+  if (residuals) {
+    // Canonical order for the SELECTED pool. Ascending numeric sort is the
+    // canonical form because it is also what `quantile` needs below, so the
+    // median read is now free of a defensive copy rather than paying for one.
+    // Negative residuals are preserved in full: this reorders, it never
+    // filters or clamps.
+    residuals.sort((a, b) => a - b);
   }
 
   if (!residuals) {
@@ -802,11 +837,11 @@ function simulateDistribution({
   // scale of 1.45. Centering leaves the draw median at (mean + median
   // residual) for every scale and moves only the spread.
   //
-  // `quantile` requires ASCENDING input, hence the sorted copy. With scale 1
-  // both correction terms drop out and every draw is `mean + residual` to the
-  // bit, so a caller passing constants without an intervalScale gets exactly
-  // the sequence it always got.
-  const center = scale === 1 ? 0 : Number(quantile([...residuals].sort((a, b) => a - b), 0.5));
+  // `quantile` requires ASCENDING input, which the canonical sort above has
+  // already guaranteed. With scale 1 both correction terms drop out and every
+  // draw is `mean + residual` to the bit, so a caller passing constants
+  // without an intervalScale gets exactly the sequence it always got.
+  const center = scale === 1 ? 0 : Number(quantile(residuals, 0.5));
   const origin = scale === 1 ? Number(mean) : Number(mean) + center;
   const draws = [];
   for (let i = 0; i < constants.draws; i++) {

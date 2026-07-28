@@ -157,7 +157,7 @@ test('the shipped constants switch the current-season blend ON at the selected p
   );
   // A constants change without a version bump serves rows computed under the
   // old numbers from cache as if they were current.
-  assert.equal(model.MODEL_VERSION, 'free_baseline_v3');
+  assert.equal(model.MODEL_VERSION, 'free_baseline_v3.1');
 });
 
 test('a zero or absent blend weight reproduces the pre-blend math exactly', () => {
@@ -340,7 +340,7 @@ test('the opportunity component ships switched ON at the selected weight', () =>
   assert.equal(efficiencyPseudoOpportunities, 25);
   // A component that now reaches the output cannot share a cache key with the
   // version that computed without it.
-  assert.equal(model.MODEL_VERSION, 'free_baseline_v3');
+  assert.equal(model.MODEL_VERSION, 'free_baseline_v3.1');
 });
 
 test('opportunitiesForGame counts attempts for a QB and touches for skill positions', () => {
@@ -720,6 +720,144 @@ test('simulateDistribution falls back to pooled residuals, then to no interval',
   assert.equal(bare.mean, 10);
   assert.equal(bare.p10, null, 'no dispersion evidence means no interval, not a made-up one');
   assert.equal(bare.residualSource, null);
+});
+
+// --- order invariance ------------------------------------------------------
+
+/**
+ * Residuals are sampled BY INDEX, so the ORDER of the caller's array is an
+ * input to every median and quantile this engine serves. It used to be an
+ * UNCONTROLLED one: the pooled residuals are assembled straight from the row
+ * order of a league-wide scan that had a LIMIT and no ORDER BY, and Postgres
+ * promises nothing about the order of such a scan. Identical database state
+ * could therefore serve two different projections.
+ *
+ * The invariant these tests pin: same residual multiset, mean, constants and
+ * seed => byte-identical output, whatever order the residuals arrived in.
+ */
+
+// A deliberately unsorted, asymmetric, non-integer pool with duplicates and
+// negatives. Duplicates matter: canonicalization must be a SORT (multiset
+// preserving), not a de-duplication.
+const ORDER_POOL = [7.5, -3.25, 0, 12, -8, 2, -1.5, 4, 19, -6, 2, -8];
+const rotate = (a, n) => [...a.slice(n), ...a.slice(0, n)];
+const reversed = (a) => [...a].reverse();
+const ascending = (a) => [...a].sort((x, y) => x - y);
+
+/**
+ * The PRE-FIX sampler, frozen here on purpose: it shows the fixture is
+ * genuinely order-sensitive under index sampling, so the equalities asserted
+ * below are load-bearing rather than vacuously true of any two arrays.
+ */
+const sampledMultiset = (residuals, seed, draws) => {
+  const rand = model.mulberry32(seed);
+  const out = [];
+  for (let i = 0; i < draws; i++) {
+    out.push(residuals[Math.floor(rand() * residuals.length) % residuals.length]);
+  }
+  return out.sort((a, b) => a - b);
+};
+
+test('the order fixture really is order-sensitive when sampled unsorted', () => {
+  // Guard against a fixture that would make every assertion below pass for the
+  // wrong reason (already sorted, or symmetric enough that order cannot bite).
+  assert.notDeepEqual(ORDER_POOL, ascending(ORDER_POOL), 'fixture must not arrive pre-sorted');
+  const { draws } = model.MODEL_CONSTANTS.simulation;
+  assert.notDeepEqual(
+    sampledMultiset(ORDER_POOL, 4242, draws),
+    sampledMultiset(reversed(ORDER_POOL), 4242, draws),
+    'without canonicalization these two orders draw different residual multisets'
+  );
+});
+
+test('simulateDistribution is invariant to PLAYER-residual order, not just to seed', () => {
+  const base = { mean: 11.5, seed: 4242 };
+  const canonical = model.simulateDistribution({ ...base, playerResiduals: ascending(ORDER_POOL) });
+
+  for (const [label, order] of [
+    ['as given', ORDER_POOL],
+    ['reversed', reversed(ORDER_POOL)],
+    ['rotated 5', rotate(ORDER_POOL, 5)],
+    ['rotated 7', rotate(ORDER_POOL, 7)],
+    ['descending', [...ORDER_POOL].sort((a, b) => b - a)],
+  ]) {
+    assert.deepEqual(
+      model.simulateDistribution({ ...base, playerResiduals: order }),
+      canonical,
+      `${label} must produce byte-identical output`
+    );
+  }
+  assert.equal(canonical.residualSource, 'player');
+  assert.ok(canonical.p10 != null && canonical.p90 != null, 'the interval path actually ran');
+  // Not vacuous: the function is still sensitive to residual CONTENT.
+  assert.notDeepEqual(
+    model.simulateDistribution({ ...base, playerResiduals: [...ORDER_POOL.slice(1), 40] }),
+    canonical,
+    'changing the multiset must still change the distribution'
+  );
+});
+
+test('simulateDistribution is invariant to POOLED-residual order too', () => {
+  // One own residual: below minPlayerResiduals, so this is the position path.
+  const base = { mean: 9, playerResiduals: [1.25], seed: 99 };
+  const canonical = model.simulateDistribution({ ...base, pooledResiduals: ascending(ORDER_POOL) });
+  assert.equal(canonical.residualSource, 'position', 'the pooled branch is what is under test');
+
+  for (const order of [ORDER_POOL, reversed(ORDER_POOL), rotate(ORDER_POOL, 3)]) {
+    assert.deepEqual(model.simulateDistribution({ ...base, pooledResiduals: order }), canonical);
+  }
+  assert.ok(canonical.p10 != null && canonical.p90 != null);
+});
+
+test('canonicalizing residuals does not mutate the caller-provided arrays', () => {
+  // The league context reuses one pooled array across every player in a
+  // position group, so an in-place sort of the CALLER'S array would silently
+  // reorder a shared input mid-loop.
+  const playerArg = [...ORDER_POOL];
+  const pooledArg = [...ORDER_POOL];
+  const playerSnapshot = [...playerArg];
+  const pooledSnapshot = [...pooledArg];
+
+  model.simulateDistribution({ mean: 10, playerResiduals: playerArg, pooledResiduals: pooledArg, seed: 5 });
+  assert.deepEqual(playerArg, playerSnapshot, 'playerResiduals must come back untouched');
+  assert.deepEqual(pooledArg, pooledSnapshot, 'pooledResiduals must come back untouched');
+
+  // And again through the pooled branch, which selects the other array.
+  const pooledOnly = [...ORDER_POOL];
+  model.simulateDistribution({ mean: 10, playerResiduals: [2], pooledResiduals: pooledOnly, seed: 5 });
+  assert.deepEqual(pooledOnly, pooledSnapshot);
+});
+
+test('order invariance preserves negative residuals and the centered interval scaling', () => {
+  // Sorting must reorder, never filter or clamp: a pool that is mostly
+  // negative has to keep producing a downside.
+  // Odd-length on purpose: the pool median is then a residual the sampler can
+  // actually draw, which is what makes the centered-scaling identity exact
+  // rather than approximate (an even-length pool interpolates a median that
+  // never appears in the draws).
+  const negatives = [3, -14, -9, -2, -11];
+  const shuffled = model.simulateDistribution({ mean: 4, playerResiduals: negatives, seed: 8 });
+  const sorted = model.simulateDistribution({ mean: 4, playerResiduals: ascending(negatives), seed: 8 });
+  assert.deepEqual(shuffled, sorted);
+  assert.ok(shuffled.p10 < 0, 'negative residuals survive canonicalization');
+
+  // The load-bearing scaling invariant, re-asserted on an UNSORTED pool: the
+  // stretch is centered on the pool median, so the median does not move.
+  const unscaled = model.simulateDistribution({
+    mean: 4,
+    playerResiduals: negatives,
+    seed: 8,
+    constants: { ...model.MODEL_CONSTANTS.simulation, intervalScale: 1 },
+  });
+  const wide = model.simulateDistribution({
+    mean: 4,
+    playerResiduals: negatives,
+    seed: 8,
+    constants: { ...model.MODEL_CONSTANTS.simulation, intervalScale: 3 },
+  });
+  assert.equal(shuffled.median, unscaled.median, 'scaling must not move the median');
+  assert.equal(wide.median, unscaled.median, 'at any scale');
+  assert.ok(wide.p90 - wide.p10 > unscaled.p90 - unscaled.p10, 'and it must still widen');
 });
 
 test('simulateDistribution reports nothing at all for a null mean', () => {
