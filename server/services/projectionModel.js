@@ -178,6 +178,21 @@ const MODEL_CONSTANTS = {
     // wild historical split moves the projection very little.
     shrinkage: 0.15,
     maxEffect: 0.04,
+    // Whether a meeting from an EARLIER season may count as a meeting at all.
+    // Until the nflverse backfill wrote per-week `gameTeam`/`gameOpponent` into
+    // player_stats.stats there was no honest way to say who a prior-season line
+    // was earned against (the schedule would have been read through the
+    // player's CURRENT team), so buildVersusOpponentMeetings has always been
+    // current-season-only. This gates READING those stored keys; rows that lack
+    // them are unaffected at any setting.
+    //
+    // SHIPS FALSE, and false is why adding it does not bump MODEL_VERSION: at
+    // this value no code path reads the stored keys and every projection is
+    // bit-identical to the one v3 already produced. That is the same
+    // inert-merge exception the MODEL_VERSION docblock above records for the
+    // usage component, including its other half: the sweep that turns this on
+    // is the change that has to carry the bump.
+    crossSeason: false,
   },
   homeAway: {
     // Position-level home/away splits need a lot of games before they mean
@@ -185,6 +200,13 @@ const MODEL_CONSTANTS = {
     minGamesPerSide: 24,
     shrinkPseudoGames: 120,
     maxEffect: 0.05,
+    // Whether a PRIOR-SEASON game's orientation (and the opponent it is
+    // resolved with) may be read from the stored per-week `gameTeam` key rather
+    // than left unknown. Same enrichment, same gate, same inert-merge exception
+    // as versusOpponent.crossSeason above: false means the stored keys are
+    // never consulted and prior-season rows keep the null opponent/isHome they
+    // have always carried, so MODEL_VERSION does not move.
+    useStoredHistory: false,
   },
   weather: {
     // No verified empirical weather effect is wired up (see

@@ -92,6 +92,13 @@ test('every named configuration is a real variation of the shipped constants', (
 
   assert.equal(backtest.CONFIGURATIONS['usage-40'](base).usage.blendWeight, 0.40);
   assert.equal(backtest.CONFIGURATIONS['usage-60'](base).usage.blendWeight, 0.60);
+  // The stored-history arms are real variations of the CONSTANTS, which is all
+  // this test can check. Whether they produce a different ROW is a property of
+  // the data, not of the config: see the coincidence note below.
+  assert.equal(backtest.CONFIGURATIONS['xseason-vs'](base).versusOpponent.crossSeason, true);
+  assert.equal(backtest.CONFIGURATIONS['stored-homeaway'](base).homeAway.useStoredHistory, true);
+  assert.equal(backtest.CONFIGURATIONS['xseason-both'](base).versusOpponent.crossSeason, true);
+  assert.equal(backtest.CONFIGURATIONS['xseason-both'](base).homeAway.useStoredHistory, true);
   assert.equal(backtest.CONFIGURATIONS['interval-130'](base).simulation.intervalScale, 1.30);
   assert.equal(backtest.CONFIGURATIONS['interval-145'](base).simulation.intervalScale, 1.45);
   assert.equal(backtest.CONFIGURATIONS['interval-160'](base).simulation.intervalScale, 1.60);
@@ -138,6 +145,53 @@ test('the usage sweep varies only the opportunity blend weight', () => {
   assert.equal(model.MODEL_CONSTANTS.usage.blendWeight, 0.25);
 });
 
+/**
+ * The stored-history sweep. Each arm flips ONE of the two gates that let the
+ * feature builders read the backfilled per-week gameTeam/gameOpponent keys, and
+ * `xseason-both` crosses them, so a gain from cross-season head-to-head history
+ * cannot be credited to prior-season orientation or the other way round.
+ *
+ * ON COINCIDENCE, which the allowlist above deliberately does NOT cover: these
+ * three differ from the shipped constants (both gates ship false), so they are
+ * real variations and belong outside COINCIDES_WITH_DEFAULTS. The engine does
+ * thread its per-run constants into buildPriorGames /
+ * buildVersusOpponentMeetings (asserted in projection.service.test.js), so the
+ * arms are live. They can still score a row identical to `default` on
+ * UNENRICHED history, because a stat row with no stored gameTeam is resolved
+ * exactly as it always was; an identical row is evidence about the data, not
+ * about the gates.
+ */
+test('the stored-history sweep varies only the two gates, one at a time and crossed', () => {
+  const model = require('../services/projectionModel');
+  const base = model.MODEL_CONSTANTS;
+  assert.equal(base.versusOpponent.crossSeason, false, 'the gates ship off');
+  assert.equal(base.homeAway.useStoredHistory, false);
+  const expected = {
+    'xseason-vs': [true, false],
+    'stored-homeaway': [false, true],
+    'xseason-both': [true, true],
+  };
+  for (const [name, [crossSeason, useStoredHistory]] of Object.entries(expected)) {
+    const constants = backtest.CONFIGURATIONS[name](base);
+    assert.equal(constants.versusOpponent.crossSeason, crossSeason, name);
+    assert.equal(constants.homeAway.useStoredHistory, useStoredHistory, name);
+    // The rest of both blocks, and every other block, must ride along
+    // unchanged: a head-to-head comparison confounded by a moved cap or a
+    // different shrinkage would not be measuring the gate.
+    assert.equal(constants.versusOpponent.maxEffect, base.versusOpponent.maxEffect, name);
+    assert.equal(constants.versusOpponent.shrinkage, base.versusOpponent.shrinkage, name);
+    assert.equal(constants.versusOpponent.halfLifeSeasons, base.versusOpponent.halfLifeSeasons, name);
+    assert.equal(constants.homeAway.minGamesPerSide, base.homeAway.minGamesPerSide, name);
+    assert.equal(constants.homeAway.maxEffect, base.homeAway.maxEffect, name);
+    assert.deepEqual(constants.baseline, base.baseline, name);
+    assert.deepEqual(constants.usage, base.usage, name);
+    assert.deepEqual(constants.simulation, base.simulation, name);
+  }
+  // Sweeping must not write a candidate gate back into the shipped object.
+  assert.equal(model.MODEL_CONSTANTS.versusOpponent.crossSeason, false);
+  assert.equal(model.MODEL_CONSTANTS.homeAway.useStoredHistory, false);
+});
+
 test('the older sweeps inherit the usage block untouched', () => {
   const model = require('../services/projectionModel');
   const base = model.MODEL_CONSTANTS;
@@ -148,6 +202,18 @@ test('the older sweeps inherit the usage block untouched', () => {
       base.usage,
       `${name} must not switch the opportunity component on as a side effect`
     );
+  }
+});
+
+test('no configuration outside the stored-history sweep opens a stored-history gate', () => {
+  const model = require('../services/projectionModel');
+  const base = model.MODEL_CONSTANTS;
+  const historySweep = ['xseason-vs', 'stored-homeaway', 'xseason-both'];
+  for (const [name, build] of Object.entries(backtest.CONFIGURATIONS)) {
+    if (historySweep.includes(name) || name === 'default') continue;
+    const constants = build(base);
+    assert.deepEqual(constants.versusOpponent, base.versusOpponent, name);
+    assert.deepEqual(constants.homeAway, base.homeAway, name);
   }
 });
 

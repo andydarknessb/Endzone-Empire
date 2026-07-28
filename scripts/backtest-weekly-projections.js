@@ -58,6 +58,23 @@
  *   usage-25      25% weight on the opportunity-weighted baseline (shipped)
  *   usage-40      40% weight on the opportunity-weighted baseline
  *   usage-60      60% weight on the opportunity-weighted baseline
+ *   xseason-vs      head-to-head meetings may come from earlier seasons
+ *   stored-homeaway prior-season orientation read from the stored per-week team
+ *   xseason-both    both stored-history gates at once
+ *
+ * The xseason-* / stored-homeaway arms sweep the two flags that let the feature
+ * builders read the per-week `gameTeam`/`gameOpponent` keys the nflverse
+ * backfill wrote into player_stats.stats (2024 and 2025). They are live: the
+ * engine threads its per-run constants into
+ * projectionFeatures.buildPriorGames / buildVersusOpponentMeetings, so these
+ * arms move the model the way every other config does.
+ *
+ * ONE THING TO READ BEFORE INTERPRETING A RUN: they can only differ from
+ * `default` on ENRICHED history. A stat row with no stored gameTeam is
+ * resolved exactly as it always was (prior season: opponent and orientation
+ * unknown), so a season, a position or a provider that never got the backfill
+ * scores an identical row by construction. An identical row is therefore not
+ * evidence that the gates do nothing; it is usually evidence about the data.
  *
  * The usage-* sweep priced expected opportunities (pass attempts for QBs,
  * carries + targets for RB/WR/TE) instead of projecting points directly, and it
@@ -158,6 +175,15 @@ const CONFIGURATIONS = {
   'usage-25': (MODEL) => withUsage(MODEL, { blendWeight: 0.25 }),
   'usage-40': (MODEL) => withUsage(MODEL, { blendWeight: 0.40 }),
   'usage-60': (MODEL) => withUsage(MODEL, { blendWeight: 0.60 }),
+  // Stored per-week game context. Each arm switches on ONE of the two flags
+  // that let the feature builders read the backfilled gameTeam/gameOpponent
+  // keys, and `xseason-both` crosses them, so a gain from cross-season
+  // head-to-head history is not mistaken for a gain from prior-season
+  // orientation. Both flags ship false; see the docblock for what these arms
+  // require before they can move a number at all.
+  'xseason-vs': (MODEL) => withHistory(MODEL, { crossSeason: true }, {}),
+  'stored-homeaway': (MODEL) => withHistory(MODEL, {}, { useStoredHistory: true }),
+  'xseason-both': (MODEL) => withHistory(MODEL, { crossSeason: true }, { useStoredHistory: true }),
 };
 
 function withBaseline(constants, overrides) {
@@ -170,6 +196,15 @@ function withSimulation(constants, overrides) {
 
 function withUsage(constants, overrides) {
   return { ...constants, usage: { ...constants.usage, ...overrides } };
+}
+
+/** Both stored-history gates in one helper, since the point is to cross them. */
+function withHistory(constants, versusOpponentOverrides, homeAwayOverrides) {
+  return {
+    ...constants,
+    versusOpponent: { ...constants.versusOpponent, ...versusOpponentOverrides },
+    homeAway: { ...constants.homeAway, ...homeAwayOverrides },
+  };
 }
 
 function parseArgs(argv) {

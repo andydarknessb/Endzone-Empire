@@ -283,6 +283,12 @@ function projectFromBundle({
     week,
     opponentByTeamWeek: bundle.opponentByTeamWeek,
     playerTeam: player.team_key,
+    // The run's constants, not the module defaults: the feature builders read
+    // the stored-history gates (versusOpponent.crossSeason,
+    // homeAway.useStoredHistory) out of this object, so a sweep that could not
+    // reach here would silently score every arm as `default`. Both gates ship
+    // false, so at the shipped constants this changes nothing.
+    constants,
   });
 
   const targetGame = bundle.targetGames.get(player.team_key) || null;
@@ -300,7 +306,9 @@ function projectFromBundle({
   });
 
   const versusOpponent = model.versusOpponentEffect({
-    meetings: features.buildVersusOpponentMeetings({ priorGames, opponent: opponentTeam, season }),
+    meetings: features.buildVersusOpponentMeetings({
+      priorGames, opponent: opponentTeam, season, constants,
+    }),
     constants: constants.versusOpponent,
   });
 

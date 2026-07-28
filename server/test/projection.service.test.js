@@ -70,7 +70,9 @@ function mockPool(t, {
     if (text.includes('COUNT(*)::int AS "games"')) return { rows: defenseGames };
     if (text.includes('JOIN unnest(')) return { rows: byeRows };
     if (text.includes('FROM "nfl_games"') && text.includes('"week" = $2')) return { rows: targetSchedule };
-    if (text.includes('FROM "nfl_games"') && text.includes('"week" < $2')) return { rows: priorSchedule };
+    // The completed-week schedule read spans the whole history window, so it is
+    // the one bounded by "season" >= $1 rather than by a bare week comparison.
+    if (text.includes('FROM "nfl_games"') && text.includes('"season" >= $1')) return { rows: priorSchedule };
     if (text.includes('FROM "game_weather_snapshots"')) return { rows: [] };
     throw new Error(`unexpected query: ${text.slice(0, 120)}`);
   });
@@ -237,6 +239,30 @@ test('a future stat row leaking into the feature set is a hard error, not a sile
   );
 });
 
+test('the widened schedule read spans earlier seasons but never the target week', async (t) => {
+  let scheduleQuery = null;
+  mockPool(t, {
+    players: [player(1, 'RB')],
+    weeklyStats: [weeklyRow(1, 3, { rushingYards: 80 })],
+    onQuery: (text, params) => {
+      if (text.includes('FROM "nfl_games"') && text.includes('"season" >= $1')) {
+        scheduleQuery = { text, params };
+      }
+    },
+  });
+
+  await run({ season: SEASON, week: 7, league: league(), playerIds: [1] });
+  assert.ok(scheduleQuery, 'the engine must read the completed-week schedule');
+  // Same cutoff clause the stats query uses, so the window can be widened
+  // backwards without a second, weaker spelling of "before week W".
+  assert.match(scheduleQuery.text, /"season" < \$2 OR \("season" = \$2 AND "week" < \$3\)/);
+  assert.deepEqual(
+    scheduleQuery.params,
+    [SEASON - features.HISTORY_SEASONS, SEASON, 7],
+    'the window starts at the history horizon and stops strictly before week 7'
+  );
+});
+
 test('the opponent scan and defense-game counts are also limited to earlier weeks', async (t) => {
   const seen = [];
   mockPool(t, {
@@ -271,7 +297,7 @@ test('a soft opponent raises the projection and appears in the explanation', asy
     players: [player(1, 'RB')],
     weeklyStats: Array.from({ length: 5 }, (_, i) => weeklyRow(1, i + 1, { rushingYards: 60, rushingTDs: 0 })),
     targetSchedule: target,
-    priorSchedule: Array.from({ length: 5 }, (_, i) => ({ week: i + 1, team_key: 'BUF', opponent_key: 'NYJ', home_away: 'home' })),
+    priorSchedule: Array.from({ length: 5 }, (_, i) => ({ season: SEASON, week: i + 1, team_key: 'BUF', opponent_key: 'NYJ', home_away: 'home' })),
     leagueScan,
     defenseGames: [{ team: 'NYJ', games: 5 }, { team: 'MIA', games: 5 }],
   });
@@ -334,6 +360,327 @@ test('buildPriorGames carries usage counts through, preserving null as null and 
   assert.notEqual(byWeek.get(1).usage.carries, byWeek.get(2).usage.carries);
   assert.equal(model.opportunitiesForGame(byWeek.get(1).usage, 'RB'), 4);
   assert.equal(model.opportunitiesForGame(byWeek.get(2).usage, 'RB'), null);
+});
+
+// ---------------------------------------------------------------------------
+// Stored per-week game context (gameTeam / gameOpponent)
+// ---------------------------------------------------------------------------
+
+/**
+ * The two flags that gate reading the backfilled per-week team keys. Both ship
+ * false, so every combination below is a hypothetical the code has to answer
+ * for before the sweep decides which, if any, to turn on.
+ */
+const historyConstants = ({ crossSeason = false, useStoredHistory = false } = {}) => ({
+  ...model.MODEL_CONSTANTS,
+  versusOpponent: { ...model.MODEL_CONSTANTS.versusOpponent, crossSeason },
+  homeAway: { ...model.MODEL_CONSTANTS.homeAway, useStoredHistory },
+});
+
+const FLAG_COMBINATIONS = [
+  { crossSeason: false, useStoredHistory: false },
+  { crossSeason: true, useStoredHistory: false },
+  { crossSeason: false, useStoredHistory: true },
+  { crossSeason: true, useStoredHistory: true },
+];
+
+/** A schedule map shaped exactly as loadFeatureBundle builds it. */
+const scheduleMap = (rows) => new Map(rows.map((r) => [
+  `${r.season}:${r.week}:${r.team}`,
+  { opponent: r.opponent, isHome: r.isHome },
+]));
+
+const priorGamesFor = (statRows, opponentByTeamWeek, flags, overrides = {}) =>
+  features.buildPriorGames({
+    statRows,
+    rules: SCORING_RULES,
+    season: SEASON,
+    week: 5,
+    opponentByTeamWeek,
+    playerTeam: 'BUF',
+    constants: historyConstants(flags),
+    ...overrides,
+  });
+
+test('both stored-history gates ship off', () => {
+  assert.equal(model.MODEL_CONSTANTS.versusOpponent.crossSeason, false);
+  assert.equal(model.MODEL_CONSTANTS.homeAway.useStoredHistory, false);
+});
+
+test('with both gates off, stored per-week team keys change nothing', () => {
+  // Enriched rows in BOTH seasons, and a schedule that could resolve every one
+  // of them: the point is that the shipped configuration declines to look.
+  const statRows = [
+    { season: SEASON, week: 1, stats: { rushingYards: 50, gameTeam: 'BUF', gameOpponent: 'NYJ' } },
+    { season: SEASON - 1, week: 9, stats: { rushingYards: 70, gameTeam: 'MIA', gameOpponent: 'NE' } },
+  ];
+  const schedule = scheduleMap([
+    { season: SEASON, week: 1, team: 'BUF', opponent: 'NYJ', isHome: true },
+    { season: SEASON - 1, week: 9, team: 'MIA', opponent: 'NE', isHome: false },
+  ]);
+
+  const games = priorGamesFor(statRows, schedule, {});
+  const byKey = new Map(games.map((g) => [`${g.season}:${g.week}`, g]));
+  // Pre-change behavior, spelled out rather than diffed against a copy of the
+  // old code: the current season resolves through the player's team, and a
+  // prior season is simply unknown.
+  assert.deepEqual(
+    { opponent: byKey.get(`${SEASON}:1`).opponent, isHome: byKey.get(`${SEASON}:1`).isHome },
+    { opponent: 'NYJ', isHome: true }
+  );
+  assert.deepEqual(
+    { opponent: byKey.get(`${SEASON - 1}:9`).opponent, isHome: byKey.get(`${SEASON - 1}:9`).isHome },
+    { opponent: null, isHome: null }
+  );
+  // And the default-argument path (no constants at all) must agree with it,
+  // since that is what the engine calls today.
+  const shipped = features.buildPriorGames({
+    statRows, rules: SCORING_RULES, season: SEASON, week: 5, opponentByTeamWeek: schedule, playerTeam: 'BUF',
+  });
+  assert.deepEqual(shipped, games);
+});
+
+test('a prior-season row with no stored team stays unknown under every flag combination', () => {
+  // The mutant this kills: resolving a prior-season row through the player's
+  // CURRENT team, which is a plausible-looking opponent for a game he may not
+  // even have played for that franchise.
+  const statRows = [{ season: SEASON - 1, week: 4, stats: { rushingYards: 90 } }];
+  const schedule = scheduleMap([
+    { season: SEASON - 1, week: 4, team: 'BUF', opponent: 'KC', isHome: true },
+  ]);
+  for (const flags of FLAG_COMBINATIONS) {
+    const [game] = priorGamesFor(statRows, schedule, flags);
+    assert.equal(game.opponent, null, JSON.stringify(flags));
+    assert.equal(game.isHome, null, JSON.stringify(flags));
+  }
+});
+
+test('a stored prior-season team resolves the opponent and orientation once its gate is on', () => {
+  const statRows = [
+    { season: SEASON - 1, week: 4, stats: { rushingYards: 90, gameTeam: 'MIA' } },
+    { season: SEASON - 1, week: 6, stats: { rushingYards: 40, gameTeam: 'MIA' } },
+  ];
+  const schedule = scheduleMap([
+    { season: SEASON - 1, week: 4, team: 'MIA', opponent: 'KC', isHome: true },
+    { season: SEASON - 1, week: 6, team: 'MIA', opponent: 'NYJ', isHome: false },
+  ]);
+
+  const orientation = priorGamesFor(statRows, schedule, { useStoredHistory: true });
+  const byWeek = new Map(orientation.map((g) => [g.week, g]));
+  assert.equal(byWeek.get(4).isHome, true);
+  assert.equal(byWeek.get(6).isHome, false, 'away must be false, not merely not-true');
+  // The orientation gate says nothing about who he faced, which is the other
+  // flag's question: the two arms of the sweep have to stay separable.
+  assert.equal(byWeek.get(4).opponent, null);
+
+  const meetings = priorGamesFor(statRows, schedule, { crossSeason: true });
+  const byWeekMeetings = new Map(meetings.map((g) => [g.week, g]));
+  assert.equal(byWeekMeetings.get(4).opponent, 'KC');
+  assert.equal(byWeekMeetings.get(6).opponent, 'NYJ');
+  assert.equal(byWeekMeetings.get(4).isHome, null);
+
+  const both = priorGamesFor(statRows, schedule, { crossSeason: true, useStoredHistory: true });
+  const byWeekBoth = new Map(both.map((g) => [g.week, g]));
+  assert.deepEqual(
+    { opponent: byWeekBoth.get(4).opponent, isHome: byWeekBoth.get(4).isHome },
+    { opponent: 'KC', isHome: true }
+  );
+});
+
+test('a stored opponent that contradicts the schedule nulls both fields, at any flag setting', () => {
+  // Two records of who he played, disagreeing. Neither is trustworthy, so the
+  // assertion is on the NULL: trusting the stored key would give NE, trusting
+  // the schedule would give KC, and both of those are mutants this kills.
+  const statRows = [
+    { season: SEASON - 1, week: 4, stats: { rushingYards: 90, gameTeam: 'MIA', gameOpponent: 'NE' } },
+    { season: SEASON, week: 2, stats: { rushingYards: 55, gameTeam: 'BUF', gameOpponent: 'DEN' } },
+  ];
+  const schedule = scheduleMap([
+    { season: SEASON - 1, week: 4, team: 'MIA', opponent: 'KC', isHome: true },
+    { season: SEASON, week: 2, team: 'BUF', opponent: 'NYJ', isHome: false },
+  ]);
+
+  for (const flags of FLAG_COMBINATIONS) {
+    const games = priorGamesFor(statRows, schedule, flags);
+    for (const game of games) {
+      const where = `${game.season} week ${game.week} @ ${JSON.stringify(flags)}`;
+      assert.equal(game.opponent, null, where);
+      assert.equal(game.isHome, null, where);
+    }
+  }
+});
+
+test('a contradiction is a real disagreement, not a spelling of one', () => {
+  // nflverse writes WAS, the schedule may hold WSH, and fn_normalize_nfl_team
+  // folds them together in SQL. Reading the stored key without the same fold
+  // would turn every Washington game into a contradiction and silently delete
+  // the feature.
+  assert.equal(features.normalizeTeamKey('WSH'), features.normalizeTeamKey('WAS'));
+  assert.equal(features.normalizeTeamKey('LA'), 'LAR');
+  assert.equal(features.normalizeTeamKey('Kansas City Chiefs'), 'KC');
+  assert.equal(features.normalizeTeamKey(''), null);
+  assert.equal(features.normalizeTeamKey(null), null);
+
+  const [game] = priorGamesFor(
+    [{ season: SEASON - 1, week: 4, stats: { rushingYards: 90, gameTeam: 'MIA', gameOpponent: 'WAS' } }],
+    scheduleMap([{ season: SEASON - 1, week: 4, team: 'MIA', opponent: 'WSH', isHome: true }]),
+    { crossSeason: true, useStoredHistory: true }
+  );
+  assert.equal(game.opponent, 'WSH', 'the schedule spelling is what the rest of the engine joins on');
+  assert.equal(game.isHome, true);
+});
+
+test('cross-season meetings enter the head-to-head set only when the gate is on', () => {
+  const statRows = [
+    { season: SEASON, week: 1, stats: { rushingYards: 100, gameTeam: 'BUF', gameOpponent: 'NYJ' } },
+    { season: SEASON, week: 2, stats: { rushingYards: 50, gameTeam: 'BUF', gameOpponent: 'MIA' } },
+    { season: SEASON, week: 3, stats: { rushingYards: 70, gameTeam: 'BUF', gameOpponent: 'MIA' } },
+    // No schedule row: this week's opponent is unknown either way.
+    { season: SEASON, week: 4, stats: { rushingYards: 200 } },
+    { season: SEASON - 1, week: 9, stats: { rushingYards: 120, gameTeam: 'BUF', gameOpponent: 'NYJ' } },
+  ];
+  const schedule = scheduleMap([
+    { season: SEASON, week: 1, team: 'BUF', opponent: 'NYJ', isHome: true },
+    { season: SEASON, week: 2, team: 'BUF', opponent: 'MIA', isHome: false },
+    { season: SEASON, week: 3, team: 'BUF', opponent: 'MIA', isHome: true },
+    { season: SEASON - 1, week: 9, team: 'BUF', opponent: 'NYJ', isHome: false },
+  ]);
+  const pointsFor = (games, season, week) =>
+    games.find((g) => g.season === season && g.week === week).points;
+
+  const closed = priorGamesFor(statRows, schedule, {});
+  const closedMeetings = features.buildVersusOpponentMeetings({
+    priorGames: closed, opponent: 'NYJ', season: SEASON, constants: historyConstants({}),
+  });
+  assert.equal(closedMeetings.length, 1, 'only this season counts by default');
+  assert.deepEqual(closedMeetings.map((m) => m.seasonsAgo), [0]);
+  // Baseline excludes the meeting and nothing else, including the week whose
+  // opponent is unknown.
+  const closedBaseline = (pointsFor(closed, SEASON, 2) + pointsFor(closed, SEASON, 3)
+    + pointsFor(closed, SEASON, 4)) / 3;
+  assert.ok(Math.abs(closedMeetings[0].baseline - closedBaseline) < 1e-9);
+
+  const open = priorGamesFor(statRows, schedule, { crossSeason: true });
+  const openMeetings = features.buildVersusOpponentMeetings({
+    priorGames: open, opponent: 'NYJ', season: SEASON, constants: historyConstants({ crossSeason: true }),
+  });
+  assert.equal(openMeetings.length, 2, 'the prior-season meeting now counts');
+  assert.deepEqual(
+    openMeetings.map((m) => m.seasonsAgo), [0, 1],
+    'seasonsAgo has to survive, or versusOpponentEffect cannot decay the old meeting'
+  );
+  // The exclusion baseline moved with the pool: opponent-known games only, so
+  // the unknown-opponent week 4 drops out of it.
+  const openBaseline = (pointsFor(open, SEASON, 2) + pointsFor(open, SEASON, 3)) / 2;
+  assert.ok(Math.abs(openMeetings[0].baseline - openBaseline) < 1e-9);
+  assert.notEqual(openMeetings[0].baseline, closedMeetings[0].baseline);
+
+  // Default arguments must reproduce the closed set exactly.
+  assert.deepEqual(
+    features.buildVersusOpponentMeetings({ priorGames: closed, opponent: 'NYJ', season: SEASON }),
+    closedMeetings
+  );
+});
+
+/**
+ * The wiring proof for the gates, in the same spirit as the efficiency-prior
+ * test below: the flags live in MODEL_CONSTANTS, but they are READ inside the
+ * feature builders, so a run's constants have to travel all the way there. A
+ * build that dropped the argument would still project happily, just always at
+ * the shipped defaults, and every sweep arm would score an identical row while
+ * looking like it had been evaluated.
+ */
+test('the run constants reach both feature builders, not just projectPlayer', async (t) => {
+  const seen = { priorGames: [], meetings: [] };
+  const realBuildPriorGames = features.buildPriorGames;
+  const realBuildMeetings = features.buildVersusOpponentMeetings;
+  t.mock.method(features, 'buildPriorGames', (args) => {
+    seen.priorGames.push(args);
+    return realBuildPriorGames(args);
+  });
+  t.mock.method(features, 'buildVersusOpponentMeetings', (args) => {
+    seen.meetings.push(args);
+    return realBuildMeetings(args);
+  });
+  mockPool(t, {
+    players: [player(1, 'RB')],
+    weeklyStats: [1, 2, 3].map((week) => weeklyRow(1, week, {
+      rushingYards: 60, gameTeam: 'BUF', gameOpponent: 'NYJ',
+    })),
+    targetSchedule: [{
+      team_key: 'BUF', opponent_key: 'NYJ', nfl_team: 'BUF', opponent: 'NYJ',
+      kickoff_at: '2026-10-11T17:00:00Z', game_key: null, home_away: 'home', roof: null,
+      latitude: null, longitude: null,
+    }],
+    priorSchedule: [1, 2, 3].map((week) => ({
+      season: SEASON, week, team_key: 'BUF', opponent_key: 'NYJ', home_away: 'home',
+    })),
+  });
+  const generate = (modelConstants) => projection.generateProjections({
+    season: SEASON, week: 5, rules: SCORING_RULES, playerIds: [1],
+    hashValue: 'h', weatherService: false, modelConstants,
+  });
+
+  await generate(undefined);
+  assert.equal(seen.priorGames.at(-1).constants, model.MODEL_CONSTANTS,
+    'a run with no override must build features under the shipped constants');
+  assert.equal(seen.meetings.at(-1).constants, model.MODEL_CONSTANTS);
+
+  const swept = historyConstants({ crossSeason: true, useStoredHistory: true });
+  await generate(swept);
+  assert.equal(seen.priorGames.at(-1).constants, swept,
+    'a swept arm that never reaches buildPriorGames is an arm that was never evaluated');
+  assert.equal(seen.meetings.at(-1).constants, swept);
+});
+
+/**
+ * And the same wiring end to end, with no builder mocked: a prior-season
+ * meeting has to be able to change a FACTOR, which is the only reason the
+ * `xseason-vs` sweep arm is worth running. Shipped constants must leave that
+ * factor exactly where it was before the stored keys existed.
+ */
+test('a cross-season meeting reaches the head-to-head factor only under the swept constants', async (t) => {
+  const setup = () => ({
+    players: [player(1, 'RB')],
+    weeklyStats: [
+      weeklyRow(1, 1, { rushingYards: 100, gameTeam: 'BUF', gameOpponent: 'NYJ' }),
+      weeklyRow(1, 2, { rushingYards: 60, gameTeam: 'BUF', gameOpponent: 'MIA' }),
+      weeklyRow(1, 3, { rushingYards: 55, gameTeam: 'BUF', gameOpponent: 'NE' }),
+      weeklyRow(1, 9, { rushingYards: 120, gameTeam: 'BUF', gameOpponent: 'NYJ' }, SEASON - 1),
+    ],
+    targetSchedule: [{
+      team_key: 'BUF', opponent_key: 'NYJ', nfl_team: 'BUF', opponent: 'NYJ',
+      kickoff_at: '2026-10-11T17:00:00Z', game_key: null, home_away: 'home', roof: null,
+      latitude: null, longitude: null,
+    }],
+    priorSchedule: [
+      { season: SEASON, week: 1, team_key: 'BUF', opponent_key: 'NYJ', home_away: 'home' },
+      { season: SEASON, week: 2, team_key: 'BUF', opponent_key: 'MIA', home_away: 'away' },
+      { season: SEASON, week: 3, team_key: 'BUF', opponent_key: 'NE', home_away: 'home' },
+      { season: SEASON - 1, week: 9, team_key: 'BUF', opponent_key: 'NYJ', home_away: 'away' },
+    ],
+  });
+  const generate = (modelConstants) => projection.generateProjections({
+    season: SEASON, week: 5, rules: SCORING_RULES, playerIds: [1],
+    hashValue: 'h', weatherService: false, modelConstants,
+  });
+
+  mockPool(t, setup());
+  const shipped = await generate(model.MODEL_CONSTANTS);
+  const sweptRun = await generate(historyConstants({ crossSeason: true }));
+
+  const shippedFactor = shipped.projections.get(1).factors.versusOpponent;
+  const sweptFactor = sweptRun.projections.get(1).factors.versusOpponent;
+  // One current-season meeting is below minMeetings, so the shipped engine has
+  // no head-to-head factor here at all, exactly as before this phase.
+  assert.equal(shippedFactor.available, false);
+  assert.equal(shippedFactor.meetings, 1);
+  assert.equal(shippedFactor.pointsContribution, null);
+  // The prior-season meeting, resolved through the stored per-week team, is the
+  // second one.
+  assert.equal(sweptFactor.available, true);
+  assert.equal(sweptFactor.meetings, 2);
+  assert.notEqual(shipped.projections.get(1).mean, sweptRun.projections.get(1).mean);
 });
 
 test('buildLeagueContext derives points per opportunity from the rows that have both halves', () => {

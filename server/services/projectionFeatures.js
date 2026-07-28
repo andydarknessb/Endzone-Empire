@@ -1,5 +1,5 @@
 const pool = require('../modules/pool');
-const { calculateFantasyPoints } = require('./scoring.service');
+const { calculateFantasyPoints, normalizeTeamAbbr } = require('./scoring.service');
 const { computeByeWeeks } = require('./bye.service');
 const model = require('./projectionModel');
 
@@ -87,6 +87,34 @@ function hasRoleSignal(stats) {
 }
 
 /**
+ * Legacy / alternate NFL abbreviations, mirroring the alias branch of
+ * `fn_normalize_nfl_team` (server/db/migrations/20260719000003_view_matchup_nfl_games.js).
+ * Kept in sync with that list by hand, the same way scoring.service's team-name
+ * map already is.
+ */
+const TEAM_KEY_ALIASES = {
+  WSH: 'WAS', WFT: 'WAS', GNB: 'GB', KAN: 'KC', JAC: 'JAX', NWE: 'NE',
+  NOR: 'NO', TAM: 'TB', SFO: 'SF', SD: 'LAC', OAK: 'LV', STL: 'LAR', LA: 'LAR',
+};
+
+/**
+ * Pure: a team spelling -> the SAME canonical key `fn_normalize_nfl_team`
+ * produces in SQL, or null.
+ *
+ * Every schedule key in this file is normalized by that SQL function, so a team
+ * read out of JS (a stored `gameTeam`, a player's team) has to be folded the
+ * same way before it is compared against one: nflverse writes WAS where the
+ * schedule may hold WSH, and treating those as two teams would either miss a
+ * real match or, worse, report a contradiction that is only a spelling.
+ */
+function normalizeTeamKey(team) {
+  const raw = String(team == null ? '' : team).trim().toUpperCase();
+  if (!raw) return null;
+  const abbr = normalizeTeamAbbr(raw) || raw;
+  return TEAM_KEY_ALIASES[abbr] || abbr;
+}
+
+/**
  * Pure: the opportunity counts a stored stat line carries, in the shape
  * projectionModel.opportunitiesForGame reads.
  *
@@ -114,28 +142,68 @@ function usageFromStats(stats) {
  * Pure: a player's prior league-scored games, newest first, annotated with
  * recency distance and the opponent they were played against (when the
  * schedule can be resolved for that exact season/week).
+ *
+ * WHICH TEAM a historical line belongs to is the whole difficulty. A
+ * current-season row is resolved through the player's CURRENT team, which is
+ * what the schedule map has always been keyed by. A prior-season row can only
+ * be resolved through the team he played for THAT week, which exists solely as
+ * the `gameTeam` key the nflverse backfill wrote into player_stats.stats, so
+ * reading it is gated behind `constants` (see MODEL_CONSTANTS.homeAway
+ * .useStoredHistory and .versusOpponent.crossSeason), both of which ship false.
+ * At the shipped values this function returns exactly what it returned before
+ * the stored keys existed. Rows with no `gameTeam` are unaffected at ANY
+ * setting: a prior-season game with no stored team stays opponent/isHome null
+ * rather than being resolved through whatever team the player is on today.
+ *
+ * `constants` carries the RUN's constants: projection.service.projectFromBundle
+ * hands its per-run object down, so a backtest sweep of the gates reaches this
+ * function through the ordinary engine path. The default is the shipped
+ * MODEL_CONSTANTS, which is what a caller passing nothing has always got.
  */
-function buildPriorGames({ statRows, rules, season, week, opponentByTeamWeek, playerTeam }) {
+function buildPriorGames({
+  statRows, rules, season, week, opponentByTeamWeek, playerTeam,
+  constants = model.MODEL_CONSTANTS,
+}) {
+  const crossSeason = !!(constants && constants.versusOpponent && constants.versusOpponent.crossSeason);
+  const useStoredHistory = !!(constants && constants.homeAway && constants.homeAway.useStoredHistory);
+  const currentTeamKey = normalizeTeamKey(playerTeam);
   const games = [];
   for (const row of statRows || []) {
     const points = calculateFantasyPoints(row.stats, rules);
-    const key = `${row.season}:${row.week}:${playerTeam || ''}`;
-    const schedule = opponentByTeamWeek ? opponentByTeamWeek.get(key) : null;
     // Whether this game belongs to the season being projected. Two consumers
     // care: the opponent/orientation fields below, and the model's optional
     // current-season blend, which averages THIS season's games only.
     const sameSeason = Number(row.season) === Number(season);
+    const stats = row.stats && typeof row.stats === 'object' ? row.stats : {};
+    const storedTeam = normalizeTeamKey(stats.gameTeam);
+    const storedOpponent = normalizeTeamKey(stats.gameOpponent);
+    // One resolution path, two ways of choosing the team it looks up: the
+    // current season keeps the current-team key it has always used, and an
+    // earlier season uses the stored per-week team or nothing. The two agree on
+    // a current-season row unless the player was traded mid-season, and that
+    // disagreement is caught below rather than resolved by preference.
+    const teamKey = sameSeason
+      ? currentTeamKey
+      : ((crossSeason || useStoredHistory) ? storedTeam : null);
+    const resolved = teamKey && opponentByTeamWeek
+      ? opponentByTeamWeek.get(`${row.season}:${row.week}:${teamKey}`) || null
+      : null;
+    // Two independent records of who this line was earned against. When they
+    // disagree, one of them is wrong and nothing here can say which, so the
+    // game contributes no opponent and no orientation at all. This holds at
+    // every flag setting: a contradiction is never evidence.
+    const contradicted = !!(
+      resolved && storedOpponent && normalizeTeamKey(resolved.opponent) !== storedOpponent
+    );
+    const trusted = contradicted ? null : resolved;
     games.push({
       season: Number(row.season),
       week: Number(row.week),
       points,
       weeksAgo: weeksAgo({ gameSeason: row.season, gameWeek: row.week, season, week }),
       sameSeason,
-      // Only the CURRENT season's orientation/opponent is trustworthy: we
-      // store no per-week team history, so a prior-season row's "opponent"
-      // would really be "whoever this player's CURRENT team played".
-      opponent: sameSeason && schedule ? schedule.opponent : null,
-      isHome: sameSeason && schedule ? schedule.isHome : null,
+      opponent: trusted && (sameSeason || crossSeason) ? trusted.opponent : null,
+      isHome: trusted && (sameSeason || useStoredHistory) ? trusted.isHome : null,
       hasRole: hasRoleSignal(row.stats),
       // Opportunity counts for the model's usage component. Read from the same
       // `stats` jsonb the history SELECT already returns, so this costs no
@@ -268,17 +336,30 @@ function buildLeagueContext({ rows, rules, defenseGamesByTeam }) {
  * with the player's baseline EXCLUDING those meetings — so the factor measures
  * "better than his usual against them", not "he was good that year".
  *
- * Restricted to the current season on purpose: `player_stats` carries no
- * per-week team, so a prior-season row's opponent would be derived from the
- * player's CURRENT team's old schedule. That mapping is uncertain, and an
- * uncertain mapping produces no factor.
+ * Restricted to the current season by default: for a row the nflverse backfill
+ * never touched, `player_stats` carries no per-week team, so a prior-season
+ * row's opponent would be derived from the player's CURRENT team's old
+ * schedule. That mapping is uncertain, and an uncertain mapping produces no
+ * factor.
+ *
+ * `versusOpponent.crossSeason` (false today) widens that to every game whose
+ * opponent buildPriorGames could actually RESOLVE, in any season of the
+ * history window. The pool then changes on both sides at once: an earlier
+ * meeting can count, and the exclusion baseline it is measured against becomes
+ * the player's other opponent-known games rather than his other current-season
+ * games. Each record still carries `seasonsAgo`, which is what
+ * model.versusOpponentEffect decays by `halfLifeSeasons`. Without it an old
+ * meeting would count as heavily as last month's.
  */
-function buildVersusOpponentMeetings({ priorGames, opponent, season }) {
+function buildVersusOpponentMeetings({ priorGames, opponent, season, constants = model.MODEL_CONSTANTS }) {
   if (!opponent) return [];
-  const sameSeason = (priorGames || []).filter((g) => g.season === Number(season));
-  const meetings = sameSeason.filter((g) => g.opponent === opponent);
+  const crossSeason = !!(constants && constants.versusOpponent && constants.versusOpponent.crossSeason);
+  const eligible = (priorGames || []).filter((g) => (crossSeason
+    ? g.opponent != null
+    : g.season === Number(season)));
+  const meetings = eligible.filter((g) => g.opponent === opponent);
   if (meetings.length === 0) return [];
-  const others = sameSeason.filter((g) => g.opponent !== opponent);
+  const others = eligible.filter((g) => g.opponent !== opponent);
   const baseline = others.length > 0
     ? others.reduce((s, g) => s + g.points, 0) / others.length
     : null;
@@ -356,11 +437,18 @@ async function loadFeatureBundle({ season, week, playerIds, rules, client = pool
          FROM "nfl_games" WHERE "season" = $1 AND "week" = $2`,
         [season, week]
       ),
+      // Schedule orientation for every COMPLETED week in the history window,
+      // not just this season's: a prior-season stat row that carries a stored
+      // per-week team can only be tied to a game if that game is loaded. The
+      // input cutoff is spelled exactly as the stats query above spells it, so
+      // widening the window still cannot reach week W or anything after it.
       client.query(
-        `SELECT "week", fn_normalize_nfl_team("nfl_team") AS "team_key",
+        `SELECT "season", "week", fn_normalize_nfl_team("nfl_team") AS "team_key",
                 fn_normalize_nfl_team("opponent") AS "opponent_key", "home_away"
-         FROM "nfl_games" WHERE "season" = $1 AND "week" < $2`,
-        [season, week]
+         FROM "nfl_games"
+         WHERE "season" >= $1
+           AND ("season" < $2 OR ("season" = $2 AND "week" < $3))`,
+        [firstSeason, season, week]
       ),
     ]);
 
@@ -381,11 +469,13 @@ async function loadFeatureBundle({ season, week, playerIds, rules, client = pool
   const targetGames = new Map();
   for (const row of targetScheduleResult.rows) targetGames.set(row.team_key, row);
 
-  // Schedule orientation for every completed week, keyed by team+week, so a
-  // player's historical rows can be tied to who he faced and where.
+  // Schedule orientation for every completed week, keyed by season+week+team so
+  // a player's historical rows can be tied to who he faced and where. The
+  // season belongs in the key now that earlier seasons are loaded: without it a
+  // 2024 Week 3 game and a 2025 Week 3 game would overwrite each other.
   const opponentByTeamWeek = new Map();
   for (const row of priorScheduleResult.rows) {
-    opponentByTeamWeek.set(`${season}:${row.week}:${row.team_key}`, {
+    opponentByTeamWeek.set(`${row.season}:${row.week}:${row.team_key}`, {
       opponent: row.opponent_key,
       isHome: row.home_away === 'home' ? true : row.home_away === 'away' ? false : null,
     });
@@ -414,8 +504,13 @@ async function loadFeatureBundle({ season, week, playerIds, rules, client = pool
   }
 
   // Defense games must be keyed the same way the scan's `defense` column is.
+  // Gated on the TARGET season's completed weeks specifically: the count below
+  // is a season-to-date count, so prior-season rows in the widened schedule
+  // read above must not be what decides to go and fetch it.
+  const currentSeasonScheduleRows = priorScheduleResult.rows
+    .filter((r) => Number(r.season) === Number(season));
   const normalizedDefenseGames = new Map();
-  if (priorScheduleResult.rows.length > 0) {
+  if (currentSeasonScheduleRows.length > 0) {
     const normalized = await client.query(
       `SELECT fn_normalize_nfl_team("nfl_team") AS "team", COUNT(*)::int AS "games"
        FROM "nfl_games" WHERE "season" = $1 AND "week" < $2
@@ -476,6 +571,7 @@ module.exports = {
   MAX_LEAGUE_SCAN_ROWS,
   ROLE_KEYS,
   hasRoleSignal,
+  normalizeTeamKey,
   usageFromStats,
   weeksAgo,
   assertNoFutureRows,
