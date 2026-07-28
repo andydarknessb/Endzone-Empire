@@ -35,12 +35,24 @@ function buildSeason({ season, firstKickoff }) {
   }
 
   const weeksByTeam = new Map(teams.map((t) => [t, []]));
+  const manifestGames = [];
   for (const [week, rows] of rowsByWeek) {
-    for (const row of rows) weeksByTeam.get(row.nfl_team).push(week);
+    for (const row of rows) {
+      weeksByTeam.get(row.nfl_team).push(week);
+      if (row.home_away === 'home') {
+        manifestGames.push({ week, away: row.opponent, home: row.nfl_team });
+      }
+    }
   }
   const matrixRows = teams.map((t) => ({ team_key: t, weeks: weeksByTeam.get(t).sort((a, b) => a - b) }));
 
-  return { season, rowsByWeek, matrixRows, byeByWeek };
+  return {
+    season,
+    rowsByWeek,
+    matrixRows,
+    byeByWeek,
+    manifest: { season, source: 'synthetic test season', games: manifestGames },
+  };
 }
 
 module.exports = { buildSeason };

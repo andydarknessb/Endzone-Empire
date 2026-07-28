@@ -63,7 +63,10 @@ async function holdoutStatus() {
     const { ok, obligations } = await holdout.reconcileObligations();
     return { ok, obligations };
   } catch (error) {
-    return { ok: false, obligations: [], unavailable: true, error: error.message };
+    // The detail goes to the server log; the public route reports only that
+    // reconciliation could not run. Raw database errors are not a public API.
+    console.error('holdout reconciliation failed:', error.message);
+    return { ok: false, obligations: [], unavailable: true };
   }
 }
 

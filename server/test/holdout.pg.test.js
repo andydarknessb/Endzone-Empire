@@ -71,6 +71,8 @@ if (!ENABLED) {
     const { buildSeason } = require('./helpers/holdoutSeason');
     const first = new Date(Date.now() + firstKickoffInMs);
     const built = buildSeason({ season, firstKickoff: first.toISOString() });
+    // Register the matching manifest: the capture refuses seasons without one.
+    require('../services/holdout.service').SEASON_MANIFESTS.set(season, built.manifest);
     const values = [];
     const params = [];
     let i = 0;

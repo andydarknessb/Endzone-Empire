@@ -80,12 +80,26 @@ const SEASON_WEEKS = 18;
 const GAMES_PER_TEAM = 17;
 
 /**
- * When holdout obligations begin to exist. Weeks whose first kickoff
- * precedes this are history the ledger never promised to capture; weeks
- * after it stay accountable for the WHOLE season - a missed obligation is
- * never forgotten by the passage of time.
+ * The INDEPENDENT schedule authority: exact (week, away, home) identities
+ * per season, frozen in the repository from nflverse's public schedule data
+ * - not derived from the database it validates. Counts and closure cannot
+ * catch a game quietly moved between weeks or a reciprocal opponent swap;
+ * only identity equality against an authority can, and only an authority
+ * with all 18 weeks can make an entirely absent week visible.
+ *
+ * The registry is a mutable Map ON PURPOSE: tests register synthetic
+ * seasons and remove them again. A season with no manifest cannot be
+ * captured and produces no obligations - the ledger never guesses.
  */
-const HOLDOUT_EPOCH = new Date('2026-08-01T00:00:00Z');
+const SEASON_MANIFESTS = new Map([
+  [2026, require('../data/nfl-schedule-2026.json')],
+]);
+
+function manifestGamesForWeek(season, week) {
+  const manifest = SEASON_MANIFESTS.get(Number(season));
+  if (!manifest) return null;
+  return manifest.games.filter((g) => Number(g.week) === Number(week));
+}
 
 /** The projectable cohort. IDP joins when IDP players exist in `players`. */
 const HOLDOUT_POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
@@ -125,65 +139,95 @@ function requireReleaseSha() {
  * records from them. Throws on anything that smells like a partial sync
  * (the Tank01 TBD-game history makes this a real hazard, not paranoia).
  *
- * Two layers:
+ * Three layers:
  *
- * 1. **Per-game shape.** Every game key appears on exactly TWO rows, whose
- *    teams are mutually reciprocal, whose home/away values are one 'home'
- *    and one 'away', and whose kickoffs are identical. Every row carries a
- *    kickoff, a game key, and an opponent.
+ * 1. **Identity equality against the manifest.** `manifestGames` is the
+ *    week's authoritative (away, home) list from the frozen independent
+ *    manifest. Every manifest game must be present as exactly its two
+ *    reciprocal rows with identical kickoffs, and NO row may exist outside
+ *    the manifest. Counts and closure cannot see a game quietly moved into
+ *    a shared bye week or a reciprocal opponent swap - identity equality
+ *    can, and it also pins `firstKickoffAt`: with every manifest game
+ *    accounted for, a missing early game cannot slide the cutoff later.
  *
- * 2. **Season completeness against the INDEPENDENT expected domain.** The
- *    universe is not what was observed - it is the canonical 32 teams,
- *    weeks 1 through 18, and exactly 17 appearances per team. A season
- *    missing a whole team, a whole week, or any single game row fails
- *    here, because the expectation does not shrink to fit the data: 15
- *    games of 30 observed teams is not "a two-bye week", it is two
- *    franchises missing from the NFL. The target week's absent teams must
- *    be exactly the teams whose one season absence (their bye) IS this
- *    week - including the case where a missing game was the week's
- *    EARLIEST and its absence would otherwise have slid `firstKickoffAt`
- *    late enough to admit a post-kickoff capture.
+ * 2. **Per-game shape.** Reciprocity and kickoff agreement always;
+ *    `home_away` and `game_key`, WHEN the sync populated them, must be
+ *    internally consistent and match the manifest orientation. (The 2026
+ *    sync stores identities and kickoffs but not orientation or keys;
+ *    orientation authority is the manifest either way.)
+ *
+ * 3. **Season completeness against the canonical domain.** 32 teams,
+ *    18 weeks, 17 appearances each - defense in depth for the season-wide
+ *    sync, kept even though the manifest is the decisive authority for the
+ *    captured week.
  *
  * `seasonMatrix` is [{ team_key, weeks }] for the whole season, read
  * in-transaction by `snapshotWeek` so it shares the snapshot the schedule
  * hash certifies.
  */
-function validateSchedule({ rows, seasonMatrix, season, week }) {
+function validateSchedule({ rows, seasonMatrix, manifestGames, season, week }) {
+  if (!manifestGames || manifestGames.length === 0) {
+    throw new Error(`no schedule manifest for ${season} week ${week} - captures without an authority are not evidence`);
+  }
   if (!rows || rows.length === 0) {
     throw new Error(`no schedule rows for ${season} week ${week}`);
   }
   const byTeam = new Map();
-  const byGame = new Map();
   for (const row of rows) {
     if (!row.kickoff_at) throw new Error(`schedule row without kickoff for ${season} week ${week} (${row.nfl_team})`);
-    if (!row.game_key) throw new Error(`schedule row without game key for ${season} week ${week} (${row.nfl_team})`);
     if (!row.opponent) throw new Error(`schedule row without opponent for ${season} week ${week} (${row.nfl_team})`);
     byTeam.set(normalizeTeamKey(row.nfl_team), row);
-    if (!byGame.has(row.game_key)) byGame.set(row.game_key, []);
-    byGame.get(row.game_key).push(row);
   }
   if (byTeam.size !== rows.length) {
     throw new Error(`schedule for ${season} week ${week} lists a team twice`);
   }
-  for (const [gameKey, pair] of byGame) {
-    if (pair.length !== 2) {
-      throw new Error(`schedule for ${season} week ${week}: game ${gameKey} has ${pair.length} row(s), expected exactly 2`);
+
+  // Layer 1: identity equality, manifest-first.
+  const orientationByTeam = new Map();
+  const manifestTeams = new Set();
+  for (const game of manifestGames) {
+    const away = normalizeTeamKey(game.away);
+    const home = normalizeTeamKey(game.home);
+    manifestTeams.add(away);
+    manifestTeams.add(home);
+    orientationByTeam.set(home, 'home');
+    orientationByTeam.set(away, 'away');
+    const homeRow = byTeam.get(home);
+    const awayRow = byTeam.get(away);
+    if (!homeRow || !awayRow) {
+      throw new Error(
+        `schedule for ${season} week ${week} is missing manifest game ${away}@${home}` +
+        (homeRow || awayRow ? ' (one side present)' : '')
+      );
     }
-    const [a, b] = pair;
-    if (normalizeTeamKey(a.opponent) !== normalizeTeamKey(b.nfl_team)
-      || normalizeTeamKey(b.opponent) !== normalizeTeamKey(a.nfl_team)) {
-      throw new Error(`schedule for ${season} week ${week}: game ${gameKey} rows are not reciprocal`);
+    if (normalizeTeamKey(homeRow.opponent) !== away || normalizeTeamKey(awayRow.opponent) !== home) {
+      throw new Error(
+        `schedule for ${season} week ${week}: rows for ${away}@${home} do not match the manifest pairing ` +
+        `(${homeRow.nfl_team} vs ${homeRow.opponent}, ${awayRow.nfl_team} vs ${awayRow.opponent})`
+      );
     }
-    const sides = [a.home_away, b.home_away].sort();
-    if (sides[0] !== 'away' || sides[1] !== 'home') {
-      throw new Error(`schedule for ${season} week ${week}: game ${gameKey} home/away must be one of each (got ${a.home_away}/${b.home_away})`);
+    if (new Date(homeRow.kickoff_at).getTime() !== new Date(awayRow.kickoff_at).getTime()) {
+      throw new Error(`schedule for ${season} week ${week}: ${away}@${home} rows disagree on kickoff`);
     }
-    if (new Date(a.kickoff_at).getTime() !== new Date(b.kickoff_at).getTime()) {
-      throw new Error(`schedule for ${season} week ${week}: game ${gameKey} rows disagree on kickoff`);
+    // Layer 2: orientation/keys are validated when the sync provides them.
+    if (homeRow.home_away != null && homeRow.home_away !== 'home') {
+      throw new Error(`schedule for ${season} week ${week}: ${home} marked ${homeRow.home_away}, manifest says home`);
+    }
+    if (awayRow.home_away != null && awayRow.home_away !== 'away') {
+      throw new Error(`schedule for ${season} week ${week}: ${away} marked ${awayRow.home_away}, manifest says away`);
+    }
+    if ((homeRow.game_key || awayRow.game_key) && homeRow.game_key !== awayRow.game_key) {
+      throw new Error(`schedule for ${season} week ${week}: ${away}@${home} rows disagree on game key`);
     }
   }
+  const outsideManifest = [...byTeam.keys()].filter((t) => !manifestTeams.has(t));
+  if (outsideManifest.length > 0) {
+    throw new Error(
+      `schedule for ${season} week ${week} contains game rows the manifest does not: ${outsideManifest.join(', ')}`
+    );
+  }
 
-  // The expected domain, checked as EXPECTATION, never inferred from data.
+  // Layer 3: the expected canonical domain, checked as EXPECTATION.
   const matrix = new Map(
     (seasonMatrix || []).map((r) => [normalizeTeamKey(r.team_key), (r.weeks || []).map(Number)])
   );
@@ -247,15 +291,16 @@ function validateSchedule({ rows, seasonMatrix, season, week }) {
     );
   }
   const digestInput = rows
-    .map((r) => `${normalizeTeamKey(r.nfl_team)}|${normalizeTeamKey(r.opponent)}|${r.home_away || ''}|${new Date(r.kickoff_at).toISOString()}|${r.game_key}`)
+    .map((r) => `${normalizeTeamKey(r.nfl_team)}|${normalizeTeamKey(r.opponent)}|${orientationByTeam.get(normalizeTeamKey(r.nfl_team)) || ''}|${new Date(r.kickoff_at).toISOString()}|${r.game_key || ''}`)
     .sort()
     .join('\n');
   const kickoffs = rows.map((r) => new Date(r.kickoff_at).getTime());
   return {
     firstKickoffAt: new Date(Math.min(...kickoffs)),
-    scheduleGames: rows.length / 2,
+    scheduleGames: manifestGames.length,
     scheduleHash: sha256(digestInput),
     byTeam,
+    orientationByTeam,
   };
 }
 
@@ -271,6 +316,10 @@ const CHILD_COLS = 18;
  */
 async function snapshotWeek({ season, week, profileName, rules, client = pool }) {
   const releaseSha = requireReleaseSha();
+  const manifestGames = manifestGamesForWeek(season, week);
+  if (!manifestGames || manifestGames.length === 0) {
+    throw new Error(`no schedule manifest for season ${season} week ${week} - refusing to capture without an authority`);
+  }
   const scoringHash = model.scoringHash(rules);
   const modelVersion = model.MODEL_VERSION;
   const identity = `${season}:${week}:${scoringHash}:${modelVersion}:scheduled`;
@@ -297,13 +346,14 @@ async function snapshotWeek({ season, week, profileName, rules, client = pool })
     const seasonMatrix = await conn.query(
       `SELECT fn_normalize_nfl_team("nfl_team") AS "team_key",
               array_agg(DISTINCT "week") AS "weeks"
-       FROM "nfl_games" WHERE "season" = $1
+       FROM "nfl_games" WHERE "season" = $1 AND "week" BETWEEN 1 AND ${SEASON_WEEKS}
        GROUP BY fn_normalize_nfl_team("nfl_team")`,
       [season]
     );
     const schedule = validateSchedule({
       rows: scheduleResult.rows,
       seasonMatrix: seasonMatrix.rows,
+      manifestGames,
       season,
       week,
     });
@@ -425,7 +475,10 @@ async function snapshotWeek({ season, week, profileName, rules, client = pool })
           p.p75 ?? null, p.p90 ?? null, p.activeProbability ?? null,
           p.confidence ?? null, p.sampleSize || 0, JSON.stringify(p.factors || {}),
           playerRow.position ?? null, playerRow.nfl_team ?? null, playerRow.injury_status ?? null,
-          game ? game.opponent : null, game ? game.home_away : null,
+          game ? game.opponent : null,
+          // Orientation from the MANIFEST (the authority), not the row: the
+          // 2026 sync never populated home_away.
+          game ? (schedule.orientationByTeam.get(normalizeTeamKey(playerRow.nfl_team)) ?? null) : null,
           game ? game.kickoff_at : null
         );
       });
@@ -491,6 +544,7 @@ async function captureDueSnapshots({ now = new Date(), client = pool } = {}) {
   const due = await client.query(
     `SELECT "season", "week", MIN("kickoff_at") AS "first_kickoff"
      FROM "nfl_games"
+     WHERE "week" BETWEEN 1 AND ${SEASON_WEEKS}
      GROUP BY "season", "week"
      HAVING MIN("kickoff_at") > $1
         AND MIN("kickoff_at") <= $2`,
@@ -534,91 +588,126 @@ async function captureDueSnapshots({ now = new Date(), client = pool } = {}) {
 }
 
 /**
- * Derive every capture OBLIGATION whose window has opened - including weeks
- * whose window came and went while nothing was running - and reconcile each
- * against the immutable ledger and the durable status table.
+ * Reconcile every obligation the MANIFEST defines - all SEASON_WEEKS x
+ * profiles per manifest season - against the runtime schedule, the
+ * immutable ledger, and the durable status table.
  *
- * This is what makes a capture that NEVER STARTED visible: the due-window
- * query in `captureDueSnapshots` only sees future kickoffs, so a worker that
- * was down for a whole window would otherwise leave no snapshot, no status
- * row, and no evidence anything was ever owed. Obligations are derived from
- * the schedule itself: every (season, week) whose first kickoff falls
- * between HOLDOUT_EPOCH and now + window, crossed with the predeclared
- * profiles. There is NO age-out - a missed week stays missed for the whole
- * season, because "we forgot about it" is not the same as "we captured it".
+ * Obligations derive from the manifest, never from `nfl_games`: a week the
+ * sync lost entirely still owes its three snapshots, and shows up as a
+ * schedule problem instead of silently producing no obligation at all. The
+ * runtime schedule is LEFT-JOINED onto the manifest per week; missing,
+ * extra, moved, or mismatched games make that week's obligations
+ * `schedule-invalid` (unhealthy), because neither their kickoff nor their
+ * capturability can be trusted.
  *
  * Per obligation: `captured` (an immutable, NON-LATE, child-complete
  * snapshot exists - a late or hollow one does not count), else `failed`
- * (durable status says the last attempt failed), else `missed` (kickoff has
- * passed - permanently uncapturable), else `pending`.
+ * (durable status says the last attempt failed), else `schedule-invalid`,
+ * else `missed` (kickoff passed - permanently uncapturable, retained for
+ * the whole season), else `pending` (window open), else `scheduled`
+ * (future). `ok` only when every obligation is captured, pending, or
+ * scheduled.
+ *
+ * VERSIONED ACTIVATION: an obligation is satisfied by the snapshot captured
+ * under whatever model version was active before that week's kickoff, so
+ * the ledger query carries NO model-version filter. A midseason version
+ * bump adds new-version snapshots for later weeks; obligations already
+ * satisfied stay satisfied.
  *
  * FAIL-CLOSED: both ledger relations are probed on EVERY call, before any
- * early return - months from kickoff, a missing or unreadable ledger is an
+ * verdict - months from kickoff, a missing or unreadable ledger is an
  * error the caller must surface, not a quiet 200.
  */
 async function reconcileObligations({ now = new Date(), client = pool } = {}) {
   const windowEnd = new Date(now.getTime() + CAPTURE_WINDOW_HOURS * 3600 * 1000);
-  const due = await client.query(
-    `SELECT "season", "week", MIN("kickoff_at") AS "first_kickoff"
-     FROM "nfl_games"
-     GROUP BY "season", "week"
-     HAVING MIN("kickoff_at") >= $1 AND MIN("kickoff_at") <= $2`,
-    [HOLDOUT_EPOCH, windowEnd]
-  );
-  // The probes run unconditionally: a season with zero obligations must
-  // still prove the ledger and status relations exist and are readable.
-  const seasons = [...new Set(due.rows.map((r) => Number(r.season)))];
+  const seasons = [...SEASON_MANIFESTS.keys()];
   const snapshots = await client.query(
     `SELECT "s"."season", "s"."week", "s"."scoring_hash"
      FROM "projection_snapshots" "s"
      WHERE "s"."season" = ANY($1::int[]) AND "s"."capture_kind" = 'scheduled'
-       AND "s"."model_version" = $2
        AND "s"."is_late" = false
        AND "s"."cohort_size" = (
          SELECT COUNT(*) FROM "projection_snapshot_players" "p"
          WHERE "p"."snapshot_id" = "s"."id"
        )`,
-    [seasons, model.MODEL_VERSION]
+    [seasons]
   );
   const statuses = await client.query(
     `SELECT "season", "week", "scoring_profile", "status", "message", "attempts"
      FROM "holdout_capture_status" WHERE "season" = ANY($1::int[])`,
     [seasons]
   );
-  if (due.rows.length === 0) return { ok: true, obligations: [] };
-  const snapshotKeys = new Set(
-    snapshots.rows.map((r) => `${r.season}:${r.week}:${r.scoring_hash}`)
+  const scheduleRows = await client.query(
+    `SELECT "season", "week", "nfl_team", "opponent", "kickoff_at"
+     FROM "nfl_games"
+     WHERE "season" = ANY($1::int[]) AND "week" BETWEEN 1 AND ${SEASON_WEEKS}`,
+    [seasons]
   );
+
+  const snapshotKeys = new Set(snapshots.rows.map((r) => `${r.season}:${r.week}:${r.scoring_hash}`));
   const statusByKey = new Map(
     statuses.rows.map((r) => [`${r.season}:${r.week}:${r.scoring_profile}`, r])
   );
+  const dbByWeek = new Map();
+  for (const row of scheduleRows.rows) {
+    const key = `${Number(row.season)}:${Number(row.week)}`;
+    if (!dbByWeek.has(key)) dbByWeek.set(key, []);
+    dbByWeek.get(key).push(row);
+  }
+  const pairOf = (a, b) => [normalizeTeamKey(a), normalizeTeamKey(b)].sort().join('-');
 
   const obligations = [];
-  for (const row of due.rows) {
-    const season = Number(row.season);
-    const week = Number(row.week);
-    const kickedOff = new Date(row.first_kickoff) <= now;
-    for (const profile of HOLDOUT_SCORING_PROFILES) {
-      const scoringHash = model.scoringHash(profile.rules);
-      const statusRow = statusByKey.get(`${season}:${week}:${profile.name}`) || null;
-      let state;
-      if (snapshotKeys.has(`${season}:${week}:${scoringHash}`)) state = 'captured';
-      else if (statusRow && statusRow.status === 'failed') state = 'failed';
-      else if (kickedOff) state = 'missed';
-      else state = 'pending';
-      obligations.push({
-        season,
-        week,
-        profile: profile.name,
-        state,
-        firstKickoffAt: row.first_kickoff,
-        message: statusRow ? statusRow.message : null,
-        attempts: statusRow ? statusRow.attempts : 0,
-      });
+  for (const season of seasons) {
+    const manifest = SEASON_MANIFESTS.get(season);
+    for (let week = 1; week <= SEASON_WEEKS; week++) {
+      const manifestGames = manifest.games.filter((g) => Number(g.week) === week);
+      const dbRows = dbByWeek.get(`${season}:${week}`) || [];
+      const manifestPairs = new Set(manifestGames.map((g) => pairOf(g.away, g.home)));
+      const dbPairCounts = new Map();
+      for (const row of dbRows) {
+        const p = pairOf(row.nfl_team, row.opponent);
+        dbPairCounts.set(p, (dbPairCounts.get(p) || 0) + 1);
+      }
+      const scheduleIssues = [];
+      for (const p of manifestPairs) {
+        const count = dbPairCounts.get(p) || 0;
+        if (count !== 2) scheduleIssues.push(`${p}: ${count} row(s), expected 2`);
+      }
+      for (const p of dbPairCounts.keys()) {
+        if (!manifestPairs.has(p)) scheduleIssues.push(`${p}: not in manifest for week ${week}`);
+      }
+      const kickoffs = dbRows
+        .filter((r) => r.kickoff_at && manifestPairs.has(pairOf(r.nfl_team, r.opponent)))
+        .map((r) => new Date(r.kickoff_at).getTime());
+      const firstKickoff = kickoffs.length > 0 ? new Date(Math.min(...kickoffs)) : null;
+
+      for (const profile of HOLDOUT_SCORING_PROFILES) {
+        const scoringHash = model.scoringHash(profile.rules);
+        const statusRow = statusByKey.get(`${season}:${week}:${profile.name}`) || null;
+        let state;
+        if (snapshotKeys.has(`${season}:${week}:${scoringHash}`)) state = 'captured';
+        else if (statusRow && statusRow.status === 'failed') state = 'failed';
+        else if (scheduleIssues.length > 0 || !firstKickoff) state = 'schedule-invalid';
+        else if (firstKickoff <= now) state = 'missed';
+        else if (firstKickoff <= windowEnd) state = 'pending';
+        else state = 'scheduled';
+        obligations.push({
+          season,
+          week,
+          profile: profile.name,
+          state,
+          firstKickoffAt: firstKickoff,
+          scheduleIssues: scheduleIssues.length > 0 ? scheduleIssues.slice(0, 5) : undefined,
+          message: statusRow ? statusRow.message : null,
+          attempts: statusRow ? statusRow.attempts : 0,
+        });
+      }
     }
   }
   return {
-    ok: obligations.every((o) => o.state === 'captured' || o.state === 'pending'),
+    ok: obligations.every(
+      (o) => o.state === 'captured' || o.state === 'pending' || o.state === 'scheduled'
+    ),
     obligations,
   };
 }
@@ -626,13 +715,14 @@ async function reconcileObligations({ now = new Date(), client = pool } = {}) {
 module.exports = {
   HOLDOUT_PROTOCOL_VERSION,
   CAPTURE_WINDOW_HOURS,
-  HOLDOUT_EPOCH,
+  SEASON_MANIFESTS,
   CANONICAL_TEAM_KEYS,
   SEASON_WEEKS,
   GAMES_PER_TEAM,
   HOLDOUT_POSITIONS,
   HOLDOUT_SCORING_PROFILES,
   constantsHash,
+  manifestGamesForWeek,
   validateSchedule,
   snapshotWeek,
   recordCaptureStatus,

@@ -1,0 +1,1366 @@
+{
+  "season": 2026,
+  "source": "nflverse nfldata games.csv (game_type REG), fetched 2026-07-28 — independent of the app database; identities cross-checked against the synced schedule at generation",
+  "games": [
+    {
+      "week": 1,
+      "away": "CHI",
+      "home": "CAR"
+    },
+    {
+      "week": 1,
+      "away": "TB",
+      "home": "CIN"
+    },
+    {
+      "week": 1,
+      "away": "NO",
+      "home": "DET"
+    },
+    {
+      "week": 1,
+      "away": "BUF",
+      "home": "HOU"
+    },
+    {
+      "week": 1,
+      "away": "BAL",
+      "home": "IND"
+    },
+    {
+      "week": 1,
+      "away": "CLE",
+      "home": "JAX"
+    },
+    {
+      "week": 1,
+      "away": "DEN",
+      "home": "KC"
+    },
+    {
+      "week": 1,
+      "away": "ARI",
+      "home": "LAC"
+    },
+    {
+      "week": 1,
+      "away": "SF",
+      "home": "LAR"
+    },
+    {
+      "week": 1,
+      "away": "MIA",
+      "home": "LV"
+    },
+    {
+      "week": 1,
+      "away": "GB",
+      "home": "MIN"
+    },
+    {
+      "week": 1,
+      "away": "DAL",
+      "home": "NYG"
+    },
+    {
+      "week": 1,
+      "away": "WAS",
+      "home": "PHI"
+    },
+    {
+      "week": 1,
+      "away": "ATL",
+      "home": "PIT"
+    },
+    {
+      "week": 1,
+      "away": "NE",
+      "home": "SEA"
+    },
+    {
+      "week": 1,
+      "away": "NYJ",
+      "home": "TEN"
+    },
+    {
+      "week": 2,
+      "away": "SEA",
+      "home": "ARI"
+    },
+    {
+      "week": 2,
+      "away": "CAR",
+      "home": "ATL"
+    },
+    {
+      "week": 2,
+      "away": "NO",
+      "home": "BAL"
+    },
+    {
+      "week": 2,
+      "away": "DET",
+      "home": "BUF"
+    },
+    {
+      "week": 2,
+      "away": "MIN",
+      "home": "CHI"
+    },
+    {
+      "week": 2,
+      "away": "WAS",
+      "home": "DAL"
+    },
+    {
+      "week": 2,
+      "away": "JAX",
+      "home": "DEN"
+    },
+    {
+      "week": 2,
+      "away": "CIN",
+      "home": "HOU"
+    },
+    {
+      "week": 2,
+      "away": "IND",
+      "home": "KC"
+    },
+    {
+      "week": 2,
+      "away": "LV",
+      "home": "LAC"
+    },
+    {
+      "week": 2,
+      "away": "NYG",
+      "home": "LAR"
+    },
+    {
+      "week": 2,
+      "away": "PIT",
+      "home": "NE"
+    },
+    {
+      "week": 2,
+      "away": "GB",
+      "home": "NYJ"
+    },
+    {
+      "week": 2,
+      "away": "MIA",
+      "home": "SF"
+    },
+    {
+      "week": 2,
+      "away": "CLE",
+      "home": "TB"
+    },
+    {
+      "week": 2,
+      "away": "PHI",
+      "home": "TEN"
+    },
+    {
+      "week": 3,
+      "away": "LAC",
+      "home": "BUF"
+    },
+    {
+      "week": 3,
+      "away": "PHI",
+      "home": "CHI"
+    },
+    {
+      "week": 3,
+      "away": "CAR",
+      "home": "CLE"
+    },
+    {
+      "week": 3,
+      "away": "BAL",
+      "home": "DAL"
+    },
+    {
+      "week": 3,
+      "away": "LAR",
+      "home": "DEN"
+    },
+    {
+      "week": 3,
+      "away": "NYJ",
+      "home": "DET"
+    },
+    {
+      "week": 3,
+      "away": "ATL",
+      "home": "GB"
+    },
+    {
+      "week": 3,
+      "away": "HOU",
+      "home": "IND"
+    },
+    {
+      "week": 3,
+      "away": "NE",
+      "home": "JAX"
+    },
+    {
+      "week": 3,
+      "away": "KC",
+      "home": "MIA"
+    },
+    {
+      "week": 3,
+      "away": "LV",
+      "home": "NO"
+    },
+    {
+      "week": 3,
+      "away": "TEN",
+      "home": "NYG"
+    },
+    {
+      "week": 3,
+      "away": "CIN",
+      "home": "PIT"
+    },
+    {
+      "week": 3,
+      "away": "ARI",
+      "home": "SF"
+    },
+    {
+      "week": 3,
+      "away": "MIN",
+      "home": "TB"
+    },
+    {
+      "week": 3,
+      "away": "SEA",
+      "home": "WAS"
+    },
+    {
+      "week": 4,
+      "away": "TEN",
+      "home": "BAL"
+    },
+    {
+      "week": 4,
+      "away": "NE",
+      "home": "BUF"
+    },
+    {
+      "week": 4,
+      "away": "DET",
+      "home": "CAR"
+    },
+    {
+      "week": 4,
+      "away": "NYJ",
+      "home": "CHI"
+    },
+    {
+      "week": 4,
+      "away": "JAX",
+      "home": "CIN"
+    },
+    {
+      "week": 4,
+      "away": "PIT",
+      "home": "CLE"
+    },
+    {
+      "week": 4,
+      "away": "DAL",
+      "home": "HOU"
+    },
+    {
+      "week": 4,
+      "away": "KC",
+      "home": "LV"
+    },
+    {
+      "week": 4,
+      "away": "MIA",
+      "home": "MIN"
+    },
+    {
+      "week": 4,
+      "away": "ATL",
+      "home": "NO"
+    },
+    {
+      "week": 4,
+      "away": "ARI",
+      "home": "NYG"
+    },
+    {
+      "week": 4,
+      "away": "LAR",
+      "home": "PHI"
+    },
+    {
+      "week": 4,
+      "away": "LAC",
+      "home": "SEA"
+    },
+    {
+      "week": 4,
+      "away": "DEN",
+      "home": "SF"
+    },
+    {
+      "week": 4,
+      "away": "GB",
+      "home": "TB"
+    },
+    {
+      "week": 4,
+      "away": "IND",
+      "home": "WAS"
+    },
+    {
+      "week": 5,
+      "away": "DET",
+      "home": "ARI"
+    },
+    {
+      "week": 5,
+      "away": "BAL",
+      "home": "ATL"
+    },
+    {
+      "week": 5,
+      "away": "TB",
+      "home": "DAL"
+    },
+    {
+      "week": 5,
+      "away": "CHI",
+      "home": "GB"
+    },
+    {
+      "week": 5,
+      "away": "PHI",
+      "home": "JAX"
+    },
+    {
+      "week": 5,
+      "away": "DEN",
+      "home": "LAC"
+    },
+    {
+      "week": 5,
+      "away": "BUF",
+      "home": "LAR"
+    },
+    {
+      "week": 5,
+      "away": "CIN",
+      "home": "MIA"
+    },
+    {
+      "week": 5,
+      "away": "LV",
+      "home": "NE"
+    },
+    {
+      "week": 5,
+      "away": "MIN",
+      "home": "NO"
+    },
+    {
+      "week": 5,
+      "away": "CLE",
+      "home": "NYJ"
+    },
+    {
+      "week": 5,
+      "away": "IND",
+      "home": "PIT"
+    },
+    {
+      "week": 5,
+      "away": "SF",
+      "home": "SEA"
+    },
+    {
+      "week": 5,
+      "away": "HOU",
+      "home": "TEN"
+    },
+    {
+      "week": 5,
+      "away": "NYG",
+      "home": "WAS"
+    },
+    {
+      "week": 6,
+      "away": "CHI",
+      "home": "ATL"
+    },
+    {
+      "week": 6,
+      "away": "BAL",
+      "home": "CLE"
+    },
+    {
+      "week": 6,
+      "away": "SEA",
+      "home": "DEN"
+    },
+    {
+      "week": 6,
+      "away": "DAL",
+      "home": "GB"
+    },
+    {
+      "week": 6,
+      "away": "TEN",
+      "home": "IND"
+    },
+    {
+      "week": 6,
+      "away": "HOU",
+      "home": "JAX"
+    },
+    {
+      "week": 6,
+      "away": "LAC",
+      "home": "KC"
+    },
+    {
+      "week": 6,
+      "away": "ARI",
+      "home": "LAR"
+    },
+    {
+      "week": 6,
+      "away": "BUF",
+      "home": "LV"
+    },
+    {
+      "week": 6,
+      "away": "NYJ",
+      "home": "NE"
+    },
+    {
+      "week": 6,
+      "away": "NO",
+      "home": "NYG"
+    },
+    {
+      "week": 6,
+      "away": "CAR",
+      "home": "PHI"
+    },
+    {
+      "week": 6,
+      "away": "WAS",
+      "home": "SF"
+    },
+    {
+      "week": 6,
+      "away": "PIT",
+      "home": "TB"
+    },
+    {
+      "week": 7,
+      "away": "DEN",
+      "home": "ARI"
+    },
+    {
+      "week": 7,
+      "away": "SF",
+      "home": "ATL"
+    },
+    {
+      "week": 7,
+      "away": "CIN",
+      "home": "BAL"
+    },
+    {
+      "week": 7,
+      "away": "TB",
+      "home": "CAR"
+    },
+    {
+      "week": 7,
+      "away": "NE",
+      "home": "CHI"
+    },
+    {
+      "week": 7,
+      "away": "GB",
+      "home": "DET"
+    },
+    {
+      "week": 7,
+      "away": "NYG",
+      "home": "HOU"
+    },
+    {
+      "week": 7,
+      "away": "LAR",
+      "home": "LV"
+    },
+    {
+      "week": 7,
+      "away": "IND",
+      "home": "MIN"
+    },
+    {
+      "week": 7,
+      "away": "PIT",
+      "home": "NO"
+    },
+    {
+      "week": 7,
+      "away": "MIA",
+      "home": "NYJ"
+    },
+    {
+      "week": 7,
+      "away": "DAL",
+      "home": "PHI"
+    },
+    {
+      "week": 7,
+      "away": "KC",
+      "home": "SEA"
+    },
+    {
+      "week": 7,
+      "away": "CLE",
+      "home": "TEN"
+    },
+    {
+      "week": 8,
+      "away": "BAL",
+      "home": "BUF"
+    },
+    {
+      "week": 8,
+      "away": "TEN",
+      "home": "CIN"
+    },
+    {
+      "week": 8,
+      "away": "ARI",
+      "home": "DAL"
+    },
+    {
+      "week": 8,
+      "away": "KC",
+      "home": "DEN"
+    },
+    {
+      "week": 8,
+      "away": "MIN",
+      "home": "DET"
+    },
+    {
+      "week": 8,
+      "away": "CAR",
+      "home": "GB"
+    },
+    {
+      "week": 8,
+      "away": "IND",
+      "home": "JAX"
+    },
+    {
+      "week": 8,
+      "away": "LAC",
+      "home": "LAR"
+    },
+    {
+      "week": 8,
+      "away": "NE",
+      "home": "MIA"
+    },
+    {
+      "week": 8,
+      "away": "LV",
+      "home": "NYJ"
+    },
+    {
+      "week": 8,
+      "away": "CLE",
+      "home": "PIT"
+    },
+    {
+      "week": 8,
+      "away": "CHI",
+      "home": "SEA"
+    },
+    {
+      "week": 8,
+      "away": "ATL",
+      "home": "TB"
+    },
+    {
+      "week": 8,
+      "away": "PHI",
+      "home": "WAS"
+    },
+    {
+      "week": 9,
+      "away": "CIN",
+      "home": "ATL"
+    },
+    {
+      "week": 9,
+      "away": "JAX",
+      "home": "BAL"
+    },
+    {
+      "week": 9,
+      "away": "DEN",
+      "home": "CAR"
+    },
+    {
+      "week": 9,
+      "away": "TB",
+      "home": "CHI"
+    },
+    {
+      "week": 9,
+      "away": "DAL",
+      "home": "IND"
+    },
+    {
+      "week": 9,
+      "away": "NYJ",
+      "home": "KC"
+    },
+    {
+      "week": 9,
+      "away": "HOU",
+      "home": "LAC"
+    },
+    {
+      "week": 9,
+      "away": "DET",
+      "home": "MIA"
+    },
+    {
+      "week": 9,
+      "away": "BUF",
+      "home": "MIN"
+    },
+    {
+      "week": 9,
+      "away": "GB",
+      "home": "NE"
+    },
+    {
+      "week": 9,
+      "away": "CLE",
+      "home": "NO"
+    },
+    {
+      "week": 9,
+      "away": "NYG",
+      "home": "PHI"
+    },
+    {
+      "week": 9,
+      "away": "ARI",
+      "home": "SEA"
+    },
+    {
+      "week": 9,
+      "away": "LV",
+      "home": "SF"
+    },
+    {
+      "week": 9,
+      "away": "LAR",
+      "home": "WAS"
+    },
+    {
+      "week": 10,
+      "away": "LAR",
+      "home": "ARI"
+    },
+    {
+      "week": 10,
+      "away": "KC",
+      "home": "ATL"
+    },
+    {
+      "week": 10,
+      "away": "LAC",
+      "home": "BAL"
+    },
+    {
+      "week": 10,
+      "away": "PIT",
+      "home": "CIN"
+    },
+    {
+      "week": 10,
+      "away": "HOU",
+      "home": "CLE"
+    },
+    {
+      "week": 10,
+      "away": "SF",
+      "home": "DAL"
+    },
+    {
+      "week": 10,
+      "away": "NE",
+      "home": "DET"
+    },
+    {
+      "week": 10,
+      "away": "MIN",
+      "home": "GB"
+    },
+    {
+      "week": 10,
+      "away": "MIA",
+      "home": "IND"
+    },
+    {
+      "week": 10,
+      "away": "SEA",
+      "home": "LV"
+    },
+    {
+      "week": 10,
+      "away": "CAR",
+      "home": "NO"
+    },
+    {
+      "week": 10,
+      "away": "WAS",
+      "home": "NYG"
+    },
+    {
+      "week": 10,
+      "away": "BUF",
+      "home": "NYJ"
+    },
+    {
+      "week": 10,
+      "away": "JAX",
+      "home": "TEN"
+    },
+    {
+      "week": 11,
+      "away": "MIA",
+      "home": "BUF"
+    },
+    {
+      "week": 11,
+      "away": "BAL",
+      "home": "CAR"
+    },
+    {
+      "week": 11,
+      "away": "NO",
+      "home": "CHI"
+    },
+    {
+      "week": 11,
+      "away": "TEN",
+      "home": "DAL"
+    },
+    {
+      "week": 11,
+      "away": "LV",
+      "home": "DEN"
+    },
+    {
+      "week": 11,
+      "away": "TB",
+      "home": "DET"
+    },
+    {
+      "week": 11,
+      "away": "IND",
+      "home": "HOU"
+    },
+    {
+      "week": 11,
+      "away": "ARI",
+      "home": "KC"
+    },
+    {
+      "week": 11,
+      "away": "NYJ",
+      "home": "LAC"
+    },
+    {
+      "week": 11,
+      "away": "JAX",
+      "home": "NYG"
+    },
+    {
+      "week": 11,
+      "away": "PIT",
+      "home": "PHI"
+    },
+    {
+      "week": 11,
+      "away": "MIN",
+      "home": "SF"
+    },
+    {
+      "week": 11,
+      "away": "CIN",
+      "home": "WAS"
+    },
+    {
+      "week": 12,
+      "away": "WAS",
+      "home": "ARI"
+    },
+    {
+      "week": 12,
+      "away": "KC",
+      "home": "BUF"
+    },
+    {
+      "week": 12,
+      "away": "NO",
+      "home": "CIN"
+    },
+    {
+      "week": 12,
+      "away": "LV",
+      "home": "CLE"
+    },
+    {
+      "week": 12,
+      "away": "PHI",
+      "home": "DAL"
+    },
+    {
+      "week": 12,
+      "away": "CHI",
+      "home": "DET"
+    },
+    {
+      "week": 12,
+      "away": "BAL",
+      "home": "HOU"
+    },
+    {
+      "week": 12,
+      "away": "NYG",
+      "home": "IND"
+    },
+    {
+      "week": 12,
+      "away": "TEN",
+      "home": "JAX"
+    },
+    {
+      "week": 12,
+      "away": "NE",
+      "home": "LAC"
+    },
+    {
+      "week": 12,
+      "away": "GB",
+      "home": "LAR"
+    },
+    {
+      "week": 12,
+      "away": "NYJ",
+      "home": "MIA"
+    },
+    {
+      "week": 12,
+      "away": "ATL",
+      "home": "MIN"
+    },
+    {
+      "week": 12,
+      "away": "DEN",
+      "home": "PIT"
+    },
+    {
+      "week": 12,
+      "away": "SEA",
+      "home": "SF"
+    },
+    {
+      "week": 12,
+      "away": "CAR",
+      "home": "TB"
+    },
+    {
+      "week": 13,
+      "away": "PHI",
+      "home": "ARI"
+    },
+    {
+      "week": 13,
+      "away": "DET",
+      "home": "ATL"
+    },
+    {
+      "week": 13,
+      "away": "JAX",
+      "home": "CHI"
+    },
+    {
+      "week": 13,
+      "away": "CIN",
+      "home": "CLE"
+    },
+    {
+      "week": 13,
+      "away": "MIA",
+      "home": "DEN"
+    },
+    {
+      "week": 13,
+      "away": "KC",
+      "home": "LAR"
+    },
+    {
+      "week": 13,
+      "away": "CAR",
+      "home": "MIN"
+    },
+    {
+      "week": 13,
+      "away": "BUF",
+      "home": "NE"
+    },
+    {
+      "week": 13,
+      "away": "GB",
+      "home": "NO"
+    },
+    {
+      "week": 13,
+      "away": "SF",
+      "home": "NYG"
+    },
+    {
+      "week": 13,
+      "away": "HOU",
+      "home": "PIT"
+    },
+    {
+      "week": 13,
+      "away": "DAL",
+      "home": "SEA"
+    },
+    {
+      "week": 13,
+      "away": "LAC",
+      "home": "TB"
+    },
+    {
+      "week": 13,
+      "away": "WAS",
+      "home": "TEN"
+    },
+    {
+      "week": 14,
+      "away": "TB",
+      "home": "BAL"
+    },
+    {
+      "week": 14,
+      "away": "NO",
+      "home": "CAR"
+    },
+    {
+      "week": 14,
+      "away": "KC",
+      "home": "CIN"
+    },
+    {
+      "week": 14,
+      "away": "ATL",
+      "home": "CLE"
+    },
+    {
+      "week": 14,
+      "away": "TEN",
+      "home": "DET"
+    },
+    {
+      "week": 14,
+      "away": "BUF",
+      "home": "GB"
+    },
+    {
+      "week": 14,
+      "away": "PIT",
+      "home": "JAX"
+    },
+    {
+      "week": 14,
+      "away": "LAC",
+      "home": "LV"
+    },
+    {
+      "week": 14,
+      "away": "CHI",
+      "home": "MIA"
+    },
+    {
+      "week": 14,
+      "away": "MIN",
+      "home": "NE"
+    },
+    {
+      "week": 14,
+      "away": "DEN",
+      "home": "NYJ"
+    },
+    {
+      "week": 14,
+      "away": "IND",
+      "home": "PHI"
+    },
+    {
+      "week": 14,
+      "away": "NYG",
+      "home": "SEA"
+    },
+    {
+      "week": 14,
+      "away": "LAR",
+      "home": "SF"
+    },
+    {
+      "week": 14,
+      "away": "HOU",
+      "home": "WAS"
+    },
+    {
+      "week": 15,
+      "away": "NYJ",
+      "home": "ARI"
+    },
+    {
+      "week": 15,
+      "away": "CHI",
+      "home": "BUF"
+    },
+    {
+      "week": 15,
+      "away": "CIN",
+      "home": "CAR"
+    },
+    {
+      "week": 15,
+      "away": "MIA",
+      "home": "GB"
+    },
+    {
+      "week": 15,
+      "away": "JAX",
+      "home": "HOU"
+    },
+    {
+      "week": 15,
+      "away": "NE",
+      "home": "KC"
+    },
+    {
+      "week": 15,
+      "away": "SF",
+      "home": "LAC"
+    },
+    {
+      "week": 15,
+      "away": "DAL",
+      "home": "LAR"
+    },
+    {
+      "week": 15,
+      "away": "DEN",
+      "home": "LV"
+    },
+    {
+      "week": 15,
+      "away": "DET",
+      "home": "MIN"
+    },
+    {
+      "week": 15,
+      "away": "CLE",
+      "home": "NYG"
+    },
+    {
+      "week": 15,
+      "away": "SEA",
+      "home": "PHI"
+    },
+    {
+      "week": 15,
+      "away": "BAL",
+      "home": "PIT"
+    },
+    {
+      "week": 15,
+      "away": "NO",
+      "home": "TB"
+    },
+    {
+      "week": 15,
+      "away": "IND",
+      "home": "TEN"
+    },
+    {
+      "week": 15,
+      "away": "ATL",
+      "home": "WAS"
+    },
+    {
+      "week": 16,
+      "away": "TB",
+      "home": "ATL"
+    },
+    {
+      "week": 16,
+      "away": "CLE",
+      "home": "BAL"
+    },
+    {
+      "week": 16,
+      "away": "GB",
+      "home": "CHI"
+    },
+    {
+      "week": 16,
+      "away": "JAX",
+      "home": "DAL"
+    },
+    {
+      "week": 16,
+      "away": "BUF",
+      "home": "DEN"
+    },
+    {
+      "week": 16,
+      "away": "NYG",
+      "home": "DET"
+    },
+    {
+      "week": 16,
+      "away": "CIN",
+      "home": "IND"
+    },
+    {
+      "week": 16,
+      "away": "SF",
+      "home": "KC"
+    },
+    {
+      "week": 16,
+      "away": "TEN",
+      "home": "LV"
+    },
+    {
+      "week": 16,
+      "away": "LAC",
+      "home": "MIA"
+    },
+    {
+      "week": 16,
+      "away": "WAS",
+      "home": "MIN"
+    },
+    {
+      "week": 16,
+      "away": "ARI",
+      "home": "NO"
+    },
+    {
+      "week": 16,
+      "away": "NE",
+      "home": "NYJ"
+    },
+    {
+      "week": 16,
+      "away": "HOU",
+      "home": "PHI"
+    },
+    {
+      "week": 16,
+      "away": "CAR",
+      "home": "PIT"
+    },
+    {
+      "week": 16,
+      "away": "LAR",
+      "home": "SEA"
+    },
+    {
+      "week": 17,
+      "away": "LV",
+      "home": "ARI"
+    },
+    {
+      "week": 17,
+      "away": "NO",
+      "home": "ATL"
+    },
+    {
+      "week": 17,
+      "away": "SEA",
+      "home": "CAR"
+    },
+    {
+      "week": 17,
+      "away": "DET",
+      "home": "CHI"
+    },
+    {
+      "week": 17,
+      "away": "BAL",
+      "home": "CIN"
+    },
+    {
+      "week": 17,
+      "away": "IND",
+      "home": "CLE"
+    },
+    {
+      "week": 17,
+      "away": "NYG",
+      "home": "DAL"
+    },
+    {
+      "week": 17,
+      "away": "HOU",
+      "home": "GB"
+    },
+    {
+      "week": 17,
+      "away": "WAS",
+      "home": "JAX"
+    },
+    {
+      "week": 17,
+      "away": "KC",
+      "home": "LAC"
+    },
+    {
+      "week": 17,
+      "away": "BUF",
+      "home": "MIA"
+    },
+    {
+      "week": 17,
+      "away": "DEN",
+      "home": "NE"
+    },
+    {
+      "week": 17,
+      "away": "MIN",
+      "home": "NYJ"
+    },
+    {
+      "week": 17,
+      "away": "PHI",
+      "home": "SF"
+    },
+    {
+      "week": 17,
+      "away": "LAR",
+      "home": "TB"
+    },
+    {
+      "week": 17,
+      "away": "PIT",
+      "home": "TEN"
+    },
+    {
+      "week": 18,
+      "away": "SF",
+      "home": "ARI"
+    },
+    {
+      "week": 18,
+      "away": "PIT",
+      "home": "BAL"
+    },
+    {
+      "week": 18,
+      "away": "NYJ",
+      "home": "BUF"
+    },
+    {
+      "week": 18,
+      "away": "ATL",
+      "home": "CAR"
+    },
+    {
+      "week": 18,
+      "away": "CLE",
+      "home": "CIN"
+    },
+    {
+      "week": 18,
+      "away": "LAC",
+      "home": "DEN"
+    },
+    {
+      "week": 18,
+      "away": "DET",
+      "home": "GB"
+    },
+    {
+      "week": 18,
+      "away": "TEN",
+      "home": "HOU"
+    },
+    {
+      "week": 18,
+      "away": "JAX",
+      "home": "IND"
+    },
+    {
+      "week": 18,
+      "away": "LV",
+      "home": "KC"
+    },
+    {
+      "week": 18,
+      "away": "SEA",
+      "home": "LAR"
+    },
+    {
+      "week": 18,
+      "away": "CHI",
+      "home": "MIN"
+    },
+    {
+      "week": 18,
+      "away": "MIA",
+      "home": "NE"
+    },
+    {
+      "week": 18,
+      "away": "TB",
+      "home": "NO"
+    },
+    {
+      "week": 18,
+      "away": "PHI",
+      "home": "NYG"
+    },
+    {
+      "week": 18,
+      "away": "DAL",
+      "home": "WAS"
+    }
+  ]
+}

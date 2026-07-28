@@ -24,7 +24,7 @@ const sha256 = (text) => crypto.createHash('sha256').update(text).digest('hex');
  * at any statement to prove all-or-nothing.
  */
 function fakeDb({
-  clock = () => new Date('2026-09-09T12:00:00Z'),
+  clock = () => new Date('2077-09-09T12:00:00Z'),
   schedule = [],
   seasonMatrix = [], // [{ team_key, weeks: [..] }] for the whole season
   cohort = [],
@@ -174,11 +174,17 @@ function fakeDb({
 // A fully closed synthetic season over the CANONICAL domain: 32 teams, 18
 // weeks, 17 appearances each. The validator's universe is an expectation,
 // not an observation, so anything smaller than the real NFL fails it.
+// Season 2077 so the fixtures never collide with the real committed 2026
+// manifest; the synthetic manifest is registered for the whole file.
 const { buildSeason } = require('./helpers/holdoutSeason');
-const KICKOFF = '2026-09-10T00:20:00Z';
-const SEASON = buildSeason({ season: 2026, firstKickoff: KICKOFF });
+const KICKOFF = '2077-09-10T00:20:00Z';
+const FIXTURE_SEASON = 2077;
+const SEASON = buildSeason({ season: FIXTURE_SEASON, firstKickoff: KICKOFF });
 const WEEK1 = SEASON.rowsByWeek.get(1);
 const MATRIX = SEASON.matrixRows;
+const MANIFEST_WEEK1 = SEASON.manifest.games.filter((g) => g.week === 1);
+holdout.SEASON_MANIFESTS.set(FIXTURE_SEASON, SEASON.manifest);
+test.after(() => { holdout.SEASON_MANIFESTS.delete(FIXTURE_SEASON); });
 const COHORT = [
   { id: 7, position: 'QB', nfl_team: 'KC', injury_status: null },
   { id: 8, position: 'WR', nfl_team: 'DET', injury_status: 'Questionable' },
@@ -194,7 +200,7 @@ function mockGenerate(t, { seen = [] } = {}) {
         mean: id + 0.5, median: id + 0.25, p10: 1, p25: 2, p75: 8, p90: 9,
         activeProbability: 1, confidence: 'high', sampleSize: 4, factors: { note: 'test' },
       }])),
-      inputCutoff: new Date('2026-09-09T11:00:00Z'),
+      inputCutoff: new Date('2077-09-09T11:00:00Z'),
       sourceCoverage: { stats: 'ok' },
     };
   });
@@ -215,7 +221,7 @@ const dbArgs = (overrides = {}) => ({
   schedule: WEEK1, seasonMatrix: MATRIX, cohort: COHORT, ...overrides,
 });
 const captureArgs = (db) => ({
-  season: 2026, week: 1, profileName: 'half_ppr', rules: SCORING_PRESETS.half_ppr, client: db,
+  season: FIXTURE_SEASON, week: 1, profileName: 'half_ppr', rules: SCORING_PRESETS.half_ppr, client: db,
 });
 
 // ---------------------------------------------------------------------------
@@ -288,7 +294,7 @@ test('a clean retry after a crashed capture starts from nothing and succeeds', a
 
 function seededSnapshot({ cohortHash, scheduleHash, releaseSha, constantsHashValue, cohortSize = 3 }) {
   return {
-    id: 50, season: 2026, week: 1,
+    id: 50, season: FIXTURE_SEASON, week: 1,
     scoring_hash: model.scoringHash(SCORING_PRESETS.half_ppr),
     model_version: model.MODEL_VERSION,
     constants_hash: constantsHashValue ?? holdout.constantsHash(),
@@ -304,7 +310,8 @@ function seededSnapshot({ cohortHash, scheduleHash, releaseSha, constantsHashVal
 function scheduleHashOf(rows) {
   // Derive the hash the service will compute, through its own validator.
   return holdout.validateSchedule({
-    rows, seasonMatrix: MATRIX, season: 2026, week: 1,
+    rows, seasonMatrix: MATRIX, manifestGames: MANIFEST_WEEK1,
+    season: FIXTURE_SEASON, week: 1,
   }).scheduleHash;
 }
 
@@ -400,7 +407,7 @@ test('an incomplete existing snapshot is NEVER completed with a new projection r
 test('a capture that starts after kickoff fails closed before computing anything', async (t) => {
   withReleaseSha(t);
   const seen = mockGenerate(t);
-  const db = fakeDb(dbArgs({ clock: () => new Date('2026-09-10T00:20:00Z') })); // exactly kickoff
+  const db = fakeDb(dbArgs({ clock: () => new Date('2077-09-10T00:20:00Z') })); // exactly kickoff
 
   await assert.rejects(holdout.snapshotWeek(captureArgs(db)), /capture window .* has closed/);
   assert.equal(seen.length, 0);
@@ -415,7 +422,7 @@ test('a capture that slides past kickoff before writing is stopped by the header
   let calls = 0;
   const clock = () => {
     calls += 1;
-    return calls === 1 ? new Date('2026-09-10T00:19:59Z') : new Date('2026-09-10T00:20:01Z');
+    return calls === 1 ? new Date('2077-09-10T00:19:59Z') : new Date('2077-09-10T00:20:01Z');
   };
   const db = fakeDb(dbArgs({ clock }));
 
@@ -437,7 +444,7 @@ test('a capture that slides past kickoff AFTER the writes is rolled back by the 
   let calls = 0;
   const clock = () => {
     calls += 1;
-    return calls <= 5 ? new Date('2026-09-10T00:19:59Z') : new Date('2026-09-10T00:20:01Z');
+    return calls <= 5 ? new Date('2077-09-10T00:19:59Z') : new Date('2077-09-10T00:20:01Z');
   };
   const db = fakeDb(dbArgs({ clock }));
 
@@ -451,64 +458,107 @@ test('a capture that slides past kickoff AFTER the writes is rolled back by the 
 // Schedule validation (pure)
 // ---------------------------------------------------------------------------
 
+const VALID_ARGS = {
+  rows: WEEK1, seasonMatrix: MATRIX, manifestGames: MANIFEST_WEEK1,
+  season: FIXTURE_SEASON, week: 1,
+};
+
 test('validateSchedule rejects per-game structural problems', () => {
-  const valid = { rows: WEEK1, seasonMatrix: MATRIX, season: 2026, week: 1 };
-  const out = holdout.validateSchedule(valid);
+  const out = holdout.validateSchedule(VALID_ARGS);
   assert.equal(out.scheduleGames, 16);
   assert.equal(out.firstKickoffAt.toISOString(), new Date(KICKOFF).toISOString());
 
   const g0 = WEEK1.filter((r) => r.game_key === WEEK1[0].game_key);
   const rest = WEEK1.filter((r) => r.game_key !== WEEK1[0].game_key);
-  assert.throws(() => holdout.validateSchedule({ ...valid, rows: [...rest, g0[0]] }),
-    /has 1 row\(s\), expected exactly 2/, 'a lone half of a game');
+  assert.throws(() => holdout.validateSchedule({ ...VALID_ARGS, rows: [...rest, g0[0]] }),
+    /missing manifest game .* \(one side present\)/, 'a lone half of a game');
   assert.throws(() => holdout.validateSchedule({
-    ...valid,
-    rows: [...WEEK1, { nfl_team: 'ZZZ', opponent: g0[0].nfl_team, home_away: 'home', kickoff_at: g0[0].kickoff_at, game_key: g0[0].game_key }],
-  }), /has 3 row\(s\), expected exactly 2/, 'three rows sharing a game key');
-  assert.throws(() => holdout.validateSchedule({
-    ...valid,
+    ...VALID_ARGS,
     rows: [...rest, g0[0], { ...g0[1], opponent: rest[0].nfl_team }],
-  }), /not reciprocal/, 'broken reciprocity');
+  }), /do not match the manifest pairing/, 'broken reciprocity');
   assert.throws(() => holdout.validateSchedule({
-    ...valid,
+    ...VALID_ARGS,
     rows: [...rest, g0[0], { ...g0[1], home_away: 'home' }],
-  }), /home\/away must be one of each/, 'both rows of a game marked home');
+  }), /marked home, manifest says away/, 'orientation contradicting the manifest');
   assert.throws(() => holdout.validateSchedule({
-    ...valid,
-    rows: [...rest, g0[0], { ...g0[1], kickoff_at: '2026-09-11T01:00:00Z' }],
+    ...VALID_ARGS,
+    rows: [...rest, g0[0], { ...g0[1], kickoff_at: '2077-09-11T01:00:00Z' }],
   }), /disagree on kickoff/, 'kickoff mismatch within one game');
   assert.throws(() => holdout.validateSchedule({
-    ...valid,
-    rows: WEEK1.map((r, i) => (i === 0 ? { ...r, game_key: null } : r)),
-  }), /without game key/, 'null game key');
+    ...VALID_ARGS,
+    rows: [...rest, g0[0], { ...g0[1], game_key: 'different-key' }],
+  }), /disagree on game key/, 'inconsistent game keys when present');
+  // Absent orientation/keys are tolerated (the 2026 sync stores neither;
+  // the manifest is the orientation authority) - but absent kickoffs never.
+  const bare = WEEK1.map((r) => ({ ...r, home_away: null, game_key: null }));
+  assert.equal(holdout.validateSchedule({ ...VALID_ARGS, rows: bare }).scheduleGames, 16);
   assert.throws(() => holdout.validateSchedule({
-    ...valid,
+    ...VALID_ARGS,
     rows: WEEK1.map((r, i) => (i === 0 ? { ...r, kickoff_at: null } : r)),
   }), /without kickoff/, 'null kickoff');
   assert.throws(() => holdout.validateSchedule({
-    ...valid,
+    ...VALID_ARGS,
     rows: [...rest, g0[0], { ...g0[0] }],
   }), /twice/, 'duplicate team');
 });
 
+test('the manifest catches what counts cannot: moved games and opponent swaps', () => {
+  // The reviewer's full-size counterexample: the earliest week-1 game moved
+  // into both teams' shared week-5 bye. Every canonical count survives -
+  // appearances stay 17, byes stay even - and firstKickoffAt slides later.
+  // Only identity equality against the manifest sees it.
+  const g0 = WEEK1.filter((r) => r.game_key === WEEK1[0].game_key);
+  const movedTeams = g0.map((r) => r.nfl_team);
+  const week5Kick = SEASON.rowsByWeek.get(5)[0].kickoff_at;
+  const movedRows = WEEK1.filter((r) => !movedTeams.includes(r.nfl_team));
+  const movedMatrix = MATRIX.map((r) => (
+    movedTeams.includes(r.team_key)
+      ? { ...r, weeks: r.weeks.filter((w) => w !== 1).concat(5).sort((a, b) => a - b) }
+      : r
+  ));
+  // Sanity: the moved teams really do share the week-5 bye, so counts hold.
+  assert.ok(movedTeams.every((t) => SEASON.byeByWeek.get(5).includes(t)),
+    'fixture must reproduce the shared-bye move exactly');
+  assert.throws(() => holdout.validateSchedule({
+    rows: movedRows, seasonMatrix: movedMatrix, manifestGames: MANIFEST_WEEK1,
+    season: FIXTURE_SEASON, week: 1,
+  }), /missing manifest game/, 'a moved game is a missing manifest game, whatever the counts say');
+  assert.ok(week5Kick, 'week 5 exists to move into');
+
+  // Reciprocal opponent swap: (A,B),(C,D) -> (A,C),(B,D). Shapes, counts and
+  // closure all pass; the manifest pairing does not.
+  const otherKey = WEEK1.find((r) => r.game_key !== WEEK1[0].game_key).game_key;
+  const g1 = WEEK1.filter((r) => r.game_key === otherKey);
+  const [a, b] = g0;
+  const [c, d] = g1;
+  const swapped = WEEK1
+    .filter((r) => ![a.nfl_team, b.nfl_team, c.nfl_team, d.nfl_team].includes(r.nfl_team))
+    .concat([
+      { ...a, opponent: c.nfl_team }, { ...c, opponent: a.nfl_team, home_away: 'away', kickoff_at: a.kickoff_at, game_key: a.game_key },
+      { ...b, opponent: d.nfl_team, home_away: 'home', kickoff_at: d.kickoff_at, game_key: d.game_key }, { ...d, opponent: b.nfl_team, home_away: 'away' },
+    ]);
+  assert.throws(() => holdout.validateSchedule({
+    rows: swapped, seasonMatrix: MATRIX, manifestGames: MANIFEST_WEEK1,
+    season: FIXTURE_SEASON, week: 1,
+  }), /do not match the manifest pairing/, 'reciprocal opponent swaps are identity mismatches');
+});
+
 test('the expected domain is independent: missing teams, weeks, and masked byes all fail', () => {
-  // The reviewer's reproduction: a 15-game, 30-observed-team week. Under a
-  // self-referential universe that passed as "two byes"; under the canonical
-  // domain the two vanished franchises are MISSING TEAMS.
+  // Two franchises vanish from the season matrix entirely: the canonical
+  // domain does not shrink to fit, whatever the target week's rows show.
   const dropped = WEEK1.filter((r) => r.game_key === WEEK1[0].game_key).map((r) => r.nfl_team);
-  const week15games = WEEK1.filter((r) => !dropped.includes(r.nfl_team));
   const matrixWithoutTeams = MATRIX.filter((r) => !dropped.includes(r.team_key));
   assert.throws(() => holdout.validateSchedule({
-    rows: week15games, seasonMatrix: matrixWithoutTeams, season: 2026, week: 1,
+    ...VALID_ARGS, seasonMatrix: matrixWithoutTeams,
   }), /missing team\(s\) entirely/, '30 observed teams is not the NFL');
 
   // Masked bye: the teams exist in the season but one of their games was
   // never synced — 16 appearances instead of 17.
   const matrixMaskedBye = MATRIX.map((r) => (
-    dropped.includes(r.team_key) ? { ...r, weeks: r.weeks.filter((w) => w !== 1) } : r
+    dropped.includes(r.team_key) ? { ...r, weeks: r.weeks.filter((w) => w !== 2) } : r
   ));
   assert.throws(() => holdout.validateSchedule({
-    rows: week15games, seasonMatrix: matrixMaskedBye, season: 2026, week: 1,
+    ...VALID_ARGS, seasonMatrix: matrixMaskedBye,
   }), /appears in 16 week\(s\), expected exactly 17/, 'a missing game is not a second bye');
 
   // Missing whole week: every team still shows 17 appearances (they "play"
@@ -521,13 +571,13 @@ test('the expected domain is independent: missing teams, weeks, and masked byes 
     weeks: r.weeks.filter((w) => w !== 3).concat(byeOf.get(r.team_key)).sort((a, b) => a - b),
   }));
   assert.throws(() => holdout.validateSchedule({
-    rows: WEEK1, seasonMatrix: matrixNoWeek3, season: 2026, week: 1,
+    ...VALID_ARGS, seasonMatrix: matrixNoWeek3,
   }), /missing week 3 entirely/, 'a week nobody plays was never synced');
 
   // Unknown franchise fails as loudly as a missing one.
   const matrixUnknown = [...MATRIX, { team_key: 'XYZ', weeks: MATRIX[0].weeks }];
   assert.throws(() => holdout.validateSchedule({
-    rows: WEEK1, seasonMatrix: matrixUnknown, season: 2026, week: 1,
+    ...VALID_ARGS, seasonMatrix: matrixUnknown,
   }), /unknown team\(s\): XYZ/);
 
   // Odd bye distribution anywhere in the season fails: move one team's bye
@@ -539,14 +589,34 @@ test('the expected domain is independent: missing teams, weeks, and masked byes 
       : r
   ));
   assert.throws(() => holdout.validateSchedule({
-    rows: WEEK1, seasonMatrix: matrixOddBye, season: 2026, week: 1,
+    ...VALID_ARGS, seasonMatrix: matrixOddBye,
   }), /bye accounting: 5 bye team\(s\)/, 'byes come in even groups');
 
   // And a legitimate four-bye week validates cleanly against the same season.
   const out = holdout.validateSchedule({
-    rows: SEASON.rowsByWeek.get(5), seasonMatrix: MATRIX, season: 2026, week: 5,
+    rows: SEASON.rowsByWeek.get(5), seasonMatrix: MATRIX,
+    manifestGames: SEASON.manifest.games.filter((g) => g.week === 5),
+    season: FIXTURE_SEASON, week: 5,
   });
   assert.equal(out.scheduleGames, 14, '28 of 32 playing, 4 on bye');
+});
+
+test('capture of an entirely absent week fails closed', async (t) => {
+  withReleaseSha(t);
+  mockGenerate(t);
+  const db = fakeDb(dbArgs({ schedule: [] })); // the sync lost the whole week
+  await assert.rejects(holdout.snapshotWeek(captureArgs(db)), /no schedule rows/);
+  assert.equal(db.committed.snapshots.length, 0);
+});
+
+test('capture of a season with no manifest refuses before touching the database', async (t) => {
+  withReleaseSha(t);
+  const db = fakeDb(dbArgs());
+  await assert.rejects(
+    holdout.snapshotWeek({ ...captureArgs(db), season: 2078 }),
+    /no schedule manifest for season 2078/
+  );
+  assert.equal(db.conns.length, 0);
 });
 
 // ---------------------------------------------------------------------------
@@ -599,7 +669,7 @@ test('a full correction pass emits no SQL that references the ledger tables', as
   t.mock.method(poolModule, 'query', async (sql) => {
     recorded.push(String(sql));
     if (String(sql).includes('FROM "leagues"')) {
-      return { rows: [{ id: 42, current_season: 2026, current_week: 4 }] };
+      return { rows: [{ id: 42, current_season: FIXTURE_SEASON, current_week: 4 }] };
     }
     return { rows: [], rowCount: 0 };
   });
@@ -622,9 +692,9 @@ test('a full correction pass emits no SQL that references the ledger tables', as
 test('captureDueSnapshots captures every predeclared profile and persists each outcome', async (t) => {
   withReleaseSha(t);
   mockGenerate(t);
-  const db = fakeDb(dbArgs({ due: [{ season: 2026, week: 1, first_kickoff: KICKOFF }] }));
+  const db = fakeDb(dbArgs({ due: [{ season: FIXTURE_SEASON, week: 1, first_kickoff: KICKOFF }] }));
 
-  const out = await holdout.captureDueSnapshots({ now: new Date('2026-09-09T12:00:00Z'), client: db });
+  const out = await holdout.captureDueSnapshots({ now: new Date('2077-09-09T12:00:00Z'), client: db });
 
   assert.equal(out.failures.length, 0);
   assert.deepEqual(out.captured.map((c) => c.profileName).sort(), ['half_ppr', 'ppr', 'standard']);
@@ -640,13 +710,13 @@ test('one profile failing is recorded durably and does not block the others; ret
   const halfPprHash = model.scoringHash(SCORING_PRESETS.half_ppr);
   let arm = true;
   const db = fakeDb(dbArgs({
-    due: [{ season: 2026, week: 1, first_kickoff: KICKOFF }],
+    due: [{ season: FIXTURE_SEASON, week: 1, first_kickoff: KICKOFF }],
     failOn: (text, params) => arm
       && text.includes('INSERT INTO "projection_snapshots"')
       && params[3] === halfPprHash,
   }));
 
-  const first = await holdout.captureDueSnapshots({ now: new Date('2026-09-09T12:00:00Z'), client: db });
+  const first = await holdout.captureDueSnapshots({ now: new Date('2077-09-09T12:00:00Z'), client: db });
   assert.equal(first.captured.length, 2);
   assert.deepEqual(first.failures.map((f) => f.profileName), ['half_ppr']);
   const failedRow = db.committed.status.find((r) => r.scoring_profile === 'half_ppr');
@@ -654,7 +724,7 @@ test('one profile failing is recorded durably and does not block the others; ret
   assert.equal(failedRow.attempts, 1);
 
   arm = false;
-  const second = await holdout.captureDueSnapshots({ now: new Date('2026-09-09T12:00:00Z'), client: db });
+  const second = await holdout.captureDueSnapshots({ now: new Date('2077-09-09T12:00:00Z'), client: db });
   assert.equal(second.failures.length, 0);
   assert.equal(failedRow.status, 'captured', 'the durable row heals when the retry succeeds');
   assert.equal(failedRow.attempts, 2, 'and counts its attempts');
@@ -676,18 +746,44 @@ test('outside the capture window there is nothing to do and nothing is computed'
 // ---------------------------------------------------------------------------
 
 /**
+ * Scope the registry to the synthetic season alone for a reconciliation
+ * test: with the real 2026 manifest also registered, obligation counts
+ * would mix seasons.
+ */
+function withOnlyFixtureManifest(t) {
+  const saved = [...holdout.SEASON_MANIFESTS.entries()];
+  holdout.SEASON_MANIFESTS.clear();
+  holdout.SEASON_MANIFESTS.set(FIXTURE_SEASON, SEASON.manifest);
+  t.after(() => {
+    holdout.SEASON_MANIFESTS.clear();
+    for (const [k, v] of saved) holdout.SEASON_MANIFESTS.set(k, v);
+  });
+}
+
+/** All season rows as the runtime `nfl_games` would return them. */
+function dbRowsForSeason(season = FIXTURE_SEASON, mutate = (rows) => rows) {
+  const rows = [];
+  for (const [week, weekRows] of SEASON.rowsByWeek) {
+    for (const r of weekRows) {
+      rows.push({ season, week, nfl_team: r.nfl_team, opponent: r.opponent, kickoff_at: r.kickoff_at });
+    }
+  }
+  return mutate(rows);
+}
+
+/**
  * A minimal fake for the reconciliation reads: obligations derive from the
- * schedule, so nothing has to have RUN for a debt to show. Records which
+ * MANIFEST, so nothing has to have RUN for a debt to show. Records which
  * relations were probed, and can make any of them unreadable.
  */
-function reconcileFake({ due = [], snapshots = [], statuses = [], failSnapshots = false, failStatus = false }) {
+function reconcileFake({ scheduleRows = [], snapshots = [], statuses = [], failSnapshots = false, failStatus = false }) {
   const probed = [];
   return {
     probed,
     lastSnapshotSql: null,
+    lastScheduleSql: null,
     async query(sql, params = []) {
       const text = String(sql).replace(/\s+/g, ' ');
-      if (text.includes('MIN("kickoff_at")')) { probed.push('schedule'); return { rows: due }; }
       if (text.includes('FROM "projection_snapshots"')) {
         probed.push('snapshots');
         this.lastSnapshotSql = text;
@@ -699,98 +795,112 @@ function reconcileFake({ due = [], snapshots = [], statuses = [], failSnapshots 
         if (failStatus) throw new Error('relation "holdout_capture_status" does not exist');
         return { rows: statuses };
       }
+      if (text.includes('FROM "nfl_games"')) {
+        probed.push('schedule');
+        this.lastScheduleSql = text;
+        return { rows: scheduleRows };
+      }
       throw new Error(`unexpected reconciliation query: ${text.slice(0, 60)}`);
     },
   };
 }
 
-test('a capture that never started reconciles as MISSED once kickoff passes', async () => {
-  const now = new Date('2026-09-12T00:00:00Z'); // two days after kickoff
+test('all 18x3 obligations derive from the manifest, and a never-started capture reconciles as MISSED', async (t) => {
+  withOnlyFixtureManifest(t);
+  const now = new Date('2077-09-12T00:00:00Z'); // after week 1, before week 2
   const client = reconcileFake({
-    due: [{ season: 2026, week: 1, first_kickoff: '2026-09-10T00:20:00Z' }],
+    scheduleRows: dbRowsForSeason(),
     snapshots: [], // the worker was down: no snapshot...
     statuses: [], // ...and no status row either - the silent case
   });
 
   const out = await holdout.reconcileObligations({ now, client });
-  assert.equal(out.ok, false, 'silence is not health');
-  assert.equal(out.obligations.length, 3, 'one obligation per predeclared profile');
-  assert.ok(out.obligations.every((o) => o.state === 'missed'));
+  assert.equal(out.obligations.length, 18 * 3, 'the manifest owes every week, run or not');
+  const week1 = out.obligations.filter((o) => o.week === 1);
+  assert.equal(week1.length, 3);
+  assert.ok(week1.every((o) => o.state === 'missed'), 'silence is not health');
+  assert.ok(out.obligations.filter((o) => o.week > 2).every((o) => o.state === 'scheduled'));
+  assert.equal(out.ok, false);
 });
 
-test('reconciliation distinguishes captured, failed, and pending states', async () => {
-  const now = new Date('2026-09-09T12:00:00Z'); // window open, pre-kickoff
+test('reconciliation distinguishes captured, failed, and pending states', async (t) => {
+  withOnlyFixtureManifest(t);
+  const now = new Date('2077-09-09T12:00:00Z'); // window open, pre-kickoff
   const halfPprHash = model.scoringHash(SCORING_PRESETS.half_ppr);
   const client = reconcileFake({
-    due: [{ season: 2026, week: 1, first_kickoff: '2026-09-10T00:20:00Z' }],
-    snapshots: [{ season: 2026, week: 1, scoring_hash: halfPprHash }],
+    scheduleRows: dbRowsForSeason(),
+    snapshots: [{ season: FIXTURE_SEASON, week: 1, scoring_hash: halfPprHash }],
     statuses: [
-      { season: 2026, week: 1, scoring_profile: 'ppr', status: 'failed', message: 'boom', attempts: 2 },
+      { season: FIXTURE_SEASON, week: 1, scoring_profile: 'ppr', status: 'failed', message: 'boom', attempts: 2 },
     ],
   });
 
   const out = await holdout.reconcileObligations({ now, client });
-  const byProfile = new Map(out.obligations.map((o) => [o.profile, o]));
-  assert.equal(byProfile.get('half_ppr').state, 'captured', 'the immutable snapshot is the truth');
-  assert.equal(byProfile.get('ppr').state, 'failed');
-  assert.equal(byProfile.get('ppr').message, 'boom');
-  assert.equal(byProfile.get('ppr').attempts, 2);
-  assert.equal(byProfile.get('standard').state, 'pending', 'window open, kickoff not yet passed');
+  const week1 = new Map(out.obligations.filter((o) => o.week === 1).map((o) => [o.profile, o]));
+  assert.equal(week1.get('half_ppr').state, 'captured', 'the immutable snapshot is the truth');
+  assert.equal(week1.get('ppr').state, 'failed');
+  assert.equal(week1.get('ppr').message, 'boom');
+  assert.equal(week1.get('ppr').attempts, 2);
+  assert.equal(week1.get('standard').state, 'pending', 'window open, kickoff not yet passed');
   assert.equal(out.ok, false, 'a failed obligation is alertable');
 });
 
-test('zero obligations still probes both ledger relations — never a blind 200', async () => {
-  const client = reconcileFake({ due: [] });
-  const out = await holdout.reconcileObligations({ now: new Date('2026-06-01T00:00:00Z'), client });
-  assert.deepEqual(out, { ok: true, obligations: [] });
-  assert.ok(client.probed.includes('snapshots'), 'the ledger relation was proven readable');
-  assert.ok(client.probed.includes('status'), 'the status relation was proven readable');
+test('a game moved between weeks and an entirely absent week both surface as schedule-invalid', async (t) => {
+  withOnlyFixtureManifest(t);
+  const movedTeams = WEEK1.filter((r) => r.game_key === WEEK1[0].game_key).map((r) => r.nfl_team);
+  const movedRows = dbRowsForSeason(FIXTURE_SEASON, (rows) => rows
+    // The moved game: its two week-1 rows reappear as week-5 rows...
+    .map((r) => (r.week === 1 && movedTeams.includes(r.nfl_team) ? { ...r, week: 5 } : r))
+    // ...and week 3 is lost entirely - the sync never wrote it.
+    .filter((r) => r.week !== 3 || movedTeams.includes('__never__')));
+  const client = reconcileFake({ scheduleRows: movedRows.filter((r) => r.week !== 3) });
+
+  const out = await holdout.reconcileObligations({ now: new Date('2077-09-01T00:00:00Z'), client });
+  const stateOf = (week) => out.obligations.filter((o) => o.week === week).map((o) => o.state);
+  assert.ok(stateOf(1).every((s) => s === 'schedule-invalid'), 'the moved game breaks week 1');
+  assert.ok(stateOf(5).every((s) => s === 'schedule-invalid'), 'and pollutes week 5');
+  assert.ok(stateOf(3).every((s) => s === 'schedule-invalid'), 'the absent week is a debt, not a blind spot');
+  const week1 = out.obligations.find((o) => o.week === 1);
+  assert.ok(week1.scheduleIssues.some((i) => /expected 2/.test(i)), 'week 1 reports the missing manifest game');
+  const week5 = out.obligations.find((o) => o.week === 5);
+  assert.ok(week5.scheduleIssues.some((i) => /not in manifest/.test(i)), 'week 5 reports the intruding game');
+  assert.equal(out.ok, false);
 });
 
-test('an unreadable ledger relation fails reconciliation even months before kickoff', async () => {
-  const client = reconcileFake({ due: [], failSnapshots: true });
+test('probes run before any verdict, and an unreadable relation fails reconciliation', async (t) => {
+  withOnlyFixtureManifest(t);
+  const healthy = reconcileFake({ scheduleRows: dbRowsForSeason() });
+  await holdout.reconcileObligations({ now: new Date('2077-06-01T00:00:00Z'), client: healthy });
+  assert.ok(healthy.probed.indexOf('snapshots') === 0, 'the ledger is probed FIRST');
+  assert.ok(healthy.probed.includes('status'));
+
+  const badLedger = reconcileFake({ scheduleRows: dbRowsForSeason(), failSnapshots: true });
   await assert.rejects(
-    holdout.reconcileObligations({ now: new Date('2026-06-01T00:00:00Z'), client }),
+    holdout.reconcileObligations({ now: new Date('2077-06-01T00:00:00Z'), client: badLedger }),
     /does not exist/,
     '"I cannot read the ledger" must never resolve as healthy'
   );
-  const statusClient = reconcileFake({ due: [], failStatus: true });
+  const badStatus = reconcileFake({ scheduleRows: dbRowsForSeason(), failStatus: true });
   await assert.rejects(
-    holdout.reconcileObligations({ now: new Date('2026-06-01T00:00:00Z'), client: statusClient }),
+    holdout.reconcileObligations({ now: new Date('2077-06-01T00:00:00Z'), client: badStatus }),
     /does not exist/
   );
 });
 
-test('obligations begin at the epoch and are retained for the whole season', async () => {
-  // A 2025-season kickoff predates the epoch: no obligation, no false debt.
-  const preEpoch = reconcileFake({
-    due: [], // the HAVING clause excludes it at the database; nothing comes back
-  });
-  const quiet = await holdout.reconcileObligations({ now: new Date('2026-06-01T00:00:00Z'), client: preEpoch });
-  assert.equal(quiet.obligations.length, 0);
-
-  // A week missed in September is STILL missed in December — no age-out.
-  const client = reconcileFake({
-    due: [{ season: 2026, week: 1, first_kickoff: '2026-09-10T00:20:00Z' }],
-    snapshots: [],
-    statuses: [],
-  });
-  const out = await holdout.reconcileObligations({ now: new Date('2026-12-01T00:00:00Z'), client });
+test('missed obligations are retained for the whole season, and queries are week-bounded and version-agnostic', async (t) => {
+  withOnlyFixtureManifest(t);
+  const client = reconcileFake({ scheduleRows: dbRowsForSeason() });
+  // Months after a September miss, the debt is still on the books.
+  const out = await holdout.reconcileObligations({ now: new Date('2078-01-30T00:00:00Z'), client });
+  assert.ok(out.obligations.filter((o) => o.week === 1).every((o) => o.state === 'missed'));
   assert.equal(out.ok, false);
-  assert.ok(out.obligations.every((o) => o.state === 'missed'), 'months later, the debt is still on the books');
-});
-
-test('captured requires a non-late, child-complete snapshot at the SQL level', async () => {
-  const client = reconcileFake({
-    due: [{ season: 2026, week: 1, first_kickoff: '2026-09-10T00:20:00Z' }],
-    snapshots: [],
-    statuses: [],
-  });
-  await holdout.reconcileObligations({ now: new Date('2026-09-09T12:00:00Z'), client });
-  // The filter lives in the query, where a late or hollow snapshot can never
-  // reach the `captured` verdict regardless of service-layer logic.
+  // Captured-ness lives in the SQL: non-late, child-complete, and NO model
+  // version filter - versioned activation means the snapshot captured under
+  // the version active before kickoff satisfies the obligation forever.
   assert.match(client.lastSnapshotSql, /"is_late" = false/);
   assert.match(client.lastSnapshotSql, /"cohort_size" = \( SELECT COUNT\(\*\) FROM "projection_snapshot_players"/);
+  assert.ok(!client.lastSnapshotSql.includes('model_version'), 'no model-version filter on satisfaction');
+  assert.match(client.lastScheduleSql, /BETWEEN 1 AND 18/, 'schedule reads are bounded to the regular season');
 });
 
 // ---------------------------------------------------------------------------
@@ -803,14 +913,14 @@ test('the scheduler duty logs failures with season/week/profile context', async 
   t.mock.method(console, 'error', (...args) => { logs.push(args); });
   t.mock.method(holdout, 'captureDueSnapshots', async () => ({
     captured: [],
-    failures: [{ season: 2026, week: 3, profileName: 'ppr', message: 'boom' }],
+    failures: [{ season: FIXTURE_SEASON, week: 3, profileName: 'ppr', message: 'boom' }],
   }));
 
   await scheduler.runHoldoutSnapshots();
 
   const line = logs.find((l) => String(l[0]).includes('holdout snapshot failed'));
   assert.ok(line, 'a failure line is emitted (repeats of this line are the actionable signal)');
-  assert.deepEqual(line.slice(1), [2026, 3, 'ppr', 'boom']);
+  assert.deepEqual(line.slice(1), [FIXTURE_SEASON, 3, 'ppr', 'boom']);
 });
 
 test('the tick runs corrections, finalization, then holdout BEFORE waivers/trades/live work', () => {

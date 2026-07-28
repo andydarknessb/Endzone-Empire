@@ -35,14 +35,27 @@ test('GET /api/health/holdout returns 503 on a missed obligation', async (t) => 
   assert.equal(response.body.obligations[0].state, 'missed');
 });
 
-test('GET /api/health/holdout returns 503 when reconciliation itself cannot run', async (t) => {
+test('GET /api/health/holdout returns 503 when reconciliation itself cannot run — without leaking the error', async (t) => {
+  t.mock.method(console, 'error', () => {});
   t.mock.method(holdout, 'reconcileObligations', async () => {
-    throw new Error('relation "projection_snapshots" does not exist');
+    throw new Error('relation "projection_snapshots" does not exist at 10.0.0.7:5432');
   });
 
   const response = await request(app).get('/api/health/holdout');
   assert.equal(response.status, 503, 'an unreadable ledger must never report healthy');
   assert.equal(response.body.ok, false);
   assert.equal(response.body.unavailable, true);
-  assert.match(response.body.error, /does not exist/);
+  assert.equal(response.body.error, undefined, 'raw database errors are not a public API');
+  assert.ok(!JSON.stringify(response.body).includes('10.0.0.7'), 'no internal detail escapes');
+});
+
+test('GET /api/health/holdout returns 503 on schedule-invalid obligations', async (t) => {
+  t.mock.method(holdout, 'reconcileObligations', async () => ({
+    ok: false,
+    obligations: [{ season: 2026, week: 3, profile: 'standard', state: 'schedule-invalid', scheduleIssues: ['ARI-ATL: 0 row(s), expected 2'] }],
+  }));
+
+  const response = await request(app).get('/api/health/holdout');
+  assert.equal(response.status, 503, 'a schedule that contradicts the manifest is an alert');
+  assert.equal(response.body.obligations[0].state, 'schedule-invalid');
 });
