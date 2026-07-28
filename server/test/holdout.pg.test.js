@@ -81,9 +81,9 @@ if (!ENABLED) {
          ("season", "week", "scoring_profile", "scoring_hash", "model_version", "constants_hash",
           "release_sha", "cohort_hash", "cohort_size", "schedule_games", "schedule_hash",
           "protocol_version", "first_kickoff_at", "is_late")
-       VALUES ($1, 1, 'standard', 'hash-' || $1, 'test_model', 'chash', 'sha', 'cohash', 1, 2, 'shash', 1, $2, $3)
+       VALUES ($1, 1, 'standard', $4, 'test_model', 'chash', 'sha', 'cohash', 1, 2, 'shash', 1, $2, $3)
        RETURNING "id"`,
-      [season, firstKickoffAt, isLate]
+      [season, firstKickoffAt, isLate, `hash-${season}-${isLate ? 'late' : 'ontime'}`]
     );
     return result.rows[0].id;
   }
