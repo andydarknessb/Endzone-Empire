@@ -59,6 +59,68 @@ test('every named configuration is a real variation of the shipped constants', (
   assert.equal(base.simulation.intervalScale, model.MODEL_CONSTANTS.simulation.intervalScale);
 });
 
+test('the half-life sweep varies the half-life and nothing else', () => {
+  const model = require('../services/projectionModel');
+  const base = model.MODEL_CONSTANTS;
+  const expected = {
+    'light-slow-8': 8, 'light-slow-12': 12, 'light-slow-16': 16, 'light-flat': 9999,
+  };
+  for (const [name, halfLife] of Object.entries(expected)) {
+    const constants = backtest.CONFIGURATIONS[name](base);
+    assert.equal(constants.baseline.recencyHalfLifeWeeks, halfLife, name);
+    // Same shrinkage, same interval: a half-life comparison must not be
+    // confounded by a second changed constant.
+    assert.equal(constants.baseline.priorSeasonPseudoGames, base.baseline.priorSeasonPseudoGames, name);
+    assert.equal(constants.baseline.positionPseudoGames, base.baseline.positionPseudoGames, name);
+    assert.equal(constants.baseline.currentSeasonMeanBlendWeight, 0, `${name} must not also switch the blend on`);
+    assert.deepEqual(constants.simulation, base.simulation, name);
+  }
+  assert.equal(base.baseline.recencyHalfLifeWeeks, model.MODEL_CONSTANTS.baseline.recencyHalfLifeWeeks);
+});
+
+test('the blend sweep varies the current-season blend, crossed with the half-life', () => {
+  const model = require('../services/projectionModel');
+  const base = model.MODEL_CONSTANTS;
+  assert.equal(
+    base.baseline.currentSeasonMeanBlendWeight, 0,
+    'the shipped default must stay off; these are candidates, not selected values'
+  );
+  const expected = {
+    'blend-25': [0.25, base.baseline.recencyHalfLifeWeeks],
+    'blend-50': [0.50, base.baseline.recencyHalfLifeWeeks],
+    'blend-75': [0.75, base.baseline.recencyHalfLifeWeeks],
+    'slow8-blend-25': [0.25, 8],
+    'slow8-blend-50': [0.50, 8],
+  };
+  for (const [name, [weight, halfLife]] of Object.entries(expected)) {
+    const constants = backtest.CONFIGURATIONS[name](base);
+    assert.equal(constants.baseline.currentSeasonMeanBlendWeight, weight, name);
+    assert.equal(constants.baseline.recencyHalfLifeWeeks, halfLife, name);
+    assert.deepEqual(constants.simulation, base.simulation, name);
+  }
+  // Sweeping must not write the candidate weight back into the shipped object.
+  assert.equal(base.baseline.currentSeasonMeanBlendWeight, 0);
+  assert.equal(model.MODEL_CONSTANTS.baseline.currentSeasonMeanBlendWeight, 0);
+});
+
+test('every configuration name is documented in the usage block', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const source = fs.readFileSync(
+    path.join(__dirname, '..', '..', 'scripts', 'backtest-weekly-projections.js'), 'utf8'
+  );
+  // The usage docblock, not the eslint pragma that precedes it.
+  const start = source.indexOf('/**');
+  const docblock = source.slice(start, source.indexOf('*/', start));
+  assert.ok(docblock.includes('Usage:'), 'located the wrong comment');
+  for (const name of Object.keys(backtest.CONFIGURATIONS)) {
+    assert.ok(
+      docblock.includes(` ${name} `) || docblock.includes(` ${name}\n`),
+      `--config ${name} is accepted but the usage block never lists it`
+    );
+  }
+});
+
 test('spearman is 1 for a perfectly ordered set and -1 when reversed', () => {
   assert.equal(backtest.spearman([[1, 1], [2, 2], [3, 3], [4, 4]]), 1);
   assert.equal(backtest.spearman([[1, 4], [2, 3], [3, 2], [4, 1]]), -1);

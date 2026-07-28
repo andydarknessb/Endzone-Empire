@@ -46,6 +46,25 @@
  *   interval-130  residual draws scaled 1.30 (tighter band than the default)
  *   interval-145  residual draws scaled 1.45 (what the default already ships)
  *   interval-160  residual draws scaled 1.60 (wider band than the default)
+ *   light-slow-8  half-life 8 weeks
+ *   light-slow-12 half-life 12 weeks
+ *   light-slow-16 half-life 16 weeks
+ *   light-flat    half-life 9999 weeks, i.e. recency effectively switched off
+ *   blend-25      25% weight on the current-season unweighted mean
+ *   blend-50      50% weight on the current-season unweighted mean
+ *   blend-75      75% weight on the current-season unweighted mean
+ *   slow8-blend-25  half-life 8 plus a 25% current-season-mean blend
+ *   slow8-blend-50  half-life 8 plus a 50% current-season-mean blend
+ *
+ * The light-* names date from when the shipped shrinkage was heavier: the
+ * pseudo-game counts they once halved are now the DEFAULTS, so each of those
+ * configs varies only the half-life (which makes light-slow-8 the same
+ * constants as slow-recency, kept under both names so older run outputs stay
+ * readable). They sweep toward less recency weighting, and blend-* sweeps the
+ * separate question of mixing in the incumbent's flat current-season average;
+ * the slow8-blend-* pair crosses the two so a gain from one is not mistaken for
+ * a gain from the other. Every one of these is a candidate being measured, not
+ * a value anybody has selected; the shipped defaults are unchanged.
  *
  * The interval-* sweep exists to re-check p10-p90 coverage, which the
  * unscaled bootstrap under-delivered badly (near 0.6 against a 0.80 target).
@@ -81,6 +100,26 @@ const CONFIGURATIONS = {
   'interval-130': (MODEL) => withSimulation(MODEL, { intervalScale: 1.30 }),
   'interval-145': (MODEL) => withSimulation(MODEL, { intervalScale: 1.45 }),
   'interval-160': (MODEL) => withSimulation(MODEL, { intervalScale: 1.60 }),
+  // Half-life sweep at the shipped (already light) shrinkage. 9999 weeks makes
+  // every recency weight indistinguishable from 1, which is a flat mean over
+  // the whole window in all but name.
+  'light-slow-8': (MODEL) => withBaseline(MODEL, { recencyHalfLifeWeeks: 8 }),
+  'light-slow-12': (MODEL) => withBaseline(MODEL, { recencyHalfLifeWeeks: 12 }),
+  'light-slow-16': (MODEL) => withBaseline(MODEL, { recencyHalfLifeWeeks: 16 }),
+  'light-flat': (MODEL) => withBaseline(MODEL, { recencyHalfLifeWeeks: 9999 }),
+  // Blend sweep: how much of the incumbent's flat current-season average to mix
+  // into the shrunk estimate. The last two cross it with a slower half-life.
+  'blend-25': (MODEL) => withBaseline(MODEL, { currentSeasonMeanBlendWeight: 0.25 }),
+  'blend-50': (MODEL) => withBaseline(MODEL, { currentSeasonMeanBlendWeight: 0.50 }),
+  'blend-75': (MODEL) => withBaseline(MODEL, { currentSeasonMeanBlendWeight: 0.75 }),
+  'slow8-blend-25': (MODEL) => withBaseline(MODEL, {
+    recencyHalfLifeWeeks: 8,
+    currentSeasonMeanBlendWeight: 0.25,
+  }),
+  'slow8-blend-50': (MODEL) => withBaseline(MODEL, {
+    recencyHalfLifeWeeks: 8,
+    currentSeasonMeanBlendWeight: 0.50,
+  }),
 };
 
 function withBaseline(constants, overrides) {

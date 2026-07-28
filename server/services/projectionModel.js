@@ -66,6 +66,19 @@ const MODEL_CONSTANTS = {
     // Below this many prior games we never trust the player's own sample
     // alone, even if a fallback is unavailable.
     lowConfidenceGames: 3,
+    // Optional blend toward the CURRENT season's UNWEIGHTED per-game mean,
+    // the incumbent "average what he has done so far this year" estimator that
+    // the backtest scores as its comparison baseline. The final baseline is
+    // (1 - b) * shrunkValue + b * currentSeasonMean.
+    //
+    // 0 DISABLES it: at zero the blend is skipped entirely and every number
+    // this file produces is bit-identical to what it produced before the
+    // setting existed, which is why adding the key needs no MODEL_VERSION bump
+    // (no cached row was computed under different arithmetic). It exists so the
+    // blend-* sweeps in scripts/backtest-weekly-projections.js can measure
+    // whether any non-zero weight is worth shipping; nothing has been selected
+    // yet, so the default stays off.
+    currentSeasonMeanBlendWeight: 0,
     // How many "weeks" a season boundary is worth when measuring recency.
     // 18 regular-season weeks plus an 8-week penalty for the offseason: last
     // season's Week 18 is treated as 9 weeks stale in a Week 1 projection, not
@@ -314,8 +327,31 @@ function baselineProduction({
   if (!isNum(value)) {
     return { value: null, effectiveGames: 0, sampleSize: 0, usedPriorSeason: false, usedPositionBaseline: false };
   }
+
+  // Optional final step: blend toward the CURRENT season's unweighted mean.
+  // Only games flagged `sameSeason` count, so a prior-season game can never
+  // leak into a number that claims to describe this year, and the mean is FLAT
+  // (no recency weight) on purpose, because that is precisely the estimator
+  // this is blending with. Off by default (weight 0), and skipped entirely when
+  // the player has no current-season games, because there would be nothing to
+  // blend with and inventing a component would be a fabricated measurement.
+  const blendWeight = isNum(constants.currentSeasonMeanBlendWeight)
+    ? Number(constants.currentSeasonMeanBlendWeight)
+    : 0;
+  let blended = Number(value);
+  if (blendWeight > 0) {
+    const currentSeason = games.filter((g) => g.sameSeason);
+    if (currentSeason.length > 0) {
+      const flatMean =
+        currentSeason.reduce((sum, g) => sum + Number(g.points), 0) / currentSeason.length;
+      blended = (1 - blendWeight) * Number(value) + blendWeight * flatMean;
+    }
+  }
+
   return {
-    value: Number(value),
+    // `effectiveGames` deliberately stays the recency weight sum: the blend
+    // changes the estimate, not how much evidence there is behind it.
+    value: blended,
     effectiveGames,
     sampleSize: games.length,
     usedPriorSeason: isNum(priorSeasonPerGame),

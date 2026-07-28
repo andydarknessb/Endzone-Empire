@@ -101,16 +101,21 @@ function buildPriorGames({ statRows, rules, season, week, opponentByTeamWeek, pl
     const points = calculateFantasyPoints(row.stats, rules);
     const key = `${row.season}:${row.week}:${playerTeam || ''}`;
     const schedule = opponentByTeamWeek ? opponentByTeamWeek.get(key) : null;
+    // Whether this game belongs to the season being projected. Two consumers
+    // care: the opponent/orientation fields below, and the model's optional
+    // current-season blend, which averages THIS season's games only.
+    const sameSeason = Number(row.season) === Number(season);
     games.push({
       season: Number(row.season),
       week: Number(row.week),
       points,
       weeksAgo: weeksAgo({ gameSeason: row.season, gameWeek: row.week, season, week }),
+      sameSeason,
       // Only the CURRENT season's orientation/opponent is trustworthy: we
       // store no per-week team history, so a prior-season row's "opponent"
       // would really be "whoever this player's CURRENT team played".
-      opponent: Number(row.season) === Number(season) && schedule ? schedule.opponent : null,
-      isHome: Number(row.season) === Number(season) && schedule ? schedule.isHome : null,
+      opponent: sameSeason && schedule ? schedule.opponent : null,
+      isHome: sameSeason && schedule ? schedule.isHome : null,
       hasRole: hasRoleSignal(row.stats),
     });
   }

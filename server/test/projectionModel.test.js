@@ -92,6 +92,197 @@ test('a Week 1 veteran with only prior-season games still projects', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Current-season mean blend (sweepable, shipped OFF)
+// ---------------------------------------------------------------------------
+
+/**
+ * One fixture, reused by every blend test, built so the two candidate estimates
+ * pull hard in opposite directions:
+ *
+ *  - the four current-season games are STRONG early and WEAK recently, so the
+ *    recency-weighted view (~10.45/g) sits far below the flat view (18.0/g);
+ *  - a fifth game from the PRIOR season scored 0, so any implementation that
+ *    lets it into the "current season" mean lands somewhere else again (14.4).
+ *
+ * weeksAgo values are multiples of the shipped 4-week half-life, so every
+ * recency weight is an exact power of one half and the whole chain below is
+ * rational arithmetic rather than a number copied out of a debugger.
+ */
+const BLEND_FIXTURE = {
+  priorGames: [
+    { points: 6, weeksAgo: 4, sameSeason: true },   // weight 0.5
+    { points: 6, weeksAgo: 8, sameSeason: true },   // weight 0.25
+    { points: 30, weeksAgo: 12, sameSeason: true }, // weight 0.125
+    { points: 30, weeksAgo: 16, sameSeason: true }, // weight 0.0625
+    { points: 0, weeksAgo: 20, sameSeason: false }, // weight 0.03125, LAST season
+  ],
+  priorSeasonPerGame: 12.5,
+  positionBaselinePerGame: 5,
+};
+
+// Hand-derived from the fixture, independently of the implementation:
+//   weightedSum = 3 + 1.5 + 3.75 + 1.875 + 0  = 10.125
+//   weightSum   = 0.5 + 0.25 + 0.125 + 0.0625 + 0.03125 = 0.96875
+//   observed    = 10.125 / 0.96875                      = 324/31
+//   afterSeason = (10.125 + 1.5 * 12.5) / (0.96875 + 1.5)  = 924/79
+//   value       = (28.875 + 5) / (2.46875 + 1)             = 1084/111
+const BLEND_FIXTURE_SHRUNK = 1084 / 111;          // ~9.7658
+// UNWEIGHTED mean of the four current-season games only: (6+6+30+30)/4.
+const BLEND_FIXTURE_FLAT_MEAN = 18;
+
+const withBlend = (weight) => ({
+  ...model.MODEL_CONSTANTS.baseline,
+  currentSeasonMeanBlendWeight: weight,
+});
+
+test('the shipped constants leave the current-season blend switched off', () => {
+  assert.equal(
+    model.MODEL_CONSTANTS.baseline.currentSeasonMeanBlendWeight,
+    0,
+    'a non-zero default would be an unselected constant shipping to production'
+  );
+});
+
+test('a zero or absent blend weight reproduces the pre-blend math exactly', () => {
+  const shipped = model.baselineProduction(BLEND_FIXTURE);
+
+  // The pre-blend composition, rebuilt here from the model's own (unchanged,
+  // separately tested) primitives: recency-weighted mean, shrink to the prior
+  // season, shrink to the position baseline. Nothing else was ever applied.
+  let weightedSum = 0;
+  let weightSum = 0;
+  for (const game of BLEND_FIXTURE.priorGames) {
+    const w = model.recencyWeight(game.weeksAgo, model.MODEL_CONSTANTS.baseline.recencyHalfLifeWeeks);
+    weightedSum += w * game.points;
+    weightSum += w;
+  }
+  const legacyValue = model.shrinkToward(
+    model.shrinkToward(weightedSum / weightSum, weightSum, BLEND_FIXTURE.priorSeasonPerGame, 1.5),
+    weightSum + 1.5,
+    BLEND_FIXTURE.positionBaselinePerGame,
+    1
+  );
+  assert.ok(Math.abs(shipped.value - legacyValue) < 1e-12, `got ${shipped.value}, legacy ${legacyValue}`);
+  // Pinned, so a future refactor of those primitives cannot quietly move the
+  // number and take this test with it.
+  assert.ok(
+    Math.abs(shipped.value - BLEND_FIXTURE_SHRUNK) < 1e-12,
+    `expected the pinned 1084/111, got ${shipped.value}`
+  );
+
+  const explicitZero = model.baselineProduction({ ...BLEND_FIXTURE, constants: withBlend(0) });
+  // A constants object from before the setting existed, key genuinely absent.
+  const { currentSeasonMeanBlendWeight, ...legacyConstants } = model.MODEL_CONSTANTS.baseline;
+  assert.equal(currentSeasonMeanBlendWeight, 0);
+  assert.equal('currentSeasonMeanBlendWeight' in legacyConstants, false);
+  const keyAbsent = model.baselineProduction({ ...BLEND_FIXTURE, constants: legacyConstants });
+
+  assert.deepEqual(explicitZero, shipped, 'weight 0 must be the identity, not "almost" the identity');
+  assert.deepEqual(keyAbsent, shipped, 'a constants object with no blend key behaves as before');
+  // Non-numeric junk is treated as absent rather than coerced to a weight.
+  for (const junk of [null, undefined, '', true, NaN, 'half']) {
+    assert.deepEqual(
+      model.baselineProduction({ ...BLEND_FIXTURE, constants: withBlend(junk) }),
+      shipped,
+      `blend weight ${String(junk)} must be read as "off", never coerced`
+    );
+  }
+});
+
+test('an applied blend lands weakly between the shrunk value and the flat current-season mean', () => {
+  const lo = Math.min(BLEND_FIXTURE_SHRUNK, BLEND_FIXTURE_FLAT_MEAN);
+  const hi = Math.max(BLEND_FIXTURE_SHRUNK, BLEND_FIXTURE_FLAT_MEAN);
+  let previous = model.baselineProduction({ ...BLEND_FIXTURE, constants: withBlend(0) }).value;
+  for (const weight of [0.1, 0.25, 0.5, 0.75, 0.9]) {
+    const result = model.baselineProduction({ ...BLEND_FIXTURE, constants: withBlend(weight) });
+    assert.ok(
+      result.value >= lo - 1e-12 && result.value <= hi + 1e-12,
+      `weight ${weight} left the interval [${lo}, ${hi}] at ${result.value}`
+    );
+    // A blend can only interpolate, so more weight must move monotonically
+    // toward the flat mean (which is the larger of the two here).
+    assert.ok(result.value > previous, `weight ${weight} did not move toward the flat mean`);
+    previous = result.value;
+    // The blend changes the estimate, never the evidence behind it.
+    assert.equal(result.effectiveGames, model.baselineProduction(BLEND_FIXTURE).effectiveGames);
+    assert.equal(result.sampleSize, 5);
+  }
+  const full = model.baselineProduction({ ...BLEND_FIXTURE, constants: withBlend(1) });
+  assert.equal(full.value, BLEND_FIXTURE_FLAT_MEAN, 'weight 1 is the flat current-season mean, exactly');
+});
+
+test('no current-season game means no blend, at any weight', () => {
+  // Nothing flagged sameSeason: one row says false, the others predate the
+  // flag entirely. Neither may be invented into a current-season mean.
+  const args = {
+    priorGames: [
+      { points: 20, weeksAgo: 20, sameSeason: false },
+      { points: 4, weeksAgo: 24 },
+      { points: 12, weeksAgo: 28 },
+    ],
+    priorSeasonPerGame: 11,
+    positionBaselinePerGame: 8,
+  };
+  const off = model.baselineProduction({ ...args, constants: withBlend(0) });
+  for (const weight of [0.25, 0.5, 0.75, 1]) {
+    assert.deepEqual(
+      model.baselineProduction({ ...args, constants: withBlend(weight) }),
+      off,
+      `weight ${weight} fabricated a current-season component out of nothing`
+    );
+  }
+  // And a player with no games at all still declines to project.
+  assert.equal(
+    model.baselineProduction({ priorGames: [], constants: withBlend(1) }).value,
+    null
+  );
+});
+
+test('the blend averages current-season games FLAT and excludes last season', () => {
+  // Every wrong way to compute the mixed-in mean lands on a different number,
+  // and each one is named in the failure message so a regression says which
+  // mistake it made rather than just "expected X got Y".
+  const half = model.baselineProduction({ ...BLEND_FIXTURE, constants: withBlend(0.5) });
+
+  const correct = 0.5 * BLEND_FIXTURE_SHRUNK + 0.5 * BLEND_FIXTURE_FLAT_MEAN;      // ~13.8829
+  // Mutant A: prior-season row allowed into the mean -> (6+6+30+30+0)/5 = 14.4.
+  const mutantPriorSeasonIncluded = 0.5 * BLEND_FIXTURE_SHRUNK + 0.5 * 14.4;        // ~12.1579
+  // Mutant B: recency-WEIGHTED mean of the current-season games instead of the
+  // flat one -> 10.125 / 0.9375 = 10.8.
+  const mutantWeightedMean = 0.5 * BLEND_FIXTURE_SHRUNK + 0.5 * 10.8;               // ~10.2829
+  // Mutant C: weighted mean over ALL games (the `observed` term) -> 324/31.
+  const mutantObservedMean = 0.5 * BLEND_FIXTURE_SHRUNK + 0.5 * (324 / 31);         // ~10.1105
+  // Mutant D: blend applied to the raw observed mean BEFORE the shrinkage
+  // chain, rather than as the final step.
+  const preShrinkObserved = 0.5 * (324 / 31) + 0.5 * BLEND_FIXTURE_FLAT_MEAN;
+  const mutantBlendedBeforeShrinkage = model.shrinkToward(
+    model.shrinkToward(preShrinkObserved, 0.96875, 12.5, 1.5),
+    0.96875 + 1.5,
+    5,
+    1
+  );                                                                                // ~11.4
+  // Mutant E: the blend silently skipped.
+  const mutantNoBlend = BLEND_FIXTURE_SHRUNK;                                       // ~9.7658
+
+  assert.ok(
+    Math.abs(half.value - correct) < 1e-12,
+    `blend at 0.5 must be ${correct}; got ${half.value}. ` +
+    `${mutantPriorSeasonIncluded} = last season counted in the current-season mean; ` +
+    `${mutantWeightedMean} = recency-weighted instead of flat; ` +
+    `${mutantObservedMean} = the all-games weighted mean reused as the flat mean; ` +
+    `${mutantBlendedBeforeShrinkage} = blended before the shrinkage chain instead of after; ` +
+    `${mutantNoBlend} = blend not applied at all`
+  );
+  // Every mutant above is materially, not marginally, distinguishable.
+  for (const mutant of [
+    mutantPriorSeasonIncluded, mutantWeightedMean, mutantObservedMean,
+    mutantBlendedBeforeShrinkage, mutantNoBlend,
+  ]) {
+    assert.ok(Math.abs(correct - mutant) > 1, `mutant ${mutant} is too close to ${correct} to be a real check`);
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Opponent adjustment
 // ---------------------------------------------------------------------------
 
