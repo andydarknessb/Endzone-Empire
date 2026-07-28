@@ -1,38 +1,39 @@
 ﻿{
-    "generated":  "2026-07-28T16:56:23.2178038Z",
+    "generated":  "2026-07-28T18:35:04.4937057Z",
     "release":  "2c52e0f",
+    "note":  "script paths rewritten to __dirname resolution post-archive; JSON evidence files unchanged",
     "files":  {
                   "data-checks.js":  {
-                                         "sha256":  "80dac17ffeddd968b0c0fed7151a4350970626e3621bbec3e318a3e43a74395b",
-                                         "bytes":  5469
+                                         "sha256":  "67bb198e691a808a96658c877dd81aabb3c4e4c44704bd45478022bbe0fa1729",
+                                         "bytes":  5480
                                      },
                   "data-checks-scoped.js":  {
-                                                "sha256":  "0cbde44d6d85d594b5a27e03bcd4c74e362071e9285e402d3a018b5b84349291",
-                                                "bytes":  3394
+                                                "sha256":  "5f54752d62ca0b785b02e825f85a3214e30371023a797018507e4427f9d49f3f",
+                                                "bytes":  3441
                                             },
                   "median-gate.js":  {
-                                         "sha256":  "8372946a6a656dba0c851e64938b743f2a1004e6b9abed2598a02213aee984f9",
-                                         "bytes":  7242
+                                         "sha256":  "85b22967a7142ba77ea81688efad4c3ecaf9bf3b3cda2e8e946569013c320750",
+                                         "bytes":  7132
                                      },
                   "perf-test.js":  {
-                                       "sha256":  "3f6a74a6054ea5419722dd13e985241ad91fc67dc77efcef453bc55e7299fc2e",
-                                       "bytes":  3601
+                                       "sha256":  "023fbea2745287970fc7e55252261b74877cf5f2a73525b509515452fb83a0dc",
+                                       "bytes":  3612
                                    },
                   "qa-diff.js":  {
-                                     "sha256":  "74aebf83fee8386a4c65919eb11d8e911786dbb1067f1d23aceff2d58a9ca785",
-                                     "bytes":  1673
+                                     "sha256":  "3aa01c1928f8b8530a076d7e658b7a0add3380bade9b2802177ec2a46a95fbd6",
+                                     "bytes":  1564
                                  },
                   "README.md":  {
                                     "sha256":  "169d6da4f950f041ac1ccb4b9380f4c23f1ff566c9a2f3a0e9eeab8c4cb7af2c",
                                     "bytes":  4439
                                 },
                   "replay-attrib.js":  {
-                                           "sha256":  "83e10e4478c531c7dff397bf300a7ca30b775f70b401222b92120ceba23c70e1",
-                                           "bytes":  1652
+                                           "sha256":  "cf0a17299110593f1313c61c13ec27d74585504c647a1ff7c88d0ec837e3e10b",
+                                           "bytes":  1543
                                        },
                   "replay-driver.js":  {
-                                           "sha256":  "b648075c8df5187c53ff69ea1a6857b75fc4d5012788e192f1f5e726fc081d58",
-                                           "bytes":  2817
+                                           "sha256":  "d8c2e29f734cbafb75d8025ced0673cf2ac6a4a34844d35c5432d1e9886a9d28",
+                                           "bytes":  2805
                                        },
                   "replay-head.json":  {
                                            "sha256":  "53f17f0b78fcf189eeab66726afbcf243da0052c649e9a3cf38846387b6c79f8",

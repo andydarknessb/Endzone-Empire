@@ -1,7 +1,7 @@
 /* QA: (1) v3.1 run1 vs run2 must be byte-identical everywhere.
  * (2) v3.1 means must equal v3 means (mean path untouched by the release). */
 const fs = require('fs');
-const s = 'C:/Users/Cory/AppData/Local/Temp/claude/c--Users-Cory-Endzone-Empire/15b5b31f-2001-4752-8a5e-a7298bde9fba/scratchpad';
+const s = __dirname;
 const load = (f) => JSON.parse(fs.readFileSync(`${s}/${f}`, 'utf8'));
 const key = (r) => `${r[0]}:${r[1]}:${r[2]}`;
 

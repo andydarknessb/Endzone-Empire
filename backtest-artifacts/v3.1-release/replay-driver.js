@@ -12,7 +12,7 @@ if (!root || !outFile || seasons.length === 0) {
   process.exit(2);
 }
 
-require(path.join(root, 'node_modules', 'dotenv')).config({ path: 'c:/Users/Cory/Endzone-Empire/.env' });
+require(path.join(root, 'node_modules', 'dotenv')).config({ path: path.join(root, '.env') });
 const pool = require(path.join(root, 'server', 'modules', 'pool'));
 const projection = require(path.join(root, 'server', 'services', 'projection.service'));
 const model = require(path.join(root, 'server', 'services', 'projectionModel'));

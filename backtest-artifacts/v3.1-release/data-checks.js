@@ -1,11 +1,13 @@
 /* Read-only data checks reproducing the external review's measurements.
  * No writes: SELECT-only SQL plus in-process lineup assignment. */
-require('c:/Users/Cory/Endzone-Empire/node_modules/dotenv').config({ path: 'c:/Users/Cory/Endzone-Empire/.env' });
+const path = require('path');
+const REPO = path.resolve(__dirname, '..', '..');
+require(path.join(REPO, 'node_modules', 'dotenv')).config({ path: path.join(REPO, '.env') });
 
-const pool = require('c:/Users/Cory/Endzone-Empire/server/modules/pool');
-const { SCORING_RULES, calculateFantasyPoints } = require('c:/Users/Cory/Endzone-Empire/server/services/scoring.service');
-const { DEFAULT_ROSTER_SLOTS } = require('c:/Users/Cory/Endzone-Empire/server/services/lineup.service');
-const { optimalAssignment } = require('c:/Users/Cory/Endzone-Empire/server/services/lineupOptimizer');
+const pool = require(path.join(REPO, 'server/modules/pool'));
+const { SCORING_RULES, calculateFantasyPoints } = require(path.join(REPO, 'server/services/scoring.service'));
+const { DEFAULT_ROSTER_SLOTS } = require(path.join(REPO, 'server/services/lineup.service'));
+const { optimalAssignment } = require(path.join(REPO, 'server/services/lineupOptimizer'));
 
 const POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
 const SEASONS = [2024, 2025];

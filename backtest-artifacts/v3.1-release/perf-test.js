@@ -2,11 +2,13 @@
  * 1. League scan latency with vs without ORDER BY (worst realistic case).
  * 2. EXPLAIN (no ANALYZE — nothing executes) for the new DELETE predicate.
  * 3. End-to-end generateProjections latency for a heavy week (cold-cache cost). */
-require('c:/Users/Cory/Endzone-Empire/node_modules/dotenv').config({ path: 'c:/Users/Cory/Endzone-Empire/.env' });
-const pool = require('c:/Users/Cory/Endzone-Empire/server/modules/pool');
-const projection = require('c:/Users/Cory/Endzone-Empire/server/services/projection.service');
-const model = require('c:/Users/Cory/Endzone-Empire/server/services/projectionModel');
-const { SCORING_RULES } = require('c:/Users/Cory/Endzone-Empire/server/services/scoring.service');
+const path = require('path');
+const REPO = path.resolve(__dirname, '..', '..');
+require(path.join(REPO, 'node_modules', 'dotenv')).config({ path: path.join(REPO, '.env') });
+const pool = require(path.join(REPO, 'server/modules/pool'));
+const projection = require(path.join(REPO, 'server/services/projection.service'));
+const model = require(path.join(REPO, 'server/services/projectionModel'));
+const { SCORING_RULES } = require(path.join(REPO, 'server/services/scoring.service'));
 
 const POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
 const SCAN = (orderBy) => `

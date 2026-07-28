@@ -1,7 +1,9 @@
 /* Read-only: checks A and C rescoped to the backtest cohort
  * (positions QB/RB/WR/TE/K/DEF, weeks 2-18) with strict null handling. */
-require('c:/Users/Cory/Endzone-Empire/node_modules/dotenv').config({ path: 'c:/Users/Cory/Endzone-Empire/.env' });
-const pool = require('c:/Users/Cory/Endzone-Empire/server/modules/pool');
+const path = require('path');
+const REPO = path.resolve(__dirname, '..', '..');
+require(path.join(REPO, 'node_modules', 'dotenv')).config({ path: path.join(REPO, '.env') });
+const pool = require(path.join(REPO, 'server/modules/pool'));
 
 const POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
 

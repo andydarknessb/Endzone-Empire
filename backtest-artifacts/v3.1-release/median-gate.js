@@ -1,14 +1,16 @@
 /* Median-delta release gate: v3 (replay-head.json) vs v3.1 (replay-v31-run1.json).
  * Read-only DB access: positions + actual stats for scoring. */
-require('c:/Users/Cory/Endzone-Empire/node_modules/dotenv').config({ path: 'c:/Users/Cory/Endzone-Empire/.env' });
+const path = require('path');
+const REPO = path.resolve(__dirname, '..', '..');
+require(path.join(REPO, 'node_modules', 'dotenv')).config({ path: path.join(REPO, '.env') });
 const fs = require('fs');
-const pool = require('c:/Users/Cory/Endzone-Empire/server/modules/pool');
-const { SCORING_RULES, calculateFantasyPoints } = require('c:/Users/Cory/Endzone-Empire/server/services/scoring.service');
-const { DEFAULT_ROSTER_SLOTS } = require('c:/Users/Cory/Endzone-Empire/server/services/lineup.service');
-const { optimalAssignment } = require('c:/Users/Cory/Endzone-Empire/server/services/lineupOptimizer');
-const bt = require('c:/Users/Cory/Endzone-Empire/scripts/backtest-weekly-projections.js');
+const pool = require(path.join(REPO, 'server/modules/pool'));
+const { SCORING_RULES, calculateFantasyPoints } = require(path.join(REPO, 'server/services/scoring.service'));
+const { DEFAULT_ROSTER_SLOTS } = require(path.join(REPO, 'server/services/lineup.service'));
+const { optimalAssignment } = require(path.join(REPO, 'server/services/lineupOptimizer'));
+const bt = require(path.join(REPO, 'scripts/backtest-weekly-projections.js'));
 
-const s = 'C:/Users/Cory/AppData/Local/Temp/claude/c--Users-Cory-Endzone-Empire/15b5b31f-2001-4752-8a5e-a7298bde9fba/scratchpad';
+const s = __dirname;
 const v3 = JSON.parse(fs.readFileSync(`${s}/replay-head.json`, 'utf8')).rows;
 const v31 = JSON.parse(fs.readFileSync(`${s}/replay-v31-run1.json`, 'utf8')).rows;
 const key = (r) => `${r[0]}:${r[1]}:${r[2]}`;

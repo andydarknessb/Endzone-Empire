@@ -1,7 +1,7 @@
 /* Attribution: separate a404cf0's real effect from ambient nondeterminism.
  * Compares three runs: pre (266060a), head (a404cf0 run 1), head2 (a404cf0 run 2). */
 const fs = require('fs');
-const s = 'C:/Users/Cory/AppData/Local/Temp/claude/c--Users-Cory-Endzone-Empire/15b5b31f-2001-4752-8a5e-a7298bde9fba/scratchpad';
+const s = __dirname;
 const load = (f) => JSON.parse(fs.readFileSync(`${s}/${f}`, 'utf8')).rows;
 const key = (r) => `${r[0]}:${r[1]}:${r[2]}`;
 const toMap = (rows) => new Map(rows.map((r) => [key(r), r]));
