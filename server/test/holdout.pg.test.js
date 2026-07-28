@@ -61,16 +61,30 @@ if (!ENABLED) {
     await knex.destroy();
   });
 
-  async function seedWeek({ season, week = 1, firstKickoffInMs = 60 * 60 * 1000 }) {
+  /**
+   * A REAL closed-season fixture: all 32 canonical teams, weeks 1-18, 17
+   * appearances each, seeded from the same generator the unit suite
+   * validates against — so the capture's canonical-domain schedule
+   * certification runs for real against a season that satisfies it.
+   */
+  async function seedSeason({ season, firstKickoffInMs = 60 * 60 * 1000 }) {
+    const { buildSeason } = require('./helpers/holdoutSeason');
     const first = new Date(Date.now() + firstKickoffInMs);
-    const later = new Date(first.getTime() + 3 * 3600 * 1000);
+    const built = buildSeason({ season, firstKickoff: first.toISOString() });
+    const values = [];
+    const params = [];
+    let i = 0;
+    for (const [week, rows] of built.rowsByWeek) {
+      for (const row of rows) {
+        values.push(`($${i + 1}, $${i + 2}, $${i + 3}, $${i + 4}, $${i + 5}, $${i + 6}, $${i + 7})`);
+        params.push(season, week, row.nfl_team, row.opponent, row.kickoff_at, row.home_away, row.game_key);
+        i += 7;
+      }
+    }
     await pool.query(
       `INSERT INTO "nfl_games" ("season", "week", "nfl_team", "opponent", "kickoff_at", "home_away", "game_key")
-       VALUES ($1, $2, 'KC',  'DET', $3, 'home', 'pg-g1'),
-              ($1, $2, 'DET', 'KC',  $3, 'away', 'pg-g1'),
-              ($1, $2, 'BUF', 'NYJ', $4, 'home', 'pg-g2'),
-              ($1, $2, 'NYJ', 'BUF', $4, 'away', 'pg-g2')`,
-      [season, week, first, later]
+       VALUES ${values.join(', ')}`,
+      params
     );
     return first;
   }
@@ -180,7 +194,7 @@ if (!ENABLED) {
       throw new Error('capture leaked a read to the global pool');
     });
     const season = 2081;
-    await seedWeek({ season });
+    await seedSeason({ season });
 
     const first = await holdout.snapshotWeek({
       season, week: 1, profileName: 'standard',
