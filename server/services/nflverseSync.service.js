@@ -284,6 +284,19 @@ function nflverseTeamToOurAbbr(team) {
   return abbr === 'LA' ? 'LAR' : abbr;
 }
 
+/**
+ * Pure: an OPTIONAL nflverse team column -> our abbreviation, or null.
+ *
+ * nflverseTeamToOurAbbr answers '' for a missing value, which would store an
+ * empty string as if it were a team. A stat row whose file has no `team` column
+ * must record "unknown", not a blank team, so this is the reader used for the
+ * stats-jsonb gameTeam/gameOpponent keys.
+ */
+function optionalTeamAbbr(team) {
+  const text = optionalText(team);
+  return text ? nflverseTeamToOurAbbr(text) : null;
+}
+
 // nfl_games speaks Tank01's vocabulary — syncSchedule writes WSH, and Tank01
 // game ids are spelled WSH (see modules/espnScoreboard.js) — while games.csv
 // says WAS and LA. Schedule rows must be written in Tank01 codes so a
@@ -468,7 +481,12 @@ function normalizeNflversePlayerStats(row) {
   const solo = num(row.def_tackles_solo);
   return {
     // Not scored by any rule (calculateFantasyPoints ignores unknown keys) —
-    // carried purely as projection features.
+    // carried purely as projection features. Same for gameTeam/gameOpponent:
+    // who a line was earned FOR and AGAINST, so a stat row is self-describing
+    // without a join. Home/away deliberately stays OUT of the jsonb; it's read
+    // from nfl_games, which is the one place it can be corrected.
+    gameTeam: optionalTeamAbbr(row.team),
+    gameOpponent: optionalTeamAbbr(row.opponent_team),
     usagePassAttempts: usage(row.attempts),
     usageCompletions: usage(row.completions),
     usageCarries: usage(row.carries),
@@ -565,6 +583,10 @@ function buildDstStatUpdates({ teamRows, scoresByGameId }) {
     updates.push({
       teamAbbr: nflverseTeamToOurAbbr(row.team),
       stats: {
+        // Unscored, same as on the player rows: which unit this line belongs to
+        // and who it was earned against.
+        gameTeam: optionalTeamAbbr(row.team),
+        gameOpponent: optionalTeamAbbr(row.opponent_team),
         sack: num(row.def_sacks),
         interceptionReturn: num(row.def_interceptions),
         fumbleRecovery: num(row.fumble_recovery_opp),
@@ -695,9 +717,20 @@ const PBP_ONLY_STAT_KEYS = ['passingTDLengths', 'rushingTDLengths', 'receivingTD
  * data the NFL's own corrections flow into, published nightly and "cleanest by
  * Thursday" per nflverse's docs.
  *
- * @param {{season: number, week: number, rescoreLeagues?: boolean}} args
+ * This always runs over weeks Tank01 already filled, so preserving the
+ * pbp-only keys is the DEFAULT here rather than something each caller has to
+ * remember (correction.service and the backfill script both reach this path).
+ * A caller can still pass an explicit list; passing [] opts out entirely.
+ *
+ * @param {{season: number, week: number, rescoreLeagues?: boolean,
+ *          preserveKeys?: string[]}} args
  */
-async function correctWeekFromNflverse({ season, week, rescoreLeagues = true }) {
+async function correctWeekFromNflverse({
+  season,
+  week,
+  rescoreLeagues = true,
+  preserveKeys = PBP_ONLY_STAT_KEYS,
+}) {
   const [playerRows, teamRows, scoresByGameId, crosswalk] = await Promise.all([
     fetchPlayerWeekStatsForSeason(season),
     fetchTeamWeekStatsForSeason(season),
@@ -711,7 +744,7 @@ async function correctWeekFromNflverse({ season, week, rescoreLeagues = true }) 
     teamRows,
     scoresByGameId,
     crosswalk,
-    preserveKeys: PBP_ONLY_STAT_KEYS,
+    preserveKeys,
   });
   if (!rescoreLeagues) return { ...applied, leaguesRescored: 0, corrected: [] };
 
@@ -781,6 +814,7 @@ module.exports = {
   buildStatUpdates,
   parseFgMadeList,
   nflverseTeamToOurAbbr,
+  optionalTeamAbbr,
   nflverseTeamToScheduleAbbr,
   etKickoffToUtc,
   optionalNumber,

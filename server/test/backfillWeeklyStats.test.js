@@ -1,6 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { parseArgs, weekOutcome } = require('../../scripts/backfill-weekly-stats');
+const pool = require('../modules/pool');
+const nflverse = require('../services/nflverseSync.service');
+const { parseArgs, weekOutcome, runNflverseSeason } = require('../../scripts/backfill-weekly-stats');
 
 // --- parseArgs --------------------------------------------------------------
 
@@ -58,4 +60,44 @@ test('weekOutcome retries a short week until attempts run out', () => {
   assert.equal(weekOutcome({ gamesProcessed: 12, expectedGames: 16, attempt: 1 }), 'retry');
   assert.equal(weekOutcome({ gamesProcessed: 12, expectedGames: 16, attempt: 2 }), 'retry');
   assert.equal(weekOutcome({ gamesProcessed: 12, expectedGames: 16, attempt: 3 }), 'incomplete');
+});
+
+// --- runNflverseSeason ------------------------------------------------------
+
+/** Stubs the four nflverse calls + the schedule count runNflverseSeason makes. */
+function stubNflverseSeason(t) {
+  const applied = [];
+  t.mock.method(console, 'log', () => {});
+  t.mock.method(pool, 'query', async () => ({ rows: [{ n: 32 }] }));
+  t.mock.method(nflverse, 'fetchPlayerWeekStatsForSeason', async () => []);
+  t.mock.method(nflverse, 'fetchTeamWeekStatsForSeason', async () => []);
+  t.mock.method(nflverse, 'fetchGameScoresForSeason', async () => new Map());
+  t.mock.method(nflverse, 'applyNflverseFullWeek', async (args) => {
+    applied.push(args);
+    return { playersUpdated: 3, dstUpdated: 2, gamesInFile: 16 };
+  });
+  return applied;
+}
+
+test('runNflverseSeason preserves the pbp-only keys on every week it rewrites', async (t) => {
+  const applied = stubNflverseSeason(t);
+  await runNflverseSeason({ season: 2025, weeks: [1, 2], crosswalk: new Map(), summary: [] });
+
+  assert.equal(applied.length, 2);
+  for (const call of applied) {
+    assert.deepEqual(
+      call.preserveKeys,
+      nflverse.PBP_ONLY_STAT_KEYS,
+      'kills the "forgot preserveKeys" mutant: a re-run would drop the TD-length arrays'
+    );
+  }
+  assert.ok(nflverse.PBP_ONLY_STAT_KEYS.length > 0, 'an empty carry list would make the assertion vacuous');
+});
+
+test('runNflverseSeason fetches each season file once and reuses it across weeks', async (t) => {
+  const applied = stubNflverseSeason(t);
+  await runNflverseSeason({ season: 2025, weeks: [1, 2, 3], crosswalk: new Map(), summary: [] });
+  assert.equal(nflverse.fetchPlayerWeekStatsForSeason.mock.callCount(), 1);
+  assert.equal(nflverse.fetchTeamWeekStatsForSeason.mock.callCount(), 1);
+  assert.deepEqual(applied.map((c) => c.week), [1, 2, 3]);
 });

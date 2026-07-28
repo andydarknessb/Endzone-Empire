@@ -7,6 +7,7 @@ const {
   buildStatUpdates,
   parseFgMadeList,
   nflverseTeamToOurAbbr,
+  optionalTeamAbbr,
   nflverseTeamToScheduleAbbr,
   etKickoffToUtc,
   buildScheduleRows,
@@ -16,6 +17,7 @@ const {
   buildDstStatUpdates,
   isNflverseFinalizationDay,
 } = require('../services/nflverseSync.service');
+const scoring = require('../services/scoring.service');
 
 // --- parseCsv ------------------------------------------------------------
 
@@ -240,6 +242,123 @@ test('normalizeNflversePlayerStats maps IDP including the finalization-only yard
   assert.equal(stats.twoPointReturn, 0); // no nflverse weekly column
 });
 
+// --- gameTeam / gameOpponent (per-week game context in the stats jsonb) ------
+
+test('normalizeNflversePlayerStats records the team a line was earned for and against', () => {
+  const stats = normalizeNflversePlayerStats({
+    team: 'KC', opponent_team: 'BUF', receiving_yards: '80',
+  });
+  assert.equal(stats.gameTeam, 'KC');
+  assert.equal(stats.gameOpponent, 'BUF');
+});
+
+test('normalizeNflversePlayerStats maps game-context teams through our abbreviations (LA -> LAR)', () => {
+  const forRams = normalizeNflversePlayerStats({ team: 'LA', opponent_team: 'SF' });
+  assert.equal(forRams.gameTeam, 'LAR');
+  const againstRams = normalizeNflversePlayerStats({ team: 'SF', opponent_team: 'LA' });
+  assert.equal(againstRams.gameOpponent, 'LAR');
+  // Kills the "store the raw nflverse code" mutant: LA would never join to LAR.
+});
+
+test('normalizeNflversePlayerStats leaves absent game-context columns null, never a blank team', () => {
+  for (const row of [{}, { team: '', opponent_team: '   ' }, { team: 'NA', opponent_team: 'NA' }]) {
+    const stats = normalizeNflversePlayerStats(row);
+    assert.equal(stats.gameTeam, null, JSON.stringify(row));
+    assert.equal(stats.gameOpponent, null, JSON.stringify(row));
+  }
+});
+
+test('normalizeNflversePlayerStats: per-week usage columns stay null when the file lacks them', () => {
+  const stats = normalizeNflversePlayerStats({ team: 'KC', opponent_team: 'BUF' });
+  for (const key of ['usagePassAttempts', 'usageCompletions', 'usageCarries', 'usageTargets', 'usageAirYards']) {
+    assert.equal(stats[key], null, `${key} must stay unknown, not become 0`);
+  }
+  const known = normalizeNflversePlayerStats({ targets: '0', carries: '11', receiving_air_yards: '84' });
+  assert.equal(known.usageTargets, 0, 'a real 0 in the file is still a real 0');
+  assert.equal(known.usageCarries, 11);
+  assert.equal(known.usageAirYards, 84);
+});
+
+test('game-context and usage keys do not change the fantasy points of a stat line', () => {
+  const row = {
+    team: 'KC', opponent_team: 'BUF', targets: '9', carries: '3', receiving_air_yards: '77',
+    receiving_yards: '80', receiving_tds: '1', receptions: '6',
+  };
+  const withContext = normalizeNflversePlayerStats(row);
+  const withoutContext = { ...withContext };
+  for (const key of [
+    'gameTeam', 'gameOpponent', 'usagePassAttempts', 'usageCompletions',
+    'usageCarries', 'usageTargets', 'usageAirYards',
+  ]) {
+    delete withoutContext[key];
+  }
+  assert.equal(
+    scoring.calculateFantasyPoints(withContext),
+    scoring.calculateFantasyPoints(withoutContext),
+    'calculateFantasyPoints must keep ignoring the unscored context keys'
+  );
+});
+
+test('buildDstStatUpdates records game context on both sides of the game', () => {
+  const teamRows = [
+    { game_id: '2025_02_LA_SF', team: 'LA', opponent_team: 'SF', passing_yards: '0', sack_yards_lost: '0', rushing_yards: '0' },
+    { game_id: '2025_02_LA_SF', team: 'SF', opponent_team: 'LA', passing_yards: '0', sack_yards_lost: '0', rushing_yards: '0' },
+  ];
+  const scoresByGameId = new Map([
+    ['2025_02_LA_SF', { homeTeam: 'SF', awayTeam: 'LA', homeScore: 20, awayScore: 17 }],
+  ]);
+  const updates = buildDstStatUpdates({ teamRows, scoresByGameId });
+  const lar = updates.find((u) => u.teamAbbr === 'LAR');
+  const sf = updates.find((u) => u.teamAbbr === 'SF');
+  assert.deepEqual(
+    { team: lar.stats.gameTeam, opponent: lar.stats.gameOpponent },
+    { team: 'LAR', opponent: 'SF' }
+  );
+  assert.deepEqual(
+    { team: sf.stats.gameTeam, opponent: sf.stats.gameOpponent },
+    { team: 'SF', opponent: 'LAR' }
+  );
+});
+
+test('optionalTeamAbbr is null-preserving where nflverseTeamToOurAbbr answers a blank', () => {
+  assert.equal(nflverseTeamToOurAbbr(''), '', 'the raw mapper still answers a blank string');
+  for (const value of [undefined, null, '', '  ', 'NA']) {
+    assert.equal(optionalTeamAbbr(value), null, JSON.stringify(value));
+  }
+  assert.equal(optionalTeamAbbr(' la '), 'LAR');
+  assert.equal(optionalTeamAbbr('kc'), 'KC');
+});
+
+// --- nflverse-only keys are the ones the Tank01 path carries forward ---------
+
+test('every unscored key nflverse adds is on scoring.NFLVERSE_ONLY_STAT_KEYS', () => {
+  // Without this, adding a key here and forgetting the carry list would let the
+  // next Tank01 sync of an enriched week silently erase it.
+  const stats = normalizeNflversePlayerStats({ team: 'KC', opponent_team: 'BUF' });
+  for (const key of ['gameTeam', 'gameOpponent', 'usagePassAttempts', 'usageCompletions',
+    'usageCarries', 'usageTargets', 'usageAirYards']) {
+    assert.ok(key in stats);
+    assert.ok(
+      scoring.NFLVERSE_ONLY_STAT_KEYS.includes(key),
+      `${key} is written by nflverse but not protected from the Tank01 upsert`
+    );
+  }
+});
+
+test('the IDP finalization patch keys are all protected from the Tank01 upsert', () => {
+  const updates = buildStatUpdates({
+    defRows: [{ player_id: '00-0039924', def_sack_yards: '11' }],
+    crosswalk: new Map([['00-0039924', '4429795']]),
+    knownPlayersByExternalId: new Map([['4429795', 42]]),
+  });
+  for (const key of Object.keys(updates[0].patch)) {
+    assert.ok(
+      scoring.NFLVERSE_ONLY_STAT_KEYS.includes(key),
+      `${key} is patched by the finalization pass but not protected`
+    );
+  }
+});
+
 test('buildFullStatUpdates joins via the crosswalk and skips unknown players', () => {
   const rows = [
     { player_id: '00-0039924', passing_yards: '300' },
@@ -283,6 +402,7 @@ test('buildDstStatUpdates builds one DST line per team from its own defense + op
 
   // BUF's defense: its own def_* columns; what it allowed comes from BAL's row.
   assert.deepEqual(buf.stats, {
+    gameTeam: 'BUF', gameOpponent: 'BAL',
     sack: 2, interceptionReturn: 1, fumbleRecovery: 1, defensiveTD: 1, safety: 0,
     blockedKick: 2,          // BAL's own fg_blocked + pat_blocked + pt_blocked
     pointsAllowed: 40,       // away score — BUF is home
@@ -420,6 +540,64 @@ test('applyNflverseFullWeek preserves nothing by default (backfill behavior)', a
   });
 
   assert.equal(readExisting, false, 'no extra read when nothing needs preserving');
+  assert.equal(JSON.parse(upserts[0][3]).passingTDLengths, undefined);
+});
+
+/** Stubs the four CSV fetches + every query the correction path makes. */
+function stubCorrectionWorld(t) {
+  const upserts = [];
+  t.mock.method(axios, 'get', async (url) => {
+    if (url.includes('stats_player_week')) {
+      return {
+        data: [
+          'season,week,season_type,player_id,passing_yards,team,opponent_team',
+          '2025,3,REG,00-0039924,300,KC,BUF',
+        ].join('\n'),
+      };
+    }
+    if (url.includes('players.csv')) return { data: 'gsis_id,espn_id\n00-0039924,4429795\n' };
+    if (url.includes('stats_team_week')) return { data: 'season,week,season_type,team\n' };
+    return { data: 'game_id,season,game_type,week\n' }; // games.csv
+  });
+  t.mock.method(pool, 'query', async (sql, params) => {
+    const text = String(sql);
+    if (text.includes('FROM "players" WHERE "external_id"')) {
+      return { rows: [{ id: 42, external_id: '4429795' }] };
+    }
+    if (text.includes(`"position" = 'DEF'`)) return { rows: [] };
+    if (text.includes('FROM "player_stats"')) {
+      return { rows: [{ player_id: 42, stats: { passingYards: 288, passingTDLengths: [42, 7] } }] };
+    }
+    if (text.includes('INTO "player_stats"')) {
+      upserts.push(params);
+      return { rows: [] };
+    }
+    throw new Error(`Unexpected SQL: ${text}`);
+  });
+  return upserts;
+}
+
+test('correctWeekFromNflverse preserves the pbp-only keys without the caller asking', async (t) => {
+  // This path always runs over weeks Tank01 already filled, so the default has
+  // to live in the function rather than in each caller (correction.service
+  // passes only season/week/rescoreLeagues).
+  const upserts = stubCorrectionWorld(t);
+  await nflverseSync.correctWeekFromNflverse({ season: 2025, week: 3, rescoreLeagues: false });
+
+  const stats = JSON.parse(upserts[0][3]);
+  assert.equal(stats.passingYards, 300, 'the corrected nflverse number still wins');
+  assert.deepEqual(
+    stats.passingTDLengths,
+    [42, 7],
+    'kills the "caller must remember preserveKeys" mutant: TD-length bonuses would zero out'
+  );
+});
+
+test('correctWeekFromNflverse still honors an explicit preserveKeys', async (t) => {
+  const upserts = stubCorrectionWorld(t);
+  await nflverseSync.correctWeekFromNflverse({
+    season: 2025, week: 3, rescoreLeagues: false, preserveKeys: [],
+  });
   assert.equal(JSON.parse(upserts[0][3]).passingTDLengths, undefined);
 });
 

@@ -601,6 +601,84 @@ async function syncTeamDefenses() {
   return { teamsInserted: inserted, totalDefTeams: existing.rows.length + inserted };
 }
 
+/**
+ * Stat keys that ONLY nflverse can produce, so a Tank01 box-score apply — whose
+ * upsert replaces the whole stats jsonb — must carry them forward instead of
+ * silently erasing them.
+ *
+ * Three groups, all written by nflverseSync.service:
+ *  - usage*: per-week opportunity/role columns (attempts, completions, carries,
+ *    targets, air yards) from the combined weekly file. Unscored; the projection
+ *    engine reads them as features, and their PRESENCE is the signal that role
+ *    data exists at all, so a wipe reads as "we never knew", not "he sat".
+ *  - gameTeam/gameOpponent: the team a stat line was earned for and against.
+ *  - idp*Yards/idpSafety: the finalization patch (see nflverseSync's
+ *    buildStatUpdates) — per-defender yardage Tank01's live feed has no field
+ *    for at all.
+ *
+ * Deliberately NOT here: anything Tank01 does produce. This list is only for
+ * keys the live feed cannot regenerate, so carrying them can never mask a stat
+ * correction.
+ *
+ * Lives in scoring.service (not nflverseSync) because nflverseSync already
+ * requires this module; the reverse direction would be a require cycle.
+ */
+const NFLVERSE_ONLY_STAT_KEYS = [
+  'usagePassAttempts',
+  'usageCompletions',
+  'usageCarries',
+  'usageTargets',
+  'usageAirYards',
+  'gameTeam',
+  'gameOpponent',
+  'idpSackYards',
+  'idpTacklesForLossYards',
+  'idpFumbleReturnYards',
+  'idpInterceptionReturnYards',
+  'idpSafety',
+];
+
+/**
+ * Pure: the subset of `keys` that are actually PRESENT on `source`, as a new
+ * object, or null when there are none (or no source at all).
+ *
+ * "Present" means the property exists with a value other than undefined. An
+ * explicit null IS carried: null is data here ("we looked and the column was
+ * absent"), and the whole point of these keys is that a missing value must stay
+ * missing rather than becoming 0. Never invents a key that isn't on the source.
+ */
+function pickPresentKeys(source, keys) {
+  if (!source || typeof source !== 'object') return null;
+  const out = {};
+  let found = 0;
+  for (const key of keys || []) {
+    if (source[key] !== undefined) {
+      out[key] = source[key];
+      found += 1;
+    }
+  }
+  return found > 0 ? out : null;
+}
+
+/**
+ * Pure: a fresh stat line with carried keys filled in underneath it.
+ *
+ * Fresh always wins: a carried value is written only where the fresh object has
+ * no defined value for that key, so a live Tank01 pull (including a stat
+ * correction that lowers a number) can never be overridden by a stale carry.
+ * Written as an explicit fill rather than `{ ...carried, ...fresh }` because
+ * that spread would let an explicitly-undefined fresh key clobber a real
+ * carried value.
+ */
+function mergeCarriedStats(fresh, carried) {
+  const merged = { ...fresh };
+  if (!carried) return merged;
+  for (const [key, value] of Object.entries(carried)) {
+    if (merged[key] === undefined) merged[key] = value;
+  }
+  return merged;
+}
+
 // Stat keys that represent a discrete, animatable "play" (a touchdown or a
 // smaller impact play), mapped to the event type the live UI renders and
 // whether it's touchdown-caliber (full-screen cutscene territory) or a
@@ -718,13 +796,20 @@ async function applyGameBoxScore({ box, season, week, maps }) {
   for (const entry of Object.values(playerStats)) {
     const playerId = idByExternal.get(String(entry && entry.playerID));
     if (!playerId) continue; // not in our pool
-    const stats = {
-      ...normalizeTank01Stats(entry),
-      ...normalizeTank01IdpStats(entry),
-      ...(bonusByPlayer.get(String(entry.playerID)) || {}),
-    };
-    const points = calculateFantasyPoints(stats);
     const prev = prevById.get(playerId);
+    // This upsert replaces the stats jsonb wholesale, so anything only nflverse
+    // can supply has to ride across from the stored row or it's gone until the
+    // next backfill. Merged BEFORE points are computed and before the row is
+    // written, so the stored fantasy_points always describes the stored stats.
+    const stats = mergeCarriedStats(
+      {
+        ...normalizeTank01Stats(entry),
+        ...normalizeTank01IdpStats(entry),
+        ...(bonusByPlayer.get(String(entry.playerID)) || {}),
+      },
+      pickPresentKeys(prev, NFLVERSE_ONLY_STAT_KEYS)
+    );
+    const points = calculateFantasyPoints(stats);
     const events = detectScoringEvents(prev, stats);
     if (events.length > 0) {
       const meta = metaById.get(playerId) || {};
@@ -770,9 +855,15 @@ async function applyGameBoxScore({ box, season, week, maps }) {
     const defPlayer = abbr ? defByAbbr.get(abbr) : null;
     if (!defPlayer) continue; // no rostered DEF unit for this team in our pool
     const opponentSide = side === 'home' ? 'away' : 'home';
-    const stats = normalizeTank01DstStats(dstSide, teamStats[opponentSide]);
-    const points = calculateFantasyPoints(stats);
     const prev = prevById.get(defPlayer.id);
+    // Same wholesale-replace hazard as the player loop above: a DST row
+    // backfilled from nflverse carries gameTeam/gameOpponent that Tank01's
+    // aggregate has no equivalent for.
+    const stats = mergeCarriedStats(
+      normalizeTank01DstStats(dstSide, teamStats[opponentSide]),
+      pickPresentKeys(prev, NFLVERSE_ONLY_STAT_KEYS)
+    );
+    const points = calculateFantasyPoints(stats);
     const events = detectScoringEvents(prev, stats);
     if (events.length > 0) {
       const pointsDelta =
@@ -1629,6 +1720,9 @@ module.exports = {
   hasTeamDefenseTiers,
   IDP_POSITIONS,
   DEFENSIVE_POSITIONS,
+  NFLVERSE_ONLY_STAT_KEYS,
+  pickPresentKeys,
+  mergeCarriedStats,
   detectScoringEvents,
   syncWeekStats,
   syncSchedule,

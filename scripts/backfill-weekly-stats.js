@@ -154,6 +154,11 @@ async function syncWeekWithRetry({ season, week, pauseMs, expectedGames }) {
  * one crosswalk fetch per season, zero Tank01 calls. `ok` compares the
  * games present in nflverse's team file against our schedule count, the
  * same completeness signal the Tank01 path uses.
+ *
+ * preserveKeys is NOT optional here: re-running this over a season Tank01
+ * already filled (which is exactly what an enrichment re-run is) would
+ * otherwise drop the pbp-derived TD-length arrays, zeroing TD-length bonuses
+ * for the leagues that opted into them.
  */
 async function runNflverseSeason({ season, weeks, crosswalk, summary }) {
   const [playerRows, teamRows, scoresByGameId] = [
@@ -166,6 +171,7 @@ async function runNflverseSeason({ season, weeks, crosswalk, summary }) {
     try {
       const out = await nflverse.applyNflverseFullWeek({
         season, week: wk, playerRows, teamRows, scoresByGameId, crosswalk,
+        preserveKeys: nflverse.PBP_ONLY_STAT_KEYS,
       });
       const ok = expectedGames == null || out.gamesInFile >= expectedGames;
       summary.push({
@@ -287,4 +293,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { parseArgs, weekOutcome, main };
+module.exports = { parseArgs, weekOutcome, runNflverseSeason, main };
