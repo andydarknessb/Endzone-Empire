@@ -13,14 +13,17 @@
  *    (season, week, scoring profile, model version, capture kind). The
  *    UNIQUE identity is what serializes capture attempts (the writer takes
  *    an advisory lock on it and writes header + every child row in ONE
- *    transaction — see holdout.service). `first_kickoff_at` is the week's
- *    earliest kickoff AS KNOWN AT CAPTURE TIME, and the CHECK constraint is
- *    the database-enforced pre-kickoff cutoff: a capture at or after that
- *    instant must either fail or arrive explicitly labeled `is_late = true`,
- *    which marks it non-holdout. `schedule_games` / `schedule_hash` record
- *    the validated schedule the kickoff was derived from, and
- *    `protocol_version` versions the capture protocol itself so a future
- *    format change cannot masquerade as comparable data.
+ *    transaction — see holdout.service). `capture_not_after` is the week's
+ *    effective capture deadline AS RESOLVED AT CAPTURE TIME: the season
+ *    manifest's independently sourced, conservative deadline, tightened
+ *    (never extended) by the validated observed first kickoff — so a stale
+ *    or shifted stored kickoff cannot move it later. The CHECK constraint
+ *    is the database-enforced cutoff: a capture at or after that instant
+ *    must either fail or arrive explicitly labeled `is_late = true`, which
+ *    marks it non-holdout. `schedule_games` / `schedule_hash` record the
+ *    validated schedule behind the deadline, and `protocol_version`
+ *    versions the capture protocol itself so a future format change cannot
+ *    masquerade as comparable data.
  *
  * 2. `projection_snapshot_players` — one immutable row per (snapshot,
  *    player) carrying the projection, its factors, and the player's frozen
@@ -68,25 +71,27 @@ exports.up = async function (knex) {
     t.string('release_sha', 64).notNullable(); // required: a capture nobody can attribute is not evidence
     t.string('cohort_hash', 64).notNullable();
     t.integer('cohort_size').notNullable();
-    t.integer('schedule_games').notNullable(); // validated game count behind first_kickoff_at
+    t.integer('schedule_games').notNullable(); // validated game count behind capture_not_after
     t.string('schedule_hash', 64).notNullable(); // digest of the week's validated schedule rows
     t.integer('protocol_version').notNullable();
     t.string('capture_kind', 20).notNullable().defaultTo('scheduled'); // scheduled | supplemental
     t.timestamp('captured_at', { useTz: true }).notNullable().defaultTo(knex.fn.now());
-    t.timestamp('first_kickoff_at', { useTz: true }).notNullable();
+    // Effective deadline: MIN(manifest captureNotAfter, validated observed
+    // first kickoff) — the manifest side is independent of this database.
+    t.timestamp('capture_not_after', { useTz: true }).notNullable();
     t.timestamp('input_cutoff', { useTz: true });
     t.boolean('is_late').notNullable().defaultTo(false);
     t.jsonb('source_coverage');
     t.unique(['season', 'week', 'scoring_hash', 'model_version', 'capture_kind']);
     t.index(['season', 'week']);
   });
-  // The pre-kickoff cutoff, enforced where the service layer cannot reach:
-  // an unlabeled row must have been captured strictly before the week's
-  // first kickoff, or the INSERT itself fails.
+  // The capture cutoff, enforced where the service layer cannot reach: an
+  // unlabeled row must have been captured strictly before the week's
+  // effective deadline, or the INSERT itself fails.
   await knex.raw(
     `ALTER TABLE "projection_snapshots"
-     ADD CONSTRAINT "projection_snapshots_pre_kickoff_check"
-     CHECK ("is_late" OR "captured_at" < "first_kickoff_at")`
+     ADD CONSTRAINT "projection_snapshots_pre_deadline_check"
+     CHECK ("is_late" OR "captured_at" < "capture_not_after")`
   );
 
   await knex.schema.createTable('projection_snapshot_players', (t) => {
@@ -137,21 +142,21 @@ exports.up = async function (knex) {
   }
 
   // Defense in depth for the cutoff, on the CHILD rows: a header written
-  // before kickoff must not go on accepting rows after it. Judged by the
-  // database clock at insert time, so neither a crashed-and-retried capture
-  // nor any future code path can complete a snapshot late.
+  // before its deadline must not go on accepting rows after it. Judged by
+  // the database clock at insert time, so neither a crashed-and-retried
+  // capture nor any future code path can complete a snapshot late.
   await knex.raw(`
     CREATE OR REPLACE FUNCTION fn_reject_late_holdout_child() RETURNS trigger AS $$
     DECLARE
       parent RECORD;
     BEGIN
-      SELECT "first_kickoff_at", "is_late" INTO parent
+      SELECT "capture_not_after", "is_late" INTO parent
       FROM "projection_snapshots" WHERE "id" = NEW."snapshot_id";
       IF parent IS NULL THEN
         RAISE EXCEPTION 'holdout child row references missing snapshot %', NEW."snapshot_id";
       END IF;
-      IF NOT parent."is_late" AND clock_timestamp() >= parent."first_kickoff_at" THEN
-        RAISE EXCEPTION 'holdout snapshot % is past its kickoff cutoff; child rows are frozen', NEW."snapshot_id";
+      IF NOT parent."is_late" AND clock_timestamp() >= parent."capture_not_after" THEN
+        RAISE EXCEPTION 'holdout snapshot % is past its capture deadline; child rows are frozen', NEW."snapshot_id";
       END IF;
       RETURN NEW;
     END $$ LANGUAGE plpgsql;

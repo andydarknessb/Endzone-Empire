@@ -6,6 +6,7 @@
  * both test the SAME domain the production validator certifies.
  */
 const { CANONICAL_TEAM_KEYS, SEASON_WEEKS } = require('../../services/holdout.service');
+const { computeManifestDigest } = require('../../services/scheduleManifest');
 
 function buildSeason({ season, firstKickoff }) {
   const teams = [...CANONICAL_TEAM_KEYS];
@@ -46,12 +47,24 @@ function buildSeason({ season, firstKickoff }) {
   }
   const matrixRows = teams.map((t) => ({ team_key: t, weeks: weeksByTeam.get(t).sort((a, b) => a - b) }));
 
+  // The manifest's independent per-week deadline: this synthetic season's
+  // earliest kickoff per week. Tests that shift the DATABASE rows later
+  // exercise exactly the stale-schedule attack the deadline exists to stop,
+  // because the manifest deadline stays put.
+  const captureNotAfter = {};
+  for (let week = 1; week <= SEASON_WEEKS; week++) {
+    const kicks = rowsByWeek.get(week).map((r) => new Date(r.kickoff_at).getTime());
+    captureNotAfter[String(week)] = new Date(Math.min(...kicks)).toISOString();
+  }
+  const manifest = { season, source: 'synthetic test season', captureNotAfter, games: manifestGames };
+  manifest.digest = computeManifestDigest(manifest);
+
   return {
     season,
     rowsByWeek,
     matrixRows,
     byeByWeek,
-    manifest: { season, source: 'synthetic test season', games: manifestGames },
+    manifest,
   };
 }
 

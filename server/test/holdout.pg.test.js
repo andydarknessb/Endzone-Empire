@@ -71,8 +71,10 @@ if (!ENABLED) {
     const { buildSeason } = require('./helpers/holdoutSeason');
     const first = new Date(Date.now() + firstKickoffInMs);
     const built = buildSeason({ season, firstKickoff: first.toISOString() });
-    // Register the matching manifest: the capture refuses seasons without one.
-    require('../services/holdout.service').SEASON_MANIFESTS.set(season, built.manifest);
+    // Register the matching manifest through the verifying gate: the capture
+    // refuses seasons without one, and registration refuses a manifest whose
+    // digest or per-week deadlines do not hold.
+    require('../services/holdout.service').registerSeasonManifest(built.manifest);
     const values = [];
     const params = [];
     let i = 0;
@@ -91,21 +93,21 @@ if (!ENABLED) {
     return first;
   }
 
-  async function insertHeader({ season, firstKickoffAt, isLate = false }) {
+  async function insertHeader({ season, captureNotAfter, isLate = false }) {
     const result = await pool.query(
       `INSERT INTO "projection_snapshots"
          ("season", "week", "scoring_profile", "scoring_hash", "model_version", "constants_hash",
           "release_sha", "cohort_hash", "cohort_size", "schedule_games", "schedule_hash",
-          "protocol_version", "first_kickoff_at", "is_late")
+          "protocol_version", "capture_not_after", "is_late")
        VALUES ($1, 1, 'standard', $4, 'test_model', 'chash', 'sha', 'cohash', 1, 2, 'shash', 1, $2, $3)
        RETURNING "id"`,
-      [season, firstKickoffAt, isLate, `hash-${season}-${isLate ? 'late' : 'ontime'}`]
+      [season, captureNotAfter, isLate, `hash-${season}-${isLate ? 'late' : 'ontime'}`]
     );
     return result.rows[0].id;
   }
 
   test('UPDATE, DELETE and TRUNCATE are rejected on both ledger tables, even for the owner', async () => {
-    const id = await insertHeader({ season: 2077, firstKickoffAt: new Date(Date.now() + 3600 * 1000) });
+    const id = await insertHeader({ season: 2077, captureNotAfter: new Date(Date.now() + 3600 * 1000) });
     await pool.query(
       `INSERT INTO "projection_snapshot_players" ("snapshot_id", "player_id", "sample_size")
        VALUES ($1, $2, 0)`,
@@ -119,34 +121,34 @@ if (!ENABLED) {
     await assert.rejects(pool.query('TRUNCATE "projection_snapshots" CASCADE'), /append-only/);
   });
 
-  test('the header CHECK rejects unlabeled post-kickoff captures and admits labeled late ones', async () => {
+  test('the header CHECK rejects unlabeled post-deadline captures and admits labeled late ones', async () => {
     const past = new Date(Date.now() - 3600 * 1000);
     await assert.rejects(
-      insertHeader({ season: 2078, firstKickoffAt: past }),
-      /pre_kickoff_check/,
+      insertHeader({ season: 2078, captureNotAfter: past }),
+      /pre_deadline_check/,
       'an unlabeled late capture must fail at the database'
     );
-    const lateId = await insertHeader({ season: 2078, firstKickoffAt: past, isLate: true });
+    const lateId = await insertHeader({ season: 2078, captureNotAfter: past, isLate: true });
     assert.ok(lateId > 0, 'explicitly labeled non-holdout captures are allowed through');
   });
 
-  test('the child trigger independently rejects insertion after the parent kickoff passes', async () => {
-    const kickoff = new Date(Date.now() + KICKOFF_SOON_MS);
-    const id = await insertHeader({ season: 2079, firstKickoffAt: kickoff });
-    // Before kickoff: accepted.
+  test('the child trigger independently rejects insertion after the parent deadline passes', async () => {
+    const deadline = new Date(Date.now() + KICKOFF_SOON_MS);
+    const id = await insertHeader({ season: 2079, captureNotAfter: deadline });
+    // Before the deadline: accepted.
     await pool.query(
       `INSERT INTO "projection_snapshot_players" ("snapshot_id", "player_id", "sample_size") VALUES ($1, $2, 0)`,
       [id, seededPlayerIds[0]]
     );
     await new Promise((resolve) => setTimeout(resolve, KICKOFF_SOON_MS + 400));
-    // After kickoff: the SAME pre-kickoff header refuses new children — no
-    // partial snapshot can ever be completed late.
+    // After the deadline: the SAME pre-deadline header refuses new children —
+    // no partial snapshot can ever be completed late.
     await assert.rejects(
       pool.query(
         `INSERT INTO "projection_snapshot_players" ("snapshot_id", "player_id", "sample_size") VALUES ($1, $2, 0)`,
         [id, seededPlayerIds[1]]
       ),
-      /past its kickoff cutoff/
+      /past its capture deadline/
     );
   });
 
@@ -158,7 +160,7 @@ if (!ENABLED) {
         `INSERT INTO "projection_snapshots"
            ("season", "week", "scoring_profile", "scoring_hash", "model_version", "constants_hash",
             "release_sha", "cohort_hash", "cohort_size", "schedule_games", "schedule_hash",
-            "protocol_version", "first_kickoff_at")
+            "protocol_version", "capture_not_after")
          VALUES (2080, 1, 'standard', 'hash-2080', 'test_model', 'c', 'r', 'co', 2, 2, 's', 1, $1)
          RETURNING "id"`,
         [new Date(Date.now() + 3600 * 1000)]

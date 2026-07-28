@@ -1,6 +1,35 @@
 {
   "season": 2026,
-  "source": "nflverse nfldata games.csv (game_type REG), fetched 2026-07-28 — independent of the app database; identities cross-checked against the synced schedule at generation",
+  "source": {
+    "url": "https://raw.githubusercontent.com/nflverse/nfldata/b19514f50ba4675e128c21c818592b4d92061a8f/data/games.csv",
+    "repo": "nflverse/nfldata",
+    "path": "data/games.csv",
+    "commit": "b19514f50ba4675e128c21c818592b4d92061a8f",
+    "blobSha": "4f1edd10f607152ad3a8a3286aac567929781c42",
+    "fetchedAt": "2026-07-28T22:05:00.000Z",
+    "generator": "server/scripts/generate-schedule-manifest.js",
+    "deadlinePolicy": "captureNotAfter per week = earliest scheduled kickoff (gameday+gametime as America/New_York, converted to UTC; a game with no listed time counts as 00:00 ET on its gameday). Conservative: never later than the true first kickoff. Runtime data may tighten, never extend."
+  },
+  "captureNotAfter": {
+    "1": "2026-09-10T00:20:00.000Z",
+    "2": "2026-09-18T00:15:00.000Z",
+    "3": "2026-09-25T00:15:00.000Z",
+    "4": "2026-10-02T00:15:00.000Z",
+    "5": "2026-10-09T00:15:00.000Z",
+    "6": "2026-10-16T00:15:00.000Z",
+    "7": "2026-10-23T00:15:00.000Z",
+    "8": "2026-10-30T00:15:00.000Z",
+    "9": "2026-11-06T01:15:00.000Z",
+    "10": "2026-11-13T01:15:00.000Z",
+    "11": "2026-11-20T01:15:00.000Z",
+    "12": "2026-11-26T01:00:00.000Z",
+    "13": "2026-12-04T01:15:00.000Z",
+    "14": "2026-12-11T01:15:00.000Z",
+    "15": "2026-12-18T01:15:00.000Z",
+    "16": "2026-12-25T01:15:00.000Z",
+    "17": "2027-01-01T01:15:00.000Z",
+    "18": "2027-01-10T18:00:00.000Z"
+  },
   "games": [
     {
       "week": 1,
@@ -1362,5 +1391,6 @@
       "away": "DAL",
       "home": "WAS"
     }
-  ]
+  ],
+  "digest": "131a4e8ff14a54b0eb47449ee1a5b07c3936e5aec4bb9421576c76a56f4dcd57"
 }

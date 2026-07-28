@@ -31,9 +31,15 @@
  *   cohort / schedule / release / protocol provenance - or fails loudly.
  *   Appending rows computed later under an old header would be mixed
  *   provenance, which is the one thing a ledger must never contain.
- * - **The deadline is the database's.** `captured_at` is the DB clock, the
- *   header CHECK rejects unlabeled post-kickoff captures, a BEFORE INSERT
- *   trigger rejects post-kickoff child rows independently, and the service
+ * - **The deadline is the MANIFEST's, enforced by the database clock.** Each
+ *   manifest week carries an independently sourced, conservative
+ *   `captureNotAfter` deadline. The observed schedule may TIGHTEN the
+ *   effective cutoff (an earlier synced kickoff closes the window sooner)
+ *   but can never extend it: shifting every stored kickoff later moves
+ *   nothing, so a consistently stale schedule cannot admit a post-game
+ *   capture labeled pre-kickoff. `captured_at` is the DB clock, the header
+ *   CHECK rejects unlabeled post-deadline captures, a BEFORE INSERT trigger
+ *   rejects post-deadline child rows independently, and the service
  *   rechecks `clock_timestamp()` immediately before COMMIT. Late means
  *   absent (or explicitly `is_late` = non-holdout), never quietly included.
  * - **Validated schedule, not a heuristic floor.** The week's earliest
@@ -41,7 +47,8 @@
  *   validation: reciprocal home/away pairs sharing a game key, non-null
  *   kickoffs and keys, and team accounting against the season's full team
  *   set (byes must be an even count of at most six). The validated count
- *   and digest are stored on the header.
+ *   and digest are stored on the header. The observed first kickoff is a
+ *   tightening input to the cutoff, never its source.
  * - **No outcomes here, ever.** Evaluation joins `player_stats` at read
  *   time. Nothing in this module writes to a prediction row after capture.
  *
@@ -55,6 +62,7 @@ const model = require('./projectionModel');
 const projection = require('./projection.service');
 const { normalizeTeamKey } = require('./projectionFeatures');
 const { SCORING_PRESETS } = require('./scoring.service');
+const { verifySeasonManifest } = require('./scheduleManifest');
 
 /** Bumped whenever the capture protocol changes shape or meaning. */
 const HOLDOUT_PROTOCOL_VERSION = 1;
@@ -81,24 +89,57 @@ const GAMES_PER_TEAM = 17;
 
 /**
  * The INDEPENDENT schedule authority: exact (week, away, home) identities
- * per season, frozen in the repository from nflverse's public schedule data
- * - not derived from the database it validates. Counts and closure cannot
- * catch a game quietly moved between weeks or a reciprocal opponent swap;
- * only identity equality against an authority can, and only an authority
- * with all 18 weeks can make an entirely absent week visible.
+ * AND a per-week `captureNotAfter` deadline per season, frozen in the
+ * repository from nflverse's public schedule data - not derived from the
+ * database it validates. Counts and closure cannot catch a game quietly
+ * moved between weeks or a reciprocal opponent swap; only identity equality
+ * against an authority can, and only an authority with all 18 weeks can
+ * make an entirely absent week visible. Likewise a cutoff derived from
+ * stored kickoffs would move when the stored kickoffs move; only an
+ * independent deadline pins it.
+ *
+ * Every manifest passes `verifySeasonManifest` at registration: shape,
+ * a deadline for every week, and a digest that must reproduce - a manifest
+ * that cannot prove it is the one that was generated is not an authority.
  *
  * The registry is a mutable Map ON PURPOSE: tests register synthetic
  * seasons and remove them again. A season with no manifest cannot be
  * captured and produces no obligations - the ledger never guesses.
  */
-const SEASON_MANIFESTS = new Map([
-  [2026, require('../data/nfl-schedule-2026.json')],
-]);
+const SEASON_MANIFESTS = new Map();
+
+function registerSeasonManifest(manifest) {
+  verifySeasonManifest(manifest);
+  SEASON_MANIFESTS.set(Number(manifest.season), manifest);
+  return manifest;
+}
+
+registerSeasonManifest(require('../data/nfl-schedule-2026.json'));
 
 function manifestGamesForWeek(season, week) {
   const manifest = SEASON_MANIFESTS.get(Number(season));
   if (!manifest) return null;
   return manifest.games.filter((g) => Number(g.week) === Number(week));
+}
+
+/** The manifest's independent, conservative capture deadline for a week. */
+function captureNotAfterFor(season, week) {
+  const manifest = SEASON_MANIFESTS.get(Number(season));
+  if (!manifest) return null;
+  const iso = manifest.captureNotAfter && manifest.captureNotAfter[String(Number(week))];
+  return iso ? new Date(iso) : null;
+}
+
+/**
+ * The effective cutoff: the manifest deadline, tightened by the observed
+ * first kickoff when one is known and EARLIER. Observed data can close the
+ * window sooner (a game moved up) but can never hold it open past the
+ * independent deadline - that asymmetry is the whole point.
+ */
+function effectiveCutoff(deadline, observedFirstKickoff) {
+  if (!deadline) return null;
+  if (observedFirstKickoff && observedFirstKickoff < deadline) return observedFirstKickoff;
+  return deadline;
 }
 
 /** The projectable cohort. IDP joins when IDP players exist in `players`. */
@@ -147,8 +188,9 @@ function requireReleaseSha() {
  *    reciprocal rows with identical kickoffs, and NO row may exist outside
  *    the manifest. Counts and closure cannot see a game quietly moved into
  *    a shared bye week or a reciprocal opponent swap - identity equality
- *    can, and it also pins `firstKickoffAt`: with every manifest game
- *    accounted for, a missing early game cannot slide the cutoff later.
+ *    can. The returned `firstKickoffAt` is the OBSERVED earliest kickoff,
+ *    which may tighten the manifest's `captureNotAfter` deadline but never
+ *    replaces it.
  *
  * 2. **Per-game shape.** Reciprocity and kickoff agreement always;
  *    `home_away` and `game_key`, WHEN the sync populated them, must be
@@ -320,6 +362,10 @@ async function snapshotWeek({ season, week, profileName, rules, client = pool })
   if (!manifestGames || manifestGames.length === 0) {
     throw new Error(`no schedule manifest for season ${season} week ${week} - refusing to capture without an authority`);
   }
+  const deadline = captureNotAfterFor(season, week);
+  if (!deadline) {
+    throw new Error(`no captureNotAfter deadline for season ${season} week ${week} - refusing to capture without an independent cutoff`);
+  }
   const scoringHash = model.scoringHash(rules);
   const modelVersion = model.MODEL_VERSION;
   const identity = `${season}:${week}:${scoringHash}:${modelVersion}:scheduled`;
@@ -358,10 +404,16 @@ async function snapshotWeek({ season, week, profileName, rules, client = pool })
       week,
     });
 
+    // The effective cutoff: the manifest's independent deadline, tightened
+    // (never extended) by the validated observed first kickoff. Every guard
+    // below - both clock checks, the header CHECK, the child trigger - uses
+    // THIS instant, so stale stored kickoffs cannot reopen a closed window.
+    const cutoff = effectiveCutoff(deadline, schedule.firstKickoffAt);
+
     const clockBefore = await conn.query('SELECT clock_timestamp() AS "now"');
-    if (new Date(clockBefore.rows[0].now) >= schedule.firstKickoffAt) {
+    if (new Date(clockBefore.rows[0].now) >= cutoff) {
       throw new Error(
-        `capture window for ${season} week ${week} has closed (first kickoff ${schedule.firstKickoffAt.toISOString()})`
+        `capture window for ${season} week ${week} has closed (capture deadline ${cutoff.toISOString()})`
       );
     }
 
@@ -445,14 +497,14 @@ async function snapshotWeek({ season, week, profileName, rules, client = pool })
          ("season", "week", "scoring_profile", "scoring_hash", "model_version",
           "constants_hash", "release_sha", "cohort_hash", "cohort_size",
           "schedule_games", "schedule_hash", "protocol_version", "capture_kind",
-          "first_kickoff_at", "input_cutoff", "source_coverage")
+          "capture_not_after", "input_cutoff", "source_coverage")
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'scheduled', $13, $14, $15::jsonb)
        RETURNING "id"`,
       [
         season, week, profileName, scoringHash, modelVersion,
         constantsHash(), releaseSha, cohortHash, cohort.length,
         schedule.scheduleGames, schedule.scheduleHash, HOLDOUT_PROTOCOL_VERSION,
-        schedule.firstKickoffAt, run.inputCutoff || null, JSON.stringify(run.sourceCoverage || {}),
+        cutoff, run.inputCutoff || null, JSON.stringify(run.sourceCoverage || {}),
       ]
     );
     const snapshotId = header.rows[0].id;
@@ -496,7 +548,7 @@ async function snapshotWeek({ season, week, profileName, rules, client = pool })
     // real time, and a capture that slid past kickoff while computing must
     // not commit.
     const clockAfter = await conn.query('SELECT clock_timestamp() AS "now"');
-    if (new Date(clockAfter.rows[0].now) >= schedule.firstKickoffAt) {
+    if (new Date(clockAfter.rows[0].now) >= cutoff) {
       throw new Error(
         `capture for ${season} week ${week} ${profileName} missed its deadline during computation - rolling back`
       );
@@ -533,29 +585,51 @@ async function recordCaptureStatus({ season, week, profileName, status, message 
 }
 
 /**
- * The scheduled entry point: find weeks whose first kickoff is inside the
- * capture window and capture each predeclared profile for them. One
- * profile's failure never blocks another's attempt; every attempt's outcome
- * is persisted to `holdout_capture_status`. A week whose window was missed
- * entirely fails the deadline checks and stays absent - that is the
+ * The scheduled entry point: find weeks whose capture deadline is inside
+ * the capture window and capture each predeclared profile for them.
+ *
+ * Due selection is keyed on the MANIFEST deadline, tightened (never
+ * extended) by the observed minimum kickoff: shifting every stored kickoff
+ * later cannot postpone or reopen a window, and a week the sync lost
+ * entirely is still attempted on the manifest's schedule - the attempt then
+ * fails schedule validation LOUDLY and durably instead of never happening.
+ *
+ * One profile's failure never blocks another's attempt; every attempt's
+ * outcome is persisted to `holdout_capture_status`. A week whose window was
+ * missed entirely fails the deadline checks and stays absent - that is the
  * fail-closed behavior, not a bug.
  */
 async function captureDueSnapshots({ now = new Date(), client = pool } = {}) {
-  const due = await client.query(
-    `SELECT "season", "week", MIN("kickoff_at") AS "first_kickoff"
-     FROM "nfl_games"
-     WHERE "week" BETWEEN 1 AND ${SEASON_WEEKS}
-     GROUP BY "season", "week"
-     HAVING MIN("kickoff_at") > $1
-        AND MIN("kickoff_at") <= $2`,
-    [now, new Date(now.getTime() + CAPTURE_WINDOW_HOURS * 3600 * 1000)]
-  );
+  const windowEnd = new Date(now.getTime() + CAPTURE_WINDOW_HOURS * 3600 * 1000);
+  const seasons = [...SEASON_MANIFESTS.keys()];
+  const observed = seasons.length > 0
+    ? await client.query(
+        `SELECT "season", "week", MIN("kickoff_at") AS "first_kickoff"
+         FROM "nfl_games"
+         WHERE "season" = ANY($1::int[]) AND "week" BETWEEN 1 AND ${SEASON_WEEKS}
+         GROUP BY "season", "week"`,
+        [seasons]
+      )
+    : { rows: [] };
+  const observedMin = new Map(observed.rows.map((r) => [
+    `${Number(r.season)}:${Number(r.week)}`,
+    r.first_kickoff ? new Date(r.first_kickoff) : null,
+  ]));
+
+  const due = [];
+  for (const season of seasons) {
+    for (let week = 1; week <= SEASON_WEEKS; week++) {
+      const cutoff = effectiveCutoff(
+        captureNotAfterFor(season, week),
+        observedMin.get(`${season}:${week}`) || null
+      );
+      if (cutoff && cutoff > now && cutoff <= windowEnd) due.push({ season, week });
+    }
+  }
 
   const captured = [];
   const failures = [];
-  for (const row of due.rows) {
-    const season = Number(row.season);
-    const week = Number(row.week);
+  for (const { season, week } of due) {
     for (const profile of HOLDOUT_SCORING_PROFILES) {
       let statusRow;
       try {
@@ -594,22 +668,39 @@ async function captureDueSnapshots({ now = new Date(), client = pool } = {}) {
  *
  * Obligations derive from the manifest, never from `nfl_games`: a week the
  * sync lost entirely still owes its three snapshots, and shows up as a
- * schedule problem instead of silently producing no obligation at all. The
- * runtime schedule is LEFT-JOINED onto the manifest per week; missing,
- * extra, moved, or mismatched games make that week's obligations
- * `schedule-invalid` (unhealthy), because neither their kickoff nor their
- * capturability can be trusted.
+ * schedule problem instead of silently producing no obligation at all.
  *
- * Per obligation: `captured` (an immutable, NON-LATE, child-complete
- * snapshot exists - a late or hollow one does not count), else `failed`
- * (durable status says the last attempt failed), else `schedule-invalid`,
- * else `missed` (kickoff passed - permanently uncapturable, retained for
- * the whole season), else `pending` (window open), else `scheduled`
- * (future). `ok` only when every obligation is captured, pending, or
- * scheduled.
+ * Schedule health per week is judged by the SAME `validateSchedule` the
+ * capture path runs - identity equality against the manifest, reciprocity,
+ * kickoff agreement between a game's two rows, canonical-domain
+ * completeness. A lighter check here would let a schedule the capture
+ * would refuse read as green (e.g. a pair whose two rows disagree on
+ * kickoff), which is exactly the false health a reconciler exists to
+ * prevent.
+ *
+ * Deadlines come from the manifest, tightened (never extended) by the
+ * VALIDATED observed first kickoff; when validation fails, the manifest
+ * deadline stands alone. So `missed` is judged against an instant no
+ * amount of stale or shifted stored kickoffs can move.
+ *
+ * Per obligation: `captured` (an immutable, NON-LATE, child-complete,
+ * NONEMPTY snapshot exists for the obligation's stored `scoring_profile` -
+ * a late, hollow, or empty one does not count, and matching is by the
+ * PROFILE NAME the header recorded, never by recomputing today's scoring
+ * hash, so a later change to a preset's rules cannot orphan history), else
+ * `missed` (deadline passed - permanently uncapturable, retained for the
+ * whole season), else `failed` (durable status says the last attempt
+ * failed, window still open), else `schedule-invalid`, else `pending`
+ * (window open), else `scheduled` (future). `ok` only when every
+ * obligation is captured, pending, or scheduled.
+ *
+ * The public output carries NO stored failure message: durable status
+ * messages can embed raw database errors, and this result feeds a public
+ * health route. States, attempts, and our own schedule-validation findings
+ * are the vocabulary; the message column is not even selected.
  *
  * VERSIONED ACTIVATION: an obligation is satisfied by the snapshot captured
- * under whatever model version was active before that week's kickoff, so
+ * under whatever model version was active before that week's deadline, so
  * the ledger query carries NO model-version filter. A midseason version
  * bump adds new-version snapshots for later weeks; obligations already
  * satisfied stay satisfied.
@@ -622,10 +713,11 @@ async function reconcileObligations({ now = new Date(), client = pool } = {}) {
   const windowEnd = new Date(now.getTime() + CAPTURE_WINDOW_HOURS * 3600 * 1000);
   const seasons = [...SEASON_MANIFESTS.keys()];
   const snapshots = await client.query(
-    `SELECT "s"."season", "s"."week", "s"."scoring_hash"
+    `SELECT "s"."season", "s"."week", "s"."scoring_profile"
      FROM "projection_snapshots" "s"
      WHERE "s"."season" = ANY($1::int[]) AND "s"."capture_kind" = 'scheduled'
        AND "s"."is_late" = false
+       AND "s"."cohort_size" > 0
        AND "s"."cohort_size" = (
          SELECT COUNT(*) FROM "projection_snapshot_players" "p"
          WHERE "p"."snapshot_id" = "s"."id"
@@ -633,72 +725,83 @@ async function reconcileObligations({ now = new Date(), client = pool } = {}) {
     [seasons]
   );
   const statuses = await client.query(
-    `SELECT "season", "week", "scoring_profile", "status", "message", "attempts"
+    `SELECT "season", "week", "scoring_profile", "status", "attempts"
      FROM "holdout_capture_status" WHERE "season" = ANY($1::int[])`,
     [seasons]
   );
   const scheduleRows = await client.query(
-    `SELECT "season", "week", "nfl_team", "opponent", "kickoff_at"
+    `SELECT "season", "week", "nfl_team", "opponent", "home_away", "kickoff_at", "game_key"
      FROM "nfl_games"
      WHERE "season" = ANY($1::int[]) AND "week" BETWEEN 1 AND ${SEASON_WEEKS}`,
     [seasons]
   );
 
-  const snapshotKeys = new Set(snapshots.rows.map((r) => `${r.season}:${r.week}:${r.scoring_hash}`));
+  const snapshotKeys = new Set(
+    snapshots.rows.map((r) => `${r.season}:${r.week}:${r.scoring_profile}`)
+  );
   const statusByKey = new Map(
     statuses.rows.map((r) => [`${r.season}:${r.week}:${r.scoring_profile}`, r])
   );
-  const dbByWeek = new Map();
+  const rowsBySeason = new Map();
   for (const row of scheduleRows.rows) {
-    const key = `${Number(row.season)}:${Number(row.week)}`;
-    if (!dbByWeek.has(key)) dbByWeek.set(key, []);
-    dbByWeek.get(key).push(row);
+    const season = Number(row.season);
+    if (!rowsBySeason.has(season)) rowsBySeason.set(season, []);
+    rowsBySeason.get(season).push(row);
   }
-  const pairOf = (a, b) => [normalizeTeamKey(a), normalizeTeamKey(b)].sort().join('-');
 
   const obligations = [];
   for (const season of seasons) {
     const manifest = SEASON_MANIFESTS.get(season);
+    const seasonRows = rowsBySeason.get(season) || [];
+    // The same season matrix the capture transaction reads via SQL, built
+    // here from the already-fetched rows (same normalization vocabulary).
+    const matrixMap = new Map();
+    const rowsByWeek = new Map();
+    for (const row of seasonRows) {
+      const week = Number(row.week);
+      const teamKey = normalizeTeamKey(row.nfl_team);
+      if (!matrixMap.has(teamKey)) matrixMap.set(teamKey, new Set());
+      matrixMap.get(teamKey).add(week);
+      if (!rowsByWeek.has(week)) rowsByWeek.set(week, []);
+      rowsByWeek.get(week).push(row);
+    }
+    const seasonMatrix = [...matrixMap].map(([team_key, weeks]) => ({ team_key, weeks: [...weeks] }));
+
     for (let week = 1; week <= SEASON_WEEKS; week++) {
       const manifestGames = manifest.games.filter((g) => Number(g.week) === week);
-      const dbRows = dbByWeek.get(`${season}:${week}`) || [];
-      const manifestPairs = new Set(manifestGames.map((g) => pairOf(g.away, g.home)));
-      const dbPairCounts = new Map();
-      for (const row of dbRows) {
-        const p = pairOf(row.nfl_team, row.opponent);
-        dbPairCounts.set(p, (dbPairCounts.get(p) || 0) + 1);
+      const deadline = captureNotAfterFor(season, week);
+      let observedFirstKickoff = null;
+      let scheduleIssues;
+      try {
+        const validated = validateSchedule({
+          rows: rowsByWeek.get(week) || [],
+          seasonMatrix,
+          manifestGames,
+          season,
+          week,
+        });
+        observedFirstKickoff = validated.firstKickoffAt;
+      } catch (err) {
+        scheduleIssues = [err.message];
       }
-      const scheduleIssues = [];
-      for (const p of manifestPairs) {
-        const count = dbPairCounts.get(p) || 0;
-        if (count !== 2) scheduleIssues.push(`${p}: ${count} row(s), expected 2`);
-      }
-      for (const p of dbPairCounts.keys()) {
-        if (!manifestPairs.has(p)) scheduleIssues.push(`${p}: not in manifest for week ${week}`);
-      }
-      const kickoffs = dbRows
-        .filter((r) => r.kickoff_at && manifestPairs.has(pairOf(r.nfl_team, r.opponent)))
-        .map((r) => new Date(r.kickoff_at).getTime());
-      const firstKickoff = kickoffs.length > 0 ? new Date(Math.min(...kickoffs)) : null;
+      const cutoff = effectiveCutoff(deadline, observedFirstKickoff);
 
       for (const profile of HOLDOUT_SCORING_PROFILES) {
-        const scoringHash = model.scoringHash(profile.rules);
         const statusRow = statusByKey.get(`${season}:${week}:${profile.name}`) || null;
         let state;
-        if (snapshotKeys.has(`${season}:${week}:${scoringHash}`)) state = 'captured';
+        if (snapshotKeys.has(`${season}:${week}:${profile.name}`)) state = 'captured';
+        else if (!cutoff || cutoff <= now) state = 'missed';
         else if (statusRow && statusRow.status === 'failed') state = 'failed';
-        else if (scheduleIssues.length > 0 || !firstKickoff) state = 'schedule-invalid';
-        else if (firstKickoff <= now) state = 'missed';
-        else if (firstKickoff <= windowEnd) state = 'pending';
+        else if (scheduleIssues) state = 'schedule-invalid';
+        else if (cutoff <= windowEnd) state = 'pending';
         else state = 'scheduled';
         obligations.push({
           season,
           week,
           profile: profile.name,
           state,
-          firstKickoffAt: firstKickoff,
-          scheduleIssues: scheduleIssues.length > 0 ? scheduleIssues.slice(0, 5) : undefined,
-          message: statusRow ? statusRow.message : null,
+          captureNotAfter: cutoff,
+          scheduleIssues,
           attempts: statusRow ? statusRow.attempts : 0,
         });
       }
@@ -722,7 +825,10 @@ module.exports = {
   HOLDOUT_POSITIONS,
   HOLDOUT_SCORING_PROFILES,
   constantsHash,
+  registerSeasonManifest,
   manifestGamesForWeek,
+  captureNotAfterFor,
+  effectiveCutoff,
   validateSchedule,
   snapshotWeek,
   recordCaptureStatus,
