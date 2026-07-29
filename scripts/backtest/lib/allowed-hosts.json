@@ -1,0 +1,49 @@
+{
+  "frozen": "The exact set of hosts observed while fetching every pinned source in Phase 0.",
+  "hosts": [
+    "github.com",
+    "raw.githubusercontent.com",
+    "release-assets.githubusercontent.com"
+  ],
+  "perSource": {
+    "roster_weekly_2024": [
+      "github.com",
+      "release-assets.githubusercontent.com"
+    ],
+    "roster_weekly_2025": [
+      "github.com",
+      "release-assets.githubusercontent.com"
+    ],
+    "injuries_2024": [
+      "github.com",
+      "release-assets.githubusercontent.com"
+    ],
+    "injuries_2025": [
+      "github.com",
+      "release-assets.githubusercontent.com"
+    ],
+    "games": [
+      "raw.githubusercontent.com"
+    ],
+    "stats_player_week_2024": [
+      "github.com",
+      "release-assets.githubusercontent.com"
+    ],
+    "stats_player_week_2025": [
+      "github.com",
+      "release-assets.githubusercontent.com"
+    ],
+    "stats_team_week_2024": [
+      "github.com",
+      "release-assets.githubusercontent.com"
+    ],
+    "stats_team_week_2025": [
+      "github.com",
+      "release-assets.githubusercontent.com"
+    ],
+    "players": [
+      "github.com",
+      "release-assets.githubusercontent.com"
+    ]
+  }
+}

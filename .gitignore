@@ -71,3 +71,19 @@ typings/
 # Playwright security-test artifacts
 playwright-report/
 test-results/
+
+# Pinned external SOURCE BYTES for the reconstructed historical backtest
+# (scripts/backtest). Tens of megabytes of third-party CSVs, deliberately not
+# in git. They are NOT reproducible on demand: nine of the ten sources are
+# nflverse release assets that are REPLACED IN PLACE, so a later fetch of the
+# same URL can legitimately return different bytes. Only games.csv is
+# content-addressed (commit + git blob). The recorded SHA-256s therefore PROVE
+# that a copy is the pinned one; they cannot RECREATE it. Preserving
+# backtest-data/sources/ out of band - an archived copy retained until the
+# study publishes - is a REQUIREMENT, not a convenience.
+#
+# Everything DERIVED from those bytes is committed, because the
+# preregistration is sealed against it: the provenance record below,
+# backtest-data/observed-hosts.json, and backtest-data/inspection/.
+backtest-data/sources/*
+!backtest-data/sources/provenance.json
