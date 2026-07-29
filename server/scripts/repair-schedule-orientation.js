@@ -7,10 +7,21 @@
  * Usage:
  *   node server/scripts/repair-schedule-orientation.js --csv <path-to-games.csv>
  *     [--season 2026] [--commit <sha>] [--blob <sha>] [--apply]
+ *   node server/scripts/repair-schedule-orientation.js --verify [--season 2026]
+ *     [--purge-stale-cache]
  *
  * DRY RUN BY DEFAULT. Without `--apply` the script reads everything, plans
  * everything, runs the full post-fill verification against the rows the plan
  * WOULD produce, prints the report, and writes nothing.
+ *
+ * `--verify` is the separate, read-only mode that answers "did it take, and is
+ * anything still serving the old schedule?" after the fact. It needs no CSV: it
+ * reads the season's rows, applies the same invariants, and reports any cached
+ * `free_baseline_v3.1` runs still sitting in `projection_runs`, exiting nonzero
+ * if either check has something to say. Its transaction is opened READ ONLY, so
+ * the mode's read-only claim is enforced by Postgres rather than by review.
+ * `--purge-stale-cache` is the one exception and must be asked for by name: it
+ * deletes cache rows for that season and model version and nothing else.
  *
  * Why this exists as a separate script rather than another sync pass:
  *
@@ -49,6 +60,43 @@
  * cached run for the season under the current model is dropped. It is dropped
  * rather than regenerated for exactly the reasons invalidateWeeklyProjectionRuns
  * documents.
+ *
+ * WHAT CHANGES, AND WHEN, because the two halves of this work have opposite
+ * properties and conflating them is how a release gets misjudged:
+ *
+ * - DEPLOYING the code is the byte-identical step. On today's all-null rows the
+ *   engine produces the same numbers AND the same factor payloads it always
+ *   did; the home/away factor keeps reporting 'home/away unknown' because the
+ *   scoring gate is checked below the unknown-orientation check.
+ * - RUNNING this repair is not. Every number stays exactly what it was - the
+ *   factor is gated off, so orientation cannot move a projection by a hundredth
+ *   of a point - but the payload WORDING moves: 'home/away unknown' becomes
+ *   'home/away gated off' now that orientation is known, and filling `game_key`
+ *   gives the weather lookup a key to miss on, which moves the run's weather
+ *   source-coverage string. Cached rows would otherwise keep serving the old
+ *   wording indefinitely. That is precisely why the cache invalidation below
+ *   exists, and why the quiesce procedure below is not optional.
+ *
+ * IN-FLIGHT RACE, stated plainly because it cannot be closed from inside this
+ * script. A projection request that READ the pre-repair schedule can finish
+ * computing and upsert its `projection_runs` row AFTER this transaction
+ * commits. No lock taken here helps: the window spans read, compute and write
+ * across the commit boundary, and holding `nfl_games` locked for the length of
+ * a stranger's HTTP request is a worse problem than the one it solves. The
+ * decision is operational rather than architectural:
+ *
+ *   1. Quiesce. Drain projection traffic and pause the schedule sync / any
+ *      scheduled job that generates runs.
+ *   2. Repair. Dry run, read the report, then `--apply`.
+ *   3. Verify. `--verify` reports any cached run that survived; a straggler
+ *      means something was still computing, and `--verify --purge-stale-cache`
+ *      removes exactly those rows.
+ *   4. Reopen.
+ *
+ * Skipping step 1 does not corrupt anything - a stale run is wrong about
+ * payload wording, never about a number - but it leaves rows that claim a
+ * schedule the database no longer holds, which is the kind of discrepancy
+ * nobody enjoys debugging six weeks later.
  *
  * The append-only holdout ledger, in both halves, because only one of them is
  * about writes:
@@ -153,15 +201,30 @@ function assertNotHoldoutSql(sql) {
  * claim into a check on the object that actually got built, so a future edit
  * that moves a require cannot quietly reintroduce it.
  *
- * An environment with no DATABASE_URL at all is left alone: the standard PG*
- * variables are a legitimate way to reach a database, and this guard's job is
- * to catch a pool that DISAGREES with the configuration, not to have opinions
- * about how the configuration was spelled.
+ * AN EXPLICIT DATABASE_URL IS REQUIRED HERE, and this is deliberately stricter
+ * than `modules/pool` itself. That module accepts the standard PG* variables as
+ * a perfectly good way to reach a database, which is right for a long-lived
+ * service with a deployment that configures it. It is inverted for a one-shot
+ * production repair: pool's PG* branch DEFAULTS the host to localhost and the
+ * database to `endzone_empire`, so a .env that failed to load, or loaded
+ * without DATABASE_URL, silently produces a pool aimed at a developer's local
+ * copy - and an earlier version of this guard waved exactly that through on the
+ * grounds that nothing was configured to disagree with. "Nothing configured"
+ * is not agreement; it is the absence of a target, and a script that will
+ * report "COMMITTED" needs to have been told which database that was about.
+ * PG*-only is therefore refused here with an instruction rather than accepted.
  */
 function assertPoolMatchesEnvironment(pool, env = process.env) {
   const configured = (env && (env.DATABASE_URL_RUNTIME || env.DATABASE_URL)) || null;
-  if (!configured) return true;
   const options = (pool && pool.options) || {};
+  if (!configured) {
+    throw new Error(
+      'no DATABASE_URL (or DATABASE_URL_RUNTIME) is configured, so this pool fell back to its local ' +
+      `development defaults (host ${options.host || 'unknown'} / database ${options.database || 'unknown'}). ` +
+      'A one-shot production repair will not run against a database nobody named: set DATABASE_URL in .env ' +
+      'or the environment. PG* variables alone are not accepted here'
+    );
+  }
   if (options.connectionString !== configured) {
     throw new Error(
       'the connection pool was built before the environment was loaded: DATABASE_URL names a database ' +
@@ -570,6 +633,68 @@ function buildUpdateStatement(update) {
   return { sql, values: [...values, update.season, update.week, update.nflTeam] };
 }
 
+/** The season's orientation columns, the one shape every mode reads them in. */
+const SEASON_ROWS_SQL =
+  `SELECT "season", "week", "nfl_team", "opponent", "game_key", "home_away", "neutral_site"
+   FROM "nfl_games" WHERE "season" = $1 ORDER BY "week", "nfl_team"`;
+
+const STALE_RUNS_SQL =
+  `SELECT COUNT(*)::int AS "runs" FROM "projection_runs"
+   WHERE "season" = $1 AND "model_version" = $2`;
+
+/**
+ * The read-only after-the-fact check: did the repair take, and is anything
+ * still serving projections computed from the schedule it replaced?
+ *
+ * The second question is the one that needs a separate mode. A projection
+ * request that read the pre-repair schedule can commit its `projection_runs`
+ * row after the repair transaction has already committed, and no lock this
+ * script could take would close a window that spans read, compute and write
+ * across that boundary. The answer is procedural - quiesce, repair, verify -
+ * and this is the "verify". A straggler is not corruption (the home/away factor
+ * is gated off, so no number can differ) but it is a row asserting a schedule
+ * the database no longer holds.
+ *
+ * `query` is injected rather than a client captured from module scope, which is
+ * what lets the read-only property be tested by recording statements instead of
+ * by trusting this comment. Purging is the sole write, must be asked for by
+ * name, and is scoped to (season, model_version): no week predicate, no player
+ * predicate, nothing that could widen if a caller passed something odd.
+ */
+async function runVerify({
+  query,
+  season,
+  expectedNeutralGames,
+  modelVersion = model.MODEL_VERSION,
+  purge = false,
+}) {
+  const rows = (await query(SEASON_ROWS_SQL, [season])).rows;
+  const errors = verifyOrientedRows(rows, { expectedNeutralGames });
+  const staleRuns = Number((await query(STALE_RUNS_SQL, [season, modelVersion])).rows[0].runs) || 0;
+  let purged = null;
+  if (purge && staleRuns > 0) {
+    const deleted = await query(
+      `DELETE FROM "projection_runs" WHERE "season" = $1 AND "model_version" = $2`,
+      [season, modelVersion]
+    );
+    purged = Number(deleted.rowCount) || 0;
+  }
+  const remainingStale = purged === null ? staleRuns : 0;
+  return {
+    rows: rows.length,
+    distinctGameKeys: new Set(rows.map((r) => r.game_key).filter(Boolean)).size,
+    neutralRows: rows.filter((r) => r.neutral_site === true).length,
+    errors,
+    staleRuns,
+    purged,
+    remainingStale,
+    // Nonzero exit is this boolean. Orientation errors and surviving cache rows
+    // are separate failures with one shared meaning: the season is not yet in
+    // the state the repair was supposed to leave it in.
+    ok: errors.length === 0 && remainingStale === 0,
+  };
+}
+
 /** Pure: a short, stable summary line per conflict kind, for the report. */
 function summarizeConflicts(conflicts) {
   const byKind = new Map();
@@ -598,13 +723,102 @@ function parseArgs(argv) {
     }
     return value;
   };
-  return {
+  const args = {
     csv: flag('csv'),
     season: Number(flag('season') || 2026),
     commit: flag('commit'),
     blob: flag('blob'),
     apply: argv.includes('--apply'),
+    verify: argv.includes('--verify'),
+    purgeStaleCache: argv.includes('--purge-stale-cache'),
   };
+  assertModeCombination(args);
+  return args;
+}
+
+/**
+ * Pure: the mode combinations that mean something, and refusing the ones that
+ * do not.
+ *
+ * `--verify` and `--apply` are different jobs on opposite sides of the repair,
+ * not flags that compose, and a command asking for both has been misunderstood
+ * by whoever typed it. `--purge-stale-cache` deletes cache rows and must
+ * therefore never be something a repair run does incidentally: it is the
+ * deliberate answer to a straggler `--verify` just reported, so it requires
+ * `--verify` and says so.
+ */
+function assertModeCombination(args) {
+  if (args.verify && args.apply) {
+    throw new Error('--verify and --apply are separate runs: verify reads, apply writes. Pick one');
+  }
+  if (args.purgeStaleCache && !args.verify) {
+    throw new Error('--purge-stale-cache is only meaningful with --verify, which is what reports the stale rows');
+  }
+  return true;
+}
+
+/**
+ * The `--verify` mode's connection handling. Separate from the repair path
+ * because it shares none of it: no CSV, no plan, no writes beyond an explicitly
+ * requested purge.
+ *
+ * The transaction is opened READ ONLY unless a purge was asked for by name, so
+ * "this mode does not write" is enforced by Postgres - a stray statement gets
+ * an error from the server, not a code review. `expectedNeutralGames` comes
+ * from the manifest's own game count only as a fallback; there is no CSV here,
+ * so the neutral count is read from what the season actually holds and checked
+ * for INTERNAL consistency (both rows of a game agreeing) rather than against a
+ * source this mode never loaded.
+ */
+async function runVerifyMode(args, manifest) {
+  const pool = require('../modules/pool');
+  assertPoolMatchesEnvironment(pool);
+  const client = await pool.connect();
+  const query = (sql, values) => {
+    assertNotHoldoutSql(sql);
+    return client.query(sql, values);
+  };
+  try {
+    await query(args.purgeStaleCache ? 'BEGIN' : 'BEGIN READ ONLY');
+    const rows = (await query(SEASON_ROWS_SQL, [args.season])).rows;
+    const neutralRows = rows.filter((r) => r.neutral_site === true).length;
+    const result = await runVerify({
+      query,
+      season: args.season,
+      // Derived from what is stored, because no pinned CSV was loaded in this
+      // mode. This makes the neutral assertion a consistency check rather than
+      // a provenance one, which is the honest thing for a mode that never saw
+      // the source.
+      expectedNeutralGames: neutralRows / ROWS_PER_GAME,
+      purge: args.purgeStaleCache,
+    });
+    console.log(
+      `${manifest.season}: ${result.rows} rows, ${result.distinctGameKeys} distinct game_keys, ` +
+      `${result.neutralRows} neutral-site rows`
+    );
+    if (result.errors.length > 0) {
+      console.error(`ORIENTATION INCOMPLETE (${result.errors.length}):`);
+      for (const e of result.errors.slice(0, 20)) console.error('  ' + e);
+    } else {
+      console.log('orientation: complete and consistent');
+    }
+    console.log(`cached ${model.MODEL_VERSION} runs for ${args.season}: ${result.staleRuns}`);
+    if (result.purged !== null) {
+      console.log(`purged ${result.purged} stale cached run(s) (children cascade)`);
+    } else if (result.staleRuns > 0) {
+      console.error(
+        'stale cached runs survive: something computed a projection from the pre-repair schedule. ' +
+        'Re-run with --purge-stale-cache once traffic is quiesced'
+      );
+    }
+    await query(args.purgeStaleCache ? 'COMMIT' : 'ROLLBACK');
+    if (!result.ok) throw new Error('verification failed: see the report above');
+    console.log('VERIFIED');
+    return result;
+  } finally {
+    client.release();
+    await pool.end();
+  }
 }
 
 /**
@@ -614,16 +828,14 @@ function parseArgs(argv) {
  * dotenv call means a programmatic invocation builds its pool from whatever
  * process.env happens to hold, and `assertPoolMatchesEnvironment` cannot catch
  * it, because it consults the SAME unloaded environment and takes its
- * "no DATABASE_URL configured, nothing to disagree with" early exit. Call this
- * from anywhere other than the command line and you are responsible for
- * loading .env first. `now` is injectable only so the capture-window guard can
- * be driven from a test.
+ * "no DATABASE_URL configured, nothing to disagree with" early exit (it now
+ * refuses that case outright, but the environment still has to have been loaded
+ * for it to have anything to check). Call this from anywhere other than the
+ * command line and you are responsible for loading .env first. `now` is
+ * injectable only so the capture-window guard can be driven from a test.
  */
 async function main(argv, { now = new Date() } = {}) {
   const args = parseArgs(argv);
-  if (!args.csv) {
-    throw new Error('required: --csv <path to the pinned nflverse games.csv>');
-  }
 
   const manifestPath = path.join(__dirname, '..', 'data', `nfl-schedule-${args.season}.json`);
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
@@ -633,18 +845,37 @@ async function main(argv, { now = new Date() } = {}) {
   // identity cross-check below. The digest is checked inside, before either
   // field is read.
   const { commit, blob } = resolvePinnedSource(manifest, args);
+  const csvUrl = `https://raw.githubusercontent.com/nflverse/nfldata/${commit}/data/games.csv`;
 
-  // Before anything is read from disk, let alone written: a repair after the
-  // first capture window has opened would invalidate schedule provenance that
-  // an append-only ledger has no way to restate.
+  // Before the CSV is read and before any database access. The manifest is
+  // necessarily read first, because it is what this guard takes as input; what
+  // matters is that nothing is fetched, opened or connected to on the strength
+  // of a repair that is already disallowed.
   const window = assertBeforeCaptureWindow(manifest, now);
   console.log(
     `holdout capture for ${args.season} opens ${window.opensAt.toISOString()}; repairing before it`
   );
 
+  if (args.verify) return runVerifyMode(args, manifest);
+
+  // Deliberately AFTER the manifest and the window guard, so the error that
+  // sends an operator to fetch a file can name the exact file. The bytes are
+  // never fetched by this script: it takes a path, and verifies what it is
+  // handed against the pinned blob SHA, which is a property a download inside
+  // the script could not give anybody.
+  if (!args.csv) {
+    throw new Error(
+      'required: --csv <path to the pinned nflverse games.csv>\n' +
+      `  fetch it from: ${csvUrl}\n` +
+      `  its bytes must hash to the pinned git blob ${blob}, which this script verifies before ` +
+      'deriving anything from them\n' +
+      `  e.g. curl -sSL -o games.csv "${csvUrl}" && node ${path.relative(process.cwd(), __filename)} --csv games.csv`
+    );
+  }
+
   const csvBytes = fs.readFileSync(args.csv);
   assertPinnedCsv(csvBytes, blob);
-  console.log(`source: https://raw.githubusercontent.com/nflverse/nfldata/${commit}/data/games.csv`);
+  console.log(`source: ${csvUrl}`);
   console.log(`blob ${blob} verified against the file on disk`);
 
   const desired = desiredOrientation(csvBytes.toString('utf8'), { season: args.season });
@@ -838,7 +1069,11 @@ module.exports = {
   ROWS_PER_GAME,
   FORBIDDEN_TABLES,
   CAPTURE_WINDOW_HOURS,
+  SEASON_ROWS_SQL,
+  STALE_RUNS_SQL,
   assertNotHoldoutSql,
+  assertModeCombination,
+  runVerify,
   assertPoolMatchesEnvironment,
   assertBeforeCaptureWindow,
   resolvePinnedSource,

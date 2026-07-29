@@ -6,6 +6,7 @@ const crypto = require('crypto');
 
 const repair = require('../scripts/repair-schedule-orientation');
 const holdout = require('../services/holdout.service');
+const model = require('../services/projectionModel');
 const { normalizeTeamKey } = require('../services/projectionFeatures');
 const { computeManifestDigest, TOTAL_GAMES } = require('../services/scheduleManifest');
 
@@ -23,6 +24,7 @@ const { computeManifestDigest, TOTAL_GAMES } = require('../services/scheduleMani
  * tamper-evident authority the script cross-checks against.
  */
 
+const SCRIPT_PATH = path.join(__dirname, '..', 'scripts', 'repair-schedule-orientation.js');
 const MANIFEST_PATH = path.join(__dirname, '..', 'data', 'nfl-schedule-2026.json');
 const MANIFEST = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8'));
 const SEASON = 2026;
@@ -418,8 +420,152 @@ test('a flag with no value is an error, not the next flag swallowed', () => {
   assert.equal(repair.parseArgs(['--csv', 'g.csv', '--apply']).csv, 'g.csv', 'a real value still parses');
 });
 
-test('the repair refuses to run without a source file', async () => {
-  await assert.rejects(repair.main([]), /required: --csv/);
+test('the missing-csv error tells the operator exactly which file to fetch', async () => {
+  // The runbook command is `--apply` with no CSV, and "required: --csv" alone
+  // sends an operator hunting for a file whose provenance is the entire point.
+  // The error now names the pinned URL and the blob its bytes must hash to.
+  // Deliberately AFTER the manifest load and the window guard, so the message
+  // can quote the manifest's own recorded revision rather than a guess.
+  const inWindow = { now: new Date('2026-07-01T00:00:00Z') };
+  await assert.rejects(repair.main([], inWindow), (err) => {
+    assert.match(err.message, /required: --csv/);
+    assert.match(err.message, new RegExp(`nfldata/${MANIFEST.source.commit}/data/games\\.csv`));
+    assert.match(err.message, new RegExp(MANIFEST.source.blobSha));
+    return true;
+  });
+  await assert.rejects(repair.main(['--apply'], inWindow), /required: --csv/,
+    'the bare --apply runbook command fails the same self-documenting way');
+});
+
+// ---------------------------------------------------------------------------
+// Modes
+// ---------------------------------------------------------------------------
+
+test('verify and apply are separate runs, and purge must be asked for by name', () => {
+  assert.throws(() => repair.parseArgs(['--verify', '--apply']), /separate runs/);
+  assert.throws(() => repair.parseArgs(['--purge-stale-cache']), /only meaningful with --verify/);
+  assert.throws(
+    () => repair.parseArgs(['--csv', 'g.csv', '--apply', '--purge-stale-cache']),
+    /only meaningful with --verify/,
+    'a repair run can never purge incidentally'
+  );
+  const verify = repair.parseArgs(['--verify', '--purge-stale-cache']);
+  assert.equal(verify.verify, true);
+  assert.equal(verify.purgeStaleCache, true);
+  assert.equal(verify.apply, false);
+  assert.equal(repair.assertModeCombination({ verify: true, apply: false, purgeStaleCache: false }), true);
+});
+
+/** A client that records every statement and answers the two reads verify makes. */
+function recordingClient({ rows = [], staleRuns = 0, purgedRows = 0 } = {}) {
+  const statements = [];
+  return {
+    statements,
+    query: async (sql, values) => {
+      const text = String(sql);
+      statements.push({ sql: text, values });
+      // DELETE first: it also names projection_runs, so a looser order would
+      // answer the purge with the COUNT reader's row shape.
+      if (text.includes('DELETE FROM "projection_runs"')) return { rows: [], rowCount: purgedRows };
+      if (text.includes('FROM "nfl_games"')) return { rows };
+      if (text.includes('FROM "projection_runs"')) return { rows: [{ runs: staleRuns }] };
+      throw new Error(`unexpected statement: ${text.slice(0, 80)}`);
+    },
+  };
+}
+
+test('verify mode reads and reports, and writes nothing without a purge', async () => {
+  const desired = repair.desiredOrientation(NEUTRAL_CSV, { season: SEASON });
+  const client = recordingClient({ rows: orientedRows(desired), staleRuns: 0 });
+  const result = await repair.runVerify({
+    query: client.query, season: SEASON, expectedNeutralGames: NEUTRAL_IDS.length,
+  });
+
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.rows, 544);
+  assert.equal(result.distinctGameKeys, TOTAL_GAMES);
+  assert.equal(result.neutralRows, NEUTRAL_IDS.length * repair.ROWS_PER_GAME);
+  assert.equal(result.ok, true);
+  assert.equal(result.purged, null);
+  // Read-only, asserted on the statements actually issued. Kills the "verify
+  // quietly writes" mutant.
+  for (const { sql } of client.statements) {
+    assert.match(sql, /^\s*SELECT/, `verify issued a non-SELECT: ${sql.slice(0, 60)}`);
+  }
+});
+
+test('verify exits nonzero when cached runs survived the repair', async () => {
+  // The in-flight race made visible: a projection that read the pre-repair
+  // schedule can commit its run after the repair did, and no lock inside the
+  // repair can close a window spanning read-compute-write. Kills the "report
+  // stale runs but call it fine" mutant.
+  const desired = repair.desiredOrientation(NEUTRAL_CSV, { season: SEASON });
+  const client = recordingClient({ rows: orientedRows(desired), staleRuns: 3 });
+  const result = await repair.runVerify({
+    query: client.query, season: SEASON, expectedNeutralGames: NEUTRAL_IDS.length,
+  });
+  assert.equal(result.staleRuns, 3);
+  assert.equal(result.remainingStale, 3);
+  assert.equal(result.ok, false, 'a straggler is a nonzero exit, not a footnote');
+  assert.deepEqual(result.errors, [], 'the orientation itself is fine; the cache is not');
+});
+
+test('incomplete orientation also fails verify, independently of the cache', async () => {
+  const desired = repair.desiredOrientation(NEUTRAL_CSV, { season: SEASON });
+  const halfDone = orientedRows(desired).map((r, i) => (i === 5 ? { ...r, game_key: null } : r));
+  const client = recordingClient({ rows: halfDone, staleRuns: 0 });
+  const result = await repair.runVerify({
+    query: client.query, season: SEASON, expectedNeutralGames: NEUTRAL_IDS.length,
+  });
+  assert.ok(result.errors.length > 0);
+  assert.equal(result.ok, false);
+});
+
+test('purge deletes ONLY the season and model version it was given', async () => {
+  const desired = repair.desiredOrientation(NEUTRAL_CSV, { season: SEASON });
+  const client = recordingClient({ rows: orientedRows(desired), staleRuns: 2, purgedRows: 2 });
+  const result = await repair.runVerify({
+    query: client.query, season: SEASON, expectedNeutralGames: NEUTRAL_IDS.length, purge: true,
+  });
+  assert.equal(result.purged, 2);
+  assert.equal(result.remainingStale, 0);
+  assert.equal(result.ok, true, 'purging the stragglers is what makes the run clean');
+
+  const deletes = client.statements.filter((s) => /DELETE/i.test(s.sql));
+  assert.equal(deletes.length, 1, 'exactly one write, and it is the purge');
+  // Scope, asserted on the statement rather than on intent. Kills the "widen
+  // the purge" mutant: no week predicate, no player predicate, and the model
+  // version is a bind parameter rather than something the season could carry.
+  assert.match(deletes[0].sql, /DELETE FROM "projection_runs"/);
+  assert.match(deletes[0].sql, /WHERE "season" = \$1 AND "model_version" = \$2/);
+  assert.deepEqual(deletes[0].values, [SEASON, model.MODEL_VERSION]);
+  assert.ok(!deletes[0].sql.includes('player_week_projections'), 'children go by cascade, not by a second delete');
+  assert.ok(!/"week"/.test(deletes[0].sql), 'the purge is season-wide by design, never week-scoped');
+});
+
+test('a purge with nothing to purge stays a no-op', async () => {
+  const desired = repair.desiredOrientation(NEUTRAL_CSV, { season: SEASON });
+  const client = recordingClient({ rows: orientedRows(desired), staleRuns: 0 });
+  const result = await repair.runVerify({
+    query: client.query, season: SEASON, expectedNeutralGames: NEUTRAL_IDS.length, purge: true,
+  });
+  assert.equal(result.purged, null);
+  assert.equal(result.ok, true);
+  assert.equal(client.statements.filter((s) => /DELETE/i.test(s.sql)).length, 0);
+});
+
+test('verify mode opens a READ ONLY transaction unless it was asked to purge', () => {
+  // Postgres enforcing the read-only claim beats a comment asserting it. Kills
+  // the "always BEGIN" mutant.
+  const source = fs.readFileSync(SCRIPT_PATH, 'utf8');
+  assert.match(source, /BEGIN READ ONLY/, 'the verify path must be able to open read-only');
+  assert.match(
+    source,
+    /query\(args\.purgeStaleCache \? 'BEGIN' : 'BEGIN READ ONLY'\)/,
+    'and it must be the purge flag, not something else, that relaxes it'
+  );
+  assert.match(source, /query\(args\.purgeStaleCache \? 'COMMIT' : 'ROLLBACK'\)/,
+    'a read-only verify ends in ROLLBACK, never COMMIT');
 });
 
 // ---------------------------------------------------------------------------
@@ -434,9 +580,7 @@ test('dotenv runs before any require that can reach modules/pool', () => {
   // for a one-shot authorized repair, also records the repair as done.
   // Static, because require order is a property of the file, not of a call.
   // Kills the "dotenv inside main" mutant.
-  const source = fs.readFileSync(
-    path.join(__dirname, '..', 'scripts', 'repair-schedule-orientation.js'), 'utf8'
-  );
+  const source = fs.readFileSync(SCRIPT_PATH, 'utf8');
   const dotenvAt = source.indexOf("require('dotenv')");
   const firstServiceAt = source.indexOf("require('../services/");
   const poolAt = source.indexOf("require('../modules/pool')");
@@ -466,8 +610,56 @@ test('a pool built before the environment is refused, not used', () => {
   const runtime = { DATABASE_URL_RUNTIME: 'postgres://runtime', DATABASE_URL: 'postgres://other' };
   assert.throws(() => repair.assertPoolMatchesEnvironment({ options: { connectionString: runtime.DATABASE_URL } }, runtime), /built before/);
   assert.equal(repair.assertPoolMatchesEnvironment({ options: { connectionString: runtime.DATABASE_URL_RUNTIME } }, runtime), true);
-  // No DATABASE_URL at all is a legitimate PG* configuration, not a fault.
-  assert.equal(repair.assertPoolMatchesEnvironment({ options: { host: 'localhost' } }, {}), true);
+});
+
+test('an unnamed database is refused: PG* defaults are not a target', () => {
+  // The guard used to FAIL OPEN here, on the reasoning that PG* variables are
+  // legitimate configuration. They are, for the shared pool module; they are
+  // inverted for a one-shot production repair, because pool's PG* branch
+  // DEFAULTS to localhost/endzone_empire. A .env that failed to load therefore
+  // reproduced the original blocker outcome - a local-dev repair reported as a
+  // production success - with the guard waving it through. Kills the
+  // "!configured early return" mutant.
+  const localDefaults = { options: { host: 'localhost', database: 'endzone_empire' } };
+  assert.throws(
+    () => repair.assertPoolMatchesEnvironment(localDefaults, {}),
+    /no DATABASE_URL .* is configured/,
+    'nothing configured is the absence of a target, not agreement with one'
+  );
+  assert.throws(() => repair.assertPoolMatchesEnvironment(localDefaults, {}), /endzone_empire/,
+    'the message must name what it actually found, so the operator can see the local db');
+  assert.throws(() => repair.assertPoolMatchesEnvironment(localDefaults, {}), /PG\* variables alone are not accepted/);
+  // PGHOST etc. present but no DATABASE_URL is still refused: that is exactly
+  // the shape the fail-open branch used to admit.
+  assert.throws(
+    () => repair.assertPoolMatchesEnvironment(localDefaults, { PGHOST: 'db.example', PGDATABASE: 'endzone' }),
+    /no DATABASE_URL/
+  );
+});
+
+test('the pool guard is CALLED, after the pool require and before any query', () => {
+  // The call site, pinned statically for the same reason the dotenv order is:
+  // reaching this line at run time needs a live connection, and the property
+  // worth protecting is structural. Kills the "delete the call site" mutant
+  // (M24b), which previously survived.
+  const source = fs.readFileSync(SCRIPT_PATH, 'utf8');
+  const calls = [...source.matchAll(/assertPoolMatchesEnvironment\(pool\)/g)];
+  assert.equal(calls.length, 2, 'both the repair path and the verify path must check');
+  for (const [mode, marker] of [['verify', 'runVerifyMode'], ['repair', 'async function main']]) {
+    const modeAt = source.indexOf(marker);
+    assert.notEqual(modeAt, -1, `located the ${mode} path`);
+  }
+  // Within each connecting block: pool require, then the guard, then the first
+  // statement sent. Anything else means a query could reach a database nobody
+  // named.
+  for (const block of source.split('const pool = require(\'../modules/pool\');').slice(1)) {
+    const guardAt = block.indexOf('assertPoolMatchesEnvironment(pool)');
+    const connectAt = block.indexOf('pool.connect()');
+    const firstQueryAt = block.indexOf('query(');
+    assert.ok(guardAt >= 0, 'every pool require is followed by the guard');
+    assert.ok(guardAt < connectAt, 'the guard precedes the connection');
+    assert.ok(guardAt < firstQueryAt, 'the guard precedes the first statement');
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -498,7 +690,7 @@ test('the repair refuses to run once the capture window has opened', () => {
   }
 });
 
-test('main REFUSES a post-window run before it reads anything', async () => {
+test('main REFUSES a post-window run before it reads the CSV or touches the database', async () => {
   // The guard's CALL SITE, not the guard. Every other assertion in this file
   // exercises pure functions, so a refactor that dropped or reordered this one
   // call would leave the suite green while the repair became runnable after a
@@ -506,8 +698,10 @@ test('main REFUSES a post-window run before it reads anything', async () => {
   // /api/health/holdout 503 the guard is the only thing preventing, against a
   // ledger with no remedy. Kills the "stub out the call" mutant.
   //
-  // The path is deliberately nonsense: the refusal must arrive BEFORE any file
-  // is read, so getting the missing-file error instead is itself the failure.
+  // The path is deliberately nonsense: the refusal must arrive BEFORE the CSV
+  // is read and before any database access, so getting the missing-file error
+  // instead is itself the failure. (The manifest is necessarily read first, as
+  // it is what the guard takes as input.)
   await assert.rejects(
     repair.main(['--csv', 'c:/definitely/not/a/file.csv'], { now: new Date('2027-01-01T00:00:00Z') }),
     (err) => {
@@ -515,6 +709,12 @@ test('main REFUSES a post-window run before it reads anything', async () => {
       assert.doesNotMatch(err.message, /ENOENT|no such file/, 'the guard must fire before the CSV is read');
       return true;
     }
+  );
+  // Verify mode is behind the same guard, and it connects to a database: a
+  // post-window --verify must refuse before it reaches the pool.
+  await assert.rejects(
+    repair.main(['--verify'], { now: new Date('2027-01-01T00:00:00Z') }),
+    /holdout capture window opened/
   );
   // And the same call with the clock inside the window gets past the guard, so
   // the test above is about the window and not about main throwing at all.
