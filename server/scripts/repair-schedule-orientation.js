@@ -1,0 +1,668 @@
+/**
+ * Repair the MISSING schedule orientation on one season's `nfl_games` rows
+ * (`game_key`, `home_away`, `neutral_site`) from nflverse's PUBLIC games.csv at
+ * a pinned revision, cross-checked against the frozen season manifest before a
+ * single byte is written.
+ *
+ * Usage:
+ *   node server/scripts/repair-schedule-orientation.js --csv <path-to-games.csv>
+ *     [--season 2026] [--commit <sha>] [--blob <sha>] [--apply]
+ *
+ * DRY RUN BY DEFAULT. Without `--apply` the script reads everything, plans
+ * everything, runs the full post-fill verification against the rows the plan
+ * WOULD produce, prints the report, and writes nothing.
+ *
+ * Why this exists as a separate script rather than another sync pass:
+ *
+ * - The sync's upsert (nflverseSync.syncScheduleFromNflverse) fills these
+ *   columns with `COALESCE(EXCLUDED.x, existing.x)`, which prefers the FILE
+ *   over the database on every column it touches. That is right for a sync and
+ *   catastrophic for a repair: a stored value that disagrees with the file
+ *   would be overwritten silently, and the one thing a repair must never do is
+ *   destroy the evidence that the repair was wrong. Here a disagreement rolls
+ *   the whole transaction back and exits nonzero.
+ * - The repair is NULL-ONLY. Every write is guarded by `IS NULL` in the SQL
+ *   itself, not merely by the plan that was computed a moment earlier, so the
+ *   property survives even a snapshot this script reasoned about incorrectly.
+ *   A stored value that already MATCHES the source is left alone, which is what
+ *   makes a re-run a no-op rather than a second repair.
+ * - `opponent` and `kickoff_at` are never named in any statement. A
+ *   Tank01-synced kickoff stays authoritative, and who played whom is not what
+ *   is broken.
+ *
+ * Provenance, in the order it is established, because each step is only worth
+ * anything if the one before it held:
+ *
+ * 1. The CSV's bytes are hashed as a git blob and compared to the pinned blob
+ *    SHA, so the file provably IS the named revision.
+ * 2. The manifest (server/data/nfl-schedule-<season>.json) verifies its own
+ *    digest and full-season invariants.
+ * 3. The CSV's game identities (week, away, home) are compared to the
+ *    manifest's, oriented, so a home/away SWAP is a mismatch and not a match.
+ *    Any difference at all is fatal. The manifest carries NO neutral-site
+ *    information - it was never in the digest - so the neutral flags come from
+ *    the CSV alone and the expected neutral count is DERIVED from the pinned
+ *    file rather than asserted from memory.
+ *
+ * Cache invalidation is the last thing inside the transaction: filling
+ * orientation changes an input the weekly projection engine reads, so every
+ * cached run for the season under the current model is dropped. It is dropped
+ * rather than regenerated for exactly the reasons invalidateWeeklyProjectionRuns
+ * documents. The append-only holdout ledger (`projection_snapshots`,
+ * `projection_snapshot_players`, `holdout_capture_status`) is never touched;
+ * `assertNotHoldoutSql` refuses to send a statement that so much as names one,
+ * so the database's own rejection triggers stay a second line of defence rather
+ * than the first.
+ *
+ * Note on what this does NOT do: filling orientation does not activate the
+ * home/away factor. That is gated by MODEL_CONSTANTS.homeAway.enabled, which
+ * ships false precisely so a data repair cannot double as the activation of an
+ * adjustment nobody has backtested.
+ */
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+
+const { parseCsv, buildScheduleRows } = require('../services/nflverseSync.service');
+const { normalizeTeamKey } = require('../services/projectionFeatures');
+const { verifySeasonManifest, TOTAL_GAMES } = require('../services/scheduleManifest');
+const model = require('../services/projectionModel');
+
+/**
+ * The ONLY columns this script may write. Every dynamic fragment of SQL below
+ * is assembled from this frozen list, so a column name can never reach a
+ * statement from data.
+ */
+const REPAIR_COLUMNS = Object.freeze(['game_key', 'home_away', 'neutral_site']);
+
+/** Two rows per game, one per team's perspective. */
+const ROWS_PER_GAME = 2;
+
+/**
+ * The append-only holdout ledger. Its immutability is enforced by database
+ * triggers, which makes an attempted write a caught error rather than a silent
+ * corruption - but a caught error inside this transaction would still abort a
+ * repair halfway through for a reason nobody intended. Refusing to SEND such a
+ * statement keeps the failure at the point the mistake was made.
+ */
+const FORBIDDEN_TABLES = Object.freeze([
+  'projection_snapshots',
+  'projection_snapshot_players',
+  'holdout_capture_status',
+]);
+
+/**
+ * Pure: throw if a statement so much as names a holdout-ledger table.
+ *
+ * Deliberately a NAME match and not a verb match: there is no read this script
+ * needs from those tables either, so "mentions it at all" is a check that
+ * cannot be defeated by a statement shape nobody anticipated.
+ */
+function assertNotHoldoutSql(sql) {
+  const text = String(sql || '');
+  for (const table of FORBIDDEN_TABLES) {
+    if (text.includes(table)) {
+      throw new Error(
+        `refusing to run a statement naming the append-only holdout table "${table}": ${text.slice(0, 120)}`
+      );
+    }
+  }
+  return true;
+}
+
+/** Pure: git's blob SHA for a byte buffer - sha1("blob <len>\0" + bytes). */
+function gitBlobSha(bytes) {
+  return crypto.createHash('sha1')
+    .update(`blob ${bytes.length}\0`)
+    .update(bytes)
+    .digest('hex');
+}
+
+/** Pure: prove the bytes in hand are the pinned revision, or refuse them. */
+function assertPinnedCsv(bytes, blobSha) {
+  const actual = gitBlobSha(bytes);
+  if (actual !== blobSha) {
+    throw new Error(
+      `games.csv does not match the pinned blob SHA (file hashes to ${actual}, pinned ${blobSha}) - ` +
+      'refusing to repair production rows from bytes that are not the named revision'
+    );
+  }
+  return actual;
+}
+
+/**
+ * Pure: pinned games.csv text -> the orientation every `nfl_games` row of one
+ * season should carry, keyed by `${week}:${canonical team}`.
+ *
+ * Built by nflverseSync.buildScheduleRows, not by a second parser written here.
+ * That function is what the sync itself writes through, so the repair fills in
+ * BYTE-FOR-BYTE what a sync would have written - the same Tank01 team
+ * vocabulary, the same `game_key` construction, the same neutral-site reading
+ * of the `location` column. A private reimplementation would be a second
+ * opinion about the same file, and two opinions is how a `game_key` ends up
+ * spelled WAS on one row and WSH on the other.
+ *
+ * The map key is normalized separately (`normalizeTeamKey`) because it has to
+ * match rows the DATABASE holds, which may be spelled either way.
+ */
+function desiredOrientation(csvText, { season }) {
+  const scheduleRows = buildScheduleRows(parseCsv(csvText), { season });
+  const desired = new Map();
+  for (const row of scheduleRows) {
+    const teamKey = normalizeTeamKey(row.nflTeam);
+    const key = `${row.week}:${teamKey}`;
+    if (desired.has(key)) {
+      throw new Error(`games.csv lists ${teamKey} twice in ${season} week ${row.week}`);
+    }
+    desired.set(key, {
+      season: Number(season),
+      week: row.week,
+      teamKey,
+      opponentKey: normalizeTeamKey(row.opponent),
+      game_key: row.gameKey,
+      home_away: row.homeAway,
+      neutral_site: row.neutralSite,
+    });
+  }
+  return desired;
+}
+
+/** Pure: how many distinct games the pinned CSV flags as neutral-site. */
+function neutralGamesIn(desired) {
+  const games = new Set();
+  for (const row of desired.values()) {
+    if (row.neutral_site === true) games.add(row.game_key);
+  }
+  return games.size;
+}
+
+/**
+ * Pure: ORIENTED game identities from each source, compared as sets.
+ *
+ * `${week}:${away}@${home}` rather than an unordered pair: this script exists
+ * to write orientation, so a source that has the two teams the right way round
+ * and a source that does not must not compare equal.
+ */
+function manifestIdentityDiff(desired, manifest) {
+  const csvIds = new Set();
+  for (const row of desired.values()) {
+    if (row.home_away !== 'home') continue;
+    csvIds.add(`${row.week}:${row.opponentKey}@${row.teamKey}`);
+  }
+  const manifestIds = new Set(
+    (manifest && manifest.games ? manifest.games : []).map(
+      (g) => `${Number(g.week)}:${normalizeTeamKey(g.away)}@${normalizeTeamKey(g.home)}`
+    )
+  );
+  return {
+    csvGames: csvIds.size,
+    manifestGames: manifestIds.size,
+    csvOnly: [...csvIds].filter((id) => !manifestIds.has(id)).sort(),
+    manifestOnly: [...manifestIds].filter((id) => !csvIds.has(id)).sort(),
+  };
+}
+
+/**
+ * Pure: the CSV may only be used as a repair source if the tamper-evident
+ * manifest agrees with it about every game identity in the season. Throws
+ * otherwise - there is no partial-agreement mode, because a source that is
+ * wrong about one game has no standing to be trusted about the other 271.
+ */
+function assertManifestAgreement(desired, manifest) {
+  verifySeasonManifest(manifest);
+  const diff = manifestIdentityDiff(desired, manifest);
+  const problems = [];
+  if (diff.csvGames !== TOTAL_GAMES) {
+    problems.push(`games.csv yields ${diff.csvGames} games, expected exactly ${TOTAL_GAMES}`);
+  }
+  for (const id of diff.csvOnly.slice(0, 10)) problems.push(`in games.csv but not the manifest: ${id}`);
+  for (const id of diff.manifestOnly.slice(0, 10)) problems.push(`in the manifest but not games.csv: ${id}`);
+  if (problems.length > 0) {
+    throw new Error(
+      `games.csv and the frozen manifest disagree about ${manifest.season}: ${problems.join('; ')}`
+    );
+  }
+  return diff;
+}
+
+/**
+ * Pure: does a value already in the database say the same thing as the source?
+ *
+ * `neutral_site` comes back from pg as a real boolean and the other two as
+ * text, so the comparison is per column rather than one loose `==` that would
+ * make `false` and `'false'` and `0` all agree with each other.
+ */
+function sameStoredValue(column, current, target) {
+  if (column === 'neutral_site') return (current === true) === (target === true);
+  return String(current) === String(target);
+}
+
+/**
+ * Pure: what a repair would do to the rows currently in `nfl_games`.
+ *
+ * Three outcomes per column, and the third is the reason this function exists:
+ *
+ * - stored NULL          -> fill it (this is the repair)
+ * - stored, and matching -> leave it (this is what makes a re-run idempotent)
+ * - stored, disagreeing  -> a CONFLICT, which the caller must treat as fatal
+ *
+ * A conflict is never resolved here, in either direction. Preferring the file
+ * would overwrite whatever a live sync learned; preferring the database would
+ * silently accept that the pinned source is wrong about production. Both are
+ * decisions a script has no business making at 3am, so the answer is to stop.
+ *
+ * Rows the CSV does not describe, CSV rows the database does not have, and a
+ * stored `opponent` that contradicts the source are all conflicts too: each one
+ * means the two sides are not describing the same season, and a `game_key`
+ * written across that gap would name a game that did not happen.
+ */
+function planOrientationRepair({ desired, rows }) {
+  const updates = [];
+  const conflicts = [];
+  const unchanged = [];
+  const seen = new Set();
+
+  for (const row of rows || []) {
+    const week = Number(row.week);
+    const teamKey = normalizeTeamKey(row.nfl_team);
+    const key = `${week}:${teamKey}`;
+    const where = `${row.season} week ${week} ${row.nfl_team}`;
+    if (seen.has(key)) {
+      conflicts.push({ kind: 'duplicate-row', where, detail: `${key} appears more than once in nfl_games` });
+      continue;
+    }
+    seen.add(key);
+
+    const want = desired.get(key);
+    if (!want) {
+      conflicts.push({ kind: 'unknown-game', where, detail: 'no game for this team and week in the pinned source' });
+      continue;
+    }
+    const storedOpponent = normalizeTeamKey(row.opponent);
+    if (storedOpponent && storedOpponent !== want.opponentKey) {
+      conflicts.push({
+        kind: 'opponent-disagreement',
+        where,
+        detail: `nfl_games says ${storedOpponent}, the pinned source says ${want.opponentKey}`,
+      });
+      continue;
+    }
+
+    const set = {};
+    const kept = [];
+    for (const column of REPAIR_COLUMNS) {
+      const current = row[column];
+      const target = want[column];
+      if (target === null || target === undefined) {
+        conflicts.push({
+          kind: 'source-silent',
+          where,
+          detail: `the pinned source carries no ${column}, so there is nothing to repair it with`,
+        });
+        continue;
+      }
+      if (current === null || current === undefined) {
+        set[column] = target;
+      } else if (sameStoredValue(column, current, target)) {
+        kept.push(column);
+      } else {
+        conflicts.push({
+          kind: 'disagreement',
+          where,
+          detail: `${column} is already ${JSON.stringify(current)}, the pinned source says ${JSON.stringify(target)}`,
+        });
+      }
+    }
+
+    if (Object.keys(set).length > 0) {
+      updates.push({ season: Number(row.season), week, nflTeam: row.nfl_team, teamKey, set });
+    } else {
+      unchanged.push({ where, kept });
+    }
+  }
+
+  for (const [key, want] of desired) {
+    if (seen.has(key)) continue;
+    conflicts.push({
+      kind: 'missing-row',
+      where: `${want.season} week ${want.week} ${want.teamKey}`,
+      detail: 'the pinned source has this game but nfl_games has no row for it',
+    });
+  }
+
+  return { updates, conflicts, unchanged };
+}
+
+/**
+ * Pure: the rows a plan would leave behind, without writing any of them. This
+ * is what lets a dry run put the SAME verification over its result that the
+ * apply path puts over the re-read rows, instead of a weaker approximation of
+ * it.
+ */
+function applyPlanToRows(rows, updates) {
+  const setByKey = new Map(
+    (updates || []).map((u) => [`${Number(u.week)}:${u.teamKey}`, u.set])
+  );
+  return (rows || []).map((row) => {
+    const set = setByKey.get(`${Number(row.week)}:${normalizeTeamKey(row.nfl_team)}`);
+    return set ? { ...row, ...set } : { ...row };
+  });
+}
+
+/**
+ * Pure: the post-fill invariants, checked against rows rather than against the
+ * plan that produced them. A plan that is internally consistent and still
+ * leaves the season malformed is exactly the failure this catches, which is why
+ * it runs on the SELECT taken after the writes and inside the same transaction.
+ *
+ * `expectedNeutralGames` is derived from the pinned CSV by the caller and
+ * passed in. It is not a constant here on purpose: a hardcoded count would be
+ * this script asserting a fact about the 2026 season from memory, and the whole
+ * design is that the pinned file is the only thing allowed to say.
+ */
+function verifyOrientedRows(rows, { expectedGames = TOTAL_GAMES, expectedNeutralGames } = {}) {
+  const errors = [];
+  const expectedRows = expectedGames * ROWS_PER_GAME;
+  if (!Array.isArray(rows) || rows.length !== expectedRows) {
+    errors.push(`expected exactly ${expectedRows} rows, found ${Array.isArray(rows) ? rows.length : 0}`);
+  }
+
+  const sidesByGameKey = new Map();
+  let neutralRows = 0;
+  for (const row of rows || []) {
+    const where = `${row.season} week ${row.week} ${row.nfl_team}`;
+    for (const column of REPAIR_COLUMNS) {
+      if (row[column] === null || row[column] === undefined) errors.push(`${where}: ${column} is still null`);
+    }
+    if (row.neutral_site === true) neutralRows += 1;
+    if (!row.game_key) continue;
+    if (!sidesByGameKey.has(row.game_key)) sidesByGameKey.set(row.game_key, []);
+    sidesByGameKey.get(row.game_key).push(row);
+  }
+
+  if (sidesByGameKey.size !== expectedGames) {
+    errors.push(`expected exactly ${expectedGames} distinct game_keys, found ${sidesByGameKey.size}`);
+  }
+  for (const [gameKey, sides] of sidesByGameKey) {
+    if (sides.length !== ROWS_PER_GAME) {
+      errors.push(`${gameKey}: ${sides.length} rows, expected exactly ${ROWS_PER_GAME}`);
+      continue;
+    }
+    const home = sides.filter((r) => r.home_away === 'home').length;
+    const away = sides.filter((r) => r.home_away === 'away').length;
+    if (home !== 1 || away !== 1) {
+      errors.push(`${gameKey}: ${home} home / ${away} away, expected exactly one of each`);
+    }
+    // Neutral is a property of the GAME, so the two rows of one game cannot
+    // disagree about it. They are written from a single CSV row, so a
+    // disagreement here means something else wrote one of them.
+    if ((sides[0].neutral_site === true) !== (sides[1].neutral_site === true)) {
+      errors.push(`${gameKey}: its two rows disagree about neutral_site`);
+    }
+  }
+
+  if (!Number.isInteger(expectedNeutralGames)) {
+    errors.push('no neutral-site count was derived from the pinned source to verify against');
+  } else if (neutralRows !== expectedNeutralGames * ROWS_PER_GAME) {
+    errors.push(
+      `expected ${expectedNeutralGames * ROWS_PER_GAME} neutral-site rows ` +
+      `(${expectedNeutralGames} games x ${ROWS_PER_GAME}), found ${neutralRows}`
+    );
+  }
+
+  return errors;
+}
+
+/**
+ * Pure: the null-only UPDATE for one planned row. Column names come from the
+ * frozen REPAIR_COLUMNS list and every value is a bind parameter; the `IS NULL`
+ * guards make "null-only" a property of the STATEMENT rather than of the plan
+ * that was computed before it, so a row filled in between the plan and the
+ * write is left alone and reports rowCount 0 instead of being overwritten.
+ */
+function buildUpdateStatement(update) {
+  const columns = REPAIR_COLUMNS.filter((c) => Object.prototype.hasOwnProperty.call(update.set, c));
+  if (columns.length === 0) throw new Error('refusing to build an UPDATE that sets nothing');
+  const assignments = columns.map((c, i) => `"${c}" = $${i + 1}`);
+  const guards = columns.map((c) => `"${c}" IS NULL`);
+  const values = columns.map((c) => update.set[c]);
+  const sql =
+    `UPDATE "nfl_games" SET ${assignments.join(', ')}\n` +
+    `     WHERE "season" = $${columns.length + 1} AND "week" = $${columns.length + 2} ` +
+    `AND "nfl_team" = $${columns.length + 3}\n` +
+    `       AND ${guards.join(' AND ')}`;
+  return { sql, values: [...values, update.season, update.week, update.nflTeam] };
+}
+
+/** Pure: a short, stable summary line per conflict kind, for the report. */
+function summarizeConflicts(conflicts) {
+  const byKind = new Map();
+  for (const conflict of conflicts || []) {
+    byKind.set(conflict.kind, (byKind.get(conflict.kind) || 0) + 1);
+  }
+  return [...byKind.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+}
+
+// ---------------------------------------------------------------------------
+// CLI
+// ---------------------------------------------------------------------------
+
+function parseArgs(argv) {
+  const flag = (name) => {
+    const i = argv.indexOf(`--${name}`);
+    return i >= 0 ? argv[i + 1] : null;
+  };
+  return {
+    csv: flag('csv'),
+    season: Number(flag('season') || 2026),
+    commit: flag('commit'),
+    blob: flag('blob'),
+    apply: argv.includes('--apply'),
+  };
+}
+
+async function main(argv) {
+  const args = parseArgs(argv);
+  if (!args.csv) {
+    throw new Error('required: --csv <path to the pinned nflverse games.csv>');
+  }
+
+  const manifestPath = path.join(__dirname, '..', 'data', `nfl-schedule-${args.season}.json`);
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  // The manifest's own recorded provenance is the default pin, so the ordinary
+  // invocation cannot repair from a revision the manifest never saw. An
+  // explicit --commit/--blob is still accepted, and still has to survive the
+  // identity cross-check below.
+  const commit = args.commit || (manifest.source && manifest.source.commit);
+  const blob = args.blob || (manifest.source && manifest.source.blobSha);
+  if (!commit || !blob) {
+    throw new Error('no pinned revision: the manifest records none and none was passed with --commit/--blob');
+  }
+
+  const csvBytes = fs.readFileSync(args.csv);
+  assertPinnedCsv(csvBytes, blob);
+  console.log(`source: https://raw.githubusercontent.com/nflverse/nfldata/${commit}/data/games.csv`);
+  console.log(`blob ${blob} verified against the file on disk`);
+
+  const desired = desiredOrientation(csvBytes.toString('utf8'), { season: args.season });
+  const diff = assertManifestAgreement(desired, manifest);
+  const expectedNeutralGames = neutralGamesIn(desired);
+  console.log(
+    `manifest ${manifest.digest.slice(0, 12)} agrees with games.csv on all ${diff.csvGames} game identities`
+  );
+  console.log(
+    `neutral-site games DERIVED from the pinned source: ${expectedNeutralGames} ` +
+    `(${expectedNeutralGames * ROWS_PER_GAME} rows)`
+  );
+
+  require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
+  const pool = require('../modules/pool');
+  const client = await pool.connect();
+  const query = (sql, values) => {
+    assertNotHoldoutSql(sql);
+    return client.query(sql, values);
+  };
+
+  let committed = false;
+  try {
+    await query('BEGIN');
+
+    // FOR UPDATE, so the rows the plan was computed from cannot be changed by
+    // anything else between the plan and the writes. The season's 544 rows are
+    // a small, bounded lock held for the length of one script run.
+    const before = await query(
+      `SELECT "season", "week", "nfl_team", "opponent", "game_key", "home_away", "neutral_site"
+       FROM "nfl_games" WHERE "season" = $1
+       ORDER BY "week", "nfl_team"
+       FOR UPDATE`,
+      [args.season]
+    );
+    console.log(`nfl_games rows for ${args.season}: ${before.rows.length}`);
+
+    const plan = planOrientationRepair({ desired, rows: before.rows });
+    console.log(`plan: ${plan.updates.length} rows to fill, ${plan.unchanged.length} already correct, ${plan.conflicts.length} conflicts`);
+    const filled = new Map();
+    for (const update of plan.updates) {
+      for (const column of Object.keys(update.set)) filled.set(column, (filled.get(column) || 0) + 1);
+    }
+    for (const column of REPAIR_COLUMNS) console.log(`  ${column}: ${filled.get(column) || 0} rows would be filled`);
+
+    if (plan.conflicts.length > 0) {
+      console.error('REPAIR REFUSED - the database and the pinned source disagree:');
+      for (const [kind, count] of summarizeConflicts(plan.conflicts)) console.error(`  ${kind}: ${count}`);
+      for (const conflict of plan.conflicts.slice(0, 20)) {
+        console.error(`  ${conflict.kind} @ ${conflict.where}: ${conflict.detail}`);
+      }
+      throw new Error(
+        `${plan.conflicts.length} conflict(s): a null-only repair cannot proceed over stored values that ` +
+        'disagree with its source'
+      );
+    }
+
+    let rowsWritten = 0;
+    if (args.apply) {
+      for (const update of plan.updates) {
+        const statement = buildUpdateStatement(update);
+        const result = await query(statement.sql, statement.values);
+        if (result.rowCount !== 1) {
+          throw new Error(
+            `null-only UPDATE for ${update.season} week ${update.week} ${update.nflTeam} touched ` +
+            `${result.rowCount} rows, expected exactly 1 - the row changed under the plan`
+          );
+        }
+        rowsWritten += 1;
+      }
+      console.log(`applied: ${rowsWritten} rows updated`);
+    }
+
+    // Verification runs on rows, inside the transaction, before anything is
+    // durable. The apply path re-reads what it just wrote rather than trusting
+    // its own plan; the dry run puts the identical check over the rows the plan
+    // would have produced.
+    const after = args.apply
+      ? (await query(
+        `SELECT "season", "week", "nfl_team", "opponent", "game_key", "home_away", "neutral_site"
+           FROM "nfl_games" WHERE "season" = $1 ORDER BY "week", "nfl_team"`,
+        [args.season]
+      )).rows
+      : applyPlanToRows(before.rows, plan.updates);
+
+    const errors = verifyOrientedRows(after, { expectedNeutralGames });
+    const neutralRows = after.filter((r) => r.neutral_site === true).length;
+    console.log(
+      `verification: ${after.length} rows, ` +
+      `${new Set(after.map((r) => r.game_key)).size} distinct game_keys, ` +
+      `${neutralRows} neutral-site rows`
+    );
+    if (errors.length > 0) {
+      console.error(`POST-FILL VERIFICATION FAILED (${errors.length}):`);
+      for (const e of errors.slice(0, 20)) console.error('  ' + e);
+      throw new Error('rolling back: the repaired season does not satisfy its own invariants');
+    }
+    console.log('verification: OK');
+
+    // Cache invalidation, last and still inside the transaction. Orientation is
+    // an input the weekly engine reads, so every cached run for this season
+    // under the CURRENT model was computed from a schedule that no longer
+    // matches the one on disk. Older model versions are unreachable through
+    // findRun already and are somebody else's cleanup.
+    const staleRuns = await query(
+      `SELECT COUNT(*)::int AS "runs" FROM "projection_runs"
+       WHERE "season" = $1 AND "model_version" = $2`,
+      [args.season, model.MODEL_VERSION]
+    );
+    console.log(`cached ${model.MODEL_VERSION} runs for ${args.season}: ${staleRuns.rows[0].runs}`);
+
+    // Children go with the parent through ON DELETE CASCADE, but that is
+    // asserted against the live catalog rather than assumed from a migration
+    // file: a cascade that was dropped would otherwise leave orphaned
+    // projections behind with no complaint.
+    const fk = await query(
+      `SELECT "confdeltype" FROM "pg_constraint"
+       WHERE "conrelid" = 'player_week_projections'::regclass
+         AND "confrelid" = 'projection_runs'::regclass
+         AND "contype" = 'f'`
+    );
+    const cascades = fk.rows.length > 0 && fk.rows.every((r) => r.confdeltype === 'c');
+    console.log(`player_week_projections -> projection_runs cascades on delete: ${cascades}`);
+
+    if (args.apply) {
+      if (!cascades) {
+        const children = await query(
+          `DELETE FROM "player_week_projections"
+           WHERE "run_id" IN (SELECT "id" FROM "projection_runs" WHERE "season" = $1 AND "model_version" = $2)`,
+          [args.season, model.MODEL_VERSION]
+        );
+        console.log(`no ON DELETE CASCADE: deleted ${children.rowCount} player_week_projections rows explicitly`);
+      }
+      const deleted = await query(
+        `DELETE FROM "projection_runs" WHERE "season" = $1 AND "model_version" = $2`,
+        [args.season, model.MODEL_VERSION]
+      );
+      console.log(`invalidated ${deleted.rowCount} cached run(s)${cascades ? ' (children cascaded)' : ''}`);
+      await query('COMMIT');
+      committed = true;
+      console.log(`COMMITTED: ${args.season} schedule orientation repaired`);
+    } else {
+      console.log(`dry run: would invalidate ${staleRuns.rows[0].runs} cached run(s)${cascades ? ' (children cascade)' : ''}`);
+      await query('ROLLBACK');
+      console.log('DRY RUN - nothing was written. Re-run with --apply to commit.');
+    }
+  } finally {
+    if (!committed) {
+      try { await client.query('ROLLBACK'); } catch (_) { /* already resolved */ }
+    }
+    client.release();
+    await pool.end();
+  }
+}
+
+if (require.main === module) {
+  main(process.argv.slice(2))
+    .then(() => process.exit(0))
+    .catch((err) => {
+      console.error('FAILED:', err.stack || err.message);
+      process.exit(1);
+    });
+}
+
+module.exports = {
+  REPAIR_COLUMNS,
+  ROWS_PER_GAME,
+  FORBIDDEN_TABLES,
+  assertNotHoldoutSql,
+  gitBlobSha,
+  assertPinnedCsv,
+  desiredOrientation,
+  neutralGamesIn,
+  manifestIdentityDiff,
+  assertManifestAgreement,
+  sameStoredValue,
+  planOrientationRepair,
+  applyPlanToRows,
+  verifyOrientedRows,
+  buildUpdateStatement,
+  summarizeConflicts,
+  parseArgs,
+  main,
+};

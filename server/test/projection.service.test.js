@@ -358,6 +358,131 @@ test('home/away stays neutral while the schedule carries no orientation', async 
   const homeAway = result.projections.get(1).factors.homeAway;
   assert.equal(homeAway.available, false);
   assert.equal(homeAway.pointsContribution, null, 'unknown must not render as an evaluated zero');
+  // This is the branch every live projection takes, and the exact payload it
+  // has always carried. A change here is a change to every cached factor blob
+  // in production for a factor that did not move.
+  assert.equal(homeAway.reason, 'home/away unknown');
+});
+
+// ---------------------------------------------------------------------------
+// Neutral-site games
+// ---------------------------------------------------------------------------
+
+test('scheduleOrientation reads a neutral-site game as having no orientation', () => {
+  // nflverse designates a nominal home team for London and Munich too, so the
+  // bare home_away read would price a crowd that was never there. Kills the
+  // "trust home_away on its own" mutant.
+  assert.equal(features.scheduleOrientation({ home_away: 'home', neutral_site: true }), null);
+  assert.equal(features.scheduleOrientation({ home_away: 'away', neutral_site: true }), null);
+  // null is UNKNOWN, and unknown is not neutral: this is the shape of every
+  // production row today, and it has to keep resolving exactly as it did.
+  assert.equal(features.scheduleOrientation({ home_away: 'home', neutral_site: null }), true);
+  assert.equal(features.scheduleOrientation({ home_away: 'away', neutral_site: null }), false);
+  assert.equal(features.scheduleOrientation({ home_away: 'home', neutral_site: false }), true);
+  assert.equal(features.scheduleOrientation({ home_away: 'away', neutral_site: false }), false);
+  assert.equal(features.scheduleOrientation({ home_away: null, neutral_site: false }), null);
+  assert.equal(features.scheduleOrientation(null), null);
+});
+
+test('a neutral-site target game reports unknown orientation, not the nominal home side', async (t) => {
+  // One mock, one mutable schedule row: the engine re-reads it on every run, so
+  // the three cases differ in exactly one column and nothing else.
+  const targetSchedule = [{
+    team_key: 'BUF', opponent_key: 'NYJ', home_away: 'home', neutral_site: null,
+    kickoff_at: '2026-10-11T17:00:00Z', game_key: '2026_05_NYJ_BUF', roof: null,
+    latitude: null, longitude: null,
+  }];
+  mockPool(t, {
+    players: [player(1, 'RB')],
+    weeklyStats: Array.from({ length: 4 }, (_, i) => weeklyRow(1, i + 1, { rushingYards: 70 })),
+    targetSchedule,
+  });
+  const factorFor = async (neutralSite) => {
+    targetSchedule[0].neutral_site = neutralSite;
+    const result = await run({ season: SEASON, week: 5, league: league(), playerIds: [1] });
+    return result.projections.get(1).factors.homeAway;
+  };
+
+  // The two reason strings are what makes this test discriminating: a neutral
+  // game must land in "we do not know which side you are on", NOT in the gate.
+  // Kills the "ignore neutral_site" mutant, which would report 'home/away
+  // gated off' here because orientation would have resolved to home.
+  assert.equal((await factorFor(true)).reason, 'home/away unknown');
+  assert.equal((await factorFor(false)).reason, 'home/away gated off');
+  assert.equal((await factorFor(null)).reason, 'home/away gated off');
+  for (const neutral of [true, false, null]) {
+    const factor = await factorFor(neutral);
+    assert.equal(factor.available, false, `neutral_site=${neutral}`);
+    assert.equal(factor.pointsContribution, null, `neutral_site=${neutral}`);
+  }
+});
+
+test('neutral rows leave the home/away sample but stay in every other aggregate', () => {
+  // One neutral blowout, deliberately far from the rest: if it leaked into a
+  // side it would drag that side's mean visibly, and if it were dropped
+  // outright the baseline and the residual pool would move too. Both mutants
+  // are caught by the same fixture.
+  const rows = [
+    { player_id: 1, week: 1, position: 'RB', stats: { rushingYards: 100 }, defense: 'NYJ', home_away: 'home', neutral_site: false },
+    { player_id: 1, week: 2, position: 'RB', stats: { rushingYards: 20 }, defense: 'MIA', home_away: 'away', neutral_site: null },
+    { player_id: 1, week: 3, position: 'RB', stats: { rushingYards: 600 }, defense: 'NE', home_away: 'home', neutral_site: true },
+  ];
+  const context = features.buildLeagueContext({
+    rows,
+    rules: SCORING_RULES,
+    defenseGamesByTeam: new Map([['NYJ', 1], ['MIA', 1], ['NE', 1]]),
+  }).get('RB');
+
+  assert.equal(context.homeAway.homeGames, 1, 'the neutral game is not a home game');
+  assert.equal(context.homeAway.awayGames, 1);
+  assert.equal(context.homeAway.homeMean, 10, 'the 60-point neutral blowout never touched the home side');
+  assert.equal(context.homeAway.awayMean, 2);
+  // Everything that is indifferent to WHERE the game was played still counts
+  // it: the position baseline, the defense's allowance and the residual pool.
+  assert.equal(context.playerGames, 3);
+  assert.equal(context.baselinePerGame, (10 + 2 + 60) / 3);
+  assert.deepEqual(context.allowedByDefense.get('NE'), { allowedPerGame: 60, games: 1 });
+  assert.equal(context.residuals.length, 3, 'a neutral game still contributes dispersion');
+});
+
+test('both schedule reads carry neutral_site out of the database', () => {
+  // A column that is not SELECTed arrives as undefined, and undefined is not
+  // true, so dropping either one would silently restore the nominal-home
+  // reading with every guard above still passing. Kills the "forgot the
+  // column" mutant at the only place it can be caught: the SQL text.
+  const sql = String(features.loadFeatureBundle);
+  // The league scan is the only query that aliases nfl_games as "ng".
+  assert.match(sql, /"ng"\."neutral_site"/, 'the league scan must select neutral_site');
+  // The prior-schedule read is the one bounded by "season" >= $1.
+  const priorAt = sql.indexOf('"season" >= $1');
+  assert.notEqual(priorAt, -1, 'the prior-schedule read is still there');
+  const priorSelectAt = sql.lastIndexOf('SELECT', priorAt);
+  assert.match(
+    sql.slice(priorSelectAt, priorAt),
+    /"home_away", "neutral_site"/,
+    'the prior-schedule read must select neutral_site alongside home_away'
+  );
+});
+
+test('a neutral prior-season game resolves an opponent but no orientation', async (t) => {
+  // The orientation map is inert today (homeAway.useStoredHistory ships false),
+  // so this asserts on the MAP the bundle builds rather than on a projection.
+  // WHO he faced survives a neutral site; WHERE does not.
+  mockPool(t, {
+    players: [player(1, 'RB')],
+    priorSchedule: [
+      { season: SEASON, week: 1, team_key: 'BUF', opponent_key: 'NYJ', home_away: 'home', neutral_site: true },
+      { season: SEASON, week: 2, team_key: 'BUF', opponent_key: 'MIA', home_away: 'away', neutral_site: null },
+      { season: SEASON, week: 3, team_key: 'BUF', opponent_key: 'NE', home_away: 'home', neutral_site: false },
+    ],
+  });
+
+  const bundle = await features.loadFeatureBundle({
+    season: SEASON, week: 5, playerIds: [1], rules: SCORING_RULES,
+  });
+  assert.deepEqual(bundle.opponentByTeamWeek.get(`${SEASON}:1:BUF`), { opponent: 'NYJ', isHome: null });
+  assert.deepEqual(bundle.opponentByTeamWeek.get(`${SEASON}:2:BUF`), { opponent: 'MIA', isHome: false });
+  assert.deepEqual(bundle.opponentByTeamWeek.get(`${SEASON}:3:BUF`), { opponent: 'NE', isHome: true });
 });
 
 // ---------------------------------------------------------------------------

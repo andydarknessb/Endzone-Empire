@@ -211,6 +211,27 @@ const MODEL_CONSTANTS = {
     minGamesPerSide: 24,
     shrinkPseudoGames: 120,
     maxEffect: 0.05,
+    // Whether this factor may SCORE at all, which is not a tuning knob but a
+    // safety catch on a coefficient that has never been measured. No
+    // production `nfl_games` row has ever carried orientation — 0 of 544 in
+    // each of 2024, 2025 and 2026 — so `homeAwayEffect` has returned neutral
+    // for every projection this engine has ever produced, and the ±5% below is
+    // a default nobody has backtested against anything. Filling that column is
+    // a data repair, and a data repair must not double as the activation of an
+    // unvalidated adjustment: the thresholds above are met within about two
+    // weeks of real rows, at which point every lineup recommendation would
+    // start moving on an unmeasured number.
+    //
+    // SHIPS FALSE, and false is why adding it does not bump MODEL_VERSION. The
+    // check sits BELOW the unknown-orientation check in `homeAwayEffect`, so on
+    // today's all-null rows the factor returns the identical 'home/away
+    // unknown' payload it has always returned and every projection is
+    // bit-identical to the one v3.1 already produced. Same inert-merge
+    // exception the MODEL_VERSION docblock records for the usage component and
+    // the two stored-history gates, including its other half: the sweep that
+    // turns this on is the change that has to carry the bump, and that bump is
+    // free_baseline_v3.2.
+    enabled: false,
     // Whether a PRIOR-SEASON game's orientation (and the opponent it is
     // resolved with) may be read from the stored per-week `gameTeam` key rather
     // than left unknown. Same enrichment, same gate, same inert-merge exception
@@ -650,11 +671,20 @@ function versusOpponentEffect({ meetings = [], constants = MODEL_CONSTANTS.versu
 /**
  * Pure: empirical home/away effect for the player's position group, derived
  * from prior position-level results only. Returns neutral when the split is
- * unknown (no schedule orientation stored for this game) or the sample is too
+ * unknown (no schedule orientation stored for this game, or a neutral-site
+ * game, which has no orientation to be known), when `constants.enabled` has
+ * not explicitly authorized the factor to score, or when the sample is too
  * thin to distinguish from noise.
  */
 function homeAwayEffect({ isHome = null, sample = null, constants = MODEL_CONSTANTS.homeAway } = {}) {
   if (isHome !== true && isHome !== false) return NEUTRAL('home/away unknown');
+  // Fail closed: anything short of an explicit `true` scores nothing, so a
+  // constants object assembled without the key cannot activate the adjustment
+  // by omission. Deliberately BELOW the unknown-orientation check, because a
+  // row with no orientation must keep reporting exactly that — the gate's
+  // reason string is reachable only once orientation data exists, which is the
+  // property that makes this change bit-identical on today's production rows.
+  if (!constants || constants.enabled !== true) return NEUTRAL('home/away gated off');
   if (!sample) return NEUTRAL('no positional home/away sample');
   const { homeMean, homeGames, awayMean, awayGames } = sample;
   if (!isNum(homeMean) || !isNum(awayMean)) return NEUTRAL('no positional home/away sample');

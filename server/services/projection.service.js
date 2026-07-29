@@ -312,9 +312,11 @@ function projectFromBundle({
     constants: constants.versusOpponent,
   });
 
-  const isHome = targetGame && targetGame.home_away
-    ? targetGame.home_away === 'home'
-    : null;
+  // Not a bare `home_away` read: a neutral-site game still stores a nominal
+  // home team, and pricing that as home-field advantage would be inventing a
+  // crowd. features.scheduleOrientation is the single place that judgement
+  // lives, so the target game and the historical schedule map cannot drift.
+  const isHome = features.scheduleOrientation(targetGame);
   const homeAway = model.homeAwayEffect({
     isHome,
     sample: context ? context.homeAway : null,

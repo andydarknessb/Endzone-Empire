@@ -115,6 +115,31 @@ function normalizeTeamKey(team) {
 }
 
 /**
+ * Pure: an `nfl_games` row's home/away orientation as a boolean, or null when
+ * the row has none to report.
+ *
+ * Every schedule source designates a nominal home team for a NEUTRAL-SITE game
+ * as well — the row has to have a shape, and nflverse's games.csv marks the
+ * distinction only in its separate `location` column, which the sync carries
+ * through as `neutral_site` (see nflverseSync.buildScheduleRows). That
+ * designation is bookkeeping, not a crowd: nobody played a home game in London
+ * or Munich, so a neutral game has NO orientation and must never reach a factor
+ * that prices home-field advantage. Returning null here is what makes that
+ * true at every call site at once instead of at each one that remembers.
+ *
+ * `neutral_site` null means UNKNOWN, and unknown is treated as not-neutral on
+ * purpose: it is what every production row carries today, so this read is
+ * identical to the bare `home_away` test it replaces until orientation data
+ * actually exists.
+ */
+function scheduleOrientation(row) {
+  if (!row || row.neutral_site === true) return null;
+  if (row.home_away === 'home') return true;
+  if (row.home_away === 'away') return false;
+  return null;
+}
+
+/**
  * Pure: the opportunity counts a stored stat line carries, in the shape
  * projectionModel.opportunitiesForGame reads.
  *
@@ -268,10 +293,18 @@ function buildLeagueContext({ rows, rules, defenseGamesByTeam }) {
     if (row.defense) {
       bucket.allowed.set(row.defense, (bucket.allowed.get(row.defense) || 0) + points);
     }
-    if (row.home_away === 'home') {
+    // Orientation only. A neutral-site row is excluded from BOTH sides rather
+    // than assigned to the nominal home team's: the whole sample exists to
+    // measure what playing at home is worth, and a London game contributes
+    // nothing to that question in either direction. It still counts toward the
+    // position baseline, the defense's allowance, the residual pool and the
+    // efficiency rate above, all of which are indifferent to where it was
+    // played.
+    const orientation = scheduleOrientation(row);
+    if (orientation === true) {
       bucket.homePoints += points;
       bucket.homeGames += 1;
-    } else if (row.home_away === 'away') {
+    } else if (orientation === false) {
       bucket.awayPoints += points;
       bucket.awayGames += 1;
     }
@@ -444,7 +477,7 @@ async function loadFeatureBundle({ season, week, playerIds, rules, client = pool
       // widening the window still cannot reach week W or anything after it.
       client.query(
         `SELECT "season", "week", fn_normalize_nfl_team("nfl_team") AS "team_key",
-                fn_normalize_nfl_team("opponent") AS "opponent_key", "home_away"
+                fn_normalize_nfl_team("opponent") AS "opponent_key", "home_away", "neutral_site"
          FROM "nfl_games"
          WHERE "season" >= $1
            AND ("season" < $2 OR ("season" = $2 AND "week" < $3))`,
@@ -473,11 +506,18 @@ async function loadFeatureBundle({ season, week, playerIds, rules, client = pool
   // a player's historical rows can be tied to who he faced and where. The
   // season belongs in the key now that earlier seasons are loaded: without it a
   // 2024 Week 3 game and a 2025 Week 3 game would overwrite each other.
+  //
+  // WHO he faced survives a neutral site; WHERE does not, which is why only
+  // `isHome` goes through scheduleOrientation. This map is read only behind
+  // `homeAway.useStoredHistory`, so today nothing consumes the orientation at
+  // all — it is correct here so that turning that gate on is a decision about
+  // prior-season history and not an accidental claim that Munich was a home
+  // game for somebody.
   const opponentByTeamWeek = new Map();
   for (const row of priorScheduleResult.rows) {
     opponentByTeamWeek.set(`${row.season}:${row.week}:${row.team_key}`, {
       opponent: row.opponent_key,
-      isHome: row.home_away === 'home' ? true : row.home_away === 'away' ? false : null,
+      isHome: scheduleOrientation(row),
     });
   }
 
@@ -502,7 +542,8 @@ async function loadFeatureBundle({ season, week, playerIds, rules, client = pool
   if (scanPositions.length > 0 && Number(week) > 1) {
     const scan = await client.query(
       `SELECT "ps"."player_id", "ps"."week", "ps"."stats", "p"."position",
-              fn_normalize_nfl_team("ng"."opponent") AS "defense", "ng"."home_away"
+              fn_normalize_nfl_team("ng"."opponent") AS "defense",
+              "ng"."home_away", "ng"."neutral_site"
        FROM "player_stats" "ps"
        JOIN "players" "p" ON "p"."id" = "ps"."player_id"
        LEFT JOIN "nfl_games" "ng" ON "ng"."season" = "ps"."season" AND "ng"."week" = "ps"."week"
@@ -588,6 +629,7 @@ module.exports = {
   ROLE_KEYS,
   hasRoleSignal,
   normalizeTeamKey,
+  scheduleOrientation,
   usageFromStats,
   weeksAgo,
   assertNoFutureRows,

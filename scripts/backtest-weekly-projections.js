@@ -61,6 +61,19 @@
  *   xseason-vs      head-to-head meetings may come from earlier seasons
  *   stored-homeaway prior-season orientation read from the stored per-week team
  *   xseason-both    both stored-history gates at once
+ *   homeaway-on     the home/away factor allowed to score at all
+ *   homeaway-on-stored  the same, plus prior-season stored orientation
+ *
+ * The homeaway-on* arms sweep MODEL_CONSTANTS.homeAway.enabled, which ships
+ * false because the factor's +-5% adjustment has never been measured against
+ * anything: no production nfl_games row has ever carried orientation, so the
+ * factor has returned neutral for every projection the engine has produced.
+ * These arms are how that gets measured, and one of them winning is what would
+ * justify turning the gate on - which, per the inert-merge exception in
+ * projectionModel's MODEL_VERSION docblock, is the change that carries the bump
+ * to free_baseline_v3.2. Until orientation data exists for the season being
+ * replayed they score identically to `default`, for the same reason the
+ * stored-history arms do.
  *
  * The xseason-* / stored-homeaway arms sweep the two flags that let the feature
  * builders read the per-week `gameTeam`/`gameOpponent` keys the nflverse
@@ -186,6 +199,21 @@ const CONFIGURATIONS = {
   'xseason-vs': (MODEL) => withHistory(MODEL, { crossSeason: true }, {}),
   'stored-homeaway': (MODEL) => withHistory(MODEL, {}, { useStoredHistory: true }),
   'xseason-both': (MODEL) => withHistory(MODEL, { crossSeason: true }, { useStoredHistory: true }),
+  // The home/away factor's scoring gate (MODEL_CONSTANTS.homeAway.enabled),
+  // which ships false because the ±5% adjustment has never been measured
+  // against anything: no production nfl_games row has ever carried
+  // orientation. These are the arms that measure it, and one of them winning
+  // is what would justify turning the gate on — which, per the inert-merge
+  // exception, is the change that carries the MODEL_VERSION bump to
+  // free_baseline_v3.2.
+  //
+  // `stored-homeaway` above is inert on its own while the gate is off: it
+  // decides which PRIOR-SEASON rows carry an orientation, and none of them
+  // reach a scored factor until `enabled` is true. `homeaway-on-stored`
+  // crosses the two so the sweep can separate "orientation helps" from
+  // "prior-season orientation helps".
+  'homeaway-on': (MODEL) => withHistory(MODEL, {}, { enabled: true }),
+  'homeaway-on-stored': (MODEL) => withHistory(MODEL, {}, { enabled: true, useStoredHistory: true }),
 };
 
 function withBaseline(constants, overrides) {

@@ -557,6 +557,19 @@ test('versusOpponentEffect ignores meetings with no usable baseline', () => {
 // Home / away
 // ---------------------------------------------------------------------------
 
+/**
+ * The shipped home/away constants with the scoring gate switched on. Every
+ * assertion about the FACTOR'S MATH has to go through this, because the shipped
+ * constants deliberately answer "gated off" before any of that math runs.
+ */
+const HOME_AWAY_ON = { ...model.MODEL_CONSTANTS.homeAway, enabled: true };
+
+// A sample so lopsided that any reachable arithmetic would produce a visible
+// effect: 20 against 5, over hundreds of games a side. Nothing below is allowed
+// to move while the gate is off, and "the sample was too thin" is not available
+// as an excuse.
+const RICH_SPLIT = { homeMean: 20, homeGames: 500, awayMean: 5, awayGames: 500 };
+
 test('homeAwayEffect is neutral when orientation is unknown', () => {
   const effect = model.homeAwayEffect({
     isHome: null,
@@ -567,23 +580,85 @@ test('homeAwayEffect is neutral when orientation is unknown', () => {
   assert.match(effect.reason, /unknown/);
 });
 
+test('the home/away factor ships gated off', () => {
+  assert.equal(model.MODEL_CONSTANTS.homeAway.enabled, false);
+  // Shipping false is the whole reason this gate merged without a version
+  // bump: at this value the factor cannot reach the output, so no cached row
+  // is a number this code would decline to reproduce.
+  assert.equal(model.MODEL_VERSION, 'free_baseline_v3.1');
+});
+
+test('the gate off scores nothing, however rich the sample', () => {
+  // Kills the "drop the gate check" mutant: without it this sample scores the
+  // capped +5%, and no production projection has ever carried a home/away
+  // adjustment.
+  for (const isHome of [true, false]) {
+    const effect = model.homeAwayEffect({ isHome, sample: RICH_SPLIT });
+    assert.equal(effect.available, false, `isHome=${isHome}`);
+    assert.equal(effect.effect, 0, `isHome=${isHome}`);
+    assert.equal(effect.reason, 'home/away gated off');
+  }
+});
+
+test('the gate fails CLOSED: constants without the key score nothing', () => {
+  // Kills the "enabled === false" mutant, which would let any constants object
+  // assembled without the key (a sweep arm, a caller with its own thresholds)
+  // switch a never-validated adjustment on by omission.
+  const noKey = { minGamesPerSide: 24, shrinkPseudoGames: 120, maxEffect: 0.05 };
+  const effect = model.homeAwayEffect({ isHome: true, sample: RICH_SPLIT, constants: noKey });
+  assert.equal(effect.available, false);
+  assert.equal(effect.reason, 'home/away gated off');
+});
+
+test('the gate never masks unknown orientation', () => {
+  // Ordering, and the reason it is not cosmetic: today EVERY production row has
+  // a null home_away, so this is the branch every live projection takes. A gate
+  // check placed above the unknown check would rewrite the reason string in
+  // every cached factor payload in production for a factor whose value did not
+  // change. Kills the "check the gate first" mutant.
+  const unknown = model.homeAwayEffect({ isHome: null, sample: RICH_SPLIT });
+  assert.equal(unknown.reason, 'home/away unknown');
+  assert.notEqual(unknown.reason, 'home/away gated off');
+});
+
 test('homeAwayEffect is neutral when the positional sample is thin', () => {
   const effect = model.homeAwayEffect({
     isHome: true,
     sample: { homeMean: 20, homeGames: 3, awayMean: 5, awayGames: 3 },
+    constants: HOME_AWAY_ON,
   });
   assert.equal(effect.available, false);
   assert.equal(effect.effect, 0);
+  assert.equal(effect.reason, 'insufficient home/away sample', 'thin, not merely gated');
 });
 
 test('homeAwayEffect is shrunk and capped with a real sample', () => {
   const effect = model.homeAwayEffect({
     isHome: true,
     sample: { homeMean: 12, homeGames: 100, awayMean: 10, awayGames: 100 },
+    constants: HOME_AWAY_ON,
   });
   assert.equal(effect.available, true);
   assert.ok(effect.effect > 0);
   assert.ok(effect.effect <= model.MODEL_CONSTANTS.homeAway.maxEffect);
+});
+
+test('with the gate on, the factor is exactly what it was before the gate existed', () => {
+  // The gate is a switch, not a re-tune: turning it on must reproduce the
+  // pre-gate arithmetic to the bit, or the sweep that eventually enables it
+  // would be measuring a different factor than the one this file documents.
+  const effect = model.homeAwayEffect({ isHome: true, sample: RICH_SPLIT, constants: HOME_AWAY_ON });
+  const { minGamesPerSide, shrinkPseudoGames, maxEffect } = model.MODEL_CONSTANTS.homeAway;
+  const totalGames = RICH_SPLIT.homeGames + RICH_SPLIT.awayGames;
+  const overall =
+    (RICH_SPLIT.homeMean * RICH_SPLIT.homeGames + RICH_SPLIT.awayMean * RICH_SPLIT.awayGames) / totalGames;
+  const shrunk =
+    (totalGames * (RICH_SPLIT.homeMean / overall) + shrinkPseudoGames) / (totalGames + shrinkPseudoGames);
+  assert.ok(RICH_SPLIT.homeGames >= minGamesPerSide);
+  assert.equal(effect.available, true);
+  assert.equal(effect.effect, Math.min(maxEffect, shrunk - 1));
+  assert.equal(effect.effect, maxEffect, 'a 4x split is capped, which is where the +-5% ceiling bites');
+  assert.equal(effect.games, totalGames);
 });
 
 // ---------------------------------------------------------------------------

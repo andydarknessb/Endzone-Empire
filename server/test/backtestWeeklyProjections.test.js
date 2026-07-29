@@ -205,16 +205,25 @@ test('the older sweeps inherit the usage block untouched', () => {
   }
 });
 
-test('no configuration outside the stored-history sweep opens a stored-history gate', () => {
+test('no configuration outside the schedule-context sweep opens a schedule-context gate', () => {
   const model = require('../services/projectionModel');
   const base = model.MODEL_CONSTANTS;
-  const historySweep = ['xseason-vs', 'stored-homeaway', 'xseason-both'];
+  // The three gates a config may deliberately open: two stored-history reads
+  // and the home/away factor's scoring gate. Every other arm has to leave both
+  // groups exactly as shipped, or a half-life comparison would quietly be a
+  // comparison of something else as well.
+  const scheduleSweep = ['xseason-vs', 'stored-homeaway', 'xseason-both', 'homeaway-on', 'homeaway-on-stored'];
   for (const [name, build] of Object.entries(backtest.CONFIGURATIONS)) {
-    if (historySweep.includes(name) || name === 'default') continue;
+    if (scheduleSweep.includes(name) || name === 'default') continue;
     const constants = build(base);
     assert.deepEqual(constants.versusOpponent, base.versusOpponent, name);
     assert.deepEqual(constants.homeAway, base.homeAway, name);
   }
+  // And the sweep arms really do open exactly the gate they name.
+  assert.equal(backtest.CONFIGURATIONS['homeaway-on'](base).homeAway.enabled, true);
+  assert.equal(backtest.CONFIGURATIONS['homeaway-on'](base).homeAway.useStoredHistory, false);
+  assert.equal(backtest.CONFIGURATIONS['stored-homeaway'](base).homeAway.enabled, false,
+    'the stored-history arm is inert on its own while the scoring gate is shut');
 });
 
 test('the half-life sweep varies the half-life and nothing else', () => {
