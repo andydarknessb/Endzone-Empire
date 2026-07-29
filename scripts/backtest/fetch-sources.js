@@ -57,12 +57,29 @@ const {
   loadFrozenAllowlist,
 } = require('./lib/sourceFetch');
 const { parseCsvHeader } = require('./lib/csv');
-const { SOURCES } = require('./lib/sources');
+const { SOURCES, assertSafeSourceFile } = require('./lib/sources');
 
 const REPO_ROOT = path.join(__dirname, '..', '..');
 const DATA_DIR = path.join(REPO_ROOT, 'backtest-data');
 const SOURCES_DIR = path.join(DATA_DIR, 'sources');
 const PROVENANCE_PATH = path.join(SOURCES_DIR, 'provenance.json');
+
+/**
+ * The ONE place this file turns a registry entry into a path on disk.
+ *
+ * `source.file` is a literal from the frozen registry in `lib/sources.js`, not
+ * an input, and `assertSafeSourceFile` re-proves that it is a bare lowercase
+ * `.csv` basename before the join - so it cannot introduce a separator, a
+ * traversal segment, or an absolute path, and the join is anchored to a
+ * directory this tooling owns besides. Routing all three former call sites
+ * through here means the property is established once instead of argued three
+ * times. Do not relax `assertSafeSourceFile` without revisiting this line.
+ */
+function sourceFilePath(source) {
+  const file = assertSafeSourceFile(source.file, { label: source.name });
+  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
+  return path.join(SOURCES_DIR, file);
+}
 
 function parseArgs(argv) {
   const args = {
@@ -152,7 +169,7 @@ async function fetchOne(source, allowedHosts) {
   if (source.gitBlobSha1) {
     assertGitBlobSha(result.bytes, source.gitBlobSha1, { label: source.name });
   }
-  const target = path.join(SOURCES_DIR, source.file);
+  const target = sourceFilePath(source);
   const written = writeVerified(target, result.bytes, { label: source.name });
   const record = buildProvenanceRecord({
     name: source.name,
@@ -192,7 +209,7 @@ async function runFetch(args) {
     console.log('DRY RUN - would fetch:');
     for (const source of targets) {
       const have = existing.get(source.name);
-      const onDisk = fs.existsSync(path.join(SOURCES_DIR, source.file));
+      const onDisk = fs.existsSync(sourceFilePath(source));
       const skip = have && onDisk && !args.force;
       console.log(`  ${skip ? 'skip  ' : 'fetch '} ${source.name}  ${source.url}`);
     }
@@ -204,7 +221,7 @@ async function runFetch(args) {
   let skipped = 0;
   for (const source of targets) {
     const have = existing.get(source.name);
-    const target = path.join(SOURCES_DIR, source.file);
+    const target = sourceFilePath(source);
     if (have && fs.existsSync(target) && !args.force) {
       readVerified(target, have.sha256, { label: source.name });
       console.log(`  ${source.name}: already pinned, bytes verified (sha256 ${have.sha256})`);
@@ -288,7 +305,7 @@ function runVerify() {
       problems.push(`${source.name}: no provenance record`);
       continue;
     }
-    const target = path.join(SOURCES_DIR, source.file);
+    const target = sourceFilePath(source);
     if (!fs.existsSync(target)) {
       problems.push(`${source.name}: pinned file missing at ${path.relative(REPO_ROOT, target)}`);
       continue;
@@ -327,4 +344,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { parseArgs, DATA_DIR, SOURCES_DIR, PROVENANCE_PATH };
+module.exports = { parseArgs, sourceFilePath, DATA_DIR, SOURCES_DIR, PROVENANCE_PATH };

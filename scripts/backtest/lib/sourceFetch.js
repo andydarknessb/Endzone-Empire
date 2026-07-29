@@ -38,12 +38,28 @@
  *
  * Everything here is pure or explicitly injected: `fetchWithContract` takes its
  * transport as an argument, so the contract is tested without a network.
+ *
+ * Clauses 4, 5 and 6's byte-level half (schema validation, hash verification,
+ * verified write/read) lives in `verifiedBytes.js` and is re-exported here
+ * unchanged. Phase 1 must be able to READ a pinned file without importing a
+ * fetcher — see that file's docblock — and the contract is still one module
+ * from any caller's point of view.
  */
 
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
 const https = require('https');
+
+const {
+  sha256Hex,
+  gitBlobSha1,
+  assertGitBlobSha,
+  assertSha256,
+  assertColumns,
+  writeVerified,
+  readVerified,
+  readProvenanceRecords,
+} = require('./verifiedBytes');
 
 /** Frozen numeric limits. Changing any of these changes the sealed contract. */
 const MAX_REDIRECTS = 5;
@@ -79,53 +95,6 @@ const SIGNING_PARAMS = Object.freeze([
   'actor_id', 'key_id', 'key', 'se', 'sp', 'sv', 'sr', 'st', 'skoid',
   'verify', 'x-goog-signature',
 ]);
-
-// ---------------------------------------------------------------------------
-// Hashing
-// ---------------------------------------------------------------------------
-
-/** Pure: lowercase hex SHA-256 of a byte buffer. */
-function sha256Hex(bytes) {
-  if (!Buffer.isBuffer(bytes)) throw new Error('sha256Hex requires a Buffer');
-  return crypto.createHash('sha256').update(bytes).digest('hex');
-}
-
-/**
- * Pure: git's blob SHA for a byte buffer - sha1("blob <len>\0" + bytes).
- * Matches server/scripts/generate-schedule-manifest.js, deliberately: the
- * games.csv pin is stated as a git commit + blob pair, and the blob SHA is the
- * only hash that can be checked against the repository the pin names.
- */
-function gitBlobSha1(bytes) {
-  if (!Buffer.isBuffer(bytes)) throw new Error('gitBlobSha1 requires a Buffer');
-  return crypto.createHash('sha1')
-    .update(`blob ${bytes.length}\0`)
-    .update(bytes)
-    .digest('hex');
-}
-
-/** Fail loud unless the bytes hash to the pinned git blob SHA. */
-function assertGitBlobSha(bytes, expected, { label = 'file' } = {}) {
-  const actual = gitBlobSha1(bytes);
-  if (actual !== expected) {
-    throw new Error(
-      `${label}: bytes do not match the pinned git blob SHA (hashes to ${actual}, pinned ${expected}) - ` +
-      'refusing to accept bytes that are not the named revision'
-    );
-  }
-  return actual;
-}
-
-/** Fail loud unless the bytes hash to the expected SHA-256. */
-function assertSha256(bytes, expected, { label = 'file' } = {}) {
-  const actual = sha256Hex(bytes);
-  if (actual !== expected) {
-    throw new Error(
-      `${label}: bytes do not match the pinned SHA-256 (hashes to ${actual}, pinned ${expected})`
-    );
-  }
-  return actual;
-}
 
 // ---------------------------------------------------------------------------
 // URL policy
@@ -319,69 +288,6 @@ async function fetchWithContract({
 }
 
 // ---------------------------------------------------------------------------
-// Schema
-// ---------------------------------------------------------------------------
-
-/**
- * Fail loud unless every required column is present in the header. Extra
- * columns are fine and expected (nflverse adds columns between releases); a
- * MISSING one means a preregistered rule has lost its input.
- */
-function assertColumns({ header, requiredColumns, label = 'file' }) {
-  const present = new Set(header || []);
-  const missing = (requiredColumns || []).filter((c) => !present.has(c));
-  if (missing.length > 0) {
-    throw new Error(
-      `${label}: schema validation failed, missing column(s) ${missing.join(', ')} ` +
-      `(header has ${present.size} columns)`
-    );
-  }
-  const duplicates = [...(header || []).reduce((acc, name) => {
-    acc.set(name, (acc.get(name) || 0) + 1);
-    return acc;
-  }, new Map())].filter(([, n]) => n > 1).map(([name]) => name);
-  if (duplicates.length > 0) {
-    throw new Error(`${label}: schema validation failed, duplicate column name(s) ${duplicates.join(', ')}`);
-  }
-  return true;
-}
-
-// ---------------------------------------------------------------------------
-// Storage
-// ---------------------------------------------------------------------------
-
-/**
- * Write bytes and prove the file on disk hashes to what was written. Writing
- * then re-reading catches the whole class of "the bytes on disk are not the
- * bytes we verified" faults (a truncated write, a text-mode translation, an
- * antivirus rewrite) at the moment they happen instead of three phases later.
- */
-function writeVerified(filePath, bytes, { label = path.basename(String(filePath)) } = {}) {
-  if (!Buffer.isBuffer(bytes)) throw new Error(`${label}: writeVerified requires a Buffer`);
-  const expected = sha256Hex(bytes);
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, bytes);
-  const readBack = fs.readFileSync(filePath);
-  const actual = sha256Hex(readBack);
-  if (actual !== expected) {
-    throw new Error(
-      `${label}: file on disk hashes to ${actual} but the bytes written hash to ${expected}`
-    );
-  }
-  return { sha256: expected, byteLength: bytes.length };
-}
-
-/** Read a pinned file and verify its bytes against the recorded SHA-256. */
-function readVerified(filePath, expectedSha256, { label = path.basename(String(filePath)) } = {}) {
-  if (!expectedSha256) {
-    throw new Error(`${label}: refusing to read a pinned source without an expected SHA-256`);
-  }
-  const bytes = fs.readFileSync(filePath);
-  assertSha256(bytes, expectedSha256, { label });
-  return bytes;
-}
-
-// ---------------------------------------------------------------------------
 // Provenance
 // ---------------------------------------------------------------------------
 
@@ -477,6 +383,7 @@ module.exports = {
   assertColumns,
   writeVerified,
   readVerified,
+  readProvenanceRecords,
   buildProvenanceRecord,
   allowlistFromProvenance,
   loadFrozenAllowlist,

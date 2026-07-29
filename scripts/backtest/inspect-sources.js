@@ -34,7 +34,7 @@ const path = require('path');
 
 const { readVerified, assertColumns } = require('./lib/sourceFetch');
 const { collectColumns, parseCsvHeader } = require('./lib/csv');
-const { SOURCES } = require('./lib/sources');
+const { SOURCES, assertSafeSourceFile } = require('./lib/sources');
 const {
   GSIS_PATTERN,
   ESPN_PATTERN,
@@ -197,7 +197,15 @@ function main() {
   for (const source of targets) {
     const record = byName.get(source.name);
     if (!record) throw new Error(`${source.name}: no provenance record; refusing to inspect unpinned bytes`);
-    const bytes = readVerified(path.join(SOURCES_DIR, source.file), record.sha256, { label: source.name });
+    // `source.file` is a literal from the frozen registry, re-proved to be a
+    // bare lowercase `.csv` basename before the join, so it cannot introduce a
+    // separator, a traversal segment, or an absolute path; the join is anchored
+    // to a directory this tooling owns besides. Same discipline as
+    // fetch-sources.sourceFilePath. Do not relax assertSafeSourceFile without
+    // revisiting this line.
+    const file = assertSafeSourceFile(source.file, { label: source.name });
+    // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
+    const bytes = readVerified(path.join(SOURCES_DIR, file), record.sha256, { label: source.name });
     const { report, rows } = buildSourceReport(source, bytes.toString('utf8'));
     report.provenance = {
       url: record.url,

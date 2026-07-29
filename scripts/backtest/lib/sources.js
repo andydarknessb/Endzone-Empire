@@ -31,6 +31,15 @@ const NFLVERSE_RELEASE_BASE = 'https://github.com/nflverse/nflverse-data/release
 /** The games.csv pin: nflverse/nfldata at this commit, this blob. */
 const GAMES_CSV_COMMIT = 'b19514f50ba4675e128c21c818592b4d92061a8f';
 const GAMES_CSV_BLOB = '4f1edd10f607152ad3a8a3286aac567929781c42';
+/**
+ * The SHA-256 of games.csv's exact bytes, from the sealed preregistration's
+ * pinned-source table (section 1.3). The blob SHA above is what ties the file
+ * to the revision it names; this hash is what lets a later phase ask "are these
+ * the pinned bytes?" without reading the provenance file, which matters for
+ * checks that must decide whether a preregistered per-season game count applies
+ * to the source in front of them or whether they are looking at a fixture.
+ */
+const GAMES_CSV_SHA256 = '9b512fecf7c73a7680006259118411c75f01b3762100f776d96400e7284a94fe';
 const GAMES_CSV_URL =
   `https://raw.githubusercontent.com/nflverse/nfldata/${GAMES_CSV_COMMIT}/data/games.csv`;
 
@@ -74,6 +83,43 @@ const PLAYERS_REQUIRED = Object.freeze(['gsis_id', 'espn_id']);
 
 function releaseUrl(tag, file) {
   return `${NFLVERSE_RELEASE_BASE}/${tag}/${file}`;
+}
+
+/**
+ * The ONLY shape a pinned source's on-disk name may take: a lowercase CSV
+ * basename. No directory separator, no drive letter, no traversal segment, no
+ * leading dot.
+ *
+ * Every `path.join(<some sources dir>, source.file)` in this tree is anchored
+ * to a directory the tooling owns and joined with a name that came from the
+ * frozen registry below rather than from any input, so a traversal was never
+ * reachable. This function makes that a CHECKED property rather than an
+ * argument about where the string came from: if a future edit ever puts a
+ * computed name in the registry, the module fails to load instead of writing
+ * outside `backtest-data/`.
+ *
+ * The pattern is an allowlist, and the two explicit rejections after it are
+ * redundant with it on purpose - they name the two failure modes a reader
+ * cares about, so a regex typo that widened the allowlist would still be
+ * caught.
+ */
+const SAFE_SOURCE_FILE = /^[a-z0-9][a-z0-9_]*\.csv$/;
+
+function assertSafeSourceFile(file, { label = 'source file' } = {}) {
+  const name = String(file == null ? '' : file);
+  if (!SAFE_SOURCE_FILE.test(name)) {
+    throw new Error(
+      `${label}: ${JSON.stringify(name)} is not a bare lowercase .csv basename ` +
+      `(required shape ${SAFE_SOURCE_FILE}) - refusing to build a path from it`
+    );
+  }
+  if (name.includes('/') || name.includes('\\')) {
+    throw new Error(`${label}: ${JSON.stringify(name)} contains a path separator`);
+  }
+  if (name.split('.').includes('..') || name.includes('..')) {
+    throw new Error(`${label}: ${JSON.stringify(name)} contains a traversal segment`);
+  }
+  return name;
 }
 
 /**
@@ -140,6 +186,11 @@ const SOURCES = Object.freeze([
   },
 ]);
 
+// Validated once, at module load, so a bad registry entry can never reach a
+// path.join anywhere downstream - including in Phase 1, which reads these same
+// archived files back.
+for (const source of SOURCES) assertSafeSourceFile(source.file, { label: source.name });
+
 function sourceByName(name) {
   const found = SOURCES.find((s) => s.name === name);
   if (!found) {
@@ -152,8 +203,11 @@ module.exports = {
   NFLVERSE_RELEASE_BASE,
   GAMES_CSV_COMMIT,
   GAMES_CSV_BLOB,
+  GAMES_CSV_SHA256,
   GAMES_CSV_URL,
   BACKTEST_SEASONS,
+  SAFE_SOURCE_FILE,
   SOURCES,
   sourceByName,
+  assertSafeSourceFile,
 };
