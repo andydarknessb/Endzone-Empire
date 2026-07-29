@@ -13,8 +13,8 @@
   "deadlineOverrides": {
     "18": {
       "captureNotAfter": "2027-01-09T18:00:00.000Z",
-      "reason": "NFL 2026 flexible scheduling reserves up to three Week 18 games for Saturday 2027-01-09 beginning 1:00 p.m. ET, assigned only after Week 17; the source carries placeholder Sunday times until then.",
-      "authority": "https://www.nfl.com/_amp/2026-flexible-scheduling-procedures-and-scheduling-for-week-18",
+      "reason": "The official NFL Week 18 schedule lists three Saturday games on 2027-01-09 at 1:00, 4:30, and 8:00 p.m. ET, with assignments made after Week 17; the source carries placeholder Sunday times until then.",
+      "authority": "https://www.nfl.com/schedules/2026/by-week/week-18",
       "sourceDerived": "2027-01-10T18:00:00.000Z"
     }
   },
@@ -1400,5 +1400,5 @@
       "home": "WAS"
     }
   ],
-  "digest": "61396fd2b09bdf0996bb2468bc3205ec9cb6d629b0733d63811718b95df8f176"
+  "digest": "2a0e793d930d3f790a18273e495827459dbbd3d78c073b98b2d966e8c731e19a"
 }

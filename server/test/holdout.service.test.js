@@ -1169,12 +1169,17 @@ test('the committed 2026 manifest verifies, pins its source, and covers all 18 d
   // (UTC-4), week 18's dates are EST (UTC-5).
   assert.equal(manifest.captureNotAfter['1'], '2026-09-10T00:20:00.000Z');
   // Week 18 must close at the SATURDAY reserve (Jan 9, 1:00 p.m. ET) - the
-  // league can assign up to three games there after Week 17, and the
-  // source's Sunday times are placeholders until then.
+  // official Week 18 schedule lists three Saturday games there, assigned
+  // after Week 17, and the source's Sunday times are placeholders until
+  // then. The authority is pinned EXACTLY: it must be the page that states
+  // the slot the cutoff asserts.
   assert.equal(manifest.captureNotAfter['18'], '2027-01-09T18:00:00.000Z');
   assert.equal(manifest.deadlineOverrides['18'].captureNotAfter, '2027-01-09T18:00:00.000Z');
   assert.equal(manifest.deadlineOverrides['18'].sourceDerived, '2027-01-10T18:00:00.000Z');
-  assert.match(manifest.deadlineOverrides['18'].authority, /nfl\.com/);
+  assert.equal(
+    manifest.deadlineOverrides['18'].authority,
+    'https://www.nfl.com/schedules/2026/by-week/week-18'
+  );
 });
 
 test('a week the sync lost entirely is still ATTEMPTED on the manifest schedule, and fails durably', async (t) => {
