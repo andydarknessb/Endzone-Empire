@@ -48,11 +48,27 @@
  * orientation changes an input the weekly projection engine reads, so every
  * cached run for the season under the current model is dropped. It is dropped
  * rather than regenerated for exactly the reasons invalidateWeeklyProjectionRuns
- * documents. The append-only holdout ledger (`projection_snapshots`,
- * `projection_snapshot_players`, `holdout_capture_status`) is never touched;
- * `assertNotHoldoutSql` refuses to send a statement that so much as names one,
- * so the database's own rejection triggers stay a second line of defence rather
- * than the first.
+ * documents.
+ *
+ * The append-only holdout ledger, in both halves, because only one of them is
+ * about writes:
+ *
+ * - This script never WRITES to `projection_snapshots`,
+ *   `projection_snapshot_players` or `holdout_capture_status`.
+ *   `assertNotHoldoutSql` refuses to send a statement that so much as names
+ *   one, so the tables' own rejection triggers stay a second line of defence
+ *   rather than the first.
+ * - It does, however, change the EVIDENCE those rows certify. A snapshot's
+ *   `schedule_hash` is built from `game_key` among other columns
+ *   (holdout.service.validateSchedule), so filling `game_key` moves the hash
+ *   for every week of the repaired season. A snapshot taken BEFORE the repair
+ *   would then fail the provenance check on its next capture pass - a hard
+ *   throw, a failed status row, and a 503 on /api/health/holdout - instead of
+ *   the already-complete skip. There is no way to repair that from here and no
+ *   honest way to rewrite an append-only ledger, so the repair refuses to run
+ *   at all once the season's first capture window has opened
+ *   (`assertBeforeCaptureWindow`). The sequencing constraint is enforced, not
+ *   documented and hoped for.
  *
  * Note on what this does NOT do: filling orientation does not activate the
  * home/away factor. That is gated by MODEL_CONSTANTS.homeAway.enabled, which
@@ -63,9 +79,25 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
+// The environment, BEFORE any require below can reach `modules/pool`. This
+// ordering is load-bearing and not stylistic: pool builds its pg.Pool at
+// MODULE-EVALUATION time out of process.env, and `nflverseSync.service` pulls
+// it in transitively. dotenv arriving afterwards leaves that pool silently
+// pointed at the local development defaults (host localhost, database
+// endzone_empire) while every line after it reports a successful repair
+// against a database nobody meant to touch - the one failure mode a one-shot
+// authorized repair cannot survive, because it also reports itself as done.
+// `require.main` guards it so importing this module for tests has no
+// environment side effect, and `assertPoolMatchesEnvironment` re-checks the
+// OUTCOME at run time rather than trusting this comment to stay true.
+if (require.main === module) {
+  require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
+}
+
 const { parseCsv, buildScheduleRows } = require('../services/nflverseSync.service');
 const { normalizeTeamKey } = require('../services/projectionFeatures');
 const { verifySeasonManifest, TOTAL_GAMES } = require('../services/scheduleManifest');
+const { CAPTURE_WINDOW_HOURS } = require('../services/holdout.service');
 const model = require('../services/projectionModel');
 
 /**
@@ -108,6 +140,99 @@ function assertNotHoldoutSql(sql) {
     }
   }
   return true;
+}
+
+/**
+ * Pure: refuse a connection pool that was built before the environment was.
+ *
+ * The require-order comment at the top of this file is a claim about a thing
+ * that is easy to break and impossible to notice: `modules/pool` falls back to
+ * localhost/endzone_empire when DATABASE_URL was not yet in process.env, and a
+ * repair run against a local development copy prints exactly the same
+ * "verification: OK / COMMITTED" an operator is waiting to see. This turns that
+ * claim into a check on the object that actually got built, so a future edit
+ * that moves a require cannot quietly reintroduce it.
+ *
+ * An environment with no DATABASE_URL at all is left alone: the standard PG*
+ * variables are a legitimate way to reach a database, and this guard's job is
+ * to catch a pool that DISAGREES with the configuration, not to have opinions
+ * about how the configuration was spelled.
+ */
+function assertPoolMatchesEnvironment(pool, env = process.env) {
+  const configured = (env && (env.DATABASE_URL_RUNTIME || env.DATABASE_URL)) || null;
+  if (!configured) return true;
+  const options = (pool && pool.options) || {};
+  if (options.connectionString !== configured) {
+    throw new Error(
+      'the connection pool was built before the environment was loaded: DATABASE_URL names a database ' +
+      `this pool is not connected to (it targets host ${options.host || 'unknown'} / database ` +
+      `${options.database || 'unknown'}) - refusing to report a repair against the wrong database`
+    );
+  }
+  return true;
+}
+
+/**
+ * Pure: refuse to run once the season's first holdout capture window has
+ * opened.
+ *
+ * The coupling this enforces is indirect and therefore easy to miss. Filling
+ * `game_key` changes the `schedule_hash` a holdout snapshot stores as its
+ * schedule provenance, so a snapshot written before the repair would fail its
+ * next capture pass with a provenance mismatch. The ledger is append-only by
+ * design: there is nothing to fix afterwards, which makes this a pre-flight
+ * question or nothing at all.
+ *
+ * Derived entirely from the manifest this script already loads, so it needs no
+ * read of any holdout table and `assertNotHoldoutSql` stays intact. The bound
+ * is the EARLIEST `captureNotAfter` in the season (week 1's, by construction,
+ * but taken as a minimum rather than assumed) less CAPTURE_WINDOW_HOURS, which
+ * is how far ahead of a deadline holdout.captureDueSnapshots starts looking for
+ * work. That constant is imported rather than copied: if the window widens, the
+ * refusal has to widen with it.
+ *
+ * There is deliberately no override flag. A repair that would invalidate stored
+ * evidence is not a thing to make easier to do anyway.
+ */
+function assertBeforeCaptureWindow(manifest, now = new Date()) {
+  const deadlines = Object.values((manifest && manifest.captureNotAfter) || {})
+    .map((iso) => new Date(iso).getTime())
+    .filter((t) => Number.isFinite(t));
+  if (deadlines.length === 0) {
+    throw new Error(
+      `the ${manifest && manifest.season} manifest carries no captureNotAfter deadlines, so there is no way ` +
+      'to tell whether holdout snapshots may already exist - refusing to repair blind'
+    );
+  }
+  const firstDeadline = new Date(Math.min(...deadlines));
+  const opensAt = new Date(firstDeadline.getTime() - CAPTURE_WINDOW_HOURS * 3600 * 1000);
+  if (now.getTime() >= opensAt.getTime()) {
+    throw new Error(
+      `the ${manifest.season} holdout capture window opened at ${opensAt.toISOString()} ` +
+      `(week 1 captureNotAfter ${firstDeadline.toISOString()} less ${CAPTURE_WINDOW_HOURS}h), so a snapshot ` +
+      'may already record this season\'s schedule provenance. Filling game_key would change the schedule_hash ' +
+      'those rows were written against, and the ledger is append-only - refusing to invalidate stored evidence'
+    );
+  }
+  return { opensAt, firstCaptureNotAfter: firstDeadline };
+}
+
+/**
+ * Pure: which pinned revision the CSV will be checked against.
+ *
+ * The digest is verified FIRST, before a single field of the manifest is used.
+ * A tampered manifest that supplied a bogus blob SHA would otherwise surface
+ * one step later as "games.csv does not match the pinned blob", which points
+ * the operator at the one file that is not the problem.
+ */
+function resolvePinnedSource(manifest, { commit = null, blob = null } = {}) {
+  verifySeasonManifest(manifest);
+  const source = manifest.source || {};
+  const resolved = { commit: commit || source.commit || null, blob: blob || source.blobSha || null };
+  if (!resolved.commit || !resolved.blob) {
+    throw new Error('no pinned revision: the manifest records none and none was passed with --commit/--blob');
+  }
+  return resolved;
 }
 
 /** Pure: git's blob SHA for a byte buffer - sha1("blob <len>\0" + bytes). */
@@ -448,9 +573,19 @@ function summarizeConflicts(conflicts) {
 // ---------------------------------------------------------------------------
 
 function parseArgs(argv) {
+  // A flag whose value is missing takes the NEXT FLAG as its value if nobody
+  // stops it, and `--csv --apply` then reads as "repair from a file called
+  // --apply", dry run, exit 0. That is a typo silently turning a write into a
+  // no-op, which for a one-shot repair is the same failure as a write into the
+  // wrong database: the operator is told it went fine.
   const flag = (name) => {
     const i = argv.indexOf(`--${name}`);
-    return i >= 0 ? argv[i + 1] : null;
+    if (i < 0) return null;
+    const value = argv[i + 1];
+    if (value === undefined || String(value).startsWith('--')) {
+      throw new Error(`--${name} requires a value`);
+    }
+    return value;
   };
   return {
     csv: flag('csv'),
@@ -461,7 +596,7 @@ function parseArgs(argv) {
   };
 }
 
-async function main(argv) {
+async function main(argv, { now = new Date() } = {}) {
   const args = parseArgs(argv);
   if (!args.csv) {
     throw new Error('required: --csv <path to the pinned nflverse games.csv>');
@@ -472,12 +607,17 @@ async function main(argv) {
   // The manifest's own recorded provenance is the default pin, so the ordinary
   // invocation cannot repair from a revision the manifest never saw. An
   // explicit --commit/--blob is still accepted, and still has to survive the
-  // identity cross-check below.
-  const commit = args.commit || (manifest.source && manifest.source.commit);
-  const blob = args.blob || (manifest.source && manifest.source.blobSha);
-  if (!commit || !blob) {
-    throw new Error('no pinned revision: the manifest records none and none was passed with --commit/--blob');
-  }
+  // identity cross-check below. The digest is checked inside, before either
+  // field is read.
+  const { commit, blob } = resolvePinnedSource(manifest, args);
+
+  // Before anything is read from disk, let alone written: a repair after the
+  // first capture window has opened would invalidate schedule provenance that
+  // an append-only ledger has no way to restate.
+  const window = assertBeforeCaptureWindow(manifest, now);
+  console.log(
+    `holdout capture for ${args.season} opens ${window.opensAt.toISOString()}; repairing before it`
+  );
 
   const csvBytes = fs.readFileSync(args.csv);
   assertPinnedCsv(csvBytes, blob);
@@ -495,8 +635,10 @@ async function main(argv) {
     `(${expectedNeutralGames * ROWS_PER_GAME} rows)`
   );
 
-  require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
+  // dotenv already ran at the top of this file, before the requires that build
+  // this pool. The assertion is what proves it still does.
   const pool = require('../modules/pool');
+  assertPoolMatchesEnvironment(pool);
   const client = await pool.connect();
   const query = (sql, values) => {
     assertNotHoldoutSql(sql);
@@ -586,6 +728,13 @@ async function main(argv) {
     // under the CURRENT model was computed from a schedule that no longer
     // matches the one on disk. Older model versions are unreachable through
     // findRun already and are somebody else's cleanup.
+    //
+    // A plan with nothing in it invalidates nothing. Everything here is one
+    // transaction, so a run that wrote rows and then failed took the rows back
+    // with it: an empty plan really does mean the schedule this cache was built
+    // from is the schedule still on disk, and dropping a season of warm cache
+    // to re-derive identical numbers is a cost with no purchase.
+    const changedSomething = plan.updates.length > 0;
     const staleRuns = await query(
       `SELECT COUNT(*)::int AS "runs" FROM "projection_runs"
        WHERE "season" = $1 AND "model_version" = $2`,
@@ -606,25 +755,40 @@ async function main(argv) {
     const cascades = fk.rows.length > 0 && fk.rows.every((r) => r.confdeltype === 'c');
     console.log(`player_week_projections -> projection_runs cascades on delete: ${cascades}`);
 
+    if (!changedSomething) {
+      console.log(
+        `no rows changed, so the ${staleRuns.rows[0].runs} cached run(s) were computed from this exact ` +
+        'schedule and are left in place'
+      );
+    }
+
     if (args.apply) {
-      if (!cascades) {
-        const children = await query(
-          `DELETE FROM "player_week_projections"
-           WHERE "run_id" IN (SELECT "id" FROM "projection_runs" WHERE "season" = $1 AND "model_version" = $2)`,
+      if (changedSomething) {
+        if (!cascades) {
+          const children = await query(
+            `DELETE FROM "player_week_projections"
+             WHERE "run_id" IN (SELECT "id" FROM "projection_runs" WHERE "season" = $1 AND "model_version" = $2)`,
+            [args.season, model.MODEL_VERSION]
+          );
+          console.log(`no ON DELETE CASCADE: deleted ${children.rowCount} player_week_projections rows explicitly`);
+        }
+        const deleted = await query(
+          `DELETE FROM "projection_runs" WHERE "season" = $1 AND "model_version" = $2`,
           [args.season, model.MODEL_VERSION]
         );
-        console.log(`no ON DELETE CASCADE: deleted ${children.rowCount} player_week_projections rows explicitly`);
+        console.log(`invalidated ${deleted.rowCount} cached run(s)${cascades ? ' (children cascaded)' : ''}`);
       }
-      const deleted = await query(
-        `DELETE FROM "projection_runs" WHERE "season" = $1 AND "model_version" = $2`,
-        [args.season, model.MODEL_VERSION]
-      );
-      console.log(`invalidated ${deleted.rowCount} cached run(s)${cascades ? ' (children cascaded)' : ''}`);
       await query('COMMIT');
       committed = true;
-      console.log(`COMMITTED: ${args.season} schedule orientation repaired`);
+      console.log(
+        `COMMITTED: ${args.season} schedule orientation ${changedSomething ? 'repaired' : 'already correct, nothing written'}`
+      );
     } else {
-      console.log(`dry run: would invalidate ${staleRuns.rows[0].runs} cached run(s)${cascades ? ' (children cascade)' : ''}`);
+      console.log(
+        changedSomething
+          ? `dry run: would invalidate ${staleRuns.rows[0].runs} cached run(s)${cascades ? ' (children cascade)' : ''}`
+          : 'dry run: would invalidate nothing'
+      );
       await query('ROLLBACK');
       console.log('DRY RUN - nothing was written. Re-run with --apply to commit.');
     }
@@ -650,7 +814,11 @@ module.exports = {
   REPAIR_COLUMNS,
   ROWS_PER_GAME,
   FORBIDDEN_TABLES,
+  CAPTURE_WINDOW_HOURS,
   assertNotHoldoutSql,
+  assertPoolMatchesEnvironment,
+  assertBeforeCaptureWindow,
+  resolvePinnedSource,
   gitBlobSha,
   assertPinnedCsv,
   desiredOrientation,

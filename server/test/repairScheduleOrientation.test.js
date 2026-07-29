@@ -5,6 +5,7 @@ const path = require('path');
 const crypto = require('crypto');
 
 const repair = require('../scripts/repair-schedule-orientation');
+const holdout = require('../services/holdout.service');
 const { normalizeTeamKey } = require('../services/projectionFeatures');
 const { computeManifestDigest, TOTAL_GAMES } = require('../services/scheduleManifest');
 
@@ -407,6 +408,144 @@ test('the script is dry-run by default and needs --apply to write', () => {
   assert.equal(repair.parseArgs(['--csv', 'g.csv']).commit, null, 'the manifest supplies the default pin');
 });
 
+test('a flag with no value is an error, not the next flag swallowed', () => {
+  // `--csv --apply` would otherwise repair from a file named "--apply", find
+  // nothing, and exit 0 having quietly dropped the write. Kills the
+  // "argv[i + 1] unconditionally" mutant.
+  assert.throws(() => repair.parseArgs(['--csv', '--apply']), /--csv requires a value/);
+  assert.throws(() => repair.parseArgs(['--csv']), /--csv requires a value/);
+  assert.throws(() => repair.parseArgs(['--csv', 'g.csv', '--season', '--apply']), /--season requires a value/);
+  assert.equal(repair.parseArgs(['--csv', 'g.csv', '--apply']).csv, 'g.csv', 'a real value still parses');
+});
+
 test('the repair refuses to run without a source file', async () => {
   await assert.rejects(repair.main([]), /required: --csv/);
+});
+
+// ---------------------------------------------------------------------------
+// Bootstrap: the environment must be loaded before anything builds a pool
+// ---------------------------------------------------------------------------
+
+test('dotenv runs before any require that can reach modules/pool', () => {
+  // modules/pool builds its pg.Pool at module-evaluation time out of
+  // process.env, and nflverseSync.service pulls it in transitively. dotenv
+  // arriving after those requires leaves the pool on the local development
+  // defaults while the script reports a successful repair against it - which,
+  // for a one-shot authorized repair, also records the repair as done.
+  // Static, because require order is a property of the file, not of a call.
+  // Kills the "dotenv inside main" mutant.
+  const source = fs.readFileSync(
+    path.join(__dirname, '..', 'scripts', 'repair-schedule-orientation.js'), 'utf8'
+  );
+  const dotenvAt = source.indexOf("require('dotenv')");
+  const firstServiceAt = source.indexOf("require('../services/");
+  const poolAt = source.indexOf("require('../modules/pool')");
+  assert.ok(dotenvAt > 0, 'the script loads dotenv at all');
+  assert.ok(firstServiceAt > 0 && poolAt > 0, 'located both requires');
+  assert.ok(dotenvAt < firstServiceAt, 'dotenv must precede the service requires that pull in the pool');
+  assert.ok(dotenvAt < poolAt, 'dotenv must precede the pool require');
+  // Exactly one dotenv call: a second one later would read as belt-and-braces
+  // while doing nothing, since the pool it needed to precede is already built.
+  assert.equal(source.split("require('dotenv')").length - 1, 1);
+});
+
+test('a pool built before the environment is refused, not used', () => {
+  // The runtime half of the same guard: it checks the object that actually got
+  // built rather than trusting the require order to stay put.
+  const env = { DATABASE_URL: 'postgres://user@prod.example/endzone' };
+  assert.throws(
+    () => repair.assertPoolMatchesEnvironment({ options: { host: 'localhost', database: 'endzone_empire' } }, env),
+    /built before the environment was loaded/,
+    'kills the "assume the pool is right" mutant'
+  );
+  assert.equal(
+    repair.assertPoolMatchesEnvironment({ options: { connectionString: env.DATABASE_URL } }, env),
+    true
+  );
+  // DATABASE_URL_RUNTIME wins, the same way modules/pool reads it.
+  const runtime = { DATABASE_URL_RUNTIME: 'postgres://runtime', DATABASE_URL: 'postgres://other' };
+  assert.throws(() => repair.assertPoolMatchesEnvironment({ options: { connectionString: runtime.DATABASE_URL } }, runtime), /built before/);
+  assert.equal(repair.assertPoolMatchesEnvironment({ options: { connectionString: runtime.DATABASE_URL_RUNTIME } }, runtime), true);
+  // No DATABASE_URL at all is a legitimate PG* configuration, not a fault.
+  assert.equal(repair.assertPoolMatchesEnvironment({ options: { host: 'localhost' } }, {}), true);
+});
+
+// ---------------------------------------------------------------------------
+// Holdout sequencing: the repair invalidates evidence it cannot restate
+// ---------------------------------------------------------------------------
+
+const CAPTURE_OPENS = new Date(
+  new Date(MANIFEST.captureNotAfter['1']).getTime() - repair.CAPTURE_WINDOW_HOURS * 3600 * 1000
+);
+
+test('the repair refuses to run once the capture window has opened', () => {
+  // Filling game_key moves the schedule_hash a holdout snapshot stores as its
+  // schedule provenance, and the ledger is append-only: a snapshot written
+  // before the repair would fail its next capture pass with a provenance
+  // mismatch, a failed status row and a 503 on /api/health/holdout. There is
+  // nothing to fix afterwards, so the question is asked before anything is
+  // read. Kills the "no sequencing guard" mutant.
+  const before = repair.assertBeforeCaptureWindow(MANIFEST, new Date(CAPTURE_OPENS.getTime() - 1000));
+  assert.equal(before.opensAt.getTime(), CAPTURE_OPENS.getTime());
+  assert.equal(before.firstCaptureNotAfter.toISOString(), MANIFEST.captureNotAfter['1']);
+
+  for (const at of [CAPTURE_OPENS, new Date(CAPTURE_OPENS.getTime() + 1000), new Date('2027-06-01T00:00:00Z')]) {
+    assert.throws(
+      () => repair.assertBeforeCaptureWindow(MANIFEST, at),
+      /holdout capture window opened/,
+      `must refuse at ${at.toISOString()}`
+    );
+  }
+});
+
+test('the window bound is the manifest\'s own earliest deadline, not a date in this file', () => {
+  // A manifest whose week 1 deadline is already past must refuse at a moment
+  // the real one still allows, or the guard is reading something other than the
+  // manifest it was handed. Kills the "hardcode the 2026 date" mutant.
+  const past = {
+    ...MANIFEST,
+    captureNotAfter: { ...MANIFEST.captureNotAfter, 1: '2020-09-10T00:20:00.000Z' },
+  };
+  const stillFineForTheRealSeason = new Date(CAPTURE_OPENS.getTime() - 86400000);
+  repair.assertBeforeCaptureWindow(MANIFEST, stillFineForTheRealSeason);
+  assert.throws(() => repair.assertBeforeCaptureWindow(past, stillFineForTheRealSeason), /holdout capture window opened/);
+
+  // The bound is the MINIMUM deadline, so a season whose earliest window is not
+  // week 1's is still handled. Kills the "read captureNotAfter['1'] directly"
+  // mutant.
+  const outOfOrder = { ...MANIFEST, captureNotAfter: { ...MANIFEST.captureNotAfter, 12: '2020-11-26T01:00:00.000Z' } };
+  assert.throws(() => repair.assertBeforeCaptureWindow(outOfOrder, stillFineForTheRealSeason), /holdout capture window opened/);
+
+  // And the 24h window is imported from the holdout service rather than copied.
+  assert.equal(repair.CAPTURE_WINDOW_HOURS, holdout.CAPTURE_WINDOW_HOURS);
+  assert.throws(
+    () => repair.assertBeforeCaptureWindow({ season: 2026, captureNotAfter: {} }, new Date('2026-01-01T00:00:00Z')),
+    /no captureNotAfter deadlines/,
+    'a manifest that cannot say is not a manifest that says yes'
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Pinned-source resolution
+// ---------------------------------------------------------------------------
+
+test('the manifest proves itself BEFORE its recorded pin is used', () => {
+  assert.deepEqual(
+    repair.resolvePinnedSource(MANIFEST, {}),
+    { commit: MANIFEST.source.commit, blob: MANIFEST.source.blobSha }
+  );
+  assert.deepEqual(
+    repair.resolvePinnedSource(MANIFEST, { commit: 'abc', blob: 'def' }),
+    { commit: 'abc', blob: 'def' },
+    'an explicit pin still overrides, and still faces the identity cross-check'
+  );
+  // A tampered manifest must be named as tampered. Reading its `source` first
+  // would refuse the CSV for "not matching its pinned blob", pointing the
+  // operator at the one file that is not the problem. Kills the "resolve the
+  // pin, verify later" mutant.
+  const tampered = {
+    ...MANIFEST,
+    source: { ...MANIFEST.source, blobSha: '0'.repeat(40), commit: '1'.repeat(40) },
+  };
+  assert.throws(() => repair.resolvePinnedSource(tampered, {}), /fails its digest check/);
 });
