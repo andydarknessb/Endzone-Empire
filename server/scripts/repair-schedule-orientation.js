@@ -899,6 +899,7 @@ async function main(argv, { now = new Date() } = {}) {
   // parseArgs returns, so this interpolation cannot introduce a separator, a
   // traversal segment, or an absolute path, and the join is anchored to
   // __dirname besides. Do not relax parseSeason without revisiting this line.
+  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
   const manifestPath = path.join(__dirname, '..', 'data', `nfl-schedule-${args.season}.json`);
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   // The manifest's own recorded provenance is the default pin, so the ordinary
