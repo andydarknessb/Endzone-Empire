@@ -1,0 +1,547 @@
+{
+  "categorical": {
+    "position": [
+      {
+        "count": 22,
+        "value": ""
+      },
+      {
+        "count": 159,
+        "value": "C"
+      },
+      {
+        "count": 2120,
+        "value": "CB"
+      },
+      {
+        "count": 402,
+        "value": "DB"
+      },
+      {
+        "count": 1575,
+        "value": "DE"
+      },
+      {
+        "count": 29,
+        "value": "DL"
+      },
+      {
+        "count": 1636,
+        "value": "DT"
+      },
+      {
+        "count": 73,
+        "value": "FB"
+      },
+      {
+        "count": 262,
+        "value": "FS"
+      },
+      {
+        "count": 306,
+        "value": "G"
+      },
+      {
+        "count": 96,
+        "value": "ILB"
+      },
+      {
+        "count": 569,
+        "value": "K"
+      },
+      {
+        "count": 2552,
+        "value": "LB"
+      },
+      {
+        "count": 66,
+        "value": "LS"
+      },
+      {
+        "count": 156,
+        "value": "MLB"
+      },
+      {
+        "count": 71,
+        "value": "NT"
+      },
+      {
+        "count": 10,
+        "value": "OL"
+      },
+      {
+        "count": 262,
+        "value": "OLB"
+      },
+      {
+        "count": 536,
+        "value": "OT"
+      },
+      {
+        "count": 559,
+        "value": "P"
+      },
+      {
+        "count": 697,
+        "value": "QB"
+      },
+      {
+        "count": 1609,
+        "value": "RB"
+      },
+      {
+        "count": 110,
+        "value": "S"
+      },
+      {
+        "count": 1285,
+        "value": "SAF"
+      },
+      {
+        "count": 1275,
+        "value": "TE"
+      },
+      {
+        "count": 2544,
+        "value": "WR"
+      }
+    ],
+    "season_type": [
+      {
+        "count": 853,
+        "value": "POST"
+      },
+      {
+        "count": 18128,
+        "value": "REG"
+      }
+    ],
+    "team": [
+      {
+        "count": 569,
+        "value": "ARI"
+      },
+      {
+        "count": 569,
+        "value": "ATL"
+      },
+      {
+        "count": 655,
+        "value": "BAL"
+      },
+      {
+        "count": 684,
+        "value": "BUF"
+      },
+      {
+        "count": 572,
+        "value": "CAR"
+      },
+      {
+        "count": 579,
+        "value": "CHI"
+      },
+      {
+        "count": 547,
+        "value": "CIN"
+      },
+      {
+        "count": 600,
+        "value": "CLE"
+      },
+      {
+        "count": 582,
+        "value": "DAL"
+      },
+      {
+        "count": 624,
+        "value": "DEN"
+      },
+      {
+        "count": 566,
+        "value": "DET"
+      },
+      {
+        "count": 595,
+        "value": "GB"
+      },
+      {
+        "count": 645,
+        "value": "HOU"
+      },
+      {
+        "count": 533,
+        "value": "IND"
+      },
+      {
+        "count": 553,
+        "value": "JAX"
+      },
+      {
+        "count": 662,
+        "value": "KC"
+      },
+      {
+        "count": 623,
+        "value": "LA"
+      },
+      {
+        "count": 605,
+        "value": "LAC"
+      },
+      {
+        "count": 532,
+        "value": "LV"
+      },
+      {
+        "count": 562,
+        "value": "MIA"
+      },
+      {
+        "count": 591,
+        "value": "MIN"
+      },
+      {
+        "count": 580,
+        "value": "NE"
+      },
+      {
+        "count": 590,
+        "value": "NO"
+      },
+      {
+        "count": 560,
+        "value": "NYG"
+      },
+      {
+        "count": 577,
+        "value": "NYJ"
+      },
+      {
+        "count": 672,
+        "value": "PHI"
+      },
+      {
+        "count": 604,
+        "value": "PIT"
+      },
+      {
+        "count": 570,
+        "value": "SEA"
+      },
+      {
+        "count": 559,
+        "value": "SF"
+      },
+      {
+        "count": 574,
+        "value": "TB"
+      },
+      {
+        "count": 565,
+        "value": "TEN"
+      },
+      {
+        "count": 682,
+        "value": "WAS"
+      }
+    ],
+    "week": [
+      {
+        "count": 1041,
+        "value": "1"
+      },
+      {
+        "count": 906,
+        "value": "10"
+      },
+      {
+        "count": 928,
+        "value": "11"
+      },
+      {
+        "count": 869,
+        "value": "12"
+      },
+      {
+        "count": 1057,
+        "value": "13"
+      },
+      {
+        "count": 875,
+        "value": "14"
+      },
+      {
+        "count": 1104,
+        "value": "15"
+      },
+      {
+        "count": 1076,
+        "value": "16"
+      },
+      {
+        "count": 1081,
+        "value": "17"
+      },
+      {
+        "count": 1055,
+        "value": "18"
+      },
+      {
+        "count": 390,
+        "value": "19"
+      },
+      {
+        "count": 1049,
+        "value": "2"
+      },
+      {
+        "count": 259,
+        "value": "20"
+      },
+      {
+        "count": 134,
+        "value": "21"
+      },
+      {
+        "count": 70,
+        "value": "22"
+      },
+      {
+        "count": 1071,
+        "value": "3"
+      },
+      {
+        "count": 1053,
+        "value": "4"
+      },
+      {
+        "count": 937,
+        "value": "5"
+      },
+      {
+        "count": 942,
+        "value": "6"
+      },
+      {
+        "count": 1009,
+        "value": "7"
+      },
+      {
+        "count": 1079,
+        "value": "8"
+      },
+      {
+        "count": 996,
+        "value": "9"
+      }
+    ]
+  },
+  "columnPresence": {},
+  "idIntegrity": {
+    "gsis": {
+      "blank": 22,
+      "column": "player_id",
+      "malformedDistinctCount": 0,
+      "malformedRowCount": 0,
+      "malformedSamples": [],
+      "malformedTruncated": false,
+      "pattern": "/^00-\\d{7}$/",
+      "placeholder": 0,
+      "rowCount": 18981,
+      "wellFormed": 18959
+    },
+    "playerWeekDuplicates": {
+      "distinctKeys": 18981,
+      "duplicateKeyCount": 0,
+      "duplicateKeys": [],
+      "duplicateKeysTruncated": false,
+      "duplicateRowExcess": 0,
+      "keyColumns": [
+        "season",
+        "week",
+        "season_type",
+        "player_id"
+      ],
+      "rowCount": 18981
+    },
+    "playerWeekTeamDuplicates": {
+      "distinctKeys": 18981,
+      "duplicateKeyCount": 0,
+      "duplicateKeys": [],
+      "duplicateKeysTruncated": false,
+      "duplicateRowExcess": 0,
+      "keyColumns": [
+        "season",
+        "week",
+        "season_type",
+        "team",
+        "player_id"
+      ],
+      "rowCount": 18981
+    }
+  },
+  "kind": "stats_player_week",
+  "provenance": {
+    "byteLength": 8279410,
+    "observedHosts": [
+      "github.com",
+      "release-assets.githubusercontent.com"
+    ],
+    "sha256": "db6379707a8d520f7fb9a90eeacd8a98ec3d5cdca8b98e0943cab5a250d91a97",
+    "url": "https://github.com/nflverse/nflverse-data/releases/download/stats_player/stats_player_week_2024.csv"
+  },
+  "rowCount": 18981,
+  "schema": {
+    "columnCount": 145,
+    "columns": [
+      "player_id",
+      "player_name",
+      "player_display_name",
+      "position",
+      "position_group",
+      "headshot_url",
+      "season",
+      "week",
+      "season_type",
+      "game_id",
+      "team",
+      "opponent_team",
+      "completions",
+      "attempts",
+      "passing_yards",
+      "passing_tds",
+      "passing_interceptions",
+      "sacks_suffered",
+      "sack_yards_lost",
+      "sack_fumbles",
+      "sack_fumbles_lost",
+      "passing_air_yards",
+      "passing_yards_after_catch",
+      "passing_first_downs",
+      "passing_epa",
+      "passing_cpoe",
+      "passing_2pt_conversions",
+      "pacr",
+      "passing_10",
+      "passing_16",
+      "passing_20",
+      "passing_40",
+      "carries",
+      "rushing_yards",
+      "rushing_tds",
+      "rushing_fumbles",
+      "rushing_fumbles_lost",
+      "rushing_first_downs",
+      "rushing_epa",
+      "rushing_2pt_conversions",
+      "rushing_10",
+      "rushing_12",
+      "rushing_20",
+      "rushing_40",
+      "receptions",
+      "targets",
+      "receiving_yards",
+      "receiving_tds",
+      "receiving_fumbles",
+      "receiving_fumbles_lost",
+      "receiving_air_yards",
+      "receiving_yards_after_catch",
+      "receiving_first_downs",
+      "receiving_epa",
+      "receiving_2pt_conversions",
+      "receiving_10",
+      "receiving_16",
+      "receiving_20",
+      "receiving_40",
+      "racr",
+      "target_share",
+      "air_yards_share",
+      "wopr",
+      "special_teams_tds",
+      "def_tackles_solo",
+      "def_tackles_with_assist",
+      "def_tackle_assists",
+      "def_tackles_for_loss",
+      "def_tackles_for_loss_yards",
+      "def_fumbles_forced",
+      "def_sacks",
+      "def_sack_yards",
+      "def_qb_hits",
+      "def_interceptions",
+      "def_interception_yards",
+      "def_pass_defended",
+      "def_tds",
+      "def_fumbles",
+      "def_safeties",
+      "misc_yards",
+      "fumble_recovery_own",
+      "fumble_recovery_yards_own",
+      "fumble_recovery_opp",
+      "fumble_recovery_yards_opp",
+      "fumble_recovery_tds",
+      "penalties",
+      "penalty_yards",
+      "fumbles_forced_by_opp",
+      "fumbles_not_forced",
+      "fumbles_out_of_bounds",
+      "fumbles_total",
+      "fumbles_lost_total",
+      "punt_returns",
+      "punt_return_yards",
+      "kickoff_returns",
+      "kickoff_return_yards",
+      "fg_made",
+      "fg_att",
+      "fg_missed",
+      "fg_blocked",
+      "fg_long",
+      "fg_pct",
+      "fg_made_0_19",
+      "fg_made_20_29",
+      "fg_made_30_39",
+      "fg_made_40_49",
+      "fg_made_50_59",
+      "fg_made_60_",
+      "fg_missed_0_19",
+      "fg_missed_20_29",
+      "fg_missed_30_39",
+      "fg_missed_40_49",
+      "fg_missed_50_59",
+      "fg_missed_60_",
+      "fg_made_list",
+      "fg_missed_list",
+      "fg_blocked_list",
+      "fg_made_distance",
+      "fg_missed_distance",
+      "fg_blocked_distance",
+      "pat_made",
+      "pat_att",
+      "pat_missed",
+      "pat_blocked",
+      "pat_pct",
+      "gwfg_made",
+      "gwfg_att",
+      "gwfg_missed",
+      "gwfg_blocked",
+      "gwfg_distance",
+      "pt_att",
+      "pt_blocked",
+      "pt_long",
+      "pt_yards",
+      "pt_inside_20",
+      "pt_out_of_bounds",
+      "pt_downed",
+      "pt_touchback",
+      "pt_fair_caught",
+      "pt_returned",
+      "pt_return_yards",
+      "pt_return_tds",
+      "pt_net_yards",
+      "fantasy_points",
+      "fantasy_points_ppr"
+    ]
+  },
+  "season": 2024,
+  "source": "stats_player_week_2024"
+}

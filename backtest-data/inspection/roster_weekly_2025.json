@@ -1,0 +1,1289 @@
+{
+  "categorical": {
+    "game_type": [
+      {
+        "count": 324,
+        "value": "CON"
+      },
+      {
+        "count": 667,
+        "value": "DIV"
+      },
+      {
+        "count": 44697,
+        "value": "REG"
+      },
+      {
+        "count": 165,
+        "value": "SB"
+      },
+      {
+        "count": 996,
+        "value": "WC"
+      }
+    ],
+    "position": [
+      {
+        "count": 8944,
+        "value": "DB"
+      },
+      {
+        "count": 6860,
+        "value": "DL"
+      },
+      {
+        "count": 759,
+        "value": "K"
+      },
+      {
+        "count": 6312,
+        "value": "LB"
+      },
+      {
+        "count": 616,
+        "value": "LS"
+      },
+      {
+        "count": 8402,
+        "value": "OL"
+      },
+      {
+        "count": 599,
+        "value": "P"
+      },
+      {
+        "count": 2032,
+        "value": "QB"
+      },
+      {
+        "count": 3553,
+        "value": "RB"
+      },
+      {
+        "count": 3110,
+        "value": "TE"
+      },
+      {
+        "count": 5662,
+        "value": "WR"
+      }
+    ],
+    "status": [
+      {
+        "count": 27377,
+        "value": "ACT"
+      },
+      {
+        "count": 951,
+        "value": "CUT"
+      },
+      {
+        "count": 8783,
+        "value": "DEV"
+      },
+      {
+        "count": 7,
+        "value": "EXE"
+      },
+      {
+        "count": 3593,
+        "value": "INA"
+      },
+      {
+        "count": 5763,
+        "value": "RES"
+      },
+      {
+        "count": 361,
+        "value": "RET"
+      },
+      {
+        "count": 7,
+        "value": "TRC"
+      },
+      {
+        "count": 7,
+        "value": "TRD"
+      }
+    ],
+    "statusByDescription": [
+      {
+        "count": 27189,
+        "status": "ACT",
+        "status_description_abbr": "A01"
+      },
+      {
+        "count": 11,
+        "status": "ACT",
+        "status_description_abbr": "I01"
+      },
+      {
+        "count": 2,
+        "status": "ACT",
+        "status_description_abbr": "I02"
+      },
+      {
+        "count": 52,
+        "status": "ACT",
+        "status_description_abbr": "P01"
+      },
+      {
+        "count": 1,
+        "status": "ACT",
+        "status_description_abbr": "P03"
+      },
+      {
+        "count": 21,
+        "status": "ACT",
+        "status_description_abbr": "P06"
+      },
+      {
+        "count": 76,
+        "status": "ACT",
+        "status_description_abbr": "P07"
+      },
+      {
+        "count": 4,
+        "status": "ACT",
+        "status_description_abbr": "R04"
+      },
+      {
+        "count": 21,
+        "status": "ACT",
+        "status_description_abbr": "R48"
+      },
+      {
+        "count": 111,
+        "status": "CUT",
+        "status_description_abbr": "A01"
+      },
+      {
+        "count": 1,
+        "status": "CUT",
+        "status_description_abbr": "F01"
+      },
+      {
+        "count": 152,
+        "status": "CUT",
+        "status_description_abbr": "P01"
+      },
+      {
+        "count": 7,
+        "status": "CUT",
+        "status_description_abbr": "P02"
+      },
+      {
+        "count": 4,
+        "status": "CUT",
+        "status_description_abbr": "P03"
+      },
+      {
+        "count": 35,
+        "status": "CUT",
+        "status_description_abbr": "P06"
+      },
+      {
+        "count": 76,
+        "status": "CUT",
+        "status_description_abbr": "P07"
+      },
+      {
+        "count": 14,
+        "status": "CUT",
+        "status_description_abbr": "R01"
+      },
+      {
+        "count": 4,
+        "status": "CUT",
+        "status_description_abbr": "R36"
+      },
+      {
+        "count": 546,
+        "status": "CUT",
+        "status_description_abbr": "W03"
+      },
+      {
+        "count": 1,
+        "status": "CUT",
+        "status_description_abbr": "W04"
+      },
+      {
+        "count": 5040,
+        "status": "DEV",
+        "status_description_abbr": "P01"
+      },
+      {
+        "count": 267,
+        "status": "DEV",
+        "status_description_abbr": "P02"
+      },
+      {
+        "count": 446,
+        "status": "DEV",
+        "status_description_abbr": "P03"
+      },
+      {
+        "count": 2,
+        "status": "DEV",
+        "status_description_abbr": "P04"
+      },
+      {
+        "count": 1067,
+        "status": "DEV",
+        "status_description_abbr": "P06"
+      },
+      {
+        "count": 1961,
+        "status": "DEV",
+        "status_description_abbr": "P07"
+      },
+      {
+        "count": 7,
+        "status": "EXE",
+        "status_description_abbr": "E02"
+      },
+      {
+        "count": 3369,
+        "status": "INA",
+        "status_description_abbr": "A01"
+      },
+      {
+        "count": 201,
+        "status": "INA",
+        "status_description_abbr": "I01"
+      },
+      {
+        "count": 12,
+        "status": "INA",
+        "status_description_abbr": "I02"
+      },
+      {
+        "count": 4,
+        "status": "INA",
+        "status_description_abbr": "P01"
+      },
+      {
+        "count": 2,
+        "status": "INA",
+        "status_description_abbr": "P06"
+      },
+      {
+        "count": 3,
+        "status": "INA",
+        "status_description_abbr": "P07"
+      },
+      {
+        "count": 1,
+        "status": "INA",
+        "status_description_abbr": "R40"
+      },
+      {
+        "count": 1,
+        "status": "INA",
+        "status_description_abbr": "W03"
+      },
+      {
+        "count": 15,
+        "status": "RES",
+        "status_description_abbr": "A01"
+      },
+      {
+        "count": 4428,
+        "status": "RES",
+        "status_description_abbr": "R01"
+      },
+      {
+        "count": 7,
+        "status": "RES",
+        "status_description_abbr": "R03"
+      },
+      {
+        "count": 444,
+        "status": "RES",
+        "status_description_abbr": "R04"
+      },
+      {
+        "count": 162,
+        "status": "RES",
+        "status_description_abbr": "R05"
+      },
+      {
+        "count": 24,
+        "status": "RES",
+        "status_description_abbr": "R06"
+      },
+      {
+        "count": 3,
+        "status": "RES",
+        "status_description_abbr": "R09"
+      },
+      {
+        "count": 11,
+        "status": "RES",
+        "status_description_abbr": "R23"
+      },
+      {
+        "count": 30,
+        "status": "RES",
+        "status_description_abbr": "R27"
+      },
+      {
+        "count": 53,
+        "status": "RES",
+        "status_description_abbr": "R40"
+      },
+      {
+        "count": 586,
+        "status": "RES",
+        "status_description_abbr": "R48"
+      },
+      {
+        "count": 361,
+        "status": "RET",
+        "status_description_abbr": "R02"
+      },
+      {
+        "count": 1,
+        "status": "TRC",
+        "status_description_abbr": "A01"
+      },
+      {
+        "count": 4,
+        "status": "TRC",
+        "status_description_abbr": "P01"
+      },
+      {
+        "count": 2,
+        "status": "TRC",
+        "status_description_abbr": "P07"
+      },
+      {
+        "count": 1,
+        "status": "TRD",
+        "status_description_abbr": "A01"
+      },
+      {
+        "count": 2,
+        "status": "TRD",
+        "status_description_abbr": "P01"
+      },
+      {
+        "count": 3,
+        "status": "TRD",
+        "status_description_abbr": "P07"
+      },
+      {
+        "count": 1,
+        "status": "TRD",
+        "status_description_abbr": "W03"
+      }
+    ],
+    "statusByPosition": [
+      {
+        "count": 5241,
+        "position": "DB",
+        "status": "ACT"
+      },
+      {
+        "count": 3906,
+        "position": "DL",
+        "status": "ACT"
+      },
+      {
+        "count": 570,
+        "position": "K",
+        "status": "ACT"
+      },
+      {
+        "count": 4070,
+        "position": "LB",
+        "status": "ACT"
+      },
+      {
+        "count": 570,
+        "position": "LS",
+        "status": "ACT"
+      },
+      {
+        "count": 4576,
+        "position": "OL",
+        "status": "ACT"
+      },
+      {
+        "count": 570,
+        "position": "P",
+        "status": "ACT"
+      },
+      {
+        "count": 1165,
+        "position": "QB",
+        "status": "ACT"
+      },
+      {
+        "count": 1964,
+        "position": "RB",
+        "status": "ACT"
+      },
+      {
+        "count": 1795,
+        "position": "TE",
+        "status": "ACT"
+      },
+      {
+        "count": 2950,
+        "position": "WR",
+        "status": "ACT"
+      },
+      {
+        "count": 201,
+        "position": "DB",
+        "status": "CUT"
+      },
+      {
+        "count": 128,
+        "position": "DL",
+        "status": "CUT"
+      },
+      {
+        "count": 18,
+        "position": "K",
+        "status": "CUT"
+      },
+      {
+        "count": 105,
+        "position": "LB",
+        "status": "CUT"
+      },
+      {
+        "count": 9,
+        "position": "LS",
+        "status": "CUT"
+      },
+      {
+        "count": 158,
+        "position": "OL",
+        "status": "CUT"
+      },
+      {
+        "count": 7,
+        "position": "P",
+        "status": "CUT"
+      },
+      {
+        "count": 31,
+        "position": "QB",
+        "status": "CUT"
+      },
+      {
+        "count": 82,
+        "position": "RB",
+        "status": "CUT"
+      },
+      {
+        "count": 58,
+        "position": "TE",
+        "status": "CUT"
+      },
+      {
+        "count": 154,
+        "position": "WR",
+        "status": "CUT"
+      },
+      {
+        "count": 1592,
+        "position": "DB",
+        "status": "DEV"
+      },
+      {
+        "count": 1302,
+        "position": "DL",
+        "status": "DEV"
+      },
+      {
+        "count": 83,
+        "position": "K",
+        "status": "DEV"
+      },
+      {
+        "count": 946,
+        "position": "LB",
+        "status": "DEV"
+      },
+      {
+        "count": 8,
+        "position": "LS",
+        "status": "DEV"
+      },
+      {
+        "count": 1690,
+        "position": "OL",
+        "status": "DEV"
+      },
+      {
+        "count": 2,
+        "position": "P",
+        "status": "DEV"
+      },
+      {
+        "count": 357,
+        "position": "QB",
+        "status": "DEV"
+      },
+      {
+        "count": 667,
+        "position": "RB",
+        "status": "DEV"
+      },
+      {
+        "count": 687,
+        "position": "TE",
+        "status": "DEV"
+      },
+      {
+        "count": 1449,
+        "position": "WR",
+        "status": "DEV"
+      },
+      {
+        "count": 3,
+        "position": "DB",
+        "status": "EXE"
+      },
+      {
+        "count": 1,
+        "position": "DL",
+        "status": "EXE"
+      },
+      {
+        "count": 1,
+        "position": "OL",
+        "status": "EXE"
+      },
+      {
+        "count": 2,
+        "position": "RB",
+        "status": "EXE"
+      },
+      {
+        "count": 586,
+        "position": "DB",
+        "status": "INA"
+      },
+      {
+        "count": 657,
+        "position": "DL",
+        "status": "INA"
+      },
+      {
+        "count": 24,
+        "position": "K",
+        "status": "INA"
+      },
+      {
+        "count": 387,
+        "position": "LB",
+        "status": "INA"
+      },
+      {
+        "count": 2,
+        "position": "LS",
+        "status": "INA"
+      },
+      {
+        "count": 691,
+        "position": "OL",
+        "status": "INA"
+      },
+      {
+        "count": 3,
+        "position": "P",
+        "status": "INA"
+      },
+      {
+        "count": 277,
+        "position": "QB",
+        "status": "INA"
+      },
+      {
+        "count": 291,
+        "position": "RB",
+        "status": "INA"
+      },
+      {
+        "count": 239,
+        "position": "TE",
+        "status": "INA"
+      },
+      {
+        "count": 436,
+        "position": "WR",
+        "status": "INA"
+      },
+      {
+        "count": 1259,
+        "position": "DB",
+        "status": "RES"
+      },
+      {
+        "count": 841,
+        "position": "DL",
+        "status": "RES"
+      },
+      {
+        "count": 61,
+        "position": "K",
+        "status": "RES"
+      },
+      {
+        "count": 740,
+        "position": "LB",
+        "status": "RES"
+      },
+      {
+        "count": 18,
+        "position": "LS",
+        "status": "RES"
+      },
+      {
+        "count": 1159,
+        "position": "OL",
+        "status": "RES"
+      },
+      {
+        "count": 17,
+        "position": "P",
+        "status": "RES"
+      },
+      {
+        "count": 168,
+        "position": "QB",
+        "status": "RES"
+      },
+      {
+        "count": 545,
+        "position": "RB",
+        "status": "RES"
+      },
+      {
+        "count": 331,
+        "position": "TE",
+        "status": "RES"
+      },
+      {
+        "count": 624,
+        "position": "WR",
+        "status": "RES"
+      },
+      {
+        "count": 58,
+        "position": "DB",
+        "status": "RET"
+      },
+      {
+        "count": 24,
+        "position": "DL",
+        "status": "RET"
+      },
+      {
+        "count": 63,
+        "position": "LB",
+        "status": "RET"
+      },
+      {
+        "count": 9,
+        "position": "LS",
+        "status": "RET"
+      },
+      {
+        "count": 126,
+        "position": "OL",
+        "status": "RET"
+      },
+      {
+        "count": 34,
+        "position": "QB",
+        "status": "RET"
+      },
+      {
+        "count": 47,
+        "position": "WR",
+        "status": "RET"
+      },
+      {
+        "count": 2,
+        "position": "DB",
+        "status": "TRC"
+      },
+      {
+        "count": 1,
+        "position": "DL",
+        "status": "TRC"
+      },
+      {
+        "count": 1,
+        "position": "K",
+        "status": "TRC"
+      },
+      {
+        "count": 1,
+        "position": "OL",
+        "status": "TRC"
+      },
+      {
+        "count": 1,
+        "position": "RB",
+        "status": "TRC"
+      },
+      {
+        "count": 1,
+        "position": "WR",
+        "status": "TRC"
+      },
+      {
+        "count": 2,
+        "position": "DB",
+        "status": "TRD"
+      },
+      {
+        "count": 2,
+        "position": "K",
+        "status": "TRD"
+      },
+      {
+        "count": 1,
+        "position": "LB",
+        "status": "TRD"
+      },
+      {
+        "count": 1,
+        "position": "RB",
+        "status": "TRD"
+      },
+      {
+        "count": 1,
+        "position": "WR",
+        "status": "TRD"
+      }
+    ],
+    "status_description_abbr": [
+      {
+        "count": 30686,
+        "value": "A01"
+      },
+      {
+        "count": 7,
+        "value": "E02"
+      },
+      {
+        "count": 1,
+        "value": "F01"
+      },
+      {
+        "count": 212,
+        "value": "I01"
+      },
+      {
+        "count": 14,
+        "value": "I02"
+      },
+      {
+        "count": 5254,
+        "value": "P01"
+      },
+      {
+        "count": 274,
+        "value": "P02"
+      },
+      {
+        "count": 451,
+        "value": "P03"
+      },
+      {
+        "count": 2,
+        "value": "P04"
+      },
+      {
+        "count": 1125,
+        "value": "P06"
+      },
+      {
+        "count": 2121,
+        "value": "P07"
+      },
+      {
+        "count": 4442,
+        "value": "R01"
+      },
+      {
+        "count": 361,
+        "value": "R02"
+      },
+      {
+        "count": 7,
+        "value": "R03"
+      },
+      {
+        "count": 448,
+        "value": "R04"
+      },
+      {
+        "count": 162,
+        "value": "R05"
+      },
+      {
+        "count": 24,
+        "value": "R06"
+      },
+      {
+        "count": 3,
+        "value": "R09"
+      },
+      {
+        "count": 11,
+        "value": "R23"
+      },
+      {
+        "count": 30,
+        "value": "R27"
+      },
+      {
+        "count": 4,
+        "value": "R36"
+      },
+      {
+        "count": 54,
+        "value": "R40"
+      },
+      {
+        "count": 607,
+        "value": "R48"
+      },
+      {
+        "count": 548,
+        "value": "W03"
+      },
+      {
+        "count": 1,
+        "value": "W04"
+      }
+    ],
+    "team": [
+      {
+        "count": 1500,
+        "value": "ARI"
+      },
+      {
+        "count": 1406,
+        "value": "ATL"
+      },
+      {
+        "count": 1363,
+        "value": "BAL"
+      },
+      {
+        "count": 1586,
+        "value": "BUF"
+      },
+      {
+        "count": 1434,
+        "value": "CAR"
+      },
+      {
+        "count": 1518,
+        "value": "CHI"
+      },
+      {
+        "count": 1313,
+        "value": "CIN"
+      },
+      {
+        "count": 1446,
+        "value": "CLE"
+      },
+      {
+        "count": 1396,
+        "value": "DAL"
+      },
+      {
+        "count": 1525,
+        "value": "DEN"
+      },
+      {
+        "count": 1491,
+        "value": "DET"
+      },
+      {
+        "count": 1441,
+        "value": "GB"
+      },
+      {
+        "count": 1628,
+        "value": "HOU"
+      },
+      {
+        "count": 1456,
+        "value": "IND"
+      },
+      {
+        "count": 1386,
+        "value": "JAX"
+      },
+      {
+        "count": 1396,
+        "value": "KC"
+      },
+      {
+        "count": 1466,
+        "value": "LA"
+      },
+      {
+        "count": 1514,
+        "value": "LAC"
+      },
+      {
+        "count": 1291,
+        "value": "LV"
+      },
+      {
+        "count": 1505,
+        "value": "MIA"
+      },
+      {
+        "count": 1340,
+        "value": "MIN"
+      },
+      {
+        "count": 1761,
+        "value": "NE"
+      },
+      {
+        "count": 1480,
+        "value": "NO"
+      },
+      {
+        "count": 1417,
+        "value": "NYG"
+      },
+      {
+        "count": 1418,
+        "value": "NYJ"
+      },
+      {
+        "count": 1476,
+        "value": "PHI"
+      },
+      {
+        "count": 1507,
+        "value": "PIT"
+      },
+      {
+        "count": 1612,
+        "value": "SEA"
+      },
+      {
+        "count": 1615,
+        "value": "SF"
+      },
+      {
+        "count": 1403,
+        "value": "TB"
+      },
+      {
+        "count": 1372,
+        "value": "TEN"
+      },
+      {
+        "count": 1387,
+        "value": "WAS"
+      }
+    ],
+    "week": [
+      {
+        "count": 3047,
+        "value": "1"
+      },
+      {
+        "count": 2284,
+        "value": "10"
+      },
+      {
+        "count": 2441,
+        "value": "11"
+      },
+      {
+        "count": 2284,
+        "value": "12"
+      },
+      {
+        "count": 2625,
+        "value": "13"
+      },
+      {
+        "count": 2309,
+        "value": "14"
+      },
+      {
+        "count": 2643,
+        "value": "15"
+      },
+      {
+        "count": 2654,
+        "value": "16"
+      },
+      {
+        "count": 2658,
+        "value": "17"
+      },
+      {
+        "count": 2673,
+        "value": "18"
+      },
+      {
+        "count": 996,
+        "value": "19"
+      },
+      {
+        "count": 2517,
+        "value": "2"
+      },
+      {
+        "count": 667,
+        "value": "20"
+      },
+      {
+        "count": 324,
+        "value": "21"
+      },
+      {
+        "count": 165,
+        "value": "22"
+      },
+      {
+        "count": 2534,
+        "value": "3"
+      },
+      {
+        "count": 2548,
+        "value": "4"
+      },
+      {
+        "count": 2258,
+        "value": "5"
+      },
+      {
+        "count": 2424,
+        "value": "6"
+      },
+      {
+        "count": 2428,
+        "value": "7"
+      },
+      {
+        "count": 2104,
+        "value": "8"
+      },
+      {
+        "count": 2266,
+        "value": "9"
+      }
+    ]
+  },
+  "columnPresence": {
+    "depth_chart_position": true,
+    "espn_id": true,
+    "status_description_abbr": true
+  },
+  "idIntegrity": {
+    "gsis": {
+      "blank": 29,
+      "column": "gsis_id",
+      "malformedDistinctCount": 0,
+      "malformedRowCount": 0,
+      "malformedSamples": [],
+      "malformedTruncated": false,
+      "pattern": "/^00-\\d{7}$/",
+      "placeholder": 0,
+      "rowCount": 46849,
+      "wellFormed": 46820
+    },
+    "playerWeekDuplicates": {
+      "distinctKeys": 46833,
+      "duplicateKeyCount": 9,
+      "duplicateKeys": [
+        {
+          "count": 2,
+          "key": [
+            "2025",
+            "11",
+            "REG",
+            ""
+          ]
+        },
+        {
+          "count": 2,
+          "key": [
+            "2025",
+            "12",
+            "REG",
+            ""
+          ]
+        },
+        {
+          "count": 3,
+          "key": [
+            "2025",
+            "13",
+            "REG",
+            ""
+          ]
+        },
+        {
+          "count": 3,
+          "key": [
+            "2025",
+            "14",
+            "REG",
+            ""
+          ]
+        },
+        {
+          "count": 3,
+          "key": [
+            "2025",
+            "15",
+            "REG",
+            ""
+          ]
+        },
+        {
+          "count": 3,
+          "key": [
+            "2025",
+            "16",
+            "REG",
+            ""
+          ]
+        },
+        {
+          "count": 3,
+          "key": [
+            "2025",
+            "17",
+            "REG",
+            ""
+          ]
+        },
+        {
+          "count": 4,
+          "key": [
+            "2025",
+            "18",
+            "REG",
+            ""
+          ]
+        },
+        {
+          "count": 2,
+          "key": [
+            "2025",
+            "5",
+            "REG",
+            ""
+          ]
+        }
+      ],
+      "duplicateKeysTruncated": false,
+      "duplicateRowExcess": 16,
+      "keyColumns": [
+        "season",
+        "week",
+        "game_type",
+        "gsis_id"
+      ],
+      "rowCount": 46849
+    },
+    "playerWeekDuplicatesWithGsis": {
+      "distinctKeys": 46820,
+      "duplicateKeyCount": 0,
+      "duplicateKeys": [],
+      "duplicateKeysTruncated": false,
+      "duplicateRowExcess": 0,
+      "keyColumns": [
+        "season",
+        "week",
+        "game_type",
+        "gsis_id"
+      ],
+      "rowCount": 46820
+    },
+    "playerWeekTeamDuplicates": {
+      "distinctKeys": 46849,
+      "duplicateKeyCount": 0,
+      "duplicateKeys": [],
+      "duplicateKeysTruncated": false,
+      "duplicateRowExcess": 0,
+      "keyColumns": [
+        "season",
+        "week",
+        "game_type",
+        "team",
+        "gsis_id"
+      ],
+      "rowCount": 46849
+    }
+  },
+  "kind": "roster_weekly",
+  "provenance": {
+    "byteLength": 15385661,
+    "observedHosts": [
+      "github.com",
+      "release-assets.githubusercontent.com"
+    ],
+    "sha256": "c2f7a1ffebe06058400af1989d1cd2900cc5c9659f084623708a06d4e28de35b",
+    "url": "https://github.com/nflverse/nflverse-data/releases/download/weekly_rosters/roster_weekly_2025.csv"
+  },
+  "rowCount": 46849,
+  "schema": {
+    "columnCount": 36,
+    "columns": [
+      "season",
+      "team",
+      "position",
+      "depth_chart_position",
+      "jersey_number",
+      "status",
+      "full_name",
+      "first_name",
+      "last_name",
+      "birth_date",
+      "height",
+      "weight",
+      "college",
+      "gsis_id",
+      "espn_id",
+      "sportradar_id",
+      "yahoo_id",
+      "rotowire_id",
+      "pff_id",
+      "pfr_id",
+      "fantasy_data_id",
+      "sleeper_id",
+      "years_exp",
+      "headshot_url",
+      "ngs_position",
+      "week",
+      "game_type",
+      "status_description_abbr",
+      "football_name",
+      "esb_id",
+      "gsis_it_id",
+      "smart_id",
+      "entry_year",
+      "rookie_year",
+      "draft_club",
+      "draft_number"
+    ]
+  },
+  "season": 2025,
+  "source": "roster_weekly_2025"
+}

@@ -1,0 +1,532 @@
+{
+  "categorical": {
+    "opponent_team": [
+      {
+        "count": 17,
+        "value": "ARI"
+      },
+      {
+        "count": 17,
+        "value": "ATL"
+      },
+      {
+        "count": 17,
+        "value": "BAL"
+      },
+      {
+        "count": 19,
+        "value": "BUF"
+      },
+      {
+        "count": 18,
+        "value": "CAR"
+      },
+      {
+        "count": 19,
+        "value": "CHI"
+      },
+      {
+        "count": 17,
+        "value": "CIN"
+      },
+      {
+        "count": 17,
+        "value": "CLE"
+      },
+      {
+        "count": 17,
+        "value": "DAL"
+      },
+      {
+        "count": 19,
+        "value": "DEN"
+      },
+      {
+        "count": 17,
+        "value": "DET"
+      },
+      {
+        "count": 18,
+        "value": "GB"
+      },
+      {
+        "count": 19,
+        "value": "HOU"
+      },
+      {
+        "count": 17,
+        "value": "IND"
+      },
+      {
+        "count": 18,
+        "value": "JAX"
+      },
+      {
+        "count": 17,
+        "value": "KC"
+      },
+      {
+        "count": 20,
+        "value": "LA"
+      },
+      {
+        "count": 18,
+        "value": "LAC"
+      },
+      {
+        "count": 17,
+        "value": "LV"
+      },
+      {
+        "count": 17,
+        "value": "MIA"
+      },
+      {
+        "count": 17,
+        "value": "MIN"
+      },
+      {
+        "count": 21,
+        "value": "NE"
+      },
+      {
+        "count": 17,
+        "value": "NO"
+      },
+      {
+        "count": 17,
+        "value": "NYG"
+      },
+      {
+        "count": 17,
+        "value": "NYJ"
+      },
+      {
+        "count": 18,
+        "value": "PHI"
+      },
+      {
+        "count": 18,
+        "value": "PIT"
+      },
+      {
+        "count": 20,
+        "value": "SEA"
+      },
+      {
+        "count": 19,
+        "value": "SF"
+      },
+      {
+        "count": 17,
+        "value": "TB"
+      },
+      {
+        "count": 17,
+        "value": "TEN"
+      },
+      {
+        "count": 17,
+        "value": "WAS"
+      }
+    ],
+    "season_type": [
+      {
+        "count": 26,
+        "value": "POST"
+      },
+      {
+        "count": 544,
+        "value": "REG"
+      }
+    ],
+    "team": [
+      {
+        "count": 17,
+        "value": "ARI"
+      },
+      {
+        "count": 17,
+        "value": "ATL"
+      },
+      {
+        "count": 17,
+        "value": "BAL"
+      },
+      {
+        "count": 19,
+        "value": "BUF"
+      },
+      {
+        "count": 18,
+        "value": "CAR"
+      },
+      {
+        "count": 19,
+        "value": "CHI"
+      },
+      {
+        "count": 17,
+        "value": "CIN"
+      },
+      {
+        "count": 17,
+        "value": "CLE"
+      },
+      {
+        "count": 17,
+        "value": "DAL"
+      },
+      {
+        "count": 19,
+        "value": "DEN"
+      },
+      {
+        "count": 17,
+        "value": "DET"
+      },
+      {
+        "count": 18,
+        "value": "GB"
+      },
+      {
+        "count": 19,
+        "value": "HOU"
+      },
+      {
+        "count": 17,
+        "value": "IND"
+      },
+      {
+        "count": 18,
+        "value": "JAX"
+      },
+      {
+        "count": 17,
+        "value": "KC"
+      },
+      {
+        "count": 20,
+        "value": "LA"
+      },
+      {
+        "count": 18,
+        "value": "LAC"
+      },
+      {
+        "count": 17,
+        "value": "LV"
+      },
+      {
+        "count": 17,
+        "value": "MIA"
+      },
+      {
+        "count": 17,
+        "value": "MIN"
+      },
+      {
+        "count": 21,
+        "value": "NE"
+      },
+      {
+        "count": 17,
+        "value": "NO"
+      },
+      {
+        "count": 17,
+        "value": "NYG"
+      },
+      {
+        "count": 17,
+        "value": "NYJ"
+      },
+      {
+        "count": 18,
+        "value": "PHI"
+      },
+      {
+        "count": 18,
+        "value": "PIT"
+      },
+      {
+        "count": 20,
+        "value": "SEA"
+      },
+      {
+        "count": 19,
+        "value": "SF"
+      },
+      {
+        "count": 17,
+        "value": "TB"
+      },
+      {
+        "count": 17,
+        "value": "TEN"
+      },
+      {
+        "count": 17,
+        "value": "WAS"
+      }
+    ],
+    "week": [
+      {
+        "count": 32,
+        "value": "1"
+      },
+      {
+        "count": 28,
+        "value": "10"
+      },
+      {
+        "count": 30,
+        "value": "11"
+      },
+      {
+        "count": 28,
+        "value": "12"
+      },
+      {
+        "count": 32,
+        "value": "13"
+      },
+      {
+        "count": 28,
+        "value": "14"
+      },
+      {
+        "count": 32,
+        "value": "15"
+      },
+      {
+        "count": 32,
+        "value": "16"
+      },
+      {
+        "count": 32,
+        "value": "17"
+      },
+      {
+        "count": 32,
+        "value": "18"
+      },
+      {
+        "count": 12,
+        "value": "19"
+      },
+      {
+        "count": 32,
+        "value": "2"
+      },
+      {
+        "count": 8,
+        "value": "20"
+      },
+      {
+        "count": 4,
+        "value": "21"
+      },
+      {
+        "count": 2,
+        "value": "22"
+      },
+      {
+        "count": 32,
+        "value": "3"
+      },
+      {
+        "count": 32,
+        "value": "4"
+      },
+      {
+        "count": 28,
+        "value": "5"
+      },
+      {
+        "count": 30,
+        "value": "6"
+      },
+      {
+        "count": 30,
+        "value": "7"
+      },
+      {
+        "count": 26,
+        "value": "8"
+      },
+      {
+        "count": 28,
+        "value": "9"
+      }
+    ]
+  },
+  "columnPresence": {},
+  "idIntegrity": {
+    "teamWeekDuplicates": {
+      "distinctKeys": 570,
+      "duplicateKeyCount": 0,
+      "duplicateKeys": [],
+      "duplicateKeysTruncated": false,
+      "duplicateRowExcess": 0,
+      "keyColumns": [
+        "season",
+        "week",
+        "season_type",
+        "team"
+      ],
+      "rowCount": 570
+    }
+  },
+  "kind": "stats_team_week",
+  "provenance": {
+    "byteLength": 223890,
+    "observedHosts": [
+      "github.com",
+      "release-assets.githubusercontent.com"
+    ],
+    "sha256": "e062506174b6b49ee8dac3ed64a32197017da8e831b2942499c40c2c7f3e9081",
+    "url": "https://github.com/nflverse/nflverse-data/releases/download/stats_team/stats_team_week_2025.csv"
+  },
+  "rowCount": 570,
+  "schema": {
+    "columnCount": 133,
+    "columns": [
+      "season",
+      "week",
+      "team",
+      "season_type",
+      "game_id",
+      "opponent_team",
+      "completions",
+      "attempts",
+      "passing_yards",
+      "passing_tds",
+      "passing_interceptions",
+      "sacks_suffered",
+      "sack_yards_lost",
+      "sack_fumbles",
+      "sack_fumbles_lost",
+      "passing_air_yards",
+      "passing_yards_after_catch",
+      "passing_first_downs",
+      "passing_epa",
+      "passing_cpoe",
+      "passing_2pt_conversions",
+      "passing_10",
+      "passing_16",
+      "passing_20",
+      "passing_40",
+      "carries",
+      "rushing_yards",
+      "rushing_tds",
+      "rushing_fumbles",
+      "rushing_fumbles_lost",
+      "rushing_first_downs",
+      "rushing_epa",
+      "rushing_2pt_conversions",
+      "rushing_10",
+      "rushing_12",
+      "rushing_20",
+      "rushing_40",
+      "receptions",
+      "targets",
+      "receiving_yards",
+      "receiving_tds",
+      "receiving_fumbles",
+      "receiving_fumbles_lost",
+      "receiving_air_yards",
+      "receiving_yards_after_catch",
+      "receiving_first_downs",
+      "receiving_epa",
+      "receiving_2pt_conversions",
+      "receiving_10",
+      "receiving_16",
+      "receiving_20",
+      "receiving_40",
+      "special_teams_tds",
+      "def_tackles_solo",
+      "def_tackles_with_assist",
+      "def_tackle_assists",
+      "def_tackles_for_loss",
+      "def_tackles_for_loss_yards",
+      "def_fumbles_forced",
+      "def_sacks",
+      "def_sack_yards",
+      "def_qb_hits",
+      "def_interceptions",
+      "def_interception_yards",
+      "def_pass_defended",
+      "def_tds",
+      "def_fumbles",
+      "def_safeties",
+      "misc_yards",
+      "fumble_recovery_own",
+      "fumble_recovery_yards_own",
+      "fumble_recovery_opp",
+      "fumble_recovery_yards_opp",
+      "fumble_recovery_tds",
+      "penalties",
+      "penalty_yards",
+      "timeouts",
+      "fumbles_forced_by_opp",
+      "fumbles_not_forced",
+      "fumbles_out_of_bounds",
+      "fumbles_total",
+      "fumbles_lost_total",
+      "punt_returns",
+      "punt_return_yards",
+      "kickoff_returns",
+      "kickoff_return_yards",
+      "fg_made",
+      "fg_att",
+      "fg_missed",
+      "fg_blocked",
+      "fg_long",
+      "fg_pct",
+      "fg_made_0_19",
+      "fg_made_20_29",
+      "fg_made_30_39",
+      "fg_made_40_49",
+      "fg_made_50_59",
+      "fg_made_60_",
+      "fg_missed_0_19",
+      "fg_missed_20_29",
+      "fg_missed_30_39",
+      "fg_missed_40_49",
+      "fg_missed_50_59",
+      "fg_missed_60_",
+      "fg_made_list",
+      "fg_missed_list",
+      "fg_blocked_list",
+      "fg_made_distance",
+      "fg_missed_distance",
+      "fg_blocked_distance",
+      "pat_made",
+      "pat_att",
+      "pat_missed",
+      "pat_blocked",
+      "pat_pct",
+      "gwfg_made",
+      "gwfg_att",
+      "gwfg_missed",
+      "gwfg_blocked",
+      "gwfg_distance",
+      "pt_att",
+      "pt_blocked",
+      "pt_long",
+      "pt_yards",
+      "pt_inside_20",
+      "pt_out_of_bounds",
+      "pt_downed",
+      "pt_touchback",
+      "pt_fair_caught",
+      "pt_returned",
+      "pt_return_yards",
+      "pt_return_tds",
+      "pt_net_yards"
+    ]
+  },
+  "season": 2025,
+  "source": "stats_team_week_2025"
+}

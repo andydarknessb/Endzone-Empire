@@ -1,0 +1,203 @@
+{
+  "categorical": {},
+  "columnPresence": {},
+  "idIntegrity": {
+    "crosswalk": {
+      "bothPresent": 16760,
+      "distinctEspnWithGsis": 16760,
+      "distinctGsisWithEspn": 16760,
+      "duplicatePairRowCount": 0,
+      "duplicatePairs": [],
+      "espnOnly": 0,
+      "espnWithMultipleGsis": [],
+      "espnWithMultipleGsisCount": 0,
+      "gsisOnly": 8267,
+      "gsisWithMultipleEspn": [],
+      "gsisWithMultipleEspnCount": 0,
+      "neither": 0,
+      "rowCount": 25027
+    },
+    "espn": {
+      "blank": 8267,
+      "column": "espn_id",
+      "malformedDistinctCount": 0,
+      "malformedRowCount": 0,
+      "malformedSamples": [],
+      "malformedTruncated": false,
+      "pattern": "/^\\d+$/",
+      "placeholder": 0,
+      "rowCount": 25027,
+      "wellFormed": 16760
+    },
+    "gsis": {
+      "blank": 0,
+      "column": "gsis_id",
+      "malformedDistinctCount": 6098,
+      "malformedRowCount": 6098,
+      "malformedSamples": [
+        {
+          "count": 1,
+          "value": "ABB498348"
+        },
+        {
+          "count": 1,
+          "value": "ABE498348"
+        },
+        {
+          "count": 1,
+          "value": "ABR083058"
+        },
+        {
+          "count": 1,
+          "value": "ABR166116"
+        },
+        {
+          "count": 1,
+          "value": "ABR249174"
+        },
+        {
+          "count": 1,
+          "value": "ABR390978"
+        },
+        {
+          "count": 1,
+          "value": "ABR426540"
+        },
+        {
+          "count": 1,
+          "value": "ACH207645"
+        },
+        {
+          "count": 1,
+          "value": "ACH415290"
+        },
+        {
+          "count": 1,
+          "value": "ACK207645"
+        },
+        {
+          "count": 1,
+          "value": "ACK415290"
+        },
+        {
+          "count": 1,
+          "value": "ACK622935"
+        },
+        {
+          "count": 1,
+          "value": "ACO415291"
+        },
+        {
+          "count": 1,
+          "value": "ADA083058"
+        },
+        {
+          "count": 1,
+          "value": "ADA102090"
+        },
+        {
+          "count": 1,
+          "value": "ADA110744"
+        },
+        {
+          "count": 1,
+          "value": "ADA166116"
+        },
+        {
+          "count": 1,
+          "value": "ADA222240"
+        },
+        {
+          "count": 1,
+          "value": "ADA229740"
+        },
+        {
+          "count": 1,
+          "value": "ADA249174"
+        },
+        {
+          "count": 1,
+          "value": "ADA276860"
+        },
+        {
+          "count": 1,
+          "value": "ADA324014"
+        },
+        {
+          "count": 1,
+          "value": "ADA470662"
+        },
+        {
+          "count": 1,
+          "value": "ADA504348"
+        },
+        {
+          "count": 1,
+          "value": "ADA510348"
+        }
+      ],
+      "malformedTruncated": true,
+      "pattern": "/^00-\\d{7}$/",
+      "placeholder": 0,
+      "rowCount": 25027,
+      "wellFormed": 18929
+    }
+  },
+  "kind": "players",
+  "provenance": {
+    "byteLength": 7321414,
+    "observedHosts": [
+      "github.com",
+      "release-assets.githubusercontent.com"
+    ],
+    "sha256": "4c253495a873058b1f9772b5d559087bf2e918d0ca6dc9ea1b87e1e4a1fdb0a1",
+    "url": "https://github.com/nflverse/nflverse-data/releases/download/players/players.csv"
+  },
+  "rowCount": 25027,
+  "schema": {
+    "columnCount": 39,
+    "columns": [
+      "gsis_id",
+      "display_name",
+      "common_first_name",
+      "first_name",
+      "last_name",
+      "short_name",
+      "football_name",
+      "suffix",
+      "esb_id",
+      "nfl_id",
+      "pfr_id",
+      "pff_id",
+      "otc_id",
+      "espn_id",
+      "smart_id",
+      "birth_date",
+      "position_group",
+      "position",
+      "ngs_position_group",
+      "ngs_position",
+      "height",
+      "weight",
+      "headshot",
+      "college_name",
+      "college_conference",
+      "jersey_number",
+      "rookie_season",
+      "last_season",
+      "latest_team",
+      "status",
+      "ngs_status",
+      "ngs_status_short_description",
+      "years_of_experience",
+      "pff_position",
+      "pff_status",
+      "draft_year",
+      "draft_round",
+      "draft_pick",
+      "draft_team"
+    ]
+  },
+  "season": null,
+  "source": "players"
+}

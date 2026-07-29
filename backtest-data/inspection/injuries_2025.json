@@ -1,0 +1,397 @@
+{
+  "categorical": {
+    "game_type": [
+      {
+        "count": 44,
+        "value": "CON"
+      },
+      {
+        "count": 85,
+        "value": "DIV"
+      },
+      {
+        "count": 5783,
+        "value": "REG"
+      },
+      {
+        "count": 20,
+        "value": "SB"
+      },
+      {
+        "count": 136,
+        "value": "WC"
+      }
+    ],
+    "position": [
+      {
+        "count": 128,
+        "value": "C"
+      },
+      {
+        "count": 703,
+        "value": "CB"
+      },
+      {
+        "count": 448,
+        "value": "DE"
+      },
+      {
+        "count": 592,
+        "value": "DT"
+      },
+      {
+        "count": 44,
+        "value": "FB"
+      },
+      {
+        "count": 419,
+        "value": "G"
+      },
+      {
+        "count": 42,
+        "value": "K"
+      },
+      {
+        "count": 821,
+        "value": "LB"
+      },
+      {
+        "count": 27,
+        "value": "LS"
+      },
+      {
+        "count": 18,
+        "value": "P"
+      },
+      {
+        "count": 237,
+        "value": "QB"
+      },
+      {
+        "count": 374,
+        "value": "RB"
+      },
+      {
+        "count": 459,
+        "value": "S"
+      },
+      {
+        "count": 539,
+        "value": "T"
+      },
+      {
+        "count": 388,
+        "value": "TE"
+      },
+      {
+        "count": 829,
+        "value": "WR"
+      }
+    ],
+    "report_status": [
+      {
+        "count": 3285,
+        "value": ""
+      },
+      {
+        "count": 106,
+        "value": "Doubtful"
+      },
+      {
+        "count": 1396,
+        "value": "Out"
+      },
+      {
+        "count": 1281,
+        "value": "Questionable"
+      }
+    ],
+    "team": [
+      {
+        "count": 219,
+        "value": "ARI"
+      },
+      {
+        "count": 251,
+        "value": "ATL"
+      },
+      {
+        "count": 148,
+        "value": "BAL"
+      },
+      {
+        "count": 208,
+        "value": "BUF"
+      },
+      {
+        "count": 154,
+        "value": "CAR"
+      },
+      {
+        "count": 214,
+        "value": "CHI"
+      },
+      {
+        "count": 132,
+        "value": "CIN"
+      },
+      {
+        "count": 234,
+        "value": "CLE"
+      },
+      {
+        "count": 201,
+        "value": "DAL"
+      },
+      {
+        "count": 128,
+        "value": "DEN"
+      },
+      {
+        "count": 186,
+        "value": "DET"
+      },
+      {
+        "count": 271,
+        "value": "GB"
+      },
+      {
+        "count": 202,
+        "value": "HOU"
+      },
+      {
+        "count": 174,
+        "value": "IND"
+      },
+      {
+        "count": 178,
+        "value": "JAX"
+      },
+      {
+        "count": 188,
+        "value": "KC"
+      },
+      {
+        "count": 155,
+        "value": "LA"
+      },
+      {
+        "count": 186,
+        "value": "LAC"
+      },
+      {
+        "count": 106,
+        "value": "LV"
+      },
+      {
+        "count": 180,
+        "value": "MIA"
+      },
+      {
+        "count": 208,
+        "value": "MIN"
+      },
+      {
+        "count": 219,
+        "value": "NE"
+      },
+      {
+        "count": 137,
+        "value": "NO"
+      },
+      {
+        "count": 220,
+        "value": "NYG"
+      },
+      {
+        "count": 149,
+        "value": "NYJ"
+      },
+      {
+        "count": 144,
+        "value": "PHI"
+      },
+      {
+        "count": 200,
+        "value": "PIT"
+      },
+      {
+        "count": 232,
+        "value": "SEA"
+      },
+      {
+        "count": 247,
+        "value": "SF"
+      },
+      {
+        "count": 196,
+        "value": "TB"
+      },
+      {
+        "count": 194,
+        "value": "TEN"
+      },
+      {
+        "count": 207,
+        "value": "WAS"
+      }
+    ],
+    "week": [
+      {
+        "count": 197,
+        "value": "1"
+      },
+      {
+        "count": 320,
+        "value": "10"
+      },
+      {
+        "count": 364,
+        "value": "11"
+      },
+      {
+        "count": 337,
+        "value": "12"
+      },
+      {
+        "count": 348,
+        "value": "13"
+      },
+      {
+        "count": 309,
+        "value": "14"
+      },
+      {
+        "count": 360,
+        "value": "15"
+      },
+      {
+        "count": 390,
+        "value": "16"
+      },
+      {
+        "count": 394,
+        "value": "17"
+      },
+      {
+        "count": 383,
+        "value": "18"
+      },
+      {
+        "count": 136,
+        "value": "19"
+      },
+      {
+        "count": 256,
+        "value": "2"
+      },
+      {
+        "count": 85,
+        "value": "20"
+      },
+      {
+        "count": 44,
+        "value": "21"
+      },
+      {
+        "count": 20,
+        "value": "22"
+      },
+      {
+        "count": 281,
+        "value": "3"
+      },
+      {
+        "count": 290,
+        "value": "4"
+      },
+      {
+        "count": 286,
+        "value": "5"
+      },
+      {
+        "count": 333,
+        "value": "6"
+      },
+      {
+        "count": 323,
+        "value": "7"
+      },
+      {
+        "count": 296,
+        "value": "8"
+      },
+      {
+        "count": 316,
+        "value": "9"
+      }
+    ]
+  },
+  "columnPresence": {
+    "date_modified": false,
+    "practice_status": true,
+    "report_primary_injury": true
+  },
+  "idIntegrity": {
+    "gsis": {
+      "blank": 0,
+      "column": "gsis_id",
+      "malformedDistinctCount": 0,
+      "malformedRowCount": 0,
+      "malformedSamples": [],
+      "malformedTruncated": false,
+      "pattern": "/^00-\\d{7}$/",
+      "placeholder": 0,
+      "rowCount": 6068,
+      "wellFormed": 6068
+    },
+    "playerWeekDuplicates": {
+      "distinctKeys": 6068,
+      "duplicateKeyCount": 0,
+      "duplicateKeys": [],
+      "duplicateKeysTruncated": false,
+      "duplicateRowExcess": 0,
+      "keyColumns": [
+        "season",
+        "week",
+        "game_type",
+        "gsis_id"
+      ],
+      "rowCount": 6068
+    }
+  },
+  "kind": "injuries",
+  "provenance": {
+    "byteLength": 695623,
+    "observedHosts": [
+      "github.com",
+      "release-assets.githubusercontent.com"
+    ],
+    "sha256": "15ee790fef634caea988e7b6562fc393a63739dd7ee38229d1b42161427709df",
+    "url": "https://github.com/nflverse/nflverse-data/releases/download/injuries/injuries_2025.csv"
+  },
+  "rowCount": 6068,
+  "schema": {
+    "columnCount": 16,
+    "columns": [
+      "season",
+      "season_type",
+      "game_type",
+      "team",
+      "week",
+      "gsis_id",
+      "position",
+      "full_name",
+      "first_name",
+      "last_name",
+      "report_primary_injury",
+      "report_secondary_injury",
+      "report_status",
+      "practice_primary_injury",
+      "practice_secondary_injury",
+      "practice_status"
+    ]
+  },
+  "season": 2025,
+  "source": "injuries_2025"
+}

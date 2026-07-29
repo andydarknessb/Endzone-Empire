@@ -1,0 +1,96 @@
+{
+  "generator": "scripts/backtest/inspect-sources.js",
+  "note": "Scripted Phase-0 inspection: schema, categorical value counts, ID integrity. No outcomes.",
+  "sources": [
+    {
+      "columnCount": 36,
+      "kind": "roster_weekly",
+      "report": "roster_weekly_2024.json",
+      "rowCount": 46579,
+      "season": 2024,
+      "sha256": "074ecaeb9325de943c11f7bbc941425626985090ef8386f90cd837fa5cb5d4b3",
+      "source": "roster_weekly_2024"
+    },
+    {
+      "columnCount": 36,
+      "kind": "roster_weekly",
+      "report": "roster_weekly_2025.json",
+      "rowCount": 46849,
+      "season": 2025,
+      "sha256": "c2f7a1ffebe06058400af1989d1cd2900cc5c9659f084623708a06d4e28de35b",
+      "source": "roster_weekly_2025"
+    },
+    {
+      "columnCount": 16,
+      "kind": "injuries",
+      "report": "injuries_2024.json",
+      "rowCount": 6215,
+      "season": 2024,
+      "sha256": "498bce8e13cb64b2ab9bb0ad6cb81d0a63c2ddb24016c9fc90c2de2126fae449",
+      "source": "injuries_2024"
+    },
+    {
+      "columnCount": 16,
+      "kind": "injuries",
+      "report": "injuries_2025.json",
+      "rowCount": 6068,
+      "season": 2025,
+      "sha256": "15ee790fef634caea988e7b6562fc393a63739dd7ee38229d1b42161427709df",
+      "source": "injuries_2025"
+    },
+    {
+      "columnCount": 46,
+      "kind": "games",
+      "report": "games.json",
+      "rowCount": 7548,
+      "season": null,
+      "sha256": "9b512fecf7c73a7680006259118411c75f01b3762100f776d96400e7284a94fe",
+      "source": "games"
+    },
+    {
+      "columnCount": 145,
+      "kind": "stats_player_week",
+      "report": "stats_player_week_2024.json",
+      "rowCount": 18981,
+      "season": 2024,
+      "sha256": "db6379707a8d520f7fb9a90eeacd8a98ec3d5cdca8b98e0943cab5a250d91a97",
+      "source": "stats_player_week_2024"
+    },
+    {
+      "columnCount": 145,
+      "kind": "stats_player_week",
+      "report": "stats_player_week_2025.json",
+      "rowCount": 19421,
+      "season": 2025,
+      "sha256": "40b67b296fda02c7f628741d4aa471208352dd42fb670d4854e7ba95295af1a6",
+      "source": "stats_player_week_2025"
+    },
+    {
+      "columnCount": 133,
+      "kind": "stats_team_week",
+      "report": "stats_team_week_2024.json",
+      "rowCount": 570,
+      "season": 2024,
+      "sha256": "54db70df09cd4bbce832771b74c1d0903dfc1a07406521886ce701a3386a6594",
+      "source": "stats_team_week_2024"
+    },
+    {
+      "columnCount": 133,
+      "kind": "stats_team_week",
+      "report": "stats_team_week_2025.json",
+      "rowCount": 570,
+      "season": 2025,
+      "sha256": "e062506174b6b49ee8dac3ed64a32197017da8e831b2942499c40c2c7f3e9081",
+      "source": "stats_team_week_2025"
+    },
+    {
+      "columnCount": 39,
+      "kind": "players",
+      "report": "players.json",
+      "rowCount": 25027,
+      "season": null,
+      "sha256": "4c253495a873058b1f9772b5d559087bf2e918d0ca6dc9ea1b87e1e4a1fdb0a1",
+      "source": "players"
+    }
+  ]
+}

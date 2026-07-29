@@ -1,0 +1,610 @@
+{
+  "backtestScope": {
+    "bySeasonWeek": [
+      {
+        "count": 272,
+        "value": "2024"
+      },
+      {
+        "count": 272,
+        "value": "2025"
+      }
+    ],
+    "neutralOrOtherLocation": [
+      {
+        "count": 532,
+        "value": "Home"
+      },
+      {
+        "count": 12,
+        "value": "Neutral"
+      }
+    ],
+    "note": "REG rows for the two backtest seasons only; counts, no outcomes.",
+    "rowCount": 544,
+    "weekCounts": [
+      {
+        "count": 32,
+        "value": "1"
+      },
+      {
+        "count": 28,
+        "value": "10"
+      },
+      {
+        "count": 29,
+        "value": "11"
+      },
+      {
+        "count": 27,
+        "value": "12"
+      },
+      {
+        "count": 32,
+        "value": "13"
+      },
+      {
+        "count": 27,
+        "value": "14"
+      },
+      {
+        "count": 32,
+        "value": "15"
+      },
+      {
+        "count": 32,
+        "value": "16"
+      },
+      {
+        "count": 32,
+        "value": "17"
+      },
+      {
+        "count": 32,
+        "value": "18"
+      },
+      {
+        "count": 32,
+        "value": "2"
+      },
+      {
+        "count": 32,
+        "value": "3"
+      },
+      {
+        "count": 32,
+        "value": "4"
+      },
+      {
+        "count": 28,
+        "value": "5"
+      },
+      {
+        "count": 29,
+        "value": "6"
+      },
+      {
+        "count": 30,
+        "value": "7"
+      },
+      {
+        "count": 29,
+        "value": "8"
+      },
+      {
+        "count": 29,
+        "value": "9"
+      }
+    ]
+  },
+  "categorical": {
+    "away_team": [
+      {
+        "count": 232,
+        "value": "ARI"
+      },
+      {
+        "count": 234,
+        "value": "ATL"
+      },
+      {
+        "count": 249,
+        "value": "BAL"
+      },
+      {
+        "count": 234,
+        "value": "BUF"
+      },
+      {
+        "count": 236,
+        "value": "CAR"
+      },
+      {
+        "count": 228,
+        "value": "CHI"
+      },
+      {
+        "count": 234,
+        "value": "CIN"
+      },
+      {
+        "count": 231,
+        "value": "CLE"
+      },
+      {
+        "count": 235,
+        "value": "DAL"
+      },
+      {
+        "count": 232,
+        "value": "DEN"
+      },
+      {
+        "count": 232,
+        "value": "DET"
+      },
+      {
+        "count": 244,
+        "value": "GB"
+      },
+      {
+        "count": 211,
+        "value": "HOU"
+      },
+      {
+        "count": 242,
+        "value": "IND"
+      },
+      {
+        "count": 233,
+        "value": "JAX"
+      },
+      {
+        "count": 236,
+        "value": "KC"
+      },
+      {
+        "count": 101,
+        "value": "LA"
+      },
+      {
+        "count": 88,
+        "value": "LAC"
+      },
+      {
+        "count": 60,
+        "value": "LV"
+      },
+      {
+        "count": 233,
+        "value": "MIA"
+      },
+      {
+        "count": 237,
+        "value": "MIN"
+      },
+      {
+        "count": 241,
+        "value": "NE"
+      },
+      {
+        "count": 235,
+        "value": "NO"
+      },
+      {
+        "count": 239,
+        "value": "NYG"
+      },
+      {
+        "count": 238,
+        "value": "NYJ"
+      },
+      {
+        "count": 171,
+        "value": "OAK"
+      },
+      {
+        "count": 240,
+        "value": "PHI"
+      },
+      {
+        "count": 241,
+        "value": "PIT"
+      },
+      {
+        "count": 149,
+        "value": "SD"
+      },
+      {
+        "count": 243,
+        "value": "SEA"
+      },
+      {
+        "count": 241,
+        "value": "SF"
+      },
+      {
+        "count": 141,
+        "value": "STL"
+      },
+      {
+        "count": 235,
+        "value": "TB"
+      },
+      {
+        "count": 238,
+        "value": "TEN"
+      },
+      {
+        "count": 234,
+        "value": "WAS"
+      }
+    ],
+    "game_type": [
+      {
+        "count": 54,
+        "value": "CON"
+      },
+      {
+        "count": 108,
+        "value": "DIV"
+      },
+      {
+        "count": 7239,
+        "value": "REG"
+      },
+      {
+        "count": 27,
+        "value": "SB"
+      },
+      {
+        "count": 120,
+        "value": "WC"
+      }
+    ],
+    "home_team": [
+      {
+        "count": 232,
+        "value": "ARI"
+      },
+      {
+        "count": 234,
+        "value": "ATL"
+      },
+      {
+        "count": 237,
+        "value": "BAL"
+      },
+      {
+        "count": 236,
+        "value": "BUF"
+      },
+      {
+        "count": 234,
+        "value": "CAR"
+      },
+      {
+        "count": 237,
+        "value": "CHI"
+      },
+      {
+        "count": 233,
+        "value": "CIN"
+      },
+      {
+        "count": 227,
+        "value": "CLE"
+      },
+      {
+        "count": 234,
+        "value": "DAL"
+      },
+      {
+        "count": 240,
+        "value": "DEN"
+      },
+      {
+        "count": 230,
+        "value": "DET"
+      },
+      {
+        "count": 243,
+        "value": "GB"
+      },
+      {
+        "count": 211,
+        "value": "HOU"
+      },
+      {
+        "count": 240,
+        "value": "IND"
+      },
+      {
+        "count": 232,
+        "value": "JAX"
+      },
+      {
+        "count": 247,
+        "value": "KC"
+      },
+      {
+        "count": 97,
+        "value": "LA"
+      },
+      {
+        "count": 83,
+        "value": "LAC"
+      },
+      {
+        "count": 59,
+        "value": "LV"
+      },
+      {
+        "count": 230,
+        "value": "MIA"
+      },
+      {
+        "count": 234,
+        "value": "MIN"
+      },
+      {
+        "count": 259,
+        "value": "NE"
+      },
+      {
+        "count": 238,
+        "value": "NO"
+      },
+      {
+        "count": 233,
+        "value": "NYG"
+      },
+      {
+        "count": 228,
+        "value": "NYJ"
+      },
+      {
+        "count": 173,
+        "value": "OAK"
+      },
+      {
+        "count": 250,
+        "value": "PHI"
+      },
+      {
+        "count": 243,
+        "value": "PIT"
+      },
+      {
+        "count": 149,
+        "value": "SD"
+      },
+      {
+        "count": 243,
+        "value": "SEA"
+      },
+      {
+        "count": 238,
+        "value": "SF"
+      },
+      {
+        "count": 141,
+        "value": "STL"
+      },
+      {
+        "count": 238,
+        "value": "TB"
+      },
+      {
+        "count": 234,
+        "value": "TEN"
+      },
+      {
+        "count": 231,
+        "value": "WAS"
+      }
+    ],
+    "location": [
+      {
+        "count": 7446,
+        "value": "Home"
+      },
+      {
+        "count": 102,
+        "value": "Neutral"
+      }
+    ],
+    "season": [
+      {
+        "count": 259,
+        "value": "1999"
+      },
+      {
+        "count": 259,
+        "value": "2000"
+      },
+      {
+        "count": 259,
+        "value": "2001"
+      },
+      {
+        "count": 267,
+        "value": "2002"
+      },
+      {
+        "count": 267,
+        "value": "2003"
+      },
+      {
+        "count": 267,
+        "value": "2004"
+      },
+      {
+        "count": 267,
+        "value": "2005"
+      },
+      {
+        "count": 267,
+        "value": "2006"
+      },
+      {
+        "count": 267,
+        "value": "2007"
+      },
+      {
+        "count": 267,
+        "value": "2008"
+      },
+      {
+        "count": 267,
+        "value": "2009"
+      },
+      {
+        "count": 267,
+        "value": "2010"
+      },
+      {
+        "count": 267,
+        "value": "2011"
+      },
+      {
+        "count": 267,
+        "value": "2012"
+      },
+      {
+        "count": 267,
+        "value": "2013"
+      },
+      {
+        "count": 267,
+        "value": "2014"
+      },
+      {
+        "count": 267,
+        "value": "2015"
+      },
+      {
+        "count": 267,
+        "value": "2016"
+      },
+      {
+        "count": 267,
+        "value": "2017"
+      },
+      {
+        "count": 267,
+        "value": "2018"
+      },
+      {
+        "count": 267,
+        "value": "2019"
+      },
+      {
+        "count": 269,
+        "value": "2020"
+      },
+      {
+        "count": 285,
+        "value": "2021"
+      },
+      {
+        "count": 284,
+        "value": "2022"
+      },
+      {
+        "count": 285,
+        "value": "2023"
+      },
+      {
+        "count": 285,
+        "value": "2024"
+      },
+      {
+        "count": 285,
+        "value": "2025"
+      },
+      {
+        "count": 272,
+        "value": "2026"
+      }
+    ]
+  },
+  "columnPresence": {},
+  "idIntegrity": {
+    "gameIdDuplicates": {
+      "distinctKeys": 7548,
+      "duplicateKeyCount": 0,
+      "duplicateKeys": [],
+      "duplicateKeysTruncated": false,
+      "duplicateRowExcess": 0,
+      "keyColumns": [
+        "game_id"
+      ],
+      "rowCount": 7548
+    }
+  },
+  "kind": "games",
+  "provenance": {
+    "byteLength": 2172886,
+    "gitBlobSha1": "4f1edd10f607152ad3a8a3286aac567929781c42",
+    "observedHosts": [
+      "raw.githubusercontent.com"
+    ],
+    "sha256": "9b512fecf7c73a7680006259118411c75f01b3762100f776d96400e7284a94fe",
+    "url": "https://raw.githubusercontent.com/nflverse/nfldata/b19514f50ba4675e128c21c818592b4d92061a8f/data/games.csv"
+  },
+  "rowCount": 7548,
+  "schema": {
+    "columnCount": 46,
+    "columns": [
+      "game_id",
+      "season",
+      "game_type",
+      "week",
+      "gameday",
+      "weekday",
+      "gametime",
+      "away_team",
+      "away_score",
+      "home_team",
+      "home_score",
+      "location",
+      "result",
+      "total",
+      "overtime",
+      "old_game_id",
+      "gsis",
+      "nfl_detail_id",
+      "pfr",
+      "pff",
+      "espn",
+      "ftn",
+      "away_rest",
+      "home_rest",
+      "away_moneyline",
+      "home_moneyline",
+      "spread_line",
+      "away_spread_odds",
+      "home_spread_odds",
+      "total_line",
+      "under_odds",
+      "over_odds",
+      "div_game",
+      "roof",
+      "surface",
+      "temp",
+      "wind",
+      "away_qb_id",
+      "home_qb_id",
+      "away_qb_name",
+      "home_qb_name",
+      "away_coach",
+      "home_coach",
+      "referee",
+      "stadium_id",
+      "stadium"
+    ]
+  },
+  "season": null,
+  "source": "games"
+}
