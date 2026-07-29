@@ -498,6 +498,32 @@ test('the repair refuses to run once the capture window has opened', () => {
   }
 });
 
+test('main REFUSES a post-window run before it reads anything', async () => {
+  // The guard's CALL SITE, not the guard. Every other assertion in this file
+  // exercises pure functions, so a refactor that dropped or reordered this one
+  // call would leave the suite green while the repair became runnable after a
+  // snapshot exists - the provenance mismatch, the failed status row and the
+  // /api/health/holdout 503 the guard is the only thing preventing, against a
+  // ledger with no remedy. Kills the "stub out the call" mutant.
+  //
+  // The path is deliberately nonsense: the refusal must arrive BEFORE any file
+  // is read, so getting the missing-file error instead is itself the failure.
+  await assert.rejects(
+    repair.main(['--csv', 'c:/definitely/not/a/file.csv'], { now: new Date('2027-01-01T00:00:00Z') }),
+    (err) => {
+      assert.match(err.message, /holdout capture window opened/);
+      assert.doesNotMatch(err.message, /ENOENT|no such file/, 'the guard must fire before the CSV is read');
+      return true;
+    }
+  );
+  // And the same call with the clock inside the window gets past the guard, so
+  // the test above is about the window and not about main throwing at all.
+  await assert.rejects(
+    repair.main(['--csv', 'c:/definitely/not/a/file.csv'], { now: new Date('2026-07-01T00:00:00Z') }),
+    /ENOENT|no such file/
+  );
+});
+
 test('the window bound is the manifest\'s own earliest deadline, not a date in this file', () => {
   // A manifest whose week 1 deadline is already past must refuse at a moment
   // the real one still allows, or the guard is reading something other than the

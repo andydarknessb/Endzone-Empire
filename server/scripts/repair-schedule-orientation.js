@@ -191,6 +191,17 @@ function assertPoolMatchesEnvironment(pool, env = process.env) {
  * work. That constant is imported rather than copied: if the window widens, the
  * refusal has to widen with it.
  *
+ * WHAT THIS BOUND IS NOT, stated plainly because a guard nobody can size is a
+ * guard nobody can trust: it is the MANIFEST-derived opening, and capture can
+ * genuinely open a little earlier than it. holdout.effectiveCutoff takes the
+ * OBSERVED first kickoff when that is earlier than the manifest deadline, and
+ * runtime schedule data may only ever TIGHTEN a deadline, never extend it - so
+ * the true window can open before this one does, by hours. Closing that gap
+ * exactly would require reading the runtime schedule, which is the database
+ * work this guard exists to avoid doing. The mitigation is headroom, not
+ * precision: run the repair with months in hand, not on the eve of week 1, and
+ * the difference between the two bounds cannot matter.
+ *
  * There is deliberately no override flag. A repair that would invalidate stored
  * evidence is not a thing to make easier to do anyway.
  */
@@ -596,6 +607,18 @@ function parseArgs(argv) {
   };
 }
 
+/**
+ * THE SUPPORTED ENTRY POINT IS THE CLI. `main` assumes its caller has already
+ * loaded the environment, which the CLI path does at the top of this file and a
+ * REPL or wrapper script does not: the `require.main === module` guard on that
+ * dotenv call means a programmatic invocation builds its pool from whatever
+ * process.env happens to hold, and `assertPoolMatchesEnvironment` cannot catch
+ * it, because it consults the SAME unloaded environment and takes its
+ * "no DATABASE_URL configured, nothing to disagree with" early exit. Call this
+ * from anywhere other than the command line and you are responsible for
+ * loading .env first. `now` is injectable only so the capture-window guard can
+ * be driven from a test.
+ */
 async function main(argv, { now = new Date() } = {}) {
   const args = parseArgs(argv);
   if (!args.csv) {
