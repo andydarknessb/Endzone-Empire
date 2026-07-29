@@ -438,6 +438,67 @@ test('the missing-csv error tells the operator exactly which file to fetch', asy
 });
 
 // ---------------------------------------------------------------------------
+// --season validation (the manifest path is built from it)
+// ---------------------------------------------------------------------------
+
+test('--season must be a four-digit year inside the supported range', () => {
+  assert.equal(repair.parseSeason(null), repair.DEFAULT_SEASON, 'omitted means the default season');
+  assert.equal(repair.parseSeason(undefined), repair.DEFAULT_SEASON);
+  assert.equal(repair.parseSeason('2025'), 2025);
+  assert.equal(repair.parseSeason(' 2025 '), 2025, 'surrounding whitespace is a typo, not a different year');
+  assert.equal(repair.parseSeason(String(repair.MIN_SEASON)), repair.MIN_SEASON, 'the bounds are inclusive');
+  assert.equal(repair.parseSeason(String(repair.MAX_SEASON)), repair.MAX_SEASON);
+  assert.equal(typeof repair.parseSeason('2025'), 'number', 'a NUMBER, so nothing downstream re-parses a string');
+
+  // Shape. Everything here is something `Number()` alone either coerced
+  // silently or turned into a NaN that travelled on to become part of a file
+  // path. Kills the "Number(flag('season'))" mutant.
+  for (const bad of ['../evil', '../../etc/passwd', 'twenty', '20266', '202', '', '  ', '20.25', '+2026', '2026a', '0x7ea', '2026/../2025']) {
+    assert.throws(
+      () => repair.parseSeason(bad),
+      /--season must be a four-digit year/,
+      `${JSON.stringify(bad)} must be refused by shape`
+    );
+  }
+  // Range. Four digits but not a season this app could hold data for. Kills
+  // the "drop the bounds" mutant.
+  for (const bad of ['1999', '0000', '2100', '9999']) {
+    assert.throws(() => repair.parseSeason(bad), /outside the supported range/, `${bad} must be refused by range`);
+  }
+  // The two refusals are distinguishable, so an operator is told which rule
+  // they broke rather than just that something was wrong.
+  assert.throws(() => repair.parseSeason('1999'), /2020-2099/);
+});
+
+test('a malformed --season refuses before any file or database access', async () => {
+  // parseArgs runs first in main, so the refusal arrives before the manifest is
+  // opened and long before a pool exists. Getting ENOENT, a manifest error or a
+  // connection error instead would mean an unvalidated operand had already been
+  // used to build a path.
+  const inWindow = { now: new Date('2026-07-01T00:00:00Z') };
+  for (const bad of ['../evil', '20266', 'twenty']) {
+    await assert.rejects(
+      repair.main(['--csv', 'games.csv', '--season', bad], inWindow),
+      (err) => {
+        assert.match(err.message, /--season must be a four-digit year/, `for ${bad}`);
+        assert.doesNotMatch(err.message, /ENOENT|no such file|ECONNREFUSED/i,
+          'nothing may be opened or connected to on the strength of an invalid season');
+        return true;
+      }
+    );
+  }
+  await assert.rejects(
+    repair.main(['--verify', '--season', '1999'], inWindow),
+    /outside the supported range/,
+    'verify mode connects to a database, so its season is validated on the same path'
+  );
+  // A season that IS valid but has no manifest still fails, and says so as a
+  // missing file rather than as a validation error: the two are different
+  // problems and the operator needs to be able to tell them apart.
+  await assert.rejects(repair.main(['--verify', '--season', '2031'], inWindow), /ENOENT|no such file/);
+});
+
+// ---------------------------------------------------------------------------
 // Modes
 // ---------------------------------------------------------------------------
 

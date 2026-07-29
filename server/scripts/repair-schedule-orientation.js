@@ -708,6 +708,61 @@ function summarizeConflicts(conflicts) {
 // CLI
 // ---------------------------------------------------------------------------
 
+/**
+ * The seasons this script will accept at all. Not a guess at how long the app
+ * will live: a bound exists so that `--season` is a CHOICE FROM A SMALL SET
+ * rather than a free string, and 2020-2099 covers every season this codebase
+ * could hold data for while excluding everything that is obviously a typo.
+ */
+const MIN_SEASON = 2020;
+const MAX_SEASON = 2099;
+const DEFAULT_SEASON = 2026;
+
+/**
+ * Pure: `--season` -> a bounded integer, or a refusal that says which part was
+ * wrong.
+ *
+ * `Number(value)` on its own was not validation. It answered NaN for 'twenty',
+ * 20266 for a fat-fingered extra digit, and - the reason this is a security fix
+ * and not only an ergonomic one - it let an operand like '../../etc/passwd'
+ * travel as far as the manifest filename before anything objected. The
+ * downstream `path.join` is anchored to `__dirname` and a season that reached it
+ * as NaN would merely have failed to open, but "merely" is doing load-bearing
+ * work in that sentence, and a repair script should not be relying on the next
+ * function's error handling to contain its own unvalidated input.
+ *
+ * Both halves matter. The shape test rejects anything that is not exactly four
+ * digits - no signs, no decimals, no whitespace-padded numerics, no path
+ * separators, nothing `Number()` would coerce - and the range test then rejects
+ * four-digit values that are not plausible seasons. What survives is an integer
+ * in [2020, 2099], so the string interpolated into the manifest filename is
+ * provably `nfl-schedule-NNNN.json` and cannot contain a separator or a
+ * traversal segment.
+ *
+ * A typo refuses BY NAME rather than turning into a confusing "manifest not
+ * found" three steps later, which is the operator-facing half of the same fix.
+ */
+function parseSeason(value, fallback = DEFAULT_SEASON) {
+  // Only an ABSENT flag takes the default. An explicitly supplied `--season ""`
+  // is a command that meant to say something and did not, so it refuses rather
+  // than quietly repairing whatever year the default happens to be.
+  if (value === null || value === undefined) return fallback;
+  const text = String(value).trim();
+  if (!/^\d{4}$/.test(text)) {
+    throw new Error(
+      `--season must be a four-digit year, got ${JSON.stringify(String(value))} - ` +
+      'refusing to build a manifest path out of an operand that is not one'
+    );
+  }
+  const season = Number(text);
+  if (!Number.isInteger(season) || season < MIN_SEASON || season > MAX_SEASON) {
+    throw new Error(
+      `--season ${text} is outside the supported range ${MIN_SEASON}-${MAX_SEASON}`
+    );
+  }
+  return season;
+}
+
 function parseArgs(argv) {
   // A flag whose value is missing takes the NEXT FLAG as its value if nobody
   // stops it, and `--csv --apply` then reads as "repair from a file called
@@ -725,7 +780,9 @@ function parseArgs(argv) {
   };
   const args = {
     csv: flag('csv'),
-    season: Number(flag('season') || 2026),
+    // Validated to a bounded integer here, before it is used for anything -
+    // and in particular before it reaches the manifest filename.
+    season: parseSeason(flag('season')),
     commit: flag('commit'),
     blob: flag('blob'),
     apply: argv.includes('--apply'),
@@ -837,6 +894,11 @@ async function runVerifyMode(args, manifest) {
 async function main(argv, { now = new Date() } = {}) {
   const args = parseArgs(argv);
 
+  // `args.season` is a NUMBER in [MIN_SEASON, MAX_SEASON] by the time it gets
+  // here: parseSeason rejects anything that is not exactly four digits before
+  // parseArgs returns, so this interpolation cannot introduce a separator, a
+  // traversal segment, or an absolute path, and the join is anchored to
+  // __dirname besides. Do not relax parseSeason without revisiting this line.
   const manifestPath = path.join(__dirname, '..', 'data', `nfl-schedule-${args.season}.json`);
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   // The manifest's own recorded provenance is the default pin, so the ordinary
@@ -1069,6 +1131,10 @@ module.exports = {
   ROWS_PER_GAME,
   FORBIDDEN_TABLES,
   CAPTURE_WINDOW_HOURS,
+  MIN_SEASON,
+  MAX_SEASON,
+  DEFAULT_SEASON,
+  parseSeason,
   SEASON_ROWS_SQL,
   STALE_RUNS_SQL,
   assertNotHoldoutSql,
