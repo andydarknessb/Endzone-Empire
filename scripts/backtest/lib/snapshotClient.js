@@ -604,10 +604,28 @@ function createSnapshotClient({
       const upper = Number(params[2]);
       const rows = [];
       for (const team of teams) {
+        // DEGENERATE INPUT, handled the way the SQL handles it rather than the
+        // way the lookup would.
+        //
+        // `fn_normalize_nfl_team` is `upper(trim(x))` with a lookup on top, so
+        // an empty or whitespace-only team normalizes to `''` - NOT to NULL -
+        // and `''` matches no `nfl_games` row, because every schedule row holds
+        // a real team code. The join therefore yields nothing. Consulting the
+        // captured-normalization lookup for such a string would instead throw
+        // (no captured row spells `''`), which would be exploding where SQL
+        // stays quiet. Production cannot even reach here - `computeByeWeeks`
+        // drops falsy teams with `filter(Boolean)` before querying - so this is
+        // belt and braces, but the emulation should not be the fragile one.
+        if (team == null || String(team).trim() === '') continue;
         const key = mode === MODES.RECONSTRUCTED
           ? normalizeTeamKey(team)
           : snapshotNormalizeTeamKey(snapshot, team);
-        if (!key) continue;
+        // A NULL key never equals anything in SQL, so it matches no row. Note
+        // this is `== null`, not falsy: an empty-string key would have to be
+        // COMPARED, exactly as `'' = ''` would be in SQL. It cannot arise here
+        // (the guard above already returned), and writing it this way keeps the
+        // emulation's three-valued logic honest rather than accidentally right.
+        if (key == null) continue;
         for (const game of schedule(targetSeason)) {
           const gameWeek = Number(game.week);
           if (gameWeek < 1 || gameWeek > upper) continue;

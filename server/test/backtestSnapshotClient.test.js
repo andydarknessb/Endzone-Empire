@@ -641,6 +641,52 @@ test('the defense-game count and bye query read the schedule the same way SQL do
     /no captured row spells team "Nowhere FC"/);
 });
 
+test('a degenerate team string yields no bye rows rather than throwing', async () => {
+  // `fn_normalize_nfl_team` is `upper(trim(x))` with a lookup on top, so an
+  // empty or blank team normalizes to a key that matches no schedule row and
+  // the SQL join simply returns nothing. The emulation must do the same. It
+  // previously consulted the captured-normalization lookup first, which
+  // fail-closed THROWS for a string no captured row spells - exploding exactly
+  // where Postgres stays quiet.
+  //
+  // Production cannot reach this: `computeByeWeeks` drops falsy teams with
+  // `filter(Boolean)` before querying. The emulation should still not be the
+  // fragile one.
+  const c = offClient({ season: 2025, week: 3 });
+  for (const raw of ['', '   ', '\t', '\n  \t ', null, undefined]) {
+    const result = await c.query(sqlFor('byeWeeks'), [2025, [raw], 18]);
+    assert.deepEqual(result.rows, [],
+      `a team of ${JSON.stringify(raw)} must yield no rows, not an error`);
+  }
+  // A blank team mixed in with a real one does not suppress the real one.
+  const mixed = await c.query(sqlFor('byeWeeks'), [2025, ['', 'KC', '   '], 18]);
+  assert.deepEqual(mixed.rows.map((r) => r.week).sort(), [1, 2, 3]);
+  assert.equal(mixed.rows.every((r) => r.nfl_team === 'KC'), true);
+
+  // A genuinely unknown spelling still fails closed. That behaviour is
+  // deliberate and is NOT what the blank-input guard relaxed.
+  await assert.rejects(() => c.query(sqlFor('byeWeeks'), [2025, ['Nowhere FC'], 18]),
+    /no captured row spells team "Nowhere FC"/);
+});
+
+test('the JS twin nulls every string it considers blank, which SQL does not', () => {
+  // Pinned here as well as in the PG contract, so the JS half of the
+  // divergence is visible without a database. PostgreSQL's `trim()` strips
+  // SPACES only, so it does not even agree with JS about which strings are
+  // blank - `'\t'` is blank to JS and not to Postgres.
+  for (const blank of ['', '   ', '\t', '\n  \t ']) {
+    assert.equal(normalizeTeamKey(blank), null,
+      `normalizeTeamKey(${JSON.stringify(blank)}) is null`);
+  }
+  assert.equal(normalizeTeamKey(null), null);
+  // Everything in the real domain is non-null on this side, which is what
+  // confines the divergence to blanks.
+  for (const real of ['KC', 'kc', '  kc  ', 'WSH', 'WAS', 'LA', 'LAR',
+    'Washington Commanders', 'Nowhere FC']) {
+    assert.ok(normalizeTeamKey(real), `${real} normalizes to a usable key`);
+  }
+});
+
 // ---------------------------------------------------------------------------
 // The loader, over a snapshot written by the REAL store write path
 // ---------------------------------------------------------------------------

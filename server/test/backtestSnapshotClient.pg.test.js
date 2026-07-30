@@ -374,31 +374,182 @@ if (!ENABLED) {
   // 2. fn_normalize_nfl_team vs normalizeTeamKey
   // -------------------------------------------------------------------------
 
-  test('the JS twin of fn_normalize_nfl_team agrees with the function itself', async () => {
-    const vocabulary = [
-      'KC', 'WSH', 'WAS', 'WFT', 'LA', 'LAR', 'STL', 'SD', 'LAC', 'OAK', 'LV', 'JAC', 'JAX',
-      'GNB', 'GB', 'KAN', 'NWE', 'NE', 'NOR', 'NO', 'TAM', 'TB', 'SFO', 'SF', 'BUF', 'DEN',
-      'Washington Commanders', 'Los Angeles Rams', 'Kansas City Chiefs', 'Buffalo Bills',
-      'kc', '  KC  ', '',
-    ];
+  /**
+   * `fn_normalize_nfl_team`, from its definition in
+   * server/db/migrations/20260719000003_view_matchup_nfl_games.js:
+   *
+   *   WITH normalized AS (SELECT upper(trim(raw_team)) AS v)
+   *   SELECT COALESCE(
+   *     (SELECT abbr FROM full_names WHERE team_name = normalized.v),
+   *     (SELECT abbr FROM aliases    WHERE alias     = normalized.v),
+   *     normalized.v)                       -- pass through
+   *
+   * Three consequences follow directly, and every expectation below is derived
+   * from them rather than guessed:
+   *
+   *   1. NULL in, NULL out (`upper(trim(NULL))` is NULL and both lookups miss,
+   *      so COALESCE has nothing but NULL).
+   *   2. Empty or SPACE-only in, EMPTY STRING out - not NULL. `trim` makes it
+   *      `''`, neither lookup matches, and the final COALESCE arm passes `''`
+   *      through.
+   *   3. An unknown code passes through UPPERCASED AND SPACE-TRIMMED, never
+   *      NULL.
+   *
+   * A subtlety that matters here and is easy to get wrong: PostgreSQL's
+   * one-argument `trim(x)` is `btrim(x, ' ')`, which strips SPACES ONLY. A tab
+   * or a newline is NOT whitespace to it. So `fn_normalize_nfl_team(E'\\t')` is
+   * `E'\\t'`, not `''`. JavaScript's `String.prototype.trim()` strips all
+   * Unicode whitespace, so the two disagree about what "blank" even means -
+   * which is why the expected value below is MODELLED from the SQL
+   * (`upper(btrim(x, ' '))`) instead of assumed to be the empty string.
+   *
+   * The JS twin (`projectionFeatures.normalizeTeamKey`) agrees on 1 and 3 but
+   * returns `null` for anything its own `.trim()` empties. That divergence is
+   * REAL, it predates this study, and this project is measurement-only - so it
+   * is pinned here as a documented fact rather than repaired, and its
+   * immateriality is proven below rather than asserted.
+   */
+
+  /** Inputs JS considers blank. SQL does not agree about all of them. */
+  const JS_BLANK = ['', '   ', '\t', '\n  \t '];
+
+  /** Pure model of the SQL's pass-through arm: `upper(btrim(x, ' '))`. */
+  const pgPassThrough = (s) => s.replace(/^ +/, '').replace(/ +$/, '').toUpperCase();
+
+  test('the JS twin agrees with fn_normalize_nfl_team across the entire real domain', async () => {
+    // Every spelling the captured data can contain: canonical codes, every
+    // alias in the function's own alias list, every full name in its full-name
+    // list, and case/padding variants of each.
+    const canonical = ['ARI', 'ATL', 'BAL', 'BUF', 'CAR', 'CHI', 'CIN', 'CLE', 'DAL', 'DEN',
+      'DET', 'GB', 'HOU', 'IND', 'JAX', 'KC', 'LV', 'LAC', 'LAR', 'MIA', 'MIN', 'NE', 'NO',
+      'NYG', 'NYJ', 'PHI', 'PIT', 'SF', 'SEA', 'TB', 'TEN', 'WAS'];
+    const aliases = ['WSH', 'WFT', 'GNB', 'KAN', 'JAC', 'NWE', 'NOR', 'TAM', 'SFO',
+      'SD', 'OAK', 'STL', 'LA'];
+    const fullNames = ['Arizona Cardinals', 'Buffalo Bills', 'Green Bay Packers',
+      'Kansas City Chiefs', 'Los Angeles Rams', 'Los Angeles Chargers', 'Las Vegas Raiders',
+      'New England Patriots', 'San Francisco 49ers', 'Washington Commanders'];
+    const domain = [...canonical, ...aliases, ...fullNames];
+    // Case and padding variants: `upper(trim(...))` must make these identical.
+    const variants = domain.flatMap((t) => [t, t.toLowerCase(), t.toUpperCase(), `  ${t}  `]);
+
     const result = await pool.query(
       `SELECT "t"."raw", fn_normalize_nfl_team("t"."raw") AS "key"
        FROM unnest($1::text[]) AS "t"("raw")`,
-      [vocabulary]
+      [variants]
     );
+    assert.equal(result.rows.length, variants.length);
     for (const row of result.rows) {
       assert.equal(
         normalizeTeamKey(row.raw), row.key,
         `normalizeTeamKey(${JSON.stringify(row.raw)}) must equal fn_normalize_nfl_team's ${JSON.stringify(row.key)}`
       );
+      assert.ok(row.key && row.key === row.key.trim().toUpperCase(),
+        'every real-domain input yields a non-empty canonical key');
     }
-    // The two divergences the sources actually carry, proven to converge.
+
+    // The two divergences the pinned sources actually carry, proven to
+    // converge on BOTH sides.
     const pairs = await pool.query(
       `SELECT fn_normalize_nfl_team('WAS') = fn_normalize_nfl_team('WSH') AS "washington",
-              fn_normalize_nfl_team('LA') = fn_normalize_nfl_team('LAR') AS "rams"`
+              fn_normalize_nfl_team('LA')  = fn_normalize_nfl_team('LAR') AS "rams"`
     );
     assert.equal(pairs.rows[0].washington, true);
     assert.equal(pairs.rows[0].rams, true);
+    assert.equal(normalizeTeamKey('WAS'), normalizeTeamKey('WSH'));
+    assert.equal(normalizeTeamKey('LA'), normalizeTeamKey('LAR'));
+  });
+
+  test('the degenerate input family, probed in one pass, with the divergence pinned', async () => {
+    // The whole family in a single query, so a variant we have not thought of
+    // is caught here rather than one at a time on successive CI runs.
+    const probes = [null, ...JS_BLANK, 'Nowhere FC', 'nowhere fc', '  Nowhere FC  ',
+      'ZZZ', 'zzz', '123', 'WAS ', ' was'];
+    const result = await pool.query(
+      `SELECT "t"."ord", "t"."raw", fn_normalize_nfl_team("t"."raw") AS "key"
+       FROM unnest($1::text[]) WITH ORDINALITY AS "t"("raw", "ord") ORDER BY "t"."ord"`,
+      [probes]
+    );
+    const keyFor = new Map(result.rows.map((r) => [r.ord - 1, r.key]));
+
+    // 1. NULL in, NULL out - and the JS twin agrees.
+    assert.equal(keyFor.get(0), null, 'fn_normalize_nfl_team(NULL) is NULL');
+    assert.equal(normalizeTeamKey(null), null, 'and the JS twin returns null too');
+
+    // 2. THE PINNED DIVERGENCE, over the whole JS-blank family at once.
+    //    SQL takes the pass-through arm and returns `upper(btrim(x, ' '))`;
+    //    JS returns null because its own `.trim()` emptied the string.
+    //    Asserted in BOTH directions so neither side can drift silently.
+    for (let i = 0; i < JS_BLANK.length; i++) {
+      const raw = JS_BLANK[i];
+      const sqlKey = keyFor.get(i + 1);
+      assert.equal(sqlKey, pgPassThrough(raw),
+        `fn_normalize_nfl_team(${JSON.stringify(raw)}) is upper(btrim(x, ' ')) via the pass-through arm`);
+      assert.notEqual(sqlKey, null, 'SQL never nulls a non-NULL input');
+      assert.equal(normalizeTeamKey(raw), null,
+        `normalizeTeamKey(${JSON.stringify(raw)}) is null - the documented divergence`);
+    }
+    // Space-only really does reach the empty string; tab/newline really does
+    // not. Both facts are what make the general rule above the right one.
+    assert.equal(keyFor.get(1), '', "'' normalizes to the empty string");
+    assert.equal(keyFor.get(2), '', 'a space-only string normalizes to the empty string');
+    assert.equal(keyFor.get(3), '\t',
+      "PostgreSQL's trim() strips SPACES only, so a tab survives it");
+
+    // 3. Unknown codes pass through UPPERCASED AND TRIMMED on both sides -
+    //    neither returns null, which is what makes case 2 the only divergence.
+    for (const [index, raw] of [[5, 'Nowhere FC'], [6, 'nowhere fc'], [7, '  Nowhere FC  '],
+      [8, 'ZZZ'], [9, 'zzz'], [10, '123'], [11, 'WAS '], [12, ' was']]) {
+      assert.equal(normalizeTeamKey(raw), keyFor.get(index),
+        `unknown/padded input ${JSON.stringify(raw)} must agree`);
+    }
+    assert.equal(keyFor.get(5), 'NOWHERE FC', 'unknown input is passed through, not nulled');
+    assert.equal(keyFor.get(11), 'WAS', 'trailing whitespace is trimmed before the alias lookup');
+  });
+
+  test('the empty-string divergence is immaterial: both sides match no schedule row', async () => {
+    // The claim that makes it safe to leave the divergence alone, verified
+    // against the ACTUAL join in bye.service.js:47 rather than argued.
+    //
+    // (a) The production caller cannot even reach the join with an empty team:
+    //     computeByeWeeks does `filter(Boolean)` first (bye.service.js:32).
+    // (b) Even if it did, `''` matches no row, because every nfl_games row
+    //     holds a real team code - so the SQL returns nothing, which is exactly
+    //     what a NULL key would also return.
+    for (const raw of JS_BLANK) {
+      const joined = await pool.query(sqlFor('byeWeeks'), [SEASON, [raw], 18]);
+      assert.deepEqual(joined.rows, [],
+        `the real bye join returns no rows for ${JSON.stringify(raw)}`);
+    }
+    // A NULL team likewise joins to nothing (NULL never equals anything).
+    const nullJoin = await pool.query(sqlFor('byeWeeks'), [SEASON, [null], 18]);
+    assert.deepEqual(nullJoin.rows, []);
+
+    // No captured schedule row normalizes to the empty string, which is the
+    // premise of (b). If this ever fails, the divergence stops being immaterial
+    // and the emulation's handling has to be revisited.
+    const emptyKeyed = await pool.query(
+      `SELECT COUNT(*)::int AS "n" FROM "nfl_games"
+        WHERE "season" = $1 AND COALESCE(fn_normalize_nfl_team("nfl_team"), '') = ''`,
+      [SEASON]
+    );
+    assert.equal(emptyKeyed.rows[0].n, 0);
+
+    // And the EMULATION agrees with the SQL for the same inputs: no rows, and
+    // - the point of the surgical fix - no throw, even though no captured row
+    // spells an empty team.
+    const snapshot = await buildSnapshotFromDatabase();
+    const client = snapshotClient.createSnapshotClient({
+      snapshot, season: SEASON, week: WEEK, mode: snapshotClient.MODES.OFF,
+    });
+    for (const raw of [...JS_BLANK, null]) {
+      const emulated = await client.query(sqlFor('byeWeeks'), [SEASON, [raw], 18]);
+      assert.deepEqual(emulated.rows, [],
+        `the emulation returns no rows for ${JSON.stringify(raw)}, matching Postgres`);
+    }
+    // A genuinely unknown spelling still fails closed - that behaviour is
+    // deliberate and is NOT what the guard above relaxed.
+    await assert.rejects(() => client.query(sqlFor('byeWeeks'), [SEASON, ['Nowhere FC'], 18]),
+      /no captured row spells team/);
   });
 
   // -------------------------------------------------------------------------
