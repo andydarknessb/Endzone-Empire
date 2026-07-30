@@ -23,7 +23,7 @@
  * asserted by test over the whole tree. This needs a credential and a database
  * connection, so it lives out here with the other plugs.
  *
- * CREDENTIALS ARE ENVIRONMENT-ONLY, AND THERE ARE TWO OF THEM
+ * CREDENTIALS ARE ENVIRONMENT-ONLY, AND THERE ARE THREE OF THEM
  *
  *   BACKTEST_ADMIN_DATABASE_URL  the ADMIN connection. Creating a role needs
  *                                CREATEROLE or superuser, which is the most
@@ -33,11 +33,30 @@
  *                                must not be able to run this by accident, and
  *                                the application role should not be able to run
  *                                it at all.
+ *   BACKTEST_OWNER_DATABASE_URL  the TABLE OWNER connection, used by the two
+ *                                policy phases and by nothing else. CREATE
+ *                                POLICY and DROP POLICY are gated on ownership
+ *                                of the table, which CREATEROLE is not, so the
+ *                                admin credential above CANNOT perform them.
+ *                                Also no fallback to DATABASE_URL, even though
+ *                                the owner is the application role: a phase that
+ *                                mutates production row-visibility has to be
+ *                                aimed deliberately, and every application shell
+ *                                already has DATABASE_URL set.
  *   BACKTEST_RO_ROLE_PASSWORD    the password for the role being CREATED,
  *                                generated out of band by the operator.
  *
- * Neither may arrive on argv, where `ps`, /proc/<pid>/cmdline and shell history
- * can all read it.
+ * None of them may arrive on argv, where `ps`, /proc/<pid>/cmdline and shell
+ * history can all read it.
+ *
+ * THE POLICY PHASES
+ *
+ * `--phase grant-policies` and `--phase drop-policies` exist because the four
+ * SELECT grants were not sufficient: three of the four tables have row-level
+ * security enabled with no policies, which is deny-all for every non-owner, so
+ * the role read zero rows with every privilege correctly in place. See
+ * `gate1/grant-rls-policies.sql` for the finding and for why BYPASSRLS is not
+ * the answer.
  *
  * THE PASSWORD NEVER BECOMES SQL
  *
@@ -69,11 +88,27 @@ const { sslForConnection } = require('../modules/dbSsl');
 
 /** The ONE variable the admin credential may arrive in. No fallback, by design. */
 const ADMIN_ENV_VAR = 'BACKTEST_ADMIN_DATABASE_URL';
+/** The ONE variable the table-owner credential may arrive in. Same design. */
+const OWNER_ENV_VAR = 'BACKTEST_OWNER_DATABASE_URL';
 /** The ONE variable the new role's password may arrive in. */
 const PASSWORD_ENV_VAR = 'BACKTEST_RO_ROLE_PASSWORD';
 
 const SQL_DIR = path.join(__dirname, 'gate1');
-const PHASES = Object.freeze(['create', 'verify', 'teardown']);
+const PHASES = Object.freeze(['create', 'verify', 'teardown', 'grant-policies', 'drop-policies']);
+/**
+ * The phases that connect as the TABLE OWNER instead of the admin. CREATE POLICY
+ * and DROP POLICY require ownership of the table and nothing else does, so this
+ * is also the complete list of phases the admin credential cannot run.
+ */
+const OWNER_PHASES = Object.freeze(['grant-policies', 'drop-policies']);
+/** Which .sql file each phase reads. `readSqlFile` re-validates the name. */
+const PHASE_SQL_FILE = Object.freeze({
+  create: 'create-role.sql',
+  verify: 'verify-role.sql',
+  teardown: 'teardown-role.sql',
+  'grant-policies': 'grant-rls-policies.sql',
+  'drop-policies': 'drop-rls-policies.sql',
+});
 
 /**
  * The role name pattern. Narrow on purpose: the prefix makes every role this
@@ -81,6 +116,19 @@ const PHASES = Object.freeze(['create', 'verify', 'teardown']);
  * leaves nothing that could survive quoting as anything but an identifier.
  */
 const ROLE_PATTERN = /^backtest_ro_[a-z0-9_]{1,40}$/;
+/**
+ * The policy name is DERIVED from the role, never supplied: `<role>_select`. It
+ * is not an operator input, so this pattern exists to catch a caller that built
+ * one by hand rather than to sanitize argv.
+ *
+ * No separate truncation guard is needed. ROLE_PATTERN bounds a role at
+ * `backtest_ro_` (12) plus at most 40 characters, and `_select` adds 7, so the
+ * longest policy name this kit can produce is 59 - inside PostgreSQL's 63-byte
+ * identifier limit, where a truncated name would make every later check target
+ * the wrong policy. A test pins that arithmetic.
+ */
+const POLICY_NAME_SUFFIX = '_select';
+const POLICY_PATTERN = /^backtest_ro_[a-z0-9_]{1,40}_select$/;
 const DATABASE_PATTERN = /^[a-z_][a-z0-9_]{0,62}$/;
 /** ISO-8601 with an EXPLICIT timezone. A naive timestamp means "whose clock?". */
 const VALID_UNTIL_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/;
@@ -110,6 +158,13 @@ const EXPECTED_TABLES = Object.freeze(['nfl_games', 'player_season_stats', 'play
  * failed the preflight against a correct database. Resolution is by OID.
  */
 const EXPECTED_FUNCTION = Object.freeze({ name: 'fn_normalize_nfl_team', args: 'text' });
+/**
+ * `pg_policy.polcmd` for a `FOR SELECT` policy. The catalog stores one
+ * character: 'r' SELECT, 'a' INSERT, 'w' UPDATE, 'd' DELETE, '*' ALL. Compared
+ * against the catalog value rather than a rendered command name, which is what
+ * `pg_policies.cmd` would give.
+ */
+const EXPECTED_POLICY_COMMAND = 'r';
 
 // ---------------------------------------------------------------------------
 // Secrets: reading them, and keeping them out of everything
@@ -196,6 +251,36 @@ function readAdminCredential(env) {
         + 'itself; either way, the privilege escalation path from "the app is running" to "a new '
         + 'login role exists" must not be one environment variable wide.'
       : '')
+  );
+}
+
+/**
+ * Read the TABLE OWNER credential, for the two policy phases.
+ *
+ * Separate from the admin credential because the two are genuinely different
+ * authorities that neither implies nor substitutes for the other: CREATEROLE
+ * cannot CREATE POLICY on a table it does not own, and the application role that
+ * does own the tables cannot create a login role. Nothing about running one
+ * phase should put the other's credential in the process.
+ *
+ * No fallback to DATABASE_URL, and the reason is different from the admin case.
+ * There it is that the app credential must not be able to create roles. Here the
+ * owner IS the app credential in production, so the argument is about intent
+ * rather than privilege: every application shell already has DATABASE_URL set,
+ * and a phase that changes what production rows a login role can see must be
+ * something the operator exported on purpose.
+ */
+function readOwnerCredential(env) {
+  const value = env[OWNER_ENV_VAR];
+  if (typeof value === 'string' && value.trim() !== '') return value.trim();
+  throw new Error(
+    `${OWNER_ENV_VAR} is not set. The policy phases connect as the OWNER of the four granted `
+    + 'tables, because CREATE POLICY and DROP POLICY are gated on table ownership and the Gate 1 '
+    + `admin credential (${ADMIN_ENV_VAR}) does not have it. It is read from that one environment `
+    + 'variable, never from the command line, and there is deliberately NO fallback to DATABASE_URL '
+    + 'or PG* even though the owner is the application role: this phase changes which production '
+    + 'rows a login role can read, and it has to be aimed on purpose rather than picked up from '
+    + 'whatever a shell happened to have exported.'
   );
 }
 
@@ -287,6 +372,29 @@ function assertRoleName(value) {
       + 'and a truncated role name would make every later check target the wrong role');
   }
   return value;
+}
+
+/**
+ * The policy name, which the runner DERIVES rather than accepts. `policyNameFor`
+ * is the only producer, and this is the only thing that lets one reach a
+ * statement, so a value that fails here means a caller assembled a policy name
+ * by hand instead of deriving it from an already-validated role.
+ */
+function assertPolicyName(value, { label = 'policy name' } = {}) {
+  if (typeof value !== 'string' || !POLICY_PATTERN.test(value)) {
+    throw new Error(
+      `${label}: expected a kit-owned policy name matching ${POLICY_PATTERN}; got `
+      + `${JSON.stringify(value)}. The policy name is derived from --role as <role>${POLICY_NAME_SUFFIX} `
+      + 'rather than supplied, so every policy this kit can create or drop belongs to exactly one '
+      + 'role and is identifiable as the kit\'s at a glance.'
+    );
+  }
+  return value;
+}
+
+/** The one producer of a policy name. Input must already be a validated role. */
+function policyNameFor(roleName) {
+  return assertPolicyName(`${assertRoleName(roleName)}${POLICY_NAME_SUFFIX}`);
 }
 
 function assertDatabaseName(value) {
@@ -393,10 +501,10 @@ function loadStatements(sqlText, { label = 'sql' } = {}) {
  * Substitute the psql-style placeholders, and ONLY those.
  *
  * `:'name'` takes a string literal, `:"name"` takes an identifier, and the name
- * must be one of six. Every placeholder in the text is matched by one regex and
- * resolved through the allowlist, so an unrecognised one is an error rather
- * than text that survives into a statement - which is what stops a future edit
- * to a .sql file from introducing an unvalidated substitution point.
+ * must be on the fixed allowlist below. Every placeholder in the text is matched
+ * by one regex and resolved through that allowlist, so an unrecognised one is an
+ * error rather than text that survives into a statement - which is what stops a
+ * future edit to a .sql file from introducing an unvalidated substitution point.
  */
 function renderStatement(text, values, { label = 'statement' } = {}) {
   const allowed = new Map([
@@ -407,6 +515,11 @@ function renderStatement(text, values, { label = 'statement' } = {}) {
     ['valid_until', { kind: 'literal', value: values.validUntil }],
     ['password_verifier', { kind: 'literal', value: values.passwordVerifier }],
     ['role_oid', { kind: 'literal', value: values.roleOid }],
+    // Derived from roleName by policyNameFor, never taken from argv. There is no
+    // literal form: the policy name reaches SQL only as the identifier being
+    // created or dropped, and the catalog reads match policies by comparing the
+    // name in JavaScript rather than filtering on it in SQL.
+    ['policy_ident', { kind: 'ident', value: values.policyName }],
   ]);
   return text.replace(/:(['"])([a-zA-Z_][a-zA-Z0-9_]*)\1/g, (whole, quote, name) => {
     const spec = allowed.get(name);
@@ -701,7 +814,377 @@ const describeCreatorAdminGrant = (row) => (
   + 'DROP ROLE removes it.'
 );
 
+// ---------------------------------------------------------------------------
+// Row-level security: what the role would actually SEE
+// ---------------------------------------------------------------------------
+
+/**
+ * Is this catalog row the policy `grant-rls-policies.sql` makes, exactly?
+ *
+ * Every field is load-bearing, and each one is a DIFFERENT policy that merely
+ * resembles the kit's:
+ *
+ *   policy_name                 the derived `<role>_select`. This is the one
+ *                               comparison that is a name rather than an OID,
+ *                               because "is this the kit's policy" is a question
+ *                               about the identity the kit chose. Everything the
+ *                               name would otherwise have to be trusted for -
+ *                               which role, which table - is checked separately.
+ *   policy_permissive           TRUE. A RESTRICTIVE policy of the same name
+ *                               would NARROW what the role reads rather than
+ *                               widen it, silently, which is the failure mode
+ *                               this whole amendment exists because of.
+ *   policy_command              'r', the catalog's code for FOR SELECT. '*' (FOR
+ *                               ALL) would also cover INSERT, UPDATE and DELETE;
+ *                               the role holds no such privilege today, and a
+ *                               policy must not be the thing standing between it
+ *                               and one it is granted tomorrow.
+ *   roles_are_exactly_the_role  computed in SQL as an OID ARRAY equality, so a
+ *                               policy naming this role AND somebody else fails.
+ *   applies_to_public           FALSE, checked independently of the array
+ *                               comparison rather than inferred from it: a
+ *                               policy reaching PUBLIC applies to every role in
+ *                               the cluster, which is the widest thing a policy
+ *                               can be and the one worth two checks.
+ *   using_is_unconditional      the deparsed qualifier is exactly `true`. A row
+ *                               predicate here would reshape Gate 2's snapshot
+ *                               without appearing anywhere in the extraction.
+ *   has_no_with_check           FOR SELECT takes no WITH CHECK, so a policy that
+ *                               has one was not created by this file.
+ */
+function isExpectedKitPolicy(row, policyName) {
+  if (!row || typeof row !== 'object') return false;
+  return row.policy_name === policyName
+    && row.policy_permissive === true
+    && row.policy_command === EXPECTED_POLICY_COMMAND
+    && row.roles_are_exactly_the_role === true
+    && row.applies_to_public === false
+    && row.using_is_unconditional === true
+    && row.has_no_with_check === true;
+}
+
+/**
+ * Decide what state the four granted tables are in, in ONE place, so that
+ * verify, grant-policies and drop-policies cannot disagree about what "the
+ * expected policy state" means. A verify that judged a policy by a different
+ * rule than the phase that created it would bless something the grant phase
+ * would have refused.
+ *
+ * `status` is one of:
+ *
+ *   absent    no kit policy exists. LEGITIMATE: it is the state between create
+ *             and grant-policies, and the state drop-policies leaves behind.
+ *   complete  all four exist, each in exactly the expected shape.
+ *   partial   anything in between. The grant phase commits four policies or
+ *             none, so this is not a state the kit can produce, and it is
+ *             reported as a problem rather than repaired.
+ *
+ * `problems` is the fail-closed list. The policy phases abort on any entry;
+ * verify reports each one. It is deliberately not fatal on its own for the
+ * `absent` status, which is why `status` and `problems` are separate answers.
+ */
+function classifyPolicyState(tableRows, policyRows, { policyName }) {
+  assertPolicyName(policyName, { label: 'policy state' });
+  const problems = [];
+  const tables = new Map((tableRows || []).map((r) => [r.table_name, r]));
+
+  const missing = EXPECTED_TABLES.filter((t) => !tables.has(t));
+  if (missing.length > 0) {
+    problems.push(
+      `expected tables missing from public: ${missing.join(', ')}. The kit's read surface is those `
+      + 'four tables, so a missing one is a table whose row visibility nothing here describes.'
+    );
+  }
+  // relkind is SELECTED by all three catalog blocks that feed this function, and
+  // until now was never asserted on anywhere. 'r' is an ordinary table, which is
+  // the only thing these four have ever been. A view is the case that matters: a
+  // view carries no row-level security at all, so `relrowsecurity` on one is
+  // false by construction and describeTableRlsState would print "RLS off, so the
+  // SELECT grant is the whole story" for a relation that can read from anything
+  // it selects from. create-role.sql's preflight already refuses to GRANT on a
+  // non-table; this is the same refusal on the policy and verify paths, which
+  // reach the catalog by name and would otherwise inherit whatever the name now
+  // resolves to. Deliberately stricter than that preflight, which also tolerates
+  // a partitioned table ('p'): none of these four is one, and admitting a
+  // relkind whose policy semantics nobody here has checked is a decision for a
+  // human. A row with no relkind at all fails the same way, closed.
+  const wrongKind = [...tables.values()].filter((r) => r.table_kind !== 'r');
+  if (wrongKind.length > 0) {
+    problems.push(
+      'not an ordinary table: '
+      + `${wrongKind.map((r) => `${r.table_name} is relkind ${JSON.stringify(r.table_kind)}`).join(', ')}. `
+      + 'Only relkind "r" is described by this kit. A view has no row-level security of its own, so '
+      + 'its row visibility is whatever it selects from, and nothing here measures that.'
+    );
+  }
+  const forced = [...tables.values()].filter((r) => r.row_security_forced === true);
+  if (forced.length > 0) {
+    problems.push(
+      `FORCE ROW LEVEL SECURITY is on ${forced.map((r) => r.table_name).join(', ')}. FORCE applies `
+      + 'row-level security to the table OWNER as well, which here is the application itself, so '
+      + 'this is a fault in the database rather than in this role.'
+    );
+  }
+
+  const rows = policyRows || [];
+  const kit = rows.filter((r) => isExpectedKitPolicy(r, policyName));
+  // A same-named policy of a different shape is called out separately from a
+  // foreign one, because it is the dangerous case: it is the row that would be
+  // adopted, or dropped, by anything matching on the name alone.
+  const impostors = rows.filter(
+    (r) => r && r.policy_name === policyName && !isExpectedKitPolicy(r, policyName)
+  );
+  const foreign = rows.filter((r) => !r || r.policy_name !== policyName);
+  if (impostors.length > 0) {
+    problems.push(
+      `a policy named ${policyName} exists in a DIFFERENT shape from the one this kit creates:\n    `
+      + `${describeRows(impostors)}\n    It is never adopted and never replaced: something other `
+      + 'than grant-rls-policies.sql made it, so nothing in that file describes what it permits.'
+    );
+  }
+  if (foreign.length > 0) {
+    problems.push(
+      `policies this kit did not create sit on the granted tables:\n    ${describeRows(foreign)}\n`
+      + '    A RESTRICTIVE policy narrows what the role reads with no error anywhere, which would '
+      + "shrink Gate 2's snapshot in silence."
+    );
+  }
+
+  const covered = new Set(kit.map((r) => r.table_name));
+  const uncovered = EXPECTED_TABLES.filter((t) => !covered.has(t));
+  const status = kit.length === 0 ? 'absent' : (uncovered.length === 0 ? 'complete' : 'partial');
+  if (status === 'partial') {
+    problems.push(
+      `the kit policies are a PARTIAL set: present on ${[...covered].sort().join(', ') || '(none)'}, `
+      + `missing on ${uncovered.join(', ')}. The grant phase commits all four or none, so this is `
+      + 'not a state it produced.'
+    );
+  }
+  return { status, kit, impostors, foreign, uncovered, tables: [...tables.values()], problems };
+}
+
+/**
+ * One line per granted table, and the only place the run output says out loud
+ * what the role would actually read. Gate 1 previously reported five correct
+ * privileges over a read surface that was empty on three of four tables.
+ */
+function describeTableRlsState(tableRows, { status }) {
+  return (tableRows || []).map((r) => {
+    const visibility = r.row_security_enabled !== true
+      ? 'RLS off, so the SELECT grant is the whole story'
+      : (status === 'complete'
+        ? 'RLS on, and the kit policy admits the role'
+        : 'RLS ON WITH NO KIT POLICY: the role reads ZERO rows here despite its SELECT grant');
+    return `  ${r.table_name}: rowsecurity=${r.row_security_enabled}, `
+      + `force=${r.row_security_forced}, owner=${r.table_owner} (${visibility})`;
+  });
+}
+
+/**
+ * Which row-security flags moved between two readings of the same block.
+ *
+ * Neither policy file contains an ALTER TABLE, so the answer must always be
+ * "none". Checking it inside the transaction is what turns "this phase never
+ * touches RLS itself" from a promise in a comment into a post-condition that
+ * rolls back.
+ */
+function rlsFlagsChanged(before, after) {
+  const snapshot = (rows) => new Map((rows || []).map(
+    (r) => [r.table_name, `rowsecurity=${r.row_security_enabled}, force=${r.row_security_forced}`]
+  ));
+  const was = snapshot(before);
+  const now = snapshot(after);
+  const changed = [];
+  for (const [name, state] of now) {
+    if (was.get(name) !== state) changed.push(`${name}: ${was.get(name) || '(absent)'} -> ${state}`);
+  }
+  for (const [name, state] of was) {
+    if (!now.has(name)) changed.push(`${name}: ${state} -> (absent)`);
+  }
+  return changed;
+}
+
+/**
+ * The accident guard for the OWNER phases. Same question create-role.sql's
+ * preflight_context asks, minus the CREATEROLE check: these phases need
+ * ownership, not a role attribute, and ownership is resolved per table below.
+ */
+async function assertOwnerContext(client, blocks, values, { label }) {
+  const row = (await runBlock(client, blocks, 'policy_preflight_context', values, { label })).rows[0] || {};
+  if (row.database_name !== values.databaseName) {
+    fail(
+      `${label}: connected to database ${JSON.stringify(row.database_name)} but --database says `
+      + `${JSON.stringify(values.databaseName)}. This is the accident guard between a correct `
+      + 'command and the wrong connection string; nothing has been changed.'
+    );
+  }
+  return row;
+}
+
+/**
+ * Everything both policy phases check before either mutates anything. Shared so
+ * that the drop cannot be aimed somewhere the grant could not, and so that both
+ * abort on the same view of the world.
+ */
+async function policyPreflight(client, blocks, values, { label, log }) {
+  // Validated BEFORE a single statement is issued. `classifyPolicyState` asserts
+  // the same thing, but it does so three blocks later, and this phase must not
+  // open a connection's worth of catalog reads against a value it is going to
+  // refuse. It is also the value that becomes an IDENTIFIER in CREATE POLICY.
+  const policyName = assertPolicyName(values.policyName, { label });
+  const context = await assertOwnerContext(client, blocks, values, { label });
+  log(`connected to ${context.database_name} as ${context.connected_role}`);
+
+  const role = (await runBlock(client, blocks, 'policy_preflight_role_present', values, { label })).rows;
+  if (role.length !== 1) {
+    fail(
+      `${label}: role ${values.roleName} does not exist. Every policy this phase manages names that `
+      + 'role and nothing else, so there is nothing for one to admit and no way to tell an existing '
+      + "policy's role array apart from a foreign one. Nothing has been changed."
+    );
+  }
+
+  // OWNERSHIP is the authorization for the whole phase, resolved from pg_class
+  // rather than assumed from the connection string.
+  const tables = (await runBlock(client, blocks, 'policy_table_rls_state', values, { label })).rows;
+  const notOwned = tables.filter((r) => r.owner_is_connected_role !== true);
+  if (notOwned.length > 0) {
+    fail(
+      `${label}: ${JSON.stringify(context.connected_role)} does not own `
+      + `${notOwned.map((r) => `${r.table_name} (owner ${r.table_owner})`).join(', ')}. CREATE POLICY `
+      + `and DROP POLICY are gated on table ownership, which is why this phase reads ${OWNER_ENV_VAR} `
+      + `and not ${ADMIN_ENV_VAR}. Nothing has been changed.`
+    );
+  }
+
+  const policies = (await runBlock(client, blocks, 'policy_table_policies', values, { label })).rows;
+  const state = classifyPolicyState(tables, policies, { policyName });
+  for (const line of describeTableRlsState(tables, state)) log(line);
+  if (state.problems.length > 0) {
+    // Name the way out, the way the teardown abort names this phase. A PARTIAL
+    // or FOREIGN set is a state this kit will not clear for itself - the drop
+    // phase only removes policies it has already matched field by field against
+    // the shape grant-rls-policies.sql creates - so the statements have to be
+    // run by hand, and an abort that did not say where to get them reads as a
+    // dead end. --print-sql renders them with the derived policy name already
+    // substituted, connects to nothing and reads no credential.
+    const residue = state.kit.length + state.impostors.length + state.foreign.length > 0;
+    fail(
+      `${label}: ABORTED. ${state.problems.length} problem(s) with the policy state of the granted `
+      + `tables:\n  - ${state.problems.join('\n  - ')}\n`
+      + (residue
+        ? 'Clearing a PARTIAL or FOREIGN set is a manual step, as the TABLE OWNER. Print the exact '
+          + 'DROP POLICY statements this kit would issue:\n'
+          + '      node server/scripts/run-backtest-role.js --print-sql --phase drop-policies '
+          + `--database ${values.databaseName} --role ${values.roleName}\n`
+          + 'then run with psql, as the owner, only the ones you have decided to drop. A policy this '
+          + 'kit did not create is not in that output and never will be: deleting it would destroy '
+          + 'the evidence of whatever made it.\n'
+        : '')
+      + 'Nothing has been changed.'
+    );
+  }
+  return { context, tables, policies, state, policyName };
+}
+
+/** Read both policy blocks back and classify, for an in-transaction post-condition. */
+async function readPolicyState(client, blocks, values, { label, policyName }) {
+  const tables = (await runBlock(client, blocks, 'policy_table_rls_state', values, { label })).rows;
+  const policies = (await runBlock(client, blocks, 'policy_table_policies', values, { label })).rows;
+  return { tables, state: classifyPolicyState(tables, policies, { policyName }) };
+}
+
+async function phaseGrantPolicies(client, values, { log, label = 'grant-policies' } = {}) {
+  const blocks = loadStatements(readSqlFile(PHASE_SQL_FILE['grant-policies']), { label });
+  const { tables, state, policyName } = await policyPreflight(client, blocks, values, { label, log });
+
+  if (state.status === 'complete') {
+    log(`the ${EXPECTED_TABLES.length} policies named ${policyName} are already present, in exactly `
+      + 'the expected shape: nothing to do.');
+    return { granted: false, noop: true };
+  }
+
+  await client.query('BEGIN');
+  try {
+    await runBlock(client, blocks, 'create_policies', values, { label });
+    // The post-conditions run INSIDE the transaction, unlike create's, which
+    // commits and then verifies. A policy is cheap to re-read and the whole
+    // failure this amendment answers was a mutation that looked right and was
+    // not, so a wrong result here leaves nothing behind to explain.
+    const after = await readPolicyState(client, blocks, values, { label, policyName });
+    if (after.state.problems.length > 0 || after.state.status !== 'complete') {
+      fail(
+        `${label}: the policies did not land as exactly ${EXPECTED_TABLES.length} kit policies `
+        + `(status ${after.state.status}).`
+        + `${after.state.problems.length > 0 ? `\n  - ${after.state.problems.join('\n  - ')}` : ''}\n`
+        + 'Rolling back: nothing has been changed.'
+      );
+    }
+    const moved = rlsFlagsChanged(tables, after.tables);
+    if (moved.length > 0) {
+      fail(
+        `${label}: the row-security flags moved during this phase: ${moved.join('; ')}. This file `
+        + 'contains no ALTER TABLE, so nothing in it can have done that. Rolling back.'
+      );
+    }
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  }
+  log(`${EXPECTED_TABLES.length} policies named ${policyName} created: PERMISSIVE, FOR SELECT, `
+    + `TO ${values.roleName}, USING (true)`);
+  return { granted: true, noop: false };
+}
+
+async function phaseDropPolicies(client, values, { log, label = 'drop-policies' } = {}) {
+  const blocks = loadStatements(readSqlFile(PHASE_SQL_FILE['drop-policies']), { label });
+  const { tables, state, policyName } = await policyPreflight(client, blocks, values, { label, log });
+
+  if (state.status === 'absent') {
+    log(`no policy named ${policyName} exists on the granted tables: nothing to drop.`);
+    return { dropped: false, noop: true };
+  }
+
+  await client.query('BEGIN');
+  try {
+    // Reaching here means the preflight found all four, each already matched
+    // field by field against the expected shape. `drop_policies` carries no
+    // IF EXISTS, so a policy that vanished between the two statements is an
+    // error rather than a shrug.
+    await runBlock(client, blocks, 'drop_policies', values, { label });
+    const after = await readPolicyState(client, blocks, values, { label, policyName });
+    if (after.state.problems.length > 0 || after.state.status !== 'absent') {
+      fail(
+        `${label}: the policies are not absent after the drop (status ${after.state.status}).`
+        + `${after.state.problems.length > 0 ? `\n  - ${after.state.problems.join('\n  - ')}` : ''}\n`
+        + 'Rolling back: nothing has been dropped.'
+      );
+    }
+    const moved = rlsFlagsChanged(tables, after.tables);
+    if (moved.length > 0) {
+      fail(
+        `${label}: the row-security flags moved during this phase: ${moved.join('; ')}. Dropping a `
+        + 'policy does not disable row-level security, and this file contains no ALTER TABLE. '
+        + 'Rolling back.'
+      );
+    }
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  }
+  log(`${EXPECTED_TABLES.length} policies named ${policyName} dropped, and confirmed absent. `
+    + 'The role can now be torn down.');
+  return { dropped: true, noop: false };
+}
+
 async function phaseVerify(client, values, { log, label = 'verify' } = {}) {
+  // Argument validation before any I/O. The policy name is derived rather than
+  // supplied, so a value that fails here is a caller that built one by hand, and
+  // reading nine catalog blocks before saying so would be work done on a
+  // question this phase has already decided not to answer.
+  const policyName = assertPolicyName(values.policyName, { label });
   const blocks = loadStatements(readSqlFile('verify-role.sql'), { label });
   // The accident guard applies here too, and not only for symmetry: verify is
   // meant to be run standalone days later, when the shell it runs in is not the
@@ -807,8 +1290,39 @@ async function phaseVerify(client, values, { log, label = 'verify' } = {}) {
     note(`the role has DEFAULT privileges, which apply to objects created in future:\n    ${describeRows(defaults)}`);
   }
 
+  // ROW-LEVEL SECURITY. Everything above answers "what is the role PERMITTED to
+  // do"; this answers "what would it actually SEE", and the two came apart in
+  // production: five correct privileges over a read surface that was empty on
+  // three of the four tables, because those tables have RLS enabled and no
+  // policy. The absence of this measurement is why that reached Gate 2.
+  const rlsTables = (await runBlock(client, blocks, 'verify_table_rls_state', values, { label })).rows;
+  const tablePolicies = (await runBlock(client, blocks, 'verify_table_policies', values, { label })).rows;
+  const policyState = classifyPolicyState(rlsTables, tablePolicies, { policyName });
+  for (const problem of policyState.problems) note(problem);
+  for (const line of describeTableRlsState(rlsTables, policyState)) log(line);
+  if (policyState.status === 'absent') {
+    log(`  note: no policy named ${policyName} exists yet. That is the expected state between create `
+      + 'and the grant-policies phase, and it is NOT a failure here - but on any table above with '
+      + 'rowsecurity=true the role reads zero rows until that phase runs.');
+  }
+
   const owned = (await runBlock(client, blocks, 'verify_no_ownership', values, { label })).rows;
-  if (owned.length > 0) note(`the role owns objects or is named by an RLS policy:\n    ${describeRows(owned)}`);
+  // The four deptype 'r' rows the kit's own policies produce are the intended
+  // state after grant-policies, and only those. A row is tolerated when it
+  // resolves to a policy IN THIS DATABASE whose OID is one classifyPolicyState
+  // has already matched field by field against the expected shape - so the
+  // allowance is anchored to policies this verify has itself just approved,
+  // rather than to a name or a catalog class. Every ownership row still fails.
+  const kitPolicyOids = new Set(policyState.kit.map((r) => String(r.policy_oid)));
+  const unexpectedDependencies = owned.filter((r) => !(
+    r.dependency_type === 'r'
+    && r.is_policy_dependency === true
+    && kitPolicyOids.has(String(r.object_oid))
+  ));
+  if (unexpectedDependencies.length > 0) {
+    note('the role owns objects, or is named by an RLS policy this kit did not create:\n    '
+      + `${describeRows(unexpectedDependencies)}`);
+  }
 
   // Exactly one membership is tolerable, and only the one the server makes for
   // itself. Everything else is a finding, including a SECOND copy of the
@@ -855,9 +1369,29 @@ async function phaseTeardown(client, values, { log, label = 'teardown' } = {}) {
 
   const owned = (await runBlock(client, blocks, 'teardown_check_ownership', values, { label })).rows;
   if (owned.length > 0) {
+    // A policy dependency gets its own sentence, because it is the one entry in
+    // this list with a routine fix and a different operator: the policy phases
+    // run as the table owner, so "run drop-policies first" is a step somebody
+    // holding only the admin credential cannot even perform, and an abort that
+    // did not say so would read as a dead end.
+    const policyDeps = owned.filter(
+      (r) => r.dependency_type === 'r' && r.is_policy_dependency === true
+    );
+    const named = policyDeps
+      .filter((r) => r.policy_name)
+      .map((r) => `${r.policy_schema}.${r.policy_table}: ${r.policy_name}`)
+      .join(', ');
     fail(
       `${label}: ABORTED. Role ${values.roleName} owns objects or is named by an RLS policy:\n    `
       + `${describeRows(owned)}\n`
+      + (policyDeps.length > 0
+        ? `${policyDeps.length} of these are RLS POLICIES naming the role${named ? ` (${named})` : ''}. `
+          + 'Run the drop-policies phase first, as the TABLE OWNER:\n'
+          + '      node server/scripts/run-backtest-role.js --phase drop-policies '
+          + `--database ${values.databaseName} --role ${values.roleName}\n`
+          + 'DROP ROLE would refuse over them anyway - PostgreSQL raises SQLSTATE 2BP01 while any '
+          + 'policy names the role - so this abort is that same refusal one statement earlier.\n'
+        : '')
       + 'Nothing has been dropped. This kit never auto-drops owned objects: DROP OWNED BY would '
       + 'delete them, and a role that has come to own something in production is a fact a human '
       + 'needs to look at before anything is destroyed.'
@@ -934,6 +1468,12 @@ async function main(argv, {
     env[PASSWORD_ENV_VAR],
     env[ADMIN_ENV_VAR],
     passwordFromUrl(env[ADMIN_ENV_VAR] || ''),
+    // The owner credential is registered on exactly the same terms and at
+    // exactly the same moment. It is a production write credential; the only
+    // thing that makes it less alarming than the admin one is that it cannot
+    // create roles, and that is not a reason to redact it any later.
+    env[OWNER_ENV_VAR],
+    passwordFromUrl(env[OWNER_ENV_VAR] || ''),
   ]);
   const log = (message) => out.log(redact(message));
   let pool = null;
@@ -946,8 +1486,12 @@ async function main(argv, {
     }
     const roleName = assertRoleName(args.role);
     const databaseName = assertDatabaseName(args.database);
+    // Derived, never supplied. There is no --policy flag, and adding one would
+    // make the set of policies this kit can touch depend on argv.
+    const policyName = policyNameFor(roleName);
     // The expiry is what create asserts and verify compares against. Teardown
-    // does not need it: the role is going away regardless of when it would have.
+    // and the policy phases do not need it: the role is going away regardless of
+    // when it would have, and a policy has no expiry of its own.
     const needsValidUntil = args.phase === 'create' || args.phase === 'verify';
     const validUntil = needsValidUntil ? assertValidUntil(args.validUntil) : null;
 
@@ -964,8 +1508,9 @@ async function main(argv, {
       // not exist until teardown reads it back, and printing an invented number
       // would be worse than printing what it actually is.
       const values = { roleName, databaseName, validUntil: validUntil || '1970-01-01T00:00:00Z',
-        passwordVerifier: 'SCRAM-SHA-256$[REDACTED]', roleOid: '<captured-before-the-drop>' };
-      const file = { create: 'create-role.sql', verify: 'verify-role.sql', teardown: 'teardown-role.sql' }[args.phase];
+        passwordVerifier: 'SCRAM-SHA-256$[REDACTED]', roleOid: '<captured-before-the-drop>',
+        policyName };
+      const file = PHASE_SQL_FILE[args.phase];
       for (const [name, text] of loadStatements(readSqlFile(file), { label: file })) {
         out.log(`\n-- @statement: ${name}\n${renderStatement(text, values, { label: name })}`);
       }
@@ -976,9 +1521,13 @@ async function main(argv, {
     const passwordVerifier = password ? scramVerifier(password) : null;
     redact.add(password).add(passwordVerifier);
 
-    const connectionString = readAdminCredential(env);
-    // readAdminCredential trims, so the trimmed form can differ from the raw
-    // environment value already registered. Register both.
+    // ONE credential per phase, chosen by the phase and never by a fallback. The
+    // policy phases need table ownership, which the admin credential does not
+    // have; the other three need CREATEROLE, which the owner does not have.
+    const usesOwner = OWNER_PHASES.includes(args.phase);
+    const connectionString = usesOwner ? readOwnerCredential(env) : readAdminCredential(env);
+    // Both readers trim, so the trimmed form can differ from the raw environment
+    // value already registered. Register both.
     redact.add(connectionString).add(passwordFromUrl(connectionString));
 
     assertVerifiedTls(connectionString, { env });
@@ -989,13 +1538,17 @@ async function main(argv, {
       max: 1,
       application_name: `endzone-empire-gate1-${args.phase}`,
     });
-    const values = { roleName, databaseName, validUntil, passwordVerifier };
+    const values = { roleName, databaseName, validUntil, passwordVerifier, policyName };
     client = await pool.connect();
     if (args.phase === 'create') {
       await phaseCreate(client, values, { log });
       await phaseVerify(client, values, { log });
     } else if (args.phase === 'verify') {
       await phaseVerify(client, values, { log });
+    } else if (args.phase === 'grant-policies') {
+      await phaseGrantPolicies(client, values, { log });
+    } else if (args.phase === 'drop-policies') {
+      await phaseDropPolicies(client, values, { log });
     } else {
       await phaseTeardown(client, values, { log });
     }
@@ -1022,11 +1575,15 @@ if (require.main === module) {
 }
 
 module.exports = {
-  main, parseArgs, readAdminCredential, readRolePassword, scramVerifier, makeRedactor, redactArgument,
-  assertRoleName, assertDatabaseName, assertValidUntil, assertRoleOid, quoteIdent, quoteLiteral,
+  main, parseArgs, readAdminCredential, readOwnerCredential, readRolePassword, scramVerifier,
+  makeRedactor, redactArgument,
+  assertRoleName, assertDatabaseName, assertValidUntil, assertRoleOid, assertPolicyName,
+  policyNameFor, quoteIdent, quoteLiteral,
   isImplicitCreatorAdminGrant, BOOTSTRAP_SUPERUSER_OID,
+  isExpectedKitPolicy, classifyPolicyState, rlsFlagsChanged,
   loadStatements, renderStatement, readSqlFile, assertVerifiedTls,
-  phaseCreate, phaseVerify, phaseTeardown,
-  ADMIN_ENV_VAR, PASSWORD_ENV_VAR, PHASES, EXPECTED_TABLES, EXPECTED_FUNCTION,
+  phaseCreate, phaseVerify, phaseTeardown, phaseGrantPolicies, phaseDropPolicies,
+  ADMIN_ENV_VAR, OWNER_ENV_VAR, PASSWORD_ENV_VAR, PHASES, OWNER_PHASES, PHASE_SQL_FILE,
+  EXPECTED_TABLES, EXPECTED_FUNCTION, EXPECTED_POLICY_COMMAND, POLICY_NAME_SUFFIX,
   MAX_VALID_UNTIL_DAYS, MIN_PASSWORD_LENGTH, SCRAM_ITERATIONS,
 };

@@ -27,13 +27,93 @@ const readSql = (name) => fs.readFileSync(path.join(SQL_DIR, name), 'utf8');
  */
 const sqlOnly = (text) => text.replace(/--[^\n]*/g, '');
 
+/**
+ * EVERY `c.relname IN (...)` list in a statement, each sorted. Empty when the
+ * statement scopes itself to no table list at all.
+ *
+ * Two things this is shaped for. Every check on these lists used to be an
+ * INCLUSION check - "does it name players?" - and a fifth table added to all of
+ * them left the whole suite passing, so callers need the list itself to compare
+ * exactly. And it collects ALL the lists rather than the first, because a
+ * statement with a second `OR c.relname IN (...)` appended is a widened read
+ * that a first-match parser would never see; a caller comparing against a
+ * one-element array of lists rejects that by construction.
+ */
+const scopedTableLists = (sql) => [...sql.matchAll(/c\.relname IN \(([^)]*)\)/g)]
+  .map((m) => m[1].split(',').map((s) => s.trim().replace(/^'|'$/g, '')).sort());
+
 const VALUES = {
   roleName: 'backtest_ro_pit01',
   databaseName: 'endzone_empire',
   validUntil: '2026-08-06T00:00:00Z',
   passwordVerifier: 'SCRAM-SHA-256$4096:abc$def:ghi',
   roleOid: '16471',
+  policyName: 'backtest_ro_pit01_select',
 };
+
+/** Every .sql file in the kit, so a new one cannot skip the shared pins below. */
+const SQL_FILES = ['create-role.sql', 'verify-role.sql', 'teardown-role.sql',
+  'grant-rls-policies.sql', 'drop-rls-policies.sql'];
+
+// ---------------------------------------------------------------------------
+// Row-level security fixtures
+//
+// Modelled on the production probe of 2026-07-30, not on a tidy invention:
+// players, player_stats and nfl_games carry relrowsecurity = true with zero
+// policies, player_season_stats carries false, all four are relforcerowsecurity
+// = false and owned by the application role. That combination is what made a
+// role with five correct grants read zero rows from three of four tables.
+// ---------------------------------------------------------------------------
+
+const POLICY_NAME = 'backtest_ro_pit01_select';
+const TABLE_OIDS = Object.freeze({
+  nfl_games: 20001, player_season_stats: 20002, player_stats: 20003, players: 20004,
+});
+/** EXPECTED_TABLES, in the order the SQL's `ORDER BY c.relname` returns them. */
+const TABLES_IN_ORDER = [...gate1.EXPECTED_TABLES].sort();
+
+/** The four granted tables. `overrides` is keyed by table name. */
+const productionTables = (overrides = {}) => TABLES_IN_ORDER.map((name) => ({
+  table_oid: TABLE_OIDS[name],
+  schema_name: 'public',
+  table_name: name,
+  table_kind: 'r',
+  table_owner: 'endzone_app',
+  owner_is_connected_role: true,
+  row_security_enabled: name !== 'player_season_stats',
+  row_security_forced: false,
+  ...(overrides[name] || {}),
+}));
+
+/** One kit policy per table, in exactly the shape grant-rls-policies.sql makes. */
+const kitPolicies = (overrides = {}) => TABLES_IN_ORDER.map((name, i) => ({
+  policy_oid: 30001 + i,
+  table_oid: TABLE_OIDS[name],
+  schema_name: 'public',
+  table_name: name,
+  policy_name: POLICY_NAME,
+  policy_command: 'r',
+  policy_permissive: true,
+  roles_are_exactly_the_role: true,
+  applies_to_public: false,
+  policy_roles: ['backtest_ro_pit01'],
+  using_is_unconditional: true,
+  using_expression: 'true',
+  has_no_with_check: true,
+  ...(overrides[name] || {}),
+}));
+
+/** The pg_shdepend rows the kit's own policies produce once they exist. */
+const kitPolicyDependencies = () => kitPolicies().map((p) => ({
+  dependency_type: 'r',
+  catalog_name: 'pg_policy',
+  object_oid: p.policy_oid,
+  database_name: 'endzone_empire',
+  is_policy_dependency: true,
+  policy_name: p.policy_name,
+  policy_schema: 'public',
+  policy_table: p.table_name,
+}));
 
 // ---------------------------------------------------------------------------
 // The SCRAM verifier: pinned to the published RFC 7677 vector
@@ -461,10 +541,15 @@ test('each .sql file parses into named, non-empty, unique statement blocks', () 
       'verify_relation_acl_enumeration', 'verify_column_acl_enumeration',
       'verify_function_acl_enumeration', 'verify_schema_acl_enumeration',
       'verify_database_acl_enumeration', 'verify_default_acl_enumeration',
+      'verify_table_rls_state', 'verify_table_policies',
       'verify_no_ownership', 'verify_memberships']],
     ['teardown-role.sql', ['teardown_role_present', 'teardown_check_ownership',
       'teardown_check_memberships', 'teardown_terminate_sessions', 'teardown_revoke',
       'teardown_reset_settings', 'teardown_drop_role', 'teardown_confirm_absent']],
+    ['grant-rls-policies.sql', ['policy_preflight_context', 'policy_preflight_role_present',
+      'policy_table_rls_state', 'policy_table_policies', 'create_policies']],
+    ['drop-rls-policies.sql', ['policy_preflight_context', 'policy_preflight_role_present',
+      'policy_table_rls_state', 'policy_table_policies', 'drop_policies']],
   ]) {
     const blocks = gate1.loadStatements(readSql(file), { label: file });
     assert.deepEqual([...blocks.keys()], expected, `${file} blocks, in order`);
@@ -476,7 +561,7 @@ test('each .sql file parses into named, non-empty, unique statement blocks', () 
     /statement block "a" is empty/);
 });
 
-test('ONLY the six allowlisted placeholders can reach a statement', () => {
+test('ONLY the allowlisted placeholders can reach a statement', () => {
   // The repo lints server tests with react-app/jest. testing-library's
   // render-result-naming-convention matches any `render*` callee - and, with
   // its default aggressive reporting, anything that wraps one - then insists
@@ -513,6 +598,18 @@ test('ONLY the six allowlisted placeholders can reach a statement', () => {
 
   // A PostgreSQL cast is not a placeholder.
   assert.equal(gate1.renderStatement("SELECT now()::text, 'a:b';", VALUES), "SELECT now()::text, 'a:b';");
+
+  // The policy name is an IDENTIFIER only. There is no literal form, so a .sql
+  // file cannot filter the catalog on it in SQL and then be told a different
+  // name in JavaScript; the two would be one place to disagree.
+  assert.equal(gate1.renderStatement('DROP POLICY :"policy_ident" ON public.players;', VALUES),
+    'DROP POLICY "backtest_ro_pit01_select" ON public.players;');
+  assert.throws(() => gate1.renderStatement("SELECT :'policy_ident';", VALUES),
+    /is a literal placeholder but policy_ident is an ident value/);
+  assert.throws(() => gate1.renderStatement('SELECT :"policy_name";', VALUES),
+    /unknown placeholder/);
+  assert.throws(() => gate1.renderStatement('SELECT :"policy_ident";', { ...VALUES, policyName: null }),
+    /required by this phase but no value was supplied/);
 });
 
 test("each .sql header documents EXACTLY the placeholders its statements use", () => {
@@ -531,7 +628,7 @@ test("each .sql header documents EXACTLY the placeholders its statements use", (
       .matchAll(/:(['"])([a-zA-Z_][a-zA-Z0-9_]*)\1/g)].map((m) => m[2])
   );
 
-  for (const file of ['create-role.sql', 'verify-role.sql', 'teardown-role.sql']) {
+  for (const file of SQL_FILES) {
     const text = readSql(file);
     const declared = /^--[ \t]*@placeholders:[ \t]*(.+)$/m.exec(text);
     assert.ok(declared, `${file} must carry a "-- @placeholders:" line`);
@@ -569,7 +666,7 @@ test('every placeholder actually written in the .sql files is one the runner all
   // The reverse direction of the test above: the allowlist protects against new
   // placeholders, and this protects against a .sql file using one the runner
   // will reject at 3am in the middle of a production gate.
-  for (const file of ['create-role.sql', 'verify-role.sql', 'teardown-role.sql']) {
+  for (const file of SQL_FILES) {
     for (const [name, text] of gate1.loadStatements(readSql(file), { label: file })) {
       assert.doesNotThrow(() => gate1.renderStatement(text, VALUES, { label: `${file}:${name}` }),
         `${file}:${name} uses a placeholder the runner does not allow`);
@@ -825,8 +922,22 @@ test('Gate 1 refuses any connection that does not verify the server certificate'
 function scriptedClient(overrides = {}) {
   const seen = [];
   const answers = {
-    'current_database()': [{ database_name: 'endzone_empire', admin_role: 'admin',
+    // Matched on `AS admin_is_superuser` rather than `current_database()`: the
+    // ownership blocks resolve the current database's OID in a subquery, so a
+    // `current_database()` key would answer them with the context row.
+    'AS admin_is_superuser': [{ database_name: 'endzone_empire', admin_role: 'admin',
       admin_is_superuser: true, admin_can_create_role: true }],
+    // The four granted tables as production has them: RLS on for three, off for
+    // player_season_stats, FORCE off everywhere, owned by the application.
+    'AS row_security_forced': productionTables(),
+    // No policies, which is the state between create and grant-policies and the
+    // state drop-policies leaves behind. It is the baseline rather than the
+    // post-amendment one because ONE key answers both verify_no_ownership and
+    // teardown_check_ownership - they are the same statement - so a fixture with
+    // policies present but no pg_shdepend rows for them would be a database that
+    // cannot exist. The complete state is exercised explicitly below, with its
+    // dependency rows.
+    'AS using_is_unconditional': [],
     'AS role_oid': [{ role_oid: 16471, role_name: 'backtest_ro_pit01', valid_until: null,
       already_expired: false }],
     'AS valid_until_matches': [{
@@ -879,7 +990,62 @@ function scriptedClient(overrides = {}) {
 const PHASE_VALUES = {
   roleName: 'backtest_ro_pit01', databaseName: 'endzone_empire',
   validUntil: '2026-08-06T00:00:00Z', passwordVerifier: null,
+  policyName: POLICY_NAME,
 };
+
+/**
+ * A fake client for the two POLICY phases, which need something the flat
+ * scriptedClient cannot give: a catalog that CHANGES when the mutation runs.
+ * Every post-condition in those phases is asserted inside the transaction, so a
+ * fixture that answered the same rows before and after would make the passing
+ * path indistinguishable from the rolling-back one.
+ *
+ * `policiesAfter` and `tablesAfter` are what the catalog reports once a CREATE
+ * or DROP POLICY has been issued. Leaving them null means the mutation changed
+ * nothing, which is exactly the shape of a post-condition failure.
+ */
+function policyClient(options = {}) {
+  const {
+    databaseName = 'endzone_empire',
+    connectedRole = 'endzone_app',
+    role = [{ role_name: 'backtest_ro_pit01', can_login: true }],
+    tables = productionTables(),
+    policies = [],
+    tablesAfter = null,
+    policiesAfter = null,
+    mutationError = null,
+  } = options;
+  const seen = [];
+  let mutated = false;
+  return {
+    seen,
+    mutated: () => mutated,
+    query: async (text) => {
+      const sql = String(text);
+      seen.push(sql);
+      if (/^\s*(BEGIN|COMMIT|ROLLBACK)\s*$/i.test(sql)) return { rows: [] };
+      // Comments first: policy_preflight_role_present EXPLAINS what
+      // `CREATE POLICY ... TO` does to an absent role, and a raw scan would read
+      // that sentence as the mutation.
+      if (/\b(?:CREATE|DROP)\s+POLICY\b/i.test(sqlOnly(sql))) {
+        if (mutationError) throw mutationError;
+        mutated = true;
+        return { rows: [] };
+      }
+      if (sql.includes('AS connected_role')) {
+        return { rows: [{ database_name: databaseName, connected_role: connectedRole }] };
+      }
+      if (sql.includes('AS can_login')) return { rows: role };
+      if (sql.includes('AS row_security_forced')) {
+        return { rows: mutated && tablesAfter !== null ? tablesAfter : tables };
+      }
+      if (sql.includes('AS using_is_unconditional')) {
+        return { rows: mutated && policiesAfter !== null ? policiesAfter : policies };
+      }
+      throw new Error(`policyClient: no answer scripted for: ${sql.slice(0, 120)}`);
+    },
+  };
+}
 
 test('verify reads EVERY enumeration, including the column ACLs relacl cannot see', async () => {
   const clean = scriptedClient();
@@ -1353,6 +1519,892 @@ test('the SQL each phase depends on reads the catalog it claims to read', () => 
   assert.match(confirm, /usesysid = :'role_oid'/,
     'usename resolves NULL after the drop; usesysid keeps the numeric OID');
   assert.match(confirm, /refobjid = :'role_oid'/);
+});
+
+// ---------------------------------------------------------------------------
+// The RLS policy amendment
+//
+// Gate 1 created the role with five correct grants and verify proved all five.
+// Gate 2's extraction then read ZERO rows from three of the four tables, because
+// those tables have row-level security enabled and no policies at all, which is
+// deny-all for every non-owner. Everything below is about the two things that
+// answers: the policies themselves, and the measurement that would have caught
+// it.
+// ---------------------------------------------------------------------------
+
+test('the policy name is DERIVED from the role, never handed in', () => {
+  assert.equal(gate1.policyNameFor('backtest_ro_pit01'), 'backtest_ro_pit01_select');
+  assert.equal(gate1.POLICY_NAME_SUFFIX, '_select');
+  // Deriving it from an invalid role fails on the ROLE, before any policy name
+  // exists: there is no path from a bad --role to a good policy name.
+  assert.throws(() => gate1.policyNameFor('postgres'), /--role must match/);
+  assert.throws(() => gate1.policyNameFor('backtest_ro_a"b'), /--role must match/);
+
+  for (const bad of ['backtest_ro_pit01', 'backtest_ro_pit01_SELECT', 'pit01_select',
+    'backtest_ro__select', 'backtest_ro_pit01_select_select_x', 'backtest_ro_a b_select',
+    '', null, undefined, 42, {}]) {
+    assert.throws(() => gate1.assertPolicyName(bad), /kit-owned policy name matching/,
+      `${JSON.stringify(bad)} must be refused`);
+  }
+  // The arithmetic that makes a separate truncation guard unnecessary, pinned
+  // rather than asserted in prose: PostgreSQL truncates identifiers at 63, and a
+  // truncated policy name would make every later check target the wrong policy.
+  const longest = gate1.policyNameFor(`backtest_ro_${'a'.repeat(40)}`);
+  assert.equal(longest.length, 59);
+  assert.ok(longest.length <= 63, 'the longest derivable policy name must survive PostgreSQL intact');
+});
+
+test('the policy SQL creates exactly four SELECT policies and never touches RLS itself', () => {
+  const grant = gate1.loadStatements(readSql('grant-rls-policies.sql'), { label: 'g' });
+  const drop = gate1.loadStatements(readSql('drop-rls-policies.sql'), { label: 'd' });
+  const create = sqlOnly(grant.get('create_policies'));
+  const remove = sqlOnly(drop.get('drop_policies'));
+
+  // EXACTLY the four tables create-role.sql grants on, and no fifth. Same check
+  // the grant_select block gets, for the same reason: a policy on a table
+  // outside the read surface would be a privilege this kit cannot account for.
+  const named = (text) => [...text.matchAll(/\bpublic\.([a-z_]+)\b/g)].map((m) => m[1]).sort();
+  assert.deepEqual(named(create), [...gate1.EXPECTED_TABLES].sort());
+  assert.deepEqual(named(remove), [...gate1.EXPECTED_TABLES].sort());
+  assert.equal((create.match(/CREATE POLICY/g) || []).length, gate1.EXPECTED_TABLES.length);
+  assert.equal((remove.match(/DROP POLICY/g) || []).length, gate1.EXPECTED_TABLES.length);
+
+  // Every clause stated explicitly, including the defaults, so a reader does not
+  // have to know PostgreSQL's to know what this permits.
+  for (const clause of ['AS PERMISSIVE', 'FOR SELECT', 'TO :"role_ident"', 'USING (true)']) {
+    assert.equal((create.split(clause).length - 1), gate1.EXPECTED_TABLES.length,
+      `every CREATE POLICY must state ${clause}`);
+  }
+  assert.equal(/RESTRICTIVE/i.test(create), false, 'a restrictive policy would NARROW the read');
+  assert.equal(/WITH CHECK/i.test(create), false, 'FOR SELECT takes no WITH CHECK');
+  assert.equal(/FOR\s+ALL/i.test(create), false, 'FOR ALL would cover writes too');
+  assert.equal(/TO\s+PUBLIC/i.test(create), false, 'a policy naming PUBLIC applies to every role');
+  // No IF EXISTS on the drop: a policy that is not there is a finding, and the
+  // runner has already decided between "all four" and "none" before this runs.
+  assert.equal(/IF\s+EXISTS/i.test(remove), false);
+
+  // The claim the header makes, checked across BOTH whole files rather than the
+  // mutating block: nothing here enables, disables or forces row-level security.
+  for (const [file, blocks] of [['grant-rls-policies.sql', grant], ['drop-rls-policies.sql', drop]]) {
+    const statements = sqlOnly([...blocks.values()].join('\n'));
+    assert.equal(/ROW\s+LEVEL\s+SECURITY/i.test(statements), false,
+      `${file} must contain no ENABLE/DISABLE/FORCE ROW LEVEL SECURITY`);
+    assert.equal(/\bALTER\s+TABLE\b/i.test(statements), false, `${file} must contain no ALTER TABLE`);
+    assert.equal(/\bBYPASSRLS\b/i.test(statements), false, `${file} must not reach for BYPASSRLS`);
+    assert.equal(/\bALTER\s+ROLE\b/i.test(statements), false, `${file} must not alter the role`);
+    assert.equal(/\bGRANT\b/i.test(statements), false, `${file} must grant no privilege`);
+  }
+  // And the reviewer reads the file, not this test: the refusal of BYPASSRLS has
+  // to be argued in the SQL, with both reasons.
+  const header = readSql('grant-rls-policies.sql');
+  assert.match(header, /WHY NOT BYPASSRLS/);
+  assert.match(header, /Only a SUPERUSER may grant BYPASSRLS/);
+  assert.match(header, /ROLE attribute, not a table one/);
+});
+
+test('the kit policy shape is checked field by field, and every field is load-bearing', () => {
+  const [good] = kitPolicies();
+  assert.equal(gate1.isExpectedKitPolicy(good, POLICY_NAME), true);
+
+  const rejects = {
+    'a different name entirely': { policy_name: 'something_else' },
+    'RESTRICTIVE, which NARROWS the read rather than widening it':
+      { policy_permissive: false },
+    'FOR ALL rather than FOR SELECT': { policy_command: '*' },
+    'FOR UPDATE': { policy_command: 'w' },
+    'a role array that is not exactly this role': { roles_are_exactly_the_role: false },
+    'a policy that also reaches PUBLIC': { applies_to_public: true },
+    'a row predicate instead of an unconditional USING':
+      { using_is_unconditional: false, using_expression: 'season > 2024' },
+    'a WITH CHECK clause, which FOR SELECT cannot have': { has_no_with_check: false },
+  };
+  for (const [why, override] of Object.entries(rejects)) {
+    assert.equal(gate1.isExpectedKitPolicy({ ...good, ...override }, POLICY_NAME), false,
+      `must reject: ${why}`);
+  }
+  // A missing field may never be read as absent-and-therefore-fine.
+  for (const key of ['policy_name', 'policy_permissive', 'policy_command',
+    'roles_are_exactly_the_role', 'applies_to_public', 'using_is_unconditional',
+    'has_no_with_check']) {
+    const partial = { ...good };
+    delete partial[key];
+    assert.equal(gate1.isExpectedKitPolicy(partial, POLICY_NAME), false,
+      `must reject a row missing ${key}`);
+  }
+  // NULL is what the catalog reports when the role does not exist, and NULL is
+  // not true.
+  assert.equal(gate1.isExpectedKitPolicy({ ...good, roles_are_exactly_the_role: null }, POLICY_NAME),
+    false);
+  for (const bad of [null, undefined, 'policy', 42, []]) {
+    assert.equal(gate1.isExpectedKitPolicy(bad, POLICY_NAME), false);
+  }
+  // The catalog's own code for FOR SELECT, not a rendered command name.
+  assert.equal(gate1.EXPECTED_POLICY_COMMAND, 'r');
+});
+
+test('the policy state is classified as absent, complete or partial, and nothing else passes', () => {
+  const opts = { policyName: POLICY_NAME };
+  const tables = productionTables();
+
+  // ABSENT is legitimate: it is the state between create and grant-policies.
+  const absent = gate1.classifyPolicyState(tables, [], opts);
+  assert.equal(absent.status, 'absent');
+  assert.deepEqual(absent.problems, []);
+
+  const complete = gate1.classifyPolicyState(tables, kitPolicies(), opts);
+  assert.equal(complete.status, 'complete');
+  assert.deepEqual(complete.problems, []);
+  assert.equal(complete.kit.length, 4);
+
+  // PARTIAL is not a state the grant phase can produce: it commits four or none.
+  const partial = gate1.classifyPolicyState(tables, kitPolicies().slice(0, 3), opts);
+  assert.equal(partial.status, 'partial');
+  assert.match(partial.problems.join('\n'), /PARTIAL set/);
+  assert.match(partial.problems.join('\n'), /missing on players/);
+
+  // A same-named policy of a DIFFERENT shape is the dangerous case: it is what
+  // anything matching on the name alone would adopt, or drop.
+  const impostor = gate1.classifyPolicyState(tables,
+    kitPolicies({ players: { policy_permissive: false } }), opts);
+  assert.match(impostor.problems.join('\n'), new RegExp(`a policy named ${POLICY_NAME} exists in a DIFFERENT shape`));
+  assert.equal(impostor.impostors.length, 1);
+  assert.equal(impostor.status, 'partial', 'an impostor does not count as coverage');
+
+  // A FOREIGN policy on a granted table fails even though it is nobody's
+  // business but the app's: a RESTRICTIVE one would shrink the snapshot silently.
+  const foreign = gate1.classifyPolicyState(tables,
+    [...kitPolicies(), { ...kitPolicies()[0], policy_oid: 40001, policy_name: 'app_tenant_isolation',
+      policy_permissive: false, roles_are_exactly_the_role: false }], opts);
+  assert.match(foreign.problems.join('\n'), /policies this kit did not create/);
+  assert.match(foreign.problems.join('\n'), /app_tenant_isolation/);
+  assert.match(foreign.problems.join('\n'), /RESTRICTIVE policy narrows/);
+
+  // FORCE applies RLS to the owner as well, which here is the application.
+  const forced = gate1.classifyPolicyState(
+    productionTables({ nfl_games: { row_security_forced: true } }), kitPolicies(), opts
+  );
+  assert.match(forced.problems.join('\n'), /FORCE ROW LEVEL SECURITY is on nfl_games/);
+
+  // A missing table is a table whose row visibility nothing here describes.
+  const short = gate1.classifyPolicyState(tables.filter((t) => t.table_name !== 'players'), [], opts);
+  assert.match(short.problems.join('\n'), /expected tables missing from public: players/);
+
+  // relkind is ASSERTED, not merely selected. A view is the dangerous shape: it
+  // carries no row-level security of its own, so relrowsecurity is false by
+  // construction and the per-table line would read "RLS off, so the SELECT grant
+  // is the whole story" about a relation whose row visibility is whatever it
+  // selects from. create-role.sql's preflight already refuses to GRANT on one;
+  // before this, the policy and verify paths did not.
+  const asView = gate1.classifyPolicyState(
+    productionTables({ players: { table_kind: 'v', row_security_enabled: false } }),
+    kitPolicies(), opts
+  );
+  assert.match(asView.problems.join('\n'), /not an ordinary table: players is relkind "v"/);
+  assert.match(asView.problems.join('\n'), /A view has no row-level security of its own/);
+  // A partitioned table is refused too, even though create's preflight tolerates
+  // one: nothing here has checked what a policy on it means.
+  assert.match(
+    gate1.classifyPolicyState(productionTables({ nfl_games: { table_kind: 'p' } }), kitPolicies(), opts)
+      .problems.join('\n'),
+    /nfl_games is relkind "p"/
+  );
+  // And a row with no relkind at all fails closed rather than passing by absence.
+  assert.match(
+    gate1.classifyPolicyState(productionTables({ player_stats: { table_kind: undefined } }),
+      kitPolicies(), opts).problems.join('\n'),
+    /player_stats is relkind undefined/
+  );
+
+  // relrowsecurity is REPORTED, never asserted: whether RLS is on is the
+  // database owner's decision and can change without the role changing.
+  const rlsEverywhere = gate1.classifyPolicyState(
+    productionTables({ player_season_stats: { row_security_enabled: true } }), kitPolicies(), opts
+  );
+  assert.deepEqual(rlsEverywhere.problems, [],
+    'enabling RLS on the fourth table later must not fail verify: the dormant policy is already there');
+  const rlsNowhere = gate1.classifyPolicyState(
+    productionTables({ players: { row_security_enabled: false },
+      player_stats: { row_security_enabled: false }, nfl_games: { row_security_enabled: false } }),
+    kitPolicies(), opts
+  );
+  assert.deepEqual(rlsNowhere.problems, []);
+
+  // The classifier is the one place the three phases agree on what a policy is,
+  // so it refuses to run at all without a validated policy name.
+  assert.throws(() => gate1.classifyPolicyState(tables, [], { policyName: undefined }),
+    /kit-owned policy name matching/);
+});
+
+test('rlsFlagsChanged reports exactly what moved, and nothing when nothing did', () => {
+  const before = productionTables();
+  assert.deepEqual(gate1.rlsFlagsChanged(before, productionTables()), []);
+  assert.deepEqual(
+    gate1.rlsFlagsChanged(before, productionTables({ players: { row_security_enabled: false } })),
+    ['players: rowsecurity=true, force=false -> rowsecurity=false, force=false']
+  );
+  assert.deepEqual(
+    gate1.rlsFlagsChanged(before, productionTables({ nfl_games: { row_security_forced: true } })),
+    ['nfl_games: rowsecurity=true, force=false -> rowsecurity=true, force=true']
+  );
+  // A table that disappeared between the two readings is a change too.
+  assert.deepEqual(
+    gate1.rlsFlagsChanged(before, before.filter((t) => t.table_name !== 'players')),
+    ['players: rowsecurity=true, force=false -> (absent)']
+  );
+  assert.deepEqual(gate1.rlsFlagsChanged([], []), []);
+});
+
+test('grant-policies creates exactly four policies, and is a clean no-op when they exist', async () => {
+  const client = policyClient({ policies: [], policiesAfter: kitPolicies() });
+  const log = [];
+  assert.deepEqual(await gate1.phaseGrantPolicies(client, PHASE_VALUES, { log: (m) => log.push(m) }),
+    { granted: true, noop: false });
+
+  const executed = client.seen.map(sqlOnly);
+  const created = executed.filter((q) => /CREATE POLICY/i.test(q));
+  assert.equal(created.length, 1, 'the four CREATE POLICY statements run as one block');
+  for (const table of gate1.EXPECTED_TABLES) {
+    assert.ok(created[0].includes(`public.${table}`), `the block must name ${table}`);
+  }
+  assert.match(created[0], new RegExp(`TO "${PHASE_VALUES.roleName}"`));
+  assert.match(created[0], new RegExp(`CREATE POLICY "${POLICY_NAME}"`));
+  // The mutation is transactional and COMMITTED only after the post-conditions.
+  const beginAt = executed.findIndex((q) => /^\s*BEGIN\s*$/i.test(q));
+  const createAt = executed.findIndex((q) => /CREATE POLICY/i.test(q));
+  const commitAt = executed.findIndex((q) => /^\s*COMMIT\s*$/i.test(q));
+  assert.ok(beginAt >= 0 && beginAt < createAt && createAt < commitAt);
+  const rereadAt = executed.findIndex((q, i) => i > createAt && q.includes('AS using_is_unconditional'));
+  assert.ok(rereadAt > createAt && rereadAt < commitAt,
+    'the post-condition must be read INSIDE the transaction, before the commit');
+  assert.match(log.join('\n'), /4 policies named backtest_ro_pit01_select created/);
+
+  // Already there, in exactly the right shape: nothing to do, and no BEGIN.
+  const already = policyClient({ policies: kitPolicies() });
+  const quiet = [];
+  assert.deepEqual(await gate1.phaseGrantPolicies(already, PHASE_VALUES, { log: (m) => quiet.push(m) }),
+    { granted: false, noop: true });
+  assert.equal(already.mutated(), false);
+  assert.equal(already.seen.some((q) => /^\s*BEGIN\s*$/i.test(q)), false);
+  assert.match(quiet.join('\n'), /already present, in exactly the expected shape/);
+});
+
+test('grant-policies ABORTS on every unexpected state, having changed nothing', async () => {
+  const cases = {
+    'a same-named policy of a different shape': [
+      { policies: kitPolicies({ players: { using_is_unconditional: false, using_expression: 'false' } }) },
+      /a policy named backtest_ro_pit01_select exists in a DIFFERENT shape/,
+    ],
+    'a policy this kit did not create': [
+      { policies: [{ ...kitPolicies()[0], policy_oid: 41000, policy_name: 'app_tenant_isolation' }] },
+      /policies this kit did not create/,
+    ],
+    'a partial set': [{ policies: kitPolicies().slice(0, 2) }, /PARTIAL set/],
+    'FORCE ROW LEVEL SECURITY': [
+      { tables: productionTables({ players: { row_security_forced: true } }) },
+      /FORCE ROW LEVEL SECURITY is on players/,
+    ],
+    'a table that is not there': [
+      { tables: productionTables().filter((t) => t.table_name !== 'nfl_games') },
+      /expected tables missing from public: nfl_games/,
+    ],
+    'a granted name that now resolves to a VIEW': [
+      { tables: productionTables({ players: { table_kind: 'v', row_security_enabled: false } }) },
+      /not an ordinary table: players is relkind "v"/,
+    ],
+  };
+  for (const [why, [options, expected]] of Object.entries(cases)) {
+    const client = policyClient(options);
+    await assert.rejects(() => gate1.phaseGrantPolicies(client, PHASE_VALUES, { log: () => {} }),
+      expected, `must abort on ${why}`);
+    assert.equal(client.mutated(), false, `nothing may be created for ${why}`);
+    assert.equal(client.seen.some((q) => /^\s*BEGIN\s*$/i.test(q)), false,
+      `the abort must come before any transaction for ${why}`);
+  }
+});
+
+test('the policy phases refuse an operator that does not own the tables, and an absent role', async () => {
+  // CREATE POLICY is gated on table ownership, and the Gate 1 admin operator
+  // holds CREATEROLE rather than ownership. Ownership is resolved from pg_class,
+  // not inferred from which connection string was used.
+  for (const phase of [gate1.phaseGrantPolicies, gate1.phaseDropPolicies]) {
+    const notOwner = policyClient({
+      connectedRole: 'postgres',
+      tables: productionTables({ players: { owner_is_connected_role: false } }),
+      policies: kitPolicies(),
+    });
+    await assert.rejects(() => phase(notOwner, PHASE_VALUES, { log: () => {} }),
+      /"postgres" does not own players \(owner endzone_app\)/);
+    await assert.rejects(() => phase(notOwner, PHASE_VALUES, { log: () => {} }),
+      /BACKTEST_OWNER_DATABASE_URL and not BACKTEST_ADMIN_DATABASE_URL/);
+    assert.equal(notOwner.mutated(), false);
+
+    // An absent role: every policy this phase manages names it and nothing else.
+    const noRole = policyClient({ role: [], policies: kitPolicies() });
+    await assert.rejects(() => phase(noRole, PHASE_VALUES, { log: () => {} }),
+      /role backtest_ro_pit01 does not exist/);
+    assert.equal(noRole.mutated(), false);
+
+    // The accident guard: a correct command aimed at the wrong connection.
+    const elsewhere = policyClient({ databaseName: 'some_other_database', policies: kitPolicies() });
+    await assert.rejects(() => phase(elsewhere, PHASE_VALUES, { log: () => {} }),
+      /connected to database "some_other_database" but --database says "endzone_empire"/);
+    assert.equal(elsewhere.mutated(), false);
+
+    // A policy name that was not derived is refused BEFORE any statement runs.
+    // It is the value that becomes an IDENTIFIER in CREATE POLICY, so a phase
+    // that read three catalog blocks first would be doing work on the way to a
+    // refusal it had already earned.
+    const unvalidated = policyClient({ policies: kitPolicies() });
+    await assert.rejects(
+      () => phase(unvalidated, { ...PHASE_VALUES, policyName: 'anything_i_like' }, { log: () => {} }),
+      /expected a kit-owned policy name matching/);
+    assert.deepEqual(unvalidated.seen, [], 'not one statement may run before the argument is validated');
+  }
+});
+
+test('grant-policies ROLLS BACK when the post-conditions do not hold', async () => {
+  // The post-conditions run inside the transaction precisely so that a mutation
+  // which looked right and was not leaves nothing behind to explain.
+  const didNotLand = policyClient({ policies: [], policiesAfter: kitPolicies().slice(0, 2) });
+  await assert.rejects(() => gate1.phaseGrantPolicies(didNotLand, PHASE_VALUES, { log: () => {} }),
+    /did not land as exactly 4 kit policies \(status partial\)/);
+  const rolled = (client) => client.seen.map(sqlOnly).some((q) => /^\s*ROLLBACK\s*$/i.test(q));
+  const committed = (client) => client.seen.map(sqlOnly).some((q) => /^\s*COMMIT\s*$/i.test(q));
+  assert.equal(rolled(didNotLand), true);
+  assert.equal(committed(didNotLand), false);
+
+  // A policy of the right name in the wrong shape after the fact.
+  const wrongShape = policyClient({
+    policies: [], policiesAfter: kitPolicies({ nfl_games: { applies_to_public: true } }),
+  });
+  await assert.rejects(() => gate1.phaseGrantPolicies(wrongShape, PHASE_VALUES, { log: () => {} }),
+    /DIFFERENT shape/);
+  assert.equal(rolled(wrongShape), true);
+  assert.equal(committed(wrongShape), false);
+
+  // Neither policy file contains an ALTER TABLE, so a row-security flag that
+  // moved during the phase means something else did it, inside our transaction.
+  // The case chosen is one the classifier is deliberately silent about -
+  // relrowsecurity going from false to true is REPORTED, never asserted on - so
+  // this failure can only come from the flag comparison itself.
+  const flagMoved = policyClient({
+    policies: [], policiesAfter: kitPolicies(),
+    tablesAfter: productionTables({ player_season_stats: { row_security_enabled: true } }),
+  });
+  await assert.rejects(() => gate1.phaseGrantPolicies(flagMoved, PHASE_VALUES, { log: () => {} }),
+    /row-security flags moved during this phase: player_season_stats: rowsecurity=false, force=false -> rowsecurity=true, force=false/);
+  assert.equal(rolled(flagMoved), true);
+  assert.equal(committed(flagMoved), false);
+
+  // A driver failure mid-block rolls back too, and the message names the block
+  // rather than the rendered statement.
+  const boom = policyClient({ policies: [], mutationError: Object.assign(new Error('boom'), { detail: 'why' }) });
+  await assert.rejects(() => gate1.phaseGrantPolicies(boom, PHASE_VALUES, { log: () => {} }),
+    /statement create_policies failed: boom DETAIL: why/);
+  assert.equal(rolled(boom), true);
+});
+
+test('drop-policies drops exactly the four kit policies, and confirms them absent', async () => {
+  const client = policyClient({ policies: kitPolicies(), policiesAfter: [] });
+  const log = [];
+  assert.deepEqual(await gate1.phaseDropPolicies(client, PHASE_VALUES, { log: (m) => log.push(m) }),
+    { dropped: true, noop: false });
+  const executed = client.seen.map(sqlOnly);
+  const dropped = executed.filter((q) => /DROP POLICY/i.test(q));
+  assert.equal(dropped.length, 1);
+  for (const table of gate1.EXPECTED_TABLES) assert.ok(dropped[0].includes(`public.${table}`));
+  assert.match(dropped[0], new RegExp(`DROP POLICY "${POLICY_NAME}"`));
+  assert.equal(executed.some((q) => /^\s*COMMIT\s*$/i.test(q)), true);
+  assert.match(log.join('\n'), /dropped, and confirmed absent/);
+
+  // Nothing to drop is a no-op and exit 0, so an operator unsure whether this
+  // already ran can simply run it again.
+  const empty = policyClient({ policies: [] });
+  const quiet = [];
+  assert.deepEqual(await gate1.phaseDropPolicies(empty, PHASE_VALUES, { log: (m) => quiet.push(m) }),
+    { dropped: false, noop: true });
+  assert.equal(empty.mutated(), false);
+  assert.match(quiet.join('\n'), /nothing to drop/);
+});
+
+test('drop-policies never drops a wrong-shape namesake, and rolls back if one survives', async () => {
+  // Deleting a policy this kit did not create would destroy the evidence of
+  // whatever made it, which is the same judgement teardown makes about a
+  // residual ACL entry.
+  const impostor = policyClient({
+    policies: kitPolicies({ players: { policy_command: '*' } }),
+  });
+  await assert.rejects(() => gate1.phaseDropPolicies(impostor, PHASE_VALUES, { log: () => {} }),
+    /a policy named backtest_ro_pit01_select exists in a DIFFERENT shape/);
+  assert.equal(impostor.mutated(), false);
+
+  // The drop ran and a policy is still there: roll back rather than report a
+  // success the catalog disagrees with.
+  const survived = policyClient({ policies: kitPolicies(), policiesAfter: kitPolicies().slice(0, 1) });
+  await assert.rejects(() => gate1.phaseDropPolicies(survived, PHASE_VALUES, { log: () => {} }),
+    /not absent after the drop \(status partial\)/);
+  assert.equal(survived.seen.map(sqlOnly).some((q) => /^\s*ROLLBACK\s*$/i.test(q)), true);
+  assert.equal(survived.seen.map(sqlOnly).some((q) => /^\s*COMMIT\s*$/i.test(q)), false);
+
+  // Dropping a policy does not disable row-level security, and this file has no
+  // ALTER TABLE, so a flag that moved is somebody else in our transaction.
+  const disabled = policyClient({
+    policies: kitPolicies(), policiesAfter: [],
+    tablesAfter: productionTables({ players: { row_security_enabled: false } }),
+  });
+  await assert.rejects(() => gate1.phaseDropPolicies(disabled, PHASE_VALUES, { log: () => {} }),
+    /row-security flags moved during this phase/);
+  assert.equal(disabled.seen.map(sqlOnly).some((q) => /^\s*ROLLBACK\s*$/i.test(q)), true);
+});
+
+test('verify measures ROW VISIBILITY, not just privilege', async () => {
+  // THE MEASUREMENT GAP, closed. Before this, a role with five correct grants
+  // over three deny-all tables passed verify with no line of output that could
+  // have told anyone.
+  const preGrant = scriptedClient();
+  const said = [];
+  await assert.doesNotReject(() => gate1.phaseVerify(preGrant, PHASE_VALUES, { log: (m) => said.push(m) }));
+  const output = said.join('\n');
+  for (const table of ['players', 'player_stats', 'nfl_games']) {
+    assert.match(output, new RegExp(`${table}: rowsecurity=true, force=false, owner=endzone_app `
+      + '\\(RLS ON WITH NO KIT POLICY: the role reads ZERO rows here despite its SELECT grant\\)'));
+  }
+  assert.match(output, /player_season_stats: rowsecurity=false, force=false, owner=endzone_app \(RLS off/);
+  assert.match(output, /no policy named backtest_ro_pit01_select exists yet/);
+  // Absent is NOT a failure: it is the state between create and grant-policies,
+  // and create runs verify automatically.
+  assert.ok(preGrant.seen.some((q) => q.includes('AS row_security_forced')), 'verify never read the flags');
+  assert.ok(preGrant.seen.some((q) => q.includes('AS using_is_unconditional')), 'verify never read the policies');
+
+  // After the grant phase, with the pg_shdepend rows the policies produce.
+  const postGrant = scriptedClient({
+    'AS using_is_unconditional': kitPolicies(),
+    "deptype IN ('o', 'r')": kitPolicyDependencies(),
+  });
+  const after = [];
+  await assert.doesNotReject(() => gate1.phaseVerify(postGrant, PHASE_VALUES, { log: (m) => after.push(m) }));
+  assert.match(after.join('\n'), /players: rowsecurity=true, force=false, owner=endzone_app \(RLS on, and the kit policy admits the role\)/);
+  assert.equal(after.join('\n').includes('ZERO rows'), false);
+
+  // And the failure shapes, through the phase.
+  for (const [why, overrides, expected] of [
+    ['FORCE, which filters the application itself',
+      { 'AS row_security_forced': productionTables({ players: { row_security_forced: true } }) },
+      /FORCE ROW LEVEL SECURITY is on players/],
+    ['a same-named policy of a different shape',
+      { 'AS using_is_unconditional': kitPolicies({ players: { policy_permissive: false } }),
+        "deptype IN ('o', 'r')": kitPolicyDependencies() },
+      /DIFFERENT shape/],
+    ['a policy this kit did not create',
+      { 'AS using_is_unconditional': [{ ...kitPolicies()[0], policy_name: 'app_isolation' }] },
+      /policies this kit did not create/],
+    ['a partial set',
+      { 'AS using_is_unconditional': kitPolicies().slice(0, 3),
+        "deptype IN ('o', 'r')": kitPolicyDependencies().slice(0, 3) },
+      /PARTIAL set/],
+    ['a granted name that now resolves to a VIEW, whose rows nothing here measures',
+      { 'AS row_security_forced': productionTables({
+        players: { table_kind: 'v', row_security_enabled: false } }) },
+      /not an ordinary table: players is relkind "v"/],
+  ]) {
+    await assert.rejects(() => gate1.phaseVerify(scriptedClient(overrides), PHASE_VALUES, { log: () => {} }),
+      expected, `verify must catch ${why}`);
+  }
+
+  // A caller that does not supply the derived policy name is a programming
+  // error, not a role with no policies: it must throw rather than silently
+  // classify every policy in the database as foreign. And it must throw BEFORE
+  // any I/O, because nine catalog blocks read on the way to a refusal is work
+  // done on a question the phase has already decided not to answer.
+  const unvalidated = scriptedClient();
+  await assert.rejects(
+    () => gate1.phaseVerify(unvalidated, { ...PHASE_VALUES, policyName: undefined }, { log: () => {} }),
+    /verify: expected a kit-owned policy name matching/
+  );
+  assert.deepEqual(unvalidated.seen, [], 'not one statement may run before the argument is validated');
+});
+
+test('verify tolerates the shdepend rows its OWN policies produce, and nothing else', async () => {
+  // The four deptype 'r' rows are the intended state after grant-policies. The
+  // allowance is anchored to policy OIDs verify has itself just matched field by
+  // field, so it cannot be walked through by a row that merely claims to be a
+  // policy.
+  const clean = scriptedClient({
+    'AS using_is_unconditional': kitPolicies(),
+    "deptype IN ('o', 'r')": kitPolicyDependencies(),
+  });
+  await assert.doesNotReject(() => gate1.phaseVerify(clean, PHASE_VALUES, { log: () => {} }));
+
+  const deps = kitPolicyDependencies();
+  const rejects = {
+    'an ownership row, which is never tolerated': [
+      { ...deps[0], dependency_type: 'o', catalog_name: 'pg_class', is_policy_dependency: false }],
+    // deptype and classid disagreeing is a row PostgreSQL should never write,
+    // which is precisely why a fail-closed check has to reject it rather than
+    // decide from whichever column it happened to read.
+    'an OWNERSHIP row wearing a policy dependency\'s clothes': [
+      { ...deps[0], dependency_type: 'o' }],
+    'a policy OID verify did not just approve': [{ ...deps[0], object_oid: 99999 }],
+    'a dependency in ANOTHER database wearing a local policy OID': [
+      { ...deps[0], is_policy_dependency: false, database_name: 'some_other_database' }],
+    'a policy dependency alongside the four expected ones': [
+      ...deps, { ...deps[0], object_oid: 50505, policy_name: 'app_isolation', policy_table: 'players' }],
+  };
+  for (const [why, rows] of Object.entries(rejects)) {
+    const client = scriptedClient({
+      'AS using_is_unconditional': kitPolicies(),
+      "deptype IN ('o', 'r')": rows,
+    });
+    await assert.rejects(() => gate1.phaseVerify(client, PHASE_VALUES, { log: () => {} }),
+      /owns objects, or is named by an RLS policy this kit did not create/, `must reject ${why}`);
+  }
+
+  // With NO kit policies approved, a policy dependency has nothing to match
+  // against and fails - so the tolerance cannot outlive the policies.
+  const orphaned = scriptedClient({ "deptype IN ('o', 'r')": kitPolicyDependencies() });
+  await assert.rejects(() => gate1.phaseVerify(orphaned, PHASE_VALUES, { log: () => {} }),
+    /is named by an RLS policy this kit did not create/);
+});
+
+test('teardown names the drop-policies phase when policies are what block the drop', async () => {
+  // The two phases run as DIFFERENT operators - drop-policies needs table
+  // ownership, teardown needs CREATEROLE - so an abort that did not say which
+  // command fixes it would read as a dead end to whoever is holding the admin
+  // credential.
+  const blocked = scriptedClient({ "deptype IN ('o', 'r')": kitPolicyDependencies() });
+  await assert.rejects(() => gate1.phaseTeardown(blocked, PHASE_VALUES, { log: () => {} }),
+    (err) => {
+      assert.match(err.message, /ABORTED.*Nothing has been dropped/s);
+      assert.match(err.message, /4 of these are RLS POLICIES naming the role/);
+      assert.match(err.message, /public\.players: backtest_ro_pit01_select/);
+      assert.match(err.message, /--phase drop-policies --database endzone_empire --role backtest_ro_pit01/);
+      assert.match(err.message, /SQLSTATE 2BP01/);
+      return true;
+    });
+  assert.equal(blocked.seen.map(sqlOnly).some((q) => /\bDROP\s+ROLE\b/i.test(q)), false,
+    'nothing may be dropped');
+
+  // An OWNERSHIP row gets the original message and no policy sentence: there is
+  // no phase that fixes it, and suggesting one would be a lie.
+  const owns = scriptedClient({
+    "deptype IN ('o', 'r')": [{ dependency_type: 'o', catalog_name: 'pg_class', object_oid: 60001,
+      database_name: 'endzone_empire', is_policy_dependency: false, policy_name: null,
+      policy_schema: null, policy_table: null }],
+  });
+  await assert.rejects(() => gate1.phaseTeardown(owns, PHASE_VALUES, { log: () => {} }),
+    (err) => {
+      assert.match(err.message, /never auto-drops owned objects/);
+      assert.equal(err.message.includes('drop-policies'), false,
+        'an ownership dependency has no phase that fixes it');
+      return true;
+    });
+});
+
+test('the policy phases read the OWNER credential, and nothing else falls back to it', async () => {
+  assert.equal(gate1.OWNER_ENV_VAR, 'BACKTEST_OWNER_DATABASE_URL');
+  assert.deepEqual([...gate1.OWNER_PHASES], ['grant-policies', 'drop-policies']);
+  assert.equal(gate1.readOwnerCredential({ BACKTEST_OWNER_DATABASE_URL: '  postgres://a/b  ' }),
+    'postgres://a/b');
+  for (const env of [{}, { BACKTEST_OWNER_DATABASE_URL: '   ' },
+    { DATABASE_URL: 'postgres://app/x' }, { BACKTEST_ADMIN_DATABASE_URL: 'postgres://admin/x' }]) {
+    assert.throws(() => gate1.readOwnerCredential(env),
+      /BACKTEST_OWNER_DATABASE_URL is not set/);
+  }
+  assert.throws(() => gate1.readOwnerCredential({}), /NO fallback to DATABASE_URL/);
+
+  // Through main: the policy phases refuse the ADMIN credential, and the other
+  // three refuse the owner one. Neither substitutes for the other.
+  const base = ['--database', 'endzone_empire', '--role', 'backtest_ro_pit01'];
+  for (const phase of gate1.OWNER_PHASES) {
+    await assert.rejects(
+      () => gate1.main(['--phase', phase, ...base],
+        { env: { BACKTEST_ADMIN_DATABASE_URL: 'postgres://admin:pw@db/endzone_empire' },
+          out: { log: () => {} } }),
+      /BACKTEST_OWNER_DATABASE_URL is not set/, `${phase} must not run on the admin credential`
+    );
+  }
+  await assert.rejects(
+    () => gate1.main(['--phase', 'teardown', ...base],
+      { env: { BACKTEST_OWNER_DATABASE_URL: 'postgres://owner:pw@db/endzone_empire' },
+        out: { log: () => {} } }),
+    /BACKTEST_ADMIN_DATABASE_URL is not set/, 'teardown must not run on the owner credential'
+  );
+  // The policy phases need no expiry: a policy has none.
+  await assert.rejects(
+    () => gate1.main(['--phase', 'grant-policies', ...base], { env: {}, out: { log: () => {} } }),
+    /BACKTEST_OWNER_DATABASE_URL is not set/,
+    'the missing credential must be what stops it, not a missing --valid-until'
+  );
+});
+
+test('the OWNER connection string is redacted from a mis-ordered argument too', () => {
+  // Same hazard as the admin URL, same fix: it is registered with the redactor
+  // from the environment, before argv is parsed. It is a production write
+  // credential; the only thing that makes it less alarming than the admin one is
+  // that it cannot create roles.
+  const OWNER_PW = 'OwnerP4ss-CANARY-xyz';
+  const url = `postgres://endzone_app:${OWNER_PW}@db.example.com/endzone_empire`;
+  const env = { BACKTEST_OWNER_DATABASE_URL: url };
+  const ok = ['--phase', 'grant-policies', '--database', 'endzone_empire', '--role', 'backtest_ro_x'];
+  const swap = (flag, value) => ok.map((t, i) => (ok[i - 1] === flag ? value : t));
+
+  return Promise.all(['--role', '--database'].map(async (flag) => {
+    let error = null;
+    await gate1.main(swap(flag, url), { env, out: { log: () => {} } }).catch((err) => { error = err; });
+    assert.ok(error, `${flag}: expected a rejection`);
+    for (const text of [error.message, error.stack || '']) {
+      assert.equal(text.includes(OWNER_PW), false, `${flag}: the owner password leaked`);
+      assert.equal(text.includes(url), false, `${flag}: the whole owner URL leaked`);
+    }
+  }));
+});
+
+test('--print-sql renders the policy phases, with an empty environment', async () => {
+  for (const phase of gate1.OWNER_PHASES) {
+    const lines = [];
+    const code = await gate1.main(['--phase', phase, '--database', 'endzone_empire',
+      '--role', 'backtest_ro_pit01', '--print-sql'], { env: {}, out: { log: (m) => lines.push(m) } });
+    assert.equal(code, 0, `${phase} --print-sql must succeed with an empty environment`);
+    const text = lines.join('\n');
+    // The reviewer sees the real policy name and the real role, substituted.
+    assert.match(text, /"backtest_ro_pit01_select"/);
+    assert.match(text, /public\.player_season_stats/);
+    assert.match(text, new RegExp(phase === 'grant-policies' ? 'CREATE POLICY' : 'DROP POLICY'));
+  }
+  // And the file map is the only route from a phase to a file.
+  assert.deepEqual(Object.keys(gate1.PHASE_SQL_FILE).sort(), [...gate1.PHASES].sort());
+});
+
+test('the three files ask the SAME questions about tables, policies and dependencies', () => {
+  // A verify that judged a policy by a different rule than the phase that
+  // created it would bless something the grant phase would have refused, and a
+  // drop aimed at a database the grant could not reach would remove policies
+  // from the wrong cluster. Comparing the statements mechanically is the only
+  // way that does not drift.
+  const strip = (t) => sqlOnly(t).replace(/\s+/g, ' ').trim();
+  const blocks = Object.fromEntries(SQL_FILES.map(
+    (f) => [f, gate1.loadStatements(readSql(f), { label: f })]
+  ));
+  const same = (pairs, why) => {
+    const rendered = pairs.map(([file, block]) => {
+      const text = blocks[file].get(block);
+      assert.ok(text, `${file} has no block ${block}`);
+      return strip(text);
+    });
+    for (const one of rendered) assert.equal(one, rendered[0], why);
+  };
+
+  same([['grant-rls-policies.sql', 'policy_table_rls_state'],
+    ['drop-rls-policies.sql', 'policy_table_rls_state'],
+    ['verify-role.sql', 'verify_table_rls_state']].slice(0, 2),
+  'the two policy phases must read the table state identically');
+  same([['grant-rls-policies.sql', 'policy_table_policies'],
+    ['drop-rls-policies.sql', 'policy_table_policies'],
+    ['verify-role.sql', 'verify_table_policies']],
+  'verify must judge a policy by exactly the statement the phases judge it by');
+  same([['grant-rls-policies.sql', 'policy_preflight_context'],
+    ['drop-rls-policies.sql', 'policy_preflight_context']],
+  'the accident guard must be the same question in both policy phases');
+  same([['grant-rls-policies.sql', 'policy_preflight_role_present'],
+    ['drop-rls-policies.sql', 'policy_preflight_role_present']],
+  'both phases must resolve the role the same way');
+  same([['verify-role.sql', 'verify_no_ownership'],
+    ['teardown-role.sql', 'teardown_check_ownership']],
+  'verify and teardown must read the same dependencies, even though they decide differently');
+
+  // verify_table_rls_state carries no ownership comparison, because verify runs
+  // as the admin and reading the catalog needs no ownership. That is the ONE
+  // intended difference, so it is pinned rather than left to drift.
+  const verifyTables = sqlOnly(blocks['verify-role.sql'].get('verify_table_rls_state'));
+  const grantTables = sqlOnly(blocks['grant-rls-policies.sql'].get('policy_table_rls_state'));
+  assert.equal(/owner_is_connected_role/.test(verifyTables), false,
+    'verify does not need ownership and must not assert it');
+  assert.match(grantTables, /AS owner_is_connected_role/);
+  for (const column of ['relrowsecurity', 'relforcerowsecurity', 'pg_get_userbyid']) {
+    assert.ok(verifyTables.includes(column) && grantTables.includes(column),
+      `both must read ${column}`);
+  }
+});
+
+test('the policy SQL resolves identity from the catalog, not as constants', () => {
+  // A scripted client returns whatever the fixture says, so the SQL could report
+  // `true AS roles_are_exactly_the_role` and every JS-level test above would
+  // still pass while the shape check became "any policy at all".
+  for (const [file, block] of [
+    ['grant-rls-policies.sql', 'policy_table_policies'],
+    ['drop-rls-policies.sql', 'policy_table_policies'],
+    ['verify-role.sql', 'verify_table_policies'],
+  ]) {
+    const sql = sqlOnly(gate1.loadStatements(readSql(file), { label: file }).get(block));
+    // The role match is an OID ARRAY equality against the catalog, not a name.
+    assert.match(sql,
+      /\(p\.polroles = ARRAY\[\(SELECT oid FROM pg_roles WHERE rolname = :'role_name'\)\]::oid\[\]\)\s+AS roles_are_exactly_the_role/,
+      `${block}: the role match must compare OID arrays`);
+    assert.equal(/true\s+AS roles_are_exactly_the_role/.test(sql), false,
+      `${block}: a constant true here would accept any policy`);
+    assert.match(sql, /\(0::oid = ANY\(p\.polroles\)\)\s+AS applies_to_public/,
+      `${block}: PUBLIC is oid 0 in polroles and must be tested for`);
+    assert.equal(/false\s+AS applies_to_public/.test(sql), false);
+    assert.match(sql, /\(pg_get_expr\(p\.polqual, p\.polrelid\) = 'true'\)\s+AS using_is_unconditional/);
+    assert.match(sql, /\(p\.polwithcheck IS NULL\)\s+AS has_no_with_check/);
+    assert.match(sql, /p\.polpermissive\s+AS policy_permissive/);
+    assert.match(sql, /p\.polcmd\s+AS policy_command/);
+    // pg_policy, not the pg_policies view: the view renders role NAMES.
+    assert.match(sql, /FROM pg_policy p/);
+    assert.equal(/FROM pg_policies/.test(sql), false);
+    // And exactly the four granted tables, so a policy elsewhere cannot be read
+    // as one of the kit's. EXACTLY, not "at least": an inclusion check here
+    // passed with a fifth table injected into the list. ONE list, too - a
+    // second one OR-ed on would widen the read past anything checked.
+    assert.deepEqual(scopedTableLists(sql), [[...gate1.EXPECTED_TABLES].sort()],
+      `${block}: must scope to EXACTLY the four granted tables, in exactly one IN-list`);
+  }
+
+  // The two policy phases authorize themselves on OWNERSHIP, and ownership must
+  // be resolved from pg_class rather than reported as a constant: a scripted
+  // client would return whatever the fixture said either way, and the phase
+  // would then be authorized by the connection string it was handed.
+  for (const file of ['grant-rls-policies.sql', 'drop-rls-policies.sql']) {
+    const blocks = gate1.loadStatements(readSql(file), { label: file });
+    const tables = sqlOnly(blocks.get('policy_table_rls_state'));
+    assert.match(tables,
+      /\(pg_get_userbyid\(c\.relowner\) = current_user\)\s+AS owner_is_connected_role/,
+      `${file}: ownership must be compared against the catalog`);
+    assert.equal(/true\s+AS owner_is_connected_role/.test(tables), false,
+      `${file}: a constant true here would let any operator create policies`);
+    assert.match(tables, /c\.relrowsecurity\s+AS row_security_enabled/);
+    assert.match(tables, /c\.relforcerowsecurity\s+AS row_security_forced/);
+
+    // The connected role is reported from the session, not asserted as a name.
+    const context = sqlOnly(blocks.get('policy_preflight_context'));
+    assert.match(context, /current_user\s+AS connected_role/,
+      `${file}: the connected role must come from the session`);
+    assert.match(context, /current_database\(\)\s+AS database_name/,
+      `${file}: the accident guard must ask the server which database it is`);
+
+    // And the role-existence preflight must actually filter on the role.
+    const present = sqlOnly(blocks.get('policy_preflight_role_present'));
+    assert.match(present, /FROM pg_roles\s+WHERE rolname = :'role_name';/,
+      `${file}: the role preflight must resolve the role it was given`);
+  }
+
+  // The dependency blocks must resolve the policy for the CURRENT database only:
+  // pg_policy OIDs are per-database and pg_shdepend spans the cluster, so
+  // without the dbid test a policy in another database could collide with a
+  // local OID and be waved through as one of ours.
+  for (const [file, block] of [
+    ['verify-role.sql', 'verify_no_ownership'],
+    ['teardown-role.sql', 'teardown_check_ownership'],
+  ]) {
+    const sql = sqlOnly(gate1.loadStatements(readSql(file), { label: file }).get(block));
+    assert.match(sql, /\(s\.classid = 'pg_policy'::regclass\s+AND s\.dbid = \(SELECT oid FROM pg_database WHERE datname = current_database\(\)\)\)\s+AS is_policy_dependency/,
+      `${block}: is_policy_dependency must require the current database`);
+    assert.match(sql, /LEFT JOIN pg_policy pol/,
+      `${block}: an inner join would discard the unresolvable rows a fail-closed check exists to see`);
+    assert.match(sql, /AND s\.deptype IN \('o', 'r'\)/);
+    assert.equal(/true\s+AS is_policy_dependency/.test(sql), false);
+  }
+});
+
+test('the PG fixture never sweeps an owner role whose REASSIGN failed', () => {
+  // `dropOwnerRole` lives in backtestGate1Role.pg.test.js, which needs a
+  // disposable Postgres and is a visible SKIP everywhere else, so the ordering
+  // that keeps it safe cannot be proven by running it here. It is pinned as
+  // STRUCTURE instead, because the failure it guards against is both
+  // catastrophic and silent: that fixture deliberately makes a role the OWNER of
+  // players, player_stats, player_season_stats and nfl_games, and a
+  // `DROP OWNED BY` reached with the tables still owned would DELETE THEM from
+  // the CI database. `REASSIGN OWNED BY` moves them off first; if it fails, the
+  // sweep must not run, and the leftover role is somebody else's problem.
+  const src = fs.readFileSync(path.join(__dirname, 'backtestGate1Role.pg.test.js'), 'utf8');
+  const found = /async function dropOwnerRole\([^)]*\)\s*\{([\s\S]*?)\n {2}\}/.exec(src);
+  assert.ok(found, 'dropOwnerRole must still exist in the PG lifecycle suite');
+  const body = found[1];
+
+  // The REASSIGN result is inspected. `.catch(() => {})` is the file's idiom for
+  // cleanup that may fail harmlessly, and it is exactly wrong on this statement.
+  assert.equal(/REASSIGN OWNED BY[^\n]*\)\s*\.catch\(/.test(body), false,
+    'a swallowed REASSIGN is what let the sweep run over four still-owned tables');
+  assert.match(body, /catch \(err\)/,
+    'the REASSIGN failure must be reported, not discarded');
+  // ...and the sweep is gated on it having succeeded.
+  assert.match(body, /if \(reassigned\) \{\s*\n\s*await client\.query\(`DROP OWNED BY /,
+    'DROP OWNED BY must be reachable only when the REASSIGN succeeded');
+  assert.equal(/\n {6}await client\.query\(`DROP OWNED BY /.test(body), false,
+    'an unguarded DROP OWNED BY at the top level of this helper deletes the fixture tables');
+
+  // The sibling helper keeps its unconditional sweep on purpose: forceDrop runs
+  // as the bootstrap superuser and has to clear arbitrary residue, including
+  // grants the kit never made. That is safe ONLY because nothing that owns a
+  // table is allowed to reach it - which is a routing property, asserted below,
+  // not a property of the helper itself. Pinned so that "these two differ"
+  // stays a decision rather than looking like drift.
+  const other = /async function forceDrop\([^)]*\)\s*\{([\s\S]*?)\n {2}\}/.exec(src);
+  assert.ok(other, 'forceDrop must still exist');
+  assert.match(other[1], /await client\.query\(`DROP OWNED BY [^\n]*\)\.catch\(/,
+    'forceDrop sweeps unconditionally, which is why an owner role must never reach it');
+  assert.equal(/REASSIGN OWNED BY/.test(other[1]), false);
+
+  // THE ROUTING. The before-hook sweeps every `backtest_ro_pgtest_%` role left
+  // by a crashed run, and a leftover OWNER role is exactly what dropOwnerRole's
+  // failed-REASSIGN path deliberately leaves behind. Handed to forceDrop, that
+  // role's four still-owned tables would be deleted one run later - the same
+  // catastrophe the gate above prevents, arriving through the cleanup path
+  // instead of the teardown one.
+  const hook = /test\.before\(async \(\) => \{([\s\S]*?)\n {2}\}\);/.exec(src);
+  assert.ok(hook, 'the PG suite must still sweep leftovers in a before-hook');
+  assert.match(hook[1],
+    /if \(row\.rolname\.startsWith\(OWNER_ROLE_PREFIX\)\) await dropOwnerRole\(row\.rolname\);/,
+    'an owner-prefixed leftover must be routed to the GATED helper');
+  assert.match(hook[1], /else await forceDrop\(row\.rolname\);/,
+    'and everything else, which owns nothing, to the unconditional one');
+  assert.equal((hook[1].match(/forceDrop\(/g) || []).length, 1,
+    'exactly one forceDrop call, and it is the else branch: a second one would be unrouted');
+
+  // The prefix is DERIVED and shared, so the name a test mints and the name the
+  // sweep routes on cannot drift apart, and so the hook's LIKE still finds it.
+  assert.match(src, /const OWNER_ROLE_PREFIX = `\$\{ROLE_PREFIX\}own_`;/,
+    'the owner prefix must be derived from ROLE_PREFIX, or the sweep LIKE stops matching it');
+  assert.match(src, /const nextOwner = \(\) => gate1\.assertRoleName\(`\$\{OWNER_ROLE_PREFIX\}/,
+    'owner roles must be MINTED from the same prefix the sweep routes on');
+});
+
+test('every catalog read is scoped to EXACTLY the four granted tables', () => {
+  // The lists below were inclusion-checked only, and a fifth table injected into
+  // all of them left the whole suite green. What that would buy an attacker, or
+  // a careless edit, is a widened read surface with no error anywhere: the
+  // policy blocks would report a foreign policy on a table the kit neither
+  // grants nor describes, the RLS-state blocks would put that table into
+  // verify's per-table report as though it were granted, and create's preflight
+  // would insist it exist before any DDL ran.
+  const reads = [
+    ['create-role.sql', 'preflight_objects_present'],
+    ['grant-rls-policies.sql', 'policy_table_rls_state'],
+    ['grant-rls-policies.sql', 'policy_table_policies'],
+    ['drop-rls-policies.sql', 'policy_table_rls_state'],
+    ['drop-rls-policies.sql', 'policy_table_policies'],
+    ['verify-role.sql', 'verify_table_rls_state'],
+    ['verify-role.sql', 'verify_table_policies'],
+  ];
+  for (const [file, block] of reads) {
+    const text = gate1.loadStatements(readSql(file), { label: file }).get(block);
+    assert.ok(text, `${file} has no block ${block}`);
+    // One list, holding exactly the four. A second `OR c.relname IN (...)`
+    // appended to the same statement makes this a two-element array and fails.
+    assert.deepEqual(scopedTableLists(sqlOnly(text)), [[...gate1.EXPECTED_TABLES].sort()],
+      `${file}:${block} must scope to EXACTLY the four granted tables, in exactly one IN-list`);
+  }
+
+  // And no OTHER statement in the kit may carry a table list of its own: an
+  // eighth catalog read scoped somewhere else would be covered by nothing above,
+  // which is precisely the gap the list is enumerated to close.
+  for (const file of SQL_FILES) {
+    for (const [name, text] of gate1.loadStatements(readSql(file), { label: file })) {
+      if (scopedTableLists(sqlOnly(text)).length === 0) continue;
+      assert.ok(reads.some(([f, b]) => f === file && b === name),
+        `${file}:${name} scopes a catalog read to a table list nothing checks`);
+    }
+  }
 });
 
 test('readSqlFile refuses anything but a plain .sql name in the kit directory', () => {

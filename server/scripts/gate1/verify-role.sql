@@ -82,6 +82,39 @@
 -- confers table read access, which is the risk this kit exists to bound, but
 -- USAGE on a language or a foreign server is not nothing, and a reader should
 -- know the check does not look there.
+--
+-- ROW-LEVEL SECURITY, AND THE GAP THAT LET THIS REACH PRODUCTION
+--
+-- Every check above answers "what is this role PERMITTED to do". None of them
+-- answered "what would it actually SEE", and the two are different questions the
+-- moment row-level security is involved. Gate 1 passed every check in this file
+-- against production; Gate 2's extraction then read zero rows from three of the
+-- four tables, because those tables have RLS enabled and no policy, which is
+-- deny-all for every role but the owner. The privileges were exactly right and
+-- the read surface was empty. That measurement gap is why the two RLS blocks
+-- below exist.
+--
+-- What they assert, and deliberately do not:
+--
+--   * relforcerowsecurity must be FALSE on all four. FORCE applies row-level
+--     security to the table OWNER as well, which here is the application, so a
+--     true is a fault in the database rather than in this role and is worth
+--     failing loudly on.
+--   * relrowsecurity is REPORTED, not asserted. Whether RLS is on is the
+--     database owner's decision, it can change between two runs of this file
+--     without anything about the role changing, and the kit is correct under
+--     either answer.
+--   * the kit's policies must be either ALL FOUR ABSENT or ALL FOUR PRESENT in
+--     exactly the expected shape. Absent is the legitimate state between create
+--     and the grant-rls-policies phase; a partial set is not a state this kit
+--     can produce, because that phase commits four policies or none.
+--   * no policy this kit did not create may sit on the four granted tables. A
+--     RESTRICTIVE policy narrows what the role reads with no error anywhere,
+--     which would shrink Gate 2's snapshot in silence.
+--
+-- The blocks read pg_class and pg_policy, which are readable by any role. This
+-- file still runs as the ADMIN operator and needs no table ownership: creating a
+-- policy requires ownership, reading the catalog does not.
 -- ===========================================================================
 
 
@@ -261,6 +294,64 @@ WHERE a.grantee = (SELECT oid FROM pg_roles WHERE rolname = :'role_name')
 ORDER BY schema_name, d.defaclobjtype, a.privilege_type;
 
 
+-- @statement: verify_table_rls_state
+-- The four granted tables: who owns them, and their row-security flags. This is
+-- the measurement whose absence let a role with correct privileges and an empty
+-- read surface pass verify. See the header for what is asserted and what is only
+-- reported.
+--
+-- pg_get_userbyid resolves the owner from pg_class rather than trusting a name
+-- supplied anywhere, for the same reason every other identity in this kit is
+-- resolved from the catalog.
+SELECT
+  c.oid                        AS table_oid,
+  n.nspname                    AS schema_name,
+  c.relname                    AS table_name,
+  c.relkind                    AS table_kind,
+  pg_get_userbyid(c.relowner)  AS table_owner,
+  c.relrowsecurity             AS row_security_enabled,
+  c.relforcerowsecurity        AS row_security_forced
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = 'public'
+  AND c.relname IN ('players', 'player_stats', 'player_season_stats', 'nfl_games')
+ORDER BY c.relname;
+
+
+-- @statement: verify_table_policies
+-- EVERY policy on the four granted tables, whoever made it. Character for
+-- character the same statement grant-rls-policies.sql and drop-rls-policies.sql
+-- read, and a test asserts that: a verify that judged a policy by a different
+-- rule than the phase that created it would bless something the grant phase
+-- would have refused. See grant-rls-policies.sql for the column-by-column
+-- reasoning, in particular why the role match is an OID array comparison and why
+-- using_is_unconditional is a rendered expression rather than an OID.
+SELECT
+  p.oid                                         AS policy_oid,
+  c.oid                                         AS table_oid,
+  n.nspname                                     AS schema_name,
+  c.relname                                     AS table_name,
+  p.polname                                     AS policy_name,
+  p.polcmd                                      AS policy_command,
+  p.polpermissive                               AS policy_permissive,
+  (p.polroles = ARRAY[(SELECT oid FROM pg_roles WHERE rolname = :'role_name')]::oid[])
+                                                AS roles_are_exactly_the_role,
+  (0::oid = ANY(p.polroles))                    AS applies_to_public,
+  ARRAY(SELECT COALESCE(r.rolname::text, 'oid:' || pr.role_oid::text)
+          FROM unnest(p.polroles) AS pr(role_oid)
+          LEFT JOIN pg_roles r ON r.oid = pr.role_oid
+         ORDER BY 1)                            AS policy_roles,
+  (pg_get_expr(p.polqual, p.polrelid) = 'true') AS using_is_unconditional,
+  pg_get_expr(p.polqual, p.polrelid)            AS using_expression,
+  (p.polwithcheck IS NULL)                      AS has_no_with_check
+FROM pg_policy p
+JOIN pg_class c ON c.oid = p.polrelid
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = 'public'
+  AND c.relname IN ('players', 'player_stats', 'player_season_stats', 'nfl_games')
+ORDER BY c.relname, p.polname;
+
+
 -- @statement: verify_no_ownership
 -- pg_shdepend records every dependency on a shared object such as a role.
 -- deptype 'o' means the role OWNS the object; 'r' means an RLS policy names it.
@@ -268,13 +359,46 @@ ORDER BY schema_name, d.defaclobjtype, a.privilege_type;
 -- make a later DROP ROLE either fail or cascade. deptype 'a' (an ACL entry) is
 -- EXPECTED and excluded here: those are the grants above, and they are checked
 -- by name in the enumeration blocks rather than counted here.
+--
+-- THE 'r' ROWS THIS KIT NOW MAKES FOR ITSELF
+--
+-- This block used to expect no rows at all. Once grant-rls-policies.sql has run
+-- there are four deptype 'r' rows by construction, one per kit policy, and they
+-- are the intended state rather than a finding. So the row is resolved to the
+-- policy it refers to and the runner tolerates it only when its OID is one of
+-- the policies verify_table_policies has ALREADY matched, field by field,
+-- against the expected shape. A policy dependency the runner cannot account for
+-- that way fails, and every deptype 'o' row fails unconditionally.
+--
+-- is_policy_dependency requires the dependency to be recorded for the CURRENT
+-- database as well as for the pg_policy catalog. pg_policy OIDs are per-database
+-- and pg_shdepend spans the cluster, so without the dbid test a policy in
+-- another database could collide with a local policy OID and be waved through as
+-- one of ours.
+--
+-- The pg_policy join is LEFT, on the same reasoning as the LEFT joins in
+-- verify_memberships: an INNER join would enforce "every 'r' row resolves" by
+-- discarding the ones that do not, and an unresolvable dependency is exactly the
+-- row a fail-closed check has to see.
 SELECT
   s.deptype                            AS dependency_type,
   s.classid::regclass::text            AS catalog_name,
   s.objid                              AS object_oid,
-  d.datname                            AS database_name
+  d.datname                            AS database_name,
+  (s.classid = 'pg_policy'::regclass
+     AND s.dbid = (SELECT oid FROM pg_database WHERE datname = current_database()))
+                                       AS is_policy_dependency,
+  pol.polname                          AS policy_name,
+  poln.nspname                         AS policy_schema,
+  polrel.relname                       AS policy_table
 FROM pg_shdepend s
 LEFT JOIN pg_database d ON d.oid = s.dbid
+LEFT JOIN pg_policy pol
+       ON s.classid = 'pg_policy'::regclass
+      AND s.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+      AND pol.oid = s.objid
+LEFT JOIN pg_class polrel ON polrel.oid = pol.polrelid
+LEFT JOIN pg_namespace poln ON poln.oid = polrel.relnamespace
 WHERE s.refobjid = (SELECT oid FROM pg_roles WHERE rolname = :'role_name')
   AND s.deptype IN ('o', 'r')
 ORDER BY s.deptype, s.objid;

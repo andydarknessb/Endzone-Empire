@@ -19,14 +19,17 @@ Gate 1 is the first of three separate approvals:
 | File | What it is |
 | --- | --- |
 | `create-role.sql` | The complete set of privilege mutations. **This is the artifact to review.** |
-| `verify-role.sql` | Read-only. Proves the role has exactly the intended privileges and nothing else. |
+| `grant-rls-policies.sql` | The row-level-security policies those grants turned out to need. **Also an artifact to review.** Runs as the table owner, not the admin. |
+| `verify-role.sql` | Read-only. Proves the role has exactly the intended privileges, the intended policies, and nothing else. |
+| `drop-rls-policies.sql` | The exact inverse of `grant-rls-policies.sql`. Runs as the table owner. Must run **before** the teardown. |
 | `teardown-role.sql` | The exact inverse of `create-role.sql`, plus session termination and the drop. |
-| `../run-backtest-role.js` | The runner. Reads the three files and substitutes validated identifiers and timestamps into their placeholders. |
+| `../run-backtest-role.js` | The runner. Reads these files and substitutes validated identifiers and timestamps into their placeholders. |
 
-The runner never assembles a privilege list. `renderStatement` accepts exactly
-six placeholder names and refuses everything else, so a value has no route to
-becoming a privilege. If a grant is not written out in `create-role.sql`, the
-kit cannot make it.
+The runner never assembles a privilege list. `renderStatement` accepts a fixed
+allowlist of placeholder names and refuses everything else, so a value has no
+route to becoming a privilege. If a grant is not written out in
+`create-role.sql`, or a policy in `grant-rls-policies.sql`, the kit cannot make
+it.
 
 ## What the role can do
 
@@ -37,11 +40,35 @@ kit cannot make it.
 - `SELECT` on exactly `players`, `player_stats`, `player_season_stats`,
   `nfl_games`.
 - `EXECUTE` on `public.fn_normalize_nfl_team(text)`.
+- Once `grant-rls-policies.sql` has run: read **all rows** of those same four
+  tables, through one `PERMISSIVE ... FOR SELECT ... USING (true)` policy per
+  table, named `<role>_select` and naming that role and no other.
 
 It is `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS`,
 and defaults every transaction to read-only.
 
-Three honest caveats, all also stated in the SQL:
+### Why the policies exist
+
+The first real Gate 1 run created the role, and verify proved all five grants
+present. Gate 2's extraction dry run then read **zero rows** from `players`,
+`player_stats` and `nfl_games`, and real rows from `player_season_stats`.
+Nothing was wrong with the grants. Those three tables have row-level security
+enabled and **no policies at all**, which is deny-all for every role that is not
+the table owner. `relforcerowsecurity` is false, so the application, which
+connects as the owner, is exempt and never noticed. No migration in this
+repository enables RLS on them, so it was done out of band.
+
+A privilege decides whether the role may ask. A policy decides which rows it is
+answered with. Gate 1 measured only the first, which is why it passed over an
+empty read surface; `verify-role.sql` now measures both.
+
+`BYPASSRLS` is not the fix, for two independent reasons: only a superuser may
+grant it and the Gate 1 operator is not one, and it is a **role** attribute that
+would exempt the role from row-level security on every protected table in the
+database rather than on the four it is granted. Both are written out in
+`grant-rls-policies.sql`.
+
+Four honest caveats, all also stated in the SQL:
 
 - **On PostgreSQL 16+ the role's creator ends up holding ADMIN on it, and that
   is expected.** When a non-superuser role with `CREATEROLE` creates a role, the
@@ -83,6 +110,17 @@ Three honest caveats, all also stated in the SQL:
   every other role. `NOINHERIT` does not affect PUBLIC either; it governs role
   membership, and PUBLIC is not a membership. What PUBLIC does *not* carry here
   is any table privilege, which is what makes the four-table read surface real.
+- **The four kit policies are the only policies allowed on those four tables**,
+  and `verify` fails on any other. That is stricter than it may look, and
+  deliberately so: a `RESTRICTIVE` policy narrows what the role reads with no
+  error anywhere, so a foreign policy on a granted table would shrink Gate 2's
+  snapshot in silence. If the application ever grows its own policies on these
+  tables, this kit stops and a human decides. `verify` **reports**
+  `relrowsecurity` per table rather than asserting it, because whether RLS is on
+  is the database owner's decision and can change between two runs without
+  anything about the role changing. It does assert `relforcerowsecurity` is
+  false, because `FORCE` applies RLS to the table owner as well, which is the
+  application itself.
 
 ## Operator sequence
 
@@ -116,6 +154,19 @@ from. There is no fallback to `DATABASE_URL` or `PG*`, and it may not be passed
 on the command line. The run refuses to start unless the resolved TLS config
 verifies the server certificate.
 
+The two policy phases in steps 6 and 8 need a **second, different** credential:
+
+```sh
+export BACKTEST_OWNER_DATABASE_URL='postgres://endzone_app:...@host/endzone_empire'
+```
+
+`CREATE POLICY` and `DROP POLICY` are gated on ownership of the table, and
+`CREATEROLE` is not ownership - in production the four tables are owned by the
+application role, so the admin credential above simply cannot perform those two
+phases. Same rules as the admin one: that variable only, never argv, no fallback
+to `DATABASE_URL` even though the owner is the application role. Export it when
+you reach step 6 and unset it afterwards; nothing else in the sequence reads it.
+
 ### 3. Review the exact SQL that will run
 
 ```sh
@@ -134,6 +185,14 @@ Every `.sql` file also carries a `-- @placeholders:` line and a worked `psql`
 invocation, and a test asserts that the documented set is exactly the set the
 file's statements use - so the command in the header is one you can actually
 run.
+
+Do the same for the policy phase, which is a second privilege mutation and a
+second thing to approve:
+
+```sh
+node server/scripts/run-backtest-role.js --phase grant-policies \
+  --database endzone_empire --role backtest_ro_pit01 --print-sql
+```
 
 ### 4. Create (this is the gated step)
 
@@ -162,7 +221,67 @@ Standalone and read-only. Run it again days later to confirm nothing has been
 widened. `--valid-until` is required because the expiry is one of the things
 being checked; passing a different one is a failure, not a re-statement.
 
-### 6. Tear down, as soon as Gate 2 is done
+Verify now also prints one line per granted table with its `rowsecurity` and
+`force` flags and whether anything admits the role. Before step 6 those lines
+read `RLS ON WITH NO KIT POLICY: the role reads ZERO rows here despite its
+SELECT grant` for `players`, `player_stats` and `nfl_games`. That is a report,
+not a failure, because it is the correct state at this point in the sequence.
+It is also the line whose absence let the original run reach Gate 2.
+
+**Verify's exit code is not a Gate 2 readiness signal.** It exits 0 in the
+pre-grant state above - loudly reporting `RLS ON WITH NO KIT POLICY` while doing
+so - because "no kit policy yet" is exactly where the sequence is meant to be
+between steps 4 and 6. Read the per-table lines, not the exit status. What
+actually gates Gate 2 is the extraction's own fail-closed check on the rows it
+read: a deny-all read surface yields no players at any position, and the oracle
+cohort refuses to be built from one, whatever verify's exit code said.
+
+### 6. Grant the RLS policies, as the table owner
+
+```sh
+node server/scripts/run-backtest-role.js --phase grant-policies \
+  --database endzone_empire --role backtest_ro_pit01
+```
+
+Added after the Gate 2 extraction dry run returned zero rows from three of the
+four tables. See "Why the policies exist" above; `grant-rls-policies.sql` is the
+artifact to review, on the same terms as `create-role.sql`.
+
+This phase reads `BACKTEST_OWNER_DATABASE_URL`, not the admin credential, and
+aborts unless `current_user` is the resolved owner of all four tables. It creates
+four policies or none, in one transaction whose post-conditions are asserted
+before the commit. Re-running it when all four already exist in exactly the
+expected shape is a no-op; a same-named policy of a *different* shape, a policy
+this kit did not create sitting on a granted table, or a partial set all abort
+with nothing changed. It contains no `ALTER TABLE`, so it never enables,
+disables or forces row-level security, and the runner rolls back if either flag
+moves while it runs.
+
+Then re-run step 5. The same lines should now read `RLS on, and the kit policy
+admits the role`.
+
+### 7. Run Gate 2
+
+Out of scope for this directory. See `server/scripts/run-backtest-extraction.js`.
+
+### 8. Drop the policies, as the table owner
+
+```sh
+node server/scripts/run-backtest-role.js --phase drop-policies \
+  --database endzone_empire --role backtest_ro_pit01
+```
+
+**Before** the teardown, and PostgreSQL enforces that ordering for itself: a
+policy that names a role records a shared dependency on it, and `DROP ROLE`
+refuses while one exists (SQLSTATE `2BP01`). Skipping this step therefore cannot
+orphan the policies; it just stops the teardown, which reports the fact and names
+this command as the fix.
+
+Dropping policies that are not there is a no-op and exit 0. A policy of the kit's
+name whose shape does not match is never dropped: something else made it, so
+nothing here describes what it permits.
+
+### 9. Tear down, as soon as Gate 2 is done
 
 ```sh
 node server/scripts/run-backtest-role.js --phase teardown \
@@ -186,10 +305,14 @@ means reading `role_oid` out of the first statement's output and setting
 ## Tests
 
 - `server/test/backtestGate1Role.test.js` - validation, redaction, the RFC 7677
-  SCRAM vector, placeholder rendering, argv guards, env-only credentials. No
-  database.
+  SCRAM vector, placeholder rendering, argv guards, env-only credentials, the
+  policy-shape predicate and the policy-state classifier. No database.
 - `server/test/backtestGate1Role.pg.test.js` - the full create -> verify ->
-  teardown lifecycle against the disposable Postgres in CI's migration-smoke
-  job, including verify catching an extra grant, create refusing a pre-existing
-  role, and teardown aborting on an owned object. Gated on
+  grant-policies -> drop-policies -> teardown lifecycle against the disposable
+  Postgres in CI's migration-smoke job, including verify catching an extra grant,
+  create refusing a pre-existing role, teardown aborting on an owned object, and
+  the RLS half: a valid `SELECT` grant reading zero rows on an RLS-enabled table
+  with no policy, the same read returning rows once the policy exists, the
+  dormant policy on the RLS-off table changing nothing, and `DROP ROLE` being
+  refused by the server with `2BP01` while the policies stand. Gated on
   `BACKTEST_PG_TESTS=1`; a visible skip locally, never silent green.

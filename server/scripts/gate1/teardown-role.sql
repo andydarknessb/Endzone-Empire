@@ -12,6 +12,15 @@
 -- use `DROP OWNED BY` either. If the role has somehow come to own something,
 -- that is a fact a human needs to see before anything is destroyed.
 --
+-- RUN drop-rls-policies.sql FIRST, IF grant-rls-policies.sql EVER RAN. An RLS
+-- policy that names a role records a shared dependency on it, and PostgreSQL
+-- refuses to drop a role while one exists - SQLSTATE 2BP01. The ordering is
+-- therefore the SERVER's, not a convention this file asks for; what this file
+-- adds is that teardown_check_ownership stops one statement earlier and names
+-- the phase that fixes it. The two phases run as different operators, because
+-- DROP POLICY needs table ownership and DROP ROLE needs CREATEROLE, so the
+-- forgotten step is a realistic one rather than a hypothetical.
+--
 -- WHY THERE IS NO `DROP OWNED BY`
 --
 -- There used to be, as a sweeper for residual ACL entries after the explicit
@@ -97,13 +106,44 @@ WHERE rolname = :'role_name';
 -- lives in pg_auth_members and is checked by teardown_check_memberships below.
 -- In particular the PG 16+ implicit creator-admin grant produces no row in this
 -- block, so a clean result here says nothing about it either way.
+--
+-- THE POLICY ROWS, AND WHY TEARDOWN DOES NOT TOLERATE THEM
+--
+-- This is character for character the statement verify-role.sql runs, and a test
+-- asserts that, but the two files DECIDE differently on the result and that is
+-- deliberate. verify tolerates the four deptype 'r' rows that the kit's own RLS
+-- policies produce, because after grant-rls-policies.sql they are the intended
+-- state. Teardown tolerates none of them, because a policy naming a role is a
+-- reason DROP ROLE will refuse: PostgreSQL raises SQLSTATE 2BP01 while any such
+-- dependency exists. Aborting here rather than at the DROP is the same finding
+-- one statement earlier, with a message that can name the fix - the
+-- drop-rls-policies phase, which runs as the table owner. The server's own
+-- refusal stays behind it as the authority; this block is only the legible
+-- version of it.
+--
+-- The policy columns exist so that the abort message can distinguish "the role
+-- owns a table" from "the operator forgot the policy-drop phase". They are
+-- resolved from the catalog for the current database only; see verify-role.sql
+-- for why the dbid test is part of is_policy_dependency.
 SELECT
-  s.deptype                 AS dependency_type,
-  s.classid::regclass::text AS catalog_name,
-  s.objid                   AS object_oid,
-  d.datname                 AS database_name
+  s.deptype                            AS dependency_type,
+  s.classid::regclass::text            AS catalog_name,
+  s.objid                              AS object_oid,
+  d.datname                            AS database_name,
+  (s.classid = 'pg_policy'::regclass
+     AND s.dbid = (SELECT oid FROM pg_database WHERE datname = current_database()))
+                                       AS is_policy_dependency,
+  pol.polname                          AS policy_name,
+  poln.nspname                         AS policy_schema,
+  polrel.relname                       AS policy_table
 FROM pg_shdepend s
 LEFT JOIN pg_database d ON d.oid = s.dbid
+LEFT JOIN pg_policy pol
+       ON s.classid = 'pg_policy'::regclass
+      AND s.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+      AND pol.oid = s.objid
+LEFT JOIN pg_class polrel ON polrel.oid = pol.polrelid
+LEFT JOIN pg_namespace poln ON poln.oid = polrel.relnamespace
 WHERE s.refobjid = (SELECT oid FROM pg_roles WHERE rolname = :'role_name')
   AND s.deptype IN ('o', 'r')
 ORDER BY s.deptype, s.objid;
@@ -221,13 +261,19 @@ ALTER ROLE :"role_ident" RESET ALL;
 -- the authoritative version of that check rather than a reimplementation that
 -- could drift from it.
 --
--- Reaching this statement means: the role owns nothing (teardown_check_ownership),
--- has no membership beyond the implicit creator-admin grant
--- (teardown_check_memberships), has no live session (teardown_terminate_sessions),
--- and the kit's own five grants have been revoked (teardown_revoke). If it still
--- fails, something outside this kit granted the role a privilege, and that is a
--- finding: the transaction rolls back, nothing is dropped, and a human reads the
--- dependency list. The runner surfaces the DETAIL, not just the summary line.
+-- Reaching this statement means: the role owns nothing and no RLS policy names
+-- it (teardown_check_ownership), it has no membership beyond the implicit
+-- creator-admin grant (teardown_check_memberships), it has no live session
+-- (teardown_terminate_sessions), and the kit's own five grants have been revoked
+-- (teardown_revoke). If it still fails, something outside this kit granted the
+-- role a privilege or pointed a policy at it, and that is a finding: the
+-- transaction rolls back, nothing is dropped, and a human reads the dependency
+-- list. The runner surfaces the DETAIL, not just the summary line.
+--
+-- The refusal is SQLSTATE 2BP01 (dependent_objects_still_exist), and the
+-- lifecycle test pins it against a real server for the policy case specifically,
+-- so that "DROP ROLE enforces the ordering for us" stays a checked claim rather
+-- than a comment that could rot.
 --
 -- Role MEMBERSHIPS need no cleanup here. DROP ROLE automatically revokes
 -- memberships of the target role in other roles and of other roles in it, which

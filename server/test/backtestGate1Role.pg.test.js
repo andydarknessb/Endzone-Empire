@@ -20,6 +20,16 @@
  * which is why every test tears its own role down in a `finally` and why the
  * suite drops any leftover at the start. It never touches the roles the CI job
  * itself runs as.
+ *
+ * The two RLS tests at the bottom go further: they transfer OWNERSHIP of the
+ * four granted tables to an application-shaped role and ENABLE ROW LEVEL
+ * SECURITY on three of them, committed, because the phases under test connect
+ * separately and would not otherwise see it. Both are restored by the fixture's
+ * own teardown, and neither is visible to the CI job's role, which is the
+ * bootstrap superuser: it bypasses RLS and owns nothing it needs to. The role
+ * that becomes the owner is dropped through `dropOwnerRole`, which REASSIGNS
+ * first and sweeps only if that succeeded - `DROP OWNED BY` on a role that still
+ * owns four real tables would delete them. See `installOwnedRlsFixture`.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -82,7 +92,33 @@ if (!ENABLED) {
     databaseName: connection.database,
     validUntil,
     passwordVerifier: gate1.scramVerifier(TEST_PASSWORD),
+    // Derived exactly as the CLI derives it, so these tests exercise the policy
+    // name an operator would actually get rather than one the fixture invented.
+    policyName: gate1.policyNameFor(roleName),
   });
+
+  /**
+   * The stand-in for `endzone_app`: a login role that OWNS the four granted
+   * tables and holds nothing else. Distinct from the admin operator and from the
+   * backtest role, because the whole point of the policy phases is that they are
+   * a third authority - CREATE POLICY is gated on ownership, which CREATEROLE is
+   * not.
+   */
+  const OWNER_ROLE_PASSWORD = 'Ct7-yU3pM8kX2nQ6bV4jS9wF1zA5rG0h';
+  /**
+   * Owner roles get their OWN prefix, and the before-hook sweep ROUTES on it.
+   * A role named under this prefix owns the four granted tables, so it must
+   * reach `dropOwnerRole` and never `forceDrop`. Derived from ROLE_PREFIX and
+   * used by both the generator and the sweep, so the name a test mints and the
+   * name the sweep recognises cannot drift apart - and so the sweep's
+   * `LIKE '<ROLE_PREFIX>%'` still finds it.
+   */
+  const OWNER_ROLE_PREFIX = `${ROLE_PREFIX}own_`;
+  const nextOwner = () => gate1.assertRoleName(`${OWNER_ROLE_PREFIX}${process.pid}_${++counter}`);
+  /** The three tables production has RLS enabled on. player_season_stats is off. */
+  const RLS_ENABLED_TABLES = ['nfl_games', 'player_stats', 'players'];
+  /** Far future, and not the season backtestSnapshotClient.pg.test.js seeds. */
+  const RLS_SEASON = 2032;
 
   /**
    * Return a pooled client to the pool ONLY if it is genuinely reusable, and
@@ -123,7 +159,15 @@ if (!ENABLED) {
     }
   }
 
-  /** Drop a role unconditionally, for cleanup. Never used as the test's teardown. */
+  /**
+   * Drop a role unconditionally, for cleanup. Never used as the test's teardown.
+   *
+   * ONLY FOR ROLES THAT OWN NOTHING: subject roles and the CREATEROLE operator.
+   * The `DROP OWNED BY` below is unconditional, so an APP-OWNER-shaped role
+   * reaching this helper loses the four granted tables. Owner roles go to
+   * `dropOwnerRole`, and the before-hook routes leftovers there by prefix
+   * rather than trusting every caller to remember.
+   */
   async function forceDrop(roleName) {
     const client = await pool.connect();
     try {
@@ -142,6 +186,156 @@ if (!ENABLED) {
     } finally {
       await releaseSafely(client);
     }
+  }
+
+  /**
+   * Drop an APP-OWNER-shaped role, WITHOUT the DROP OWNED BY that `forceDrop`
+   * leads with.
+   *
+   * That helper is for subject roles, which own nothing. This one is for a role
+   * that has deliberately been made the owner of four real tables, and
+   * `DROP OWNED BY` on it would DELETE THEM. `REASSIGN OWNED BY` runs first, and
+   * the sweep runs ONLY IF IT SUCCEEDED - the one statement in this file whose
+   * result is not allowed to be swallowed. A REASSIGN that failed (a lock race,
+   * a poisoned connection) leaves the four tables still owned by this role, and a
+   * sweep that ran anyway would delete them from the CI database. Skipping it
+   * usually leaves the `DROP ROLE` below failing too, which is the correct
+   * trade: a leftover role is picked up by the next run's before-hook, which
+   * routes it back to THIS helper on its `OWNER_ROLE_PREFIX` and never to
+   * `forceDrop`, so the retry is gated the same way. A deleted `players` table
+   * is not picked up by anything.
+   */
+  async function dropOwnerRole(roleName) {
+    const client = await pool.connect();
+    try {
+      await client.query('ROLLBACK').catch(() => {});
+      let reassigned = false;
+      try {
+        await client.query(`REASSIGN OWNED BY ${gate1.quoteIdent(roleName)} TO CURRENT_USER`);
+        reassigned = true;
+      } catch (err) {
+        // Surfaced, not swallowed. This is the only path on which the fixture
+        // can leave production-shaped tables owned by a role the suite wanted
+        // gone, and a silent one would look identical to a clean teardown.
+        console.error(`dropOwnerRole(${roleName}): REASSIGN OWNED BY failed, so the DROP OWNED BY `
+          + `sweep is SKIPPED - the four granted tables may still be owned by this role: ${err.message}`);
+      }
+      if (reassigned) {
+        await client.query(`DROP OWNED BY ${gate1.quoteIdent(roleName)}`).catch(() => {});
+      }
+      await client.query(`DROP ROLE IF EXISTS ${gate1.quoteIdent(roleName)}`).catch(() => {});
+    } finally {
+      await releaseSafely(client);
+    }
+  }
+
+  /**
+   * Put the four granted tables into the shape production was ACTUALLY in when
+   * Gate 1 ran: owned by an application-shaped role that is neither the admin
+   * operator nor the backtest role, with row-level security ENABLED and ZERO
+   * POLICIES on three of the four, and seeded so that "reads nothing" and "reads
+   * everything" are different answers rather than the same empty table twice.
+   *
+   * WHAT THIS DOES TO ITS DATABASE. The ownership transfer and the ENABLE ROW
+   * LEVEL SECURITY are COMMITTED, not held in a rolled-back transaction, because
+   * the phases under test run on a different connection and would not otherwise
+   * see them. Both are restored by the returned function. Neither is visible to
+   * the CI job's own role, which is the bootstrap superuser: it bypasses RLS and
+   * its privileges do not depend on owning these tables. The seeded rows use a
+   * season of their own and are deleted by the same function.
+   *
+   * The starting state is ASSERTED rather than assumed, because the restore
+   * disables RLS unconditionally: if the CI database ever arrives with RLS
+   * already on, that restore would be silently wrong and this stops first.
+   */
+  async function installOwnedRlsFixture(admin, ownerName) {
+    const { rows: before } = await admin.query(
+      `SELECT c.relname, pg_get_userbyid(c.relowner) AS owner, c.relrowsecurity, c.relforcerowsecurity
+         FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public' AND c.relname = ANY($1::text[])
+        ORDER BY c.relname`, [[...gate1.EXPECTED_TABLES]]
+    );
+    assert.equal(before.length, gate1.EXPECTED_TABLES.length,
+      'the migrated database must have all four granted tables');
+    assert.deepEqual(before.filter((r) => r.relrowsecurity || r.relforcerowsecurity).map((r) => r.relname), [],
+      'the CI database must start with row-level security off on all four, or the restore is wrong');
+
+    // Defensive pre-clean, in case an earlier run died between seeding and its
+    // own cleanup. Deleting the players cascades to both stats tables, so this
+    // cannot leave an orphan behind for a unique constraint to trip over.
+    await admin.query('DELETE FROM "players" WHERE "name" LIKE $1', ['Gate1 RLS Fixture %']);
+    await admin.query('DELETE FROM "nfl_games" WHERE "season" = $1', [RLS_SEASON]);
+
+    const { rows: seeded } = await admin.query(
+      `INSERT INTO "players" ("name", "position", "nfl_team")
+       VALUES ($1, 'QB', 'KC'), ($2, 'RB', 'BUF')
+       RETURNING "id"`,
+      [`Gate1 RLS Fixture A ${ownerName}`, `Gate1 RLS Fixture B ${ownerName}`]
+    );
+    const playerIds = seeded.map((r) => r.id);
+    await admin.query(
+      `INSERT INTO "player_stats" ("player_id", "season", "week", "stats")
+       SELECT unnest($1::int[]), $2::int, 1, '{"passingYards": 1}'::jsonb`, [playerIds, RLS_SEASON]
+    );
+    await admin.query(
+      `INSERT INTO "player_season_stats" ("player_id", "season", "games_played", "stats", "fantasy_points")
+       SELECT unnest($1::int[]), $2::int, 1, '{"passingYards": 1}'::jsonb, 1.5`, [playerIds, RLS_SEASON]
+    );
+    await admin.query(
+      `INSERT INTO "nfl_games" ("season", "week", "nfl_team", "opponent", "kickoff_at")
+       VALUES ($1::int, 1, 'KC', 'BUF', $2::timestamptz), ($1::int, 1, 'BUF', 'KC', $2::timestamptz)`,
+      [RLS_SEASON, new Date(Date.UTC(2032, 8, 12, 17, 0, 0)).toISOString()]
+    );
+
+    // Ownership moves BEFORE create-role.sql runs, which is also the honest
+    // order: the production tables were already owned by the application when
+    // Gate 1 created the role on them.
+    for (const table of gate1.EXPECTED_TABLES) {
+      await admin.query(`ALTER TABLE public.${table} OWNER TO ${gate1.quoteIdent(ownerName)}`);
+    }
+    for (const table of RLS_ENABLED_TABLES) {
+      await admin.query(`ALTER TABLE public.${table} ENABLE ROW LEVEL SECURITY`);
+    }
+
+    /**
+     * Counts SCOPED to the fixture's own rows. An unscoped count would race
+     * backtestSnapshotClient.pg.test.js, which seeds and deletes its own season
+     * in the same database and may run in a parallel process.
+     */
+    const scoped = {
+      players: ['SELECT count(*)::int AS n FROM public.players WHERE id = ANY($1::int[])', [playerIds]],
+      player_stats: ['SELECT count(*)::int AS n FROM public.player_stats WHERE season = $1', [RLS_SEASON]],
+      player_season_stats: ['SELECT count(*)::int AS n FROM public.player_season_stats WHERE season = $1',
+        [RLS_SEASON]],
+      nfl_games: ['SELECT count(*)::int AS n FROM public.nfl_games WHERE season = $1', [RLS_SEASON]],
+    };
+    const countFor = async (queryable, table) => Number(
+      (await queryable.query(...scoped[table])).rows[0].n
+    );
+
+    return {
+      playerIds,
+      countFor,
+      restore: async () => {
+        // The connection may arrive from a failed assertion mid-transaction;
+        // clear it first or every statement below fails with 25P02 and is
+        // swallowed, leaving four production tables owned by a role this suite
+        // is about to try to drop.
+        await admin.query('ROLLBACK').catch(() => {});
+        for (const table of RLS_ENABLED_TABLES) {
+          await admin.query(`ALTER TABLE public.${table} DISABLE ROW LEVEL SECURITY`).catch(() => {});
+        }
+        for (const row of before) {
+          await admin.query(
+            `ALTER TABLE public.${row.relname} OWNER TO ${gate1.quoteIdent(row.owner)}`
+          ).catch(() => {});
+        }
+        await admin.query('DELETE FROM "player_stats" WHERE "season" = $1', [RLS_SEASON]).catch(() => {});
+        await admin.query('DELETE FROM "player_season_stats" WHERE "season" = $1', [RLS_SEASON]).catch(() => {});
+        await admin.query('DELETE FROM "nfl_games" WHERE "season" = $1', [RLS_SEASON]).catch(() => {});
+        await admin.query('DELETE FROM "players" WHERE "id" = ANY($1::int[])', [playerIds]).catch(() => {});
+      },
+    };
   }
 
   /**
@@ -201,10 +395,22 @@ if (!ENABLED) {
   test.before(async () => {
     // Any role left behind by a crashed earlier run would make `create` fail on
     // its own pre-existence check for the wrong reason.
+    //
+    // ROUTED BY PREFIX, never swept uniformly. A leftover OWNER role still owns
+    // the four granted tables - that is what the fixture does to them, and
+    // dropOwnerRole's failed-REASSIGN path deliberately leaves one alive - so
+    // handing it to forceDrop would run exactly the unconditional
+    // `DROP OWNED BY` that dropOwnerRole exists to gate, and delete players,
+    // player_stats, player_season_stats and nfl_games from the CI database one
+    // run later. Subject and operator roles own nothing and take the direct
+    // path.
     const { rows } = await pool.query(
       'SELECT rolname FROM pg_roles WHERE rolname LIKE $1', [`${ROLE_PREFIX}%`]
     );
-    for (const row of rows) await forceDrop(row.rolname);
+    for (const row of rows) {
+      if (row.rolname.startsWith(OWNER_ROLE_PREFIX)) await dropOwnerRole(row.rolname);
+      else await forceDrop(row.rolname);
+    }
   });
 
   test.after(async () => { await pool.end(); });
@@ -1057,5 +1263,280 @@ if (!ENABLED) {
       await first.end();
       first = null;
     }
+  });
+
+  // -------------------------------------------------------------------------
+  // The RLS amendment
+  //
+  // THE SECOND PRODUCTION FAILURE, reproduced. Gate 1 created the role, verify
+  // proved all five grants, and Gate 2's extraction then read ZERO rows from
+  // three of the four tables. Those tables carry relrowsecurity = true with no
+  // policies, which is deny-all for every role but the owner, and the
+  // application never noticed because it connects AS the owner. No JS test can
+  // settle any of that: whether a SELECT privilege without a policy returns
+  // rows is a claim about PostgreSQL.
+  // -------------------------------------------------------------------------
+
+  test('a valid SELECT grant reads ZERO rows under RLS, and the policy is what changes it', async (t) => {
+    const ownerName = nextOwner();
+    const roleName = nextRole();
+    const values = valuesFor(roleName, futureIso(1));
+    const admin = await pool.connect();
+    let fixture = null;
+    let owner = null;
+    let asRole = null;
+    t.after(async () => {
+      if (asRole) await asRole.end();
+      if (owner) await owner.end();
+      if (fixture) await fixture.restore();
+      await releaseSafely(admin);
+      await forceDrop(roleName);
+      await dropOwnerRole(ownerName);
+    });
+
+    await admin.query(
+      `CREATE ROLE ${gate1.quoteIdent(ownerName)} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE `
+      + `PASSWORD ${gate1.quoteLiteral(OWNER_ROLE_PASSWORD)}`
+    );
+    fixture = await installOwnedRlsFixture(admin, ownerName);
+
+    // The fixture is the whole premise, so assert its shape rather than assume
+    // it. These five columns are exactly what the production probe recorded.
+    const { rows: shape } = await admin.query(
+      `SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity,
+              pg_get_userbyid(c.relowner) AS owner,
+              (SELECT count(*)::int FROM pg_policy p WHERE p.polrelid = c.oid) AS policies
+         FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public' AND c.relname = ANY($1::text[])
+        ORDER BY c.relname`, [[...gate1.EXPECTED_TABLES]]
+    );
+    assert.deepEqual(
+      shape.map((r) => [r.relname, r.relrowsecurity, r.relforcerowsecurity, r.owner, r.policies]),
+      [['nfl_games', true, false, ownerName, 0],
+        ['player_season_stats', false, false, ownerName, 0],
+        ['player_stats', true, false, ownerName, 0],
+        ['players', true, false, ownerName, 0]],
+      'the fixture must reproduce the probe: RLS on with ZERO policies on three of four, force off'
+    );
+
+    await gate1.phaseCreate(admin, values, { log: () => {} });
+
+    // (1) THE FINDING. The grant is present and correct, and the role reads
+    // nothing. has_table_privilege says yes; the database returns no rows.
+    asRole = roleClient(roleName);
+    await asRole.connect();
+    for (const table of RLS_ENABLED_TABLES) {
+      const { rows: [priv] } = await admin.query(
+        'SELECT has_table_privilege($1, $2, $3) AS granted', [roleName, `public.${table}`, 'SELECT']
+      );
+      assert.equal(priv.granted, true, `${table}: the SELECT grant must really be there`);
+      assert.ok(await fixture.countFor(admin, table) > 0, `${table}: the owner must see rows`);
+      assert.equal(await fixture.countFor(asRole, table), 0,
+        `${table}: RLS with no policy is deny-all, even with SELECT granted`);
+    }
+    // And the ONE table without RLS answers normally, from the same connection
+    // with the same grant. That asymmetry is exactly what the dry run reported.
+    const seasonStatsBefore = await fixture.countFor(asRole, 'player_season_stats');
+    assert.equal(seasonStatsBefore, await fixture.countFor(admin, 'player_season_stats'));
+    assert.ok(seasonStatsBefore > 0, 'the RLS-off table reads normally under the same grant');
+
+    // Verify SAYS SO. This is the measurement whose absence let the original run
+    // reach Gate 2 with an empty read surface and a clean report.
+    const preGrant = capture();
+    await gate1.phaseVerify(admin, values, { log: preGrant.log });
+    assert.match(preGrant.text(),
+      /players: rowsecurity=true, force=false, owner=.*RLS ON WITH NO KIT POLICY: the role reads ZERO rows/);
+    assert.match(preGrant.text(), /player_season_stats: rowsecurity=false, force=false, .*RLS off/);
+    assert.match(preGrant.text(), new RegExp(`no policy named ${values.policyName} exists yet`));
+
+    // The ADMIN operator cannot fix it. In CI the admin is the bootstrap
+    // superuser, which COULD create the policy - the kit refuses anyway, because
+    // it resolves ownership from pg_class rather than inferring authority from a
+    // role attribute, and in production the admin is not a superuser at all.
+    await assert.rejects(() => gate1.phaseGrantPolicies(admin, values, { log: () => {} }),
+      /does not own .*CREATE POLICY .*gated on table ownership/s,
+      'the policy phases must refuse an operator that does not own the tables');
+
+    // (2) The owner runs the grant phase, and the same read returns rows.
+    owner = roleClient(ownerName, { password: OWNER_ROLE_PASSWORD });
+    await owner.connect();
+    const granted = capture();
+    assert.deepEqual(await gate1.phaseGrantPolicies(owner.client, values, { log: granted.log }),
+      { granted: true, noop: false });
+    assert.match(granted.text(), new RegExp(`4 policies named ${values.policyName} created`));
+
+    // The catalog tuple, read independently of the runner's own report. `qual`
+    // is the one rendered-expression comparison in the kit, so pin the rendering
+    // itself: if a future PostgreSQL deparses `USING (true)` as anything but
+    // `true`, the grant phase would start failing closed against production and
+    // this is where that has to surface first.
+    const { rows: policies } = await admin.query(
+      `SELECT c.relname, p.polname, p.polcmd, p.polpermissive,
+              p.polroles = ARRAY[(SELECT oid FROM pg_roles WHERE rolname = $1)]::oid[] AS roles_exact,
+              pg_get_expr(p.polqual, p.polrelid) AS qual,
+              p.polwithcheck IS NULL AS no_with_check
+         FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public' AND c.relname = ANY($2::text[])
+        ORDER BY c.relname`, [roleName, [...gate1.EXPECTED_TABLES]]
+    );
+    assert.equal(policies.length, gate1.EXPECTED_TABLES.length, 'one policy per granted table');
+    for (const row of policies) {
+      assert.deepEqual({
+        polname: row.polname, polcmd: row.polcmd, polpermissive: row.polpermissive,
+        roles_exact: row.roles_exact, qual: row.qual, no_with_check: row.no_with_check,
+      }, {
+        polname: values.policyName, polcmd: 'r', polpermissive: true,
+        roles_exact: true, qual: 'true', no_with_check: true,
+      }, `${row.relname}: the policy must be exactly what grant-rls-policies.sql says`);
+    }
+
+    for (const table of RLS_ENABLED_TABLES) {
+      assert.equal(await fixture.countFor(asRole, table), await fixture.countFor(admin, table),
+        `${table}: the policy must admit the role to every row the owner can see`);
+    }
+    // (3) The dormant policy on the RLS-off table changes NOTHING. PostgreSQL
+    // consults policies only when relrowsecurity is on, which is why creating it
+    // there is free and why leaving it out would make a later flip silent.
+    assert.equal(await fixture.countFor(asRole, 'player_season_stats'), seasonStatsBefore,
+      'a policy on a table with RLS off is inert: same rows before and after');
+
+    const postGrant = capture();
+    await gate1.phaseVerify(admin, values, { log: postGrant.log });
+    assert.match(postGrant.text(), /players: rowsecurity=true, force=false, .*RLS on, and the kit policy admits the role/);
+    assert.equal(postGrant.text().includes('ZERO rows'), false);
+
+    // Re-running the grant is a clean no-op, not a duplicate-object error.
+    assert.deepEqual(await gate1.phaseGrantPolicies(owner.client, values, { log: () => {} }),
+      { granted: false, noop: true });
+
+    // (4) TEARDOWN IS REFUSED while the policies stand, twice over. First by the
+    // kit, with a message that names the phase and the operator that fixes it.
+    await assert.rejects(() => gate1.phaseTeardown(admin, values, { log: () => {} }),
+      (err) => {
+        assert.match(err.message, /ABORTED.*Nothing has been dropped/s);
+        assert.match(err.message, /RLS POLICIES naming the role/);
+        assert.match(err.message, /--phase drop-policies/);
+        return true;
+      });
+    const { rows: survived } = await admin.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [roleName]);
+    assert.equal(survived.length, 1, 'the role must survive an aborted teardown');
+
+    // And then by the SERVER, which is the authority the kit relies on rather
+    // than reimplements. This is a raw DROP ROLE, past every check the kit
+    // makes, and its refusal is the passing assertion. If a future PostgreSQL
+    // stopped refusing, the ordering the drop-policies phase depends on would
+    // have quietly become a convention, and somebody should be told.
+    await assert.rejects(() => admin.query(`DROP ROLE ${gate1.quoteIdent(roleName)}`),
+      (err) => {
+        assert.equal(err.code, '2BP01',
+          `expected 2BP01 (dependent_objects_still_exist), got ${err.code}: ${err.message}`);
+        assert.match(err.message, /cannot be dropped because some objects depend on it/);
+        const detail = String(err.detail || '');
+        assert.match(detail, /policy/i, 'the DETAIL must name the policies among the blockers');
+        assert.ok(detail.includes(values.policyName),
+          `the DETAIL must name ${values.policyName}; got ${JSON.stringify(detail)}`);
+        return true;
+      });
+
+    // (5) Drop the policies, then the teardown completes clean.
+    const dropped = capture();
+    assert.deepEqual(await gate1.phaseDropPolicies(owner.client, values, { log: dropped.log }),
+      { dropped: true, noop: false });
+    assert.match(dropped.text(), /dropped, and confirmed absent/);
+    assert.deepEqual(await gate1.phaseDropPolicies(owner.client, values, { log: () => {} }),
+      { dropped: false, noop: true }, 'dropping policies that are gone is a no-op, not an error');
+
+    // RLS itself is untouched: the tables arrived with it enabled and leave with
+    // it enabled. Neither policy file contains an ALTER TABLE, and this is where
+    // that claim meets a real catalog.
+    const { rows: stillOn } = await admin.query(
+      `SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public' AND c.relname = ANY($1::text[])
+          AND c.relrowsecurity AND NOT c.relforcerowsecurity
+        ORDER BY c.relname`, [RLS_ENABLED_TABLES]
+    );
+    assert.deepEqual(stillOn.map((r) => r.relname), [...RLS_ENABLED_TABLES].sort(),
+      'dropping the policies must not disable, enable or force row-level security');
+    assert.equal(await fixture.countFor(asRole, 'players'), 0,
+      'and the role is back to reading nothing, which is the state teardown is for');
+    assert.deepEqual(asRole.errors, [], 'no connection-level error may occur while probing visibility');
+
+    await asRole.end();
+    asRole = null;
+    assert.equal((await gate1.phaseTeardown(admin, values, { log: () => {} })).tornDown, true);
+    const { rows: gone } = await admin.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [roleName]);
+    assert.equal(gone.length, 0, 'the role is dropped once nothing depends on it');
+    assert.deepEqual(owner.errors, [], 'the owner connection must survive the whole sequence');
+  });
+
+  test('a same-named policy of the WRONG shape aborts the grant phase, and is never dropped', async (t) => {
+    // The dangerous case: the row that anything matching on the NAME alone would
+    // adopt as its own, or delete. It is never adopted and never replaced,
+    // because nothing in grant-rls-policies.sql describes what it permits.
+    const ownerName = nextOwner();
+    const roleName = nextRole();
+    const values = valuesFor(roleName, futureIso(1));
+    const admin = await pool.connect();
+    let fixture = null;
+    let owner = null;
+    t.after(async () => {
+      if (owner) await owner.end();
+      if (fixture) await fixture.restore();
+      await releaseSafely(admin);
+      await forceDrop(roleName);
+      await dropOwnerRole(ownerName);
+    });
+
+    await admin.query(
+      `CREATE ROLE ${gate1.quoteIdent(ownerName)} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE `
+      + `PASSWORD ${gate1.quoteLiteral(OWNER_ROLE_PASSWORD)}`
+    );
+    fixture = await installOwnedRlsFixture(admin, ownerName);
+    await gate1.phaseCreate(admin, values, { log: () => {} });
+
+    owner = roleClient(ownerName, { password: OWNER_ROLE_PASSWORD });
+    await owner.connect();
+
+    // The kit's name, the kit's role, and a ROW PREDICATE. A snapshot taken
+    // through this would be a filtered copy of production with nothing in the
+    // extraction to say so.
+    await owner.query(
+      `CREATE POLICY ${gate1.quoteIdent(values.policyName)} ON public.players `
+      + `AS PERMISSIVE FOR SELECT TO ${gate1.quoteIdent(roleName)} USING (id < 0)`
+    );
+    await assert.rejects(() => gate1.phaseGrantPolicies(owner.client, values, { log: () => {} }),
+      /exists in a DIFFERENT shape.*Nothing has been changed/s);
+
+    // The other three tables were not touched: the abort is before any BEGIN.
+    const named = async () => (await admin.query(
+      `SELECT c.relname FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+       WHERE n.nspname = 'public' AND c.relname = ANY($1::text[]) ORDER BY c.relname`,
+      [[...gate1.EXPECTED_TABLES]]
+    )).rows.map((r) => r.relname);
+    assert.deepEqual(await named(), ['players'],
+      'the abort must leave the other three tables with no policy at all');
+
+    // Verify fails on it too, and for the same reason.
+    await assert.rejects(() => gate1.phaseVerify(admin, values, { log: () => {} }),
+      /exists in a DIFFERENT shape/);
+
+    // And the drop phase will not delete it either. Deleting a policy this kit
+    // did not create would destroy the evidence of whatever made it.
+    await assert.rejects(() => gate1.phaseDropPolicies(owner.client, values, { log: () => {} }),
+      /exists in a DIFFERENT shape/);
+    assert.deepEqual(await named(), ['players'], 'the impostor must survive the refused drop');
+
+    // Removed by hand, deliberately, which is the only route there is. The grant
+    // phase then proceeds normally, so the abort was the shape and not a wedge.
+    await owner.query(`DROP POLICY ${gate1.quoteIdent(values.policyName)} ON public.players`);
+    assert.equal((await gate1.phaseGrantPolicies(owner.client, values, { log: () => {} })).granted, true);
+    assert.deepEqual(await named(), [...gate1.EXPECTED_TABLES].sort());
+    await assert.doesNotReject(() => gate1.phaseVerify(admin, values, { log: () => {} }));
+
+    assert.equal((await gate1.phaseDropPolicies(owner.client, values, { log: () => {} })).dropped, true);
+    assert.equal((await gate1.phaseTeardown(admin, values, { log: () => {} })).tornDown, true);
+    assert.deepEqual(owner.errors, []);
   });
 }
