@@ -132,6 +132,11 @@ if (!ENABLED) {
       // of them fail with 25P02, get swallowed by the catches below, and this
       // helper silently does nothing while reporting success.
       await client.query('ROLLBACK').catch(() => {});
+      // The HARNESS keeps DROP OWNED BY even though the kit no longer has one:
+      // this runs as the bootstrap superuser and has to clear arbitrary residue
+      // left by a failed test, including grants the kit never made. The kit
+      // dropped it because its operator is not a superuser. Different actor,
+      // different job.
       await client.query(`DROP OWNED BY ${gate1.quoteIdent(roleName)}`).catch(() => {});
       await client.query(`DROP ROLE IF EXISTS ${gate1.quoteIdent(roleName)}`).catch(() => {});
     } finally {
@@ -553,7 +558,7 @@ if (!ENABLED) {
     await assert.doesNotReject(() => gate1.phaseVerify(client, values, { log: () => {} }));
 
     // Teardown still works with the extra overload in place: its REVOKE targets
-    // a signature, which is name-insensitive, and DROP OWNED BY sweeps the rest.
+    // a signature, which is name-insensitive.
     assert.equal((await gate1.phaseTeardown(client, values, { log: () => {} })).tornDown, true);
   });
 
@@ -664,6 +669,41 @@ if (!ENABLED) {
     );
     assert.equal(survived.length, 1, 'the role must survive an aborted teardown');
     await admin.query(`REVOKE ${gate1.quoteIdent(roleName)} FROM ${gate1.quoteIdent(thirdName)}`);
+
+    // THE PREMISE OF THE NO-SWEEPER DESIGN, pinned rather than left in a
+    // comment. The teardown has no DROP OWNED BY because this operator cannot
+    // execute one: ADMIN OPTION authorizes DROP ROLE but confers none of the
+    // role's privileges, and PG 16 removed the CREATEROLE shortcut that used to
+    // permit it. If a future PostgreSQL quietly allows this, the design's
+    // justification has changed and somebody should be told - a failing
+    // assertion here is that signal, where prose would just rot.
+    await assert.rejects(
+      () => operator.query(`DROP OWNED BY ${gate1.quoteIdent(roleName)}`),
+      (err) => {
+        assert.match(err.message, /permission denied to drop objects/,
+          'this is DropOwnedObjects own message, and the reason the sweeper was removed');
+        assert.equal(err.code, '42501');
+        return true;
+      },
+      'a non-superuser CREATEROLE operator must NOT be able to DROP OWNED BY a role it created'
+    );
+    // Confirm the MECHANISM, not just the symptom: ADMIN yes, privileges no.
+    // pg_has_role(..., 'USAGE') is the has_privs_of_role test - the one
+    // DROP OWNED BY gates on - and admin_option is read straight from the
+    // catalog rather than through pg_has_role's MEMBER, whose meaning is tied
+    // to SET ROLE in PG 16+ and would muddle the two halves being separated.
+    const { rows: [power] } = await admin.query(
+      `SELECT pg_has_role($1, $2, 'USAGE') AS has_privs_of_role,
+              (SELECT am.admin_option
+                 FROM pg_auth_members am
+                 JOIN pg_roles m ON m.oid = am.member
+                 JOIN pg_roles r ON r.oid = am.roleid
+                WHERE m.rolname = $1 AND r.rolname = $2) AS admin_option`,
+      [operatorName, roleName]
+    );
+    assert.deepEqual(power, { has_privs_of_role: false, admin_option: true },
+      'the operator holds ADMIN on the role but NOT the privileges of it, which is exactly '
+      + 'the gap DROP OWNED BY falls into and DROP ROLE does not');
 
     // And with only the implicit grant left, teardown SUCCEEDS through the
     // operator connection - the grant is tolerated, never revoked, and the DROP

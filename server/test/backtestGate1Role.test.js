@@ -228,8 +228,16 @@ test('a driver error quoting the CREATE ROLE statement comes back with NO verifi
         const found = /SCRAM-SHA-256\$[^']+/.exec(sql);
         if (found) {
           sawVerifier = found[0];
-          // Exactly what a driver does: echo the statement it choked on.
-          throw new Error(`syntax error at or near "x"\nSTATEMENT: ${sql}`);
+          // Exactly what a driver does: echo the statement it choked on. The
+          // verifier ALSO rides in DETAIL and HINT here: runBlock now appends
+          // both to the message, so if a server ever echoed statement text
+          // through them, this is the path it would take into the error. The
+          // redaction of that path is pinned below, not inferred from the
+          // message-only case.
+          const err = new Error(`syntax error at or near "x"\nSTATEMENT: ${sql}`);
+          err.detail = `offending statement was ${sql}`;
+          err.hint = `verifier ${found[0]} is malformed`;
+          throw err;
         }
         // Enough preflight to reach CREATE ROLE, which is the only statement
         // that carries the verifier.
@@ -274,6 +282,10 @@ test('a driver error quoting the CREATE ROLE statement comes back with NO verifi
         assert.equal(text.includes('AdminP4ss-CANARY-xyz'), false, `the admin password leaked in the ${what}`);
       }
       assert.match(err.message, /syntax error at or near/, 'the diagnostic must survive redaction');
+      assert.match(err.message, /DETAIL: offending statement was/,
+        'the DETAIL channel must actually be exercised, or this pin is vacuous');
+      assert.match(err.message, /HINT: verifier \[REDACTED\] is malformed/,
+        'HINT survives with the verifier redacted, proving redaction covers the appended fields');
     }
   );
 });
@@ -452,8 +464,7 @@ test('each .sql file parses into named, non-empty, unique statement blocks', () 
       'verify_no_ownership', 'verify_memberships']],
     ['teardown-role.sql', ['teardown_role_present', 'teardown_check_ownership',
       'teardown_check_memberships', 'teardown_terminate_sessions', 'teardown_revoke',
-      'teardown_reset_settings', 'teardown_drop_owned', 'teardown_drop_role',
-      'teardown_confirm_absent']],
+      'teardown_reset_settings', 'teardown_drop_role', 'teardown_confirm_absent']],
   ]) {
     const blocks = gate1.loadStatements(readSql(file), { label: file });
     assert.deepEqual([...blocks.keys()], expected, `${file} blocks, in order`);
@@ -608,12 +619,70 @@ test('teardown revokes exactly what create granted', () => {
   for (const fragment of ['ON SCHEMA public', 'ON DATABASE']) {
     assert.ok(revoke.includes(fragment), `teardown must also revoke ${fragment}`);
   }
-  // DROP OWNED BY is the sweeper, but it must never be reached with objects
-  // owned - the ordering is what makes it safe.
-  assert.ok([...teardown.keys()].indexOf('teardown_check_ownership')
-    < [...teardown.keys()].indexOf('teardown_drop_owned'),
-  'the ownership check must come before DROP OWNED BY');
-  assert.equal(/DROP\s+ROLE[^;]*CASCADE/i.test(sqlOnly([...teardown.values()].join('\n'))), false);
+  const teardownSql = sqlOnly([...teardown.values()].join('\n'));
+
+  // NO SWEEPER, and this is a hard requirement rather than a preference. A
+  // non-superuser CREATEROLE operator cannot execute DROP OWNED BY on a role it
+  // created - ADMIN OPTION is not the privileges OF the role - so a sweeper
+  // makes the whole teardown unrunnable by the real Gate 1 operator. CI proved
+  // that with "permission denied to drop objects". It is also the wrong
+  // instrument: it would delete the evidence of an over-grant rather than
+  // report it.
+  assert.equal(/DROP\s+OWNED\s+BY/i.test(teardownSql), false,
+    'DROP OWNED BY must not be reachable by the teardown');
+  assert.equal(/DROP\s+ROLE[^;]*CASCADE/i.test(teardownSql), false);
+
+  // The ordering that makes the drop safe: both checks come before it, and the
+  // revokes clear the kit's own ACL entries before DROP ROLE tests for residue.
+  const order = [...teardown.keys()];
+  for (const before of ['teardown_check_ownership', 'teardown_check_memberships',
+    'teardown_terminate_sessions', 'teardown_revoke']) {
+    assert.ok(order.indexOf(before) < order.indexOf('teardown_drop_role'),
+      `${before} must come before DROP ROLE`);
+  }
+  // DROP ROLE is now the last fail-closed check rather than a formality, so the
+  // block has to document it: what PostgreSQL reports, and what a failure MEANS
+  // for the operator reading it. A reviewer approving this file is approving
+  // the removal of the sweeper on the strength of exactly this explanation.
+  const dropBlock = teardown.get('teardown_drop_role');
+  assert.match(dropBlock, /cannot be dropped because some objects depend on it/,
+    'the drop block must name the refusal it now relies on');
+  assert.match(dropBlock, /DETAIL/,
+    'and that the blocking dependencies arrive in DETAIL');
+  assert.match(dropBlock, /rolls back|rolled back/,
+    'and that a failure aborts rather than half-dropping');
+  assert.match(dropBlock, /nothing is dropped/i);
+  assert.match(dropBlock, /DROP ROLE automatically revokes\s+--?\s*memberships|memberships of the target role/,
+    'and why no membership revoke is needed');
+});
+
+test('a failed statement surfaces the server DETAIL, never the statement text', () => {
+  // DROP ROLE's refusal puts the summary in the message and the actual list of
+  // blocking dependencies in DETAIL. Teardown's last fail-closed check would be
+  // useless if the runner reported that something depends on the role while
+  // withholding what.
+  const client = scriptedClient();
+  client.query = async () => {
+    const err = new Error('role "backtest_ro_pit01" cannot be dropped because some objects depend on it');
+    err.detail = 'privileges for table players\nprivileges for table nfl_games';
+    err.hint = 'do the thing';
+    // `where` and `internalQuery` can carry SQL text, which for create_role
+    // would carry the SCRAM verifier.
+    err.where = "PL/pgSQL function inline_code_block line 1 at SQL statement CREATE ROLE x PASSWORD 'SCRAM-SHA-256$4096:leak'";
+    err.internalQuery = "CREATE ROLE x PASSWORD 'SCRAM-SHA-256$4096:leak'";
+    throw err;
+  };
+  return gate1.phaseVerify(client, PHASE_VALUES, { log: () => {} }).then(
+    () => assert.fail('expected a rejection'),
+    (err) => {
+      assert.match(err.message, /cannot be dropped because some objects depend on it/);
+      assert.match(err.message, /DETAIL: privileges for table players/);
+      assert.match(err.message, /HINT: do the thing/);
+      assert.equal(err.message.includes('SCRAM-SHA-256'), false,
+        'where/internalQuery can echo the statement and must stay out');
+      assert.equal(err.message.includes('inline_code_block'), false);
+    }
+  );
 });
 
 test('the create SQL states every role flag explicitly', () => {
@@ -1153,6 +1222,31 @@ test('teardown tolerates the same one grant, never revokes it, and aborts on any
     false, 'teardown must never revoke the role membership itself'
   );
   assert.equal(ranDropRole(allowed), true, 'the drop is what removes the membership');
+
+  // With no sweeper behind them, the explicit REVOKEs are the ONLY thing that
+  // clears the kit's own ACL entries. If they stopped running, DROP ROLE would
+  // refuse over the residue and teardown would abort on every clean run.
+  const revoked = executed(allowed).join('\n');
+  for (const target of ['public.players', 'public.player_stats', 'public.player_season_stats',
+    'public.nfl_games', 'public.fn_normalize_nfl_team', 'ON SCHEMA public', 'ON DATABASE']) {
+    assert.ok(/REVOKE/i.test(revoked) && revoked.includes(target),
+      `teardown must revoke ${target} before dropping the role`);
+  }
+  // And DROP OWNED BY must never be issued: the real operator cannot run it.
+  assert.equal(/DROP\s+OWNED\s+BY/i.test(revoked), false,
+    'no sweeper may be issued - a non-superuser CREATEROLE operator is denied it');
+
+  // The EXECUTION order, not just the order the blocks appear in the file. With
+  // no sweeper, revoking after the drop would mean DROP ROLE meets the kit's own
+  // ACL entries and refuses every clean teardown.
+  const statements = executed(allowed);
+  const firstRevoke = statements.findIndex((q) => /\bREVOKE\b/i.test(q));
+  const dropRoleAt = statements.findIndex((q) => /\bDROP\s+ROLE\b/i.test(q));
+  assert.ok(firstRevoke >= 0 && dropRoleAt >= 0, 'both statements must have run');
+  assert.ok(firstRevoke < dropRoleAt,
+    'the revokes must be ISSUED before DROP ROLE, not merely written above it');
+  const resetAt = statements.findIndex((q) => /\bRESET ALL\b/i.test(q));
+  assert.ok(resetAt >= 0 && resetAt < dropRoleAt, 'RESET ALL must also precede the drop');
 
   for (const override of [{ set_option: true }, { admin_option: false }, { direction: 'member_of' },
     { other_role_is_connected_role: false }, { grantor_is_superuser: false }]) {

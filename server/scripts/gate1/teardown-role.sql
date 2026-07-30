@@ -7,10 +7,45 @@
 -- already open. This file does.
 --
 -- FAIL CLOSED. The runner runs the two `teardown_check_` blocks first and
--- ABORTS if either returns a row. It never auto-drops objects the role owns:
--- `DROP OWNED BY` would delete them, and `DROP ROLE ... CASCADE` does not
--- exist. If the role has somehow come to own something, that is a fact a human
--- needs to see before anything is destroyed.
+-- ABORTS if either returns a row. It never auto-drops objects the role owns.
+-- `DROP ROLE ... CASCADE` does not exist, and this file deliberately does not
+-- use `DROP OWNED BY` either. If the role has somehow come to own something,
+-- that is a fact a human needs to see before anything is destroyed.
+--
+-- WHY THERE IS NO `DROP OWNED BY`
+--
+-- There used to be, as a sweeper for residual ACL entries after the explicit
+-- REVOKEs. It was removed for two independent reasons, the first discovered by
+-- the disposable-Postgres lifecycle test failing in CI against a
+-- production-shaped operator:
+--
+--   1. A non-superuser CREATEROLE role CANNOT run it on a role it created.
+--      `DROP OWNED BY` requires the caller to hold the PRIVILEGES OF the target
+--      role - superuser, an INHERIT membership, or the ability to SET ROLE to
+--      it. The PG 16+ implicit creator-admin grant is ADMIN TRUE, INHERIT
+--      FALSE, SET FALSE: ADMIN authorizes granting memberships and DROP ROLE,
+--      but confers none of the role's privileges. PostgreSQL 16 also removed
+--      the CREATEROLE shortcut that used to permit this. So the real Gate 1
+--      operator, Supabase's hosted `postgres`, gets "permission denied to drop
+--      objects" - which is exactly what CI reported.
+--
+--      The available workaround is worse than the problem: the operator holds
+--      ADMIN OPTION, so it could re-grant the role to itself WITH INHERIT TRUE
+--      and then qualify. That is the kit escalating its own access to the very
+--      role it is dismantling, and verify-role.sql correctly rejects an
+--      inherit-widened grant as a different relationship. It is not on the table.
+--
+--   2. Even where it works, it is the wrong instrument. Its whole job was to
+--      silently delete ACL entries that DROP ROLE would otherwise refuse over.
+--      Those entries are privileges nobody in this kit granted, on a role that
+--      verify has already proven held exactly five. Deleting them destroys the
+--      evidence of an over-grant on the way past. DROP ROLE's own dependency
+--      check is the same check, made by the authority that owns it, and it
+--      SURFACES the finding instead: it errors, the transaction rolls back,
+--      nothing is dropped, and the dependency list reaches the operator.
+--
+-- The cost is that a residual ACL turns teardown into a clean abort rather than
+-- a clean drop. That is the trade this file wants: see the philosophy above.
 --
 -- IDEMPOTENT. Tearing down a role that does not exist is a clear no-op message
 -- and exit code 0, not an error - so an operator who is unsure whether teardown
@@ -149,9 +184,14 @@ WHERE usename = :'role_name'
 
 -- @statement: teardown_revoke
 -- The exact inverse of create-role.sql, written out rather than swept, so that
--- the teardown is reviewable against the creation line by line. DROP OWNED BY
--- below would remove these anyway; doing it explicitly first means a reader can
--- confirm the two files describe the same privilege set.
+-- the teardown is reviewable against the creation line by line. Since there is
+-- no sweeper (see the header), these REVOKEs are not a legibility nicety - they
+-- are the ONLY thing that clears the kit's own ACL entries, and DROP ROLE below
+-- will refuse if any of them is missed.
+--
+-- The operator is the grantor of all five, which is what makes it authorized to
+-- revoke them. This block ran successfully in CI as a non-superuser CREATEROLE
+-- operator.
 REVOKE EXECUTE ON FUNCTION public.fn_normalize_nfl_team(text) FROM :"role_ident";
 REVOKE SELECT ON TABLE
   public.players,
@@ -169,16 +209,30 @@ REVOKE CONNECT ON DATABASE :"database_ident" FROM :"role_ident";
 ALTER ROLE :"role_ident" RESET ALL;
 
 
--- @statement: teardown_drop_owned
--- The sweeper. The explicit REVOKEs above cover the privileges this kit
--- granted; DROP OWNED BY clears any remaining ACL entry in this database and on
--- shared objects, which is what DROP ROLE would otherwise refuse over. It is
--- safe to run only BECAUSE teardown_check_ownership returned no rows: with
--- nothing owned, this drops no objects.
-DROP OWNED BY :"role_ident";
-
-
 -- @statement: teardown_drop_role
+-- The drop, and also the LAST FAIL-CLOSED CHECK.
+--
+-- PostgreSQL refuses to drop a role that anything still depends on, and reports
+-- what: "role X cannot be dropped because some objects depend on it", with a
+-- DETAIL listing the privileges and objects (including counts for other
+-- databases in the cluster). Since there is no sweeper ahead of it, that check
+-- is load-bearing rather than decorative. It consults pg_shdepend, which is the
+-- same catalog any hand-written residual check would have to read, so this is
+-- the authoritative version of that check rather than a reimplementation that
+-- could drift from it.
+--
+-- Reaching this statement means: the role owns nothing (teardown_check_ownership),
+-- has no membership beyond the implicit creator-admin grant
+-- (teardown_check_memberships), has no live session (teardown_terminate_sessions),
+-- and the kit's own five grants have been revoked (teardown_revoke). If it still
+-- fails, something outside this kit granted the role a privilege, and that is a
+-- finding: the transaction rolls back, nothing is dropped, and a human reads the
+-- dependency list. The runner surfaces the DETAIL, not just the summary line.
+--
+-- Role MEMBERSHIPS need no cleanup here. DROP ROLE automatically revokes
+-- memberships of the target role in other roles and of other roles in it, which
+-- is how the implicit creator-admin grant goes away without this file ever
+-- issuing a REVOKE that its own grantor would refuse.
 DROP ROLE :"role_ident";
 
 

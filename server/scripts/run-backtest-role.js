@@ -538,7 +538,25 @@ async function runBlock(client, blocks, name, values, { label }) {
   } catch (err) {
     // Deliberately NOT including `rendered`: for create_role that string
     // contains the verifier.
-    throw new Error(`${label}: statement ${name} failed: ${err.message}`);
+    //
+    // DETAIL and HINT are server-authored fields that never echo the statement,
+    // and for the failure that matters most here they carry the entire payload:
+    // DROP ROLE's refusal puts "role X cannot be dropped because some objects
+    // depend on it" in the message and the actual list of blocking dependencies
+    // in DETAIL. Without this, teardown's last fail-closed check would report
+    // that something depends on the role while withholding what. `where` and
+    // `internalQuery` are deliberately excluded - those CAN contain SQL text.
+    //
+    // Redaction is main()'s job: its catch wraps this whole message - including
+    // anything DETAIL or HINT carried - at the CLI boundary. A caller that
+    // bypasses main() gets this text raw.
+    const extra = [
+      err.detail ? `DETAIL: ${err.detail}` : null,
+      err.hint ? `HINT: ${err.hint}` : null,
+    ].filter(Boolean).join(' ');
+    throw new Error(
+      `${label}: statement ${name} failed: ${err.message}${extra ? ` ${extra}` : ''}`
+    );
   }
 }
 
@@ -866,8 +884,11 @@ async function phaseTeardown(client, values, { log, label = 'teardown' } = {}) {
 
   await client.query('BEGIN');
   try {
-    for (const name of ['teardown_revoke', 'teardown_reset_settings', 'teardown_drop_owned',
-      'teardown_drop_role']) {
+    // No `teardown_drop_owned`. A non-superuser CREATEROLE operator cannot run
+    // DROP OWNED BY on a role it created - ADMIN OPTION is not the privileges
+    // OF the role - and DROP ROLE's own dependency check is a better version of
+    // what the sweeper was for. See the header of teardown-role.sql.
+    for (const name of ['teardown_revoke', 'teardown_reset_settings', 'teardown_drop_role']) {
       await runBlock(client, blocks, name, values, { label });
       log(`  applied ${name}`);
     }
