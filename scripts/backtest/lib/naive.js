@@ -30,6 +30,7 @@
  */
 
 const { RECENCY_HALF_LIFE_WEEKS, HISTORY_SEASONS, weeksAgo } = require('./rosters');
+const { isFiniteNumber } = require('./numbers');
 
 /** The benchmark names, as they appear in the report. Never selectable. */
 const BENCHMARKS = Object.freeze({ NAIVE_RECENCY: 'naive-recency', USAGE_SIGNAL: 'usage-signal' });
@@ -49,10 +50,7 @@ const USAGE_KEYS = Object.freeze(['passAttempts', 'carries', 'targets']);
 function isUsageBearing(game) {
   const usage = game && game.usage;
   if (!usage || typeof usage !== 'object') return false;
-  return USAGE_KEYS.some((key) => {
-    const value = usage[key];
-    return value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));
-  });
+  return USAGE_KEYS.some((key) => isFiniteNumber(usage[key]));
 }
 
 /**

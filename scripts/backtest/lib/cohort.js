@@ -38,6 +38,9 @@ const {
   FANTASY_ROSTER_POSITIONS,
 } = require('./mappings');
 const { QUARANTINE_FROM_SEASON } = require('./snapshotStore');
+const {
+  isMissing, requiredNumber, optionalNumber, countingNumber, roundToTie,
+} = require('./numbers');
 const asOf = require('./asOfView');
 
 /** A well-formed modern GSIS id. Legacy pre-GSIS shapes are excluded by shape. */
@@ -141,6 +144,38 @@ function buildGsisByPlayerId({ dbPlayers, crosswalk, label = 'cohort' }) {
   return { gsisByPlayerId, playerIdByGsis, unlinked };
 }
 
+/**
+ * Pure: `teamKey -> players.id` for the database's DEF pseudo-players.
+ *
+ * Production stores one `players` row per defence, with a full team name in
+ * `nfl_team` and `position = 'DEF'`. The synthesized cohort DEF borrows that
+ * row's identity so the deployed-policy wrapper can order it by the same
+ * captured `(name, id)` collation rank production would use.
+ *
+ * Fail-closed on a duplicate: two DEF rows folding to one team key would make
+ * the borrowed identity ambiguous, and the tie order would depend on which one
+ * happened to win.
+ */
+function buildDefensePlayerIndex({ dbPlayers, normalizeTeamKey, label = 'DEF index' }) {
+  if (typeof normalizeTeamKey !== 'function') {
+    throw new Error(`${label}: buildDefensePlayerIndex requires normalizeTeamKey to be injected`);
+  }
+  const byTeamKey = new Map();
+  for (const player of dbPlayers || []) {
+    if (player.position !== 'DEF') continue;
+    const key = player.team_key || normalizeTeamKey(player.nfl_team);
+    if (!key) throw new Error(`${label}: DEF player ${player.id} has no resolvable team`);
+    if (byTeamKey.has(key)) {
+      throw new Error(
+        `${label}: two DEF players map to ${key} (${byTeamKey.get(key)} and ${player.id}), so the ` +
+        'identity a synthesized defence borrows would be ambiguous'
+      );
+    }
+    byTeamKey.set(key, Number(player.id));
+  }
+  return byTeamKey;
+}
+
 // ---------------------------------------------------------------------------
 // The cohort
 // ---------------------------------------------------------------------------
@@ -171,6 +206,7 @@ function buildCohort({
   statsGameTeamFor,
   byeTeamKeys,
   defenseTeamKeys,
+  defensePlayerIdByTeamKey = new Map(),
   label = 'cohort',
 }) {
   if (typeof normalizeTeamKey !== 'function') {
@@ -278,12 +314,28 @@ function buildCohort({
 
   // One synthesized DEF pseudo-player per team-week, appended after the human
   // players so member order is deterministic.
+  //
+  // A DEF carries its DATABASE identity even though it is synthesized. It has
+  // no GSIS id - it is not a person - but production's `players` table holds a
+  // real row for each defence, and the deployed-policy wrapper orders
+  // candidates by the captured `(name, id)` collation rank of THAT row. Order a
+  // DEF by its team key instead and its ties would resolve differently from
+  // production's, which is exactly the kind of ordering difference the study
+  // has to be able to rule out. `defensePlayerIdByTeamKey` supplies the link.
   for (const teamKey of [...new Set(defenseTeamKeys)].sort()) {
+    const defensePlayerId = defensePlayerIdByTeamKey.get(teamKey);
+    if (defensePlayerId === undefined) {
+      throw new Error(
+        `${label}: no database DEF player for team ${teamKey}. The deployed-policy wrapper orders ` +
+        'candidates by the captured (name, id) rank of the real players row, so a synthesized ' +
+        'defence without one could not be ordered the way production orders it.'
+      );
+    }
     members.push({
       season: Number(season),
       week: Number(week),
       gsisId: null,
-      playerId: null,
+      playerId: Number(defensePlayerId),
       position: 'DEF',
       team: teamKey,
       teamKey,
@@ -344,47 +396,35 @@ function synthesizeDefenseStats({ teamWeekRow, game, teamKey, normalizeTeamKey, 
   if (!isHome && awayKey !== teamKey) {
     throw new Error(`${label}: team ${teamKey} does not play in game ${game.game_id}`);
   }
-  const missing = (v) => v === null || v === undefined || String(v).trim() === ''
-    || typeof v === 'boolean';
+  // Counting stats: absent means the defence recorded none of it, which for a
+  // SACK COUNT genuinely is zero. `countingNumber` is the one shape where the
+  // zero-default is correct, and naming it makes that a visible decision.
+  const num = (v, field) => countingNumber(v, { label: `${label}: ${field}` });
 
   /**
-   * Counting stats: absent means the defence recorded none of it, which for a
-   * SACK COUNT genuinely is zero. Safe here and only here.
-   */
-  const num = (v) => {
-    if (missing(v)) return 0;
-    const n = Number(v);
-    if (!Number.isFinite(n)) throw new Error(`${label}: ${JSON.stringify(v)} is not a number`);
-    return n;
-  };
-
-  /**
-   * A value that must be PRESENT, because zero is a meaningful measurement of
-   * it rather than the absence of one.
-   *
-   * `pointsAllowed` is the example that matters. It is a per-game TIER input:
-   * zero points allowed is the top defensive tier and scores the maximum. So a
-   * blank score in `games.csv` - and the pinned file demonstrably carries some
-   * - would otherwise synthesize a shutout, the single most flattering possible
+   * `pointsAllowed` MUST be present, because zero is a meaningful measurement
+   * of it rather than the absence of one. It is a per-game TIER input: zero
+   * points allowed is the top defensive tier and scores the maximum. A blank
+   * score in `games.csv` - and the pinned file demonstrably carries some -
+   * would otherwise synthesize a shutout, the single most flattering possible
    * error, and it would happen HERE, one function upstream of
    * `assertPerGameDefenseStats`. That guard would then inspect a clean `0` and
    * pass it: the damage is done by the conversion, not by the check.
    */
-  const requiredNum = (v, field) => {
-    if (missing(v)) {
-      throw new Error(
-        `${label}: ${field} is ${JSON.stringify(v)} for game ${game.game_id}. It is a per-game tier ` +
-        'input, so a blank cannot be read as 0 - that would synthesize a shutout, the top ' +
-        'defensive tier, out of a missing score.'
-      );
-    }
-    const n = Number(v);
-    if (!Number.isFinite(n)) throw new Error(`${label}: ${field} is ${JSON.stringify(v)}, not a number`);
-    return n;
-  };
-
-  // The opponent's score IS the points this defence allowed, in THIS game.
-  const pointsAllowed = requiredNum(isHome ? game.away_score : game.home_score, 'pointsAllowed');
+  // Two DIFFERENT failures, and the messages stay distinct because the fixes
+  // are different: a blank cell is a data gap, junk is a parse problem.
+  const rawPointsAllowed = isHome ? game.away_score : game.home_score;
+  if (isMissing(rawPointsAllowed)) {
+    throw new Error(
+      `${label}: pointsAllowed is ${JSON.stringify(rawPointsAllowed)} for game ${game.game_id}. ` +
+      'It is a per-game tier input, so a blank cannot be read as 0 - that would synthesize a ' +
+      'shutout, the top defensive tier, out of a missing score.'
+    );
+  }
+  const pointsAllowed = Number(rawPointsAllowed);
+  if (!Number.isFinite(pointsAllowed)) {
+    throw new Error(`${label}: pointsAllowed is ${JSON.stringify(rawPointsAllowed)}, not a number`);
+  }
   const row = teamWeekRow || {};
   return {
     pointsAllowed,
@@ -394,12 +434,12 @@ function synthesizeDefenseStats({ teamWeekRow, game, teamKey, normalizeTeamKey, 
     // null far more often than it yields undefined, so checking only the
     // latter would have left the ordinary case falling through to 0 and
     // contradicted this very comment.
-    yardsAllowed: missing(row.opponentYards) ? null : num(row.opponentYards),
-    defSacks: num(row.def_sacks),
-    defInterceptions: num(row.def_interceptions),
-    defFumbleRecoveries: num(row.def_fumbles_forced),
-    defTouchdowns: num(row.def_tds),
-    defSafeties: num(row.def_safeties),
+    yardsAllowed: optionalNumber(row.opponentYards, { label: `${label}: yardsAllowed` }),
+    defSacks: num(row.def_sacks, 'defSacks'),
+    defInterceptions: num(row.def_interceptions, 'defInterceptions'),
+    defFumbleRecoveries: num(row.def_fumbles_forced, 'defFumbleRecoveries'),
+    defTouchdowns: num(row.def_tds, 'defTouchdowns'),
+    defSafeties: num(row.def_safeties, 'defSafeties'),
   };
 }
 
@@ -416,16 +456,14 @@ const MAX_PLAUSIBLE_POINTS_ALLOWED_PER_GAME = 100;
 
 function assertPerGameDefenseStats(stats, { label = 'DEF' } = {}) {
   if (!stats || typeof stats !== 'object') throw new Error(`${label}: no defensive stats`);
-  // `Number(null)` is 0 and `Number('')` is 0, so a bare finite check would
-  // turn missing evidence into a measured shutout - the single most flattering
-  // possible error for a defence. Missing is rejected explicitly first.
-  const raw = stats.pointsAllowed;
-  if (raw === null || raw === undefined || raw === '' || typeof raw === 'boolean') {
-    throw new Error(`${label}: pointsAllowed is ${JSON.stringify(raw)}, not a number`);
-  }
-  const points = Number(raw);
-  if (!Number.isFinite(points)) {
-    throw new Error(`${label}: pointsAllowed is ${JSON.stringify(raw)}, not a number`);
+  // `requiredNumber` rejects missing explicitly, because `Number(null)` is 0
+  // and a bare finite check would turn missing evidence into a measured
+  // shutout - the most flattering possible error for a defence.
+  let points;
+  try {
+    points = requiredNumber(stats.pointsAllowed, { label: `${label}: pointsAllowed` });
+  } catch (err) {
+    throw new Error(`${label}: pointsAllowed is ${JSON.stringify(stats.pointsAllowed)}, not a number`);
   }
   if (points < 0 || points > MAX_PLAUSIBLE_POINTS_ALLOWED_PER_GAME) {
     throw new Error(
@@ -498,11 +536,12 @@ function resolveOutcome({
   // bare finite check would turn "the sources have him but carry no points"
   // into a scored zero - indistinguishable from a real zero-point game, and
   // wrong in the direction that quietly inflates every arm's accuracy on him.
-  if (externalPoints === null || externalPoints === undefined || externalPoints === ''
-    || typeof externalPoints === 'boolean' || !Number.isFinite(Number(externalPoints))) {
+  let actual;
+  try {
+    actual = requiredNumber(externalPoints, { label: `${label}: externalPoints` });
+  } catch (err) {
     throw new Error(`${label}: present in both sources but the external points are ${JSON.stringify(externalPoints)}`);
   }
-  const actual = Number(externalPoints);
   return {
     status: 'scored',
     reason: null,
@@ -512,10 +551,8 @@ function resolveOutcome({
   };
 }
 
-/** Numeric ties are decided at 10 decimal places (prereg 6.6). */
-function roundTo10(value) {
-  return Math.round(Number(value) * 1e10) / 1e10;
-}
+/** Numeric ties are decided at 10 decimal places (prereg 6.6). See lib/numbers. */
+const roundTo10 = roundToTie;
 
 /** Tally many outcomes for the report. */
 function outcomeTally(outcomes) {
@@ -577,6 +614,7 @@ module.exports = {
   MAX_PLAUSIBLE_POINTS_ALLOWED_PER_GAME,
   buildCrosswalk,
   buildGsisByPlayerId,
+  buildDefensePlayerIndex,
   buildCohort,
   synthesizeDefenseStats,
   assertPerGameDefenseStats,

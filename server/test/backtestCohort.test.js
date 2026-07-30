@@ -222,12 +222,20 @@ test('bye players are IN the cohort and flagged, not filtered out', () => {
 test('one DEF pseudo-player is synthesized per team-week, in deterministic order', () => {
   const result = buildFor(
     [roster({ gsis: '00-0000001', position: 'QB' })],
-    { defenseTeamKeys: ['WAS', 'KC', 'LAR', 'KC'] }
+    {
+      defenseTeamKeys: ['WAS', 'KC', 'LAR', 'KC'],
+      defensePlayerIdByTeamKey: new Map([['KC', 501], ['LAR', 502], ['WAS', 503]]),
+    }
   );
   const defenses = result.members.filter((m) => m.isDefense);
   assert.equal(defenses.length, 3, 'one per distinct team, duplicates collapsed');
   assert.deepEqual(defenses.map((d) => d.teamKey), ['KC', 'LAR', 'WAS']);
-  assert.equal(defenses.every((d) => d.position === 'DEF' && d.playerId === null), true);
+  assert.equal(defenses.every((d) => d.position === 'DEF'), true);
+  // Each carries the DATABASE DEF row's id, so the deployed-policy wrapper can
+  // order it by the captured (name, id) rank the way production would - not by
+  // team key, which was the carried defect.
+  assert.deepEqual(defenses.map((d) => d.playerId), [501, 502, 503]);
+  assert.equal(defenses.every((d) => d.gsisId === null), true, 'a defence is not a person');
   assert.equal(result.counts.defenses, 3);
 
   // The accounting identity still holds once DEF is in play: synthesized
