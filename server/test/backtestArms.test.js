@@ -1,0 +1,638 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+
+const arms = require('../../scripts/backtest/lib/arms');
+const metrics = require('../../scripts/backtest/lib/metrics');
+
+// The REAL shipped constants, so the factorial is resolved against what
+// production actually runs rather than a stand-in.
+const model = require('../services/projectionModel');
+
+const BASE = model.MODEL_CONSTANTS;
+
+// ---------------------------------------------------------------------------
+// The factorial
+// ---------------------------------------------------------------------------
+
+test('the factorial is 4 blend weights x 2 homeAway states, control = usage-25 x off', () => {
+  assert.deepEqual([...arms.BLEND_WEIGHTS], [0, 0.25, 0.40, 0.60]);
+  assert.deepEqual([...arms.HOME_AWAY_STATES], ['off', 'on']);
+  assert.equal(arms.ALL_CELLS.length, 8);
+  assert.equal(arms.CONTROL_CELL, 'usage-25-off');
+  assert.equal(arms.SELECTION_FAMILY.length, 7, 'the selection family is the 7 NON-control cells');
+  assert.equal(arms.SELECTION_FAMILY.some((c) => c.name === arms.CONTROL_CELL), false);
+  // The preregistered fixed cell order covers exactly the selection family.
+  assert.deepEqual([...arms.FIXED_CELL_ORDER].sort(),
+    arms.SELECTION_FAMILY.map((c) => c.name).sort());
+  assert.deepEqual([...arms.FIXED_CELL_ORDER], [
+    'usage-40-off', 'usage-00-off', 'usage-60-off',
+    'usage-25-on', 'usage-40-on', 'usage-00-on', 'usage-60-on',
+  ]);
+});
+
+test('each cell resolves the shipped constants, changing exactly two leaves', () => {
+  const family = arms.buildFamily({ baseConstants: BASE });
+  assert.equal(family.cells.length, 8);
+  assert.equal(family.control.name, 'usage-25-off');
+  assert.equal(family.control.isControl, true);
+  assert.equal(family.control.selectable, false);
+
+  for (const cell of family.cells) {
+    assert.equal(cell.resolvedConstants.usage.blendWeight, cell.blendWeight);
+    assert.equal(cell.resolvedConstants.homeAway.enabled, cell.homeAway === 'on');
+    assert.match(cell.constantsHash, /^[0-9a-f]{64}$/);
+    // Nothing else moves: every other top-level key is untouched.
+    for (const key of Object.keys(BASE)) {
+      if (key === 'usage' || key === 'homeAway') continue;
+      assert.deepEqual(cell.resolvedConstants[key], BASE[key], `${cell.name} left ${key} alone`);
+    }
+  }
+  // Eight distinct configurations means eight distinct hashes.
+  assert.equal(new Set(family.cells.map((c) => c.constantsHash)).size, 8);
+  // The control's resolved constants equal the shipped ones on both leaves.
+  assert.equal(family.control.resolvedConstants.usage.blendWeight, 0.25);
+  assert.equal(family.control.resolvedConstants.homeAway.enabled, false);
+});
+
+test('two cells resolving to identical constants would not be two arms', () => {
+  // Unreachable while resolveConstants works - eight distinct
+  // (blendWeight, enabled) pairs cannot serialize alike - so the guard is
+  // exercised directly rather than waiting for an already-broken codebase.
+  const cells = [
+    { name: 'usage-40-off', constantsHash: 'aaa' },
+    { name: 'usage-60-off', constantsHash: 'bbb' },
+  ];
+  assert.equal(arms.assertDistinctConstants({ cells }), true);
+  assert.throws(() => arms.assertDistinctConstants({
+    cells: [...cells, { name: 'usage-00-off', constantsHash: 'aaa' }],
+  }), /usage-00-off and usage-40-off resolve to identical constants.*every contrast between them would be zero/s);
+  // And the real family genuinely has eight distinct hashes.
+  const family = arms.buildFamily({ baseConstants: BASE });
+  assert.equal(new Set(family.cells.map((c) => c.constantsHash)).size, 8);
+});
+
+test('NO cell may open versusOpponent.crossSeason', () => {
+  // Opening it would widen the factor's pool and invalidate the
+  // buildPriorGames fail gate, whose conclusion rests on that factor never
+  // activating.
+  assert.equal(arms.assertNoCrossSeason({ cells: arms.ALL_CELLS, baseConstants: BASE }), true);
+  for (const cell of arms.ALL_CELLS) {
+    const resolved = arms.resolveConstants({ cell, baseConstants: BASE });
+    assert.equal(!!(resolved.versusOpponent && resolved.versusOpponent.crossSeason), false,
+      `${cell.name} keeps crossSeason closed`);
+  }
+  // A base that had it open is refused for every cell.
+  const opened = { ...BASE, versusOpponent: { ...BASE.versusOpponent, crossSeason: true } };
+  assert.throws(() => arms.assertNoCrossSeason({ cells: arms.ALL_CELLS, baseConstants: opened }),
+    /opens versusOpponent.crossSeason.*invalidate the buildPriorGames fail gate/s);
+  assert.throws(() => arms.buildFamily({ baseConstants: opened }), /crossSeason/);
+  assert.throws(() => arms.resolveConstants({ cell: arms.ALL_CELLS[0] }),
+    /the production MODEL_CONSTANTS must be injected/);
+});
+
+// ---------------------------------------------------------------------------
+// Salts
+// ---------------------------------------------------------------------------
+
+test('a salt may change the hashValue and NOTHING else', () => {
+  const base = { season: 2025, week: 9, blendWeight: 0.25, homeAway: false };
+  const clean = Object.fromEntries(metrics.SALTS.map((s) => [s, { ...base, hashValue: `h-${s}` }]));
+  assert.equal(arms.assertSaltAffectsOnlyHashValue({ runsBySalt: clean }), true);
+
+  // A salt that changes a MODEL input is averaging over different models.
+  const tampered = { ...clean };
+  tampered[metrics.SALTS[3]] = { ...base, blendWeight: 0.6, hashValue: 'h-x' };
+  assert.throws(() => arms.assertSaltAffectsOnlyHashValue({ runsBySalt: tampered }),
+    /changes an input other than hashValue.*24 different models/s);
+
+  // All 24 must be present, and their hashValues must actually differ.
+  const short = { ...clean };
+  delete short[metrics.SALTS[0]];
+  assert.throws(() => arms.assertSaltAffectsOnlyHashValue({ runsBySalt: short }),
+    /1 of the 24 preregistered salts are missing/);
+  const duplicated = Object.fromEntries(metrics.SALTS.map((s) => [s, { ...base, hashValue: 'same' }]));
+  assert.throws(() => arms.assertSaltAffectsOnlyHashValue({ runsBySalt: duplicated }),
+    /must produce 24 distinct hashValues/);
+});
+
+// ---------------------------------------------------------------------------
+// The two point-identity assertions
+// ---------------------------------------------------------------------------
+
+test('usage-25 x off must be BIT-identical to the control', () => {
+  const run = { median: 12.5, p10: 3, factors: { usage: { effect: 0.1 } } };
+  assert.equal(arms.assertControlBitIdentity({
+    controlRun: run, usage25OffRun: JSON.parse(JSON.stringify(run)),
+  }), true);
+  // Key order is not a difference (canonical serialization).
+  assert.equal(arms.assertControlBitIdentity({
+    controlRun: { a: 1, b: 2 }, usage25OffRun: { b: 2, a: 1 },
+  }), true);
+  // A last-digit difference IS one: they are the same configuration, so any
+  // difference was introduced by the harness.
+  assert.throws(() => arms.assertControlBitIdentity({
+    controlRun: { median: 12.5 }, usage25OffRun: { median: 12.500000001 },
+  }), /not bit-identical.*harness introduced one/s);
+});
+
+test('homeaway-on-stored must be POINT-identical to homeaway-on', () => {
+  assert.equal(arms.assertHomeAwayStoredPointIdentity({
+    storedRun: { median: 10, p90: 20, provenance: 'stored' },
+    computedRun: { median: 10, p90: 20, provenance: 'computed' },
+  }), true, 'differing provenance metadata is allowed; differing NUMBERS are not');
+  // A float artifact is not a difference at the preregistered precision.
+  assert.equal(arms.assertHomeAwayStoredPointIdentity({
+    storedRun: { median: 0.1 + 0.2 }, computedRun: { median: 0.3 },
+  }), true);
+  assert.throws(() => arms.assertHomeAwayStoredPointIdentity({
+    storedRun: { median: 10 }, computedRun: { median: 10.5 },
+  }), /differ on 1 value/);
+  // A null on one side and a number on the other is a difference.
+  assert.throws(() => arms.assertHomeAwayStoredPointIdentity({
+    storedRun: { p10: null }, computedRun: { p10: 3 },
+  }), /differ on 1 value/);
+});
+
+// ---------------------------------------------------------------------------
+// Activation
+// ---------------------------------------------------------------------------
+
+const projection = (over = {}) => ({
+  eligible: true, neutralSite: false, knownOrientation: true,
+  factors: { homeAway: { available: true, effect: 0.02 } }, ...over,
+});
+
+test('activation needs available === true AND a non-zero raw effect', () => {
+  assert.equal(arms.isActivated(projection()), true);
+  // Available but shrunk to exactly zero changes nothing, so it is not treated.
+  assert.equal(arms.isActivated(projection({
+    factors: { homeAway: { available: true, effect: 0 } },
+  })), false);
+  assert.equal(arms.isActivated(projection({
+    factors: { homeAway: { available: false, effect: 0.03 } },
+  })), false);
+  assert.equal(arms.isActivated(projection({ factors: {} })), false);
+  assert.equal(arms.isActivated(null), false);
+  // A negative effect is still an effect.
+  assert.equal(arms.isActivated(projection({
+    factors: { homeAway: { available: true, effect: -0.02 } },
+  })), true);
+});
+
+test('the denominator is eligible, NON-NEUTRAL, KNOWN-ORIENTATION projections', () => {
+  assert.equal(arms.isEligibleForActivation(projection()), true);
+  assert.equal(arms.isEligibleForActivation(projection({ neutralSite: true })), false,
+    'nobody played a home game in London');
+  assert.equal(arms.isEligibleForActivation(projection({ knownOrientation: false })), false);
+  assert.equal(arms.isEligibleForActivation(projection({ eligible: false })), false);
+});
+
+test('any position below 0.85 makes the homeAway claim INCONCLUSIVE for that season', () => {
+  assert.equal(arms.ACTIVATION_THRESHOLD, 0.85);
+  const treated = Object.fromEntries(metrics.MACRO_POSITIONS.map((p) => [p,
+    Array.from({ length: 20 }, () => projection())]));
+  const good = arms.activationReport({ projectionsByPosition: treated });
+  assert.equal(good.verdict, 'treated');
+  assert.deepEqual(good.belowThreshold, []);
+  assert.equal(good.byPosition.DEF.rate, 1);
+
+  // DEF is IN the denominator, per position including DEF - so DEF alone
+  // falling short is enough.
+  const defStarved = { ...treated };
+  defStarved.DEF = Array.from({ length: 20 }, (unused, i) => projection(
+    i < 10 ? { factors: { homeAway: { available: true, effect: 0 } } } : {}
+  ));
+  const bad = arms.activationReport({ projectionsByPosition: defStarved });
+  assert.equal(bad.verdict, 'inconclusive');
+  assert.deepEqual(bad.belowThreshold, ['DEF']);
+  assert.equal(bad.byPosition.DEF.rate, 0.5);
+  assert.match(bad.detail, /not actually treated cannot be compared to an off-cell/);
+
+  // Neutral-site and unknown-orientation rows leave the denominator and are
+  // counted, so they cannot drag the rate down.
+  const withNeutral = { ...treated };
+  withNeutral.QB = [...Array.from({ length: 20 }, () => projection()),
+    ...Array.from({ length: 50 }, () => projection({ neutralSite: true }))];
+  const neutralOk = arms.activationReport({ projectionsByPosition: withNeutral });
+  assert.equal(neutralOk.byPosition.QB.rate, 1);
+  assert.equal(neutralOk.byPosition.QB.excludedIneligible, 50);
+
+  // A position with NO eligible projections cannot demonstrate treatment
+  // either, so it counts as below threshold rather than being skipped.
+  const empty = { ...treated, K: [] };
+  assert.deepEqual(arms.activationReport({ projectionsByPosition: empty }).belowThreshold, ['K']);
+});
+
+// ---------------------------------------------------------------------------
+// Component (f): the exact binomial machinery
+// ---------------------------------------------------------------------------
+
+test('the binomial tail is exact, and the documented 8-of-8 discreteness case holds', () => {
+  assert.equal(arms.binomialCoefficient(8, 0), 1);
+  assert.equal(arms.binomialCoefficient(8, 8), 1);
+  assert.equal(arms.binomialCoefficient(8, 4), 70);
+  // With n = 8 at alpha/7, the ONLY passing outcome is k = 8.
+  assert.equal(arms.binomialUpperTail(8, 8), 1 / 256);
+  assert.ok(1 / 256 <= metrics.COMPONENT_ALPHA, 'k = 8 passes');
+  assert.equal(arms.binomialUpperTail(8, 7), 9 / 256);
+  assert.ok(9 / 256 > metrics.COMPONENT_ALPHA, 'k = 7 does NOT');
+});
+
+test('the sign test shifts by the margin, drops exact ties, and inverts to the same answer', () => {
+  // All eight weeks comfortably below the margin: k = 8, p = 1/256, passes.
+  const allFavourable = arms.exactSignTest({ weekDeltas: new Array(8).fill(-0.01) });
+  assert.equal(allFavourable.n, 8);
+  assert.equal(allFavourable.k, 8);
+  assert.ok(Math.abs(allFavourable.p - 1 / 256) < 1e-12);
+  assert.equal(allFavourable.passes, true);
+  assert.equal(allFavourable.boundAgrees, true, 'the test and its inverted bound cannot disagree');
+
+  // Seven of eight is not enough - the documented discreteness.
+  const sevenOfEight = arms.exactSignTest({
+    weekDeltas: [...new Array(7).fill(-0.01), 0.5],
+  });
+  assert.equal(sevenOfEight.k, 7);
+  assert.equal(sevenOfEight.passes, false);
+  assert.equal(sevenOfEight.boundAgrees, true);
+
+  // A week exactly ON the shifted margin is DROPPED, and n shrinks with it.
+  const withTie = arms.exactSignTest({
+    weekDeltas: [...new Array(8).fill(-0.01), arms.DELTA_F],
+  });
+  assert.equal(withTie.droppedTiedWeeks, 1, 'the exactly-zero shifted week is dropped');
+  assert.equal(withTie.n, 8);
+
+  // Every week tied leaves the test with no information at all.
+  const allTied = arms.exactSignTest({ weekDeltas: new Array(6).fill(arms.DELTA_F) });
+  assert.equal(allTied.evaluable, false);
+  assert.match(allTied.reason, /no information/);
+});
+
+/** A healthy single endpoint: 8 clusters, 40 rows, a falsifiable baseline. */
+const HEALTHY_F = Object.freeze({
+  weekDeltas: new Array(8).fill(-0.01), subgroupRows: 40, meanAbsBaseline: 1.0,
+  incrementalErrors: [0.01, 0.02],
+});
+
+test('an (f) endpoint is UNEVALUABLE below the minimums, and that is INCONCLUSIVE, never a pass', () => {
+  assert.equal(arms.componentFEndpoint(HEALTHY_F).status, 'passed');
+
+  // Too few CLUSTERS.
+  const fewClusters = arms.componentFEndpoint({ ...HEALTHY_F, weekDeltas: new Array(7).fill(-0.01) });
+  assert.equal(fewClusters.status, 'unevaluable');
+  assert.equal(fewClusters.claimVerdict, 'inconclusive');
+  assert.equal(fewClusters.passes, false);
+  assert.match(fewClusters.reason, /the minimum is 8 clusters and 30 rows/);
+
+  // Too few ROWS.
+  const fewRows = arms.componentFEndpoint({ ...HEALTHY_F, subgroupRows: 29 });
+  assert.equal(fewRows.claimVerdict, 'inconclusive');
+
+  // ZERO rows is "not estimable", not a formal pass.
+  const zeroRows = arms.componentFEndpoint({ ...HEALTHY_F, weekDeltas: [], subgroupRows: 0 });
+  assert.equal(zeroRows.status, 'unevaluable');
+  assert.equal(zeroRows.claimVerdict, 'inconclusive');
+  assert.equal(zeroRows.passes, false);
+  assert.match(zeroRows.reason, /Zero rows is "not estimable", not a formal pass/);
+  assert.match(zeroRows.reason, /2024 cannot rescue sparse 2025 evidence/);
+});
+
+test('the falsifiability guard fires BEFORE the test is read', () => {
+  // If the realized mean |b| is at or below delta_F / maxEffect = 0.50, the
+  // largest attainable delta is at or below the margin, so noninferiority
+  // cannot be falsified and a pass would be an artefact of the scale.
+  assert.equal(arms.FALSIFIABILITY_FLOOR, 0.5);
+  const unfalsifiable = arms.componentFEndpoint({
+    weekDeltas: new Array(8).fill(-0.01), subgroupRows: 40, meanAbsBaseline: 0.5,
+  });
+  assert.equal(unfalsifiable.status, 'unevaluable');
+  assert.equal(unfalsifiable.claimVerdict, 'inconclusive');
+  assert.match(unfalsifiable.reason, /cannot be falsified.*artefact of the scale/s);
+  // Just above the floor it becomes evaluable.
+  assert.equal(arms.componentFEndpoint({
+    weekDeltas: new Array(8).fill(-0.01), subgroupRows: 40, meanAbsBaseline: 0.51,
+  }).status, 'passed');
+  // A missing mean |b| cannot clear the guard either.
+  assert.equal(arms.componentFEndpoint({
+    weekDeltas: new Array(8).fill(-0.01), subgroupRows: 40, meanAbsBaseline: null,
+  }).claimVerdict, 'inconclusive');
+});
+
+test('the catastrophic cap is INCREMENTAL, and vetoes rather than rescues', () => {
+  assert.equal(arms.CATASTROPHIC_CAP, 0.20);
+  const base = { weekDeltas: new Array(8).fill(-0.01), subgroupRows: 40, meanAbsBaseline: 1.0 };
+  // A pre-existing bad prediction cannot veto: only the INCREMENT versus the
+  // matched off-cell counts, so a row already 50 points wrong is irrelevant
+  // unless homeAway made it worse by more than the cap.
+  assert.equal(arms.componentFEndpoint({ ...base, incrementalErrors: [0.05, 0.19] }).status, 'passed');
+  const vetoed = arms.componentFEndpoint({ ...base, incrementalErrors: [0.05, 0.21] });
+  assert.equal(vetoed.status, 'vetoed');
+  assert.equal(vetoed.claimVerdict, 'fail');
+  assert.equal(vetoed.passes, false);
+  // The veto can never turn a FAILURE into a pass.
+  const failingAndVetoed = arms.componentFEndpoint({
+    ...base, weekDeltas: [...new Array(7).fill(-0.01), 0.5], incrementalErrors: [0.5],
+  });
+  assert.equal(failingAndVetoed.passes, false);
+});
+
+test('an (f) endpoint reports everything the transparency requirement names', () => {
+  const result = arms.componentFEndpoint({
+    weekDeltas: new Array(9).fill(-0.02), subgroupRows: 44, meanAbsBaseline: 1.25,
+    maxAbsBaseline: 6.5,
+    // Three of these five weeks are at or below the 0.50 falsifiability floor,
+    // so a favourable sign in those weeks is structurally uninformative and the
+    // transparency block has to say how much of k rests on them.
+    weekMeanAbsBaselines: [0.2, 0.5, 0.51, 3.0, null],
+    incrementalErrors: [0.01],
+  });
+  assert.equal(result.status, 'passed');
+  const t = result.transparency;
+  assert.equal(t.nonTiedWeeks, 9);
+  assert.equal(t.k, 9);
+  assert.ok(t.exactP <= metrics.COMPONENT_ALPHA);
+  assert.equal(t.subgroupRows, 44);
+  assert.equal(t.meanAbsBaseline, 1.25);
+  // Prereg 9.8 names the MAXIMUM |b| as well as the mean, and the per-week
+  // floor count. Neither may be a placeholder.
+  assert.equal(t.maxAbsBaseline, 6.5);
+  assert.equal(t.weeksBelowFalsifiabilityFloor, 2, '0.2 and 0.5 are at or below 0.50; 0.51 is not');
+  assert.equal(t.weeksWithBaseline, 4, 'the missing week is not counted as a zero baseline');
+  assert.equal(t.catastrophicCapCouldFire, true, '6.5 exceeds 0.20 / 0.03');
+  assert.equal(t.weekSignIndependenceAssumed, true,
+    'the exact test rests on week-sign independence and says so');
+  assert.ok(Number.isFinite(t.invertedBound));
+
+  // A missing maximum is reported as missing, never as a zero that would read
+  // as "the cap could not fire".
+  const noMax = arms.componentFEndpoint(HEALTHY_F).transparency;
+  assert.equal(noMax.maxAbsBaseline, null);
+  assert.equal(noMax.catastrophicCapCouldFire, null);
+  assert.equal(noMax.weeksBelowFalsifiabilityFloor, 0);
+});
+
+test('component (f) runs BOTH preregistered endpoints and passes only if BOTH pass', () => {
+  assert.deepEqual(arms.F_ENDPOINTS, { F1: 'f1-subgroup-mae', F2: 'f2-subgroup-absolute-bias' });
+
+  // BOTH pass -> pass.
+  const both = arms.componentF({ f1: HEALTHY_F, f2: HEALTHY_F });
+  assert.equal(both.status, 'passed');
+  assert.equal(both.claimVerdict, 'pass');
+  assert.equal(both.passes, true);
+  // Transparency is reported PER ENDPOINT, so a reader can see which is which.
+  assert.equal(both.transparency.length, 2);
+  assert.deepEqual(both.transparency.map((t) => t.endpoint),
+    ['f1-subgroup-mae', 'f2-subgroup-absolute-bias']);
+  assert.equal(both.endpoints['f1-subgroup-mae'].passes, true);
+  assert.equal(both.endpoints['f2-subgroup-absolute-bias'].passes, true);
+
+  // f1 passes, f2 FAILS -> the component FAILS. This is the case a
+  // single-endpoint implementation would have reported as a pass.
+  const f2Fails = arms.componentF({
+    f1: HEALTHY_F,
+    f2: { ...HEALTHY_F, weekDeltas: new Array(8).fill(0.5) },
+  });
+  assert.equal(f2Fails.status, 'failed');
+  assert.equal(f2Fails.claimVerdict, 'fail');
+  assert.equal(f2Fails.passes, false);
+  assert.match(f2Fails.reason, /f2-subgroup-absolute-bias did not clear noninferiority/);
+  assert.equal(f2Fails.endpoints['f1-subgroup-mae'].passes, true,
+    'the passing endpoint is still reported as passing');
+
+  // f1 passes, f2 UNEVALUABLE -> INCONCLUSIVE, never a pass.
+  const f2Unevaluable = arms.componentF({
+    f1: HEALTHY_F,
+    f2: { ...HEALTHY_F, subgroupRows: 12 },
+  });
+  assert.equal(f2Unevaluable.status, 'unevaluable');
+  assert.equal(f2Unevaluable.claimVerdict, 'inconclusive');
+  assert.equal(f2Unevaluable.passes, false);
+  assert.match(f2Unevaluable.reason, /^f2-subgroup-absolute-bias: below the evaluability minimum/);
+
+  // Symmetric: the same failure on f1 is the same verdict, so neither endpoint
+  // is privileged.
+  assert.equal(arms.componentF({ f1: { ...HEALTHY_F, subgroupRows: 12 }, f2: HEALTHY_F }).claimVerdict,
+    'inconclusive');
+  assert.equal(arms.componentF({
+    f1: { ...HEALTHY_F, weekDeltas: new Array(8).fill(0.5) }, f2: HEALTHY_F,
+  }).claimVerdict, 'fail');
+});
+
+test('component (f) combiner: a veto outranks an unevaluable endpoint', () => {
+  // A veto is positive evidence of harm; unevaluable is merely absent
+  // evidence. Missing evidence in one endpoint must never mask measured harm
+  // in the other, so the combined status is vetoed/fail, not inconclusive.
+  const vetoBeatsUnevaluable = arms.componentF({
+    f1: { ...HEALTHY_F, subgroupRows: 12 },
+    f2: { ...HEALTHY_F, incrementalErrors: [0.21] },
+  });
+  assert.equal(vetoBeatsUnevaluable.status, 'vetoed');
+  assert.equal(vetoBeatsUnevaluable.claimVerdict, 'fail');
+  assert.equal(vetoBeatsUnevaluable.passes, false);
+
+  // And in the mirrored order, so neither endpoint is privileged.
+  const mirrored = arms.componentF({
+    f1: { ...HEALTHY_F, incrementalErrors: [0.21] },
+    f2: { ...HEALTHY_F, subgroupRows: 12 },
+  });
+  assert.equal(mirrored.status, 'vetoed');
+  assert.equal(mirrored.claimVerdict, 'fail');
+});
+
+test('component (f) cannot be run with only one endpoint', () => {
+  // The single-endpoint mistake has to be UNREPRESENTABLE, not merely
+  // discouraged: an omitted f2 must throw rather than default to "the half I
+  // was given passed".
+  for (const bad of [
+    { f1: HEALTHY_F },
+    { f2: HEALTHY_F },
+    {},
+    { f1: HEALTHY_F, f2: null },
+  ]) {
+    assert.throws(() => arms.componentF(bad), /requires BOTH endpoints/,
+      `${JSON.stringify(Object.keys(bad))} must not be runnable`);
+  }
+  // And a passing f1 alone does not become a passing component by any route.
+  assert.throws(() => arms.componentF({ f1: HEALTHY_F, f2: undefined }),
+    /per-week subgroup MAE and per-week subgroup absolute bias/);
+});
+
+// ---------------------------------------------------------------------------
+// The bootstrap components and the claim
+// ---------------------------------------------------------------------------
+
+test('a co-primary component needs BOTH bounds, from the SAME resamples, at alpha/7', () => {
+  const resamples = metrics.buildBootstrapResamples({ clusterCount: 17 });
+  // Comfortably better than control on both endpoints.
+  const strong = arms.coPrimaryComponent({
+    name: 'a',
+    regretWeeks: new Array(17).fill(-0.5),
+    pairwiseWeeks: new Array(17).fill(0.05),
+    resamples,
+    regretThreshold: -arms.DELTA_R,
+    pairwiseThreshold: arms.DELTA_P,
+  });
+  assert.equal(strong.passes, true);
+  assert.equal(strong.regret.ok, true);
+  assert.equal(strong.pairwise.ok, true);
+  assert.equal(strong.alpha, metrics.COMPONENT_ALPHA);
+
+  // Regret good, pairwise not: the component still fails. Both must hold.
+  const half = arms.coPrimaryComponent({
+    name: 'a',
+    regretWeeks: new Array(17).fill(-0.5),
+    pairwiseWeeks: new Array(17).fill(0.001),
+    resamples,
+    regretThreshold: -arms.DELTA_R,
+    pairwiseThreshold: arms.DELTA_P,
+  });
+  assert.equal(half.passes, false);
+  assert.match(half.detail, /pairwise lower .* is not above 0.005/);
+  assert.equal(arms.DELTA_R, 0.15);
+  assert.equal(arms.DELTA_P, 0.005);
+});
+
+test('the claim is an IUT: every component must pass, the divisor stays 7', () => {
+  const pass = { passes: true };
+  const all = { a: pass, b: pass, c: pass, d: pass, e1: pass, e2: pass, f: pass };
+  const good = arms.evaluateClaim({ cell: 'usage-40-on', components: all });
+  assert.equal(good.verdict, 'pass');
+  assert.equal(good.divisor, 7);
+  assert.equal(good.alpha, metrics.COMPONENT_ALPHA);
+
+  // One failure fails the claim.
+  const oneFail = arms.evaluateClaim({
+    cell: 'usage-40-on', components: { ...all, d: { passes: false } },
+  });
+  assert.equal(oneFail.verdict, 'fail');
+  assert.deepEqual(oneFail.failures, ['d failed']);
+
+  // A MISSING component fails - there is no "assume pass".
+  const missing = { ...all };
+  delete missing.e2;
+  const withMissing = arms.evaluateClaim({ cell: 'usage-40-on', components: missing });
+  assert.equal(withMissing.verdict, 'fail');
+  assert.deepEqual(withMissing.failures, ['e2 is missing']);
+
+  // A not-applicable component passes VACUOUSLY BY DEFINITION - and the
+  // divisor is still 7, so an off-cell gets no alpha discount for skipping.
+  const offCell = arms.evaluateClaim({
+    cell: 'usage-40-off',
+    components: { ...all, b: { applicable: false }, f: { applicable: false } },
+  });
+  assert.equal(offCell.verdict, 'pass');
+  assert.equal(offCell.components.b.status, 'not-applicable');
+  assert.equal(offCell.divisor, 7);
+
+  // An UNEVALUABLE component makes the claim INCONCLUSIVE, never a pass.
+  const unevaluable = arms.evaluateClaim({
+    cell: 'usage-40-on',
+    components: { ...all, f: { status: 'unevaluable', reason: 'below the minimum' } },
+  });
+  assert.equal(unevaluable.verdict, 'inconclusive');
+  assert.match(unevaluable.inconclusive[0], /f: below the minimum/);
+
+  // A real FAILURE outranks an inconclusive: one unmeasurable component does
+  // not rescue a cell that was measured and lost.
+  const both = arms.evaluateClaim({
+    cell: 'usage-40-on',
+    components: { ...all, d: { passes: false }, f: { status: 'unevaluable', reason: 'x' } },
+  });
+  assert.equal(both.verdict, 'fail');
+});
+
+// ---------------------------------------------------------------------------
+// Parsimony
+// ---------------------------------------------------------------------------
+
+test('parsimony selects by the total order and NEVER by point estimate', () => {
+  const cell = (name) => arms.ALL_CELLS.find((c) => c.name === name);
+
+  // Rule 1: fewest changed constants. usage-40-off changes one; usage-40-on
+  // changes two.
+  assert.equal(arms.selectByParsimony({
+    passingCells: [cell('usage-40-on'), cell('usage-40-off')],
+  }).selected.name, 'usage-40-off');
+
+  // Rule 2: at equal change counts, a cell that activates NO new gated factor
+  // outranks one that does - usage-40-off over usage-25-on, the preregistered
+  // example.
+  assert.equal(arms.selectByParsimony({
+    passingCells: [cell('usage-25-on'), cell('usage-40-off')],
+  }).selected.name, 'usage-40-off');
+
+  // Rule 3: smallest absolute blendWeight change. 0.40 is 0.15 away from 0.25;
+  // 0.60 is 0.35 away; 0.00 is 0.25 away.
+  assert.equal(arms.selectByParsimony({
+    passingCells: [cell('usage-60-off'), cell('usage-00-off'), cell('usage-40-off')],
+  }).selected.name, 'usage-40-off');
+  assert.equal(arms.selectByParsimony({
+    passingCells: [cell('usage-60-off'), cell('usage-00-off')],
+  }).selected.name, 'usage-00-off');
+
+  // Rule 4: the fixed cell order, used only when 1-3 tie.
+  const ranked = arms.selectByParsimony({ passingCells: [...arms.SELECTION_FAMILY] });
+  assert.equal(ranked.selected.name, 'usage-40-off');
+  assert.match(ranked.reason, /point estimates never break a tie/);
+
+  // Nothing passing selects nothing.
+  assert.equal(arms.selectByParsimony({ passingCells: [] }).selected, null);
+  assert.throws(() => arms.selectByParsimony({
+    passingCells: [{ name: 'not-a-cell', blendWeight: 0.25, homeAway: 'off' }],
+  }), /not in the preregistered fixed cell order/);
+});
+
+test('for THIS family, parsimony rules 2 and 3 alone determine the order', () => {
+  // A finding worth recording rather than hiding. The preregistration
+  // specifies four rules, and the implementation applies all four faithfully -
+  // but over these eight cells, rules 1 and 4 can NEVER fire:
+  //
+  //   - rule 1 (fewest changed constants) never disagrees with rules 2-3,
+  //     because `changedConstants` is `activatesFactor` plus a usage change,
+  //     so it is already implied by them here;
+  //   - rule 4 (the fixed cell order) needs two cells tying through rules
+  //     1-3, and no two of these seven do.
+  //
+  // Pinning it means a future change to the family that makes rule 4 reachable
+  // shows up here instead of quietly changing which cell gets selected.
+  const keys = arms.SELECTION_FAMILY.map((c) => arms.parsimonyKey(c));
+  let tiedThroughRule3 = 0;
+  let rule1Disagrees = 0;
+  for (let i = 0; i < keys.length; i++) {
+    for (let j = i + 1; j < keys.length; j++) {
+      const x = keys[i];
+      const y = keys[j];
+      if (x.changedConstants === y.changedConstants
+        && x.activatesFactor === y.activatesFactor
+        && x.blendWeightChange === y.blendWeightChange) tiedThroughRule3++;
+      const r1 = Math.sign(x.changedConstants - y.changedConstants);
+      const r23 = Math.sign(x.activatesFactor - y.activatesFactor)
+        || Math.sign(x.blendWeightChange - y.blendWeightChange);
+      if (r1 !== 0 && r23 !== 0 && r1 !== r23) rule1Disagrees++;
+    }
+  }
+  assert.equal(tiedThroughRule3, 0, 'no two cells tie through rules 1-3, so rule 4 never fires');
+  assert.equal(rule1Disagrees, 0, 'rule 1 never disagrees with rules 2-3 over this family');
+  // The order is nonetheless a TOTAL order over the seven, which is what the
+  // preregistration needs it to be.
+  const ranked = arms.selectByParsimony({ passingCells: [...arms.SELECTION_FAMILY] }).ranked;
+  assert.equal(new Set(ranked.map((c) => c.name)).size, 7);
+  assert.deepEqual(ranked.map((c) => c.name), [
+    'usage-40-off', 'usage-00-off', 'usage-60-off',
+    'usage-25-on', 'usage-40-on', 'usage-00-on', 'usage-60-on',
+  ], 'and it happens to reproduce the preregistered fixed order exactly');
+});
+
+test('the parsimony key exposes each rule so a reader can audit the ordering', () => {
+  const key = (name) => arms.parsimonyKey(arms.ALL_CELLS.find((c) => c.name === name));
+  assert.deepEqual(key('usage-40-off'),
+    { changedConstants: 1, activatesFactor: 0, blendWeightChange: 0.15, fixedOrder: 0 });
+  assert.deepEqual(key('usage-25-on'),
+    { changedConstants: 1, activatesFactor: 1, blendWeightChange: 0, fixedOrder: 3 });
+  // usage-25-on changes the SAME number of constants but activates a factor,
+  // which is exactly why rule 2 exists and rule 3 never gets to speak.
+  assert.equal(key('usage-25-on').blendWeightChange < key('usage-40-off').blendWeightChange, true,
+    'rule 3 would have preferred usage-25-on, and rule 2 outranks it');
+  assert.deepEqual(key('usage-60-on'),
+    { changedConstants: 2, activatesFactor: 1, blendWeightChange: 0.35, fixedOrder: 6 });
+});
