@@ -625,8 +625,12 @@ if (!ENABLED) {
       set_option: false,
     }, 'the tuple must match the one the production probe recorded');
 
-    // phaseCreate runs verify itself, so reaching here already means verify
-    // passed with the allowance. It must also SAY so.
+    // The CLI's create phase is phaseCreate followed by phaseVerify on the
+    // same log (see main in run-backtest-role.js); phaseCreate alone never
+    // verifies. Run the same composition, so this asserts what an operator
+    // actually sees from a real create run: verify passes WITH the allowance,
+    // and says so.
+    await gate1.phaseVerify(operator.client, values, { log: created.log });
     assert.match(created.text(), /allowed: the PostgreSQL 16\+ implicit creator-admin grant/);
     assert.match(created.text(), new RegExp(`${operatorName} holds ADMIN on this role`));
 
