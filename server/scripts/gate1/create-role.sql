@@ -98,17 +98,33 @@ ORDER BY c.relname;
 
 
 -- @statement: preflight_function_present
--- The one function the role may execute, pinned by its exact argument types so
--- an overload added later cannot be what gets granted.
+-- The one function the role may execute, resolved by EXACT SIGNATURE.
+--
+-- to_regprocedure() is the match criterion, and the reason is a defect this
+-- preflight actually hit on its first contact with CI. The earlier version
+-- compared pg_get_function_identity_arguments(oid) against the literal 'text'.
+-- That rendering INCLUDES the parameter name, and the real function is declared
+-- `fn_normalize_nfl_team(raw_team text)`, so the identity string is
+-- "raw_team text", the comparison failed, and the fail-closed preflight refused
+-- a perfectly good database. Renaming a parameter is not a signature change,
+-- and nothing that decides whether to proceed may depend on it.
+--
+-- to_regprocedure is parameter-name-insensitive, resolves the one overload
+-- whose argument TYPES match, and returns NULL - rather than raising - when no
+-- such function exists. The NULL case stays fail-closed: the runner treats it
+-- exactly as "not found" and changes nothing.
+--
+-- overloads_present is DIAGNOSTICS ONLY. It is what makes a failure readable
+-- (it is how the CI defect was diagnosed), and it must never become a match
+-- criterion again.
 SELECT
-  n.nspname                            AS schema_name,
-  p.proname                            AS function_name,
-  pg_get_function_identity_arguments(p.oid) AS identity_arguments
-FROM pg_proc p
-JOIN pg_namespace n ON n.oid = p.pronamespace
-WHERE n.nspname = 'public'
-  AND p.proname = 'fn_normalize_nfl_team'
-ORDER BY identity_arguments;
+  to_regprocedure('public.fn_normalize_nfl_team(text)') IS NOT NULL AS function_resolved,
+  to_regprocedure('public.fn_normalize_nfl_team(text)')::text       AS resolved_signature,
+  (SELECT array_agg(pg_get_function_identity_arguments(p.oid) ORDER BY p.oid)
+     FROM pg_proc p
+     JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.proname = 'fn_normalize_nfl_team')                      AS overloads_present;
 
 
 -- ---------------------------------------------------------------------------

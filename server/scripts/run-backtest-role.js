@@ -100,6 +100,15 @@ const SCRAM_SALT_BYTES = 16;
  * same four tables, so the two cannot drift apart silently.
  */
 const EXPECTED_TABLES = Object.freeze(['nfl_games', 'player_season_stats', 'player_stats', 'players']);
+/**
+ * `args` is the ARGUMENT-TYPE signature, as `to_regprocedure` and `GRANT
+ * EXECUTE ON FUNCTION` both spell it. It is used to build human-readable
+ * messages, and it is deliberately NOT compared against
+ * `pg_get_function_identity_arguments`, which renders parameter NAMES too: the
+ * real function is `fn_normalize_nfl_team(raw_team text)`, whose identity
+ * string is "raw_team text". A string comparison here was a live defect that
+ * failed the preflight against a correct database. Resolution is by OID.
+ */
 const EXPECTED_FUNCTION = Object.freeze({ name: 'fn_normalize_nfl_team', args: 'text' });
 
 // ---------------------------------------------------------------------------
@@ -585,11 +594,16 @@ async function phaseCreate(client, values, { log, label = 'create' } = {}) {
     );
   }
 
-  const fn = await runBlock(client, blocks, 'preflight_function_present', values, { label });
-  const overloads = fn.rows.map((r) => r.identity_arguments);
-  if (!overloads.includes(EXPECTED_FUNCTION.args)) {
+  // Resolved by OID, never by string. See preflight_function_present: comparing
+  // pg_get_function_identity_arguments against a literal signature is what
+  // broke this preflight on its first CI run, because that rendering carries
+  // the parameter name and the real function is fn_normalize_nfl_team(raw_team
+  // text). The overload list below is for the error message only.
+  const fn = (await runBlock(client, blocks, 'preflight_function_present', values, { label })).rows[0];
+  if (!fn || fn.function_resolved !== true) {
+    const overloads = (fn && fn.overloads_present) || [];
     fail(
-      `${label}: public.${EXPECTED_FUNCTION.name}(${EXPECTED_FUNCTION.args}) not found `
+      `${label}: public.${EXPECTED_FUNCTION.name}(${EXPECTED_FUNCTION.args}) did not resolve `
       + `(overloads present: ${overloads.length ? overloads.join(' | ') : 'none'}). Nothing has `
       + 'been changed.'
     );
@@ -683,13 +697,24 @@ async function phaseVerify(client, values, { log, label = 'verify' } = {}) {
     );
   }
 
+  // Matched on the OID-derived flag, never on the rendered signature: the
+  // identity text carries the parameter name, so the real
+  // fn_normalize_nfl_team(raw_team text) never string-equals 'text'. The
+  // rendering is used only to describe what was found.
   const functions = (await runBlock(client, blocks, 'verify_function_acl_enumeration', values, { label })).rows;
-  const functionKeys = functions
-    .map((r) => `${r.schema_name}.${r.object_name}(${r.identity_arguments}):${r.privilege_type}`).sort();
-  const expectedFunctionKeys = [`public.${EXPECTED_FUNCTION.name}(${EXPECTED_FUNCTION.args}):EXECUTE`];
-  if (JSON.stringify(functionKeys) !== JSON.stringify(expectedFunctionKeys)) {
-    note(`function privileges are not exactly ${expectedFunctionKeys.join(', ')}.\n`
-      + `  actual: ${functionKeys.join(', ') || '(none)'}`);
+  const describeFn = (r) => `${r.schema_name}.${r.object_name}(${r.identity_arguments}):${r.privilege_type}`;
+  const wrongFunctions = functions.filter(
+    (r) => r.is_expected_function !== true || r.privilege_type !== 'EXECUTE'
+  );
+  if (functions.length !== 1 || wrongFunctions.length > 0) {
+    note(
+      'function privileges are not exactly one EXECUTE on '
+      + `public.${EXPECTED_FUNCTION.name}(${EXPECTED_FUNCTION.args}).\n`
+      + `  actual: ${functions.map(describeFn).join(', ') || '(none)'}`
+      + (wrongFunctions.length > 0
+        ? `\n  not the expected overload: ${wrongFunctions.map(describeFn).join(', ')}`
+        : '')
+    );
   }
 
   const schemas = (await runBlock(client, blocks, 'verify_schema_acl_enumeration', values, { label })).rows;

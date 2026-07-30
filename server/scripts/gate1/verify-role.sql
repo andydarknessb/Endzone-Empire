@@ -124,6 +124,10 @@ ORDER BY s.setdatabase;
 -- Read these as necessary but NOT sufficient - CONNECT, schema USAGE and
 -- function EXECUTE would all report true from the PUBLIC grants alone. The
 -- enumeration blocks below are what make the answer sufficient.
+-- Unlike to_regprocedure, has_function_privilege RAISES when the function
+-- does not exist: on a standalone verify against a database that has lost
+-- fn_normalize_nfl_team(text), this block surfaces a bare PostgreSQL error
+-- rather than a tidy failure message. That is still fail-closed.
 SELECT
   has_database_privilege(:'role_name', :'database_name', 'CONNECT')                       AS db_connect,
   has_schema_privilege(:'role_name', 'public', 'USAGE')                                   AS schema_usage,
@@ -185,10 +189,23 @@ ORDER BY n.nspname, c.relname, att.attname, a.privilege_type;
 -- @statement: verify_function_acl_enumeration
 -- Every FUNCTION privilege held directly by this role. Expected: exactly one
 -- EXECUTE, on fn_normalize_nfl_team(text).
+--
+-- `is_expected_function` compares OIDs, not rendered signatures, for the same
+-- reason preflight_function_present does: identity_arguments includes the
+-- parameter name, so a string comparison against 'text' fails against the real
+-- `fn_normalize_nfl_team(raw_team text)`. It also matters in the other
+-- direction here - if a SECOND overload existed and the grant had landed on
+-- that one instead, an OID comparison notices and a name comparison cannot.
+-- to_regprocedure yields NULL when the function is absent, and `oid = NULL` is
+-- NULL rather than true, so an absent function fails this check closed.
+--
+-- identity_arguments is retained for DIAGNOSTICS: it is what makes a failure
+-- message legible. It is never the match criterion.
 SELECT
   n.nspname                                 AS schema_name,
   p.proname                                 AS object_name,
   pg_get_function_identity_arguments(p.oid) AS identity_arguments,
+  (p.oid = to_regprocedure('public.fn_normalize_nfl_team(text)')::oid) AS is_expected_function,
   a.privilege_type                          AS privilege_type,
   a.is_grantable                            AS is_grantable
 FROM pg_proc p

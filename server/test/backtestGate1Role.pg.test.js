@@ -352,6 +352,88 @@ if (!ENABLED) {
     await assert.doesNotReject(() => gate1.phaseVerify(client, values, { log: () => {} }));
   });
 
+  test('the real function has a NAMED parameter, and that must not break resolution', async (t) => {
+    // THE CI DEFECT, pinned against the real catalog. fn_normalize_nfl_team is
+    // declared `(raw_team text)`, so pg_get_function_identity_arguments renders
+    // the parameter name. The first version of the preflight compared that
+    // rendering against the literal 'text' and refused a correct database.
+    const client = await pool.connect();
+    t.after(() => client.release());
+
+    const { rows: [shape] } = await client.query(
+      `SELECT pg_get_function_identity_arguments(p.oid) AS identity_arguments,
+              to_regprocedure('public.fn_normalize_nfl_team(text)') IS NOT NULL AS resolves
+       FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+       WHERE n.nspname = 'public' AND p.proname = 'fn_normalize_nfl_team'`
+    );
+    // If this ever stops being true the regression is gone and so is the test's
+    // meaning, so assert the hazard itself rather than assuming it.
+    assert.equal(shape.identity_arguments, 'raw_team text',
+      'the identity rendering carries the parameter name - this is what broke CI');
+    assert.notEqual(shape.identity_arguments, gate1.EXPECTED_FUNCTION.args,
+      'a string comparison against EXPECTED_FUNCTION.args is exactly the defect');
+    assert.equal(shape.resolves, true, 'to_regprocedure ignores the parameter name');
+  });
+
+  test('an ADDITIONAL overload confuses neither the preflight nor the enumeration', async (t) => {
+    const roleName = nextRole();
+    const values = valuesFor(roleName, futureIso(1));
+    const client = await pool.connect();
+    t.after(async () => {
+      await client.query('DROP FUNCTION IF EXISTS public.fn_normalize_nfl_team(integer)').catch(() => {});
+      client.release();
+      await forceDrop(roleName);
+    });
+
+    // A second overload of the same name. Everything that resolves by name
+    // rather than by signature now has two candidates to choose wrongly from.
+    await client.query(
+      'CREATE FUNCTION public.fn_normalize_nfl_team(integer) RETURNS text LANGUAGE sql IMMUTABLE '
+      + "AS $$ SELECT ''::text $$"
+    );
+    const log = [];
+    await gate1.phaseCreate(client, values, { log: (m) => log.push(m) });
+
+    // The grant landed on the TEXT overload, and on that one only.
+    const { rows: granted } = await client.query(
+      `SELECT p.oid = to_regprocedure('public.fn_normalize_nfl_team(text)') AS is_text_overload,
+              pg_get_function_identity_arguments(p.oid) AS identity_arguments
+       FROM pg_proc p CROSS JOIN LATERAL aclexplode(p.proacl) a
+       WHERE p.proacl IS NOT NULL
+         AND a.grantee = (SELECT oid FROM pg_roles WHERE rolname = $1)`, [roleName]
+    );
+    assert.equal(granted.length, 1, 'exactly one overload may be granted');
+    assert.equal(granted[0].is_text_overload, true, 'and it must be the text one');
+    assert.equal(granted[0].identity_arguments, 'raw_team text');
+
+    // Verify agrees, with both overloads present the whole time.
+    await assert.doesNotReject(() => gate1.phaseVerify(client, values, { log: () => {} }),
+      'a second overload must not make a correct role look wrong');
+
+    // And if the grant is moved to the WRONG overload, verify catches it - the
+    // case a rendered-name comparison could never distinguish.
+    await client.query(
+      `REVOKE EXECUTE ON FUNCTION public.fn_normalize_nfl_team(text) FROM ${gate1.quoteIdent(roleName)}`
+    );
+    await client.query(
+      `GRANT EXECUTE ON FUNCTION public.fn_normalize_nfl_team(integer) TO ${gate1.quoteIdent(roleName)}`
+    );
+    await assert.rejects(() => gate1.phaseVerify(client, values, { log: () => {} }),
+      /not the expected overload: public\.fn_normalize_nfl_team\(integer\):EXECUTE/);
+
+    await client.query(
+      `REVOKE EXECUTE ON FUNCTION public.fn_normalize_nfl_team(integer) FROM ${gate1.quoteIdent(roleName)}`
+    );
+    await client.query(
+      `GRANT EXECUTE ON FUNCTION public.fn_normalize_nfl_team(text) TO ${gate1.quoteIdent(roleName)}`
+    );
+    await assert.doesNotReject(() => gate1.phaseVerify(client, values, { log: () => {} }));
+
+    // Teardown still works with the extra overload in place: its REVOKE targets
+    // a signature, which is name-insensitive, and DROP OWNED BY sweeps the rest.
+    assert.equal((await gate1.phaseTeardown(client, values, { log: () => {} })).tornDown, true);
+  });
+
   test('the teardown confirmation probes by CAPTURED OID, not a post-drop lookup', async (t) => {
     // Two of the three confirmations used to resolve the role through
     // `(SELECT oid FROM pg_roles WHERE rolname = ...)` and `usename`, both of
@@ -431,6 +513,14 @@ if (!ENABLED) {
     // Rename a required table inside a transaction that is rolled back, so the
     // preflight sees a database genuinely missing it without the test having to
     // damage the shared CI database.
+    //
+    // CONSTRAINT for future cases in this test: every case must fail during
+    // PREFLIGHT. phaseCreate opens its own BEGIN for the mutating blocks; if a
+    // case ever got past preflight while this client holds the outer
+    // transaction, the inner COMMIT would commit the outer transaction too and
+    // the ROLLBACK cleanup would be a no-op, leaving a renamed table in the
+    // shared CI database. A case that must reach the DDL belongs in its own
+    // test with its own cleanup, not here.
     await client.query('BEGIN');
     await client.query('ALTER TABLE public.nfl_games RENAME TO nfl_games_gate1_tmp');
     await assert.rejects(() => gate1.phaseCreate(client, values, { log: () => {} }),
@@ -438,11 +528,25 @@ if (!ENABLED) {
     await client.query('ROLLBACK');
 
     // Same for the function: a missing fn_normalize_nfl_team(text) means the
-    // extraction could not join team keys the way production does.
+    // extraction could not join team keys the way production does. The message
+    // must carry the overload listing, because that listing is what makes this
+    // class of failure diagnosable.
     await client.query('BEGIN');
     await client.query('ALTER FUNCTION public.fn_normalize_nfl_team(text) RENAME TO fn_gate1_tmp');
     await assert.rejects(() => gate1.phaseCreate(client, values, { log: () => {} }),
-      /fn_normalize_nfl_team\(text\) not found.*Nothing has been changed/s);
+      /fn_normalize_nfl_team\(text\) did not resolve \(overloads present: none\).*Nothing has been changed/s);
+    await client.query('ROLLBACK');
+
+    // A function of the right NAME but the wrong signature is still absent.
+    await client.query('BEGIN');
+    await client.query('ALTER FUNCTION public.fn_normalize_nfl_team(text) RENAME TO fn_gate1_tmp2');
+    await client.query(
+      'CREATE FUNCTION public.fn_normalize_nfl_team(integer) RETURNS text LANGUAGE sql IMMUTABLE '
+      + "AS $$ SELECT ''::text $$"
+    );
+    await assert.rejects(() => gate1.phaseCreate(client, values, { log: () => {} }),
+      /did not resolve \(overloads present: integer\)/,
+      'the overload listing must name what WAS found, so the mismatch is obvious');
     await client.query('ROLLBACK');
 
     // And a VIEW where a table is expected: the grant would succeed, and would

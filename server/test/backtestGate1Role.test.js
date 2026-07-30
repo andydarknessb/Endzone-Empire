@@ -241,9 +241,13 @@ test('a driver error quoting the CREATE ROLE statement comes back with NO verifi
           return { rows: gate1.EXPECTED_TABLES.map((t) => ({ schema_name: 'public',
             object_name: t, object_kind: 'r' })) };
         }
-        if (sql.includes("p.proname = 'fn_normalize_nfl_team'")) {
-          return { rows: [{ schema_name: 'public', function_name: 'fn_normalize_nfl_team',
-            identity_arguments: 'text' }] };
+        if (sql.includes('to_regprocedure')) {
+          // Modelled on the REAL database: the parameter is named, so the
+          // identity rendering is "raw_team text" and never "text". A fake that
+          // returned the tidy form would re-hide the defect that broke CI.
+          return { rows: [{ function_resolved: true,
+            resolved_signature: 'fn_normalize_nfl_team(text)',
+            overloads_present: ['raw_team text'] }] };
         }
         return { rows: [] }; // role absent, and every other lookup empty
       },
@@ -774,8 +778,12 @@ function scriptedClient(overrides = {}) {
       is_grantable: false,
     })),
     'aclexplode(att.attacl)': [],
+    // identity_arguments carries the parameter name, exactly as the real
+    // database renders it. Matching is on is_expected_function, which is an OID
+    // comparison, so this row must pass DESPITE the name being present.
     'aclexplode(p.proacl)': [{ schema_name: 'public', object_name: 'fn_normalize_nfl_team',
-      identity_arguments: 'text', privilege_type: 'EXECUTE', is_grantable: false }],
+      identity_arguments: 'raw_team text', is_expected_function: true,
+      privilege_type: 'EXECUTE', is_grantable: false }],
     'aclexplode(n.nspacl)': [{ object_name: 'public', privilege_type: 'USAGE', is_grantable: false }],
     'aclexplode(d.datacl)': [{ object_name: 'endzone_empire', privilege_type: 'CONNECT',
       is_grantable: false }],
@@ -850,6 +858,169 @@ test('teardown substitutes the OID it captured BEFORE the drop', async () => {
   const noOid = scriptedClient({ 'AS role_oid': [{ role_oid: null, role_name: 'backtest_ro_pit01' }] });
   await assert.rejects(() => gate1.phaseTeardown(noOid, PHASE_VALUES, { log: () => {} }),
     /expected a positive integer OID/);
+});
+
+test('the function is resolved by OID, never by a rendered signature string', () => {
+  // THE CI DEFECT. The function is declared fn_normalize_nfl_team(raw_team
+  // text), so pg_get_function_identity_arguments renders "raw_team text". The
+  // preflight compared that against the literal 'text' and refused a correct
+  // database. Renaming a parameter is not a signature change.
+  const create = gate1.loadStatements(readSql('create-role.sql'), { label: 'c' });
+  const preflight = sqlOnly(create.get('preflight_function_present'));
+  assert.match(preflight, /to_regprocedure\('public\.fn_normalize_nfl_team\(text\)'\)/,
+    'resolution must go through to_regprocedure, which ignores parameter names');
+  assert.match(preflight, /IS NOT NULL AS function_resolved/,
+    'to_regprocedure returns NULL for an absent function, and that must stay fail-closed');
+  // The overload listing is retained, but only as diagnostics.
+  assert.match(preflight, /AS overloads_present/);
+  assert.match(preflight, /pg_get_function_identity_arguments/);
+  // The old defect must not be reintroducible in this block: nothing may
+  // compare a rendered identity against a bare type literal.
+  assert.equal(/identity_arguments\s*=\s*'/.test(preflight), false);
+  assert.equal(/pg_get_function_identity_arguments\([^)]*\)\s*=/.test(preflight), false);
+
+  const verify = gate1.loadStatements(readSql('verify-role.sql'), { label: 'v' });
+  const fnAcl = sqlOnly(verify.get('verify_function_acl_enumeration'));
+  assert.match(fnAcl, /p\.oid = to_regprocedure\('public\.fn_normalize_nfl_team\(text\)'\)/,
+    'the ACL enumeration must match the overload by OID too');
+  assert.match(fnAcl, /AS is_expected_function/);
+  assert.equal(/pg_get_function_identity_arguments\([^)]*\)\s*=/.test(fnAcl), false);
+
+  // GRANT and REVOKE resolve by signature in SQL itself, which is already
+  // parameter-name-insensitive, so those stay as they are.
+  assert.match(sqlOnly(create.get('grant_execute')),
+    /GRANT EXECUTE ON FUNCTION public\.fn_normalize_nfl_team\(text\)/);
+});
+
+test('preflight accepts a NAMED parameter and fails closed on a genuinely absent function', async () => {
+  // (a) The named-argument reality is the passing baseline. This is the exact
+  // row shape the real database produces.
+  const named = scriptedClient({
+    'to_regprocedure': [{ function_resolved: true, resolved_signature: 'fn_normalize_nfl_team(text)',
+      overloads_present: ['raw_team text'] }],
+    "c.relname IN ('players'": gate1.EXPECTED_TABLES.map((t) => ({ schema_name: 'public',
+      object_name: t, object_kind: 'r' })),
+  });
+  await assert.doesNotReject(
+    () => gate1.phaseCreate(named, { ...PHASE_VALUES, passwordVerifier: 'SCRAM-SHA-256$4096:a$b:c' },
+      { log: () => {} }),
+    'a parameter name must not make a present function look absent'
+  );
+
+  // (b) An ADDITIONAL overload must not confuse resolution: to_regprocedure
+  // still names the text one, so the preflight proceeds.
+  const overloaded = scriptedClient({
+    'to_regprocedure': [{ function_resolved: true, resolved_signature: 'fn_normalize_nfl_team(text)',
+      overloads_present: ['raw_team text', 'n integer'] }],
+    "c.relname IN ('players'": gate1.EXPECTED_TABLES.map((t) => ({ schema_name: 'public',
+      object_name: t, object_kind: 'r' })),
+  });
+  await assert.doesNotReject(
+    () => gate1.phaseCreate(overloaded, { ...PHASE_VALUES, passwordVerifier: 'SCRAM-SHA-256$4096:a$b:c' },
+      { log: () => {} }),
+    'a second overload must not block the one we actually want'
+  );
+
+  // (c) Genuinely absent: to_regprocedure yields NULL. Fail closed, with the
+  // overload listing in the message, because that listing is how this class of
+  // problem gets diagnosed.
+  const absent = scriptedClient({
+    'to_regprocedure': [{ function_resolved: false, resolved_signature: null,
+      overloads_present: ['n integer'] }],
+    "c.relname IN ('players'": gate1.EXPECTED_TABLES.map((t) => ({ schema_name: 'public',
+      object_name: t, object_kind: 'r' })),
+  });
+  await assert.rejects(
+    () => gate1.phaseCreate(absent, { ...PHASE_VALUES, passwordVerifier: 'SCRAM-SHA-256$4096:a$b:c' },
+      { log: () => {} }),
+    /did not resolve \(overloads present: n integer\)\. Nothing has been changed/
+  );
+  assert.equal(absent.seen.some((q) => /^CREATE ROLE/m.test(q)), false, 'no DDL may have run');
+
+  // No overloads at all reports "none" rather than an empty parenthesis.
+  const nothing = scriptedClient({
+    'to_regprocedure': [{ function_resolved: false, resolved_signature: null, overloads_present: null }],
+    "c.relname IN ('players'": gate1.EXPECTED_TABLES.map((t) => ({ schema_name: 'public',
+      object_name: t, object_kind: 'r' })),
+  });
+  await assert.rejects(
+    () => gate1.phaseCreate(nothing, { ...PHASE_VALUES, passwordVerifier: 'SCRAM-SHA-256$4096:a$b:c' },
+      { log: () => {} }),
+    /overloads present: none/
+  );
+
+  // A preflight that returns NO ROW is not a pass. The query as written always
+  // returns exactly one row, so this guards the case where a future edit gives
+  // it a FROM clause that filters everything out - the same shape of mistake
+  // as reading an absent function as present.
+  const noRow = scriptedClient({
+    'to_regprocedure': [],
+    "c.relname IN ('players'": gate1.EXPECTED_TABLES.map((t) => ({ schema_name: 'public',
+      object_name: t, object_kind: 'r' })),
+  });
+  await assert.rejects(
+    () => gate1.phaseCreate(noRow, { ...PHASE_VALUES, passwordVerifier: 'SCRAM-SHA-256$4096:a$b:c' },
+      { log: () => {} }),
+    /did not resolve \(overloads present: none\)/
+  );
+  assert.equal(noRow.seen.some((q) => /^CREATE ROLE/m.test(q)), false, 'no DDL may have run');
+});
+
+test('verify accepts the named-parameter function and rejects the WRONG overload', async () => {
+  // The passing baseline: identity text carries the parameter name and the row
+  // is still accepted, because the match is the OID flag.
+  await assert.doesNotReject(() => gate1.phaseVerify(scriptedClient(), PHASE_VALUES, { log: () => {} }));
+
+  // A grant that landed on a DIFFERENT overload renders as a plausible-looking
+  // function of the same name. Only the OID comparison can tell them apart.
+  const wrongOverload = scriptedClient({
+    'aclexplode(p.proacl)': [{ schema_name: 'public', object_name: 'fn_normalize_nfl_team',
+      identity_arguments: 'n integer', is_expected_function: false,
+      privilege_type: 'EXECUTE', is_grantable: false }],
+  });
+  await assert.rejects(() => gate1.phaseVerify(wrongOverload, PHASE_VALUES, { log: () => {} }),
+    /not the expected overload: public\.fn_normalize_nfl_team\(n integer\):EXECUTE/);
+
+  // Both overloads granted is still wrong: exactly one EXECUTE is expected.
+  const both = scriptedClient({
+    'aclexplode(p.proacl)': [
+      { schema_name: 'public', object_name: 'fn_normalize_nfl_team',
+        identity_arguments: 'raw_team text', is_expected_function: true,
+        privilege_type: 'EXECUTE', is_grantable: false },
+      { schema_name: 'public', object_name: 'fn_normalize_nfl_team',
+        identity_arguments: 'n integer', is_expected_function: false,
+        privilege_type: 'EXECUTE', is_grantable: false },
+    ],
+  });
+  await assert.rejects(() => gate1.phaseVerify(both, PHASE_VALUES, { log: () => {} }),
+    /function privileges are not exactly one EXECUTE/);
+
+  // An absent function makes is_expected_function NULL, not true. NULL must not
+  // be read as a pass.
+  const nullFlag = scriptedClient({
+    'aclexplode(p.proacl)': [{ schema_name: 'public', object_name: 'fn_normalize_nfl_team',
+      identity_arguments: 'raw_team text', is_expected_function: null,
+      privilege_type: 'EXECUTE', is_grantable: false }],
+  });
+  await assert.rejects(() => gate1.phaseVerify(nullFlag, PHASE_VALUES, { log: () => {} }),
+    /function privileges are not exactly one EXECUTE/);
+
+  // A non-EXECUTE privilege on the right function is still wrong.
+  const wrongPriv = scriptedClient({
+    'aclexplode(p.proacl)': [{ schema_name: 'public', object_name: 'fn_normalize_nfl_team',
+      identity_arguments: 'raw_team text', is_expected_function: true,
+      privilege_type: 'UPDATE', is_grantable: false }],
+  });
+  await assert.rejects(() => gate1.phaseVerify(wrongPriv, PHASE_VALUES, { log: () => {} }),
+    /function privileges are not exactly one EXECUTE/);
+
+  // NO function grant at all is a failure too. Nothing is "wrong" in this set
+  // because the set is empty, so only the count can catch it - and the
+  // has_function_privilege check above cannot help, since EXECUTE is granted to
+  // PUBLIC by default and reports true regardless.
+  const missing = scriptedClient({ 'aclexplode(p.proacl)': [] });
+  await assert.rejects(() => gate1.phaseVerify(missing, PHASE_VALUES, { log: () => {} }),
+    /function privileges are not exactly one EXECUTE.*actual: \(none\)/s);
 });
 
 test('the SQL each phase depends on reads the catalog it claims to read', () => {
