@@ -140,10 +140,22 @@ SELECT
 -- cannot change what this grants.
 --
 -- NOINHERIT means the role does not automatically use the privileges of roles
--- it is a member of. It has no memberships (the verify phase asserts that), so
--- today this is belt-and-braces. It does NOT limit the PUBLIC pseudo-role:
--- privileges granted to PUBLIC apply to every role unconditionally and are not
--- affected by NOINHERIT. See the note in verify-role.sql.
+-- it is a MEMBER OF. Verify asserts it is a member of nothing, so today this is
+-- belt-and-braces.
+--
+-- What the role is a member of is a different question from who is a member of
+-- IT, and the second one is not always "nobody". On PostgreSQL 16 and later, if
+-- the role running this file is a non-superuser holding CREATEROLE, the server
+-- automatically grants the new role BACK to that creator with ADMIN OPTION, so
+-- that a role-creator can still administer what it just made. That is the
+-- direction Gate 1 actually meets in production, where the operator is
+-- Supabase's hosted `postgres` (rolsuper=false, rolcreaterole=true). A
+-- superuser-created role gets no such grant, which is why CI, whose operator is
+-- the bootstrap superuser, never sees one. verify-role.sql allows exactly that
+-- one relationship, identified structurally, and nothing else.
+--
+-- NOINHERIT does NOT limit the PUBLIC pseudo-role either: privileges granted to
+-- PUBLIC apply to every role unconditionally. See the note in verify-role.sql.
 --
 -- CONNECTION LIMIT 1 keeps the snapshot extraction to a single session, which
 -- is also what makes "one connection, one transaction, one snapshot" true.

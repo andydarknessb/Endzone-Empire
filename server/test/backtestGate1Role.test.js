@@ -449,7 +449,7 @@ test('each .sql file parses into named, non-empty, unique statement blocks', () 
       'verify_relation_acl_enumeration', 'verify_column_acl_enumeration',
       'verify_function_acl_enumeration', 'verify_schema_acl_enumeration',
       'verify_database_acl_enumeration', 'verify_default_acl_enumeration',
-      'verify_no_ownership', 'verify_no_memberships']],
+      'verify_no_ownership', 'verify_memberships']],
     ['teardown-role.sql', ['teardown_role_present', 'teardown_check_ownership',
       'teardown_check_memberships', 'teardown_terminate_sessions', 'teardown_revoke',
       'teardown_reset_settings', 'teardown_drop_owned', 'teardown_drop_role',
@@ -789,6 +789,8 @@ function scriptedClient(overrides = {}) {
       is_grantable: false }],
     'pg_default_acl': [],
     "deptype IN ('o', 'r')": [],
+    // Zero memberships: the superuser-created case, which is what CI produces
+    // and what the kit expected exclusively until production proved otherwise.
     'pg_auth_members': [],
     'pg_terminate_backend': [],
     'AS role_rows': [{ role_rows: '0', shdepend_rows: '0', live_sessions: '0' }],
@@ -1021,6 +1023,221 @@ test('verify accepts the named-parameter function and rejects the WRONG overload
   const missing = scriptedClient({ 'aclexplode(p.proacl)': [] });
   await assert.rejects(() => gate1.phaseVerify(missing, PHASE_VALUES, { log: () => {} }),
     /function privileges are not exactly one EXECUTE.*actual: \(none\)/s);
+});
+
+/** The exact tuple PostgreSQL 16+ writes when a CREATEROLE non-superuser creates a role. */
+const CREATOR_ADMIN_ROW = Object.freeze({
+  direction: 'members',
+  other_role: 'postgres',
+  other_role_is_connected_role: true,
+  grantor_oid: 10,
+  grantor_name: 'supabase_admin',
+  grantor_is_superuser: true,
+  grantor_is_bootstrap: true,
+  admin_option: true,
+  inherit_option: false,
+  set_option: false,
+});
+
+test('the implicit creator-admin grant is identified STRUCTURALLY, not by role name', () => {
+  // This tuple is verbatim from the production probe that diagnosed the failed
+  // Gate 1 run: PostgreSQL 17.6, operator `postgres` (rolsuper=false,
+  // rolcreaterole=true), grantor oid 10 (supabase_admin), createrole_self_grant
+  // empty so inherit and set are both false.
+  assert.equal(gate1.isImplicitCreatorAdminGrant(CREATOR_ADMIN_ROW), true);
+  assert.equal(gate1.BOOTSTRAP_SUPERUSER_OID, 10);
+  // The grantor OID arrives from pg as a number, but a string must work too:
+  // nothing about the allowance may depend on driver type coercion.
+  assert.equal(gate1.isImplicitCreatorAdminGrant({ ...CREATOR_ADMIN_ROW, grantor_oid: '10' }), true);
+
+  // Every field is load-bearing. Each of these is a DIFFERENT grant that merely
+  // resembles the allowed one.
+  const rejects = {
+    'the other direction (the role is a member of something)': { direction: 'member_of' },
+    'a member who is not the connected role': { other_role_is_connected_role: false },
+    'a grantor that is not the bootstrap OID': { grantor_oid: 16384, grantor_is_bootstrap: false },
+    'a bootstrap flag that disagrees with the OID': { grantor_is_bootstrap: false },
+    'an OID that disagrees with the bootstrap flag': { grantor_oid: 16384 },
+    'a non-superuser grantor': { grantor_is_superuser: false },
+    'ADMIN false, which means a human wrote the GRANT': { admin_option: false },
+    'INHERIT widened, so the creator reads AS this role': { inherit_option: true },
+    'SET widened, so the creator can BECOME this role': { set_option: true },
+  };
+  for (const [why, override] of Object.entries(rejects)) {
+    assert.equal(gate1.isImplicitCreatorAdminGrant({ ...CREATOR_ADMIN_ROW, ...override }), false,
+      `must reject: ${why}`);
+  }
+  // A missing field may never be read as absent-and-therefore-fine. Only the
+  // fields the predicate actually decides on are listed: `other_role` and
+  // `grantor_name` are carried for the human-readable line and are deliberately
+  // NOT identity, because a name is exactly the thing that must not be trusted.
+  for (const key of ['direction', 'other_role_is_connected_role', 'grantor_oid',
+    'grantor_is_bootstrap', 'grantor_is_superuser', 'admin_option', 'inherit_option', 'set_option']) {
+    const partial = { ...CREATOR_ADMIN_ROW };
+    delete partial[key];
+    assert.equal(gate1.isImplicitCreatorAdminGrant(partial), false, `must reject a row missing ${key}`);
+  }
+  for (const bad of [null, undefined, 'members', 42, []]) {
+    assert.equal(gate1.isImplicitCreatorAdminGrant(bad), false);
+  }
+});
+
+test('verify allows EXACTLY ONE creator-admin grant, logs it, and rejects the rest', async () => {
+  // Zero rows still passes: superuser-created roles get no implicit grant, and
+  // the kit must keep working where the behaviour does not occur.
+  const none = scriptedClient();
+  const quiet = [];
+  await assert.doesNotReject(() => gate1.phaseVerify(none, PHASE_VALUES, { log: (m) => quiet.push(m) }));
+  assert.equal(quiet.join('\n').includes('allowed:'), false,
+    'nothing to report when there is no membership');
+
+  // The production case: one implicit grant. Passes, and SAYS SO.
+  const one = scriptedClient({ 'pg_auth_members': [CREATOR_ADMIN_ROW] });
+  const spoken = [];
+  await assert.doesNotReject(() => gate1.phaseVerify(one, PHASE_VALUES, { log: (m) => spoken.push(m) }));
+  const output = spoken.join('\n');
+  assert.match(output, /allowed: the PostgreSQL 16\+ implicit creator-admin grant/);
+  assert.match(output, /postgres holds ADMIN on this role/);
+  assert.match(output, /granted by the bootstrap superuser supabase_admin/);
+  assert.match(output, /INHERIT false, SET false/);
+  assert.match(output, /NOT revoked by teardown/);
+
+  // A SECOND copy is impossible for the server to produce, so two of them means
+  // something else made one.
+  const twice = scriptedClient({
+    'pg_auth_members': [CREATOR_ADMIN_ROW, { ...CREATOR_ADMIN_ROW, other_role: 'postgres2' }],
+  });
+  await assert.rejects(() => gate1.phaseVerify(twice, PHASE_VALUES, { log: () => {} }),
+    /more than one creator-admin membership/);
+
+  // Every rejection shape, through the phase rather than just the predicate.
+  for (const [why, override] of Object.entries({
+    'a widened SET': { set_option: true },
+    'a widened INHERIT': { inherit_option: true },
+    'a manual grant (admin false)': { admin_option: false },
+    'a third-party member': { other_role: 'someone_else', other_role_is_connected_role: false },
+    'a non-bootstrap grantor': { grantor_oid: 16384, grantor_is_bootstrap: false },
+    'the member_of direction': { direction: 'member_of' },
+  })) {
+    const client = scriptedClient({ 'pg_auth_members': [{ ...CREATOR_ADMIN_ROW, ...override }] });
+    await assert.rejects(() => gate1.phaseVerify(client, PHASE_VALUES, { log: () => {} }),
+      /memberships beyond the implicit creator-admin grant/, `must reject ${why}`);
+  }
+
+  // The allowed grant alongside a disallowed one still fails.
+  const mixed = scriptedClient({
+    'pg_auth_members': [CREATOR_ADMIN_ROW,
+      { ...CREATOR_ADMIN_ROW, other_role: 'attacker', other_role_is_connected_role: false }],
+  });
+  await assert.rejects(() => gate1.phaseVerify(mixed, PHASE_VALUES, { log: () => {} }),
+    /memberships beyond the implicit creator-admin grant/);
+});
+
+test('teardown tolerates the same one grant, never revokes it, and aborts on anything else', async () => {
+  const allowed = scriptedClient({ 'pg_auth_members': [CREATOR_ADMIN_ROW] });
+  const spoken = [];
+  const result = await gate1.phaseTeardown(allowed, PHASE_VALUES, { log: (m) => spoken.push(m) });
+  assert.deepEqual(result, { tornDown: true, noop: false });
+  assert.match(spoken.join('\n'), /allowed: the PostgreSQL 16\+ implicit creator-admin grant/);
+
+  // Read what EXECUTED, not what was explained: several teardown comments
+  // discuss DROP ROLE and REVOKE by name, so a raw scan of the issued text
+  // reports the commentary as the action.
+  const executed = (client) => client.seen.map(sqlOnly);
+  const ranDropRole = (client) => executed(client).some((q) => /\bDROP\s+ROLE\b/i.test(q));
+
+  // NOT revoked. The creator cannot modify a bootstrap-superuser grant, and the
+  // ADMIN OPTION it carries is what authorizes the DROP ROLE.
+  assert.equal(
+    executed(allowed).some((q) => new RegExp(`REVOKE\\s+"${PHASE_VALUES.roleName}"`, 'i').test(q)),
+    false, 'teardown must never revoke the role membership itself'
+  );
+  assert.equal(ranDropRole(allowed), true, 'the drop is what removes the membership');
+
+  for (const override of [{ set_option: true }, { admin_option: false }, { direction: 'member_of' },
+    { other_role_is_connected_role: false }, { grantor_is_superuser: false }]) {
+    const client = scriptedClient({ 'pg_auth_members': [{ ...CREATOR_ADMIN_ROW, ...override }] });
+    await assert.rejects(() => gate1.phaseTeardown(client, PHASE_VALUES, { log: () => {} }),
+      /ABORTED.*memberships beyond the implicit creator-admin grant.*Nothing has been dropped/s);
+    assert.equal(ranDropRole(client), false, `nothing may be dropped for ${JSON.stringify(override)}`);
+  }
+
+  // Two allowed-shaped rows abort too.
+  const twice = scriptedClient({
+    'pg_auth_members': [CREATOR_ADMIN_ROW, { ...CREATOR_ADMIN_ROW, other_role: 'postgres2' }],
+  });
+  await assert.rejects(() => gate1.phaseTeardown(twice, PHASE_VALUES, { log: () => {} }),
+    /ABORTED/);
+  assert.equal(ranDropRole(twice), false);
+});
+
+test('the membership SQL reports identity from the catalog, not as constants', () => {
+  // A scripted client cannot judge these: it returns whatever rows the fixture
+  // says, so the SQL could hardcode `true AS grantor_is_bootstrap` and every
+  // JS-level test would still pass while the allowance became "any membership
+  // at all". These are the pins for the columns the predicate decides on.
+  for (const [file, block] of [
+    ['verify-role.sql', 'verify_memberships'],
+    ['teardown-role.sql', 'teardown_check_memberships'],
+  ]) {
+    const sql = sqlOnly(gate1.loadStatements(readSql(file), { label: file }).get(block));
+
+    // The member identity must come from comparing the catalog to the CONNECTED
+    // role, which is what makes the allowance structural.
+    assert.match(sql, /\(m\.rolname = current_user\)\s+AS other_role_is_connected_role/,
+      `${block}: the member match must be current_user, not a constant`);
+    assert.match(sql, /\(r\.rolname = current_user\)/,
+      `${block}: the member_of branch must report the same comparison`);
+    assert.equal(/true\s+AS other_role_is_connected_role/.test(sql), false,
+      `${block}: a constant true here would accept any member`);
+
+    // The grantor must be the bootstrap superuser, checked by OID.
+    assert.match(sql, /\(g\.oid = 10\)\s+AS grantor_is_bootstrap/,
+      `${block}: the bootstrap check must compare the OID`);
+    assert.equal(/true\s+AS grantor_is_bootstrap/.test(sql), false,
+      `${block}: a constant true here would accept any grantor`);
+    assert.match(sql, /g\.rolsuper\s+AS grantor_is_superuser/);
+
+    // Every pg_roles join must be a LEFT join. An INNER join would enforce
+    // "no unresolvable member or grantor" by silently dropping the row before
+    // the predicate could reject it; fail-closed means the row must SURFACE
+    // with NULL identity columns and be rejected in the runner.
+    assert.match(sql, /LEFT JOIN pg_roles g ON g\.oid = am\.grantor/,
+      `${block}: the grantor must be resolved without discarding unresolvable rows`);
+    assert.match(sql, /LEFT JOIN pg_roles m ON m\.oid = am\.member/,
+      `${block}: the member must be resolved without discarding unresolvable rows`);
+    const roleJoins = (sql.match(/JOIN pg_roles/g) || []).length;
+    const leftRoleJoins = (sql.match(/LEFT JOIN pg_roles/g) || []).length;
+    assert.equal(roleJoins, 4, `${block}: both branches must join member and grantor`);
+    assert.equal(leftRoleJoins, roleJoins,
+      `${block}: an inner pg_roles join would drop the row instead of surfacing it`);
+
+    // BOTH directions must be reported. Collapsing member_of into members would
+    // hide the direction that gives this role somebody else's privileges.
+    assert.match(sql, /'members'::text/);
+    assert.match(sql, /'member_of'::text/, `${block}: the member_of direction must still be queried`);
+    assert.match(sql, /WHERE am\.member = \(SELECT oid FROM pg_roles WHERE rolname = :'role_name'\)/,
+      `${block}: the member_of branch must filter on am.member`);
+    assert.match(sql, /WHERE am\.roleid = \(SELECT oid FROM pg_roles WHERE rolname = :'role_name'\)/,
+      `${block}: the members branch must filter on am.roleid`);
+
+    // The three option flags must be selected, or the predicate reads undefined.
+    for (const column of ['admin_option', 'inherit_option', 'set_option']) {
+      assert.match(sql, new RegExp(`am\\.${column}\\s+AS ${column}`), `${block}: ${column} must be selected`);
+    }
+  }
+
+  // The two files must ask the SAME question. A divergence would let teardown
+  // tolerate something verify rejects, or the reverse.
+  const strip = (t) => t.replace(/\s+/g, ' ').trim();
+  const verifyBlock = strip(sqlOnly(
+    gate1.loadStatements(readSql('verify-role.sql'), { label: 'v' }).get('verify_memberships')
+  ));
+  const teardownBlock = strip(sqlOnly(
+    gate1.loadStatements(readSql('teardown-role.sql'), { label: 't' }).get('teardown_check_memberships')
+  ));
+  assert.equal(verifyBlock, teardownBlock,
+    'verify and teardown must apply the same membership query, or their allowances can drift apart');
 });
 
 test('the SQL each phase depends on reads the catalog it claims to read', () => {

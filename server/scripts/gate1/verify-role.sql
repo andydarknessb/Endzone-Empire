@@ -280,20 +280,78 @@ WHERE s.refobjid = (SELECT oid FROM pg_roles WHERE rolname = :'role_name')
 ORDER BY s.deptype, s.objid;
 
 
--- @statement: verify_no_memberships
--- Both directions. `member_of` would give the role someone else's privileges;
--- `members` would give someone else this role's login. Expected: no rows.
+-- @statement: verify_memberships
+-- Both directions, with every attribute the runner needs to tell ONE expected
+-- relationship apart from every other.
+--
+-- THE PG 16+ IMPLICIT CREATOR-ADMIN GRANT
+--
+-- This block used to expect no rows at all, and that expectation failed against
+-- production on the first real Gate 1 run. When a NON-superuser role that holds
+-- CREATEROLE creates a role, PostgreSQL 16 and later automatically grant the
+-- new role back to the creator, so that a role-creator can still administer
+-- what it just made. The grant is recorded with ADMIN TRUE, and with INHERIT
+-- and SET taken from `createrole_self_grant` (empty by default, so both FALSE).
+-- Its grantor is the BOOTSTRAP SUPERUSER - oid 10 - not the creating role.
+--
+-- CI never saw it because the CI operator IS the bootstrap superuser, and a
+-- superuser-created role gets no implicit grant. Production runs as Supabase's
+-- hosted `postgres`, which is rolsuper=false, rolcreaterole=true. The kit was
+-- right to fail closed; the expectation was what was wrong.
+--
+-- So exactly one row is tolerable, and it is identified STRUCTURALLY rather
+-- than by naming a privileged role: the member must be the role this connection
+-- is authenticated as (the same identity that ran create), the grantor must be
+-- the bootstrap superuser, ADMIN must be true, and INHERIT and SET must both
+-- be false. That signature is one only the bootstrap superuser can create. It
+-- does NOT distinguish the implicit creator grant from an explicit
+-- `GRANT ... WITH ADMIN OPTION` issued by the bootstrap superuser itself - the
+-- catalog rows are identical - and the kit does not pretend to: at that level
+-- of access the distinction has no security content. A non-empty
+-- `createrole_self_grant` can mint the same relationship WITH inherit or set,
+-- which would let the creator read as this role or become it; those must fail.
+-- Zero rows still passes: that is the superuser-created case, and any platform
+-- where the implicit grant does not happen.
+--
+-- The pg_roles joins are LEFT joins on purpose. Membership rows are
+-- dependency-tracked, so an unresolvable member or grantor should be
+-- impossible - but an INNER join would enforce "impossible" by silently
+-- dropping the row, and the predicate that rejects unexpected relationships
+-- would never see it. A LEFT join surfaces such a row with NULL identity
+-- columns, which the runner rejects like any other unexpected relationship.
+--
+-- `inherit_option` and `set_option` are PostgreSQL 16+ columns. On an older
+-- server this statement errors rather than silently checking less, which is the
+-- correct direction to fail.
 SELECT
-  'member_of' AS direction,
-  g.rolname   AS other_role
-FROM pg_auth_members m
-JOIN pg_roles g ON g.oid = m.roleid
-WHERE m.member = (SELECT oid FROM pg_roles WHERE rolname = :'role_name')
+  'members'::text                 AS direction,
+  m.rolname                       AS other_role,
+  (m.rolname = current_user)      AS other_role_is_connected_role,
+  g.oid                           AS grantor_oid,
+  g.rolname                       AS grantor_name,
+  g.rolsuper                      AS grantor_is_superuser,
+  (g.oid = 10)                    AS grantor_is_bootstrap,
+  am.admin_option                 AS admin_option,
+  am.inherit_option               AS inherit_option,
+  am.set_option                   AS set_option
+FROM pg_auth_members am
+LEFT JOIN pg_roles m ON m.oid = am.member
+LEFT JOIN pg_roles g ON g.oid = am.grantor
+WHERE am.roleid = (SELECT oid FROM pg_roles WHERE rolname = :'role_name')
 UNION ALL
 SELECT
-  'members'   AS direction,
-  g.rolname   AS other_role
-FROM pg_auth_members m
-JOIN pg_roles g ON g.oid = m.member
-WHERE m.roleid = (SELECT oid FROM pg_roles WHERE rolname = :'role_name')
+  'member_of'::text,
+  r.rolname,
+  (r.rolname = current_user),
+  g.oid,
+  g.rolname,
+  g.rolsuper,
+  (g.oid = 10),
+  am.admin_option,
+  am.inherit_option,
+  am.set_option
+FROM pg_auth_members am
+LEFT JOIN pg_roles r ON r.oid = am.roleid
+LEFT JOIN pg_roles g ON g.oid = am.grantor
+WHERE am.member = (SELECT oid FROM pg_roles WHERE rolname = :'role_name')
 ORDER BY direction, other_role;

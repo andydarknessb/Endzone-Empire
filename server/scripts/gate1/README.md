@@ -41,7 +41,32 @@ kit cannot make it.
 It is `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS`,
 and defaults every transaction to read-only.
 
-Two honest caveats, both also stated in the SQL:
+Three honest caveats, all also stated in the SQL:
+
+- **On PostgreSQL 16+ the role's creator ends up holding ADMIN on it, and that
+  is expected.** When a non-superuser role with `CREATEROLE` creates a role, the
+  server automatically grants the new role back to the creator - `ADMIN TRUE`,
+  `INHERIT FALSE`, `SET FALSE`, with the *bootstrap superuser* recorded as
+  grantor - so that a role-creator can still administer what it just made. That
+  is what happens in production, where the operator is Supabase's hosted
+  `postgres` (`rolsuper=false`, `rolcreaterole=true`). It does **not** happen
+  when the creator is a superuser, which is why CI, whose operator is the
+  bootstrap superuser itself, never produces one.
+
+  `verify` allows exactly one such relationship and identifies it structurally,
+  not by trusting a role name: the member must be the connected role, the
+  grantor must be the bootstrap superuser, `ADMIN` must be true, and `INHERIT`
+  and `SET` must both be false. The accepted signature is one only the
+  bootstrap superuser can create; the kit does not attempt to distinguish the
+  implicit creator grant from an explicit superuser grant of the same shape,
+  because at that level of access the distinction has no security content. A
+  second membership, either direction, a different member or grantor,
+  `ADMIN FALSE`, or any `INHERIT`/`SET` widening - which a non-default
+  `createrole_self_grant` can mint, and which would let the creator read as or
+  become this role - all fail. When present it is printed in the run output.
+  `teardown` tolerates the same one row and **does not revoke it**: the creator
+  cannot modify a bootstrap-superuser grant, and it carries the `ADMIN OPTION`
+  that authorizes the `DROP ROLE`. Dropping the role removes it.
 
 - `default_transaction_read_only` is a `USERSET` GUC. A client can turn it off.
   The real guarantee is that the role holds no write privilege on anything, which

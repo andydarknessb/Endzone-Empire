@@ -629,6 +629,60 @@ async function phaseCreate(client, values, { log, label = 'create' } = {}) {
 /** Format an enumeration row set for a message, one line each. */
 const describeRows = (rows) => rows.map((r) => JSON.stringify(r)).join('\n    ');
 
+/** The bootstrap superuser's OID is fixed by PostgreSQL (BOOTSTRAP_SUPERUSERID). */
+const BOOTSTRAP_SUPERUSER_OID = 10;
+
+/**
+ * Is this membership row THE one PostgreSQL 16+ creates by itself when a
+ * non-superuser CREATEROLE role creates another role?
+ *
+ * Identified structurally, never by naming a privileged role. "postgres is
+ * allowed" would be an allowance any compromised or misconfigured `postgres`
+ * could walk through; this is an allowance only the server's own
+ * role-creation path can produce.
+ *
+ *   direction  'members' - somebody holds membership IN the new role. The other
+ *              direction would give the new role somebody else's privileges,
+ *              which is never expected and never tolerated.
+ *   member     the role THIS CONNECTION is authenticated as. The implicit grant
+ *              goes to the creator, and Gate 1 creates and verifies as the same
+ *              identity, so anyone else holding it is a finding.
+ *   grantor    the bootstrap superuser, by OID and with rolsuper true. The
+ *              server records itself as grantor; a human GRANT records the
+ *              human.
+ *   admin      TRUE, as the server records it. A bare `GRANT role TO x`
+ *              defaults to admin FALSE and is rejected; an explicit
+ *              `WITH ADMIN OPTION` grant by the bootstrap superuser itself is
+ *              indistinguishable from the implicit one in the catalog, and no
+ *              attempt is made to tell them apart - producing that signature
+ *              already requires bootstrap-superuser access.
+ *   inherit    FALSE, and
+ *   set        FALSE. Both come from `createrole_self_grant`, which is empty by
+ *              default. A server configured otherwise mints the same
+ *              relationship with the creator able to READ AS or BECOME this
+ *              role, and that is a materially different grant: it must fail.
+ */
+function isImplicitCreatorAdminGrant(row) {
+  if (!row || typeof row !== 'object') return false;
+  return row.direction === 'members'
+    && row.other_role_is_connected_role === true
+    && Number(row.grantor_oid) === BOOTSTRAP_SUPERUSER_OID
+    && row.grantor_is_bootstrap === true
+    && row.grantor_is_superuser === true
+    && row.admin_option === true
+    && row.inherit_option === false
+    && row.set_option === false;
+}
+
+/** One line describing the administrative relationship, for the run output. */
+const describeCreatorAdminGrant = (row) => (
+  `the PostgreSQL 16+ implicit creator-admin grant: ${row.other_role} holds ADMIN on this role `
+  + `(granted by the bootstrap superuser ${row.grantor_name}, INHERIT false, SET false). `
+  + 'It is created by the server when a non-superuser CREATEROLE role creates a role, it is what '
+  + 'lets this connection administer and later drop the role, and it is NOT revoked by teardown - '
+  + 'DROP ROLE removes it.'
+);
+
 async function phaseVerify(client, values, { log, label = 'verify' } = {}) {
   const blocks = loadStatements(readSqlFile('verify-role.sql'), { label });
   // The accident guard applies here too, and not only for symmetry: verify is
@@ -738,8 +792,22 @@ async function phaseVerify(client, values, { log, label = 'verify' } = {}) {
   const owned = (await runBlock(client, blocks, 'verify_no_ownership', values, { label })).rows;
   if (owned.length > 0) note(`the role owns objects or is named by an RLS policy:\n    ${describeRows(owned)}`);
 
-  const members = (await runBlock(client, blocks, 'verify_no_memberships', values, { label })).rows;
-  if (members.length > 0) note(`the role has role memberships:\n    ${describeRows(members)}`);
+  // Exactly one membership is tolerable, and only the one the server makes for
+  // itself. Everything else is a finding, including a SECOND copy of the
+  // allowed shape.
+  const members = (await runBlock(client, blocks, 'verify_memberships', values, { label })).rows;
+  const creatorAdmin = members.filter(isImplicitCreatorAdminGrant);
+  const otherMemberships = members.filter((r) => !isImplicitCreatorAdminGrant(r));
+  if (otherMemberships.length > 0) {
+    note(
+      'the role has role memberships beyond the implicit creator-admin grant:\n    '
+      + `${describeRows(otherMemberships)}`
+    );
+  }
+  if (creatorAdmin.length > 1) {
+    note(`more than one creator-admin membership, which the server cannot produce:\n    ${describeRows(creatorAdmin)}`);
+  }
+  if (creatorAdmin.length === 1) log(`  allowed: ${describeCreatorAdminGrant(creatorAdmin[0])}`);
 
   if (problems.length > 0) {
     fail(`${label}: ${problems.length} problem(s) with role ${values.roleName}:\n  - `
@@ -777,13 +845,21 @@ async function phaseTeardown(client, values, { log, label = 'teardown' } = {}) {
       + 'needs to look at before anything is destroyed.'
     );
   }
+  // The same structural allowance verify applies, and nothing else. The allowed
+  // grant is deliberately NOT revoked: its grantor is the bootstrap superuser,
+  // which this connection cannot modify, and it carries the ADMIN OPTION that
+  // authorizes the DROP ROLE below. Dropping the role removes it.
   const members = (await runBlock(client, blocks, 'teardown_check_memberships', values, { label })).rows;
-  if (members.length > 0) {
+  const creatorAdmin = members.filter(isImplicitCreatorAdminGrant);
+  const otherMemberships = members.filter((r) => !isImplicitCreatorAdminGrant(r));
+  if (otherMemberships.length > 0 || creatorAdmin.length > 1) {
     fail(
-      `${label}: ABORTED. Role ${values.roleName} has role memberships:\n    ${describeRows(members)}\n`
+      `${label}: ABORTED. Role ${values.roleName} has role memberships beyond the implicit `
+      + `creator-admin grant:\n    ${describeRows(otherMemberships.concat(creatorAdmin.length > 1 ? creatorAdmin : []))}\n`
       + 'Dropping it would change what those roles can do. Nothing has been dropped.'
     );
   }
+  if (creatorAdmin.length === 1) log(`  allowed: ${describeCreatorAdminGrant(creatorAdmin[0])}`);
 
   const killed = (await runBlock(client, blocks, 'teardown_terminate_sessions', values, { label })).rows;
   if (killed.length > 0) log(`  terminated ${killed.length} open session(s) for the role`);
@@ -927,6 +1003,7 @@ if (require.main === module) {
 module.exports = {
   main, parseArgs, readAdminCredential, readRolePassword, scramVerifier, makeRedactor, redactArgument,
   assertRoleName, assertDatabaseName, assertValidUntil, assertRoleOid, quoteIdent, quoteLiteral,
+  isImplicitCreatorAdminGrant, BOOTSTRAP_SUPERUSER_OID,
   loadStatements, renderStatement, readSqlFile, assertVerifiedTls,
   phaseCreate, phaseVerify, phaseTeardown,
   ADMIN_ENV_VAR, PASSWORD_ENV_VAR, PHASES, EXPECTED_TABLES, EXPECTED_FUNCTION,

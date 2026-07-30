@@ -63,6 +63,14 @@ if (!ENABLED) {
    */
   const nextRole = () => gate1.assertRoleName(`${ROLE_PREFIX}${process.pid}_${++counter}`);
 
+  /**
+   * The stand-in for Supabase's hosted `postgres`: a NON-superuser that holds
+   * CREATEROLE. Named under ROLE_PREFIX so the before-hook sweep cleans up
+   * after a crashed run, even though it is an operator rather than a subject.
+   */
+  const OPERATOR_PASSWORD = 'Wm2-nH6bQ9xT4vC7kP1jR5sZ3dL8gY0e';
+  const nextOperator = () => gate1.assertRoleName(`${ROLE_PREFIX}op_${process.pid}_${++counter}`);
+
   /** Collects log lines so the tests can assert on what an operator would see. */
   const capture = () => {
     const lines = [];
@@ -547,6 +555,127 @@ if (!ENABLED) {
     // Teardown still works with the extra overload in place: its REVOKE targets
     // a signature, which is name-insensitive, and DROP OWNED BY sweeps the rest.
     assert.equal((await gate1.phaseTeardown(client, values, { log: () => {} })).tornDown, true);
+  });
+
+  test('a NON-superuser CREATEROLE operator gets the PG 16+ implicit creator-admin grant', async (t) => {
+    // THE PRODUCTION FAILURE, reproduced. CI's operator is the bootstrap
+    // superuser, and a superuser-created role gets no implicit grant, so no
+    // test here could ever see the thing that stopped the real Gate 1 run. This
+    // test manufactures the production shape: a non-superuser holding
+    // CREATEROLE, which is exactly what Supabase's hosted `postgres` is.
+    const operatorName = nextOperator();
+    const roleName = nextRole();
+    const values = valuesFor(roleName, futureIso(1));
+    const admin = await pool.connect();
+    const opIdent = gate1.quoteIdent(operatorName);
+    let operator = null;
+    t.after(async () => {
+      if (operator) await operator.end();
+      await releaseSafely(admin);
+      await forceDrop(roleName);
+      await forceDrop(operatorName);
+    });
+
+    await admin.query(
+      `CREATE ROLE ${opIdent} LOGIN NOSUPERUSER CREATEROLE PASSWORD ${gate1.quoteLiteral(OPERATOR_PASSWORD)}`
+    );
+    // The operator must be able to make the grants create-role.sql issues, and a
+    // bare CREATEROLE role owns none of these objects. WITH GRANT OPTION is the
+    // narrow way to let it re-grant exactly what the kit grants, and nothing
+    // else. In production the hosted `postgres` already has this standing.
+    await admin.query(`GRANT CONNECT ON DATABASE ${gate1.quoteIdent(connection.database)} TO ${opIdent} WITH GRANT OPTION`);
+    await admin.query(`GRANT USAGE ON SCHEMA public TO ${opIdent} WITH GRANT OPTION`);
+    await admin.query(
+      `GRANT SELECT ON TABLE ${gate1.EXPECTED_TABLES.map((tbl) => `public.${tbl}`).join(', ')} `
+      + `TO ${opIdent} WITH GRANT OPTION`
+    );
+    await admin.query(
+      `GRANT EXECUTE ON FUNCTION public.fn_normalize_nfl_team(text) TO ${opIdent} WITH GRANT OPTION`
+    );
+
+    const { rows: [opShape] } = await admin.query(
+      'SELECT rolsuper, rolcreaterole FROM pg_roles WHERE rolname = $1', [operatorName]
+    );
+    assert.deepEqual(opShape, { rolsuper: false, rolcreaterole: true },
+      'the operator must match the production shape, or this test proves nothing');
+
+    // Everything from here runs THROUGH the operator, exactly as Gate 1 does.
+    operator = roleClient(operatorName, { password: OPERATOR_PASSWORD });
+    await operator.connect();
+
+    const created = capture();
+    await gate1.phaseCreate(operator.client, values, { log: created.log });
+
+    // The implicit grant appears, with the exact tuple the production probe saw.
+    const { rows: membership } = await admin.query(
+      `SELECT m.rolname AS member_name, g.oid AS grantor_oid, g.rolsuper AS grantor_is_superuser,
+              am.admin_option, am.inherit_option, am.set_option
+       FROM pg_auth_members am
+       JOIN pg_roles m ON m.oid = am.member
+       JOIN pg_roles g ON g.oid = am.grantor
+       WHERE am.roleid = (SELECT oid FROM pg_roles WHERE rolname = $1)`, [roleName]
+    );
+    assert.equal(membership.length, 1, 'PG 16+ grants the new role back to a CREATEROLE creator');
+    assert.deepEqual(membership[0], {
+      member_name: operatorName,
+      grantor_oid: gate1.BOOTSTRAP_SUPERUSER_OID,
+      grantor_is_superuser: true,
+      admin_option: true,
+      inherit_option: false,
+      set_option: false,
+    }, 'the tuple must match the one the production probe recorded');
+
+    // phaseCreate runs verify itself, so reaching here already means verify
+    // passed with the allowance. It must also SAY so.
+    assert.match(created.text(), /allowed: the PostgreSQL 16\+ implicit creator-admin grant/);
+    assert.match(created.text(), new RegExp(`${operatorName} holds ADMIN on this role`));
+
+    // Standalone verify, through the operator, passes and logs the same line.
+    const verified = capture();
+    await gate1.phaseVerify(operator.client, values, { log: verified.log });
+    assert.match(verified.text(), /allowed: the PostgreSQL 16\+ implicit creator-admin grant/);
+
+    // A WIDENED grant is a different relationship and must fail. SET TRUE would
+    // let the operator BECOME this role.
+    await admin.query(`GRANT ${gate1.quoteIdent(roleName)} TO ${opIdent} WITH ADMIN TRUE, SET TRUE`);
+    await assert.rejects(() => gate1.phaseVerify(operator.client, values, { log: () => {} }),
+      /memberships beyond the implicit creator-admin grant/,
+      'a SET-widened creator grant must not be tolerated');
+    // Restore the implicit shape.
+    await admin.query(`GRANT ${gate1.quoteIdent(roleName)} TO ${opIdent} WITH ADMIN TRUE, SET FALSE, INHERIT FALSE`);
+    await assert.doesNotReject(() => gate1.phaseVerify(operator.client, values, { log: () => {} }));
+
+    // A THIRD role holding membership is never the implicit grant.
+    const thirdName = nextRole();
+    t.after(async () => { await forceDrop(thirdName); });
+    await admin.query(`CREATE ROLE ${gate1.quoteIdent(thirdName)}`);
+    await admin.query(`GRANT ${gate1.quoteIdent(roleName)} TO ${gate1.quoteIdent(thirdName)}`);
+    await assert.rejects(() => gate1.phaseVerify(operator.client, values, { log: () => {} }),
+      /memberships beyond the implicit creator-admin grant/);
+    // Teardown must abort on it too, and drop nothing.
+    await assert.rejects(() => gate1.phaseTeardown(operator.client, values, { log: () => {} }),
+      /ABORTED.*Nothing has been dropped/s);
+    const { rows: survived } = await admin.query(
+      'SELECT 1 FROM pg_roles WHERE rolname = $1', [roleName]
+    );
+    assert.equal(survived.length, 1, 'the role must survive an aborted teardown');
+    await admin.query(`REVOKE ${gate1.quoteIdent(roleName)} FROM ${gate1.quoteIdent(thirdName)}`);
+
+    // And with only the implicit grant left, teardown SUCCEEDS through the
+    // operator connection - the grant is tolerated, never revoked, and the DROP
+    // removes it.
+    const tornDown = capture();
+    const result = await gate1.phaseTeardown(operator.client, values, { log: tornDown.log });
+    assert.deepEqual(result, { tornDown: true, noop: false });
+    assert.match(tornDown.text(), /allowed: the PostgreSQL 16\+ implicit creator-admin grant/);
+    const { rows: gone } = await admin.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [roleName]);
+    assert.equal(gone.length, 0, 'the role is dropped by its non-superuser creator');
+    const { rows: leftover } = await admin.query(
+      'SELECT 1 FROM pg_auth_members am JOIN pg_roles m ON m.oid = am.member WHERE m.rolname = $1',
+      [operatorName]
+    );
+    assert.equal(leftover.length, 0, 'DROP ROLE removes the membership without an explicit revoke');
+    assert.deepEqual(operator.errors, [], 'the operator connection must survive the whole lifecycle');
   });
 
   test('the teardown confirmation probes by CAPTURED OID, not a post-drop lookup', async (t) => {

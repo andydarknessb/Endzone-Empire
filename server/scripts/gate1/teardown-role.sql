@@ -57,6 +57,11 @@ WHERE rolname = :'role_name';
 -- @statement: teardown_check_ownership
 -- Any row here ABORTS the teardown. See verify-role.sql for why deptype 'a' is
 -- excluded: those are the grants this file is about to revoke.
+--
+-- Role MEMBERSHIP is not an ownership dependency and does not appear here; it
+-- lives in pg_auth_members and is checked by teardown_check_memberships below.
+-- In particular the PG 16+ implicit creator-admin grant produces no row in this
+-- block, so a clean result here says nothing about it either way.
 SELECT
   s.deptype                 AS dependency_type,
   s.classid::regclass::text AS catalog_name,
@@ -71,20 +76,48 @@ ORDER BY s.deptype, s.objid;
 
 -- @statement: teardown_check_memberships
 -- A membership in either direction means someone else's access is entangled
--- with this role. Dropping it would silently change their privileges.
+-- with this role, and dropping it would silently change their privileges - with
+-- ONE exception, identified by exactly the same structural test verify-role.sql
+-- applies. See that file for the full account of the PG 16+ implicit
+-- creator-admin grant.
+--
+-- The exception is NOT revoked here, deliberately. Its grantor is the bootstrap
+-- superuser, and PostgreSQL does not let the creator modify a grant it did not
+-- make; attempting it would fail, and if it somehow succeeded it would strip the
+-- ADMIN OPTION that authorizes the DROP ROLE this teardown is about to perform.
+-- Dropping a role removes its memberships automatically, so there is nothing to
+-- clean up by hand.
 SELECT
-  'member_of' AS direction,
-  g.rolname   AS other_role
-FROM pg_auth_members m
-JOIN pg_roles g ON g.oid = m.roleid
-WHERE m.member = (SELECT oid FROM pg_roles WHERE rolname = :'role_name')
+  'members'::text                 AS direction,
+  m.rolname                       AS other_role,
+  (m.rolname = current_user)      AS other_role_is_connected_role,
+  g.oid                           AS grantor_oid,
+  g.rolname                       AS grantor_name,
+  g.rolsuper                      AS grantor_is_superuser,
+  (g.oid = 10)                    AS grantor_is_bootstrap,
+  am.admin_option                 AS admin_option,
+  am.inherit_option               AS inherit_option,
+  am.set_option                   AS set_option
+FROM pg_auth_members am
+LEFT JOIN pg_roles m ON m.oid = am.member
+LEFT JOIN pg_roles g ON g.oid = am.grantor
+WHERE am.roleid = (SELECT oid FROM pg_roles WHERE rolname = :'role_name')
 UNION ALL
 SELECT
-  'members'   AS direction,
-  g.rolname   AS other_role
-FROM pg_auth_members m
-JOIN pg_roles g ON g.oid = m.member
-WHERE m.roleid = (SELECT oid FROM pg_roles WHERE rolname = :'role_name')
+  'member_of'::text,
+  r.rolname,
+  (r.rolname = current_user),
+  g.oid,
+  g.rolname,
+  g.rolsuper,
+  (g.oid = 10),
+  am.admin_option,
+  am.inherit_option,
+  am.set_option
+FROM pg_auth_members am
+LEFT JOIN pg_roles r ON r.oid = am.roleid
+LEFT JOIN pg_roles g ON g.oid = am.grantor
+WHERE am.member = (SELECT oid FROM pg_roles WHERE rolname = :'role_name')
 ORDER BY direction, other_role;
 
 
