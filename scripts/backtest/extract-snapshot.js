@@ -83,6 +83,13 @@ const {
 const { parseCsvHeader, collectColumns } = require('./lib/csv');
 const { SOURCES, BACKTEST_SEASONS, assertSafeSourceFile } = require('./lib/sources');
 const { FANTASY_POSITIONS } = require('./lib/mappings');
+const {
+  SQL_SURFACE,
+  SQL_BY_SIGNATURE,
+  normalizeSql,
+  sqlSignature,
+  sqlSurfaceSignatures,
+} = require('./lib/sqlSurface');
 const store = require('./lib/snapshotStore');
 
 const REPO_ROOT = path.join(__dirname, '..', '..');
@@ -112,129 +119,12 @@ const ORACLE_PLAYERS_PER_POSITION = 5;
 // ---------------------------------------------------------------------------
 
 /**
- * The complete SQL surface `generateProjections` issues, copied verbatim from
- * production and identified by a whitespace-normalized SHA-256.
- *
- * Why a NORMALIZED signature rather than the raw text: the snapshot client
- * (Phase 2) dispatches on whitespace-normalized SQL, so the signature has to be
- * invariant to exactly what the dispatch is invariant to. Re-indenting a query
- * in production is not a behaviour change and must not read as one; changing a
- * column, a predicate or a join IS, and does.
- *
- * These texts are pinned copies, and a copy can drift. Two things stop that:
- *   - a test reads `server/services/projectionFeatures.js` and
- *     `server/services/bye.service.js` as TEXT (never requiring them, which
- *     would drag the pool in) and asserts each normalized text below still
- *     appears in the file it names;
- *   - the oracle capture below runs the REAL production code through a
- *     recording client and refuses any SQL whose signature is not in this
- *     table. So the surface is not merely declared, it is OBSERVED, and an
- *     unknown ninth query stops the extraction instead of being captured.
+ * The surface itself lives in `lib/sqlSurface.js`, because the Phase-2 snapshot
+ * client has to SERVE exactly the queries this extraction OBSERVES. Two copies
+ * of that table could drift apart, and the failure would be silent: the
+ * extraction would capture a query the client cannot answer. Re-exported here
+ * unchanged so the extraction API is unchanged.
  */
-const SQL_SURFACE = Object.freeze([
-  {
-    name: 'playersById',
-    source: 'server/services/projectionFeatures.js:443',
-    text: `SELECT "id", "name", "position", "nfl_team", "injury_status", "injury_detail", "adp",
-                fn_normalize_nfl_team("nfl_team") AS "team_key"
-         FROM "players" WHERE "id" = ANY($1::int[])`,
-  },
-  {
-    name: 'priorPlayerStats',
-    source: 'server/services/projectionFeatures.js:451',
-    text: `SELECT "player_id", "season", "week", "stats"
-         FROM "player_stats"
-         WHERE "player_id" = ANY($1::int[])
-           AND "season" >= $2
-           AND ("season" < $3 OR ("season" = $3 AND "week" < $4))
-         ORDER BY "season" DESC, "week" DESC`,
-  },
-  {
-    name: 'priorPlayerSeasonStats',
-    source: 'server/services/projectionFeatures.js:460',
-    text: `SELECT "player_id", "season", "games_played", "stats", "fantasy_points"
-         FROM "player_season_stats"
-         WHERE "player_id" = ANY($1::int[]) AND "season" < $2`,
-  },
-  {
-    name: 'targetWeekSchedule',
-    source: 'server/services/projectionFeatures.js:466',
-    text: `SELECT fn_normalize_nfl_team("nfl_team") AS "team_key",
-                fn_normalize_nfl_team("opponent") AS "opponent_key",
-                "nfl_team", "opponent", "kickoff_at", "game_key", "home_away",
-                "neutral_site", "venue", "roof", "surface", "latitude", "longitude", "rest_days"
-         FROM "nfl_games" WHERE "season" = $1 AND "week" = $2`,
-  },
-  {
-    name: 'historyWindowSchedule',
-    source: 'server/services/projectionFeatures.js:479',
-    text: `SELECT "season", "week", fn_normalize_nfl_team("nfl_team") AS "team_key",
-                fn_normalize_nfl_team("opponent") AS "opponent_key", "home_away", "neutral_site"
-         FROM "nfl_games"
-         WHERE "season" >= $1
-           AND ("season" < $2 OR ("season" = $2 AND "week" < $3))`,
-  },
-  {
-    name: 'leagueScan',
-    source: 'server/services/projectionFeatures.js:544',
-    conditional: 'scanPositions.length > 0 && Number(week) > 1',
-    text: `SELECT "ps"."player_id", "ps"."week", "ps"."stats", "p"."position",
-              fn_normalize_nfl_team("ng"."opponent") AS "defense",
-              "ng"."home_away", "ng"."neutral_site"
-       FROM "player_stats" "ps"
-       JOIN "players" "p" ON "p"."id" = "ps"."player_id"
-       LEFT JOIN "nfl_games" "ng" ON "ng"."season" = "ps"."season" AND "ng"."week" = "ps"."week"
-         AND fn_normalize_nfl_team("ng"."nfl_team") = fn_normalize_nfl_team("p"."nfl_team")
-       WHERE "ps"."season" = $1 AND "ps"."week" < $2 AND "p"."position" = ANY($3::text[])
-       ORDER BY "ps"."player_id", "ps"."week"
-       LIMIT $4`,
-  },
-  {
-    name: 'defenseGameCount',
-    source: 'server/services/projectionFeatures.js:568',
-    conditional: 'currentSeasonScheduleRows.length > 0',
-    text: `SELECT fn_normalize_nfl_team("nfl_team") AS "team", COUNT(*)::int AS "games"
-       FROM "nfl_games" WHERE "season" = $1 AND "week" < $2
-       GROUP BY 1`,
-  },
-  {
-    name: 'byeWeeks',
-    source: 'server/services/bye.service.js:47',
-    text: `SELECT "t"."nfl_team", "ng"."week"
-     FROM "nfl_games" "ng"
-     JOIN unnest($2::text[]) AS "t"("nfl_team")
-       ON fn_normalize_nfl_team("ng"."nfl_team") = fn_normalize_nfl_team("t"."nfl_team")
-     WHERE "ng"."season" = $1 AND "ng"."week" BETWEEN 1 AND $3`,
-  },
-]);
-
-/** Pure: the whitespace-normalized form the dispatch and the signature use. */
-function normalizeSql(text) {
-  return String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
-}
-
-/** Pure: the SHA-256 of a SQL text's normalized form. */
-function sqlSignature(text) {
-  return sha256Hex(Buffer.from(normalizeSql(text), 'utf8'));
-}
-
-/** Signature -> surface entry, built once. */
-const SQL_BY_SIGNATURE = new Map(SQL_SURFACE.map((entry) => [sqlSignature(entry.text), entry]));
-
-if (SQL_BY_SIGNATURE.size !== SQL_SURFACE.length) {
-  throw new Error('two entries in the SQL surface normalize to the same signature');
-}
-
-/** The signed surface, for the manifest. */
-function sqlSurfaceSignatures() {
-  return SQL_SURFACE.map((entry) => ({
-    name: entry.name,
-    source: entry.source,
-    signature: sqlSignature(entry.text),
-    normalizedLength: normalizeSql(entry.text).length,
-    conditional: entry.conditional || null,
-  }));
-}
 
 // ---------------------------------------------------------------------------
 // Preregistered oracle weeks (PREREGISTRATION.md section 15)

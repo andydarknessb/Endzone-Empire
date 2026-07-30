@@ -191,7 +191,13 @@ function datasetFile(root, store, pathKind, dataset) {
   const safeName = assertDatasetName(dataset);
   // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
   const file = path.join(String(root), safeStore, safePath, `${safeName}.ndjson`);
+  // The next two lines ARE the containment check - the thing that proves the
+  // join above could not escape `root`. Semgrep's taint model flags the
+  // validator itself, so no amount of further validation can clear them; there
+  // is nothing left to check that these lines are not already checking.
+  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
   const resolvedRoot = path.resolve(String(root));
+  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
   if (!path.resolve(file).startsWith(resolvedRoot + path.sep)) {
     throw new Error(`refusing a snapshot path outside the store root: ${file}`);
   }
@@ -203,14 +209,22 @@ function metaFile(root, store, pathKind, dataset) {
 }
 
 function manifestFile(root) {
+  // Joins a CONSTANT literal filename onto the store root the caller named.
+  // There is no caller-supplied component in the joined segment at all, so
+  // there is nothing here to validate; semgrep treats the root as tainted
+  // regardless of what it is.
+  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
   return path.join(String(root), 'manifest.json');
 }
 
 /**
  * The dry-run receipt: proof that this exact run was planned and checked before
- * it was allowed to write. See `extract-snapshot.writeReceipt`.
+ * it was allowed to write. See `extract-snapshot.assertDryRunReceipt`.
  */
 function receiptFile(root) {
+  // Joins a CONSTANT literal filename onto the store root - same reasoning as
+  // manifestFile above.
+  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
   return path.join(String(root), 'dry-run-receipt.json');
 }
 
