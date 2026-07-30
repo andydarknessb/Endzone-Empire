@@ -76,13 +76,113 @@ if (!ENABLED) {
     passwordVerifier: gate1.scramVerifier(TEST_PASSWORD),
   });
 
+  /**
+   * Return a pooled client to the pool ONLY if it is genuinely reusable, and
+   * destroy it otherwise.
+   *
+   * The failure mode this exists for is cross-test contamination, and it has
+   * happened: a test failed while a phase was mid-transaction, its cleanup
+   * released the connection as-is, and the NEXT test drew the same connection
+   * and died with "current transaction is aborted, commands ignored until end of
+   * transaction block". The victim test looked broken; nothing was wrong with it.
+   *
+   * ROLLBACK is issued unconditionally. Outside a transaction PostgreSQL answers
+   * with a WARNING ("there is no transaction in progress") and SUCCEEDS, so this
+   * is safe on a clean connection; inside an aborted transaction it is the only
+   * statement that succeeds and the only way back to a usable state. If it
+   * fails, the connection cannot be brought to a known state at all, so it is
+   * released WITH an error argument, which makes node-postgres destroy it rather
+   * than hand it to the next caller.
+   */
+  async function releaseSafely(client) {
+    let poison = null;
+    try {
+      await client.query('ROLLBACK');
+    } catch (err) {
+      // Either the transaction could not be cleared, or the connection is no
+      // longer queryable at all (pg rejects on a client that hit a connection
+      // error). Both mean: do not reuse this.
+      poison = err;
+    }
+    // Exactly ONE release call. pg-pool's _releaseOnce throws on a second
+    // release, and a throw from a cleanup hook would replace whatever real
+    // failure the test was reporting with a confusing one about double release.
+    try {
+      client.release(poison || undefined);
+    } catch {
+      // Already released by another path. Nothing to do, and nothing worth
+      // failing a cleanup hook over.
+    }
+  }
+
   /** Drop a role unconditionally, for cleanup. Never used as the test's teardown. */
   async function forceDrop(roleName) {
     const client = await pool.connect();
     try {
+      // The connection may arrive poisoned from an earlier failure: the pool
+      // hands it back exactly as it was left. Clear it BEFORE the drops, or both
+      // of them fail with 25P02, get swallowed by the catches below, and this
+      // helper silently does nothing while reporting success.
+      await client.query('ROLLBACK').catch(() => {});
       await client.query(`DROP OWNED BY ${gate1.quoteIdent(roleName)}`).catch(() => {});
       await client.query(`DROP ROLE IF EXISTS ${gate1.quoteIdent(roleName)}`).catch(() => {});
-    } finally { client.release(); }
+    } finally {
+      await releaseSafely(client);
+    }
+  }
+
+  /**
+   * A client connected AS the temporary role, with an error listener attached
+   * from the moment the client exists.
+   *
+   * `pg.Client` is an EventEmitter, and an 'error' event with no listener is
+   * rethrown by EventEmitter as an uncaught exception. That is not a
+   * hypothetical: pg_terminate_backend makes the server send SQLSTATE 57P01
+   * before closing the socket, and on an IDLE client there is no pending query
+   * promise to reject, so node-postgres surfaces it as an 'error' EVENT. With no
+   * listener it failed the running test - a test whose whole point was that the
+   * session gets terminated. The expected outcome was being reported as a crash.
+   *
+   * The listener uses `on`, not `once`: it must stay attached for the life of
+   * the client, because a second error event (during `end()`, say) with no
+   * listener would throw exactly the way the first one did.
+   */
+  function roleClient(roleName, { password = TEST_PASSWORD } = {}) {
+    const client = new pg.Client({ ...connection, user: roleName, password });
+    const errors = [];
+    let notify = null;
+    client.on('error', (err) => {
+      errors.push(err);
+      if (notify) notify(err);
+    });
+    return {
+      client,
+      errors,
+      connect: () => client.connect(),
+      query: (...args) => client.query(...args),
+      /**
+       * Resolve with the first connection-level error, or null if none arrives
+       * within the timeout. Deliberately never REJECTS: a rejecting timeout
+       * promise that nobody awaited (because an assertion failed first) would
+       * become an unhandled rejection and fail the run for a second, unrelated
+       * reason.
+       *
+       * ONE waiter only: `notify` is a single slot, and a second concurrent
+       * call would silently replace the first waiter's resolver, leaving it
+       * to hang until its timeout. If a test ever needs two waiters, make
+       * this an array - do not call waitForError twice concurrently.
+       */
+      waitForError: (timeoutMs = 15000) => {
+        if (errors.length > 0) return Promise.resolve(errors[0]);
+        return new Promise((resolve) => {
+          const timer = setTimeout(() => resolve(null), timeoutMs);
+          if (timer.unref) timer.unref();
+          notify = (err) => { clearTimeout(timer); resolve(err); };
+        });
+      },
+      /** Always safe: ending an already-terminated client can reject. */
+      end: () => client.end().catch(() => {}),
+    };
   }
 
   test.before(async () => {
@@ -103,7 +203,7 @@ if (!ENABLED) {
     const validUntil = futureIso(2);
     const values = valuesFor(roleName, validUntil);
     const client = await pool.connect();
-    t.after(async () => { client.release(); await forceDrop(roleName); });
+    t.after(async () => { await releaseSafely(client); await forceDrop(roleName); });
 
     const created = capture();
     await gate1.phaseCreate(client, values, { log: created.log });
@@ -188,10 +288,10 @@ if (!ENABLED) {
     const roleName = nextRole();
     const values = valuesFor(roleName, futureIso(1));
     const admin = await pool.connect();
-    t.after(async () => { admin.release(); await forceDrop(roleName); });
+    t.after(async () => { await releaseSafely(admin); await forceDrop(roleName); });
     await gate1.phaseCreate(admin, values, { log: () => {} });
 
-    const asRole = new pg.Client({ ...connection, user: roleName, password: TEST_PASSWORD });
+    const asRole = roleClient(roleName);
     await asRole.connect();
     try {
       for (const table of gate1.EXPECTED_TABLES) {
@@ -221,6 +321,16 @@ if (!ENABLED) {
       assert.ok(others.length === 1, 'the test database must have a fifth table to check against');
       await assert.rejects(() => asRole.query(`SELECT * FROM public.${others[0].relname} LIMIT 0`),
         /permission denied/, `the role must NOT be able to read ${others[0].relname}`);
+      // Every rejection above is a QUERY rejection - a permission error leaves
+      // the connection alive - so nothing here should have reached the client's
+      // error event. If one did, the connection died for a reason this test is
+      // not about, and the assertions above proved less than they appear to.
+      // This cannot be made flaky by benign traffic: NOTICE/WARNING messages go
+      // to the 'notice' event, never 'error', and an error DURING a query has
+      // an active query to reject into (pg client.js:421-428 routes to the
+      // error EVENT only when the client is idle). Do not relax it.
+      assert.deepEqual(asRole.errors, [],
+        'no connection-level error may occur while probing privileges');
     } finally {
       await asRole.end();
     }
@@ -230,7 +340,7 @@ if (!ENABLED) {
     const roleName = nextRole();
     const values = valuesFor(roleName, futureIso(1));
     const client = await pool.connect();
-    t.after(async () => { client.release(); await forceDrop(roleName); });
+    t.after(async () => { await releaseSafely(client); await forceDrop(roleName); });
     await gate1.phaseCreate(client, values, { log: () => {} });
 
     // A fifth table, granted out of band - exactly the drift the enumeration
@@ -263,7 +373,7 @@ if (!ENABLED) {
     const values = valuesFor(roleName, validUntil);
     const client = await pool.connect();
     const ident = gate1.quoteIdent(roleName);
-    t.after(async () => { client.release(); await forceDrop(roleName); });
+    t.after(async () => { await releaseSafely(client); await forceDrop(roleName); });
     await gate1.phaseCreate(client, values, { log: () => {} });
 
     // Each mutation is applied, asserted on, and reverted, so the checks are
@@ -305,7 +415,7 @@ if (!ENABLED) {
     const values = valuesFor(roleName, futureIso(1));
     const client = await pool.connect();
     const ident = gate1.quoteIdent(roleName);
-    t.after(async () => { client.release(); await forceDrop(roleName); });
+    t.after(async () => { await releaseSafely(client); await forceDrop(roleName); });
     await gate1.phaseCreate(client, values, { log: () => {} });
 
     const { rows: [other] } = await client.query(
@@ -337,13 +447,14 @@ if (!ENABLED) {
       });
 
     // And the role really could read that column, so the check is not pedantry.
-    const asRole = new pg.Client({ ...connection, user: roleName, password: TEST_PASSWORD });
+    const asRole = roleClient(roleName);
     await asRole.connect();
     try {
       await assert.doesNotReject(
         () => asRole.query(`SELECT ${gate1.quoteIdent(other.attname)} FROM public.${other.relname} LIMIT 0`),
         'the column grant is a real read privilege'
       );
+      assert.deepEqual(asRole.errors, []);
     } finally { await asRole.end(); }
 
     await client.query(
@@ -358,7 +469,7 @@ if (!ENABLED) {
     // the parameter name. The first version of the preflight compared that
     // rendering against the literal 'text' and refused a correct database.
     const client = await pool.connect();
-    t.after(() => client.release());
+    t.after(() => releaseSafely(client));
 
     const { rows: [shape] } = await client.query(
       `SELECT pg_get_function_identity_arguments(p.oid) AS identity_arguments,
@@ -380,8 +491,12 @@ if (!ENABLED) {
     const values = valuesFor(roleName, futureIso(1));
     const client = await pool.connect();
     t.after(async () => {
+      // ROLLBACK first: on a failure path this connection may be mid- or
+      // post-abort, in which case the DROP below would fail with 25P02 and be
+      // swallowed, leaving the extra overload behind for every later test.
+      await client.query('ROLLBACK').catch(() => {});
       await client.query('DROP FUNCTION IF EXISTS public.fn_normalize_nfl_team(integer)').catch(() => {});
-      client.release();
+      await releaseSafely(client);
       await forceDrop(roleName);
     });
 
@@ -442,7 +557,7 @@ if (!ENABLED) {
     const roleName = nextRole();
     const values = valuesFor(roleName, futureIso(1));
     const client = await pool.connect();
-    t.after(async () => { client.release(); await forceDrop(roleName); });
+    t.after(async () => { await releaseSafely(client); await forceDrop(roleName); });
     await gate1.phaseCreate(client, values, { log: () => {} });
 
     const { rows: [before] } = await client.query(
@@ -475,7 +590,7 @@ if (!ENABLED) {
     const roleName = nextRole();
     const values = valuesFor(roleName, futureIso(1));
     const client = await pool.connect();
-    t.after(async () => { client.release(); await forceDrop(roleName); });
+    t.after(async () => { await releaseSafely(client); await forceDrop(roleName); });
 
     // A pre-existing role that is NOT what this kit would have made: superuser
     // -ish attributes the kit never grants. Adopting it would be the worst
@@ -505,8 +620,11 @@ if (!ENABLED) {
     const values = valuesFor(roleName, futureIso(1));
     const client = await pool.connect();
     t.after(async () => {
+      // This test deliberately runs inside explicit transactions, so a failed
+      // assertion leaves one open by construction. releaseSafely rolls back
+      // again and destroys the connection if it cannot.
       await client.query('ROLLBACK').catch(() => {});
-      client.release();
+      await releaseSafely(client);
       await forceDrop(roleName);
     });
 
@@ -568,8 +686,12 @@ if (!ENABLED) {
     const client = await pool.connect();
     const ident = gate1.quoteIdent(roleName);
     t.after(async () => {
+      // ROLLBACK before the DROP: if the test failed mid-transaction the DROP
+      // would fail with 25P02, get swallowed, and leave a table owned by a role
+      // that forceDrop is then unable to remove.
+      await client.query('ROLLBACK').catch(() => {});
       await client.query(`DROP TABLE IF EXISTS public.gate1_owned_${process.pid}`).catch(() => {});
-      client.release();
+      await releaseSafely(client);
       await forceDrop(roleName);
     });
     await gate1.phaseCreate(client, values, { log: () => {} });
@@ -601,7 +723,11 @@ if (!ENABLED) {
     const otherName = nextRole();
     const values = valuesFor(roleName, futureIso(1));
     const client = await pool.connect();
-    t.after(async () => { client.release(); await forceDrop(roleName); await forceDrop(otherName); });
+    t.after(async () => {
+      await releaseSafely(client);
+      await forceDrop(roleName);
+      await forceDrop(otherName);
+    });
     await gate1.phaseCreate(client, values, { log: () => {} });
     await client.query(`CREATE ROLE ${gate1.quoteIdent(otherName)}`);
 
@@ -628,7 +754,7 @@ if (!ENABLED) {
     const roleName = nextRole();
     const values = valuesFor(roleName, futureIso(1));
     const client = await pool.connect();
-    t.after(() => client.release());
+    t.after(() => releaseSafely(client));
 
     const first = capture();
     const result = await gate1.phaseTeardown(client, values, { log: first.log });
@@ -648,15 +774,35 @@ if (!ENABLED) {
     // VALID UNTIL does not close a session that is already open, and DROP ROLE
     // does not either - it just fails or leaves the connection live. This is
     // the step that makes the credential actually temporary.
+    //
+    // The termination is therefore the BEHAVIOUR UNDER TEST, and the 57P01 the
+    // driver raises for it is a signal to be asserted on, not an accident to be
+    // survived. Getting that backwards is what broke this test in CI.
     const roleName = nextRole();
     const values = valuesFor(roleName, futureIso(1));
     const admin = await pool.connect();
-    t.after(async () => { admin.release(); await forceDrop(roleName); });
+    let session = null;
+    // ONE cleanup hook, so the ordering is explicit rather than emergent from
+    // hook-registration order. It awaits the same two things the body does, in
+    // the same order: the role's client is shut down FIRST, and only then is the
+    // admin connection handed back. Releasing the admin client while
+    // phaseTeardown is still in flight is what poisoned the pool and made the
+    // next test fail on an aborted transaction.
+    t.after(async () => {
+      if (session) await session.end();
+      await releaseSafely(admin);
+      await forceDrop(roleName);
+    });
     await gate1.phaseCreate(admin, values, { log: () => {} });
 
-    const asRole = new pg.Client({ ...connection, user: roleName, password: TEST_PASSWORD });
-    await asRole.connect();
-    await asRole.query('SELECT 1');
+    session = roleClient(roleName);
+    await session.connect();
+    await session.query('SELECT 1');
+    // Registered BEFORE anything can terminate the session. If the watcher were
+    // installed after phaseTeardown, the event would already have fired against
+    // no listener and the process would be dead before the assertion ran.
+    const terminated = session.waitForError();
+
     const { rows: before } = await admin.query(
       'SELECT count(*)::int AS n FROM pg_stat_activity WHERE usename = $1', [roleName]
     );
@@ -665,7 +811,21 @@ if (!ENABLED) {
     const log = capture();
     await gate1.phaseTeardown(admin, values, { log: log.log });
     assert.match(log.text(), /terminated 1 open session/);
-    await asRole.end().catch(() => {});
+
+    // Await the termination, and assert it is the one PostgreSQL documents for
+    // an administrative disconnect. teardown_terminate_sessions uses the
+    // two-argument pg_terminate_backend(pid, 10000), which does not return until
+    // the backend has actually exited, so by this point the socket is closed and
+    // the event has been delivered to the listener installed above.
+    const err = await terminated;
+    assert.ok(err, 'terminating the backend must surface an error on the role client');
+    assert.equal(err.code, '57P01',
+      `expected 57P01 (admin_shutdown), got ${err.code}: ${err.message}`);
+    assert.match(err.message, /terminating connection due to administrator command/);
+
+    // Shut the role client down BEFORE touching the admin connection again.
+    await session.end();
+    session = null;
 
     const { rows: after } = await admin.query(
       'SELECT count(*)::int AS n FROM pg_stat_activity WHERE usename = $1', [roleName]
@@ -676,7 +836,7 @@ if (!ENABLED) {
   test('the accident guard refuses a database name that is not the connected one', async (t) => {
     const roleName = nextRole();
     const client = await pool.connect();
-    t.after(async () => { client.release(); await forceDrop(roleName); });
+    t.after(async () => { await releaseSafely(client); await forceDrop(roleName); });
     const wrong = { ...valuesFor(roleName, futureIso(1)), databaseName: 'not_the_database' };
 
     // All three phases, including verify: it is meant to be run standalone days
@@ -695,16 +855,34 @@ if (!ENABLED) {
     const roleName = nextRole();
     const values = valuesFor(roleName, futureIso(1));
     const admin = await pool.connect();
-    t.after(async () => { admin.release(); await forceDrop(roleName); });
+    let first = null;
+    // Cleanup shuts the role's own client down before the admin connection goes
+    // back to the pool, same ordering discipline as the termination test.
+    t.after(async () => {
+      if (first) await first.end();
+      await releaseSafely(admin);
+      await forceDrop(roleName);
+    });
     await gate1.phaseCreate(admin, values, { log: () => {} });
 
-    const first = new pg.Client({ ...connection, user: roleName, password: TEST_PASSWORD });
+    first = roleClient(roleName);
     await first.connect();
     try {
-      const second = new pg.Client({ ...connection, user: roleName, password: TEST_PASSWORD });
+      // The refusal arrives as a REJECTED CONNECT PROMISE, not an error event:
+      // Client.connect() used as a promise installs a connection callback, and
+      // node-postgres delivers a connect failure to that callback instead of
+      // emitting. The listener roleClient attaches is inert insurance here, and
+      // the assertion below proves it stayed inert.
+      const second = roleClient(roleName);
       await assert.rejects(() => second.connect(), /too many connections for role/);
+      assert.deepEqual(second.errors, [],
+        'a refused connect must reject its promise, not raise an unhandled error event');
+      await second.end();
+      assert.deepEqual(first.errors, [],
+        "the first session must be untouched by the second's refusal");
     } finally {
       await first.end();
+      first = null;
     }
   });
 }
