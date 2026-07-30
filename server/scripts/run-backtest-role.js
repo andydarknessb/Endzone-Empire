@@ -1,0 +1,909 @@
+/* eslint-disable no-console */
+'use strict';
+
+/**
+ * The GATED entry point for Gate 1: creating, verifying and tearing down the
+ * temporary read-only role that Gate 2's snapshot extraction runs as.
+ *
+ * WHERE THE ACTUAL AUTHORIZATION ARTIFACT LIVES
+ *
+ * Not here. The complete set of privilege mutations is in
+ * `server/scripts/gate1/create-role.sql`, and its exact inverse is in
+ * `teardown-role.sql`. This file reads those files and substitutes validated
+ * identifiers and timestamps into their psql-style placeholders. It does not
+ * assemble a privilege list, a role flag, a GRANT target or a REVOKE target in
+ * JavaScript, and it cannot: `renderStatement` refuses any placeholder outside
+ * a fixed allowlist of six names, so there is no route by which a value could
+ * become a privilege. A reviewer approving Gate 1 reads the SQL.
+ *
+ * WHY NOT UNDER scripts/backtest/
+ *
+ * Same reason as `run-backtest-extraction.js`: nothing under `scripts/backtest/`
+ * may reach a pool, a `server/services/*` module, or `process.env`, and that is
+ * asserted by test over the whole tree. This needs a credential and a database
+ * connection, so it lives out here with the other plugs.
+ *
+ * CREDENTIALS ARE ENVIRONMENT-ONLY, AND THERE ARE TWO OF THEM
+ *
+ *   BACKTEST_ADMIN_DATABASE_URL  the ADMIN connection. Creating a role needs
+ *                                CREATEROLE or superuser, which is the most
+ *                                dangerous credential in this whole project. No
+ *                                fallback to DATABASE_URL or PG*: a shell that
+ *                                happens to hold the application's credentials
+ *                                must not be able to run this by accident, and
+ *                                the application role should not be able to run
+ *                                it at all.
+ *   BACKTEST_RO_ROLE_PASSWORD    the password for the role being CREATED,
+ *                                generated out of band by the operator.
+ *
+ * Neither may arrive on argv, where `ps`, /proc/<pid>/cmdline and shell history
+ * can all read it.
+ *
+ * THE PASSWORD NEVER BECOMES SQL
+ *
+ * `CREATE ROLE x PASSWORD 'plaintext'` puts the plaintext into the server log
+ * whenever `log_statement` is on, into `pg_stat_activity` while it runs, and
+ * into any error that echoes the statement. Log retention typically outlives a
+ * seven-day role by a wide margin, so the password would outlive the role.
+ *
+ * Instead the SCRAM-SHA-256 verifier is computed CLIENT-SIDE here (RFC 7677 /
+ * RFC 5802) and only the verifier is sent. PostgreSQL stores a well-formed
+ * verifier verbatim. The verifier is not the password and cannot be replayed as
+ * one over the wire, but it is still key material, so it is redacted from every
+ * line this file prints and from every error it throws, alongside the password
+ * itself and the admin connection string.
+ *
+ * AUTHORIZATION. Running any phase of this against production is **Gate 1** of
+ * three separate approvals, and requires the user's explicit approval at the
+ * time. Nothing may run it automatically. See `server/scripts/gate1/README.md`
+ * for the operator sequence.
+ */
+
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
+
+const pg = require('pg');
+
+const { sslForConnection } = require('../modules/dbSsl');
+
+/** The ONE variable the admin credential may arrive in. No fallback, by design. */
+const ADMIN_ENV_VAR = 'BACKTEST_ADMIN_DATABASE_URL';
+/** The ONE variable the new role's password may arrive in. */
+const PASSWORD_ENV_VAR = 'BACKTEST_RO_ROLE_PASSWORD';
+
+const SQL_DIR = path.join(__dirname, 'gate1');
+const PHASES = Object.freeze(['create', 'verify', 'teardown']);
+
+/**
+ * The role name pattern. Narrow on purpose: the prefix makes every role this
+ * kit can touch identifiable at a glance in `\du`, and the character class
+ * leaves nothing that could survive quoting as anything but an identifier.
+ */
+const ROLE_PATTERN = /^backtest_ro_[a-z0-9_]{1,40}$/;
+const DATABASE_PATTERN = /^[a-z_][a-z0-9_]{0,62}$/;
+/** ISO-8601 with an EXPLICIT timezone. A naive timestamp means "whose clock?". */
+const VALID_UNTIL_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/;
+/** A role that outlives the work it exists for is a permanent credential. */
+const MAX_VALID_UNTIL_DAYS = 7;
+/** Below this a generated password is not what "generated out of band" means. */
+const MIN_PASSWORD_LENGTH = 24;
+/** PostgreSQL's own default. Matching it keeps the verifier unsurprising. */
+const SCRAM_ITERATIONS = 4096;
+const SCRAM_SALT_BYTES = 16;
+
+/**
+ * What the role is allowed to hold, mirroring create-role.sql. These are
+ * comparison targets for the enumeration checks, NOT inputs to any statement -
+ * no value below is ever interpolated into SQL. `backtestGate1Role.test.js`
+ * asserts that this list and the GRANT statements in create-role.sql name the
+ * same four tables, so the two cannot drift apart silently.
+ */
+const EXPECTED_TABLES = Object.freeze(['nfl_games', 'player_season_stats', 'player_stats', 'players']);
+const EXPECTED_FUNCTION = Object.freeze({ name: 'fn_normalize_nfl_team', args: 'text' });
+
+// ---------------------------------------------------------------------------
+// Secrets: reading them, and keeping them out of everything
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a redactor over every secret this process holds. Applied to every line
+ * printed and every error message raised, so that a secret cannot escape by way
+ * of a driver error that happens to quote a statement, or a stack trace, or an
+ * operator pasting output into a review.
+ *
+ * `redact.add(secret)` registers a secret discovered later - the SCRAM verifier
+ * is derived part-way through a run, and must be redacted from that moment on.
+ * This exists so that the redactor can be built at the very TOP of `main`, from
+ * the environment alone, before a single argument is parsed. An earlier version
+ * built it after argv validation, and a review demonstrated four separate
+ * cleartext leaks: a password typed as a stray positional, and a password
+ * mis-ordered into --role, --database or --valid-until, each echoed verbatim by
+ * the very validation that rejected it. Nothing may run before the redactor.
+ *
+ * Secrets shorter than 8 characters are ignored: replacing a two-character
+ * string everywhere would corrupt the output into uselessness, and anything
+ * that short is not a credential this kit accepts.
+ */
+function makeRedactor(secrets = []) {
+  const real = [];
+  function redact(value) {
+    let text = typeof value === 'string' ? value : String(value == null ? '' : value);
+    for (const secret of real) text = text.split(secret).join('[REDACTED]');
+    return text;
+  }
+  redact.add = (secret) => {
+    if (typeof secret === 'string' && secret.length >= 8 && !real.includes(secret)) {
+      real.push(secret);
+      // Longest first, so a URL is replaced whole before the password inside it
+      // turns it into a half-redacted fragment.
+      real.sort((a, b) => b.length - a.length);
+    }
+    return redact;
+  };
+  for (const secret of secrets) redact.add(secret);
+  return redact;
+}
+
+/**
+ * Pure: an argument safe to put in an error message.
+ *
+ * Ported from `scripts/backtest/extract-snapshot.js`, where it was added after
+ * the Phase-1 review for exactly this hazard. A parser that echoes whatever it
+ * did not recognize will happily print a password somebody typed in the wrong
+ * position into a terminal, a log, or a CI transcript. Recognized flag NAMES
+ * are safe and useful to echo; anything else is described rather than quoted.
+ *
+ * This is the belt to the redactor's braces: the redactor only knows secrets it
+ * has been told about, and a password typed on argv but never exported is a
+ * secret nothing in the process has ever seen.
+ */
+function redactArgument(token) {
+  const text = String(token == null ? '' : token);
+  return /^--[a-z0-9-]+$/.test(text) ? text : `<redacted ${text.length}-character non-flag argument>`;
+}
+
+/** Extract the password from a connection URL so it is redacted on its own too. */
+function passwordFromUrl(connectionString) {
+  try {
+    const parsed = new URL(connectionString);
+    return parsed.password ? decodeURIComponent(parsed.password) : null;
+  } catch {
+    return null;
+  }
+}
+
+function readAdminCredential(env) {
+  const value = env[ADMIN_ENV_VAR];
+  if (typeof value === 'string' && value.trim() !== '') return value.trim();
+  const hasAppUrl = !!(env.DATABASE_URL || env.DATABASE_URL_RUNTIME || env.PGUSER || env.PGHOST);
+  throw new Error(
+    `${ADMIN_ENV_VAR} is not set. Gate 1 connects with a credential that can CREATE ROLE, and it `
+    + 'is read from that one environment variable - never from the command line, where `ps` and '
+    + 'shell history can read it.'
+    + (hasAppUrl
+      ? ' DATABASE_URL (or PG*) IS set in this environment and is deliberately NOT used as a '
+        + 'fallback. That is the application role. If it can create roles, that is a finding in '
+        + 'itself; either way, the privilege escalation path from "the app is running" to "a new '
+        + 'login role exists" must not be one environment variable wide.'
+      : '')
+  );
+}
+
+/**
+ * Read the password for the role being created.
+ *
+ * PRINTABLE ASCII IS REQUIRED, and this is a correctness constraint rather than
+ * a policy one. SCRAM (RFC 7677) specifies that the password is SASLprep'd
+ * before key derivation, and PostgreSQL applies SASLprep server-side when it
+ * hashes a plaintext password. This file computes the verifier WITHOUT a
+ * SASLprep implementation, which is exactly equivalent for printable ASCII and
+ * NOT equivalent otherwise. A password containing, say, a non-breaking space
+ * would produce a verifier here that the operator's own password could not
+ * later authenticate against - a failure that would surface at Gate 2 as an
+ * inexplicable authentication error. Refusing the input is the honest fix.
+ */
+function readRolePassword(env) {
+  const value = env[PASSWORD_ENV_VAR];
+  if (typeof value !== 'string' || value === '') {
+    throw new Error(
+      `${PASSWORD_ENV_VAR} is not set. Generate one out of band (for example `
+      + '`openssl rand -base64 33`), export it, and do not pass it on the command line.'
+    );
+  }
+  if (value.length < MIN_PASSWORD_LENGTH) {
+    throw new Error(
+      `${PASSWORD_ENV_VAR} is ${value.length} characters; at least ${MIN_PASSWORD_LENGTH} are `
+      + 'required. This is a production credential that will be typed into no prompt and '
+      + 'remembered by no one, so there is no reason for it to be short.'
+    );
+  }
+  if (!/^[\x21-\x7e]+$/.test(value)) {
+    throw new Error(
+      `${PASSWORD_ENV_VAR} must contain only printable ASCII with no spaces. The SCRAM verifier `
+      + 'is computed here without a SASLprep implementation, which is equivalent to SASLprep for '
+      + 'printable ASCII and only for printable ASCII; accepting anything else would silently '
+      + 'produce a verifier the password cannot authenticate against. A leading or trailing space '
+      + 'is usually a stray shell quote, and a newline is usually `echo` without -n.'
+    );
+  }
+  return value;
+}
+
+/**
+ * The SCRAM-SHA-256 verifier, per RFC 5802 section 3 and RFC 7677:
+ *
+ *   SaltedPassword = PBKDF2-HMAC-SHA256(password, salt, iterations, dkLen 32)
+ *   ClientKey      = HMAC-SHA256(SaltedPassword, "Client Key")
+ *   StoredKey      = SHA256(ClientKey)
+ *   ServerKey      = HMAC-SHA256(SaltedPassword, "Server Key")
+ *
+ * stored by PostgreSQL as
+ *
+ *   SCRAM-SHA-256$<iterations>:<salt b64>$<StoredKey b64>:<ServerKey b64>
+ *
+ * `backtestGate1Role.test.js` pins this against the published RFC 7677 test
+ * vector, by reconstructing that vector's ClientProof and ServerSignature from
+ * the StoredKey and ServerKey this function derives. Both must match the
+ * values printed in the RFC, which checks both keys rather than just re-running
+ * the same arithmetic and agreeing with itself.
+ */
+function scramVerifier(password, { iterations = SCRAM_ITERATIONS, salt = null } = {}) {
+  if (typeof password !== 'string' || password === '') throw new Error('a password is required');
+  if (!Number.isInteger(iterations) || iterations < 4096) {
+    throw new Error(`SCRAM iterations must be an integer of at least 4096, got ${iterations}`);
+  }
+  const saltBytes = salt || crypto.randomBytes(SCRAM_SALT_BYTES);
+  const saltedPassword = crypto.pbkdf2Sync(Buffer.from(password, 'utf8'), saltBytes, iterations, 32, 'sha256');
+  const clientKey = crypto.createHmac('sha256', saltedPassword).update('Client Key').digest();
+  const storedKey = crypto.createHash('sha256').update(clientKey).digest();
+  const serverKey = crypto.createHmac('sha256', saltedPassword).update('Server Key').digest();
+  return `SCRAM-SHA-256$${iterations}:${saltBytes.toString('base64')}`
+    + `$${storedKey.toString('base64')}:${serverKey.toString('base64')}`;
+}
+
+// ---------------------------------------------------------------------------
+// Validation. Nothing reaches SQL that has not been through here.
+// ---------------------------------------------------------------------------
+
+function assertRoleName(value) {
+  if (typeof value !== 'string' || !ROLE_PATTERN.test(value)) {
+    throw new Error(
+      `--role must match ${ROLE_PATTERN} (lowercase, the backtest_ro_ prefix, and nothing that `
+      + `could survive quoting as anything but an identifier); got ${JSON.stringify(value)}`
+    );
+  }
+  if (value.length > 63) {
+    throw new Error(`--role is ${value.length} characters; PostgreSQL truncates identifiers at 63, `
+      + 'and a truncated role name would make every later check target the wrong role');
+  }
+  return value;
+}
+
+function assertDatabaseName(value) {
+  if (typeof value !== 'string' || !DATABASE_PATTERN.test(value)) {
+    throw new Error(`--database must match ${DATABASE_PATTERN}; got ${JSON.stringify(value)}`);
+  }
+  return value;
+}
+
+/**
+ * A role OID, read back from the catalog and about to be substituted into the
+ * teardown confirmation. It never comes from argv, but it is validated on the
+ * same terms as everything else that reaches a statement: the allowlist in
+ * `renderStatement` makes no distinction between a value an operator typed and
+ * a value a query returned, and neither should this.
+ */
+function assertRoleOid(value, { label = 'role oid' } = {}) {
+  const text = String(value == null ? '' : value);
+  if (!/^[1-9]\d{0,9}$/.test(text)) {
+    throw new Error(`${label}: expected a positive integer OID, got ${JSON.stringify(value)}`);
+  }
+  return text;
+}
+
+/**
+ * The expiry. Bounded on BOTH sides: a past timestamp creates a role that
+ * cannot log in (and would waste a production Gate on nothing), and an
+ * unbounded future one creates a permanent credential wearing a temporary
+ * credential's name, which is worse than an honestly permanent one because
+ * nobody goes looking for it.
+ */
+function assertValidUntil(value, { now = new Date() } = {}) {
+  if (typeof value !== 'string' || !VALID_UNTIL_PATTERN.test(value)) {
+    throw new Error(
+      '--valid-until must be an ISO-8601 timestamp with an explicit timezone, for example '
+      + `2026-08-02T00:00:00Z; got ${JSON.stringify(value)}. A timestamp without a zone means `
+      + "\"whose clock?\", and the answer would be the database server's, not the operator's."
+    );
+  }
+  const when = new Date(value);
+  if (Number.isNaN(when.getTime())) throw new Error(`--valid-until is not a real date: ${JSON.stringify(value)}`);
+  const ms = when.getTime() - now.getTime();
+  if (ms <= 0) {
+    throw new Error(
+      `--valid-until (${value}) is not in the future. A role created already-expired cannot log `
+      + 'in, so Gate 2 would fail and a production Gate would have been spent for nothing.'
+    );
+  }
+  const maxMs = MAX_VALID_UNTIL_DAYS * 24 * 60 * 60 * 1000;
+  if (ms > maxMs) {
+    throw new Error(
+      `--valid-until (${value}) is ${(ms / 86400000).toFixed(1)} days away; the maximum is `
+      + `${MAX_VALID_UNTIL_DAYS}. The extraction is one run of a few minutes. Anything longer is a `
+      + 'standing production read credential, which is the thing this whole kit exists to avoid.'
+    );
+  }
+  return value;
+}
+
+// ---------------------------------------------------------------------------
+// Rendering: the ONLY path from a value to a statement
+// ---------------------------------------------------------------------------
+
+/** A quoted SQL identifier. Input is pattern-validated; this is the second lock. */
+function quoteIdent(value) {
+  if (typeof value !== 'string' || value === '' || /["\0]/.test(value)) {
+    throw new Error(`refusing to quote ${JSON.stringify(value)} as an identifier`);
+  }
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+/**
+ * A quoted SQL string literal. Backslashes are REFUSED rather than escaped:
+ * whether a backslash in a literal is an escape depends on
+ * `standard_conforming_strings`, which is a server setting this file does not
+ * control. Nothing it is asked to quote legitimately contains one.
+ */
+function quoteLiteral(value) {
+  if (typeof value !== 'string' || value === '' || /[\\\0]/.test(value)) {
+    throw new Error(`refusing to quote ${JSON.stringify(value)} as a literal`);
+  }
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+/** Split a .sql file into its named `-- @statement: name` blocks, in order. */
+function loadStatements(sqlText, { label = 'sql' } = {}) {
+  const blocks = new Map();
+  const pattern = /^--[ \t]*@statement:[ \t]*([a-z0-9_]+)[ \t]*$/gm;
+  const marks = [...sqlText.matchAll(pattern)];
+  if (marks.length === 0) throw new Error(`${label}: no "-- @statement:" blocks found`);
+  marks.forEach((mark, i) => {
+    const name = mark[1];
+    if (blocks.has(name)) throw new Error(`${label}: duplicate statement block ${JSON.stringify(name)}`);
+    const start = mark.index + mark[0].length;
+    const end = i + 1 < marks.length ? marks[i + 1].index : sqlText.length;
+    const body = sqlText.slice(start, end).trim();
+    if (body === '') throw new Error(`${label}: statement block ${JSON.stringify(name)} is empty`);
+    blocks.set(name, body);
+  });
+  return blocks;
+}
+
+/**
+ * Substitute the psql-style placeholders, and ONLY those.
+ *
+ * `:'name'` takes a string literal, `:"name"` takes an identifier, and the name
+ * must be one of six. Every placeholder in the text is matched by one regex and
+ * resolved through the allowlist, so an unrecognised one is an error rather
+ * than text that survives into a statement - which is what stops a future edit
+ * to a .sql file from introducing an unvalidated substitution point.
+ */
+function renderStatement(text, values, { label = 'statement' } = {}) {
+  const allowed = new Map([
+    ['role_name', { kind: 'literal', value: values.roleName }],
+    ['role_ident', { kind: 'ident', value: values.roleName }],
+    ['database_name', { kind: 'literal', value: values.databaseName }],
+    ['database_ident', { kind: 'ident', value: values.databaseName }],
+    ['valid_until', { kind: 'literal', value: values.validUntil }],
+    ['password_verifier', { kind: 'literal', value: values.passwordVerifier }],
+    ['role_oid', { kind: 'literal', value: values.roleOid }],
+  ]);
+  return text.replace(/:(['"])([a-zA-Z_][a-zA-Z0-9_]*)\1/g, (whole, quote, name) => {
+    const spec = allowed.get(name);
+    const wantKind = quote === '"' ? 'ident' : 'literal';
+    if (!spec) {
+      throw new Error(
+        `${label}: unknown placeholder ${whole}. Only ${[...allowed.keys()].join(', ')} may be `
+        + 'substituted, so that no value can reach a statement without being validated first.'
+      );
+    }
+    if (spec.kind !== wantKind) {
+      throw new Error(
+        `${label}: ${whole} is a ${wantKind} placeholder but ${name} is an ${spec.kind} value`
+      );
+    }
+    if (spec.value == null) {
+      throw new Error(`${label}: ${whole} is required by this phase but no value was supplied`);
+    }
+    // This is the ONE place a value becomes SQL text. The value is
+    // pattern-validated before it ever arrives here (assertRoleName /
+    // assertDatabaseName / assertValidUntil) or is a locally computed SCRAM
+    // verifier, and is quoted by quoteIdent / quoteLiteral, both of which
+    // REFUSE rather than escape anything that could break out. The
+    // corresponding scanner suppression is on the sink in `runBlock`, which is
+    // where a taint analysis reports.
+    return wantKind === 'ident' ? quoteIdent(spec.value) : quoteLiteral(spec.value);
+  });
+}
+
+function readSqlFile(name, { dir = SQL_DIR } = {}) {
+  if (!/^[a-z0-9-]+\.sql$/.test(name)) throw new Error(`refusing to read ${JSON.stringify(name)}`);
+  // `dir` defaults to a __dirname-derived constant and `name` is validated
+  // against a literal pattern immediately above, so neither side of the join
+  // can carry a traversal segment.
+  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
+  return fs.readFileSync(path.join(dir, name), 'utf8');
+}
+
+// ---------------------------------------------------------------------------
+// Argv
+// ---------------------------------------------------------------------------
+
+function parseArgs(argv) {
+  const args = { phase: null, database: null, role: null, validUntil: null, printSql: false };
+  const rest = [];
+  for (let i = 0; i < argv.length; i++) {
+    const token = argv[i];
+    const take = () => {
+      const value = argv[i + 1];
+      if (value === undefined || value.startsWith('--')) throw new Error(`${token} needs a value`);
+      i += 1;
+      return value;
+    };
+    if (token === '--phase') args.phase = take();
+    else if (token === '--database') args.database = take();
+    else if (token === '--role') args.role = take();
+    else if (token === '--valid-until') args.validUntil = take();
+    else if (token === '--print-sql') args.printSql = true;
+    else rest.push(token);
+  }
+  if (rest.length > 0) {
+    throw new Error(
+      `unrecognised argument(s): ${rest.map(redactArgument).join(' ')}. If one of these was meant `
+      + 'to be a password or a connection string, it must not be: both are read from the '
+      + 'environment only.'
+    );
+  }
+  return args;
+}
+
+// ---------------------------------------------------------------------------
+// TLS. Same gate as the extraction runner, same reasoning, higher stakes.
+// ---------------------------------------------------------------------------
+
+/**
+ * Refuse to run unless the connection this process will ACTUALLY open verifies
+ * the server's certificate.
+ *
+ * The check is on the RESOLVED ssl config, not on whether a CA happens to be
+ * configured: `dbSsl.sslForConnection` returns `false` - TLS off entirely - for
+ * a localhost host or `PGSSLMODE=disable`, and `{ rejectUnauthorized: false }`
+ * when no CA is set outside production. The realistic way to hit the first is
+ * an SSH tunnel on localhost, where a CA-presence check would pass happily.
+ *
+ * The extraction runner makes this argument about reading the players and stats
+ * history. Here the traffic is an admin credential and a password verifier, so
+ * the same unverified connection would be a credential disclosure and, against
+ * an active attacker, a role creation of someone else's choosing.
+ */
+function assertVerifiedTls(connectionString, { resolveSsl = sslForConnection, env = process.env } = {}) {
+  let ssl;
+  try {
+    ssl = resolveSsl(connectionString);
+  } catch (err) {
+    throw new Error(`refusing to run Gate 1: the TLS configuration is invalid (${err.message})`);
+  }
+  if (ssl && ssl.rejectUnauthorized === true) return true;
+  const how = ssl === false || ssl == null
+    ? 'TLS is disabled entirely for this connection (a localhost/127.0.0.1 host, or PGSSLMODE=disable)'
+    : `TLS is on but unverified (rejectUnauthorized=${JSON.stringify(ssl.rejectUnauthorized)})`;
+  throw new Error(
+    `refusing to run Gate 1: ${how}. This run carries an administrative credential and a password `
+    + 'verifier, so the connection must verify the server certificate. Set DB_SSL_CA or '
+    + 'DB_SSL_CA_PATH to the database CA, connect to the real database host rather than a '
+    + `localhost tunnel, and do not set PGSSLMODE=disable. (NODE_ENV is `
+    + `${JSON.stringify(env.NODE_ENV || null)}; dbSsl falls back to rejectUnauthorized:false `
+    + 'whenever it is not "production" and no CA is configured.)'
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The phases
+// ---------------------------------------------------------------------------
+
+/** Run one named block. Errors name the BLOCK, never the rendered statement. */
+async function runBlock(client, blocks, name, values, { label }) {
+  const text = blocks.get(name);
+  if (text === undefined) throw new Error(`${label}: no statement block named ${JSON.stringify(name)}`);
+  const rendered = renderStatement(text, values, { label: `${label}:${name}` });
+  try {
+    // The statement body is a reviewed .sql file from `gate1/`, read through
+    // `readSqlFile`'s name allowlist. The only values substituted into it are
+    // the six allowlisted placeholders, each pattern-validated on the way in
+    // from argv and quoted by a helper that refuses anything it cannot quote
+    // safely. There is no parameterized alternative to prefer: DDL cannot bind
+    // identifiers, so `CREATE ROLE $1` and `GRANT ... TO $1` are not valid SQL.
+    // nosemgrep: javascript.lang.security.audit.sqli.node-postgres-sqli.node-postgres-sqli
+    return await client.query(rendered);
+  } catch (err) {
+    // Deliberately NOT including `rendered`: for create_role that string
+    // contains the verifier.
+    throw new Error(`${label}: statement ${name} failed: ${err.message}`);
+  }
+}
+
+function fail(message) { throw new Error(message); }
+
+/** The accident guard: the server must report exactly the database named on argv. */
+async function assertContext(client, blocks, values, { label }) {
+  const res = await runBlock(client, blocks, 'preflight_context', values, { label });
+  const row = res.rows[0] || {};
+  if (row.database_name !== values.databaseName) {
+    fail(
+      `${label}: connected to database ${JSON.stringify(row.database_name)} but --database says `
+      + `${JSON.stringify(values.databaseName)}. This is the accident guard between a correct `
+      + 'command and the wrong connection string; nothing has been changed.'
+    );
+  }
+  if (row.admin_is_superuser !== true && row.admin_can_create_role !== true) {
+    fail(
+      `${label}: the admin role ${JSON.stringify(row.admin_role)} has neither SUPERUSER nor `
+      + 'CREATEROLE, so this run would fail part-way through. Nothing has been changed.'
+    );
+  }
+  return row;
+}
+
+async function phaseCreate(client, values, { log, label = 'create' } = {}) {
+  const blocks = loadStatements(readSqlFile('create-role.sql'), { label });
+  const context = await assertContext(client, blocks, values, { label });
+  log(`connected to ${context.database_name} as ${context.admin_role}`);
+
+  const existing = await runBlock(client, blocks, 'preflight_role_absent', values, { label });
+  if (existing.rows.length > 0) {
+    fail(
+      `${label}: role ${values.roleName} ALREADY EXISTS. It is never adopted: its flags, expiry, `
+      + 'password and grants were set by something other than create-role.sql, so nothing that '
+      + 'file says would describe it. Tear it down deliberately first, or pick a new --role. '
+      + 'Nothing has been changed.'
+    );
+  }
+
+  const objects = await runBlock(client, blocks, 'preflight_objects_present', values, { label });
+  const found = new Map(objects.rows.map((r) => [r.object_name, r]));
+  const missing = EXPECTED_TABLES.filter((t) => !found.has(t));
+  if (missing.length > 0) {
+    fail(`${label}: expected tables missing from public: ${missing.join(', ')}. Nothing has been changed.`);
+  }
+  const wrongKind = [...found.values()].filter((r) => r.object_kind !== 'r' && r.object_kind !== 'p');
+  if (wrongKind.length > 0) {
+    fail(
+      `${label}: ${wrongKind.map((r) => `${r.object_name} is relkind ${r.object_kind}`).join(', ')}. `
+      + 'Granting SELECT on a view can widen the read surface past the four tables. Nothing has '
+      + 'been changed.'
+    );
+  }
+
+  const fn = await runBlock(client, blocks, 'preflight_function_present', values, { label });
+  const overloads = fn.rows.map((r) => r.identity_arguments);
+  if (!overloads.includes(EXPECTED_FUNCTION.args)) {
+    fail(
+      `${label}: public.${EXPECTED_FUNCTION.name}(${EXPECTED_FUNCTION.args}) not found `
+      + `(overloads present: ${overloads.length ? overloads.join(' | ') : 'none'}). Nothing has `
+      + 'been changed.'
+    );
+  }
+  log(`preflight passed: role absent, ${EXPECTED_TABLES.length} tables present, function present`);
+
+  await client.query('BEGIN');
+  try {
+    for (const name of ['create_role', 'set_read_only', 'grant_connect', 'grant_usage',
+      'grant_select', 'grant_execute']) {
+      await runBlock(client, blocks, name, values, { label });
+      log(`  applied ${name}`);
+    }
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  }
+  log(`role ${values.roleName} created, valid until ${values.validUntil}`);
+  return { created: true };
+}
+
+/** Format an enumeration row set for a message, one line each. */
+const describeRows = (rows) => rows.map((r) => JSON.stringify(r)).join('\n    ');
+
+async function phaseVerify(client, values, { log, label = 'verify' } = {}) {
+  const blocks = loadStatements(readSqlFile('verify-role.sql'), { label });
+  // The accident guard applies here too, and not only for symmetry: verify is
+  // meant to be run standalone days later, when the shell it runs in is not the
+  // one that created the role. `has_database_privilege` on a database that does
+  // not exist raises a bare Postgres error, and a bare error is exactly the
+  // thing an operator reads as "the tooling is broken" rather than "you are
+  // pointed at the wrong cluster".
+  await assertContext(client, loadStatements(readSqlFile('create-role.sql'), { label }), values, { label });
+  const problems = [];
+  const note = (message) => problems.push(message);
+
+  const flags = (await runBlock(client, blocks, 'verify_role_flags', values, { label })).rows[0];
+  if (!flags) fail(`${label}: role ${values.roleName} does not exist`);
+  const expectedFlags = {
+    rolsuper: false, rolcreatedb: false, rolcreaterole: false, rolinherit: false,
+    rolreplication: false, rolbypassrls: false, rolcanlogin: true, rolconnlimit: 1,
+  };
+  for (const [key, want] of Object.entries(expectedFlags)) {
+    if (flags[key] !== want) note(`${key} is ${JSON.stringify(flags[key])}, expected ${JSON.stringify(want)}`);
+  }
+  if (flags.rolvaliduntil == null) note('rolvaliduntil is NULL: the role never expires');
+  if (flags.valid_until_matches !== true) {
+    note(`rolvaliduntil is ${JSON.stringify(flags.rolvaliduntil)}, which is not the supplied `
+      + `--valid-until ${values.validUntil}`);
+  }
+  if (flags.valid_until_in_future !== true) note('rolvaliduntil is in the PAST: the role cannot log in');
+
+  const settings = (await runBlock(client, blocks, 'verify_role_settings', values, { label })).rows;
+  const clusterWide = settings.find((r) => Number(r.set_database_oid) === 0);
+  const config = (clusterWide && clusterWide.set_config) || [];
+  if (!config.includes('default_transaction_read_only=on')) {
+    note(`default_transaction_read_only=on is not set for the role (setconfig: ${JSON.stringify(config)})`);
+  }
+
+  const priv = (await runBlock(client, blocks, 'verify_effective_privileges', values, { label })).rows[0];
+  const mustBeTrue = ['db_connect', 'schema_usage', 'select_players', 'select_player_stats',
+    'select_player_season_stats', 'select_nfl_games', 'execute_normalize'];
+  const mustBeFalse = ['insert_players', 'update_players', 'delete_players', 'update_nfl_games',
+    'schema_create'];
+  for (const key of mustBeTrue) if (priv[key] !== true) note(`${key} is ${JSON.stringify(priv[key])}, expected true`);
+  for (const key of mustBeFalse) if (priv[key] !== false) note(`${key} is ${JSON.stringify(priv[key])}, expected FALSE`);
+
+  // The enumerations. These are what make the phase mean something.
+  const relations = (await runBlock(client, blocks, 'verify_relation_acl_enumeration', values, { label })).rows;
+  const relationKeys = relations.map((r) => `${r.schema_name}.${r.object_name}:${r.privilege_type}`).sort();
+  const expectedRelationKeys = EXPECTED_TABLES.map((t) => `public.${t}:SELECT`).sort();
+  if (JSON.stringify(relationKeys) !== JSON.stringify(expectedRelationKeys)) {
+    note(
+      `the role holds relation privileges other than exactly ${expectedRelationKeys.length} SELECTs.\n`
+      + `  expected: ${expectedRelationKeys.join(', ')}\n`
+      + `  actual:   ${relationKeys.join(', ') || '(none)'}\n    ${describeRows(relations)}`
+    );
+  }
+  if (relations.some((r) => r.is_grantable === true)) {
+    note('a relation privilege is GRANTABLE: the role could pass its read access to another role');
+  }
+
+  // Column grants do not appear in pg_class.relacl, so the relation
+  // enumeration above cannot see them. Expected: none at all.
+  const columns = (await runBlock(client, blocks, 'verify_column_acl_enumeration', values, { label })).rows;
+  if (columns.length > 0) {
+    note(
+      'the role holds COLUMN-level privileges, which are invisible to the relation enumeration:\n'
+      + `    ${describeRows(columns)}`
+    );
+  }
+
+  const functions = (await runBlock(client, blocks, 'verify_function_acl_enumeration', values, { label })).rows;
+  const functionKeys = functions
+    .map((r) => `${r.schema_name}.${r.object_name}(${r.identity_arguments}):${r.privilege_type}`).sort();
+  const expectedFunctionKeys = [`public.${EXPECTED_FUNCTION.name}(${EXPECTED_FUNCTION.args}):EXECUTE`];
+  if (JSON.stringify(functionKeys) !== JSON.stringify(expectedFunctionKeys)) {
+    note(`function privileges are not exactly ${expectedFunctionKeys.join(', ')}.\n`
+      + `  actual: ${functionKeys.join(', ') || '(none)'}`);
+  }
+
+  const schemas = (await runBlock(client, blocks, 'verify_schema_acl_enumeration', values, { label })).rows;
+  const schemaKeys = schemas.map((r) => `${r.object_name}:${r.privilege_type}`).sort();
+  if (JSON.stringify(schemaKeys) !== JSON.stringify(['public:USAGE'])) {
+    note(`schema privileges are not exactly public:USAGE.\n  actual: ${schemaKeys.join(', ') || '(none)'}`);
+  }
+
+  const databases = (await runBlock(client, blocks, 'verify_database_acl_enumeration', values, { label })).rows;
+  const databaseKeys = databases.map((r) => `${r.object_name}:${r.privilege_type}`).sort();
+  if (JSON.stringify(databaseKeys) !== JSON.stringify([`${values.databaseName}:CONNECT`])) {
+    note(`database privileges are not exactly ${values.databaseName}:CONNECT.\n`
+      + `  actual: ${databaseKeys.join(', ') || '(none)'}`);
+  }
+
+  const defaults = (await runBlock(client, blocks, 'verify_default_acl_enumeration', values, { label })).rows;
+  if (defaults.length > 0) {
+    note(`the role has DEFAULT privileges, which apply to objects created in future:\n    ${describeRows(defaults)}`);
+  }
+
+  const owned = (await runBlock(client, blocks, 'verify_no_ownership', values, { label })).rows;
+  if (owned.length > 0) note(`the role owns objects or is named by an RLS policy:\n    ${describeRows(owned)}`);
+
+  const members = (await runBlock(client, blocks, 'verify_no_memberships', values, { label })).rows;
+  if (members.length > 0) note(`the role has role memberships:\n    ${describeRows(members)}`);
+
+  if (problems.length > 0) {
+    fail(`${label}: ${problems.length} problem(s) with role ${values.roleName}:\n  - `
+      + problems.join('\n  - '));
+  }
+  log(`role ${values.roleName} verified: flags, expiry ${flags.rolvaliduntil.toISOString?.() || flags.rolvaliduntil}, `
+    + 'read-only default, and EXACTLY the expected privileges');
+  log('  note: PUBLIC grants (CONNECT, schema USAGE, function EXECUTE) apply to every role in the '
+    + 'cluster and are NOT removed by this kit. No TABLE privilege is granted to PUBLIC here, '
+    + 'which is what makes the four-table read surface real.');
+  return { verified: true, flags };
+}
+
+async function phaseTeardown(client, values, { log, label = 'teardown' } = {}) {
+  const blocks = loadStatements(readSqlFile('teardown-role.sql'), { label });
+  const createBlocks = loadStatements(readSqlFile('create-role.sql'), { label });
+  await assertContext(client, createBlocks, values, { label });
+
+  const present = await runBlock(client, blocks, 'teardown_role_present', values, { label });
+  if (present.rows.length === 0) {
+    log(`role ${values.roleName} does not exist: nothing to tear down.`);
+    return { tornDown: false, noop: true };
+  }
+  // Captured BEFORE anything is dropped, because the final confirmation cannot
+  // look the role up once it is gone. See teardown_confirm_absent.
+  const confirmValues = { ...values, roleOid: assertRoleOid(present.rows[0].role_oid, { label }) };
+
+  const owned = (await runBlock(client, blocks, 'teardown_check_ownership', values, { label })).rows;
+  if (owned.length > 0) {
+    fail(
+      `${label}: ABORTED. Role ${values.roleName} owns objects or is named by an RLS policy:\n    `
+      + `${describeRows(owned)}\n`
+      + 'Nothing has been dropped. This kit never auto-drops owned objects: DROP OWNED BY would '
+      + 'delete them, and a role that has come to own something in production is a fact a human '
+      + 'needs to look at before anything is destroyed.'
+    );
+  }
+  const members = (await runBlock(client, blocks, 'teardown_check_memberships', values, { label })).rows;
+  if (members.length > 0) {
+    fail(
+      `${label}: ABORTED. Role ${values.roleName} has role memberships:\n    ${describeRows(members)}\n`
+      + 'Dropping it would change what those roles can do. Nothing has been dropped.'
+    );
+  }
+
+  const killed = (await runBlock(client, blocks, 'teardown_terminate_sessions', values, { label })).rows;
+  if (killed.length > 0) log(`  terminated ${killed.length} open session(s) for the role`);
+
+  await client.query('BEGIN');
+  try {
+    for (const name of ['teardown_revoke', 'teardown_reset_settings', 'teardown_drop_owned',
+      'teardown_drop_role']) {
+      await runBlock(client, blocks, name, values, { label });
+      log(`  applied ${name}`);
+    }
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  }
+
+  const after = (await runBlock(client, blocks, 'teardown_confirm_absent', confirmValues, { label })).rows[0];
+  if (Number(after.role_rows) !== 0 || Number(after.shdepend_rows) !== 0 || Number(after.live_sessions) !== 0) {
+    fail(`${label}: teardown reported success but the role is still visible: ${JSON.stringify(after)}`);
+  }
+  log(`role ${values.roleName} dropped, and confirmed absent`);
+  return { tornDown: true, noop: false };
+}
+
+// ---------------------------------------------------------------------------
+// Entry point
+// ---------------------------------------------------------------------------
+
+/**
+ * `createPool` is injected ONLY so a test can prove the redaction chain end to
+ * end: that the SCRAM verifier computed part-way through a run is registered
+ * with the redactor, and that a driver error quoting the CREATE ROLE statement
+ * - which contains that verifier - comes back redacted. There is no way to
+ * demonstrate that without something that fails at query time, and the real
+ * pool needs a database. It defaults to the real thing and no caller passes it.
+ */
+async function main(argv, {
+  env = process.env, out = console,
+  createPool = (config) => new pg.Pool(config),
+} = {}) {
+  // THE REDACTOR IS BUILT FIRST, from the environment alone, before argv is
+  // parsed or a single value is validated. This ordering is the fix for a
+  // demonstrated defect: with the redactor built after validation, a password
+  // typed into the wrong position printed in cleartext four different ways -
+  // as a stray positional, and mis-ordered into --role, --database or
+  // --valid-until, each echoed verbatim by the message that rejected it. The
+  // whole body below is inside the try, so there is no window in which an
+  // error can escape unredacted.
+  const redact = makeRedactor([
+    env[PASSWORD_ENV_VAR],
+    env[ADMIN_ENV_VAR],
+    passwordFromUrl(env[ADMIN_ENV_VAR] || ''),
+  ]);
+  const log = (message) => out.log(redact(message));
+  let pool = null;
+  let client = null;
+
+  try {
+    const args = parseArgs(argv);
+    if (!PHASES.includes(args.phase)) {
+      throw new Error(`--phase must be one of ${PHASES.join(', ')}; got ${JSON.stringify(args.phase)}`);
+    }
+    const roleName = assertRoleName(args.role);
+    const databaseName = assertDatabaseName(args.database);
+    // The expiry is what create asserts and verify compares against. Teardown
+    // does not need it: the role is going away regardless of when it would have.
+    const needsValidUntil = args.phase === 'create' || args.phase === 'verify';
+    const validUntil = needsValidUntil ? assertValidUntil(args.validUntil) : null;
+
+    if (args.printSql) {
+      // Review mode. It connects to nothing and reads NO credential: a reviewer
+      // asked to approve a production privilege change must be able to render
+      // the exact SQL without holding the admin password, and requiring one
+      // would either block the review or push people into exporting production
+      // credentials they do not need. The verifier is a marker substituted in
+      // place rather than a real one redacted after the fact, so no verifier is
+      // ever derived on this path at all.
+      // Both markers are self-describing rather than plausible-looking. The
+      // verifier is key material that must never be rendered; the role OID does
+      // not exist until teardown reads it back, and printing an invented number
+      // would be worse than printing what it actually is.
+      const values = { roleName, databaseName, validUntil: validUntil || '1970-01-01T00:00:00Z',
+        passwordVerifier: 'SCRAM-SHA-256$[REDACTED]', roleOid: '<captured-before-the-drop>' };
+      const file = { create: 'create-role.sql', verify: 'verify-role.sql', teardown: 'teardown-role.sql' }[args.phase];
+      for (const [name, text] of loadStatements(readSqlFile(file), { label: file })) {
+        out.log(`\n-- @statement: ${name}\n${renderStatement(text, values, { label: name })}`);
+      }
+      return 0;
+    }
+
+    const password = args.phase === 'create' ? readRolePassword(env) : null;
+    const passwordVerifier = password ? scramVerifier(password) : null;
+    redact.add(password).add(passwordVerifier);
+
+    const connectionString = readAdminCredential(env);
+    // readAdminCredential trims, so the trimmed form can differ from the raw
+    // environment value already registered. Register both.
+    redact.add(connectionString).add(passwordFromUrl(connectionString));
+
+    assertVerifiedTls(connectionString, { env });
+
+    pool = createPool({
+      connectionString,
+      ssl: sslForConnection(connectionString),
+      max: 1,
+      application_name: `endzone-empire-gate1-${args.phase}`,
+    });
+    const values = { roleName, databaseName, validUntil, passwordVerifier };
+    client = await pool.connect();
+    if (args.phase === 'create') {
+      await phaseCreate(client, values, { log });
+      await phaseVerify(client, values, { log });
+    } else if (args.phase === 'verify') {
+      await phaseVerify(client, values, { log });
+    } else {
+      await phaseTeardown(client, values, { log });
+    }
+    return 0;
+  } catch (err) {
+    // Re-throw REDACTED. A driver error can quote a statement, and for the
+    // create phase that statement contains the verifier.
+    const wrapped = new Error(redact(err.message));
+    wrapped.stack = redact(err.stack || wrapped.stack);
+    throw wrapped;
+  } finally {
+    if (client) client.release();
+    if (pool) await pool.end().catch(() => {});
+  }
+}
+
+if (require.main === module) {
+  main(process.argv.slice(2))
+    .then((code) => process.exit(code || 0))
+    .catch((err) => {
+      console.error('FAILED:', err.stack || err.message);
+      process.exit(1);
+    });
+}
+
+module.exports = {
+  main, parseArgs, readAdminCredential, readRolePassword, scramVerifier, makeRedactor, redactArgument,
+  assertRoleName, assertDatabaseName, assertValidUntil, assertRoleOid, quoteIdent, quoteLiteral,
+  loadStatements, renderStatement, readSqlFile, assertVerifiedTls,
+  phaseCreate, phaseVerify, phaseTeardown,
+  ADMIN_ENV_VAR, PASSWORD_ENV_VAR, PHASES, EXPECTED_TABLES, EXPECTED_FUNCTION,
+  MAX_VALID_UNTIL_DAYS, MIN_PASSWORD_LENGTH, SCRAM_ITERATIONS,
+};
