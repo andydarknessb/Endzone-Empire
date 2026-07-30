@@ -55,6 +55,35 @@
 const { surfaceEntryFor, normalizeSql, SQL_BY_NAME } = require('./sqlSurface');
 const store = require('./snapshotStore');
 
+/**
+ * The EXACT columns production's `playersById` returns, in order
+ * (`projectionFeatures.js:443`).
+ *
+ * Every other handler builds an explicit row object, so it can only ever serve
+ * production's column list. `playersById` used to pass the captured row through
+ * whole, which was harmless only for as long as the capture happened to hold
+ * the same columns. It stopped being harmless the moment `external_id` was
+ * added to the capture (Phase 3a needs it to link a database player to the
+ * pinned crosswalk): off-mode replay began handing the engine nine columns
+ * where production selects eight.
+ *
+ * Nothing downstream READ the extra column - the model reads named fields - so
+ * neither the fidelity harness nor the PG contract could see it. That is
+ * exactly why the column list is pinned here rather than left implicit: a
+ * snapshot client that serves a shape production never returns is not
+ * replaying production, whether or not today's model happens to notice.
+ */
+const PLAYERS_BY_ID_COLUMNS = Object.freeze([
+  'id', 'name', 'position', 'nfl_team', 'injury_status', 'injury_detail', 'adp', 'team_key',
+]);
+
+/** Pure: one captured players row, projected to production's column list. */
+function projectPlayerRow(row) {
+  const out = {};
+  for (const column of PLAYERS_BY_ID_COLUMNS) out[column] = row[column] === undefined ? null : row[column];
+  return out;
+}
+
 /** Mirrors `projectionFeatures.HISTORY_SEASONS`. */
 const HISTORY_SEASONS = 2;
 /** Mirrors `bye.service.REG_SEASON_WEEKS`. */
@@ -348,17 +377,21 @@ function createSnapshotClient({
   const counters = {
     queries: 0,
     byQuery: {},
-    // Kept as a total for compatibility; `playersOmittedByReason` is the one
-    // the published report needs (preregistration 4.1 counts exclusions per
-    // cause, because "excluded" covers four very different situations).
-    playersOmittedNoReconstruction: 0,
     playersOmittedByReason: {},
     scanRowsUnattributed: 0,
     contradictions: 0,
+    // The total is DERIVED from the per-reason breakdown rather than
+    // incremented alongside it, so the two cannot drift apart: there is one
+    // update path, and the scalar is a view over it. `playersOmittedByReason`
+    // is what the published report needs (preregistration 4.1 counts
+    // exclusions per cause, because "excluded" covers four very different
+    // situations); the total is kept for compatibility.
+    get playersOmittedNoReconstruction() {
+      return Object.values(this.playersOmittedByReason).reduce((a, b) => a + b, 0);
+    },
   };
 
   const countOmission = (reason) => {
-    counters.playersOmittedNoReconstruction++;
     counters.playersOmittedByReason[reason] = (counters.playersOmittedByReason[reason] || 0) + 1;
   };
 
@@ -431,14 +464,14 @@ function createSnapshotClient({
     if (!view.inCohort) return { omitted: view.reason || 'not-in-cohort' };
     if (view.contradiction && view.contradiction.contradicted) counters.contradictions++;
     return {
-      row: {
+      row: projectPlayerRow({
         ...player,
         // The roster file is the authority for BOTH of these.
         position: view.position,
         nfl_team: view.team,
         team_key: view.teamKey,
         injury_status: view.injuryStatus,
-      },
+      }),
     };
   };
 
@@ -448,7 +481,7 @@ function createSnapshotClient({
       const rows = [];
       for (const player of snapshot.players) {
         if (!ids.has(Number(player.id))) continue;
-        if (mode === MODES.OFF) { rows.push(player); continue; }
+        if (mode === MODES.OFF) { rows.push(projectPlayerRow(player)); continue; }
         const reconstructed = reconstructPlayer(player);
         // A player the reconstruction cannot place in this week is OMITTED,
         // exactly as if the database held no such row. The preregistration
@@ -748,6 +781,17 @@ function assembleSnapshot({
  */
 function loadSnapshot({ root }) {
   const manifest = store.loadManifest(root);
+  // A manifest with no evaluated seasons would silently disable the
+  // overlay-coverage gate for every week (the gate only applies to seasons in
+  // this list), so a real snapshot must never have one. Test fixtures that
+  // legitimately have no evaluated season build their snapshot through
+  // `assembleSnapshot` directly and are unaffected.
+  if (!Array.isArray(manifest.seasons) || manifest.seasons.length === 0) {
+    throw new Error(
+      `${store.manifestFile(root)}: the manifest records no evaluated seasons. A snapshot with an `
+      + 'empty `seasons` list would turn off the orientation-overlay coverage check for every week.'
+    );
+  }
   const read = (dataset) => store.loadDataset({
     root,
     store: store.STORES.EVALUATION,
@@ -796,6 +840,8 @@ module.exports = {
   REG_SEASON_WEEKS,
   MODES,
   MODE_NAMES,
+  PLAYERS_BY_ID_COLUMNS,
+  projectPlayerRow,
   PG_TYPES,
   COMPUTED_COLUMN_TYPES,
   SQL_BY_NAME,

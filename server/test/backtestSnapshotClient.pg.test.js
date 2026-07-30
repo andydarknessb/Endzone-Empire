@@ -159,8 +159,14 @@ if (!ENABLED) {
 
   /** Load the seeded relations into the shape the snapshot client reads. */
   async function buildSnapshotFromDatabase() {
+    // The CAPTURE query, which since Phase 3a selects `external_id` as well -
+    // the link from a database player to the pinned crosswalk. The fixture has
+    // to mirror the real capture, or the contract test would be checking the
+    // client against a snapshot shape the extraction no longer produces, and
+    // the projection down to production's 8 columns would go unverified.
     const players = await pool.query(
-      `SELECT "id", "name", "position", "nfl_team", "injury_status", "injury_detail", "adp",
+      `SELECT "id", "external_id", "name", "position", "nfl_team", "injury_status",
+              "injury_detail", "adp",
               fn_normalize_nfl_team("nfl_team") AS "team_key"
        FROM "players" WHERE "id" = ANY($1::int[]) ORDER BY "id"`,
       [playerIds]
@@ -250,6 +256,21 @@ if (!ENABLED) {
         `${name} must match Postgres`
       );
     }
+
+    // playersById specifically: the CAPTURE carries `external_id` and
+    // production's SELECT does not, so the client must project it away. This
+    // is the assertion the old fixture could not make, because it selected the
+    // pre-Phase-3a column list and so never held the extra column at all.
+    assert.ok('external_id' in snapshot.players[0], 'the fixture mirrors the real capture');
+    const realPlayers = await pool.query(sqlFor('playersById'), [playerIds]);
+    const minePlayers = await client.query(sqlFor('playersById'), [playerIds]);
+    assert.deepEqual(
+      Object.keys(minePlayers.rows[0]),
+      Object.keys(realPlayers.rows[0]),
+      'the client serves exactly the columns Postgres returns for playersById'
+    );
+    assert.equal('external_id' in realPlayers.rows[0], false, 'production does not select it');
+    assert.equal('external_id' in minePlayers.rows[0], false, 'and neither does the client');
   });
 
   test('priorPlayerStats matches Postgres, in the order the ORDER BY actually specifies', async () => {

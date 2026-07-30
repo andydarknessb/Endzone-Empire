@@ -172,7 +172,19 @@ const EXTRACTION_SQL = Object.freeze({
   setConfig: `SELECT set_config($1, $2, false) AS "applied"`,
   begin: 'BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY',
   rollback: 'ROLLBACK',
-  players: `SELECT "id", "name", "position", "nfl_team", "injury_status", "injury_detail", "adp",
+  // `external_id` is captured even though the production READ SURFACE does not
+  // select it, and it is the one column here that is not part of that surface.
+  //
+  // It is what links a database player to the pinned sources at all. The
+  // crosswalk in `players.csv` maps `gsis_id -> espn_id`, and production joins
+  // that to the players table through `external_id`:
+  // `idByExternal.get(String(espnId))` (nflverseSync.service.js:224 and :177,
+  // again at :629/:548). Without it the reconstruction has no way to say which
+  // roster row belongs to which database player, and the whole cohort is
+  // unbuildable. Capturing it costs one column and closes that gap; it is NOT
+  // added to the 8-query surface, which stays exactly what production issues.
+  players: `SELECT "id", "external_id", "name", "position", "nfl_team", "injury_status",
+            "injury_detail", "adp",
             fn_normalize_nfl_team("nfl_team") AS "team_key"
      FROM "players" ORDER BY "id"`,
   playerStats: `SELECT "player_id", "season", "week", "stats"
@@ -1149,10 +1161,18 @@ function extractionPlan({ seasons = BACKTEST_SEASONS } = {}) {
  * Pure: the digest of everything that determines what this run will capture.
  *
  * Deliberately covers CONFIGURATION, not results: the archived source hashes,
- * the target and history-window seasons, the signed SQL surface, the oracle
+ * the target and history-window seasons, BOTH SQL SURFACES, the oracle
  * settings, and the dataset inventory. Two invocations that would capture the
  * same thing produce the same digest; change a source byte, a season, a SQL
  * text, or the oracle cohort rule and it moves.
+ *
+ * BOTH surfaces, and the distinction matters. `plan.sqlSurface` is the 8
+ * queries the client SERVES; `EXTRACTION_SQL` is what the extraction actually
+ * RUNS to fill the snapshot. Only the first used to be an input, so a change to
+ * a capture query - adding `external_id` to the players capture, say - left the
+ * digest untouched and a receipt written beforehand would still have authorized
+ * the apply afterwards. That is not hypothetical: this study made exactly that
+ * change. A digest that promises "a SQL text moves it" has to mean both.
  *
  * It DOES cover the database name and role. Those are static configuration -
  * the operator names them on the command line and the extraction refuses to
@@ -1170,7 +1190,9 @@ function extractionPlan({ seasons = BACKTEST_SEASONS } = {}) {
  * database NAME and the ROLE name are not secrets, and they are what the
  * identity assertion already proved the server reported.
  */
-function planDigest({ plan, sourceHashes, oracleSettings, identity = null }) {
+function planDigest({
+  plan, sourceHashes, oracleSettings, identity = null, extractionSql = EXTRACTION_SQL,
+}) {
   return sha256Hex(Buffer.from(store.canonicalJson({
     studyId: plan.studyId,
     seasons: plan.seasons,
@@ -1179,6 +1201,10 @@ function planDigest({ plan, sourceHashes, oracleSettings, identity = null }) {
     seasonStatsBelow: plan.seasonStatsBelow,
     quarantineFromSeason: plan.quarantineFromSeason,
     sqlSurface: plan.sqlSurface.map((s) => ({ name: s.name, signature: s.signature })),
+    // The queries the extraction RUNS, not just the ones the client serves.
+    extractionSql: Object.entries(extractionSql)
+      .map(([name, sql]) => ({ name, signature: sqlSignature(sql) }))
+      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)),
     datasets: plan.datasets,
     integrityChecks: plan.integrityChecks,
     weekPositionCodes: plan.weekPositionCodes,

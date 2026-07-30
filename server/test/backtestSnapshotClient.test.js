@@ -641,6 +641,50 @@ test('the defense-game count and bye query read the schedule the same way SQL do
     /no captured row spells team "Nowhere FC"/);
 });
 
+test('playersById serves production\'s EXACT 8 columns, in both modes', async () => {
+  // Every other handler builds an explicit row object, so it can only serve
+  // production's column list. playersById used to pass the captured row
+  // through whole - harmless only while the capture happened to hold the same
+  // columns, and it stopped being harmless the moment `external_id` was added
+  // to the capture for Phase 3a. Nothing downstream READS the extra column, so
+  // neither fidelity nor the PG contract could see it; that is precisely why
+  // the list is pinned.
+  const production = surface.SQL_BY_NAME.get('playersById').text;
+  const declared = [...production.matchAll(/"(\w+)"(?=[,\s]*(?:,|fn_normalize|FROM))/g)].map((m) => m[1]);
+  assert.deepEqual([...client.PLAYERS_BY_ID_COLUMNS],
+    ['id', 'name', 'position', 'nfl_team', 'injury_status', 'injury_detail', 'adp', 'team_key']);
+  assert.equal(client.PLAYERS_BY_ID_COLUMNS.length, 8);
+  // The captured snapshot genuinely holds MORE than that, or this proves nothing.
+  const captured = client.assembleSnapshot({
+    manifest: MANIFEST,
+    players: PLAYERS.map((p) => ({ ...p, external_id: `3${p.id}` })),
+    playerStats: PLAYER_STATS,
+    playerSeasonStats: PLAYER_SEASON_STATS,
+    nflGamesBySeason: new Map([[2023, []], [2024, games(2024)], [2025, games(2025)]]),
+  });
+  assert.ok('external_id' in captured.players[0], 'the capture carries the extra column');
+  assert.ok(declared.length >= 7, 'parsed the production column list');
+
+  for (const [label, built] of [
+    ['off', client.createSnapshotClient({ snapshot: captured, season: 2025, week: 3, mode: MODES.OFF })],
+    ['reconstructed', client.createSnapshotClient({
+      snapshot: captured, season: 2025, week: 3, mode: MODES.RECONSTRUCTED,
+      reconstruction: makeReconstruction(),
+    })],
+  ]) {
+    const result = await built.query(sqlFor('playersById'), [[1, 2, 3]]);
+    assert.ok(result.rows.length > 0, `${label} mode returned rows`);
+    for (const row of result.rows) {
+      assert.deepEqual(Object.keys(row), [...client.PLAYERS_BY_ID_COLUMNS],
+        `${label} mode must serve exactly production's columns, in order`);
+      assert.equal('external_id' in row, false,
+        `${label} mode must not leak the capture-only column`);
+    }
+    // The reported field metadata agrees with the rows.
+    assert.deepEqual(result.fields.map((f) => f.name), [...client.PLAYERS_BY_ID_COLUMNS]);
+  }
+});
+
 test('a degenerate team string yields no bye rows rather than throwing', async () => {
   // `fn_normalize_nfl_team` is `upper(trim(x))` with a lookup on top, so an
   // empty or blank team normalizes to a key that matches no schedule row and
@@ -732,6 +776,27 @@ test('loadSnapshot reads a real store layout and verifies every digest', () => {
     '{"id":99}\n'
   );
   assert.throws(() => client.loadSnapshot({ root }), /digest mismatch|does not match the pinned/);
+});
+
+test('loadSnapshot refuses a manifest that records no evaluated seasons', () => {
+  // An empty `seasons` list would turn the overlay-coverage gate off for every
+  // week, because that gate only applies to evaluated seasons - the exact
+  // silent-no-orientation failure the gate exists to prevent, reintroduced
+  // through the manifest instead of through the reconstruction.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ez-noseasons-'));
+  test.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const written = [store.saveDataset({
+    root, store: store.STORES.EVALUATION, path: store.PATHS.FEATURE,
+    dataset: 'players', rows: PLAYERS, seasonScoped: false,
+  })];
+  store.saveManifest(root, { ...MANIFEST, seasons: [], datasets: written });
+  assert.throws(() => client.loadSnapshot({ root }), /records no evaluated seasons/);
+
+  store.saveManifest(root, { ...MANIFEST, datasets: written });
+  delete require.cache[require.resolve('../../scripts/backtest/lib/snapshotClient')];
+  // With seasons present it gets past the check (and fails later on a missing
+  // dataset, which is a different, expected complaint).
+  assert.throws(() => client.loadSnapshot({ root }), /no sidecar metadata|no dataset at/);
 });
 
 test('assembleSnapshot refuses a malformed snapshot rather than half-working', () => {

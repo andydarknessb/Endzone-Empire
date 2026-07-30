@@ -41,15 +41,15 @@ const SURFACE_BY_SIG = new Map(SQL_SURFACE.map((e) => [normalizeSql(e.text), e.n
 
 /** Four teams per season, in the app's Tank01 spellings (WSH, LAR included). */
 const DB_PLAYERS = Object.freeze([
-  { id: 1, name: 'Aaron Quarterback', position: 'QB', nfl_team: 'KC', injury_status: null, injury_detail: null, adp: 1, team_key: 'KC' },
-  { id: 2, name: 'Bella Runner', position: 'RB', nfl_team: 'WSH', injury_status: null, injury_detail: null, adp: 2, team_key: 'WAS' },
-  { id: 3, name: 'Cara Receiver', position: 'WR', nfl_team: 'LAR', injury_status: null, injury_detail: null, adp: 3, team_key: 'LAR' },
-  { id: 4, name: 'Dan Tightend', position: 'TE', nfl_team: 'BUF', injury_status: null, injury_detail: null, adp: 4, team_key: 'BUF' },
-  { id: 5, name: 'Evan Kicker', position: 'K', nfl_team: 'KC', injury_status: null, injury_detail: null, adp: 5, team_key: 'KC' },
-  { id: 6, name: 'Kansas City Chiefs', position: 'DEF', nfl_team: 'Kansas City Chiefs', injury_status: null, injury_detail: null, adp: null, team_key: 'KC' },
-  { id: 7, name: 'Washington Commanders', position: 'DEF', nfl_team: 'Washington Commanders', injury_status: null, injury_detail: null, adp: null, team_key: 'WAS' },
-  { id: 8, name: 'Los Angeles Rams', position: 'DEF', nfl_team: 'Los Angeles Rams', injury_status: null, injury_detail: null, adp: null, team_key: 'LAR' },
-  { id: 9, name: 'Buffalo Bills', position: 'DEF', nfl_team: 'Buffalo Bills', injury_status: null, injury_detail: null, adp: null, team_key: 'BUF' },
+  { id: 1, external_id: '3001', name: 'Aaron Quarterback', position: 'QB', nfl_team: 'KC', injury_status: null, injury_detail: null, adp: 1, team_key: 'KC' },
+  { id: 2, external_id: '3002', name: 'Bella Runner', position: 'RB', nfl_team: 'WSH', injury_status: null, injury_detail: null, adp: 2, team_key: 'WAS' },
+  { id: 3, external_id: '3003', name: 'Cara Receiver', position: 'WR', nfl_team: 'LAR', injury_status: null, injury_detail: null, adp: 3, team_key: 'LAR' },
+  { id: 4, external_id: '3004', name: 'Dan Tightend', position: 'TE', nfl_team: 'BUF', injury_status: null, injury_detail: null, adp: 4, team_key: 'BUF' },
+  { id: 5, external_id: '3005', name: 'Evan Kicker', position: 'K', nfl_team: 'KC', injury_status: null, injury_detail: null, adp: 5, team_key: 'KC' },
+  { id: 6, external_id: '3006', name: 'Kansas City Chiefs', position: 'DEF', nfl_team: 'Kansas City Chiefs', injury_status: null, injury_detail: null, adp: null, team_key: 'KC' },
+  { id: 7, external_id: '3007', name: 'Washington Commanders', position: 'DEF', nfl_team: 'Washington Commanders', injury_status: null, injury_detail: null, adp: null, team_key: 'WAS' },
+  { id: 8, external_id: '3008', name: 'Los Angeles Rams', position: 'DEF', nfl_team: 'Los Angeles Rams', injury_status: null, injury_detail: null, adp: null, team_key: 'LAR' },
+  { id: 9, external_id: '3009', name: 'Buffalo Bills', position: 'DEF', nfl_team: 'Buffalo Bills', injury_status: null, injury_detail: null, adp: null, team_key: 'BUF' },
 ]);
 
 /** Weekly rows only in 2024/2025: 2022 and 2023 are captured-as-empty. */
@@ -207,7 +207,7 @@ function makeFakeClient({
         case 'begin': case 'rollback': return answer([], []);
         case 'players':
           return answer(players.map((p) => ({ ...p })),
-            ['id', 'name', 'position', 'nfl_team', 'injury_status', 'injury_detail', 'adp', 'team_key']);
+            ['id', 'external_id', 'name', 'position', 'nfl_team', 'injury_status', 'injury_detail', 'adp', 'team_key']);
         case 'playerStats':
           return answer(
             playerStats.filter((r) => r.season >= params[0] && r.season <= params[1]).map((r) => ({ ...r })),
@@ -554,6 +554,26 @@ test('an undefined value in a captured row stops the extraction instead of vanis
     await txn.close();
   }
   assert.deepEqual(fs.existsSync(root) ? fs.readdirSync(root) : [], [], 'nothing was written');
+});
+
+test('the players capture takes external_id, the only link from a DB player to the pinned sources', () => {
+  // The crosswalk in players.csv maps gsis_id -> espn_id, and production joins
+  // that to the players table through `external_id`
+  // (nflverseSync.service.js:224 builds `idByExternal` from it; :177 and :548
+  // look up `String(espnId)` in it). Without this column the reconstruction
+  // cannot say which roster row is which database player, and no cohort can be
+  // built at all.
+  assert.match(normalizeSql(EXTRACTION_SQL.players), /SELECT "id", "external_id", "name"/);
+
+  // It is deliberately NOT part of the 8-query production surface - that stays
+  // exactly what generateProjections issues.
+  for (const entry of SQL_SURFACE) {
+    assert.ok(!normalizeSql(entry.text).includes('"external_id"'),
+      `${entry.name} must not have grown a column; the surface mirrors production`);
+  }
+  const productionPlayers = SQL_SURFACE.find((e) => e.name === 'playersById');
+  assert.ok(normalizeSql(productionPlayers.text).startsWith('SELECT "id", "name", "position"'),
+    'the production players query is unchanged');
 });
 
 test('the two collation artifacts come from PostgreSQL ORDER BY, never a JS comparator', () => {
@@ -970,11 +990,11 @@ test('checkDefenseMappings: a missing or duplicated DEF unit fails', () => {
     teamKeys, normalizeTeamKey,
   }), /no DEF player for team\(s\) BUF/);
   assert.throws(() => extract.checkDefenseMappings({
-    dbPlayers: [...DB_PLAYERS, { id: 99, name: 'KC again', position: 'DEF', nfl_team: 'KC', team_key: 'KC' }],
+    dbPlayers: [...DB_PLAYERS, { id: 99, external_id: '3099', name: 'KC again', position: 'DEF', nfl_team: 'KC', team_key: 'KC' }],
     teamKeys, normalizeTeamKey,
   }), /two DEF players map to KC/);
   assert.throws(() => extract.checkDefenseMappings({
-    dbPlayers: [{ id: 5, name: 'nowhere', position: 'DEF', nfl_team: '', team_key: null }],
+    dbPlayers: [{ id: 5, external_id: '3005', name: 'nowhere', position: 'DEF', nfl_team: '', team_key: null }],
     teamKeys: [], normalizeTeamKey,
   }), /has no resolvable team/);
 });
@@ -1323,6 +1343,74 @@ test('the plan digest tracks configuration and database identity, not results', 
   // Row counts are NOT an input: a dry run and the apply after it are two
   // transactions against a live database and may legitimately differ.
   assert.equal(extract.planDigest({ ...base, rowCounts: { players: 99 } }), digest);
+});
+
+test('the digest covers the CAPTURE queries too, not only the 8 served ones', () => {
+  // `plan.sqlSurface` is what the client SERVES; `EXTRACTION_SQL` is what the
+  // extraction RUNS. Only the first used to be hashed, so a change to a capture
+  // query left the digest untouched and a receipt written beforehand still
+  // authorized the apply afterwards. That is not hypothetical: adding
+  // `external_id` to the players capture is exactly that change, and this study
+  // made it.
+  const inputs = {
+    plan: extract.extractionPlan(),
+    sourceHashes: { games: 'a' },
+    oracleSettings: { weatherService: false },
+    identity: { database: 'endzone_empire', role: 'backtest_ro' },
+  };
+  const digest = extract.planDigest(inputs);
+
+  // Drop `external_id` from the capture - the precise change that used to be
+  // invisible - and the digest must move.
+  const withoutExternalId = {
+    ...EXTRACTION_SQL,
+    players: EXTRACTION_SQL.players.replace('"external_id", ', ''),
+  };
+  assert.notEqual(EXTRACTION_SQL.players, withoutExternalId.players, 'the fixture really differs');
+  assert.notEqual(extract.planDigest({ ...inputs, extractionSql: withoutExternalId }), digest,
+    'a change to a CAPTURE query must move the plan digest');
+
+  // Any capture query, not just that one.
+  assert.notEqual(extract.planDigest({
+    ...inputs,
+    extractionSql: { ...EXTRACTION_SQL, nflGames: `${EXTRACTION_SQL.nflGames} -- changed` },
+  }), digest);
+  // Adding or removing a capture query moves it too.
+  const { positionRank, ...fewer } = EXTRACTION_SQL;
+  assert.notEqual(extract.planDigest({ ...inputs, extractionSql: fewer }), digest);
+  // Whitespace-only reformatting does NOT, matching the serving surface's rule.
+  assert.equal(extract.planDigest({
+    ...inputs,
+    extractionSql: { ...EXTRACTION_SQL, players: EXTRACTION_SQL.players.replace(/\s+/g, '\n  ') },
+  }), digest, 're-indenting a capture query is not a behaviour change');
+  // And the identical input is still identical.
+  assert.equal(extract.planDigest({ ...inputs, extractionSql: EXTRACTION_SQL }), digest);
+});
+
+test('a capture-SQL change invalidates a receipt written before it', async () => {
+  // The end-to-end consequence: the dry run's receipt no longer authorizes an
+  // apply whose capture queries have changed underneath it.
+  const root = tmpRoot('capturereceipt');
+  await extractOnce({ apply: false, root });
+  const receipt = JSON.parse(fs.readFileSync(store.receiptFile(root), 'utf8'));
+
+  const plan = extract.extractionPlan();
+  const sourceHashes = Object.fromEntries(
+    SOURCES.map((s) => [s.name, 'x'.repeat(64)])
+  );
+  const shared = { plan, sourceHashes, oracleSettings: {}, identity: null };
+  const asRecorded = extract.planDigest(shared);
+  const afterChange = extract.planDigest({
+    ...shared,
+    extractionSql: { ...EXTRACTION_SQL, players: `${EXTRACTION_SQL.players} -- changed` },
+  });
+  assert.notEqual(asRecorded, afterChange);
+  // assertDryRunReceipt compares exactly these, so a moved digest is a refusal.
+  assert.throws(() => extract.assertDryRunReceipt({ outDir: root, digest: afterChange }),
+    /refusing to --apply: the dry-run receipt was written for plan digest/);
+  assert.doesNotThrow(() => extract.assertDryRunReceipt({
+    outDir: root, digest: receipt.planDigest,
+  }));
 });
 
 test('a receipt from a dry run against one database will not authorize an apply against another', async () => {
