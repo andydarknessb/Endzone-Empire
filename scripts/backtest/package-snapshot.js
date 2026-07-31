@@ -842,8 +842,12 @@ function warnAboutLeakedTempDirs({ publishRoot, log }) {
   } catch (_err) {
     return; // the parent directory does not exist yet - nothing could have leaked into it
   }
+  // e.name is a dirent name fs.readdirSync ITSELF just reported as existing under parent - not external
+  // input - and the result is only ever used to build a human-readable warning log string below, never
+  // to open, read, or write a file.
   const leaked = entries
     .filter((e) => e.isDirectory() && e.name.startsWith(TEMP_BUILD_DIR_PREFIX))
+    // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
     .map((e) => path.join(parent, e.name))
     .sort();
   if (leaked.length === 0) return;

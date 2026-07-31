@@ -131,6 +131,11 @@ function canonicalizeForCompare(inputPath, { realpathNative = fs.realpathSync.na
       'pre-write safety check. This aborts the whole run rather than downgrading to a weaker comparison.'
     );
   }
+  // realAncestor is the OUTPUT of fs.realpathSync.native (an already-resolved real path, not raw input),
+  // and remainder is path.relative's own output - this rejoins them purely for a COMPARISON string (see
+  // this function's docblock: "never for use as a real filesystem argument elsewhere"), never to open,
+  // read, or write a file.
+  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
   return remainder ? path.join(realAncestor, remainder) : realAncestor;
 }
 

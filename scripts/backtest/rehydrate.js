@@ -102,6 +102,10 @@ const TEMP_REHYDRATE_SOURCES_PREFIX = '.tmp-rehydrate-sources-';
 // ---------------------------------------------------------------------------
 
 function readPublicationManifest(publishRoot) {
+  // publishRoot is the caller's own root argument (CLI --publish / a direct call, already disjointness-
+  // checked elsewhere in rehydrate()), joined only with a hardcoded literal filename - never a
+  // manifest-supplied or otherwise externally-controlled path segment.
+  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
   const file = path.join(String(publishRoot), 'manifest.json');
   if (!fs.existsSync(file)) {
     throw new Error(`rehydrate: no publication manifest at ${file} - is --publish pointed at a real publication tree?`);
@@ -148,6 +152,9 @@ function resolveWithinPublishRoot({ publishRoot, relativePath, label }) {
     throw new Error(`rehydrate: ${label} is missing from disk (expected ${joined})`);
   }
   const realFile = normalizeForCompare(fs.realpathSync.native(joined));
+  // publishRoot is the caller's own root argument, resolved here purely for a real-path CONTAINMENT
+  // comparison (see isContainedIn below) - not used to construct a path for reading or writing a file.
+  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
   const realRoot = normalizeForCompare(fs.realpathSync.native(path.resolve(String(publishRoot))));
   if (realFile !== realRoot && !isContainedIn(realRoot, realFile)) {
     throw new Error(
@@ -490,6 +497,9 @@ function verifyProvenanceAgainstSealedSources({ bytes, sealedSources }) {
 function copyProvenanceIntoSources({ publishRoot, outSourcesDir, manifest, sealedSources }) {
   const bytes = readAndVerifyFixedFile({ publishRoot, manifest, name: SOURCES_PROVENANCE_FILENAME });
   verifyProvenanceAgainstSealedSources({ bytes, sealedSources });
+  // outSourcesDir is rehydrate()'s own build-temp output root (disjointness-checked, created by this
+  // process), joined only with a hardcoded literal filename - never externally-controlled.
+  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
   writeVerified(path.join(String(outSourcesDir), 'provenance.json'), bytes, { label: 'provenance.json (rehydrated)' });
 }
 
@@ -688,7 +698,12 @@ function rehydrate({
   // --- build BOTH outputs into fresh temp sibling directories first --------
   fs.mkdirSync(path.dirname(outSnapshotRoot), { recursive: true });
   fs.mkdirSync(path.dirname(outSourcesDir), { recursive: true });
+  // outSnapshotRoot/outSourcesDir are the caller's own output arguments (already disjointness-checked
+  // above); each dirname is joined only with a hardcoded literal prefix constant, then handed to
+  // mkdtempSync, which appends its own random suffix - never an externally-controlled path segment.
+  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
   const buildSnapshotRoot = fs.mkdtempSync(path.join(path.dirname(outSnapshotRoot), TEMP_REHYDRATE_SNAPSHOT_PREFIX));
+  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
   const buildSourcesDir = fs.mkdtempSync(path.join(path.dirname(outSourcesDir), TEMP_REHYDRATE_SOURCES_PREFIX));
   // Defense in depth, re-run directly against the ACTUAL temp paths (the
   // same reasoning package-snapshot.js applies to its own buildRoot re-check):
