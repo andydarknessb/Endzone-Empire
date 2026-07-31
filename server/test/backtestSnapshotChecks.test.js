@@ -325,7 +325,7 @@ test('main() exits zero on a good snapshot and prints a summary', async () => {
   assert.equal(code, 0);
   const text = lines.join('\n');
   assert.ok(text.includes('pit-sweep-2024-2025'));
-  assert.match(text, /\d+ passed, 0 failed/);
+  assert.match(text, /\d+ passed, 0 skipped, 0 failed/);
 });
 
 // ---------------------------------------------------------------------------
@@ -788,12 +788,44 @@ test('a roster-vs-gameTeam contradiction is counted, and a WAS/WSH spelling is n
     { compared: 3, contradictions: 1, statRowsWithNoRosterRow: 1 });
 });
 
-test('without normalizeTeamKey the contradiction count is skipped rather than guessed', async () => {
+test('without normalizeTeamKey the contradiction count is skipped rather than guessed, and the skip is honestly labeled', async () => {
   const { root, readSource } = await buildSnapshot('nonormalize');
   const out = checks.runChecks({ root, readSource, normalizeTeamKey: null });
   const contradictions = out.results.find((r) => r.name === 'teamContradictions');
+  // ok:true only means "not a failure" (exit code stays 0) - skipped:true is
+  // the field that must be checked before this is ever read as success.
   assert.equal(contradictions.ok, true);
-  assert.match(contradictions.detail, /skipped: no normalizeTeamKey injected/);
+  assert.equal(contradictions.skipped, true);
+  assert.match(contradictions.detail, /not executed - no normalizeTeamKey injected/);
+  assert.deepEqual(out.failures, [], 'a skip is never a failure');
+
+  const lines = checks.formatResults(out.results);
+  const skipLine = lines.find((l) => l.includes('teamContradictions'));
+  assert.match(skipLine, /^ {2}SKIP teamContradictions: not executed - no normalizeTeamKey injected$/,
+    'rendered as SKIP, never as "ok" - the dishonest label the user originally flagged');
+});
+
+test('main() renders the skipped teamContradictions as SKIP and counts it separately in the summary line', async () => {
+  const { root, readSource } = await buildSnapshot('nonormalize-main');
+  const lines = [];
+  const code = checks.main(['--snapshot', root], {
+    log: (l) => lines.push(String(l)), readSource, normalizeTeamKey: null,
+  });
+  const text = lines.join('\n');
+  assert.equal(code, 0, 'a skip alone is not a failure');
+  assert.match(text, /SKIP teamContradictions: not executed - no normalizeTeamKey injected/);
+  assert.ok(!/ok {2}teamContradictions/.test(text), 'never rendered as ok');
+  assert.match(text, /\d+ passed, 1 skipped, 0 failed/);
+});
+
+test('formatResults never hides a SKIP under --quiet, and never folds it into an "ok" label', () => {
+  const results = [
+    { name: 'a', ok: true, detail: 'fine', counts: {} },
+    { name: 'b', ok: true, skipped: true, detail: 'not executed', counts: {} },
+  ];
+  const quiet = checks.formatResults(results, { quiet: true });
+  assert.equal(quiet.length, 1, 'the ordinary pass is hidden, the skip is not');
+  assert.match(quiet[0], /^ {2}SKIP b: not executed$/);
 });
 
 // ---------------------------------------------------------------------------

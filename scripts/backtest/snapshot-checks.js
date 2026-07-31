@@ -69,6 +69,20 @@ function fail(name, detail, counts = {}) {
 }
 
 /**
+ * A check that did not run at all - distinct from both `pass` and `fail`.
+ * `ok: true` so a skip is never counted toward `failures` (it is not a
+ * failure; the exit code stays 0), but `skipped: true` is what
+ * `formatResults` and `main`'s summary line key off of, so a skip can never
+ * be rendered or counted as an ordinary pass. The dishonest alternative -
+ * folding a skip into `pass` - is exactly what let a real invocation of
+ * `checkTeamContradictions` report a clean "ok" summary while never having
+ * executed the comparison it names.
+ */
+function skip(name, detail, counts = {}) {
+  return { name, ok: true, skipped: true, detail, counts };
+}
+
+/**
  * Read one archived source, hash-verified. Same discipline as the extraction:
  * `sourcesDir` is ours and `source.file` is a frozen-registry literal re-proved
  * to be a bare lowercase `.csv` basename, so the join cannot escape. Do not
@@ -484,7 +498,9 @@ function checkCrosswalkCoverage({ readSource }) {
  */
 function checkTeamContradictions({ readSource, normalizeTeamKey, seasons }) {
   if (typeof normalizeTeamKey !== 'function') {
-    return pass('teamContradictions', 'skipped: no normalizeTeamKey injected', {});
+    // NOT a pass: nothing was compared, so this must never render or count
+    // as "ok" - see `skip()`.
+    return skip('teamContradictions', 'not executed - no normalizeTeamKey injected', {});
   }
   const counts = {};
   for (const season of seasons) {
@@ -661,8 +677,12 @@ function parseArgs(argv) {
 function formatResults(results, { quiet = false } = {}) {
   const lines = [];
   for (const result of results) {
-    if (result.ok && quiet) continue;
-    lines.push(`  ${result.ok ? 'ok  ' : 'FAIL'} ${result.name}: ${result.detail}`);
+    // A skip is never hidden by --quiet, even though it carries ok:true: the
+    // whole point of a visible SKIP label is that "nothing to show" (an
+    // ordinary quiet-mode pass) and "this never ran" must not look alike.
+    if (result.ok && !result.skipped && quiet) continue;
+    const label = result.skipped ? 'SKIP' : (result.ok ? 'ok  ' : 'FAIL');
+    lines.push(`  ${label} ${result.name}: ${result.detail}`);
     if (!quiet && result.counts && Object.keys(result.counts).length > 0) {
       lines.push(`        ${JSON.stringify(result.counts)}`);
     }
@@ -682,7 +702,12 @@ function main(argv, deps = {}) {
   });
   log(`snapshot checks for ${manifest.studyId} (extracted ${manifest.extractedAt})`);
   for (const line of formatResults(results, { quiet: args.quiet })) log(line);
-  log(`${results.length - failures.length} passed, ${failures.length} failed`);
+  // A skip is counted on its OWN line, never folded into "passed": that
+  // fold is exactly what let a real run report a clean summary while the
+  // roster-vs-gameTeam comparison silently never executed.
+  const skippedCount = results.filter((r) => r.skipped).length;
+  const passedCount = results.length - failures.length - skippedCount;
+  log(`${passedCount} passed, ${skippedCount} skipped, ${failures.length} failed`);
   return failures.length === 0 ? 0 : 1;
 }
 
