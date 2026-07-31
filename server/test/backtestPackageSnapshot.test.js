@@ -1157,18 +1157,37 @@ test('assertDisjointRoots still catches the ordinary nested-either-direction and
 // (`isContainedIn` in lib/rootSafety.js), which has no such edge case.
 // ---------------------------------------------------------------------------
 
-test('assertDisjointRoots catches C:\\ containing C:\\Users - the exact drive-root containment bypass a third-party review reproduced', () => {
+test('assertDisjointRoots catches C:\\ containing C:\\Users - the exact drive-root containment bypass a third-party review reproduced, on Windows', (t) => {
+  // A drive letter + backslash is a win32-only notion - on POSIX, backslash
+  // is an ordinary filename character, so 'C:\' and 'C:\Users' are just two
+  // unrelated sibling strings sharing a prefix, not a root/child pair. This
+  // premise (that 'C:\Users' names a real child of 'C:\') only holds on
+  // win32; CI's Linux runner surfaced exactly this the first time this test
+  // ever ran off the original Windows dev box.
+  if (process.platform !== 'win32') { t.skip('drive-letter path semantics are a win32-only concern'); return; }
   assert.throws(() => packager.assertDisjointRoots('C:\\', 'C:\\Users'), /nested INSIDE snapshotRoot/);
   assert.throws(() => packager.assertDisjointRoots('C:\\Users', 'C:\\'), /nested INSIDE publishRoot/);
 });
 
-test('isContainedIn correctly handles a parent that already carries a trailing separator, on both platforms', () => {
+test('isContainedIn correctly handles a Windows drive-root parent that already carries a trailing separator', (t) => {
+  if (process.platform !== 'win32') { t.skip('drive-letter path semantics are a win32-only concern'); return; }
   const { isContainedIn } = packager;
   assert.equal(isContainedIn('C:\\', 'C:\\Users'), true);
   assert.equal(isContainedIn('C:\\Users', 'C:\\'), false);
   assert.equal(isContainedIn('C:\\foo', 'C:\\foo'), false, 'equal paths are not containment - that is the SAME-directory case');
   assert.equal(isContainedIn('C:\\foo', 'C:\\foobar'), false, 'a sibling with a shared string prefix must not be treated as nested');
+});
+
+test('isContainedIn correctly handles a POSIX root parent that already carries a trailing separator', () => {
+  // The POSIX-side analog of the Windows drive-root case above - this
+  // assertion does not depend on platform-specific path semantics the way
+  // the win32 literals above do ('/' is a real filesystem root on any
+  // platform Node runs on), so it is not gated.
+  const { isContainedIn } = packager;
   assert.equal(isContainedIn('/', '/etc'), true);
+  assert.equal(isContainedIn('/etc', '/'), false);
+  assert.equal(isContainedIn('/foo', '/foo'), false, 'equal paths are not containment - that is the SAME-directory case');
+  assert.equal(isContainedIn('/foo', '/foobar'), false, 'a sibling with a shared string prefix must not be treated as nested');
 });
 
 // ---------------------------------------------------------------------------
