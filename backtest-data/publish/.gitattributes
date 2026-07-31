@@ -1,0 +1,23 @@
+# Scoped to backtest-data/publish/ only.
+#
+# This machine (and this repository's default Windows checkout) has
+# core.autocrlf=true. Git normally rewrites LF to CRLF on checkout for
+# anything it treats as text. A gzip stream is binary - every 0x0A byte
+# inside a .gz chunk is compressed payload, not a line ending - so
+# autocrlf's rewrite would silently corrupt every sealed chunk on checkout.
+# The NDJSON/JSON sidecars are canonically serialized with a bare LF, and
+# autocrlf rewriting that away would break their recorded byte lengths and
+# hashes too. The rules below override autocrlf for this tree specifically,
+# in both directions, so a Windows checkout of these exact bytes matches a
+# Linux one.
+
+* -text
+*.json text eol=lf
+# No bare .ndjson file is staged today - every dataset is chunked and gzipped
+# (.ndjson.gz) before it ever reaches this tree. Kept for forward
+# compatibility with an uncompressed or ungzipped chunk format, should one
+# ever be added; harmless dead code until then.
+*.ndjson text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.gz binary
