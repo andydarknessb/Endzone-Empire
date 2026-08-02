@@ -279,6 +279,55 @@ test('any position below 0.85 makes the homeAway claim INCONCLUSIVE for that sea
   assert.deepEqual(arms.activationReport({ projectionsByPosition: empty }).belowThreshold, ['K']);
 });
 
+test('MUTATION TEST: activation is checked ONCE PER SEASON, independently - a strong season cannot mask a weak one', () => {
+  // Independent implementation review finding: `activationReport` alone has
+  // no season dimension - a caller feeding it blended or single-season data
+  // could silently mask a real per-season shortfall the sealed table
+  // (prereg 11.2) requires to surface on its own ("2025 (primary)" and
+  // "2024 (safety)" are two separate 0.85 rows, not one blended check).
+  const treated = Object.fromEntries(metrics.MACRO_POSITIONS.map((p) => [p,
+    Array.from({ length: 20 }, () => projection())]));
+  const starved = { ...treated };
+  starved.DEF = Array.from({ length: 20 }, (unused, i) => projection(
+    i < 10 ? { factors: { homeAway: { available: true, effect: 0 } } } : {}
+  ));
+
+  // Both seasons healthy -> treated.
+  const bothGood = arms.activationReportBothSeasons({
+    projectionsByPositionBySeason: { 2025: treated, 2024: treated },
+  });
+  assert.equal(bothGood.verdict, 'treated');
+  assert.deepEqual(bothGood.inconclusiveSeasons, []);
+
+  // 2025 (primary) starved, 2024 (safety) healthy - a strong 2024 must NOT
+  // rescue a weak 2025: still inconclusive, and 2025 is named.
+  const primaryStarved = arms.activationReportBothSeasons({
+    projectionsByPositionBySeason: { 2025: starved, 2024: treated },
+  });
+  assert.equal(primaryStarved.verdict, 'inconclusive');
+  assert.deepEqual(primaryStarved.inconclusiveSeasons, ['2025']);
+  assert.equal(primaryStarved.bySeason['2025'].verdict, 'inconclusive');
+  assert.equal(primaryStarved.bySeason['2024'].verdict, 'treated');
+
+  // 2024 (safety) starved, 2025 (primary) healthy - the reverse must also
+  // be caught, symmetrically.
+  const safetyStarved = arms.activationReportBothSeasons({
+    projectionsByPositionBySeason: { 2025: treated, 2024: starved },
+  });
+  assert.equal(safetyStarved.verdict, 'inconclusive');
+  assert.deepEqual(safetyStarved.inconclusiveSeasons, ['2024']);
+
+  // Both seasons required, no default, no silent single-season check.
+  assert.throws(
+    () => arms.activationReportBothSeasons({ projectionsByPositionBySeason: { 2025: treated } }),
+    /missing 2024/
+  );
+  assert.throws(
+    () => arms.activationReportBothSeasons({ projectionsByPositionBySeason: {} }),
+    /missing 2025, 2024/
+  );
+});
+
 // ---------------------------------------------------------------------------
 // Component (f): the exact binomial machinery
 // ---------------------------------------------------------------------------
@@ -322,6 +371,36 @@ test('the sign test shifts by the margin, drops exact ties, and inverts to the s
   const allTied = arms.exactSignTest({ weekDeltas: new Array(6).fill(arms.DELTA_F) });
   assert.equal(allTied.evaluable, false);
   assert.match(allTied.reason, /no information/);
+});
+
+test('MUTATION TEST: exactSignTest is unevaluable when no finite inverted bound exists, even with a non-zero n', () => {
+  // Independent implementation review finding: this previously always
+  // reported `evaluable: true` once n > 0 (regardless of whether the
+  // j-search ever found a finite i), so prereg 9.8 point 6's "if no such i
+  // exists the bound is +infinity and the endpoint is UNEVALUABLE" was
+  // silently violated - such an endpoint fell through to `status: 'failed'`
+  // downstream instead of `unevaluable`. tail(n,n) = (1/2)^n must be <=
+  // alpha for ANY finite bound to exist at all; below n=8 (at the default
+  // alpha=1/140) it cannot be, and n can shrink below the raw cluster count
+  // via tie-dropping even when the raw cluster count cleared MIN_F_CLUSTERS.
+  const belowN8 = arms.exactSignTest({ weekDeltas: new Array(6).fill(-0.01) });
+  assert.equal(belowN8.n, 6);
+  assert.equal(belowN8.evaluable, false);
+  assert.equal(belowN8.bound, Infinity);
+  assert.match(belowN8.reason, /no finite i in 1\.\.6/);
+
+  // Reachable through the full component (f) pipeline: 8 RAW weeks clears
+  // MIN_F_CLUSTERS, but two of them tie exactly on the margin and are
+  // dropped, leaving only 6 non-tied weeks - below the n=8 floor at which a
+  // finite bound is even possible. The endpoint must report `unevaluable`/
+  // `inconclusive`, never `failed`/`fail`.
+  const endpoint = arms.componentFEndpoint({
+    weekDeltas: [arms.DELTA_F, arms.DELTA_F, ...new Array(6).fill(-0.01)],
+    subgroupRows: 40, meanAbsBaseline: 1.0, incrementalErrors: [],
+  });
+  assert.equal(endpoint.status, 'unevaluable');
+  assert.equal(endpoint.claimVerdict, 'inconclusive');
+  assert.notEqual(endpoint.status, 'failed');
 });
 
 /** A healthy single endpoint: 8 clusters, 40 rows, a falsifiable baseline. */
@@ -413,6 +492,41 @@ test('the catastrophic cap is INCREMENTAL, and vetoes rather than rescues', () =
     ...base, weekDeltas: [...new Array(7).fill(-0.01), 0.5], incrementalErrors: [0.5],
   });
   assert.equal(failingAndVetoed.passes, false);
+});
+
+test('MUTATION TEST: the veto is computed BEFORE evaluability, and overrides a would-be unevaluable', () => {
+  // Independent implementation review finding: the veto previously ran LAST,
+  // after three possible early `unevaluable` returns - so a catastrophic row
+  // on an endpoint that was ALSO sparse, unfalsifiable, or exact-test-
+  // unevaluable would report `unevaluable`/inconclusive instead of
+  // `vetoed`/fail, contradicting section 6.4's "vetoes the cell immediately,
+  // regardless of whether either endpoint would otherwise have been
+  // evaluable." Each case below is independently sufficient to be
+  // unevaluable on its own; the veto must still win in every one.
+
+  // Below the evaluability minimum (too few clusters) AND vetoed.
+  const belowMinimum = arms.componentFEndpoint({
+    weekDeltas: new Array(3).fill(-0.01), subgroupRows: 5, meanAbsBaseline: 1.0,
+    incrementalErrors: [0.21],
+  });
+  assert.equal(belowMinimum.status, 'vetoed');
+  assert.equal(belowMinimum.claimVerdict, 'fail');
+
+  // Below the falsifiability floor AND vetoed.
+  const unfalsifiable = arms.componentFEndpoint({
+    weekDeltas: new Array(8).fill(-0.01), subgroupRows: 40, meanAbsBaseline: 0.1,
+    incrementalErrors: [0.21],
+  });
+  assert.equal(unfalsifiable.status, 'vetoed');
+  assert.equal(unfalsifiable.claimVerdict, 'fail');
+
+  // Exact-test unevaluable (every week ties on the shifted margin) AND vetoed.
+  const tiedOut = arms.componentFEndpoint({
+    weekDeltas: new Array(8).fill(arms.DELTA_F), subgroupRows: 40, meanAbsBaseline: 1.0,
+    incrementalErrors: [0.21],
+  });
+  assert.equal(tiedOut.status, 'vetoed');
+  assert.equal(tiedOut.claimVerdict, 'fail');
 });
 
 test('an (f) endpoint reports everything the transparency requirement names', () => {
@@ -807,15 +921,21 @@ test('classifyTriggeredEndpoint: the AND rule, exact-side precedence, and agreem
 // Level 1 (run void) and Level 5 (selection)
 // ---------------------------------------------------------------------------
 
-test('classifyRun: void PREEMPTS the cell-level table, from any of the three named causes', () => {
+test('classifyRun: void PREEMPTS the cell-level table, from any of the FOUR named causes', () => {
   assert.equal(arms.classifyRun({}).status, 'valid');
   assert.equal(arms.classifyRun({ canariesPassed: false }).status, 'void');
   assert.equal(arms.classifyRun({ permutationControlPassed: false }).status, 'void');
   assert.equal(arms.classifyRun({ identityAssertionsPassed: false }).status, 'void');
-  const allThree = arms.classifyRun({
+  // Independent implementation review finding: a real salt-collision
+  // (section 3.4 item 5) previously had no run-voiding effect wired at all.
+  const saltCollision = arms.classifyRun({ saltCollisionPassed: false });
+  assert.equal(saltCollision.status, 'void');
+  assert.match(saltCollision.reasons[0], /salt-collision/);
+  const allFour = arms.classifyRun({
     canariesPassed: false, permutationControlPassed: false, identityAssertionsPassed: false,
+    saltCollisionPassed: false,
   });
-  assert.equal(allThree.reasons.length, 3);
+  assert.equal(allFour.reasons.length, 4);
 });
 
 test('selectAtLevel5: the frozen precedence - void, no-proposal causes, none-passed, then parsimony', () => {

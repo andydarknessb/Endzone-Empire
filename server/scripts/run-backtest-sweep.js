@@ -96,16 +96,31 @@ function parseArgs(argv) {
 
 const COMPONENT_KEYS = Object.freeze(['a', 'b', 'c', 'd', 'e1']);
 const TOP_LEVEL_KEYS = Object.freeze([
-  'studyId', 'canariesPassed', 'identityAssertionsPassed', 'permutationControl',
+  'studyId', 'canariesPassed', 'identityAssertions', 'saltCollisionPassed', 'permutationControl',
   'orderingDisagreement', 'deployedPolicyDisagreement', 'cells',
 ]);
+/**
+ * Both booleans required, by NAME, rather than one pre-combined
+ * `identityAssertionsPassed` flag - independent implementation review
+ * finding: a single opaque boolean lets an upstream mistake (an AND
+ * computed wrong, or one assertion never actually run) pass through
+ * invisibly. This reducer still cannot INDEPENDENTLY VERIFY either
+ * assertion (that requires the raw per-projection data `arms.
+ * assertProjectionRunBitIdentical`/`assertHomeAwayStoredPointIdentity`
+ * compare, which this --inputs artifact's aggregated weekDeltas do not
+ * carry - a real Gate-4 concern), but it DOES compute the required AND
+ * itself, from two independently-named results, rather than trusting a
+ * pre-combined claim.
+ */
+const IDENTITY_ASSERTION_KEYS = Object.freeze(['controlBitIdentity', 'homeAwayStoredPointIdentity']);
 const CO_PRIMARY_INPUT_KEYS = Object.freeze(['regretWeekDeltas', 'pairwiseWeekDeltas']);
 const E2_INPUT_KEYS = Object.freeze(['endpoints']);
 const E2_ENDPOINT_INPUT_KEYS = Object.freeze(['key', 'weekDeltas']);
 const F_ENDPOINT_INPUT_KEYS = Object.freeze([
   'weekDeltas', 'subgroupRows', 'meanAbsBaseline', 'maxAbsBaseline', 'weekMeanAbsBaselines', 'incrementalErrors',
 ]);
-const CELL_INPUT_KEYS = Object.freeze(['a', 'b', 'c', 'd', 'e1', 'e2', 'f', 'activation']);
+const CELL_INPUT_KEYS = Object.freeze(['a', 'b', 'c', 'd', 'e1', 'e2', 'f', 'activation', 'orderingSensitivity']);
+const ORDERING_SENSITIVITY_KEYS = Object.freeze(['contradicted', 'detail']);
 
 function assertClosedKeys(obj, allowed, label) {
   const extra = Object.keys(obj || {}).filter((k) => !allowed.includes(k));
@@ -126,8 +141,21 @@ function validateInputs(inputs, { label = '--inputs' } = {}) {
   if (typeof inputs.studyId !== 'string' || inputs.studyId.length === 0) {
     throw new Error(`${label}.studyId: must be a non-empty string`);
   }
-  for (const flag of ['canariesPassed', 'identityAssertionsPassed', 'orderingDisagreement', 'deployedPolicyDisagreement']) {
+  for (const flag of ['canariesPassed', 'saltCollisionPassed', 'orderingDisagreement', 'deployedPolicyDisagreement']) {
     if (typeof inputs[flag] !== 'boolean') throw new Error(`${label}.${flag}: must be a boolean`);
+  }
+  if (!inputs.identityAssertions || typeof inputs.identityAssertions !== 'object') {
+    throw new Error(`${label}.identityAssertions: must be an object`);
+  }
+  assertClosedKeys(inputs.identityAssertions, IDENTITY_ASSERTION_KEYS, `${label}.identityAssertions`);
+  for (const key of IDENTITY_ASSERTION_KEYS) {
+    if (typeof inputs.identityAssertions[key] !== 'boolean') {
+      throw new Error(
+        `${label}.identityAssertions.${key}: must be a boolean - the sealed usage-25==control bit-identity `
+        + 'and homeaway-on-stored==homeaway-on point-identity assertions (prereg 7.3) must each be reported '
+        + 'by name, never as a single pre-combined flag'
+      );
+    }
   }
   if (!inputs.permutationControl || typeof inputs.permutationControl !== 'object') {
     throw new Error(`${label}.permutationControl: must be an object`);
@@ -208,10 +236,47 @@ function validateInputs(inputs, { label = '--inputs' } = {}) {
       if (!cellInput.activation || typeof cellInput.activation !== 'object') {
         throw new Error(`${cellLabel}.activation: must be an object for an "on" cell`);
       }
-      assertClosedKeys(cellInput.activation, ['projectionsByPosition'], `${cellLabel}.activation`);
+      assertClosedKeys(cellInput.activation, ['projectionsByPositionBySeason'], `${cellLabel}.activation`);
+      const bySeason = cellInput.activation.projectionsByPositionBySeason;
+      if (!bySeason || typeof bySeason !== 'object') {
+        throw new Error(`${cellLabel}.activation.projectionsByPositionBySeason: must be an object`);
+      }
+      assertClosedKeys(bySeason, ['2025', '2024'], `${cellLabel}.activation.projectionsByPositionBySeason`);
+      // Prereg 11.2: activation is checked ONCE PER SEASON, independently -
+      // "2025 (primary)" and "2024 (safety)" are two separate rows in the
+      // sealed threshold table, both required.
+      for (const season of ['2025', '2024']) {
+        if (!bySeason[season] || typeof bySeason[season] !== 'object') {
+          throw new Error(`${cellLabel}.activation.projectionsByPositionBySeason.${season}: must be an object`);
+        }
+      }
     } else {
       if (cellInput.f !== null) throw new Error(`${cellLabel}.f: must be null for an "off" cell - component (f) has no matched off-twin to compare an off-cell against`);
       if (cellInput.activation !== null) throw new Error(`${cellLabel}.activation: must be null for an "off" cell - there is nothing to check activation of`);
+    }
+
+    // Prereg 5.2/16, PHASE5_EXECUTION_SPEC.md section 8.4: the DB-collation
+    // variant and duplicate-order shuffle can CONTRADICT a candidate cell's
+    // own verdict under the primary ordering, at Level 2 (cell), regardless
+    // of the overall winner. Required for every CANDIDATE cell - the
+    // control never receives a verdict to contradict (row 26 ruling).
+    const isControlCell = cellMeta.name === arms.CONTROL_CELL;
+    if (isControlCell) {
+      if (cellInput.orderingSensitivity !== null) {
+        throw new Error(`${cellLabel}.orderingSensitivity: must be null for the control cell - it receives no candidate verdict to contradict`);
+      }
+    } else {
+      const sensitivity = cellInput.orderingSensitivity;
+      if (!sensitivity || typeof sensitivity !== 'object') {
+        throw new Error(`${cellLabel}.orderingSensitivity: must be an object for a candidate cell`);
+      }
+      assertClosedKeys(sensitivity, ORDERING_SENSITIVITY_KEYS, `${cellLabel}.orderingSensitivity`);
+      if (typeof sensitivity.contradicted !== 'boolean') {
+        throw new Error(`${cellLabel}.orderingSensitivity.contradicted: must be a boolean`);
+      }
+      if (sensitivity.detail !== null && typeof sensitivity.detail !== 'string') {
+        throw new Error(`${cellLabel}.orderingSensitivity.detail: must be a string or null`);
+      }
     }
   }
 }
@@ -286,7 +351,35 @@ function evaluateE2(cellInput) {
  * rule for a component marked `{ applicable: false }` - it passes
  * trivially and the divisor stays fixed at 7 regardless.
  */
+/**
+ * The control (usage-25 x off) never receives a candidate IUT verdict.
+ * Independent implementation review ruling (row 26, resolved as a DEFECT,
+ * not an ambiguity): prereg §9.1 says "one claim per **candidate** cell,"
+ * and §7.1/§12.1 name the control as distinct from "the 7 non-control
+ * cells." Component (a)'s own comparator IS the control, so a control-vs-
+ * itself run would trivially and permanently `fail` every real run - not a
+ * finding, an artifact of asking a nonsensical question. The control MAY
+ * publish baseline metrics and pipeline assertions (not yet wired - see
+ * the report-schema expansion), but MUST NOT receive `pass`, `fail`,
+ * `inconclusive`, or `vetoed` under the seven-component candidate IUT.
+ * `verdict: 'baseline'` is a distinct fifth value `sweepReport.js` accepts
+ * ONLY for the control cell, never for a candidate.
+ */
+function controlBaselineClaim(cellMeta) {
+  return {
+    cell: cellMeta.name,
+    verdict: 'baseline',
+    components: {},
+    failures: [],
+    inconclusive: [],
+    vetoedReasons: [],
+  };
+}
+
 function assembleCellClaim(cellMeta, cellInput) {
+  if (cellMeta.name === arms.CONTROL_CELL) {
+    return controlBaselineClaim(cellMeta);
+  }
   const isOnCell = cellMeta.homeAway === 'on';
   const usageDiffersFromControl = cellMeta.blendWeight !== arms.CONTROL_BLEND_WEIGHT;
   const components = {
@@ -299,9 +392,13 @@ function assembleCellClaim(cellMeta, cellInput) {
     f: isOnCell ? arms.componentF({ f1: cellInput.f.f1, f2: cellInput.f.f2 }) : { applicable: false },
   };
   const activation = isOnCell
-    ? arms.activationReport({ projectionsByPosition: cellInput.activation.projectionsByPosition })
+    ? arms.activationReportBothSeasons({
+      projectionsByPositionBySeason: cellInput.activation.projectionsByPositionBySeason,
+    })
     : null;
-  return arms.evaluateClaim({ cell: cellMeta.name, components, activation });
+  return arms.evaluateClaim({
+    cell: cellMeta.name, components, activation, orderingSensitivity: cellInput.orderingSensitivity,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -313,11 +410,18 @@ function buildReportFromInputs(inputs) {
   const cellClaims = Object.fromEntries(
     arms.ALL_CELLS.map((cellMeta) => [cellMeta.name, assembleCellClaim(cellMeta, inputs.cells[cellMeta.name])])
   );
+  // Prereg 7.3: "Both identity assertions failing aborts the run" - resolved
+  // (PHASE5_EXECUTION_SPEC.md section 8.6) as "either suffices to void."
+  // Computed HERE, as the AND of the two named results, rather than trusted
+  // as a single pre-combined --inputs flag (independent implementation
+  // review finding).
+  const identityAssertionsPassed = IDENTITY_ASSERTION_KEYS.every((key) => inputs.identityAssertions[key]);
   const sweep = sweepInference.evaluateSweep({
     cellClaims,
     permutationControl: inputs.permutationControl,
     canariesPassed: inputs.canariesPassed,
-    identityAssertionsPassed: inputs.identityAssertionsPassed,
+    identityAssertionsPassed,
+    saltCollisionPassed: inputs.saltCollisionPassed,
     orderingDisagreement: inputs.orderingDisagreement,
     deployedPolicyDisagreement: inputs.deployedPolicyDisagreement,
   });
@@ -379,6 +483,7 @@ if (require.main === module) {
 module.exports = {
   TOP_LEVEL_KEYS,
   CELL_INPUT_KEYS,
+  IDENTITY_ASSERTION_KEYS,
   parseArgs,
   validateInputs,
   boundariesFor,

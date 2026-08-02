@@ -30,6 +30,24 @@
  *      prevent (prereg 9.1: "there is no 'assume pass'"); an unevaluable with
  *      no stated reason is the reporting-layer version of the same failure -
  *      a verdict nobody can audit.
+ *
+ * SCOPE, STATED PLAINLY (independent implementation review finding): the
+ * closed schema below now carries every component's endpoint-level
+ * bootstrap evidence (surviving cluster count `n`, the CI, whether the
+ * exact trigger fired), component (f)'s full prereg-9.8-required
+ * transparency block, per-season/per-position activation rates (prereg
+ * 11.2), and the cell-level ordering-sensitivity finding (prereg 5.2/16).
+ * It does NOT yet carry three things the sealed preregistration also
+ * requires reported: **absolute metrics and their CIs** (this pipeline
+ * only ever computes PAIRED CONTRAST deltas, never each arm's own absolute
+ * metric - prereg 12.1's "all 8 cells' absolute metrics... reported" has
+ * no corresponding computation anywhere in `sweepEvaluator.js` yet);
+ * **sensitivities** (`metrics.movingBlockBootstrap` exists but is never
+ * invoked by this pipeline - prereg 10.5); and **attribution composites**
+ * (the usage/homeAway/interaction decomposition, prereg 12.2 - not
+ * computed anywhere). These are real, larger scope items for a future
+ * increment, not schema omissions this file can fix on its own - reported
+ * here rather than left implicit.
  */
 
 const arms = require('./arms');
@@ -96,11 +114,76 @@ function assertClosedKeys(obj, allowed, { label = 'object' } = {}) {
 
 const RUN_KEYS = Object.freeze(['status', 'reasons', 'detail']);
 const PERMUTATION_KEYS = Object.freeze(['void', 'reason', 'detail', 'failures']);
-const CELL_KEYS = Object.freeze(['name', 'blendWeight', 'homeAway', 'isControl', 'verdict', 'components', 'failures', 'inconclusive', 'vetoedReasons']);
-const COMPONENT_KEYS = Object.freeze(['status', 'passes', 'reason']);
+const CELL_KEYS = Object.freeze([
+  'name', 'blendWeight', 'homeAway', 'isControl', 'verdict', 'components',
+  'failures', 'inconclusive', 'vetoedReasons', 'activation', 'orderingSensitivity',
+]);
+const COMPONENT_KEYS = Object.freeze(['status', 'passes', 'reason', 'evidence']);
+const EVIDENCE_KEYS = Object.freeze(['endpoints', 'transparency']);
+const ENDPOINT_EVIDENCE_KEYS = Object.freeze(['label', 'status', 'n', 'lower', 'upper', 'triggerFired']);
+const TRANSPARENCY_KEYS = Object.freeze([
+  'endpoint', 'subgroupRows', 'meanAbsBaseline', 'maxAbsBaseline', 'weeksBelowFalsifiabilityFloor',
+  'weeksWithBaseline', 'catastrophicCapCouldFire', 'weekSignIndependenceAssumed',
+  'nonTiedWeeks', 'k', 'exactP', 'invertedBound',
+]);
+// `arms.activationReport`/`activationReportBothSeasons` also carry their own
+// `label` (a caller-supplied diagnostic string, e.g. "activation 2025") -
+// accepted here but not surfaced in the normalized report, since it names
+// the CALL rather than the DATA.
+const ACTIVATION_KEYS = Object.freeze(['bySeason', 'threshold', 'inconclusiveSeasons', 'verdict', 'detail', 'label']);
+const ACTIVATION_SEASON_KEYS = Object.freeze(['byPosition', 'threshold', 'belowThreshold', 'verdict', 'detail', 'label']);
+const ACTIVATION_POSITION_KEYS = Object.freeze(['eligible', 'activated', 'excludedIneligible', 'rate']);
+const ORDERING_SENSITIVITY_KEYS = Object.freeze(['contradicted', 'detail']);
 const SELECTION_KEYS = Object.freeze(['outcome', 'reasons', 'reason', 'selected', 'ranked']);
 const RANKED_CELL_KEYS = Object.freeze(['name', 'blendWeight', 'homeAway']);
 const REPORT_KEYS = Object.freeze(['studyId', 'run', 'permutationControl', 'cells', 'selection']);
+
+/** Normalize one bootstrap/exact endpoint's evidence summary to the closed shape. */
+function normalizeEndpointEvidence(endpoint, { label }) {
+  assertClosedKeys(endpoint, ENDPOINT_EVIDENCE_KEYS, { label });
+  return {
+    label: typeof endpoint.label === 'string' ? endpoint.label : null,
+    status: typeof endpoint.status === 'string' ? endpoint.status : null,
+    n: typeof endpoint.n === 'number' ? endpoint.n : null,
+    lower: typeof endpoint.lower === 'number' ? endpoint.lower : null,
+    upper: typeof endpoint.upper === 'number' ? endpoint.upper : null,
+    triggerFired: !!endpoint.triggerFired,
+  };
+}
+
+/** Normalize component (f)'s prereg-9.8-required transparency block to the closed shape. */
+function normalizeTransparency(t, { label }) {
+  assertClosedKeys(t, TRANSPARENCY_KEYS, { label });
+  const num = (v) => (typeof v === 'number' ? v : null);
+  return {
+    endpoint: typeof t.endpoint === 'string' ? t.endpoint : null,
+    subgroupRows: num(t.subgroupRows),
+    meanAbsBaseline: num(t.meanAbsBaseline),
+    maxAbsBaseline: num(t.maxAbsBaseline),
+    weeksBelowFalsifiabilityFloor: num(t.weeksBelowFalsifiabilityFloor),
+    weeksWithBaseline: num(t.weeksWithBaseline),
+    catastrophicCapCouldFire: typeof t.catastrophicCapCouldFire === 'boolean' ? t.catastrophicCapCouldFire : null,
+    weekSignIndependenceAssumed: typeof t.weekSignIndependenceAssumed === 'boolean'
+      ? t.weekSignIndependenceAssumed : null,
+    nonTiedWeeks: num(t.nonTiedWeeks),
+    k: num(t.k),
+    exactP: num(t.exactP),
+    invertedBound: num(t.invertedBound),
+  };
+}
+
+function normalizeEvidence(evidence, { label }) {
+  if (!evidence) return null;
+  assertClosedKeys(evidence, EVIDENCE_KEYS, { label });
+  return {
+    endpoints: Array.isArray(evidence.endpoints)
+      ? evidence.endpoints.map((e, i) => normalizeEndpointEvidence(e, { label: `${label}.endpoints[${i}]` }))
+      : null,
+    transparency: Array.isArray(evidence.transparency)
+      ? evidence.transparency.map((t, i) => normalizeTransparency(t, { label: `${label}.transparency[${i}]` }))
+      : null,
+  };
+}
 
 /** Normalize one component to the closed shape - `reason` is always present, `null` when unused. */
 function normalizeComponent(component, { label }) {
@@ -115,6 +198,65 @@ function normalizeComponent(component, { label }) {
     status: component.status,
     passes: component.passes,
     reason: typeof component.reason === 'string' ? component.reason : null,
+    evidence: normalizeEvidence(component.evidence, { label: `${label}.evidence` }),
+  };
+}
+
+/** Normalize one position's activation counts (prereg 11.2) to the closed shape. */
+function normalizeActivationPosition(p, { label }) {
+  assertClosedKeys(p, ACTIVATION_POSITION_KEYS, { label });
+  return {
+    eligible: typeof p.eligible === 'number' ? p.eligible : null,
+    activated: typeof p.activated === 'number' ? p.activated : null,
+    excludedIneligible: typeof p.excludedIneligible === 'number' ? p.excludedIneligible : null,
+    rate: typeof p.rate === 'number' ? p.rate : null,
+  };
+}
+
+/** Normalize one season's full activation report to the closed shape. */
+function normalizeActivationSeason(season, { label }) {
+  assertClosedKeys(season, ACTIVATION_SEASON_KEYS, { label });
+  const byPosition = {};
+  for (const [position, p] of Object.entries(season.byPosition || {})) {
+    byPosition[position] = normalizeActivationPosition(p, { label: `${label}.byPosition.${position}` });
+  }
+  return {
+    byPosition,
+    threshold: typeof season.threshold === 'number' ? season.threshold : null,
+    belowThreshold: Array.isArray(season.belowThreshold) ? [...season.belowThreshold] : [],
+    verdict: season.verdict,
+    detail: typeof season.detail === 'string' ? season.detail : null,
+  };
+}
+
+/**
+ * Normalize the full per-season activation report (prereg 11.2: "Activation
+ * rates are published per season and position regardless of outcome") -
+ * `null` for an off-cell, which has no activation to check at all.
+ */
+function normalizeActivation(activation, { label }) {
+  if (!activation) return null;
+  assertClosedKeys(activation, ACTIVATION_KEYS, { label });
+  const bySeason = {};
+  for (const [season, report] of Object.entries(activation.bySeason || {})) {
+    bySeason[season] = normalizeActivationSeason(report, { label: `${label}.bySeason.${season}` });
+  }
+  return {
+    bySeason,
+    threshold: typeof activation.threshold === 'number' ? activation.threshold : null,
+    inconclusiveSeasons: Array.isArray(activation.inconclusiveSeasons) ? [...activation.inconclusiveSeasons] : [],
+    verdict: activation.verdict,
+    detail: typeof activation.detail === 'string' ? activation.detail : null,
+  };
+}
+
+/** Normalize the cell-level ordering-sensitivity finding (prereg 5.2/16) - `null` for the control. */
+function normalizeOrderingSensitivity(sensitivity, { label }) {
+  if (!sensitivity) return null;
+  assertClosedKeys(sensitivity, ORDERING_SENSITIVITY_KEYS, { label });
+  return {
+    contradicted: !!sensitivity.contradicted,
+    detail: typeof sensitivity.detail === 'string' ? sensitivity.detail : null,
   };
 }
 
@@ -137,10 +279,24 @@ function normalizeCell(cellMeta, claim, { label }) {
     failures: Array.isArray(claim.failures) ? [...claim.failures] : [],
     inconclusive: Array.isArray(claim.inconclusive) ? [...claim.inconclusive] : [],
     vetoedReasons: Array.isArray(claim.vetoedReasons) ? [...claim.vetoedReasons] : [],
+    activation: normalizeActivation(claim.activation, { label: `${label}.activation` }),
+    orderingSensitivity: normalizeOrderingSensitivity(claim.orderingSensitivity, { label: `${label}.orderingSensitivity` }),
   };
   assertClosedKeys(normalized, CELL_KEYS, { label });
-  if (!['pass', 'fail', 'inconclusive', 'vetoed'].includes(normalized.verdict)) {
-    throw new Error(`${label}: unrecognized verdict '${normalized.verdict}' for cell ${cellMeta.name}`);
+  // The control never receives a candidate IUT verdict (independent
+  // implementation review ruling, row 26): 'baseline' is a distinct fifth
+  // value, valid ONLY for the control cell - a non-control cell reporting
+  // 'baseline' would be silently opting out of the IUT it is required to
+  // pass, and the control reporting a real IUT verdict would be measuring
+  // it against itself, which is not a finding.
+  const allowedVerdicts = normalized.isControl
+    ? ['baseline']
+    : ['pass', 'fail', 'inconclusive', 'vetoed'];
+  if (!allowedVerdicts.includes(normalized.verdict)) {
+    throw new Error(
+      `${label}: verdict '${normalized.verdict}' is not valid for ${cellMeta.name} - `
+      + `expected one of ${allowedVerdicts.join(', ')} (${normalized.isControl ? 'the control cell' : 'a candidate cell'})`
+    );
   }
   return normalized;
 }
@@ -246,18 +402,57 @@ function escapeMd(text) {
   return String(text).replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
 }
 
+/** One evidence endpoint (n, CI) rendered inline, e.g. "regret n=17 [-0.412, -0.201]". */
+function renderEndpointEvidence(endpoints) {
+  if (!Array.isArray(endpoints) || endpoints.length === 0) return '';
+  return endpoints.map((e) => {
+    const ci = e.lower !== null && e.upper !== null ? `[${e.lower}, ${e.upper}]` : '';
+    const n = e.n !== null ? `n=${e.n}` : '';
+    return `${escapeMd(e.label || '?')} ${n} ${ci}`.trim();
+  }).join('; ');
+}
+
 function renderComponentsTable(components) {
   const keys = Object.keys(components).sort();
   if (keys.length === 0) return '_(no components reported)_';
   const rows = keys.map((key) => {
     const c = components[key];
-    return `| ${escapeMd(key)} | ${escapeMd(c.status)} | ${c.passes} | ${escapeMd(c.reason ?? '')} |`;
+    const evidence = c.evidence
+      ? escapeMd(renderEndpointEvidence(c.evidence.endpoints))
+      : '';
+    return `| ${escapeMd(key)} | ${escapeMd(c.status)} | ${c.passes} | ${escapeMd(c.reason ?? '')} | ${evidence} |`;
   });
-  return [
-    '| component | status | passes | reason |',
-    '| --- | --- | --- | --- |',
+  const lines = [
+    '| component | status | passes | reason | evidence |',
+    '| --- | --- | --- | --- | --- |',
     ...rows,
-  ].join('\n');
+  ];
+  // Component (f)'s prereg-9.8-required transparency block, one line per endpoint.
+  const fTransparency = components.f && components.f.evidence && components.f.evidence.transparency;
+  if (Array.isArray(fTransparency) && fTransparency.length > 0) {
+    lines.push('', '**Component (f) transparency:**', '');
+    for (const t of fTransparency) {
+      lines.push(
+        `- ${escapeMd(t.endpoint || 'f')}: subgroupRows=${t.subgroupRows}, meanAbsBaseline=${t.meanAbsBaseline}, `
+        + `maxAbsBaseline=${t.maxAbsBaseline}, weeksBelowFalsifiabilityFloor=${t.weeksBelowFalsifiabilityFloor}, `
+        + `catastrophicCapCouldFire=${t.catastrophicCapCouldFire}`
+      );
+    }
+  }
+  return lines.join('\n');
+}
+
+/** Per-season, per-position activation rates (prereg 11.2: published regardless of outcome). */
+function renderActivation(activation) {
+  if (!activation) return '';
+  const lines = ['', '**Activation:**', ''];
+  for (const season of Object.keys(activation.bySeason).sort()) {
+    const seasonReport = activation.bySeason[season];
+    const positions = Object.keys(seasonReport.byPosition).sort()
+      .map((p) => `${p}=${seasonReport.byPosition[p].rate}`).join(', ');
+    lines.push(`- ${season}: **${seasonReport.verdict}** (${positions})`);
+  }
+  return lines.join('\n');
 }
 
 /**
@@ -296,6 +491,11 @@ function renderMarkdown(report) {
       lines.push(`Verdict: **${cell.verdict}**`);
       lines.push('');
       lines.push(renderComponentsTable(cell.components));
+      const activationBlock = renderActivation(cell.activation);
+      if (activationBlock) lines.push(activationBlock);
+      if (cell.orderingSensitivity && cell.orderingSensitivity.contradicted) {
+        lines.push('', `**Ordering sensitivity: CONTRADICTED** - ${escapeMd(cell.orderingSensitivity.detail || '')}`);
+      }
       lines.push('');
     }
   }

@@ -53,10 +53,12 @@ function treatedActivationInput() {
     eligible: true, neutralSite: false, knownOrientation: true,
     factors: { homeAway: { available: true, effect: 0.02 } },
   });
+  const oneSeason = () => Object.fromEntries(
+    metrics.MACRO_POSITIONS.map((p) => [p, Array.from({ length: 20 }, position)])
+  );
   return {
-    projectionsByPosition: Object.fromEntries(
-      metrics.MACRO_POSITIONS.map((p) => [p, Array.from({ length: 20 }, position)])
-    ),
+    // Prereg 11.2: activation is checked once per season, independently.
+    projectionsByPositionBySeason: { 2025: oneSeason(), 2024: oneSeason() },
   };
 }
 
@@ -69,6 +71,7 @@ function fullPassingInputs({ permutationControl = { regretP: 0.0001, pairwiseP: 
     // blendWeight differs from the control's 0.25 - null otherwise, exactly
     // like (f)/activation are null for an "off" cell.
     const usageDiffersFromControl = cellMeta.blendWeight !== arms.CONTROL_BLEND_WEIGHT;
+    const isControlCell = cellMeta.name === arms.CONTROL_CELL;
     cells[cellMeta.name] = {
       a: passingCoPrimaryInput(),
       b: isOnCell ? passingCoPrimaryInput() : null,
@@ -78,12 +81,15 @@ function fullPassingInputs({ permutationControl = { regretP: 0.0001, pairwiseP: 
       e2: passingE2Input(),
       f: isOnCell ? { f1: HEALTHY_F_ENDPOINT, f2: HEALTHY_F_ENDPOINT } : null,
       activation: isOnCell ? treatedActivationInput() : null,
+      // Prereg 5.2/16: null only for the control (no verdict to contradict).
+      orderingSensitivity: isControlCell ? null : { contradicted: false, detail: null },
     };
   }
   return {
     studyId: 'pit-sweep-2024-2025',
     canariesPassed: true,
-    identityAssertionsPassed: true,
+    identityAssertions: { controlBitIdentity: true, homeAwayStoredPointIdentity: true },
+    saltCollisionPassed: true,
     permutationControl,
     orderingDisagreement: false,
     deployedPolicyDisagreement: false,
@@ -142,6 +148,22 @@ test('validateInputs refuses a missing or extra cell', () => {
   const extra = fullPassingInputs();
   extra.cells['not-a-cell'] = extra.cells['usage-40-off'];
   assert.throws(() => runBacktestSweep.validateInputs(extra), /unrecognized cell\(s\): not-a-cell/);
+});
+
+test('validateInputs requires activation to carry BOTH seasons independently (prereg 11.2)', () => {
+  const missing2024 = fullPassingInputs();
+  delete missing2024.cells['usage-25-on'].activation.projectionsByPositionBySeason['2024'];
+  assert.throws(
+    () => runBacktestSweep.validateInputs(missing2024),
+    /projectionsByPositionBySeason\.2024: must be an object/
+  );
+
+  const extraSeason = fullPassingInputs();
+  extraSeason.cells['usage-25-on'].activation.projectionsByPositionBySeason['2023'] = {};
+  assert.throws(
+    () => runBacktestSweep.validateInputs(extraSeason),
+    /projectionsByPositionBySeason: unexpected key\(s\): 2023/
+  );
 });
 
 test('validateInputs requires f/activation to be null for an off-cell, and present for an on-cell', () => {
@@ -219,6 +241,23 @@ test('main(): a comfortably-passing inputs document produces a VALID run with a 
   const markdown = fs.readFileSync(outMarkdown, 'utf8');
   assert.match(markdown, /# Sweep report: pit-sweep-2024-2025/);
   assert.match(markdown, /Outcome: \*\*selected\*\*/);
+
+  // Independent implementation review finding: the report previously
+  // discarded component (f) transparency, bootstrap n/CI, and per-season
+  // activation rates - all now genuinely populated, not just schema-valid.
+  const selectedCell = report.cells.find((c) => c.name === report.selection.selected.name);
+  const aEvidence = selectedCell.components.a.evidence;
+  assert.ok(aEvidence.endpoints, 'component (a) carries endpoint evidence');
+  assert.equal(aEvidence.endpoints.length, 2, 'regret and pairwise');
+  assert.ok(aEvidence.endpoints.every((e) => typeof e.n === 'number' && e.n > 0), 'surviving cluster count is real');
+  assert.ok(aEvidence.endpoints.every((e) => typeof e.lower === 'number' && typeof e.upper === 'number'));
+
+  const onCell = report.cells.find((c) => c.homeAway === 'on' && !c.isControl);
+  const fTransparency = onCell.components.f.evidence.transparency;
+  assert.equal(fTransparency.length, 2, 'f1 and f2, per prereg 9.8');
+  assert.ok(fTransparency.every((t) => typeof t.subgroupRows === 'number' && typeof t.meanAbsBaseline === 'number'));
+  assert.ok(onCell.activation.bySeason['2025'].byPosition.QB.rate > 0, 'per-season, per-position activation rate is real');
+  assert.ok(onCell.activation.bySeason['2024'], 'both seasons published, per prereg 11.2');
 });
 
 test('main(): a permutation-control threshold miss produces a VOID run with no cell-level results', (t) => {
@@ -239,6 +278,57 @@ test('main(): a permutation-control threshold miss produces a VOID run with no c
   const markdown = fs.readFileSync(outMarkdown, 'utf8');
   assert.match(markdown, /Status: \*\*void\*\*/);
   assert.match(markdown, /No cell-level results are published/);
+});
+
+test('main(): either sealed identity assertion failing alone VOIDS the run - never a single opaque flag', (t) => {
+  for (const key of runBacktestSweep.IDENTITY_ASSERTION_KEYS) {
+    const dir = tmpDir(t);
+    const inputs = fullPassingInputs();
+    inputs.identityAssertions[key] = false;
+    const inputsPath = path.join(dir, 'inputs.json');
+    fs.writeFileSync(inputsPath, JSON.stringify(inputs));
+    runBacktestSweep.main([
+      '--inputs', inputsPath,
+      '--out-json', path.join(dir, 'report.json'),
+      '--out-markdown', path.join(dir, 'REPORT.md'),
+    ]);
+    const report = JSON.parse(fs.readFileSync(path.join(dir, 'report.json'), 'utf8'));
+    assert.equal(report.run.status, 'void', `${key} alone must void the run`);
+    assert.equal(report.cells, null);
+  }
+});
+
+test('main(): a real salt-collision VOIDS the run (section 3.4 item 5)', (t) => {
+  const dir = tmpDir(t);
+  const inputs = fullPassingInputs();
+  inputs.saltCollisionPassed = false;
+  const inputsPath = path.join(dir, 'inputs.json');
+  fs.writeFileSync(inputsPath, JSON.stringify(inputs));
+  runBacktestSweep.main([
+    '--inputs', inputsPath,
+    '--out-json', path.join(dir, 'report.json'),
+    '--out-markdown', path.join(dir, 'REPORT.md'),
+  ]);
+  const report = JSON.parse(fs.readFileSync(path.join(dir, 'report.json'), 'utf8'));
+  assert.equal(report.run.status, 'void');
+  assert.match(report.run.detail, /salt-collision/);
+});
+
+test('validateInputs requires identityAssertions to name BOTH sealed assertions independently', () => {
+  const missingBoth = fullPassingInputs();
+  missingBoth.identityAssertions = true; // the old, now-refused single-flag shape
+  assert.throws(() => runBacktestSweep.validateInputs(missingBoth), /identityAssertions: must be an object/);
+
+  const missingOne = fullPassingInputs();
+  delete missingOne.identityAssertions.homeAwayStoredPointIdentity;
+  assert.throws(
+    () => runBacktestSweep.validateInputs(missingOne),
+    /identityAssertions\.homeAwayStoredPointIdentity: must be a boolean/
+  );
+
+  const extraKey = fullPassingInputs();
+  extraKey.identityAssertions.someExtra = true;
+  assert.throws(() => runBacktestSweep.validateInputs(extraKey), /unexpected key\(s\).*someExtra/);
 });
 
 test('main(): a missing or unparsable --inputs file fails loudly and actionably', (t) => {
@@ -298,14 +388,71 @@ test('main(): (b)/(c) not-applicable is reported as such, and a FAILING (b)/(c) 
   const onReport = report.cells.find((c) => c.name === 'usage-25-on');
   assert.equal(onReport.components.c.status, 'not-applicable');
   assert.equal(onReport.components.c.passes, true, 'vacuously true by definition, never by test');
-  // usage-25-off (the control itself): (b) and (c) both not-applicable.
+  // usage-25-off (the control itself): no candidate IUT verdict at all -
+  // 'baseline', not pass/fail/inconclusive/vetoed, and no components (row
+  // 26 ruling: the control must not be measured against itself).
   const control = report.cells.find((c) => c.name === 'usage-25-off');
-  assert.equal(control.components.b.status, 'not-applicable');
-  assert.equal(control.components.c.status, 'not-applicable');
-  // Every "off" cell reports (b) not-applicable.
-  for (const cell of report.cells.filter((c) => c.homeAway === 'off')) {
+  assert.equal(control.verdict, 'baseline');
+  assert.deepEqual(control.components, {});
+  // Every "off" candidate cell (excluding the control, which has no
+  // components at all) reports (b) not-applicable.
+  for (const cell of report.cells.filter((c) => c.homeAway === 'off' && !c.isControl)) {
     assert.equal(cell.components.b.status, 'not-applicable', `${cell.name}: (b) requires homeAway = on`);
   }
+});
+
+test('main(): a cell-level ordering contradiction forces that cell inconclusive, even though every component otherwise passed (prereg 5.2/16)', (t) => {
+  const dir = tmpDir(t);
+  const inputs = fullPassingInputs();
+  // usage-40-off would otherwise pass every component (it is the cell
+  // parsimony selects first in fullPassingInputs' baseline scenario) - flag
+  // it as ordering-contradicted and confirm the verdict flips to
+  // inconclusive, DESPITE every component individually passing.
+  inputs.cells['usage-40-off'].orderingSensitivity = {
+    contradicted: true,
+    detail: 'the duplicate-order shuffle flips this cell from pass to fail',
+  };
+  const inputsPath = path.join(dir, 'inputs.json');
+  fs.writeFileSync(inputsPath, JSON.stringify(inputs));
+  runBacktestSweep.main([
+    '--inputs', inputsPath,
+    '--out-json', path.join(dir, 'report.json'),
+    '--out-markdown', path.join(dir, 'REPORT.md'),
+  ]);
+  const report = JSON.parse(fs.readFileSync(path.join(dir, 'report.json'), 'utf8'));
+  const usage40Off = report.cells.find((c) => c.name === 'usage-40-off');
+  assert.equal(usage40Off.verdict, 'inconclusive');
+  assert.match(usage40Off.inconclusive.join(';'), /ordering sensitivity/);
+  // Every individual component still shows its own real result (passed) -
+  // the contradiction overrides only the CELL-level verdict, not the
+  // components themselves.
+  assert.equal(usage40Off.components.a.status, 'passed');
+  // Selection moves to the next cell in parsimony order.
+  assert.equal(report.selection.outcome, 'selected');
+  assert.notEqual(report.selection.selected.name, 'usage-40-off');
+});
+
+test('validateInputs requires orderingSensitivity: an object for every candidate cell, null for the control', () => {
+  const controlWithSensitivity = fullPassingInputs();
+  controlWithSensitivity.cells['usage-25-off'].orderingSensitivity = { contradicted: false, detail: null };
+  assert.throws(
+    () => runBacktestSweep.validateInputs(controlWithSensitivity),
+    /orderingSensitivity: must be null for the control cell/
+  );
+
+  const candidateMissingSensitivity = fullPassingInputs();
+  candidateMissingSensitivity.cells['usage-40-off'].orderingSensitivity = null;
+  assert.throws(
+    () => runBacktestSweep.validateInputs(candidateMissingSensitivity),
+    /orderingSensitivity: must be an object for a candidate cell/
+  );
+
+  const badContradicted = fullPassingInputs();
+  badContradicted.cells['usage-40-off'].orderingSensitivity = { contradicted: 'yes', detail: null };
+  assert.throws(
+    () => runBacktestSweep.validateInputs(badContradicted),
+    /orderingSensitivity\.contradicted: must be a boolean/
+  );
 });
 
 // ---------------------------------------------------------------------------

@@ -23,8 +23,17 @@ const claim = (verdict, componentOverrides = {}) => ({
   vetoedReasons: [],
 });
 
+// The control never receives a candidate IUT verdict (independent
+// implementation review ruling, row 26): 'baseline', no components.
+const controlClaim = () => ({
+  cell: arms.CONTROL_CELL, verdict: 'baseline', components: {}, failures: [], inconclusive: [], vetoedReasons: [],
+});
+
 const allCells = (defaultVerdict = 'fail', overrides = {}) => Object.fromEntries(
-  arms.ALL_CELLS.map((c) => [c.name, overrides[c.name] || claim(defaultVerdict)])
+  arms.ALL_CELLS.map((c) => [
+    c.name,
+    overrides[c.name] || (c.name === arms.CONTROL_CELL ? controlClaim() : claim(defaultVerdict)),
+  ])
 );
 
 const cleanPermutation = { regretP: 0.0001, pairwiseP: 0.0001 };
@@ -90,7 +99,27 @@ test('buildReport refuses an unrecognized cell verdict', () => {
   });
   assert.throws(
     () => sweepReport.buildReport({ studyId: 'pit-sweep-2024-2025', sweep }),
-    /unrecognized verdict 'maybe'/
+    /verdict 'maybe' is not valid for usage-40-off/
+  );
+});
+
+test('buildReport refuses a candidate cell reporting the control-only "baseline" verdict, and the control reporting a candidate verdict', () => {
+  const sweep = sweepInference.evaluateSweep({
+    cellClaims: allCells('fail', { 'usage-40-off': controlClaim() }),
+    permutationControl: cleanPermutation,
+  });
+  assert.throws(
+    () => sweepReport.buildReport({ studyId: 'pit-sweep-2024-2025', sweep }),
+    /verdict 'baseline' is not valid for usage-40-off.*a candidate cell/s
+  );
+
+  const controlWithPass = sweepInference.evaluateSweep({
+    cellClaims: allCells('fail', { [arms.CONTROL_CELL]: claim('pass') }),
+    permutationControl: cleanPermutation,
+  });
+  assert.throws(
+    () => sweepReport.buildReport({ studyId: 'pit-sweep-2024-2025', sweep: controlWithPass }),
+    /verdict 'pass' is not valid for usage-25-off.*the control cell/s
   );
 });
 

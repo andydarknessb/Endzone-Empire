@@ -586,6 +586,54 @@ function activationReport({ projectionsByPosition, threshold = ACTIVATION_THRESH
   };
 }
 
+/**
+ * Activation, checked ONCE PER SEASON and independently (prereg 11.2's
+ * table states the 0.85 threshold identically for "2025 (primary)" AND
+ * "2024 (safety)" - two separate rows, not one blended check). Independent
+ * implementation review finding: `activationReport` alone takes a single
+ * `projectionsByPosition` with no season dimension at all - a caller that
+ * fed it combined 2024+2025 data (or only ever checked one season) could
+ * mask a real per-season shortfall the sealed table requires to surface on
+ * its own (a season whose real rate is well below 0.85 could still clear
+ * the blended threshold if the other season is strong). This function
+ * requires BOTH seasons, checks each with `activationReport` independently,
+ * and combines them: INCONCLUSIVE if EITHER season is - "Activation rates
+ * are published per season and position regardless of outcome, together
+ * with the per-week activation profile so a reader can see whether a
+ * shortfall is the structural week-2 zero or something else" (prereg 11.2).
+ */
+function activationReportBothSeasons({
+  projectionsByPositionBySeason, threshold = ACTIVATION_THRESHOLD, label = 'activation',
+}) {
+  const seasons = ['2025', '2024'];
+  const missing = seasons.filter((s) => !projectionsByPositionBySeason || !projectionsByPositionBySeason[s]);
+  if (missing.length > 0) {
+    throw new Error(
+      `${label}: activation must be checked once per season, independently - missing ${missing.join(', ')} `
+      + '(prereg 11.2 states the 0.85 threshold as two separate rows, "2025 (primary)" and "2024 (safety)", '
+      + 'never one blended check)'
+    );
+  }
+  const bySeason = Object.fromEntries(seasons.map((season) => [
+    season,
+    activationReport({
+      projectionsByPosition: projectionsByPositionBySeason[season], threshold, label: `${label} ${season}`,
+    }),
+  ]));
+  const inconclusiveSeasons = seasons.filter((s) => bySeason[s].verdict === 'inconclusive');
+  return {
+    bySeason,
+    threshold,
+    inconclusiveSeasons,
+    verdict: inconclusiveSeasons.length === 0 ? 'treated' : 'inconclusive',
+    detail: inconclusiveSeasons.length === 0
+      ? 'both seasons clear 0.85 on every position'
+      : `${inconclusiveSeasons.join(', ')} below threshold on at least one position: ${
+        inconclusiveSeasons.map((s) => bySeason[s].detail).join('; ')}`,
+    label,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // The exact binomial machinery for component (f) (prereg 9.8)
 // ---------------------------------------------------------------------------
@@ -687,18 +735,36 @@ function exactSignTest({
   for (let i = 1; i <= n; i++) {
     if (binomialUpperTail(n, i) <= alpha) { j = i; break; }
   }
+  // prereg 9.8 point 6: "if no such i exists the bound is +infinity and the
+  // endpoint is UNEVALUABLE" - independent implementation review finding:
+  // this function previously always reported `evaluable: true` once n > 0,
+  // regardless of whether a finite j was ever found, so a genuinely
+  // no-finite-bound endpoint silently fell through to `status: 'failed'`
+  // downstream (component (f) 'unevaluable' has its own named inconclusive
+  // exception; 'failed' does not get it). No-finite-bound can only occur
+  // when `passes` is already false (if p <= alpha then i = k itself
+  // satisfies the search, so j <= k always exists whenever passes is true) -
+  // but the sealed text still requires UNEVALUABLE in that case, not a
+  // silent fail, since "the endpoint passes iff the bound lies strictly
+  // below the margin" only holds meaning when a bound exists at all.
+  if (j === null) {
+    return {
+      evaluable: false,
+      reason: `no finite i in 1..${n} satisfies P(Binomial(${n}, 1/2) >= i) <= ${alpha} - the inverted `
+        + 'bound is +infinity, so this endpoint is unevaluable regardless of the raw p-value',
+      n, k, p, bound: Infinity, passes: false,
+    };
+  }
   const sortedX = nonTiedPairs.map((pr) => pr.x).sort((a, b) => a - b);
-  const boundX = j === null ? Infinity : sortedX[j - 1];
+  const boundX = sortedX[j - 1];
   const passes = p <= alpha;
   // De-normalize the bound back to the metric's own natural sign, and
   // report/compare against the ORIGINAL (non-negated) margin.
-  const bound = j === null ? Infinity : sign * boundX;
+  const bound = sign * boundX;
   // The test and the bound are the same procedure, so they cannot disagree.
   // In natural-sign terms: favorable-negative passes iff bound < margin;
   // favorable-positive passes iff bound > margin (x-space: boundX < margin*).
-  const boundAgrees = j === null
-    ? !passes
-    : (favorablePositive ? bound > margin : bound < margin) === passes;
+  const boundAgrees = (favorablePositive ? bound > margin : bound < margin) === passes;
   return {
     evaluable: true,
     reason: null,
@@ -770,7 +836,32 @@ function componentFEndpoint({
     weekSignIndependenceAssumed: true,
   });
 
-  // (i) The evaluability MINIMUM: at least 8 distinct 2025 clusters AND at
+  // (i) The catastrophic VETO, defined INCREMENTALLY versus the matched
+  //     off-cell so a pre-existing bad prediction cannot falsely veto
+  //     homeAway. **Computed FIRST, before either the evaluability minimum
+  //     or the falsifiability guard** (PHASE5_EXECUTION_SPEC.md section 6.4;
+  //     independent implementation review finding - this check previously
+  //     ran LAST, after three possible early `unevaluable` returns, which
+  //     meant a genuinely catastrophic row could never veto an endpoint that
+  //     was ALSO sparse or unfalsifiable, contradicting the sealed "vetoes
+  //     the cell immediately, regardless of whether either endpoint would
+  //     otherwise have been evaluable"). A veto can never turn a failure
+  //     into a pass, but it CAN and must override a would-be unevaluable.
+  const vetoRows = incrementalErrors.filter(
+    (inc) => isFiniteNumber(inc) && roundToTie(Number(inc)) > roundToTie(CATASTROPHIC_CAP)
+  );
+  if (vetoRows.length > 0) {
+    return {
+      endpoint,
+      status: 'vetoed',
+      claimVerdict: 'fail',
+      reason: `${vetoRows.length} subgroup row(s) increased absolute error by more than `
+        + `${CATASTROPHIC_CAP} versus the matched off-cell`,
+      passes: false,
+      transparency: transparency(),
+    };
+  }
+  // (ii) The evaluability MINIMUM: at least 8 distinct 2025 clusters AND at
   //     least 30 subgroup rows.
   if (clusters < MIN_F_CLUSTERS || subgroupRows < MIN_F_ROWS) {
     return {
@@ -784,7 +875,7 @@ function componentFEndpoint({
       transparency: transparency(),
     };
   }
-  // (ii) The FALSIFIABILITY GUARD, which fires BEFORE the test is read: if the
+  // (iii) The FALSIFIABILITY GUARD, which fires BEFORE the test is read: if the
   //      realized mean |b| is at or below delta_F / maxEffect, the largest
   //      attainable delta is at or below the margin and noninferiority cannot
   //      be falsified.
@@ -808,24 +899,6 @@ function componentFEndpoint({
       status: 'unevaluable',
       claimVerdict: 'inconclusive',
       reason: test.reason,
-      passes: false,
-      test,
-      transparency: transparency(),
-    };
-  }
-  // (iii) The catastrophic VETO, defined INCREMENTALLY versus the matched
-  //       off-cell so a pre-existing bad prediction cannot falsely veto
-  //       homeAway. A veto can never turn a failure into a pass.
-  const vetoRows = incrementalErrors.filter(
-    (inc) => isFiniteNumber(inc) && roundToTie(Number(inc)) > roundToTie(CATASTROPHIC_CAP)
-  );
-  if (vetoRows.length > 0) {
-    return {
-      endpoint,
-      status: 'vetoed',
-      claimVerdict: 'fail',
-      reason: `${vetoRows.length} subgroup row(s) increased absolute error by more than `
-        + `${CATASTROPHIC_CAP} versus the matched off-cell`,
       passes: false,
       test,
       transparency: transparency(),
@@ -1028,7 +1101,65 @@ function coPrimaryComponent({
  *     (prereg 9.8, section 6.4) - the one cell-level outcome outside
  *     fail/inconclusive/pass, and the only one that outranks a `fail`.
  */
-function evaluateClaim({ cell, components, activation = null, label = 'claim' }) {
+/**
+ * A compact, CLOSED-shape summary of one endpoint's bootstrap/exact
+ * evidence - `n` (surviving clusters), the CI, and whether the exact
+ * trigger fired. Independent implementation review finding: the raw
+ * `endpoints`/`transparency` data `sweepEvaluator`/`componentF` already
+ * compute was being silently discarded by `evaluateClaim`'s own
+ * normalization down to bare `{status, passes}` - the published report had
+ * no surviving sample size, no CI, and no component-(f) transparency block
+ * at all. This is threaded through as `evidence` on every component result.
+ */
+function summarizeEndpointEvidence(endpoint) {
+  return {
+    label: endpoint.label || null,
+    status: endpoint.status,
+    n: endpoint.bootstrap ? endpoint.bootstrap.clusters : (endpoint.exact ? endpoint.exact.n : null),
+    lower: endpoint.bootstrap ? endpoint.bootstrap.lower : null,
+    upper: endpoint.bootstrap ? endpoint.bootstrap.upper : null,
+    triggerFired: !!(endpoint.trigger && endpoint.trigger.fired),
+  };
+}
+
+/** The (f)-specific transparency block (prereg 9.8's required disclosure), normalized to a fixed key set. */
+function summarizeTransparency(t) {
+  if (!t) return null;
+  return {
+    endpoint: t.endpoint || null,
+    subgroupRows: isFiniteNumber(t.subgroupRows) ? Number(t.subgroupRows) : null,
+    meanAbsBaseline: isFiniteNumber(t.meanAbsBaseline) ? Number(t.meanAbsBaseline) : null,
+    maxAbsBaseline: isFiniteNumber(t.maxAbsBaseline) ? Number(t.maxAbsBaseline) : null,
+    weeksBelowFalsifiabilityFloor: isFiniteNumber(t.weeksBelowFalsifiabilityFloor)
+      ? Number(t.weeksBelowFalsifiabilityFloor) : null,
+    weeksWithBaseline: isFiniteNumber(t.weeksWithBaseline) ? Number(t.weeksWithBaseline) : null,
+    catastrophicCapCouldFire: typeof t.catastrophicCapCouldFire === 'boolean' ? t.catastrophicCapCouldFire : null,
+    weekSignIndependenceAssumed: typeof t.weekSignIndependenceAssumed === 'boolean'
+      ? t.weekSignIndependenceAssumed : null,
+    nonTiedWeeks: isFiniteNumber(t.nonTiedWeeks) ? Number(t.nonTiedWeeks) : null,
+    k: isFiniteNumber(t.k) ? Number(t.k) : null,
+    exactP: isFiniteNumber(t.exactP) ? Number(t.exactP) : null,
+    invertedBound: isFiniteNumber(t.invertedBound) ? Number(t.invertedBound) : null,
+  };
+}
+
+/** Build `evidence` for one component result, or `null` when the component carries none. */
+function buildEvidence(key, component) {
+  if (key === 'f' && component.endpoints && typeof component.endpoints === 'object' && !Array.isArray(component.endpoints)) {
+    const transparency = Object.values(component.endpoints)
+      .map((e) => summarizeTransparency(e.transparency))
+      .filter(Boolean);
+    return transparency.length > 0 ? { endpoints: null, transparency } : null;
+  }
+  if (Array.isArray(component.endpoints)) {
+    return { endpoints: component.endpoints.map(summarizeEndpointEvidence), transparency: null };
+  }
+  return null;
+}
+
+function evaluateClaim({
+  cell, components, activation = null, orderingSensitivity = null, label = 'claim',
+}) {
   const required = ['a', 'b', 'c', 'd', 'e1', 'e2', 'f'];
   const results = {};
   const failures = [];
@@ -1038,25 +1169,29 @@ function evaluateClaim({ cell, components, activation = null, label = 'claim' })
   for (const key of required) {
     const component = components[key];
     if (component === undefined) {
-      results[key] = { status: 'missing', passes: false };
+      results[key] = { status: 'missing', passes: false, evidence: null };
       failures.push(`${key} is missing`);
       continue;
     }
     if (component.applicable === false) {
       // Vacuous by DEFINITION, never by test - and the divisor stays 7.
-      results[key] = { status: 'not-applicable', passes: true };
+      results[key] = { status: 'not-applicable', passes: true, evidence: null };
       continue;
     }
     if (component.status === 'vetoed') {
       if (key !== 'f') {
         throw new Error(`${label}: only component (f) may report status 'vetoed', got it from ${key}`);
       }
-      results[key] = { status: 'vetoed', passes: false, reason: component.reason };
+      results[key] = {
+        status: 'vetoed', passes: false, reason: component.reason, evidence: buildEvidence(key, component),
+      };
       vetoedReasons.push(`${key}: ${component.reason || 'vetoed'}`);
       continue;
     }
     if (component.status === 'unevaluable') {
-      results[key] = { status: 'unevaluable', passes: false, reason: component.reason };
+      results[key] = {
+        status: 'unevaluable', passes: false, reason: component.reason, evidence: buildEvidence(key, component),
+      };
       // Only component (f) has a named inconclusive exception. Every other
       // component's unevaluable outcome is prereg 9.1's unmodified default: fail.
       if (key === 'f') inconclusive.push(`${key}: ${component.reason}`);
@@ -1064,11 +1199,16 @@ function evaluateClaim({ cell, components, activation = null, label = 'claim' })
       continue;
     }
     if (component.status === 'wide-straddle') {
-      results[key] = { status: 'wide-straddle', passes: false, reason: component.reason };
+      results[key] = {
+        status: 'wide-straddle', passes: false, reason: component.reason, evidence: buildEvidence(key, component),
+      };
       inconclusive.push(`${key}: wide-straddle (${component.reason || 'interval spans both boundaries'})`);
       continue;
     }
-    results[key] = { status: component.passes ? 'passed' : 'failed', passes: !!component.passes };
+    results[key] = {
+      status: component.passes ? 'passed' : 'failed', passes: !!component.passes,
+      evidence: buildEvidence(key, component),
+    };
     if (!component.passes) failures.push(`${key} failed`);
   }
 
@@ -1076,9 +1216,27 @@ function evaluateClaim({ cell, components, activation = null, label = 'claim' })
     inconclusive.push(`activation: ${activation.detail}`);
   }
 
+  // Cell-level ordering sensitivity (prereg 5.2/16, PHASE5_EXECUTION_SPEC.md
+  // section 8.4): "any cell whose own recorded verdict under the primary
+  // ordering is CONTRADICTED by the DB-collation variant or the duplicate-
+  // order shuffle... gets Level 2 inconclusive, evaluated per cell." This is
+  // DIFFERENT FROM, and evaluated BEFORE, the Level 5 selection-level
+  // winner-only/deployed-policy disagreement (`selectAtLevel5`'s own
+  // `orderingDisagreement` parameter) - a cell can be individually
+  // ordering-contradicted regardless of whether the overall WINNER changed.
+  // Independent implementation review finding: this cell-level rule had no
+  // mechanism at all - only the selection-level winner-only case was wired.
+  if (orderingSensitivity && orderingSensitivity.contradicted) {
+    inconclusive.push(
+      `ordering sensitivity: ${orderingSensitivity.detail
+        || 'this cell\'s verdict under the primary ordering is contradicted by a required sensitivity'}`
+    );
+  }
+
   // Precedence: vetoed > fail > inconclusive > pass. A cell that is ALSO
   // independently vetoed or failed for an unrelated reason keeps that status
-  // regardless of an activation shortfall or wide-straddle also being true.
+  // regardless of an activation shortfall, ordering contradiction, or
+  // wide-straddle also being true.
   let verdict = 'pass';
   if (vetoedReasons.length > 0) verdict = 'vetoed';
   else if (failures.length > 0) verdict = 'fail';
@@ -1092,6 +1250,7 @@ function evaluateClaim({ cell, components, activation = null, label = 'claim' })
     inconclusive,
     vetoedReasons,
     activation: activation || null,
+    orderingSensitivity: orderingSensitivity || null,
     alpha: COMPONENT_ALPHA,
     divisor: 7,
     detail: verdict === 'pass' ? 'every component passes at alpha/7'
@@ -1190,11 +1349,20 @@ function classifyTriggeredEndpoint({ bootstrap, exact }) {
  * Level 1: the whole authoritative run is `valid` or `void` (section 8.2).
  * `void` PREEMPTS the entire cell-level table rather than being one more row
  * in it - a canary failure, a permutation-control threshold miss (section
- * 5), or either sealed identity assertion failing (section 8.6) all void
- * the run, never just one cell.
+ * 5), either sealed identity assertion failing (section 8.6), or a real
+ * salt-collision (section 3.4 item 5: "the authoritative sweep itself must
+ * assert... aborts the sweep the instant a real collision is detected") all
+ * void the run, never just one cell.
+ *
+ * Independent implementation review finding: `saltCollisionPassed` was
+ * previously not a parameter here at all - `assertSaltsProduceDistinctSeeds`
+ * existed as a pure function but nothing in the run-level reducer ever
+ * consulted its result, so a real collision (however unlikely) had no
+ * run-voiding effect wired anywhere.
  */
 function classifyRun({
   canariesPassed = true, permutationControlPassed = true, identityAssertionsPassed = true,
+  saltCollisionPassed = true,
 }) {
   const reasons = [];
   if (!canariesPassed) reasons.push('a canary failed (prereg 17)');
@@ -1202,12 +1370,14 @@ function classifyRun({
     reasons.push('the permutation control missed its threshold on at least one endpoint (section 5)');
   }
   if (!identityAssertionsPassed) reasons.push('a sealed identity assertion failed (section 8.6)');
+  if (!saltCollisionPassed) reasons.push('a real salt-collision was detected (section 3.4 item 5)');
   return {
     status: reasons.length > 0 ? 'void' : 'valid',
     reasons,
     detail: reasons.length > 0
       ? `void: ${reasons.join('; ')}`
-      : 'valid: every canary, the permutation control, and both sealed identity assertions passed',
+      : 'valid: every canary, the permutation control, both sealed identity assertions, and the '
+        + 'salt-collision guard all passed',
   };
 }
 
@@ -1340,6 +1510,7 @@ module.exports = {
   isActivated,
   isEligibleForActivation,
   activationReport,
+  activationReportBothSeasons,
   binomialCoefficient,
   binomialUpperTail,
   exactSignTest,
