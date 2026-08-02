@@ -151,8 +151,29 @@ function validateInputs(inputs, { label = '--inputs' } = {}) {
     const cellLabel = `${label}.cells.${cellMeta.name}`;
     if (!cellInput || typeof cellInput !== 'object') throw new Error(`${cellLabel}: must be an object`);
     assertClosedKeys(cellInput, CELL_INPUT_KEYS, cellLabel);
+
+    const isOnCell = cellMeta.homeAway === 'on';
+    const usageDiffersFromControl = cellMeta.blendWeight !== arms.CONTROL_BLEND_WEIGHT;
+    // Prereg 9.3/9.4: (b) applies only to "on" cells, (c) only when
+    // blendWeight differs from the control's 0.25 - not-applicable
+    // otherwise. Mirrors the f/activation null-when-not-applicable pattern
+    // exactly, so an --inputs author cannot silently compute data that gets
+    // discarded downstream.
+    const applicability = { b: isOnCell, c: usageDiffersFromControl };
     for (const key of COMPONENT_KEYS) {
-      if (!cellInput[key] || typeof cellInput[key] !== 'object') throw new Error(`${cellLabel}.${key}: must be an object`);
+      const required = !(key in applicability) || applicability[key];
+      if (!required) {
+        if (cellInput[key] !== null) {
+          throw new Error(
+            `${cellLabel}.${key}: must be null - component (${key}) is not applicable to this cell `
+            + `(prereg 9.${key === 'b' ? 3 : 4})`
+          );
+        }
+        continue;
+      }
+      if (!cellInput[key] || typeof cellInput[key] !== 'object') {
+        throw new Error(`${cellLabel}.${key}: must be an object (component (${key}) IS applicable to this cell)`);
+      }
       assertClosedKeys(cellInput[key], CO_PRIMARY_INPUT_KEYS, `${cellLabel}.${key}`);
       for (const seriesKey of CO_PRIMARY_INPUT_KEYS) {
         if (!cellInput[key][seriesKey] || typeof cellInput[key][seriesKey] !== 'object') {
@@ -175,7 +196,6 @@ function validateInputs(inputs, { label = '--inputs' } = {}) {
       }
     }
 
-    const isOnCell = cellMeta.homeAway === 'on';
     if (isOnCell) {
       if (!cellInput.f || typeof cellInput.f !== 'object') throw new Error(`${cellLabel}.f: must be an object for an "on" cell`);
       assertClosedKeys(cellInput.f, ['f1', 'f2'], `${cellLabel}.f`);
@@ -237,24 +257,42 @@ function evaluateE2(cellInput) {
 }
 
 /**
- * Component (f) applies ONLY to "on" cells - it compares an on-cell against
- * its OWN matched off-twin (section 6.1-6.4), so an off-cell itself has
- * nothing further to match against. This is the one cross-component
- * applicability rule this script hardcodes rather than reading from
- * `--inputs`, since it follows structurally from (f)'s own definition -
- * unlike components (a)-(e2), whose applicability to a given homeAway state
- * this codebase does not have enough of the sealed preregistration text to
- * decide on its own, and which are therefore always evaluated for every
- * cell here. **This hardcoded rule is exactly the kind of decision the
- * independent implementation review (PHASE5_EXECUTION_SPEC.md section 10)
- * must confirm against the real preregistration text before Gate 0 lifts.**
+ * Component applicability, per PREREGISTRATION.md - confirmed against the
+ * SEALED text directly (independent implementation review finding, not
+ * inferred from PHASE5_EXECUTION_SPEC.md, which does not itself restate
+ * this):
+ *
+ *   - **(a)** superiority over the shipped control (9.2): no gating
+ *     condition is stated, so it applies to every candidate cell.
+ *   - **(b)** homeAway attribution (9.3): "**only if the cell has homeAway =
+ *     on**" - not-applicable otherwise. Prereg 9.1 gives this EXACT case as
+ *     its own worked example of "not applicable": "(for example (b) for an
+ *     off cell)".
+ *   - **(c)** usage attribution (9.4): "**only if blendWeight differs from
+ *     0.25**" - not-applicable for usage-25-off (the control) and
+ *     usage-25-on, both of which sit AT the control's blend weight.
+ *   - **(d)** superiority over the naive benchmark (9.5): no gating
+ *     condition stated, applies to every cell.
+ *   - **(e1)** the 2024 safety co-primary (9.6): no gating condition
+ *     stated, applies to every cell.
+ *   - **(e2)** the thirteen secondary-safety rows (9.7): no gating
+ *     condition stated, applies to every cell.
+ *   - **(f)** the negative-baseline subgroup no-harm gate (9.8): its own
+ *     section header states "(homeAway = on cells only)" - it compares an
+ *     on-cell against its OWN matched off-twin, so an off-cell has nothing
+ *     further to match against.
+ *
+ * `evaluateClaim` already implements prereg 9.1's "vacuous by definition"
+ * rule for a component marked `{ applicable: false }` - it passes
+ * trivially and the divisor stays fixed at 7 regardless.
  */
 function assembleCellClaim(cellMeta, cellInput) {
   const isOnCell = cellMeta.homeAway === 'on';
+  const usageDiffersFromControl = cellMeta.blendWeight !== arms.CONTROL_BLEND_WEIGHT;
   const components = {
     a: evaluateCoPrimary('a', cellInput.a),
-    b: evaluateCoPrimary('b', cellInput.b),
-    c: evaluateCoPrimary('c', cellInput.c),
+    b: isOnCell ? evaluateCoPrimary('b', cellInput.b) : { applicable: false },
+    c: usageDiffersFromControl ? evaluateCoPrimary('c', cellInput.c) : { applicable: false },
     d: evaluateCoPrimary('d', cellInput.d),
     e1: evaluateCoPrimary('e1', cellInput.e1),
     e2: evaluateE2(cellInput),

@@ -60,19 +60,24 @@ function treatedActivationInput() {
   };
 }
 
-/** A full, valid --inputs document: every cell comfortably PASSES every component. */
+/** A full, valid --inputs document: every cell comfortably PASSES every applicable component. */
 function fullPassingInputs({ permutationControl = { regretP: 0.0001, pairwiseP: 0.0001 } } = {}) {
   const cells = {};
   for (const cellMeta of arms.ALL_CELLS) {
+    const isOnCell = cellMeta.homeAway === 'on';
+    // Prereg 9.3/9.4: (b) applies only to "on" cells, (c) only when
+    // blendWeight differs from the control's 0.25 - null otherwise, exactly
+    // like (f)/activation are null for an "off" cell.
+    const usageDiffersFromControl = cellMeta.blendWeight !== arms.CONTROL_BLEND_WEIGHT;
     cells[cellMeta.name] = {
       a: passingCoPrimaryInput(),
-      b: passingCoPrimaryInput(),
-      c: passingCoPrimaryInput(),
+      b: isOnCell ? passingCoPrimaryInput() : null,
+      c: usageDiffersFromControl ? passingCoPrimaryInput() : null,
       d: passingCoPrimaryInput(),
       e1: passingCoPrimaryInput(),
       e2: passingE2Input(),
-      f: cellMeta.homeAway === 'on' ? { f1: HEALTHY_F_ENDPOINT, f2: HEALTHY_F_ENDPOINT } : null,
-      activation: cellMeta.homeAway === 'on' ? treatedActivationInput() : null,
+      f: isOnCell ? { f1: HEALTHY_F_ENDPOINT, f2: HEALTHY_F_ENDPOINT } : null,
+      activation: isOnCell ? treatedActivationInput() : null,
     };
   }
   return {
@@ -151,6 +156,28 @@ test('validateInputs requires f/activation to be null for an off-cell, and prese
   const onMissingActivation = fullPassingInputs();
   onMissingActivation.cells['usage-25-on'].activation = null;
   assert.throws(() => runBacktestSweep.validateInputs(onMissingActivation), /activation: must be an object for an "on" cell/);
+});
+
+test('validateInputs requires b to be null for an "off" cell and c to be null when blendWeight === 0.25 (prereg 9.3/9.4)', () => {
+  const offWithB = fullPassingInputs();
+  offWithB.cells['usage-40-off'].b = passingCoPrimaryInput();
+  assert.throws(() => runBacktestSweep.validateInputs(offWithB), /b: must be null - component \(b\) is not applicable/);
+
+  const onMissingB = fullPassingInputs();
+  onMissingB.cells['usage-25-on'].b = null;
+  assert.throws(() => runBacktestSweep.validateInputs(onMissingB), /b: must be an object \(component \(b\) IS applicable/);
+
+  const controlBlendWithC = fullPassingInputs();
+  controlBlendWithC.cells['usage-25-on'].c = passingCoPrimaryInput();
+  assert.throws(() => runBacktestSweep.validateInputs(controlBlendWithC), /c: must be null - component \(c\) is not applicable/);
+
+  const offControlWithC = fullPassingInputs();
+  offControlWithC.cells['usage-25-off'].c = passingCoPrimaryInput();
+  assert.throws(() => runBacktestSweep.validateInputs(offControlWithC), /c: must be null - component \(c\) is not applicable/);
+
+  const differingUsageMissingC = fullPassingInputs();
+  differingUsageMissingC.cells['usage-40-off'].c = null;
+  assert.throws(() => runBacktestSweep.validateInputs(differingUsageMissingC), /c: must be an object \(component \(c\) IS applicable/);
 });
 
 test('validateInputs refuses an e2 endpoint with an unrecognized key', () => {
@@ -240,6 +267,45 @@ test('main(): a malformed inputs DOCUMENT (valid JSON, wrong shape) fails with a
     () => runBacktestSweep.main(['--inputs', inputsPath, '--out-json', path.join(dir, 'r.json'), '--out-markdown', path.join(dir, 'r.md')]),
     /studyId: must be a non-empty string/
   );
+});
+
+test('main(): (b)/(c) not-applicable is reported as such, and a FAILING (b)/(c) series on a cell where it does not apply cannot fail that cell', (t) => {
+  const dir = tmpDir(t);
+  const inputs = fullPassingInputs();
+  // usage-40-off: (c) IS applicable (blendWeight != 0.25); make it fail hard.
+  inputs.cells['usage-40-off'].c = {
+    regretWeekDeltas: variedSeries(1, 0.9), // wrong sign: unfavorable regret
+    pairwiseWeekDeltas: variedSeries(-1, 0.9), // wrong sign: unfavorable pairwise
+  };
+  const inputsPath = path.join(dir, 'inputs.json');
+  fs.writeFileSync(inputsPath, JSON.stringify(inputs));
+  runBacktestSweep.main([
+    '--inputs', inputsPath,
+    '--out-json', path.join(dir, 'report.json'),
+    '--out-markdown', path.join(dir, 'REPORT.md'),
+  ]);
+  const report = JSON.parse(fs.readFileSync(path.join(dir, 'report.json'), 'utf8'));
+  const usage40Off = report.cells.find((c) => c.name === 'usage-40-off');
+  assert.equal(usage40Off.components.c.status, 'failed', '(c) genuinely applies to usage-40-off and genuinely fails here');
+  assert.equal(usage40Off.verdict, 'fail');
+  // Parsimony now selects the NEXT-best passing cell instead.
+  assert.equal(report.selection.outcome, 'selected');
+  assert.notEqual(report.selection.selected.name, 'usage-40-off');
+
+  // usage-25-on: (c) is NOT applicable (blendWeight === 0.25, the control's
+  // own weight) - reported not-applicable regardless of any data, since the
+  // schema does not even accept c data for this cell (proven above).
+  const onReport = report.cells.find((c) => c.name === 'usage-25-on');
+  assert.equal(onReport.components.c.status, 'not-applicable');
+  assert.equal(onReport.components.c.passes, true, 'vacuously true by definition, never by test');
+  // usage-25-off (the control itself): (b) and (c) both not-applicable.
+  const control = report.cells.find((c) => c.name === 'usage-25-off');
+  assert.equal(control.components.b.status, 'not-applicable');
+  assert.equal(control.components.c.status, 'not-applicable');
+  // Every "off" cell reports (b) not-applicable.
+  for (const cell of report.cells.filter((c) => c.homeAway === 'off')) {
+    assert.equal(cell.components.b.status, 'not-applicable', `${cell.name}: (b) requires homeAway = on`);
+  }
 });
 
 // ---------------------------------------------------------------------------
