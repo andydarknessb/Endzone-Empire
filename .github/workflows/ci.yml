@@ -27,6 +27,13 @@ jobs:
         env:
           CI: "true"
       - run: npm run test:server
+        env:
+          # The Gate-3 publication (backtest-data/publish/) is committed as of
+          # this workflow, so the clean-clone reconstruction test's
+          # skip-if-absent mode is no longer the right default here - flip it
+          # to a hard failure so a future accidental omission of the
+          # publication tree cannot pass CI silently.
+          BACKTEST_PUBLICATION_REQUIRED: "1"
       - run: npm run build
         env:
           CI: "true"

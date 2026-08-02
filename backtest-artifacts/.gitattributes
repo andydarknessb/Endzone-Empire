@@ -1,0 +1,14 @@
+# Scoped to backtest-artifacts/ only.
+#
+# Same reasoning as backtest-data/publish/.gitattributes: this repository's
+# default Windows checkout has core.autocrlf=true, which rewrites LF to CRLF
+# for anything Git treats as text. Every file under this tree - the sealed
+# preregistration, the roster/cohort/initial-lineup artifacts, and the
+# freeze-sequence outputs (Commit M's MDE artifact, Commit B's manifest) -
+# is canonically serialized with a bare LF and is byte-hashed/git-blob-
+# compared elsewhere (freezeHash, CI's byte-compare of a regenerated
+# artifact against the committed one). An autocrlf rewrite on a Windows
+# checkout would silently change those bytes without changing what the file
+# means, which is exactly the class of drift the freeze exists to rule out.
+
+* text eol=lf

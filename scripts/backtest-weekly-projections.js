@@ -135,6 +135,24 @@
  * It widens dispersion without moving the projected mean, so cover10-90 is the
  * column to read; the point metrics are scored off the draw MEDIAN and so
  * still drift a little whenever the residual pool is not centered on zero.
+ *
+ * SUPERSEDED, for accuracy-roadmap purposes, by `scripts/backtest/`.
+ *
+ * This script remains correct for what it always was - a live-database,
+ * chronological replay of whatever constants happen to be in the working
+ * tree today - and nothing about it is being removed or disabled. But the
+ * accuracy-roadmap rebuild (`backtest-artifacts/pit-sweep-2024-2025/
+ * PREREGISTRATION.md`) exists precisely because a live-database replay
+ * cannot answer the roadmap's question honestly: production's `players`
+ * table describes a player's position and team TODAY, not as of the
+ * historical week being scored, so a traded or repositioned player is
+ * silently resolved through the wrong week - the "today's-DB poisoning"
+ * the preregistration's cohort-and-outcome design (sections 4-5) exists to
+ * eliminate. `scripts/backtest/` reconstructs each historical week from
+ * pinned, frozen, per-week sources instead, and is what every accuracy-
+ * roadmap claim (the homeAway activation question in particular) is
+ * measured against, per the sealed preregistration's authority. Anyone
+ * reproducing or extending a roadmap finding should start there, not here.
  */
 require('dotenv').config();
 

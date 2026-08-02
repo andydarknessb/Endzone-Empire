@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 const mde = require('../../scripts/backtest/lib/mde');
 const arms = require('../../scripts/backtest/lib/arms');
@@ -225,6 +226,127 @@ test('the report states what it does NOT simulate, and that it cannot move a mar
   assert.equal(report.settings.experiments, SMALL.experiments);
   assert.equal(report.settings.draws, SMALL.draws);
   assert.equal(report.settings.alpha, metrics.COMPONENT_ALPHA);
+});
+
+// ---------------------------------------------------------------------------
+// THE ENVIRONMENT-FREE PINNING TEST (plan Step 3)
+//
+// Extends this file rather than duplicating it: the artifact under test here
+// is `run-backtest-mde.js`'s COMMITTED mde-artifact.json, built from exactly
+// the `mde.runMde` report this file already exercises above, plus the control
+// cell's per-week series. What is new here is the CANONICALIZATION and the
+// no-environment-leak assertion, not the algorithm.
+// ---------------------------------------------------------------------------
+
+const runBacktestMde = require('../scripts/run-backtest-mde');
+
+function sampleArtifact() {
+  const mdeReport = mde.runMde({
+    controlRegretWeeks: CONTROL_REGRET, controlPairwiseWeeks: CONTROL_PAIRWISE, ...SMALL,
+  });
+  return runBacktestMde.buildArtifact({
+    controlEvaluation: {
+      cell: arms.CONTROL_CELL,
+      season: 2025,
+      weeks: [2, 3],
+      controlRegretWeeks: [4.1, 4.2],
+      controlPairwiseWeeks: [0.55, 0.56],
+    },
+    mdeReport,
+  });
+}
+
+test('the committed artifact is plain-ASCII canonical JSON with no environment leak', () => {
+  const serialized = runBacktestMde.serializeArtifact(sampleArtifact());
+  assert.equal(/^[\x00-\x7F]*$/.test(serialized), true, 'plain ASCII only');
+  // Sorted keys at every level, LF-terminated, no trailing blank line.
+  assert.equal(serialized.endsWith('\n'), true);
+  assert.equal(serialized.endsWith('\n\n'), false);
+  const reparsed = JSON.parse(serialized);
+  assert.deepEqual(Object.keys(reparsed), [...Object.keys(reparsed)].sort());
+  // No process.version-shaped substring, and no absolute-path-shaped substring.
+  assert.equal(runBacktestMde.NODE_VERSION_SHAPE.test(serialized), false);
+  assert.equal(runBacktestMde.ABSOLUTE_PATH_SHAPE.test(serialized), false);
+});
+
+test('assertEnvironmentFree refuses a process.version-shaped leak', () => {
+  const withVersion = `{"note":"built on node v20.11.0"}`;
+  assert.throws(() => runBacktestMde.assertEnvironmentFree(withVersion),
+    /process\.version-shaped substring/);
+});
+
+test('assertEnvironmentFree refuses an absolute-path-shaped leak, POSIX or Windows', () => {
+  assert.throws(() => runBacktestMde.assertEnvironmentFree('{"path":"/home/runner/work/repo/file.json"}'),
+    /absolute-path-shaped substring/);
+  assert.throws(() => runBacktestMde.assertEnvironmentFree('{"path":"C:\\\\Users\\\\runner\\\\file.json"}'),
+    /absolute-path-shaped substring/);
+});
+
+test('assertEnvironmentFree refuses non-ASCII bytes', () => {
+  assert.throws(() => runBacktestMde.assertEnvironmentFree('{"note":"caf\u00e9"}'),
+    /non-ASCII/);
+});
+
+test('assertEnvironmentFree passes a clean artifact', () => {
+  const serialized = runBacktestMde.serializeArtifact(sampleArtifact());
+  assert.equal(runBacktestMde.assertEnvironmentFree(serialized), true);
+});
+
+// ---------------------------------------------------------------------------
+// THE --rosters/--cohort DIRECTORY CONTRACT
+//
+// Both scripts now agree on a directory-of-per-week-files shape:
+// `run-backtest-rosters.js` writes `roster-weeks/<season>-w<week>.json` and
+// `cohort-weeks/<season>-w<week>.json`; this script reads whatever directory
+// it is pointed at, keyed by each file's OWN `season`/`week`, never by
+// filename.
+// ---------------------------------------------------------------------------
+
+function makeTempDir() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'backtest-mde-test-'));
+}
+
+test('loadWeekArtifactsFromDir indexes every file by its own season/week, not its filename', () => {
+  const dir = makeTempDir();
+  fs.writeFileSync(path.join(dir, 'a.json'), JSON.stringify({ season: 2025, week: 2, note: 'first' }));
+  fs.writeFileSync(path.join(dir, 'b.json'), JSON.stringify({ season: 2025, week: 3, note: 'second' }));
+  const loaded = runBacktestMde.loadWeekArtifactsFromDir(dir, { label: 'test' });
+  assert.deepEqual(Object.keys(loaded).sort(), ['2025:2', '2025:3']);
+  assert.equal(loaded['2025:2'].note, 'first');
+  assert.equal(loaded['2025:3'].note, 'second');
+  // No leaked internal bookkeeping field.
+  assert.equal('__file' in loaded['2025:2'], false);
+});
+
+test('loadWeekArtifactsFromDir refuses a file with no season/week', () => {
+  const dir = makeTempDir();
+  fs.writeFileSync(path.join(dir, 'a.json'), JSON.stringify({ note: 'no identity' }));
+  assert.throws(
+    () => runBacktestMde.loadWeekArtifactsFromDir(dir, { label: 'test' }),
+    /has no season\/week/
+  );
+});
+
+test('loadWeekArtifactsFromDir refuses two files claiming the same season-week', () => {
+  const dir = makeTempDir();
+  fs.writeFileSync(path.join(dir, 'a.json'), JSON.stringify({ season: 2025, week: 2 }));
+  fs.writeFileSync(path.join(dir, 'b.json'), JSON.stringify({ season: 2025, week: 2 }));
+  assert.throws(
+    () => runBacktestMde.loadWeekArtifactsFromDir(dir, { label: 'test' }),
+    /both .* claim season-week 2025:2/
+  );
+});
+
+test('loadWeekArtifactsFromDir refuses an empty or missing directory', () => {
+  const dir = makeTempDir();
+  assert.throws(
+    () => runBacktestMde.loadWeekArtifactsFromDir(dir, { label: 'test' }),
+    /contains no \.json files/
+  );
+  assert.throws(
+    () => runBacktestMde.loadWeekArtifactsFromDir(path.join(dir, 'does-not-exist'), { label: 'test' }),
+    /could not read directory/
+  );
 });
 
 test('the MDE uses the component-(a) inequalities and the sealed margins', () => {

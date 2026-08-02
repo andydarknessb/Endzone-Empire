@@ -1,0 +1,362 @@
+name: Backtest reproduction (accuracy-roadmap freeze)
+
+# The actual proof that Commit M is reproducible from Commit A (accuracy-
+# roadmap plan, Phase 4 Step 6 / preregistration §17), not just a local
+# claim. See scripts/ci/discover-freeze-commits.js's module docblock for why
+# A and M are discovered STRUCTURALLY rather than assumed to be HEAD/HEAD^ -
+# there is no manifest naming them until Commit B exists.
+#
+# TRIGGER SCOPE. Path-filtered to the backtest/freeze trees (plus the files
+# this workflow itself depends on) rather than firing on every push -
+# otherwise an unrelated app commit re-runs a full Docker build + rehydration
+# + MDE regeneration for nothing. This implies a QUIET-WINDOW assumption:
+# the eventual B..final-head "only REPORT.md/report.json may change"
+# allowlist (added once B exists, a follow-up edit to this file) can only
+# hold if the A -> M -> B -> report lineage is a contiguous run of commits
+# with nothing unrelated landing in between. That matches how this project
+# has actually been run so far (serially, one workstream at a time), but it
+# is a real constraint on how `integration` gets pushed to during Phase 4/5,
+# not an automatic guarantee.
+on:
+  push:
+    branches: [main, integration]
+    paths:
+      - 'backtest-artifacts/pit-sweep-2024-2025/**'
+      - 'backtest-data/publish/**'
+      - 'scripts/backtest/**'
+      - 'scripts/ci/discover-freeze-commits.js'
+      - 'server/scripts/run-backtest-*.js'
+      - 'server/services/projection.service.js'
+      - 'server/services/projectionModel.js'
+      - 'server/services/projectionFeatures.js'
+      - 'server/services/lineupOptimizer.js'
+      - 'server/services/scoring.service.js'
+      - 'server/services/nflverseSync.service.js'
+      - 'backtest.Dockerfile'
+      - 'backtest-entrypoint.js'
+      - 'package-lock.json'
+      - 'server/package-lock.json'
+      - '.github/workflows/backtest-reproduction.yml'
+  pull_request:
+    paths:
+      - 'backtest-artifacts/pit-sweep-2024-2025/**'
+      - 'backtest-data/publish/**'
+      - 'scripts/backtest/**'
+      - 'scripts/ci/discover-freeze-commits.js'
+      - 'server/scripts/run-backtest-*.js'
+      - 'server/services/projection.service.js'
+      - 'server/services/projectionModel.js'
+      - 'server/services/projectionFeatures.js'
+      - 'server/services/lineupOptimizer.js'
+      - 'server/services/scoring.service.js'
+      - 'server/services/nflverseSync.service.js'
+      - 'backtest.Dockerfile'
+      - 'backtest-entrypoint.js'
+      - 'package-lock.json'
+      - 'server/package-lock.json'
+      - '.github/workflows/backtest-reproduction.yml'
+
+permissions:
+  contents: read
+
+env:
+  BACKTEST_PLATFORM: linux/amd64
+  BACKTEST_BASE_IMAGE_REF: node:24-slim@sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7
+
+concurrency:
+  group: backtest-reproduction-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Structural discovery of A/M(/B). Runs on every trigger, regardless of
+  # whether M exists yet, and FAILS LOUDLY when it does not - a reproduction
+  # workflow that green-checks a push containing no reproducible artifact
+  # would be asserting something it never actually verified (plan Step 6).
+  # ---------------------------------------------------------------------------
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      commit_a: ${{ steps.discover.outputs.commit_a }}
+      commit_m: ${{ steps.discover.outputs.commit_m }}
+      commit_b: ${{ steps.discover.outputs.commit_b }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Discover Commit A / Commit M (/ Commit B) structurally
+        id: discover
+        run: |
+          set -euo pipefail
+          # GITHUB_SHA is one of the default env vars every step already gets -
+          # no workflow-expression syntax needed (or wanted) inside this shell body.
+          if node scripts/ci/discover-freeze-commits.js "$GITHUB_SHA" > discovery.json; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            cat discovery.json
+            # discover-freeze-commits.js's own main() never lets a nonzero
+            # exit reach here without first writing a complete discovery.json
+            # (see that file's own try/catch) - so `.reason` is always the
+            # REAL cause (no M found yet, A's allowlist violated, B's chain
+            # check failed, or a genuine crash), never collapsed into one
+            # fixed "no Commit M found" message that would mask which of
+            # those actually happened.
+            REASON="$(node -e "console.log((require('./discovery.json').reason) || 'discover-freeze-commits.js failed with no reason recorded - see its output above')")"
+            echo "::error::Freeze discovery failed on this ref: ${REASON}"
+            exit 1
+          fi
+          cat discovery.json
+          {
+            echo "commit_a=$(node -e "console.log(require('./discovery.json').commitA || '')")"
+            echo "commit_m=$(node -e "console.log(require('./discovery.json').commitM || '')")"
+            echo "commit_b=$(node -e "console.log(require('./discovery.json').commitB || '')")"
+          } >> "$GITHUB_OUTPUT"
+
+  # ---------------------------------------------------------------------------
+  # The actual reproduction: rebuild the pinned image, install dependencies
+  # networked into a fresh keyed volume, then regenerate M from a detached
+  # worktree at A entirely offline (--network none) and byte-compare the
+  # result against the committed M blob.
+  # ---------------------------------------------------------------------------
+  reproduce:
+    needs: discover
+    runs-on: ubuntu-latest
+    # Measured on the authoring machine (local Docker Desktop, linux/amd64):
+    # canaries + rehydrate + 34-season-week roster/cohort generation + the
+    # full control-cell MDE run (588 grid cells x 2,000 experiments x 10,000
+    # bootstrap draws) together took 864.7s (~14.4 min) end to end. This
+    # timeout adds headroom for the GitHub-runner-only costs that measurement
+    # does not include (image build/pull, networked `npm ci`, worktree setup,
+    # artifact byte-compare) and for a slower runner than this dev machine -
+    # but it has NOT yet been measured on an actual GitHub Actions runner.
+    # Correct this value from the first real CI run rather than trusting the
+    # margin blindly.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Create a detached worktree at Commit A
+        id: worktree
+        env:
+          COMMIT_A: ${{ needs.discover.outputs.commit_a }}
+        run: |
+          set -euo pipefail
+          A="$COMMIT_A"
+          git worktree add --detach /tmp/worktree-a "$A"
+          echo "path=/tmp/worktree-a" >> "$GITHUB_OUTPUT"
+
+      - name: Build the pinned backtest image FROM COMMIT A, not the triggering ref
+        env:
+          WORKTREE_PATH: ${{ steps.worktree.outputs.path }}
+        run: |
+          set -euo pipefail
+          WORKTREE="$WORKTREE_PATH"
+          # Built from the detached worktree at Commit A - both the build CONTEXT
+          # and the -f Dockerfile path - so backtest.Dockerfile's own COPY
+          # backtest-entrypoint.js bakes in A's copy of that file, never
+          # whatever happens to be checked out at the triggering ref
+          # (github.sha). A later fix-forward commit editing backtest-
+          # entrypoint.js or backtest.Dockerfile must NOT silently change what
+          # "reproduce M from A" actually runs.
+          # backtest.Dockerfile hardcodes the base digest (node:24-slim@sha256:...)
+          # - this build NEVER re-resolves a floating tag, locally or in CI.
+          docker build --platform "$BACKTEST_PLATFORM" -f "$WORKTREE/backtest.Dockerfile" -t backtest-freeze:ci "$WORKTREE"
+
+      - name: Networked npm ci into a fresh, lockfile-keyed dependency volume
+        id: deps
+        env:
+          WORKTREE_PATH: ${{ steps.worktree.outputs.path }}
+        run: |
+          set -euo pipefail
+          WORKTREE="$WORKTREE_PATH"
+          LOCKHASH="$(sha256sum "$WORKTREE/package-lock.json" | cut -d' ' -f1)"
+          IMAGE_DIGEST="${BACKTEST_BASE_IMAGE_REF##*@sha256:}"
+          PLATFORM_KEY="${BACKTEST_PLATFORM//\//-}"
+          # GITHUB_RUN_ID/GITHUB_RUN_ATTEMPT are default env vars every step
+          # already gets - no workflow-expression syntax needed here either.
+          VOLUME="backtest-deps-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${PLATFORM_KEY}-${IMAGE_DIGEST:0:16}-${LOCKHASH:0:16}"
+          echo "volume=$VOLUME" >> "$GITHUB_OUTPUT"
+          echo "lockhash=$LOCKHASH" >> "$GITHUB_OUTPUT"
+          docker volume create "$VOLUME"
+          mkdir -p "$WORKTREE/node_modules"
+          # server/node_modules does not exist and there are no npm workspaces -
+          # server/'s own requires resolve up to this single root install, the
+          # same tree ci.yml's plain `npm ci` (at the root) populates and the
+          # whole test suite is validated against. Root lockfile only; hashing
+          # server/package-lock.json in as well would be harmless belt-and-
+          # braces but the root lockfile is the one that actually governs what
+          # runs, so it is the only one keying this volume.
+          docker run --rm --platform "$BACKTEST_PLATFORM" \
+            -v "$WORKTREE:/src:ro" \
+            -v "$VOLUME:/install/node_modules" \
+            -w /install \
+            "$BACKTEST_BASE_IMAGE_REF" \
+            sh -c '
+              set -eu
+              cp /src/package.json /src/package-lock.json /install/
+              cd /install
+              npm ci --no-audit --no-fund
+              echo "--- networked-phase dependency identity ---"
+              node --version
+              npm --version
+              sha256sum package-lock.json
+              ls node_modules | sort > /install/node_modules/.installed-tree.txt
+              node --version > /install/node_modules/.node-version.txt
+              npm --version > /install/node_modules/.npm-version.txt
+              sha256sum package-lock.json | cut -d" " -f1 > /install/node_modules/.lockfile-sha256.txt
+            '
+
+      - name: Install host-side dependencies for freeze manifest generation
+        # Only needed once Commit B exists - the step below that requires
+        # server/services/scoring.service.js runs with the runner's OWN plain
+        # `node`, directly against the detached worktree, never inside a
+        # container. Every other step in this job runs containerized, with
+        # node_modules supplied by the Docker volume above - but that volume
+        # is only ever mounted INTO a container, never onto the runner's own
+        # filesystem, so run-backtest-freeze-manifest.js requiring
+        # scoring.service.js (which requires axios) with the host's plain
+        # node has nothing to resolve against unless the worktree gets its
+        # own real npm install too. Caught only by Commit B's first real run
+        # through this workflow - the step it feeds had never executed
+        # before, since every prior round had no B yet to byte-compare
+        # against.
+        if: needs.discover.outputs.commit_b != ''
+        env:
+          WORKTREE_PATH: ${{ steps.worktree.outputs.path }}
+        run: |
+          set -euo pipefail
+          cd "$WORKTREE_PATH"
+          npm ci --no-audit --no-fund
+
+      - name: Verify dependency identity offline, under --network none
+        env:
+          WORKTREE_PATH: ${{ steps.worktree.outputs.path }}
+          VOLUME_NAME: ${{ steps.deps.outputs.volume }}
+          LOCK_HASH: ${{ steps.deps.outputs.lockhash }}
+        run: |
+          set -euo pipefail
+          WORKTREE="$WORKTREE_PATH"
+          VOLUME="$VOLUME_NAME"
+          LOCKHASH="$LOCK_HASH"
+          # Re-derive the SAME three identity facts (Node version, npm version,
+          # installed tree) a SECOND time, from inside a --network none
+          # container with the volume mounted READ-ONLY at <worktree>/node_modules
+          # - the exact mount shape the real reproduction run below uses - and
+          # diff every one of them against what the networked phase recorded.
+          # A mismatch here means the offline container is not actually running
+          # against what npm ci just installed, which the freeze's whole
+          # reproducibility claim depends on.
+          docker run --rm --platform "$BACKTEST_PLATFORM" --network none \
+            -v "$WORKTREE:/worktree:ro" \
+            -v "$VOLUME:/worktree/node_modules:ro" \
+            -e LOCKHASH="$LOCKHASH" \
+            --entrypoint sh \
+            backtest-freeze:ci -c '
+              set -eu
+              cd /worktree
+              echo "--- offline-phase dependency identity ---"
+              node --version
+              npm --version
+              sha256sum package-lock.json
+              [ "$(node --version)" = "$(cat node_modules/.node-version.txt)" ] || { echo "::error::Node version mismatch between networked and offline phases"; exit 1; }
+              [ "$(npm --version)" = "$(cat node_modules/.npm-version.txt)" ] || { echo "::error::npm version mismatch between networked and offline phases"; exit 1; }
+              [ "$(sha256sum package-lock.json | cut -d" " -f1)" = "$(cat node_modules/.lockfile-sha256.txt)" ] || { echo "::error::package-lock.json hash mismatch between networked and offline phases"; exit 1; }
+              ls node_modules | grep -v "^\." | sort > /tmp/offline-tree.txt
+              diff -u node_modules/.installed-tree.txt /tmp/offline-tree.txt || { echo "::error::installed dependency tree differs between networked and offline phases"; exit 1; }
+              echo "dependency identity verified: node/npm versions, lockfile hash ($LOCKHASH), and installed tree all agree"
+            '
+
+      - name: Regenerate M from Commit A, entirely offline
+        env:
+          WORKTREE_PATH: ${{ steps.worktree.outputs.path }}
+          VOLUME_NAME: ${{ steps.deps.outputs.volume }}
+        run: |
+          set -euo pipefail
+          WORKTREE="$WORKTREE_PATH"
+          VOLUME="$VOLUME_NAME"
+          mkdir -p /tmp/backtest-output
+          # The image runs as a fixed non-root uid (backtest.Dockerfile), not
+          # the runner's own uid, so the host-bound /output mount must be
+          # writable by a uid that has nothing to do with whoever created the
+          # directory - world-writable, rather than trying to match uids.
+          chmod 777 /tmp/backtest-output
+          # canaries -> rehydrate (verifies every rehydrated chunk against the
+          # sealed publication manifest, throwing on any mismatch - see
+          # rehydrate.js's own module docblock; this run IS that check, not a
+          # separate one) -> rosters/cohort -> byte-compare against Commit A ->
+          # the blinded control-only MDE artifact. Three mounts, each
+          # single-purpose, matching
+          # backtest.Dockerfile's contract exactly: worktree read-only,
+          # dependency volume read-only at <worktree>/node_modules, one
+          # dedicated writable output bind-mount.
+          docker run --rm --platform "$BACKTEST_PLATFORM" --network none \
+            -v "$WORKTREE:/worktree:ro" \
+            -v "$VOLUME:/worktree/node_modules:ro" \
+            -v "/tmp/backtest-output:/output" \
+            backtest-freeze:ci
+
+      - name: Byte-compare the regenerated artifact against committed Commit M
+        env:
+          COMMIT_M: ${{ needs.discover.outputs.commit_m }}
+        run: |
+          set -euo pipefail
+          M="$COMMIT_M"
+          git show "$M:backtest-artifacts/pit-sweep-2024-2025/freeze/mde-artifact.json" > /tmp/committed-mde-artifact.json
+          if ! cmp -s /tmp/backtest-output/mde-artifact.json /tmp/committed-mde-artifact.json; then
+            echo "::error::Regenerated mde-artifact.json is NOT byte-identical to the one committed in Commit M ($M)"
+            diff -u /tmp/committed-mde-artifact.json /tmp/backtest-output/mde-artifact.json || true
+            exit 1
+          fi
+          echo "regenerated artifact is byte-identical to Commit M's committed blob ($M)"
+
+      - name: Byte-compare regenerated Commit B manifest
+        if: needs.discover.outputs.commit_b != ''
+        env:
+          COMMIT_A: ${{ needs.discover.outputs.commit_a }}
+          COMMIT_M: ${{ needs.discover.outputs.commit_m }}
+          COMMIT_B: ${{ needs.discover.outputs.commit_b }}
+          WORKTREE_PATH: ${{ steps.worktree.outputs.path }}
+        run: |
+          set -euo pipefail
+          A="$COMMIT_A"
+          M="$COMMIT_M"
+          B="$COMMIT_B"
+          WORKTREE="$WORKTREE_PATH"
+          node "$WORKTREE/server/scripts/run-backtest-freeze-manifest.js" \
+            --commit-a "$A" \
+            --commit-m "$M" \
+            --runtime-identity /tmp/backtest-output/runtime-identity.json \
+            --out /tmp/regenerated-FREEZE_MANIFEST.json
+          git show "$B:backtest-artifacts/pit-sweep-2024-2025/freeze/FREEZE_MANIFEST.json" > /tmp/committed-FREEZE_MANIFEST.json
+          if ! cmp -s /tmp/regenerated-FREEZE_MANIFEST.json /tmp/committed-FREEZE_MANIFEST.json; then
+            echo "::error::Regenerated FREEZE_MANIFEST.json is NOT byte-identical to Commit B ($B)"
+            diff -u /tmp/committed-FREEZE_MANIFEST.json /tmp/regenerated-FREEZE_MANIFEST.json || true
+            exit 1
+          fi
+          echo "regenerated manifest is byte-identical to Commit B's committed blob ($B)"
+
+      - name: Clean up the dependency volume and detached worktree
+        if: always()
+        env:
+          VOLUME_NAME: ${{ steps.deps.outputs.volume }}
+          WORKTREE_PATH: ${{ steps.worktree.outputs.path }}
+        run: |
+          docker volume rm "$VOLUME_NAME" 2>/dev/null || true
+          git worktree remove --force "$WORKTREE_PATH" 2>/dev/null || true
+
+  # ---------------------------------------------------------------------------
+  # Commit B is optional until the freeze sequence reaches it. Once present,
+  # discovery enforces parent(B)=M and the B..HEAD output-only allowlist, while
+  # the reproduction job regenerates the manifest from A/M plus the container's
+  # runtime-identity sidecar and byte-compares it with B.
+  # ---------------------------------------------------------------------------

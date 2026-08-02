@@ -18,6 +18,23 @@ const SQL_DIR = path.join(__dirname, '..', 'scripts', 'gate1');
 const readSql = (name) => fs.readFileSync(path.join(SQL_DIR, name), 'utf8');
 
 /**
+ * A --valid-until value guaranteed to be in the future WHENEVER this suite
+ * actually runs, for every test below that drives `gate1.main()` end to end
+ * with the real, un-injected system clock (`assertValidUntil`'s own `now =
+ * new Date()` default) and expects the expiry check to PASS. A fixed literal
+ * here silently expires the moment the real date passes it - exactly what
+ * broke three of these tests when CI ran after the literal's date - so this
+ * is computed once at load time instead, comfortably inside the 7-day
+ * window `assertValidUntil` also enforces (MAX_VALID_UNTIL_DAYS) so it can
+ * never accidentally trip THAT check either. Tests that need a SPECIFIC
+ * relationship to "now" (an explicitly injected `now`, an intentionally past
+ * or intentionally too-far-future value) keep their own literal - only the
+ * "any ordinary valid expiry" call sites use this.
+ */
+const FUTURE_VALID_UNTIL = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)
+  .toISOString().replace(/\.\d{3}Z$/, 'Z');
+
+/**
  * Strip `--` comments, so the assertions below read what EXECUTES rather than
  * what is explained. This matters more than it sounds: create-role.sql
  * deliberately spells out `GRANT SELECT ON ALL TABLES IN SCHEMA public` in a
@@ -224,7 +241,7 @@ test('a mistyped command NEVER prints the password, on any of the four paths', a
     BACKTEST_ADMIN_DATABASE_URL: `postgres://admin:${ADMIN_PW}@db.example.com/endzone_empire`,
   };
   const ok = ['--phase', 'create', '--database', 'endzone_empire', '--role', 'backtest_ro_x',
-    '--valid-until', '2026-08-02T00:00:00Z'];
+    '--valid-until', FUTURE_VALID_UNTIL];
   const swap = (flag, value) => ok.map((t, i) => (ok[i - 1] === flag ? value : t));
 
   const paths = {
@@ -269,7 +286,7 @@ test('an ADMIN CONNECTION STRING pasted into the wrong argument does not leak ei
   const url = `postgres://admin:${ADMIN_PW}@db.example.com/endzone_empire`;
   const env = { BACKTEST_ADMIN_DATABASE_URL: url, BACKTEST_RO_ROLE_PASSWORD: 'x'.repeat(30) };
   const ok = ['--phase', 'verify', '--database', 'endzone_empire', '--role', 'backtest_ro_x',
-    '--valid-until', '2026-08-02T00:00:00Z'];
+    '--valid-until', FUTURE_VALID_UNTIL];
   const swap = (flag, value) => ok.map((t, i) => (ok[i - 1] === flag ? value : t));
 
   return Promise.all(['--role', '--database', '--valid-until'].map(async (flag) => {
@@ -350,7 +367,7 @@ test('a driver error quoting the CREATE ROLE statement comes back with NO verifi
     NODE_ENV: 'production',
   };
   return gate1.main(['--phase', 'create', '--database', 'endzone_empire',
-    '--role', 'backtest_ro_pit01', '--valid-until', '2026-08-02T00:00:00Z'],
+    '--role', 'backtest_ro_pit01', '--valid-until', FUTURE_VALID_UNTIL],
   { env, out: { log: () => {} }, createPool }).then(
     () => assert.fail('the fake driver was supposed to raise'),
     (err) => {
@@ -409,7 +426,7 @@ test('--print-sql needs NO credentials at all', async () => {
   for (const phase of ['create', 'verify', 'teardown']) {
     const lines = [];
     const argv = ['--phase', phase, '--database', 'endzone_empire', '--role', 'backtest_ro_pit01',
-      '--print-sql', ...(phase === 'teardown' ? [] : ['--valid-until', '2026-08-02T00:00:00Z'])];
+      '--print-sql', ...(phase === 'teardown' ? [] : ['--valid-until', FUTURE_VALID_UNTIL])];
     const code = await gate1.main(argv, { env: {}, out: { log: (m) => lines.push(m) } });
     assert.equal(code, 0, `${phase} --print-sql must succeed with an empty environment`);
     assert.ok(lines.join('\n').includes('backtest_ro_pit01'), `${phase} rendered nothing`);
@@ -834,14 +851,14 @@ test('main refuses a bad phase, a bad role and a bad expiry before opening anyth
   // instead - which is itself the assertion that nothing connects.
   const env = {};
   const base = ['--database', 'endzone_empire', '--role', 'backtest_ro_x',
-    '--valid-until', '2026-08-02T00:00:00Z'];
+    '--valid-until', FUTURE_VALID_UNTIL];
   await assert.rejects(() => gate1.main(['--phase', 'destroy', ...base], { env }),
     /--phase must be one of create, verify, teardown/);
   await assert.rejects(() => gate1.main([...base], { env }), /--phase must be one of/);
   await assert.rejects(() => gate1.main(['--phase', 'create', '--database', 'endzone_empire',
-    '--role', 'postgres', '--valid-until', '2026-08-02T00:00:00Z'], { env }), /--role must match/);
+    '--role', 'postgres', '--valid-until', FUTURE_VALID_UNTIL], { env }), /--role must match/);
   await assert.rejects(() => gate1.main(['--phase', 'create', '--database', 'Endzone',
-    '--role', 'backtest_ro_x', '--valid-until', '2026-08-02T00:00:00Z'], { env }),
+    '--role', 'backtest_ro_x', '--valid-until', FUTURE_VALID_UNTIL], { env }),
   /--database must match/);
   await assert.rejects(() => gate1.main(['--phase', 'create', '--database', 'endzone_empire',
     '--role', 'backtest_ro_x', '--valid-until', '2020-01-01T00:00:00Z'], { env }),
@@ -860,14 +877,14 @@ test('--print-sql renders for review, connects to nothing, and never prints the 
   const env = { BACKTEST_ADMIN_DATABASE_URL: 'postgres://admin:hunter2xxxxxxxx@db/endzone_empire',
     BACKTEST_RO_ROLE_PASSWORD: 'Kq7-vZ2mR9tB4xN6wL1cJ8sH0dF3gY5a' };
   const code = await gate1.main(['--phase', 'create', '--database', 'endzone_empire',
-    '--role', 'backtest_ro_pit01', '--valid-until', '2026-08-02T00:00:00Z', '--print-sql'],
+    '--role', 'backtest_ro_pit01', '--valid-until', FUTURE_VALID_UNTIL, '--print-sql'],
   { env, out: { log: (m) => lines.push(m) } });
   assert.equal(code, 0);
   const text = lines.join('\n');
   assert.match(text, /CREATE ROLE "backtest_ro_pit01"/);
   assert.match(text, /GRANT SELECT ON TABLE/);
   assert.match(text, /public\.player_season_stats/);
-  assert.match(text, /VALID UNTIL '2026-08-02T00:00:00Z'/);
+  assert.match(text, new RegExp(`VALID UNTIL '${FUTURE_VALID_UNTIL}'`));
   // The verifier is never derived into the printed string at all: the marker is
   // substituted in its place, rather than the real one being redacted after.
   assert.match(text, /PASSWORD 'SCRAM-SHA-256\$\[REDACTED\]'/);

@@ -295,10 +295,12 @@ test('an EXPLICIT empty overlay is legal, but not for an evaluated season', () =
   }), /does not cover 1 of 2 scheduled team\(s\) \(BUF\)/);
 });
 
-test('omissions are counted PER CAUSE, with DEF given its own expected-by-design reason', async () => {
-  // Four different situations hide behind "excluded", and the report has to
+test('omissions are counted PER CAUSE, and a DEF pseudo-player is served directly, not omitted', async () => {
+  // Three different situations hide behind "excluded", and the report has to
   // tell them apart (prereg 4.1). A DEF unit has no GSIS id because it is not a
-  // person; ~32 of those a week must not look like a roster-coverage problem.
+  // person, but it also has no week-specific fact for roster reconstruction to
+  // contribute, so it is served the same direct pass-through `off` mode uses -
+  // never counted as an omission.
   const withDef = client.assembleSnapshot({
     manifest: MANIFEST,
     players: [
@@ -325,15 +327,18 @@ test('omissions are counted PER CAUSE, with DEF given its own expected-by-design
   });
   const players = await c.query(sqlFor('playersById'), [[1, 2, 3, 4, 5, 6]]);
 
-  assert.deepEqual(players.rows.map((r) => r.id).sort(), [1, 2], 'only the two cohort members');
+  assert.deepEqual(
+    players.rows.map((r) => r.id).sort(),
+    [1, 2, 4],
+    'the two cohort members plus the DEF pseudo-player, served directly'
+  );
   assert.deepEqual(c.counters.playersOmittedByReason, {
     'status-class-reserve': 1, // player 3, on reserve in week 3
-    'def-synthesized-in-phase-3': 1, // player 4, a defence
     'no-gsis-mapping': 1, // player 5, genuinely unmapped
     'no-roster-row': 1, // player 6, mapped but absent that week
   });
   // The scalar total is kept for compatibility and still agrees.
-  assert.equal(c.counters.playersOmittedNoReconstruction, 4);
+  assert.equal(c.counters.playersOmittedNoReconstruction, 3);
 });
 
 // ---------------------------------------------------------------------------

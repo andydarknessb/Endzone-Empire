@@ -40,13 +40,16 @@
  *   patch from the pinned `games.csv`. **No production write, ever** - the
  *   patch exists only in the snapshot.
  *
- * WHAT RECONSTRUCTED MODE DOES NOT SERVE. DEF pseudo-players are absent from
- * its `playersById` results by design: a defence has no GSIS identifier because
- * it is not a person, so the roster files say nothing about it. DEF is
- * synthesized per team-week in PHASE 3, from the pinned `stats_team_week` rows
- * plus `games.csv` scores. The omissions are counted under their own reason
- * (`def-synthesized-in-phase-3`) precisely so that roughly 32 expected
- * omissions a week cannot be mistaken for a roster-coverage failure.
+ * DEF PSEUDO-PLAYERS in `reconstructed` mode's `playersById` results get a
+ * DIRECT pass-through (the same as `off` mode), never roster-based week
+ * reconstruction: a defence has no GSIS identifier because it is not a
+ * person, so the roster files have nothing to contribute, but a DEF's team
+ * and position never change week to week either, so there is no week-specific
+ * fact reconstruction could add. `actual` points for DEF are still
+ * synthesized separately, per team-week in PHASE 3, from the pinned
+ * `stats_team_week` rows plus `games.csv` scores - this only concerns the
+ * PROJECTED side, so that `generateProjections` can produce a real DEF
+ * projection instead of always hitting "unknown player".
  *
  * Pure: no filesystem here (the caller loads the snapshot), no network, no
  * database, no environment.
@@ -443,21 +446,30 @@ function createSnapshotClient({
    * The reconstructed view of one internal player id for the TARGET week, or
    * `{ omitted: <reason> }`.
    *
-   * The reason matters as much as the omission. "Excluded" covers four
+   * The reason matters as much as the omission. "Excluded" covers three
    * genuinely different situations - he had no roster row that week, he was on
-   * reserve, he played a non-fantasy position, or he is a DEF pseudo-player -
-   * and the published report has to distinguish them (preregistration 4.1).
-   * Collapsing them into one number would make ~32 expected-by-design DEF
-   * omissions per week look identical to a roster-coverage problem.
+   * reserve, or he played a non-fantasy position - and the published report
+   * has to distinguish them (preregistration 4.1).
+   *
+   * DEF units get a DIRECT pass-through here, the same as `off` mode, never
+   * `reconstruction.viewFor`. They have no GSIS identifier (they are not
+   * people) so roster-file reconstruction cannot apply to them, but unlike a
+   * human, a DEF unit's team/position never changes week to week - there is
+   * no week-specific fact for a roster row to contribute. Routing them
+   * through the SAME omission path as a genuinely unmapped human previously
+   * meant `generateProjections`'s `playersById` query never returned a DEF
+   * row in reconstructed mode, so `projectFromBundle` always hit its
+   * "unknown player" branch and DEF's projection was structurally null every
+   * week - silently dropping DEF from `weekPairwise`'s macro-average every
+   * week (never a rare, reported drop), even though the preregistration's own
+   * MDE power analysis (13.2) counts DEF as a measured, ~32-row-per-week thin
+   * position, not a permanently-excluded one.
    */
   const reconstructPlayer = (player) => {
+    if (player.position === 'DEF') return { row: projectPlayerRow(player) };
     const gsisId = reconstruction.gsisByPlayerId.get(Number(player.id));
     if (!gsisId) {
-      // DEF units have no GSIS identifier by construction: they are not people.
-      // They are synthesized per team-week in PHASE 3 from the pinned
-      // stats_team_week rows plus games.csv scores, so their absence here is
-      // the design working, not a gap.
-      return { omitted: player.position === 'DEF' ? 'def-synthesized-in-phase-3' : 'no-gsis-mapping' };
+      return { omitted: 'no-gsis-mapping' };
     }
     const view = reconstruction.viewFor({ season: targetSeason, week: targetWeek, gsisId });
     if (!view) return { omitted: 'no-view' };
