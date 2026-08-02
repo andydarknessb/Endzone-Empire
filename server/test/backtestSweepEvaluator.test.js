@@ -1,9 +1,45 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
+const path = require('path');
 
 const sweepEvaluator = require('../../scripts/backtest/lib/sweepEvaluator');
 const arms = require('../../scripts/backtest/lib/arms');
 const metrics = require('../../scripts/backtest/lib/metrics');
+
+// ---------------------------------------------------------------------------
+// Isolation: the Gate 2 sweep pipeline stays inside the pure lib tree
+//
+// Independent implementation review finding: `controlCellEvaluator.js` has
+// its own version of this check (backtestControlCellEvaluator.test.js), but
+// it is FILE-SPECIFIC - it never covered sweepEvaluator.js/sweepInference.js/
+// sweepReport.js, which were added to the SAME scripts/backtest/lib/ tree
+// this session with no automated purity check at all (confirmed manually via
+// grep during the review; this closes that gap with a regression test).
+// ---------------------------------------------------------------------------
+
+const PURE_LIB_FILES = Object.freeze([
+  'sweepEvaluator.js', 'sweepInference.js', 'sweepReport.js',
+]);
+
+test('the Gate 2 sweep pipeline files stay inside the pure lib tree (no pg, no server/services, no process.env, no child_process, no network)', () => {
+  for (const file of PURE_LIB_FILES) {
+    const raw = fs.readFileSync(path.join(__dirname, '..', '..', 'scripts', 'backtest', 'lib', file), 'utf8');
+    // Strip comments first, same idiom as controlCellEvaluator.js's own test:
+    // the docblocks in these files necessarily NAME "process.env"/"pg"/
+    // "server/services" in prose explaining the isolation rule, which would
+    // false-positive a raw-text scan.
+    const src = raw.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+    assert.ok(!/require\(['"]pg['"]\)/.test(src), `${file}: must not require('pg')`);
+    assert.ok(!/require\(['"]child_process['"]\)/.test(src), `${file}: must not require('child_process')`);
+    assert.ok(!/server\/services/.test(src), `${file}: must not reach server/services`);
+    assert.ok(!/server\/modules\/pool/.test(src), `${file}: must not reach the DB pool`);
+    assert.ok(!/process\.env/.test(src), `${file}: must not read process.env`);
+    assert.ok(!/\bfetch\(/.test(src), `${file}: must not perform network I/O`);
+    assert.ok(!/require\(['"]http['"]\)|require\(['"]https['"]\)|require\(['"]net['"]\)/.test(src),
+      `${file}: must not require a network module`);
+  }
+});
 
 /** Every one of the 17 evaluated weeks (prereg 4.1), as a `{ [week]: value }` series. */
 const fullSeries = (value) => Object.fromEntries(metrics.EVALUATED_WEEKS.map((w) => [w, value]));
