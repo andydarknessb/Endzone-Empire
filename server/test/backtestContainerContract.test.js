@@ -38,6 +38,27 @@ test('regenerated roster/cohort/index artifacts must byte-match Commit A', (t) =
   assert.equal(entrypoint.assertArtifactTreesByteIdentical(trees), 3);
 });
 
+// ---------------------------------------------------------------------------
+// Mode dispatch (increment 4: freeze/sweep)
+// ---------------------------------------------------------------------------
+
+test('parseMode defaults to freeze with no argv, for exact backward compatibility', () => {
+  assert.equal(entrypoint.parseMode([]), 'freeze');
+  assert.equal(entrypoint.parseMode(undefined), 'freeze');
+});
+
+test('parseMode recognizes every declared mode', () => {
+  assert.deepEqual([...entrypoint.MODES], ['freeze', 'sweep']);
+  for (const mode of entrypoint.MODES) {
+    assert.equal(entrypoint.parseMode([mode]), mode);
+  }
+});
+
+test('parseMode refuses an unrecognized mode rather than silently defaulting to freeze', () => {
+  assert.throws(() => entrypoint.parseMode(['bogus']), /unknown mode 'bogus'.*freeze, sweep/s);
+  assert.throws(() => entrypoint.parseMode(['Freeze']), /unknown mode 'Freeze'/, 'mode names are case-sensitive, never fuzzily matched');
+});
+
 test('MUTATION TEST: changed, missing, or extra regenerated artifact bytes are refused', (t) => {
   const changed = makeArtifactTrees(t);
   fs.writeFileSync(path.join(changed.regeneratedDir, 'index.json'), '{"ok":false}\n');

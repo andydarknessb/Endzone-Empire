@@ -446,10 +446,16 @@ function bootstrapMean({ weekValues, resamples, alpha = COMPONENT_ALPHA, label =
     upper: percentileBound(sorted, 1 - alpha, { label }),
     draws: resamples.draws,
     clusters: n,
-    // How many DISTINCT values the resampled statistic took. Fewer than 100
-    // means the bootstrap distribution is degenerate and the exact-inference
-    // trigger fires (prereg 10.2).
-    distinctValues: new Set(sorted).size,
+    // How many DISTINCT values the resampled statistic took, counted AFTER
+    // ten-decimal (roundToTie) normalization (PHASE5_EXECUTION_SPEC.md
+    // section 4.4 item 1) - a genuinely discrete metric (e.g. pairwise
+    // accuracy over few eligible pairs) can otherwise register as
+    // non-degenerate purely from floating-point representation noise, since
+    // two resampled means that are the "same" value can differ in their last
+    // bit depending on summation order. Fewer than 100 means the bootstrap
+    // distribution is degenerate and the exact-inference trigger fires
+    // (prereg 10.2).
+    distinctValues: new Set(Array.from(sorted, (v) => roundToTie(v))).size,
   };
 }
 

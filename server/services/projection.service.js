@@ -257,7 +257,15 @@ function playerResidualsFrom(priorGames) {
 function projectFromBundle({
   playerId, bundle, rules, season, week, hashValue, weatherByGameKey,
   constants = model.MODEL_CONSTANTS,
+  // Gate 2 sweep seam (PHASE5_EXECUTION_SPEC.md section 6.5), forwarded
+  // unchanged to model.projectPlayer. Validated at the top of the function
+  // body, before ANY other logic - including before the `!player` early
+  // return below, where it is never actually invoked.
+  onPreHomeAwayBaseline,
 }) {
+  if (onPreHomeAwayBaseline !== undefined && typeof onPreHomeAwayBaseline !== 'function') {
+    throw new Error('projectFromBundle: onPreHomeAwayBaseline must be undefined or a function');
+  }
   const player = bundle.players.get(playerId);
   if (!player) {
     return {
@@ -359,6 +367,7 @@ function projectFromBundle({
     weather,
     availability,
     hasRoleData: priorGames.some((g) => g.hasRole),
+    onPreHomeAwayBaseline,
   });
 }
 
@@ -417,7 +426,16 @@ async function generateProjections({
   // Overridable so scripts/backtest-weekly-projections.js can sweep
   // half-life / shrinkage alternatives against the same weeks.
   modelConstants = model.MODEL_CONSTANTS,
+  // Gate 2 sweep seam (PHASE5_EXECUTION_SPEC.md section 6.5), forwarded
+  // unchanged into every per-player projectFromBundle call. Validated at the
+  // top of the function body, before ANY other logic - so an empty
+  // `playerIds` call still validates and still throws on a bad type even
+  // though the per-player loop below never executes.
+  onPreHomeAwayBaseline,
 }) {
+  if (onPreHomeAwayBaseline !== undefined && typeof onPreHomeAwayBaseline !== 'function') {
+    throw new Error('generateProjections: onPreHomeAwayBaseline must be undefined or a function');
+  }
   const bundle = await features.loadFeatureBundle({ season, week, playerIds, rules, client });
 
   // Weather is strictly optional context and must never be able to fail the
@@ -449,6 +467,7 @@ async function generateProjections({
       projectFromBundle({
         playerId, bundle, rules, season, week, hashValue, weatherByGameKey,
         constants: modelConstants,
+        onPreHomeAwayBaseline,
       })
     );
   }

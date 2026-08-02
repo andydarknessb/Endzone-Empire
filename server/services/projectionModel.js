@@ -996,7 +996,18 @@ function projectPlayer({
   availability = null,
   hasRoleData = true,
   constants = MODEL_CONSTANTS,
+  // Gate 2 sweep seam (PHASE5_EXECUTION_SPEC.md section 6.5). Validated
+  // unconditionally, at the top of the function body, before ANY other
+  // logic - including before the `baseline.value == null` early return
+  // below - so an invalid type is caught even on a player-week that never
+  // reaches the semantic point. Invocation itself stays conditional: it
+  // fires at most once, only if execution actually reaches the point
+  // immediately before `applyFactor('homeAway', homeAway)`.
+  onPreHomeAwayBaseline,
 }) {
+  if (onPreHomeAwayBaseline !== undefined && typeof onPreHomeAwayBaseline !== 'function') {
+    throw new Error('projectPlayer: onPreHomeAwayBaseline must be undefined or a function');
+  }
   const baseline = baselineProduction({
     priorGames,
     priorSeasonPerGame,
@@ -1103,6 +1114,16 @@ function projectPlayer({
 
   applyFactor('opponent', opponent);
   applyFactor('versusOpponent', versusOpponent);
+  // The semantic point (PHASE5_EXECUTION_SPEC.md section 6.5): `running` is
+  // `b`, the pre-homeAway baseline, captured raw - finite, unrounded, exactly
+  // the value immediately before homeAway is applied. Called exactly once
+  // per player-week that reaches here; an exception thrown by the callback
+  // propagates uncaught, aborting generation rather than being swallowed.
+  if (onPreHomeAwayBaseline) {
+    onPreHomeAwayBaseline({
+      playerId, position, season, week, blendWeight: usageBlendWeight, baseline: running,
+    });
+  }
   applyFactor('homeAway', homeAway);
   applyFactor('weather', weather);
 

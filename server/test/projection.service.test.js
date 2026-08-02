@@ -791,6 +791,75 @@ test('the run constants reach both feature builders, not just projectPlayer', as
   assert.equal(seen.meetings.at(-1).constants, swept);
 });
 
+// ---------------------------------------------------------------------------
+// onPreHomeAwayBaseline (PHASE5_EXECUTION_SPEC.md section 6.5): full
+// threading through generateProjections -> projectFromBundle -> projectPlayer
+// ---------------------------------------------------------------------------
+
+test('onPreHomeAwayBaseline threads unchanged from generateProjections through to projectPlayer', async (t) => {
+  mockPool(t, {
+    players: [player(1, 'RB')],
+    weeklyStats: [1, 2, 3].map((week) => weeklyRow(1, week, {
+      rushingYards: 60, gameTeam: 'BUF', gameOpponent: 'NYJ',
+    })),
+    targetSchedule: [{
+      team_key: 'BUF', opponent_key: 'NYJ', nfl_team: 'BUF', opponent: 'NYJ',
+      kickoff_at: '2026-10-11T17:00:00Z', game_key: null, home_away: 'home', roof: null,
+      latitude: null, longitude: null,
+    }],
+    priorSchedule: [1, 2, 3].map((week) => ({
+      season: SEASON, week, team_key: 'BUF', opponent_key: 'NYJ', home_away: 'home',
+    })),
+  });
+  const calls = [];
+  const result = await projection.generateProjections({
+    season: SEASON, week: 5, rules: SCORING_RULES, playerIds: [1],
+    hashValue: 'h', weatherService: false,
+    onPreHomeAwayBaseline: (args) => calls.push(args),
+  });
+  assert.equal(calls.length, 1, 'exactly one qualifying player-week reached the semantic point');
+  assert.equal(calls[0].playerId, 1);
+  assert.equal(Number.isFinite(calls[0].baseline), true);
+  assert.ok(result.projections.get(1).mean > 0, 'the projection is otherwise unaffected by the seam existing');
+
+  // An empty playerIds list still validates the type, before the (empty) loop.
+  await assert.rejects(
+    projection.generateProjections({
+      season: SEASON, week: 5, rules: SCORING_RULES, playerIds: [],
+      hashValue: 'h', weatherService: false, onPreHomeAwayBaseline: 'nope',
+    }),
+    /onPreHomeAwayBaseline must be undefined or a function/
+  );
+
+  // Every production call site omits the parameter, so behavior for them is unchanged.
+  const unaffected = await projection.generateProjections({
+    season: SEASON, week: 5, rules: SCORING_RULES, playerIds: [1], hashValue: 'h', weatherService: false,
+  });
+  assert.equal(unaffected.projections.get(1).mean, result.projections.get(1).mean);
+});
+
+test('projectFromBundle validates onPreHomeAwayBaseline before its own !player early return, and never invokes it there', () => {
+  const bundle = {
+    players: new Map(), leagueContext: new Map(), priorStatsByPlayer: new Map(),
+    opponentByTeamWeek: new Map(), targetGames: new Map(), byeByTeam: new Map(),
+    seasonRowsByPlayer: new Map(),
+  };
+  assert.throws(
+    () => projection.projectFromBundle({
+      playerId: 999, bundle, rules: SCORING_RULES, season: SEASON, week: 5, hashValue: 'h',
+      onPreHomeAwayBaseline: 'nope',
+    }),
+    /onPreHomeAwayBaseline must be undefined or a function/
+  );
+  const calls = [];
+  const result = projection.projectFromBundle({
+    playerId: 999, bundle, rules: SCORING_RULES, season: SEASON, week: 5, hashValue: 'h',
+    onPreHomeAwayBaseline: (args) => calls.push(args),
+  });
+  assert.equal(result.unavailableReason, 'unknown player');
+  assert.equal(calls.length, 0, 'the !player early return never reaches the semantic point');
+});
+
 /**
  * And the same wiring end to end, with no builder mocked: a prior-season
  * meeting has to be able to change a FACTOR, which is the only reason the

@@ -56,6 +56,23 @@ on:
       - 'server/package-lock.json'
       - '.github/workflows/backtest-reproduction.yml'
 
+# SCOPE, AS OF GATE 2 INCREMENT 4: this workflow reproduces the FREEZE
+# sequence (Commit A -> M -> B) only. `server/scripts/run-backtest-sweep.js`
+# and `scripts/backtest/lib/sweep{Evaluator,Inference,Report}.js` (the Gate 2
+# sweep reducer) already match the `server/scripts/run-backtest-*.js` and
+# `scripts/backtest/**` path filters above, so a change to them still
+# triggers this workflow - but no JOB here exercises them yet, on purpose.
+# `run-backtest-sweep.js` is a deterministic reducer with no database/
+# snapshot dependency (see its own module docblock), so its reproducibility
+# is already exercised by `npm run test:server` in `ci.yml` (end-to-end,
+# disk-to-disk, including its own `--verify-against` byte-comparison check) -
+# duplicating that here would add cost without adding coverage. A REAL
+# Docker/Commit-A4-M-B3 job for the sweep report belongs here once Gate 4
+# produces a committed `--inputs` artifact and a committed `report.json` to
+# reproduce; adding one now, before either exists, would either be a
+# permanent no-op or would have to invent committed artifacts that do not
+# represent anything real. Candidate-cell execution remains gated exactly as
+# PHASE5_EXECUTION_SPEC.md section 1 states - this note does not change that.
 permissions:
   contents: read
 

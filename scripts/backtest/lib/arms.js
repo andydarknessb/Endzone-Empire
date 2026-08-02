@@ -93,6 +93,49 @@ function constantsHash(resolved) {
 }
 
 /**
+ * Resolve a cell's constants with `homeAway.useStoredHistory` forced `true`
+ * - the "on-stored" twin used by the `homeaway-on-stored == homeaway-on`
+ * point-identity assertion (PHASE5_EXECUTION_SPEC.md section 8.6.1).
+ * Informed by, not copied from, `scripts/backtest-weekly-projections.js`'s
+ * `withHistory` pattern. `resolveConstants` itself is untouched - it still
+ * builds only the eight factorial cells - this is a separate, named
+ * builder for the one extra variant the sealed assertion requires.
+ */
+function resolveConstantsWithStoredHistory({ cell, baseConstants, label = 'arms' }) {
+  const resolved = resolveConstants({ cell, baseConstants, label });
+  resolved.homeAway = { ...(resolved.homeAway || {}), useStoredHistory: true };
+  return resolved;
+}
+
+/**
+ * Fail loud unless a cell's "on-stored" twin differs from it in EXACTLY the
+ * `homeAway.useStoredHistory` leaf and nothing else - analogous to
+ * `assertSaltAffectsOnlyHashValue`, so a bug in constructing the on-stored
+ * variant is caught structurally, before any numeric comparison runs
+ * downstream (PHASE5_EXECUTION_SPEC.md section 8.6.1).
+ */
+function assertOnlyStoredHistoryLeafDiffers({ baseResolved, storedResolved, label = 'arms' }) {
+  if (!baseResolved.homeAway || baseResolved.homeAway.useStoredHistory === true) {
+    throw new Error(`${label}: the base variant must NOT have useStoredHistory === true`);
+  }
+  if (!storedResolved.homeAway || storedResolved.homeAway.useStoredHistory !== true) {
+    throw new Error(`${label}: the on-stored variant must have useStoredHistory === true`);
+  }
+  const stripLeaf = (resolved) => {
+    const clone = JSON.parse(JSON.stringify(resolved));
+    if (clone.homeAway) delete clone.homeAway.useStoredHistory;
+    return clone;
+  };
+  if (canonicalJson(stripLeaf(baseResolved)) !== canonicalJson(stripLeaf(storedResolved))) {
+    throw new Error(
+      `${label}: the on-stored variant differs from its twin in more than just ` +
+      'homeAway.useStoredHistory - a bug in constructing the variant.'
+    );
+  }
+  return true;
+}
+
+/**
  * Fail loud if any cell opens `versusOpponent.crossSeason`.
  *
  * The buildPriorGames fail gate rests on that factor staying inactive; a cell
@@ -198,9 +241,78 @@ function assertSaltAffectsOnlyHashValue({ runsBySalt, label = 'salts' }) {
   return true;
 }
 
+/**
+ * Runtime, exhaustive-over-what-actually-runs salt-collision guard
+ * (PHASE5_EXECUTION_SPEC.md section 3.4, item 5): for one evaluated
+ * player-week, assert the 24 salt-derived final seeds it used are pairwise
+ * distinct. Complements the unit-test-level check (illustrative, not
+ * exhaustive); this one runs against every real seed the authoritative
+ * sweep actually computes, and aborts the sweep the instant a real
+ * collision is detected.
+ */
+function assertSaltsProduceDistinctSeeds({ seedsBySalt, label = 'salt seed collision' }) {
+  const bySeed = new Map();
+  for (const salt of Object.keys(seedsBySalt)) {
+    const seed = seedsBySalt[salt];
+    if (bySeed.has(seed)) {
+      throw new Error(
+        `${label}: salts ${bySeed.get(seed)} and ${salt} produced the identical final seed (${seed}). ` +
+        'The 24 salts must be pairwise distinct in seed space; a real collision means two salts would ' +
+        'have scored the same simulation draw, silently reducing the effective replicate count.'
+      );
+    }
+    bySeed.set(seed, salt);
+  }
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // The two point-identity assertions (prereg 7.3)
 // ---------------------------------------------------------------------------
+
+/**
+ * Scan the RAW input (a raw `playerIds` array, or raw SQL rows already
+ * mapped to their key) for repeated keys, BEFORE any Map-building loop is
+ * allowed to run (PHASE5_EXECUTION_SPEC.md section 8.6.4). A length-vs-Map-
+ * size comparison performed AFTER the Map is built is too late: last-wins
+ * reduction has already silently discarded the duplicate by then.
+ */
+function assertNoDuplicateRawIds(ids, label = 'duplicate check') {
+  if (!Array.isArray(ids)) {
+    throw new Error(`${label}: raw id list must be an array, scanned before any Map is built`);
+  }
+  const seen = new Set();
+  const dupes = new Set();
+  for (const id of ids) {
+    if (seen.has(id)) dupes.add(id);
+    seen.add(id);
+  }
+  if (dupes.size > 0) {
+    throw new Error(
+      `${label}: ${dupes.size} duplicate id(s) in the raw input, found by scanning BEFORE any ` +
+      `Map-building loop ran: ${[...dupes].slice(0, 5).join(', ')}`
+    );
+  }
+  return true;
+}
+
+/** Exact key-set equality (not merely equal count) and independent cardinality equality. */
+function assertMatchedKeySets(mapA, mapB, label = 'key-set check') {
+  if (mapA.size !== mapB.size) {
+    throw new Error(`${label}: cardinality differs - ${mapA.size} vs ${mapB.size}`);
+  }
+  const keysA = new Set(mapA.keys());
+  const keysB = new Set(mapB.keys());
+  const onlyA = [...keysA].filter((k) => !keysB.has(k));
+  const onlyB = [...keysB].filter((k) => !keysA.has(k));
+  if (onlyA.length > 0 || onlyB.length > 0) {
+    throw new Error(
+      `${label}: player-key sets differ - present only on side A: ${onlyA.slice(0, 5).join(', ')}; ` +
+      `present only on side B: ${onlyB.slice(0, 5).join(', ')}`
+    );
+  }
+  return true;
+}
 
 /**
  * `usage-25 x off` must be BIT-IDENTICAL to the shipped control.
@@ -209,6 +321,20 @@ function assertSaltAffectsOnlyHashValue({ runsBySalt, label = 'salts' }) {
  * harness introduced one - a different code path, a different seed, a different
  * rounding. Bit-identity, not approximate equality, because there is no
  * legitimate source of even a last-digit difference.
+ *
+ * Deliberately generic: `controlRun`/`usage25OffRun` are compared as PLAIN
+ * canonicalizable values via `canonicalJson`, whatever they are - a full run
+ * summary, a single per-projection object, or (as `controlCellEvaluator.js`'s
+ * `resolveControlConstants` already does, Commit A6) two independently-
+ * derived RESOLVED-CONSTANTS objects. **Callers must never pass a value that
+ * contains a `Map`** (`canonicalJson` serializes a `Map` to the literal
+ * string `"{}"`, since `Object.keys` on a Map returns `[]`, silently, with
+ * no throw - which would make this function compare `"{}"` against `"{}"`
+ * and report a vacuous pass). `assertProjectionRunBitIdentical` below is the
+ * Map-safe wrapper for the sealed `usage-25 == control` run-level assertion
+ * (PHASE5_EXECUTION_SPEC.md section 8.6.0) - it calls this function once per
+ * paired per-projection object, never on a whole `generateProjections`
+ * return value.
  */
 function assertControlBitIdentity({ controlRun, usage25OffRun, label = 'usage-25 identity' }) {
   const a = canonicalJson(controlRun);
@@ -223,22 +349,158 @@ function assertControlBitIdentity({ controlRun, usage25OffRun, label = 'usage-25
 }
 
 /**
- * `homeaway-on-stored` must be POINT-IDENTICAL to `homeaway-on`.
- *
- * Point-identical rather than bit-identical because the two paths can carry
- * different provenance metadata; what must not differ is any published number.
+ * The sealed `usage-25 == control` run-level bit-identity assertion
+ * (PHASE5_EXECUTION_SPEC.md section 8.6.0), Map-safe. `controlRun`/
+ * `usage25OffRun` MUST be `generateProjections`-shaped: `{ projections:
+ * Map<playerId, projection>, inputCutoff, sourceCoverage }`. This function
+ * never hands either Map to `canonicalJson` directly; instead it performs
+ * the required procedure itself: raw-input uniqueness -> exact key-set/
+ * cardinality equality -> per-player pairing by `playerId`, comparing each
+ * pair via `assertControlBitIdentity` (so the per-projection comparison
+ * itself is the same well-tested plain-object bit-identity check) ->
+ * the two named non-Map fields (`inputCutoff`, `sourceCoverage`) compared
+ * separately. No allowlist applies to the per-projection comparison -
+ * unlike `assertHomeAwayStoredPointIdentity`, every field must match,
+ * including provenance metadata, since two runs of the identical
+ * configuration have no reason to differ in it either.
  */
-function assertHomeAwayStoredPointIdentity({ storedRun, computedRun, label = 'homeAway identity' }) {
-  const keys = new Set([...Object.keys(storedRun), ...Object.keys(computedRun)]);
+function assertProjectionRunBitIdentical({
+  controlRun, usage25OffRun, controlPlayerIds, usage25OffPlayerIds, label = 'usage-25 identity',
+}) {
+  if (!controlRun || !(controlRun.projections instanceof Map)) {
+    throw new Error(`${label}: controlRun must be a generateProjections-shaped object with a projections Map`);
+  }
+  if (!usage25OffRun || !(usage25OffRun.projections instanceof Map)) {
+    throw new Error(`${label}: usage25OffRun must be a generateProjections-shaped object with a projections Map`);
+  }
+  assertNoDuplicateRawIds(controlPlayerIds, `${label}: control raw playerIds`);
+  assertNoDuplicateRawIds(usage25OffPlayerIds, `${label}: usage-25 x off raw playerIds`);
+  assertMatchedKeySets(controlRun.projections, usage25OffRun.projections, `${label}: projections`);
+
   const differences = [];
-  for (const key of keys) {
-    const a = storedRun[key];
-    const b = computedRun[key];
-    if (isFiniteNumber(a) && isFiniteNumber(b)) {
-      if (roundToTie(a) !== roundToTie(b)) differences.push(`${key}: ${a} vs ${b}`);
-    } else if (a === null || b === null) {
-      if (a !== b) differences.push(`${key}: ${JSON.stringify(a)} vs ${JSON.stringify(b)}`);
+  for (const [playerId, controlProjection] of controlRun.projections) {
+    const usageProjection = usage25OffRun.projections.get(playerId);
+    try {
+      assertControlBitIdentity({ controlRun: controlProjection, usage25OffRun: usageProjection, label });
+    } catch {
+      differences.push(`playerId ${playerId}`);
     }
+  }
+  const nonMapFields = ['inputCutoff', 'sourceCoverage'];
+  for (const field of nonMapFields) {
+    const a = Object.prototype.hasOwnProperty.call(controlRun, field) ? controlRun[field] : null;
+    const b = Object.prototype.hasOwnProperty.call(usage25OffRun, field) ? usage25OffRun[field] : null;
+    if (canonicalJson(a) !== canonicalJson(b)) differences.push(field);
+  }
+  if (differences.length > 0) {
+    throw new Error(
+      `${label}: usage-25 x off is not bit-identical to the control on ${differences.length} value(s) ` +
+      `(${differences.slice(0, 3).join('; ')}). They are the SAME configuration, so a difference means ` +
+      'the harness introduced one rather than the model.'
+    );
+  }
+  return true;
+}
+
+/**
+ * The complete fresh-vs-fresh allowlist (PHASE5_EXECUTION_SPEC.md section
+ * 8.6.2), every numeric/nullable path verified against `projectPlayer`'s
+ * actual return shape. Dot-paths, checked with own-property presence at
+ * every segment - never bracket-access-returns-undefined, never `in`.
+ */
+const FRESH_VS_FRESH_ALLOWLIST = Object.freeze([
+  'mean', 'median', 'p10', 'p25', 'p75', 'p90', 'activeProbability', 'sampleSize', 'effectiveGames',
+  'factors.recentProduction.perGame', 'factors.recentProduction.pointsContribution',
+  'factors.recentProduction.effectiveGames', 'factors.recentProduction.games',
+  'factors.recentProduction.pointsBaselinePerGame', 'factors.recentProduction.opportunityValue',
+  'factors.recentProduction.expectedOpportunities', 'factors.recentProduction.opportunityEfficiency',
+  'factors.recentProduction.usageGames', 'factors.recentProduction.usageBlendWeight',
+  'factors.opponent.effect', 'factors.opponent.pointsContribution', 'factors.opponent.games',
+  'factors.opponent.allowedPerGame', 'factors.opponent.leagueAveragePerGame',
+  'factors.versusOpponent.effect', 'factors.versusOpponent.pointsContribution',
+  'factors.versusOpponent.meetings', 'factors.versusOpponent.observedDeviation',
+  'factors.homeAway.effect', 'factors.homeAway.pointsContribution', 'factors.homeAway.games',
+  'factors.homeAway.homeGames', 'factors.homeAway.awayGames',
+  'factors.weather.effect', 'factors.weather.pointsContribution', 'factors.weather.temperatureF',
+  'factors.weather.windSpeedMph', 'factors.weather.windGustMph', 'factors.weather.precipitationProbability',
+  'factors.availability.activeProbability',
+  'factors.role.pointsContribution',
+]);
+
+/**
+ * The cache-compatible allowlist (PHASE5_EXECUTION_SPEC.md section 8.6.3),
+ * frozen directly against `loadCachedRows`'s own mapped shape, not derived
+ * by subtraction from the fresh-vs-fresh list. The only field it excludes
+ * relative to the fresh list is the TOP-LEVEL `effectiveGames` (the nested
+ * `factors.recentProduction.effectiveGames` round-trips fine).
+ */
+const CACHE_COMPATIBLE_ALLOWLIST = Object.freeze(
+  FRESH_VS_FRESH_ALLOWLIST.filter((path) => path !== 'effectiveGames')
+);
+
+function hasOwnPath(obj, path) {
+  const segments = path.split('.');
+  let cur = obj;
+  for (const segment of segments) {
+    if (cur === null || typeof cur !== 'object') return false;
+    if (!Object.prototype.hasOwnProperty.call(cur, segment)) return false;
+    cur = cur[segment];
+  }
+  return true;
+}
+
+function getByPath(obj, path) {
+  return path.split('.').reduce(
+    (cur, segment) => (cur === null || typeof cur !== 'object' ? undefined : cur[segment]),
+    obj
+  );
+}
+
+/**
+ * `homeaway-on-stored` must be POINT-IDENTICAL to `homeaway-on`, over the
+ * allowlisted numeric/nullable paths only (PHASE5_EXECUTION_SPEC.md section
+ * 8.6.4). Point-identical rather than bit-identical because the two paths
+ * can carry different provenance metadata; what must not differ is any
+ * published number. Runs the four steps IN ORDER: (1) own-property
+ * presence per side; (2) per-side type/finiteness validation, INDEPENDENTLY
+ * on each side, before any cross-side comparison, so a one-sided NaN/
+ * string/object hard-errors instead of degrading into an ordinary
+ * missing-path mismatch; (3) three-state missing/null handling; (4)
+ * `roundToTie` equality for two present finite numbers.
+ */
+function assertHomeAwayStoredPointIdentity({
+  storedRun, computedRun, allowlist = FRESH_VS_FRESH_ALLOWLIST, label = 'homeAway identity',
+}) {
+  const differences = [];
+  for (const path of allowlist) {
+    const storedPresent = hasOwnPath(storedRun, path);
+    const computedPresent = hasOwnPath(computedRun, path);
+    for (const [present, obj, side] of [
+      [storedPresent, storedRun, 'stored'],
+      [computedPresent, computedRun, 'computed'],
+    ]) {
+      if (!present) continue;
+      const value = getByPath(obj, path);
+      if (!(value === null || isFiniteNumber(value))) {
+        throw new Error(
+          `${label}: ${path} on the ${side} side is present but neither null nor a finite number ` +
+          `(${JSON.stringify(value)}). The allowlist contains only numeric/nullable paths, so this ` +
+          'is a structural defect independent of any comparison.'
+        );
+      }
+    }
+    if (!storedPresent && !computedPresent) continue;
+    if (storedPresent !== computedPresent) {
+      differences.push(`${path}: missing on one side (stored=${storedPresent}, computed=${computedPresent})`);
+      continue;
+    }
+    const a = getByPath(storedRun, path);
+    const b = getByPath(computedRun, path);
+    if (a === null || b === null) {
+      if (a !== b) differences.push(`${path}: ${JSON.stringify(a)} vs ${JSON.stringify(b)}`);
+      continue;
+    }
+    if (roundToTie(a) !== roundToTie(b)) differences.push(`${path}: ${a} vs ${b}`);
   }
   if (differences.length > 0) {
     throw new Error(
@@ -362,14 +624,51 @@ const CATASTROPHIC_CAP = 0.20;
 const MIN_F_CLUSTERS = 8;
 const MIN_F_ROWS = 30;
 const MAX_EFFECT = 0.05;
-/** Below this realized mean |b|, the margin is unreachable (prereg 9.8). */
-const FALSIFIABILITY_FLOOR = DELTA_F / MAX_EFFECT; // 0.50
+/**
+ * Below this realized mean |b|, the margin is unreachable (prereg 9.8).
+ *
+ * Corrected from `DELTA_F / MAX_EFFECT` (0.50) per PHASE5_EXECUTION_SPEC.md
+ * section 6.1: production rounds every simulated median to 2 decimals
+ * BEFORE scoring, so `inc <= |b|*|e| + 0.01` rather than `inc <= |b|*|e|`.
+ * This is a substantive prospective amendment (it changes which cells are
+ * evaluable), not a mechanical consequence.
+ */
+const FALSIFIABILITY_FLOOR = (DELTA_F - 0.01) / MAX_EFFECT; // 0.30
+/**
+ * Veto-incapable disclosure threshold, used exclusively inside the
+ * transparency block's `catastrophicCapCouldFire` disclosure. Never gates
+ * the veto itself (which fires strictly on the directly-measured
+ * `inc > CATASTROPHIC_CAP`), so this correction cannot change any verdict -
+ * a mechanical rounding correction (PHASE5_EXECUTION_SPEC.md section 6.1).
+ */
+const CATASTROPHIC_CAP_COULD_FIRE_THRESHOLD = (CATASTROPHIC_CAP - 0.01) / MAX_EFFECT; // 3.80
 
-function exactSignTest({ weekDeltas, margin = DELTA_F, alpha = COMPONENT_ALPHA, label = 'component (f)' }) {
-  const shifted = weekDeltas.map((d) => roundToTie(Number(d) - margin));
-  const nonTied = shifted.filter((s) => s !== 0);
-  const n = nonTied.length;
-  const k = nonTied.filter((s) => s < 0).length;
+/**
+ * `favorablePositive`: false (default) for a favorable-NEGATIVE inequality
+ * (regret, MAE, RMSE, WIS - lower delta is better, e.g. component (f)'s
+ * f1/f2), true for a favorable-POSITIVE one (pairwise, coverage, rho -
+ * higher delta is better). Per PHASE5_EXECUTION_SPEC.md section 4.4 item 4:
+ * the statistic is never negated without also negating the margin. `x =
+ * delta` and `margin* = margin` when `favorablePositive` is false (the
+ * component (f) default, unchanged); `x = -delta` and `margin* = -margin`
+ * when `favorablePositive` is true. The reported bound is de-normalized
+ * back to the metric's own natural sign, and compared against the
+ * ORIGINAL (non-negated) `margin`, before publication.
+ */
+function exactSignTest({
+  weekDeltas, margin = DELTA_F, alpha = COMPONENT_ALPHA, favorablePositive = false, label = 'component (f)',
+}) {
+  const sign = favorablePositive ? -1 : 1;
+  const effectiveMargin = sign * margin;
+  // Section 4.4 item 1: count distinct values AFTER ten-decimal
+  // (roundToTie) normalization - already the case here via `roundToTie`.
+  const pairs = weekDeltas.map((d) => {
+    const x = sign * Number(d);
+    return { x, shifted: roundToTie(x - effectiveMargin) };
+  });
+  const nonTiedPairs = pairs.filter((p) => p.shifted !== 0);
+  const n = nonTiedPairs.length;
+  const k = nonTiedPairs.filter((p) => p.shifted < 0).length;
   if (n === 0) {
     return {
       evaluable: false,
@@ -378,17 +677,28 @@ function exactSignTest({ weekDeltas, margin = DELTA_F, alpha = COMPONENT_ALPHA, 
     };
   }
   const p = binomialUpperTail(n, k);
-  // The inverted one-sided bound: the order statistic D_(j) with
+  // The inverted one-sided bound: the order statistic X_(j) with
   // j = min{ i : P(Bin(n,1/2) >= i) <= alpha }. No such i means +infinity.
+  // Section 4.4 item 2: the sorted array is built from the SAME non-tied
+  // subset (of unshifted x-values) that produced n and k - never the full,
+  // untrimmed weekDeltas array, which would index the wrong order statistic
+  // whenever any week ties out.
   let j = null;
   for (let i = 1; i <= n; i++) {
     if (binomialUpperTail(n, i) <= alpha) { j = i; break; }
   }
-  const sortedDeltas = [...weekDeltas].map(Number).sort((a, b) => a - b);
-  const bound = j === null ? Infinity : sortedDeltas[j - 1];
+  const sortedX = nonTiedPairs.map((pr) => pr.x).sort((a, b) => a - b);
+  const boundX = j === null ? Infinity : sortedX[j - 1];
   const passes = p <= alpha;
+  // De-normalize the bound back to the metric's own natural sign, and
+  // report/compare against the ORIGINAL (non-negated) margin.
+  const bound = j === null ? Infinity : sign * boundX;
   // The test and the bound are the same procedure, so they cannot disagree.
-  const boundAgrees = j === null ? !passes : (bound < margin) === passes;
+  // In natural-sign terms: favorable-negative passes iff bound < margin;
+  // favorable-positive passes iff bound > margin (x-space: boundX < margin*).
+  const boundAgrees = j === null
+    ? !passes
+    : (favorablePositive ? bound > margin : bound < margin) === passes;
   return {
     evaluable: true,
     reason: null,
@@ -451,9 +761,11 @@ function componentFEndpoint({
     // If the realized maximum |b| never exceeds B_ref = cap / maxEffect, the
     // catastrophic veto could not have fired on this data. That is a
     // DISCLOSURE, not a failure - the veto is an additional safety rather than
-    // a gate that must bind.
+    // a gate that must bind. Both operands are roundToTie-normalized
+    // (PHASE5_EXECUTION_SPEC.md section 6.2) so a genuine boundary value is
+    // never misclassified by floating-point representation noise.
     catastrophicCapCouldFire: isFiniteNumber(maxAbsBaseline)
-      ? Number(maxAbsBaseline) > CATASTROPHIC_CAP / MAX_EFFECT
+      ? roundToTie(Number(maxAbsBaseline)) > roundToTie(CATASTROPHIC_CAP_COULD_FIRE_THRESHOLD)
       : null,
     weekSignIndependenceAssumed: true,
   });
@@ -476,7 +788,8 @@ function componentFEndpoint({
   //      realized mean |b| is at or below delta_F / maxEffect, the largest
   //      attainable delta is at or below the margin and noninferiority cannot
   //      be falsified.
-  if (!isFiniteNumber(meanAbsBaseline) || Number(meanAbsBaseline) <= FALSIFIABILITY_FLOOR) {
+  if (!isFiniteNumber(meanAbsBaseline)
+    || roundToTie(Number(meanAbsBaseline)) <= roundToTie(FALSIFIABILITY_FLOOR)) {
     return {
       endpoint,
       status: 'unevaluable',
@@ -503,7 +816,9 @@ function componentFEndpoint({
   // (iii) The catastrophic VETO, defined INCREMENTALLY versus the matched
   //       off-cell so a pre-existing bad prediction cannot falsely veto
   //       homeAway. A veto can never turn a failure into a pass.
-  const vetoRows = incrementalErrors.filter((inc) => isFiniteNumber(inc) && Number(inc) > CATASTROPHIC_CAP);
+  const vetoRows = incrementalErrors.filter(
+    (inc) => isFiniteNumber(inc) && roundToTie(Number(inc)) > roundToTie(CATASTROPHIC_CAP)
+  );
   if (vetoRows.length > 0) {
     return {
       endpoint,
@@ -616,6 +931,50 @@ function componentF({ f1, f2, label = 'component (f)' }) {
 const DELTA_R = 0.15;
 const DELTA_P = 0.005;
 
+/** The favorable boundary is always 0 (section 8.1). */
+const FAVORABLE_BOUNDARY = 0;
+
+/**
+ * The complete signed-boundary table (section 8.1), keyed exactly by
+ * `sweepEvaluator.E2_ENDPOINT_KEYS` for the thirteen (e2) rows, and by
+ * `<component>-regret`/`<component>-pairwise` for the co-primary components.
+ * Frozen here, once, as the single source of truth for every passing/
+ * harmful boundary and direction a runtime wiring this table needs - never
+ * re-typed or re-derived at a call site.
+ *
+ * **Component (b), (c), (d) are zero-margin** (`passing = harmful = 0`) per
+ * section 8.1's table - this is the one place this codebase can state that
+ * without knowing what (b)/(c)/(d) measure beyond "a co-primary regret+
+ * pairwise pair at zero margin"; their SUBJECT MATTER (which contrast feeds
+ * each) is out of this table's scope and must come from whatever assembles
+ * their `weekDeltas`.
+ */
+const SIGNED_BOUNDARY_TABLE = Object.freeze({
+  'a-regret': Object.freeze({ passingBoundary: -DELTA_R, harmfulBoundary: DELTA_R, direction: 'below' }),
+  'a-pairwise': Object.freeze({ passingBoundary: DELTA_P, harmfulBoundary: -DELTA_P, direction: 'above' }),
+  'b-regret': Object.freeze({ passingBoundary: 0, harmfulBoundary: 0, direction: 'below' }),
+  'b-pairwise': Object.freeze({ passingBoundary: 0, harmfulBoundary: 0, direction: 'above' }),
+  'c-regret': Object.freeze({ passingBoundary: 0, harmfulBoundary: 0, direction: 'below' }),
+  'c-pairwise': Object.freeze({ passingBoundary: 0, harmfulBoundary: 0, direction: 'above' }),
+  'd-regret': Object.freeze({ passingBoundary: 0, harmfulBoundary: 0, direction: 'below' }),
+  'd-pairwise': Object.freeze({ passingBoundary: 0, harmfulBoundary: 0, direction: 'above' }),
+  'e1-regret': Object.freeze({ passingBoundary: DELTA_R, harmfulBoundary: DELTA_R, direction: 'below' }),
+  'e1-pairwise': Object.freeze({ passingBoundary: -DELTA_P, harmfulBoundary: -DELTA_P, direction: 'above' }),
+  coverage: Object.freeze({ passingBoundary: -0.01, harmfulBoundary: -0.01, direction: 'above' }),
+  'mae-2025': Object.freeze({ passingBoundary: 0.10, harmfulBoundary: 0.10, direction: 'below' }),
+  'mae-2024': Object.freeze({ passingBoundary: 0.10, harmfulBoundary: 0.10, direction: 'below' }),
+  'rmse-2025': Object.freeze({ passingBoundary: 0.15, harmfulBoundary: 0.15, direction: 'below' }),
+  'rmse-2024': Object.freeze({ passingBoundary: 0.15, harmfulBoundary: 0.15, direction: 'below' }),
+  'rho-2025': Object.freeze({ passingBoundary: -0.005, harmfulBoundary: -0.005, direction: 'above' }),
+  'rho-2024': Object.freeze({ passingBoundary: -0.005, harmfulBoundary: -0.005, direction: 'above' }),
+  'wis-2025': Object.freeze({ passingBoundary: 0.10, harmfulBoundary: 0.10, direction: 'below' }),
+  'wis-2024': Object.freeze({ passingBoundary: 0.10, harmfulBoundary: 0.10, direction: 'below' }),
+  'standard-regret-2025': Object.freeze({ passingBoundary: DELTA_R, harmfulBoundary: DELTA_R, direction: 'below' }),
+  'standard-pairwise-2025': Object.freeze({ passingBoundary: -DELTA_P, harmfulBoundary: -DELTA_P, direction: 'above' }),
+  'full-ppr-regret-2025': Object.freeze({ passingBoundary: DELTA_R, harmfulBoundary: DELTA_R, direction: 'below' }),
+  'full-ppr-pairwise-2025': Object.freeze({ passingBoundary: -DELTA_P, harmfulBoundary: -DELTA_P, direction: 'above' }),
+});
+
 /**
  * Pure: one co-primary component - both inequalities must hold, from the SAME
  * resamples, at alpha/7.
@@ -651,21 +1010,36 @@ function coPrimaryComponent({
  *
  * It passes only if EVERY component passes. A component that does not apply
  * passes VACUOUSLY BY DEFINITION and is reported as "not applicable" - never by
- * test. A missing or unevaluable component FAILS the claim.
+ * test. A missing component FAILS the claim.
+ *
+ * The complete, corrected Level-2 cell table (PHASE5_EXECUTION_SPEC.md
+ * section 8.2), precedence `vetoed > fail > inconclusive > pass`:
+ *   - any component `missing` -> fail (prereg 9.1, 10.4);
+ *   - a component `unevaluable` because n < 15 -> fail (prereg 10.4's own text);
+ *   - component (f) `unevaluable`, for ANY of its three causes -> inconclusive
+ *     (prereg 9.8's own explicit override; ONLY (f) gets this exception - a
+ *     non-(f) component `unevaluable` for any other reason is prereg 9.1's
+ *     unmodified default, fail);
+ *   - any component `wide-straddle` -> inconclusive (prereg 10.6);
+ *   - activation shortfall, `on`-cells only -> inconclusive (prereg 11.2),
+ *     passed in via the optional `activation` parameter;
+ *   - a component `failed` -> fail (prereg 9.1);
+ *   - component (f) veto fires (`component.status === 'vetoed'`) -> vetoed
+ *     (prereg 9.8, section 6.4) - the one cell-level outcome outside
+ *     fail/inconclusive/pass, and the only one that outranks a `fail`.
  */
-function evaluateClaim({ cell, components, label = 'claim' }) {
+function evaluateClaim({ cell, components, activation = null, label = 'claim' }) {
   const required = ['a', 'b', 'c', 'd', 'e1', 'e2', 'f'];
   const results = {};
-  let verdict = 'pass';
   const failures = [];
   const inconclusive = [];
+  const vetoedReasons = [];
 
   for (const key of required) {
     const component = components[key];
     if (component === undefined) {
       results[key] = { status: 'missing', passes: false };
       failures.push(`${key} is missing`);
-      verdict = 'fail';
       continue;
     }
     if (component.applicable === false) {
@@ -673,19 +1047,41 @@ function evaluateClaim({ cell, components, label = 'claim' }) {
       results[key] = { status: 'not-applicable', passes: true };
       continue;
     }
+    if (component.status === 'vetoed') {
+      if (key !== 'f') {
+        throw new Error(`${label}: only component (f) may report status 'vetoed', got it from ${key}`);
+      }
+      results[key] = { status: 'vetoed', passes: false, reason: component.reason };
+      vetoedReasons.push(`${key}: ${component.reason || 'vetoed'}`);
+      continue;
+    }
     if (component.status === 'unevaluable') {
       results[key] = { status: 'unevaluable', passes: false, reason: component.reason };
-      inconclusive.push(`${key}: ${component.reason}`);
+      // Only component (f) has a named inconclusive exception. Every other
+      // component's unevaluable outcome is prereg 9.1's unmodified default: fail.
+      if (key === 'f') inconclusive.push(`${key}: ${component.reason}`);
+      else failures.push(`${key}: ${component.reason}`);
+      continue;
+    }
+    if (component.status === 'wide-straddle') {
+      results[key] = { status: 'wide-straddle', passes: false, reason: component.reason };
+      inconclusive.push(`${key}: wide-straddle (${component.reason || 'interval spans both boundaries'})`);
       continue;
     }
     results[key] = { status: component.passes ? 'passed' : 'failed', passes: !!component.passes };
     if (!component.passes) failures.push(`${key} failed`);
   }
 
-  // An UNEVALUABLE component makes the claim inconclusive; an outright FAILURE
-  // makes it fail. A failure outranks an inconclusive: the cell is not saved by
-  // one component being unmeasurable when another was measured and lost.
-  if (failures.length > 0) verdict = 'fail';
+  if (activation && activation.verdict === 'inconclusive') {
+    inconclusive.push(`activation: ${activation.detail}`);
+  }
+
+  // Precedence: vetoed > fail > inconclusive > pass. A cell that is ALSO
+  // independently vetoed or failed for an unrelated reason keeps that status
+  // regardless of an activation shortfall or wide-straddle also being true.
+  let verdict = 'pass';
+  if (vetoedReasons.length > 0) verdict = 'vetoed';
+  else if (failures.length > 0) verdict = 'fail';
   else if (inconclusive.length > 0) verdict = 'inconclusive';
 
   return {
@@ -694,12 +1090,159 @@ function evaluateClaim({ cell, components, label = 'claim' }) {
     components: results,
     failures,
     inconclusive,
+    vetoedReasons,
+    activation: activation || null,
     alpha: COMPONENT_ALPHA,
     divisor: 7,
     detail: verdict === 'pass' ? 'every component passes at alpha/7'
-      : verdict === 'fail' ? `failed: ${failures.join('; ')}`
-        : `inconclusive: ${inconclusive.join('; ')}`,
+      : verdict === 'vetoed' ? `vetoed: ${vetoedReasons.join('; ')}`
+        : verdict === 'fail' ? `failed: ${failures.join('; ')}`
+          : `inconclusive: ${inconclusive.join('; ')}`,
   };
+}
+
+// ---------------------------------------------------------------------------
+// The signed-boundary endpoint reducer (prereg 10.6, sections 8.1-8.2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Level 4, ONE non-(f) endpoint, NOT exact-triggered: classify a fully-
+ * computed bootstrap CI against its signed boundaries (section 8.1).
+ *
+ * `direction`: `'below'` when the upper bound must clear BELOW
+ * `passingBoundary` (favorable-negative: regret, MAE, RMSE, WIS), `'above'`
+ * when the lower bound must clear ABOVE it (favorable-positive: pairwise,
+ * coverage, rho). `favorableBoundary` is always 0 (section 8.1). Wide-
+ * straddle requires `harmfulBoundary !== favorableBoundary` - the zero-
+ * margin endpoints (b, c, d) have `passing = harmful = 0`, so both rules
+ * coincide trivially and wide-straddle can never fire for them by
+ * construction; a non-passing outcome there falls to the exhaustive
+ * catch-all, `threshold-not-established`.
+ */
+function classifyBootstrapEndpoint({
+  evaluable, reason = null, lower = null, upper = null,
+  favorableBoundary = FAVORABLE_BOUNDARY, passingBoundary, harmfulBoundary, direction,
+}) {
+  if (!evaluable) {
+    return { status: 'unevaluable', passes: false, reason: reason || 'the bootstrap distribution was not evaluable' };
+  }
+  if (!isFiniteNumber(lower) || !isFiniteNumber(upper)) {
+    throw new Error('classifyBootstrapEndpoint: an evaluable endpoint must carry a finite lower and upper bound');
+  }
+  const passes = direction === 'below' ? upper < passingBoundary : lower > passingBoundary;
+  if (harmfulBoundary !== favorableBoundary) {
+    const lo = Math.min(favorableBoundary, harmfulBoundary);
+    const hi = Math.max(favorableBoundary, harmfulBoundary);
+    if (lower <= lo && upper >= hi) {
+      return {
+        status: 'wide-straddle',
+        passes: false,
+        reason: `the interval [${lower}, ${upper}] spans both the favorable boundary `
+          + `(${favorableBoundary}) and the harmful boundary (${harmfulBoundary})`,
+      };
+    }
+  }
+  return {
+    status: passes ? 'passed' : 'threshold-not-established',
+    passes,
+    reason: passes ? null : 'fully evaluated, but did not clear the passing boundary and did not wide-straddle',
+  };
+}
+
+/**
+ * Level 4, ONE non-(f) endpoint, exact-triggered (section 4.2's AND rule,
+ * section 8.2's triggered precedence): `bootstrap` is a
+ * `classifyBootstrapEndpoint`-shaped result (or `{ evaluable: false, reason
+ * }`), `exact` is an `exactSignTest`-shaped result. Exact-side non-
+ * estimability ALWAYS takes precedence over a bootstrap-side wide-straddle -
+ * an endpoint must be fully evaluated (both procedures produced a usable
+ * result) before wide-straddle can even apply. Agreement gives
+ * `passed`/`threshold-not-established`; disagreement gives
+ * `threshold-not-established`, never `unevaluable` (both procedures WERE
+ * computed).
+ */
+function classifyTriggeredEndpoint({ bootstrap, exact }) {
+  if (!exact.evaluable) {
+    return { status: 'unevaluable', passes: false, reason: `exact side: ${exact.reason}` };
+  }
+  if (bootstrap.status === 'unevaluable' || bootstrap.evaluable === false) {
+    return {
+      status: 'unevaluable', passes: false, reason: `bootstrap side: ${bootstrap.reason || 'not evaluable'}`,
+    };
+  }
+  if (bootstrap.status === 'wide-straddle') {
+    return { status: 'wide-straddle', passes: false, reason: bootstrap.reason };
+  }
+  const agree = bootstrap.passes === exact.passes;
+  if (agree && bootstrap.passes) {
+    return { status: 'passed', passes: true, reason: null };
+  }
+  return {
+    status: 'threshold-not-established',
+    passes: false,
+    reason: agree
+      ? 'both the bootstrap and exact procedures agree the endpoint does not clear the passing boundary'
+      : 'the bootstrap and exact procedures disagree; both were computed, so this is not unevaluable',
+  };
+}
+
+/**
+ * Level 1: the whole authoritative run is `valid` or `void` (section 8.2).
+ * `void` PREEMPTS the entire cell-level table rather than being one more row
+ * in it - a canary failure, a permutation-control threshold miss (section
+ * 5), or either sealed identity assertion failing (section 8.6) all void
+ * the run, never just one cell.
+ */
+function classifyRun({
+  canariesPassed = true, permutationControlPassed = true, identityAssertionsPassed = true,
+}) {
+  const reasons = [];
+  if (!canariesPassed) reasons.push('a canary failed (prereg 17)');
+  if (!permutationControlPassed) {
+    reasons.push('the permutation control missed its threshold on at least one endpoint (section 5)');
+  }
+  if (!identityAssertionsPassed) reasons.push('a sealed identity assertion failed (section 8.6)');
+  return {
+    status: reasons.length > 0 ? 'void' : 'valid',
+    reasons,
+    detail: reasons.length > 0
+      ? `void: ${reasons.join('; ')}`
+      : 'valid: every canary, the permutation control, and both sealed identity assertions passed',
+  };
+}
+
+/**
+ * Level 5: SELECTION, the frozen order (section 8.5). Step 2's winner-only
+ * branch is retained for structural completeness but is provably
+ * unreachable under the current, configuration-only parsimony order
+ * (`selectByParsimony`'s total order is a pure function of each cell's own
+ * configuration, never of a point estimate or lineup-ordering variant) - kept
+ * as defense in depth only, per the sealed reasoning.
+ */
+function selectAtLevel5({
+  runStatus, passingCells, orderingDisagreement = false, deployedPolicyDisagreement = false, label = 'selection',
+}) {
+  if (runStatus === 'void') {
+    return { outcome: 'no-selection', reasons: ['the run is void; no selection is meaningful'] };
+  }
+  if (orderingDisagreement || deployedPolicyDisagreement) {
+    const reasons = [];
+    if (orderingDisagreement) {
+      reasons.push(
+        'a sensitivity ordering disagrees with the primary ordering about which cell the parsimony '
+        + 'order would select (section 8.4)'
+      );
+    }
+    if (deployedPolicyDisagreement) {
+      reasons.push('deployed-policy/force-fill disagreement (prereg 5.3): NO SELECTION OCCURS');
+    }
+    return { outcome: 'no-proposal', reasons };
+  }
+  if (!Array.isArray(passingCells) || passingCells.length === 0) {
+    return { outcome: 'no-proposal', reasons: ['none passed'] };
+  }
+  const { selected, ranked, reason } = selectByParsimony({ passingCells, label });
+  return { outcome: 'selected', selected, ranked, reason };
 }
 
 // ---------------------------------------------------------------------------
@@ -774,15 +1317,26 @@ module.exports = {
   MIN_F_ROWS,
   MAX_EFFECT,
   FALSIFIABILITY_FLOOR,
+  CATASTROPHIC_CAP_COULD_FIRE_THRESHOLD,
   cellName,
   resolveConstants,
+  resolveConstantsWithStoredHistory,
+  assertOnlyStoredHistoryLeafDiffers,
   constantsHash,
   assertNoCrossSeason,
   assertDistinctConstants,
   buildFamily,
   assertSaltAffectsOnlyHashValue,
+  assertSaltsProduceDistinctSeeds,
+  assertNoDuplicateRawIds,
+  assertMatchedKeySets,
   assertControlBitIdentity,
+  assertProjectionRunBitIdentical,
   assertHomeAwayStoredPointIdentity,
+  FRESH_VS_FRESH_ALLOWLIST,
+  CACHE_COMPATIBLE_ALLOWLIST,
+  hasOwnPath,
+  getByPath,
   isActivated,
   isEligibleForActivation,
   activationReport,
@@ -794,6 +1348,12 @@ module.exports = {
   componentF,
   coPrimaryComponent,
   evaluateClaim,
+  FAVORABLE_BOUNDARY,
+  SIGNED_BOUNDARY_TABLE,
+  classifyBootstrapEndpoint,
+  classifyTriggeredEndpoint,
+  classifyRun,
+  selectAtLevel5,
   parsimonyKey,
   selectByParsimony,
 };

@@ -45,6 +45,25 @@
  * `scripts/backtest/**` (which may not depend on `child_process` or
  * `process.env`) - it lives outside that guarded tree, alongside
  * `server/scripts/*`, for the same reason those files do.
+ *
+ * MODES (`argv[0]`, PHASE5_EXECUTION_SPEC.md section 1's Gate 2 increment 4):
+ *
+ *   - **`freeze`, the DEFAULT** (also selected by NO argv at all, for exact
+ *     backward compatibility with every existing `docker run`/CI invocation
+ *     of this image, which passes none): runs the six-step sequence above,
+ *     unchanged.
+ *   - **`sweep`**: shells to `run-backtest-sweep.js`, the pure reducer over
+ *     an already-assembled `--inputs` artifact (`server/scripts/run-
+ *     backtest-sweep.js`'s own docblock states its scope in full: a
+ *     reducer, never a candidate-cell COMPUTER). Adding this mode does NOT
+ *     lift Gate 0 - it is Gate 2 IMPLEMENTATION, explicitly authorized;
+ *     candidate-cell EXECUTION remains separately gated on the independent
+ *     implementation review, and nothing in this file's own `freeze`-mode
+ *     default path changed to invoke it.
+ *
+ * An unrecognized mode is a HARD ERROR before anything else runs - never a
+ * silent fallback to `freeze`, which would make a typo in a real invocation
+ * run the wrong six-step sequence instead of failing loudly.
  */
 
 const fs = require('fs');
@@ -248,13 +267,58 @@ function main() {
   console.log('\n=== backtest-entrypoint: complete ===');
 }
 
-if (require.main === module) main();
+// ---------------------------------------------------------------------------
+// Mode dispatch (see module docblock)
+// ---------------------------------------------------------------------------
+
+const MODES = Object.freeze(['freeze', 'sweep']);
+
+/**
+ * Pure: which mode was requested. No `argv` at all is `freeze`, for exact
+ * backward compatibility with every existing invocation of this image. Any
+ * OTHER unrecognized token is a hard error, never a silent fallback.
+ */
+function parseMode(argv) {
+  if (!Array.isArray(argv) || argv.length === 0) return 'freeze';
+  const mode = argv[0];
+  if (!MODES.includes(mode)) {
+    throw new Error(`backtest-entrypoint: unknown mode '${mode}' - must be one of ${MODES.join(', ')}, or no argument at all (defaults to 'freeze')`);
+  }
+  return mode;
+}
+
+/**
+ * `sweep` mode: shells to `run-backtest-sweep.js`, forwarding every argument
+ * after `sweep` unchanged - `--inputs`/`--out-json`/`--out-markdown`/
+ * `--verify-against`, exactly as that script's own CLI defines them (its
+ * own required-argument, no-defaults discipline applies here too, so this
+ * function does not invent a default output path the way `freeze` mode's
+ * fixed `/output` mount contract does for its own steps - there is no
+ * analogous frozen mount contract for sweep artifacts yet, since Gate 4
+ * has not produced one).
+ */
+function runSweep(argv) {
+  run(
+    'run-backtest-sweep',
+    'node',
+    [path.join(WORKTREE, 'server/scripts/run-backtest-sweep.js'), ...argv]
+  );
+}
+
+if (require.main === module) {
+  const mode = parseMode(process.argv.slice(2));
+  if (mode === 'freeze') main();
+  else runSweep(process.argv.slice(3));
+}
 
 module.exports = {
   IMAGE_REF,
   IMAGE_PLATFORM,
+  MODES,
   assertDockerfileImageIdentity,
   filesBelow,
   assertArtifactTreesByteIdentical,
+  parseMode,
+  runSweep,
   main,
 };

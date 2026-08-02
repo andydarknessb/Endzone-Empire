@@ -119,8 +119,17 @@ test('a salt may change the hashValue and NOTHING else', () => {
 // The two point-identity assertions
 // ---------------------------------------------------------------------------
 
-test('usage-25 x off must be BIT-identical to the control', () => {
-  const run = { median: 12.5, p10: 3, factors: { usage: { effect: 0.1 } } };
+// A generateProjections-shaped run: { projections: Map<playerId, projection>, inputCutoff, sourceCoverage }.
+const projRun = (entries, extra = {}) => ({
+  projections: new Map(entries.map((p) => [p.playerId, p])),
+  inputCutoff: '2025-09-01T00:00:00.000Z',
+  sourceCoverage: { nflverse: true },
+  ...extra,
+});
+
+test('usage-25 x off must be BIT-identical to the control (Map-safe, per-projection)', () => {
+  const a = { playerId: 'p1', median: 12.5, p10: 3, factors: { usage: { effect: 0.1 } } };
+  const run = projRun([a]);
   assert.equal(arms.assertControlBitIdentity({
     controlRun: run, usage25OffRun: JSON.parse(JSON.stringify(run)),
   }), true);
@@ -133,6 +142,53 @@ test('usage-25 x off must be BIT-identical to the control', () => {
   assert.throws(() => arms.assertControlBitIdentity({
     controlRun: { median: 12.5 }, usage25OffRun: { median: 12.500000001 },
   }), /not bit-identical.*harness introduced one/s);
+});
+
+test('assertProjectionRunBitIdentical: Map-safe wrapper for the sealed usage-25 == control assertion', () => {
+  const a = { playerId: 'p1', median: 12.5, p10: 3, factors: { usage: { effect: 0.1 } } };
+  const run = projRun([a]);
+  assert.equal(arms.assertProjectionRunBitIdentical({
+    controlRun: run, usage25OffRun: projRun([JSON.parse(JSON.stringify(a))]),
+    controlPlayerIds: ['p1'], usage25OffPlayerIds: ['p1'],
+  }), true);
+
+  // A last-digit difference IS one: they are the same configuration, so any
+  // difference was introduced by the harness.
+  assert.throws(() => arms.assertProjectionRunBitIdentical({
+    controlRun: projRun([{ playerId: 'p1', median: 12.5 }]),
+    usage25OffRun: projRun([{ playerId: 'p1', median: 12.500000001 }]),
+    controlPlayerIds: ['p1'], usage25OffPlayerIds: ['p1'],
+  }), /not bit-identical.*harness introduced one/s);
+
+  // A duplicated raw id is caught BEFORE any Map is built.
+  assert.throws(() => arms.assertProjectionRunBitIdentical({
+    controlRun: run, usage25OffRun: projRun([a]),
+    controlPlayerIds: ['p1', 'p1'], usage25OffPlayerIds: ['p1'],
+  }), /duplicate id/);
+
+  // A playerId present on one side and absent on the other fails the
+  // set-level check.
+  assert.throws(() => arms.assertProjectionRunBitIdentical({
+    controlRun: run,
+    usage25OffRun: projRun([a, { playerId: 'p2', median: 1 }]),
+    controlPlayerIds: ['p1'], usage25OffPlayerIds: ['p1', 'p2'],
+  }), /cardinality differs|key sets differ/);
+
+  // Passing a whole run object's Map directly to canonicalJson would
+  // silently serialize to "{}" and compare vacuously - this function must
+  // never do that, so two runs that genuinely differ must still fail.
+  assert.throws(() => arms.assertProjectionRunBitIdentical({
+    controlRun: projRun([{ playerId: 'p1', median: 1 }]),
+    usage25OffRun: projRun([{ playerId: 'p1', median: 2 }]),
+    controlPlayerIds: ['p1'], usage25OffPlayerIds: ['p1'],
+  }), /not bit-identical/);
+
+  // The two named non-Map fields are compared too.
+  assert.throws(() => arms.assertProjectionRunBitIdentical({
+    controlRun: run,
+    usage25OffRun: projRun([JSON.parse(JSON.stringify(a))], { inputCutoff: '2025-09-02T00:00:00.000Z' }),
+    controlPlayerIds: ['p1'], usage25OffPlayerIds: ['p1'],
+  }), /not bit-identical/);
 });
 
 test('homeaway-on-stored must be POINT-identical to homeaway-on', () => {
@@ -298,24 +354,47 @@ test('an (f) endpoint is UNEVALUABLE below the minimums, and that is INCONCLUSIV
 });
 
 test('the falsifiability guard fires BEFORE the test is read', () => {
-  // If the realized mean |b| is at or below delta_F / maxEffect = 0.50, the
-  // largest attainable delta is at or below the margin, so noninferiority
-  // cannot be falsified and a pass would be an artefact of the scale.
-  assert.equal(arms.FALSIFIABILITY_FLOOR, 0.5);
+  // If the realized mean |b| is at or below (delta_F - 0.01) / maxEffect =
+  // 0.30, the largest attainable delta (accounting for production's
+  // independent 2-decimal rounding of each median, PHASE5_EXECUTION_SPEC.md
+  // section 6.1) is at or below the margin, so noninferiority cannot be
+  // falsified and a pass would be an artefact of the scale.
+  assert.equal(arms.FALSIFIABILITY_FLOOR, 0.3);
   const unfalsifiable = arms.componentFEndpoint({
-    weekDeltas: new Array(8).fill(-0.01), subgroupRows: 40, meanAbsBaseline: 0.5,
+    weekDeltas: new Array(8).fill(-0.01), subgroupRows: 40, meanAbsBaseline: 0.3,
   });
   assert.equal(unfalsifiable.status, 'unevaluable');
   assert.equal(unfalsifiable.claimVerdict, 'inconclusive');
   assert.match(unfalsifiable.reason, /cannot be falsified.*artefact of the scale/s);
   // Just above the floor it becomes evaluable.
   assert.equal(arms.componentFEndpoint({
-    weekDeltas: new Array(8).fill(-0.01), subgroupRows: 40, meanAbsBaseline: 0.51,
+    weekDeltas: new Array(8).fill(-0.01), subgroupRows: 40, meanAbsBaseline: 0.31,
   }).status, 'passed');
   // A missing mean |b| cannot clear the guard either.
   assert.equal(arms.componentFEndpoint({
     weekDeltas: new Array(8).fill(-0.01), subgroupRows: 40, meanAbsBaseline: null,
   }).claimVerdict, 'inconclusive');
+  // A boundary value that would misclassify under raw floating-point noise
+  // (rather than roundToTie normalization) must still land on the correct
+  // side (section 6.2).
+  assert.equal(arms.componentFEndpoint({
+    weekDeltas: new Array(8).fill(-0.01), subgroupRows: 40,
+    meanAbsBaseline: 0.3 + 1e-12,
+  }).status, 'unevaluable', 'a boundary value tied at ten decimals is still AT the floor');
+});
+
+test('the disclosure threshold is corrected to 3.80, roundToTie-normalized', () => {
+  assert.equal(arms.CATASTROPHIC_CAP_COULD_FIRE_THRESHOLD, 3.8);
+  const atBoundary = arms.componentFEndpoint({
+    weekDeltas: new Array(8).fill(-0.01), subgroupRows: 40, meanAbsBaseline: 1.0,
+    maxAbsBaseline: 3.8, incrementalErrors: [0.01],
+  });
+  assert.equal(atBoundary.transparency.catastrophicCapCouldFire, false, 'exactly AT the threshold, not above it');
+  const justAbove = arms.componentFEndpoint({
+    weekDeltas: new Array(8).fill(-0.01), subgroupRows: 40, meanAbsBaseline: 1.0,
+    maxAbsBaseline: 3.81, incrementalErrors: [0.01],
+  });
+  assert.equal(justAbove.transparency.catastrophicCapCouldFire, true);
 });
 
 test('the catastrophic cap is INCREMENTAL, and vetoes rather than rescues', () => {
@@ -340,10 +419,11 @@ test('an (f) endpoint reports everything the transparency requirement names', ()
   const result = arms.componentFEndpoint({
     weekDeltas: new Array(9).fill(-0.02), subgroupRows: 44, meanAbsBaseline: 1.25,
     maxAbsBaseline: 6.5,
-    // Three of these five weeks are at or below the 0.50 falsifiability floor,
-    // so a favourable sign in those weeks is structurally uninformative and the
-    // transparency block has to say how much of k rests on them.
-    weekMeanAbsBaselines: [0.2, 0.5, 0.51, 3.0, null],
+    // One of these five weeks is at or below the corrected 0.30
+    // falsifiability floor, so a favourable sign in that week is
+    // structurally uninformative and the transparency block has to say how
+    // much of k rests on it.
+    weekMeanAbsBaselines: [0.2, 0.3, 0.31, 3.0, null],
     incrementalErrors: [0.01],
   });
   assert.equal(result.status, 'passed');
@@ -356,7 +436,7 @@ test('an (f) endpoint reports everything the transparency requirement names', ()
   // Prereg 9.8 names the MAXIMUM |b| as well as the mean, and the per-week
   // floor count. Neither may be a placeholder.
   assert.equal(t.maxAbsBaseline, 6.5);
-  assert.equal(t.weeksBelowFalsifiabilityFloor, 2, '0.2 and 0.5 are at or below 0.50; 0.51 is not');
+  assert.equal(t.weeksBelowFalsifiabilityFloor, 2, '0.2 and 0.3 are at or below 0.30; 0.31 is not');
   assert.equal(t.weeksWithBaseline, 4, 'the missing week is not counted as a zero baseline');
   assert.equal(t.catastrophicCapCouldFire, true, '6.5 exceeds 0.20 / 0.03');
   assert.equal(t.weekSignIndependenceAssumed, true,
@@ -539,6 +619,231 @@ test('the claim is an IUT: every component must pass, the divisor stays 7', () =
     components: { ...all, d: { passes: false }, f: { status: 'unevaluable', reason: 'x' } },
   });
   assert.equal(both.verdict, 'fail');
+});
+
+// ---------------------------------------------------------------------------
+// The corrected Level-2 cell table: vetoed, non-(f) unevaluable is FAIL,
+// wide-straddle, activation, and the full precedence order
+// ---------------------------------------------------------------------------
+
+test('a NON-(f) component unevaluable for any reason is FAIL, never inconclusive - only (f) gets that exception', () => {
+  const pass = { passes: true };
+  const all = { a: pass, b: pass, c: pass, d: pass, e1: pass, e2: pass, f: pass };
+  const nonFUnevaluable = arms.evaluateClaim({
+    cell: 'usage-40-on',
+    components: { ...all, e1: { status: 'unevaluable', reason: 'no finite exact bound' } },
+  });
+  assert.equal(nonFUnevaluable.verdict, 'fail', 'no named exception covers a non-(f) component');
+  assert.deepEqual(nonFUnevaluable.failures, ['e1: no finite exact bound']);
+  assert.equal(nonFUnevaluable.inconclusive.length, 0);
+
+  // (f) unevaluable is still the named exception -> inconclusive.
+  const fUnevaluable = arms.evaluateClaim({
+    cell: 'usage-40-on',
+    components: { ...all, f: { status: 'unevaluable', reason: 'falsifiability floor missed' } },
+  });
+  assert.equal(fUnevaluable.verdict, 'inconclusive');
+});
+
+test('component (f) veto produces cell status VETOED, which outranks fail', () => {
+  const pass = { passes: true };
+  const all = { a: pass, b: pass, c: pass, d: pass, e1: pass, e2: pass, f: pass };
+  const vetoed = arms.evaluateClaim({
+    cell: 'usage-40-on',
+    components: { ...all, f: { status: 'vetoed', reason: 'incremental error exceeded the cap' } },
+  });
+  assert.equal(vetoed.verdict, 'vetoed');
+  assert.deepEqual(vetoed.vetoedReasons, ['f: incremental error exceeded the cap']);
+
+  // vetoed outranks an independent fail elsewhere on the same cell.
+  const vetoedAndFailed = arms.evaluateClaim({
+    cell: 'usage-40-on',
+    components: { ...all, d: { passes: false }, f: { status: 'vetoed', reason: 'x' } },
+  });
+  assert.equal(vetoedAndFailed.verdict, 'vetoed');
+
+  // Only (f) may report vetoed.
+  assert.throws(() => arms.evaluateClaim({
+    cell: 'usage-40-on',
+    components: { ...all, a: { status: 'vetoed', reason: 'x' } },
+  }), /only component \(f\) may report status 'vetoed'/);
+});
+
+test('any component wide-straddle produces cell status inconclusive', () => {
+  const pass = { passes: true };
+  const all = { a: pass, b: pass, c: pass, d: pass, e1: pass, e2: pass, f: pass };
+  const straddled = arms.evaluateClaim({
+    cell: 'usage-40-on',
+    components: { ...all, e2: { status: 'wide-straddle', reason: 'interval spans both boundaries' } },
+  });
+  assert.equal(straddled.verdict, 'inconclusive');
+  assert.match(straddled.inconclusive[0], /e2: wide-straddle/);
+});
+
+test('an activation shortfall (on-cells only) is inconclusive, UNLESS the reducer already produced an independent fail', () => {
+  const pass = { passes: true };
+  const all = { a: pass, b: pass, c: pass, d: pass, e1: pass, e2: pass, f: pass };
+  const shortfall = { verdict: 'inconclusive', detail: 'DEF below 0.85' };
+  const inconclusiveFromActivation = arms.evaluateClaim({
+    cell: 'usage-25-on', components: all, activation: shortfall,
+  });
+  assert.equal(inconclusiveFromActivation.verdict, 'inconclusive');
+  assert.match(inconclusiveFromActivation.inconclusive[0], /activation: DEF below 0.85/);
+
+  // fail stands even with an activation shortfall also present.
+  const failStands = arms.evaluateClaim({
+    cell: 'usage-25-on', components: { ...all, d: { passes: false } }, activation: shortfall,
+  });
+  assert.equal(failStands.verdict, 'fail');
+
+  // A 'treated' activation report contributes nothing.
+  const treated = arms.evaluateClaim({
+    cell: 'usage-25-on', components: all, activation: { verdict: 'treated', detail: 'every position clears 0.85' },
+  });
+  assert.equal(treated.verdict, 'pass');
+});
+
+// ---------------------------------------------------------------------------
+// Level 4: the signed-boundary bootstrap-endpoint classifier
+// ---------------------------------------------------------------------------
+
+test('classifyBootstrapEndpoint: unevaluable, passed, wide-straddle, and the threshold-not-established catch-all', () => {
+  assert.equal(arms.FAVORABLE_BOUNDARY, 0);
+  // Unevaluable.
+  assert.deepEqual(
+    arms.classifyBootstrapEndpoint({ evaluable: false, reason: 'below n=15' }),
+    { status: 'unevaluable', passes: false, reason: 'below n=15' }
+  );
+
+  // A superiority endpoint (component (a) regret): passing -0.15, harmful +0.15.
+  const passed = arms.classifyBootstrapEndpoint({
+    evaluable: true, lower: -0.6, upper: -0.4,
+    passingBoundary: -0.15, harmfulBoundary: 0.15, direction: 'below',
+  });
+  assert.equal(passed.status, 'passed');
+  assert.equal(passed.passes, true);
+
+  // Interval spans BOTH 0 and +0.15 -> wide-straddle, not merely "not passed".
+  const straddled = arms.classifyBootstrapEndpoint({
+    evaluable: true, lower: -0.05, upper: 0.2,
+    passingBoundary: -0.15, harmfulBoundary: 0.15, direction: 'below',
+  });
+  assert.equal(straddled.status, 'wide-straddle');
+  assert.equal(straddled.passes, false);
+
+  // Fully evaluated, does not pass, does not span both boundaries -> the
+  // exhaustive catch-all, never unevaluable.
+  const notEstablished = arms.classifyBootstrapEndpoint({
+    evaluable: true, lower: -0.1, upper: -0.05,
+    passingBoundary: -0.15, harmfulBoundary: 0.15, direction: 'below',
+  });
+  assert.equal(notEstablished.status, 'threshold-not-established');
+  assert.equal(notEstablished.passes, false);
+
+  // Zero-margin endpoints (b, c, d): passing = harmful = 0, so wide-straddle
+  // can never fire by construction - it falls to the catch-all instead.
+  const zeroMargin = arms.classifyBootstrapEndpoint({
+    evaluable: true, lower: -0.5, upper: 0.5,
+    passingBoundary: 0, harmfulBoundary: 0, direction: 'below',
+  });
+  assert.equal(zeroMargin.status, 'threshold-not-established');
+
+  // A favorable-positive endpoint (pairwise): direction 'above'.
+  const positivePassed = arms.classifyBootstrapEndpoint({
+    evaluable: true, lower: 0.01, upper: 0.03,
+    passingBoundary: 0.005, harmfulBoundary: -0.005, direction: 'above',
+  });
+  assert.equal(positivePassed.status, 'passed');
+});
+
+test('classifyTriggeredEndpoint: the AND rule, exact-side precedence, and agreement/disagreement', () => {
+  const passedBootstrap = { status: 'passed', passes: true };
+  const notEstablishedBootstrap = { status: 'threshold-not-established', passes: false };
+  const straddledBootstrap = { status: 'wide-straddle', passes: false, reason: 'spans both' };
+  const passExact = { evaluable: true, passes: true };
+  const failExact = { evaluable: true, passes: false };
+  const unevaluableExact = { evaluable: false, reason: 'no finite bound' };
+
+  // Exact-side non-estimability ALWAYS takes precedence, even over a
+  // bootstrap-side wide-straddle.
+  assert.equal(
+    arms.classifyTriggeredEndpoint({ bootstrap: straddledBootstrap, exact: unevaluableExact }).status,
+    'unevaluable'
+  );
+  // Bootstrap unevaluable, exact fine -> still unevaluable (not fully evaluated).
+  assert.equal(
+    arms.classifyTriggeredEndpoint({
+      bootstrap: { status: 'unevaluable', reason: 'x' }, exact: passExact,
+    }).status,
+    'unevaluable'
+  );
+  // Both evaluable, bootstrap wide-straddle -> outranks agreement handling.
+  assert.equal(
+    arms.classifyTriggeredEndpoint({ bootstrap: straddledBootstrap, exact: passExact }).status,
+    'wide-straddle'
+  );
+  // Agreement, both pass -> passed.
+  assert.deepEqual(
+    arms.classifyTriggeredEndpoint({ bootstrap: passedBootstrap, exact: passExact }),
+    { status: 'passed', passes: true, reason: null }
+  );
+  // Agreement, both fail -> threshold-not-established.
+  assert.equal(
+    arms.classifyTriggeredEndpoint({ bootstrap: notEstablishedBootstrap, exact: failExact }).status,
+    'threshold-not-established'
+  );
+  // Disagreement -> threshold-not-established, NEVER unevaluable (both were computed).
+  assert.equal(
+    arms.classifyTriggeredEndpoint({ bootstrap: passedBootstrap, exact: failExact }).status,
+    'threshold-not-established'
+  );
+  assert.equal(
+    arms.classifyTriggeredEndpoint({ bootstrap: notEstablishedBootstrap, exact: passExact }).status,
+    'threshold-not-established'
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Level 1 (run void) and Level 5 (selection)
+// ---------------------------------------------------------------------------
+
+test('classifyRun: void PREEMPTS the cell-level table, from any of the three named causes', () => {
+  assert.equal(arms.classifyRun({}).status, 'valid');
+  assert.equal(arms.classifyRun({ canariesPassed: false }).status, 'void');
+  assert.equal(arms.classifyRun({ permutationControlPassed: false }).status, 'void');
+  assert.equal(arms.classifyRun({ identityAssertionsPassed: false }).status, 'void');
+  const allThree = arms.classifyRun({
+    canariesPassed: false, permutationControlPassed: false, identityAssertionsPassed: false,
+  });
+  assert.equal(allThree.reasons.length, 3);
+});
+
+test('selectAtLevel5: the frozen precedence - void, no-proposal causes, none-passed, then parsimony', () => {
+  const cell = (name) => arms.ALL_CELLS.find((c) => c.name === name);
+
+  assert.deepEqual(
+    arms.selectAtLevel5({ runStatus: 'void', passingCells: [cell('usage-40-off')] }).outcome,
+    'no-selection'
+  );
+  assert.equal(
+    arms.selectAtLevel5({ runStatus: 'valid', passingCells: [], orderingDisagreement: true }).outcome,
+    'no-proposal'
+  );
+  assert.equal(
+    arms.selectAtLevel5({
+      runStatus: 'valid', passingCells: [cell('usage-40-off')], deployedPolicyDisagreement: true,
+    }).outcome,
+    'no-proposal'
+  );
+  assert.equal(
+    arms.selectAtLevel5({ runStatus: 'valid', passingCells: [] }).outcome,
+    'no-proposal'
+  );
+  const selected = arms.selectAtLevel5({
+    runStatus: 'valid', passingCells: [cell('usage-25-on'), cell('usage-40-off')],
+  });
+  assert.equal(selected.outcome, 'selected');
+  assert.equal(selected.selected.name, 'usage-40-off', 'parsimony, unchanged, still decides among passing cells');
 });
 
 // ---------------------------------------------------------------------------

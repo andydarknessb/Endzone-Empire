@@ -1049,6 +1049,58 @@ test('projectPlayer is deterministic for the same player, week and model', () =>
   assert.deepEqual(a, b);
 });
 
+// ---------------------------------------------------------------------------
+// onPreHomeAwayBaseline (PHASE5_EXECUTION_SPEC.md section 6.5)
+// ---------------------------------------------------------------------------
+
+test('onPreHomeAwayBaseline is validated unconditionally, before any other logic', () => {
+  for (const bad of ['nope', 123, {}, [], true]) {
+    assert.throws(
+      () => model.projectPlayer(projectArgs({ onPreHomeAwayBaseline: bad })),
+      /onPreHomeAwayBaseline must be undefined or a function/
+    );
+  }
+  // Still validates on the branch with no usable evidence at all, which
+  // returns before homeAway is ever applied.
+  assert.throws(
+    () => model.projectPlayer(projectArgs({ priorGames: [], onPreHomeAwayBaseline: 'nope' })),
+    /onPreHomeAwayBaseline must be undefined or a function/
+  );
+  // undefined is fine (the default - every production call site omits it).
+  assert.doesNotThrow(() => model.projectPlayer(projectArgs({ onPreHomeAwayBaseline: undefined })));
+});
+
+test('onPreHomeAwayBaseline fires exactly once, with the raw pre-homeAway baseline, never on the no-evidence early return', () => {
+  const calls = [];
+  model.projectPlayer(projectArgs({
+    onPreHomeAwayBaseline: (args) => calls.push(args),
+  }));
+  assert.equal(calls.length, 1);
+  assert.deepEqual(Object.keys(calls[0]).sort(),
+    ['baseline', 'blendWeight', 'playerId', 'position', 'season', 'week'].sort());
+  assert.equal(calls[0].playerId, 1);
+  assert.equal(calls[0].position, 'RB');
+  assert.equal(calls[0].season, 2026);
+  assert.equal(calls[0].week, 5);
+  assert.equal(Number.isFinite(calls[0].baseline), true);
+
+  // Zero calls on the "no evidence at all" early return.
+  const noEvidenceCalls = [];
+  model.projectPlayer(projectArgs({
+    priorGames: [], onPreHomeAwayBaseline: (args) => noEvidenceCalls.push(args),
+  }));
+  assert.equal(noEvidenceCalls.length, 0);
+});
+
+test('onPreHomeAwayBaseline exceptions abort projectPlayer, never swallowed', () => {
+  assert.throws(
+    () => model.projectPlayer(projectArgs({
+      onPreHomeAwayBaseline: () => { throw new Error('boom'); },
+    })),
+    /boom/
+  );
+});
+
 test('projectPlayer carries a bye through as unavailable with probability 0', () => {
   const projection = model.projectPlayer(projectArgs({
     availability: model.availabilityFor({ onBye: true }),
