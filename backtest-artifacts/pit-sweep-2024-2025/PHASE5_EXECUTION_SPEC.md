@@ -2,7 +2,7 @@
 
 Study id: `pit-sweep-2024-2025` (same study as `PREREGISTRATION.md`).
 
-**Status: revision 15. NO APPROVALS ARE CURRENTLY IN FORCE FOR THIS
+**Status: revision 16. NO APPROVALS ARE CURRENTLY IN FORCE FOR THIS
 DOCUMENT. NOTHING IS AUTHORIZED - not candidate execution, and not Gate 2
 implementation work either.**
 
@@ -26,8 +26,39 @@ can attach to it.
 
 **Revision 14 was also REJECTED**, on five blockers, at blob
 `ee6800ecdb4484f5cc599ef6a67c1a77fc9f1068` (SHA-256 `49620ec2...`).
-**Revision 15 is the response to that rejection**, and requires its own
-fresh independent statistical review.
+**Revision 15 was also REJECTED**, on two substantive blockers plus
+documentary corrections, at blob `4f5f21a8bbb8b95c432816311f27bd1a7c2e6937`
+(SHA-256 `e507d0c4...`). **Revision 16 is the response to that rejection**,
+and requires its own fresh independent statistical review plus both user
+attestations.
+
+**What revision 16 changes:**
+
+- **Sections 6.1, 6.2 - `0.30` is now DISCLOSURE-ONLY, and the
+  contradiction is gone.** Revision 15 corrected the evaluability gate to
+  section 6.1a's transformed-bound comparison against `DELTA_F`, but left
+  section 6.2 still listing `0.30` as "the falsifiability floor" among the
+  gates, and left the Gate 2 code directive defining it as the evaluability
+  constant. Both are corrected: section 6.2 now carries an explicit
+  threshold table separating the two GATES (`0.20`, `0.025`) from the two
+  DISCLOSURES (`3.80`, `0.30`), and states that `0.30` determines nothing.
+  A new test requires that changing `0.30` alone changes no status at any
+  level - only the published per-week count.
+- **Section 8.2a rule 6 - the catastrophic veto is an INDEPENDENT FLAG,
+  not a Level-3 status.** Revision 15 simultaneously ordered Level 3 as
+  `missing > vetoed > ...` (one status per component) and required the veto
+  to be retained independently. Those contradict: a component (f) that is
+  `missing` on one endpoint while a catastrophic realization fired on the
+  other reported `missing`, silently losing the veto. `vetoed` is removed
+  from the Level-3 ordering entirely; `catastrophicVeto` becomes a boolean
+  flag Level 2 consumes directly, preserving cell precedence
+  `vetoed > fail > inconclusive > pass` while making the veto unmaskable.
+- **Section 6.4a - the "strictly more likely" claim is NARROWED.** It holds
+  against a Reading A that AVERAGES over salts, not against every possible
+  Reading A: a max-collapsing Reading A would be exactly equivalent to the
+  Cartesian reading. The amendment remains substantive because the sealed
+  text names no collapsing rule at all, and the readings it admits span
+  from equivalent to strictly weaker.
 
 **What revision 15 changes** (each corrects a revision-14 blocker):
 
@@ -545,34 +576,41 @@ conservative bound, adopted:
 inc  <=  |b| * |e| + 0.01  <=  0.05 * |b| + 0.01
 ```
 
-- **Falsifiability floor, `0.30`** (was `0.50`): **substantive prospective
-  amendment** - this is an evaluability gate; a cell with realized mean
-  `|b|` between 0.30 and 0.50 was `unevaluable` under the sealed number and
-  is potentially evaluable under the corrected one, changing which cells
-  reach a verdict at all. **SUPERSEDED BY SECTION 6.1a**: the guard is no
-  longer a comparison against a pooled seasonwide mean at all, and `0.30`
-  is no longer used in any comparison - it survives only as a published
-  reference magnitude. Section 6.1a's transformed-bound form is normative.
+- **Per-week disclosure threshold, `0.30`** (was `0.50`): **DISCLOSURE
+  ONLY - it is NOT an evaluability gate and NOT a comparison operand in any
+  decision.** It is used in exactly one place: the per-week count
+  `weeksBelowFalsifiabilityFloor` (`lib/arms.js:448-449`), which prereg 9.8
+  requires published as context for how much of `k` rests on weeks where
+  the margin was unattainable. The evaluability gate it was once part of
+  has been **replaced entirely by section 6.1a**, which compares a median
+  of transformed per-week bounds against `DELTA_F = 0.025` and never
+  references `0.30` at all. The name `FALSIFIABILITY_FLOOR` is retained for
+  the disclosure constant only, and is a misnomer inherited from the
+  superseded design - an implementation MUST NOT infer a gate from it.
 - **Veto-incapable disclosure threshold, `3.80`** (was `4.00`):
   **mechanical rounding correction** - used exclusively inside the
   transparency block's `catastrophicCapCouldFire` disclosure
   (`lib/arms.js:456`), never gating the veto itself (which fires strictly
   on the directly-measured `inc > 0.20`); cannot change any verdict.
-- **Per-week low-`|b|` disclosure count** (`weeksBelowFalsifiabilityFloor`,
-  `lib/arms.js:448-449`): **mechanical consequence** - reuses the same
-  `FALSIFIABILITY_FLOOR` constant, so it moves from `0.50` to `0.30`
-  automatically once that constant is corrected.
 
 **Required Gate 2 code changes**: `lib/arms.js:366`'s `FALSIFIABILITY_FLOOR
-= DELTA_F / MAX_EFFECT` -> `(DELTA_F - 0.01) / MAX_EFFECT` (0.30);
-`:456`'s `catastrophicCapCouldFire` check -> `Number(maxAbsBaseline) >
-(CATASTROPHIC_CAP - 0.01) / MAX_EFFECT` (3.80).
+= DELTA_F / MAX_EFFECT` -> `(DELTA_F - 0.01) / MAX_EFFECT` (0.30),
+**retained SOLELY as the per-week disclosure constant**; `:456`'s
+`catastrophicCapCouldFire` check -> `Number(maxAbsBaseline) >
+(CATASTROPHIC_CAP - 0.01) / MAX_EFFECT` (3.80). **Additionally required**:
+the evaluability guard must be rewritten to section 6.1a's transformed-bound
+median comparison, and `FALSIFIABILITY_FLOOR` must NOT appear anywhere in
+that guard. A test must assert that the constant is referenced by the
+disclosure count and by nothing that returns a status.
 
 **Required rounding-boundary mutation tests**: synthetic on/off medians
 whose independent `round2` roundings push in opposite directions at the
 0.005 boundary, asserting scored `inc` never exceeds `0.05|b| + 0.01`; the
-falsifiability-floor and disclosure comparisons tested at `0.30`/`3.80`
-rather than `0.50`/`4.00` at their own boundaries.
+`3.80` disclosure comparison tested at its own boundary; the `0.30`
+per-week COUNT tested at its own boundary (a week exactly at `0.30` is
+counted, per "at or below"); and - covering the contradiction this revision
+removes - **a test asserting that changing `0.30` alone never changes any
+endpoint, component, cell, or run STATUS**, only the published count.
 
 ### 6.1a The falsifiability guard is WEEK-LEVEL, aggregated by MEDIAN **[substantive prospective amendment]**
 
@@ -708,14 +746,30 @@ whose per-week values differ from their ten-decimal roundings.
 
 ### 6.2 Normalize every boundary operation
 
-**Every comparison - `<`, `<=`, `>`, `>=`, and equality - involving `0.30`
-(the falsifiability floor), `3.80` (the disclosure threshold), or `0.20`
-(the veto cap) applies `roundToTie` (ten-decimal, prereg 6.6) to BOTH
-operands before the comparison**, not just one: `roundToTie(computedIncOrB)
-<compare> roundToTie(0.20 | 0.30 | 3.80)`, for every one of the veto check,
-the falsifiability-floor check, and the disclosure-threshold check - so a
-genuine boundary value is never misclassified by floating-point
-representation noise on either side.
+**Every comparison - `<`, `<=`, `>`, `>=`, and equality - against a frozen
+threshold applies `roundToTie` (ten-decimal, prereg 6.6) to BOTH operands
+before the comparison**, not just one, so a genuine boundary value is never
+misclassified by floating-point representation noise on either side. The
+complete list of such comparisons, and nothing else:
+
+| threshold | used by | kind |
+| ---: | --- | --- |
+| `0.20` | the catastrophic veto check (section 6.4) | **GATE** |
+| `0.025` (`DELTA_F`) | the falsifiability guard, against the median transformed per-week bound (section 6.1a) | **GATE** |
+| `3.80` | the `catastrophicCapCouldFire` transparency line | disclosure only |
+| `0.30` | `weeksBelowFalsifiabilityFloor`, the per-week count (section 6.1) | **disclosure only** |
+
+**`0.30` DETERMINES NOTHING.** It is not an operand of any evaluability,
+pass, fail, or veto decision. It appears in exactly one computation - the
+count of individual weeks whose own `meanAbsBaseline_w` is at or below it,
+which prereg 9.8 requires published as context for how much of `k` rests on
+structurally uninformative weeks. **Any implementation that compares `0.30`
+against a pooled or median `|b|` to decide evaluability is WRONG** and must
+fail its tests: section 6.1a's transformed-bound comparison against
+`DELTA_F` is the sole evaluability gate for component (f). Revision 15's
+own section 6.2 previously listed `0.30` as "the falsifiability floor"
+alongside the real gates; that listing was a leftover from the pooled-mean
+design and is corrected here.
 
 ### 6.3 Subgroup membership and averaging
 
@@ -759,10 +813,18 @@ are not equivalent:
   `(player-week, salt)` pairs is its own `inc`, and any one of them
   exceeding the cap vetoes.
 
-**Reading B is strictly more likely to fire than Reading A** (it tests 24x
-as many values, and the maximum over a set is at least the mean over it),
-so this is not a neutral clarification - it changes which cells can be
-vetoed, and a veto is the harshest verdict in the family. That makes it a
+**Reading B is strictly more likely to fire than Reading A WHEN Reading A
+AVERAGES over the 24 salts** - the maximum over a set is at least its mean,
+so a harm visible in one salt can be diluted below the cap by 23 benign
+ones. **The comparison is NOT strict against every possible Reading A**: if
+Reading A collapsed the salts by MAXIMUM, it would be exactly equivalent to
+Reading B, since the maximum over player-weeks of the per-player-week
+maxima is the maximum over the whole Cartesian set. Reading A is
+under-determined by the sealed text precisely because it names no
+collapsing rule, and the readings it admits range from equivalent (max) to
+strictly weaker (mean, median, any quantile below the top). Choosing among
+them is therefore a real decision that can change which cells are vetoed -
+and a veto is the harshest verdict in the family - which makes this a
 substantive prospective amendment requiring explicit approval, not a
 mechanical completion.
 
@@ -1038,26 +1100,62 @@ Frozen:
    prereg 10.6 alone. Adopted as written and submitted for approval.
    (Section 8.1's table already states `passing = harmful = 0` for these;
    this closes what the reducer does with it.)
-6. **A catastrophic veto is RETAINED INDEPENDENTLY of every other status.**
-   Cell precedence is `vetoed > fail > inconclusive > pass`, so a vetoed
-   cell reports `vetoed` even when another component independently failed.
-   **The veto is additionally retained and published in its own right** -
-   `vetoedReasons` carries it, and the component (f) result carries its
-   own `vetoed` status - so a cell that would have failed anyway still
-   discloses that a catastrophic realization was observed. A veto is
-   positive evidence of harm; allowing an unrelated failure to mask it in
-   the report would lose the strongest safety finding the study can produce.
-   Conversely, and unchanged: **a veto can never turn a failure into a
-   pass** (prereg 9.8).
+6. **The catastrophic veto is an INDEPENDENT FLAG, not a Level-3 status.**
+
+   **This corrects a real contradiction in revision 15.** That revision
+   both (a) ordered Level 3 as `missing > vetoed > unevaluable > ...` with
+   exactly one status per component, and (b) required the veto to be
+   "retained independently of every other status". Those cannot both hold:
+   under (a), a component (f) that is `missing` for one endpoint while a
+   catastrophic realization fired on the other reports `missing`, and the
+   veto is silently lost - the exact masking (b) forbids. The veto is also
+   not really commensurable with the other statuses: `missing`,
+   `unevaluable`, `failed` and `passed` describe *how the test came out*,
+   whereas a veto describes *a harmful realization that was observed*,
+   which remains true regardless of how the test came out.
+
+   **Frozen model.** Component (f) carries, separately:
+
+   - **a Level-3 status**, drawn from the ordinary ordering
+     (`missing > unevaluable > wide-straddle > failed > passed`) with
+     `vetoed` REMOVED from that ordering entirely; and
+   - **`catastrophicVeto`, an independent boolean flag** (with its
+     realization list and the completeness attestation of section 6.4a),
+     set by the veto check of section 6.4 and **never overwritten,
+     downgraded, or cleared by any other component result, by (f)'s own
+     status, or by the run-level reducer.**
+
+   **Level 2 consumes the flag directly.** If `catastrophicVeto` is set on
+   any component, the cell is **`vetoed`**, and that outranks every other
+   cell-level cause - preserving the unchanged cell precedence
+   **`vetoed > fail > inconclusive > pass`**. This holds even when (f)'s
+   own Level-3 status is `missing` or `unevaluable`, which is precisely the
+   case revision 15 got wrong: a catastrophic realization was observed, and
+   the fact that some *other* part of (f) could not be evaluated does not
+   unobserve it.
+
+   **Publication.** The flag, its realizations, and the section 6.4a
+   completeness attestation are published whenever set, alongside (f)'s
+   ordinary status - so a cell that would have failed anyway still
+   discloses the catastrophic finding. A veto is positive evidence of harm;
+   allowing an unrelated failure or absence to mask it would lose the
+   strongest safety finding the study can produce.
+
+   **Unchanged**: only component (f) can set the flag (prereg 9.8), and
+   **a veto can never turn a failure into a pass.**
 7. **Level-3 `not-applicable` is its own state, and it is VACUOUSLY
    SATISFIED for the IUT.** Prereg 9.1 states that a component which does
    not apply "passes **vacuously by definition**, never by test, and is
    reported as 'not applicable'", with the divisor fixed at 7 regardless.
-   Revision 14's Level-3 ordering
-   (`missing > vetoed > unevaluable > wide-straddle > failed > passed`)
-   omitted it entirely, leaving the reducer without a state for a real and
-   routine case - (b) on every off-cell, (c) on both `usage-25` cells, (f)
-   on every off-cell (sections 9.3, 9.4, 9.8). Frozen:
+   Revision 14's Level-3 ordering - which at that time still read
+   `missing > vetoed > unevaluable > wide-straddle > failed > passed`, both
+   terms of which have since been corrected (`vetoed` removed by rule 6
+   above; `not-applicable` added by this rule), and which is quoted here
+   ONLY as history and is NOT normative - omitted it entirely, leaving the
+   reducer without a state for a real and routine case: (b) on every
+   off-cell, (c) on both `usage-25` cells, (f) on every off-cell (sections
+   9.3, 9.4, 9.8). **The normative ordering is the one stated under
+   "Component level (Level 3)" below.** Frozen:
 
    - **`not-applicable` is a Level-3 status**, assigned when and only when
      the component's own preregistered applicability condition is unmet.
@@ -1087,20 +1185,29 @@ Frozen:
 
 8. **Totality.** Every endpoint reaches exactly one of the five Level-4
    statuses, OR belongs to a not-applicable component and is not reported at
-   all; every component reaches exactly one Level-3 status, `not-applicable`
-   included; every cell reaches exactly one of
-   `fail`/`inconclusive`/`vetoed`/`pass` (or, for the control alone,
-   `baseline` - section 8.2b); every run reaches `valid` or `void`. **No
-   input produces an undefined, absent, or implementation-defined status at
-   any level.** An implementation MUST fail closed rather than emit a status
-   outside these sets.
+   all; every component reaches exactly one Level-3 status from the ordinary
+   ordering (`not-applicable` included, `vetoed` excluded per rule 6) and
+   independently carries the boolean `catastrophicVeto` flag; every cell
+   reaches exactly one of `fail`/`inconclusive`/`vetoed`/`pass` (or, for the
+   control alone, `baseline` - section 8.2b); every run reaches `valid` or
+   `void`. **No input produces an undefined, absent, or implementation-
+   defined status at any level, and no combination of a Level-3 status with
+   a set veto flag is unrepresentable.** An implementation MUST fail closed
+   rather than emit a status outside these sets.
+
+   **Required totality test**: component (f) `missing` or `unevaluable`
+   WITH `catastrophicVeto` set must produce cell `vetoed` - the case
+   revision 15's ordering silently lost.
 
 **Component level (Level 3)**: **`not-applicable`** is decided FIRST, from
 configuration alone (rule 7 above); a not-applicable component takes no
 further part in the ordering. For every component that DOES apply:
-`missing` > `vetoed` (component (f) only) > `unevaluable` > `wide-straddle`
-> `failed` > `passed`, by the presence of any endpoint in that category,
-with `threshold-not-established` counting as `failed` per rule 1 above.
+`missing` > `unevaluable` > `wide-straddle` > `failed` > `passed`, by the
+presence of any endpoint in that category, with
+`threshold-not-established` counting as `failed` per rule 1 above.
+**`vetoed` is NOT in this ordering** - the catastrophic veto is an
+independent flag consumed directly by Level 2 (rule 6 above), so that it
+cannot be masked by a `missing` or `unevaluable` sibling endpoint.
 
 **Cell level (Level 2), the complete, corrected table:**
 
@@ -1113,7 +1220,7 @@ with `threshold-not-established` counting as `failed` per rule 1 above.
 | any component `wide-straddle` | **`inconclusive`** | prereg 10.6 |
 | activation shortfall, `on`-cells only (section 8.3) | **`inconclusive`** | prereg 11.2 |
 | a component `failed` | **`fail`** | prereg 9.1 |
-| component (f) veto fires | **`vetoed`** | prereg 9.8, section 6.4 |
+| component (f)'s `catastrophicVeto` FLAG is set (independent of (f)'s own Level-3 status - section 8.2a rule 6) | **`vetoed`** | prereg 9.8, sections 6.4, 6.4a |
 
 **Precedence for ALL co-occurring causes on the same cell: `vetoed` >
 `fail` > `inconclusive` > `pass`.** An ordering-caused `inconclusive`
