@@ -27,7 +27,7 @@ authenticated approval attached to them.
 | document | SHA-256 of current bytes | status |
 | --- | --- | --- |
 | `PREREGISTRATION.md` | `653d98841a5c8e19af2d2d0d94ce58d677223dddee2b1433486a3dee8e3f802e` | SEALED, never edited since Phase 0 — hash is of the sealed bytes |
-| `PHASE5_EXECUTION_SPEC.md` | see the anchor commit for the revision under review — do NOT treat any hash in this file as "the current bytes" | **NO APPROVAL IN FORCE, AND NOTHING IS AUTHORIZED.** Revision 13's chain is broken (below). Its successor blob `0661eafc95…` was REJECTED (R1). Revision 14 (`49620ec2…`) was REJECTED (R2). **Revision 15 awaits all three fresh approvals.** Gate 2 implementation work is not authorized; candidate-cell execution is not authorized. |
+| `PHASE5_EXECUTION_SPEC.md` | see the anchor commit for the revision under review — do NOT treat any hash in this file as "the current bytes" | **NO APPROVAL IN FORCE, AND NOTHING IS AUTHORIZED.** Revision 13's chain is broken (below). Its successor blob `0661eafc95…` was REJECTED (R1); revision 14 (`49620ec2…`) R2; revision 15 (`e507d0c4…`) R3; revision 16 (`8bd263cd…`) R4; revision 17 (`f7d6b31f…`) R5. **Revision 18 awaits all three fresh approvals.** Gate 2 implementation work is not authorized; candidate-cell execution is not authorized. |
 
 **Hash the BLOB, not the working file.** This repository has
 `core.autocrlf=true` and no `.gitattributes` covering these artifacts, so a
@@ -43,9 +43,12 @@ git show <anchor-commit>:backtest-artifacts/pit-sweep-2024-2025/PHASE5_EXECUTION
 ## The broken approval chain, stated plainly
 
 The independent statistical review of revision 13 authenticated SHA-256
-`25DFFCEC77EB5DFE17150020C04465B546F0584919916FD686CCFE77FA17258F`. The
-current bytes of `PHASE5_EXECUTION_SPEC.md` hash to
+`25DFFCEC77EB5DFE17150020C04465B546F0584919916FD686CCFE77FA17258F`. Its
+immediate successor blob hashed to
 `0661eafc951406d22c74fe45a47f8a789d025ab9ae74d583a65148f9866cc2eb`.
+**(`0661eafc95…` is NOT current and has not been since revision 13's
+successor was rejected as R1 — see the corrective entry below. It is named
+here only to identify the divergence.)**
 
 **These are different documents.** The divergence was caused by edits made
 *after* that approval, to record the approvals themselves in the document's
@@ -71,16 +74,22 @@ that no longer exist.
 
 ### Required remedy (only the user/approver can perform it)
 
-The current bytes must be **re-approved as they now stand**, by the same
+The **then-current** bytes had to be re-approved as they stood, by the same
 approval chain that approved revision 13:
 
-1. Independent statistical re-review of the current bytes
-   (`0661eafc95…`), confirming the substantive content is unchanged from
-   what was approved as revision 13 and that the post-approval edits were
-   confined to recording approvals.
-2. User re-approval of the S3 deviation and of the remainder, against
-   `0661eafc95…`.
+1. Independent statistical re-review of the then-current bytes.
+2. User re-approval of the S3 deviation and of the remainder, against those
+   same bytes.
 3. Both recorded **in this file**, not in the spec document.
+
+**Status of that remedy:** step 1 has been attempted five times and has
+REJECTED every time (R1-R5), so steps 2 and 3 have never been reached. The
+document has been corrected after each rejection, so the bytes needing
+approval are no longer revision 13's successor - they are whatever the
+latest anchor commit carries. **Substituting a specific hash into steps 1-2
+above would go stale on the next revision, which is exactly the failure the
+corrective entry below addresses; the remedy is therefore stated without
+one.**
 
 Until that is done, Gate 0's fourth-approval condition cannot be satisfied
 regardless of the implementation's own quality, because the spec the
@@ -102,6 +111,8 @@ did not approve must never occupy an approval row. Append only.)*
 
 | R4 | `PHASE5_EXECUTION_SPEC.md` rev 16 | `8bd263cd133c7dcea533c7ae7bd2cc9efea1a3ec42340aa1fb4b9f467d7c4396` (git blob `9dc2a70dbd709a4fb4f5b65f91184a72493228e2`, anchored in commit `906dfe26667d237734d9eb8f253d8e89c0c27fd1`) | independent statistical review | 2026-08-03 | **REJECT** — two blockers: (1) revision and approval routing still contradictory — several sections called revision 14 current or awaiting review, and two approval questions still pointed at historical §10 despite the document declaring the external ledger solely authoritative; (2) the salted hash construction `scoringHash + ':' + salt` (§3.2) was misclassified as mechanical — it was never sealed, and delimiter/order alternatives produce different seeds and potentially different verdicts. **Confirmed corrected**: transformed `0.025` gate, disclosure-only `0.30`, independent catastrophic-veto flag, narrowed Cartesian comparison, total reducer, complete permutation, activation, selection, control baseline, identity assertions. **No approval row or user attestation was warranted for this blob.** |
 
+| R5 | `PHASE5_EXECUTION_SPEC.md` rev 17 | `f7d6b31f6ba338fdecaea40187b27300a66808f176234b28646250508475397e` (git blob `281b1f0e707c510b557b114174deae6003ae6b19`, anchored in commit `6c1a873b8d0149319b92879bc9f6cdc60eeb3b37`) | independent statistical review | 2026-08-03 | **REJECT** — single blocker: §3.2 promised a pinned salt-composition test vector but supplied no literal inputs or expected output, so the required test had nothing to assert against. Non-blocking cleanup: rename §4.5 to "Applies to every bootstrap inequality"; remove a duplicated revision-16 heading and a dangling sentence fragment near the preamble (both introduced by revision 17's own splice). **All other statistical and approval-routing provisions passed review.** **No approval row or user attestation was warranted for this blob.** |
+
 ### CORRECTIVE ENTRY — superseding obsolete "current bytes" instructions
 
 **Any instruction anywhere in this repository or its history that
@@ -114,11 +125,11 @@ file should ever be treated as "current"** — the current revision is
 whichever blob the most recent anchor commit carries, and it is identified
 there, not here. This file records what was REVIEWED, not what exists now.
 
-Revision 17 is the response to R4. **It is awaiting ALL THREE fresh
+Revision 18 is the response to R5. **It is awaiting ALL THREE fresh
 approvals** — the independent statistical review, the user's S3-deviation
 attestation, and the user's remainder attestation — none of which has been
 issued against it or against any predecessor whose bytes still exist. No
-approval attaches to revision 17 until each is issued and recorded in the
+approval attaches to revision 18 until each is issued and recorded in the
 approval rows below.
 
 **Approval routing is exclusive to this file.** No section of

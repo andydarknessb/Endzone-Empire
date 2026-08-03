@@ -2,7 +2,7 @@
 
 Study id: `pit-sweep-2024-2025` (same study as `PREREGISTRATION.md`).
 
-**Status: revision 17. NO APPROVALS ARE CURRENTLY IN FORCE FOR THIS
+**Status: revision 18. NO APPROVALS ARE CURRENTLY IN FORCE FOR THIS
 DOCUMENT. NOTHING IS AUTHORIZED - not candidate execution, and not Gate 2
 implementation work either.**
 
@@ -21,7 +21,7 @@ and no copy survives (the file was untracked at the time). Revision 13's
 successor blob (`0661eafc95...`, committed as an immutable anchor) was
 submitted for fresh independent statistical review and **REJECTED** on four
 blockers. Revision 14 was that rejection's response; it was itself rejected,
-as was revision 15. **The current revision is 17**, and the full chain is
+as was revision 15. **The current revision is 18**, and the full chain is
 recorded below and in `APPROVAL_LEDGER.md`.
 
 **Revision 14 was also REJECTED**, on five blockers, at blob
@@ -30,7 +30,17 @@ recorded below and in `APPROVAL_LEDGER.md`.
 documentary corrections, at blob `4f5f21a8bbb8b95c432816311f27bd1a7c2e6937`
 (SHA-256 `e507d0c4...`). Revision 16 was the response to that rejection;
 it too was REJECTED, on two blockers, at SHA-256 `8bd263cd...`.
-**Revision 17 is the response to THAT rejection**, and adds:
+Revision 17 was the response to that rejection; it too was REJECTED, on a
+single blocker, at SHA-256 `f7d6b31f...`. **Revision 18 is the response to
+THAT rejection**: section 3.2 now carries the literal pinned composition
+vector (revision 17 promised one but supplied no literals, so the required
+test had nothing to assert against); section 4.5 is renamed "Applies to
+every bootstrap inequality", since it governs components (a)-(e1) as well
+as the thirteen (e2) rows; and a duplicated revision-16 heading plus a
+dangling sentence fragment in the preamble - both introduced by revision
+17's own splice - are removed.
+
+**What revision 17 added:**
 
 - **Sections 1, 4.4, 7, preamble - all operative current-state language is
   now revision 17, and EVERY approval question routes exclusively to
@@ -52,10 +62,6 @@ it too was REJECTED, on two blockers, at SHA-256 `8bd263cd...`.
 
 **What revision 16 changed** (retained, and confirmed corrected by the
 revision-16 review):
-and requires its own fresh independent statistical review plus both user
-attestations.
-
-**What revision 16 changes:**
 
 - **Sections 6.1, 6.2 - `0.30` is now DISCLOSURE-ONLY, and the
   contradiction is gone.** Revision 15 corrected the evaluability gate to
@@ -196,12 +202,12 @@ Gate 3 verification (including the independent implementation review), and
 all four approvals are recorded, in `APPROVAL_LEDGER.md`, against the
 SAME approved revision of this document.
 
-**Authorization state as of revision 17: NOTHING IS AUTHORIZED.** Zero of
+**Authorization state as of revision 18: NOTHING IS AUTHORIZED.** Zero of
 the four approvals are in force. The three approvals once recorded against
 revision 13 attach to bytes that no longer exist and are void (preamble);
 revision 13's successor blob `0661eafc95...` was REJECTED (R1), as were
 revision 14 (`49620ec2...`, R2) and revision 15 (`e507d0c4...`, R3).
-**Revision 17 awaits all three fresh approvals**: its own independent
+**Revision 18 awaits all three fresh approvals**: its own independent
 statistical review and, if that issues, the two user attestations (the S3
 deviation and the remainder). **Gate 2 implementation work is NOT currently
 authorized** - implementation is paused - and candidate-cell execution is
@@ -292,11 +298,24 @@ parseable back into its two parts. A delimiter that could appear inside
 either operand would admit two different `(hash, salt)` pairs composing to
 the same string, which is why the choice is pinned rather than left open.
 
-**Required tests**: a pinned vector mapping a literal
-`(scoringHash, salt)` pair to its literal expected composed string, so a
-change of order, delimiter, or spacing fails loudly; and an assertion that
-the composed value is used verbatim as `seedFrom`'s `scoringHashValue`
-argument with no further transformation.
+**Pinned composition vector:**
+
+- `scoringHash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"`
+- `salt = "pit-01-879c6f8eae4b"`
+- expected `hashValue = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef:pit-01-879c6f8eae4b"`
+
+The required test MUST assert byte equality against that literal expected
+value.
+
+`salt` here is the first of the 24 preregistered salts (prereg 8.1),
+verbatim. `scoringHash` is a synthetic 64-hex-character stand-in of the
+correct shape - the vector pins the COMPOSITION rule, not any particular
+scoring profile's real digest, so it stays valid regardless of which
+profile is being hashed.
+
+**Also required**: an assertion that the composed value is used verbatim as
+`seedFrom`'s `scoringHashValue` argument, with no further transformation
+between composition and consumption.
 
 ### 3.3 Salts are common-random-number replicates, not independent inferential units
 
@@ -424,7 +443,7 @@ through (e1)) can have one endpoint trigger while its sibling does not.
    compare against the ORIGINAL, non-negated margin) before publication, so
    the report states every bound in the metric's own natural sign.
 
-### 4.5 Applies to all thirteen inequalities
+### 4.5 Applies to every bootstrap inequality
 
 Sections 4.2-4.4 apply individually to each of components (a), (b), (c),
 (d), (e1)'s endpoints, and to each of the thirteen (e2) endpoint-season
