@@ -24,6 +24,15 @@ authenticated approval attached to them.
 
 ## Current document hashes (recorded 2026-08-02)
 
+> **The `2026-08-02` date in this heading applies ONLY to the original
+> records written on that date.** It does not date any later appended entry.
+> Every entry appended after that date carries its own date; the heading is
+> not a timestamp for the file as a whole. See corrective entry 2.
+>
+> **The `PHASE5_EXECUTION_SPEC.md` status cell below is SUPERSEDED by
+> corrective entry 2** (approval rows 4-6, 2026-08-03). It is retained
+> unedited as the append-only record of the state that then obtained.
+
 | document | SHA-256 of current bytes | status |
 | --- | --- | --- |
 | `PREREGISTRATION.md` | `653d98841a5c8e19af2d2d0d94ce58d677223dddee2b1433486a3dee8e3f802e` | SEALED, never edited since Phase 0 — hash is of the sealed bytes |
@@ -113,7 +122,12 @@ did not approve must never occupy an approval row. Append only.)*
 
 | R5 | `PHASE5_EXECUTION_SPEC.md` rev 17 | `f7d6b31f6ba338fdecaea40187b27300a66808f176234b28646250508475397e` (git blob `281b1f0e707c510b557b114174deae6003ae6b19`, anchored in commit `6c1a873b8d0149319b92879bc9f6cdc60eeb3b37`) | independent statistical review | 2026-08-03 | **REJECT** — single blocker: §3.2 promised a pinned salt-composition test vector but supplied no literal inputs or expected output, so the required test had nothing to assert against. Non-blocking cleanup: rename §4.5 to "Applies to every bootstrap inequality"; remove a duplicated revision-16 heading and a dangling sentence fragment near the preamble (both introduced by revision 17's own splice). **All other statistical and approval-routing provisions passed review.** **No approval row or user attestation was warranted for this blob.** |
 
-### CORRECTIVE ENTRY — superseding obsolete "current bytes" instructions
+### CORRECTIVE ENTRY 1 — superseding obsolete "current bytes" instructions
+
+*(Appended 2026-08-03, before the R5 response. Its "awaiting ALL THREE fresh
+approvals" paragraph and its count-specific supersession language are
+themselves superseded by corrective entry 2 below; the entry is retained
+unedited.)*
 
 **Any instruction anywhere in this repository or its history that
 identifies `0661eafc95…` as "the current bytes" of
@@ -139,6 +153,48 @@ edit that reintroduces an approval question pointing at the spec's own
 section 10 reintroduces the hash-invalidating practice this ledger exists
 to end.
 
+### CORRECTIVE ENTRY 2 — appended 2026-08-03, at the direction of the approver
+
+Recorded alongside approval rows 4-6. Three clarifications, each superseding
+earlier language in this file that is now obsolete.
+
+**(1) Count-specific supersession language is obsolete.** Corrective entry 1
+says `0661eafc95…` "has since been superseded twice more" and enumerates the
+two successors by name. That enumeration was accurate when written and is
+not now — the chain has continued through revisions 16, 17, and 18. **No
+statement in this file that counts revisions, or that names the most recent
+successor, should be read as current.** The rule stated in corrective entry
+1 stands unchanged and is the one that generalizes: the current revision is
+whichever blob the most recent anchor commit carries, identified there and
+not here. This file records what was reviewed. Future entries must not
+restate a count.
+
+**(2) The `0.30` value is disclosure-only.** The broken-chain narrative above
+lists "the 0.50→0.30 falsifiability floor" among the deviations resting on
+the lost approval. That characterization is superseded. As of revision 16
+and continuing through the approved revision 18, **`0.30` is not a gate and
+no verdict turns on it.** It is reported for disclosure only. The
+component-(f) evaluability gate is the **transformed weekly-median bound
+compared against `0.025`** — the two forms are equal in exact arithmetic but
+not under `roundToTie`, which is why only the transformed comparison is
+normative. Any earlier text in this file or in prior spec revisions that
+describes `0.30` as a floor, gate, or threshold is describing a superseded
+construction.
+
+**(3) The `2026-08-02` heading dates only the original records.** See the
+note under that heading. Entries appended later carry their own dates.
+
+**Approval state as of this entry:** revision 18 (SHA-256
+`5A0D6E54B2D84494C5D39093C44204A79F32A4DD813F03909C1094339A52BCF8`) has
+received all three approvals — rows 4, 5, and 6 below. Corrective entry 1's
+statement that revision 18 "is awaiting ALL THREE fresh approvals" is
+superseded as of those rows. **The current-hashes table's
+"NO APPROVAL IN FORCE, AND NOTHING IS AUTHORIZED" status cell is likewise
+superseded**; Gate 2 implementation is authorized against revision 18's
+bytes. **Gate 0 is unchanged and still in force**: candidate-cell execution,
+real-data access, authoritative sweep generation, and result inspection
+remain prohibited pending the final independent implementation review.
+
 ---
 
 ## Approval rows
@@ -150,8 +206,16 @@ to end.
 | 1 | `PHASE5_EXECUTION_SPEC.md` | `25DFFCEC77EB5DFE17150020C04465B546F0584919916FD686CCFE77FA17258F` | independent statistical review | 2026-08-02 | revision 13, sections 3-8 | **SUPERSEDED — reviewed bytes no longer exist (see above)** |
 | 2 | `PHASE5_EXECUTION_SPEC.md` | `25DFFCEC77EB5DFE17150020C04465B546F0584919916FD686CCFE77FA17258F` | user | 2026-08-02 | S3 non-estimable deviation | **SUPERSEDED — reviewed bytes no longer exist** |
 | 3 | `PHASE5_EXECUTION_SPEC.md` | `25DFFCEC77EB5DFE17150020C04465B546F0584919916FD686CCFE77FA17258F` | user | 2026-08-02 | remainder of revision 13; Gate 2 implementation only, no candidate execution | **SUPERSEDED — reviewed bytes no longer exist** |
+| 4 | `PHASE5_EXECUTION_SPEC.md` | `5A0D6E54B2D84494C5D39093C44204A79F32A4DD813F03909C1094339A52BCF8` | independent statistical review | 2026-08-03 | revision 18, sections 3-8; exact git blob `147a2e0d1f284403b59d96d7e2f82c2da74989e4` at commit `85842e70a19b14fb6c5fb8cdfb0bca6a7a367774` | **APPROVED** |
+| 5 | `PHASE5_EXECUTION_SPEC.md` | `5A0D6E54B2D84494C5D39093C44204A79F32A4DD813F03909C1094339A52BCF8` | user | 2026-08-03 | S3 structurally non-estimable prospective deviation; no S3 estimate | **APPROVED** |
+| 6 | `PHASE5_EXECUTION_SPEC.md` | `5A0D6E54B2D84494C5D39093C44204A79F32A4DD813F03909C1094339A52BCF8` | user | 2026-08-03 | remainder of revision 18, sections 3-8; Gate 2 implementation only; no candidate execution | **APPROVED** |
 
-**No row below this line is filled in.** Rows 4+ are reserved for the
-re-approval described above, and for the Gate 2 independent implementation
-review, once each actually occurs. They must be added by, or at the explicit
-direction of, the approver — never pre-filled in anticipation.
+**No row below this line is filled in.** Row 7 is reserved for the Gate 2
+independent implementation review, once it actually occurs. It must be added
+by, or at the explicit direction of, the approver — never pre-filled in
+anticipation.
+
+**Rows 4-6 restore the approval chain broken above.** They authenticate
+bytes that still exist and are retrievable from the anchor commit, which is
+what rows 1-3 could not offer. The re-approval remedy described under
+"Required remedy" is, with these rows, complete.
