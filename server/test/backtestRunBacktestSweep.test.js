@@ -222,6 +222,61 @@ test('validateInputs refuses a permutationControl field that is missing or non-f
 // End to end: main() as a deterministic disk-to-disk reducer
 // ---------------------------------------------------------------------------
 
+test('main(): an UNEVALUABLE endpoint still publishes its n, k, p, bound, and trigger reasons - evidence is never discarded', (t) => {
+  const dir = tmpDir(t);
+  const inputs = fullPassingInputs();
+  // Drive usage-40-off's component (a) regret endpoint to unevaluable via
+  // week-dropping (3 of 17 dropped leaves n=14, below the n>=15 floor).
+  const dropped = variedSeries(-1, 0.6);
+  delete dropped[2]; delete dropped[3]; delete dropped[4];
+  inputs.cells['usage-40-off'].a.regretWeekDeltas = dropped;
+  const inputsPath = path.join(dir, 'inputs.json');
+  fs.writeFileSync(inputsPath, JSON.stringify(inputs));
+  runBacktestSweep.main([
+    '--inputs', inputsPath,
+    '--out-json', path.join(dir, 'report.json'),
+    '--out-markdown', path.join(dir, 'REPORT.md'),
+  ]);
+  const report = JSON.parse(fs.readFileSync(path.join(dir, 'report.json'), 'utf8'));
+  const cell = report.cells.find((c) => c.name === 'usage-40-off');
+  assert.equal(cell.components.a.status, 'unevaluable');
+  const endpoints = cell.components.a.evidence.endpoints;
+  const unevaluableEndpoint = endpoints.find((e) => e.status === 'unevaluable');
+  assert.ok(unevaluableEndpoint, 'the unevaluable endpoint is still published');
+  // The WHY is auditable, not a bare status.
+  assert.match(unevaluableEndpoint.unevaluableReason, /weeks dropped/);
+  assert.equal(Array.isArray(unevaluableEndpoint.triggerReasons), true);
+  // The sibling endpoint that WAS evaluable still carries its full evidence.
+  const evaluableEndpoint = endpoints.find((e) => e.status !== 'unevaluable');
+  assert.equal(typeof evaluableEndpoint.n, 'number');
+  assert.equal(typeof evaluableEndpoint.lower, 'number');
+});
+
+test('main(): an infinite inverted bound is published as a flag, never dropped and never crashing canonical serialization', (t) => {
+  const dir = tmpDir(t);
+  const inputs = fullPassingInputs();
+  // A degenerate, tie-heavy (f) endpoint: 8 raw clusters clears the minimum,
+  // but 2 tie out on the margin leaving n=6 - below the n=8 at which any
+  // finite inverted bound exists at alpha/7. exactBound must publish as
+  // null with exactBoundIsInfinite true, and the report must still
+  // canonically serialize (assertFinite refuses raw Infinity).
+  inputs.cells['usage-25-on'].f.f1 = {
+    ...HEALTHY_F_ENDPOINT,
+    weekDeltas: [arms.DELTA_F, arms.DELTA_F, ...new Array(6).fill(-0.01)],
+  };
+  const inputsPath = path.join(dir, 'inputs.json');
+  fs.writeFileSync(inputsPath, JSON.stringify(inputs));
+  assert.doesNotThrow(() => runBacktestSweep.main([
+    '--inputs', inputsPath,
+    '--out-json', path.join(dir, 'report.json'),
+    '--out-markdown', path.join(dir, 'REPORT.md'),
+  ]), 'an infinite bound must not crash canonical serialization');
+  const report = JSON.parse(fs.readFileSync(path.join(dir, 'report.json'), 'utf8'));
+  const cell = report.cells.find((c) => c.name === 'usage-25-on');
+  assert.equal(cell.components.f.status, 'unevaluable');
+  assert.equal(cell.verdict, 'inconclusive', "(f) unevaluable is the named inconclusive exception");
+});
+
 test('main(): a comfortably-passing inputs document produces a VALID run with a SELECTED cell', (t) => {
   const dir = tmpDir(t);
   const inputsPath = path.join(dir, 'inputs.json');

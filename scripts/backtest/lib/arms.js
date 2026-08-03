@@ -429,14 +429,53 @@ const FRESH_VS_FRESH_ALLOWLIST = Object.freeze([
 
 /**
  * The cache-compatible allowlist (PHASE5_EXECUTION_SPEC.md section 8.6.3),
- * frozen directly against `loadCachedRows`'s own mapped shape, not derived
- * by subtraction from the fresh-vs-fresh list. The only field it excludes
- * relative to the fresh list is the TOP-LEVEL `effectiveGames` (the nested
- * `factors.recentProduction.effectiveGames` round-trips fine).
+ * **frozen DIRECTLY against `loadCachedRows`'s own mapped shape, written out
+ * in full - never derived by subtraction from the fresh-vs-fresh list.**
+ *
+ * Independent implementation review (round 2) finding: this was previously
+ * `FRESH_VS_FRESH_ALLOWLIST.filter((p) => p !== 'effectiveGames')`, which is
+ * exactly the derivation section 8.6.3 forbids in its own words - "Deriving
+ * it by subtraction risks silently propagating a future addition to the
+ * fresh list (a field this document has not yet traced through the cache
+ * path) into the cache allowlist without ever separately verifying it
+ * round-trips." The subtraction produced the right SET today and would have
+ * silently produced a wrong one the moment anyone appended to the fresh
+ * list. Frozen literally, verified against the real query:
+ *
+ * `loadCachedRows` (`projection.service.js`) SELECTs exactly
+ * `player_id, mean, median, p10, p25, p75, p90, active_probability,
+ * confidence, sample_size, factors` - so the top-level numeric/nullable
+ * paths that round-trip are the eight below (NOT `effectiveGames`: no
+ * such column exists, and `saveProjections`'s INSERT column list has no
+ * `effective_games`), and every `factors.*` leaf round-trips whole through
+ * the single `factors` JSONB column.
  */
-const CACHE_COMPATIBLE_ALLOWLIST = Object.freeze(
-  FRESH_VS_FRESH_ALLOWLIST.filter((path) => path !== 'effectiveGames')
-);
+const CACHE_COMPATIBLE_ALLOWLIST = Object.freeze([
+  // Top level: the eight numeric columns loadCachedRows actually SELECTs and
+  // maps. `confidence` is selected but is a label, not a numeric value, so it
+  // stays excluded here exactly as it is from the fresh-vs-fresh list.
+  'mean', 'median', 'p10', 'p25', 'p75', 'p90', 'activeProbability', 'sampleSize',
+  // factors.* - the whole object round-trips through one JSONB column
+  // (`JSON.stringify(p.factors || {})` on write, `row.factors || {}` on
+  // read), with no per-field schema to drop anything, so every leaf in the
+  // fresh-vs-fresh list is present here too. Enumerated rather than
+  // cross-referenced, per section 8.6.3.
+  'factors.recentProduction.perGame', 'factors.recentProduction.pointsContribution',
+  'factors.recentProduction.effectiveGames', 'factors.recentProduction.games',
+  'factors.recentProduction.pointsBaselinePerGame', 'factors.recentProduction.opportunityValue',
+  'factors.recentProduction.expectedOpportunities', 'factors.recentProduction.opportunityEfficiency',
+  'factors.recentProduction.usageGames', 'factors.recentProduction.usageBlendWeight',
+  'factors.opponent.effect', 'factors.opponent.pointsContribution', 'factors.opponent.games',
+  'factors.opponent.allowedPerGame', 'factors.opponent.leagueAveragePerGame',
+  'factors.versusOpponent.effect', 'factors.versusOpponent.pointsContribution',
+  'factors.versusOpponent.meetings', 'factors.versusOpponent.observedDeviation',
+  'factors.homeAway.effect', 'factors.homeAway.pointsContribution', 'factors.homeAway.games',
+  'factors.homeAway.homeGames', 'factors.homeAway.awayGames',
+  'factors.weather.effect', 'factors.weather.pointsContribution', 'factors.weather.temperatureF',
+  'factors.weather.windSpeedMph', 'factors.weather.windGustMph', 'factors.weather.precipitationProbability',
+  'factors.availability.activeProbability',
+  'factors.role.pointsContribution',
+]);
 
 function hasOwnPath(obj, path) {
   const segments = path.split('.');
@@ -1112,13 +1151,38 @@ function coPrimaryComponent({
  * at all. This is threaded through as `evidence` on every component result.
  */
 function summarizeEndpointEvidence(endpoint) {
+  const num = (v) => (isFiniteNumber(v) ? Number(v) : null);
+  const exact = endpoint.exact || null;
+  // prereg 9.8 point 6 / 10.2: an UNEVALUABLE endpoint's own evidence is
+  // exactly what a reader needs to audit WHY it was unevaluable - the
+  // surviving n, the sign count k, the exact p-value, the (possibly
+  // infinite) inverted bound, and which trigger condition fired.
+  // Independent implementation review (round 2) finding: all of this was
+  // previously discarded before publication, so an unevaluable endpoint
+  // published a bare status with no numbers behind it.
+  //
+  // `boundIsInfinite` is a BOOLEAN rather than the raw `Infinity`, because
+  // `sweepReport.assertFinite` refuses non-finite numbers anywhere in the
+  // report and `canonicalJson` refuses to serialize them at all - so the
+  // fact of an infinite bound is recorded in the one shape the canonical
+  // serializer can actually carry, instead of being dropped or crashing
+  // the report.
+  const bound = exact ? exact.bound : null;
   return {
     label: endpoint.label || null,
     status: endpoint.status,
-    n: endpoint.bootstrap ? endpoint.bootstrap.clusters : (endpoint.exact ? endpoint.exact.n : null),
-    lower: endpoint.bootstrap ? endpoint.bootstrap.lower : null,
-    upper: endpoint.bootstrap ? endpoint.bootstrap.upper : null,
+    n: endpoint.bootstrap ? num(endpoint.bootstrap.clusters) : (exact ? num(exact.n) : null),
+    lower: endpoint.bootstrap ? num(endpoint.bootstrap.lower) : null,
+    upper: endpoint.bootstrap ? num(endpoint.bootstrap.upper) : null,
     triggerFired: !!(endpoint.trigger && endpoint.trigger.fired),
+    triggerReasons: endpoint.trigger && Array.isArray(endpoint.trigger.reasons)
+      ? [...endpoint.trigger.reasons] : [],
+    exactN: exact ? num(exact.n) : null,
+    exactK: exact ? num(exact.k) : null,
+    exactP: exact ? num(exact.p) : null,
+    exactBound: num(bound),
+    exactBoundIsInfinite: bound === Infinity || bound === -Infinity,
+    unevaluableReason: typeof endpoint.reason === 'string' ? endpoint.reason : null,
   };
 }
 

@@ -191,6 +191,43 @@ test('assertProjectionRunBitIdentical: Map-safe wrapper for the sealed usage-25 
   }), /not bit-identical/);
 });
 
+test('the cache-compatible allowlist is INDEPENDENTLY frozen, not derived by subtraction from the fresh list', () => {
+  // Independent implementation review (round 2) finding: this was
+  // `FRESH_VS_FRESH_ALLOWLIST.filter(p => p !== 'effectiveGames')`, exactly
+  // the derivation PHASE5_EXECUTION_SPEC.md section 8.6.3 forbids. The
+  // subtraction produced the right SET today, so a set-equality test alone
+  // would NOT have caught it - what distinguishes the two is whether
+  // appending to the fresh list silently propagates. Assert the real
+  // property: the two lists are separate literals.
+  const fresh = [...arms.FRESH_VS_FRESH_ALLOWLIST];
+  const cache = [...arms.CACHE_COMPATIBLE_ALLOWLIST];
+
+  // The one documented difference: top-level effectiveGames has no cache
+  // column (loadCachedRows never SELECTs it, saveProjections never writes it).
+  assert.equal(fresh.includes('effectiveGames'), true);
+  assert.equal(cache.includes('effectiveGames'), false);
+  // The NESTED one does round-trip, through the factors JSONB column.
+  assert.equal(cache.includes('factors.recentProduction.effectiveGames'), true);
+  assert.deepEqual(
+    fresh.filter((p) => !cache.includes(p)),
+    ['effectiveGames'],
+    'top-level effectiveGames is the ONLY field the cache list drops'
+  );
+  assert.deepEqual(cache.filter((p) => !fresh.includes(p)), [], 'the cache list adds nothing');
+
+  // The independence property itself: a field appended to the fresh list
+  // must NOT appear in the cache list, because the cache list is its own
+  // frozen literal rather than a filtered view of the fresh one. Under the
+  // old subtraction this assertion was unsatisfiable by construction.
+  const freshWithNewField = Object.freeze([...arms.FRESH_VS_FRESH_ALLOWLIST, 'factors.brandNew.untracedField']);
+  assert.equal(
+    arms.CACHE_COMPATIBLE_ALLOWLIST.includes('factors.brandNew.untracedField'),
+    false,
+    'a field added to the fresh list must never silently appear in the cache list without being traced through the cache path'
+  );
+  assert.equal(freshWithNewField.length, arms.CACHE_COMPATIBLE_ALLOWLIST.length + 2);
+});
+
 test('homeaway-on-stored must be POINT-identical to homeaway-on', () => {
   assert.equal(arms.assertHomeAwayStoredPointIdentity({
     storedRun: { median: 10, p90: 20, provenance: 'stored' },

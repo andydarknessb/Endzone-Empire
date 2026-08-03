@@ -120,7 +120,10 @@ const CELL_KEYS = Object.freeze([
 ]);
 const COMPONENT_KEYS = Object.freeze(['status', 'passes', 'reason', 'evidence']);
 const EVIDENCE_KEYS = Object.freeze(['endpoints', 'transparency']);
-const ENDPOINT_EVIDENCE_KEYS = Object.freeze(['label', 'status', 'n', 'lower', 'upper', 'triggerFired']);
+const ENDPOINT_EVIDENCE_KEYS = Object.freeze([
+  'label', 'status', 'n', 'lower', 'upper', 'triggerFired', 'triggerReasons',
+  'exactN', 'exactK', 'exactP', 'exactBound', 'exactBoundIsInfinite', 'unevaluableReason',
+]);
 const TRANSPARENCY_KEYS = Object.freeze([
   'endpoint', 'subgroupRows', 'meanAbsBaseline', 'maxAbsBaseline', 'weeksBelowFalsifiabilityFloor',
   'weeksWithBaseline', 'catastrophicCapCouldFire', 'weekSignIndependenceAssumed',
@@ -141,13 +144,26 @@ const REPORT_KEYS = Object.freeze(['studyId', 'run', 'permutationControl', 'cell
 /** Normalize one bootstrap/exact endpoint's evidence summary to the closed shape. */
 function normalizeEndpointEvidence(endpoint, { label }) {
   assertClosedKeys(endpoint, ENDPOINT_EVIDENCE_KEYS, { label });
+  const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
   return {
     label: typeof endpoint.label === 'string' ? endpoint.label : null,
     status: typeof endpoint.status === 'string' ? endpoint.status : null,
-    n: typeof endpoint.n === 'number' ? endpoint.n : null,
-    lower: typeof endpoint.lower === 'number' ? endpoint.lower : null,
-    upper: typeof endpoint.upper === 'number' ? endpoint.upper : null,
+    n: num(endpoint.n),
+    lower: num(endpoint.lower),
+    upper: num(endpoint.upper),
     triggerFired: !!endpoint.triggerFired,
+    // Which of prereg 10.2's two conditions fired, verbatim.
+    triggerReasons: Array.isArray(endpoint.triggerReasons) ? [...endpoint.triggerReasons] : [],
+    // The exact-method evidence (prereg 9.8): surviving n, sign count k, the
+    // exact p-value, and the inverted bound. `exactBound` is null when the
+    // bound is infinite; `exactBoundIsInfinite` records that fact separately,
+    // since the canonical serializer cannot carry a non-finite number.
+    exactN: num(endpoint.exactN),
+    exactK: num(endpoint.exactK),
+    exactP: num(endpoint.exactP),
+    exactBound: num(endpoint.exactBound),
+    exactBoundIsInfinite: !!endpoint.exactBoundIsInfinite,
+    unevaluableReason: typeof endpoint.unevaluableReason === 'string' ? endpoint.unevaluableReason : null,
   };
 }
 
