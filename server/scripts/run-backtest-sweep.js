@@ -102,7 +102,7 @@ const TOP_LEVEL_KEYS = Object.freeze([
   'orderingDisagreement', 'deployedPolicyDisagreement', 'cells', 'evidence',
 ]);
 const PREFLIGHT_KEYS = Object.freeze([
-  'expectedPlayerWeeks', 'controlUsage25Records', 'homeAwayStoredRecords', 'saltSeedCoordinates', 'saltSeedRecords',
+  'cohortRosterRows', 'controlUsage25Records', 'homeAwayStoredRecords', 'saltSeedRecords', 'matchedOffBaselineRows',
 ]);
 const CO_PRIMARY_INPUT_KEYS = Object.freeze(['regretWeekDeltas', 'pairwiseWeekDeltas']);
 const E2_INPUT_KEYS = Object.freeze(['endpoints']);
@@ -110,8 +110,7 @@ const E2_ENDPOINT_INPUT_KEYS = Object.freeze(['key', 'weekDeltas']);
 const F_ENDPOINT_INPUT_KEYS = Object.freeze([
   'weekDeltas', 'subgroupRows', 'meanAbsBaseline', 'maxAbsBaseline', 'weekMeanAbsBaselines',
 ]);
-const F_VETO_INPUT_KEYS = Object.freeze(['subgroupPlayerWeeks', 'realizations']);
-const F_VETO_PLAYER_WEEK_KEYS = Object.freeze(['season', 'week', 'playerId']);
+const F_VETO_INPUT_KEYS = Object.freeze(['realizations']);
 const F_VETO_REALIZATION_KEYS = Object.freeze(['season', 'week', 'playerId', 'salt', 'incrementalError']);
 const CELL_INPUT_KEYS = Object.freeze(['a', 'b', 'c', 'd', 'e1', 'e2', 'f', 'activation', 'orderingSensitivity']);
 const ORDERING_SENSITIVITY_KEYS = Object.freeze(['contradicted', 'detail']);
@@ -231,7 +230,6 @@ function validateInputs(inputs, { label = '--inputs' } = {}) {
       }
       assertClosedKeys(cellInput.f.veto, F_VETO_INPUT_KEYS, `${cellLabel}.f.veto`);
       for (const [name, rows, keys] of [
-        ['subgroupPlayerWeeks', cellInput.f.veto.subgroupPlayerWeeks, F_VETO_PLAYER_WEEK_KEYS],
         ['realizations', cellInput.f.veto.realizations, F_VETO_REALIZATION_KEYS],
       ]) {
         if (!Array.isArray(rows)) throw new Error(`${cellLabel}.f.veto.${name}: must be an array`);
@@ -380,7 +378,7 @@ function controlBaselineClaim(cellMeta) {
   };
 }
 
-function assembleCellClaim(cellMeta, cellInput) {
+function assembleCellClaim(cellMeta, cellInput, derivedFVeto = null) {
   if (cellMeta.name === arms.CONTROL_CELL) {
     return controlBaselineClaim(cellMeta);
   }
@@ -393,7 +391,7 @@ function assembleCellClaim(cellMeta, cellInput) {
     d: evaluateCoPrimary('d', cellInput.d),
     e1: evaluateCoPrimary('e1', cellInput.e1),
     e2: evaluateE2(cellInput),
-    f: isOnCell ? arms.componentF({ f1: cellInput.f.f1, f2: cellInput.f.f2, veto: cellInput.f.veto }) : { applicable: false },
+    f: isOnCell ? arms.componentF({ f1: cellInput.f.f1, f2: cellInput.f.f2, veto: derivedFVeto }) : { applicable: false },
   };
   const activation = isOnCell
     ? arms.activationReportBothSeasons({
@@ -405,10 +403,16 @@ function assembleCellClaim(cellMeta, cellInput) {
   });
 }
 
-function componentFVetoRecords(cells) {
+function componentFVetoRecords(cells, { cohortRosterRows, matchedOffBaselineRows }) {
   return arms.ALL_CELLS
     .filter((cell) => cell.homeAway === 'on')
-    .map((cell) => ({ cellName: cell.name, ...cells[cell.name].f.veto }));
+    .map((cell) => ({
+      cellName: cell.name,
+      subgroupPlayerWeeks: cohortRosterRows.filter((row) => matchedOffBaselineRows.some((baseline) => baseline.cellName === cell.name
+        && Number(baseline.season) === Number(row.season) && Number(baseline.week) === Number(row.week)
+        && Number(baseline.playerId) === Number(row.playerId) && Number(baseline.baseline) <= 0)),
+      ...cells[cell.name].f.veto,
+    }));
 }
 
 function preflightFailureDetails(preflight) {
@@ -433,10 +437,10 @@ function buildReportFromInputs(inputs) {
   const evidence = sweepEvidence.validateEvidence(inputs.evidence);
   const preflight = sweepPreflight.runPreflight({
     ...inputs.preflight,
-    componentFVetoRecords: componentFVetoRecords(inputs.cells),
+    componentFVetoRecords: componentFVetoRecords(inputs.cells, inputs.preflight),
   });
   const cellClaims = preflight.passed
-    ? Object.fromEntries(arms.ALL_CELLS.map((cellMeta) => [cellMeta.name, assembleCellClaim(cellMeta, inputs.cells[cellMeta.name])]))
+    ? Object.fromEntries(arms.ALL_CELLS.map((cellMeta) => [cellMeta.name, assembleCellClaim(cellMeta, inputs.cells[cellMeta.name], componentFVetoRecords(inputs.cells, inputs.preflight).find((row) => row.cellName === cellMeta.name) || null)]))
     : unevaluatedCellClaims();
   const sweep = sweepInference.evaluateSweep({
     cellClaims,

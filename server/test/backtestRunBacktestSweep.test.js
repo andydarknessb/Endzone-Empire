@@ -49,15 +49,13 @@ const HEALTHY_F_ENDPOINT = Object.freeze({
 });
 
 function healthyFVeto() {
-  const subgroupPlayerWeeks = [{ season: 2025, week: 2, playerId: 1 }];
   return {
-    subgroupPlayerWeeks,
-    realizations: metrics.SALTS.map((salt) => ({ season: 2025, week: 2, playerId: 1, salt, incrementalError: 0.01 })),
+    realizations: metrics.SALTS.map((salt) => ({ season: 2025, week: 2, playerId: 7, salt, incrementalError: 0.01 })),
   };
 }
 
 function syntheticPreflight() {
-  const expectedPlayerWeeks = [{ season: 2025, week: 2, playerId: 7 }];
+  const cohortRosterRows = [{ season: 2025, week: 2, playerId: 7 }];
   const rawRun = () => ({
     projections: [{ playerId: 7, median: 12.5, p10: 4, factors: {} }],
     inputCutoff: '2025-09-01T00:00:00.000Z', sourceCoverage: { synthetic: true },
@@ -67,14 +65,16 @@ function syntheticPreflight() {
     leftPlayerIds: [7], rightPlayerIds: [7], leftRun: rawRun(), rightRun: rawRun(),
   }));
   return {
-    expectedPlayerWeeks,
+    cohortRosterRows,
     controlUsage25Records: records(),
     homeAwayStoredRecords: records(),
-    saltSeedCoordinates: [{ cellName: 'usage-25-off', season: 2025, week: 2, playerId: 7 }],
-    saltSeedRecords: [{
-      cellName: 'usage-25-off', season: 2025, week: 2, playerId: 7,
+    saltSeedRecords: arms.ALL_CELLS.map((cell) => ({
+      cellName: cell.name, season: 2025, week: 2, playerId: 7,
       seedsBySalt: Object.fromEntries(metrics.SALTS.map((salt, index) => [salt, index])),
-    }],
+    })),
+    matchedOffBaselineRows: arms.ALL_CELLS.filter((cell) => cell.homeAway === 'on').map((cell) => ({
+      cellName: cell.name, season: 2025, week: 2, playerId: 7, baseline: -1,
+    })),
   };
 }
 
