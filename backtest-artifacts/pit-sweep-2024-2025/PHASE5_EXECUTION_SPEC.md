@@ -2,7 +2,7 @@
 
 Study id: `pit-sweep-2024-2025` (same study as `PREREGISTRATION.md`).
 
-**Status: revision 16. NO APPROVALS ARE CURRENTLY IN FORCE FOR THIS
+**Status: revision 17. NO APPROVALS ARE CURRENTLY IN FORCE FOR THIS
 DOCUMENT. NOTHING IS AUTHORIZED - not candidate execution, and not Gate 2
 implementation work either.**
 
@@ -20,15 +20,38 @@ bytes were then overwritten by edits recording the approvals themselves,
 and no copy survives (the file was untracked at the time). Revision 13's
 successor blob (`0661eafc95...`, committed as an immutable anchor) was
 submitted for fresh independent statistical review and **REJECTED** on four
-blockers. **Revision 14 is this document's response to that rejection**, and
-requires its own fresh independent statistical review before any approval
-can attach to it.
+blockers. Revision 14 was that rejection's response; it was itself rejected,
+as was revision 15. **The current revision is 17**, and the full chain is
+recorded below and in `APPROVAL_LEDGER.md`.
 
 **Revision 14 was also REJECTED**, on five blockers, at blob
 `ee6800ecdb4484f5cc599ef6a67c1a77fc9f1068` (SHA-256 `49620ec2...`).
 **Revision 15 was also REJECTED**, on two substantive blockers plus
 documentary corrections, at blob `4f5f21a8bbb8b95c432816311f27bd1a7c2e6937`
-(SHA-256 `e507d0c4...`). **Revision 16 is the response to that rejection**,
+(SHA-256 `e507d0c4...`). Revision 16 was the response to that rejection;
+it too was REJECTED, on two blockers, at SHA-256 `8bd263cd...`.
+**Revision 17 is the response to THAT rejection**, and adds:
+
+- **Sections 1, 4.4, 7, preamble - all operative current-state language is
+  now revision 17, and EVERY approval question routes exclusively to
+  `APPROVAL_LEDGER.md`.** Revision 16 still described revision 14 as
+  current in two places, and still pointed two approval questions (the (f)
+  no-finite-bound amendment, and the S3 user sign-off) at the historical
+  section 10 - which the same document declares non-authoritative. Both
+  routings are corrected.
+- **Section 3.2 - the salted hash construction is RECLASSIFIED as a
+  substantive prospective amendment.** Prereg 8.1 fixes the 24 salt
+  strings and says salts "differ ONLY in the seed's `hashValue` input", but
+  does NOT fix how salt and scoring hash compose into that input. Order,
+  delimiter, and re-hashing alternatives are all consistent with the sealed
+  text and each sends `mulberry32` down a different trajectory - different
+  simulated medians, different salt-mean contrasts, potentially different
+  verdicts for a cell near a margin. The construction is now frozen
+  byte-exactly (hash first, single ASCII colon `0x3A`, salt second, no
+  re-hashing) with a pinned test vector, and is submitted for approval.
+
+**What revision 16 changed** (retained, and confirmed corrected by the
+revision-16 review):
 and requires its own fresh independent statistical review plus both user
 attestations.
 
@@ -173,12 +196,14 @@ Gate 3 verification (including the independent implementation review), and
 all four approvals are recorded, in `APPROVAL_LEDGER.md`, against the
 SAME approved revision of this document.
 
-**Authorization state as of revision 14: NOTHING IS AUTHORIZED.** Zero of
+**Authorization state as of revision 17: NOTHING IS AUTHORIZED.** Zero of
 the four approvals are in force. The three approvals once recorded against
 revision 13 attach to bytes that no longer exist and are void (preamble);
-revision 13's successor blob `0661eafc95...` was REJECTED; revision 14
-awaits its own fresh independent statistical review and, if that issues,
-the two user attestations. **Gate 2 implementation work is NOT currently
+revision 13's successor blob `0661eafc95...` was REJECTED (R1), as were
+revision 14 (`49620ec2...`, R2) and revision 15 (`e507d0c4...`, R3).
+**Revision 17 awaits all three fresh approvals**: its own independent
+statistical review and, if that issues, the two user attestations (the S3
+deviation and the remainder). **Gate 2 implementation work is NOT currently
 authorized** - implementation is paused - and candidate-cell execution is
 separately and additionally gated on the fourth approval (the independent
 implementation review of the resulting Gate 2 code), which cannot occur
@@ -211,14 +236,67 @@ assertions; `sweepEvaluator.js` (Gate 2) consumes these exports directly.
 every unsalted diagnostic, oracle-week fidelity check, and the control-only
 MDE.
 
-### 3.2 Salted derivation **[mechanical completion]**
+### 3.2 Salted derivation **[substantive prospective amendment]**
 
-**`hashValue(rules, salt) = model.scoringHash(rules) + ':' + salt`**, where
-`salt` is one of the 24 fixed strings from prereg 8.1 /
-`scripts/backtest/lib/metrics.js`'s `SALTS`. This flows unmodified into
+**Reclassified in revision 17.** Revisions 1-16 labeled this "mechanical
+completion" on the reasoning that the sealed text requires *some* salted
+derivation and this is the obvious one. That reasoning fails section 0's
+own criterion, for the same reason the permutation construction (section
+5.1) failed it: **the sealed text does not specify this construction, and
+different admissible constructions produce different seeds, hence different
+simulation draws, hence different metric values, hence potentially
+different cell verdicts.**
+
+Prereg 8.1 fixes the 24 salt STRINGS and states that "Salts differ ONLY in
+the seed's `hashValue` input". It does **not** fix how the salt and the
+scoring hash are combined into that input. Every one of the following is
+consistent with the sealed text and yields a different seed stream:
+
+- `scoringHash + ':' + salt` (adopted here)
+- `salt + ':' + scoringHash` (order reversed)
+- `scoringHash + '|' + salt`, or any other delimiter
+- `scoringHash + salt` (no delimiter at all)
+- `sha256(scoringHash + salt)`, or any other re-hash of the pair
+
+These are not cosmetic variants. `seedFrom` consumes the composed string,
+so each construction sends `mulberry32` down a different trajectory,
+producing different simulated medians for every player-week under every
+salt - and the 24-salt mean that becomes each week's contrast value moves
+with them. A cell sitting near a margin can therefore land on either side
+depending purely on this choice. **That is an outcome change, which makes
+this substantive regardless of how natural the adopted form looks**, and it
+is submitted for approval as part of this revision's scope.
+
+**Frozen construction, byte-exact:**
+
+```
+hashValue(rules, salt) = model.scoringHash(rules) + ":" + salt
+```
+
+- The scoring hash comes FIRST, the salt SECOND.
+- The delimiter is a single ASCII COLON, `0x3A`, exactly one of them.
+- No surrounding whitespace, no padding, no case transformation, and no
+  re-hashing of the composed string - the concatenation IS the value.
+- `salt` is one of the 24 fixed strings from prereg 8.1 /
+  `scripts/backtest/lib/metrics.js`'s `SALTS`, used verbatim.
+
+This flows unmodified into
 `seedFrom(modelVersion, scoringHashValue, season, week, playerId)`
 (`:1113`) -> `mulberry32` (`:333`), exactly as every existing caller already
 does with the unsalted value.
+
+**Why the colon is safe as a delimiter here**: `scoringHash` is a
+fixed-length lowercase hex digest and the salts match `pit-NN-[0-9a-f]{12}`,
+so neither operand can contain a colon and the composition is unambiguously
+parseable back into its two parts. A delimiter that could appear inside
+either operand would admit two different `(hash, salt)` pairs composing to
+the same string, which is why the choice is pinned rather than left open.
+
+**Required tests**: a pinned vector mapping a literal
+`(scoringHash, salt)` pair to its literal expected composed string, so a
+change of order, delimiter, or spacing fails loudly; and an assertion that
+the composed value is used verbatim as `seedFrom`'s `scoringHashValue`
+argument with no further transformation.
 
 ### 3.3 Salts are common-random-number replicates, not independent inferential units
 
@@ -330,9 +408,10 @@ through (e1)) can have one endpoint trigger while its sibling does not.
    arbitrary - but this is a genuine, defensible CHOICE among readings the
    sealed text leaves open, not something the sealed text forces, and is
    therefore **submitted for approval as an amendment** (adopted by this
-   draft, not yet approved - see section 10), alongside the AND rule and
-   the permutation-control definitions, rather than presented as if prereg
-   9.8 already said so. **For a NON-(f) component, no-finite-bound remains
+   draft, not yet approved - approvals are recorded EXCLUSIVELY in
+   `APPROVAL_LEDGER.md`, never in this document), alongside the AND rule
+   and the permutation-control definitions, rather than presented as if
+   prereg 9.8 already said so. **For a NON-(f) component, no-finite-bound remains
    `fail`** (prereg 9.1's unmodified default; no named exception applies
    there at all, sealed or amended).
 4. **Joint `x = -delta` / `margin* = -margin` negation for higher-is-better
@@ -948,7 +1027,9 @@ plainly that S3 was preregistered but is not reported, publishes the
 exclusion counts already tracked at roster construction as context (never
 as a substitute S3 result), and this is an explicit PROSPECTIVE DEVIATION
 from prereg 4.2's sensitivity requirement, requiring its own user sign-off**
-(section 10), distinct from the rest of this document's approval.
+- recorded EXCLUSIVELY in `APPROVAL_LEDGER.md`, never in this document -
+distinct from, and in addition to, the user attestation covering the
+remainder of this document.
 
 ---
 

@@ -100,6 +100,8 @@ did not approve must never occupy an approval row. Append only.)*
 
 | R3 | `PHASE5_EXECUTION_SPEC.md` rev 15 | `e507d0c453802cbf785402462de898a906ee8dc0667b844e0a9f4e900e97da15` (git blob `4f5f21a8bbb8b95c432816311f27bd1a7c2e6937`, anchored in commit `da4b205521e3662bbf3dd51388b643d8912c8af3`) | independent statistical review | 2026-08-03 | **REJECT** — two substantive blockers: (1) component (f) contradicted itself — the evaluability gate correctly used only the transformed `0.025` comparison, but other sections still mandated a `0.30` falsifiability-floor comparison; (2) component (f) veto status not total — one rule required independently retained `vetoed` while Level 3 ordered `missing > vetoed` with exactly one status, so a `missing` sibling endpoint silently masked a fired veto. Plus documentary corrections (stale revision-14 references, an obsolete instruction identifying `0661…` as current, and an over-broad "strictly more likely to veto" claim). **Passed review**: fully pinned permutation, not-applicable reducer behavior, median-aligned weekly bound, Cartesian completeness, substantive classifications, activation, selection, control baseline, identity assertions. **No approval row or user attestation was warranted for this blob.** |
 
+| R4 | `PHASE5_EXECUTION_SPEC.md` rev 16 | `8bd263cd133c7dcea533c7ae7bd2cc9efea1a3ec42340aa1fb4b9f467d7c4396` (git blob `9dc2a70dbd709a4fb4f5b65f91184a72493228e2`, anchored in commit `906dfe26667d237734d9eb8f253d8e89c0c27fd1`) | independent statistical review | 2026-08-03 | **REJECT** — two blockers: (1) revision and approval routing still contradictory — several sections called revision 14 current or awaiting review, and two approval questions still pointed at historical §10 despite the document declaring the external ledger solely authoritative; (2) the salted hash construction `scoringHash + ':' + salt` (§3.2) was misclassified as mechanical — it was never sealed, and delimiter/order alternatives produce different seeds and potentially different verdicts. **Confirmed corrected**: transformed `0.025` gate, disclosure-only `0.30`, independent catastrophic-veto flag, narrowed Cartesian comparison, total reducer, complete permutation, activation, selection, control baseline, identity assertions. **No approval row or user attestation was warranted for this blob.** |
+
 ### CORRECTIVE ENTRY — superseding obsolete "current bytes" instructions
 
 **Any instruction anywhere in this repository or its history that
@@ -112,12 +114,19 @@ file should ever be treated as "current"** — the current revision is
 whichever blob the most recent anchor commit carries, and it is identified
 there, not here. This file records what was REVIEWED, not what exists now.
 
-Revision 16 is the response to R3. **It is awaiting ALL THREE fresh
+Revision 17 is the response to R4. **It is awaiting ALL THREE fresh
 approvals** — the independent statistical review, the user's S3-deviation
 attestation, and the user's remainder attestation — none of which has been
 issued against it or against any predecessor whose bytes still exist. No
-approval attaches to revision 16 until each is issued and recorded in the
+approval attaches to revision 17 until each is issued and recorded in the
 approval rows below.
+
+**Approval routing is exclusive to this file.** No section of
+`PHASE5_EXECUTION_SPEC.md` records, supplies, evidences, or requests an
+approval; every approval question in that document routes here. A future
+edit that reintroduces an approval question pointing at the spec's own
+section 10 reintroduces the hash-invalidating practice this ledger exists
+to end.
 
 ---
 
