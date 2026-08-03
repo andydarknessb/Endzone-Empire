@@ -433,7 +433,7 @@ test('MUTATION TEST: exactSignTest is unevaluable when no finite inverted bound 
   // `inconclusive`, never `failed`/`fail`.
   const endpoint = arms.componentFEndpoint({
     weekDeltas: [arms.DELTA_F, arms.DELTA_F, ...new Array(6).fill(-0.01)],
-    subgroupRows: 40, meanAbsBaseline: 1.0, incrementalErrors: [],
+    subgroupRows: 40, meanAbsBaseline: 1.0, weekMeanAbsBaselines: new Array(8).fill(1.0),
   });
   assert.equal(endpoint.status, 'unevaluable');
   assert.equal(endpoint.claimVerdict, 'inconclusive');
@@ -443,7 +443,21 @@ test('MUTATION TEST: exactSignTest is unevaluable when no finite inverted bound 
 /** A healthy single endpoint: 8 clusters, 40 rows, a falsifiable baseline. */
 const HEALTHY_F = Object.freeze({
   weekDeltas: new Array(8).fill(-0.01), subgroupRows: 40, meanAbsBaseline: 1.0,
-  incrementalErrors: [0.01, 0.02],
+  weekMeanAbsBaselines: new Array(8).fill(1.0),
+});
+
+test('revision-18 pinned salt composition vector is byte-exact', () => {
+  const scoringHash = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+  const salt = 'pit-01-879c6f8eae4b';
+  assert.equal(
+    arms.composeSaltedHashValue({ scoringHash, salt }),
+    '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef:pit-01-879c6f8eae4b'
+  );
+  assert.throws(() => arms.composeSaltedHashValue({ scoringHash, salt: 'wrong' }), /24 preregistered salts/);
+});
+const HEALTHY_VETO = Object.freeze({
+  subgroupPlayerWeeks: [{ season: 2025, week: 2, playerId: 1 }],
+  realizations: metrics.SALTS.map((salt) => ({ season: 2025, week: 2, playerId: 1, salt, incrementalError: 0.01 })),
 });
 
 test('an (f) endpoint is UNEVALUABLE below the minimums, and that is INCONCLUSIVE, never a pass', () => {
@@ -469,69 +483,57 @@ test('an (f) endpoint is UNEVALUABLE below the minimums, and that is INCONCLUSIV
   assert.match(zeroRows.reason, /2024 cannot rescue sparse 2025 evidence/);
 });
 
-test('the falsifiability guard fires BEFORE the test is read', () => {
-  // If the realized mean |b| is at or below (delta_F - 0.01) / maxEffect =
-  // 0.30, the largest attainable delta (accounting for production's
-  // independent 2-decimal rounding of each median, PHASE5_EXECUTION_SPEC.md
-  // section 6.1) is at or below the margin, so noninferiority cannot be
-  // falsified and a pass would be an artefact of the scale.
-  assert.equal(arms.FALSIFIABILITY_FLOOR, 0.3);
-  const unfalsifiable = arms.componentFEndpoint({
-    weekDeltas: new Array(8).fill(-0.01), subgroupRows: 40, meanAbsBaseline: 0.3,
+test('component (f) uses the transformed weekly-median bound only', () => {
+  assert.equal(arms.FALSIFIABILITY_FLOOR, 0.3, '0.30 remains disclosure-only');
+  const pooledPassesButMedianFails = arms.componentFEndpoint({
+    ...HEALTHY_F, meanAbsBaseline: 1.0,
+    weekMeanAbsBaselines: [0.1, 0.1, 0.1, 0.1, 0.1, 10, 10, 10],
   });
-  assert.equal(unfalsifiable.status, 'unevaluable');
-  assert.equal(unfalsifiable.claimVerdict, 'inconclusive');
-  assert.match(unfalsifiable.reason, /cannot be falsified.*artefact of the scale/s);
-  // Just above the floor it becomes evaluable.
-  assert.equal(arms.componentFEndpoint({
-    weekDeltas: new Array(8).fill(-0.01), subgroupRows: 40, meanAbsBaseline: 0.31,
-  }).status, 'passed');
-  // A missing mean |b| cannot clear the guard either.
-  assert.equal(arms.componentFEndpoint({
-    weekDeltas: new Array(8).fill(-0.01), subgroupRows: 40, meanAbsBaseline: null,
-  }).claimVerdict, 'inconclusive');
-  // A boundary value that would misclassify under raw floating-point noise
-  // (rather than roundToTie normalization) must still land on the correct
-  // side (section 6.2).
-  assert.equal(arms.componentFEndpoint({
-    weekDeltas: new Array(8).fill(-0.01), subgroupRows: 40,
-    meanAbsBaseline: 0.3 + 1e-12,
-  }).status, 'unevaluable', 'a boundary value tied at ten decimals is still AT the floor');
+  assert.equal(pooledPassesButMedianFails.status, 'unevaluable');
+  assert.match(pooledPassesButMedianFails.reason, /median transformed weekly attainable bound/);
+  const pooledFailsButMedianPasses = arms.componentFEndpoint({
+    ...HEALTHY_F, meanAbsBaseline: 0.1,
+    weekMeanAbsBaselines: [1, 1, 1, 1, 1, 1, 1, 0.1],
+  });
+  assert.equal(pooledFailsButMedianPasses.status, 'passed');
+  const evenBoundary = arms.componentFEndpoint({
+    ...HEALTHY_F, weekMeanAbsBaselines: new Array(8).fill(0.3),
+  });
+  assert.equal(evenBoundary.status, 'unevaluable', 'even-week median equality is unfalsifiable');
+  assert.equal(evenBoundary.transparency.medianWeeklyBound, 0.025);
 });
 
 test('the disclosure threshold is corrected to 3.80, roundToTie-normalized', () => {
   assert.equal(arms.CATASTROPHIC_CAP_COULD_FIRE_THRESHOLD, 3.8);
   const atBoundary = arms.componentFEndpoint({
     weekDeltas: new Array(8).fill(-0.01), subgroupRows: 40, meanAbsBaseline: 1.0,
-    maxAbsBaseline: 3.8, incrementalErrors: [0.01],
+    maxAbsBaseline: 3.8, weekMeanAbsBaselines: new Array(8).fill(1.0),
   });
   assert.equal(atBoundary.transparency.catastrophicCapCouldFire, false, 'exactly AT the threshold, not above it');
   const justAbove = arms.componentFEndpoint({
     weekDeltas: new Array(8).fill(-0.01), subgroupRows: 40, meanAbsBaseline: 1.0,
-    maxAbsBaseline: 3.81, incrementalErrors: [0.01],
+    maxAbsBaseline: 3.81, weekMeanAbsBaselines: new Array(8).fill(1.0),
   });
   assert.equal(justAbove.transparency.catastrophicCapCouldFire, true);
 });
 
-test('the catastrophic cap is INCREMENTAL, and vetoes rather than rescues', () => {
+test('the catastrophic cap is Cartesian, complete, and independent of Level 3', () => {
   assert.equal(arms.CATASTROPHIC_CAP, 0.20);
-  const base = { weekDeltas: new Array(8).fill(-0.01), subgroupRows: 40, meanAbsBaseline: 1.0 };
-  // A pre-existing bad prediction cannot veto: only the INCREMENT versus the
-  // matched off-cell counts, so a row already 50 points wrong is irrelevant
-  // unless homeAway made it worse by more than the cap.
-  assert.equal(arms.componentFEndpoint({ ...base, incrementalErrors: [0.05, 0.19] }).status, 'passed');
-  const vetoed = arms.componentFEndpoint({ ...base, incrementalErrors: [0.05, 0.21] });
-  assert.equal(vetoed.status, 'vetoed');
-  assert.equal(vetoed.claimVerdict, 'fail');
-  assert.equal(vetoed.passes, false);
-  // The veto can never turn a FAILURE into a pass.
-  const failingAndVetoed = arms.componentFEndpoint({
-    ...base, weekDeltas: [...new Array(7).fill(-0.01), 0.5], incrementalErrors: [0.5],
-  });
-  assert.equal(failingAndVetoed.passes, false);
+  const oneSaltHarmful = {
+    ...HEALTHY_VETO,
+    realizations: HEALTHY_VETO.realizations.map((row, index) => ({ ...row, incrementalError: index === 0 ? 0.21 : 0.01 })),
+  };
+  const veto = arms.evaluateCatastrophicVeto(oneSaltHarmful);
+  assert.equal(veto.catastrophicVeto, true);
+  assert.equal(veto.realizationCount, 24);
+  assert.equal(veto.expectedCount, 24);
+  const missing = { ...HEALTHY_VETO, realizations: HEALTHY_VETO.realizations.slice(1) };
+  assert.throws(() => arms.evaluateCatastrophicVeto(missing), /incomplete player-week x salt coverage/);
+  const duplicate = { ...HEALTHY_VETO, realizations: [...HEALTHY_VETO.realizations, HEALTHY_VETO.realizations[0]] };
+  assert.throws(() => arms.evaluateCatastrophicVeto(duplicate), /duplicate composite key/);
 });
 
-test('MUTATION TEST: the veto is computed BEFORE evaluability, and overrides a would-be unevaluable', () => {
+test('MUTATION TEST: the Level-2 veto overrides a would-be unevaluable component', () => {
   // Independent implementation review finding: the veto previously ran LAST,
   // after three possible early `unevaluable` returns - so a catastrophic row
   // on an endpoint that was ALSO sparse, unfalsifiable, or exact-test-
@@ -541,29 +543,15 @@ test('MUTATION TEST: the veto is computed BEFORE evaluability, and overrides a w
   // evaluable." Each case below is independently sufficient to be
   // unevaluable on its own; the veto must still win in every one.
 
-  // Below the evaluability minimum (too few clusters) AND vetoed.
-  const belowMinimum = arms.componentFEndpoint({
-    weekDeltas: new Array(3).fill(-0.01), subgroupRows: 5, meanAbsBaseline: 1.0,
-    incrementalErrors: [0.21],
+  const veto = { ...HEALTHY_VETO, realizations: HEALTHY_VETO.realizations.map((row, i) => ({ ...row, incrementalError: i === 0 ? 0.21 : 0.01 })) };
+  const result = arms.componentF({ f1: { ...HEALTHY_F, subgroupRows: 5 }, f2: HEALTHY_F, veto });
+  assert.equal(result.status, 'unevaluable');
+  assert.equal(result.catastrophicVeto, true);
+  const claim = arms.evaluateClaim({
+    cell: 'usage-40-on',
+    components: { a: { passes: true }, b: { passes: true }, c: { passes: true }, d: { passes: true }, e1: { passes: true }, e2: { passes: true }, f: result },
   });
-  assert.equal(belowMinimum.status, 'vetoed');
-  assert.equal(belowMinimum.claimVerdict, 'fail');
-
-  // Below the falsifiability floor AND vetoed.
-  const unfalsifiable = arms.componentFEndpoint({
-    weekDeltas: new Array(8).fill(-0.01), subgroupRows: 40, meanAbsBaseline: 0.1,
-    incrementalErrors: [0.21],
-  });
-  assert.equal(unfalsifiable.status, 'vetoed');
-  assert.equal(unfalsifiable.claimVerdict, 'fail');
-
-  // Exact-test unevaluable (every week ties on the shifted margin) AND vetoed.
-  const tiedOut = arms.componentFEndpoint({
-    weekDeltas: new Array(8).fill(arms.DELTA_F), subgroupRows: 40, meanAbsBaseline: 1.0,
-    incrementalErrors: [0.21],
-  });
-  assert.equal(tiedOut.status, 'vetoed');
-  assert.equal(tiedOut.claimVerdict, 'fail');
+  assert.equal(claim.verdict, 'vetoed');
 });
 
 test('an (f) endpoint reports everything the transparency requirement names', () => {
@@ -574,8 +562,7 @@ test('an (f) endpoint reports everything the transparency requirement names', ()
     // falsifiability floor, so a favourable sign in that week is
     // structurally uninformative and the transparency block has to say how
     // much of k rests on it.
-    weekMeanAbsBaselines: [0.2, 0.3, 0.31, 3.0, null],
-    incrementalErrors: [0.01],
+    weekMeanAbsBaselines: [0.2, 0.3, 0.31, 3.0, 1, 1, 1, 1, 1],
   });
   assert.equal(result.status, 'passed');
   const t = result.transparency;
@@ -588,7 +575,7 @@ test('an (f) endpoint reports everything the transparency requirement names', ()
   // floor count. Neither may be a placeholder.
   assert.equal(t.maxAbsBaseline, 6.5);
   assert.equal(t.weeksBelowFalsifiabilityFloor, 2, '0.2 and 0.3 are at or below 0.30; 0.31 is not');
-  assert.equal(t.weeksWithBaseline, 4, 'the missing week is not counted as a zero baseline');
+  assert.equal(t.weeksWithBaseline, 9);
   assert.equal(t.catastrophicCapCouldFire, true, '6.5 exceeds 0.20 / 0.03');
   assert.equal(t.weekSignIndependenceAssumed, true,
     'the exact test rests on week-sign independence and says so');
@@ -606,7 +593,7 @@ test('component (f) runs BOTH preregistered endpoints and passes only if BOTH pa
   assert.deepEqual(arms.F_ENDPOINTS, { F1: 'f1-subgroup-mae', F2: 'f2-subgroup-absolute-bias' });
 
   // BOTH pass -> pass.
-  const both = arms.componentF({ f1: HEALTHY_F, f2: HEALTHY_F });
+  const both = arms.componentF({ f1: HEALTHY_F, f2: HEALTHY_F, veto: HEALTHY_VETO });
   assert.equal(both.status, 'passed');
   assert.equal(both.claimVerdict, 'pass');
   assert.equal(both.passes, true);
@@ -622,6 +609,7 @@ test('component (f) runs BOTH preregistered endpoints and passes only if BOTH pa
   const f2Fails = arms.componentF({
     f1: HEALTHY_F,
     f2: { ...HEALTHY_F, weekDeltas: new Array(8).fill(0.5) },
+    veto: HEALTHY_VETO,
   });
   assert.equal(f2Fails.status, 'failed');
   assert.equal(f2Fails.claimVerdict, 'fail');
@@ -634,6 +622,7 @@ test('component (f) runs BOTH preregistered endpoints and passes only if BOTH pa
   const f2Unevaluable = arms.componentF({
     f1: HEALTHY_F,
     f2: { ...HEALTHY_F, subgroupRows: 12 },
+    veto: HEALTHY_VETO,
   });
   assert.equal(f2Unevaluable.status, 'unevaluable');
   assert.equal(f2Unevaluable.claimVerdict, 'inconclusive');
@@ -642,10 +631,10 @@ test('component (f) runs BOTH preregistered endpoints and passes only if BOTH pa
 
   // Symmetric: the same failure on f1 is the same verdict, so neither endpoint
   // is privileged.
-  assert.equal(arms.componentF({ f1: { ...HEALTHY_F, subgroupRows: 12 }, f2: HEALTHY_F }).claimVerdict,
+  assert.equal(arms.componentF({ f1: { ...HEALTHY_F, subgroupRows: 12 }, f2: HEALTHY_F, veto: HEALTHY_VETO }).claimVerdict,
     'inconclusive');
   assert.equal(arms.componentF({
-    f1: { ...HEALTHY_F, weekDeltas: new Array(8).fill(0.5) }, f2: HEALTHY_F,
+    f1: { ...HEALTHY_F, weekDeltas: new Array(8).fill(0.5) }, f2: HEALTHY_F, veto: HEALTHY_VETO,
   }).claimVerdict, 'fail');
 });
 
@@ -653,21 +642,24 @@ test('component (f) combiner: a veto outranks an unevaluable endpoint', () => {
   // A veto is positive evidence of harm; unevaluable is merely absent
   // evidence. Missing evidence in one endpoint must never mask measured harm
   // in the other, so the combined status is vetoed/fail, not inconclusive.
+  const harmfulVeto = { ...HEALTHY_VETO, realizations: HEALTHY_VETO.realizations.map((row, i) => ({ ...row, incrementalError: i === 0 ? 0.21 : 0.01 })) };
   const vetoBeatsUnevaluable = arms.componentF({
     f1: { ...HEALTHY_F, subgroupRows: 12 },
-    f2: { ...HEALTHY_F, incrementalErrors: [0.21] },
+    f2: HEALTHY_F,
+    veto: harmfulVeto,
   });
-  assert.equal(vetoBeatsUnevaluable.status, 'vetoed');
-  assert.equal(vetoBeatsUnevaluable.claimVerdict, 'fail');
+  assert.equal(vetoBeatsUnevaluable.status, 'unevaluable');
+  assert.equal(vetoBeatsUnevaluable.catastrophicVeto, true);
   assert.equal(vetoBeatsUnevaluable.passes, false);
 
   // And in the mirrored order, so neither endpoint is privileged.
   const mirrored = arms.componentF({
-    f1: { ...HEALTHY_F, incrementalErrors: [0.21] },
+    f1: HEALTHY_F,
     f2: { ...HEALTHY_F, subgroupRows: 12 },
+    veto: harmfulVeto,
   });
-  assert.equal(mirrored.status, 'vetoed');
-  assert.equal(mirrored.claimVerdict, 'fail');
+  assert.equal(mirrored.status, 'unevaluable');
+  assert.equal(mirrored.catastrophicVeto, true);
 });
 
 test('component (f) cannot be run with only one endpoint', () => {
@@ -796,12 +788,12 @@ test('a NON-(f) component unevaluable for any reason is FAIL, never inconclusive
   assert.equal(fUnevaluable.verdict, 'inconclusive');
 });
 
-test('component (f) veto produces cell status VETOED, which outranks fail', () => {
+test('component (f) catastrophicVeto produces cell status VETOED, which outranks fail', () => {
   const pass = { passes: true };
   const all = { a: pass, b: pass, c: pass, d: pass, e1: pass, e2: pass, f: pass };
   const vetoed = arms.evaluateClaim({
     cell: 'usage-40-on',
-    components: { ...all, f: { status: 'vetoed', reason: 'incremental error exceeded the cap' } },
+    components: { ...all, f: { passes: true, catastrophicVeto: true, veto: { reason: 'incremental error exceeded the cap' } } },
   });
   assert.equal(vetoed.verdict, 'vetoed');
   assert.deepEqual(vetoed.vetoedReasons, ['f: incremental error exceeded the cap']);
@@ -809,15 +801,15 @@ test('component (f) veto produces cell status VETOED, which outranks fail', () =
   // vetoed outranks an independent fail elsewhere on the same cell.
   const vetoedAndFailed = arms.evaluateClaim({
     cell: 'usage-40-on',
-    components: { ...all, d: { passes: false }, f: { status: 'vetoed', reason: 'x' } },
+    components: { ...all, d: { passes: false }, f: { passes: true, catastrophicVeto: true, veto: { reason: 'x' } } },
   });
   assert.equal(vetoedAndFailed.verdict, 'vetoed');
 
-  // Only (f) may report vetoed.
+  // A Level-3 vetoed status is prohibited.
   assert.throws(() => arms.evaluateClaim({
     cell: 'usage-40-on',
     components: { ...all, a: { status: 'vetoed', reason: 'x' } },
-  }), /only component \(f\) may report status 'vetoed'/);
+  }), /never a Level-3 component status/);
 });
 
 test('any component wide-straddle produces cell status inconclusive', () => {

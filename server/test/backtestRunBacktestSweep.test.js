@@ -45,8 +45,15 @@ const HEALTHY_F_ENDPOINT = Object.freeze({
   meanAbsBaseline: 1.0,
   maxAbsBaseline: 2.0,
   weekMeanAbsBaselines: new Array(8).fill(1.0),
-  incrementalErrors: [0.01, 0.02],
 });
+
+function healthyFVeto() {
+  const subgroupPlayerWeeks = [{ season: 2025, week: 2, playerId: 1 }];
+  return {
+    subgroupPlayerWeeks,
+    realizations: metrics.SALTS.map((salt) => ({ season: 2025, week: 2, playerId: 1, salt, incrementalError: 0.01 })),
+  };
+}
 
 function treatedActivationInput() {
   const position = () => ({
@@ -79,7 +86,7 @@ function fullPassingInputs({ permutationControl = { regretP: 0.0001, pairwiseP: 
       d: passingCoPrimaryInput(),
       e1: passingCoPrimaryInput(),
       e2: passingE2Input(),
-      f: isOnCell ? { f1: HEALTHY_F_ENDPOINT, f2: HEALTHY_F_ENDPOINT } : null,
+      f: isOnCell ? { f1: HEALTHY_F_ENDPOINT, f2: HEALTHY_F_ENDPOINT, veto: healthyFVeto() } : null,
       activation: isOnCell ? treatedActivationInput() : null,
       // Prereg 5.2/16: null only for the control (no verdict to contradict).
       orderingSensitivity: isControlCell ? null : { contradicted: false, detail: null },

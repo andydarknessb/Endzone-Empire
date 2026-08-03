@@ -575,14 +575,35 @@ function dropWeeks({ series, evaluatedWeeks = EVALUATED_WEEKS, label = 'week dro
  * marginal distribution of projections and of actuals.
  */
 function buildPermutations({
-  cellSizes, draws = PERMUTATION_DRAWS, seed = PERMUTATION_SEED, label = 'permutation control',
+  cells, draws = PERMUTATION_DRAWS, seed = PERMUTATION_SEED, label = 'permutation control',
 }) {
   if (draws !== PERMUTATION_DRAWS) {
     throw new Error(
       `${label}: the preregistration fixes exactly ${PERMUTATION_DRAWS} permutations, not ${draws}`
     );
   }
-  const sizes = new Map(Object.entries(cellSizes).map(([k, v]) => [k, Number(v)]));
+  if (seed !== PERMUTATION_SEED) {
+    throw new Error(`${label}: the permutation seed is fixed at ${PERMUTATION_SEED}, not ${seed}`);
+  }
+  if (!cells || typeof cells !== 'object' || Array.isArray(cells)) {
+    throw new Error(`${label}: cells must map canonical season:week:position keys to playerId arrays`);
+  }
+  const members = new Map();
+  for (const [cellKey, playerIds] of Object.entries(cells)) {
+    if (!/^\d+:\d+:(QB|RB|WR|TE|K|DEF)$/.test(cellKey)) {
+      throw new Error(`${label}: cell key ${JSON.stringify(cellKey)} must be season:week:position`);
+    }
+    if (!Array.isArray(playerIds)) throw new Error(`${label}: ${cellKey} playerIds must be an array`);
+    const canonical = playerIds.map((playerId) => {
+      const id = Number(playerId);
+      if (!Number.isFinite(id)) throw new Error(`${label}: ${cellKey} has a non-numeric playerId`);
+      return id;
+    }).sort((a, b) => a - b);
+    if (new Set(canonical).size !== canonical.length) {
+      throw new Error(`${label}: ${cellKey} has duplicate playerId values; the cohort is malformed`);
+    }
+    members.set(cellKey, canonical);
+  }
 
   /**
    * Permutations are REGENERATED ON DEMAND rather than materialized.
@@ -620,8 +641,8 @@ function buildPermutations({
     if (!Number.isInteger(replicate) || replicate < 0 || replicate >= draws) {
       throw new Error(`${label}: replicate ${replicate} is outside 0..${draws - 1}`);
     }
-    if (!sizes.has(cellKey)) throw new Error(`${label}: unknown cell ${JSON.stringify(cellKey)}`);
-    const size = sizes.get(cellKey);
+    if (!members.has(cellKey)) throw new Error(`${label}: unknown cell ${JSON.stringify(cellKey)}`);
+    const size = members.get(cellKey).length;
     const rng = makeRng(seedFor(replicate, cellKey));
     const order = Array.from({ length: size }, (unused, i) => i);
     for (let i = size - 1; i > 0; i--) {
@@ -634,13 +655,27 @@ function buildPermutations({
   return {
     draws,
     seed,
-    cellKeys: [...sizes.keys()],
+    cellKeys: [...members.keys()],
+    seedFor,
+    canonicalPlayerIds(cellKey) {
+      if (!members.has(cellKey)) throw new Error(`${label}: unknown cell ${JSON.stringify(cellKey)}`);
+      return [...members.get(cellKey)];
+    },
     permutationFor,
     /** One replicate across every cell, for a caller that wants them together. */
     replicate(index) {
-      return Object.fromEntries([...sizes.keys()].map((k) => [k, permutationFor(index, k)]));
+      return Object.fromEntries([...members.keys()].map((k) => [k, permutationFor(index, k)]));
     },
   };
+}
+
+/** GATHER assignment: target player i receives the projection at source order[i]. */
+function gatherPermutedProjections({ playerIds, projections, order, label = 'permutation' }) {
+  if (!Array.isArray(playerIds) || !Array.isArray(projections) || !Array.isArray(order)
+    || playerIds.length !== projections.length || projections.length !== order.length) {
+    throw new Error(`${label}: playerIds, projections, and order must have the same array length`);
+  }
+  return playerIds.map((playerId, i) => ({ playerId, projected: projections[order[i]] }));
 }
 
 /**
@@ -769,6 +804,7 @@ module.exports = {
   movingBlockBootstrap,
   dropWeeks,
   buildPermutations,
+  gatherPermutedProjections,
   permutationPValue,
   assertPermutationControl,
   splitSaltSd,

@@ -117,8 +117,11 @@ const CO_PRIMARY_INPUT_KEYS = Object.freeze(['regretWeekDeltas', 'pairwiseWeekDe
 const E2_INPUT_KEYS = Object.freeze(['endpoints']);
 const E2_ENDPOINT_INPUT_KEYS = Object.freeze(['key', 'weekDeltas']);
 const F_ENDPOINT_INPUT_KEYS = Object.freeze([
-  'weekDeltas', 'subgroupRows', 'meanAbsBaseline', 'maxAbsBaseline', 'weekMeanAbsBaselines', 'incrementalErrors',
+  'weekDeltas', 'subgroupRows', 'meanAbsBaseline', 'maxAbsBaseline', 'weekMeanAbsBaselines',
 ]);
+const F_VETO_INPUT_KEYS = Object.freeze(['subgroupPlayerWeeks', 'realizations']);
+const F_VETO_PLAYER_WEEK_KEYS = Object.freeze(['season', 'week', 'playerId']);
+const F_VETO_REALIZATION_KEYS = Object.freeze(['season', 'week', 'playerId', 'salt', 'incrementalError']);
 const CELL_INPUT_KEYS = Object.freeze(['a', 'b', 'c', 'd', 'e1', 'e2', 'f', 'activation', 'orderingSensitivity']);
 const ORDERING_SENSITIVITY_KEYS = Object.freeze(['contradicted', 'detail']);
 
@@ -226,12 +229,23 @@ function validateInputs(inputs, { label = '--inputs' } = {}) {
 
     if (isOnCell) {
       if (!cellInput.f || typeof cellInput.f !== 'object') throw new Error(`${cellLabel}.f: must be an object for an "on" cell`);
-      assertClosedKeys(cellInput.f, ['f1', 'f2'], `${cellLabel}.f`);
+      assertClosedKeys(cellInput.f, ['f1', 'f2', 'veto'], `${cellLabel}.f`);
       for (const endpointKey of ['f1', 'f2']) {
         if (!cellInput.f[endpointKey] || typeof cellInput.f[endpointKey] !== 'object') {
           throw new Error(`${cellLabel}.f.${endpointKey}: must be an object`);
         }
         assertClosedKeys(cellInput.f[endpointKey], F_ENDPOINT_INPUT_KEYS, `${cellLabel}.f.${endpointKey}`);
+      }
+      if (!cellInput.f.veto || typeof cellInput.f.veto !== 'object') {
+        throw new Error(`${cellLabel}.f.veto: must contain the complete player-week x salt realization domain`);
+      }
+      assertClosedKeys(cellInput.f.veto, F_VETO_INPUT_KEYS, `${cellLabel}.f.veto`);
+      for (const [name, rows, keys] of [
+        ['subgroupPlayerWeeks', cellInput.f.veto.subgroupPlayerWeeks, F_VETO_PLAYER_WEEK_KEYS],
+        ['realizations', cellInput.f.veto.realizations, F_VETO_REALIZATION_KEYS],
+      ]) {
+        if (!Array.isArray(rows)) throw new Error(`${cellLabel}.f.veto.${name}: must be an array`);
+        for (const [index, row] of rows.entries()) assertClosedKeys(row || {}, keys, `${cellLabel}.f.veto.${name}[${index}]`);
       }
       if (!cellInput.activation || typeof cellInput.activation !== 'object') {
         throw new Error(`${cellLabel}.activation: must be an object for an "on" cell`);
@@ -389,7 +403,7 @@ function assembleCellClaim(cellMeta, cellInput) {
     d: evaluateCoPrimary('d', cellInput.d),
     e1: evaluateCoPrimary('e1', cellInput.e1),
     e2: evaluateE2(cellInput),
-    f: isOnCell ? arms.componentF({ f1: cellInput.f.f1, f2: cellInput.f.f2 }) : { applicable: false },
+    f: isOnCell ? arms.componentF({ f1: cellInput.f.f1, f2: cellInput.f.f2, veto: cellInput.f.veto }) : { applicable: false },
   };
   const activation = isOnCell
     ? arms.activationReportBothSeasons({

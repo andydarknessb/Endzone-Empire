@@ -397,52 +397,53 @@ test('weeks drop SYMMETRICALLY across candidate and comparator, and too many is 
 // The permutation control
 // ---------------------------------------------------------------------------
 
-test('the permutation control is EXACTLY 10,000 replicates, seeded and reusable', () => {
-  const cellSizes = { '2:QB': 4, '2:RB': 6 };
-  const built = metrics.buildPermutations({ cellSizes });
+test('the permutation control is EXACTLY 10,000 replicates, canonically seeded and reusable', () => {
+  const cells = { '2025:2:QB': [10, 2, 4, 1], '2025:2:RB': [8, 3, 7, 1, 2, 9] };
+  const built = metrics.buildPermutations({ cells });
   assert.equal(built.draws, 10000);
-  assert.throws(() => metrics.buildPermutations({ cellSizes, draws: 9999 }),
+  assert.throws(() => metrics.buildPermutations({ cells, draws: 9999 }),
     /fixes exactly 10000 permutations/);
+  assert.throws(() => metrics.buildPermutations({ cells, seed: 1 }), /seed is fixed at 940227589/);
 
   // Each replicate is a real permutation of each cell, not a resample.
   for (let d = 0; d < 50; d++) {
     const replicate = built.replicate(d);
-    assert.deepEqual([...replicate['2:QB']].sort((a, b) => a - b), [0, 1, 2, 3]);
-    assert.deepEqual([...replicate['2:RB']].sort((a, b) => a - b), [0, 1, 2, 3, 4, 5]);
+    assert.deepEqual([...replicate['2025:2:QB']].sort((a, b) => a - b), [0, 1, 2, 3]);
+    assert.deepEqual([...replicate['2025:2:RB']].sort((a, b) => a - b), [0, 1, 2, 3, 4, 5]);
   }
   // Seeded: the same build gives the same permutations, so ONE replicate can be
   // reused across all 24 salts and both endpoints.
-  const again = metrics.buildPermutations({ cellSizes });
+  const again = metrics.buildPermutations({ cells });
   assert.deepEqual(built.replicate(0), again.replicate(0));
   assert.deepEqual(built.replicate(9999), again.replicate(9999));
   // And they are not all the same permutation.
   const distinct = new Set(
-    Array.from({ length: 200 }, (unused, d) => built.permutationFor(d, '2:RB').join(','))
+    Array.from({ length: 200 }, (unused, d) => built.permutationFor(d, '2025:2:RB').join(','))
   );
   assert.ok(distinct.size > 1, 'the permutations actually differ');
 });
 
 test('permutations REGENERATE identically rather than being materialized', () => {
-  const cellSizes = { '2:QB': 4, '2:RB': 6 };
-  const built = metrics.buildPermutations({ cellSizes });
+  const cells = { '2025:2:QB': [1, 2, 3, 4], '2025:2:RB': [1, 2, 3, 4, 5, 6] };
+  const built = metrics.buildPermutations({ cells });
 
   // The requirement the array shape used to carry: ONE permutation per
   // replicate, reused across all 24 salts and both co-primary endpoints. With a
   // regenerable stream that identity is a property of the function, so ask for
   // the same coordinates repeatedly and out of order.
-  const first = built.permutationFor(7, '2:RB');
-  built.permutationFor(9998, '2:QB');
-  built.permutationFor(0, '2:RB');
-  assert.deepEqual(built.permutationFor(7, '2:RB'), first,
+  const first = built.permutationFor(7, '2025:2:RB');
+  built.permutationFor(9998, '2025:2:QB');
+  built.permutationFor(0, '2025:2:RB');
+  assert.deepEqual(built.permutationFor(7, '2025:2:RB'), first,
     'the same replicate and cell must yield the same permutation no matter what was asked between');
   // Independent of construction order too: a fresh builder, asked only for
   // replicate 7, must agree with one that walked the whole range.
-  assert.deepEqual(metrics.buildPermutations({ cellSizes }).permutationFor(7, '2:RB'), first);
+  assert.deepEqual(metrics.buildPermutations({ cells }).permutationFor(7, '2025:2:RB'), first);
 
   // Cells are independent draws, not one stream sliced - so the QB order is not
   // a function of the RB order.
-  const bigger = metrics.buildPermutations({ cellSizes: { '2:QB': 4, '2:RB': 6, '2:WR': 9 } });
-  assert.deepEqual(bigger.permutationFor(7, '2:RB'), first,
+  const bigger = metrics.buildPermutations({ cells: { ...cells, '2025:2:WR': [1, 2, 3, 4, 5, 6, 7, 8, 9] } });
+  assert.deepEqual(bigger.permutationFor(7, '2025:2:RB'), first,
     'adding a cell must not shift another cell permutations');
 
   // Independent means DIFFERENT, not merely unshifted. Two cells of the SAME
@@ -450,13 +451,14 @@ test('permutations REGENERATE identically rather than being materialized', () =>
   // seed ignored the cell key, every same-size cell in a replicate would be
   // shuffled identically, which correlates the null across positions and weeks
   // and quietly shrinks the permutation null's spread.
-  const twins = metrics.buildPermutations({ cellSizes: { '2:RB': 40, '2:WR': 40, '9:RB': 40 } });
+  const forty = Array.from({ length: 40 }, (unused, i) => i + 1);
+  const twins = metrics.buildPermutations({ cells: { '2025:2:RB': forty, '2025:2:WR': forty, '2025:9:RB': forty } });
   const seen = new Set();
   for (let d = 0; d < 25; d++) {
-    for (const cell of ['2:RB', '2:WR', '9:RB']) seen.add(`${d}|${twins.permutationFor(d, cell).join(',')}`);
-    assert.notDeepEqual(twins.permutationFor(d, '2:RB'), twins.permutationFor(d, '2:WR'),
+    for (const cell of ['2025:2:RB', '2025:2:WR', '2025:9:RB']) seen.add(`${d}|${twins.permutationFor(d, cell).join(',')}`);
+    assert.notDeepEqual(twins.permutationFor(d, '2025:2:RB'), twins.permutationFor(d, '2025:2:WR'),
       `replicate ${d}: same-size cells must draw independently`);
-    assert.notDeepEqual(twins.permutationFor(d, '2:RB'), twins.permutationFor(d, '9:RB'),
+    assert.notDeepEqual(twins.permutationFor(d, '2025:2:RB'), twins.permutationFor(d, '2025:9:RB'),
       `replicate ${d}: the same position in another week must draw independently`);
   }
   assert.equal(seen.size, 75, 'all 25 replicates x 3 cells are distinct permutations');
@@ -464,18 +466,35 @@ test('permutations REGENERATE identically rather than being materialized', () =>
   // Nothing is materialized: a cohort-scale cell count would be tens of
   // millions of integers if it were, and this must stay instant.
   const wide = {};
-  for (let w = 2; w <= 18; w++) for (const p of ['QB', 'RB', 'WR', 'TE', 'K', 'DEF']) wide[`${w}:${p}`] = 400;
+  for (let w = 2; w <= 18; w++) for (const p of ['QB', 'RB', 'WR', 'TE', 'K', 'DEF']) wide[`2025:${w}:${p}`] = Array.from({ length: 400 }, (unused, i) => i + 1);
   const t0 = Date.now();
-  const big = metrics.buildPermutations({ cellSizes: wide });
+  const big = metrics.buildPermutations({ cells: wide });
   assert.ok(Date.now() - t0 < 250, 'construction must not enumerate the replicates');
-  assert.equal(big.permutationFor(9999, '18:WR').length, 400);
+  assert.equal(big.permutationFor(9999, '2025:18:WR').length, 400);
 
   // The coordinates are validated, so a typo cannot silently return the wrong
   // permutation - or an undefined that Number() would turn into 0.
-  assert.throws(() => built.permutationFor(10000, '2:QB'), /outside 0\.\.9999/);
-  assert.throws(() => built.permutationFor(-1, '2:QB'), /outside 0\.\.9999/);
-  assert.throws(() => built.permutationFor(1.5, '2:QB'), /outside 0\.\.9999/);
-  assert.throws(() => built.permutationFor(0, '2:XX'), /unknown cell/);
+  assert.throws(() => built.permutationFor(10000, '2025:2:QB'), /outside 0\.\.9999/);
+  assert.throws(() => built.permutationFor(-1, '2025:2:QB'), /outside 0\.\.9999/);
+  assert.throws(() => built.permutationFor(1.5, '2025:2:QB'), /outside 0\.\.9999/);
+  assert.throws(() => built.permutationFor(0, '2025:2:XX'), /unknown cell/);
+});
+
+test('the permutation transition, seed, canonical order, and GATHER direction are pinned', () => {
+  const rng = metrics.makeRng(123456789);
+  assert.deepEqual([rng(), rng(), rng(), rng(), rng()], [
+    0.2577907438389957, 0.9707721115555614, 0.7853280142880976, 0.20616457983851433, 0.30307188746519387,
+  ]);
+  const built = metrics.buildPermutations({ cells: { '2025:9:RB': [10, 2, 9, 1] } });
+  assert.equal(built.seedFor(17, '2025:9:RB'), 544340815);
+  assert.deepEqual(built.canonicalPlayerIds('2025:9:RB'), [1, 2, 9, 10]);
+  const order = built.permutationFor(17, '2025:9:RB');
+  assert.deepEqual(order, [1, 0, 2, 3]);
+  assert.deepEqual(
+    metrics.gatherPermutedProjections({ playerIds: [1, 2, 9, 10], projections: ['a', 'b', 'c', 'd'], order }),
+    [{ playerId: 1, projected: 'b' }, { playerId: 2, projected: 'a' }, { playerId: 9, projected: 'c' }, { playerId: 10, projected: 'd' }]
+  );
+  assert.throws(() => metrics.buildPermutations({ cells: { '2025:2:QB': [1, 1] } }), /duplicate playerId/);
 });
 
 test('the plus-one Monte Carlo p-value can never report zero evidence as certainty', () => {

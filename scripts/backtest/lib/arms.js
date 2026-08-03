@@ -205,6 +205,15 @@ function assertDistinctConstants({ cells, label = 'arms' }) {
 // Salts (prereg 8.1)
 // ---------------------------------------------------------------------------
 
+/** Revision-18 §3.2: scoring hash first, one ASCII colon, then the fixed salt. */
+function composeSaltedHashValue({ scoringHash, salt, label = 'salted hashValue' }) {
+  if (typeof scoringHash !== 'string' || !/^[0-9a-f]+$/.test(scoringHash)) {
+    throw new Error(`${label}: scoringHash must be a lowercase hexadecimal string`);
+  }
+  if (!SALTS.includes(salt)) throw new Error(`${label}: salt must be one of the 24 preregistered salts`);
+  return `${scoringHash}:${salt}`;
+}
+
 /**
  * Fail loud unless a salted run differs from its unsalted twin ONLY in
  * `hashValue`.
@@ -835,7 +844,6 @@ function componentFEndpoint({
   meanAbsBaseline,
   maxAbsBaseline = null,
   weekMeanAbsBaselines = [],
-  incrementalErrors = [],
   margin = DELTA_F,
   alpha = COMPONENT_ALPHA,
   label = 'component (f)',
@@ -875,32 +883,7 @@ function componentFEndpoint({
     weekSignIndependenceAssumed: true,
   });
 
-  // (i) The catastrophic VETO, defined INCREMENTALLY versus the matched
-  //     off-cell so a pre-existing bad prediction cannot falsely veto
-  //     homeAway. **Computed FIRST, before either the evaluability minimum
-  //     or the falsifiability guard** (PHASE5_EXECUTION_SPEC.md section 6.4;
-  //     independent implementation review finding - this check previously
-  //     ran LAST, after three possible early `unevaluable` returns, which
-  //     meant a genuinely catastrophic row could never veto an endpoint that
-  //     was ALSO sparse or unfalsifiable, contradicting the sealed "vetoes
-  //     the cell immediately, regardless of whether either endpoint would
-  //     otherwise have been evaluable"). A veto can never turn a failure
-  //     into a pass, but it CAN and must override a would-be unevaluable.
-  const vetoRows = incrementalErrors.filter(
-    (inc) => isFiniteNumber(inc) && roundToTie(Number(inc)) > roundToTie(CATASTROPHIC_CAP)
-  );
-  if (vetoRows.length > 0) {
-    return {
-      endpoint,
-      status: 'vetoed',
-      claimVerdict: 'fail',
-      reason: `${vetoRows.length} subgroup row(s) increased absolute error by more than `
-        + `${CATASTROPHIC_CAP} versus the matched off-cell`,
-      passes: false,
-      transparency: transparency(),
-    };
-  }
-  // (ii) The evaluability MINIMUM: at least 8 distinct 2025 clusters AND at
+  // (i) The evaluability MINIMUM: at least 8 distinct 2025 clusters AND at
   //     least 30 subgroup rows.
   if (clusters < MIN_F_CLUSTERS || subgroupRows < MIN_F_ROWS) {
     return {
@@ -914,21 +897,32 @@ function componentFEndpoint({
       transparency: transparency(),
     };
   }
-  // (iii) The FALSIFIABILITY GUARD, which fires BEFORE the test is read: if the
-  //      realized mean |b| is at or below delta_F / maxEffect, the largest
-  //      attainable delta is at or below the margin and noninferiority cannot
-  //      be falsified.
-  if (!isFiniteNumber(meanAbsBaseline)
-    || roundToTie(Number(meanAbsBaseline)) <= roundToTie(FALSIFIABILITY_FLOOR)) {
+  // (ii) The falsifiability guard is the median of the transformed WEEKLY
+  // bounds. The pooled 0.30 quantity remains disclosure-only.
+  if (!Array.isArray(weekMeanAbsBaselines) || weekMeanAbsBaselines.length !== clusters
+    || weekMeanAbsBaselines.some((value) => !isFiniteNumber(value))) {
     return {
       endpoint,
       status: 'unevaluable',
       claimVerdict: 'inconclusive',
-      reason: `the realized mean |b| is ${meanAbsBaseline}, at or below ${FALSIFIABILITY_FLOOR}. The `
-        + `maximum attainable per-week delta is then at or below the margin ${margin}, so `
-        + 'noninferiority cannot be falsified and a pass would be an artefact of the scale.',
+      reason: 'the qualifying-week mean |b| series is missing, non-finite, or misaligned with weekDeltas',
       passes: false,
       transparency: transparency(),
+    };
+  }
+  const weeklyBounds = weekMeanAbsBaselines.map((value) => MAX_EFFECT * Number(value) + 0.01).sort((a, b) => a - b);
+  const middle = weeklyBounds.length / 2;
+  const medianWeeklyBound = weeklyBounds.length % 2 === 1
+    ? weeklyBounds[Math.floor(middle)] : (weeklyBounds[middle - 1] + weeklyBounds[middle]) / 2;
+  if (roundToTie(medianWeeklyBound) <= roundToTie(DELTA_F)) {
+    return {
+      endpoint,
+      status: 'unevaluable',
+      claimVerdict: 'inconclusive',
+      reason: `the median transformed weekly attainable bound is ${medianWeeklyBound}, at or below ${DELTA_F}; `
+        + 'noninferiority cannot be falsified and a pass would be an artefact of the scale.',
+      passes: false,
+      transparency: { ...transparency(), weeklyBounds, medianWeeklyBound, qualifyingWeekCount: clusters },
     };
   }
   const test = exactSignTest({ weekDeltas, margin, alpha, label: where });
@@ -940,7 +934,7 @@ function componentFEndpoint({
       reason: test.reason,
       passes: false,
       test,
-      transparency: transparency(),
+      transparency: { ...transparency(), weeklyBounds, medianWeeklyBound, qualifyingWeekCount: clusters },
     };
   }
   return {
@@ -951,7 +945,7 @@ function componentFEndpoint({
     passes: test.passes,
     test,
     transparency: {
-      ...transparency(),
+      ...transparency(), weeklyBounds, medianWeeklyBound, qualifyingWeekCount: clusters,
       nonTiedWeeks: test.n,
       k: test.k,
       exactP: test.p,
@@ -962,6 +956,52 @@ function componentFEndpoint({
 
 /** The two preregistered endpoints of component (f) (prereg 9.8). */
 const F_ENDPOINTS = Object.freeze({ F1: 'f1-subgroup-mae', F2: 'f2-subgroup-absolute-bias' });
+
+/** Verify the complete player-week x salt domain before a catastrophic-veto reduction. */
+function assertVetoRealizationCoverage({ subgroupPlayerWeeks, realizations, label = 'component (f) veto' }) {
+  if (!Array.isArray(subgroupPlayerWeeks) || !Array.isArray(realizations)) {
+    throw new Error(`${label}: subgroupPlayerWeeks and realizations arrays are required`);
+  }
+  const playerWeekKey = ({ season, week, playerId }) => `${season}:${week}:${playerId}`;
+  const expectedPlayerWeeks = new Set();
+  for (const row of subgroupPlayerWeeks) {
+    if (!row || !Number.isInteger(Number(row.season)) || !Number.isInteger(Number(row.week))
+      || !Number.isFinite(Number(row.playerId))) {
+      throw new Error(`${label}: every subgroup player-week requires finite season, week, and playerId`);
+    }
+    const key = playerWeekKey(row);
+    if (expectedPlayerWeeks.has(key)) throw new Error(`${label}: duplicate subgroup player-week ${key}`);
+    expectedPlayerWeeks.add(key);
+  }
+  const expected = new Set([...expectedPlayerWeeks].flatMap((key) => SALTS.map((salt) => `${key}:${salt}`)));
+  const actual = new Set();
+  for (const row of realizations) {
+    if (!row || !SALTS.includes(row.salt) || !isFiniteNumber(row.incrementalError)) {
+      throw new Error(`${label}: every realization requires a preregistered salt and finite incrementalError`);
+    }
+    const key = `${playerWeekKey(row)}:${row.salt}`;
+    if (actual.has(key)) throw new Error(`${label}: duplicate composite key ${key}`);
+    actual.add(key);
+  }
+  const missing = [...expected].filter((key) => !actual.has(key));
+  const unexpected = [...actual].filter((key) => !expected.has(key));
+  if (missing.length > 0 || unexpected.length > 0) {
+    throw new Error(`${label}: incomplete player-week x salt coverage; missing ${missing.length}, unexpected ${unexpected.length}`);
+  }
+  return { expectedCount: expected.size, realizationCount: actual.size, complete: true };
+}
+
+function evaluateCatastrophicVeto({ subgroupPlayerWeeks, realizations, label = 'component (f) veto' }) {
+  const coverage = assertVetoRealizationCoverage({ subgroupPlayerWeeks, realizations, label });
+  const harmful = realizations.filter((row) => roundToTie(Number(row.incrementalError)) > roundToTie(CATASTROPHIC_CAP));
+  return {
+    ...coverage,
+    catastrophicVeto: harmful.length > 0,
+    reason: harmful.length > 0
+      ? `${harmful.length} player-week x salt realization(s) increased absolute error by more than ${CATASTROPHIC_CAP}`
+      : null,
+  };
+}
 
 /**
  * Component (f): BOTH endpoints, combined.
@@ -977,14 +1017,14 @@ const F_ENDPOINTS = Object.freeze({ F1: 'f1-subgroup-mae', F2: 'f2-subgroup-abso
  * inputs are required BY NAME here - the single-endpoint mistake is not
  * representable rather than merely discouraged.
  *
- * Combination, in precedence order:
- *   - VETOED in either endpoint -> vetoed, claim FAILS. A veto outranks an
- *     unevaluable endpoint because it is positive evidence of harm, whereas
- *     unevaluable is absent evidence;
+ * Combination, in Level-3 precedence order:
+ *   - the independently computed Cartesian catastrophic-veto flag is retained
+ *     for Level 2; it is never a Level-3 status and cannot be masked by an
+ *     unevaluable endpoint;
  *   - UNEVALUABLE in either -> unevaluable, claim INCONCLUSIVE;
  *   - passes ONLY if BOTH endpoints pass.
  */
-function componentF({ f1, f2, label = 'component (f)' }) {
+function componentF({ f1, f2, veto, label = 'component (f)' }) {
   for (const [name, input] of [['f1', f1], ['f2', f2]]) {
     if (!input || typeof input !== 'object') {
       throw new Error(
@@ -994,23 +1034,13 @@ function componentF({ f1, f2, label = 'component (f)' }) {
       );
     }
   }
+  const vetoResult = evaluateCatastrophicVeto({ ...veto, label: `${label} veto` });
   const results = {
     [F_ENDPOINTS.F1]: componentFEndpoint({ ...f1, endpoint: F_ENDPOINTS.F1, label }),
     [F_ENDPOINTS.F2]: componentFEndpoint({ ...f2, endpoint: F_ENDPOINTS.F2, label }),
   };
   const each = Object.values(results);
 
-  const vetoed = each.filter((r) => r.status === 'vetoed');
-  if (vetoed.length > 0) {
-    return {
-      status: 'vetoed',
-      claimVerdict: 'fail',
-      passes: false,
-      reason: vetoed.map((r) => `${r.endpoint}: ${r.reason}`).join('; '),
-      endpoints: results,
-      transparency: each.map((r) => r.transparency),
-    };
-  }
   const unevaluable = each.filter((r) => r.status === 'unevaluable');
   if (unevaluable.length > 0) {
     return {
@@ -1020,6 +1050,8 @@ function componentF({ f1, f2, label = 'component (f)' }) {
       reason: unevaluable.map((r) => `${r.endpoint}: ${r.reason}`).join('; '),
       endpoints: results,
       transparency: each.map((r) => r.transparency),
+      catastrophicVeto: vetoResult.catastrophicVeto,
+      veto: vetoResult,
     };
   }
   const passes = each.every((r) => r.passes);
@@ -1032,6 +1064,8 @@ function componentF({ f1, f2, label = 'component (f)' }) {
         .map((r) => `${r.endpoint} did not clear noninferiority`).join('; '),
     endpoints: results,
     transparency: each.map((r) => r.transparency),
+    catastrophicVeto: vetoResult.catastrophicVeto,
+    veto: vetoResult,
   };
 }
 
@@ -1136,8 +1170,8 @@ function coPrimaryComponent({
  *   - activation shortfall, `on`-cells only -> inconclusive (prereg 11.2),
  *     passed in via the optional `activation` parameter;
  *   - a component `failed` -> fail (prereg 9.1);
- *   - component (f) veto fires (`component.status === 'vetoed'`) -> vetoed
- *     (prereg 9.8, section 6.4) - the one cell-level outcome outside
+ *   - component (f) `catastrophicVeto` fires independently of its Level-3
+ *     status -> vetoed (prereg 9.8, section 6.4) - the one cell-level outcome outside
  *     fail/inconclusive/pass, and the only one that outranks a `fail`.
  */
 /**
@@ -1243,14 +1277,11 @@ function evaluateClaim({
       continue;
     }
     if (component.status === 'vetoed') {
-      if (key !== 'f') {
-        throw new Error(`${label}: only component (f) may report status 'vetoed', got it from ${key}`);
-      }
-      results[key] = {
-        status: 'vetoed', passes: false, reason: component.reason, evidence: buildEvidence(key, component),
-      };
-      vetoedReasons.push(`${key}: ${component.reason || 'vetoed'}`);
-      continue;
+      throw new Error(`${label}: vetoed is a Level-2 flag, never a Level-3 component status`);
+    }
+    if (component.catastrophicVeto === true) {
+      if (key !== 'f') throw new Error(`${label}: only component (f) may set catastrophicVeto`);
+      vetoedReasons.push(`${key}: ${component.veto && component.veto.reason || 'catastrophic veto'}`);
     }
     if (component.status === 'unevaluable') {
       results[key] = {
@@ -1560,6 +1591,7 @@ module.exports = {
   assertNoCrossSeason,
   assertDistinctConstants,
   buildFamily,
+  composeSaltedHashValue,
   assertSaltAffectsOnlyHashValue,
   assertSaltsProduceDistinctSeeds,
   assertNoDuplicateRawIds,
@@ -1580,6 +1612,8 @@ module.exports = {
   exactSignTest,
   F_ENDPOINTS,
   componentFEndpoint,
+  assertVetoRealizationCoverage,
+  evaluateCatastrophicVeto,
   componentF,
   coPrimaryComponent,
   evaluateClaim,
