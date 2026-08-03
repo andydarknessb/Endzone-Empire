@@ -78,33 +78,14 @@ function syntheticPreflight() {
   };
 }
 
-function syntheticEvidence(permutationControl = syntheticPermutationControl()) {
-  const estimate = (key, point = 0) => ({
-    key, status: 'estimated', point, lower: point - 0.01, upper: point + 0.01,
-    weeks: metrics.EVALUATED_WEEKS.map((week) => ({ week, value: point })), reason: null,
-  });
-  const metricRows = (point) => sweepEvidence.METRIC_KEYS.map((key, index) => estimate(key, point + index * 0.001));
-  const position = { eligible: 1, activated: 1, excludedIneligible: 0, rate: 1 };
+function syntheticEvidence() {
+  const weekly = (point) => metrics.EVALUATED_WEEKS.map((week) => ({ week, value: point + (week - 2) * 0.0001 }));
   return {
-    cells: arms.ALL_CELLS.map((cell, index) => ({ cell: cell.name, absoluteMetrics: metricRows(1 + index), pairedDeltas: metricRows(index * 0.01) })),
-    movingBlock: arms.ALL_CELLS.flatMap((cell) => sweepEvidence.METRIC_KEYS.flatMap((key) => metrics.MOVING_BLOCK_LENGTHS.map((blockLength) => ({ cell: cell.name, key, blockLength, point: 0, lower: -0.01, upper: 0.01 })))),
-    attribution: sweepEvidence.ATTRIBUTION_CELL_NAMES.flatMap((cell) => sweepEvidence.METRIC_KEYS.map((key) => ({ cell, key, usageMain: estimate(key, 0.01), homeAwayMain: estimate(key, 0.02), interaction: estimate(key, 0.03) }))),
-    diagnostics: {
-      controlNaive: metricRows(-0.1), usageSignal: metricRows(0.1),
-      permutation: (() => {
-        const failed = permutationControl.observations[0].actual === 0;
-        return {
-          seed: metrics.PERMUTATION_SEED,
-          replicates: metrics.PERMUTATION_DRAWS,
-          regretStatistic: failed ? -1 : 0,
-          regretPValue: failed ? 1 : 1 / (metrics.PERMUTATION_DRAWS + 1),
-          pairwiseStatistic: failed ? 0 : 1,
-          pairwisePValue: failed ? 1 : 1 / (metrics.PERMUTATION_DRAWS + 1),
-        };
-      })(),
-    },
-    activationProfiles: sweepEvidence.ON_CELL_NAMES.flatMap((cell) => ['2025', '2024'].flatMap((season) => metrics.EVALUATED_WEEKS.map((week) => ({ cell, season, week, positions: Object.fromEntries(metrics.MACRO_POSITIONS.map((key) => [key, { ...position }])) })))),
-    activationAggregates: sweepEvidence.ON_CELL_NAMES.flatMap((cell) => ['2025', '2024'].map((season) => ({ cell, season, positions: Object.fromEntries(metrics.MACRO_POSITIONS.map((key) => [key, { eligible: 17, activated: 17, excludedIneligible: 0, rate: 1 }])) }))),
+    metricWeeks: arms.ALL_CELLS.flatMap((cell, cellIndex) => ['absolute', 'paired-delta'].flatMap((estimand) => sweepEvidence.METRIC_KEYS.flatMap((endpoint, index) => weekly((estimand === 'absolute' ? 1 + cellIndex : cellIndex * 0.01) + index * 0.001).map(({ week, value }) => ({ season: '2025', scoringProfile: 'standard', cell: cell.name, endpoint, estimand, week, value }))))),
+    movingBlockWeeks: arms.ALL_CELLS.flatMap((cell) => metrics.MOVING_BLOCK_LENGTHS.flatMap((blockLength) => sweepEvidence.METRIC_KEYS.flatMap((endpoint) => weekly(0).map(({ week, value }) => ({ season: '2025', scoringProfile: 'standard', cell: cell.name, endpoint, estimand: 'absolute', sensitivity: `moving-block-${blockLength}`, week, value }))))),
+    attributionWeeks: sweepEvidence.ATTRIBUTION_CELL_NAMES.flatMap((cell) => ['usage-main', 'home-away-main', 'interaction'].flatMap((estimand, estimateIndex) => sweepEvidence.METRIC_KEYS.flatMap((endpoint) => weekly(0.01 + estimateIndex * 0.01).map(({ week, value }) => ({ season: '2025', scoringProfile: 'standard', cell, endpoint, estimand, week, value }))))),
+    diagnosticWeeks: ['control-naive', 'usage-signal'].flatMap((estimand, estimateIndex) => sweepEvidence.METRIC_KEYS.flatMap((endpoint) => weekly(-0.1 + estimateIndex * 0.2).map(({ week, value }) => ({ season: '2025', scoringProfile: 'standard', endpoint, estimand, week, value })))),
+    activationWeeks: sweepEvidence.ON_CELL_NAMES.flatMap((cell) => ['2025', '2024'].flatMap((season) => metrics.EVALUATED_WEEKS.flatMap((week) => metrics.MACRO_POSITIONS.map((position) => ({ cell, season, scoringProfile: 'standard', week, position, eligible: 1, activated: 1, excludedIneligible: 0 }))))),
   };
 }
 
@@ -125,7 +106,7 @@ function treatedActivationInput() {
     factors: { homeAway: { available: true, effect: 0.02 } },
   });
   const oneSeason = () => Object.fromEntries(
-    metrics.MACRO_POSITIONS.map((p) => [p, Array.from({ length: 20 }, position)])
+    metrics.MACRO_POSITIONS.map((p) => [p, Array.from({ length: 17 }, position)])
   );
   return {
     // Prereg 11.2: activation is checked once per season, independently.
@@ -156,6 +137,12 @@ function fullPassingInputs({ permutationControl = syntheticPermutationControl() 
       orderingSensitivity: isControlCell ? null : { contradicted: false, detail: null },
     };
   }
+  const evidence = syntheticEvidence();
+  for (const row of evidence.metricWeeks) {
+    if (row.estimand === 'paired-delta' && ['regret', 'pairwise'].includes(row.endpoint)) {
+      row.value = cells[row.cell].a[row.endpoint === 'regret' ? 'regretWeekDeltas' : 'pairwiseWeekDeltas'][row.week];
+    }
+  }
   return {
     studyId: 'pit-sweep-2024-2025',
     canariesPassed: true,
@@ -164,7 +151,7 @@ function fullPassingInputs({ permutationControl = syntheticPermutationControl() 
     orderingDisagreement: false,
     deployedPolicyDisagreement: false,
     cells,
-    evidence: syntheticEvidence(permutationControl),
+    evidence,
   };
 }
 
@@ -301,6 +288,9 @@ test('main(): an UNEVALUABLE endpoint still publishes its n, k, p, bound, and tr
   const dropped = variedSeries(-1, 0.6);
   delete dropped[2]; delete dropped[3]; delete dropped[4];
   inputs.cells['usage-40-off'].a.regretWeekDeltas = dropped;
+  for (const row of inputs.evidence.metricWeeks) {
+    if (row.cell === 'usage-40-off' && row.estimand === 'paired-delta' && row.endpoint === 'regret' && [2, 3, 4].includes(row.week)) row.value = { nonfinite: '+Infinity' };
+  }
   const inputsPath = path.join(dir, 'inputs.json');
   fs.writeFileSync(inputsPath, JSON.stringify(inputs));
   runBacktestSweep.main([
@@ -369,6 +359,12 @@ test('main(): a comfortably-passing inputs document produces a VALID run with a 
   assert.match(markdown, /Outcome: \*\*selected\*\*/);
   assert.match(markdown, /## Descriptive evidence/);
   assert.match(markdown, /Permutation: seed=940227589, replicates=10000/);
+  assert.match(markdown, /### Eight-cell metrics/);
+  assert.match(markdown, /\| 2025 \| standard \| usage-25-off \| absolute \| regret \|/);
+  assert.match(markdown, /### Moving-block sensitivity/);
+  assert.match(markdown, /### Attribution composites/);
+  assert.match(markdown, /### Activation aggregates/);
+  assert.doesNotMatch(markdown, /Eight-cell metrics: \d+/);
 
   // Independent implementation review finding: the report previously
   // discarded component (f) transparency, bootstrap n/CI, and per-season
@@ -384,6 +380,9 @@ test('main(): a comfortably-passing inputs document produces a VALID run with a 
   const fTransparency = onCell.components.f.evidence.transparency;
   assert.equal(fTransparency.length, 2, 'f1 and f2, per prereg 9.8');
   assert.ok(fTransparency.every((t) => typeof t.subgroupRows === 'number' && typeof t.meanAbsBaseline === 'number'));
+  assert.ok(fTransparency.every((t) => Array.isArray(t.weeklyBounds) && typeof t.medianWeeklyBound === 'number' && typeof t.qualifyingWeekCount === 'number'));
+  assert.equal(onCell.components.f.evidence.veto.complete, true);
+  assert.equal(onCell.components.f.evidence.veto.expectedCount, onCell.components.f.evidence.veto.realizationCount);
   assert.ok(onCell.activation.bySeason['2025'].byPosition.QB.rate > 0, 'per-season, per-position activation rate is real');
   assert.ok(onCell.activation.bySeason['2024'], 'both seasons published, per prereg 11.2');
 });
@@ -402,16 +401,18 @@ test('main(): a permutation-control threshold miss produces a VOID run with no c
   const report = JSON.parse(fs.readFileSync(outJson, 'utf8'));
   assert.equal(report.run.status, 'void');
   assert.equal(report.cells, null);
+  assert.deepEqual(Object.keys(report.evidence), ['diagnostics']);
 
   const markdown = fs.readFileSync(outMarkdown, 'utf8');
   assert.match(markdown, /Status: \*\*void\*\*/);
   assert.match(markdown, /No cell-level results are published/);
+  assert.doesNotMatch(markdown, /### Eight-cell metrics/);
 });
 
-test('main(): published permutation evidence must be the same internally derived raw-control result', (t) => {
+test('main(): caller-published permutation evidence is prohibited; the report derives it from the gate', (t) => {
   const dir = tmpDir(t);
   const inputs = fullPassingInputs();
-  inputs.evidence.diagnostics.permutation.pairwisePValue = 0.001;
+  inputs.evidence.permutation = { seed: 1, replicates: 1 };
   const inputsPath = path.join(dir, 'inputs.json');
   fs.writeFileSync(inputsPath, JSON.stringify(inputs));
   assert.throws(
@@ -420,7 +421,28 @@ test('main(): published permutation evidence must be the same internally derived
       '--out-json', path.join(dir, 'report.json'),
       '--out-markdown', path.join(dir, 'REPORT.md'),
     ]),
-    /published statistics\/p-values must match internally computed permutation control/
+    /closed shape violation.*extra permutation/
+  );
+});
+
+test('main(): raw weekly evidence is cross-checked against claim and activation gate inputs', (t) => {
+  const dir = tmpDir(t);
+  const claimMismatch = fullPassingInputs();
+  claimMismatch.evidence.metricWeeks.find((row) => row.cell === 'usage-40-off' && row.estimand === 'paired-delta' && row.endpoint === 'regret' && row.week === 2).value = 99;
+  const claimPath = path.join(dir, 'claim-mismatch.json');
+  fs.writeFileSync(claimPath, JSON.stringify(claimMismatch));
+  assert.throws(
+    () => runBacktestSweep.main(['--inputs', claimPath, '--out-json', path.join(dir, 'claim.json'), '--out-markdown', path.join(dir, 'claim.md')]),
+    /paired usage-40-off\/regret\/week-2 does not match component-\(a\) input/
+  );
+
+  const activationMismatch = fullPassingInputs();
+  activationMismatch.evidence.activationWeeks.find((row) => row.cell === 'usage-25-on' && row.season === '2025' && row.week === 2 && row.position === 'QB').activated = 0;
+  const activationPath = path.join(dir, 'activation-mismatch.json');
+  fs.writeFileSync(activationPath, JSON.stringify(activationMismatch));
+  assert.throws(
+    () => runBacktestSweep.main(['--inputs', activationPath, '--out-json', path.join(dir, 'activation.json'), '--out-markdown', path.join(dir, 'activation.md')]),
+    /aggregate does not match activation gate/
   );
 });
 

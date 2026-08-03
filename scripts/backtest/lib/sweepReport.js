@@ -113,7 +113,7 @@ const CELL_KEYS = Object.freeze([
   'failures', 'inconclusive', 'vetoedReasons', 'activation', 'orderingSensitivity',
 ]);
 const COMPONENT_KEYS = Object.freeze(['status', 'passes', 'reason', 'evidence']);
-const EVIDENCE_KEYS = Object.freeze(['endpoints', 'transparency']);
+const EVIDENCE_KEYS = Object.freeze(['endpoints', 'transparency', 'veto']);
 const ENDPOINT_EVIDENCE_KEYS = Object.freeze([
   'label', 'status', 'n', 'lower', 'upper', 'triggerFired', 'triggerReasons',
   'exactN', 'exactK', 'exactP', 'exactBound', 'exactBoundIsInfinite', 'unevaluableReason',
@@ -122,7 +122,9 @@ const TRANSPARENCY_KEYS = Object.freeze([
   'endpoint', 'subgroupRows', 'meanAbsBaseline', 'maxAbsBaseline', 'weeksBelowFalsifiabilityFloor',
   'weeksWithBaseline', 'catastrophicCapCouldFire', 'weekSignIndependenceAssumed',
   'nonTiedWeeks', 'k', 'exactP', 'invertedBound',
+  'weeklyBounds', 'medianWeeklyBound', 'qualifyingWeekCount',
 ]);
+const VETO_EVIDENCE_KEYS = Object.freeze(['expectedCount', 'realizationCount', 'complete', 'catastrophicVeto', 'reason', 'realizations']);
 // `arms.activationReport`/`activationReportBothSeasons` also carry their own
 // `label` (a caller-supplied diagnostic string, e.g. "activation 2025") -
 // accepted here but not surfaced in the normalized report, since it names
@@ -179,6 +181,22 @@ function normalizeTransparency(t, { label }) {
     k: num(t.k),
     exactP: num(t.exactP),
     invertedBound: num(t.invertedBound),
+    weeklyBounds: Array.isArray(t.weeklyBounds) ? t.weeklyBounds.map(num) : [],
+    medianWeeklyBound: num(t.medianWeeklyBound),
+    qualifyingWeekCount: num(t.qualifyingWeekCount),
+  };
+}
+
+function normalizeVeto(veto, { label }) {
+  if (!veto) return null;
+  assertClosedKeys(veto, VETO_EVIDENCE_KEYS, { label });
+  return {
+    expectedCount: typeof veto.expectedCount === 'number' ? veto.expectedCount : null,
+    realizationCount: typeof veto.realizationCount === 'number' ? veto.realizationCount : null,
+    complete: veto.complete === true,
+    catastrophicVeto: veto.catastrophicVeto === true,
+    reason: typeof veto.reason === 'string' ? veto.reason : null,
+    realizations: Array.isArray(veto.realizations) ? veto.realizations.map((row) => ({ ...row })) : [],
   };
 }
 
@@ -192,6 +210,7 @@ function normalizeEvidence(evidence, { label }) {
     transparency: Array.isArray(evidence.transparency)
       ? evidence.transparency.map((t, i) => normalizeTransparency(t, { label: `${label}.transparency[${i}]` }))
       : null,
+    veto: normalizeVeto(evidence.veto, { label: `${label}.veto` }),
   };
 }
 
@@ -383,7 +402,11 @@ function buildReport({ studyId, sweep, label = 'sweepReport' }) {
     },
     cells,
     selection: normalizeSelection(selection, { label: `${label}.selection` }),
-    evidence: evidence === undefined || evidence === null ? null : sweepEvidence.validateEvidence(evidence),
+    // A void report retains only its independently derived pipeline
+    // diagnostic.  Candidate matrix/sensitivity/profile evidence would be a
+    // candidate-cell result and is therefore not publishable on a void run.
+    evidence: evidence === undefined || evidence === null ? null
+      : run.status === 'void' ? { diagnostics: { permutation: evidence.diagnostics.permutation } } : evidence,
   };
   assertClosedKeys(report, REPORT_KEYS, { label });
   assertFinite(report, { label });
@@ -446,8 +469,16 @@ function renderComponentsTable(components) {
       lines.push(
         `- ${escapeMd(t.endpoint || 'f')}: subgroupRows=${t.subgroupRows}, meanAbsBaseline=${t.meanAbsBaseline}, `
         + `maxAbsBaseline=${t.maxAbsBaseline}, weeksBelowFalsifiabilityFloor=${t.weeksBelowFalsifiabilityFloor}, `
-        + `catastrophicCapCouldFire=${t.catastrophicCapCouldFire}`
+        + `catastrophicCapCouldFire=${t.catastrophicCapCouldFire}, weeklyBounds=[${t.weeklyBounds.join(', ')}], `
+        + `medianWeeklyBound=${t.medianWeeklyBound}, qualifyingWeekCount=${t.qualifyingWeekCount}`
       );
+    }
+    if (components.f.evidence.veto) {
+      const veto = components.f.evidence.veto;
+      lines.push(`- veto coverage: expected=${veto.expectedCount}, realized=${veto.realizationCount}, complete=${veto.complete}, catastrophic=${veto.catastrophicVeto}`);
+      for (const realization of veto.realizations) {
+        lines.push(`  - realization: season=${realization.season}, week=${realization.week}, player=${realization.playerId}, salt=${realization.salt}, incrementalError=${realization.incrementalError}`);
+      }
     }
   }
   return lines.join('\n');
@@ -464,6 +495,27 @@ function renderActivation(activation) {
     lines.push(`- ${season}: **${seasonReport.verdict}** (${positions})`);
   }
   return lines.join('\n');
+}
+
+function displayValue(value) {
+  return value && typeof value === 'object' && value.nonfinite ? value.nonfinite : String(value);
+}
+
+function renderEvidenceTables(evidence) {
+  const lines = ['', '### Eight-cell metrics', '', '| season | profile | cell | estimand | endpoint | point | CI |', '| --- | --- | --- | --- | --- | ---: | --- |'];
+  for (const cell of evidence.cells) for (const [estimand, rows] of [['absolute', cell.absoluteMetrics], ['paired-delta', cell.pairedDeltas]]) {
+    for (const row of rows) lines.push(`| ${cell.season} | ${cell.scoringProfile} | ${cell.cell} | ${estimand} | ${row.key} | ${displayValue(row.point)} | [${displayValue(row.lower)}, ${displayValue(row.upper)}] |`);
+  }
+  lines.push('', '### Moving-block sensitivity', '', '| season | profile | cell | endpoint | sensitivity | point | CI |', '| --- | --- | --- | --- | --- | ---: | --- |');
+  for (const row of evidence.movingBlock) lines.push(`| ${row.season} | ${row.scoringProfile} | ${row.cell} | ${row.endpoint} | ${row.sensitivity} | ${displayValue(row.point)} | [${displayValue(row.lower)}, ${displayValue(row.upper)}] |`);
+  lines.push('', '### Attribution composites', '', '| season | profile | cell | endpoint | usage main | home-away main | interaction |', '| --- | --- | --- | --- | ---: | ---: | ---: |');
+  for (const row of evidence.attribution) lines.push(`| ${row.season} | ${row.scoringProfile} | ${row.cell} | ${row.endpoint} | ${displayValue(row.usageMain.point)} | ${displayValue(row.homeAwayMain.point)} | ${displayValue(row.interaction.point)} |`);
+  lines.push('', '### Activation aggregates', '', '| season | profile | cell | position | eligible | activated | excluded | rate |', '| --- | --- | --- | --- | ---: | ---: | ---: | ---: |');
+  for (const row of evidence.activationAggregates) for (const position of Object.keys(row.positions).sort()) {
+    const value = row.positions[position];
+    lines.push(`| ${row.season} | ${row.scoringProfile} | ${row.cell} | ${position} | ${value.eligible} | ${value.activated} | ${value.excludedIneligible} | ${displayValue(value.rate)} |`);
+  }
+  return lines;
 }
 
 /**
@@ -512,11 +564,8 @@ function renderMarkdown(report) {
   }
   if (report.evidence) {
     lines.push('', '## Descriptive evidence', '');
-    lines.push(`- Eight-cell metrics: ${report.evidence.cells.length}`);
-    lines.push(`- Moving-block rows: ${report.evidence.movingBlock.length}`);
-    lines.push(`- Attribution composites: ${report.evidence.attribution.length}`);
     lines.push(`- Permutation: seed=${report.evidence.diagnostics.permutation.seed}, replicates=${report.evidence.diagnostics.permutation.replicates}, regret p=${report.evidence.diagnostics.permutation.regretPValue}, pairwise p=${report.evidence.diagnostics.permutation.pairwisePValue}`);
-    lines.push(`- Weekly activation profiles: ${report.evidence.activationProfiles.length}; season/position aggregates: ${report.evidence.activationAggregates.length}`);
+    if (report.run.status === 'valid') lines.push(...renderEvidenceTables(report.evidence));
   }
   lines.push('## Selection');
   lines.push('');

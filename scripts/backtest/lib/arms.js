@@ -1009,6 +1009,9 @@ function evaluateCatastrophicVeto({ subgroupPlayerWeeks, realizations, label = '
   const harmful = realizations.filter((row) => roundToTie(Number(row.incrementalError)) > roundToTie(CATASTROPHIC_CAP));
   return {
     ...coverage,
+    realizations: realizations
+      .map((row) => ({ season: Number(row.season), week: Number(row.week), playerId: Number(row.playerId), salt: row.salt, incrementalError: Number(row.incrementalError) }))
+      .sort((a, b) => a.season - b.season || a.week - b.week || a.playerId - b.playerId || SALTS.indexOf(a.salt) - SALTS.indexOf(b.salt)),
     catastrophicVeto: harmful.length > 0,
     reason: harmful.length > 0
       ? `${harmful.length} player-week x salt realization(s) increased absolute error by more than ${CATASTROPHIC_CAP}`
@@ -1251,6 +1254,21 @@ function summarizeTransparency(t) {
     k: isFiniteNumber(t.k) ? Number(t.k) : null,
     exactP: isFiniteNumber(t.exactP) ? Number(t.exactP) : null,
     invertedBound: isFiniteNumber(t.invertedBound) ? Number(t.invertedBound) : null,
+    weeklyBounds: Array.isArray(t.weeklyBounds) ? t.weeklyBounds.map((value) => isFiniteNumber(value) ? Number(value) : null) : [],
+    medianWeeklyBound: isFiniteNumber(t.medianWeeklyBound) ? Number(t.medianWeeklyBound) : null,
+    qualifyingWeekCount: isFiniteNumber(t.qualifyingWeekCount) ? Number(t.qualifyingWeekCount) : null,
+  };
+}
+
+function summarizeVeto(veto) {
+  if (!veto) return null;
+  return {
+    expectedCount: isFiniteNumber(veto.expectedCount) ? Number(veto.expectedCount) : null,
+    realizationCount: isFiniteNumber(veto.realizationCount) ? Number(veto.realizationCount) : null,
+    complete: veto.complete === true,
+    catastrophicVeto: veto.catastrophicVeto === true,
+    reason: typeof veto.reason === 'string' ? veto.reason : null,
+    realizations: Array.isArray(veto.realizations) ? veto.realizations.map((row) => ({ ...row })) : [],
   };
 }
 
@@ -1260,7 +1278,7 @@ function buildEvidence(key, component) {
     const transparency = Object.values(component.endpoints)
       .map((e) => summarizeTransparency(e.transparency))
       .filter(Boolean);
-    return transparency.length > 0 ? { endpoints: null, transparency } : null;
+    return transparency.length > 0 ? { endpoints: null, transparency, veto: summarizeVeto(component.veto) } : null;
   }
   if (Array.isArray(component.endpoints)) {
     return { endpoints: component.endpoints.map(summarizeEndpointEvidence), transparency: null };

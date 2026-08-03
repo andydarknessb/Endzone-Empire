@@ -429,20 +429,36 @@ function unevaluatedCellClaims() {
   return Object.fromEntries(arms.ALL_CELLS.map((cell) => [cell.name, {}]));
 }
 
+function crossCheckComponentFEvidence(cellInputs, cellClaims) {
+  for (const cellMeta of arms.ALL_CELLS.filter((cell) => cell.homeAway === 'on')) {
+    const component = cellClaims[cellMeta.name].components.f;
+    const published = component && component.evidence;
+    const source = cellInputs[cellMeta.name].f;
+    if (!published || !Array.isArray(published.transparency) || published.transparency.length !== 2 || !published.veto) {
+      throw new Error(`component (f) evidence: incomplete transparency or veto evidence for ${cellMeta.name}`);
+    }
+    for (const [index, endpoint] of ['f1', 'f2'].entries()) {
+      const transparency = published.transparency[index];
+      const raw = source[endpoint];
+      if (transparency.subgroupRows !== raw.subgroupRows || transparency.meanAbsBaseline !== raw.meanAbsBaseline
+        || transparency.maxAbsBaseline !== raw.maxAbsBaseline || transparency.qualifyingWeekCount !== raw.weekDeltas.length) {
+        throw new Error(`component (f) evidence: published ${cellMeta.name}/${endpoint} transparency does not match raw input`);
+      }
+    }
+    if (published.veto.realizationCount !== source.veto.realizations.length || published.veto.complete !== true) {
+      throw new Error(`component (f) evidence: published ${cellMeta.name} veto completeness does not match raw realizations`);
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
 
 function buildReportFromInputs(inputs) {
   validateInputs(inputs);
-  const evidence = sweepEvidence.validateEvidence(inputs.evidence);
   const permutationControl = metrics.computePermutationControl(inputs.permutationControl);
-  if (evidence.diagnostics.permutation.regretPValue !== permutationControl.regret.p
-    || evidence.diagnostics.permutation.pairwisePValue !== permutationControl.pairwise.p
-    || evidence.diagnostics.permutation.regretStatistic !== permutationControl.regret.observed
-    || evidence.diagnostics.permutation.pairwiseStatistic !== permutationControl.pairwise.observed) {
-    throw new Error('evidence.diagnostics.permutation: published statistics/p-values must match internally computed permutation control');
-  }
+  const evidence = sweepEvidence.deriveEvidence(inputs.evidence, { permutation: permutationControl });
   const preflight = sweepPreflight.runPreflight({
     ...inputs.preflight,
     componentFVetoRecords: componentFVetoRecords(inputs.cells, inputs.preflight),
@@ -450,6 +466,9 @@ function buildReportFromInputs(inputs) {
   const cellClaims = preflight.passed
     ? Object.fromEntries(arms.ALL_CELLS.map((cellMeta) => [cellMeta.name, assembleCellClaim(cellMeta, inputs.cells[cellMeta.name], componentFVetoRecords(inputs.cells, inputs.preflight).find((row) => row.cellName === cellMeta.name) || null)]))
     : unevaluatedCellClaims();
+  if (preflight.passed) sweepEvidence.crossCheckActivationGate(cellClaims, evidence);
+  if (preflight.passed) sweepEvidence.crossCheckClaimInputs(inputs.cells, evidence);
+  if (preflight.passed) crossCheckComponentFEvidence(inputs.cells, cellClaims);
   const sweep = sweepInference.evaluateSweep({
     cellClaims,
     permutationControl: { regretP: permutationControl.regret.p, pairwiseP: permutationControl.pairwise.p },
