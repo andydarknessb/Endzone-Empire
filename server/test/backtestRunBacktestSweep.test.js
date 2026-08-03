@@ -55,6 +55,28 @@ function healthyFVeto() {
   };
 }
 
+function syntheticPreflight() {
+  const expectedPlayerWeeks = [{ season: 2025, week: 2, playerId: 7 }];
+  const rawRun = () => ({
+    projections: [{ playerId: 7, median: 12.5, p10: 4, factors: {} }],
+    inputCutoff: '2025-09-01T00:00:00.000Z', sourceCoverage: { synthetic: true },
+  });
+  const records = () => metrics.SALTS.map((salt) => ({
+    season: 2025, week: 2, salt,
+    leftPlayerIds: [7], rightPlayerIds: [7], leftRun: rawRun(), rightRun: rawRun(),
+  }));
+  return {
+    expectedPlayerWeeks,
+    controlUsage25Records: records(),
+    homeAwayStoredRecords: records(),
+    saltSeedCoordinates: [{ cellName: 'usage-25-off', season: 2025, week: 2, playerId: 7 }],
+    saltSeedRecords: [{
+      cellName: 'usage-25-off', season: 2025, week: 2, playerId: 7,
+      seedsBySalt: Object.fromEntries(metrics.SALTS.map((salt, index) => [salt, index])),
+    }],
+  };
+}
+
 function treatedActivationInput() {
   const position = () => ({
     eligible: true, neutralSite: false, knownOrientation: true,
@@ -95,8 +117,7 @@ function fullPassingInputs({ permutationControl = { regretP: 0.0001, pairwiseP: 
   return {
     studyId: 'pit-sweep-2024-2025',
     canariesPassed: true,
-    identityAssertions: { controlBitIdentity: true, homeAwayStoredPointIdentity: true },
-    saltCollisionPassed: true,
+    preflight: syntheticPreflight(),
     permutationControl,
     orderingDisagreement: false,
     deployedPolicyDisagreement: false,
@@ -342,11 +363,17 @@ test('main(): a permutation-control threshold miss produces a VOID run with no c
   assert.match(markdown, /No cell-level results are published/);
 });
 
-test('main(): either sealed identity assertion failing alone VOIDS the run - never a single opaque flag', (t) => {
-  for (const key of runBacktestSweep.IDENTITY_ASSERTION_KEYS) {
+test('main(): each sealed identity gate failing from raw records independently VOIDS the run', (t) => {
+  const cases = [
+    ['control projection mutation', (inputs) => { inputs.preflight.controlUsage25Records[0].rightRun.projections[0].median = 12.500000001; }],
+    ['stored projection mutation', (inputs) => { inputs.preflight.homeAwayStoredRecords[0].rightRun.projections[0].median = 12.500000001; }],
+    ['control coverage gap', (inputs) => { inputs.preflight.controlUsage25Records.pop(); }],
+    ['stored coverage gap', (inputs) => { inputs.preflight.homeAwayStoredRecords.pop(); }],
+  ];
+  for (const [name, mutate] of cases) {
     const dir = tmpDir(t);
     const inputs = fullPassingInputs();
-    inputs.identityAssertions[key] = false;
+    mutate(inputs);
     const inputsPath = path.join(dir, 'inputs.json');
     fs.writeFileSync(inputsPath, JSON.stringify(inputs));
     runBacktestSweep.main([
@@ -355,41 +382,76 @@ test('main(): either sealed identity assertion failing alone VOIDS the run - nev
       '--out-markdown', path.join(dir, 'REPORT.md'),
     ]);
     const report = JSON.parse(fs.readFileSync(path.join(dir, 'report.json'), 'utf8'));
-    assert.equal(report.run.status, 'void', `${key} alone must void the run`);
-    assert.equal(report.cells, null);
+    assert.equal(report.run.status, 'void', `${name} alone must void the run`);
+    assert.equal(report.cells, null, name);
+    assert.match(report.run.detail, /raw-evidence preflight failed: (usage-25 identity|homeaway stored identity)/, name);
   }
 });
 
-test('main(): a real salt-collision VOIDS the run (section 3.4 item 5)', (t) => {
-  const dir = tmpDir(t);
-  const inputs = fullPassingInputs();
-  inputs.saltCollisionPassed = false;
-  const inputsPath = path.join(dir, 'inputs.json');
-  fs.writeFileSync(inputsPath, JSON.stringify(inputs));
-  runBacktestSweep.main([
-    '--inputs', inputsPath,
-    '--out-json', path.join(dir, 'report.json'),
-    '--out-markdown', path.join(dir, 'REPORT.md'),
-  ]);
-  const report = JSON.parse(fs.readFileSync(path.join(dir, 'report.json'), 'utf8'));
-  assert.equal(report.run.status, 'void');
-  assert.match(report.run.detail, /salt-collision/);
+test('main(): each salt preflight failure independently VOIDS the run from raw seed records', (t) => {
+  const cases = [
+    ['collision', (inputs) => { inputs.preflight.saltSeedRecords[0].seedsBySalt[metrics.SALTS[1]] = 0; }],
+    ['missing salt', (inputs) => { delete inputs.preflight.saltSeedRecords[0].seedsBySalt[metrics.SALTS[0]]; }],
+    ['unexpected salt', (inputs) => { inputs.preflight.saltSeedRecords[0].seedsBySalt.notPreregistered = 24; }],
+  ];
+  for (const [name, mutate] of cases) {
+    const dir = tmpDir(t);
+    const inputs = fullPassingInputs();
+    mutate(inputs);
+    const inputsPath = path.join(dir, 'inputs.json');
+    fs.writeFileSync(inputsPath, JSON.stringify(inputs));
+    runBacktestSweep.main([
+      '--inputs', inputsPath,
+      '--out-json', path.join(dir, 'report.json'),
+      '--out-markdown', path.join(dir, 'REPORT.md'),
+    ]);
+    const report = JSON.parse(fs.readFileSync(path.join(dir, 'report.json'), 'utf8'));
+    assert.equal(report.run.status, 'void', name);
+    assert.equal(report.cells, null, name);
+    assert.match(report.run.detail, /raw-evidence preflight failed: salt seed guard/, name);
+  }
 });
 
-test('validateInputs requires identityAssertions to name BOTH sealed assertions independently', () => {
+test('main(): each component (f) raw-evidence preflight failure independently VOIDS before reduction', (t) => {
+  const cases = [
+    ['missing composite key', (inputs) => inputs.cells['usage-25-on'].f.veto.realizations.pop()],
+    ['duplicate composite key', (inputs) => inputs.cells['usage-25-on'].f.veto.realizations.push({ ...inputs.cells['usage-25-on'].f.veto.realizations[0] })],
+    ['extra composite key', (inputs) => inputs.cells['usage-25-on'].f.veto.realizations.push({ ...inputs.cells['usage-25-on'].f.veto.realizations[0], playerId: 99 })],
+    ['missing incremental error', (inputs) => delete inputs.cells['usage-25-on'].f.veto.realizations[0].incrementalError],
+    ['nonfinite incremental error', (inputs) => { inputs.cells['usage-25-on'].f.veto.realizations[0].incrementalError = Infinity; }],
+  ];
+  for (const [name, mutate] of cases) {
+    const dir = tmpDir(t);
+    const inputs = fullPassingInputs();
+    mutate(inputs);
+    const inputsPath = path.join(dir, 'inputs.json');
+    fs.writeFileSync(inputsPath, JSON.stringify(inputs));
+    runBacktestSweep.main([
+      '--inputs', inputsPath,
+      '--out-json', path.join(dir, 'report.json'),
+      '--out-markdown', path.join(dir, 'REPORT.md'),
+    ]);
+    const report = JSON.parse(fs.readFileSync(path.join(dir, 'report.json'), 'utf8'));
+    assert.equal(report.run.status, 'void', name);
+    assert.equal(report.cells, null, name);
+    assert.match(report.run.detail, /raw-evidence preflight failed: component \(f\) veto/, name);
+  }
+});
+
+test('validateInputs requires raw preflight records, never operator-supplied identity/salt booleans', () => {
   const missingBoth = fullPassingInputs();
-  missingBoth.identityAssertions = true; // the old, now-refused single-flag shape
-  assert.throws(() => runBacktestSweep.validateInputs(missingBoth), /identityAssertions: must be an object/);
+  missingBoth.preflight = true;
+  assert.throws(() => runBacktestSweep.validateInputs(missingBoth), /preflight: must carry raw identity and salt-seed records/);
 
   const missingOne = fullPassingInputs();
-  delete missingOne.identityAssertions.homeAwayStoredPointIdentity;
+  delete missingOne.preflight.homeAwayStoredRecords;
   assert.throws(
     () => runBacktestSweep.validateInputs(missingOne),
-    /identityAssertions\.homeAwayStoredPointIdentity: must be a boolean/
+    /preflight\.homeAwayStoredRecords: must be an array/
   );
 
   const extraKey = fullPassingInputs();
-  extraKey.identityAssertions.someExtra = true;
+  extraKey.preflight.someExtra = true;
   assert.throws(() => runBacktestSweep.validateInputs(extraKey), /unexpected key\(s\).*someExtra/);
 });
 

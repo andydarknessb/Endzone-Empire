@@ -20,6 +20,7 @@ const metrics = require('../../scripts/backtest/lib/metrics');
 
 const PURE_LIB_FILES = Object.freeze([
   'sweepEvaluator.js', 'sweepInference.js', 'sweepReport.js',
+  'sweepPreflight.js',
 ]);
 
 test('the Gate 2 sweep pipeline files stay inside the pure lib tree (no pg, no server/services, no process.env, no child_process, no network)', () => {

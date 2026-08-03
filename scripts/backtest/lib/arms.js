@@ -260,9 +260,20 @@ function assertSaltAffectsOnlyHashValue({ runsBySalt, label = 'salts' }) {
  * collision is detected.
  */
 function assertSaltsProduceDistinctSeeds({ seedsBySalt, label = 'salt seed collision' }) {
+  if (!seedsBySalt || typeof seedsBySalt !== 'object' || Array.isArray(seedsBySalt)) {
+    throw new Error(`${label}: seedsBySalt must be an object covering all 24 preregistered salts`);
+  }
+  const missing = SALTS.filter((salt) => !Object.prototype.hasOwnProperty.call(seedsBySalt, salt));
+  const unexpected = Object.keys(seedsBySalt).filter((salt) => !SALTS.includes(salt));
+  if (missing.length > 0 || unexpected.length > 0) {
+    throw new Error(`${label}: requires exactly the 24 preregistered salts; missing ${missing.length}, unexpected ${unexpected.length}`);
+  }
   const bySeed = new Map();
-  for (const salt of Object.keys(seedsBySalt)) {
+  for (const salt of SALTS) {
     const seed = seedsBySalt[salt];
+    if (!Number.isInteger(seed) || seed < 0 || seed > 0xffffffff) {
+      throw new Error(`${label}: ${salt} has an invalid unsigned 32-bit final seed`);
+    }
     if (bySeed.has(seed)) {
       throw new Error(
         `${label}: salts ${bySeed.get(seed)} and ${salt} produced the identical final seed (${seed}). ` +
@@ -962,7 +973,7 @@ function assertVetoRealizationCoverage({ subgroupPlayerWeeks, realizations, labe
   if (!Array.isArray(subgroupPlayerWeeks) || !Array.isArray(realizations)) {
     throw new Error(`${label}: subgroupPlayerWeeks and realizations arrays are required`);
   }
-  const playerWeekKey = ({ season, week, playerId }) => `${season}:${week}:${playerId}`;
+  const playerWeekKey = ({ season, week, playerId }) => `${Number(season)}:${Number(week)}:${Number(playerId)}`;
   const expectedPlayerWeeks = new Set();
   for (const row of subgroupPlayerWeeks) {
     if (!row || !Number.isInteger(Number(row.season)) || !Number.isInteger(Number(row.week))
@@ -976,8 +987,10 @@ function assertVetoRealizationCoverage({ subgroupPlayerWeeks, realizations, labe
   const expected = new Set([...expectedPlayerWeeks].flatMap((key) => SALTS.map((salt) => `${key}:${salt}`)));
   const actual = new Set();
   for (const row of realizations) {
-    if (!row || !SALTS.includes(row.salt) || !isFiniteNumber(row.incrementalError)) {
-      throw new Error(`${label}: every realization requires a preregistered salt and finite incrementalError`);
+    if (!row || !Number.isInteger(Number(row.season)) || !Number.isInteger(Number(row.week))
+      || !Number.isFinite(Number(row.playerId)) || !SALTS.includes(row.salt)
+      || !isFiniteNumber(row.incrementalError)) {
+      throw new Error(`${label}: every realization requires finite season, week, playerId, incrementalError, and a preregistered salt`);
     }
     const key = `${playerWeekKey(row)}:${row.salt}`;
     if (actual.has(key)) throw new Error(`${label}: duplicate composite key ${key}`);
@@ -1457,8 +1470,11 @@ function classifyTriggeredEndpoint({ bootstrap, exact }) {
  */
 function classifyRun({
   canariesPassed = true, permutationControlPassed = true, identityAssertionsPassed = true,
-  saltCollisionPassed = true,
+  saltCollisionPassed = true, preflightFailures = [],
 }) {
+  if (!Array.isArray(preflightFailures) || preflightFailures.some((failure) => typeof failure !== 'string' || failure.length === 0)) {
+    throw new Error('classifyRun: preflightFailures must be an array of non-empty failure details');
+  }
   const reasons = [];
   if (!canariesPassed) reasons.push('a canary failed (prereg 17)');
   if (!permutationControlPassed) {
@@ -1466,6 +1482,7 @@ function classifyRun({
   }
   if (!identityAssertionsPassed) reasons.push('a sealed identity assertion failed (section 8.6)');
   if (!saltCollisionPassed) reasons.push('a real salt-collision was detected (section 3.4 item 5)');
+  reasons.push(...preflightFailures.map((failure) => `raw-evidence preflight failed: ${failure}`));
   return {
     status: reasons.length > 0 ? 'void' : 'valid',
     reasons,

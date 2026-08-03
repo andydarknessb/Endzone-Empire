@@ -27,17 +27,9 @@ const metrics = require('./metrics');
  * `p <= 0.001` threshold. `canariesPassed`/`identityAssertionsPassed`/
  * `saltCollisionPassed`: the other named `void` causes (prereg 17; section
  * 8.6's two sealed assertions; section 3.4 item 5's salt-collision guard),
- * booleans because their own machinery (canary checks, the two identity
- * assertions, the per-player-week salt-collision scan) all require raw
- * per-player-week data this pure reducer never receives - it can only
- * consult a caller's already-computed result, never verify the check was
- * actually run. **`identityAssertionsPassed` must be the AND of BOTH
- * sealed assertions** (`assertProjectionRunBitIdentical` AND
- * `assertHomeAwayStoredPointIdentity`) - never a single pre-combined flag a
- * caller derived some other way; see `run-backtest-sweep.js`'s
- * `--inputs.identityAssertions` for the structured, named-method schema
- * that enforces this at the one layer that CAN check it (the CLI, not this
- * pure library).
+ * booleans derived by the raw-record preflight, rather than operator-supplied
+ * assertions. `preflightFailures` preserves the specific raw-evidence failure
+ * in the void report while this pure reducer remains free of raw data.
  */
 function evaluateSweep({
   cellClaims,
@@ -45,6 +37,7 @@ function evaluateSweep({
   canariesPassed = true,
   identityAssertionsPassed = true,
   saltCollisionPassed = true,
+  preflightFailures = [],
   orderingDisagreement = false,
   deployedPolicyDisagreement = false,
   label = 'sweep',
@@ -76,6 +69,7 @@ function evaluateSweep({
     permutationControlPassed: !permResult.void,
     identityAssertionsPassed,
     saltCollisionPassed,
+    preflightFailures,
   });
 
   if (run.status === 'void') {

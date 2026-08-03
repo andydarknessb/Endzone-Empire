@@ -50,6 +50,7 @@ const arms = require('../../scripts/backtest/lib/arms');
 const sweepEvaluator = require('../../scripts/backtest/lib/sweepEvaluator');
 const sweepInference = require('../../scripts/backtest/lib/sweepInference');
 const sweepReport = require('../../scripts/backtest/lib/sweepReport');
+const sweepPreflight = require('../../scripts/backtest/lib/sweepPreflight');
 
 // ---------------------------------------------------------------------------
 // CLI
@@ -96,23 +97,12 @@ function parseArgs(argv) {
 
 const COMPONENT_KEYS = Object.freeze(['a', 'b', 'c', 'd', 'e1']);
 const TOP_LEVEL_KEYS = Object.freeze([
-  'studyId', 'canariesPassed', 'identityAssertions', 'saltCollisionPassed', 'permutationControl',
+  'studyId', 'canariesPassed', 'preflight', 'permutationControl',
   'orderingDisagreement', 'deployedPolicyDisagreement', 'cells',
 ]);
-/**
- * Both booleans required, by NAME, rather than one pre-combined
- * `identityAssertionsPassed` flag - independent implementation review
- * finding: a single opaque boolean lets an upstream mistake (an AND
- * computed wrong, or one assertion never actually run) pass through
- * invisibly. This reducer still cannot INDEPENDENTLY VERIFY either
- * assertion (that requires the raw per-projection data `arms.
- * assertProjectionRunBitIdentical`/`assertHomeAwayStoredPointIdentity`
- * compare, which this --inputs artifact's aggregated weekDeltas do not
- * carry - a real Gate-4 concern), but it DOES compute the required AND
- * itself, from two independently-named results, rather than trusting a
- * pre-combined claim.
- */
-const IDENTITY_ASSERTION_KEYS = Object.freeze(['controlBitIdentity', 'homeAwayStoredPointIdentity']);
+const PREFLIGHT_KEYS = Object.freeze([
+  'expectedPlayerWeeks', 'controlUsage25Records', 'homeAwayStoredRecords', 'saltSeedCoordinates', 'saltSeedRecords',
+]);
 const CO_PRIMARY_INPUT_KEYS = Object.freeze(['regretWeekDeltas', 'pairwiseWeekDeltas']);
 const E2_INPUT_KEYS = Object.freeze(['endpoints']);
 const E2_ENDPOINT_INPUT_KEYS = Object.freeze(['key', 'weekDeltas']);
@@ -144,20 +134,16 @@ function validateInputs(inputs, { label = '--inputs' } = {}) {
   if (typeof inputs.studyId !== 'string' || inputs.studyId.length === 0) {
     throw new Error(`${label}.studyId: must be a non-empty string`);
   }
-  for (const flag of ['canariesPassed', 'saltCollisionPassed', 'orderingDisagreement', 'deployedPolicyDisagreement']) {
+  for (const flag of ['canariesPassed', 'orderingDisagreement', 'deployedPolicyDisagreement']) {
     if (typeof inputs[flag] !== 'boolean') throw new Error(`${label}.${flag}: must be a boolean`);
   }
-  if (!inputs.identityAssertions || typeof inputs.identityAssertions !== 'object') {
-    throw new Error(`${label}.identityAssertions: must be an object`);
+  if (!inputs.preflight || typeof inputs.preflight !== 'object') {
+    throw new Error(`${label}.preflight: must carry raw identity and salt-seed records; operator-supplied pass/fail booleans are prohibited`);
   }
-  assertClosedKeys(inputs.identityAssertions, IDENTITY_ASSERTION_KEYS, `${label}.identityAssertions`);
-  for (const key of IDENTITY_ASSERTION_KEYS) {
-    if (typeof inputs.identityAssertions[key] !== 'boolean') {
-      throw new Error(
-        `${label}.identityAssertions.${key}: must be a boolean - the sealed usage-25==control bit-identity `
-        + 'and homeaway-on-stored==homeaway-on point-identity assertions (prereg 7.3) must each be reported '
-        + 'by name, never as a single pre-combined flag'
-      );
+  assertClosedKeys(inputs.preflight, PREFLIGHT_KEYS, `${label}.preflight`);
+  for (const key of PREFLIGHT_KEYS) {
+    if (!Array.isArray(inputs.preflight[key])) {
+      throw new Error(`${label}.preflight.${key}: must be an array of raw preflight records`);
     }
   }
   if (!inputs.permutationControl || typeof inputs.permutationControl !== 'object') {
@@ -415,27 +401,45 @@ function assembleCellClaim(cellMeta, cellInput) {
   });
 }
 
+function componentFVetoRecords(cells) {
+  return arms.ALL_CELLS
+    .filter((cell) => cell.homeAway === 'on')
+    .map((cell) => ({ cellName: cell.name, ...cells[cell.name].f.veto }));
+}
+
+function preflightFailureDetails(preflight) {
+  return [
+    preflight.identities.controlUsage25,
+    preflight.identities.homeAwayStored,
+    preflight.saltSeeds,
+    preflight.componentFVeto,
+  ].filter((result) => !result.passed).map((result) => result.detail);
+}
+
+function unevaluatedCellClaims() {
+  return Object.fromEntries(arms.ALL_CELLS.map((cell) => [cell.name, {}]));
+}
+
 // ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
 
 function buildReportFromInputs(inputs) {
   validateInputs(inputs);
-  const cellClaims = Object.fromEntries(
-    arms.ALL_CELLS.map((cellMeta) => [cellMeta.name, assembleCellClaim(cellMeta, inputs.cells[cellMeta.name])])
-  );
-  // Prereg 7.3: "Both identity assertions failing aborts the run" - resolved
-  // (PHASE5_EXECUTION_SPEC.md section 8.6) as "either suffices to void."
-  // Computed HERE, as the AND of the two named results, rather than trusted
-  // as a single pre-combined --inputs flag (independent implementation
-  // review finding).
-  const identityAssertionsPassed = IDENTITY_ASSERTION_KEYS.every((key) => inputs.identityAssertions[key]);
+  const preflight = sweepPreflight.runPreflight({
+    ...inputs.preflight,
+    componentFVetoRecords: componentFVetoRecords(inputs.cells),
+  });
+  const cellClaims = preflight.passed
+    ? Object.fromEntries(arms.ALL_CELLS.map((cellMeta) => [cellMeta.name, assembleCellClaim(cellMeta, inputs.cells[cellMeta.name])]))
+    : unevaluatedCellClaims();
   const sweep = sweepInference.evaluateSweep({
     cellClaims,
     permutationControl: inputs.permutationControl,
     canariesPassed: inputs.canariesPassed,
-    identityAssertionsPassed,
-    saltCollisionPassed: inputs.saltCollisionPassed,
+    identityAssertionsPassed: preflight.identities.passed,
+    saltCollisionPassed: preflight.saltSeeds.passed,
+    preflightFailures: preflightFailureDetails(preflight),
     orderingDisagreement: inputs.orderingDisagreement,
     deployedPolicyDisagreement: inputs.deployedPolicyDisagreement,
   });
@@ -497,9 +501,11 @@ if (require.main === module) {
 module.exports = {
   TOP_LEVEL_KEYS,
   CELL_INPUT_KEYS,
-  IDENTITY_ASSERTION_KEYS,
+  PREFLIGHT_KEYS,
   parseArgs,
   validateInputs,
+  componentFVetoRecords,
+  preflightFailureDetails,
   boundariesFor,
   assembleCellClaim,
   buildReportFromInputs,
