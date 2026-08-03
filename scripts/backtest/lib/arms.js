@@ -1396,6 +1396,11 @@ function classifyBootstrapEndpoint({
   if (!isFiniteNumber(lower) || !isFiniteNumber(upper)) {
     throw new Error('classifyBootstrapEndpoint: an evaluable endpoint must carry a finite lower and upper bound');
   }
+  lower = roundToTie(lower);
+  upper = roundToTie(upper);
+  passingBoundary = roundToTie(passingBoundary);
+  harmfulBoundary = roundToTie(harmfulBoundary);
+  favorableBoundary = roundToTie(favorableBoundary);
   const passes = direction === 'below' ? upper < passingBoundary : lower > passingBoundary;
   if (harmfulBoundary !== favorableBoundary) {
     const lo = Math.min(favorableBoundary, harmfulBoundary);

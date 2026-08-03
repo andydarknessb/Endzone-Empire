@@ -78,7 +78,7 @@ function syntheticPreflight() {
   };
 }
 
-function syntheticEvidence() {
+function syntheticEvidence(permutationControl = syntheticPermutationControl()) {
   const estimate = (key, point = 0) => ({
     key, status: 'estimated', point, lower: point - 0.01, upper: point + 0.01,
     weeks: metrics.EVALUATED_WEEKS.map((week) => ({ week, value: point })), reason: null,
@@ -91,11 +91,18 @@ function syntheticEvidence() {
     attribution: sweepEvidence.ATTRIBUTION_CELL_NAMES.flatMap((cell) => sweepEvidence.METRIC_KEYS.map((key) => ({ cell, key, usageMain: estimate(key, 0.01), homeAwayMain: estimate(key, 0.02), interaction: estimate(key, 0.03) }))),
     diagnostics: {
       controlNaive: metricRows(-0.1), usageSignal: metricRows(0.1),
-      permutation: { seed: metrics.PERMUTATION_SEED, replicates: metrics.PERMUTATION_DRAWS, regretStatistic: -0.2, regretPValue: 0.0001, pairwiseStatistic: 0.03, pairwisePValue: 0.0001 },
+      permutation: (() => { const computed = metrics.computePermutationControl(permutationControl); return { seed: metrics.PERMUTATION_SEED, replicates: metrics.PERMUTATION_DRAWS, regretStatistic: computed.regret.observed, regretPValue: computed.regret.p, pairwiseStatistic: computed.pairwise.observed, pairwisePValue: computed.pairwise.p }; })(),
     },
     activationProfiles: sweepEvidence.ON_CELL_NAMES.flatMap((cell) => ['2025', '2024'].flatMap((season) => metrics.EVALUATED_WEEKS.map((week) => ({ cell, season, week, positions: Object.fromEntries(metrics.MACRO_POSITIONS.map((key) => [key, { ...position }])) })))),
     activationAggregates: sweepEvidence.ON_CELL_NAMES.flatMap((cell) => ['2025', '2024'].map((season) => ({ cell, season, positions: Object.fromEntries(metrics.MACRO_POSITIONS.map((key) => [key, { eligible: 17, activated: 17, excludedIneligible: 0, rate: 1 }])) }))),
   };
+}
+
+function syntheticPermutationControl({ fail = false } = {}) {
+  const permuted = new Array(metrics.PERMUTATION_DRAWS).fill(0);
+  return fail
+    ? { regret: { observed: 0, permuted }, pairwise: { observed: 1, permuted } }
+    : { regret: { observed: 1, permuted }, pairwise: { observed: 1, permuted } };
 }
 
 function treatedActivationInput() {
@@ -113,7 +120,7 @@ function treatedActivationInput() {
 }
 
 /** A full, valid --inputs document: every cell comfortably PASSES every applicable component. */
-function fullPassingInputs({ permutationControl = { regretP: 0.0001, pairwiseP: 0.0001 } } = {}) {
+function fullPassingInputs({ permutationControl = syntheticPermutationControl() } = {}) {
   const cells = {};
   for (const cellMeta of arms.ALL_CELLS) {
     const isOnCell = cellMeta.homeAway === 'on';
@@ -143,7 +150,7 @@ function fullPassingInputs({ permutationControl = { regretP: 0.0001, pairwiseP: 
     orderingDisagreement: false,
     deployedPolicyDisagreement: false,
     cells,
-    evidence: syntheticEvidence(),
+    evidence: syntheticEvidence(permutationControl),
   };
 }
 
@@ -260,12 +267,12 @@ test('validateInputs refuses an e2 endpoint with an unrecognized key', () => {
 
 test('validateInputs refuses a permutationControl field that is missing or non-finite', () => {
   const bad = fullPassingInputs();
-  bad.permutationControl = { regretP: 0.001 };
-  assert.throws(() => runBacktestSweep.validateInputs(bad), /pairwiseP: must be a finite number/);
+  bad.permutationControl = { regret: { observed: 1, permuted: [] } };
+  assert.throws(() => runBacktestSweep.validateInputs(bad), /pairwise: requires finite observed and raw permuted statistics/);
 
   const nanCase = fullPassingInputs();
-  nanCase.permutationControl.regretP = NaN;
-  assert.throws(() => runBacktestSweep.validateInputs(nanCase), /regretP: must be a finite number/);
+  nanCase.permutationControl.regret.observed = NaN;
+  assert.throws(() => runBacktestSweep.validateInputs(nanCase), /regret: requires finite observed and raw permuted statistics/);
 });
 
 // ---------------------------------------------------------------------------
@@ -373,7 +380,7 @@ test('main(): a permutation-control threshold miss produces a VOID run with no c
   const outJson = path.join(dir, 'report.json');
   const outMarkdown = path.join(dir, 'REPORT.md');
   fs.writeFileSync(inputsPath, JSON.stringify(fullPassingInputs({
-    permutationControl: { regretP: 0.5, pairwiseP: 0.0001 },
+    permutationControl: syntheticPermutationControl({ fail: true }),
   })));
 
   runBacktestSweep.main(['--inputs', inputsPath, '--out-json', outJson, '--out-markdown', outMarkdown]);
@@ -634,7 +641,7 @@ test('main(): --verify-against succeeds when regenerating from the SAME inputs, 
   // both files exist.
   const divergentInputsPath = path.join(dir, 'divergent-inputs.json');
   fs.writeFileSync(divergentInputsPath, JSON.stringify(fullPassingInputs({
-    permutationControl: { regretP: 0.5, pairwiseP: 0.0001 }, // now void, a genuinely different report
+    permutationControl: syntheticPermutationControl({ fail: true }), // now void, a genuinely different report
   })));
   assert.throws(
     () => runBacktestSweep.main([

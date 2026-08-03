@@ -523,7 +523,16 @@ test('a control that cannot beat the shuffle VOIDS the run on either endpoint', 
   const bothBad = metrics.assertPermutationControl({ regretP: 0.02, pairwiseP: 0.5 });
   assert.equal(bothBad.failures.length, 2);
   assert.throws(() => metrics.assertPermutationControl({ regretP: null, pairwiseP: 0.1 }),
-    /the regret p-value is missing/);
+    /the regret p-value must be within \[0, 1\]/);
+});
+
+test('permutation control computes pinned 10,000-replicate p-values and rejects altered streams', () => {
+  const input = { observed: 1, permuted: new Array(metrics.PERMUTATION_DRAWS).fill(0) };
+  const result = metrics.computePermutationControl({ regret: input, pairwise: input });
+  assert.equal(result.replicates, metrics.PERMUTATION_DRAWS);
+  assert.equal(result.regret.p, 1 / (metrics.PERMUTATION_DRAWS + 1));
+  assert.throws(() => metrics.computePermutationControl({ regret: { observed: 1, permuted: [0] }, pairwise: input }), /exactly 10000 replicates/);
+  assert.throws(() => metrics.assertPermutationControl({ regretP: -0.01, pairwiseP: 0.001 }), /within \[0, 1\]/);
 });
 
 // ---------------------------------------------------------------------------

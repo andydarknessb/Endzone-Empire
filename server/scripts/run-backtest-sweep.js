@@ -47,6 +47,7 @@ const fs = require('fs');
 const path = require('path');
 
 const arms = require('../../scripts/backtest/lib/arms');
+const metrics = require('../../scripts/backtest/lib/metrics');
 const sweepEvaluator = require('../../scripts/backtest/lib/sweepEvaluator');
 const sweepInference = require('../../scripts/backtest/lib/sweepInference');
 const sweepReport = require('../../scripts/backtest/lib/sweepReport');
@@ -152,10 +153,11 @@ function validateInputs(inputs, { label = '--inputs' } = {}) {
   if (!inputs.permutationControl || typeof inputs.permutationControl !== 'object') {
     throw new Error(`${label}.permutationControl: must be an object`);
   }
-  assertClosedKeys(inputs.permutationControl, ['regretP', 'pairwiseP'], `${label}.permutationControl`);
-  for (const key of ['regretP', 'pairwiseP']) {
-    if (typeof inputs.permutationControl[key] !== 'number' || !Number.isFinite(inputs.permutationControl[key])) {
-      throw new Error(`${label}.permutationControl.${key}: must be a finite number`);
+  assertClosedKeys(inputs.permutationControl, ['regret', 'pairwise'], `${label}.permutationControl`);
+  for (const key of ['regret', 'pairwise']) {
+    const endpoint = inputs.permutationControl[key];
+    if (!endpoint || typeof endpoint !== 'object' || !Number.isFinite(endpoint.observed) || !Array.isArray(endpoint.permuted)) {
+      throw new Error(`${label}.permutationControl.${key}: requires finite observed and raw permuted statistics`);
     }
   }
   if (!inputs.cells || typeof inputs.cells !== 'object') throw new Error(`${label}.cells: must be an object`);
@@ -435,6 +437,13 @@ function unevaluatedCellClaims() {
 function buildReportFromInputs(inputs) {
   validateInputs(inputs);
   const evidence = sweepEvidence.validateEvidence(inputs.evidence);
+  const permutationControl = metrics.computePermutationControl(inputs.permutationControl);
+  if (evidence.diagnostics.permutation.regretPValue !== permutationControl.regret.p
+    || evidence.diagnostics.permutation.pairwisePValue !== permutationControl.pairwise.p
+    || evidence.diagnostics.permutation.regretStatistic !== permutationControl.regret.observed
+    || evidence.diagnostics.permutation.pairwiseStatistic !== permutationControl.pairwise.observed) {
+    throw new Error('evidence.diagnostics.permutation: published statistics/p-values must match internally computed permutation control');
+  }
   const preflight = sweepPreflight.runPreflight({
     ...inputs.preflight,
     componentFVetoRecords: componentFVetoRecords(inputs.cells, inputs.preflight),
@@ -444,7 +453,7 @@ function buildReportFromInputs(inputs) {
     : unevaluatedCellClaims();
   const sweep = sweepInference.evaluateSweep({
     cellClaims,
-    permutationControl: inputs.permutationControl,
+    permutationControl: { regretP: permutationControl.regret.p, pairwiseP: permutationControl.pairwise.p },
     canariesPassed: inputs.canariesPassed,
     identityAssertionsPassed: preflight.identities.passed,
     saltCollisionPassed: preflight.saltSeeds.passed,

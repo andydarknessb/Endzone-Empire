@@ -497,7 +497,7 @@ function movingBlockBootstrap({
   }
   const n = weekValues.length;
   if (n < blockLength) throw new Error(`${label}: ${n} clusters cannot form a block of ${blockLength}`);
-  const rng = makeRng(seed + blockLength);
+  const rng = makeRng(seed);
   const blocks = Math.ceil(n / blockLength);
   const stats = new Float64Array(draws);
   for (let d = 0; d < draws; d++) {
@@ -714,7 +714,7 @@ const PERMUTATION_P_THRESHOLD = 0.001;
 function assertPermutationControl({ regretP, pairwiseP, label = 'perm-control' }) {
   const failures = [];
   for (const [endpoint, p] of [['regret', regretP], ['pairwise', pairwiseP]]) {
-    if (!isFiniteNumber(p)) throw new Error(`${label}: the ${endpoint} p-value is missing`);
+    if (!isFiniteNumber(p) || Number(p) < 0 || Number(p) > 1) throw new Error(`${label}: the ${endpoint} p-value must be within [0, 1]`);
     if (Number(p) > PERMUTATION_P_THRESHOLD) failures.push(`${endpoint} p = ${p}`);
   }
   if (failures.length > 0) {
@@ -729,6 +729,18 @@ function assertPermutationControl({ regretP, pairwiseP, label = 'perm-control' }
     };
   }
   return { void: false, reason: null, detail: 'the control beats the permutation null on both endpoints', failures: [] };
+}
+
+function computePermutationControl({ regret, pairwise, label = 'perm-control' }) {
+  const result = {};
+  for (const [endpoint, input] of [['regret', regret], ['pairwise', pairwise]]) {
+    if (!input || typeof input !== 'object') throw new Error(`${label}: ${endpoint} requires observed and permuted statistics`);
+    const calculation = permutationPValue({ observed: input.observed, permuted: input.permuted, label: `${label}: ${endpoint}` });
+    if (calculation.draws !== PERMUTATION_DRAWS) throw new Error(`${label}: ${endpoint} requires exactly ${PERMUTATION_DRAWS} replicates, got ${calculation.draws}`);
+    result[endpoint] = { observed: Number(input.observed), ...calculation };
+  }
+  const gate = assertPermutationControl({ regretP: result.regret.p, pairwiseP: result.pairwise.p, label });
+  return { ...gate, seed: PERMUTATION_SEED, replicates: PERMUTATION_DRAWS, regret: result.regret, pairwise: result.pairwise };
 }
 
 // ---------------------------------------------------------------------------
@@ -807,5 +819,6 @@ module.exports = {
   gatherPermutedProjections,
   permutationPValue,
   assertPermutationControl,
+  computePermutationControl,
   splitSaltSd,
 };
