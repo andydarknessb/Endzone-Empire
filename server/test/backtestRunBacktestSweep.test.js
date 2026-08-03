@@ -8,6 +8,7 @@ const runBacktestSweep = require('../scripts/run-backtest-sweep');
 const arms = require('../../scripts/backtest/lib/arms');
 const sweepEvaluator = require('../../scripts/backtest/lib/sweepEvaluator');
 const metrics = require('../../scripts/backtest/lib/metrics');
+const sweepEvidence = require('../../scripts/backtest/lib/sweepEvidence');
 
 // ---------------------------------------------------------------------------
 // Fixture construction: a full, valid --inputs document
@@ -77,6 +78,26 @@ function syntheticPreflight() {
   };
 }
 
+function syntheticEvidence() {
+  const estimate = (key, point = 0) => ({
+    key, status: 'estimated', point, lower: point - 0.01, upper: point + 0.01,
+    weeks: metrics.EVALUATED_WEEKS.map((week) => ({ week, value: point })), reason: null,
+  });
+  const metricRows = (point) => sweepEvidence.METRIC_KEYS.map((key, index) => estimate(key, point + index * 0.001));
+  const position = { eligible: 1, activated: 1, excludedIneligible: 0, rate: 1 };
+  return {
+    cells: arms.ALL_CELLS.map((cell, index) => ({ cell: cell.name, absoluteMetrics: metricRows(1 + index), pairedDeltas: metricRows(index * 0.01) })),
+    movingBlock: arms.ALL_CELLS.flatMap((cell) => sweepEvidence.METRIC_KEYS.flatMap((key) => metrics.MOVING_BLOCK_LENGTHS.map((blockLength) => ({ cell: cell.name, key, blockLength, point: 0, lower: -0.01, upper: 0.01 })))),
+    attribution: sweepEvidence.ATTRIBUTION_CELL_NAMES.flatMap((cell) => sweepEvidence.METRIC_KEYS.map((key) => ({ cell, key, usageMain: estimate(key, 0.01), homeAwayMain: estimate(key, 0.02), interaction: estimate(key, 0.03) }))),
+    diagnostics: {
+      controlNaive: metricRows(-0.1), usageSignal: metricRows(0.1),
+      permutation: { seed: metrics.PERMUTATION_SEED, replicates: metrics.PERMUTATION_DRAWS, regretStatistic: -0.2, regretPValue: 0.0001, pairwiseStatistic: 0.03, pairwisePValue: 0.0001 },
+    },
+    activationProfiles: sweepEvidence.ON_CELL_NAMES.flatMap((cell) => ['2025', '2024'].flatMap((season) => metrics.EVALUATED_WEEKS.map((week) => ({ cell, season, week, positions: Object.fromEntries(metrics.MACRO_POSITIONS.map((key) => [key, { ...position }])) })))),
+    activationAggregates: sweepEvidence.ON_CELL_NAMES.flatMap((cell) => ['2025', '2024'].map((season) => ({ cell, season, positions: Object.fromEntries(metrics.MACRO_POSITIONS.map((key) => [key, { eligible: 17, activated: 17, excludedIneligible: 0, rate: 1 }])) }))),
+  };
+}
+
 function treatedActivationInput() {
   const position = () => ({
     eligible: true, neutralSite: false, knownOrientation: true,
@@ -122,6 +143,7 @@ function fullPassingInputs({ permutationControl = { regretP: 0.0001, pairwiseP: 
     orderingDisagreement: false,
     deployedPolicyDisagreement: false,
     cells,
+    evidence: syntheticEvidence(),
   };
 }
 
@@ -324,6 +346,8 @@ test('main(): a comfortably-passing inputs document produces a VALID run with a 
   const markdown = fs.readFileSync(outMarkdown, 'utf8');
   assert.match(markdown, /# Sweep report: pit-sweep-2024-2025/);
   assert.match(markdown, /Outcome: \*\*selected\*\*/);
+  assert.match(markdown, /## Descriptive evidence/);
+  assert.match(markdown, /Permutation: seed=940227589, replicates=10000/);
 
   // Independent implementation review finding: the report previously
   // discarded component (f) transparency, bootstrap n/CI, and per-season

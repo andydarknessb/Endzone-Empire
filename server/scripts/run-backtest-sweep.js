@@ -51,6 +51,7 @@ const sweepEvaluator = require('../../scripts/backtest/lib/sweepEvaluator');
 const sweepInference = require('../../scripts/backtest/lib/sweepInference');
 const sweepReport = require('../../scripts/backtest/lib/sweepReport');
 const sweepPreflight = require('../../scripts/backtest/lib/sweepPreflight');
+const sweepEvidence = require('../../scripts/backtest/lib/sweepEvidence');
 
 // ---------------------------------------------------------------------------
 // CLI
@@ -98,7 +99,7 @@ function parseArgs(argv) {
 const COMPONENT_KEYS = Object.freeze(['a', 'b', 'c', 'd', 'e1']);
 const TOP_LEVEL_KEYS = Object.freeze([
   'studyId', 'canariesPassed', 'preflight', 'permutationControl',
-  'orderingDisagreement', 'deployedPolicyDisagreement', 'cells',
+  'orderingDisagreement', 'deployedPolicyDisagreement', 'cells', 'evidence',
 ]);
 const PREFLIGHT_KEYS = Object.freeze([
   'expectedPlayerWeeks', 'controlUsage25Records', 'homeAwayStoredRecords', 'saltSeedCoordinates', 'saltSeedRecords',
@@ -145,6 +146,9 @@ function validateInputs(inputs, { label = '--inputs' } = {}) {
     if (!Array.isArray(inputs.preflight[key])) {
       throw new Error(`${label}.preflight.${key}: must be an array of raw preflight records`);
     }
+  }
+  if (!inputs.evidence || typeof inputs.evidence !== 'object' || Array.isArray(inputs.evidence)) {
+    throw new Error(`${label}.evidence: must be the complete descriptive-evidence object`);
   }
   if (!inputs.permutationControl || typeof inputs.permutationControl !== 'object') {
     throw new Error(`${label}.permutationControl: must be an object`);
@@ -426,6 +430,7 @@ function unevaluatedCellClaims() {
 
 function buildReportFromInputs(inputs) {
   validateInputs(inputs);
+  const evidence = sweepEvidence.validateEvidence(inputs.evidence);
   const preflight = sweepPreflight.runPreflight({
     ...inputs.preflight,
     componentFVetoRecords: componentFVetoRecords(inputs.cells),
@@ -443,7 +448,7 @@ function buildReportFromInputs(inputs) {
     orderingDisagreement: inputs.orderingDisagreement,
     deployedPolicyDisagreement: inputs.deployedPolicyDisagreement,
   });
-  return sweepReport.buildReport({ studyId: inputs.studyId, sweep });
+  return sweepReport.buildReport({ studyId: inputs.studyId, sweep: { ...sweep, evidence } });
 }
 
 function main(argv) {

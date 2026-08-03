@@ -37,20 +37,14 @@
  * exact trigger fired), component (f)'s full prereg-9.8-required
  * transparency block, per-season/per-position activation rates (prereg
  * 11.2), and the cell-level ordering-sensitivity finding (prereg 5.2/16).
- * It does NOT yet carry three things the sealed preregistration also
- * requires reported: **absolute metrics and their CIs** (this pipeline
- * only ever computes PAIRED CONTRAST deltas, never each arm's own absolute
- * metric - prereg 12.1's "all 8 cells' absolute metrics... reported" has
- * no corresponding computation anywhere in `sweepEvaluator.js` yet);
- * **sensitivities** (`metrics.movingBlockBootstrap` exists but is never
- * invoked by this pipeline - prereg 10.5); and **attribution composites**
- * (the usage/homeAway/interaction decomposition, prereg 12.2 - not
- * computed anywhere). These are real, larger scope items for a future
- * increment, not schema omissions this file can fix on its own - reported
- * here rather than left implicit.
+ * The validated descriptive-evidence object carries the complete eight-cell
+ * absolute/paired matrix, moving-block results, attribution composites,
+ * control diagnostics, permutation metadata, and weekly/season activation
+ * views. Those values are descriptive and never become candidate verdicts.
  */
 
 const arms = require('./arms');
+const sweepEvidence = require('./sweepEvidence');
 const { canonicalJson } = require('./snapshotStore');
 
 const REQUIRED_STATES_WITH_REASON = Object.freeze(['unevaluable', 'wide-straddle', 'vetoed']);
@@ -139,7 +133,7 @@ const ACTIVATION_POSITION_KEYS = Object.freeze(['eligible', 'activated', 'exclud
 const ORDERING_SENSITIVITY_KEYS = Object.freeze(['contradicted', 'detail']);
 const SELECTION_KEYS = Object.freeze(['outcome', 'reasons', 'reason', 'selected', 'ranked']);
 const RANKED_CELL_KEYS = Object.freeze(['name', 'blendWeight', 'homeAway']);
-const REPORT_KEYS = Object.freeze(['studyId', 'run', 'permutationControl', 'cells', 'selection']);
+const REPORT_KEYS = Object.freeze(['studyId', 'run', 'permutationControl', 'cells', 'selection', 'evidence']);
 
 /** Normalize one bootstrap/exact endpoint's evidence summary to the closed shape. */
 function normalizeEndpointEvidence(endpoint, { label }) {
@@ -355,7 +349,7 @@ function buildReport({ studyId, sweep, label = 'sweepReport' }) {
   if (!sweep || typeof sweep !== 'object') {
     throw new Error(`${label}: sweep must be an evaluateSweep() result`);
   }
-  const { run, permutationControl, cells: cellClaims, selection } = sweep;
+  const { run, permutationControl, cells: cellClaims, selection, evidence } = sweep;
 
   assertClosedKeys(run || {}, RUN_KEYS, { label: `${label}.run` });
   if (!['valid', 'void'].includes(run && run.status)) {
@@ -389,6 +383,7 @@ function buildReport({ studyId, sweep, label = 'sweepReport' }) {
     },
     cells,
     selection: normalizeSelection(selection, { label: `${label}.selection` }),
+    evidence: evidence === undefined || evidence === null ? null : sweepEvidence.validateEvidence(evidence),
   };
   assertClosedKeys(report, REPORT_KEYS, { label });
   assertFinite(report, { label });
@@ -514,6 +509,14 @@ function renderMarkdown(report) {
       }
       lines.push('');
     }
+  }
+  if (report.evidence) {
+    lines.push('', '## Descriptive evidence', '');
+    lines.push(`- Eight-cell metrics: ${report.evidence.cells.length}`);
+    lines.push(`- Moving-block rows: ${report.evidence.movingBlock.length}`);
+    lines.push(`- Attribution composites: ${report.evidence.attribution.length}`);
+    lines.push(`- Permutation: seed=${report.evidence.diagnostics.permutation.seed}, replicates=${report.evidence.diagnostics.permutation.replicates}, regret p=${report.evidence.diagnostics.permutation.regretPValue}, pairwise p=${report.evidence.diagnostics.permutation.pairwisePValue}`);
+    lines.push(`- Weekly activation profiles: ${report.evidence.activationProfiles.length}; season/position aggregates: ${report.evidence.activationAggregates.length}`);
   }
   lines.push('## Selection');
   lines.push('');
