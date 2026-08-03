@@ -153,11 +153,10 @@ function validateInputs(inputs, { label = '--inputs' } = {}) {
   if (!inputs.permutationControl || typeof inputs.permutationControl !== 'object') {
     throw new Error(`${label}.permutationControl: must be an object`);
   }
-  assertClosedKeys(inputs.permutationControl, ['regret', 'pairwise'], `${label}.permutationControl`);
-  for (const key of ['regret', 'pairwise']) {
-    const endpoint = inputs.permutationControl[key];
-    if (!endpoint || typeof endpoint !== 'object' || !Number.isFinite(endpoint.observed) || !Array.isArray(endpoint.permuted)) {
-      throw new Error(`${label}.permutationControl.${key}: requires finite observed and raw permuted statistics`);
+  assertClosedKeys(inputs.permutationControl, ['observations', 'rosterRows'], `${label}.permutationControl`);
+  for (const key of ['observations', 'rosterRows']) {
+    if (!Array.isArray(inputs.permutationControl[key])) {
+      throw new Error(`${label}.permutationControl.${key}: must be canonical raw control observations`);
     }
   }
   if (!inputs.cells || typeof inputs.cells !== 'object') throw new Error(`${label}.cells: must be an object`);

@@ -731,16 +731,18 @@ function assertPermutationControl({ regretP, pairwiseP, label = 'perm-control' }
   return { void: false, reason: null, detail: 'the control beats the permutation null on both endpoints', failures: [] };
 }
 
-function computePermutationControl({ regret, pairwise, label = 'perm-control' }) {
-  const result = {};
-  for (const [endpoint, input] of [['regret', regret], ['pairwise', pairwise]]) {
-    if (!input || typeof input !== 'object') throw new Error(`${label}: ${endpoint} requires observed and permuted statistics`);
-    const calculation = permutationPValue({ observed: input.observed, permuted: input.permuted, label: `${label}: ${endpoint}` });
-    if (calculation.draws !== PERMUTATION_DRAWS) throw new Error(`${label}: ${endpoint} requires exactly ${PERMUTATION_DRAWS} replicates, got ${calculation.draws}`);
-    result[endpoint] = { observed: Number(input.observed), ...calculation };
+function computePermutationControl(input) {
+  const { observations, rosterRows, label = 'perm-control' } = input || {};
+  const extra = Object.keys(input || {}).filter((key) => !['observations', 'rosterRows', 'label'].includes(key));
+  if (extra.length > 0) {
+    throw new Error(`${label}: caller-supplied permutation statistics are prohibited (${extra.join(', ')})`);
   }
-  const gate = assertPermutationControl({ regretP: result.regret.p, pairwiseP: result.pairwise.p, label });
-  return { ...gate, seed: PERMUTATION_SEED, replicates: PERMUTATION_DRAWS, regret: result.regret, pairwise: result.pairwise };
+  if (!Array.isArray(observations) || !Array.isArray(rosterRows)) {
+    throw new Error(`${label}: requires canonical raw control observations; caller-supplied statistics are prohibited`);
+  }
+  // Deliberately lazy: the raw reducer depends on the metric primitives above,
+  // while this remains the sole public control entry point.
+  return require('./permutationControl').computePermutationControlFromObservations({ observations, rosterRows, label });
 }
 
 // ---------------------------------------------------------------------------

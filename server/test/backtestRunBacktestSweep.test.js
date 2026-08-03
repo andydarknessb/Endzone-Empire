@@ -91,7 +91,17 @@ function syntheticEvidence(permutationControl = syntheticPermutationControl()) {
     attribution: sweepEvidence.ATTRIBUTION_CELL_NAMES.flatMap((cell) => sweepEvidence.METRIC_KEYS.map((key) => ({ cell, key, usageMain: estimate(key, 0.01), homeAwayMain: estimate(key, 0.02), interaction: estimate(key, 0.03) }))),
     diagnostics: {
       controlNaive: metricRows(-0.1), usageSignal: metricRows(0.1),
-      permutation: (() => { const computed = metrics.computePermutationControl(permutationControl); return { seed: metrics.PERMUTATION_SEED, replicates: metrics.PERMUTATION_DRAWS, regretStatistic: computed.regret.observed, regretPValue: computed.regret.p, pairwiseStatistic: computed.pairwise.observed, pairwisePValue: computed.pairwise.p }; })(),
+      permutation: (() => {
+        const failed = permutationControl.observations[0].actual === 0;
+        return {
+          seed: metrics.PERMUTATION_SEED,
+          replicates: metrics.PERMUTATION_DRAWS,
+          regretStatistic: failed ? -1 : 0,
+          regretPValue: failed ? 1 : 1 / (metrics.PERMUTATION_DRAWS + 1),
+          pairwiseStatistic: failed ? 0 : 1,
+          pairwisePValue: failed ? 1 : 1 / (metrics.PERMUTATION_DRAWS + 1),
+        };
+      })(),
     },
     activationProfiles: sweepEvidence.ON_CELL_NAMES.flatMap((cell) => ['2025', '2024'].flatMap((season) => metrics.EVALUATED_WEEKS.map((week) => ({ cell, season, week, positions: Object.fromEntries(metrics.MACRO_POSITIONS.map((key) => [key, { ...position }])) })))),
     activationAggregates: sweepEvidence.ON_CELL_NAMES.flatMap((cell) => ['2025', '2024'].map((season) => ({ cell, season, positions: Object.fromEntries(metrics.MACRO_POSITIONS.map((key) => [key, { eligible: 17, activated: 17, excludedIneligible: 0, rate: 1 }])) }))),
@@ -99,10 +109,14 @@ function syntheticEvidence(permutationControl = syntheticPermutationControl()) {
 }
 
 function syntheticPermutationControl({ fail = false } = {}) {
-  const permuted = new Array(metrics.PERMUTATION_DRAWS).fill(0);
-  return fail
-    ? { regret: { observed: 0, permuted }, pairwise: { observed: 1, permuted } }
-    : { regret: { observed: 1, permuted }, pairwise: { observed: 1, permuted } };
+  const rosterRows = metrics.EVALUATED_WEEKS.flatMap((week) => metrics.MACRO_POSITIONS.flatMap((position) => [
+    { season: 2025, week, position, playerId: 1 },
+    { season: 2025, week, position, playerId: 2 },
+  ]));
+  return { rosterRows, observations: metrics.SALTS.flatMap((salt) => metrics.EVALUATED_WEEKS.flatMap((week) => metrics.MACRO_POSITIONS.flatMap((position) => [
+    { season: 2025, week, salt, position, playerId: 1, actual: fail ? 0 : 1, projected: 1 },
+    { season: 2025, week, salt, position, playerId: 2, actual: fail ? 1 : 0, projected: 0 },
+  ]))) };
 }
 
 function treatedActivationInput() {
@@ -268,11 +282,11 @@ test('validateInputs refuses an e2 endpoint with an unrecognized key', () => {
 test('validateInputs refuses a permutationControl field that is missing or non-finite', () => {
   const bad = fullPassingInputs();
   bad.permutationControl = { regret: { observed: 1, permuted: [] } };
-  assert.throws(() => runBacktestSweep.validateInputs(bad), /pairwise: requires finite observed and raw permuted statistics/);
+  assert.throws(() => runBacktestSweep.validateInputs(bad), /unexpected key/);
 
   const nanCase = fullPassingInputs();
-  nanCase.permutationControl.regret.observed = NaN;
-  assert.throws(() => runBacktestSweep.validateInputs(nanCase), /regret: requires finite observed and raw permuted statistics/);
+  nanCase.permutationControl.observations[0].actual = NaN;
+  assert.throws(() => runBacktestSweep.buildReportFromInputs(nanCase), /invalid raw observation/);
 });
 
 // ---------------------------------------------------------------------------
@@ -392,6 +406,22 @@ test('main(): a permutation-control threshold miss produces a VOID run with no c
   const markdown = fs.readFileSync(outMarkdown, 'utf8');
   assert.match(markdown, /Status: \*\*void\*\*/);
   assert.match(markdown, /No cell-level results are published/);
+});
+
+test('main(): published permutation evidence must be the same internally derived raw-control result', (t) => {
+  const dir = tmpDir(t);
+  const inputs = fullPassingInputs();
+  inputs.evidence.diagnostics.permutation.pairwisePValue = 0.001;
+  const inputsPath = path.join(dir, 'inputs.json');
+  fs.writeFileSync(inputsPath, JSON.stringify(inputs));
+  assert.throws(
+    () => runBacktestSweep.main([
+      '--inputs', inputsPath,
+      '--out-json', path.join(dir, 'report.json'),
+      '--out-markdown', path.join(dir, 'REPORT.md'),
+    ]),
+    /published statistics\/p-values must match internally computed permutation control/
+  );
 });
 
 test('main(): each sealed identity gate failing from raw records independently VOIDS the run', (t) => {
