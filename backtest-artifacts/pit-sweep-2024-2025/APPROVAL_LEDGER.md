@@ -27,7 +27,16 @@ authenticated approval attached to them.
 | document | SHA-256 of current bytes | status |
 | --- | --- | --- |
 | `PREREGISTRATION.md` | `653d98841a5c8e19af2d2d0d94ce58d677223dddee2b1433486a3dee8e3f802e` | SEALED, never edited since Phase 0 — hash is of the sealed bytes |
-| `PHASE5_EXECUTION_SPEC.md` | `0661eafc951406d22c74fe45a47f8a789d025ab9ae74d583a65148f9866cc2eb` | **APPROVAL CHAIN BROKEN — see below** |
+| `PHASE5_EXECUTION_SPEC.md` | see the anchor commit for the revision under review | **NO APPROVAL IN FORCE.** Revision 13's chain is broken (below); revision 13's successor blob `0661eafc95…` was REJECTED (review R1 below); revision 14 awaits fresh review. |
+
+**Hash the BLOB, not the working file.** This repository has
+`core.autocrlf=true` and no `.gitattributes` covering these artifacts, so a
+checkout on Windows rewrites the working copy's line endings and it will
+not match the recorded hash. The committed blob is unaffected. Always use:
+
+```
+git show <anchor-commit>:backtest-artifacts/pit-sweep-2024-2025/PHASE5_EXECUTION_SPEC.md | sha256sum
+```
 
 ---
 
@@ -76,6 +85,21 @@ approval chain that approved revision 13:
 Until that is done, Gate 0's fourth-approval condition cannot be satisfied
 regardless of the implementation's own quality, because the spec the
 implementation is being verified against is not itself authenticated.
+
+---
+
+## Review history — NOT approvals
+
+*(Kept deliberately separate from the approval rows below. A review that
+did not approve must never occupy an approval row. Append only.)*
+
+| # | document | SHA-256 reviewed | reviewer | date | outcome |
+| ---: | --- | --- | --- | --- | --- |
+| R1 | `PHASE5_EXECUTION_SPEC.md` | `0661eafc951406d22c74fe45a47f8a789d025ab9ae74d583a65148f9866cc2eb` (git blob `f6c398c5aeb900be8f15a04856c2718acf372a89`, anchored in commit `03a36768bf04106425b5a308f56c43fcaeb61b1a`) | independent statistical re-review | 2026-08-02 | **REJECT** — four blockers: (1) component-(f) falsifiability used pooled seasonwide mean `\|b\|` where the estimand is a median of week-level deltas; (2) permutation control under-specified (PRNG, shuffle, canonical player ordering, state consumption, blockwise construction) and therefore able to change the run-level VOID decision; (3) reducer not formally total; (4) player-week × salt catastrophic veto was an unlabeled substantive amendment. **No approval rows were appended for this hash, at the reviewer's explicit direction.** |
+
+Revision 14 is the response to R1. It requires its own fresh independent
+statistical review; no approval attaches to it until that review issues one
+and it is recorded below.
 
 ---
 

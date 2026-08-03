@@ -2,18 +2,60 @@
 
 Study id: `pit-sweep-2024-2025` (same study as `PREREGISTRATION.md`).
 
-**Status: revision 13. All three non-final approvals now recorded APPROVED
-(section 10): independent statistical review (SHA-256
-`25DFFCEC77EB5DFE17150020C04465B546F0584919916FD686CCFE77FA17258F`,
-2026-08-02), user sign-off on the S3 deviation (2026-08-02), and user
-approval of the remainder of this document (2026-08-02). Not sealed.**
+**Status: revision 14. NO APPROVALS ARE CURRENTLY IN FORCE FOR THIS
+DOCUMENT.**
 
-**These three approvals authorize GATE 2 IMPLEMENTATION only. They do NOT
-authorize candidate-cell execution.** Candidate-cell execution remains
-gated on the fourth and final item: the independent implementation review,
-which cannot occur until Gate 2 code exists and which has not yet
-happened. **Gate 0 (section 1) remains active** - unchanged by these three
-approvals - until that review passes.
+**Approvals are recorded EXTERNALLY, in `APPROVAL_LEDGER.md` - never in
+this file.** Revisions 1-13 recorded approvals in this document's own
+section 10, which changed the approved bytes and so invalidated every hash
+an approver had authenticated. That practice is discontinued. Section 10
+below is retained as a HISTORICAL RECORD of the review rounds only; it
+confers no authority, and the ledger is the sole authoritative record.
+
+**The revision-13 approval chain is broken and was not repaired.** The
+independent statistical review of revision 13 authenticated SHA-256
+`25DFFCEC77EB5DFE17150020C04465B546F0584919916FD686CCFE77FA17258F`; those
+bytes were then overwritten by edits recording the approvals themselves,
+and no copy survives (the file was untracked at the time). Revision 13's
+successor blob (`0661eafc95...`, committed as an immutable anchor) was
+submitted for fresh independent statistical review and **REJECTED** on four
+blockers. **Revision 14 is this document's response to that rejection**, and
+requires its own fresh independent statistical review before any approval
+can attach to it.
+
+**What revision 14 changes** (each corrects a blocker from the rejection of
+`0661eafc95...`, and each is submitted for approval as part of this
+revision's scope):
+
+- **Section 6.1a (NEW, substantive):** component (f)'s falsifiability guard
+  is moved from the pooled seasonwide mean `|b|` to **week-level bounds
+  aggregated by MEDIAN**, matching the estimand the procedure actually
+  tests. The sealed pooled-mean guard tested the attainability of a
+  quantity the sign test never estimates.
+- **Section 5.1 (NEW, mechanical):** the permutation control is **fully
+  pinned** - PRNG, per-cell seed derivation, `cellKey` byte format,
+  **canonical player ordering within a cell**, Fisher-Yates direction and
+  inclusivity, exact `rng()` state-consumption order, and blockwise
+  construction across cells. Under-specification here could change the
+  run-level VOID decision.
+- **Section 6.4a (NEW label, substantive):** the veto's evaluation domain -
+  the full `(subgroup player-week) x (24 salts)` Cartesian product rather
+  than one aggregate per player-week - is **labeled as the substantive
+  amendment it is** and brought expressly into approval scope, with runtime
+  composite-key completeness required before reduction.
+- **Section 8.2a (NEW, mechanical):** the reducer is made **formally
+  total** - `threshold-not-established -> failed`, the wide-straddle
+  interval and its inclusive boundary rule after `roundToTie`, strict
+  pass-test comparisons retained, natural-sign-only comparison, straddle
+  disabled where `harmful == favorable`, and independent retention of a
+  catastrophic veto.
+- **Section 8.2b (NEW, substantive):** the **control receives no candidate
+  verdict** - status `baseline`, never `pass`/`fail`/`inconclusive`/
+  `vetoed`.
+
+**Gate 0 (section 1) remains active.** No candidate-cell execution, no
+real-data access, no authoritative sweep generation. Implementation is
+PAUSED pending fresh review and re-approval of this revision.
 
 This document remains fully self-contained: every section states its
 complete, currently-binding requirement in full, not a pointer to an
@@ -254,6 +296,98 @@ EITHER makes the whole authoritative run **`void`** (section 8.2, Level 1)
 - a pipeline-integrity finding, evaluated once against the control, never a
 per-cell verdict.
 
+### 5.1 The permutation is FULLY PINNED **[mechanical completion]**
+
+**Why this is not optional detail.** The permutation control is the only
+gate that can `void` the entire run on its own. Two implementations that
+agree on "10,000 seeded within-week-position permutations" but differ in
+PRNG, shuffle direction, or player ordering produce different null
+distributions, different `p_hat`, and can therefore reach different
+run-level VOID decisions on identical data. Everything below is frozen so
+that cannot happen.
+
+1. **PRNG: `mulberry32`**, exactly as `scripts/backtest/lib/metrics.js`'s
+   `makeRng` implements it - 32-bit state, `a = (a + 0x6d2b79f5) >>> 0` per
+   call, returning `((t ^ (t >>> 14)) >>> 0) / 4294967296`. No other
+   generator, no `Math.random`, no reseeding mid-cell.
+2. **Per-cell seed derivation.** A permutation is a pure function of
+   `(replicate, cellKey)`:
+
+   ```
+   seed(replicate, cellKey) = sha256(`${PERMUTATION_SEED}|${replicate}|${cellKey}`).readUInt32BE(0)
+   ```
+
+   with `PERMUTATION_SEED = 940227589`. Derived by HASH rather than by
+   consuming one long stream, so replicate `b` never depends on having
+   generated replicates `0..b-1` - which is what makes the "same permutation
+   reused across all 24 salts and both endpoints" requirement hold by
+   construction rather than by bookkeeping.
+3. **`cellKey` format, frozen**: the ASCII string
+   **`` `${season}:${week}:${position}` ``** - e.g. `2025:9:RB` - with
+   `season` and `week` as bare decimal integers (no zero-padding) and
+   `position` one of the six macro positions in their sealed spelling
+   (`QB`, `RB`, `WR`, `TE`, `K`, `DEF`, prereg 3.3). The exact byte string
+   is load-bearing: it feeds the hash above, so any change to padding,
+   separator, or case silently produces a different null distribution.
+4. **Canonical player ordering within a cell, frozen: ASCENDING NUMERIC
+   `playerId`.** This is the gap that most needed closing - a shuffle is
+   only reproducible if what it shuffles was in a defined order first, and
+   nothing previously pinned that. The cell's members are sorted by
+   `playerId` as a NUMBER (not lexicographically - `"10" < "9"` as strings
+   would reorder the cell), ascending, before index 0 is assigned. Ties are
+   impossible: `playerId` is unique within a `(season, week, position)` cell
+   by cohort construction (prereg 4.1, one row per player per week), and an
+   implementation MUST fail closed rather than proceed if it encounters a
+   duplicate, since that would mean the cohort itself is malformed.
+5. **Shuffle: Fisher-Yates, DESCENDING**, over the canonical ordering:
+
+   ```
+   order = [0, 1, ..., size-1]                  // canonical, per step 4
+   for (i = size - 1; i > 0; i--) {
+     j = Math.floor(rng() * (i + 1))
+     swap(order[i], order[j])
+   }
+   ```
+
+   Descending `i`, `j` drawn inclusive of `i`, exactly one `rng()` call per
+   iteration, `size - 1` calls total for a cell of `size`. The ascending
+   variant and the `j < i` (exclusive) variant are both DIFFERENT
+   permutation distributions and are excluded.
+6. **State-consumption order.** Each `(replicate, cellKey)` gets its OWN
+   freshly-seeded generator (step 2), consumed by exactly the loop in step
+   5 and nothing else. No generator is shared across cells, across
+   replicates, or with any other part of the pipeline; no value is drawn
+   from it before or after the shuffle. A cell of `size <= 1` consumes ZERO
+   `rng()` calls and yields the identity permutation.
+7. **What the permutation permutes.** The **projection-to-player assignment
+   WITHIN the `(week, position)` cell** (prereg 7.3) - the vector of
+   projected medians is permuted against the players' actual points, so
+   real skill is destroyed while both marginal distributions are preserved
+   exactly. Actual points are NEVER permuted, and no row leaves its cell.
+8. **Blockwise construction across cells.** One replicate index `b` selects
+   the permutation for EVERY cell simultaneously via step 2 - replicate `b`
+   means "cell `2025:2:QB` uses `seed(b, '2025:2:QB')`, cell `2025:2:RB`
+   uses `seed(b, '2025:2:RB')`, ..." - so a replicate is a coherent
+   whole-scope reassignment, not an independent draw per cell per use. The
+   same replicate `b` is reused unchanged across all 24 salts and BOTH
+   endpoints, per prereg 7.3.
+9. **Statistic recomputation under a permutation.** `T_regret` and
+   `T_pairwise` are recomputed by the IDENTICAL code path used for `T_obs`
+   (this section's opening definitions and aggregation), with only the
+   projection-to-player assignment changed. In particular the pairwise
+   macro-average still drops a position with zero eligible pairs and still
+   drops the whole week if more than one position drops (prereg 6.2) -
+   applied to the PERMUTED assignment, not inherited from the observed one.
+
+**Required determinism tests.** (i) The same `(replicate, cellKey)` yields
+a byte-identical permutation across separate processes. (ii) Replicate
+9,999 is obtainable without having generated 0-9,998. (iii) A cell whose
+members are supplied in a different input order yields the SAME permutation
+(proving canonical ordering, not insertion order, governs). (iv) A
+one-character change to `cellKey` yields a different permutation. (v) A
+cell of size 0 or 1 consumes no randomness and is the identity. (vi) The
+`rng()` call count for a cell of size `n` is exactly `n - 1`.
+
 ---
 
 ## 6. Component (f): rounding, subgroup mechanics, veto, and callback
@@ -277,7 +411,9 @@ inc  <=  |b| * |e| + 0.01  <=  0.05 * |b| + 0.01
   amendment** - this is an evaluability gate; a cell with realized mean
   `|b|` between 0.30 and 0.50 was `unevaluable` under the sealed number and
   is potentially evaluable under the corrected one, changing which cells
-  reach a verdict at all.
+  reach a verdict at all. **The floor's NUMERIC value is retained but is no
+  longer applied to a pooled seasonwide mean - see section 6.1a, which
+  replaces the aggregation entirely.**
 - **Veto-incapable disclosure threshold, `3.80`** (was `4.00`):
   **mechanical rounding correction** - used exclusively inside the
   transparency block's `catastrophicCapCouldFire` disclosure
@@ -298,6 +434,108 @@ whose independent `round2` roundings push in opposite directions at the
 0.005 boundary, asserting scored `inc` never exceeds `0.05|b| + 0.01`; the
 falsifiability-floor and disclosure comparisons tested at `0.30`/`3.80`
 rather than `0.50`/`4.00` at their own boundaries.
+
+### 6.1a The falsifiability guard is WEEK-LEVEL, aggregated by MEDIAN **[substantive prospective amendment]**
+
+**The defect this corrects.** Prereg 9.8 states the falsifiability guard
+against the **pooled seasonwide mean `|b|`**: "Publish the realized mean
+`|b|` over the 2025 subgroup. If the realized mean `|b|` is at or below
+`delta_F / maxEffect` ... component (f) is declared UNEVALUABLE." But the
+SAME section defines the estimand as "the **MEDIAN over 2025 season-weeks**
+of the on-minus-off delta," and the test is a sign test over week-level
+`D_w`. **A guard on the pooled mean therefore tests the attainability of a
+quantity the procedure never estimates.** The two can disagree in both
+directions:
+
+- A season whose subgroup mass is concentrated in a few high-`|b|` weeks can
+  clear a pooled-mean floor while the MEDIAN week remains structurally
+  unable to exceed the margin - the guard passes and every per-week sign is
+  uninformative, exactly the artefact the guard exists to prevent.
+- A season with a long low-`|b|` tail can fail a pooled-mean floor while the
+  median week is comfortably falsifiable - the guard fires and discards
+  usable evidence.
+
+Prereg 9.8 already treats week-level `|b|_w` as a first-class preregistered
+quantity (it requires publishing "the count of individual weeks whose own
+realized mean `|b|_w` is at or below 0.50 points ... a favorable sign
+there is structurally uninformative"), so this amendment applies the sealed
+text's own week-level reasoning to the gate itself rather than only to a
+disclosure alongside it.
+
+**Frozen definition.** For component (f), per endpoint (f1 and f2
+INDEPENDENTLY - each has its own qualifying week set):
+
+1. **Qualifying weeks.** The 2025 season-weeks `w` with subgroup rows in
+   BOTH the on-cell and its matched off-cell - the identical week set the
+   endpoint's own `D_w` series is built from. A week with no subgroup rows
+   in either cell contributes to neither the test nor this guard.
+2. **Per-week attainable bound.** For each qualifying week `w`:
+
+   ```
+   bound_w = MAX_EFFECT * meanAbsBaseline_w + 0.01
+           = 0.05 * meanAbsBaseline_w + 0.01
+   ```
+
+   where `meanAbsBaseline_w` is the mean `|b|` over that week's subgroup
+   rows, `b` being the pre-homeAway baseline captured by
+   `onPreHomeAwayBaseline` (section 6.5) in the MATCHED OFF-CELL, which is
+   where subgroup membership is assigned (prereg 9.8). The `+ 0.01` is
+   section 6.1's rounding slack, unchanged and carried per-week rather than
+   pooled.
+3. **Aggregation: MEDIAN over qualifying weeks**, matching the estimand.
+   With `m` qualifying weeks and `bound_(1) <= ... <= bound_(m)` the sorted
+   bounds, **the median is the standard order-statistic median**: for odd
+   `m`, `bound_((m+1)/2)`; for even `m`, the arithmetic mean of
+   `bound_(m/2)` and `bound_(m/2 + 1)`. **The even case is pinned
+   explicitly** because the alternatives (lower/upper order statistic) give
+   different answers and 17 weeks minus any dropped week is frequently
+   even.
+4. **Equality rule.** Both operands are `roundToTie`-normalized (ten
+   decimals, prereg 6.6, matching section 6.2's convention for every other
+   boundary in this component), and the comparison is **inclusive on the
+   unfalsifiable side**:
+
+   ```
+   roundToTie(median_w(bound_w))  <=  roundToTie(DELTA_F)   ->  UNEVALUABLE
+   ```
+
+   `<=` rather than `<`: a median attainable bound exactly EQUAL to the
+   margin cannot produce a strictly-clearing result, so it is unfalsifiable,
+   matching prereg 9.8's own "at or below" phrasing for the pooled version.
+5. **Disposition on firing.** `status: 'unevaluable'`, which for component
+   (f) maps to cell `inconclusive` under its named exception (section 8.2) -
+   never `fail`, never a pass. Unchanged from the pooled version; only the
+   quantity tested changes.
+6. **Ordering.** This guard runs in the same position the pooled guard
+   occupied: AFTER the catastrophic veto (section 6.4, which is computed
+   first and overrides), and BEFORE the exact sign test is read.
+
+**Relationship to the retained `0.30` constant.** `DELTA_F - 0.01 = 0.015`
+and `MAX_EFFECT = 0.05` still give the same reference magnitude,
+`0.015 / 0.05 = 0.30`, and step 4 above is algebraically equivalent to
+`roundToTie(median_w(meanAbsBaseline_w)) <= roundToTie(0.30)`. **Either
+form may be implemented**, but the `bound_w` form is normative because it
+keeps the rounding slack visibly attached to the per-week bound it belongs
+to; an implementation using the `0.30` form must carry a test asserting the
+two agree at the boundary.
+
+**Retained disclosures (prereg 9.8, unchanged and still required).** The
+pooled seasonwide mean `|b|` and maximum `|b|` are STILL published - the
+amendment removes them from the GATE, not from the report. The per-week
+count of weeks at or below the floor is still published. **Additionally
+required by this amendment**: the realized `median_w(bound_w)` itself, the
+qualifying week count `m`, and the full sorted `bound_w` series, so a
+reader can audit the median against the data rather than taking it on
+trust.
+
+**Required mutation tests.** (i) A season whose pooled mean clears 0.30 but
+whose week-level median does NOT must report `unevaluable` - this is the
+case the pooled guard wrongly passed. (ii) The mirror: pooled mean below
+0.30, week-level median above, must be EVALUABLE. (iii) Even-`m` median
+exactly on the boundary, asserting the pinned averaging rule and the
+inclusive `<=`. (iv) f1 and f2 with DIFFERENT qualifying week sets,
+asserting the guard is evaluated independently per endpoint and one
+endpoint firing does not fire the other.
 
 ### 6.2 Normalize every boundary operation
 
@@ -332,6 +570,73 @@ the cell immediately**, regardless of whether either endpoint would
 otherwise have been evaluable - averaging `inc` across salts first was
 considered and rejected, since it could let a genuinely catastrophic
 single-salt realization wash out against 23 mild ones.
+
+#### 6.4a The veto's evaluation domain is a SUBSTANTIVE AMENDMENT **[substantive prospective amendment]**
+
+**Previously unlabeled; labeled here and submitted for approval as part of
+this revision's scope.** Prereg 9.8 states the veto as: "For any subgroup
+**row**, let `inc = |on-cell error| - |off-cell error|`. If any single
+subgroup **row** has `inc > 0.20 points`, the homeAway claim is VETOED."
+
+**"Row" is genuinely ambiguous in the sealed text**, and the two readings
+are not equivalent:
+
+- **Reading A (player-week):** a "row" is one subgroup player-week, and
+  `inc` is computed once for it - necessarily from some single aggregate
+  over the 24 salts, since a player-week has 24 salt-specific projected
+  medians and the sealed text names no rule for collapsing them.
+- **Reading B (player-week x salt), ADOPTED HERE:** a "row" is one
+  *realization* - each of the `24 x (subgroup player-weeks)` distinct
+  `(player-week, salt)` pairs is its own `inc`, and any one of them
+  exceeding the cap vetoes.
+
+**Reading B is strictly more likely to fire than Reading A** (it tests 24x
+as many values, and the maximum over a set is at least the mean over it),
+so this is not a neutral clarification - it changes which cells can be
+vetoed, and a veto is the harshest verdict in the family. That makes it a
+substantive prospective amendment requiring explicit approval, not a
+mechanical completion.
+
+**Why Reading B is adopted.** Prereg 8.1 fixes the salts as replicates that
+"differ ONLY in the seed's `hashValue` input" - they are 24 draws of
+simulation noise for the SAME model on the SAME player-week, not 24
+different models. A catastrophic harm that appears under one seed is a real
+property of the configuration's tail behavior on that player-week; averaging
+it against 23 benign draws would report the configuration as safe precisely
+when its tail is not. Prereg 9.8's own framing supports this - the veto is
+"an additional safety rather than a gate that must bind," which is the logic
+of a maximum, not a mean.
+
+**Frozen evaluation domain.** The veto is evaluated over the COMPLETE
+Cartesian product
+
+```
+{ subgroup player-weeks } x { the 24 preregistered salts }
+```
+
+with **no sampling, no truncation, and no early exit that would leave any
+member unevaluated for reporting purposes**. Membership in
+`{ subgroup player-weeks }` is assigned from the MATCHED OFF-CELL
+(`b <= 0`, prereg 9.8), computed once per `(season, week, blendWeight,
+playerId)` and reused unchanged across all 24 salts (section 6.3).
+
+**Completeness is a REQUIRED RUNTIME ASSERTION, not an assumption.** The
+implementation must verify, before reducing the realizations to a verdict,
+that it holds exactly `24 x |subgroup player-weeks|` realizations with a
+complete composite-key set - every `(season, week, playerId, salt)` present
+exactly once, no duplicate, no gap. A missing realization is a HARD ERROR
+that aborts the run, never a silently smaller veto domain: a veto whose
+domain quietly shrank is a safety gate reporting "no catastrophic row
+found" about rows it never looked at. **The count and the composite-key
+completeness result are published** alongside the veto outcome, so a reader
+can confirm the domain was whole rather than trusting that it was.
+
+**Required mutation tests.** (i) A single catastrophic realization under
+exactly one salt, benign under the other 23, must VETO - the case Reading A
+would have missed. (ii) A dropped realization (one absent composite key)
+must HARD ERROR, not silently pass. (iii) A duplicated composite key must
+HARD ERROR. (iv) The published realization count must equal
+`24 x |subgroup player-weeks|` exactly.
 
 ### 6.5 Callback contract
 
@@ -471,9 +776,86 @@ gives `passed`/`threshold-not-established` and disagreement gives
 `threshold-not-established` (never `unevaluable` - both procedures were
 computed).
 
+### 8.2a The reducer is FORMALLY TOTAL **[mechanical completion]**
+
+Every rule below closes a case the reducer could previously reach without a
+stated answer. None changes an outcome the earlier text already determined;
+each makes determinate a case the earlier text left to implementation
+accident. Frozen:
+
+1. **`threshold-not-established` maps to component `failed`.** At Level 4 it
+   is its own endpoint status (it records that the endpoint WAS fully
+   evaluated and simply did not clear - distinct from `unevaluable`, which
+   records that it could not be evaluated at all). At Level 3 that
+   distinction has served its purpose and the endpoint is **`failed`** for
+   combination, hence cell `fail` under prereg 9.1's default. **It is NEVER
+   `inconclusive`**: the endpoint produced a usable result and that result
+   did not clear the boundary, which is a measured failure, not absent
+   evidence. The Level-4 label is retained verbatim in the published report
+   so the distinction remains auditable.
+2. **The wide-straddle interval is the endpoint's own one-sided
+   `alpha/7 = 0.0071428571` bounds** - `lower` at the `0.0071428571`
+   empirical quantile and `upper` at the `0.9928571429` quantile of the
+   100,000 bootstrap statistics (prereg 10.1's percentile rule, order
+   statistic at `ceil(q * 100000)` clamped to `[1, 100000]`, no
+   interpolation). **No separate or wider interval is constructed for
+   straddle detection** - reusing the same bounds the pass/fail test uses is
+   what keeps "the interval spans both margins" (prereg 10.6) commensurate
+   with the test it qualifies.
+3. **Boundary inclusivity, after `roundToTie` on BOTH operands.** Straddle
+   fires when the interval reaches or crosses both boundaries:
+
+   ```
+   roundToTie(lower) <= roundToTie(min(favorable, harmful))
+     AND roundToTie(upper) >= roundToTie(max(favorable, harmful))
+   ```
+
+   **Inclusive (`<=`, `>=`) on both ends**: an interval whose endpoint lands
+   exactly ON a boundary does span it for this purpose, since prereg 10.6's
+   concern is an interval too wide to distinguish benefit from harm, and
+   exact contact does not distinguish them. **The pass tests remain
+   STRICT** (`upper < passing` for a favorable-negative endpoint, `lower >
+   passing` for a favorable-positive one), exactly as prereg 9.2-9.7 phrase
+   them ("strictly below", "strictly above"). The two conventions differ on
+   purpose and must not be unified.
+4. **All comparisons are in the metric's NATURAL SIGN.** Where the exact
+   procedure internally negates a favorable-positive statistic and its
+   margin (section 4.4 item 4), the bound is de-normalized back to natural
+   sign BEFORE any comparison, publication, or straddle check. No comparison
+   is ever performed in the internal negated space, and no negated value is
+   ever published.
+5. **Zero-margin endpoints cannot wide-straddle.** For (b), (c), (d),
+   `passing = harmful = favorable = 0`, so `min == max` and rule 3 would
+   reduce to `lower <= 0 AND upper >= 0` - which is merely "the interval
+   contains zero," the ordinary non-significant result, not the
+   pathological width prereg 10.6 targets. **Wide-straddle is therefore
+   DISABLED where `harmful == favorable`**, and such an endpoint falls to
+   `threshold-not-established` instead. (Section 8.1's table already states
+   `passing = harmful = 0` for these; this closes what the reducer does
+   with it.)
+6. **A catastrophic veto is RETAINED INDEPENDENTLY of every other status.**
+   Cell precedence is `vetoed > fail > inconclusive > pass`, so a vetoed
+   cell reports `vetoed` even when another component independently failed.
+   **The veto is additionally retained and published in its own right** -
+   `vetoedReasons` carries it, and the component (f) result carries its
+   own `vetoed` status - so a cell that would have failed anyway still
+   discloses that a catastrophic realization was observed. A veto is
+   positive evidence of harm; allowing an unrelated failure to mask it in
+   the report would lose the strongest safety finding the study can produce.
+   Conversely, and unchanged: **a veto can never turn a failure into a
+   pass** (prereg 9.8).
+7. **Totality.** Every endpoint reaches exactly one of the five Level-4
+   statuses; every component reaches exactly one Level-3 status; every cell
+   reaches exactly one of `fail`/`inconclusive`/`vetoed`/`pass` (or, for the
+   control alone, `baseline` - section 8.2b); every run reaches `valid` or
+   `void`. **No input produces an undefined, absent, or implementation-
+   defined status at any level.** An implementation MUST fail closed rather
+   than emit a status outside these sets.
+
 **Component level (Level 3)**: `missing` > `vetoed` (component (f) only) >
 `unevaluable` > `wide-straddle` > `failed` > `passed`, by the presence of
-any endpoint in that category.
+any endpoint in that category, with `threshold-not-established` counting as
+`failed` per rule 1 above.
 
 **Cell level (Level 2), the complete, corrected table:**
 
@@ -495,10 +877,45 @@ precedence - never a special case that jumps the queue: a cell that is
 ALSO independently `vetoed` or `fail` for an unrelated reason keeps that
 status regardless of an ordering disagreement also being true for it.
 
+### 8.2b The CONTROL receives no candidate verdict **[substantive prospective amendment]**
+
+**The control cell (`usage-25 x off`) is assigned the distinct status
+`baseline` and is NEVER assigned `pass`, `fail`, `inconclusive`, or
+`vetoed`.**
+
+Prereg 9.1 scopes the IUT to candidates - "One claim per **candidate**
+cell" - and prereg 7.1/12.1 name the control as distinct from "the 7
+non-control cells." Component (a)'s comparator IS the control, so running
+the candidate IUT on the control would compare it against itself and
+produce a permanent, structural `fail` on every real run: an artifact of
+asking a nonsensical question, not a finding about the model. Labeling that
+artifact `fail` would misreport the shipped configuration as having failed
+a test it was never a subject of.
+
+This is labeled a **substantive prospective amendment** rather than a
+mechanical completion because the sealed text does not state a status for
+the control at all - it scopes the claim to candidates and stops. Choosing
+`baseline` (rather than, say, omitting the control from the report, or
+reporting it with a null verdict) is a real choice among readings the
+sealed text leaves open.
+
+**Frozen rules.** (i) `baseline` is valid ONLY for the control cell; a
+candidate cell reporting it is a hard error, since a candidate must not
+opt out of the IUT it is required to pass. (ii) A control cell reporting
+any candidate verdict is equally a hard error. (iii) The control publishes
+NO component results - it has no candidate claim, so there are no
+components to report. (iv) The control remains excluded from the Level-5
+selection family (prereg 7.1), as it already was. (v) The control's
+baseline metrics and the pipeline assertions computed against it (the
+permutation control, section 5; the `usage-25 == control` bit-identity
+assertion, section 8.6.0) are still published in full - the amendment
+removes a VERDICT it should never have had, not the control's data.
+
 **Run level (Level 1)**: every authoritative run is either **`valid`**
 (every cell above is computed and published) or **`void`** (the
 permutation-control threshold miss, section 5; a canary failure; either of
-the two sealed identity assertions, section 8.6) - `void` is a property of
+the two sealed identity assertions, section 8.6; **or a detected
+salt-collision, section 3.4 item 5**) - `void` is a property of
 the WHOLE run,
 preempting the entire cell-level table rather than being one more row in
 it.
@@ -1052,9 +1469,21 @@ by omitting the control-path arm entirely.]**
 
 ---
 
-## 10. Approval record
+## 10. Review history (HISTORICAL RECORD ONLY - confers no authority)
 
-| approval | status | date | notes |
+**This section is NOT an approval record and must not be read as one.**
+Approvals live exclusively in `APPROVAL_LEDGER.md`. This table is retained
+because the review rounds it documents are part of how the specification
+reached its current form, and deleting that history would make the
+document less auditable, not more.
+
+**Every "APPROVED" row below is VOID as an authority.** Each attaches to a
+byte-state of this file that no longer exists - which is precisely the
+failure that caused approvals to be moved out of this document. Rows are
+left unedited rather than rewritten, so the record of what happened stays
+intact.
+
+| review round | outcome | date | notes |
 | --- | --- | --- | --- |
 | Independent statistical review of revision 2 | **REJECTED** | | SHA-256 `49DE398789B2690172B147DBEFE36AFD7248BAA0C902AFD590E76604C0144B04` |
 | Independent statistical review of revision 3 | **REJECTED** | | SHA-256 `D308B40CDD7DD71773D565A41407437031FC63E5D34678FC66C71DC7160D0306` |
