@@ -2,8 +2,9 @@
 
 Study id: `pit-sweep-2024-2025` (same study as `PREREGISTRATION.md`).
 
-**Status: revision 14. NO APPROVALS ARE CURRENTLY IN FORCE FOR THIS
-DOCUMENT.**
+**Status: revision 15. NO APPROVALS ARE CURRENTLY IN FORCE FOR THIS
+DOCUMENT. NOTHING IS AUTHORIZED - not candidate execution, and not Gate 2
+implementation work either.**
 
 **Approvals are recorded EXTERNALLY, in `APPROVAL_LEDGER.md` - never in
 this file.** Revisions 1-13 recorded approvals in this document's own
@@ -23,9 +24,51 @@ blockers. **Revision 14 is this document's response to that rejection**, and
 requires its own fresh independent statistical review before any approval
 can attach to it.
 
-**What revision 14 changes** (each corrects a blocker from the rejection of
-`0661eafc95...`, and each is submitted for approval as part of this
-revision's scope):
+**Revision 14 was also REJECTED**, on five blockers, at blob
+`ee6800ecdb4484f5cc599ef6a67c1a77fc9f1068` (SHA-256 `49620ec2...`).
+**Revision 15 is the response to that rejection**, and requires its own
+fresh independent statistical review.
+
+**What revision 15 changes** (each corrects a revision-14 blocker):
+
+- **Section 6.1a - the `0.30` shortcut is WITHDRAWN, not merely
+  deprioritized.** Revision 14 offered it as an optional equivalent form
+  and asserted algebraic equivalence. **That assertion was wrong and is
+  retracted**: the forms are equal in exact arithmetic but NOT under
+  `roundToTie`, because rounding is applied to different quantities and
+  does not commute with the affine map `x -> 0.05x + 0.01`. Only the
+  transformed-bound comparison is permitted, with `roundToTie` applied
+  exactly twice and never to intermediates. Two further mutation tests
+  pin the non-commutation and the rounding-application count.
+- **Section 5.1 - the permutation is now executable from the text alone**:
+  the complete mulberry32 transition (including `Math.imul` and every
+  `>>> 0`), the byte-exact hash preimage and UTF-8 encoding, the digest
+  slice and big-endian read, the explicit `b = 0..9999` replicate range,
+  and - the substantive gap - the **source-to-target assignment direction**
+  (GATHER, `order[i]` is the SOURCE index), which is otherwise ambiguous
+  and whose inverse produces a different assignment. Four further tests,
+  including a pinned PRNG vector and a GATHER-vs-SCATTER discriminator.
+- **Section 8.2a rule 7 (NEW) - Level-3 `not-applicable`.** Revision 14's
+  Level-3 ordering omitted it, leaving no state for (b) on off-cells, (c)
+  on `usage-25` cells, or (f) on off-cells. It is vacuously satisfied per
+  prereg 9.1, sits outside the precedence chain, keeps the divisor at 7,
+  is derived from configuration alone, and its **intentionally absent
+  endpoints MUST NOT be reported as Level-4 `missing`** - conflating those
+  would fail every off-cell on (b) and (f).
+- **Sections 1 and 10 - contradictory approval language removed.** Section
+  1 no longer claims Gate 2 is authorized; section 10 no longer reads as
+  an approval record. `APPROVAL_LEDGER.md` is the sole authority.
+- **Reclassification (section 0's own criterion, applied honestly):**
+  section 5.1's permutation construction, section 8.1's **entire harmful-
+  boundary column** (the sealed text defines no harmful boundary at all),
+  and section 8.2a's rules 3 (inclusive straddle contact) and 5
+  (zero-margin straddle disabling) are **relabeled SUBSTANTIVE prospective
+  amendments**. Each changes real verdicts; revision 14 labeled them
+  mechanical on the reasoning that they were forced, which is precisely the
+  error section 0 warns against.
+
+**What revision 14 changed** (retained in full, and accepted as
+statistically coherent by the revision-14 review):
 
 - **Section 6.1a (NEW, substantive):** component (f)'s falsifiability guard
   is moved from the pooled seasonwide mean `|b|` to **week-level bounds
@@ -96,13 +139,23 @@ cells, salted or unsalted, in any sensitivity) executes against B2 or any
 other freeze state until a replacement freeze (Gate 4, producing B3)
 carries the complete Phase 5 implementation, that implementation has passed
 Gate 3 verification (including the independent implementation review), and
-all four approvals in the preamble are recorded on the same approved
-revision of this document. **As of 2026-08-02, three of the four are
-recorded (statistical review, S3 sign-off, remainder approval - section
-10), which authorizes GATE 2 IMPLEMENTATION WORK to begin against this
-revision. It does not lift this hold**: no candidate cell executes until
-the fourth approval (the independent implementation review of the
-resulting Gate 2 code) is also recorded.
+all four approvals are recorded, in `APPROVAL_LEDGER.md`, against the
+SAME approved revision of this document.
+
+**Authorization state as of revision 14: NOTHING IS AUTHORIZED.** Zero of
+the four approvals are in force. The three approvals once recorded against
+revision 13 attach to bytes that no longer exist and are void (preamble);
+revision 13's successor blob `0661eafc95...` was REJECTED; revision 14
+awaits its own fresh independent statistical review and, if that issues,
+the two user attestations. **Gate 2 implementation work is NOT currently
+authorized** - implementation is paused - and candidate-cell execution is
+separately and additionally gated on the fourth approval (the independent
+implementation review of the resulting Gate 2 code), which cannot occur
+until that code exists.
+
+**No section of THIS document supplies or evidences an approval.**
+`APPROVAL_LEDGER.md` is the sole authoritative record; section 10 below is
+historical narrative only.
 
 ---
 
@@ -296,7 +349,21 @@ EITHER makes the whole authoritative run **`void`** (section 8.2, Level 1)
 - a pipeline-integrity finding, evaluated once against the control, never a
 per-cell verdict.
 
-### 5.1 The permutation is FULLY PINNED **[mechanical completion]**
+### 5.1 The permutation is FULLY PINNED **[substantive prospective amendment]**
+
+**Reclassified from "mechanical completion" in revision 14.** Revision 14
+argued this was mechanical because each choice merely writes down what an
+implementation must do anyway. That reasoning was wrong on the criterion
+this document itself sets in section 0: a decision is substantive when it
+**changes a real outcome**, regardless of how forced it looks. The sealed
+text (prereg 7.3, 8.3) fixes only the replicate count and the seed; it does
+not fix the PRNG, the seed-derivation preimage, the canonical ordering, the
+shuffle direction, or the assignment direction. **Different admissible
+choices here yield different null distributions, different `p_hat`, and
+therefore different run-level VOID decisions on identical data** - and a
+VOID decision discards the entire study. That is the largest outcome any
+single rule in this document can change, so it is submitted for approval as
+a substantive amendment.
 
 **Why this is not optional detail.** The permutation control is the only
 gate that can `void` the entire run on its own. Two implementations that
@@ -306,22 +373,55 @@ distributions, different `p_hat`, and can therefore reach different
 run-level VOID decisions on identical data. Everything below is frozen so
 that cannot happen.
 
-1. **PRNG: `mulberry32`**, exactly as `scripts/backtest/lib/metrics.js`'s
-   `makeRng` implements it - 32-bit state, `a = (a + 0x6d2b79f5) >>> 0` per
-   call, returning `((t ^ (t >>> 14)) >>> 0) / 4294967296`. No other
-   generator, no `Math.random`, no reseeding mid-cell.
-2. **Per-cell seed derivation.** A permutation is a pure function of
-   `(replicate, cellKey)`:
+1. **PRNG: `mulberry32`, stated in full** - the complete state transition,
+   not a reference to an implementation. Given 32-bit unsigned state `a`,
+   each call performs, in this exact order, with every operation in
+   unsigned 32-bit arithmetic (`>>>`) and every multiplication being
+   `Math.imul` (32-bit signed multiply with wraparound, NOT floating-point
+   `*`):
 
    ```
-   seed(replicate, cellKey) = sha256(`${PERMUTATION_SEED}|${replicate}|${cellKey}`).readUInt32BE(0)
+   a = (a + 0x6D2B79F5) >>> 0
+   t = a
+   t = Math.imul(t ^ (t >>> 15), t | 1)
+   t = t ^ (t + Math.imul(t ^ (t >>> 7), t | 61))
+   return ((t ^ (t >>> 14)) >>> 0) / 4294967296
    ```
 
-   with `PERMUTATION_SEED = 940227589`. Derived by HASH rather than by
-   consuming one long stream, so replicate `b` never depends on having
-   generated replicates `0..b-1` - which is what makes the "same permutation
-   reused across all 24 salts and both endpoints" requirement hold by
-   construction rather than by bookkeeping.
+   The return is in `[0, 1)`. The divisor is exactly `2^32 = 4294967296`.
+   No other generator, no `Math.random`, no reseeding mid-cell, no
+   discarding of an initial "warm-up" draw.
+2. **Per-cell seed derivation, with the hash input byte-exact.** A
+   permutation is a pure function of `(replicate, cellKey)`:
+
+   ```
+   preimage = PERMUTATION_SEED_DECIMAL + "|" + replicate_DECIMAL + "|" + cellKey
+   seed(replicate, cellKey) = first 4 bytes of SHA-256(UTF-8 bytes of preimage), big-endian unsigned
+   ```
+
+   - `PERMUTATION_SEED_DECIMAL` is the literal ASCII `940227589` - the
+     seed rendered in base 10 with no sign, no padding, no separators.
+   - `replicate_DECIMAL` is the replicate index in base 10, no padding
+     (`0`, `1`, ..., `9999` - never `0000`).
+   - The two `|` are single ASCII `0x7C` bytes.
+   - `cellKey` is the string frozen in step 3.
+   - The preimage is encoded as **UTF-8** before hashing. Every byte of it
+     is ASCII by construction, so UTF-8 and ASCII coincide here; the
+     encoding is named anyway so no implementation substitutes UTF-16.
+   - The seed is the **first four bytes** of the 32-byte digest, read
+     **big-endian** as an unsigned 32-bit integer (equivalently:
+     `digest[0]*2^24 + digest[1]*2^16 + digest[2]*2^8 + digest[3]`).
+
+   Derived by HASH rather than by consuming one long stream, so replicate
+   `b` never depends on having generated replicates `0..b-1` - which is
+   what makes the "same permutation reused across all 24 salts and both
+   endpoints" requirement hold by construction rather than by bookkeeping.
+2a. **Replicate range, frozen: `b = 0, 1, ..., 9999` inclusive** - exactly
+   10,000 replicates (prereg 7.3), zero-indexed. `b = 10000` is out of
+   range and MUST be refused. The observed statistic `T_obs` is NOT a
+   replicate and is never assigned an index in this range; the plus-one
+   p-value's `+1` accounts for it separately (prereg 7.3), and it must not
+   be double-counted by also generating a replicate for it.
 3. **`cellKey` format, frozen**: the ASCII string
    **`` `${season}:${week}:${position}` ``** - e.g. `2025:9:RB` - with
    `season` and `week` as bare decimal integers (no zero-padding) and
@@ -344,7 +444,7 @@ that cannot happen.
    ```
    order = [0, 1, ..., size-1]                  // canonical, per step 4
    for (i = size - 1; i > 0; i--) {
-     j = Math.floor(rng() * (i + 1))
+     j = Math.floor(rng() * (i + 1))            // 0 <= j <= i, inclusive
      swap(order[i], order[j])
    }
    ```
@@ -353,6 +453,33 @@ that cannot happen.
    iteration, `size - 1` calls total for a cell of `size`. The ascending
    variant and the `j < i` (exclusive) variant are both DIFFERENT
    permutation distributions and are excluded.
+
+5a. **Source-to-target assignment direction, frozen.** A permutation array
+   is ambiguous by nature - `order` can mean "slot `i` receives element
+   `order[i]`" (a GATHER) or "element `i` moves to slot `order[i]`" (a
+   SCATTER). These are inverse permutations and generally produce different
+   assignments, so the choice is load-bearing and is fixed here:
+
+   > **GATHER. `order[i]` is the SOURCE index. Target slot `i` receives the
+   > projection whose canonical index is `order[i]`.**
+
+   Concretely, with `players[]` the cell's members in canonical order (step
+   4) and `projections[]` their projected medians in that same canonical
+   order, the permuted assignment is:
+
+   ```
+   for i in 0 .. size-1:
+       permutedProjection[i] = projections[ order[i] ]
+   ```
+
+   so `players[i]` - who keeps their own actual points, unmoved - is now
+   paired with `projections[order[i]]`. **Actual points are never permuted
+   and never re-indexed**; only the projection vector is gathered through
+   `order`. Applying the inverse (scatter) is excluded, and an
+   implementation MUST carry a test distinguishing the two on a cell whose
+   permutation is not self-inverse (any cell of size >= 3 with a 3-cycle
+   suffices - a size-2 cell cannot distinguish them, since every
+   permutation of two elements is its own inverse).
 6. **State-consumption order.** Each `(replicate, cellKey)` gets its OWN
    freshly-seeded generator (step 2), consumed by exactly the loop in step
    5 and nothing else. No generator is shared across cells, across
@@ -387,6 +514,17 @@ members are supplied in a different input order yields the SAME permutation
 one-character change to `cellKey` yields a different permutation. (v) A
 cell of size 0 or 1 consumes no randomness and is the identity. (vi) The
 `rng()` call count for a cell of size `n` is exactly `n - 1`.
+(vii) **A pinned mulberry32 vector**: a fixed seed produces a fixed,
+literal sequence of the first several outputs, asserted against hardcoded
+values - so a subtly wrong transition (floating-point `*` instead of
+`Math.imul`, a missing `>>> 0`, a wrong shift width) fails loudly rather
+than producing a plausible-looking but different null distribution.
+(viii) **GATHER not SCATTER**, on a cell of size >= 3 whose permutation is
+not self-inverse, asserting the assignment matches step 5a and not its
+inverse. (ix) `replicate = 10000` is REFUSED. (x) A pinned
+`seed(replicate, cellKey)` vector - a literal `(replicate, cellKey)` pair
+mapped to its literal expected 32-bit seed, so a change to the preimage
+format, the encoding, the digest slice, or the endianness fails loudly.
 
 ---
 
@@ -411,9 +549,10 @@ inc  <=  |b| * |e| + 0.01  <=  0.05 * |b| + 0.01
   amendment** - this is an evaluability gate; a cell with realized mean
   `|b|` between 0.30 and 0.50 was `unevaluable` under the sealed number and
   is potentially evaluable under the corrected one, changing which cells
-  reach a verdict at all. **The floor's NUMERIC value is retained but is no
-  longer applied to a pooled seasonwide mean - see section 6.1a, which
-  replaces the aggregation entirely.**
+  reach a verdict at all. **SUPERSEDED BY SECTION 6.1a**: the guard is no
+  longer a comparison against a pooled seasonwide mean at all, and `0.30`
+  is no longer used in any comparison - it survives only as a published
+  reference magnitude. Section 6.1a's transformed-bound form is normative.
 - **Veto-incapable disclosure threshold, `3.80`** (was `4.00`):
   **mechanical rounding correction** - used exclusively inside the
   transparency block's `catastrophicCapCouldFire` disclosure
@@ -510,14 +649,35 @@ INDEPENDENTLY - each has its own qualifying week set):
    occupied: AFTER the catastrophic veto (section 6.4, which is computed
    first and overrides), and BEFORE the exact sign test is read.
 
-**Relationship to the retained `0.30` constant.** `DELTA_F - 0.01 = 0.015`
-and `MAX_EFFECT = 0.05` still give the same reference magnitude,
-`0.015 / 0.05 = 0.30`, and step 4 above is algebraically equivalent to
-`roundToTie(median_w(meanAbsBaseline_w)) <= roundToTie(0.30)`. **Either
-form may be implemented**, but the `bound_w` form is normative because it
-keeps the rounding slack visibly attached to the per-week bound it belongs
-to; an implementation using the `0.30` form must carry a test asserting the
-two agree at the boundary.
+**The transformed-bound comparison is the ONLY permitted form. The `0.30`
+shortcut is WITHDRAWN.** Revision 14 offered
+`roundToTie(median_w(meanAbsBaseline_w)) <= roundToTie(0.30)` as an
+optional equivalent. **It is not equivalent, and the claim that it was is
+retracted.** The two forms are equal in exact real arithmetic but NOT under
+`roundToTie`, because the rounding is applied to different quantities:
+`roundToTie` after the affine map `x -> 0.05x + 0.01` does not commute with
+`roundToTie` before it. Concretely, `0.05x + 0.01` compresses the input
+scale twentyfold, so a `meanAbsBaseline_w` that rounds one way at ten
+decimals can carry its transformed bound to the other side of the margin,
+and the median of transformed values is not the transform of the median of
+values once each is independently rounded. A boundary case would therefore
+be decided differently by the two forms - and this gate decides
+evaluability, so that is an outcome difference, not a presentational one.
+
+**Normative comparison, and the only one permitted:**
+
+```
+roundToTie( median_w( 0.05 * meanAbsBaseline_w + 0.01 ) )  <=  roundToTie( 0.025 )
+    ->  UNEVALUABLE
+```
+
+`roundToTie` is applied EXACTLY TWICE: once to the median of the
+transformed per-week bounds, once to `DELTA_F`. It is NOT applied to the
+individual `bound_w` before the median, and NOT to `meanAbsBaseline_w`
+before the transform - intermediate rounding would reintroduce the same
+non-commutation this correction exists to eliminate. **`0.30` is retained
+ONLY as a published reference magnitude for reader orientation and MUST NOT
+appear in any comparison.**
 
 **Retained disclosures (prereg 9.8, unchanged and still required).** The
 pooled seasonwide mean `|b|` and maximum `|b|` are STILL published - the
@@ -528,14 +688,23 @@ qualifying week count `m`, and the full sorted `bound_w` series, so a
 reader can audit the median against the data rather than taking it on
 trust.
 
-**Required mutation tests.** (i) A season whose pooled mean clears 0.30 but
-whose week-level median does NOT must report `unevaluable` - this is the
-case the pooled guard wrongly passed. (ii) The mirror: pooled mean below
-0.30, week-level median above, must be EVALUABLE. (iii) Even-`m` median
-exactly on the boundary, asserting the pinned averaging rule and the
-inclusive `<=`. (iv) f1 and f2 with DIFFERENT qualifying week sets,
-asserting the guard is evaluated independently per endpoint and one
-endpoint firing does not fire the other.
+**Required mutation tests.** (i) A season whose POOLED mean would have
+cleared the old floor but whose week-level transformed-bound median does
+NOT clear `DELTA_F` must report `unevaluable` - the case the pooled guard
+wrongly passed. (ii) The mirror: pooled mean below the old floor,
+week-level median above, must be EVALUABLE. (iii) Even-`m` median exactly
+on the boundary, asserting the pinned averaging rule and the inclusive
+`<=`. (iv) f1 and f2 with DIFFERENT qualifying week sets, asserting the
+guard is evaluated independently per endpoint and one endpoint firing does
+not fire the other. (v) **The non-commutation itself**: a constructed
+`meanAbsBaseline_w` series for which
+`roundToTie(median(0.05x + 0.01)) <= roundToTie(0.025)` and
+`roundToTie(median(x)) <= roundToTie(0.30)` DISAGREE, asserting the
+implementation follows the normative transformed-bound form. An
+implementation that silently used the withdrawn shortcut must fail this
+test. (vi) `roundToTie` is applied exactly twice - asserting no
+intermediate rounding of `bound_w` or `meanAbsBaseline_w`, e.g. by a series
+whose per-week values differ from their ten-decimal roundings.
 
 ### 6.2 Normalize every boundary operation
 
@@ -723,7 +892,21 @@ from prereg 4.2's sensitivity requirement, requiring its own user sign-off**
 
 ## 8. Status model: the complete reducer, activation, Level 5, and identity
 
-### 8.1 Signed boundaries
+### 8.1 Signed boundaries **[substantive prospective amendment]**
+
+**Reclassified in revision 15.** The **passing** boundaries below are
+mechanical - each is a sealed margin restated verbatim from prereg 9.2-9.7.
+The **harmful** boundaries are not: **the sealed text never defines a
+harmful boundary for any endpoint.** Prereg 10.6 invokes "the harmful
+margin" without saying what it is, so every value in the harmful column
+below is this document's own construction. Because the harmful boundary is
+one of the two inputs to the wide-straddle test (rule 3 of section 8.2a),
+each such value directly decides whether real cells report `inconclusive`
+or `fail`. The whole harmful column is therefore submitted for approval as
+a substantive prospective amendment - in particular the choice to MIRROR
+(`harmful = -passing`) for the sole superiority endpoint while keeping
+`harmful = passing` for every noninferiority endpoint, which is a
+deliberate asymmetry and not a typo.
 
 Every endpoint has a **favorable boundary** (always `0`), a **passing
 boundary** (the signed margin value the tested bound must clear), and a
@@ -776,12 +959,17 @@ gives `passed`/`threshold-not-established` and disagreement gives
 `threshold-not-established` (never `unevaluable` - both procedures were
 computed).
 
-### 8.2a The reducer is FORMALLY TOTAL **[mechanical completion]**
+### 8.2a The reducer is FORMALLY TOTAL **[MIXED - see the per-rule labels]**
 
-Every rule below closes a case the reducer could previously reach without a
-stated answer. None changes an outcome the earlier text already determined;
-each makes determinate a case the earlier text left to implementation
-accident. Frozen:
+**Revision 14 labeled this block wholesale "mechanical completion". That
+was wrong for two of its rules and is corrected here.** Rules 1, 2, 4, 6,
+7 and 8 are mechanical: they make determinate a case the earlier text left
+to implementation accident without changing any outcome that text already
+determined. **Rules 3 and 5 are SUBSTANTIVE prospective amendments** and are
+submitted for approval as such - each decides real cell verdicts that the
+sealed text does not decide. Per-rule labels are stated inline below;
+where they conflict with any surrounding prose, the inline label governs.
+Frozen:
 
 1. **`threshold-not-established` maps to component `failed`.** At Level 4 it
    is its own endpoint status (it records that the endpoint WAS fully
@@ -802,8 +990,15 @@ accident. Frozen:
    straddle detection** - reusing the same bounds the pass/fail test uses is
    what keeps "the interval spans both margins" (prereg 10.6) commensurate
    with the test it qualifies.
-3. **Boundary inclusivity, after `roundToTie` on BOTH operands.** Straddle
-   fires when the interval reaches or crosses both boundaries:
+3. **[SUBSTANTIVE prospective amendment] Boundary inclusivity, after
+   `roundToTie` on BOTH operands.** Prereg 10.6 says only that a claim is
+   INCONCLUSIVE "if a component's interval spans both the favorable and
+   harmful margin" - it does not say whether an interval whose endpoint
+   lands EXACTLY on a boundary "spans" it. Both readings are admissible,
+   they disagree on real boundary cases, and the disagreement moves a cell
+   between `inconclusive` and `fail`/`pass`. The inclusive reading is
+   adopted and submitted for approval. Straddle fires when the interval
+   reaches or crosses both boundaries:
 
    ```
    roundToTie(lower) <= roundToTie(min(favorable, harmful))
@@ -824,15 +1019,25 @@ accident. Frozen:
    sign BEFORE any comparison, publication, or straddle check. No comparison
    is ever performed in the internal negated space, and no negated value is
    ever published.
-5. **Zero-margin endpoints cannot wide-straddle.** For (b), (c), (d),
-   `passing = harmful = favorable = 0`, so `min == max` and rule 3 would
-   reduce to `lower <= 0 AND upper >= 0` - which is merely "the interval
-   contains zero," the ordinary non-significant result, not the
-   pathological width prereg 10.6 targets. **Wide-straddle is therefore
-   DISABLED where `harmful == favorable`**, and such an endpoint falls to
-   `threshold-not-established` instead. (Section 8.1's table already states
-   `passing = harmful = 0` for these; this closes what the reducer does
-   with it.)
+5. **[SUBSTANTIVE prospective amendment] Zero-margin endpoints cannot
+   wide-straddle.** For (b), (c), (d), `passing = harmful = favorable = 0`,
+   so `min == max` and rule 3 would reduce to `lower <= 0 AND upper >= 0` -
+   which is merely "the interval contains zero," the ordinary
+   non-significant result, not the pathological width prereg 10.6 targets.
+   **Wide-straddle is therefore DISABLED where `harmful == favorable`**, and
+   such an endpoint falls to `threshold-not-established` instead.
+
+   **This is substantive and consequential in a specific direction**: with
+   straddle enabled, EVERY non-significant (b)/(c)/(d) endpoint would
+   straddle, making the cell `inconclusive`; with it disabled they resolve
+   to `fail`. Since (b) and (c) are attribution gates that a genuine
+   null-effect cell is EXPECTED to miss, the choice determines whether such
+   a cell reports `inconclusive` (evidence insufficient) or `fail`
+   (attribution not demonstrated) - a materially different published
+   conclusion, and one a reasonable reader could resolve either way from
+   prereg 10.6 alone. Adopted as written and submitted for approval.
+   (Section 8.1's table already states `passing = harmful = 0` for these;
+   this closes what the reducer does with it.)
 6. **A catastrophic veto is RETAINED INDEPENDENTLY of every other status.**
    Cell precedence is `vetoed > fail > inconclusive > pass`, so a vetoed
    cell reports `vetoed` even when another component independently failed.
@@ -844,18 +1049,58 @@ accident. Frozen:
    the report would lose the strongest safety finding the study can produce.
    Conversely, and unchanged: **a veto can never turn a failure into a
    pass** (prereg 9.8).
-7. **Totality.** Every endpoint reaches exactly one of the five Level-4
-   statuses; every component reaches exactly one Level-3 status; every cell
-   reaches exactly one of `fail`/`inconclusive`/`vetoed`/`pass` (or, for the
-   control alone, `baseline` - section 8.2b); every run reaches `valid` or
-   `void`. **No input produces an undefined, absent, or implementation-
-   defined status at any level.** An implementation MUST fail closed rather
-   than emit a status outside these sets.
+7. **Level-3 `not-applicable` is its own state, and it is VACUOUSLY
+   SATISFIED for the IUT.** Prereg 9.1 states that a component which does
+   not apply "passes **vacuously by definition**, never by test, and is
+   reported as 'not applicable'", with the divisor fixed at 7 regardless.
+   Revision 14's Level-3 ordering
+   (`missing > vetoed > unevaluable > wide-straddle > failed > passed`)
+   omitted it entirely, leaving the reducer without a state for a real and
+   routine case - (b) on every off-cell, (c) on both `usage-25` cells, (f)
+   on every off-cell (sections 9.3, 9.4, 9.8). Frozen:
 
-**Component level (Level 3)**: `missing` > `vetoed` (component (f) only) >
-`unevaluable` > `wide-straddle` > `failed` > `passed`, by the presence of
-any endpoint in that category, with `threshold-not-established` counting as
-`failed` per rule 1 above.
+   - **`not-applicable` is a Level-3 status**, assigned when and only when
+     the component's own preregistered applicability condition is unmet.
+   - It **satisfies the IUT vacuously**: it never blocks a `pass` and never
+     contributes a `fail` or `inconclusive` cause. It sits OUTSIDE the
+     precedence chain rather than at one end of it - it is not "the weakest
+     pass", it is the absence of a test.
+   - **The divisor remains 7** (prereg 9.1). A cell with three
+     non-applicable components is still tested at `alpha/7` on the four
+     that apply. This forecloses divisor-shopping and is restated here
+     because the new state makes the temptation concrete.
+   - **A not-applicable component publishes NO endpoint results**, and its
+     intentionally absent endpoints **MUST NOT be reported as Level-4
+     `missing`.** `missing` means "this component was required and its
+     evidence is absent" and drives cell `fail`; a component that was never
+     required has nothing missing about it. Conflating the two would fail
+     every off-cell on (b) and (f) - a catastrophic misreading, and exactly
+     the kind of silent absence prereg 9.1's "no assume pass" rule is
+     written against, inverted.
+   - **The applicability decision is structural, never data-dependent.** It
+     is a function of the cell's own configuration only (`homeAway` state,
+     `blendWeight` versus the control's 0.25). A component is never marked
+     not-applicable because its data was thin, absent, or inconvenient -
+     that is `unevaluable` or `missing`, which have their own dispositions.
+     An implementation MUST derive applicability from configuration alone
+     and MUST NOT accept it as an operator-supplied input.
+
+8. **Totality.** Every endpoint reaches exactly one of the five Level-4
+   statuses, OR belongs to a not-applicable component and is not reported at
+   all; every component reaches exactly one Level-3 status, `not-applicable`
+   included; every cell reaches exactly one of
+   `fail`/`inconclusive`/`vetoed`/`pass` (or, for the control alone,
+   `baseline` - section 8.2b); every run reaches `valid` or `void`. **No
+   input produces an undefined, absent, or implementation-defined status at
+   any level.** An implementation MUST fail closed rather than emit a status
+   outside these sets.
+
+**Component level (Level 3)**: **`not-applicable`** is decided FIRST, from
+configuration alone (rule 7 above); a not-applicable component takes no
+further part in the ordering. For every component that DOES apply:
+`missing` > `vetoed` (component (f) only) > `unevaluable` > `wide-straddle`
+> `failed` > `passed`, by the presence of any endpoint in that category,
+with `threshold-not-established` counting as `failed` per rule 1 above.
 
 **Cell level (Level 2), the complete, corrected table:**
 
