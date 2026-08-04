@@ -516,3 +516,78 @@ the document announces.
 **(7) Gate 0 is unchanged and still in force**, the fourth approval remains
 strictly last, single-use, and not self-performable, and no row is pre-filled
 for any approval that has not issued.
+
+---
+
+### CORRECTIVE ENTRY 7 — appended 2026-08-04
+
+**This entry creates NO approval row.** It re-points the anchor recorded by
+corrective entry 6. **Entries 1-6 are not edited.**
+
+**(1) The anchor has moved again.**
+
+| | |
+| --- | --- |
+| SHA-256 | `9222E1F31F71E95DEB29F2DCBB14644C92A2BF424092B8027BB85F0DD5C8F649` |
+| git blob | `a52c8cfaafae6c444306d5895ad517cf7ec008f3` |
+| anchor commit | `3939a278e6c23a7a82298149ba8e573c42866362` |
+
+**(2) Nothing lapsed.** The superseded anchor (`3bac263…` / `B835B598…`)
+accumulated no approvals, as none of its predecessors back to revision 18
+had. Rows 4-6 remain lapsed against their own superseded bytes, and **three
+fresh approvals are still required** against the hash in (1).
+
+**(3) THE BYTE-IDENTITY CHECK IS AVAILABLE FOR THIS STEP.** This is the
+inverse of corrective entry 6's warning, and it is stated explicitly because
+these entries alternate on this point and a reviewer must not have to guess
+which regime applies. **Revision 23 changes NO ruling.** Verified between
+`3bac263` and `3939a27`, with the terminator excluded and every extraction's
+line count printed:
+
+| body | rev 22 | rev 23 | result |
+| --- | ---: | ---: | --- |
+| section 4.6 heading through frozen items 1-4 | 43 | 43 | identical |
+| section 4.6.2 | 68 | 68 | identical |
+| section 4.6.3 | 20 | 20 | identical |
+| section 4.6.4's frozen classification | 15 | 15 | identical |
+| section 8.7, whole section | 158 | 161 | one hunk, edit 2 only |
+
+Section 8.7's rules 1, 2, 3, and 5 are untouched, as are rule 4's row set,
+its cell-scope paragraph, and the pinned scoring-profile identifier table.
+The single hunk replaces two lines with five inside rule 4.
+
+**(4) Why it was re-anchored.** A review round against revision 22 found four
+pieces of false or self-contradictory scaffolding sitting beneath conclusions
+that all survive unchanged:
+
+- Section 4.6.1 stated that 2024 carries "eight of the thirteen" (e2)
+  inequalities. It carries **four**. Prereg 9.7's nine rows yield thirteen
+  endpoint-season inequalities: coverage at 2025 is one, the MAE/RMSE/rho/WIS
+  rows evaluated at "2025 and 2024" contribute eight across BOTH seasons, and
+  the four scoring-profile rows are 2025-only.
+- Section 8.7 rule 4 stated "This is NOT the eight-cell factorial grid" while
+  the same rule specifies eight cells nine lines later, and section 4.6.2
+  names rule 4's family as one of exactly two absolute-metric families
+  published across the eight cells. The cells are the same; the endpoint
+  count, the absolute-only limit, and the season are what differ.
+- Section 4.6.1 claimed both seasons unqualifiedly while rule 4 restricts its
+  family to 2025 only, with no deferral clause anywhere in 4.6.1. The
+  carve-out is now stated at the source rather than left to
+  specific-governs-general.
+- Section 4.6.4 cited two supports that do not hold: whole-week undefinedness
+  was attributed to prereg 6.6, which is "Null and tie conventions (global)"
+  and says nothing about whole weeks, and a rho total-ties rule was asserted
+  that appears nowhere in the preregistration. Both are restated at their
+  real standing. The branch they support now rests on prereg 6.2 and prereg
+  16, which suffice because both concern EVALUATED weeks - unlike the
+  preregistration's only explicit whole-week-undefined passage, which
+  concerns 2024 Week 1, a week prereg 4.1 excludes from the evaluation window
+  in both seasons.
+
+**(5) Sections 1 and 10 also changed**, as they must at every re-anchor:
+section 1 carries the authorization-state lines naming the current revision,
+and section 10 records the step. Neither is a ruling.
+
+**(6) Gate 0 is unchanged and still in force**, the fourth approval remains
+strictly last, single-use, and not self-performable, and no row is pre-filled
+for any approval that has not issued.
