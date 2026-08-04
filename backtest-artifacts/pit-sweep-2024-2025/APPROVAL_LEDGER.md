@@ -288,3 +288,70 @@ pre-filled in anticipation of any of these.
 **(5) Gate 0 is unchanged and still in force.** Candidate-cell execution,
 real-data access, authoritative sweep generation, and result inspection all
 remain prohibited.
+
+---
+
+### CORRECTIVE ENTRY 4 — appended 2026-08-04
+
+**This entry creates NO approval row.** It re-points the anchor recorded by
+corrective entry 3 and records why. **Entry 3 is not edited**; it remains the
+accurate record of what was anchored at `9759a64` and of the reasoning that
+obtained then.
+
+**(1) The anchor has moved.** `PHASE5_EXECUTION_SPEC.md` was revised again
+and re-anchored:
+
+| | |
+| --- | --- |
+| SHA-256 | `76672C3531CB6C72A6FDED5E1F08091EED500FB370283895C8F2A1CAB878676D` |
+| git blob | `a26ff4abe93d09171578641f7429d4b224e12b9a` |
+| anchor commit | `478ee5a127143fe55b848e22cf5faa18704d4f21` |
+
+**Entry 3's anchor table is superseded as a pointer to the current bytes**,
+and remains correct as the record of the anchor that preceded this one. Per
+corrective entry 2 rule (1), this entry names an anchor, not a count.
+
+**(2) Nothing lapsed.** The superseded anchor
+(`9759a64…` / `16F29146…`) **accumulated no approvals** during its existence.
+No approval attached to it, so none was lost by re-anchoring. The approval
+state is unchanged from entry 3: rows 4-6 remain lapsed against their own
+superseded bytes, and **three fresh approvals are still required** against
+the hash in (1) before implementation work may resume.
+
+**(3) Why it was re-anchored.** The superseded revision's PREAMBLE asserted,
+in four places, that both conformance defects were "traceable to silences"
+in the spec. **That claim did not hold and overstated the specification's
+share of the fault.** Prereg 4.3 names `half_ppr` the formal primary in plain
+text, and prereg 10.1's percentile rule plainly reaches every delta-valued
+descriptive family — including the paired deltas and the prereg 12.2
+attribution composites, which are contrasts. Only the edges were genuinely
+silent: how far prereg 16's additional descriptive reporting extends, whether
+activation carries a profile axis, and what interval an ABSOLUTE metric
+carries. **Entry 3 paragraph (3) already stated the corrected account; the
+specification now matches it.**
+
+**(4) No ruling changed, and that is mechanically checkable.** The normative
+bodies of the two new sections are carried over **byte-identically** between
+the two anchors:
+
+| section | lines | verified |
+| --- | ---: | --- |
+| 4.6 (descriptive interval method) | 67 | identical, `9759a64` vs `478ee5a` |
+| 8.7 (descriptive publication contract) | 88 | identical, `9759a64` vs `478ee5a` |
+
+```
+diff <(git show 9759a64:backtest-artifacts/pit-sweep-2024-2025/PHASE5_EXECUTION_SPEC.md \
+        | awk '/^### 4\.6 /,/^## 5\. Permutation control/') \
+     <(git show 478ee5a:backtest-artifacts/pit-sweep-2024-2025/PHASE5_EXECUTION_SPEC.md \
+        | awk '/^### 4\.6 /,/^## 5\. Permutation control/')
+```
+
+The whole-document diff is 60 insertions and 34 deletions, confined to the
+preamble, section 1, and section 10's historical table. **A reviewer who
+already read the superseded bytes need not re-read the rulings** — the
+command above settles it.
+
+**(5) Gate 0 is unchanged and still in force**, and the fourth approval
+remains strictly last, single-use, and not self-performable. As with entry 3,
+no row is pre-filled for any approval that has not issued, and rows are
+assigned in the order approvals actually issue.
