@@ -219,3 +219,72 @@ anticipation.
 bytes that still exist and are retrievable from the anchor commit, which is
 what rows 1-3 could not offer. The re-approval remedy described under
 "Required remedy" is, with these rows, complete.
+
+---
+
+### CORRECTIVE ENTRY 3 — appended 2026-08-04
+
+**This entry creates NO approval row.** It records an anchor and a
+supersession only. No approval described below has issued.
+
+**(1) A new anchor exists, and rows 4-6 no longer authorize anything.**
+`PHASE5_EXECUTION_SPEC.md` was revised and anchored:
+
+| | |
+| --- | --- |
+| SHA-256 | `16F29146F7CFCC6F9FE5F93199D5291A5CE5BD2E58EBF9A945C26AF498D97DFE` |
+| git blob | `88ac16980445565eb8fb74dfd178e00686a76d62` |
+| anchor commit | `9759a64f4d39cf170cf449f3e2635942e425646d` |
+
+Rows 4, 5, and 6 authenticate
+`5A0D6E54B2D84494C5D39093C44204A79F32A4DD813F03909C1094339A52BCF8`. Those
+bytes are no longer the bytes carried by the most recent anchor commit, so
+**all three approvals lapse as authorities** and must be re-issued against
+the hash above. Rows 4-6 are NOT edited; they remain the accurate record of
+what was approved and when. Per corrective entry 2 rule (1), this entry
+names an anchor, not a count — the bytes under approval are always
+whichever blob the most recent anchor commit carries, identified at that
+commit and not here.
+
+**(2) Corrective entry 2's authorization statement is superseded.** Entry 2
+recorded that "Gate 2 implementation is authorized against revision 18's
+bytes." That is no longer true of the current anchor. **Gate 2
+implementation work is not authorized** pending fresh approvals. The Gate 2
+code already written under row 6 was not withdrawn and was not invalidated
+by having been written; it is simply **not conformant** to the newly
+anchored bytes, and is described as such in the spec's section 1.
+
+**(3) Why the spec was revised, in one line each.** Two conformance defects
+were found in the Gate 2 code built under row 6, both in
+`scripts/backtest/lib/sweepEvidence.js` at commit `c04d6b1`. **Each has a
+core that the sealed text already covered plainly, and an edge where the
+sealed text was silent; the silences are what required a spec revision
+rather than only a code fix:**
+
+- the **descriptive scoring-profile axis** — prereg 4.3 names `half_ppr` the
+  formal primary and the implementation admitted only `standard`, which 4.3
+  covers plainly. The silence was how far prereg 16's additional descriptive
+  reporting extends. Resolved by the spec's new section 8.7.
+- the **descriptive interval method** — prereg 10.1 fixes a percentile
+  cluster bootstrap and the implementation published a normal approximation.
+  For the paired deltas and the 12.2 attribution composites, 10.1 covers this
+  plainly, since those are deltas. The silence was the absolute metrics,
+  which are not. Resolved by the spec's new section 4.6.
+
+Neither changes a component verdict, a cell status, a run status, or the
+selection.
+
+**(4) The row-7 reservation is released, without cancelling what it
+reserved.** Row 7 was reserved for the Gate 2 independent implementation
+review on the assumption that it was the next approval to issue. Three
+approvals now precede it: the independent statistical review of the newly
+anchored sections 3-8, and the two user attestations (the S3 deviation,
+unchanged in substance, and the remainder). **Rows are assigned strictly in
+the order approvals actually issue.** The implementation review is still
+required, still strictly last, and still cannot be self-performed; it simply
+no longer holds a specific row number in advance. As before, no row is
+pre-filled in anticipation of any of these.
+
+**(5) Gate 0 is unchanged and still in force.** Candidate-cell execution,
+real-data access, authoritative sweep generation, and result inspection all
+remain prohibited.
