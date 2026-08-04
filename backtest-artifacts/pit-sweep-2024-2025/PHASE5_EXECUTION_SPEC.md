@@ -2,9 +2,15 @@
 
 Study id: `pit-sweep-2024-2025` (same study as `PREREGISTRATION.md`).
 
-**Status: revision 18. NO APPROVALS ARE CURRENTLY IN FORCE FOR THIS
-DOCUMENT. NOTHING IS AUTHORIZED - not candidate execution, and not Gate 2
-implementation work either.**
+**Status: revision 19. NO APPROVALS ARE IN FORCE FOR THESE BYTES.**
+
+Revision 18 (SHA-256 `5A0D6E54B2D84494C5D39093C44204A79F32A4DD813F03909C1094339A52BCF8`)
+**was approved** - ledger rows 4, 5, and 6 - and Gate 2 implementation
+proceeded under row 6. **Revision 19 changes this document's bytes, so those
+three approvals do not attach to it** and must be re-issued against the new
+hash, exactly as corrective entry 1 requires. Until they are, nothing is
+authorized - not candidate execution, and not further Gate 2 implementation
+work.
 
 **Approvals are recorded EXTERNALLY, in `APPROVAL_LEDGER.md` - never in
 this file.** Revisions 1-13 recorded approvals in this document's own
@@ -21,7 +27,7 @@ and no copy survives (the file was untracked at the time). Revision 13's
 successor blob (`0661eafc95...`, committed as an immutable anchor) was
 submitted for fresh independent statistical review and **REJECTED** on four
 blockers. Revision 14 was that rejection's response; it was itself rejected,
-as was revision 15. **The current revision is 18**, and the full chain is
+as was revision 15. **The current revision is 19**, and the full chain is
 recorded below and in `APPROVAL_LEDGER.md`.
 
 **Revision 14 was also REJECTED**, on five blockers, at blob
@@ -31,14 +37,42 @@ documentary corrections, at blob `4f5f21a8bbb8b95c432816311f27bd1a7c2e6937`
 (SHA-256 `e507d0c4...`). Revision 16 was the response to that rejection;
 it too was REJECTED, on two blockers, at SHA-256 `8bd263cd...`.
 Revision 17 was the response to that rejection; it too was REJECTED, on a
-single blocker, at SHA-256 `f7d6b31f...`. **Revision 18 is the response to
+single blocker, at SHA-256 `f7d6b31f...`. **Revision 18 was the response to
 THAT rejection**: section 3.2 now carries the literal pinned composition
 vector (revision 17 promised one but supplied no literals, so the required
 test had nothing to assert against); section 4.5 is renamed "Applies to
 every bootstrap inequality", since it governs components (a)-(e1) as well
 as the thirteen (e2) rows; and a duplicated revision-16 heading plus a
 dangling sentence fragment in the preamble - both introduced by revision
-17's own splice - are removed.
+17's own splice - are removed. **Revision 18 was APPROVED** (ledger rows
+4-6, 2026-08-03).
+
+**What revision 19 adds.** Revision 19 is NOT a response to a rejection of
+this document. It is the response to two conformance defects found in the
+Gate 2 implementation built under row 6, both in
+`scripts/backtest/lib/sweepEvidence.js`, and both traceable to silences this
+document had not filled:
+
+- **Section 8.7 (new)** fixes the **scoring-profile axis of the descriptive
+  publication**. The implementation admitted exactly one profile,
+  `standard`, for every descriptive family - so the prereg 4.3 PRIMARY
+  profile (`half_ppr`) had no representable row, and the prereg 16
+  sensitivity families had none either. Prereg 4.3, 12.1, 12.2, 16 and 10.6
+  each state a piece of the contract; none states which family carries which
+  profile, and this document had not said. 8.7 says.
+- **Section 4.6 (new)** fixes the **interval method for the descriptive
+  families**. The implementation published a two-sided 95 percent normal
+  approximation (`point +/- 1.96 * sqrt(s^2/n)`), while prereg 10.1 fixes a
+  percentile cluster bootstrap at exactly 100,000 draws, seed 1499811874.
+  Prereg 10.1 phrases its percentile rule over bootstrap DELTAS; the
+  descriptive families include ABSOLUTE metrics, which are not deltas, and
+  that gap is what the implementation fell through. 4.6 closes it.
+
+Neither section changes any component verdict, any cell status, any run
+status, or the selection. Both change what is PUBLISHED and how it is
+computed, which is why both are labeled substantive rather than mechanical:
+by section 0's own test, the stakes decide the label, not the determinism of
+the arithmetic.
 
 **What revision 17 added:**
 
@@ -202,18 +236,26 @@ Gate 3 verification (including the independent implementation review), and
 all four approvals are recorded, in `APPROVAL_LEDGER.md`, against the
 SAME approved revision of this document.
 
-**Authorization state as of revision 18: NOTHING IS AUTHORIZED.** Zero of
-the four approvals are in force. The three approvals once recorded against
-revision 13 attach to bytes that no longer exist and are void (preamble);
-revision 13's successor blob `0661eafc95...` was REJECTED (R1), as were
-revision 14 (`49620ec2...`, R2) and revision 15 (`e507d0c4...`, R3).
-**Revision 18 awaits all three fresh approvals**: its own independent
-statistical review and, if that issues, the two user attestations (the S3
-deviation and the remainder). **Gate 2 implementation work is NOT currently
-authorized** - implementation is paused - and candidate-cell execution is
-separately and additionally gated on the fourth approval (the independent
-implementation review of the resulting Gate 2 code), which cannot occur
-until that code exists.
+**Authorization state as of revision 19: NOTHING IS AUTHORIZED.** Zero of
+the four approvals are in force against THESE bytes. Revision 18 held three
+(ledger rows 4-6) and Gate 2 implementation proceeded under row 6; revision
+19 supersedes those bytes, so all three lapse and must be re-issued at the
+new hash. **Revision 19 awaits all three fresh approvals**: its own
+independent statistical review (sections 3-8, which is where both new
+sections 4.6 and 8.7 sit) and, if that issues, the two user attestations
+(the S3 deviation, unchanged in substance from revision 18, and the
+remainder). **Further Gate 2 implementation work is NOT currently
+authorized** - implementation is paused again at the point revision 19
+describes - and candidate-cell execution is separately and additionally
+gated on the fourth approval (the independent implementation review of the
+resulting Gate 2 code).
+
+**The Gate 2 code built under revision 18's row 6 does not conform to
+revision 19.** `sweepEvidence.js` implements neither section 8.7's profile
+axis nor section 4.6's interval method. That code must be brought into
+conformance before the fourth approval is sought; the fourth approval is
+single-use and must not be spent on an implementation already known to be
+non-conformant.
 
 **No section of THIS document supplies or evidences an approval.**
 `APPROVAL_LEDGER.md` is the sole authoritative record; section 10 below is
@@ -448,6 +490,70 @@ through (e1)) can have one endpoint trigger while its sibling does not.
 Sections 4.2-4.4 apply individually to each of components (a), (b), (c),
 (d), (e1)'s endpoints, and to each of the thirteen (e2) endpoint-season
 inequalities (section 4.2).
+
+### 4.6 The descriptive families use prereg 10.1's interval, including for ABSOLUTE metrics **[substantive prospective amendment]**
+
+**The gap this fills.** Prereg 10.1 fixes one interval construction for this
+study: a cluster bootstrap over season-weeks, **exactly 100,000 draws**,
+**seed 1499811874**, shared resamples, and **percentile** bounds taken as the
+order statistic at `ceil(q * 100000)` clamped to `[1, 100000]` with no
+interpolation. But 10.1 phrases the bound over bootstrap **DELTAS** ("the
+`0.9928571429` empirical quantile of the 100,000 bootstrap deltas"), and the
+descriptive families required by prereg 12.1 and 16 include **ABSOLUTE**
+metrics, which are not deltas. Nothing in the sealed text says what interval
+an absolute metric carries.
+
+**This document extends prereg 10.1's percentile rule to the descriptive
+families, absolute metrics included - it does not claim 10.1 already covers
+them.** The extension is stated here as a labeled substantive amendment for
+the same reason section 4.4 item 3 was: the sealed text is silent, and a
+reasonable reader could fill the silence differently.
+
+**Frozen definition.** Every published interval in the descriptive families
+of section 8.7 - absolute metrics, paired deltas, attribution composites,
+and the prereg 10.6 diagnostics alike - is:
+
+1. a **cluster bootstrap over 2025 season-weeks**, the cluster being the
+   season-week, resampling the surviving weeks WITH replacement and
+   recomputing the per-week mean over the drawn multiset;
+2. **exactly 100,000 draws, seed 1499811874**, using the SAME shared
+   resample index prereg 10.1 already mandates, so that no descriptive row
+   is built on a different null than any other;
+3. reported at the **one-sided `alpha/7 = 0.0071428571` level in both
+   directions** - the lower bound is the `0.0071428571` quantile and the
+   upper bound the `0.9928571429` quantile, exactly as 10.1 states. The
+   level is NOT re-opened here; 10.1 fixes it inline and this section
+   inherits it unchanged. A two-sided 95 percent normal approximation is
+   specifically NOT permitted;
+4. taken by the **percentile order statistic at `ceil(q * 100000)` clamped
+   to `[1, 100000]`, no interpolation**.
+
+**Why the method, not merely the level, is load-bearing.** Two of the seven
+published endpoints are bounded: `coverage` is a proportion on `[0, 1]` and
+`rho` a correlation on `[-1, 1]`. A symmetric unbounded margin can place a
+published bound outside the endpoint's own support - an absolute coverage
+near 0.96 with ordinary week-to-week spread yields an upper bound above 1.0,
+which is not a coverage. The percentile bootstrap cannot do this: every
+resampled statistic is a mean of observed values, so every bound stays inside
+the data's convex hull. The sealed text's choice is doing real work here and
+must not be substituted for on grounds of convenience.
+
+**Self-description is mandatory.** Every published descriptive interval
+records, alongside its bounds, the **method**, the **alpha**, the **draw
+count**, and the **surviving cluster count**. A report in which a prereg 12.1
+primary interval and a prereg 10.5 moving-block interval are typographically
+indistinguishable is not auditable, and a disclosure that lives only in a
+review document does not travel with the data.
+
+**Prereg 10.5 is unaffected.** The moving-block sensitivity keeps its own
+sealed construction (block lengths 2 and 3, same 100,000 draws, **seed
+588165040**) and is reported alongside these intervals, exactly as 10.5 says.
+Where a moving-block row is published, the primary interval of this section
+is not computed for that row - it would be discarded unused.
+
+**Scope limit.** This section governs DESCRIPTIVE publication only. It
+changes no component endpoint, no Level 2/3/4/5 status, and no verdict. The
+gating components already use prereg 10.1 unchanged, via sections 4.2-4.5.
 
 ---
 
@@ -1882,6 +1988,91 @@ illustrative example. Both sealed assertions are run-voiding on failure;
 the cache-persistence fidelity checks (section 8.6.3's allowlist) are
 descriptive-only, labeled outside the sweep's critical path.
 
+### 8.7 The descriptive publication contract: which family carries which scoring profile **[substantive prospective amendment]**
+
+**The gap this fills.** Four sealed sections each state a piece of this and
+none states the whole:
+
+- **Prereg 4.3** - "half-PPR is the formal primary. Standard and full-PPR
+  are no-harm sensitivities."
+- **Prereg 12.1** - the factorial family: "all 8 cells' absolute metrics and
+  all paired deltas versus control, with CIs, whether or not any cell
+  passes." No profile named.
+- **Prereg 12.2** - the three attribution composites, "each with CIs". No
+  profile named.
+- **Prereg 10.6** - control-vs-naive and `usage-signal` are "estimates-only
+  diagnostics: reported as point estimates with CIs and NO superiority or
+  verdict label." No profile named.
+- **Prereg 16** - "Standard and full-PPR scoring profiles - these appear in
+  (e2) as no-harm GATES, and **their absolute metrics are additionally
+  reported descriptively**."
+
+An unqualified family inherits prereg 4.3's primary. A family prereg 16
+names explicitly gets what 16 gives it, and no more. **This document states
+that resolution below; it does not claim the sealed sections already state
+it jointly.**
+
+**The pinned identifiers.** The three profile names are exactly the keys
+`server/services/scoring.service.js` exports and freeze manifest Commit B
+seals, and no synonym or display form is admissible anywhere in the evidence
+or report schema:
+
+| identifier | prereg 4.3 role | per-reception value | Commit B SHA-256 |
+| --- | --- | --- | --- |
+| `half_ppr` | **formal primary** | `0.5` | `c82679bf83d475cea25ce54eec835ec86fb7da937770737a42ecc299c443c4f3` |
+| `standard` | no-harm sensitivity | `0.0` | `38d7891458c0ba3e514c989bcc5f93e205e7f71f82486ec907ab3026b278063b` |
+| `ppr` (full-PPR) | no-harm sensitivity | `1.0` | `2b25b93c3e2625118a4ed8252957b605bc6136a126a2505f5440433e417ff701` |
+
+`ppr` is full-PPR. There is no identifier `full_ppr` and no identifier
+`full-ppr` in this contract; the (e2) endpoint KEYS
+(`full-ppr-regret-2025`, `full-ppr-pairwise-2025`, section 4.2) are endpoint
+names, not profile identifiers, and the two vocabularies must not be
+conflated.
+
+**Frozen rules.**
+
+1. **The factorial family (prereg 12.1) is `half_ppr` ONLY.** All 8 cells'
+   absolute metrics and all paired deltas versus control are published for
+   the primary profile and no other. This is the family a reader treats as
+   the study's result, so it carries the formal primary, unqualified.
+2. **The attribution composites (prereg 12.2) are `half_ppr` ONLY.** 12.2
+   names no profile and is downstream of the 12.1 contrasts.
+3. **The prereg 10.6 diagnostics are `half_ppr` ONLY.** Control-vs-naive and
+   `usage-signal` name no profile.
+4. **The prereg 16 sensitivity publication is `standard` and `ppr`,
+   ABSOLUTE METRICS ONLY.** Prereg 16 extends descriptive reporting to those
+   two profiles for their absolute metrics and nothing else. **Paired
+   deltas, attribution composites, and the 10.6 diagnostics are NOT
+   published for `standard` or `ppr`.** A reader wanting a standard-profile
+   contrast has (e2)'s gates, which is what prereg 16 says those profiles
+   are for.
+5. **Activation carries NO profile axis at all.** Prereg 11 publishes
+   activation rates "per season and position" and names no scoring profile;
+   prereg 11.1/11.2 introduce none. **The activation rows, aggregates, and
+   the activation gate therefore have no `scoringProfile` coordinate.**
+   Activation measures whether a factor moved a projection, which is a
+   property of the model configuration, not of the scoring rules applied to
+   the outcome afterwards.
+
+**Rule 5 removes a coordinate rather than adding one, and that is
+deliberate.** The Gate 2 implementation carried a `scoringProfile` on the
+activation aggregate side while the activation claim side had none, so the
+cross-check that ties them compared an axis that existed on only one side.
+The sealed text authorizes no such axis, so the correct resolution is to
+delete it from the aggregate, not to invent a matching one on the claim.
+This is the narrowest reading that makes the two sides agree, and it reaches
+the shortest distance past sealed text.
+
+**Interval method.** Every interval in every family above is section 4.6's,
+without exception.
+
+**Scope limit.** This section governs DESCRIPTIVE publication only. It
+changes no component endpoint, no Level 2/3/4/5 status, no activation
+THRESHOLD or verdict (section 8.3 is untouched except for the coordinate
+removal in rule 5), and no selection. The (e2) gates continue to evaluate
+`standard` and `ppr` exactly as section 4.2 and prereg 9.7 already require -
+rule 4 governs what is additionally REPORTED, never what is GATED.
+
 ---
 
 ## 9. Scale statement
@@ -1951,6 +2142,13 @@ intact.
 | **User sign-off on S3 deviation** (section 7) | **APPROVED** | 2026-08-02 | "I approve treating S3 as structurally non-estimable under the frozen active-only cohort, publishing no S3 estimate, and disclosing it as a prospective deviation from preregistration §4.2." |
 | **User approval of remainder** | **APPROVED** | 2026-08-02 | "I approve all remaining provisions in Revision 13, SHA-256 `25DFFCEC77EB5DFE17150020C04465B546F0584919916FD686CCFE77FA17258F`." Scope of authorization: Gate 2 IMPLEMENTATION only - does NOT authorize candidate-cell execution, which remains separately gated on the independent implementation review below. |
 | **Independent statistical review of revision 13** | **APPROVED** | 2026-08-02 | SHA-256 `25DFFCEC77EB5DFE17150020C04465B546F0584919916FD686CCFE77FA17258F`; scope: sections 3-8 |
+| Independent statistical review of revision 13's successor blob | **REJECTED** (R1) | 2026-08-02 | SHA-256 `0661EAFC95...`; 4 blockers: pooled-mean (f) falsifiability against a week-level-delta median estimand; permutation under-specified; reducer not total; player-week x salt veto was an unlabeled substantive amendment -> addressed as revision 14 |
+| Independent statistical review of revision 14 | **REJECTED** (R2) | 2026-08-02 | SHA-256 `49620EC2...`; 5 blockers: the `0.30` shortcut is not rounding-equivalent; permutation still under-specified; no Level-3 `not-applicable`; contradictory approval language; four outcome-changing rules misclassified as mechanical -> addressed as revision 15 |
+| Independent statistical review of revision 15 | **REJECTED** (R3) | 2026-08-02 | SHA-256 `E507D0C4...`; 2 blockers: (f) self-contradiction (`0.30` still mandated elsewhere); (f) veto status not total, because `missing > vetoed` let a missing sibling endpoint silently mask a fired veto -> addressed as revision 16 |
+| Independent statistical review of revision 16 | **REJECTED** (R4) | 2026-08-03 | SHA-256 `8BD263CD...`; 2 blockers: revision/approval routing still contradictory (revision 14 still described as current in two places); the salted hash construction misclassified as mechanical -> addressed as revision 17 |
+| Independent statistical review of revision 17 | **REJECTED** (R5) | 2026-08-03 | SHA-256 `F7D6B31F...`; 1 blocker: section 3.2 promised a pinned salt-composition test vector but supplied no literals -> addressed as revision 18 |
+| **Independent statistical review of revision 18** | **APPROVED** | 2026-08-03 | SHA-256 `5A0D6E54B2D84494C5D39093C44204A79F32A4DD813F03909C1094339A52BCF8`; scope: sections 3-8. Recorded authoritatively as ledger row 4, with the two user attestations as rows 5-6. **Void as an authority over THIS revision**, per this section's own preamble: revision 19 changes the bytes those approvals attach to |
+| Gate 2 implementation review (pre-submission, code not this document) | **REJECT** | 2026-08-04 | Reviewed the Gate 2 code built under ledger row 6, at commit `c04d6b1`. Two conformance defects in `scripts/backtest/lib/sweepEvidence.js`, both traceable to silences in THIS document rather than to a coding error: the descriptive scoring-profile axis, and the descriptive interval method. **Addressed as revision 19, sections 8.7 and 4.6.** No approval was sought or issued by this round |
 | **Independent implementation review** | **pending, strictly last, after Gate 2 code exists** | | scope, complete: the runtime salt-collision guard and its two-level unit/runtime split (section 3.4); the exact-trigger implementation defects, including the (f) no-finite-bound amendment label (section 4.4); the restored permutation-control definitions and aggregation (section 5); the rounding-boundary mutation tests and ten-decimal boundary normalization (section 6.1-6.2); the callback's per-receiver validation, exactly-once invocation, and exception propagation (section 6.5); the S3 non-estimable disclosure (section 7); the signed-boundary table and the exhaustive endpoint/component/cell/run truth table, including the (f)-unevaluable unification (sections 8.1-8.2); **activation's exact numerator/denominator (available && effect!==0, per-position including DEF, over eligible/non-neutral/known-orientation projections) and its precedence against `fail` (section 8.3)**; the restored cell-level ordering-inconclusive behavior and **Level-5 selection precedence, including the provably-unreachable winner-only branch (sections 8.4-8.5)**; **BOTH sealed identity assertions - the `usage-25 == control` bit-identity assertion (section 8.6.0: the Map-safe per-projection canonical-byte comparison and its named prohibition on passing a `Map` to `canonicalJson`, byte-equality with no allowlist and no tolerance, the explicitly-named non-Map run fields, its full player-week/salt scope, its pre-flight invocation point before the permutation control, its run-void disposition, and its seven mutation tests including the Map-serialization regression) and the `homeaway-on-stored` point-identity assertion** (section 8.6.1: its usage-25-only scope, the corrected `useStoredHistory` mechanism explanation, its single-leaf-difference guard), the complete fresh-vs-fresh allowlist (including `homeGames`/`awayGames`, `availability.activeProbability`, `role.pointsContribution`), the independently-frozen and explicitly-enumerated cache-compatible allowlist, **the ordered field-level comparator semantics with per-side type/finiteness validation running BEFORE any cross-side comparison, and raw-input duplicate detection running BEFORE any Map-building loop on both sides of every comparison**, and the descriptive-only cache-QA disposition (section 8.6) |
 
 No candidate cell may be computed while any item above remains unresolved.
