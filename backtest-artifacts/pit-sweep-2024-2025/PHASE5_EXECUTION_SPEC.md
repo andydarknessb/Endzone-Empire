@@ -2,7 +2,7 @@
 
 Study id: `pit-sweep-2024-2025` (same study as `PREREGISTRATION.md`).
 
-**Status: revision 20. NO APPROVALS ARE IN FORCE FOR THESE BYTES.**
+**Status: revision 21. NO APPROVALS ARE IN FORCE FOR THESE BYTES.**
 
 Revision 18 (SHA-256 `5A0D6E54B2D84494C5D39093C44204A79F32A4DD813F03909C1094339A52BCF8`)
 **was approved** - ledger rows 4, 5, and 6 - and Gate 2 implementation
@@ -12,12 +12,21 @@ must be re-issued against the hash of the current anchor**, exactly as
 corrective entry 1 requires. Until they are, nothing is authorized - not
 candidate execution, and not further Gate 2 implementation work.
 
-**Revision 19 accumulated no approvals**, so nothing lapsed when revision 20
-superseded it. Revision 19 was anchored at commit
-`9759a64f4d39cf170cf449f3e2635942e425646d` (SHA-256 `16F29146...`), and
-revision 20 changes ONLY the preamble narrative below and section 10's
-record of it. **The normative bodies of sections 4.6 and 8.7 are carried
-over byte-identically**, which is checkable in one diff against that commit.
+**Neither revision 19 nor revision 20 accumulated any approvals**, so nothing
+lapsed when either was superseded. Revision 19 was anchored at commit
+`9759a64f4d39cf170cf449f3e2635942e425646d` (SHA-256 `16F29146...`) and
+revision 20 at `478ee5a127143fe55b848e22cf5faa18704d4f21` (SHA-256
+`76672C35...`). **Across all three, the normative bodies of sections 4.6 and
+8.7 are carried over byte-identically** - revisions 20 and 21 change only
+narrative and reviewer-facing material. That is checkable in one diff against
+either commit:
+
+```
+diff <(git show 9759a64:backtest-artifacts/pit-sweep-2024-2025/PHASE5_EXECUTION_SPEC.md \
+        | awk '/^### 4\.6 /,/^## 5\. Permutation control/') \
+     <(git show <this-anchor>:backtest-artifacts/pit-sweep-2024-2025/PHASE5_EXECUTION_SPEC.md \
+        | awk '/^### 4\.6 /,/^## 5\. Permutation control/')
+```
 
 **Approvals are recorded EXTERNALLY, in `APPROVAL_LEDGER.md` - never in
 this file.** Revisions 1-13 recorded approvals in this document's own
@@ -34,7 +43,7 @@ and no copy survives (the file was untracked at the time). Revision 13's
 successor blob (`0661eafc95...`, committed as an immutable anchor) was
 submitted for fresh independent statistical review and **REJECTED** on four
 blockers. Revision 14 was that rejection's response; it was itself rejected,
-as was revision 15. **The current revision is 20**, and the full chain is
+as was revision 15. **The current revision is 21**, and the full chain is
 recorded below and in `APPROVAL_LEDGER.md`.
 
 **Revision 14 was also REJECTED**, on five blockers, at blob
@@ -77,6 +86,20 @@ fix:**
   since those are deltas; the implementation simply did not apply it. The
   silence was the absolute metrics, which are not deltas. 4.6 closes that
   and states the method for all of them.
+
+**Revision 21 corrects section 11, the reviewer packet, and nothing else.**
+Section 11.2's itemized correction summary stopped at review round thirteen
+while this document reached revision 21, and section 11.3's packet contents
+predated everything now under review: it omitted **prereg 12.1 and 12.2**,
+which section 8.7's rulings rest on directly, named `metrics.js` only for
+`SALTS`/`saltPairedDelta`/`buildBootstrapResamples` while section 4.6
+mandates its percentile-bootstrap primitives, omitted `freezeManifest.js`
+where the three scoring-profile identifiers and their Commit B digests are
+pinned, and carried a "does not yet" claim about `resolveConstants` that
+`arms.js`'s `resolveConstantsWithStoredHistory` had since made false. A
+packet is USED rather than audited, so a stale one misdirects silently and is
+never caught by the review it feeds. **No ruling changed; sections 4.6 and
+8.7 are byte-identical to revisions 19 and 20.**
 
 **Revision 20 corrects this preamble and section 10, and nothing else.**
 Revision 19's preamble asserted in four places that both defects were
@@ -259,24 +282,24 @@ Gate 3 verification (including the independent implementation review), and
 all four approvals are recorded, in `APPROVAL_LEDGER.md`, against the
 SAME approved revision of this document.
 
-**Authorization state as of revision 20: NOTHING IS AUTHORIZED.** Zero of
+**Authorization state as of revision 21: NOTHING IS AUTHORIZED.** Zero of
 the four approvals are in force against THESE bytes. Revision 18 held three
-(ledger rows 4-6) and Gate 2 implementation proceeded under row 6; revision
-19 superseded those bytes and revision 20 supersedes revision 19's, so all
-three lapse and must be re-issued at the hash of the current anchor.
-Revision 19 itself accumulated no approvals, so revision 20 lapsed nothing.
-**Revision 20 awaits all three fresh approvals**: its own independent
+(ledger rows 4-6) and Gate 2 implementation proceeded under row 6; every
+revision since has superseded those bytes, so all three lapse and must be
+re-issued at the hash of the current anchor. Revisions 19 and 20 themselves
+accumulated no approvals, so neither supersession lapsed anything.
+**Revision 21 awaits all three fresh approvals**: its own independent
 statistical review (sections 3-8, which is where both new sections 4.6 and
 8.7 sit) and, if that issues, the two user attestations (the S3 deviation,
 unchanged in substance from revision 18, and the remainder). **Further Gate
 2 implementation work is NOT currently authorized** - implementation is
-paused at the point revision 19 described and revision 20 restates - and
-candidate-cell execution is separately and additionally gated on the fourth
-approval (the independent implementation review of the resulting Gate 2
-code).
+paused at the point revision 19 described and every revision since restates -
+and candidate-cell execution is separately and additionally gated on the
+fourth approval (the independent implementation review of the resulting Gate
+2 code).
 
 **The Gate 2 code built under revision 18's row 6 does not conform to
-revision 20.** `sweepEvidence.js` implements neither section 8.7's profile
+revision 21.** `sweepEvidence.js` implements neither section 8.7's profile
 axis nor section 4.6's interval method. That code must be brought into
 conformance before the fourth approval is sought; the fourth approval is
 single-use and must not be spent on an implementation already known to be
@@ -2175,6 +2198,7 @@ intact.
 | **Independent statistical review of revision 18** | **APPROVED** | 2026-08-03 | SHA-256 `5A0D6E54B2D84494C5D39093C44204A79F32A4DD813F03909C1094339A52BCF8`; scope: sections 3-8. Recorded authoritatively as ledger row 4, with the two user attestations as rows 5-6. **Void as an authority over THIS revision**, per this section's own preamble: revisions 19 and 20 each change the bytes those approvals attach to |
 | Gate 2 implementation review (pre-submission, code not this document) | **REJECT** | 2026-08-04 | Reviewed the Gate 2 code built under ledger row 6, at commit `c04d6b1`. Two conformance defects in `scripts/backtest/lib/sweepEvidence.js`: the descriptive scoring-profile axis, and the descriptive interval method. Each had a core the sealed text covered plainly and an edge where it was silent; only the silences required a spec revision rather than only a code fix. **Addressed as revision 19, sections 8.7 and 4.6.** No approval was sought or issued by this round |
 | Revision 19 preamble self-correction | **not a review round** | 2026-08-04 | Revision 19 was anchored at commit `9759a64f4d39cf170cf449f3e2635942e425646d` (SHA-256 `16F29146F7CFCC6F9FE5F93199D5291A5CE5BD2E58EBF9A945C26AF498D97DFE`, blob `88ac16980445565eb8fb74dfd178e00686a76d62`) and accumulated **no approvals**. Its preamble asserted in four places that both defects were "traceable to silences" in this document; that overstated the specification's share of the fault, since prereg 4.3 names `half_ppr` primary in plain text and prereg 10.1's percentile rule plainly reaches every delta-valued descriptive family. **Corrected as revision 20**, which changes the preamble and this table only - the normative bodies of sections 4.6 and 8.7 carry over byte-identically from `9759a64` and no ruling changed. Because revision 19 held no approvals, nothing lapsed |
+| Revision 20 reviewer-packet correction | **not a review round** | 2026-08-04 | Revision 20 was anchored at commit `478ee5a127143fe55b848e22cf5faa18704d4f21` (SHA-256 `76672C3531CB6C72A6FDED5E1F08091EED500FB370283895C8F2A1CAB878676D`, blob `a26ff4abe93d09171578641f7429d4b224e12b9a`) and accumulated **no approvals**. Section 11's reviewer packet was found stale before any approval was solicited: 11.2's itemized summary stopped at review round thirteen, and 11.3 omitted prereg 12.1/12.2 (which section 8.7's rulings rest on), named `metrics.js` only for salt/resample helpers while section 4.6 mandates its percentile-bootstrap primitives, omitted `freezeManifest.js` where the profile identifiers are pinned, and carried a "does not yet" claim about `resolveConstants` that `resolveConstantsWithStoredHistory` had made false. **Corrected as revision 21**, which changes section 11 and this table only, and restructures 11.3 by which approval each item serves. The normative bodies of sections 4.6 and 8.7 carry over byte-identically from `9759a64` and `478ee5a`; no ruling changed. Because revision 20 held no approvals, nothing lapsed |
 | **Independent implementation review** | **pending, strictly last, after Gate 2 code exists** | | scope, complete: the runtime salt-collision guard and its two-level unit/runtime split (section 3.4); the exact-trigger implementation defects, including the (f) no-finite-bound amendment label (section 4.4); the restored permutation-control definitions and aggregation (section 5); the rounding-boundary mutation tests and ten-decimal boundary normalization (section 6.1-6.2); the callback's per-receiver validation, exactly-once invocation, and exception propagation (section 6.5); the S3 non-estimable disclosure (section 7); the signed-boundary table and the exhaustive endpoint/component/cell/run truth table, including the (f)-unevaluable unification (sections 8.1-8.2); **activation's exact numerator/denominator (available && effect!==0, per-position including DEF, over eligible/non-neutral/known-orientation projections) and its precedence against `fail` (section 8.3)**; the restored cell-level ordering-inconclusive behavior and **Level-5 selection precedence, including the provably-unreachable winner-only branch (sections 8.4-8.5)**; **BOTH sealed identity assertions - the `usage-25 == control` bit-identity assertion (section 8.6.0: the Map-safe per-projection canonical-byte comparison and its named prohibition on passing a `Map` to `canonicalJson`, byte-equality with no allowlist and no tolerance, the explicitly-named non-Map run fields, its full player-week/salt scope, its pre-flight invocation point before the permutation control, its run-void disposition, and its seven mutation tests including the Map-serialization regression) and the `homeaway-on-stored` point-identity assertion** (section 8.6.1: its usage-25-only scope, the corrected `useStoredHistory` mechanism explanation, its single-leaf-difference guard), the complete fresh-vs-fresh allowlist (including `homeGames`/`awayGames`, `availability.activeProbability`, `role.pointsContribution`), the independently-frozen and explicitly-enumerated cache-compatible allowlist, **the ordered field-level comparator semantics with per-side type/finiteness validation running BEFORE any cross-side comparison, and raw-input duplicate detection running BEFORE any Map-building loop on both sides of every comparison**, and the descriptive-only cache-QA disposition (section 8.6) |
 
 No candidate cell may be computed while any item above remains unresolved.
@@ -2191,7 +2215,28 @@ values in the table above record hashes the reviewer stated in
 conversation, not hashes independently recomputed against an attached
 artifact.
 
-### 11.2 Itemized correction summary (author-written)
+### 11.2 Itemized correction summary, REVIEW ROUNDS 1-13 ONLY (author-written)
+
+**Scope warning, added at revision 21.** The summary below covers review
+rounds 1 through 13 and stops there. It has NOT been extended to cover
+revisions 14-21, and deliberately so: manufacturing after-the-fact summaries
+of rounds this author did not summarize contemporaneously would produce
+exactly the kind of author-written narrative section 11.1 already cautions
+about, and revision 19's preamble demonstrated how such a narrative can
+overstate. **For revisions 14 onward, use these instead:**
+
+- **Section 10's review-history table** - brought current at revision 20. It
+  records R1-R5 with their blocking findings and hashes, revision 18's
+  approval, the Gate 2 implementation review that produced revision 19, and
+  each subsequent self-correction.
+- **`APPROVAL_LEDGER.md`** - the sole authoritative approval record, and its
+  corrective entries carry the anchor chain and the reasoning for each
+  supersession.
+- **This document's preamble** - "What revisions 19 and 20 add" and the
+  revision-21 paragraph state what each of the current sections changed.
+
+A reader who needs the rounds 14-21 account should read those three, not
+this section.
 
 Ten rounds, summarized: salt derivation and CRN framing; the exact-trigger
 AND rule and its four implementation defects, the fourth of which (the
@@ -2271,32 +2316,78 @@ it to `7,344`; the mutation-case count corrected (six listed under a
 summary widened from `loadCachedRows` alone to all four fresh arms' raw
 `playerIds` inputs plus the cache rows.
 
-### 11.3 Packet contents
+### 11.3 Packet contents, BY APPROVAL **[restructured at revision 21]**
 
+Two different approvals read this document, and they need different
+material. Revision 21 splits the packet accordingly, because the previous
+single undifferentiated list invited the statistical reviewer to audit
+implementation code that is separately reviewed, currently known
+non-conformant, and about to change by design.
+
+#### (a) For the INDEPENDENT STATISTICAL REVIEW - scope: sections 3-8
+
+This approval judges whether the RULINGS are sound against the sealed text.
+It does not review implementation conformance.
+
+- **This document, in full**, with sections 3-8 normative.
 - **`PREREGISTRATION.md` sections**: 1.1 (fetcher contract), 3.1 (roster
-  status -> cohort class), 4.1-4.2 (cohort and injury policy), 4.3
-  (outcome truth), 5.2-5.3 (regret estimands), 6.3, 6.6-6.7 (metric
-  conventions and contrast construction), 7.3 (arms/benchmarks/controls),
-  8.1-8.3 (salts and seeds), 9.1-9.7 (the IUT and components (a)-(e2)),
-  9.8 (component (f) in full), 10.1-10.6 (the CI contract), 11.1-11.2
-  (factor-activation mechanism and thresholds), 12.3 (parsimony total
-  order), 16-17 (sensitivities, freeze/reproduction mechanics).
-- **Code**: `scripts/backtest/lib/arms.js` (all cited functions;
-  `resolveConstants` does not yet build the `useStoredHistory`-forced
-  variant), `scripts/backtest/lib/metrics.js` (`SALTS`, `saltPairedDelta`,
-  `buildBootstrapResamples`), `scripts/backtest/lib/numbers.js`
-  (`isFiniteNumber`, `roundToTie`), `server/services/projectionModel.js`
-  (`projectPlayer`, `scoringHash`, `seedFrom`, `mulberry32`,
-  `simulateDistribution`, `NEUTRAL`, `opponentEffect`,
-  `versusOpponentEffect`, `homeAwayEffect`, `weatherEffect`; the
-  `effectiveGames` locators `:1027`, `:1070`, `:1156`; the
-  `useStoredHistory` default at `:241`; the median-rounding line `:884`),
+  status -> cohort class), 4.1-4.2 (cohort and injury policy), **4.3
+  (outcome truth, and the scoring-profile primary that section 8.7 rests
+  on)**, 5.2-5.3 (regret estimands), 6.3, 6.6-6.7 (metric conventions and
+  contrast construction), 7.3 (arms/benchmarks/controls), 8.1-8.3 (salts and
+  seeds), 9.1-9.7 (the IUT and components (a)-(e2)), 9.8 (component (f) in
+  full), 10.1-10.6 (the CI contract; **10.1 is what section 4.6 extends, and
+  10.5-10.6 establish that section 10 reaches non-gating output**),
+  11.1-11.2 (factor-activation mechanism and thresholds), **12.1 (the
+  factorial family, which section 8.7 rule 1 governs), 12.2 (the attribution
+  composites, rule 2)**, 12.3 (parsimony total order), **16 (the sensitivity
+  register, whose scoring-profile entry sets the limit in rule 4)**, 17
+  (freeze/reproduction mechanics).
+- **Sealed constants the rulings pin**, for checking the rulings are
+  internally coherent - not for code review:
+  `scripts/backtest/lib/freezeManifest.js` (`SCORING_PROFILE_NAMES`,
+  `PRIMARY_SCORING_PROFILE`, and the primary-enforcement check) and
+  `backtest-artifacts/pit-sweep-2024-2025/freeze/FREEZE_MANIFEST.json`,
+  which carry the three profile identifiers and the Commit B digests section
+  8.7's table reproduces; `scripts/backtest/lib/metrics.js`'s
+  `BOOTSTRAP_DRAWS`, `BOOTSTRAP_SEED`, `bootstrapMean`, `percentileBound`,
+  `MOVING_BLOCK_SEED`, and `movingBlockBootstrap`, which are the primitives
+  section 4.6 mandates and the one it distinguishes itself from.
+- **`APPROVAL_LEDGER.md`**, for the anchor chain and what each prior
+  approval attached to.
+
+#### (b) For the INDEPENDENT IMPLEMENTATION REVIEW - strictly last
+
+This approval judges whether the CODE conforms to the approved rulings. It
+cannot usefully occur until (a) has issued and the implementation round has
+brought the code into conformance.
+
+- **Everything in (a)**, plus:
+- **The Gate 2 modules**: `scripts/backtest/lib/sweepEvidence.js`,
+  `sweepPreflight.js`, `permutationControl.js`, `sweepEvaluator.js`,
+  `sweepInference.js`, `sweepReport.js`, and
+  `server/scripts/run-backtest-sweep.js`.
+- **`scripts/backtest/lib/arms.js`** (all cited functions, including
+  `resolveConstantsWithStoredHistory`, which builds the
+  `useStoredHistory`-forced variant - **an earlier revision of this packet
+  said it did not yet exist; that claim is withdrawn as of revision 21**),
+  `scripts/backtest/lib/numbers.js` (`isFiniteNumber`, `roundToTie`),
+  `server/services/projectionModel.js` (`projectPlayer`, `scoringHash`,
+  `seedFrom`, `mulberry32`, `simulateDistribution`, `NEUTRAL`,
+  `opponentEffect`, `versusOpponentEffect`, `homeAwayEffect`,
+  `weatherEffect`; the `effectiveGames` locators `:1027`, `:1070`, `:1156`;
+  the `useStoredHistory` default at `:241`; the median-rounding line `:884`),
   `server/services/projectionFeatures.js` (`:177-231`'s `useStoredHistory`/
   `crossSeason` gating), `server/services/projection.service.js`
   (`projectFromBundle`, `findRun`, `loadCachedRows`, `upsertRun`,
   `saveProjections`), `scripts/backtest-weekly-projections.js`
   (`withHistory`, `:210-234`), `scripts/backtest/lib/snapshotClient.js`
-  (confirms the sweep never touches the live cache), `scripts/backtest/lib/asOfView.js`,
-  `scripts/backtest/lib/cohort.js`.
-- This document, in full.
-- Scheduled: the independent implementation review.
+  (confirms the sweep never touches the live cache),
+  `scripts/backtest/lib/asOfView.js`, `scripts/backtest/lib/cohort.js`.
+- **`GATE2_REVIEW_PACKAGE.md`** (uncommitted by convention), which carries
+  the traceability matrix and the disclosed defects.
+
+**Standing caveat for (b):** at the time revision 21 was anchored, the Gate 2
+code did NOT conform to sections 4.6 and 8.7, by the author's own disclosure
+(section 1). Reviewing it before the implementation round completes would
+spend a single-use approval on known-non-conformant code.
