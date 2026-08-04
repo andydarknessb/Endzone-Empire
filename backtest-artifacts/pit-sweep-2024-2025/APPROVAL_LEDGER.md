@@ -433,3 +433,86 @@ diff <(git show 478ee5a:backtest-artifacts/pit-sweep-2024-2025/PHASE5_EXECUTION_
 **(6) Gate 0 is unchanged and still in force**, the fourth approval remains
 strictly last, single-use, and not self-performable, and no row is pre-filled
 for any approval that has not issued.
+
+---
+
+### CORRECTIVE ENTRY 6 — appended 2026-08-04
+
+**This entry creates NO approval row.** It re-points the anchor recorded by
+corrective entry 5. **Entries 1-5 are not edited.**
+
+**(1) The anchor has moved again.**
+
+| | |
+| --- | --- |
+| SHA-256 | `B835B5982FA0573777F47285855DA445E765DFAB1526C546FE098D4EE3065C44` |
+| git blob | `9b452737b523c11ddd1c2c682aed04abaa3901be` |
+| anchor commit | `3bac26345ad7d912bae9f0080865dd62b3e9b669` |
+
+**(2) Nothing lapsed.** The superseded anchor (`ed5b001…` / `DB9971B8…`)
+accumulated no approvals, as neither of its two predecessors had. Rows 4-6
+remain lapsed against their own superseded bytes, and **three fresh approvals
+are still required** against the hash in (1).
+
+**(3) THE BYTE-IDENTITY SHORTCUT DOES NOT APPLY TO THIS ANCHOR.** Corrective
+entries 4 and 5 could tell a reviewer that the rulings had not moved and a
+one-command diff would prove it. **That is false here.** Revision 22 is the
+first revision since 18 to change a RULING. Measured between `ed5b001` and
+`3bac263`:
+
+| section | revision 21 | revision 22 | differing lines |
+| --- | ---: | ---: | ---: |
+| 4.6 | 66 | 223 | 251 |
+| 8.7 | 87 | 158 | 115 |
+
+Sections 1, 8.6.1, and 8.6.2 also carry normative changes. **A reviewer must
+RE-READ those sections rather than diffing them.** Anyone who carries the
+habit established by entries 4 and 5 into this anchor will conclude nothing
+changed, and will be wrong.
+
+**(4) Why it was re-anchored.** A findings round against revision 21 produced
+three CRITICAL and three WARNING findings plus five further blockers, all
+inside sections 3-8. The substantive corrections: section 8.7 rule 4 now
+fixes a ROW SET rather than only a metric-type axis, which had left two
+defensible readings a 14x apart in published rows; **rule 5 now PINS
+activation to `half_ppr` rather than removing its profile axis**, because the
+removal rested on a false premise - activation's numerator is profile-
+contingent through `calculateFantasyPoints`, so removal asserted invariance
+that does not hold; section 4.6 no longer claims the sealed text is silent
+about absolute-metric intervals, since prereg 10.1's first five bullets
+already bind them and only bullet 6's bound is delta-phrased; and section 4.6
+gained a season coordinate, a total reducer, a definition of "surviving" for
+a statistic with no comparator, and a correct account of shared resamples
+when `n` varies. Sections 1, 8.6.1, and 8.6.2 repair three claims that went
+false when the CODE changed.
+
+**(5) Provenance of those findings, recorded at its true standing.** Neither
+source was an independent statistical review, and **neither is an approval**:
+
+- **Source A** was three subagents spawned by the assistant from
+  assistant-written prompts. NOT independent - the assistant authored or
+  recommended several passages under review, including two of the CRITICAL
+  findings' subject text.
+- **Source B** was relayed into the working conversation. The assistant did
+  not observe its execution and cannot attest to its origin. This is a
+  different provenance from R1-R5, each of which was transcribed from a named
+  external reviewer's own message.
+
+Both are recorded in the specification's section 10 at that standing and no
+higher. **The three fresh approvals this anchor requires are unaffected by
+either.**
+
+**(6) One deviation from the offered solution text, flagged deliberately.**
+Section 8.7 rule 4's cell scope does NOT follow the wording offered by Source
+B, which tied the row set to "the selected candidate cell." Level 5 selection
+can return no-selection - a void run, no passing cell, or an ordering
+disagreement - which would leave the row set undefined exactly when the
+report must be well-formed. Rule 4 instead fixes the row set at the control
+plus every candidate receiving an (e2) evaluation, and the specification
+records the rejection in its own text. **A reviewer should be pointed at this
+directly**: a deviation discovered unflagged reads very differently from one
+the document announces.
+
+**(7) Gate 0 is unchanged and still in force**, the fourth approval remains
+strictly last, single-use, and not self-performable, and no row is pre-filled
+for any approval that has not issued.
