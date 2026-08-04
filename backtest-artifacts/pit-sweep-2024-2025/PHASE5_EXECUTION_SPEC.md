@@ -2,15 +2,22 @@
 
 Study id: `pit-sweep-2024-2025` (same study as `PREREGISTRATION.md`).
 
-**Status: revision 19. NO APPROVALS ARE IN FORCE FOR THESE BYTES.**
+**Status: revision 20. NO APPROVALS ARE IN FORCE FOR THESE BYTES.**
 
 Revision 18 (SHA-256 `5A0D6E54B2D84494C5D39093C44204A79F32A4DD813F03909C1094339A52BCF8`)
 **was approved** - ledger rows 4, 5, and 6 - and Gate 2 implementation
-proceeded under row 6. **Revision 19 changes this document's bytes, so those
-three approvals do not attach to it** and must be re-issued against the new
-hash, exactly as corrective entry 1 requires. Until they are, nothing is
-authorized - not candidate execution, and not further Gate 2 implementation
-work.
+proceeded under row 6. Revision 19 superseded those bytes and revision 20
+supersedes revision 19's, **so those three approvals attach to neither and
+must be re-issued against the hash of the current anchor**, exactly as
+corrective entry 1 requires. Until they are, nothing is authorized - not
+candidate execution, and not further Gate 2 implementation work.
+
+**Revision 19 accumulated no approvals**, so nothing lapsed when revision 20
+superseded it. Revision 19 was anchored at commit
+`9759a64f4d39cf170cf449f3e2635942e425646d` (SHA-256 `16F29146...`), and
+revision 20 changes ONLY the preamble narrative below and section 10's
+record of it. **The normative bodies of sections 4.6 and 8.7 are carried
+over byte-identically**, which is checkable in one diff against that commit.
 
 **Approvals are recorded EXTERNALLY, in `APPROVAL_LEDGER.md` - never in
 this file.** Revisions 1-13 recorded approvals in this document's own
@@ -27,7 +34,7 @@ and no copy survives (the file was untracked at the time). Revision 13's
 successor blob (`0661eafc95...`, committed as an immutable anchor) was
 submitted for fresh independent statistical review and **REJECTED** on four
 blockers. Revision 14 was that rejection's response; it was itself rejected,
-as was revision 15. **The current revision is 19**, and the full chain is
+as was revision 15. **The current revision is 20**, and the full chain is
 recorded below and in `APPROVAL_LEDGER.md`.
 
 **Revision 14 was also REJECTED**, on five blockers, at blob
@@ -47,26 +54,42 @@ dangling sentence fragment in the preamble - both introduced by revision
 17's own splice - are removed. **Revision 18 was APPROVED** (ledger rows
 4-6, 2026-08-03).
 
-**What revision 19 adds.** Revision 19 is NOT a response to a rejection of
-this document. It is the response to two conformance defects found in the
+**What revisions 19 and 20 add.** Neither is a response to a rejection of
+this document. Revision 19 responded to two conformance defects found in the
 Gate 2 implementation built under row 6, both in
-`scripts/backtest/lib/sweepEvidence.js`, and both traceable to silences this
-document had not filled:
+`scripts/backtest/lib/sweepEvidence.js`. **Each defect has a core that the
+sealed text already covered plainly, and an edge where the sealed text was
+silent; only the silences required a spec revision rather than only a code
+fix:**
 
 - **Section 8.7 (new)** fixes the **scoring-profile axis of the descriptive
-  publication**. The implementation admitted exactly one profile,
-  `standard`, for every descriptive family - so the prereg 4.3 PRIMARY
-  profile (`half_ppr`) had no representable row, and the prereg 16
-  sensitivity families had none either. Prereg 4.3, 12.1, 12.2, 16 and 10.6
-  each state a piece of the contract; none states which family carries which
-  profile, and this document had not said. 8.7 says.
+  publication**. Prereg 4.3 names the primary and 12.1/12.2/10.6 name no
+  profile, so those families inherit it; what no sealed section states is
+  how far prereg 16's additional descriptive reporting extends, or whether
+  activation carries a profile axis at all. The implementation's use of
+  `standard` as the primary contradicted 4.3 outright. 8.7 states the
+  resolution.
 - **Section 4.6 (new)** fixes the **interval method for the descriptive
   families**. The implementation published a two-sided 95 percent normal
   approximation (`point +/- 1.96 * sqrt(s^2/n)`), while prereg 10.1 fixes a
   percentile cluster bootstrap at exactly 100,000 draws, seed 1499811874.
-  Prereg 10.1 phrases its percentile rule over bootstrap DELTAS; the
-  descriptive families include ABSOLUTE metrics, which are not deltas, and
-  that gap is what the implementation fell through. 4.6 closes it.
+  For the paired deltas and the 12.2 composites, 10.1 covers this plainly,
+  since those are deltas; the implementation simply did not apply it. The
+  silence was the absolute metrics, which are not deltas. 4.6 closes that
+  and states the method for all of them.
+
+**Revision 20 corrects this preamble and section 10, and nothing else.**
+Revision 19's preamble asserted in four places that both defects were
+"traceable to silences" in this document. That claim does not hold and
+overstated the specification's share of the fault: prereg 4.3 names
+`half_ppr` the formal primary in plain text, and prereg 10.1's percentile
+rule plainly reaches every delta-valued descriptive family. The bullets
+above are the corrected account. **The normative bodies of sections 4.6 and
+8.7 always stated their scope correctly** - 4.6 says "Nothing in the sealed
+text says what interval an absolute metric carries," and 8.7 says "This
+document states that resolution below; it does not claim the sealed sections
+already state it jointly" - so revision 20 changes no ruling, only the
+narrative that described them.
 
 Neither section changes any component verdict, any cell status, any run
 status, or the selection. Both change what is PUBLISHED and how it is
@@ -236,22 +259,24 @@ Gate 3 verification (including the independent implementation review), and
 all four approvals are recorded, in `APPROVAL_LEDGER.md`, against the
 SAME approved revision of this document.
 
-**Authorization state as of revision 19: NOTHING IS AUTHORIZED.** Zero of
+**Authorization state as of revision 20: NOTHING IS AUTHORIZED.** Zero of
 the four approvals are in force against THESE bytes. Revision 18 held three
 (ledger rows 4-6) and Gate 2 implementation proceeded under row 6; revision
-19 supersedes those bytes, so all three lapse and must be re-issued at the
-new hash. **Revision 19 awaits all three fresh approvals**: its own
-independent statistical review (sections 3-8, which is where both new
-sections 4.6 and 8.7 sit) and, if that issues, the two user attestations
-(the S3 deviation, unchanged in substance from revision 18, and the
-remainder). **Further Gate 2 implementation work is NOT currently
-authorized** - implementation is paused again at the point revision 19
-describes - and candidate-cell execution is separately and additionally
-gated on the fourth approval (the independent implementation review of the
-resulting Gate 2 code).
+19 superseded those bytes and revision 20 supersedes revision 19's, so all
+three lapse and must be re-issued at the hash of the current anchor.
+Revision 19 itself accumulated no approvals, so revision 20 lapsed nothing.
+**Revision 20 awaits all three fresh approvals**: its own independent
+statistical review (sections 3-8, which is where both new sections 4.6 and
+8.7 sit) and, if that issues, the two user attestations (the S3 deviation,
+unchanged in substance from revision 18, and the remainder). **Further Gate
+2 implementation work is NOT currently authorized** - implementation is
+paused at the point revision 19 described and revision 20 restates - and
+candidate-cell execution is separately and additionally gated on the fourth
+approval (the independent implementation review of the resulting Gate 2
+code).
 
 **The Gate 2 code built under revision 18's row 6 does not conform to
-revision 19.** `sweepEvidence.js` implements neither section 8.7's profile
+revision 20.** `sweepEvidence.js` implements neither section 8.7's profile
 axis nor section 4.6's interval method. That code must be brought into
 conformance before the fourth approval is sought; the fourth approval is
 single-use and must not be spent on an implementation already known to be
@@ -2147,8 +2172,9 @@ intact.
 | Independent statistical review of revision 15 | **REJECTED** (R3) | 2026-08-02 | SHA-256 `E507D0C4...`; 2 blockers: (f) self-contradiction (`0.30` still mandated elsewhere); (f) veto status not total, because `missing > vetoed` let a missing sibling endpoint silently mask a fired veto -> addressed as revision 16 |
 | Independent statistical review of revision 16 | **REJECTED** (R4) | 2026-08-03 | SHA-256 `8BD263CD...`; 2 blockers: revision/approval routing still contradictory (revision 14 still described as current in two places); the salted hash construction misclassified as mechanical -> addressed as revision 17 |
 | Independent statistical review of revision 17 | **REJECTED** (R5) | 2026-08-03 | SHA-256 `F7D6B31F...`; 1 blocker: section 3.2 promised a pinned salt-composition test vector but supplied no literals -> addressed as revision 18 |
-| **Independent statistical review of revision 18** | **APPROVED** | 2026-08-03 | SHA-256 `5A0D6E54B2D84494C5D39093C44204A79F32A4DD813F03909C1094339A52BCF8`; scope: sections 3-8. Recorded authoritatively as ledger row 4, with the two user attestations as rows 5-6. **Void as an authority over THIS revision**, per this section's own preamble: revision 19 changes the bytes those approvals attach to |
-| Gate 2 implementation review (pre-submission, code not this document) | **REJECT** | 2026-08-04 | Reviewed the Gate 2 code built under ledger row 6, at commit `c04d6b1`. Two conformance defects in `scripts/backtest/lib/sweepEvidence.js`, both traceable to silences in THIS document rather than to a coding error: the descriptive scoring-profile axis, and the descriptive interval method. **Addressed as revision 19, sections 8.7 and 4.6.** No approval was sought or issued by this round |
+| **Independent statistical review of revision 18** | **APPROVED** | 2026-08-03 | SHA-256 `5A0D6E54B2D84494C5D39093C44204A79F32A4DD813F03909C1094339A52BCF8`; scope: sections 3-8. Recorded authoritatively as ledger row 4, with the two user attestations as rows 5-6. **Void as an authority over THIS revision**, per this section's own preamble: revisions 19 and 20 each change the bytes those approvals attach to |
+| Gate 2 implementation review (pre-submission, code not this document) | **REJECT** | 2026-08-04 | Reviewed the Gate 2 code built under ledger row 6, at commit `c04d6b1`. Two conformance defects in `scripts/backtest/lib/sweepEvidence.js`: the descriptive scoring-profile axis, and the descriptive interval method. Each had a core the sealed text covered plainly and an edge where it was silent; only the silences required a spec revision rather than only a code fix. **Addressed as revision 19, sections 8.7 and 4.6.** No approval was sought or issued by this round |
+| Revision 19 preamble self-correction | **not a review round** | 2026-08-04 | Revision 19 was anchored at commit `9759a64f4d39cf170cf449f3e2635942e425646d` (SHA-256 `16F29146F7CFCC6F9FE5F93199D5291A5CE5BD2E58EBF9A945C26AF498D97DFE`, blob `88ac16980445565eb8fb74dfd178e00686a76d62`) and accumulated **no approvals**. Its preamble asserted in four places that both defects were "traceable to silences" in this document; that overstated the specification's share of the fault, since prereg 4.3 names `half_ppr` primary in plain text and prereg 10.1's percentile rule plainly reaches every delta-valued descriptive family. **Corrected as revision 20**, which changes the preamble and this table only - the normative bodies of sections 4.6 and 8.7 carry over byte-identically from `9759a64` and no ruling changed. Because revision 19 held no approvals, nothing lapsed |
 | **Independent implementation review** | **pending, strictly last, after Gate 2 code exists** | | scope, complete: the runtime salt-collision guard and its two-level unit/runtime split (section 3.4); the exact-trigger implementation defects, including the (f) no-finite-bound amendment label (section 4.4); the restored permutation-control definitions and aggregation (section 5); the rounding-boundary mutation tests and ten-decimal boundary normalization (section 6.1-6.2); the callback's per-receiver validation, exactly-once invocation, and exception propagation (section 6.5); the S3 non-estimable disclosure (section 7); the signed-boundary table and the exhaustive endpoint/component/cell/run truth table, including the (f)-unevaluable unification (sections 8.1-8.2); **activation's exact numerator/denominator (available && effect!==0, per-position including DEF, over eligible/non-neutral/known-orientation projections) and its precedence against `fail` (section 8.3)**; the restored cell-level ordering-inconclusive behavior and **Level-5 selection precedence, including the provably-unreachable winner-only branch (sections 8.4-8.5)**; **BOTH sealed identity assertions - the `usage-25 == control` bit-identity assertion (section 8.6.0: the Map-safe per-projection canonical-byte comparison and its named prohibition on passing a `Map` to `canonicalJson`, byte-equality with no allowlist and no tolerance, the explicitly-named non-Map run fields, its full player-week/salt scope, its pre-flight invocation point before the permutation control, its run-void disposition, and its seven mutation tests including the Map-serialization regression) and the `homeaway-on-stored` point-identity assertion** (section 8.6.1: its usage-25-only scope, the corrected `useStoredHistory` mechanism explanation, its single-leaf-difference guard), the complete fresh-vs-fresh allowlist (including `homeGames`/`awayGames`, `availability.activeProbability`, `role.pointsContribution`), the independently-frozen and explicitly-enumerated cache-compatible allowlist, **the ordered field-level comparator semantics with per-side type/finiteness validation running BEFORE any cross-side comparison, and raw-input duplicate detection running BEFORE any Map-building loop on both sides of every comparison**, and the descriptive-only cache-QA disposition (section 8.6) |
 
 No candidate cell may be computed while any item above remains unresolved.
