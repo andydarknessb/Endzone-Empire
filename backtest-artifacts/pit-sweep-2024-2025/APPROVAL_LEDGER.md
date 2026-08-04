@@ -355,3 +355,81 @@ command above settles it.
 remains strictly last, single-use, and not self-performable. As with entry 3,
 no row is pre-filled for any approval that has not issued, and rows are
 assigned in the order approvals actually issue.
+
+---
+
+### CORRECTIVE ENTRY 5 — appended 2026-08-04
+
+**This entry creates NO approval row.** It re-points the anchor recorded by
+corrective entry 4. **Entries 3 and 4 are not edited**; each remains the
+accurate record of the anchor that obtained when it was written.
+
+**(1) The anchor has moved again.**
+
+| | |
+| --- | --- |
+| SHA-256 | `DB9971B8385D17B6039ADF5DF9F4B6EAAACB26607681B80EFE55230EAA0A9E01` |
+| git blob | `94ae4b746a6a964adf407f3160f30e7a2e774eb4` |
+| anchor commit | `ed5b001496a5ffcf1338a431ea4a177b75ce79b4` |
+
+**(2) Nothing lapsed.** The superseded anchor (`478ee5a…` / `76672C35…`)
+accumulated no approvals, as its predecessor had not. The approval state is
+unchanged from entries 3 and 4: rows 4-6 remain lapsed against their own
+superseded bytes, and **three fresh approvals are still required** against
+the hash in (1) before implementation work may resume.
+
+**(3) Why it was re-anchored: the REVIEWER PACKET was stale, and it was
+found before any approval was solicited.** Section 11 is the section
+addressed to reviewers, and a packet is *used* rather than audited — a
+reviewer works from it and never checks it, so a defect there misdirects
+silently and is never caught by the review it feeds. Section 11 sits outside
+the statistical review's "sections 3-8" scope, which is a reason to correct
+it proactively rather than to leave it. Four omissions and one false claim:
+
+- **prereg 12.1 and 12.2 were absent** while section 8.7's rulings rest on
+  them directly — the packet listed 12.3 and skipped past the two sections
+  the ruling governs.
+- **`metrics.js` was listed only for `SALTS`/`saltPairedDelta`/
+  `buildBootstrapResamples`**, while section 4.6 mandates `bootstrapMean`,
+  `percentileBound`, `BOOTSTRAP_SEED`, and distinguishes itself from
+  `movingBlockBootstrap`.
+- **`freezeManifest.js` was absent**, where the three scoring-profile
+  identifiers and the Commit B digests section 8.7 reproduces are pinned.
+- **The seven Gate 2 modules were absent**, having not existed when the list
+  was written.
+- **A false claim was withdrawn**: the packet stated `resolveConstants`
+  "does not yet build the `useStoredHistory`-forced variant."
+  `arms.js`'s `resolveConstantsWithStoredHistory` does exactly that. The
+  claim is withdrawn explicitly in the text rather than deleted silently.
+
+Section 11.2's itemized summary was additionally relabeled to state plainly
+that it covers **review rounds 1-13 only** and was deliberately NOT extended
+to revisions 14-21 — writing retrospective summaries of rounds nobody
+summarized contemporaneously would produce precisely the author-written
+narrative section 11.1 cautions about. It routes readers to section 10's
+table, this ledger, and the document preamble instead.
+
+**(4) Section 11.3 is now split BY APPROVAL.** The previous single list
+invited the statistical reviewer to audit implementation code that is the
+separate fourth approval's subject, is currently known non-conformant, and is
+about to change by design. Part (a) carries the rulings' sources for the
+statistical review; part (b) carries the code for the implementation review,
+under a standing caveat that reviewing it before the implementation round
+completes would spend a single-use approval on known-non-conformant code.
+
+**(5) No ruling changed, across FOUR anchors now.** The normative bodies of
+sections 4.6 and 8.7 are byte-identical at `9759a64`, `478ee5a`, and
+`ed5b001`. Section 11.1 and section 11.2's rounds 1-13 text are likewise
+unaltered. Verify with the terminator excluded, since the range's closing
+header legitimately changes between revisions:
+
+```
+diff <(git show 478ee5a:backtest-artifacts/pit-sweep-2024-2025/PHASE5_EXECUTION_SPEC.md \
+        | awk '/^### 4\.6 /,/^## 5\. Permutation control/' | sed '$d') \
+     <(git show ed5b001:backtest-artifacts/pit-sweep-2024-2025/PHASE5_EXECUTION_SPEC.md \
+        | awk '/^### 4\.6 /,/^## 5\. Permutation control/' | sed '$d')
+```
+
+**(6) Gate 0 is unchanged and still in force**, the fourth approval remains
+strictly last, single-use, and not self-performable, and no row is pre-filled
+for any approval that has not issued.
