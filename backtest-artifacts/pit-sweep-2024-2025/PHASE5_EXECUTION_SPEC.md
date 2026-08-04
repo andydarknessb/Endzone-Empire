@@ -2,7 +2,7 @@
 
 Study id: `pit-sweep-2024-2025` (same study as `PREREGISTRATION.md`).
 
-**Status: revision 22. NO APPROVALS ARE IN FORCE FOR THESE BYTES.**
+**Status: revision 23. NO APPROVALS ARE IN FORCE FOR THESE BYTES.**
 
 Revision 18 (SHA-256 `5A0D6E54B2D84494C5D39093C44204A79F32A4DD813F03909C1094339A52BCF8`)
 **was approved** - ledger rows 4, 5, and 6 - and Gate 2 implementation
@@ -43,7 +43,7 @@ and no copy survives (the file was untracked at the time). Revision 13's
 successor blob (`0661eafc95...`, committed as an immutable anchor) was
 submitted for fresh independent statistical review and **REJECTED** on four
 blockers. Revision 14 was that rejection's response; it was itself rejected,
-as was revision 15. **The current revision is 22**, and the full chain is
+as was revision 15. **The current revision is 23**, and the full chain is
 recorded below and in `APPROVAL_LEDGER.md`.
 
 **Revision 14 was also REJECTED**, on five blockers, at blob
@@ -87,7 +87,36 @@ fix:**
   silence was the absolute metrics, which are not deltas. 4.6 closes that
   and states the method for all of them.
 
-**Revision 22 is the first revision since 18 to change a RULING.** Revisions
+**Revision 23 changes no ruling. It repairs four pieces of false or
+self-contradictory scaffolding sitting under conclusions that survive
+unchanged**, all found in a review round against revision 22:
+
+- **Section 4.6.1 said 2024 carries "eight of the thirteen" (e2)
+  inequalities.** It carries FOUR. Prereg 9.7's nine rows yield thirteen
+  endpoint-season inequalities: coverage at 2025 is one, the MAE/RMSE/rho/WIS
+  rows at "2025 and 2024" are eight across BOTH seasons, and the four
+  scoring-profile rows are 2025-only. "Eight" counted the dual-season rows'
+  total, half of which is 2025. The ruling is unaffected - publishing both
+  seasons needs one 2024 inequality, and component (e1) alone would carry it.
+- **Section 8.7 rule 4 said "This is NOT the eight-cell factorial grid."** It
+  IS the same eight cells, as the same rule states nine lines later and as
+  section 4.6.2 corroborates by naming rule 4's family as one of exactly two
+  absolute-metric families published across the eight cells. What separates
+  rule 4 from rule 1 is the endpoint count, the absolute-only limit, and the
+  season - not the cell count.
+- **Section 4.6.1 claimed both seasons unqualifiedly** while rule 4 restricts
+  its family to 2025 only, and section 4.6.2 places rule 4's family inside
+  4.6.1's stated scope. Specific-governs-general would resolve it, but nothing
+  in 4.6.1 deferred. The carve-out is now stated at the source.
+- **Section 4.6.4 cited two supports that do not hold.** Details in that
+  section; both are restated at their real standing, and the branch they
+  support now rests on prereg 6.2 and prereg 16, which are sufficient.
+
+**Because no ruling moved, the byte-identity check IS available for the 22 to
+23 step**, unlike the 21 to 22 step. Sections 4.6.2, 4.6.3, and all five of
+section 8.7's rules are byte-identical.
+
+**Revision 22 was the first revision since 18 to change a RULING.** Revisions
 19-21 were narrative and packet corrections; revision 22 answers a findings
 round against revision 21 and changes normative text in sections 1, 4.6,
 8.6.1, and 8.7. What changed, and why:
@@ -336,13 +365,13 @@ Gate 3 verification (including the independent implementation review), and
 all four approvals are recorded, in `APPROVAL_LEDGER.md`, against the
 SAME approved revision of this document.
 
-**Authorization state as of revision 22: NOTHING IS AUTHORIZED.** Zero of
+**Authorization state as of revision 23: NOTHING IS AUTHORIZED.** Zero of
 the four approvals are in force against THESE bytes. Revision 18 held three
 (ledger rows 4-6) and Gate 2 implementation proceeded under row 6; every
 revision since has superseded those bytes, so all three lapse and must be
 re-issued at the hash of the current anchor. Revisions 19 and 20 themselves
 accumulated no approvals, so neither supersession lapsed anything.
-**Revision 22 awaits all three fresh approvals**: its own independent
+**Revision 23 awaits all three fresh approvals**: its own independent
 statistical review (sections 3-8, which is where both new sections 4.6 and
 8.7 sit) and, if that issues, the two user attestations (the S3 deviation,
 unchanged in substance from revision 18, and the remainder). **Further Gate
@@ -646,9 +675,15 @@ open to a reviewer to resolve differently.
 Prereg 12.1 is season-UNQUALIFIED - "all 8 cells' absolute metrics and all
 paired deltas versus control, with CIs, whether or not any cell passes" - and
 the study evaluates 34 season-weeks across 2024 and 2025, with 2024 a
-first-class safety season carrying component (e1) and eight of the thirteen
-(e2) inequalities. **The descriptive families therefore carry a SEASON
-coordinate, and rows are published for BOTH 2024 and 2025.** Publishing 2025
+first-class safety season carrying component (e1) and four of the thirteen
+(e2) inequalities (one each from the MAE, RMSE, Spearman rho, and WIS rows,
+which prereg 9.7 evaluates on 2025 and 2024; the coverage row and all four
+scoring-profile rows are 2025-only). **The descriptive families therefore carry a SEASON
+coordinate, and rows are published for BOTH 2024 and 2025, with one
+exception**: section 8.7 rule 4's prereg 16 sensitivity family is 2025-only,
+because prereg 9.7 evaluates all four scoring-profile inequalities on 2025
+alone and rule 4's row set mirrors them. Every other descriptive family
+carries both seasons. Publishing 2025
 alone would silently narrow a sealed publication requirement.
 
 **Each row's clusters are its own season's evaluated weeks**, never a pooled
@@ -755,13 +790,38 @@ A descriptive row is DESCRIPTIVE. It must never throw, never void a run, and
 never change a component, cell, or run status - and section 4.6's scope limit
 below is only true if this section is total.
 
-Undefined per-week values are routine and the sealed text contemplates them:
-coverage and WIS are undefined for a whole week under prereg 6.6, rho is
-undefined on total ties, a week drops when more than one position has zero
-eligible pairs, and prereg 16 requires Week-18 absolute metrics "published on
-their own" - a ONE-cluster row. The mandated primitives are strict:
-`bootstrapMean` throws on any non-finite week value and
-`buildBootstrapResamples` throws on `clusterCount <= 0`.
+Undefined per-week values are contemplated by the sealed text and by the
+metrics' own definitions.
+
+**Sealed**: prereg 6.2's pairwise macro-average drops a position with zero
+eligible pairs from that week's macro-average, and drops the WEEK when more
+than one position drops - a drop that counts against prereg 10.4's
+missing-cell budget. Prereg 16 requires Week-18 absolute metrics "published
+on their own," a ONE-cluster row, which mandates the `degenerate` branch
+below by construction.
+
+**Inferred from the metric definitions, and stated here as inference rather
+than citation**: coverage and WIS have empty denominators when every
+projection in a week is null, since prereg 6.6 excludes null projections from
+both; and rho is undefined under total ties, where rank variance is zero. The
+preregistration's one explicit whole-week-undefined statement concerns 2024
+Week 1, which prereg 4.1 excludes from the evaluation window in both seasons,
+so it is not load-bearing here.
+
+**[corrected at revision 23]** Revision 22 carried these as a single sealed
+citation list, attributing whole-week undefinedness to prereg 6.6 and
+asserting a rho total-ties rule the preregistration does not contain. Prereg
+6.6 is "Null and tie conventions (global)": it excludes a null projection
+from six metrics, fixes exact ties at 0.5, removes tied pairs from the
+pairwise denominator, and pins 10-decimal tie rounding - it says nothing
+about a whole week. The rho claim is true as mathematics and appears nowhere
+in the sealed text. Both are now stated at their real standing, which leaves
+the branch below resting on prereg 6.2 and prereg 16 alone - and those are
+sufficient, because both concern EVALUATED weeks, which the 2024 Week 1
+passage cannot supply.
+
+The mandated primitives are strict: `bootstrapMean` throws on any non-finite
+week value and `buildBootstrapResamples` throws on `clusterCount <= 0`.
 
 **Frozen rule.** Before any resampling, a descriptive row is classified:
 
@@ -2362,8 +2422,11 @@ conflated.
    deltas, attribution composites, and the 10.6 diagnostics are NOT
    published for `standard` or `ppr`.** A reader wanting a standard-profile
    contrast has (e2)'s gates, which is what prereg 16 says those profiles
-   are for. **This is NOT the eight-cell factorial grid; rule 1 governs that
-   and is `half_ppr` only.** **[row set fixed at revision 22]** Revision 21
+   are for. **This is not rule 1's family.** The cells are the same eight;
+   what differs is that rule 4 publishes only the two (e2) scoring-profile
+   endpoints rather than all seven, only absolute metrics rather than
+   absolute metrics plus paired deltas, and only 2025 rather than both
+   seasons. **[row set fixed at revision 22]** Revision 21
    fixed the metric-type axis and left the row set open, which admitted two
    defensible readings a 14x apart in published rows - an 8-cell parallel to
    rule 1, or (e2)'s own narrow scope - with a 100,000-draw bootstrap
@@ -2540,6 +2603,7 @@ intact.
 | Findings round against revision 21 — **Source A, pre-submission** | **NOT AN APPROVAL, and not independent** | 2026-08-04 | Three subagents spawned by the assistant, briefed from assistant-written prompts, run read-only against `ed5b001`. **Not independent of the assistant**, which authored or recommended several passages under review; explicitly never offered as an approval. Produced five blockers inside sections 3-8 that Source B did not address: the season coordinate, section 4.6's non-totality, the shared-index/varying-`n` conflict, "surviving" being undefined for a statistic with no comparator, and the stale `resolveConstants` claim. Useful as a defect filter, not as review standing |
 | Findings round against revision 21 — **Source B, styled an independent review** | **NO APPROVAL ISSUED** | 2026-08-04 | Relayed into the working conversation. **The assistant did not observe its execution and cannot attest to its origin — this is a different provenance from R1-R5, each of which was transcribed from a named external reviewer's own message.** Recorded here at that standing and no higher. Findings: CRITICAL 1 (rule 4 fixed a metric-type axis but no row set), CRITICAL 2 (the moving-block carve-out contradicted prereg 10.5's sealed precondition), CRITICAL 3 (rule 5's removal of activation's profile axis rested on a false premise about `calculateFantasyPoints`), WARNING 3 (section 4.6 mislabeled sealed prereg 10.1 content as amendable), WARNING 4 (sections 4.6 and 8.7 defined each other's scope circularly and disagreed about activation), WARNING 5 (the half-PPR-selected cohort underlying rule 4's rows must be disclosed). **Addressed as revision 22.** No approval was sought or issued |
 | Revision 21 → 22 | **not a review round** | 2026-08-04 | Revision 21 was anchored at `ed5b001496a5ffcf1338a431ea4a177b75ce79b4` (SHA-256 `DB9971B8385D17B6039ADF5DF9F4B6EAAACB26607681B80EFE55230EAA0A9E01`, blob `94ae4b746a6a964adf407f3160f30e7a2e774eb4`) and accumulated **no approvals**, so nothing lapsed. **Revision 22 is the first revision since 18 to change a RULING** — sections 1, 4.6, 8.6.1, 8.6.2, and 8.7 all carry normative changes, so the byte-identity shortcut that applied to revisions 20 and 21 does NOT apply here and a reviewer must re-read those sections rather than diffing them. Four of the findings answered originate in assistant-authored text (recorded below), which is why Source A cannot carry review standing on its own |
+| Revision 22 → 23 | **not a review round** | 2026-08-04 | Revision 22 was anchored at `3bac26345ad7d912bae9f0080865dd62b3e9b669` (SHA-256 `B835B5982FA0573777F47285855DA445E765DFAB1526C546FE098D4EE3065C44`, blob `9b452737b523c11ddd1c2c682aed04abaa3901be`) and accumulated **no approvals**, so nothing lapsed. A review round against it found four pieces of false or self-contradictory scaffolding beneath conclusions that all survive: section 4.6.1's "eight of the thirteen" (e2) inequalities for 2024, which is FOUR; rule 4's "NOT the eight-cell factorial grid," contradicted by the same rule nine lines later and by section 4.6.2; section 4.6.1's unqualified both-seasons claim, which rule 4's 2025-only family contradicts without any deferral clause; and two unsupported citations in section 4.6.4 - whole-week undefinedness attributed to prereg 6.6, which is "Null and tie conventions (global)" and says no such thing, and a rho total-ties rule that appears nowhere in the preregistration. **Addressed as revision 23. NO RULING CHANGED**, so unlike the 21 to 22 step the byte-identity check IS available: sections 4.6.2, 4.6.3, and all five of section 8.7's rules are byte-identical to `3bac263` |
 | **Independent implementation review** | **pending, strictly last, after Gate 2 code exists** | | scope, complete: the runtime salt-collision guard and its two-level unit/runtime split (section 3.4); the exact-trigger implementation defects, including the (f) no-finite-bound amendment label (section 4.4); the restored permutation-control definitions and aggregation (section 5); the rounding-boundary mutation tests and ten-decimal boundary normalization (section 6.1-6.2); the callback's per-receiver validation, exactly-once invocation, and exception propagation (section 6.5); the S3 non-estimable disclosure (section 7); the signed-boundary table and the exhaustive endpoint/component/cell/run truth table, including the (f)-unevaluable unification (sections 8.1-8.2); **activation's exact numerator/denominator (available && effect!==0, per-position including DEF, over eligible/non-neutral/known-orientation projections) and its precedence against `fail` (section 8.3)**; the restored cell-level ordering-inconclusive behavior and **Level-5 selection precedence, including the provably-unreachable winner-only branch (sections 8.4-8.5)**; **BOTH sealed identity assertions - the `usage-25 == control` bit-identity assertion (section 8.6.0: the Map-safe per-projection canonical-byte comparison and its named prohibition on passing a `Map` to `canonicalJson`, byte-equality with no allowlist and no tolerance, the explicitly-named non-Map run fields, its full player-week/salt scope, its pre-flight invocation point before the permutation control, its run-void disposition, and its seven mutation tests including the Map-serialization regression) and the `homeaway-on-stored` point-identity assertion** (section 8.6.1: its usage-25-only scope, the corrected `useStoredHistory` mechanism explanation, its single-leaf-difference guard), the complete fresh-vs-fresh allowlist (including `homeGames`/`awayGames`, `availability.activeProbability`, `role.pointsContribution`), the independently-frozen and explicitly-enumerated cache-compatible allowlist, **the ordered field-level comparator semantics with per-side type/finiteness validation running BEFORE any cross-side comparison, and raw-input duplicate detection running BEFORE any Map-building loop on both sides of every comparison**, and the descriptive-only cache-QA disposition (section 8.6) |
 
 No candidate cell may be computed while any item above remains unresolved.
