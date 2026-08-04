@@ -2,7 +2,7 @@
 
 Study id: `pit-sweep-2024-2025` (same study as `PREREGISTRATION.md`).
 
-**Status: revision 21. NO APPROVALS ARE IN FORCE FOR THESE BYTES.**
+**Status: revision 22. NO APPROVALS ARE IN FORCE FOR THESE BYTES.**
 
 Revision 18 (SHA-256 `5A0D6E54B2D84494C5D39093C44204A79F32A4DD813F03909C1094339A52BCF8`)
 **was approved** - ledger rows 4, 5, and 6 - and Gate 2 implementation
@@ -43,7 +43,7 @@ and no copy survives (the file was untracked at the time). Revision 13's
 successor blob (`0661eafc95...`, committed as an immutable anchor) was
 submitted for fresh independent statistical review and **REJECTED** on four
 blockers. Revision 14 was that rejection's response; it was itself rejected,
-as was revision 15. **The current revision is 21**, and the full chain is
+as was revision 15. **The current revision is 22**, and the full chain is
 recorded below and in `APPROVAL_LEDGER.md`.
 
 **Revision 14 was also REJECTED**, on five blockers, at blob
@@ -87,7 +87,46 @@ fix:**
   silence was the absolute metrics, which are not deltas. 4.6 closes that
   and states the method for all of them.
 
-**Revision 21 corrects section 11, the reviewer packet, and nothing else.**
+**Revision 22 is the first revision since 18 to change a RULING.** Revisions
+19-21 were narrative and packet corrections; revision 22 answers a findings
+round against revision 21 and changes normative text in sections 1, 4.6,
+8.6.1, and 8.7. What changed, and why:
+
+- **Section 8.7 rule 4 now fixes a ROW SET**, not only the metric-type axis.
+  Revision 21 named prereg 16 without inheriting a row set from it - the only
+  one of the five rules whose family had none - leaving two defensible
+  readings a 14x apart in published rows, each with a 100,000-draw bootstrap
+  attached and nothing to hard-fail either. Rule 4 is now bound to (e2)'s own
+  scope, with the cell set fixed independently of Level 5 selection.
+- **Section 8.7 rule 5 PINS activation to `half_ppr` instead of removing its
+  profile axis.** Revision 21's removal rested on a false premise - that
+  activation is profile-invariant - when `homeAway.effect` derives from
+  `calculateFantasyPoints`, making the exact-zero numerator event
+  profile-contingent. Pinning applies this document's own inheritance canon;
+  removal invented an exemption.
+- **Section 4.6 no longer claims the sealed text is silent about
+  absolute-metric intervals.** Prereg 10.1's first five bullets already bind
+  them; only bullet 6's bound is delta-phrased. The amendment label is now
+  scoped to the two items that are genuinely extensions, because labeling
+  sealed content as amendable runs in the direction of loosening the seal.
+- **Section 4.6 gains a SEASON coordinate, a total reducer, a definition of
+  "surviving" for a statistic with no comparator, and a correct account of
+  what "shared resamples" means when `n` varies** (4.6.1-4.6.4). Each closed a
+  gap through which a descriptive-only row could have gone unpublished,
+  thrown inside a mandated primitive, or been built two different ways.
+- **Section 4.6's moving-block carve-out is withdrawn.** It said the primary
+  interval "is not computed" for a row carrying a moving-block sensitivity,
+  which contradicts prereg 10.5's sealed precondition that there be a primary
+  CI to report alongside.
+- **Sections 1, 8.6.1, 8.6.2 repair claims that went false when the CODE
+  changed** - the `sweep`-mode barrier, the `resolveConstants` builder, and
+  the `PROJECTION_COLUMNS` locator - none of which any byte-identity proof
+  could have surfaced, because the document did not change.
+
+**Revision 21 corrected section 11, the reviewer packet.** It also touched
+the preamble, section 1's authorization paragraph, and added a row to section
+10's table - revision 21's own claim that it changed section 11 "and nothing
+else" was false, and is withdrawn here. **[corrected at revision 22]**
 Section 11.2's itemized correction summary stopped at review round thirteen
 while this document reached revision 21, and section 11.3's packet contents
 predated everything now under review: it omitted **prereg 12.1 and 12.2**,
@@ -266,10 +305,25 @@ the same way).
 
 ## 1. Gate 0 - hold
 
-Verified against the current freeze state (Commit A6 `d469050`, Commit M6
-`109125c`, Commit B2 `dfd8ae1`): `backtest-entrypoint.js` stops after Step 1
-(rosters/cohort artifacts) and the control-only blinded MDE - no `sweep`
-mode exists; `backtest-reproduction.yml` regenerates and byte-compares M and
+**Reference frame, stated explicitly [revision 22].** The clauses below are
+evaluated **at the freeze state** (Commit A6 `d469050`, Commit M6 `109125c`,
+Commit B2 `dfd8ae1`), which is the only frame in which the Gate 0 barrier
+means anything: prereg 17 requires candidate sweeps to execute from a
+detached worktree checked out at B, so what matters is what B2's tree
+carries, not what `integration`'s HEAD carries. **One clause is now false at
+HEAD and true at B2, and revision 21 did not say so**: `sweep` mode. At HEAD,
+`backtest-entrypoint.js:274` is
+`const MODES = Object.freeze(['freeze', 'sweep'])` with `runSweep()` at
+`:300-306`, and `server/scripts/run-backtest-sweep.js` exists; at B2 there
+were zero occurrences. The mode was added by `41a8a65`, after the freeze.
+**This does not weaken the hold - it strengthens the reason for it.** The
+sweep machinery exists but lives outside the freeze B2 pins, which is exactly
+the mismatch Gate 4's B3 re-cut must resolve.
+
+Verified against the freeze state named above: `backtest-entrypoint.js` stops
+after Step 1 (rosters/cohort artifacts) and the control-only blinded MDE -
+**at B2 no `sweep` mode exists** (see the paragraph above for HEAD);
+`backtest-reproduction.yml` regenerates and byte-compares M and
 B only - no job for a candidate sweep or a report; `discover-freeze-
 commits.js`'s `POST_B_ALLOWED_PATHS` is exactly `{REPORT.md, report.json}`;
 prereg 17 requires candidate sweeps to execute from a clean detached
@@ -282,13 +336,13 @@ Gate 3 verification (including the independent implementation review), and
 all four approvals are recorded, in `APPROVAL_LEDGER.md`, against the
 SAME approved revision of this document.
 
-**Authorization state as of revision 21: NOTHING IS AUTHORIZED.** Zero of
+**Authorization state as of revision 22: NOTHING IS AUTHORIZED.** Zero of
 the four approvals are in force against THESE bytes. Revision 18 held three
 (ledger rows 4-6) and Gate 2 implementation proceeded under row 6; every
 revision since has superseded those bytes, so all three lapse and must be
 re-issued at the hash of the current anchor. Revisions 19 and 20 themselves
 accumulated no approvals, so neither supersession lapsed anything.
-**Revision 21 awaits all three fresh approvals**: its own independent
+**Revision 22 awaits all three fresh approvals**: its own independent
 statistical review (sections 3-8, which is where both new sections 4.6 and
 8.7 sit) and, if that issues, the two user attestations (the S3 deviation,
 unchanged in substance from revision 18, and the remainder). **Further Gate
@@ -298,9 +352,14 @@ and candidate-cell execution is separately and additionally gated on the
 fourth approval (the independent implementation review of the resulting Gate
 2 code).
 
-**The Gate 2 code built under revision 18's row 6 does not conform to
-revision 21.** `sweepEvidence.js` implements neither section 8.7's profile
-axis nor section 4.6's interval method. That code must be brought into
+**The Gate 2 code built under revision 18's row 6 does not conform to the
+current revision.** `sweepEvidence.js` implements neither section 8.7's
+profile axis nor section 4.6's interval method, and revision 22 widened the
+gap further: it must additionally carry a season coordinate (4.6.1), the
+total reducer (4.6.4), rule 4's fixed row set, and rule 5's `half_ppr`
+pinning - which replaces the coordinate-removal revision 21 called for, so
+any work done against that instruction must be revisited. That code must be
+brought into
 conformance before the fourth approval is sought; the fourth approval is
 single-use and must not be spent on an implementation already known to be
 non-conformant.
@@ -539,65 +598,222 @@ Sections 4.2-4.4 apply individually to each of components (a), (b), (c),
 (d), (e1)'s endpoints, and to each of the thirteen (e2) endpoint-season
 inequalities (section 4.2).
 
-### 4.6 The descriptive families use prereg 10.1's interval, including for ABSOLUTE metrics **[substantive prospective amendment]**
+### 4.6 The descriptive families use prereg 10.1's interval, including for ABSOLUTE metrics **[MIXED - see the per-item and per-subsection labels]**
 
-**The gap this fills.** Prereg 10.1 fixes one interval construction for this
-study: a cluster bootstrap over season-weeks, **exactly 100,000 draws**,
-**seed 1499811874**, shared resamples, and **percentile** bounds taken as the
-order statistic at `ceil(q * 100000)` clamped to `[1, 100000]` with no
-interpolation. But 10.1 phrases the bound over bootstrap **DELTAS** ("the
-`0.9928571429` empirical quantile of the 100,000 bootstrap deltas"), and the
-descriptive families required by prereg 12.1 and 16 include **ABSOLUTE**
-metrics, which are not deltas. Nothing in the sealed text says what interval
-an absolute metric carries.
+**What the sealed text already binds, and what it does not.** Prereg 10.1's
+first five bullets already bind absolute metrics - bullet 1 resamples and
+recomputes "every per-week metric mean," and bullets 2-5 fix the
+surviving-cluster rule, the 100,000 draws, the seed 1499811874, and the
+shared resamples. What the sealed text does not supply is the BOUND for a
+non-delta statistic: bullet 6 phrases the percentile rule over bootstrap
+**deltas** only ("the `0.9928571429` empirical quantile of the 100,000
+bootstrap deltas"). **This section extends that one bullet, and nothing
+else.**
 
-**This document extends prereg 10.1's percentile rule to the descriptive
-families, absolute metrics included - it does not claim 10.1 already covers
-them.** The extension is stated here as a labeled substantive amendment for
-the same reason section 4.4 item 3 was: the sealed text is silent, and a
-reasonable reader could fill the silence differently.
+Revision 21 and its predecessors said instead that "nothing in the sealed
+text says what interval an absolute metric carries." That was false and ran
+in the dangerous direction: it invited a reviewer to treat the cluster
+definition and the draw count as open for them to resolve, when 10.1 seals
+both and neither is amendable here. **[corrected at revision 22]**
 
 **Frozen definition.** Every published interval in the descriptive families
-of section 8.7 - absolute metrics, paired deltas, attribution composites,
-and the prereg 10.6 diagnostics alike - is:
+of section 8.7 rules 1-4 - absolute metrics, paired deltas, attribution
+composites, and the prereg 10.6 diagnostics - is:
 
-1. a **cluster bootstrap over 2025 season-weeks**, the cluster being the
+1. **[restates prereg 10.1, not amendable here]** a **cluster bootstrap over
+   the row's own season's evaluated weeks**, the cluster being the
    season-week, resampling the surviving weeks WITH replacement and
    recomputing the per-week mean over the drawn multiset;
-2. **exactly 100,000 draws, seed 1499811874**, using the SAME shared
-   resample index prereg 10.1 already mandates, so that no descriptive row
-   is built on a different null than any other;
-3. reported at the **one-sided `alpha/7 = 0.0071428571` level in both
-   directions** - the lower bound is the `0.0071428571` quantile and the
-   upper bound the `0.9928571429` quantile, exactly as 10.1 states. The
-   level is NOT re-opened here; 10.1 fixes it inline and this section
-   inherits it unchanged. A two-sided 95 percent normal approximation is
-   specifically NOT permitted;
-4. taken by the **percentile order statistic at `ceil(q * 100000)` clamped
-   to `[1, 100000]`, no interpolation**.
+2. **[restates prereg 10.1, not amendable here]** **exactly 100,000 draws,
+   seed 1499811874**, using prereg 10.1's shared resample index;
+3. **[substantive prospective amendment]** reported at the **one-sided
+   `alpha/7 = 0.0071428571` level in both directions** - the lower bound is
+   the `0.0071428571` quantile and the upper bound the `0.9928571429`
+   quantile, exactly as 10.1 states. The level is NOT re-opened here; 10.1
+   fixes it inline and this section inherits it unchanged. A two-sided 95
+   percent normal approximation is specifically NOT permitted;
+4. **[substantive prospective amendment]** taken by the **percentile order
+   statistic at `ceil(q * 100000)` clamped to `[1, 100000]`, no
+   interpolation** - this is the extension of bullet 6 to a non-delta
+   statistic, and it is the only part of this list that is not already
+   sealed.
 
-**Why the method, not merely the level, is load-bearing.** Two of the seven
-published endpoints are bounded: `coverage` is a proportion on `[0, 1]` and
-`rho` a correlation on `[-1, 1]`. A symmetric unbounded margin can place a
-published bound outside the endpoint's own support - an absolute coverage
-near 0.96 with ordinary week-to-week spread yields an upper bound above 1.0,
-which is not a coverage. The percentile bootstrap cannot do this: every
-resampled statistic is a mean of observed values, so every bound stays inside
-the data's convex hull. The sealed text's choice is doing real work here and
-must not be substituted for on grounds of convenience.
+**Only items 3-4 are amended.** Items 1-2 restate prereg 10.1 and are not
+open to a reviewer to resolve differently.
 
-**Self-description is mandatory.** Every published descriptive interval
-records, alongside its bounds, the **method**, the **alpha**, the **draw
-count**, and the **surviving cluster count**. A report in which a prereg 12.1
-primary interval and a prereg 10.5 moving-block interval are typographically
+#### 4.6.1 The SEASON coordinate **[substantive prospective amendment]**
+
+Prereg 12.1 is season-UNQUALIFIED - "all 8 cells' absolute metrics and all
+paired deltas versus control, with CIs, whether or not any cell passes" - and
+the study evaluates 34 season-weeks across 2024 and 2025, with 2024 a
+first-class safety season carrying component (e1) and eight of the thirteen
+(e2) inequalities. **The descriptive families therefore carry a SEASON
+coordinate, and rows are published for BOTH 2024 and 2025.** Publishing 2025
+alone would silently narrow a sealed publication requirement.
+
+**Each row's clusters are its own season's evaluated weeks**, never a pooled
+34-week set. This also removes a contradiction that a 2025-only rule created:
+the 2024 regret/pairwise delta versus control is simultaneously an (e1)
+gating endpoint interval'd over 2024 clusters via sections 4.2-4.5, and a
+prereg 12.1 descriptive row. Both now use the same cluster set, so one number
+never carries two different intervals.
+
+**The season is part of the mandatory self-description below**, so a
+season-scope mismatch is visible in the report rather than silent.
+
+#### 4.6.2 "Surviving" for a statistic with no comparator **[substantive prospective amendment]**
+
+Prereg 10.4's dropping rule is CONTRAST-scoped: "A week with no rows for an
+arm is dropped **from that contrast** for BOTH the candidate and every
+comparator, symmetrically." An ABSOLUTE metric for one cell has no
+comparator, so the sealed rule does not by itself say which weeks survive.
+
+**Frozen rule: for an ABSOLUTE-METRIC family published across the eight cells
+for side-by-side comparison, a week survives only if it has rows in ALL EIGHT
+cells - the drop is the UNION across that family, not per-cell.** 10.4's
+principle is that quantities being compared are compared over the same weeks,
+and prereg 12.1 exists precisely to present the eight cells side by side; a
+per-cell drop would publish eight absolute rows over eight different week
+sets and defeat the comparison the section is for.
+
+**This covers two families, not one**: prereg 12.1's primary absolute metrics
+(section 8.7 rule 1, `half_ppr`), and the prereg 16 sensitivity rows (rule 4,
+`standard` and `ppr`). The union is taken **within** a family - separately for
+each `(season, scoring profile, endpoint)` - never pooled across families, so
+a sparse week in a `ppr` sensitivity row never drops a week from the primary
+`half_ppr` matrix.
+
+**PAIRED DELTAS AND THE PREREG 12.2 ATTRIBUTION COMPOSITES ARE UNAFFECTED.**
+Both are contrasts, so prereg 10.4's contrast-scoped rule already fixes their
+surviving sets - for a composite, "the candidate and every comparator" is
+every cell entering that composite, all FOUR in the case of the interaction
+(`(u,on) - (u,off) - (0.25,on) + (0.25,off)`) - and this section neither
+extends nor overrides it. A descriptive paired delta and its gating
+counterpart in components (a)-(e1) therefore share one cluster set and one
+interval - for exactly the reason section 4.6.1 gives on the season axis, and
+the union rule above is scoped to absolute metrics so as not to reintroduce
+that same defect on the cluster axis. Extending the union to paired deltas
+would drop weeks in which a THIRD, uninvolved cell happened to be empty,
+producing a descriptive interval for the (candidate, control) pair over a
+different week set than the gating interval for the same pair: two intervals,
+and two points, for what any reader would call one number.
+
+For the remaining descriptive rows - the **prereg 10.6 diagnostics** - the
+surviving set is that row's own non-empty weeks, because they are single
+series rather than an eight-cell family and there is no family to keep
+commensurable.
+
+**One qualification, and it is not optional.** `control-naive` IS a contrast:
+prereg 7.2 makes `naive-recency` a benchmark arm and prereg 9.5 names it
+"Comparator" in those words, while prereg 4.1 treats naive-definedness as a
+real condition ("`naive-recency` requires at least one prior game ... so
+component (d) would have no comparator"). Prereg 10.4 therefore fixes its
+surviving set as it does for any contrast: **a week in which `naive-recency`
+is undefined drops from that contrast on BOTH sides, and "its own non-empty
+weeks" means the CONTRAST's, never the control arm's alone.** No claim is
+made here about `usage-signal`, which prereg 7.2 describes as an estimator
+over a restricted game set rather than as a contrast; it takes the own-weeks
+rule above unless and until the sealed text is shown to make it a contrast.
+
+**These cases are exhaustive over section 4.6's scope.** Absolute metrics of
+either family take the union within their family; the contrasts - paired
+deltas, the 12.2 composites, and `control-naive` - take prereg 10.4; the
+remaining 10.6 diagnostic takes its own weeks.
+
+**Two alternative readings were considered and rejected.** Dropping only each
+cell's own empty weeks for absolute metrics changes less machinery but
+publishes non-commensurable rows. Applying the union to the whole family
+INCLUDING the gating contrasts would keep everything on one week set, but it
+is unavailable: this section's scope limit forbids changing any component
+endpoint, and doing so would silently re-cluster components (a)-(e1). The
+rule above is the only reading that keeps the absolute family commensurable
+without touching a single gating interval.
+
+#### 4.6.3 The shared index is shared PER CLUSTER COUNT **[mechanical completion]**
+
+Prereg 10.1 states both that resampling is "over the SURVIVING clusters, and
+`n` is the surviving count" and that "every bootstrap-based component uses
+IDENTICAL resamples." These are reconciled by 10.1's own sequencing, not in
+tension: **the index is built AFTER week dropping and is a deterministic
+function of the seed and the surviving cluster count.** Rows with the same
+`n` therefore share draws identically; rows with different `n` necessarily do
+not, because a `draws x n` index cannot be reused at a different `n`.
+
+`metrics.js`'s own guard states the same rule in its error text - "the
+resample index must be built AFTER week dropping, and shared" - and
+`buildBootstrapResamples({ clusterCount })` is seeded, so equal `n` yields
+byte-identical draws with no object needing to be passed around.
+
+This matters because prereg 16 REQUIRES a weeks-2-17 sensitivity, a mandated
+16-cluster family, and prereg 10.4 permits up to two further drops. A single
+global index would be unsatisfiable against the sealed text; a per-cluster-
+count index satisfies both bullets exactly.
+
+#### 4.6.4 The reducer for descriptive rows is TOTAL **[substantive prospective amendment]**
+
+A descriptive row is DESCRIPTIVE. It must never throw, never void a run, and
+never change a component, cell, or run status - and section 4.6's scope limit
+below is only true if this section is total.
+
+Undefined per-week values are routine and the sealed text contemplates them:
+coverage and WIS are undefined for a whole week under prereg 6.6, rho is
+undefined on total ties, a week drops when more than one position has zero
+eligible pairs, and prereg 16 requires Week-18 absolute metrics "published on
+their own" - a ONE-cluster row. The mandated primitives are strict:
+`bootstrapMean` throws on any non-finite week value and
+`buildBootstrapResamples` throws on `clusterCount <= 0`.
+
+**Frozen rule.** Before any resampling, a descriptive row is classified:
+
+- **`unevaluable`** - zero surviving clusters, or any surviving week value
+  non-finite. Publish the row with `status: 'unevaluable'`, a stated reason,
+  `point`/`lower`/`upper` all null, and NO interval. Never call the
+  bootstrap.
+- **`degenerate`** - exactly one surviving cluster. Publish the point, with
+  `lower`/`upper` null and `status: 'degenerate'`. A one-cluster bootstrap
+  resamples the same week every draw, so its interval is a zero-width
+  artifact; publishing it as a CI would misrepresent a point as an estimate.
+  This is the case prereg 16's Week-18-alone requirement produces by
+  construction.
+- **`estimated`** - two or more surviving clusters, all finite. Compute items
+  1-4 above.
+
+**A descriptive row's status is NEVER a Level 1/2/3/4/5 input.** An
+`unevaluable` descriptive row does not make any component unevaluable, does
+not make any cell inconclusive, and does not void the run. Level 1's void
+causes remain exactly those enumerated in section 8.2's run level.
+
+**Why the method, not merely the level, is load-bearing.** Several published
+endpoints are bounded: `coverage` and `pairwise` are proportions on `[0, 1]`,
+`rho` is a correlation on `[-1, 1]`, and `regret`, `mae`, `rmse`, and `wis`
+are bounded below by zero. A symmetric unbounded margin can place a published
+bound outside the endpoint's own support - an absolute coverage near 0.96
+with ordinary week-to-week spread yields an upper bound above 1.0, which is
+not a coverage. The percentile bootstrap cannot do this: every resampled
+statistic is a mean of observed values, so every bound stays inside the
+data's convex hull. The sealed text's choice is doing real work here and must
+not be substituted for on grounds of convenience.
+
+**Self-description is mandatory.** Every published descriptive row records,
+alongside its bounds, the **method**, the **alpha**, the **draw count**, the
+**surviving cluster count**, the **season**, the **scoring profile**, and the
+**status** of section 4.6.4. A report in which a prereg 12.1 primary interval
+and a prereg 10.5 moving-block interval are typographically
 indistinguishable is not auditable, and a disclosure that lives only in a
 review document does not travel with the data.
 
 **Prereg 10.5 is unaffected.** The moving-block sensitivity keeps its own
 sealed construction (block lengths 2 and 3, same 100,000 draws, **seed
 588165040**) and is reported alongside these intervals, exactly as 10.5 says.
-Where a moving-block row is published, the primary interval of this section
-is not computed for that row - it would be discarded unused.
+**A moving-block row carries its own bounds and does not additionally
+duplicate this section's primary interval in the same record; the primary
+interval is always computed and published on the cell's own row, so that
+every moving-block row has a primary CI to sit alongside, exactly as 10.5
+requires. No endpoint is ever left without a primary interval on the grounds
+that a moving-block sensitivity exists for it.** Revision 21 said the primary
+interval "is not computed" for such a row, which contradicted 10.5's sealed
+precondition that there be a primary CI to report alongside.
+**[corrected at revision 22]**
 
 **Scope limit.** This section governs DESCRIPTIVE publication only. It
 changes no component endpoint, no Level 2/3/4/5 status, and no verdict. The
@@ -1737,7 +1953,35 @@ and unrelated to that field: `buildPriorGames` (`projectionFeatures.js:177-
 231`) attaches a per-row `isHome` orientation tag to an individual PLAYER's
 PRIOR-SEASON game rows only when `useStoredHistory` (or `crossSeason`) is
 true (`:193, 212, 231`); at the DEFAULT (`false`), those rows simply carry
-`isHome: null`. **Per the feature builder's own docblock
+`isHome: null`.
+
+**`isHome` is the ONLY field the flag reaches, and the asymmetry that makes
+that true is deliberate and undefended in code [revision 22].** The flag
+gates two adjacent lines, and only one of them admits it:
+
+```
+:230   opponent: trusted && (sameSeason || crossSeason)      ? trusted.opponent : null
+:231   isHome:   trusted && (sameSeason || useStoredHistory) ? trusted.isHome   : null
+```
+
+`:212` DOES make `resolved` non-null in the forced-variant arm (`teamKey`
+uses `(crossSeason || useStoredHistory)`), so a reader checking only `:212`
+would conclude `opponent` changes too. It does not: `:230` re-gates on
+`(sameSeason || crossSeason)`, which excludes `useStoredHistory`, so the
+resolved opponent is computed and DISCARDED before `versusOpponent` ever
+sees it. Citing only `:231` - as revisions 11-21 did - leaves the claim
+resting on an argument that does not cover the field most likely to be
+doubted.
+
+**Why this matters beyond citation hygiene.** There is no comment at `:230`
+recording that the omission of `useStoredHistory` is intentional; the nearby
+comment at `:216-219` covers contradictions, not the asymmetry. The edit that
+falsifies this whole passage is a one-line tidy-up making `:230` symmetric -
+`(sameSeason || crossSeason || useStoredHistory)` - made by someone with no
+signal that the inconsistency is the point, after which the rationale above
+would still READ as valid because it only ever argued from `:231`. A
+defending comment at `:230` is the stronger protection, but it is production
+code on a post-B non-allowed path and therefore batches into Gate 4. **Per the feature builder's own docblock
 (`projectionFeatures.js:512`): "This map is read only behind
 `homeAway.useStoredHistory`, so today nothing consumes the orientation at
 all."** No current code path - not `recentProduction`, not `opponent`, not
@@ -1771,10 +2015,27 @@ in EXACTLY the `homeAway.useStoredHistory` leaf and nothing else (analogous
 to `assertSaltAffectsOnlyHashValue` proving a salt varies only
 `hashValue`), so a bug in constructing the "on-stored" variant is caught
 structurally, not just by the numeric comparison downstream. Gate 2 must
-add a dedicated constants builder for this variant - `lib/arms.js`'s
-`resolveConstants` today touches only `usage.blendWeight` and
-`homeAway.enabled`, and does not build this third variant - informed by,
+add a dedicated constants builder for this variant, informed by,
 not copied from, the legacy harness's `withHistory` pattern.
+
+**Status of that requirement [revision 22].** It is MET. `arms.js` defines
+`resolveConstantsWithStoredHistory` (the builder) and
+`assertOnlyStoredHistoryLeafDiffers` (the single-leaf guard the preceding
+sentence demands, whose own docblock cites this section by name); both are
+exported. Revisions 13-21 carried a sentence here asserting that
+`resolveConstants` "does not build this third variant." **That claim went
+false when the CODE changed** - the builder was added by commit `41a8a65`,
+after revision 18 was approved - and it is withdrawn rather than deleted
+silently.
+
+**This is the negative-existence class, and it is why no byte-identity proof
+can catch it.** Sections 3-8 changed by 149 added lines and ZERO deletions
+between approved revision 18 and revision 21, so this sentence was
+byte-identical to what the reviewer approved; the document did not change,
+the world did. Revision 21 withdrew the identical claim in section 11.3 -
+outside the review scope - and left this copy standing inside it. A claim of
+the form "X does not exist" has no locator to check and goes false silently
+when X is added. Section 10 carries the running inventory of such claims.
 
 #### 8.6.2 **[rev10, completed per rejection finding 2]** The complete fresh-vs-fresh allowlist
 
@@ -1867,8 +2128,14 @@ directly:
 - **Top level**: `mean`, `median`, `p10`, `p25`, `p75`, `p90`,
   `activeProbability`, `sampleSize` - each verified present, under the same
   name, in `loadCachedRows`'s row-mapping (`:483-495`). **`effectiveGames`
-  is NOT in this list**: `saveProjections`'s INSERT column list
-  (`PROJECTION_COLUMNS` block) has no `effective_games` column, and
+  is NOT in this list**: neither `effective_games` nor `effectiveGames`
+  occurs anywhere in `projection.service.js`, so the persisted row has no
+  such column. **[pointer repaired at revision 22]** Revisions 12-21 cited a
+  "`PROJECTION_COLUMNS` block" as the place to check. There is no column
+  list under that name - `projection.service.js:545` is
+  `const PROJECTION_COLUMNS = 12;`, a numeric arity constant used for
+  parameter placeholders - so the verification path a reviewer would follow
+  did not exist. The negative claim is true; only its locator was wrong, and
   `loadCachedRows`'s SELECT/mapping never produces the key.
 - **`factors.*`**: every nested leaf listed in section 8.6.2 IS included
   here too, since the whole `factors` object round-trips through the
@@ -2087,32 +2354,103 @@ conflated.
    names no profile and is downstream of the 12.1 contrasts.
 3. **The prereg 10.6 diagnostics are `half_ppr` ONLY.** Control-vs-naive and
    `usage-signal` name no profile.
-4. **The prereg 16 sensitivity publication is `standard` and `ppr`,
-   ABSOLUTE METRICS ONLY.** Prereg 16 extends descriptive reporting to those
-   two profiles for their absolute metrics and nothing else. **Paired
+4. **The prereg 16 sensitivity publication is `standard` and `ppr`, ABSOLUTE
+   METRICS ONLY, and its row set is exactly the absolute metrics underlying
+   the (e2) scoring-profile inequalities (prereg 9.7): endpoints `regret` and
+   `pairwise`, season 2025 only.** Prereg 16 extends descriptive reporting to
+   those two profiles for their absolute metrics and nothing else. **Paired
    deltas, attribution composites, and the 10.6 diagnostics are NOT
    published for `standard` or `ppr`.** A reader wanting a standard-profile
    contrast has (e2)'s gates, which is what prereg 16 says those profiles
-   are for.
-5. **Activation carries NO profile axis at all.** Prereg 11 publishes
-   activation rates "per season and position" and names no scoring profile;
-   prereg 11.1/11.2 introduce none. **The activation rows, aggregates, and
-   the activation gate therefore have no `scoringProfile` coordinate.**
-   Activation measures whether a factor moved a projection, which is a
-   property of the model configuration, not of the scoring rules applied to
-   the outcome afterwards.
+   are for. **This is NOT the eight-cell factorial grid; rule 1 governs that
+   and is `half_ppr` only.** **[row set fixed at revision 22]** Revision 21
+   fixed the metric-type axis and left the row set open, which admitted two
+   defensible readings a 14x apart in published rows - an 8-cell parallel to
+   rule 1, or (e2)'s own narrow scope - with a 100,000-draw bootstrap
+   attached to every row and nothing to hard-fail either.
 
-**Rule 5 removes a coordinate rather than adding one, and that is
-deliberate.** The Gate 2 implementation carried a `scoringProfile` on the
-activation aggregate side while the activation claim side had none, so the
-cross-check that ties them compared an axis that existed on only one side.
-The sealed text authorizes no such axis, so the correct resolution is to
-delete it from the aggregate, not to invent a matching one on the claim.
-This is the narrowest reading that makes the two sides agree, and it reaches
-the shortest distance past sealed text.
+   **Cell scope, and why it is NOT "the selected candidate."** The rows are
+   published **for the control cell and for every candidate cell that
+   receives an (e2) evaluation** - 8 cells x 2 endpoints x 2 profiles. Tying
+   the row set to the SELECTED candidate was considered and rejected: Level 5
+   selection can return no-selection (a void run, no passing cell, or an
+   ordering disagreement), which would leave rule 4's row set undefined
+   exactly when the report most needs to be well-formed. A row set must not
+   depend on an outcome computed after it.
 
-**Interval method.** Every interval in every family above is section 4.6's,
-without exception.
+5. **Activation is `half_ppr`, by inheritance, and carries exactly one
+   profile coordinate.** Prereg 11 names no scoring profile, so it inherits
+   prereg 4.3's formal primary exactly as rules 1-3 do. **This is
+   inheritance, not invariance**: `homeAway.effect` derives from
+   `homeMean`/`awayMean`, which are means of
+   `calculateFantasyPoints(row.stats, rules)` (`projectionFeatures.js:197,
+   :305-308, :352-354`), and `effect === 0` - the exact-zero event that
+   defines the activation numerator - holds exactly when
+   `homeMean === awayMean`, a condition that does not transfer across
+   profiles. Activation is a half-PPR quantity and must be labeled one.
+   **Activation is generated under the primary profile.** Exactly one
+   activation row exists per `(cell, season, week, position)`; `standard` and
+   `ppr` activation rows are NOT published, per rule 4's limit. The
+   activation gate reads the `half_ppr` aggregate and must not read
+   `standard`.
+
+**Rule 5 pins rather than removes, and revision 21's contrary reasoning is
+withdrawn. [corrected at revision 22]** Revision 21 removed the profile axis
+from activation and grounded that in activation being "a property of the
+model configuration, not of the scoring rules applied to the outcome
+afterwards." **That premise is false** - the numerator is profile-contingent
+through `calculateFantasyPoints` - and with it gone, removal stops being the
+narrow reading and becomes an affirmative claim that a demonstrably
+profile-varying quantity has no profile coordinate. Pinning is the narrower
+move: it applies this section's own canon, that an unqualified family
+inherits prereg 4.3's primary, which is derived from sealed text, whereas
+removal would invent an exemption only rule 5 claims.
+
+Removal was also actively harmful in the near term: it would delete the one
+coordinate that records the live mismatch in the Gate 2 implementation, where
+the activation cross-check gates on `scoringProfile === 'standard'` while
+generation runs the primary. Removing the coordinate makes that mismatch
+unrepresentable rather than fixed.
+
+**"Generated under the primary profile" is NORMATIVE, not observational.**
+It is a requirement the implementation must meet. The current implementation
+does not determine it either way: `server/scripts/run-backtest-sweep.js`
+contains no scoring-profile handling at all, and the legacy
+`scripts/backtest-weekly-projections.js` carries a docblock declaring itself
+SUPERSEDED for accuracy-roadmap purposes and naming the homeAway activation
+question specifically as measured against `scripts/backtest/`, not against
+itself. No claim about what the sweep currently does is made or relied on
+here.
+
+**This is self-consistency, not a new mechanism.** Section 8.6's routing of
+`factors.homeAway.games` and the factor's `effect` through `context.homeAway`
+and `buildLeagueContext` was approved at revision 18. Rule 5 follows that
+same chain to its labeling consequence; it does not ask a reviewer to accept
+a new one.
+
+**The ruling holds regardless of the generation count.** If the sweep
+generates once under the primary, pinning is correct labeling. If it later
+generates per-profile to serve (e2) honestly, pinning says which realization
+the gate reads. Removal would be wrong under both branches, because the
+quantity is profile-dependent either way.
+
+**Disclosure carried forward from the rule-5 analysis.** The activation
+denominator is the candidate pool, whose ranking prereg 5.1 pins to
+"re-scored from the pinned raw stats under the pinned half-PPR profile."
+Rule 4 publishes `standard` and `ppr` absolute metrics computed on a
+**half-PPR-selected cohort**, and the report must state that plainly
+alongside those rows.
+
+**Interval method. [scoped at revision 22]** Every interval in the families
+of **rules 1-4** is section 4.6's, without exception. **Rule 5's activation
+rows and aggregates carry NO interval** - prereg 11.2 publishes activation as
+a rate against a fixed threshold with a per-week profile, not as an estimate
+with a CI - **and section 4.6 therefore does not reach them.** Revision 21's
+unscoped "every family above" swept activation in while section 4.6's own
+scope sentence enumerated only four families, so the two sections defined
+each other's scope circularly and disagreed. Attaching a bootstrap interval
+to activation would not have been a harmless addition: activation is also a
+gate, since falling below 0.85 forces a cell to `inconclusive`.
 
 **Scope limit.** This section governs DESCRIPTIVE publication only. It
 changes no component endpoint, no Level 2/3/4/5 status, no activation
@@ -2199,9 +2537,54 @@ intact.
 | Gate 2 implementation review (pre-submission, code not this document) | **REJECT** | 2026-08-04 | Reviewed the Gate 2 code built under ledger row 6, at commit `c04d6b1`. Two conformance defects in `scripts/backtest/lib/sweepEvidence.js`: the descriptive scoring-profile axis, and the descriptive interval method. Each had a core the sealed text covered plainly and an edge where it was silent; only the silences required a spec revision rather than only a code fix. **Addressed as revision 19, sections 8.7 and 4.6.** No approval was sought or issued by this round |
 | Revision 19 preamble self-correction | **not a review round** | 2026-08-04 | Revision 19 was anchored at commit `9759a64f4d39cf170cf449f3e2635942e425646d` (SHA-256 `16F29146F7CFCC6F9FE5F93199D5291A5CE5BD2E58EBF9A945C26AF498D97DFE`, blob `88ac16980445565eb8fb74dfd178e00686a76d62`) and accumulated **no approvals**. Its preamble asserted in four places that both defects were "traceable to silences" in this document; that overstated the specification's share of the fault, since prereg 4.3 names `half_ppr` primary in plain text and prereg 10.1's percentile rule plainly reaches every delta-valued descriptive family. **Corrected as revision 20**, which changes the preamble and this table only - the normative bodies of sections 4.6 and 8.7 carry over byte-identically from `9759a64` and no ruling changed. Because revision 19 held no approvals, nothing lapsed |
 | Revision 20 reviewer-packet correction | **not a review round** | 2026-08-04 | Revision 20 was anchored at commit `478ee5a127143fe55b848e22cf5faa18704d4f21` (SHA-256 `76672C3531CB6C72A6FDED5E1F08091EED500FB370283895C8F2A1CAB878676D`, blob `a26ff4abe93d09171578641f7429d4b224e12b9a`) and accumulated **no approvals**. Section 11's reviewer packet was found stale before any approval was solicited: 11.2's itemized summary stopped at review round thirteen, and 11.3 omitted prereg 12.1/12.2 (which section 8.7's rulings rest on), named `metrics.js` only for salt/resample helpers while section 4.6 mandates its percentile-bootstrap primitives, omitted `freezeManifest.js` where the profile identifiers are pinned, and carried a "does not yet" claim about `resolveConstants` that `resolveConstantsWithStoredHistory` had made false. **Corrected as revision 21**, which changes section 11 and this table only, and restructures 11.3 by which approval each item serves. The normative bodies of sections 4.6 and 8.7 carry over byte-identically from `9759a64` and `478ee5a`; no ruling changed. Because revision 20 held no approvals, nothing lapsed |
+| Findings round against revision 21 — **Source A, pre-submission** | **NOT AN APPROVAL, and not independent** | 2026-08-04 | Three subagents spawned by the assistant, briefed from assistant-written prompts, run read-only against `ed5b001`. **Not independent of the assistant**, which authored or recommended several passages under review; explicitly never offered as an approval. Produced five blockers inside sections 3-8 that Source B did not address: the season coordinate, section 4.6's non-totality, the shared-index/varying-`n` conflict, "surviving" being undefined for a statistic with no comparator, and the stale `resolveConstants` claim. Useful as a defect filter, not as review standing |
+| Findings round against revision 21 — **Source B, styled an independent review** | **NO APPROVAL ISSUED** | 2026-08-04 | Relayed into the working conversation. **The assistant did not observe its execution and cannot attest to its origin — this is a different provenance from R1-R5, each of which was transcribed from a named external reviewer's own message.** Recorded here at that standing and no higher. Findings: CRITICAL 1 (rule 4 fixed a metric-type axis but no row set), CRITICAL 2 (the moving-block carve-out contradicted prereg 10.5's sealed precondition), CRITICAL 3 (rule 5's removal of activation's profile axis rested on a false premise about `calculateFantasyPoints`), WARNING 3 (section 4.6 mislabeled sealed prereg 10.1 content as amendable), WARNING 4 (sections 4.6 and 8.7 defined each other's scope circularly and disagreed about activation), WARNING 5 (the half-PPR-selected cohort underlying rule 4's rows must be disclosed). **Addressed as revision 22.** No approval was sought or issued |
+| Revision 21 → 22 | **not a review round** | 2026-08-04 | Revision 21 was anchored at `ed5b001496a5ffcf1338a431ea4a177b75ce79b4` (SHA-256 `DB9971B8385D17B6039ADF5DF9F4B6EAAACB26607681B80EFE55230EAA0A9E01`, blob `94ae4b746a6a964adf407f3160f30e7a2e774eb4`) and accumulated **no approvals**, so nothing lapsed. **Revision 22 is the first revision since 18 to change a RULING** — sections 1, 4.6, 8.6.1, 8.6.2, and 8.7 all carry normative changes, so the byte-identity shortcut that applied to revisions 20 and 21 does NOT apply here and a reviewer must re-read those sections rather than diffing them. Four of the findings answered originate in assistant-authored text (recorded below), which is why Source A cannot carry review standing on its own |
 | **Independent implementation review** | **pending, strictly last, after Gate 2 code exists** | | scope, complete: the runtime salt-collision guard and its two-level unit/runtime split (section 3.4); the exact-trigger implementation defects, including the (f) no-finite-bound amendment label (section 4.4); the restored permutation-control definitions and aggregation (section 5); the rounding-boundary mutation tests and ten-decimal boundary normalization (section 6.1-6.2); the callback's per-receiver validation, exactly-once invocation, and exception propagation (section 6.5); the S3 non-estimable disclosure (section 7); the signed-boundary table and the exhaustive endpoint/component/cell/run truth table, including the (f)-unevaluable unification (sections 8.1-8.2); **activation's exact numerator/denominator (available && effect!==0, per-position including DEF, over eligible/non-neutral/known-orientation projections) and its precedence against `fail` (section 8.3)**; the restored cell-level ordering-inconclusive behavior and **Level-5 selection precedence, including the provably-unreachable winner-only branch (sections 8.4-8.5)**; **BOTH sealed identity assertions - the `usage-25 == control` bit-identity assertion (section 8.6.0: the Map-safe per-projection canonical-byte comparison and its named prohibition on passing a `Map` to `canonicalJson`, byte-equality with no allowlist and no tolerance, the explicitly-named non-Map run fields, its full player-week/salt scope, its pre-flight invocation point before the permutation control, its run-void disposition, and its seven mutation tests including the Map-serialization regression) and the `homeaway-on-stored` point-identity assertion** (section 8.6.1: its usage-25-only scope, the corrected `useStoredHistory` mechanism explanation, its single-leaf-difference guard), the complete fresh-vs-fresh allowlist (including `homeGames`/`awayGames`, `availability.activeProbability`, `role.pointsContribution`), the independently-frozen and explicitly-enumerated cache-compatible allowlist, **the ordered field-level comparator semantics with per-side type/finiteness validation running BEFORE any cross-side comparison, and raw-input duplicate detection running BEFORE any Map-building loop on both sides of every comparison**, and the descriptive-only cache-QA disposition (section 8.6) |
 
 No candidate cell may be computed while any item above remains unresolved.
+
+### 10.1 Findings answered by revision 22 that originate in assistant-authored text **[added at revision 22]**
+
+Recorded because it bears on how much weight a pre-submission read by the
+same author can carry, and because the pattern is the reason Source A above
+is not review standing.
+
+| finding | origin |
+| --- | --- |
+| CRITICAL 2, the moving-block carve-out | An assistant performance note about `deriveMovingBlock` double-computing, spec'd without being checked against prereg 10.5 |
+| CRITICAL 3, rule 5 removing the profile axis | An assistant recommendation argued as "the narrowest reading"; its premise about the code was never verified |
+| Section 4.6's "two of the seven published endpoints are bounded" | An assistant sentence. Understated: `pairwise` is also a proportion, and `regret`/`mae`/`rmse`/`wis` are bounded below. Corrected at revision 22; the ruling survived |
+| Revision 21's "section 11 ... and nothing else" | The assistant audited revision 21, verified confinement, and approved the claim in the same turn |
+
+### 10.2 The negative-existence inventory **[added at revision 22]**
+
+A claim of the form "X does not exist" goes false when X is ADDED, and **no
+locator check and no byte-identity proof can catch it** - there is no locator
+to check, and the document does not change. This is why the
+`resolveConstants` claim survived twenty-one revisions and why revision 21's
+withdrawal of the identical claim in section 11.3 did not propagate to the
+copy in section 8.6.1. Hand-maintained; keep it small.
+
+| location | claim | status |
+| --- | --- | --- |
+| §8.6.1, the `useStoredHistory` no-op passage | "there is no field it currently changes at all" | TRUE. Rationale completed at revision 22 to cite `projectionFeatures.js:230` as well as `:231` |
+| §8.6.1, the constants builder | `resolveConstants` "does not build this third variant" | **WAS FALSE** — withdrawn at revision 22 |
+| §8.6.2, the persisted column list | `effectiveGames` is not persisted | TRUE. Locator repaired at revision 22 |
+| §1, the freeze-state barrier | "no `sweep` mode exists" | TRUE at Commit B2, **FALSE at HEAD** — reference frame stated explicitly at revision 22 |
+
+Dropped as a false positive: "do not yet compare them" elsewhere in section 8
+is a step-ordering instruction inside an algorithm, not an assertion about
+code, and no code change can falsify it.
+
+**A LOCATOR check is mechanically automatable and should run on every
+re-anchor**: extract every `file.js:NNN` citation in this document and assert
+the named symbol still resolves at or near that line. Known drift as of
+revision 22, all because citations were taken against Commit A6 rather than
+HEAD: `arms.js:173`, `:213`, `:368-403`, `:448-449`, `:456`;
+`projection.service.js:408` and its siblings; `projectionModel.js:1113`.
+Locator drift is a citation defect, not a claim defect - the underlying
+statements remain true - but it costs a reviewer the ability to check them.
 
 ---
 
@@ -2225,7 +2608,8 @@ exactly the kind of author-written narrative section 11.1 already cautions
 about, and revision 19's preamble demonstrated how such a narrative can
 overstate. **For revisions 14 onward, use these instead:**
 
-- **Section 10's review-history table** - brought current at revision 20. It
+- **Section 10's review-history table** - extended at revisions 20, 21, and
+  22, and current as of the last of those. It
   records R1-R5 with their blocking findings and hashes, revision 18's
   approval, the Gate 2 implementation review that produced revision 19, and
   each subsequent self-correction.
