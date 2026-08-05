@@ -1775,3 +1775,120 @@ none was staged.
 **(12) Gate 0 is unchanged and still in force**, the fourth approval remains
 strictly last, single-use, and not self-performable, and no row is pre-filled
 for any approval that has not issued.
+
+---
+
+### CORRECTIVE ENTRY 16 — appended 2026-08-05
+
+**This entry creates NO approval row.** It re-points the anchor recorded by
+corrective entry 15. **Entries 1-15 are not edited.**
+
+**(1) The anchor has moved again.**
+
+| | |
+| --- | --- |
+| SHA-256 | `9269EDDA72D90D4006F65AB207297F8D6EDF1E2D03E3AAAE82633530115BFF54` |
+| git blob | `0641d0f034eb340368b7b41335249f51b976b2e4` |
+| anchor commit | `9a037217348117c82d23cc522706dbbd1750dc6c` |
+
+**(2) Nothing lapsed.** The superseded anchor (`e4774b1…` / `585E992D…`)
+accumulated no approvals. Rows 4-6 remain lapsed against their own superseded
+bytes, and **three fresh approvals are still required** against the hash in
+(1).
+
+**(3) SECTIONS 3-8 ARE UNTOUCHED**, 2,352 lines at revision 31 and at
+revision 32, **0 differing** under both the mapping check and the slicing
+confirmation. **No ruling and no classification changed.** The confinement
+check returns the preamble, section 10 and section 10.2, and nothing else -
+predicted before it was run, and matched.
+
+**(4) Three items closed, all inside section 10.2.**
+
+- **The `server/` figure is restated under ONE definition.** Of 182 commits
+  touching `server/`, **159** touch neither `backtest-artifacts/` nor
+  `scripts/backtest/`. Revision 31 stated a floor of 140 and named two other
+  boundaries. **The durable form is the rule, not the number: one
+  definition, applied consistently, is better than three offered for
+  comparison, which invites a reader to average figures that answer
+  different questions.** The 21-commit gap to the artifact-only boundary is
+  exactly the Gate 2 implementation commits.
+- **The `.js` invariant's filter is widened from commit SUBJECT to PATH.**
+  The two agree at every measurement taken, so **this corrects no live
+  undercount**; it makes the check test what the claim means. A study commit
+  typed `fix(backtest)` is caught by one form and missed by the other, and
+  the nineteen Gate 2 implementation commits are all typed that way.
+- **A count over that population rots by construction**, recorded in section
+  10.2 rather than only here. See (5).
+
+**(5) THE COUNT SERIES, EACH MEASUREMENT WITH THE ANCHOR IT WAS TAKEN AT.**
+This is the concrete evidence for the class, and it is stronger than the
+class stated abstractly:
+
+| measured at | anchor | study commits | touching `.js` |
+| --- | --- | ---: | ---: |
+| revision 30 | `eda85eb` | 23 | 0 |
+| corrective entry 14 | `7a9b930` | 24 | 0 |
+| revision 31 | `e4774b1` | 25 | 0 |
+| corrective entry 15 | `ca55b61` | 26 | 0 |
+| revision 32 | `9a03721` | 27 | 0 |
+
+**Every one of those was true when taken, and none contradicts another.** The
+population grows by exactly one with each study commit, including the commit
+that anchors the revision making the claim - so a revision cannot state a
+count of this population that survives its own ledger entry. **Entry 14's 24
+and entry 15's 25 were both correct against the anchors they named**, and
+neither is edited.
+
+**The invariant itself never moved**: the right-hand column is 0 at every
+measurement. **N is not a property of the study; it is a property of when you
+looked.** Quoting it without its anchor is section 10.2's eighth class.
+
+**(6) A hazard class whose own first draft committed the hazard.** The ninth
+class - a range read as an authorship boundary - was first drafted
+prescribing **path-scoping** as its remedy, which fails the same way one
+level over, since `server/` is live application code touched by 159 commits
+that are not this study's. Section 10.2 records that the draft did this,
+rather than quietly shipping the corrected version. **A class whose first
+draft fired the class is worth more as evidence than any number of clean
+examples**, because it demonstrates that the failure survives the attention
+of someone actively writing about it.
+
+**(7) THE STOPPING RULE, now in force and recorded in the preamble.**
+
+> The scope document is built when no known-open item would change sections
+> 3-8 or a structural claim the document makes about itself. Section 10.2
+> refinements that surface after that point ride to a revision **after** the
+> review is commissioned.
+
+**Section 10.2 is outside the approval scope.** Its improvements make the
+drafter's checks better; they change nothing a reviewer reads, verifies, or
+is asked to approve. Letting them gate the commission trades a real cost -
+**the review not happening** - against an improvement the reviewer never
+sees.
+
+**What makes the rule principled rather than arbitrary is the record.**
+Revisions 27 and 29 moved sections 3-8 by 3 and 92 lines, so deferring the
+scope document was correct both times: a document written before them would
+have described the wrong delta, and two were in fact discarded for exactly
+that. **Revisions 30, 31 and 32 moved zero lines there.** That is the
+difference between a rebuild and a find-and-replace, and it is the evidence
+that the document has converged where a reviewer's obligation lives.
+
+**Revision 32 is therefore the last revision before commissioning.** The only
+thing that reopens an anchor first is something touching sections 3-8 or a
+self-description a reviewer relies on.
+
+**(8) No bare integer heads a column in this entry's tables**, per the rule
+corrective entry 15 adopted after its own item table returned 12 approval
+rows against a true 6 under `^\| [0-9]+ \|`. The approval-row check returns
+**6**.
+
+**(9) Confinement.** One tracked file, 71 insertions / 14 deletions, staged
+by explicit path. **No study commit has changed a `.js` file at any point in
+the arc** - 27 examined at `9a03721`, 0 violations, under the path filter
+adopted at this revision. Files from an unrelated roster-feature workstream
+remained dirty in the working tree throughout and none was staged.
+
+**(10) Gate 0 is unchanged and still in force**, the fourth approval remains
+strictly last, single-use, and not self-performable, and no row is pre-filled
+for any approval that has not issued.
