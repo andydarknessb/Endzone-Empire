@@ -2,12 +2,14 @@
  * The Draft Simulator's state machine: a pure, immutable snake-draft engine.
  *
  * SYNC OBLIGATION (repo convention — see src/lib/positionCapsFeasibility.js):
- *   - `teamIndexForPick` is hand-mirrored from server/services/draft.service.js
- *     (line ~16). Snake order only; the sim has no linear-draft mode.
- *   - The clock semantics mirror `nextPickClockSeconds` in the same file: a
- *     deadline is a stored fact only for a turn that can actually time out.
- *     CPU pacing is a UI animation, never a stored deadline, so a mock draft
- *     left open in a background tab doesn't "expire" a hundred CPU picks.
+ *   - Turn order lives in src/lib/draftTurns.js, the client's single mirror of
+ *     the server's order math. `teamIndexForPick` and `picksRemainingFor` below
+ *     are thin snake-only delegates, kept because callers and tests use them.
+ *   - The clock semantics mirror `nextPickClockSeconds` in
+ *     server/services/draft.service.js: a deadline is a stored fact only for a
+ *     turn that can actually time out. CPU pacing is a UI animation, never a
+ *     stored deadline, so a mock draft left open in a background tab doesn't
+ *     "expire" a hundred CPU picks.
  *
  * Everything here is a pure function over a plain-JSON state object, so the
  * whole draft round-trips through localStorage (persistence.js) and every rule
@@ -15,6 +17,10 @@
  */
 import { mulberry32 } from './rng';
 import { templateFor, roundsForTemplate, slotEligible } from './templates';
+import {
+  teamIndexForPick as turnTeamIndexForPick,
+  remainingPickNumbersFor,
+} from '../draftTurns';
 
 export const STATE_VERSION = 1;
 
@@ -24,12 +30,11 @@ export const CLOCK_OPTIONS = [0, 30, 60, 90];
 
 /**
  * Snake-draft order: which team index picks at pick number n (0-based).
- * Hand-mirrored from server/services/draft.service.js.
+ * The sim has no linear or override mode, so this pins the rotation and defers
+ * the math to src/lib/draftTurns.js.
  */
 export function teamIndexForPick(pickNumber, teamCount) {
-  const round = Math.floor(pickNumber / teamCount);
-  const slot = pickNumber % teamCount;
-  return round % 2 === 0 ? slot : teamCount - 1 - slot;
+  return turnTeamIndexForPick(pickNumber, teamCount, { rotation: 'snake' });
 }
 
 function clampInt(value, min, max, fallback) {
@@ -228,12 +233,14 @@ export function unfilledDedicatedSlots(state, teamId) {
 
 /** Picks a team still has coming, including the one on the clock. */
 export function picksRemainingFor(state, teamId) {
-  let count = 0;
-  for (let pick = state.currentPick; pick <= state.totalPicks; pick++) {
-    const index = teamIndexForPick(pick - 1, state.teams.length);
-    if (state.teams[index] && state.teams[index].id === teamId) count += 1;
-  }
-  return count;
+  return remainingPickNumbersFor({
+    teamId,
+    teamIds: state.teams.map((team) => team.id),
+    // The one place the sim's 1-based currentPick becomes a 0-based cursor.
+    fromPick0: state.currentPick - 1,
+    totalPicks: state.totalPicks,
+    rotation: 'snake',
+  }).length;
 }
 
 /**

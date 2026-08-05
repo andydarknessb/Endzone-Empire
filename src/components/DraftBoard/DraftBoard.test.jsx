@@ -812,3 +812,110 @@ test('clicking a player name opens the quick-view dialog and never drafts the pl
     fakeSocket.emit.mock.calls.some(([event]) => event === 'draft:pick')
   ).toBe(false);
 });
+
+// ---------------------------------------------------------------------------
+// My Roster (src/components/RosterPanel/) - the league supplies its own shape.
+// ---------------------------------------------------------------------------
+
+/** 12 starters, 7 bench, 1 IR: the server derives roster_limit 20 from these. */
+const ROSTER_SLOTS_12 = [
+  { key: 'QB', count: 1, eligiblePositions: ['QB'] },
+  { key: 'RB', count: 2, eligiblePositions: ['RB'] },
+  { key: 'WR', count: 2, eligiblePositions: ['WR'] },
+  { key: 'TE', count: 1, eligiblePositions: ['TE'] },
+  { key: 'FLEX', count: 1, eligiblePositions: ['RB', 'WR', 'TE'] },
+  { key: 'K', count: 1, eligiblePositions: ['K'] },
+  { key: 'DEF', count: 1, eligiblePositions: ['DEF'] },
+  { key: 'D LINE', count: 1, eligiblePositions: ['DL'] },
+  { key: 'LB', count: 1, eligiblePositions: ['LB'] },
+  { key: 'DB', count: 1, eligiblePositions: ['DB'] },
+];
+
+const rosterLeague = (overrides = {}) => activeLeague({
+  roster_slots: ROSTER_SLOTS_12,
+  bench_slots: 7,
+  ir_slots: 1,
+  roster_limit: 20,
+  // leagues.current_pick is 0-based, so this is the third pick overall.
+  current_pick: 2,
+  draft_rotation: 'snake',
+  ...overrides,
+});
+
+const rosterTeams = [
+  { id: 1, name: 'Team A', owner: 'alice', owner_id: 5, draft_position: 1 },
+  { id: 2, name: 'Team B', owner: 'bob', owner_id: 6, draft_position: 2 },
+];
+
+const firstPick = {
+  pick_number: 1, team_id: 1, player_id: 10,
+  name: 'Bijan Robinson', position: 'RB', nfl_team: 'ATL',
+};
+
+const showRoster = async (picks) => {
+  renderBoard(1, { user: { id: 5, username: 'alice' } });
+  await screen.findByText('Patrick Mahomes');
+  act(() => fakeSocket.trigger('draft:state', stateEvent(rosterLeague(), {
+    teams: rosterTeams,
+    picks,
+    onTheClock: { id: 1, name: 'Team A' },
+  })));
+};
+
+test('renders the league’s own 12 starter / 7 bench / 1 IR shape in the rail', async () => {
+  await showRoster([firstPick]);
+
+  const panel = screen.getByLabelText('My Roster');
+  expect(within(panel).getAllByRole('listitem')).toHaveLength(20);
+  expect(within(panel).getByLabelText('RB 1 slot, Bijan Robinson, RB, ATL, pick 1.01')).toBeInTheDocument();
+  expect(within(screen.getByRole('list', { name: 'Injured reserve' })).getAllByRole('listitem'))
+    .toHaveLength(1);
+  expect(screen.getByText('1 of 12 starters filled')).toBeInTheDocument();
+  // roster_limit 20 equals 12 + 7 + 1, so there is nothing to warn about.
+  expect(screen.queryByText(/This draft runs/)).not.toBeInTheDocument();
+});
+
+test('names the next pick from the league’s own rotation', async () => {
+  await showRoster([firstPick]);
+  // Two teams, snake: pick 0 was Team A, 1 and 2 are Team B and... the third
+  // pick overall is on the clock, so Team A is next up at 2.02.
+  expect(screen.getByText('Next pick 2.02')).toBeInTheDocument();
+});
+
+test('skips a keeper the team already holds when naming the next pick', async () => {
+  await showRoster([
+    firstPick,
+    {
+      pick_number: 4, team_id: 1, player_id: 11, is_keeper: true,
+      name: 'Kept Guy', position: 'WR', nfl_team: 'BUF',
+    },
+  ]);
+
+  // 2.02 is Team A's next turn by rotation, but a keeper is already sitting on
+  // it, so the next pick they actually make is 3.01.
+  expect(screen.getByText('Next pick 3.01')).toBeInTheDocument();
+  expect(screen.getByText('Keeper')).toBeInTheDocument();
+});
+
+test('tags the manager’s own picks in the history with the slot they filled', async () => {
+  await showRoster([firstPick]);
+  expect(screen.getByText('→ RB 1')).toBeInTheDocument();
+});
+
+test('keeps the roster section out of the DOM until the league shape arrives', async () => {
+  renderBoardWithToasts(1, { user: { id: 5, username: 'alice' } });
+  await screen.findByText('Patrick Mahomes');
+  act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ draft_status: 'pending', owner_id: 99 }), {
+    teams: [
+      { id: 1, name: 'Team A', owner: 'alice', owner_id: 5, draft_ready: false },
+      { id: 2, name: 'Team B', owner: 'bob', owner_id: 6, draft_ready: true },
+    ],
+    onTheClock: null,
+  })));
+
+  expect(screen.queryByLabelText('My Roster')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('Roster needs')).not.toBeInTheDocument();
+  // And the managers-ready line stays the ONE status region: RosterNeedsStrip
+  // uses a bare aria-live precisely so this singular query keeps working.
+  expect(screen.getByRole('status')).toHaveTextContent('1 of 2 managers ready');
+});

@@ -9,10 +9,14 @@ import SimPlayerPool from './SimPlayerPool';
 import SimPickFeed from './SimPickFeed';
 import SimReport from './SimReport';
 import DraftBoardMatrix from '../DraftBoard/DraftBoardMatrix';
+import RosterPanel from '../RosterPanel/RosterPanel';
+import RosterNeedsStrip from '../RosterPanel/RosterNeedsStrip';
 import {
   availablePlayers, toBoardShape, currentRound,
 } from '../../lib/draftSim/engine';
-import { templateFor } from '../../lib/draftSim/templates';
+import { templateFor, SIM_BENCH_SLOTS } from '../../lib/draftSim/templates';
+import { assignRosterSlots } from '../../lib/rosterAssignment';
+import { turnSummaryFor, pickLabelFor } from '../../lib/draftTurns';
 
 /**
  * The whole Draft Simulator, deliberately tree-agnostic: it imports no
@@ -30,6 +34,10 @@ function DraftSimulator({ showCta = false }) {
   } = useDraftSim();
   const [tab, setTab] = useState('players');
 
+  // Hoisted above the early returns below: every hook after this depends on it,
+  // and hooks cannot sit under a conditional return.
+  const template = sim ? templateFor(sim.config.leagueType) : null;
+
   const available = useMemo(() => (sim ? availablePlayers(sim) : []), [sim]);
   const board = useMemo(() => (sim ? toBoardShape(sim) : null), [sim]);
   const teamsById = useMemo(
@@ -40,6 +48,54 @@ function DraftSimulator({ showCta = false }) {
     () => new Map((sim ? sim.players : []).map((player) => [player.playerId, player])),
     [sim]
   );
+
+  // The user's picks in the shape the roster components speak: the sim keeps
+  // picks lean (no round, no player fields), so player data is joined here.
+  const myPicks = useMemo(() => {
+    if (!sim) return [];
+    const me = sim.teams.find((team) => team.isUser);
+    if (!me) return [];
+    return sim.picks
+      .filter((pick) => pick.teamId === me.id)
+      .map((pick) => {
+        const player = playersById.get(pick.playerId) || {};
+        return {
+          pickNumber: pick.pickNumber,
+          // sim pick numbers are 1-based, draftTurns is 0-based.
+          pickLabel: pickLabelFor(pick.pickNumber - 1, sim.teams.length),
+          playerId: pick.playerId,
+          name: player.name,
+          position: player.position,
+          nflTeam: player.nflTeam,
+          auto: !!pick.auto,
+        };
+      });
+  }, [sim, playersById]);
+
+  // ONE assignment feeds the panel, the needs strip and both pick feeds' slot
+  // tags. A second derivation could disagree, because a later pick can re-home
+  // an earlier one out of a flex slot.
+  const myAssignment = useMemo(
+    () => assignRosterSlots({
+      picks: myPicks,
+      rosterSlots: template ? template.slots : [],
+      benchCount: SIM_BENCH_SLOTS,
+      irCount: 0,
+    }),
+    [myPicks, template]
+  );
+
+  const turn = useMemo(() => {
+    if (!sim) return null;
+    const me = sim.teams.find((team) => team.isUser);
+    return turnSummaryFor({
+      teamId: me ? me.id : null,
+      teamIds: sim.teams.map((team) => team.id),
+      fromPick0: sim.currentPick - 1,
+      totalPicks: sim.totalPicks,
+      rotation: 'snake',
+    });
+  }, [sim]);
 
   if (phase === 'config') {
     return (
@@ -59,8 +115,6 @@ function DraftSimulator({ showCta = false }) {
       <SimReport report={report} config={sim.config} onRestart={restart} showCta={showCta} />
     );
   }
-
-  const template = templateFor(sim.config.leagueType);
 
   return (
     <Box>
@@ -117,13 +171,33 @@ function DraftSimulator({ showCta = false }) {
             />
           )}
           {tab === 'roster' && (
-            <SimPickFeed
-              picks={sim.picks.filter((pick) => (teamsById.get(pick.teamId) || {}).isUser)}
-              teamsById={teamsById}
-              playersById={playersById}
-              teamCount={sim.teams.length}
-              limit={sim.rounds}
-            />
+            <Stack spacing={2}>
+              <RosterNeedsStrip
+                rosterSlots={template.slots}
+                benchCount={SIM_BENCH_SLOTS}
+                irCount={0}
+                picks={myPicks}
+                remainingPicks={turn.remainingPicks}
+                nextPickLabel={turn.nextPick ? turn.nextPick.label : null}
+              />
+              <RosterPanel
+                rosterSlots={template.slots}
+                benchCount={SIM_BENCH_SLOTS}
+                irCount={0}
+                picks={myPicks}
+                rounds={sim.rounds}
+                title="My roster"
+              />
+              <SimPickFeed
+                picks={sim.picks.filter((pick) => (teamsById.get(pick.teamId) || {}).isUser)}
+                teamsById={teamsById}
+                playersById={playersById}
+                teamCount={sim.teams.length}
+                limit={sim.rounds}
+                label="Your picks in order"
+                slotTags={myAssignment.byPickNumber}
+              />
+            </Stack>
           )}
         </Box>
         <Box sx={{ width: { xs: '100%', lg: 340 }, flexShrink: 0 }}>
@@ -132,6 +206,7 @@ function DraftSimulator({ showCta = false }) {
             teamsById={teamsById}
             playersById={playersById}
             teamCount={sim.teams.length}
+            slotTags={myAssignment.byPickNumber}
           />
         </Box>
       </Stack>

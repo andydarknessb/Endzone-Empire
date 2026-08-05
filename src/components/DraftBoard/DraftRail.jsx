@@ -17,9 +17,16 @@ import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import CloseIcon from '@mui/icons-material/Close';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
+import RosterPanel from '../RosterPanel/RosterPanel';
+import RosterNeedsStrip from '../RosterPanel/RosterNeedsStrip';
 
 /** Draft-room rail: my queue (with a quick-draft button on my turn), draft
- * order (with autodraft toggles), and pick history. */
+ * order (with autodraft toggles), my roster, and pick history.
+ *
+ * `rosterView` is null before the first draft:state frame and for anyone
+ * without a team in this league, which is also what keeps the roster section
+ * out of the DOM for every existing DraftBoard test - none of their draft:state
+ * payloads carry roster_slots. */
 function DraftRail({
   queue,
   onMoveUp,
@@ -38,9 +45,11 @@ function DraftRail({
   picks,
   isXs,
   onOpenQuickView,
+  rosterView = null,
 }) {
   const myTeam = teams.find((team) => team.owner_id === userId);
   const readyCount = teams.filter((team) => team.draft_ready).length;
+  const slotTags = rosterView ? rosterView.slotTags : null;
   const pickHistoryBody = (
     <Box sx={{ maxHeight: '600px', overflowY: 'auto' }}>
       {picks.length === 0 ? (
@@ -60,6 +69,11 @@ function DraftRail({
             <Typography variant="caption" sx={{ color: 'text.secondary' }}>
               {pick.nfl_team}
             </Typography>
+            {slotTags && slotTags.has(pick.pick_number) && (
+              <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
+                → {slotTags.get(pick.pick_number).slotLabel}
+              </Typography>
+            )}
             {pick.by && (
               <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
                 by {pick.by.auto ? 'AUTO' : pick.by.username}
@@ -203,6 +217,31 @@ function DraftRail({
             })}
           </Box>
         </Paper>
+      )}
+
+      {rosterView && (
+        <Box sx={{ mb: 3 }}>
+          <RosterNeedsStrip
+            rosterSlots={rosterView.rosterSlots}
+            benchCount={rosterView.benchCount}
+            irCount={rosterView.irCount}
+            picks={rosterView.picks}
+            remainingPicks={rosterView.remainingPicks}
+            nextPickLabel={rosterView.nextPickLabel}
+            maxChips={isXs ? 2 : 3}
+          />
+          <Box sx={{ mt: 1 }}>
+            <RosterPanel
+              rosterSlots={rosterView.rosterSlots}
+              benchCount={rosterView.benchCount}
+              irCount={rosterView.irCount}
+              picks={rosterView.picks}
+              rounds={rosterView.rounds}
+              title="My Roster"
+              dense
+            />
+          </Box>
+        </Box>
       )}
 
       {isXs ? (

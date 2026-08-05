@@ -3,7 +3,9 @@ import {
   Alert, Box, Button, Card, CardActionArea, FormControl, InputLabel, MenuItem,
   Paper, Select, Stack, ToggleButton, ToggleButtonGroup, Typography,
 } from '@mui/material';
-import { LEAGUE_TEMPLATES, templateFor, roundsForTemplate } from '../../lib/draftSim/templates';
+import {
+  LEAGUE_TEMPLATES, templateFor, roundsForTemplate, starterCount, SIM_BENCH_SLOTS,
+} from '../../lib/draftSim/templates';
 import { MIN_TEAMS, MAX_TEAMS, CLOCK_OPTIONS } from '../../lib/draftSim/engine';
 
 const TEAM_OPTIONS = Array.from(
@@ -179,8 +181,8 @@ function SimConfigForm({ onStart, loading = false, error = false, savedSummary =
         <Paper variant="outlined" sx={{ p: 2 }}>
           <Typography variant="body2" sx={{ color: 'text.secondary' }}>
             {totalTeams}-team {template.name} · {rounds} rounds ·{' '}
-            {totalTeams * rounds} total picks · {template.slots.reduce((sum, s) => sum + s.count, 0)} starters
-            {' '}plus 6 bench spots
+            {totalTeams * rounds} total picks · {starterCount(template)} starters
+            {' '}plus {SIM_BENCH_SLOTS} bench spots
           </Typography>
         </Paper>
 

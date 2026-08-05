@@ -21,6 +21,94 @@ import PlayerPoolTable from './PlayerPoolTable';
 import DraftRail from './DraftRail';
 import DraftBoardMatrix from './DraftBoardMatrix';
 import DraftDayControls from './DraftDayControls';
+import { assignRosterSlots } from '../../lib/rosterAssignment';
+import { turnSummaryFor, pickLabelFor } from '../../lib/draftTurns';
+
+/**
+ * Everything the roster panel needs, derived from live draft state. A plain
+ * function rather than a hook: the only place it can be called is below this
+ * component's loading early-return, where hooks are not allowed.
+ *
+ * Returns null when there is nothing honest to show - before the first
+ * draft:state frame, or for a spectator with no team in the league.
+ */
+function rosterViewFor({ league, teams, picks, userId }) {
+  const rosterSlots = Array.isArray(league?.roster_slots) ? league.roster_slots : [];
+  const myTeam = teams.find((team) => team.owner_id === userId) || null;
+  if (!myTeam || rosterSlots.length === 0) return null;
+
+  // Mirrors the server's ORDER BY "draft_position" NULLS LAST, "id". The id
+  // tie-break is load-bearing, not cosmetic: with two null draft_positions,
+  // (a ?? Infinity) - (b ?? Infinity) is NaN, and a comparator returning NaN is
+  // unspecified behaviour rather than merely unstable.
+  const ordered = [...teams].sort((a, b) => {
+    const ap = a.draft_position == null ? Infinity : a.draft_position;
+    const bp = b.draft_position == null ? Infinity : b.draft_position;
+    return ap === bp ? a.id - b.id : ap - bp;
+  });
+  const teamIds = ordered.map((team) => team.id);
+  const rounds = Number(league.roster_limit) || 0;
+
+  const myPicks = picks
+    .filter((pick) => pick.team_id === myTeam.id)
+    .map((pick) => ({
+      pickNumber: pick.pick_number,
+      pickLabel: pickLabelFor(pick.pick_number - 1, teamIds.length),
+      playerId: pick.player_id,
+      name: pick.name,
+      position: pick.position,
+      nflTeam: pick.nfl_team,
+      // Neither flag is on both socket payloads: draft:state carries is_keeper
+      // but no autodraft flag, draft:picked carries by.auto but no is_keeper.
+      // Each renders when the data happens to be there.
+      auto: !!(pick.by && pick.by.auto),
+      keeper: !!pick.is_keeper,
+    }))
+    // The socket reducer stores picks newest-first for the history list.
+    .sort((a, b) => a.pickNumber - b.pickNumber);
+
+  // Before the order is set there is no honest next pick to name.
+  const positions = ordered.map((team) => team.draft_position);
+  const orderKnown = league.draft_status !== 'pending'
+    && rounds > 0
+    && positions.every((position) => position != null)
+    && new Set(positions).size === positions.length;
+
+  const turn = orderKnown
+    ? turnSummaryFor({
+      teamId: myTeam.id,
+      teamIds,
+      // leagues.current_pick is ALREADY 0-based - see draft.service.js, which
+      // passes it straight to teamForPick and stores current_pick + 1 as the
+      // 1-based draft_picks.pick_number.
+      fromPick0: Number(league.current_pick) || 0,
+      totalPicks: teamIds.length * rounds,
+      rotation: league.draft_rotation || 'snake',
+      overrides: league.draft_order_overrides || null,
+      // Keepers are pre-inserted at future pick numbers and the live draft
+      // skips them, so they are not picks this team still has coming.
+      takenPickNumbers: new Set(picks.map((pick) => pick.pick_number - 1)),
+    })
+    : null;
+
+  const benchCount = Number(league.bench_slots) || 0;
+  const irCount = Number(league.ir_slots) || 0;
+
+  return {
+    rosterSlots,
+    benchCount,
+    irCount,
+    rounds,
+    picks: myPicks,
+    remainingPicks: turn ? turn.remainingPicks : null,
+    nextPickLabel: turn && turn.nextPick ? turn.nextPick.label : null,
+    // One assignment feeds the history's slot tags; the panel recomputes the
+    // same pure function, which is guaranteed to agree.
+    slotTags: assignRosterSlots({
+      picks: myPicks, rosterSlots, benchCount, irCount,
+    }).byPickNumber,
+  };
+}
 
 /** Plays a short (~200ms) beep via WebAudio so no audio asset is needed. */
 function playBeep() {
@@ -151,6 +239,7 @@ function DraftBoard() {
   }
 
   const isCommissioner = !!(league && user && (league.is_commissioner || league.owner_id === user.id));
+  const rosterView = rosterViewFor({ league, teams, picks, userId: user?.id });
 
   // Derive the "Drafted by X" banner for the open quick-view from live draft
   // state: if the viewed player already appears in the pick history, name the
@@ -329,6 +418,7 @@ function DraftBoard() {
               picks={picks}
               isXs={isXs}
               onOpenQuickView={setQuickViewId}
+              rosterView={rosterView}
             />
           </Grid>
         </Grid>

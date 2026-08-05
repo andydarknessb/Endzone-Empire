@@ -38,6 +38,10 @@ const PAIRINGS = [
   // The amber "Teams: N/M" chip (MUI warning): its label flips white/dark with
   // the theme, matching text-inverse.
   ['text-inverse', 'warning', AA_TEXT, 'label on the amber Teams chip'],
+  // Amber as TEXT on a card, which the row above does not cover: the roster
+  // needs strip's "every remaining pick has to fill a starting spot" line and
+  // the roster panel's rounds-vs-capacity note.
+  ['warning', 'surface', AA_TEXT, 'warning severity line on cards'],
 ];
 
 describe.each(['light', 'dark'])('%s theme contrast', (mode) => {
