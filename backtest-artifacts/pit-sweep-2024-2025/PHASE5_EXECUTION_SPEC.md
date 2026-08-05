@@ -2,7 +2,18 @@
 
 Study id: `pit-sweep-2024-2025` (same study as `PREREGISTRATION.md`).
 
-**Status: revision 26. NO APPROVALS ARE IN FORCE FOR THESE BYTES.**
+**Status: revision 29. NO APPROVALS ARE IN FORCE FOR THESE BYTES.**
+
+**[stale status corrected at revision 29]** This line and the one below read
+"revision 26" from revision 26 through revision 28, while the document was
+twice re-anchored past it. Revisions 27 and 28 each edited the preamble for
+other reasons and neither updated the number, so the document asserted a
+false claim about its own identity in the two most prominent sentences it
+has, in bytes an independent reviewer authenticated. It was not caught by
+that review because the preamble is outside the sections 3-8 approval
+scope. Section 10.2 records the hazard: **a status line has no locator to
+resolve and no arithmetic to check, so neither the locator probe nor a
+byte-identity proof can see it go stale.**
 
 Revision 18 (SHA-256 `5A0D6E54B2D84494C5D39093C44204A79F32A4DD813F03909C1094339A52BCF8`)
 **was approved** - ledger rows 4, 5, and 6 - and Gate 2 implementation
@@ -43,8 +54,54 @@ and no copy survives (the file was untracked at the time). Revision 13's
 successor blob (`0661eafc95...`, committed as an immutable anchor) was
 submitted for fresh independent statistical review and **REJECTED** on four
 blockers. Revision 14 was that rejection's response; it was itself rejected,
-as was revision 15. **The current revision is 26**, and the full chain is
+as was revision 15. **The current revision is 29**, and the full chain is
 recorded below and in `APPROVAL_LEDGER.md`.
+
+**Revision 29 responds to the independent statistical review of revision
+28, which issued NO APPROVAL.** It answers all eight findings: section 6.2
+gains an explicit component-(f) scope and a stated boundary against section
+8.2a (BLOCKER 1); section 3.2's pinned composition vector is corrected from
+a 64-character stand-in to the 32 characters `scoringHash` actually
+produces (2); section 6.5's "verified against the real call graph" claim is
+retracted in place and its locator family repaired (3); section 9's 6,528
+is re-attributed from section 8.7 rule 4 to prereg 9.7's sealed gates (4);
+and four smaller claims about locators, coordinates and phrase counts are
+corrected (5-8). **NO RULING CHANGED, and the mechanical category keeps its
+sole member** - finding 4 strengthens that classification rather than
+threatening it, since the count turns out to be determinate on sealed text
+alone. **Sections 4.6, 8.6.2 and 8.7 are byte-identical to the revision-28
+anchor**, verified by mapping every changed line to its owning heading rather
+than by slicing.
+
+**[confinement claim corrected at revision 29, before publication]** An
+earlier draft of this paragraph named sections 8.6.1 and 8.6.3-8.6.5 as
+byte-identical and omitted 8.6.2. **It had the set exactly inverted**: 8.6.2
+is the one untouched section of the five, and the other four each carry a
+locator repair. **Section 8.6.0 changed as well and the draft named neither
+way.** The five changes, in full, and nothing else in these sections:
+
+| section | repair |
+| --- | --- |
+| 8.6.0 | `projection.service.js:455-459` -> `:475-479` |
+| 8.6.1 | `projectionFeatures.js:177-231` -> `:188` |
+| 8.6.3 | `:478-497` -> `:496`, and `:483-495` -> `:507` |
+| 8.6.4 | `:449` -> `:467` |
+| 8.6.5 | `:478-497` -> `:496` |
+
+**No requirement, allowlist entry, field name, or comparator changes in any
+of them** - the allowlists name their fields by name, so their meaning never
+depended on the citations.
+
+**This paragraph committed the exact defect the round is about**, which is why
+it is corrected in place rather than silently: it asserted a byte-identity set
+that one command falsifies, in the preamble, in the revision whose subject is
+claims this document makes about itself. It also inverted the same 8.6.2
+attribution that the fourth hazard class records as having travelled three
+hops - section 10.2's outstanding list, the review, and the findings file all
+filed the `loadCachedRows` sites under 8.6.2 when they live in 8.6.3 and
+8.6.5. **A recurrence inside the correction for that recurrence** is the
+sharpest available evidence that the mapping check belongs in the process
+rather than in a reader's discipline.
 
 **Revision 14 was also REJECTED**, on five blockers, at blob
 `ee6800ecdb4484f5cc599ef6a67c1a77fc9f1068` (SHA-256 `49620ec2...`).
@@ -643,6 +700,23 @@ category safe to use.
    touched by it. Revision 26 does not modify it either - see section 4 of
    this revision's confinement report.
 
+   **REVISION 29 EDITS SECTION 6.2, AND THIS LEG IS UNAFFECTED. [noted at
+   revision 29]** A reader who diffs section 6.2 against any recent anchor
+   will find it changed - it grows from 27 lines to 74 - and must not
+   conclude leg 5 was violated. **The claim above is CLOSED and historical**:
+   it states that section 6.2 was byte-identical across revisions 18 through
+   25, which is what establishes that revision 25's correction did not touch
+   its own governing passage. That is a fact about revisions 18-25 and no
+   later edit can falsify it. Leg 5 asks whether the governing passage
+   predated **the correction invoking it** and was unmodified **by that
+   correction**; it does not freeze the passage forever. Revision 29's edit
+   answers an unrelated finding - the section stated no scope at all - and
+   **the scope it states keeps `3.80` inside the list**, so section 6.1's
+   member survives on the same terms. Had revision 29 instead narrowed the
+   list to exclude `3.80`, leg 2 would have failed and the classification
+   with it; that is the change this note exists to distinguish from the one
+   actually made.
+
 Corrected at revision 25; the demonstrations for legs 4 and 5 were added at
 revision 26, when those legs were.
 
@@ -767,26 +841,34 @@ is required reading before any of the three**: it discloses that the bytes
 approved as rows 4-6 contained an internal contradiction between sections
 6.1 and 6.2 that six subsequent revisions did not catch.
 
-**One scope asymmetry the approver should know about, because no approval
-currently reaches it.** Section 0's classification test - hardened to five
-legs at revision 26 - sits OUTSIDE sections 3-8, which is the independent
-statistical review's scope. The label it licenses sits INSIDE that scope, at
-section 6.1. So the review can examine whether the label was correctly
-applied but not whether the test licensing it is sound. This document does
-not resolve that; it records it, because the remainder attestation's scope is
-the approver's decision and this is the sharpest instance of what turns on
-it.
+**THE SECTIONS 3-8 BOUNDARY IS THIS DOCUMENT'S DOMINANT FAILURE GEOMETRY, and
+it is stated once here rather than instance by instance. [folded at revision
+29]** Revisions 26 through 28 recorded these as separate "scope asymmetries",
+first and second. They are one structural fact with five known instances:
+**for each, the defect and the thing that would have caught it sit on
+OPPOSITE SIDES of the approval boundary**, so no single reviewer's scope
+contains both.
 
-**Revision 27 adds a SECOND instance, with the opposite shape, and it is the
-milder of the two.** Section 9's scale correction and the section 0 category
-licensing it both sit OUTSIDE sections 3-8, so no part of that correction
-reaches the statistical review. **But its GOVERNING passage - section 8.7
-rule 4, which fixes the row set at 8 cells, 2 endpoints, 2 profiles, and 2025
-only - is INSIDE the review's scope.** A reviewer can therefore check the
-thing the correction depends on, even though the correction itself is out of
-reach: if rule 4 does not say what section 9 claims it says, the arithmetic
-fails and the label fails with it. Where the first asymmetry leaves the test
-unexaminable, this one leaves the load-bearing premise examinable. **Further
+| the defective half | the half that would catch it |
+| --- | --- |
+| section 6.1's label, INSIDE | section 0's five-leg test licensing it, OUTSIDE |
+| section 9's scale attribution, OUTSIDE | section 8.7 rule 4 and prereg 9.7, INSIDE |
+| section 3.2's stale `:1113`, INSIDE | section 10.2's inventory that deleted it, OUTSIDE |
+| section 6.2's unstated scope, INSIDE | section 8.2a's contrary convention, INSIDE - the one instance where both halves were in scope, and four rounds still missed it |
+| the preamble's stale revision number, OUTSIDE | nothing; no locator, no arithmetic |
+
+The consequences differ by direction and both directions are real. Where the
+licensing half is outside, **a review can examine whether a label was
+correctly applied but not whether the test licensing it is sound.** Where the
+governing half is inside, **a reviewer can falsify a correction they cannot
+approve** - section 9's arithmetic fails if rule 4 does not say what section 9
+claims, even though section 9 is out of their reach.
+
+**This document does not resolve the geometry; it records it**, because the
+remainder attestation's scope is the approver's decision and this is what
+turns on it. **The fourth row is the warning against assuming scope is the
+whole problem**: both halves sat inside sections 3-8 and four review rounds
+passed over the contradiction anyway. **Further
 Gate 2 implementation work
 is NOT currently authorized** - implementation is paused at the point
 revision 19 described and every revision since restates - and candidate-cell
@@ -894,8 +976,11 @@ hashValue(rules, salt) = model.scoringHash(rules) + ":" + salt
 
 This flows unmodified into
 `seedFrom(modelVersion, scoringHashValue, season, week, playerId)`
-(`:1113`) -> `mulberry32` (`:333`), exactly as every existing caller already
-does with the unsalted value.
+(`:1134`) -> `mulberry32` (`:333`), exactly as every existing caller already
+does with the unsalted value. **[locator corrected at revision 29]** The
+call site was cited as `:1113`, which is `};`; the five-argument call is at
+`:1134` and the definition at `:322`. Section 10.2 records why this one
+survived a probe that was reported as having removed it.
 
 **Why the colon is safe as a delimiter here**: `scoringHash` is a
 fixed-length lowercase hex digest and the salts match `pit-NN-[0-9a-f]{12}`,
@@ -906,18 +991,32 @@ the same string, which is why the choice is pinned rather than left open.
 
 **Pinned composition vector:**
 
-- `scoringHash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"`
+- `scoringHash = "0123456789abcdef0123456789abcdef"`
 - `salt = "pit-01-879c6f8eae4b"`
-- expected `hashValue = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef:pit-01-879c6f8eae4b"`
+- expected `hashValue = "0123456789abcdef0123456789abcdef:pit-01-879c6f8eae4b"`
 
 The required test MUST assert byte equality against that literal expected
 value.
 
 `salt` here is the first of the 24 preregistered salts (prereg 8.1),
-verbatim. `scoringHash` is a synthetic 64-hex-character stand-in of the
+verbatim. `scoringHash` is a synthetic 32-hex-character stand-in of the
 correct shape - the vector pins the COMPOSITION rule, not any particular
 scoring profile's real digest, so it stays valid regardless of which
 profile is being hashed.
+
+**[width corrected at revision 29]** Revisions 18-28 gave this stand-in as
+**64** hex characters and called it "the correct shape". It is not:
+`scoringHash` is `sha256(...).digest('hex').slice(0, 32)`
+(`projectionModel.js:317-319`), so its range is 32 characters and the
+mandated byte-equality test above pinned the composition rule against a
+left operand the function can never produce. No seed stream is affected -
+colon concatenation is width-independent, so the composition rule itself
+survives unchanged, and the colon-safety argument above is untouched
+because a 32-character lowercase hex digest still cannot contain `0x3A`.
+What was wrong is the shape claim and the strength of the required test.
+Section 3.4's test 4, which verifies the unsalted path "against
+production's own existing output", is what would have collided with the
+64-character literal had both been executed.
 
 **Also required**: an assertion that the composed value is used verbatim as
 `seedFrom`'s `scoringHashValue` argument, with no further transformation
@@ -1628,8 +1727,15 @@ NAMES `3.80` EXPLICITLY.** Its opening rule reads:
 
 > **Every comparison - `<`, `<=`, `>`, `>=`, and equality - against a frozen
 > threshold applies `roundToTie` (ten-decimal, prereg 6.6) to BOTH operands
-> before the comparison**, not just one ... The complete list of such
-> comparisons, and nothing else:
+> before the comparison**, not just one ... Within component (f), the
+> complete list of such comparisons, and nothing else:
+
+**[quote refreshed at revision 29]** Section 6.2 now states its scope
+explicitly, and the words "Within component (f)" are part of the rule
+quoted above rather than an editorial insertion here. That scope does not
+weaken this argument, and is the reason it survives: `catastrophicCapCouldFire`
+is a component-(f) comparison, so it sits inside the universal either way,
+and the universal is now checkable rather than open-ended.
 
 and the third row of the table immediately following it is:
 
@@ -1835,11 +1941,26 @@ whose per-week values differ from their ten-decimal roundings.
 
 ### 6.2 Normalize every boundary operation
 
+**SCOPE: COMPONENT (f). [stated explicitly at revision 29]** This section
+governs the frozen-threshold comparisons that arise within component (f) -
+that is, within section 6 of this document. **It does not reach the status
+model's interval-boundary comparisons in section 8.2a**, which carry their
+own convention on their own authority; the boundary between the two is
+stated after the table below.
+
+Revisions 15 through 28 stated no scope at all, and the omission was read
+three different ways inside one document: section 6.1a as component-scoped
+("matching section 6.2's convention for every other boundary in this
+component"), section 6.1 as document-wide, and section 8.2a rule 3 as
+neither, applying a normalization convention to non-(f) comparisons without
+citing this section. A completeness declaration whose universe is unstated
+cannot be checked, which is the defect corrected here.
+
 **Every comparison - `<`, `<=`, `>`, `>=`, and equality - against a frozen
 threshold applies `roundToTie` (ten-decimal, prereg 6.6) to BOTH operands
 before the comparison**, not just one, so a genuine boundary value is never
-misclassified by floating-point representation noise on either side. The
-complete list of such comparisons, and nothing else:
+misclassified by floating-point representation noise on either side. Within
+component (f), the complete list of such comparisons, and nothing else:
 
 | threshold | used by | kind |
 | ---: | --- | --- |
@@ -1859,6 +1980,38 @@ fail its tests: section 6.1a's transformed-bound comparison against
 own section 6.2 previously listed `0.30` as "the falsifiability floor"
 alongside the real gates; that listing was a leftover from the pooled-mean
 design and is corrected here.
+
+**The boundary against section 8.2a. [added at revision 29]** Section 8.1's
+passing boundaries (`+0.10`, `+0.15`, `-0.005`, `-0.01`, `-0.15`, `+0.005`,
+`0`) are frozen thresholds, and none appears in the table above. That is
+correct and deliberate, not an omission: they are status-model comparisons,
+not component-(f) ones, and section 8.2a governs them. Specifically -
+
+- **Straddle** (section 8.2a rule 3) applies `roundToTie` to both operands
+  and is inclusive on both ends. It reaches the same convention as this
+  section by its own reasoning about prereg 10.6, not by extension from
+  here.
+- **The pass tests** (same rule) remain **STRICT** and are deliberately NOT
+  normalized, "exactly as prereg 9.2-9.7 phrase them". Section 8.2a states
+  that the two conventions "differ on purpose and must not be unified", and
+  this section does not overrule it.
+
+Read without the scope sentence above, this section's "and nothing else"
+asserted a completeness that contradicted section 8.2a rule 3 by name: a
+one-ulp bootstrap upper bound below a passing boundary passes under 8.2a's
+bare strict test and yields `threshold-not-established` (hence component
+`failed`, hence cell `fail`) under a document-wide reading of this section.
+**Scoping this section to component (f) removes the contradiction without
+weakening either convention**, and it is the reading section 6.1a already
+used.
+
+**What this preserves for section 6.1.** Section 6.1's classification rests
+on this section governing the `catastrophicCapCouldFire` comparison and on
+its list being complete over an uncontested set. Both survive: `3.80` is a
+component-(f) comparison, so it remains inside the universal, and the
+universal's boundary is now stated rather than inferred. Leg 2 of section
+0's test is satisfied over a set that is no longer contested - which is
+what it required and what the unstated scope could not supply.
 
 ### 6.3 Subgroup membership and averaging
 
@@ -2006,9 +2159,11 @@ onPreHomeAwayBaseline({
   aborting the sweep run - no `try`/`catch` anywhere in this chain may catch
   and continue past a callback exception.
 
-**Full threading** (verified against the real call graph): `generateProjections`
-(`projection.service.js:408`) accepts the optional parameter, passes it
-unchanged into every per-player `projectFromBundle` call (`:449`);
+**Full threading** (the call graph below was re-resolved against HEAD at
+revision 29; see the locator note at the end of this subsection):
+`generateProjections` (`projection.service.js:417`) accepts the optional
+parameter, passes it unchanged into every per-player `projectFromBundle`
+call (`:467`, with the parameter forwarded at `:470`);
 `projectFromBundle` (`:257`) accepts it, passes it unchanged into its own
 `model.projectPlayer` call, except on its own early `!player` return, where
 it is never invoked; `projectPlayer` fires it at the semantic point or
@@ -2018,6 +2173,24 @@ future direct caller of `projectFromBundle` (today there are none besides
 `generateProjections`, verified by grep) must accept and forward the same
 parameter rather than re-implementing `projectFromBundle`'s own assembly
 logic to reach `projectPlayer` directly.
+
+**Locator note [added at revision 29].** Revisions 18-28 introduced this
+passage with the words "verified against the real call graph" while three
+of its four locators resolved to unrelated code: `generateProjections` was
+cited at `:408`, which is `roof: game.roof,`; the per-player call at
+`:449`, which is `season,`; and (in section 8.6.0) the return shape at
+`:455-459`, which is a weather try/catch. **They were never correct in this
+chain** - `projection.service.js` is byte-identical between `c04d6b1` and
+HEAD, and line 408 is `roof: game.roof,` at both. The SUBSTANCE was and
+remains correct: `projectFromBundle` declares at `:257` and validates at
+`:266-267` before its `if (!player)` at `:270`, so validation genuinely
+precedes the early return; `generateProjections` validates at `:436-437`
+before the loop at `:467`. What failed was the verification CLAIM, asserted
+in the same sentence as three locators that had never resolved. Section
+10.2 had recorded the family as outstanding since revision 24, but that
+disclosure sits outside sections 3-8, so a reviewer scoped to the approval
+range met the claim without the retraction. **The retraction is stated here,
+inside that range, for that reason.**
 
 ---
 
@@ -2472,7 +2645,7 @@ deleted silently.
   own enumerable properties - so `canonicalJson(aMap)` returns the string
   `"{}"`, silently, with no throw. `generateProjections` returns
   `{ projections: Map<playerId, projection>, inputCutoff, sourceCoverage }`
-  (`projection.service.js:455-459`), so **naively canonicalizing two whole
+  (`projection.service.js:475-479`), so **naively canonicalizing two whole
   run objects would compare `"{}"` against `"{}"` for the projections and
   report bit-identity for any two runs whatsoever** - a vacuous pass, and
   precisely the failure mode this assertion exists to prevent. The frozen
@@ -2584,8 +2757,9 @@ the factor's `effect`) come from `context.homeAway` - the LEAGUE-WIDE
 positional home/away sample built by `buildLeagueContext` from the
 CURRENT-SEASON scan only (prereg 11.1) - which has no dependency whatsoever
 on `useStoredHistory`. What `useStoredHistory` actually gates is narrower
-and unrelated to that field: `buildPriorGames` (`projectionFeatures.js:177-
-231`) attaches a per-row `isHome` orientation tag to an individual PLAYER's
+and unrelated to that field: `buildPriorGames` (`projectionFeatures.js:188`;
+revisions 18-28 cited `:177-231`, whose start is a docblock line rather than
+the declaration) attaches a per-row `isHome` orientation tag to a PLAYER's
 PRIOR-SEASON game rows only when `useStoredHistory` (or `crossSeason`) is
 true (`:193, 212, 231`); at the DEFAULT (`false`), those rows simply carry
 `isHome: null`.
@@ -2754,7 +2928,7 @@ descriptors.
 
 **The cache-compatible allowlist (for the SEPARATE, descriptive-only
 cache-persistence QA check, section 8.6.5, ONLY) is frozen directly against
-`loadCachedRows`'s own mapped shape (`projection.service.js:478-497`), not
+`loadCachedRows`'s own mapped shape (`projection.service.js:496`), not
 derived as "the fresh list minus one field."** Deriving it by subtraction
 risks silently propagating a future addition to the fresh list (a field
 this document has not yet traced through the cache path) into the cache
@@ -2763,7 +2937,7 @@ directly:
 
 - **Top level**: `mean`, `median`, `p10`, `p25`, `p75`, `p90`,
   `activeProbability`, `sampleSize` - each verified present, under the same
-  name, in `loadCachedRows`'s row-mapping (`:483-495`). **`effectiveGames`
+  name, in `loadCachedRows`'s row-mapping (`:507`). **`effectiveGames`
   is NOT in this list**: neither `effective_games` nor `effectiveGames`
   occurs anywhere in `projection.service.js`, so the persisted row has no
   such column. **[pointer repaired at revision 22]** Revisions 12-21 cited a
@@ -2883,7 +3057,7 @@ skipping rows present on one side and not the other, does not satisfy
     `usage-25 x off` and control arms (section 8.6.0) AND the "on"/
     "on-stored" arms (section 8.6.1): scan each arm's own raw input
     `playerIds` array for repeated ids BEFORE `generateProjections`'s
-    per-player loop (`projection.service.js:449`,
+    per-player loop (`projection.service.js:467`,
     `projections.set(playerId, ...)`) runs. That loop has the identical
     structural blind spot - a repeated id means two `projectFromBundle`
     calls for the same player, the second silently overwriting the first,
@@ -2911,7 +3085,7 @@ grepping the sweep-adjacent tree (`snapshotClient.js`,
 `run-backtest-mde.js`, `run-backtest-extraction.js`) for those four
 function names, with zero matches. The cache-persistence question (does
 top-level `effectiveGames` survive a production cache round trip; can
-`loadCachedRows`'s `byPlayer.set(row.player_id, ...)`, `:478-497`, silently
+`loadCachedRows`'s `byPlayer.set(row.player_id, ...)`, `:496`, silently
 last-win on a duplicate SQL row) is a real, useful finding about PRODUCTION
 code quality, but the sweep's own execution path never exercises a live
 cache at all. Reported as a labeled "cache-persistence fidelity
@@ -3133,9 +3307,12 @@ Different profile yields different features, hence a different projection.
 `standard` and `ppr` cannot be produced by re-scoring a `half_ppr`
 generation; they require their own.
 
-**What determines the count is section 8.7 rule 4, quoted here in full
-rather than cited, because a citation is what failed the last time this
-document reasoned about a section it had already compressed:**
+**What determines the count is prereg 9.7's sealed (e2) gates.
+[re-attributed at revision 29 - see the correction note below.]** Section
+8.7 rule 4 is quoted here in full rather than cited, because a citation is
+what failed the last time this document reasoned about a section it had
+already compressed, and because rule 4's row set is what the publication
+side of the same runs depends on:
 
 > The rows are published **for the control cell and for every candidate cell
 > that receives an (e2) evaluation** - 8 cells x 2 endpoints x 2 profiles.
@@ -3145,14 +3322,35 @@ document reasoned about a section it had already compressed:**
 > exactly when the report most needs to be well-formed. A row set must not
 > depend on an outcome computed after it.
 
-Rule 4 fixes all four coordinates before execution: **8 cells**, 2
-endpoints, 2 profiles, and - in the same rule - **season 2025 only**, since
-rule 4 publishes "only 2025 rather than both seasons". Nothing here is
-outcome-dependent, and rule 4 forbids outcome-dependence by name. **The
-phrase "receives an (e2) evaluation" occurs exactly once in this document
-and is quantified as 8 cells in the same sentence**; an (e2) component that
-comes back `unevaluable` produces a FAILING row under section 8.2's table,
-not an absent cell.
+Rule 4 fixes its coordinates before execution: **8 cells**, 2 endpoints, 2
+profiles, and - in the same rule - **season 2025 only**, since rule 4
+publishes "only 2025 rather than both seasons". Nothing here is
+outcome-dependent, and rule 4 forbids outcome-dependence by name.
+
+**[corrected at revision 29]** Revisions 27 and 28 called these "all four
+coordinates" and then multiplied `2 profiles x 8 cells x 24 salts x 17
+weeks`. Two of those factors are not what the sentence claimed. **Endpoints
+do not appear in the product at all** - both endpoints are computed from
+the same generated projections, so endpoint count is a reporting
+coordinate, not a generation one. **Salts do appear and are not rule 4's**;
+they come from prereg 8.1. Three of rule 4's coordinates are load-bearing
+for the generation count and one factor of the product comes from
+elsewhere. The arithmetic below is unchanged and correct; the sentence
+licensing it was not.
+
+An (e2) component that comes back `unevaluable` produces a FAILING row
+under section 8.2's table, not an absent cell. **[claim withdrawn at
+revision 29]** Revisions 27 and 28 asserted here that the phrase "receives
+an (e2) evaluation" occurs **exactly once** in this document. It occurs
+**three** times, and it never occurred once in the bytes that asserted it:
+the claim and section 9's own full quotation of rule 4 - which is what
+falsifies it - entered together at revision 27. The count was true of
+revision 26, verified against revision 26, and carried into bytes where
+this section's own remedy for the revision-25 citation failure had already
+broken it. The determinacy argument does not need the count and does not
+rest on it: the restrictive clause is vacuous because prereg 9.7 carries no
+applicability condition, which is checkable directly against the sealed
+text. Section 10.2 records the hazard class.
 
 **Arithmetic, therefore fully determined:**
 
@@ -3199,13 +3397,33 @@ rather than the result alone.
   prove nothing about the harness. **So the control must be independently
   generated, and that generation is 816 runs the primary grid does not
   already contain.**
-- **Prereg 16 sensitivity generation (section 8.7 rule 4):
+- **Scoring-profile generation forced by prereg 9.7's sealed (e2) gates:
   `2 x 8 x 24 x 17 = 6,528`** further salted arm-week generations, for
   `standard` and `ppr`, 2025 only. **This was omitted from every disclosure
-  through revision 26.** It is neither optional nor conditional: rule 4
-  requires those rows for a fixed set of 8 cells, and scoring profile is a
-  generation coordinate, so the runs do not already exist inside the primary
-  grid.
+  through revision 26.** It is neither optional nor conditional, and
+  **[re-attributed at revision 29]** the authority is the sealed text, not
+  section 8.7 rule 4. Prereg 9.7 carries four scoring-profile inequalities -
+  standard-scoring regret and pairwise, full-PPR regret and pairwise, all
+  "delta vs control", all 2025 - under a heading with **no applicability
+  condition**. They are gates, part of the IUT, evaluated for every
+  candidate cell. A delta-vs-control gate under `standard` requires
+  `standard` generations for the candidate and for the control; across 7
+  candidates plus control, 24 salts (prereg 8.1), 17 weeks of 2025 and two
+  profiles, that is the identical `6,528`. Scoring profile is a generation
+  coordinate, so the runs do not already exist inside the primary grid.
+
+  **Why the previous attribution was wrong, and why the correction is
+  stronger.** Revisions 27 and 28 attributed this line to "Prereg 16
+  sensitivity generation (section 8.7 rule 4)". Section 8.7's own scope
+  limit forbids that reading: "**rule 4 governs what is additionally
+  REPORTED, never what is GATED.**" A reporting rule cannot force a
+  generation. The practical test is that narrowing rule 4 to "control plus
+  the selected candidate" leaves the count at `6,528`, because the sealed
+  gates still require all eight cells. **The count is therefore determinate
+  on sealed text alone, and more robustly than revision 27 claimed** - it no
+  longer depends on rule 4's row set being determinate at all. The total
+  `14,688` is unaffected, and there is no double count: the gate generations
+  and rule 4's publication rows are the same runs.
 - **Total, as this document currently stands: `6,528 + 816 + 816 + 6,528 =
   14,688`** salted arm-week generations. **[was `8,160` through revision 26;
   corrected at revision 27.]**
@@ -3276,6 +3494,8 @@ intact.
 | Revision 26 → 27 | **not a review round** | 2026-08-05 | Revision 26 was anchored at `51c0458abf36974966d065d2e384af9614035814` (SHA-256 `668BB9A7…`, blob `ee9c915f…`) and accumulated **no approvals**, so nothing lapsed. **NO RULING CHANGED.** Section 9's scale disclosure is corrected from `8,160` to **`14,688`** (branch `7,344` → `13,872`) by counting the prereg 16 sensitivity generation that section 8.7 rule 4 requires: scoring profile is a GENERATION coordinate, not a reporting one, so `standard` and `ppr` cannot be produced by re-scoring a `half_ppr` run. Labeled **`[mechanical correction, forced by an implementation fact]`** - the **FIRST member that category has ever had**, so section 0 now carries its boundary decision (the definition's "sealed text" is read DESCRIPTIVELY, since section 9's count sits in this document), its three conditions shown in order, and the **provenance disclosure** that the member was admitted in the round that found it, by the party that drafted it. Five errata ride along: section 2 named `sweepEvaluator.js` as consuming `ALL_CELLS`/`SELECTION_FAMILY`/`CONTROL_CELL`, which it references zero times while seven other modules do; four `projectionModel.js` `effectiveGames` locator sites; section 11.2's review-history currency claim, which pointed readers away from section 10.3; and section 1's "zero occurrences". **Sections 3-8 are NOT byte-identical at this step**: two lines change in section 8.6.2's allowlist locators. No ruling, endpoint, status, or selection is affected |
 | Revision 24 → 25 | **not a review round** | 2026-08-04 | Revision 24 was anchored at `227c2e096934c22a423f7470be44f09b53d3c82f` (SHA-256 `475ED9CADC1E0A094DCC34BF86130375F2C8391FE4B56DDF00C346B91C786C7D`, blob `a89da3af5384b008869d9b57aa9a995ca7cc0393`) and accumulated **no approvals**, so nothing lapsed. **NO RULING CHANGED IN SUBSTANCE** - the tie-rounded comparison form stands exactly as revision 24 adopted it; what changed is its CLASSIFICATION (substantive prospective amendment → mechanical correction forced by an internal contradiction), its GROUNDS (prereg 6.6 → this document's own section 6.2), and the disclosure that the contradiction it resolves was present in approved bytes. Sections changed: preamble, 0, 6.1, 10. **Sections 4.6, 8.7, 5, 6.1a, and 6.2 are byte-identical to `227c2e0`** - 6.2 in particular is untouched, since revision 25 adopts what it already said rather than editing it |
 | Revision 23 → 24 | **not a review round** | 2026-08-04 | **NO RULING CHANGED.** Byte-identity is available **PER REGION, not document-wide** - this step is neither of the two regimes the ledger's earlier entries established. Sections 4.6 (all four items and all four subsections) and 8.7 (all five rules, including rule 4's row set and cell-scope paragraph and rule 5's activation pinning) are byte-identical to `3939a27` and may be diffed. Sections 4.4, 6.1, 8.6.0, 8.6.2, 10.2, 11.2, 1, and the preamble all changed and must be read. **Section 6.1 additionally carries a NEW substantive amendment** - the `catastrophicCapCouldFire` comparison form - which no diff against revision 23 can shortcut. A reader who carries either earlier entry's regime forward gets the wrong answer for half this document. **Sequencing**: revision 24 had to anchor BEFORE any approval was commissioned. That constraint does not arise from the amendment - section 6 was always inside the statistical review's sections 3-8 scope, and the status blocks change section 6's bytes under any reading, so the hash moves either way. What the amendment changes is the COST of getting the order wrong: a status-block-only revision would have let a prior approval be re-issued against the new hash after a byte-identity check, whereas a new substantive amendment inside the reviewer's own scope requires a fresh review of text they have never seen |
+| Independent statistical review of revision 28 | **NO APPROVAL ISSUED** | 2026-08-05 | Reviewed revision 28 at anchor `d0d0def` (SHA-256 `e6db125c…e372b`, blob `d962ca8d…`), scope sections 3-8, lines 843-3102. **Raised eight findings and issued no approval**; per the R1-R5 convention a round issuing no approval warrants no ledger row, and none was written. **PROVENANCE, stated by its three properties rather than by analogy to an existing row**: the review arrived as the reviewer's own first-person account carrying its process, and was transcribed by the assistant into `REVIEW-FINDINGS-revision-28.md`; **the assistant did not observe its execution**; **the reviewer is not named**. That is the text-standing of R1-R5 without their named-reviewer property, and it is not Source B's unattested-origin standing. Transcription to disk does not alter it. **The reviewer withheld approval on independence grounds independently of the findings**, disclosing that an auto-loading persistent memory index written by prior sessions inside this workstream was in context before any choice was made, and that commission section 7 named the expected weak point. **The headline target HELD**: section 8.7 rule 4's row set is determinate at 8 cells, unfalsifiable on the reviewer's probe, because prereg 9.7 carries no applicability condition where 9.3/9.4/9.8 each do. Findings: 1 BLOCKER (section 6.2's unstated scope, read three ways across 6.1/6.1a/8.2a, reaching leg 2 rather than only the comparison); 3 SUBSTANTIVE (the 64-vs-32 composition vector; section 6.5's "verified against the real call graph" alongside three locators that never resolved; section 9's 6,528 attributed to rule 4 when section 8.7's own scope limit forbids a reporting rule forcing a generation); 4 MINOR (`seedFrom`'s locator, later upgraded on the phantom-entry ground; "all four coordinates"; "occurs exactly once"; `buildPriorGames`'s docblock start). **Findings 2 and 3 are SUBSTANTIVE with MECHANICAL REPAIRS** - the axis whose collapse triggered revision 25. **Addressed as revision 29** |
+| Revision 28 → 29 | **not a review round** | 2026-08-05 | Revision 28 was anchored at `d0d0def` (SHA-256 `e6db125c…`, blob `d962ca8d…`) and accumulated **no approvals**, so nothing lapsed. **NO RULING CHANGED, AND THE MECHANICAL CATEGORY KEEPS ITS SOLE MEMBER.** Section 6.2 gains an explicit **component-(f) scope** and a stated boundary against section 8.2a; this is the reading section 6.1a already used, and it preserves section 6.1's classification because `3.80` is itself a component-(f) comparison and stays inside the universal, which is now checkable rather than open-ended. **Finding 4 STRENGTHENS the mechanical classification rather than threatening it**: the 6,528 is forced by prereg 9.7's sealed gates, so the count is determinate on sealed text alone and no longer depends on rule 4's row set at all - the propagation the commission predicted runs the other way. Sections changed: preamble, 3.2, 6.1, 6.2, 6.5, 8.6.0, 8.6.1, **8.6.3**, 8.6.4, **8.6.5**, 9, 10.2, 10. **Sections 4.6, 8.6.2 and 8.7 are byte-identical to `d0d0def`**, verified by mapping every changed line of the diff to its owning heading rather than by slicing (a slice that truncates identically on both sides reports IDENTICAL without proving it). **The FOURTH hazard class recurred twice at this revision and was caught only by that mapping**: the review's own finding-3 table filed the `loadCachedRows` sites at `:2757`/`:2766` under section **8.6.2**, and this row's first draft repeated it. They are in **8.6.3** (the cache-compatible allowlist), and the third site at `:2914` is in **8.6.5** (cache-persistence QA). **Section 8.6.2 was never touched at this revision.** Both misattributions resolved to real, adjacent, plausible sections, which is precisely why neither the locator probe nor a byte-identity proof can catch the class Section 10.2 records three further hazard classes: the **BARE locator** (10 of 15 in scope were never in the inventory; the probe has never caught one), the **self-referential count that rots** (section 9's "exactly once" and the quotation falsifying it entered in the same revision), and the **status line** (the preamble read "revision 26" across two re-anchors, in bytes a reviewer authenticated, outside the scope where they would have met it) |
 | **Independent implementation review** | **pending, strictly last, after Gate 2 code exists** | | scope, complete: the runtime salt-collision guard and its two-level unit/runtime split (section 3.4); the exact-trigger implementation defects, including the (f) no-finite-bound amendment label (section 4.4); the restored permutation-control definitions and aggregation (section 5); the rounding-boundary mutation tests and ten-decimal boundary normalization (section 6.1-6.2); the callback's per-receiver validation, exactly-once invocation, and exception propagation (section 6.5); the S3 non-estimable disclosure (section 7); the signed-boundary table and the exhaustive endpoint/component/cell/run truth table, including the (f)-unevaluable unification (sections 8.1-8.2); **activation's exact numerator/denominator (available && effect!==0, per-position including DEF, over eligible/non-neutral/known-orientation projections) and its precedence against `fail` (section 8.3)**; the restored cell-level ordering-inconclusive behavior and **Level-5 selection precedence, including the provably-unreachable winner-only branch (sections 8.4-8.5)**; **BOTH sealed identity assertions - the `usage-25 == control` bit-identity assertion (section 8.6.0: the Map-safe per-projection canonical-byte comparison and its named prohibition on passing a `Map` to `canonicalJson`, byte-equality with no allowlist and no tolerance, the explicitly-named non-Map run fields, its full player-week/salt scope, its pre-flight invocation point before the permutation control, its run-void disposition, and its seven mutation tests including the Map-serialization regression) and the `homeaway-on-stored` point-identity assertion** (section 8.6.1: its usage-25-only scope, the corrected `useStoredHistory` mechanism explanation, its single-leaf-difference guard), the complete fresh-vs-fresh allowlist (including `homeGames`/`awayGames`, `availability.activeProbability`, `role.pointsContribution`), the independently-frozen and explicitly-enumerated cache-compatible allowlist, **the ordered field-level comparator semantics with per-side type/finiteness validation running BEFORE any cross-side comparison, and raw-input duplicate detection running BEFORE any Map-building loop on both sides of every comparison**, and the descriptive-only cache-QA disposition (section 8.6) |
 
 No candidate cell may be computed while any item above remains unresolved.
@@ -3434,19 +3654,87 @@ hand-maintained inventory inherits the blind spot of whoever maintained it,
 which is the argument for the mechanical LOCATOR check named above and
 against treating this list as a completeness bound.
 
-**Still outstanding, NOT repaired at revision 24**: the
-`projection.service.js` family, at five sites - `:408` (section 6.5), `:449`
-and `:478-` (8.6.4), `:455-459` (8.6.0), and `:478-497` (8.6.2). At least two
-are confirmed stale: `generateProjections` is at `:417` and returns at
-`:476-478`, not `:455-459`; `loadCachedRows` is at `:496`, not `:478-497`.
-Revision 22 recorded this family as "`projection.service.js:408` and its
-siblings", which named one member and hid four. They are enumerated here so
-the next pass inherits a work-list rather than a phrase.
+**REPAIRED AT REVISION 29**: the `projection.service.js` family. Revisions
+24 through 28 carried it as "still outstanding" at five sites, and the
+work-list itself was wrong in two ways. Resolved against HEAD and repaired:
 
-**Removed as a phantom**: `projectionModel.js:1113`. Revision 22 listed it
-as known drift, but it occurs in this document exactly once - inside that
-list. It is cited nowhere, so there was never anything to repair or to
-check, and carrying it made the inventory look more complete than it was.
+| site | cited through rev 28 | actual | was on the rev-24 list |
+| --- | --- | --- | --- |
+| 6.5 | `:408` `generateProjections` | **`:417`** | yes |
+| 6.5 | `:449` per-player call | **`:467`** (param forwarded at `:470`) | only under 8.6.4 |
+| 8.6.0 | `:455-459` return shape | **`:475-479`** | yes |
+| **8.6.3** | `:478-497` `loadCachedRows` | **`:496`** | yes |
+| **8.6.3** | `:483-495` row-mapping | **`:507`** | **no, missed** |
+| **8.6.3** | `:545` `PROJECTION_COLUMNS` | `:545`, correct | n/a |
+| 8.6.4 | `:449` per-player loop | **`:467`** | yes |
+| **8.6.5** | `:478-497` `byPlayer.set` | **`:496`** | yes, as `:478-` |
+
+**Section attributions in this table are the FOURTH hazard class, and it
+fired again here.** The revision-28 review's own finding-3 table filed the
+first three rows under section **8.6.2**, and the first draft of this table
+copied it. They are in **8.6.3** (the cache-compatible allowlist) and
+**8.6.5** (cache-persistence QA); **8.6.2 carries none of them and was not
+edited at revision 29.** Every attribution above was re-derived by mapping
+the line to the nearest preceding heading of any level, not by recall.
+
+Two further corrections to the rev-24 list itself. **It missed `:483-495`**,
+which is a real site: `:483` and `:495` are blank lines and `loadCachedRows`
+opens at `:496`, so that span sits entirely BEFORE the function whose
+row-mapping it claims to cite. **And it under-attributed `:449`**, filing it
+under 8.6.4 only when section 6.5 cites it too. The list was offered "so the
+next pass inherits a work-list rather than a phrase", immediately after
+faulting revision 22 for naming one member and hiding four; **the
+replacement hid one and under-attributed another.** Its own replacement
+figure was also loose: it gave the return as `:476-478`, which is the
+interior of a statement that runs `:475-479`.
+
+**Withdrawn at revision 29: the "removed as a phantom" entry for
+`projectionModel.js:1113`.** Revisions 24-28 recorded that this locator
+"occurs in this document exactly once - inside that list. It is cited
+nowhere, so there was never anything to repair or to check." **That
+negative-existence claim was false.** `:1113` was cited at section 3.2, as
+the bare form `` (`:1113`) `` under the file anchor set earlier in that
+section, and section 3.2 is INSIDE the sections 3-8 approval scope. A probe
+on the qualified string `projectionModel.js:1113` returns exactly the
+"occurs once" the inventory reported, because the real citation is bare.
+**A false negative-existence claim was used to delete a live, in-scope
+defect from the work-list**, and the stated lesson inverts: dropping the
+entry made the inventory less complete, not more. The locator is repaired
+in section 3.2 at this revision.
+
+**A FIFTH hazard class, measured at revision 29: the BARE locator.** Inside
+sections 3-8 there are 36 qualified `file.js:NNN` citations and 15 bare
+`` (`:NNN`) `` ones. **Ten of the fifteen bare locators appear nowhere in
+this inventory.** The five that do appear are there for unrelated reasons.
+**This inventory's probe has never once caught a bare locator.** All ten
+were resolved at revision 29 and nine are correct to the line, so the gap
+concealed one defect rather than ten - but the accuracy was luck rather
+than method, and `:1113` is where the luck ran out. Any future probe must
+run against the bare form under its governing file anchor, not only against
+qualified strings.
+
+**A SIXTH hazard class: the self-referential count that rots.** Section 9
+asserted that a phrase "occurs exactly once in this document" while quoting
+that phrase two more times in the same section. The claim and the
+quotation that falsifies it **entered in the same revision**, so it was
+never true in the bytes asserting it: it was true of revision 26, verified
+against revision 26, and carried into revision 27 where section 9's own
+new full quotation had already broken it. That quotation is deliberate -
+section 9 quotes rule 4 in full "because a citation is what failed the last
+time this document reasoned about a section it had already compressed."
+**The fix for the revision-25 citation failure is what created the
+revision-27 count failure.** A count over the document's own text is
+invalidated by any later edit to that text, including the edit that fixes
+something else. Prefer a check that cannot rot, or no check at all.
+
+**A SEVENTH hazard class: the status line.** The preamble asserted
+"revision 26" from revision 26 through revision 28, across two re-anchors,
+in the document's two most prominent sentences. Revisions 27 and 28 each
+edited the preamble for other reasons without updating it. A status line
+has no locator to resolve and no arithmetic to check, so neither the
+locator probe nor a per-region byte-identity proof can see it go stale, and
+it sits outside the sections 3-8 scope where an independent reviewer would
+have met it. Corrected at revision 29.
 
 **Revision 22's blanket claim that "locator drift is a citation defect, not
 a claim defect - the underlying statements remain true" is WITHDRAWN. It is
