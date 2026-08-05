@@ -87,6 +87,40 @@ fix:**
   silence was the absolute metrics, which are not deltas. 4.6 closes that
   and states the method for all of them.
 
+**Revision 27 changes no ruling. It corrects a DISCLOSED NUMBER that was
+wrong in every revision from 13 onward**, answering a reading of sections 1,
+2, 9, 10, and 11 - five sections no review round had ever examined - that
+raised six findings and issued no approval.
+
+**Section 9's scale statement omitted an entire generation axis.** It counted
+as though scoring profile were a REPORTING coordinate, so that one generation
+could be re-scored afterwards into `standard` and `ppr`. It is a GENERATION
+coordinate: `loadFeatureBundle` takes `rules` as a build-time parameter
+(`projectionFeatures.js:418`), every historical stat line is re-priced
+through it (`:197`, `:289`), the module's own docblock says the stored
+half-PPR column "is never read as an authoritative value" (`:20-23`), and the
+freeze manifest pins each profile by SHA-256 of its rules bytes and
+re-verifies the pin. **The corrected total is `14,688`, not `8,160`** - an
+understatement of eighty percent.
+
+**The count is fully determined, and section 8.7 rule 4 is what determines
+it.** Rule 4 fixes the row set at 8 cells, 2 endpoints, 2 profiles, 2025
+only, and rejects outcome-dependent row sets by name, so nothing here waits
+on a result: `2 x 8 x 24 x 17 = 6,528`. That makes this
+**`[mechanical correction, forced by an implementation fact]`** - and it is
+**the first member that category has ever had**, so section 0 now records its
+boundary (the definition's "sealed text" is DESCRIPTIVE, since section 9's
+count sits in this document), its three conditions shown rather than cited,
+and the provenance of how the member was admitted.
+
+**Five errata ride along**, all outside the rulings: section 2 named
+`sweepEvaluator.js` as consuming three `arms` exports it references zero
+times; four `projectionModel.js` `effectiveGames` locator sites had drifted,
+**two of them inside section 8.6.1's normative allowlist**, so sections 3-8
+are NOT byte-identical at this step; section 11.2 described section 10's
+table as current five revisions ago, pointing readers away from section 10.3;
+and section 1 claimed "zero occurrences" where the obvious grep returns one.
+
 **Revision 26 changes no ruling and no classification. It hardens the TEST
 that section 0 uses to license one**, answering a statistical review of
 revision 25 that raised three findings and issued no approval.
@@ -460,6 +494,51 @@ determines the corrected number, AND that number cannot change any verdict
 a cell reaches (only what gets disclosed about a verdict already reached
 the same way).
 
+**This category had ZERO members through revision 26.** It occurred exactly
+once in this document: in the definition above. **Revision 27 is its first
+use, which makes revision 27 the round where its boundary gets set.** The
+fourth category records a member AND a non-member because the edge is what
+makes a category safe to use. This one had neither.
+
+**MEMBER - revision 27's scale correction (section 9).** All three
+conditions, in order:
+
+1. **The derivation rests on a false assumption about the implementation.**
+   Section 9 counted as though scoring profile were a REPORTING coordinate
+   applied after generation. `projectionFeatures.js:418` threads `rules`
+   into feature construction and `:197`/`:289` re-price every historical
+   stat line through it, so the profile changes the features and therefore
+   the projection itself.
+2. **Arithmetic alone determines the corrected number.** Section 8.7 rule 4
+   fixes the cell scope at 8, the endpoints at 2, the profiles at 2, and the
+   season at 2025 only, and forbids an outcome-dependent row set by name.
+   `2 x 8 x 24 x 17 = 6,528`, with no free parameter left open.
+3. **The number cannot change any verdict.** SHOWN in section 9, with both
+   commands and their results recorded, rather than asserted here.
+
+**BOUNDARY DECISION - "the sealed text's OWN derivation" is read
+DESCRIPTIVELY, not as a locus requirement. [decided at revision 27]** The
+definition above was written against a case where the defective count sat in
+sealed preregistration text. Section 9's count sits in THIS document, so the
+reading had to be settled before the category could take its first member.
+The three conditions test WHY the number is wrong, WHETHER the fix is
+determinate, and WHETHER it can move a verdict. **Which document the number
+was written in bears on none of the three.** Two counts with identical
+defect, identical determinacy, and identical inertness cannot earn different
+labels on the strength of which file they sit in, and no rationale for that
+asymmetry survives inspection except "stricter is safer" - which is not a
+reason, and is precisely how a test acquires legs that do no work.
+
+**PROVENANCE OF THE FIRST MEMBER, disclosed rather than left to be
+discovered.** The member was admitted in the same round that found the
+defect, by the same party that drafted the correction, under a boundary
+reading settled in that same round. **This is the shape leg 5 of the fourth
+category exists to catch**, and the fact that leg 5 does not formally bind
+THIS category is not a reason to behave as though the hazard is absent. It
+is recorded so a later reader can weigh the first member knowing how it was
+admitted. Section 10.3 is this document's precedent for disclosing exactly
+this kind of fact about its own history.
+
 **[mechanical correction, forced by an internal contradiction]** **[added at
 revision 25, hardened at revision 26]** - a case where TWO passages of THIS
 DOCUMENT direct different things about the same object, and one of them
@@ -619,8 +698,14 @@ carries, not what `integration`'s HEAD carries. **One clause is now false at
 HEAD and true at B2, and revision 21 did not say so**: `sweep` mode. At HEAD,
 `backtest-entrypoint.js:274` is
 `const MODES = Object.freeze(['freeze', 'sweep'])` with `runSweep()` at
-`:300-306`, and `server/scripts/run-backtest-sweep.js` exists; at B2 there
-were zero occurrences. The mode was added by `41a8a65`, after the freeze.
+`:300-306`, and `server/scripts/run-backtest-sweep.js` exists. **At B2,
+`backtest-entrypoint.js` contains exactly ONE occurrence of the string
+`sweep`, at `:58`, and it is the study-id path segment
+`pit-sweep-2024-2025`, not a mode. [corrected at revision 27]** Revisions 21
+through 26 said "zero occurrences", which the obvious grep falsifies on the
+first line it returns. **No sweep MODE exists at B2**, which is the claim
+that was meant and is the one that carries the argument. The mode was added
+by `41a8a65`, after the freeze.
 **This does not weaken the hold - it strengthens the reason for it.** The
 sweep machinery exists but lives outside the freeze B2 pins, which is exactly
 the mismatch Gate 4's B3 re-cut must resolve.
@@ -641,15 +726,15 @@ Gate 3 verification (including the independent implementation review), and
 all four approvals are recorded, in `APPROVAL_LEDGER.md`, against the
 SAME approved revision of this document.
 
-**Authorization state as of revision 26: NOTHING IS AUTHORIZED.** Zero of
+**Authorization state as of revision 27: NOTHING IS AUTHORIZED.** Zero of
 the four approvals are in force against THESE bytes. Revision 18 held three
 (ledger rows 4-6) and Gate 2 implementation proceeded under row 6; every
 revision since has superseded those bytes, so all three lapse and must be
-re-issued at the hash of the current anchor. Revisions 19 through 25 each
+re-issued at the hash of the current anchor. Revisions 19 through 26 each
 accumulated no approvals, so no supersession since has lapsed anything -
-including revisions 23, 24, and 25, each of which drew a round that
+including revisions 23, 24, 25, and 26, each of which drew a round that
 **raised findings and issued no approval**.
-**Revision 26 awaits all three fresh approvals**: its own independent
+**Revision 27 awaits all three fresh approvals**: its own independent
 statistical review (sections 3-8, which is where sections 4.6, 6.1, 6.2, and
 8.7 sit) and, if that issues, the two user attestations (the S3 deviation,
 unchanged in substance from revision 18, and the remainder). **Section 10.3
@@ -665,7 +750,19 @@ section 6.1. So the review can examine whether the label was correctly
 applied but not whether the test licensing it is sound. This document does
 not resolve that; it records it, because the remainder attestation's scope is
 the approver's decision and this is the sharpest instance of what turns on
-it. **Further Gate 2 implementation work
+it.
+
+**Revision 27 adds a SECOND instance, with the opposite shape, and it is the
+milder of the two.** Section 9's scale correction and the section 0 category
+licensing it both sit OUTSIDE sections 3-8, so no part of that correction
+reaches the statistical review. **But its GOVERNING passage - section 8.7
+rule 4, which fixes the row set at 8 cells, 2 endpoints, 2 profiles, and 2025
+only - is INSIDE the review's scope.** A reviewer can therefore check the
+thing the correction depends on, even though the correction itself is out of
+reach: if rule 4 does not say what section 9 claims it says, the arithmetic
+fails and the label fails with it. Where the first asymmetry leaves the test
+unexaminable, this one leaves the load-bearing premise examinable. **Further
+Gate 2 implementation work
 is NOT currently authorized** - implementation is paused at the point
 revision 19 described and every revision since restates - and candidate-cell
 execution is separately and additionally gated on the fourth approval (the
@@ -702,7 +799,19 @@ not any cell passes. The **7 non-control cells** (everything except
 **selection family**. `scripts/backtest/lib/arms.js` (Commit A6) already
 implements `ALL_CELLS`, `SELECTION_FAMILY`, `CONTROL_CELL`, cell-constant
 resolution, the cross-season guard, and constant-hash distinctness
-assertions; `sweepEvaluator.js` (Gate 2) consumes these exports directly.
+assertions. **[consumer list corrected at revision 27]** **Seven modules
+consume those three exports directly**: `controlCellEvaluator.js`, `mde.js`,
+`sweepEvidence.js`, `sweepInference.js`, `sweepPreflight.js`,
+`sweepReport.js`, and `server/scripts/run-backtest-sweep.js`.
+
+**`sweepEvaluator.js` does NOT, and every revision through 26 said it did.**
+It requires `arms` (`:21`) and uses `classifyBootstrapEndpoint`,
+`exactSignTest`, and `classifyTriggeredEndpoint`, but references none of
+`ALL_CELLS`, `SELECTION_FAMILY`, or `CONTROL_CELL` - zero occurrences of any
+of the three. Of the Gate 2 sweep modules it was the ONE that does not
+consume them. **Because it does require `arms`, the error did not announce
+itself**: a reader checking whether the named module depends on the named
+file would find that it does, and stop.
 
 ---
 
@@ -2547,11 +2656,12 @@ verified against `projectPlayer`'s actual return shape and the factor
 functions it assembles from:**
 
 - **Top level**: `mean`, `median`, `p10`, `p25`, `p75`, `p90`,
-  `activeProbability`, `sampleSize`, `effectiveGames` (`:1027`, `:1156` -
+  `activeProbability`, `sampleSize`, `effectiveGames` (`:1038`, `:1177` -
+  **[locators repaired at revision 27; `:1027` and `:1156` were stale]** -
   included here, unlike the cache-compatible allowlist, since neither side
   touches persistence).
 - **`factors.recentProduction`**: `perGame`, `pointsContribution`,
-  `effectiveGames` (`:1070`), **`games`** (`:1069`, `baseline.sampleSize` -
+  `effectiveGames` (`:1081`), **`games`** (`:1080`, `baseline.sampleSize` -
   **[rev10, added]** omitted in error from every prior revision's
   allowlist), and, present only when `usageBlendWeight > 0` for the cell:
   `pointsBaselinePerGame`, `opportunityValue`, `expectedOpportunities`,
@@ -2970,6 +3080,85 @@ rule 4 governs what is additionally REPORTED, never what is GATED.
 **[rev13, corrected per rejection finding 2 - revision 12 understated this
 by omitting the control-path arm entirely.]**
 
+**[mechanical correction, forced by an implementation fact]** **[revision 27
+- revisions 13 through 26 understated this by omitting the scoring-profile
+generation axis entirely.]** This is the SECOND time this section has been
+corrected for omitting a whole class of generation, and both times the
+omission had the same shape: a set of runs the document assumed came free
+with runs it had already counted.
+
+**The false assumption.** Every revision through 26 counted as though
+scoring profile were a REPORTING coordinate - as though one generation could
+be re-scored afterwards into `standard` and `ppr`. It is a GENERATION
+coordinate. Four facts, each checkable in the code:
+
+- `loadFeatureBundle({ season, week, playerIds, rules, ... })`
+  (`projectionFeatures.js:418`) takes `rules` as a build-time parameter.
+- Every historical stat line is re-priced through
+  `calculateFantasyPoints(row.stats, rules)` at `projectionFeatures.js:197`
+  and `:289`.
+- That module's own docblock (`:20-23`) states the stored `fantasy_points`
+  column, default half-PPR, **"is never read as an authoritative value."**
+- The freeze manifest pins each of the three profiles by SHA-256 **of its
+  rules bytes** and re-verifies the pin, rejecting any hash that is not
+  genuinely a hash of the pinned bytes (`freezeManifest.js:199-202`). **A
+  study does not hash-pin an input that cannot change its output.**
+
+Different profile yields different features, hence a different projection.
+`standard` and `ppr` cannot be produced by re-scoring a `half_ppr`
+generation; they require their own.
+
+**What determines the count is section 8.7 rule 4, quoted here in full
+rather than cited, because a citation is what failed the last time this
+document reasoned about a section it had already compressed:**
+
+> The rows are published **for the control cell and for every candidate cell
+> that receives an (e2) evaluation** - 8 cells x 2 endpoints x 2 profiles.
+> Tying the row set to the SELECTED candidate was considered and rejected:
+> Level 5 selection can return no-selection (a void run, no passing cell, or
+> an ordering disagreement), which would leave rule 4's row set undefined
+> exactly when the report most needs to be well-formed. A row set must not
+> depend on an outcome computed after it.
+
+Rule 4 fixes all four coordinates before execution: **8 cells**, 2
+endpoints, 2 profiles, and - in the same rule - **season 2025 only**, since
+rule 4 publishes "only 2025 rather than both seasons". Nothing here is
+outcome-dependent, and rule 4 forbids outcome-dependence by name. **The
+phrase "receives an (e2) evaluation" occurs exactly once in this document
+and is quantified as 8 cells in the same sentence**; an (e2) component that
+comes back `unevaluable` produces a FAILING row under section 8.2's table,
+not an absent cell.
+
+**Arithmetic, therefore fully determined:**
+
+```
+2 profiles x 8 cells x 24 salts x 17 weeks (2025 only)  =  6,528
+```
+
+**Invariant, stated as a check:** `2 profiles x 17 weeks` is identically
+`1 profile x 34 weeks`, so the sensitivity generation equals the primary
+grid exactly - 6,528 by either route. A reader who arrives at a different
+figure has erred in one of those two factors, and this identity locates
+which.
+
+**Condition 3 of section 0's category is SHOWN, not asserted.** The figures
+this section publishes have no consumer anywhere - no code reads them, and
+nothing in this document computes from them - so correcting them cannot
+change any verdict a cell reaches. Two commands, both reproducible against
+the anchored bytes:
+
+```bash
+grep -n '8,160\|7,344\|6,528\|2,448\|\b816\b' PHASE5_EXECUTION_SPEC.md
+grep -rn '8160\|7344\|6528\|2448' scripts/ server/ --include=*.js
+```
+
+At revision 26 the first returned 12 lines, ALL of them inside this section
+or section 11.2's narration of it, and the second returned nothing. **The
+word boundary on `816` is load-bearing**: without it the pattern also
+matches inside blob hashes and long numerals (three spurious lines at
+revision 26), which is why the pattern is recorded here with its result
+rather than the result alone.
+
 - **Primary grid: `8 x 24 x 34 = 6,528`** salted cell-week runs - the
   eight reported factorial cells only, no identity-assertion arms.
 - **`homeaway-on-stored` twin (section 8.6.1): `24 x 34 = 816`** further
@@ -2985,9 +3174,18 @@ by omitting the control-path arm entirely.]**
   prove nothing about the harness. **So the control must be independently
   generated, and that generation is 816 runs the primary grid does not
   already contain.**
-- **Total, as this document currently stands: `6,528 + 816 + 816 =
-  8,160`** salted arm-week generations.
-- **The one way this drops back to `7,344`**: if Gate 2 establishes an
+- **Prereg 16 sensitivity generation (section 8.7 rule 4):
+  `2 x 8 x 24 x 17 = 6,528`** further salted arm-week generations, for
+  `standard` and `ppr`, 2025 only. **This was omitted from every disclosure
+  through revision 26.** It is neither optional nor conditional: rule 4
+  requires those rows for a fixed set of 8 cells, and scoring profile is a
+  generation coordinate, so the runs do not already exist inside the primary
+  grid.
+- **Total, as this document currently stands: `6,528 + 816 + 816 + 6,528 =
+  14,688`** salted arm-week generations. **[was `8,160` through revision 26;
+  corrected at revision 27.]**
+- **The one way this drops back to `13,872`** (`8,160`'s branch was
+  `7,344`, the same 816-run reduction): if Gate 2 establishes an
   independent control path that is ALREADY counted elsewhere in the
   pipeline (for example, if the control arm the sweep generates for the
   permutation control, section 5, is the same independently-generated
@@ -3049,6 +3247,7 @@ intact.
 | Statistical review of revision 25 | **NO APPROVAL ISSUED** | 2026-08-05 | Reviewed revision 25 at anchor `7c5aa846a858e92668d3be9c1633fdac6b3bc776` (SHA-256 `57F7C4F0E39E1141B8CAFDBAB74BBF1C6F6DE4F5ACFB2BC21C64F3CEF22EE7D3`, blob `f5c96136bcaf3f95199e9275ca8b61f5371cfe64`). **Raised three findings and issued no approval**; per the R1-R5 convention a round issuing no approval warrants no ledger row, and none was written. **No finding impugned the category's sole member or any ruling** - all three were DURABILITY defects in section 0's new three-leg test, each a way the test could admit a FUTURE contradiction it should exclude: (i) nothing required that only ONE passage satisfy the legs, so two passages each governing and directing different things would each qualify; (ii) the contested-set qualifier that does the real work sat 31 lines below the legs, in the non-member discussion, where a drafter applying them in order would never reach it; (iii) no leg tested WHEN the governing passage came to exist, so a drafter could add a passage, observe the contradiction it created, and withdraw the older rule as "mechanical" - manufacturing the forcing condition. **Addressed as revision 26** |
 | Revision 25 → 26 | **not a review round** | 2026-08-05 | Revision 25 was anchored at `7c5aa846a858e92668d3be9c1633fdac6b3bc776` (SHA-256 `57F7C4F0…`, blob `f5c96136…`) and accumulated **no approvals**, so nothing lapsed. **NO RULING CHANGED, and the category's sole member keeps its classification** - section 6.1's comparison form remains `[mechanical correction, forced by an internal contradiction]`. Section 0's test goes from three legs to five: leg 2 absorbs the contested-set qualifier, leg 4 adds uniqueness, leg 5 adds priority-and-immutability with identity to be SHOWN not asserted. Both new legs are demonstrated for the sole member in section 0 itself, since leg 5's own text forbids asserting compliance. Also: the section 4.6 characterization is tightened (it DOES contain a universal, over a set section 8.7 defines, so leg 2 fails rather than the section being silent), and two stale INTERNAL line citations introduced by revision 25 are removed, with the hazard recorded in section 10.2. **Byte-identity per region**: sections 4.6, 8.7, 6.1a and **6.2** are byte-identical to `7c5aa84`; sections 0 and 6.1 changed and must be read |
 | Findings round against revision 24 | **NO APPROVAL ISSUED** | 2026-08-04 | Reviewed revision 24 at anchor `227c2e0` (SHA-256 `475ED9CA…`). **Raised findings, issued no approval**; no ledger row was written, per the convention R1-R5 established. One finding is substantive and is disclosed in section 10.3: revision 24's new section 6.1 amendment was **misclassified and misgrounded**, because section 6.2 of this document already compelled the tie-rounded `catastrophicCapCouldFire` comparison and named `3.80` in a list declared complete. **Addressed as revision 25**, which reclassifies the change, regrounds it on section 6.2, adds the missing taxonomy category to section 0, and makes the disclosure in 10.3 |
+| Revision 26 → 27 | **not a review round** | 2026-08-05 | Revision 26 was anchored at `51c0458abf36974966d065d2e384af9614035814` (SHA-256 `668BB9A7…`, blob `ee9c915f…`) and accumulated **no approvals**, so nothing lapsed. **NO RULING CHANGED.** Section 9's scale disclosure is corrected from `8,160` to **`14,688`** (branch `7,344` → `13,872`) by counting the prereg 16 sensitivity generation that section 8.7 rule 4 requires: scoring profile is a GENERATION coordinate, not a reporting one, so `standard` and `ppr` cannot be produced by re-scoring a `half_ppr` run. Labeled **`[mechanical correction, forced by an implementation fact]`** - the **FIRST member that category has ever had**, so section 0 now carries its boundary decision (the definition's "sealed text" is read DESCRIPTIVELY, since section 9's count sits in this document), its three conditions shown in order, and the **provenance disclosure** that the member was admitted in the round that found it, by the party that drafted it. Five errata ride along: section 2 named `sweepEvaluator.js` as consuming `ALL_CELLS`/`SELECTION_FAMILY`/`CONTROL_CELL`, which it references zero times while seven other modules do; four `projectionModel.js` `effectiveGames` locator sites; section 11.2's review-history currency claim, which pointed readers away from section 10.3; and section 1's "zero occurrences". **Sections 3-8 are NOT byte-identical at this step**: two lines change in section 8.6.1's allowlist locators. No ruling, endpoint, status, or selection is affected |
 | Revision 24 → 25 | **not a review round** | 2026-08-04 | Revision 24 was anchored at `227c2e096934c22a423f7470be44f09b53d3c82f` (SHA-256 `475ED9CADC1E0A094DCC34BF86130375F2C8391FE4B56DDF00C346B91C786C7D`, blob `a89da3af5384b008869d9b57aa9a995ca7cc0393`) and accumulated **no approvals**, so nothing lapsed. **NO RULING CHANGED IN SUBSTANCE** - the tie-rounded comparison form stands exactly as revision 24 adopted it; what changed is its CLASSIFICATION (substantive prospective amendment → mechanical correction forced by an internal contradiction), its GROUNDS (prereg 6.6 → this document's own section 6.2), and the disclosure that the contradiction it resolves was present in approved bytes. Sections changed: preamble, 0, 6.1, 10. **Sections 4.6, 8.7, 5, 6.1a, and 6.2 are byte-identical to `227c2e0`** - 6.2 in particular is untouched, since revision 25 adopts what it already said rather than editing it |
 | Revision 23 → 24 | **not a review round** | 2026-08-04 | **NO RULING CHANGED.** Byte-identity is available **PER REGION, not document-wide** - this step is neither of the two regimes the ledger's earlier entries established. Sections 4.6 (all four items and all four subsections) and 8.7 (all five rules, including rule 4's row set and cell-scope paragraph and rule 5's activation pinning) are byte-identical to `3939a27` and may be diffed. Sections 4.4, 6.1, 8.6.0, 8.6.2, 10.2, 11.2, 1, and the preamble all changed and must be read. **Section 6.1 additionally carries a NEW substantive amendment** - the `catastrophicCapCouldFire` comparison form - which no diff against revision 23 can shortcut. A reader who carries either earlier entry's regime forward gets the wrong answer for half this document. **Sequencing**: revision 24 had to anchor BEFORE any approval was commissioned. That constraint does not arise from the amendment - section 6 was always inside the statistical review's sections 3-8 scope, and the status blocks change section 6's bytes under any reading, so the hash moves either way. What the amendment changes is the COST of getting the order wrong: a status-block-only revision would have let a prior approval be re-issued against the new hash after a byte-identity check, whereas a new substantive amendment inside the reviewer's own scope requires a fresh review of text they have never seen |
 | **Independent implementation review** | **pending, strictly last, after Gate 2 code exists** | | scope, complete: the runtime salt-collision guard and its two-level unit/runtime split (section 3.4); the exact-trigger implementation defects, including the (f) no-finite-bound amendment label (section 4.4); the restored permutation-control definitions and aggregation (section 5); the rounding-boundary mutation tests and ten-decimal boundary normalization (section 6.1-6.2); the callback's per-receiver validation, exactly-once invocation, and exception propagation (section 6.5); the S3 non-estimable disclosure (section 7); the signed-boundary table and the exhaustive endpoint/component/cell/run truth table, including the (f)-unevaluable unification (sections 8.1-8.2); **activation's exact numerator/denominator (available && effect!==0, per-position including DEF, over eligible/non-neutral/known-orientation projections) and its precedence against `fail` (section 8.3)**; the restored cell-level ordering-inconclusive behavior and **Level-5 selection precedence, including the provably-unreachable winner-only branch (sections 8.4-8.5)**; **BOTH sealed identity assertions - the `usage-25 == control` bit-identity assertion (section 8.6.0: the Map-safe per-projection canonical-byte comparison and its named prohibition on passing a `Map` to `canonicalJson`, byte-equality with no allowlist and no tolerance, the explicitly-named non-Map run fields, its full player-week/salt scope, its pre-flight invocation point before the permutation control, its run-void disposition, and its seven mutation tests including the Map-serialization regression) and the `homeaway-on-stored` point-identity assertion** (section 8.6.1: its usage-25-only scope, the corrected `useStoredHistory` mechanism explanation, its single-leaf-difference guard), the complete fresh-vs-fresh allowlist (including `homeGames`/`awayGames`, `availability.activeProbability`, `role.pointsContribution`), the independently-frozen and explicitly-enumerated cache-compatible allowlist, **the ordered field-level comparator semantics with per-side type/finiteness validation running BEFORE any cross-side comparison, and raw-input duplicate detection running BEFORE any Map-building loop on both sides of every comparison**, and the descriptive-only cache-QA disposition (section 8.6) |
@@ -3133,6 +3332,42 @@ sites: that line holds a live `if (!SALTS.includes(salt)) throw` salt guard,
 so a reader following the citation landed on real, plausible, unrelated code
 rather than on nothing at all. A locator that resolves to something is worse
 than one that resolves to nothing.
+
+**Repaired at revision 27** - the `projectionModel.js` `effectiveGames`
+family, at four sites carrying six citations, drifted the same way and by a
+near-uniform `+11`:
+
+| section | cited | true |
+| --- | --- | --- |
+| 8.6.1, top-level allowlist | `projectionModel.js:1027`, `:1156` | `:1038`, `:1177` |
+| 8.6.1, `factors.recentProduction` | `:1070` | `:1081` |
+| 8.6.1, `factors.recentProduction.games` | `:1069` | `:1080` |
+| 11.3 | `:1027`, `:1070`, `:1156` | `:1038`, `:1081`, `:1177` |
+
+**All three cited lines resolve to real, unrelated code** - `:1027` is
+`modelVersion,`, `:1070` is a comment, `:1156` is
+`factors.expertConsensus = null;` - which is the same "resolves to
+something" hazard recorded above for `arms.js:213`, and it recurred after
+being named.
+
+**Two facts about these four sites matter more than the repair.**
+
+**First, they were inside sections 3-8.** Section 8.6.1's allowlist is
+normative text: it fixes which fields must be bit-identical across the
+`homeaway-on` / `homeaway-on-stored` comparison. The fields are named by
+name, so the allowlist's MEANING never depended on the locators, and no
+ruling changes here. But every prior statement that a revision left sections
+3-8 byte-identical was true of bytes that already carried these.
+
+**Second, THIS INVENTORY MISSED THEM, and this inventory exists to catch
+exactly this class.** They appear in neither the repaired table above nor
+the outstanding list below, so section 10.2 reported the
+`projectionModel.js` position as fully mapped when four sites were open.
+**They were found because a stale locator happened to match a regex during
+an unrelated read** - not by the instrument built to carry the class. A
+hand-maintained inventory inherits the blind spot of whoever maintained it,
+which is the argument for the mechanical LOCATOR check named above and
+against treating this list as a completeness bound.
 
 **Still outstanding, NOT repaired at revision 24**: the
 `projection.service.js` family, at five sites - `:408` (section 6.5), `:449`
@@ -3269,11 +3504,17 @@ exactly the kind of author-written narrative section 11.1 already cautions
 about, and revision 19's preamble demonstrated how such a narrative can
 overstate. **For revisions 14 onward, use these instead:**
 
-- **Section 10's review-history table** - extended at revisions 20, 21, and
-  22, and current as of the last of those. It
+- **Section 10's review-history table** - extended at every revision through
+  27, and current as of the anchored bytes. **[corrected at revision 27:
+  revisions 22 through 26 read "extended at revisions 20, 21, and 22, and
+  current as of the last of those", which stopped five revisions short.]** It
   records R1-R5 with their blocking findings and hashes, revision 18's
   approval, the Gate 2 implementation review that produced revision 19, and
-  each subsequent self-correction.
+  each subsequent self-correction. **Section 10.3 was added at revision 25,
+  and section 1 makes it required reading before any approval.** A reader who
+  trusted the stale sentence was pointed away from text they are required to
+  read, which is what makes this a DIRECTIONAL error rather than a stale
+  number.
 - **`APPROVAL_LEDGER.md`** - the sole authoritative approval record, and its
   corrective entries carry the anchor chain and the reasoning for each
   supersession.
@@ -3424,13 +3665,15 @@ brought the code into conformance.
   `server/services/projectionModel.js` (`projectPlayer`, `scoringHash`,
   `seedFrom`, `mulberry32`, `simulateDistribution`, `NEUTRAL`,
   `opponentEffect`, `versusOpponentEffect`, `homeAwayEffect`,
-  `weatherEffect`; the `effectiveGames` locators `:1027`, `:1070`, `:1156`;
+  `weatherEffect`; the `effectiveGames` locators `:1038`, `:1081`, `:1177`
+  **[repaired at revision 27; `:1027`, `:1070`, `:1156` were stale]**;
   the `useStoredHistory` default at `:241`; the median-rounding line `:884`),
   `server/services/projectionFeatures.js` (`:177-231`'s `useStoredHistory`/
   `crossSeason` gating), `server/services/projection.service.js`
   (`projectFromBundle`, `findRun`, `loadCachedRows`, `upsertRun`,
   `saveProjections`), `scripts/backtest-weekly-projections.js`
-  (`withHistory`, `:210-234`), `scripts/backtest/lib/snapshotClient.js`
+  (`withHistory`, DEFINED at `:250`; `:210-234` are CALL SITES **[corrected
+  at revision 27]**), `scripts/backtest/lib/snapshotClient.js`
   (confirms the sweep never touches the live cache),
   `scripts/backtest/lib/asOfView.js`, `scripts/backtest/lib/cohort.js`.
 - **`GATE2_REVIEW_PACKAGE.md`** (uncommitted by convention), which carries
