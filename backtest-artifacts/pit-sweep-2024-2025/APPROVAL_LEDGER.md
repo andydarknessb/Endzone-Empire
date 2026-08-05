@@ -1636,3 +1636,142 @@ revision 30 and none was staged.
 **(11) Gate 0 is unchanged and still in force**, the fourth approval remains
 strictly last, single-use, and not self-performable, and no row is pre-filled
 for any approval that has not issued.
+
+---
+
+### CORRECTIVE ENTRY 15 — appended 2026-08-05
+
+**This entry creates NO approval row.** It re-points the anchor recorded by
+corrective entry 14. **Entries 1-14 are not edited.**
+
+**(1) The anchor has moved again.**
+
+| | |
+| --- | --- |
+| SHA-256 | `585E992D89C3828685F45C9FB6B305BEF9617D4AF11E269D326A3AF9F1F9F8D8` |
+| git blob | `24fb6d36d392f2b77ca3889c34866edc7941daf1` |
+| anchor commit | `e4774b17875214e7700e74a2eef20bac15bea77c` |
+
+**(2) Nothing lapsed.** The superseded anchor (`eda85eb…` / `31D3D89D…`)
+accumulated no approvals. Rows 4-6 remain lapsed against their own superseded
+bytes, and **three fresh approvals are still required** against the hash in
+(1).
+
+**(3) SECTIONS 3-8 ARE UNTOUCHED**, 2,352 lines at revision 30 and at
+revision 31, **0 differing** under both the mapping check and the slicing
+confirmation. **No ruling, classification, or number changed.**
+
+**(4) The confinement check specified at revision 30 had its first
+application to a revision it did not author.** Changed lines map to the
+preamble, section 1, section 10, section 10.2 and section 11.2, and to
+nothing else. **The check was run before the anchor was taken, and the
+mapped set was predicted in advance and matched** - which is the difference
+between running a check and consulting one.
+
+**(5) Six items closed.** Revision 30 left four; two more were established
+before drafting.
+
+| item | what it closed |
+| --- | --- |
+| item 1 | EIGHTH hazard class: a closed-form correction to an unversioned claim rots again |
+| item 2 | section 11.2's stale bounds, `14-21` and `through 27` |
+| item 3 | section 11.2's bullet pointing at a superseded revision-21 paragraph |
+| item 4 | NINTH hazard class: a range read as an authorship boundary |
+| item 5 | section 10's own row-currency statement |
+| item 6 | **section 1's authorization block, which was byte-identical to revision 30** |
+
+**(6) Item 6 is the one that mattered, and it was nearly missed.** Section 1's
+block opened "as of revision 28" while the document stood at 31, bounded the
+no-approval run at "19 through 27", enumerated "23, 24, 25, 26, and 27"
+without 28, and closed **"revision 28 awaits all three fresh approvals"**.
+That is a false statement about authorization, **in the block whose only job
+is to say what is authorized, inside the revision that adds two hazard
+classes about claims going stale.**
+
+**The endpoints were DELETED, not refreshed.** Refreshing them is the eighth
+class this same revision adds, and doing it here would have been its third
+recursion. The replacements are true by construction at every anchor: "as of
+THE ANCHORED BYTES", "every revision since 18 accumulated no approvals", the
+enumeration dropped in favour of section 10's table, and "THIS REVISION
+awaits all three fresh approvals".
+
+**(7) THE ANCHOR WAS AMENDED ONCE BEFORE PUBLICATION.** An earlier commit of
+these bytes (`e265bc2` / blob `1b64047b` / SHA-256 `8B2069BD…`) omitted item
+6 and carried an unmethodded `server/` figure. **It was never pushed, no
+remote branch contained it, and no ledger entry referenced it.** Amending an
+unpublished commit finishes it rather than rewriting history anyone has seen.
+
+**(8) A DISPUTED FIGURE RECONCILED EXACTLY, and the reconciliation is worth
+more than the figure.** The ninth hazard class cites how many commits have
+touched `server/` without belonging to this study. Two parties produced 180
+and 159 and each was correct:
+
+```
+182  commits touch server/
+180  ...touching no backtest-artifacts/                        definition A
+159  ...touching neither backtest-artifacts/ nor scripts/backtest/   definition B
+ 21  the gap: commits under scripts/backtest/ only, 180 - 21 = 159
+```
+
+**Neither count was wrong. The definition of "study commit" differed**, and
+the gap is exactly the Gate 2 implementation commits, which live under
+`scripts/backtest/` and touch no artifact. **Definition B is the better one**
+- a commit under `scripts/backtest/` is unambiguously study work - and the
+anchored paragraph currently states a floor of 140 under a third, weaker
+boundary, with its method named. **Correcting it to 159 under definition B is
+parked for revision 32** rather than taken in a second amend.
+
+**(9) A COUNT IN CORRECTIVE ENTRY 14 HAS ALREADY ROTTED, exactly as the
+eighth class predicts, and entry 14 is not edited.** Entry 14 records "24
+study commits examined, 0 touching any `.js` file". **At this anchor the
+count is 25**, because revision 31's own commit joined the population. The
+figure was true as written and against the anchor it was written at; it is
+the *population* that moved, not the invariant.
+
+**The invariant itself holds at every measurement**: 25 study commits in
+`c04d6b1..e4774b1`, **0 touching any `.js` file**. Verified under BOTH
+filters, which agree exactly with no difference between them:
+
+- by subject, commits whose message begins `docs(backtest)`: **25**
+- by path, commits touching `backtest-artifacts/` or `scripts/backtest/`: **25**
+
+**A bare count of a population that grows with the anchor must name the
+anchor it was measured at**, or it will be read later as a claim that has
+gone false when nothing has.
+
+**(9a) THIS ENTRY BROKE THE APPROVAL-ROW CHECK WHILE BEING WRITTEN, and the
+fix is a rule.** The table in item (5) was first drafted with a numeric first
+column - `| 1 |`, `| 2 |` - which is **indistinguishable from an approval row
+under the pattern every audit in this ledger uses**, `^\| [0-9]+ \|` scoped
+after the `## Approval rows` heading. Corrective entries are appended after
+that heading, so the check returned **12 approval rows against a true 6**.
+
+Nothing was wrong with the ledger. **The entry documenting a family of
+instruments that answer a neighbouring question had made the ledger's own
+instrument answer one**, before the entry was even committed.
+
+**The rule: no table in a corrective entry may use a bare integer as its
+first column.** This one now reads `| item 1 |`. The approval-row check
+returns 6 again, and the six real rows remain at lines 206-211, which is
+where they have been since they were written.
+
+**(10) Parked for revision 32**, none urgent and none making the current
+bytes false:
+
+1. The `server/` figure restated as **159 under definition B**, dropping the
+   140 floor and the two weaker boundaries.
+2. **The invariant's filter widened from subject to path.** The two agree
+   today and there is no undercount, but a future study commit typed
+   `fix(backtest)` would be caught by the path filter and missed by the
+   subject one. The check should test what it means.
+3. This item (9), recorded in section 10.2 rather than only here.
+
+**(11) Confinement.** One tracked file, 187 lines changed, staged by explicit
+path. **No study commit has changed a `.js` file at any point in the arc** -
+25 examined at this anchor, 0 violations. Files from an unrelated
+roster-feature workstream remained dirty in the working tree throughout and
+none was staged.
+
+**(12) Gate 0 is unchanged and still in force**, the fourth approval remains
+strictly last, single-use, and not self-performable, and no row is pre-filled
+for any approval that has not issued.
