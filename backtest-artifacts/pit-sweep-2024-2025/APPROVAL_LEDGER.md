@@ -591,3 +591,151 @@ and section 10 records the step. Neither is a ruling.
 **(6) Gate 0 is unchanged and still in force**, the fourth approval remains
 strictly last, single-use, and not self-performable, and no row is pre-filled
 for any approval that has not issued.
+
+---
+
+### CORRECTIVE ENTRY 8 — appended 2026-08-04
+
+**This entry creates NO approval row.** It re-points the anchor recorded by
+corrective entry 7. **Entries 1-7 are not edited.**
+
+**(1) The anchor has moved again.**
+
+| | |
+| --- | --- |
+| SHA-256 | `475ED9CADC1E0A094DCC34BF86130375F2C8391FE4B56DDF00C346B91C786C7D` |
+| git blob | `a89da3af5384b008869d9b57aa9a995ca7cc0393` |
+| anchor commit | `227c2e096934c22a423f7470be44f09b53d3c82f` |
+
+**(2) Nothing lapsed.** The superseded anchor (`3939a27…` / `9222E1F3…`)
+accumulated no approvals. It received a statistical review that **raised
+findings and issued no approval**; per the convention R1-R5 established, a
+round issuing no approval warrants no row here, and none was written. Rows
+4-6 remain lapsed against their own superseded bytes, and **three fresh
+approvals are still required** against the hash in (1).
+
+**(3) THE BYTE-IDENTITY CHECK IS AVAILABLE PER REGION, NOT DOCUMENT-WIDE.**
+This is neither of the two regimes the prior entries established. Entry 6
+answered the question "unavailable" for the whole document; entry 7 answered
+it "available" for the whole document. **Entry 8 answers it both ways, by
+region**, and a reviewer who carries either prior entry's regime forward
+gets the wrong answer for half of this document.
+
+Verified between `3939a27` and `227c2e0`, with the terminator excluded,
+start anchors asserted unique in both revisions, and every extraction's line
+count printed:
+
+| body | rev 23 | rev 24 | differing lines |
+| --- | ---: | ---: | --- |
+| section 4.6, whole (items 1-4, subsections 4.6.1-4.6.4) | 254 | 254 | **0 - identical** |
+| section 4.6.2 | 68 | 68 | **0 - identical** |
+| section 4.6.3 | 20 | 20 | **0 - identical** |
+| section 8.7, whole (all five rules) | 161 | 161 | **0 - identical** |
+| section 5, whole | 206 | 206 | **0 - identical** |
+| section 6.1a, whole | 132 | 132 | **0 - identical** |
+
+**Sections that CHANGED and must be read rather than diffed**: the preamble,
+1, 3.4, 4.4, 6.1, 6.5, 8.6.0, 8.6.2, 10, 10.2, 11.2, and 11.3.
+
+**Section 6.1 carries a NEW substantive amendment and cannot be diffed
+past** - the `catastrophicCapCouldFire` comparison form. No byte-identity
+proof reaches it, because the bytes are new.
+
+Confinement was cross-checked by a second, independent method: all 25 hunk
+offsets were confirmed arithmetically to fall outside section 4.6 (anchor
+lines 630-883) and section 8.7 (2366-2526). Two methods, one conclusion.
+
+**Amendment-label check.** Exactly one label was added:
+`**[substantive prospective amendment]**` goes 14 to 15, and no existing
+label changed type or count. **The total depends on the counting pattern** -
+18 to 19 counting unqualified forms only, 20 to 21 including qualified forms
+such as section 7's "deviation, chosen", 44 to 46 counting every `**[...]**`
+marker, the second of those being a `**[corrected at revision 24]**` in
+section 8.6.0. The invariant holds under all three, which is why it is
+recorded as the invariant rather than as a total.
+
+**(4) Why it was re-anchored.** A statistical review of revision 23 produced
+**no finding against any ruling**. Every defect was in the scaffolding
+beneath the rulings - citations, counts, and directives - which is precisely
+the material a byte-identity proof is trusted to cover and cannot see. What
+revision 24 repairs:
+
+- **Five satisfied directives were written as pending** (section 4.4 items 1
+  and 2; section 6.1's `0.30` constant, `3.80` constant, and
+  evaluability-guard rewrite). Each now carries a dated status block beneath
+  the preserved requirement text. **One further directive is recorded NOT
+  MET** in the same form - section 6.1's required test that
+  `FALSIFIABILITY_FLOOR` is referenced by nothing returning a status - so
+  the blocks distinguish done from pending rather than only ever saying MET.
+- **Section 8.6.0 endorsed `assertControlBitIdentity` as implementing
+  "exactly this comparison"** four lines above the bullet forbidding that
+  exact use, which would compare `"{}"` against `"{}"` and pass vacuously on
+  two `Map`-carrying run objects. The endorsement is withdrawn, with
+  `assertProjectionRunBitIdentical` (`arms.js:387`) named as the required
+  procedure.
+- **Ten stale `file.js:NNN` locators**, all taken against Commit A6 rather
+  than HEAD. `arms.js:213` was wrong at three sites and is the costliest of
+  the ten: that line holds a live salt guard, so a reader following it landed
+  on real, plausible, unrelated code rather than on nothing at all.
+- **Four defects in section 10.2's own locator inventory**, including a
+  phantom entry (`projectionModel.js:1113`) cited nowhere in the document,
+  and a blanket claim that locator drift never carries a false statement -
+  untrue wherever the citation sits inside a directive, since a directive
+  carries a present-tense claim about the code that can be false on its own
+  terms.
+
+**(5) The status-block form is now ADOPTED by decision**, not by
+propagation. Revision 22 introduced it at one site; revision 24 applies it at
+six more and says so in its own narrative, because a convention that becomes
+standing by repetition is harder to revisit than one adopted explicitly.
+
+**(6) SEQUENCING: revision 24 had to anchor BEFORE any approval was
+commissioned, and the reason is cost, not scope.** The constraint does not
+arise from the new amendment. Section 6 was always inside the statistical
+review's sections 3-8 scope, and revision 24's status blocks change section
+6's bytes under any reading, so the hash moves either way and an approval
+commissioned against `9222E1F3…` would have lapsed regardless. **What the
+amendment changes is the COST of getting the order wrong**: a
+status-block-only revision would have let a prior approval be re-issued
+against the new hash after a byte-identity check on the rulings, whereas a
+new substantive amendment inside the reviewer's own scope requires a fresh
+review of text they have never seen. The first reason is checkable and
+false; this entry records the second.
+
+**(7) Two deviations from the drafting brief, flagged deliberately.**
+
+- **The brief instructed that section 6.1's evaluability-guard rewrite be
+  marked NOT MET. It is MET**, and is recorded as MET. `arms.js:924-938`
+  implements section 6.1a's transformed-bound median comparison, and
+  `FALSIFIABILITY_FLOOR` occurs at only `:743`, `:883`, and `:1624`, none of
+  them inside the guard. Following the brief would have written a satisfied
+  directive as pending **inside the revision whose purpose is repairing
+  exactly that**. Only the accompanying negative-reference test is missing,
+  and it is recorded as missing.
+- **Section 11.3 was amended although the brief did not list it.** Prereg 6.6
+  was already in the reviewer packet but described only as "metric
+  conventions and contrast construction", which would not lead a reviewer to
+  the fourth bullet the new amendment turns on. That pointer was added, along
+  with `numbers.js`'s `TIE_DECIMALS` and `roundToTie`. A packet is USED
+  rather than audited, so a stale one misdirects silently and is never caught
+  by the review it feeds.
+
+**(8) One completeness claim is recorded as UNVERIFIED rather than
+inherited.** The directive sweep that found the scaffolding defects was
+reported during the revision-24 round as yielding 8 document-wide hits, but
+the wider pattern's text was not preserved. The one pattern that was supplied
+matches 3 lines within sections 3-8 and 5 document-wide against the
+revision-23 bytes. **Section 10.2 records the reproducible pattern with its
+counts, and records the 8 as an unverified claim**, rather than carrying an
+unreproducible number into a completeness bound. The pattern bounds
+*directive-shaped phrasings*, not satisfied directives: four of the six
+requirements assessed were found by reading the directive text, not by the
+pattern.
+
+**(9) Sections 1 and 10 also changed**, as they must at every re-anchor:
+section 1 carries the authorization-state lines naming the current revision,
+and section 10 records the step. Neither is a ruling.
+
+**(10) Gate 0 is unchanged and still in force**, the fourth approval remains
+strictly last, single-use, and not self-performable, and no row is pre-filled
+for any approval that has not issued.
