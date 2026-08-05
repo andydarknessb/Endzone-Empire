@@ -57,6 +57,37 @@ blockers. Revision 14 was that rejection's response; it was itself rejected,
 as was revision 15. **The current revision is 31**, and the full chain is
 recorded below and in `APPROVAL_LEDGER.md`.
 
+**Revision 32 changes no ruling, no classification, and no ruling-bearing
+number, and SECTIONS 3-8 ARE UNTOUCHED.** It closes the three items revision
+31 parked, all inside section 10.2, and **it is the last revision before the
+independent statistical review is commissioned.**
+
+- **The `server/` figure is restated under ONE definition**: 159 commits, of
+  182 touching `server/`, touch neither `backtest-artifacts/` nor
+  `scripts/backtest/`. Revision 31 gave a floor of 140 and named two other
+  boundaries; **one definition applied consistently beats three offered for
+  comparison**, which invites averaging figures that answer different
+  questions. The 21-commit gap to the artifact-only boundary is exactly the
+  Gate 2 implementation commits.
+- **The `.js` invariant's filter is widened from commit SUBJECT to PATH.**
+  The two agree at every measurement taken, so this corrects no undercount;
+  it makes the check test what the claim means. A study commit typed
+  `fix(backtest)` is caught by one and missed by the other.
+- **A count over that population rots by construction**, because the
+  population grows with the commit that anchors the revision making the
+  claim. Entries 14, 15 and the revision-31 ledger commit recorded 24, 25 and
+  26; **all three were true when written and the invariant never moved.**
+  Quoting such a number now requires naming the anchor it was measured at.
+
+**A stopping rule applies from here.** The scope document is built when no
+known-open item would change sections 3-8 or a structural claim the document
+makes about itself. Section 10.2 refinements that surface after this point
+**ride to a revision after the review is commissioned**, because section 10.2
+is outside the approval scope: its improvements make the drafter's checks
+better and change nothing a reviewer reads, verifies, or is asked to approve.
+Letting them gate the commission trades a real cost - the review not
+happening - against an improvement the reviewer never sees.
+
 **Revision 31 changes no ruling, no classification, and no number, and
 SECTIONS 3-8 ARE UNTOUCHED.** It corrects five claims this document makes
 about itself, all of one family - a claim or an instrument measuring
@@ -3549,6 +3580,7 @@ intact.
 | Revision 24 → 25 | **not a review round** | 2026-08-04 | Revision 24 was anchored at `227c2e096934c22a423f7470be44f09b53d3c82f` (SHA-256 `475ED9CADC1E0A094DCC34BF86130375F2C8391FE4B56DDF00C346B91C786C7D`, blob `a89da3af5384b008869d9b57aa9a995ca7cc0393`) and accumulated **no approvals**, so nothing lapsed. **NO RULING CHANGED IN SUBSTANCE** - the tie-rounded comparison form stands exactly as revision 24 adopted it; what changed is its CLASSIFICATION (substantive prospective amendment → mechanical correction forced by an internal contradiction), its GROUNDS (prereg 6.6 → this document's own section 6.2), and the disclosure that the contradiction it resolves was present in approved bytes. Sections changed: preamble, 0, 6.1, 10. **Sections 4.6, 8.7, 5, 6.1a, and 6.2 are byte-identical to `227c2e0`** - 6.2 in particular is untouched, since revision 25 adopts what it already said rather than editing it |
 | Revision 23 → 24 | **not a review round** | 2026-08-04 | **NO RULING CHANGED.** Byte-identity is available **PER REGION, not document-wide** - this step is neither of the two regimes the ledger's earlier entries established. Sections 4.6 (all four items and all four subsections) and 8.7 (all five rules, including rule 4's row set and cell-scope paragraph and rule 5's activation pinning) are byte-identical to `3939a27` and may be diffed. Sections 4.4, 6.1, 8.6.0, 8.6.2, 10.2, 11.2, 1, and the preamble all changed and must be read. **Section 6.1 additionally carries a NEW substantive amendment** - the `catastrophicCapCouldFire` comparison form - which no diff against revision 23 can shortcut. A reader who carries either earlier entry's regime forward gets the wrong answer for half this document. **Sequencing**: revision 24 had to anchor BEFORE any approval was commissioned. That constraint does not arise from the amendment - section 6 was always inside the statistical review's sections 3-8 scope, and the status blocks change section 6's bytes under any reading, so the hash moves either way. What the amendment changes is the COST of getting the order wrong: a status-block-only revision would have let a prior approval be re-issued against the new hash after a byte-identity check, whereas a new substantive amendment inside the reviewer's own scope requires a fresh review of text they have never seen |
 | Independent statistical review of revision 28 | **NO APPROVAL ISSUED** | 2026-08-05 | Reviewed revision 28 at anchor `d0d0def` (SHA-256 `e6db125c…e372b`, blob `d962ca8d…`), scope sections 3-8, lines 843-3102. **Raised eight findings and issued no approval**; per the R1-R5 convention a round issuing no approval warrants no ledger row, and none was written. **PROVENANCE, stated by its three properties rather than by analogy to an existing row**: the review arrived as the reviewer's own first-person account carrying its process, and was transcribed by the assistant into `REVIEW-FINDINGS-revision-28.md`; **the assistant did not observe its execution**; **the reviewer is not named**. That is the text-standing of R1-R5 without their named-reviewer property, and it is not Source B's unattested-origin standing. Transcription to disk does not alter it. **The reviewer withheld approval on independence grounds independently of the findings**, disclosing that an auto-loading persistent memory index written by prior sessions inside this workstream was in context before any choice was made, and that commission section 7 named the expected weak point. **The headline target HELD**: section 8.7 rule 4's row set is determinate at 8 cells, unfalsifiable on the reviewer's probe, because prereg 9.7 carries no applicability condition where 9.3/9.4/9.8 each do. Findings: 1 BLOCKER (section 6.2's unstated scope, read three ways across 6.1/6.1a/8.2a, reaching leg 2 rather than only the comparison); 3 SUBSTANTIVE (the 64-vs-32 composition vector; section 6.5's "verified against the real call graph" alongside three locators that never resolved; section 9's 6,528 attributed to rule 4 when section 8.7's own scope limit forbids a reporting rule forcing a generation); 4 MINOR (`seedFrom`'s locator, later upgraded on the phantom-entry ground; "all four coordinates"; "occurs exactly once"; `buildPriorGames`'s docblock start). **Findings 2 and 3 are SUBSTANTIVE with MECHANICAL REPAIRS** - the axis whose collapse triggered revision 25. **Addressed as revision 29** |
+| Revision 31 → 32 | **not a review round** | 2026-08-05 | Revision 31 was anchored at `e4774b17875214e7700e74a2eef20bac15bea77c` (SHA-256 `585E992D…`, blob `24fb6d36…`) and accumulated **no approvals**, so nothing lapsed. **NO RULING CHANGED, no classification changed, and SECTIONS 3-8 ARE UNTOUCHED** - 2,352 lines at revision 31 and 32, 0 differing. All three changes land in section 10.2, plus this row and the preamble. **(a)** The `server/` figure is restated under ONE definition: of 182 commits touching `server/`, **159** touch neither `backtest-artifacts/` nor `scripts/backtest/`; revision 31 gave a floor of 140 and named two other boundaries, and one definition applied consistently beats three offered for comparison. The 21-commit gap to the artifact-only boundary is exactly the Gate 2 implementation commits. **(b)** The `.js` invariant filter is widened from commit SUBJECT to PATH. The two agree at every measurement taken, so **this corrects no undercount** - it makes the check test what the claim means, since a study commit typed `fix(backtest)` is caught by the path form and missed by the subject form. **(c)** A count over that population **rots by construction**: it grows with the commit that anchors the revision making the claim. Corrective entries 14 and 15 and the revision-31 ledger commit recorded 24, 25 and 26 respectively; all three were true when written, the invariant never moved, and quoting such a number now requires naming the anchor it was measured at. **This is the LAST revision before the review is commissioned**, under a stopping rule recorded in the preamble: section 10.2 refinements surfacing after this point ride to a revision AFTER commissioning, because 10.2 is outside the approval scope and its improvements change nothing a reviewer reads or approves |
 | Revision 30 → 31 | **not a review round** | 2026-08-05 | Revision 30 was anchored at `eda85eb` and accumulated **no approvals**, so nothing lapsed. **NO RULING CHANGED, no classification changed, and SECTIONS 3-8 ARE UNTOUCHED** - the whole revision lands in sections 10.2, 11.2, this table, and the preamble. Five corrections, all of one family: **a claim or an instrument that measures something ADJACENT to what it asserts.** (1) Section 10.2 gains an **EIGHTH class - a closed-form correction to an unversioned claim rots again**: section 11.2's currency bullet read "extended at every revision through 27", which was *itself* revision 27's repair of a five-revisions-stale predecessor and had gone stale by three, sitting inside a bracketed note explaining that the predecessor "stopped five revisions short". The rule is to DELETE the endpoint, since "current as of the anchored bytes" is self-verifying and cannot rot. (2) The same treatment for section 11.2's two `14-21` bounds, whose heading already fixes the covered range at 1-13. (3) Section 11.2's preamble bullet pointed at "the revision-21 paragraph", which **does not exist** - the preamble was rewritten across revisions 27-30 and no paragraph stating what revision 21 changed survives; a reader following this document's own instruction for the rounds-14-onward account was sent to absent text, so the reference is made structural rather than by title. (4) Section 10.2 gains a **NINTH class - range standing in for authorship**: the confinement diff `c04d6b1..HEAD -- scripts/backtest server` returns 0 files and is offered for "the document revisions touched no code", but it isolates by range and path while the claim is about authorship, and those coincide only while the range holds one party's commits. Commit `972c53e`, an unrelated 17-file client feature, entered the range and the check returned the same 0 - **a check whose validity rests on a property it does not test reports the same answer before and after that property fails.** (5) **The SEVENTH class fired again inside the revision that recorded it**: revision 30 specified the confinement check and repaired revision 29's preamble while shipping its own status line as **"revision 29"** at both sites, in published bytes. The confinement check saw the preamble change and could not see the number inside it go false, because a structural check reports which sections moved, never whether a sentence in one is still true |
 | Revision 29 → 30 | **not a review round** | 2026-08-05 | Revision 29 was anchored at `b7ccf186d3f6688079b42d26634bb028d91f173c` (SHA-256 `693ECFC8…`, blob `8bc45564…`) and accumulated **no approvals**, so nothing lapsed. **NO RULING CHANGED, no classification changed, and SECTIONS 3-8 ARE UNTOUCHED** - the whole revision lands in section 10.2, this table, and the preamble. It adds ONE thing: **the confinement check, specified**. Map every changed line to its nearest preceding heading at ANY level, and compare the resulting set against the set the revision claims, **as a set equality in both directions** - a subset check passes the actual defect, since revision 29's first confinement paragraph missed section 8.6.0 by never claiming it either way. The check is primary because it has no boundary to resolve and therefore none to get wrong; slicing stays secondary, confirming each claimed-identical section. It was validated retrospectively against `0762738..b7ccf186`, where it reproduces the known answer including the 8.6.0 the prose had missed, after a first implementation returned an empty set that a subset check would have accepted. `check-locators.js` stays BARRED until Gate 4's B3 re-cut; the specification is in force now, the script is not. **FORWARD CLAUSE FOR REVISION 29, whose row cannot be edited** (rows are left unedited so the record of what happened stays intact): **section 6.2 grew 27 lines to 74 at revision 29 and must be READ, NOT DIFFED.** "No ruling changed" and "section 6.2 is not byte-identical" are both true, and a reviewer should not have to combine two statements from two rows to reach that. The scope sentence documents a boundary that already held - all four thresholds in its table are component-(f) items, so no comparison entered or left the list |
 | Revision 28 → 29 | **not a review round** | 2026-08-05 | Revision 28 was anchored at `d0d0def` (SHA-256 `e6db125c…`, blob `d962ca8d…`) and accumulated **no approvals**, so nothing lapsed. **NO RULING CHANGED, AND THE MECHANICAL CATEGORY KEEPS ITS SOLE MEMBER.** Section 6.2 gains an explicit **component-(f) scope** and a stated boundary against section 8.2a; this is the reading section 6.1a already used, and it preserves section 6.1's classification because `3.80` is itself a component-(f) comparison and stays inside the universal, which is now checkable rather than open-ended. **Finding 4 STRENGTHENS the mechanical classification rather than threatening it**: the 6,528 is forced by prereg 9.7's sealed gates, so the count is determinate on sealed text alone and no longer depends on rule 4's row set at all - the propagation the commission predicted runs the other way. Sections changed: preamble, 3.2, 6.1, 6.2, 6.5, 8.6.0, 8.6.1, **8.6.3**, 8.6.4, **8.6.5**, 9, 10.2, 10. **Sections 4.6, 8.6.2 and 8.7 are byte-identical to `d0d0def`**, verified by mapping every changed line of the diff to its owning heading rather than by slicing (a slice that truncates identically on both sides reports IDENTICAL without proving it). **The FOURTH hazard class recurred twice at this revision and was caught only by that mapping**: the review's own finding-3 table filed the `loadCachedRows` sites at `:2757`/`:2766` under section **8.6.2**, and this row's first draft repeated it. They are in **8.6.3** (the cache-compatible allowlist), and the third site at `:2914` is in **8.6.5** (cache-persistence QA). **Section 8.6.2 was never touched at this revision.** Both misattributions resolved to real, adjacent, plausible sections, which is precisely why neither the locator probe nor a byte-identity proof can catch the class Section 10.2 records three further hazard classes: the **BARE locator** (10 of 15 in scope were never in the inventory; the probe has never caught one), the **self-referential count that rots** (section 9's "exactly once" and the quotation falsifying it entered in the same revision), and the **status line** (the preamble read "revision 26" across two re-anchors, in bytes a reviewer authenticated, outside the scope where they would have met it) |
@@ -3920,13 +3952,17 @@ over. [corrected before anchoring at revision 31]** `-- scripts/backtest
 server` returns 0 today while the unscoped form is false at 20 files, so
 path-scoping looks like the fix. **It is not.** `server/` is live application
 code - `account.service.js`, `adp.service.js`, `projection.service.js`,
-`scoring.service.js` and dozens more - and **at least 140 commits in this
-repository's history that do not belong to this study have touched it**
-(182 commits touch `server/`; 140 of them touch no path matching `backtest`.
-Two other defensible boundaries give 150 by commit subject and 159 by
-`scripts/backtest/` plus `backtest-artifacts/`. **The figure is stated with
-its method because the three disagree by nineteen**, and a bare count in this
-paragraph would be the class the paragraph is about). The
+`scoring.service.js` and dozens more - and **159 commits in this repository's
+history that do not belong to this study have touched it. [figure restated
+under one definition at revision 32]** Of 182 commits touching `server/`,
+159 touch neither `backtest-artifacts/` nor `scripts/backtest/`, which is
+this document's definition of a study commit. **The 21-commit difference from
+the 180 an artifact-only boundary yields is exactly the Gate 2
+implementation commits**, which live under `scripts/backtest/` and touch no
+artifact. Revision 31 stated a floor of 140 under a third boundary and named
+two others; **one definition, applied consistently, is better than three
+offered for comparison**, which invites a reader to average figures that
+answer different questions. The
 next one breaks the path-scoped form exactly as `972c53e` broke the unscoped
 one. **Replacing a range dependency with a path dependency is not a fix:
 both are preconditions nobody restates, and the second is no less likely to
@@ -3937,17 +3973,38 @@ that repair, which is the eighth class firing inside the ninth.
 asserts**: no commit belonging to this study changed code. That is invariant
 to what any other party lands, in any range, under any path.
 
+**Identify study commits by PATH, not by commit subject. [widened at revision
+32]**
+
 ```bash
 for C in $(git log --format='%H' c04d6b1..HEAD); do
-  case "$(git log -1 --format='%s' $C)" in docs\(backtest\)*)
-    git show --name-only --format='' $C | grep -q '\.js$' && echo "VIOLATION $C" ;;
-  esac
-done            # expect no output; 24 study commits examined at revision 31
+  git show --name-only --format='' "$C" \
+    | grep -qE '^(backtest-artifacts/|scripts/backtest/)' || continue
+  git show --name-only --format='' "$C" | grep -q '\.js$' && echo "VIOLATION $C"
+done            # expect no output
 ```
 
-**And wherever a number is quoted, state the population it was measured
-over**, because the number will not say it. "0" means nothing without
-"across 24 study commits".
+**Revision 31 filtered on a `docs(backtest)` subject prefix.** The two
+filters agree exactly at every measurement taken so far, with no difference
+between them, **so this is not a correction of a live undercount** - it is a
+filter that tests what the claim means. A study commit typed `fix(backtest)`,
+`feat(backtest)` or `test(backtest)` is caught by the path form and missed by
+the subject form, and the nineteen Gate 2 implementation commits are all
+typed that way. **A convention about commit messages is not the thing being
+asserted; touching the study's paths is.**
+
+**A COUNT OVER THIS POPULATION ROTS BY CONSTRUCTION, and quoting one without
+its anchor is the eighth class again. [recorded at revision 32]** The
+population grows with every study commit, including the commit that anchors
+the revision making the claim. Corrective entry 14 recorded "24 study
+commits, 0 touching `.js`"; entry 15 recorded 25; at the revision-31 ledger
+commit it was 26. **Every one of those was true when written and none was
+wrong** - the invariant never moved, the population did.
+
+**So wherever a number is quoted, state the population AND the anchor it was
+measured at.** "0" means nothing without "across N study commits in
+`c04d6b1..<anchor>`", and **N is not a property of the study; it is a
+property of when you looked.**
 
 **The eighth and ninth classes belong to one family with the fourth, fifth,
 sixth and seventh: a claim or an instrument that measures something ADJACENT
