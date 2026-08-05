@@ -2,7 +2,7 @@
 
 Study id: `pit-sweep-2024-2025` (same study as `PREREGISTRATION.md`).
 
-**Status: revision 25. NO APPROVALS ARE IN FORCE FOR THESE BYTES.**
+**Status: revision 26. NO APPROVALS ARE IN FORCE FOR THESE BYTES.**
 
 Revision 18 (SHA-256 `5A0D6E54B2D84494C5D39093C44204A79F32A4DD813F03909C1094339A52BCF8`)
 **was approved** - ledger rows 4, 5, and 6 - and Gate 2 implementation
@@ -43,7 +43,7 @@ and no copy survives (the file was untracked at the time). Revision 13's
 successor blob (`0661eafc95...`, committed as an immutable anchor) was
 submitted for fresh independent statistical review and **REJECTED** on four
 blockers. Revision 14 was that rejection's response; it was itself rejected,
-as was revision 15. **The current revision is 25**, and the full chain is
+as was revision 15. **The current revision is 26**, and the full chain is
 recorded below and in `APPROVAL_LEDGER.md`.
 
 **Revision 14 was also REJECTED**, on five blockers, at blob
@@ -87,8 +87,46 @@ fix:**
   silence was the absolute metrics, which are not deltas. 4.6 closes that
   and states the method for all of them.
 
-**Revision 25 changes no ruling at all. It corrects how revision 24
-CLASSIFIED and GROUNDED one**, and discloses that the contradiction the
+**Revision 26 changes no ruling and no classification. It hardens the TEST
+that section 0 uses to license one**, answering a statistical review of
+revision 25 that raised three findings and issued no approval.
+
+**No finding impugned the sole member or any ruling.** All three were
+durability defects: ways revision 25's three-leg test could admit a FUTURE
+contradiction it should exclude. Section 0's test now has **five legs**:
+
+- **Leg 2 absorbs the contested-set qualifier.** The sentence doing the real
+  work - a completeness declaration over a set whose membership is itself
+  disputed forces nothing - sat thirty-one lines below the legs, in the
+  non-member discussion, where a drafter applying the legs in order would
+  never reach it.
+- **Leg 4 adds UNIQUENESS.** Nothing previously required that only one
+  passage satisfy the legs. Two passages each governing and directing
+  different things would each have qualified as "the governing passage",
+  licensing a mechanical label on precisely the case the category exists to
+  prevent - because choosing between two decisions is itself a decision.
+- **Leg 5 adds PRIORITY AND IMMUTABILITY**, and is the one exploitable
+  deliberately rather than reached by error. Without it, a drafter owing a
+  substantive label could add a passage specifying the outcome they wanted,
+  observe that it contradicts the older rule, and withdraw the older rule as
+  a "mechanical correction" - **manufacturing the forcing condition inside
+  the same revision that invokes it**. Leg 5 requires the governing passage
+  to predate the correction, be unmodified by it, and have that identity
+  **shown rather than asserted**.
+
+**Both new legs are demonstrated for the sole member in section 0 itself**,
+by enumeration for leg 4 and by an eight-revision diff for leg 5. A revision
+that added a "shown, not asserted" requirement while asserting its own
+compliance would be self-refuting.
+
+Revision 26 also tightens the section 4.6 characterization - it does contain
+a universal, over a set section 8.7 defines, so leg 2 fails rather than the
+section being silent - and removes two stale INTERNAL line citations that
+revision 25 introduced and that its own edit invalidated. **The test is NOT
+claimed closed**; section 0 says so directly.
+
+**Revision 25 changed no ruling at all. It corrected how revision 24
+CLASSIFIED and GROUNDED one**, and disclosed that the contradiction the
 change resolves was present in bytes that were approved.
 
 The tie-rounded `catastrophicCapCouldFire` comparison stands exactly as
@@ -423,45 +461,126 @@ a cell reaches (only what gets disclosed about a verdict already reached
 the same way).
 
 **[mechanical correction, forced by an internal contradiction]** **[added at
-revision 25]** - a case where TWO passages of THIS DOCUMENT direct different
-things about the same object, and one of them governs on its own terms:
-it is the passage whose subject is that class of decision, it declares its
-scope complete, and it names the object explicitly. The correction adopts
-the governing passage, withdraws the other, and introduces no new content -
-the document had already decided, in a place its own reader would reach.
+revision 25, hardened at revision 26]** - a case where TWO passages of THIS
+DOCUMENT direct different things about the same object, and one of them
+governs on its own terms. The correction adopts the governing passage,
+withdraws the other, and introduces no new content - the document had
+already decided, in a place its own reader would reach.
+
+**A passage governs only if ALL FIVE of the following hold.** They are
+numbered so a reviewer can test them one at a time and name which one fails:
+
+1. **Subject.** Its subject is that class of decision - not a passage that
+   mentions the object while ruling on something else.
+2. **Completeness over an uncontested set.** It declares its scope complete,
+   **over a set whose membership is not itself the matter in dispute**. A
+   completeness declaration ranging over a set whose membership is exactly
+   what is disputed forces nothing, because it does not settle whether the
+   object is inside it.
+3. **Naming.** It names the object explicitly.
+4. **Uniqueness.** **No other passage of this document satisfies legs 1-3
+   for the same object.** Where two passages each govern on their own terms
+   and direct different things, the conflict is substantive by construction:
+   the document decided twice, not once, and choosing between two decisions
+   is itself a decision a reasonable reader could resolve differently.
+5. **Priority and immutability.** The governing passage **predates the
+   correction and is unmodified by it.** The revision making the correction
+   must not create, edit, or extend the passage it cites as governing; that
+   passage must be byte-identical to its state in the revision where the
+   contradiction arose, **and the identity must be SHOWN, not asserted.**
+
+**Leg 5 exists because without it this category is a general-purpose
+downgrade for any substantive change.** A drafter who wanted to replace rule
+A with rule B, and who would otherwise owe a substantive label and an
+approval, could in a single revision: add a passage whose subject is that
+class of decision, declare its list complete, and name the object,
+specifying B; observe that it now contradicts A; and withdraw A as a
+"mechanical correction, forced by an internal contradiction." At the
+post-edit bytes every other leg holds - **including leg 4, precisely because
+A was withdrawn** - and "the document had already decided" becomes true only
+in the sense that it decided four paragraphs earlier, in the same revision,
+for this purpose. **A document may not manufacture its own forcing
+condition.**
 
 **This category has exactly ONE member**, and one explicitly excluded case.
 The exclusion is recorded with it, because the edge is what makes the
 category safe to use.
 
 **MEMBER - revision 24's `catastrophicCapCouldFire` comparison form
-(section 6.1).** Section 6.2's subject is precisely which comparisons are
-normalized at a boundary; it declares its list "the complete list of such
-comparisons, and nothing else"; and that list names `3.80`, "the
-`catastrophicCapCouldFire` transparency line", by threshold and by field.
-All three legs hold, so section 6.2 governs and the bare directive is
-withdrawn. Corrected at revision 25.
+(section 6.1).** Section 6.2 governs. All five legs, in order:
+
+1. **Subject**: section 6.2's subject is precisely which comparisons are
+   normalized at a boundary. Its heading is "Normalize every boundary
+   operation" and it rules on nothing else.
+2. **Completeness over an uncontested set**: it declares its list "the
+   complete list of such comparisons, and nothing else". The set is
+   "comparisons against a frozen threshold", whose membership is not what
+   was disputed - the dispute was over the FORM of one comparison already
+   inside it, not over whether it was inside.
+3. **Naming**: the list names `3.80`, "the `catastrophicCapCouldFire`
+   transparency line", by threshold and by field.
+4. **Uniqueness - shown at revision 26 by enumeration.** Every completeness
+   declaration in this document was enumerated, and every mention of `3.80`
+   and of `catastrophicCapCouldFire` was inspected. The other completeness
+   declarations rule on different classes of decision - section 4.6.2's
+   surviving-week partition, section 5.1's generator pinning, section 8.2's
+   status truth table, section 8.6.1's single-leaf constants diff, section
+   8.7's scoring-profile assignment, section 3.4's runtime salt check - and
+   **none of them names `3.80` or `catastrophicCapCouldFire` at all.** The
+   only other passages carrying both are quotations OF section 6.2: the
+   block quote in section 6.1 and the disclosure table in section 10.3.
+   A quotation of the governing passage is not a second governing passage.
+5. **Priority and immutability - shown at revision 26 by diff.** Section 6.2
+   is **byte-identical across revisions 18, 19, 20, 21, 22, 23, 24, and
+   25**: 27 lines heading-through-section-end, 26 lines body with trailing
+   blanks stripped, **0 differing at every step**, with each version's
+   boundaries resolved independently. It therefore predates the
+   contradiction's discovery, predates revision 25's correction, and was not
+   touched by it. Revision 26 does not modify it either - see section 4 of
+   this revision's confinement report.
+
+Corrected at revision 25; the demonstrations for legs 4 and 5 were added at
+revision 26, when those legs were.
 
 **NOT A MEMBER - sections 4.6 and 8.7 at revision 21**, which contradicted
 each other about whether activation carried section 4.6's interval. Measured
 against the test above at the bytes where the contradiction existed
 (`ed5b001`):
 
-- **Section 4.6 fails two legs outright.** Its 66 lines contain no
-  completeness declaration of any kind, and do not mention activation at all
-  - the object was OMITTED from its enumeration, not named by it.
-- **Section 8.7 carries a completeness phrase but over a contested set.**
-  "Every interval in every family above is section 4.6's, without exception"
-  is a completeness claim, and rule 5 does name activation. But *whether
-  activation was one of the families above* was the dispute itself, and the
-  sentence is a one-line aside in a section whose subject is scoring
-  profiles, not interval methods.
+- **Section 4.6 fails legs 2 and 3.** Its 66 lines DO contain a universal -
+  "**Every** published interval in the descriptive families of section 8.7 -
+  absolute metrics, paired deltas, attribution composites, and the prereg
+  10.6 diagnostics alike - is:" - so it is not silent, and an earlier
+  draft of this passage overstated the case by saying it declared no
+  completeness "of any kind". **But a universal claim over a set that
+  ANOTHER section defines is not a declaration that one's own scope is
+  complete**: section 4.6 ranges over "the descriptive families of section
+  8.7" and leaves membership of that set to 8.7, which is the contested
+  question. Leg 2 fails. **Leg 3 fails outright and unambiguously**:
+  activation appears nowhere in those 66 lines - the object was OMITTED from
+  the enumeration, not named by it.
+- **Section 8.7 fails legs 1 and 2.** "Every interval in every family above
+  is section 4.6's, without exception" is a completeness claim, and rule 5
+  does name activation, so **leg 3 passes**. But *whether activation was one
+  of the families above* was the dispute itself, so the completeness ranges
+  over a contested set and **leg 2 fails**. And the sentence is a one-line
+  aside in a section whose subject is scoring-profile assignment, not
+  interval method, so **leg 1 fails** too.
 
-**A completeness declaration over a set whose membership is the thing in
-dispute forces nothing.** Neither passage governed on its own terms, so
-choosing between them genuinely was a decision a reasonable reader could
-resolve differently. **Revision 22 classified it as a substantive amendment,
-and that was correct.**
+**Note the symmetry, which is what makes this the instructive exclusion.**
+Each section deferred the contested set to the other: 4.6 ranged over "the
+families of section 8.7", and 8.7 ranged over "every family above". Two
+mutually-deferring universals settle nothing between them.
+
+This is leg 2 doing the work, which is why revision 26 moved the
+qualifier INTO leg 2 rather than leaving it here as commentary: **a
+completeness declaration over a set whose membership is the thing in dispute
+forces nothing.** Stated only in this discussion, it was thirty-one lines
+below the legs, where a drafter applying them in order would never reach it.
+
+Neither passage governed on its own terms, so choosing between them genuinely
+was a decision a reasonable reader could resolve differently. **Revision 22
+classified it as a substantive amendment, and that was correct.**
 
 **A downgrade from substantive to mechanical makes a revision easier to
 approve, so the bar is the forcing condition, not convenience.** The label
@@ -471,6 +590,21 @@ other way, the forcing condition fails and the change is substantive.
 Nothing here licenses reclassifying a decision merely because one reading
 seems better argued - and the excluded case above is the worked example of a
 contradiction that did NOT qualify.
+
+**This test is NOT claimed to be closed [revision 26].** Revision 25 stated
+it in three legs. A review of revision 25 found three ways those three legs
+could be satisfied by a contradiction the category should not admit -
+two passages both governing, a completeness declaration over a contested
+set, and a passage manufactured by the correction itself - and revision 26
+closes all three by adding legs 4 and 5 and by folding the contested-set
+qualifier into leg 2. A fourth such shape was searched for and not found.
+
+**That is "we looked and did not find one", which is exactly the evidence
+that was available before the third was found.** No claim is made here that
+five legs are sufficient, and a future reviewer should treat the absence of a
+sixth as unproven rather than settled. If the test is ever relied on for a
+second member, the right question is not "does it pass the five legs" alone
+but also "what would a drafter who wanted the wrong answer do with them."
 
 ---
 
@@ -507,21 +641,31 @@ Gate 3 verification (including the independent implementation review), and
 all four approvals are recorded, in `APPROVAL_LEDGER.md`, against the
 SAME approved revision of this document.
 
-**Authorization state as of revision 25: NOTHING IS AUTHORIZED.** Zero of
+**Authorization state as of revision 26: NOTHING IS AUTHORIZED.** Zero of
 the four approvals are in force against THESE bytes. Revision 18 held three
 (ledger rows 4-6) and Gate 2 implementation proceeded under row 6; every
 revision since has superseded those bytes, so all three lapse and must be
-re-issued at the hash of the current anchor. Revisions 19 through 24 each
+re-issued at the hash of the current anchor. Revisions 19 through 25 each
 accumulated no approvals, so no supersession since has lapsed anything -
-including revision 23 and revision 24, each of which drew a round that
+including revisions 23, 24, and 25, each of which drew a round that
 **raised findings and issued no approval**.
-**Revision 25 awaits all three fresh approvals**: its own independent
+**Revision 26 awaits all three fresh approvals**: its own independent
 statistical review (sections 3-8, which is where sections 4.6, 6.1, 6.2, and
 8.7 sit) and, if that issues, the two user attestations (the S3 deviation,
 unchanged in substance from revision 18, and the remainder). **Section 10.3
 is required reading before any of the three**: it discloses that the bytes
 approved as rows 4-6 contained an internal contradiction between sections
-6.1 and 6.2 that six subsequent revisions did not catch. **Further Gate 2 implementation work
+6.1 and 6.2 that six subsequent revisions did not catch.
+
+**One scope asymmetry the approver should know about, because no approval
+currently reaches it.** Section 0's classification test - hardened to five
+legs at revision 26 - sits OUTSIDE sections 3-8, which is the independent
+statistical review's scope. The label it licenses sits INSIDE that scope, at
+section 6.1. So the review can examine whether the label was correctly
+applied but not whether the test licensing it is sound. This document does
+not resolve that; it records it, because the remainder attestation's scope is
+the approver's decision and this is the sharpest instance of what turns on
+it. **Further Gate 2 implementation work
 is NOT currently authorized** - implementation is paused at the point
 revision 19 described and every revision since restates - and candidate-cell
 execution is separately and additionally gated on the fourth approval (the
@@ -1346,14 +1490,14 @@ tie-rounded form**, and states its grounds at their real strength rather
 than overstating them.
 
 **SECTION 6.2 OF THIS DOCUMENT ALREADY COMPELS THE TIE-ROUNDED FORM, AND
-NAMES `3.80` EXPLICITLY.** Its opening rule (lines 1424-1428) reads:
+NAMES `3.80` EXPLICITLY.** Its opening rule reads:
 
 > **Every comparison - `<`, `<=`, `>`, `>=`, and equality - against a frozen
 > threshold applies `roundToTie` (ten-decimal, prereg 6.6) to BOTH operands
 > before the comparison**, not just one ... The complete list of such
 > comparisons, and nothing else:
 
-and the table's third row (line 1434) is:
+and the third row of the table immediately following it is:
 
 > | `3.80` | the `catastrophicCapCouldFire` transparency line | disclosure only |
 
@@ -2902,6 +3046,8 @@ intact.
 | Revision 21 → 22 | **not a review round** | 2026-08-04 | Revision 21 was anchored at `ed5b001496a5ffcf1338a431ea4a177b75ce79b4` (SHA-256 `DB9971B8385D17B6039ADF5DF9F4B6EAAACB26607681B80EFE55230EAA0A9E01`, blob `94ae4b746a6a964adf407f3160f30e7a2e774eb4`) and accumulated **no approvals**, so nothing lapsed. **Revision 22 is the first revision since 18 to change a RULING** — sections 1, 4.6, 8.6.1, 8.6.2, and 8.7 all carry normative changes, so the byte-identity shortcut that applied to revisions 20 and 21 does NOT apply here and a reviewer must re-read those sections rather than diffing them. Four of the findings answered originate in assistant-authored text (recorded below), which is why Source A cannot carry review standing on its own |
 | Revision 22 → 23 | **not a review round** | 2026-08-04 | Revision 22 was anchored at `3bac26345ad7d912bae9f0080865dd62b3e9b669` (SHA-256 `B835B5982FA0573777F47285855DA445E765DFAB1526C546FE098D4EE3065C44`, blob `9b452737b523c11ddd1c2c682aed04abaa3901be`) and accumulated **no approvals**, so nothing lapsed. A review round against it found four pieces of false or self-contradictory scaffolding beneath conclusions that all survive: section 4.6.1's "eight of the thirteen" (e2) inequalities for 2024, which is FOUR; rule 4's "NOT the eight-cell factorial grid," contradicted by the same rule nine lines later and by section 4.6.2; section 4.6.1's unqualified both-seasons claim, which rule 4's 2025-only family contradicts without any deferral clause; and two unsupported citations in section 4.6.4 - whole-week undefinedness attributed to prereg 6.6, which is "Null and tie conventions (global)" and says no such thing, and a rho total-ties rule that appears nowhere in the preregistration. **Addressed as revision 23. NO RULING CHANGED**, so unlike the 21 to 22 step the byte-identity check IS available: sections 4.6.2, 4.6.3, and all five of section 8.7's rules are byte-identical to `3bac263` |
 | Statistical review of revision 23 | **NO APPROVAL ISSUED** | 2026-08-04 | Reviewed revision 23 at anchor `3939a278e6c23a7a82298149ba8e573c42866362` (SHA-256 `9222E1F31F71E95DEB29F2DCBB14644C92A2BF424092B8027BB85F0DD5C8F649`, blob `a52c8cfaafae6c444306d5895ad517cf7ec008f3`). **Raised findings and issued no approval**; per the convention R1-R5 established, a round that issues no approval warrants no row in `APPROVAL_LEDGER.md`, and none was written. Revision 23 accumulated **no approvals**, so nothing lapsed when revision 24 superseded it. Three rounds of adversarial reading produced **no finding against any ruling** - every defect was in the scaffolding beneath them. Findings answered: four satisfied directives still written as pending (section 4.4 items 1-2, section 6.1's constants and evaluability guard); a present-tense endorsement in section 8.6.0 of `assertControlBitIdentity` as implementing "exactly this comparison," four lines above the bullet forbidding that exact use; ten stale `file.js:NNN` locators; and four defects in section 10.2's own locator inventory. **Addressed as revision 24** |
+| Statistical review of revision 25 | **NO APPROVAL ISSUED** | 2026-08-05 | Reviewed revision 25 at anchor `7c5aa846a858e92668d3be9c1633fdac6b3bc776` (SHA-256 `57F7C4F0E39E1141B8CAFDBAB74BBF1C6F6DE4F5ACFB2BC21C64F3CEF22EE7D3`, blob `f5c96136bcaf3f95199e9275ca8b61f5371cfe64`). **Raised three findings and issued no approval**; per the R1-R5 convention a round issuing no approval warrants no ledger row, and none was written. **No finding impugned the category's sole member or any ruling** - all three were DURABILITY defects in section 0's new three-leg test, each a way the test could admit a FUTURE contradiction it should exclude: (i) nothing required that only ONE passage satisfy the legs, so two passages each governing and directing different things would each qualify; (ii) the contested-set qualifier that does the real work sat 31 lines below the legs, in the non-member discussion, where a drafter applying them in order would never reach it; (iii) no leg tested WHEN the governing passage came to exist, so a drafter could add a passage, observe the contradiction it created, and withdraw the older rule as "mechanical" - manufacturing the forcing condition. **Addressed as revision 26** |
+| Revision 25 → 26 | **not a review round** | 2026-08-05 | Revision 25 was anchored at `7c5aa846a858e92668d3be9c1633fdac6b3bc776` (SHA-256 `57F7C4F0…`, blob `f5c96136…`) and accumulated **no approvals**, so nothing lapsed. **NO RULING CHANGED, and the category's sole member keeps its classification** - section 6.1's comparison form remains `[mechanical correction, forced by an internal contradiction]`. Section 0's test goes from three legs to five: leg 2 absorbs the contested-set qualifier, leg 4 adds uniqueness, leg 5 adds priority-and-immutability with identity to be SHOWN not asserted. Both new legs are demonstrated for the sole member in section 0 itself, since leg 5's own text forbids asserting compliance. Also: the section 4.6 characterization is tightened (it DOES contain a universal, over a set section 8.7 defines, so leg 2 fails rather than the section being silent), and two stale INTERNAL line citations introduced by revision 25 are removed, with the hazard recorded in section 10.2. **Byte-identity per region**: sections 4.6, 8.7, 6.1a and **6.2** are byte-identical to `7c5aa84`; sections 0 and 6.1 changed and must be read |
 | Findings round against revision 24 | **NO APPROVAL ISSUED** | 2026-08-04 | Reviewed revision 24 at anchor `227c2e0` (SHA-256 `475ED9CA…`). **Raised findings, issued no approval**; no ledger row was written, per the convention R1-R5 established. One finding is substantive and is disclosed in section 10.3: revision 24's new section 6.1 amendment was **misclassified and misgrounded**, because section 6.2 of this document already compelled the tie-rounded `catastrophicCapCouldFire` comparison and named `3.80` in a list declared complete. **Addressed as revision 25**, which reclassifies the change, regrounds it on section 6.2, adds the missing taxonomy category to section 0, and makes the disclosure in 10.3 |
 | Revision 24 → 25 | **not a review round** | 2026-08-04 | Revision 24 was anchored at `227c2e096934c22a423f7470be44f09b53d3c82f` (SHA-256 `475ED9CADC1E0A094DCC34BF86130375F2C8391FE4B56DDF00C346B91C786C7D`, blob `a89da3af5384b008869d9b57aa9a995ca7cc0393`) and accumulated **no approvals**, so nothing lapsed. **NO RULING CHANGED IN SUBSTANCE** - the tie-rounded comparison form stands exactly as revision 24 adopted it; what changed is its CLASSIFICATION (substantive prospective amendment → mechanical correction forced by an internal contradiction), its GROUNDS (prereg 6.6 → this document's own section 6.2), and the disclosure that the contradiction it resolves was present in approved bytes. Sections changed: preamble, 0, 6.1, 10. **Sections 4.6, 8.7, 5, 6.1a, and 6.2 are byte-identical to `227c2e0`** - 6.2 in particular is untouched, since revision 25 adopts what it already said rather than editing it |
 | Revision 23 → 24 | **not a review round** | 2026-08-04 | **NO RULING CHANGED.** Byte-identity is available **PER REGION, not document-wide** - this step is neither of the two regimes the ledger's earlier entries established. Sections 4.6 (all four items and all four subsections) and 8.7 (all five rules, including rule 4's row set and cell-scope paragraph and rule 5's activation pinning) are byte-identical to `3939a27` and may be diffed. Sections 4.4, 6.1, 8.6.0, 8.6.2, 10.2, 11.2, 1, and the preamble all changed and must be read. **Section 6.1 additionally carries a NEW substantive amendment** - the `catastrophicCapCouldFire` comparison form - which no diff against revision 23 can shortcut. A reader who carries either earlier entry's regime forward gets the wrong answer for half this document. **Sequencing**: revision 24 had to anchor BEFORE any approval was commissioned. That constraint does not arise from the amendment - section 6 was always inside the statistical review's sections 3-8 scope, and the status blocks change section 6's bytes under any reading, so the hash moves either way. What the amendment changes is the COST of getting the order wrong: a status-block-only revision would have let a prior approval be re-issued against the new hash after a byte-identity check, whereas a new substantive amendment inside the reviewer's own scope requires a fresh review of text they have never seen |
@@ -2941,6 +3087,27 @@ copy in section 8.6.1. Hand-maintained; keep it small.
 Dropped as a false positive: "do not yet compare them" elsewhere in section 8
 is a step-ordering instruction inside an algorithm, not an assertion about
 code, and no code change can falsify it.
+
+**INTERNAL line citations to THIS document are a distinct hazard, and
+revision 25 introduced two [recorded at revision 26].** Revision 25 wrote
+"Its opening rule (lines 1424-1428) reads" and "the table's third row (line
+1434)" in section 6.1, citing section 6.2 by line. Both were correct against
+revision 24's numbering **and were invalidated by the very edit that wrote
+them**, because that edit inserted text above section 6.2 and pushed it from
+line 1422 to 1558. At revision 25 the cited range landed inside section 6.1a,
+an unrelated section - a citation resolving to real, plausible, wrong text,
+which is the same failure as `arms.js:213` but internal to this file.
+
+**What separates these from the safe internal citations**: section 10.3's
+disclosure table cites "section 6.2, lines 845-847" and "section 6.1, line
+697", and those remain correct, because each is **qualified by the revision
+it is against** - the table's own column header is "where, in revision 18". A
+line citation that names its version is a historical fact and cannot rot. **An
+unqualified line citation to "this document" rots at every revision, including
+the one that writes it**, since a document cannot know its own final line
+numbers while it is being edited. Revision 26 removes both unqualified
+citations rather than repairing them: the section number plus the quoted text
+locates the passage without coordinates that expire.
 
 **A LOCATOR check is mechanically automatable and should run on every
 re-anchor**: extract every `file.js:NNN` citation in this document and assert
