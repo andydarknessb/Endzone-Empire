@@ -2,7 +2,7 @@
 
 Study id: `pit-sweep-2024-2025` (same study as `PREREGISTRATION.md`).
 
-**Status: revision 24. NO APPROVALS ARE IN FORCE FOR THESE BYTES.**
+**Status: revision 25. NO APPROVALS ARE IN FORCE FOR THESE BYTES.**
 
 Revision 18 (SHA-256 `5A0D6E54B2D84494C5D39093C44204A79F32A4DD813F03909C1094339A52BCF8`)
 **was approved** - ledger rows 4, 5, and 6 - and Gate 2 implementation
@@ -43,7 +43,7 @@ and no copy survives (the file was untracked at the time). Revision 13's
 successor blob (`0661eafc95...`, committed as an immutable anchor) was
 submitted for fresh independent statistical review and **REJECTED** on four
 blockers. Revision 14 was that rejection's response; it was itself rejected,
-as was revision 15. **The current revision is 24**, and the full chain is
+as was revision 15. **The current revision is 25**, and the full chain is
 recorded below and in `APPROVAL_LEDGER.md`.
 
 **Revision 14 was also REJECTED**, on five blockers, at blob
@@ -87,7 +87,48 @@ fix:**
   silence was the absolute metrics, which are not deltas. 4.6 closes that
   and states the method for all of them.
 
-**Revision 24 changes no existing ruling and adds one new one.** It answers
+**Revision 25 changes no ruling at all. It corrects how revision 24
+CLASSIFIED and GROUNDED one**, and discloses that the contradiction the
+change resolves was present in bytes that were approved.
+
+The tie-rounded `catastrophicCapCouldFire` comparison stands exactly as
+revision 24 adopted it. What was wrong was the reasoning around it:
+
+- **Section 6.2 of this document already compelled that form**, and names
+  `3.80` in a table declared to be "the complete list of such comparisons,
+  and nothing else." Revision 24 searched the PREREGISTRATION for authority,
+  found prereg 6.6 reaching the comparison only at its boundary, concluded
+  the question was open, and labeled the resolution a substantive
+  prospective amendment. It also cited section 6.2 in its own supporting
+  prose **without opening it**.
+- **The label is therefore wrong by section 0's own test.** A substantive
+  amendment is "a decision a reasonable reader could resolve differently"; a
+  reader who reaches section 6.2 cannot. Revision 25 reclassifies it as a
+  **[mechanical correction, forced by an internal contradiction]** and
+  regrounds it on section 6.2, citing the governing lines.
+- **Section 0 gains that category**, which did not exist. Its absence is why
+  the change had no honest label available. **The category has exactly one
+  member**, and section 0 records one explicitly excluded case alongside it -
+  sections 4.6 and 8.7 at revision 21, which was drafted here as a second
+  instance and then failed the category's own test, because section 4.6
+  declared no completeness and never named activation. Revision 22 was right
+  to call that one substantive. The non-member is kept because it draws the
+  edge, and answers a reviewer's first question about any downgrade.
+- **Section 10.3 discloses** that revision 18 - **approved 2026-08-03 as
+  ledger rows 4-6** - contained both section 6.2's rule naming `3.80` and
+  section 6.1's directive prescribing the opposite form, and that the
+  contradiction survived revisions 19 through 24 unnoted by any review
+  round, including the one that approved it. No verdict, status, or
+  published number is affected, and the implementation always followed
+  section 6.2; the harm was to reviewability.
+
+**A downgrade from substantive to mechanical makes a revision easier to
+approve.** Section 0's new category therefore states its forcing condition
+in the label itself, and section 6.1 states plainly why the downgrade is
+honest rather than convenient: the governing passage names the object, and a
+reader reaching it has no second reading available.
+
+**Revision 24 changed no existing ruling and added one new one.** It answered
 a statistical review of revision 23 that raised findings and issued no
 approval. Three rounds of adversarial reading produced **no finding against
 any ruling in this document**; every defect was in the scaffolding beneath
@@ -381,6 +422,56 @@ determines the corrected number, AND that number cannot change any verdict
 a cell reaches (only what gets disclosed about a verdict already reached
 the same way).
 
+**[mechanical correction, forced by an internal contradiction]** **[added at
+revision 25]** - a case where TWO passages of THIS DOCUMENT direct different
+things about the same object, and one of them governs on its own terms:
+it is the passage whose subject is that class of decision, it declares its
+scope complete, and it names the object explicitly. The correction adopts
+the governing passage, withdraws the other, and introduces no new content -
+the document had already decided, in a place its own reader would reach.
+
+**This category has exactly ONE member**, and one explicitly excluded case.
+The exclusion is recorded with it, because the edge is what makes the
+category safe to use.
+
+**MEMBER - revision 24's `catastrophicCapCouldFire` comparison form
+(section 6.1).** Section 6.2's subject is precisely which comparisons are
+normalized at a boundary; it declares its list "the complete list of such
+comparisons, and nothing else"; and that list names `3.80`, "the
+`catastrophicCapCouldFire` transparency line", by threshold and by field.
+All three legs hold, so section 6.2 governs and the bare directive is
+withdrawn. Corrected at revision 25.
+
+**NOT A MEMBER - sections 4.6 and 8.7 at revision 21**, which contradicted
+each other about whether activation carried section 4.6's interval. Measured
+against the test above at the bytes where the contradiction existed
+(`ed5b001`):
+
+- **Section 4.6 fails two legs outright.** Its 66 lines contain no
+  completeness declaration of any kind, and do not mention activation at all
+  - the object was OMITTED from its enumeration, not named by it.
+- **Section 8.7 carries a completeness phrase but over a contested set.**
+  "Every interval in every family above is section 4.6's, without exception"
+  is a completeness claim, and rule 5 does name activation. But *whether
+  activation was one of the families above* was the dispute itself, and the
+  sentence is a one-line aside in a section whose subject is scoring
+  profiles, not interval methods.
+
+**A completeness declaration over a set whose membership is the thing in
+dispute forces nothing.** Neither passage governed on its own terms, so
+choosing between them genuinely was a decision a reasonable reader could
+resolve differently. **Revision 22 classified it as a substantive amendment,
+and that was correct.**
+
+**A downgrade from substantive to mechanical makes a revision easier to
+approve, so the bar is the forcing condition, not convenience.** The label
+names that condition so a reviewer can test it directly: if a reasonable
+reader could reach the governing passage and still resolve the question the
+other way, the forcing condition fails and the change is substantive.
+Nothing here licenses reclassifying a decision merely because one reading
+seems better argued - and the excluded case above is the worked example of a
+contradiction that did NOT qualify.
+
 ---
 
 ## 1. Gate 0 - hold
@@ -416,19 +507,21 @@ Gate 3 verification (including the independent implementation review), and
 all four approvals are recorded, in `APPROVAL_LEDGER.md`, against the
 SAME approved revision of this document.
 
-**Authorization state as of revision 24: NOTHING IS AUTHORIZED.** Zero of
+**Authorization state as of revision 25: NOTHING IS AUTHORIZED.** Zero of
 the four approvals are in force against THESE bytes. Revision 18 held three
 (ledger rows 4-6) and Gate 2 implementation proceeded under row 6; every
 revision since has superseded those bytes, so all three lapse and must be
-re-issued at the hash of the current anchor. Revisions 19 through 23 each
+re-issued at the hash of the current anchor. Revisions 19 through 24 each
 accumulated no approvals, so no supersession since has lapsed anything -
-**including revision 23, whose statistical review raised findings and issued
-no approval**, and which is the round revision 24 answers.
-**Revision 24 awaits all three fresh approvals**: its own independent
-statistical review (sections 3-8, which is where sections 4.6 and 8.7 sit,
-and where revision 24's new amendment in section 6.1 sits) and, if that
-issues, the two user attestations (the S3 deviation, unchanged in substance
-from revision 18, and the remainder). **Further Gate 2 implementation work
+including revision 23 and revision 24, each of which drew a round that
+**raised findings and issued no approval**.
+**Revision 25 awaits all three fresh approvals**: its own independent
+statistical review (sections 3-8, which is where sections 4.6, 6.1, 6.2, and
+8.7 sit) and, if that issues, the two user attestations (the S3 deviation,
+unchanged in substance from revision 18, and the remainder). **Section 10.3
+is required reading before any of the three**: it discloses that the bytes
+approved as rows 4-6 contained an internal contradiction between sections
+6.1 and 6.2 that six subsequent revisions did not catch. **Further Gate 2 implementation work
 is NOT currently authorized** - implementation is paused at the point
 revision 19 described and every revision since restates - and candidate-cell
 execution is separately and additionally gated on the fourth approval (the
@@ -1215,8 +1308,9 @@ directive from a pending one without reading the code.
 - **The `3.80` disclosure constant - MET.** `lib/arms.js:751` is
   `const CATASTROPHIC_CAP_COULD_FIRE_THRESHOLD = (CATASTROPHIC_CAP - 0.01)
   / MAX_EFFECT; // 3.80`, consumed by the comparison at `:891-892`. **The
-  FORM of that comparison differs from the text above**; it is settled
-  immediately below as a labeled amendment, not inside this status block.
+  FORM of that comparison differs from the text above**; section 6.2
+  governs it, and the correction is recorded immediately below rather than
+  inside this status block.
 - **The evaluability-guard rewrite - MET.** `lib/arms.js:924-938` builds the
   transformed weekly bounds, takes their median, and returns `unevaluable`
   when `roundToTie(medianWeeklyBound) <= roundToTie(DELTA_F)`. The comment
@@ -1236,7 +1330,13 @@ directive from a pending one without reading the code.
   operationalization of the same negative, and it does not exist either.
   Both remain owed by the Gate 2 implementation round.
 
-**The comparison FORM is amended** **[substantive prospective amendment]**.
+**The comparison FORM is corrected** **[mechanical correction, forced by an
+internal contradiction]**. **Revision 24 classified this as a substantive
+prospective amendment and grounded it on prereg 6.6. Both were wrong, and
+section 6.2 of THIS DOCUMENT is why** - see "How this was misclassified"
+below, which is retained rather than deleted because the misclassification
+is the finding.
+
 The directive above prescribes a BARE comparison,
 `Number(maxAbsBaseline) > (CATASTROPHIC_CAP - 0.01) / MAX_EFFECT`.
 `lib/arms.js:891-892` instead computes
@@ -1245,38 +1345,74 @@ which is tie-rounded on BOTH operands. **This document adopts the
 tie-rounded form**, and states its grounds at their real strength rather
 than overstating them.
 
-**Prereg 6.6 SUPPORTS the tie-rounded form; it does not COMPEL it.** Its
-fourth bullet fixes that "**Numeric ties** are decided on values rounded to
-10 decimal places," in a section headed "(global)" - and then names exactly
-one extension beyond tie decisions: "This same rounding defines a zero
-difference in the sign test of component (f)." `catastrophicCapCouldFire` is
-a strict `>`, not a tie test, so 6.6 reaches it only AT the boundary, where
-the comparison does become a tie decision - that is the support. But a
-sealed section that authorises one extension **explicitly** is evidence that
-a second extension needs its own authorisation, not evidence that it is
-already covered. The resolution is supplied HERE, by this document, and is
-submitted for approval as an amendment.
+**SECTION 6.2 OF THIS DOCUMENT ALREADY COMPELS THE TIE-ROUNDED FORM, AND
+NAMES `3.80` EXPLICITLY.** Its opening rule (lines 1424-1428) reads:
 
-**The bare form is available, and is rejected on the record.** The threshold
-itself is not the hazard: `(0.20 - 0.01) / 0.05` evaluates to exactly the
-double nearest `3.8`, so the derived constant and the literal `3.8` are the
-same value. The hazard is the OTHER operand. `maxAbsBaseline` is a maximum
-over computed per-week mean absolute baselines, so it carries summation-order
+> **Every comparison - `<`, `<=`, `>`, `>=`, and equality - against a frozen
+> threshold applies `roundToTie` (ten-decimal, prereg 6.6) to BOTH operands
+> before the comparison**, not just one ... The complete list of such
+> comparisons, and nothing else:
+
+and the table's third row (line 1434) is:
+
+> | `3.80` | the `catastrophicCapCouldFire` transparency line | disclosure only |
+
+That is the same comparison. It is not an analogy, an adjacent rule, or a
+principle requiring extension: section 6.2 enumerates the comparison by its
+threshold and by the name of the field it feeds, inside a list declared
+exhaustive. **The bare directive above and section 6.2 are in direct
+contradiction, and section 6.2 governs** - it is the section whose entire
+subject is which comparisons are normalized, it states its list is complete,
+and it names this one.
+
+**A reasonable reader who reaches section 6.2 cannot resolve this the other
+way.** That is the test section 0 sets for a substantive amendment, and this
+fails it. The tie-rounded form is what this document already required.
+
+**Why section 6.2's rule bites here, concretely.** The threshold is not the
+hazard: `(0.20 - 0.01) / 0.05` evaluates to exactly the double nearest
+`3.8`, so the derived constant and the literal are the same value. The
+hazard is the OTHER operand. `maxAbsBaseline` is a maximum over computed
+per-week mean absolute baselines, so it carries summation-order
 representation noise; a value one unit in the last place above `3.8` makes
-the bare comparison `true` and the tie-rounded comparison `false`. Under the
-bare form the disclosure would flip on a last-bit artifact of how the mean
-was accumulated - the exact condition prereg 6.6's ten-decimal rule exists to
-eliminate, and the condition section 6.2 already requires every boundary
-operation to be normalized against.
+the bare comparison `true` and the tie-rounded comparison `false`. That is
+exactly the misclassification section 6.2's opening sentence names - "a
+genuine boundary value ... misclassified by floating-point representation
+noise on either side" - which is why 6.2 requires BOTH operands rounded
+rather than only the threshold.
 
-**This cannot be deferred to the implementation round**, because the
-mutation tests at the end of this section mandate "the `3.80` disclosure
-comparison tested at its own boundary," and the two forms disagree precisely
-at that boundary. Until the form is settled, the mandated test has no
-determinate expected result. `backtestArms.test.js:506-518` already exercises
-that boundary under the tie-rounded form (`3.8` -> `false`, `3.81` ->
-`true`); **that is evidence of what the code does, not authority for what
-this document requires**, and it is cited here as the former only.
+**Prereg 6.6 corroborates but is not the ground, and revision 24 leaned on
+it wrongly.** 6.6's fourth bullet fixes ten-decimal rounding for tie
+decisions and names one extension (component (f)'s sign test).
+`catastrophicCapCouldFire` is a strict `>`, so 6.6 reaches it only at the
+boundary. Read alone, that supports the tie-rounded form without compelling
+it - which is what revision 24 concluded, and why it labeled the change
+substantive. **The error was searching the sealed text for authority without
+first asking what in this document already governed the comparison.** Section
+6.2 did, by name.
+
+**The mutation test at the end of this section always had a determinate
+expected result**; revision 24 said otherwise and that is withdrawn. It
+mandates "the `3.80` disclosure comparison tested at its own boundary," and
+section 6.2 fixes which form that boundary takes, so the expected result was
+determined from revision 18 onward. `backtestArms.test.js:506-518` exercises
+it under the tie-rounded form (`3.8` -> `false`, `3.81` -> `true`), and the
+implementation at `lib/arms.js:891-892` conforms to section 6.2. **The code
+was never non-conformant on this point** - the bare directive was.
+
+**How this was misclassified, retained because the misclassification is the
+finding [revision 25].** Revision 24 treated the comparison form as an open
+question, searched the PREREGISTRATION for authority, found only 6.6's
+partial reach, and concluded the document had to supply a resolution -
+labeling it a substantive prospective amendment and rejecting the bare form
+"on the record" as though it were a live option. It was not a live option;
+section 6.2 had excluded it since revision 18. Revision 24's own text even
+cited section 6.2 - "the condition section 6.2 already requires every
+boundary operation to be normalized against" - without opening it, which
+would have shown `3.80` named in its table. **The lesson is one step earlier
+than "open every section you cite": before concluding a question is
+unresolved, search for what already governs it.** A silence inferred from
+the sealed text is not a silence if this document has already spoken.
 
 **Required rounding-boundary mutation tests**: synthetic on/off medians
 whose independent `round2` roundings push in opposite directions at the
@@ -2766,6 +2902,8 @@ intact.
 | Revision 21 → 22 | **not a review round** | 2026-08-04 | Revision 21 was anchored at `ed5b001496a5ffcf1338a431ea4a177b75ce79b4` (SHA-256 `DB9971B8385D17B6039ADF5DF9F4B6EAAACB26607681B80EFE55230EAA0A9E01`, blob `94ae4b746a6a964adf407f3160f30e7a2e774eb4`) and accumulated **no approvals**, so nothing lapsed. **Revision 22 is the first revision since 18 to change a RULING** — sections 1, 4.6, 8.6.1, 8.6.2, and 8.7 all carry normative changes, so the byte-identity shortcut that applied to revisions 20 and 21 does NOT apply here and a reviewer must re-read those sections rather than diffing them. Four of the findings answered originate in assistant-authored text (recorded below), which is why Source A cannot carry review standing on its own |
 | Revision 22 → 23 | **not a review round** | 2026-08-04 | Revision 22 was anchored at `3bac26345ad7d912bae9f0080865dd62b3e9b669` (SHA-256 `B835B5982FA0573777F47285855DA445E765DFAB1526C546FE098D4EE3065C44`, blob `9b452737b523c11ddd1c2c682aed04abaa3901be`) and accumulated **no approvals**, so nothing lapsed. A review round against it found four pieces of false or self-contradictory scaffolding beneath conclusions that all survive: section 4.6.1's "eight of the thirteen" (e2) inequalities for 2024, which is FOUR; rule 4's "NOT the eight-cell factorial grid," contradicted by the same rule nine lines later and by section 4.6.2; section 4.6.1's unqualified both-seasons claim, which rule 4's 2025-only family contradicts without any deferral clause; and two unsupported citations in section 4.6.4 - whole-week undefinedness attributed to prereg 6.6, which is "Null and tie conventions (global)" and says no such thing, and a rho total-ties rule that appears nowhere in the preregistration. **Addressed as revision 23. NO RULING CHANGED**, so unlike the 21 to 22 step the byte-identity check IS available: sections 4.6.2, 4.6.3, and all five of section 8.7's rules are byte-identical to `3bac263` |
 | Statistical review of revision 23 | **NO APPROVAL ISSUED** | 2026-08-04 | Reviewed revision 23 at anchor `3939a278e6c23a7a82298149ba8e573c42866362` (SHA-256 `9222E1F31F71E95DEB29F2DCBB14644C92A2BF424092B8027BB85F0DD5C8F649`, blob `a52c8cfaafae6c444306d5895ad517cf7ec008f3`). **Raised findings and issued no approval**; per the convention R1-R5 established, a round that issues no approval warrants no row in `APPROVAL_LEDGER.md`, and none was written. Revision 23 accumulated **no approvals**, so nothing lapsed when revision 24 superseded it. Three rounds of adversarial reading produced **no finding against any ruling** - every defect was in the scaffolding beneath them. Findings answered: four satisfied directives still written as pending (section 4.4 items 1-2, section 6.1's constants and evaluability guard); a present-tense endorsement in section 8.6.0 of `assertControlBitIdentity` as implementing "exactly this comparison," four lines above the bullet forbidding that exact use; ten stale `file.js:NNN` locators; and four defects in section 10.2's own locator inventory. **Addressed as revision 24** |
+| Findings round against revision 24 | **NO APPROVAL ISSUED** | 2026-08-04 | Reviewed revision 24 at anchor `227c2e0` (SHA-256 `475ED9CA…`). **Raised findings, issued no approval**; no ledger row was written, per the convention R1-R5 established. One finding is substantive and is disclosed in section 10.3: revision 24's new section 6.1 amendment was **misclassified and misgrounded**, because section 6.2 of this document already compelled the tie-rounded `catastrophicCapCouldFire` comparison and named `3.80` in a list declared complete. **Addressed as revision 25**, which reclassifies the change, regrounds it on section 6.2, adds the missing taxonomy category to section 0, and makes the disclosure in 10.3 |
+| Revision 24 → 25 | **not a review round** | 2026-08-04 | Revision 24 was anchored at `227c2e096934c22a423f7470be44f09b53d3c82f` (SHA-256 `475ED9CADC1E0A094DCC34BF86130375F2C8391FE4B56DDF00C346B91C786C7D`, blob `a89da3af5384b008869d9b57aa9a995ca7cc0393`) and accumulated **no approvals**, so nothing lapsed. **NO RULING CHANGED IN SUBSTANCE** - the tie-rounded comparison form stands exactly as revision 24 adopted it; what changed is its CLASSIFICATION (substantive prospective amendment → mechanical correction forced by an internal contradiction), its GROUNDS (prereg 6.6 → this document's own section 6.2), and the disclosure that the contradiction it resolves was present in approved bytes. Sections changed: preamble, 0, 6.1, 10. **Sections 4.6, 8.7, 5, 6.1a, and 6.2 are byte-identical to `227c2e0`** - 6.2 in particular is untouched, since revision 25 adopts what it already said rather than editing it |
 | Revision 23 → 24 | **not a review round** | 2026-08-04 | **NO RULING CHANGED.** Byte-identity is available **PER REGION, not document-wide** - this step is neither of the two regimes the ledger's earlier entries established. Sections 4.6 (all four items and all four subsections) and 8.7 (all five rules, including rule 4's row set and cell-scope paragraph and rule 5's activation pinning) are byte-identical to `3939a27` and may be diffed. Sections 4.4, 6.1, 8.6.0, 8.6.2, 10.2, 11.2, 1, and the preamble all changed and must be read. **Section 6.1 additionally carries a NEW substantive amendment** - the `catastrophicCapCouldFire` comparison form - which no diff against revision 23 can shortcut. A reader who carries either earlier entry's regime forward gets the wrong answer for half this document. **Sequencing**: revision 24 had to anchor BEFORE any approval was commissioned. That constraint does not arise from the amendment - section 6 was always inside the statistical review's sections 3-8 scope, and the status blocks change section 6's bytes under any reading, so the hash moves either way. What the amendment changes is the COST of getting the order wrong: a status-block-only revision would have let a prior approval be re-issued against the new hash after a byte-identity check, whereas a new substantive amendment inside the reviewer's own scope requires a fresh review of text they have never seen |
 | **Independent implementation review** | **pending, strictly last, after Gate 2 code exists** | | scope, complete: the runtime salt-collision guard and its two-level unit/runtime split (section 3.4); the exact-trigger implementation defects, including the (f) no-finite-bound amendment label (section 4.4); the restored permutation-control definitions and aggregation (section 5); the rounding-boundary mutation tests and ten-decimal boundary normalization (section 6.1-6.2); the callback's per-receiver validation, exactly-once invocation, and exception propagation (section 6.5); the S3 non-estimable disclosure (section 7); the signed-boundary table and the exhaustive endpoint/component/cell/run truth table, including the (f)-unevaluable unification (sections 8.1-8.2); **activation's exact numerator/denominator (available && effect!==0, per-position including DEF, over eligible/non-neutral/known-orientation projections) and its precedence against `fail` (section 8.3)**; the restored cell-level ordering-inconclusive behavior and **Level-5 selection precedence, including the provably-unreachable winner-only branch (sections 8.4-8.5)**; **BOTH sealed identity assertions - the `usage-25 == control` bit-identity assertion (section 8.6.0: the Map-safe per-projection canonical-byte comparison and its named prohibition on passing a `Map` to `canonicalJson`, byte-equality with no allowlist and no tolerance, the explicitly-named non-Map run fields, its full player-week/salt scope, its pre-flight invocation point before the permutation control, its run-void disposition, and its seven mutation tests including the Map-serialization regression) and the `homeaway-on-stored` point-identity assertion** (section 8.6.1: its usage-25-only scope, the corrected `useStoredHistory` mechanism explanation, its single-leaf-difference guard), the complete fresh-vs-fresh allowlist (including `homeGames`/`awayGames`, `availability.activeProbability`, `role.pointsContribution`), the independently-frozen and explicitly-enumerated cache-compatible allowlist, **the ordered field-level comparator semantics with per-side type/finiteness validation running BEFORE any cross-side comparison, and raw-input duplicate detection running BEFORE any Map-building loop on both sides of every comparison**, and the descriptive-only cache-QA disposition (section 8.6) |
 
@@ -2890,6 +3028,57 @@ above, and it is a bound on *directive-shaped phrasings*, not on satisfied
 directives: nothing in this document forces a directive into any particular
 wording, so a requirement met and described in language neither this pattern
 nor a reader anticipated would appear in no count at all.
+
+### 10.3 DISCLOSURE: revision 18 was APPROVED carrying an internal contradiction **[added at revision 25]**
+
+**This is stated for the benefit of whoever issues the next approvals, and
+it is not a defect in any ruling.** It is a defect in how this document
+described one of its own rules for seven revisions.
+
+**The contradiction.** Revision 18 - SHA-256
+`5A0D6E54B2D84494C5D39093C44204A79F32A4DD813F03909C1094339A52BCF8`, anchored
+at `85842e70a19b14fb6c5fb8cdfb0bca6a7a367774`, **APPROVED 2026-08-03 as
+ledger rows 4-6** - contained both of the following:
+
+| where, in revision 18 | what it said |
+| --- | --- |
+| section 6.2, lines 845-847 | every comparison against a frozen threshold "applies `roundToTie` ... to BOTH operands", in "the complete list of such comparisons, and nothing else" |
+| section 6.2's table, line 857 | that list includes `3.80`, "the `catastrophicCapCouldFire` transparency line" |
+| section 6.1, line 697 | the Gate 2 directive prescribing the BARE form: `Number(maxAbsBaseline) > (CATASTROPHIC_CAP - 0.01) / MAX_EFFECT` |
+
+Section 6.2 named the comparison and required both operands rounded; section
+6.1 directed the opposite for the same comparison, four hundred lines
+earlier. **Both were inside the approved bytes**, and the contradiction
+survived revisions 19, 20, 21, 22, 23, and 24 without being noted by any
+review round, including the one that approved revision 18.
+
+**What it did and did not affect.** No verdict, cell status, run status, or
+selection depends on `catastrophicCapCouldFire` - section 6.1 states it is
+disclosure-only and section 6.2's table classifies it as such. The
+implementation at `lib/arms.js:891-892` follows section 6.2, so **no code
+was ever non-conformant on this point and no published number changes**. The
+harm was to reviewability: a reader could follow either passage and believe
+the document required something the other forbade.
+
+**How it was found, and how it was nearly missed again.** Revision 24 treated
+the comparison form as an unresolved question, searched the preregistration
+for authority, found prereg 6.6 reaching it only partially, and labeled the
+resolution a substantive prospective amendment - while citing section 6.2 in
+its own supporting text without opening it. Revision 25 corrects the
+classification and the grounds, and section 0 now carries the category whose
+absence left no honest label available.
+
+**No general rule is drawn from this.** An earlier draft of this section
+asserted one - that the lesson generalizes to "before concluding a question
+is unresolved, search for what already governs it" - and cited sections 4.6
+and 8.7 at revision 21 as a second instance of the same shape. **That
+precedent does not hold**: measured against section 0's forcing test at the
+bytes where it existed, section 4.6 declared no completeness and never
+named activation, so neither passage governed and revision 22's substantive
+classification was correct. With the precedent withdrawn, the proposed rule
+rests on a single case. It may well be sound; it is not yet evidenced, and
+this document has repeatedly found confident generalizations from thin
+evidence to be its weakest material. What is recorded here is the instance.
 
 ---
 
