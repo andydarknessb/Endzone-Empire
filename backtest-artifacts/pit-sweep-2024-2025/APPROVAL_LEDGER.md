@@ -902,3 +902,151 @@ section 10. `scripts/backtest/` and `server/` remain byte-identical to
 **(10) Gate 0 is unchanged and still in force**, the fourth approval remains
 strictly last, single-use, and not self-performable, and no row is pre-filled
 for any approval that has not issued.
+
+---
+
+### CORRECTIVE ENTRY 10 — appended 2026-08-05
+
+**This entry creates NO approval row.** It re-points the anchor recorded by
+corrective entry 9. **Entries 1-9 are not edited.**
+
+**(1) The anchor has moved again.**
+
+| | |
+| --- | --- |
+| SHA-256 | `668BB9A7118A6A56D8FC18FD7F4CFD869C88152F892B8A429571CFDFE915FDA0` |
+| git blob | `ee9c915f57de8569e741c65a860d0b86d96719ef` |
+| anchor commit | `51c0458abf36974966d065d2e384af9614035814` |
+
+**(2) Nothing lapsed.** The superseded anchor (`7c5aa84…` / `57F7C4F0…`)
+accumulated no approvals. It drew a statistical review that **raised three
+findings and issued no approval**; per the convention R1-R5 established, no
+row was written. Rows 4-6 remain lapsed against their own superseded bytes,
+and **three fresh approvals are still required** against the hash in (1).
+**The disclosure recorded as item (3) of corrective entry 8 stands
+unchanged** and still applies to rows 4-6.
+
+**(3) NO RULING CHANGED, AND NO CLASSIFICATION CHANGED.** This is the first
+re-anchor in this sequence where that is true of both. Revision 26 changes
+the TEST that section 0 uses to license a classification; it does not apply
+it to anything new. The label counts confirm it, under both patterns:
+
+| pattern | rev 25 | rev 26 |
+| --- | ---: | ---: |
+| `**[substantive prospective amendment]**`, bracketed | 14 | 14 |
+| `**[mechanical correction, forced by an internal contradiction]**`, bracketed | 2 | 2 |
+| `substantive prospective amendment`, any mention including prose | 22 | 22 |
+
+**(4) What the three findings were.** All were **durability defects** — ways
+revision 25's three-leg test could admit a FUTURE contradiction it should
+exclude. **None impugned the category's sole member**, whose classification
+stands.
+
+- **Uniqueness was not required.** The test said "one of them governs" and
+  then gave three legs, but nothing required that only ONE passage satisfy
+  them. Two passages each governing and directing different things would
+  each independently qualify as "the governing passage", so a drafter could
+  adopt either and label the result mechanical — licensing a mechanical
+  label on exactly the case the category exists to prevent, since choosing
+  between two decisions is itself a decision.
+- **The contested-set qualifier was not in a leg.** The sentence doing the
+  real work — a completeness declaration over a set whose membership is
+  itself disputed forces nothing — sat thirty-one lines below the legs, in
+  the non-member discussion. A drafter applying the three legs in order
+  would never reach it, and leg 2 passed on its literal terms without it.
+- **No leg tested WHEN the governing passage came to exist.** This is the
+  one exploitable deliberately rather than reached by error.
+
+**(5) Leg 5 and the manufactured-authority attack it closes.** Without a
+temporal leg, a drafter owing a substantive label and an approval could, in
+a single revision: add a passage whose subject is that class of decision,
+declare its list complete, and name the object, specifying the outcome they
+wanted; observe that it now contradicts the older rule; and withdraw the
+older rule as a "mechanical correction, forced by an internal
+contradiction." At the post-edit bytes every other leg holds — **including
+the new uniqueness leg, precisely because the older rule was withdrawn** —
+and "the document had already decided" becomes true only in the sense that
+it decided four paragraphs earlier, in the same revision, for this purpose.
+
+Leg 5 requires the governing passage to **predate the correction, be
+unmodified by it, and have that identity SHOWN rather than asserted.**
+
+**(6) The two new legs are DEMONSTRATED for the sole member, in section 0
+itself.** A revision that added a "shown, not asserted" requirement while
+asserting its own compliance would be self-refuting.
+
+- **Leg 4, by enumeration.** Every completeness declaration in the document
+  was enumerated and every mention of `3.80` and `catastrophicCapCouldFire`
+  inspected. The other completeness declarations rule on different classes
+  of decision — section 4.6.2's surviving-week partition, 5.1's generator
+  pinning, 8.2's status truth table, 8.6.1's single-leaf constants diff,
+  8.7's scoring-profile assignment, 3.4's runtime salt check — and **none
+  names either.** The only other passages carrying both are quotations OF
+  section 6.2; a quotation of the governing passage is not a second
+  governing passage.
+- **Leg 5, by diff across eight anchors.** Section 6.2 is byte-identical at
+  revisions 18, 19, 20, 21, 22, 23, 24, and 25 — **0 differing at every
+  step**, each version's boundaries resolved independently, 27 lines
+  heading-through-section-end and 26 lines body with trailing blanks
+  stripped. **Revision 26 does not modify it either**, which is checkable
+  against `7c5aa84` and is what makes leg 5 satisfied by the very revision
+  that introduces it.
+
+**(7) A stale-citation hazard this document had not recorded.** Revision 25
+introduced two INTERNAL line citations in section 6.1 — "Its opening rule
+(lines 1424-1428) reads" and "the table's third row (line 1434)" — pointing
+at section 6.2. Both were correct against revision 24's numbering **and were
+invalidated by the same edit that wrote them**, because that edit inserted
+text above section 6.2 and pushed it from line 1422 to 1558. At revision 25
+the cited range landed inside section 6.1a, an unrelated section: a citation
+resolving to real, plausible, wrong text.
+
+**The distinction that makes the fix general** is already present in this
+document. Section 10.3's citations — "section 6.2, lines 845-847", "section
+6.1, line 697" — remain correct because each is **qualified by the revision
+it is against** (the table's column header is "where, in revision 18"). A
+line citation naming its version is a historical fact and cannot rot. **An
+unqualified line citation to "this document" rots at every revision,
+including the one that writes it**, since a document cannot know its own
+final line numbers while being edited. Revision 26 REMOVES both rather than
+repairing them — a repaired line number is correct only until the next
+insertion above it — and records the hazard in section 10.2 beside the
+code-locator one.
+
+**(8) THE TEST IS NOT CLAIMED CLOSED, and section 0 says so in its own
+text.** Three shapes were found and closed; a fourth was searched for and
+not found. **That is "we looked and did not find one", which is exactly the
+evidence that was available before the third was found.** No claim is made
+that five legs are sufficient. If the test is ever relied on for a second
+member, the right question is not only "does it pass the five legs" but
+"what would a drafter who wanted the wrong answer do with them."
+
+**(9) One scope asymmetry is now recorded in section 1**, unresolved and
+deliberately so. Section 0's test sits OUTSIDE sections 3-8, the independent
+statistical review's scope; the label it licenses sits INSIDE that scope, at
+section 6.1. **The review can therefore examine whether the label was
+correctly applied, but not whether the test licensing it is sound.** The
+document records the fact and does not resolve it, because the remainder
+attestation's scope is the approver's decision. This is the sharpest
+instance of what turns on that decision.
+
+**(10) Byte-identity is available PER REGION**, verified between `7c5aa84`
+and `51c0458` with each version's boundaries resolved independently:
+
+| body | rev 25 | rev 26 | differing |
+| --- | ---: | ---: | --- |
+| **section 6.2, whole** | 27 | 27 | **0** |
+| section 4.6, whole | 254 | 254 | **0** |
+| section 8.7, whole | 161 | 161 | **0** |
+| section 6.1a, whole | 132 | 132 | **0** |
+
+**Sections that CHANGED and must be read**: the preamble, 0, 1, 6.1, and 10.
+
+**(11) Confinement.** One tracked file, 205 insertions / 38 deletions, 16
+hunks, landing only in the preamble, section 0, section 1, section 6.1, and
+section 10. **Zero `.js` files have changed against `c04d6b1` across the
+entire revision 19-26 arc.**
+
+**(12) Gate 0 is unchanged and still in force**, the fourth approval remains
+strictly last, single-use, and not self-performable, and no row is pre-filled
+for any approval that has not issued.
