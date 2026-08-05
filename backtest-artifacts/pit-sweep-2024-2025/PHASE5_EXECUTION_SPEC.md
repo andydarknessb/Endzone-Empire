@@ -2,7 +2,7 @@
 
 Study id: `pit-sweep-2024-2025` (same study as `PREREGISTRATION.md`).
 
-**Status: revision 29. NO APPROVALS ARE IN FORCE FOR THESE BYTES.**
+**Status: revision 31. NO APPROVALS ARE IN FORCE FOR THESE BYTES.**
 
 **[stale status corrected at revision 29]** This line and the one below read
 "revision 26" from revision 26 through revision 28, while the document was
@@ -54,8 +54,30 @@ and no copy survives (the file was untracked at the time). Revision 13's
 successor blob (`0661eafc95...`, committed as an immutable anchor) was
 submitted for fresh independent statistical review and **REJECTED** on four
 blockers. Revision 14 was that rejection's response; it was itself rejected,
-as was revision 15. **The current revision is 29**, and the full chain is
+as was revision 15. **The current revision is 31**, and the full chain is
 recorded below and in `APPROVAL_LEDGER.md`.
+
+**Revision 31 changes no ruling, no classification, and no number, and
+SECTIONS 3-8 ARE UNTOUCHED.** It corrects five claims this document makes
+about itself, all of one family - a claim or an instrument measuring
+something ADJACENT to what it asserts. Section 11.2's three stale bounds are
+repaired by DELETING their endpoints rather than refreshing them (section
+10.2's new EIGHTH class: a closed-form correction to an unversioned claim
+rots again - "through 27" was itself revision 27's repair and had gone stale
+by three); section 11.2's preamble bullet pointed at a revision-21 paragraph
+that no longer exists; and section 10.2 gains a NINTH class for the
+path-scoped confinement diff, whose validity rests on the range containing
+one party's commits - a precondition that lapsed when an unrelated 17-file
+client feature entered the range without changing the answer.
+
+**And the SEVENTH class fired again in the revision that recorded it.**
+Revision 30 specified the confinement check, repaired revision 29's preamble,
+and shipped with its own status line reading **"revision 29"** at both sites,
+in published bytes. The confinement check saw the preamble change - the
+preamble is in revision 30's changed set - but a structural check reports
+WHICH sections moved, never whether a sentence inside one is still true. That
+is the same adjacency the other four describe, and it is why the status line
+needs a reader, not a probe. Corrected here to 31.
 
 **Revision 30 changes no ruling, no classification, and no number, and
 SECTIONS 3-8 ARE UNTOUCHED.** It adds one thing: **section 10.2 now specifies
@@ -843,15 +865,29 @@ Gate 3 verification (including the independent implementation review), and
 all four approvals are recorded, in `APPROVAL_LEDGER.md`, against the
 SAME approved revision of this document.
 
-**Authorization state as of revision 28: NOTHING IS AUTHORIZED.** Zero of
-the four approvals are in force against THESE bytes. Revision 18 held three
-(ledger rows 4-6) and Gate 2 implementation proceeded under row 6; every
-revision since has superseded those bytes, so all three lapse and must be
-re-issued at the hash of the current anchor. Revisions 19 through 27 each
-accumulated no approvals, so no supersession since has lapsed anything -
-including revisions 23, 24, 25, 26, and 27, each of which drew a round that
-**raised findings and issued no approval**.
-**Revision 28 awaits all three fresh approvals**: its own independent
+**Authorization state as of THE ANCHORED BYTES: NOTHING IS AUTHORIZED.
+[re-stated in non-rotting form at revision 31]** Zero of the four approvals
+are in force against THESE bytes. Revision 18 held three (ledger rows 4-6)
+and Gate 2 implementation proceeded under row 6; every revision since has
+superseded those bytes, so all three lapse and must be re-issued at the hash
+of the current anchor. **Every revision since 18 accumulated no approvals**,
+so no supersession since has lapsed anything - **several drew rounds that
+raised findings and issued no approval, and section 10's table is the
+enumeration.**
+
+**This paragraph carried four rotting endpoints until revision 31**: it
+opened "as of revision 28" while the document stood at 31, bounded the
+no-approval run at "19 through 27", enumerated "23, 24, 25, 26, and 27"
+without 28, and closed "revision 28 awaits all three fresh approvals" - **a
+claim about authorization that was false by three revisions, in the block
+whose only job is to say what is authorized.** The endpoints are **deleted
+rather than refreshed**, because refreshing them is section 10.2's EIGHTH
+class: a closed-form correction to an unversioned claim rots again, with a
+newer number and an appearance of greater care. A claim about *these bytes*
+is true by construction at every anchor; a claim about a numbered revision
+is true until the next one.
+
+**THIS REVISION awaits all three fresh approvals**: its own independent
 statistical review (sections 3-8, which is where sections 4.6, 6.1, 6.2, and
 8.7 sit) and, if that issues, the two user attestations (the S3 deviation,
 unchanged in substance from revision 18, and the remainder). **Section 10.3
@@ -3513,6 +3549,7 @@ intact.
 | Revision 24 → 25 | **not a review round** | 2026-08-04 | Revision 24 was anchored at `227c2e096934c22a423f7470be44f09b53d3c82f` (SHA-256 `475ED9CADC1E0A094DCC34BF86130375F2C8391FE4B56DDF00C346B91C786C7D`, blob `a89da3af5384b008869d9b57aa9a995ca7cc0393`) and accumulated **no approvals**, so nothing lapsed. **NO RULING CHANGED IN SUBSTANCE** - the tie-rounded comparison form stands exactly as revision 24 adopted it; what changed is its CLASSIFICATION (substantive prospective amendment → mechanical correction forced by an internal contradiction), its GROUNDS (prereg 6.6 → this document's own section 6.2), and the disclosure that the contradiction it resolves was present in approved bytes. Sections changed: preamble, 0, 6.1, 10. **Sections 4.6, 8.7, 5, 6.1a, and 6.2 are byte-identical to `227c2e0`** - 6.2 in particular is untouched, since revision 25 adopts what it already said rather than editing it |
 | Revision 23 → 24 | **not a review round** | 2026-08-04 | **NO RULING CHANGED.** Byte-identity is available **PER REGION, not document-wide** - this step is neither of the two regimes the ledger's earlier entries established. Sections 4.6 (all four items and all four subsections) and 8.7 (all five rules, including rule 4's row set and cell-scope paragraph and rule 5's activation pinning) are byte-identical to `3939a27` and may be diffed. Sections 4.4, 6.1, 8.6.0, 8.6.2, 10.2, 11.2, 1, and the preamble all changed and must be read. **Section 6.1 additionally carries a NEW substantive amendment** - the `catastrophicCapCouldFire` comparison form - which no diff against revision 23 can shortcut. A reader who carries either earlier entry's regime forward gets the wrong answer for half this document. **Sequencing**: revision 24 had to anchor BEFORE any approval was commissioned. That constraint does not arise from the amendment - section 6 was always inside the statistical review's sections 3-8 scope, and the status blocks change section 6's bytes under any reading, so the hash moves either way. What the amendment changes is the COST of getting the order wrong: a status-block-only revision would have let a prior approval be re-issued against the new hash after a byte-identity check, whereas a new substantive amendment inside the reviewer's own scope requires a fresh review of text they have never seen |
 | Independent statistical review of revision 28 | **NO APPROVAL ISSUED** | 2026-08-05 | Reviewed revision 28 at anchor `d0d0def` (SHA-256 `e6db125c…e372b`, blob `d962ca8d…`), scope sections 3-8, lines 843-3102. **Raised eight findings and issued no approval**; per the R1-R5 convention a round issuing no approval warrants no ledger row, and none was written. **PROVENANCE, stated by its three properties rather than by analogy to an existing row**: the review arrived as the reviewer's own first-person account carrying its process, and was transcribed by the assistant into `REVIEW-FINDINGS-revision-28.md`; **the assistant did not observe its execution**; **the reviewer is not named**. That is the text-standing of R1-R5 without their named-reviewer property, and it is not Source B's unattested-origin standing. Transcription to disk does not alter it. **The reviewer withheld approval on independence grounds independently of the findings**, disclosing that an auto-loading persistent memory index written by prior sessions inside this workstream was in context before any choice was made, and that commission section 7 named the expected weak point. **The headline target HELD**: section 8.7 rule 4's row set is determinate at 8 cells, unfalsifiable on the reviewer's probe, because prereg 9.7 carries no applicability condition where 9.3/9.4/9.8 each do. Findings: 1 BLOCKER (section 6.2's unstated scope, read three ways across 6.1/6.1a/8.2a, reaching leg 2 rather than only the comparison); 3 SUBSTANTIVE (the 64-vs-32 composition vector; section 6.5's "verified against the real call graph" alongside three locators that never resolved; section 9's 6,528 attributed to rule 4 when section 8.7's own scope limit forbids a reporting rule forcing a generation); 4 MINOR (`seedFrom`'s locator, later upgraded on the phantom-entry ground; "all four coordinates"; "occurs exactly once"; `buildPriorGames`'s docblock start). **Findings 2 and 3 are SUBSTANTIVE with MECHANICAL REPAIRS** - the axis whose collapse triggered revision 25. **Addressed as revision 29** |
+| Revision 30 → 31 | **not a review round** | 2026-08-05 | Revision 30 was anchored at `eda85eb` and accumulated **no approvals**, so nothing lapsed. **NO RULING CHANGED, no classification changed, and SECTIONS 3-8 ARE UNTOUCHED** - the whole revision lands in sections 10.2, 11.2, this table, and the preamble. Five corrections, all of one family: **a claim or an instrument that measures something ADJACENT to what it asserts.** (1) Section 10.2 gains an **EIGHTH class - a closed-form correction to an unversioned claim rots again**: section 11.2's currency bullet read "extended at every revision through 27", which was *itself* revision 27's repair of a five-revisions-stale predecessor and had gone stale by three, sitting inside a bracketed note explaining that the predecessor "stopped five revisions short". The rule is to DELETE the endpoint, since "current as of the anchored bytes" is self-verifying and cannot rot. (2) The same treatment for section 11.2's two `14-21` bounds, whose heading already fixes the covered range at 1-13. (3) Section 11.2's preamble bullet pointed at "the revision-21 paragraph", which **does not exist** - the preamble was rewritten across revisions 27-30 and no paragraph stating what revision 21 changed survives; a reader following this document's own instruction for the rounds-14-onward account was sent to absent text, so the reference is made structural rather than by title. (4) Section 10.2 gains a **NINTH class - range standing in for authorship**: the confinement diff `c04d6b1..HEAD -- scripts/backtest server` returns 0 files and is offered for "the document revisions touched no code", but it isolates by range and path while the claim is about authorship, and those coincide only while the range holds one party's commits. Commit `972c53e`, an unrelated 17-file client feature, entered the range and the check returned the same 0 - **a check whose validity rests on a property it does not test reports the same answer before and after that property fails.** (5) **The SEVENTH class fired again inside the revision that recorded it**: revision 30 specified the confinement check and repaired revision 29's preamble while shipping its own status line as **"revision 29"** at both sites, in published bytes. The confinement check saw the preamble change and could not see the number inside it go false, because a structural check reports which sections moved, never whether a sentence in one is still true |
 | Revision 29 → 30 | **not a review round** | 2026-08-05 | Revision 29 was anchored at `b7ccf186d3f6688079b42d26634bb028d91f173c` (SHA-256 `693ECFC8…`, blob `8bc45564…`) and accumulated **no approvals**, so nothing lapsed. **NO RULING CHANGED, no classification changed, and SECTIONS 3-8 ARE UNTOUCHED** - the whole revision lands in section 10.2, this table, and the preamble. It adds ONE thing: **the confinement check, specified**. Map every changed line to its nearest preceding heading at ANY level, and compare the resulting set against the set the revision claims, **as a set equality in both directions** - a subset check passes the actual defect, since revision 29's first confinement paragraph missed section 8.6.0 by never claiming it either way. The check is primary because it has no boundary to resolve and therefore none to get wrong; slicing stays secondary, confirming each claimed-identical section. It was validated retrospectively against `0762738..b7ccf186`, where it reproduces the known answer including the 8.6.0 the prose had missed, after a first implementation returned an empty set that a subset check would have accepted. `check-locators.js` stays BARRED until Gate 4's B3 re-cut; the specification is in force now, the script is not. **FORWARD CLAUSE FOR REVISION 29, whose row cannot be edited** (rows are left unedited so the record of what happened stays intact): **section 6.2 grew 27 lines to 74 at revision 29 and must be READ, NOT DIFFED.** "No ruling changed" and "section 6.2 is not byte-identical" are both true, and a reviewer should not have to combine two statements from two rows to reach that. The scope sentence documents a boundary that already held - all four thresholds in its table are component-(f) items, so no comparison entered or left the list |
 | Revision 28 → 29 | **not a review round** | 2026-08-05 | Revision 28 was anchored at `d0d0def` (SHA-256 `e6db125c…`, blob `d962ca8d…`) and accumulated **no approvals**, so nothing lapsed. **NO RULING CHANGED, AND THE MECHANICAL CATEGORY KEEPS ITS SOLE MEMBER.** Section 6.2 gains an explicit **component-(f) scope** and a stated boundary against section 8.2a; this is the reading section 6.1a already used, and it preserves section 6.1's classification because `3.80` is itself a component-(f) comparison and stays inside the universal, which is now checkable rather than open-ended. **Finding 4 STRENGTHENS the mechanical classification rather than threatening it**: the 6,528 is forced by prereg 9.7's sealed gates, so the count is determinate on sealed text alone and no longer depends on rule 4's row set at all - the propagation the commission predicted runs the other way. Sections changed: preamble, 3.2, 6.1, 6.2, 6.5, 8.6.0, 8.6.1, **8.6.3**, 8.6.4, **8.6.5**, 9, 10.2, 10. **Sections 4.6, 8.6.2 and 8.7 are byte-identical to `d0d0def`**, verified by mapping every changed line of the diff to its owning heading rather than by slicing (a slice that truncates identically on both sides reports IDENTICAL without proving it). **The FOURTH hazard class recurred twice at this revision and was caught only by that mapping**: the review's own finding-3 table filed the `loadCachedRows` sites at `:2757`/`:2766` under section **8.6.2**, and this row's first draft repeated it. They are in **8.6.3** (the cache-compatible allowlist), and the third site at `:2914` is in **8.6.5** (cache-persistence QA). **Section 8.6.2 was never touched at this revision.** Both misattributions resolved to real, adjacent, plausible sections, which is precisely why neither the locator probe nor a byte-identity proof can catch the class Section 10.2 records three further hazard classes: the **BARE locator** (10 of 15 in scope were never in the inventory; the probe has never caught one), the **self-referential count that rots** (section 9's "exactly once" and the quotation falsifying it entered in the same revision), and the **status line** (the preamble read "revision 26" across two re-anchors, in bytes a reviewer authenticated, outside the scope where they would have met it) |
 | **Independent implementation review** | **pending, strictly last, after Gate 2 code exists** | | scope, complete: the runtime salt-collision guard and its two-level unit/runtime split (section 3.4); the exact-trigger implementation defects, including the (f) no-finite-bound amendment label (section 4.4); the restored permutation-control definitions and aggregation (section 5); the rounding-boundary mutation tests and ten-decimal boundary normalization (section 6.1-6.2); the callback's per-receiver validation, exactly-once invocation, and exception propagation (section 6.5); the S3 non-estimable disclosure (section 7); the signed-boundary table and the exhaustive endpoint/component/cell/run truth table, including the (f)-unevaluable unification (sections 8.1-8.2); **activation's exact numerator/denominator (available && effect!==0, per-position including DEF, over eligible/non-neutral/known-orientation projections) and its precedence against `fail` (section 8.3)**; the restored cell-level ordering-inconclusive behavior and **Level-5 selection precedence, including the provably-unreachable winner-only branch (sections 8.4-8.5)**; **BOTH sealed identity assertions - the `usage-25 == control` bit-identity assertion (section 8.6.0: the Map-safe per-projection canonical-byte comparison and its named prohibition on passing a `Map` to `canonicalJson`, byte-equality with no allowlist and no tolerance, the explicitly-named non-Map run fields, its full player-week/salt scope, its pre-flight invocation point before the permutation control, its run-void disposition, and its seven mutation tests including the Map-serialization regression) and the `homeaway-on-stored` point-identity assertion** (section 8.6.1: its usage-25-only scope, the corrected `useStoredHistory` mechanism explanation, its single-leaf-difference guard), the complete fresh-vs-fresh allowlist (including `homeGames`/`awayGames`, `availability.activeProbability`, `role.pointsContribution`), the independently-frozen and explicitly-enumerated cache-compatible allowlist, **the ordered field-level comparator semantics with per-side type/finiteness validation running BEFORE any cross-side comparison, and raw-input duplicate detection running BEFORE any Map-building loop on both sides of every comparison**, and the descriptive-only cache-QA disposition (section 8.6) |
@@ -3824,6 +3861,103 @@ locator probe nor a per-region byte-identity proof can see it go stale, and
 it sits outside the sections 3-8 scope where an independent reviewer would
 have met it. Corrected at revision 29.
 
+**[recurrence, revision 31] This class fired again in the revision that
+recorded it.** Revision 30 - whose entire subject is specifying the
+confinement check, and which repaired revision 29's preamble - shipped with
+its own status line reading "revision 29" at both sites, in published bytes.
+The confinement check does not catch it and was never going to: the preamble
+IS in revision 30's changed set, so the check correctly reported the section
+as moved. **A structural check reports WHICH sections changed, never whether
+a sentence inside one is still true.** The status line has no locator, no
+arithmetic, and now demonstrably no structural signal either. It needs a
+reader. Corrected at revision 31.
+
+**An EIGHTH hazard class, added at revision 31: a CLOSED-FORM CORRECTION to
+an unversioned claim rots again.** This inventory already records that an
+unqualified claim rots. What it did not record is that the obvious repair
+reproduces the defect with a fresher number, and that the repair reads as
+more careful than the original precisely because it is more specific.
+
+The worked instance is section 11.2's currency bullet. Through revision 26
+it read "extended at revisions 20, 21, and 22, and current as of the last of
+those", which had gone five revisions stale. Revision 27 corrected it to
+"extended at every revision through 27, and current as of the anchored
+bytes" - **the same open-population claim carrying a newer number**. It was
+stale again two revisions later, and by revision 30 it was stale by three,
+inside a bracketed note that explains the previous version "stopped five
+revisions short." **The correction and the defect now sit in one sentence.**
+
+The rule: **delete the number rather than update it.** "Current as of the
+anchored bytes" already does the whole job, is self-verifying against
+whatever the anchor is, and cannot go stale; "through 27" is a rotting
+appendage bolted to a durable clause. Where an endpoint carries no
+information - "revisions 14 onward", against a heading that already fixes
+the covered range at 1-13 - the endpoint is the entire defect. Corrected at
+revision 31 at all three sites.
+
+**A NINTH hazard class, added at revision 31: RANGE STANDING IN FOR
+AUTHORSHIP.** The standing confinement evidence for this arc is a
+path-scoped diff - `git diff --name-only c04d6b1..HEAD -- scripts/backtest
+server`, which returns **0 files** - offered in support of "the document
+revisions touched no code". The diff is true and the conclusion has held,
+but the instrument does not measure what the sentence asserts. It isolates
+by RANGE and PATH; the inference it is asked to support is about
+AUTHORSHIP, and those coincide only while the range happens to contain one
+party's commits.
+
+That precondition has now lapsed and the instrument did not notice, which is
+the whole point of recording it: commit `972c53e` (a 17-file client feature,
+a different workstream entirely) sits inside `c04d6b1..HEAD`. The check
+still returns 0, because that feature touched neither scoped path - so the
+number is unchanged while the reason for it has moved from "nothing in this
+arc changed code" to "nothing in this arc changed code AND the unrelated
+work in the range happened to miss these two directories." **A check whose
+validity rests on a property it does not itself test reports the same answer
+before and after that property fails.**
+
+**The obvious repair is path-scoping, and it fails the same way one level
+over. [corrected before anchoring at revision 31]** `-- scripts/backtest
+server` returns 0 today while the unscoped form is false at 20 files, so
+path-scoping looks like the fix. **It is not.** `server/` is live application
+code - `account.service.js`, `adp.service.js`, `projection.service.js`,
+`scoring.service.js` and dozens more - and **at least 140 commits in this
+repository's history that do not belong to this study have touched it**
+(182 commits touch `server/`; 140 of them touch no path matching `backtest`.
+Two other defensible boundaries give 150 by commit subject and 159 by
+`scripts/backtest/` plus `backtest-artifacts/`. **The figure is stated with
+its method because the three disagree by nineteen**, and a bare count in this
+paragraph would be the class the paragraph is about). The
+next one breaks the path-scoped form exactly as `972c53e` broke the unscoped
+one. **Replacing a range dependency with a path dependency is not a fix:
+both are preconditions nobody restates, and the second is no less likely to
+lapse than the first.** An earlier draft of this paragraph prescribed exactly
+that repair, which is the eighth class firing inside the ninth.
+
+**Scope the check by AUTHORSHIP, because authorship is what the claim
+asserts**: no commit belonging to this study changed code. That is invariant
+to what any other party lands, in any range, under any path.
+
+```bash
+for C in $(git log --format='%H' c04d6b1..HEAD); do
+  case "$(git log -1 --format='%s' $C)" in docs\(backtest\)*)
+    git show --name-only --format='' $C | grep -q '\.js$' && echo "VIOLATION $C" ;;
+  esac
+done            # expect no output; 24 study commits examined at revision 31
+```
+
+**And wherever a number is quoted, state the population it was measured
+over**, because the number will not say it. "0" means nothing without
+"across 24 study commits".
+
+**The eighth and ninth classes belong to one family with the fourth, fifth,
+sixth and seventh: a claim or an instrument that measures something ADJACENT
+to what it asserts.** A section attribution that resolves to the wrong
+section, a probe that has never seen a bare locator, a count over text the
+same revision edits, a status line nothing checks, a fresher number in an
+unversioned clause, a range read as an authorship boundary. In every case
+the probe returns a well-formed answer to a neighbouring question, which is
+exactly why the answer does not read as wrong.
+
 **Revision 22's blanket claim that "locator drift is a citation defect, not
 a claim defect - the underlying statements remain true" is WITHDRAWN. It is
 false whenever the citation sits inside a DIRECTIVE.** A directive carries a
@@ -3939,16 +4073,19 @@ artifact.
 
 **Scope warning, added at revision 21.** The summary below covers review
 rounds 1 through 13 and stops there. It has NOT been extended to cover
-revisions 14-21, and deliberately so: manufacturing after-the-fact summaries
+revisions 14 onward, and deliberately so: manufacturing after-the-fact summaries
 of rounds this author did not summarize contemporaneously would produce
 exactly the kind of author-written narrative section 11.1 already cautions
 about, and revision 19's preamble demonstrated how such a narrative can
 overstate. **For revisions 14 onward, use these instead:**
 
-- **Section 10's review-history table** - extended at every revision through
-  27, and current as of the anchored bytes. **[corrected at revision 27:
-  revisions 22 through 26 read "extended at revisions 20, 21, and 22, and
-  current as of the last of those", which stopped five revisions short.]** It
+- **Section 10's review-history table** - extended at every revision, and
+  current as of the anchored bytes. **[corrected at revision 31: revisions
+  27 through 30 read "extended at every revision through 27", which was
+  itself revision 27's repair of "extended at revisions 20, 21, and 22"
+  and had gone stale by three. The endpoint is deleted rather than
+  refreshed: "current as of the anchored bytes" is self-verifying and
+  cannot rot. Section 10.2's EIGHTH hazard class records the pattern.]** It
   records R1-R5 with their blocking findings and hashes, revision 18's
   approval, the Gate 2 implementation review that produced revision 19, and
   each subsequent self-correction. **Section 10.3 was added at revision 25,
@@ -3959,11 +4096,19 @@ overstate. **For revisions 14 onward, use these instead:**
 - **`APPROVAL_LEDGER.md`** - the sole authoritative approval record, and its
   corrective entries carry the anchor chain and the reasoning for each
   supersession.
-- **This document's preamble** - "What revisions 19 and 20 add" and the
-  revision-21 paragraph state what each of the current sections changed.
+- **This document's preamble** - its per-revision paragraphs state what each
+  re-anchor changed, and the current revision's paragraph is always the last
+  of them. **[corrected at revision 31: revisions 21 through 30 pointed at
+  "'What revisions 19 and 20 add' and the revision-21 paragraph". The first
+  still exists; the second does NOT - no paragraph stating what revision 21
+  changed survives in the preamble, which was rewritten across revisions 27
+  to 30. A reader following this bullet for the rounds-14-onward account was
+  sent to text that is not there. Named paragraphs are an unversioned claim
+  about the document's own contents and rot exactly as a line citation does;
+  the reference is made structural rather than by title.]**
 
-A reader who needs the rounds 14-21 account should read those three, not
-this section.
+A reader who needs the account for revisions 14 onward should read those
+three, not this section.
 
 Ten rounds, summarized: salt derivation and CRN framing; the exact-trigger
 AND rule and its four implementation defects, the fourth of which (the
