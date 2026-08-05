@@ -1050,3 +1050,169 @@ entire revision 19-26 arc.**
 **(12) Gate 0 is unchanged and still in force**, the fourth approval remains
 strictly last, single-use, and not self-performable, and no row is pre-filled
 for any approval that has not issued.
+
+---
+
+### CORRECTIVE ENTRY 11 — appended 2026-08-05
+
+**This entry creates NO approval row.** It re-points the anchor recorded by
+corrective entry 10. **Entries 1-10 are not edited.**
+
+**(1) The anchor has moved again.**
+
+| | |
+| --- | --- |
+| SHA-256 | `239F1A4FCCC2220C4DBFAAAE46DA71EA3C529C5194DD4BF2A1948E9438658115` |
+| git blob | `ce89dd25c5ca882ea6c422a59da8097d9de441f0` |
+| anchor commit | `8cbd439e2c2480a9180d648b0d6586b0379df97e` |
+
+**(2) Nothing lapsed.** The superseded anchor (`51c0458…` / `668BB9A7…`)
+accumulated no approvals. It drew a reading of sections 1, 2, 9, 10 and 11
+that **raised six findings and issued no approval**; per the convention
+R1-R5 established, no row was written. Rows 4-6 remain lapsed against their
+own superseded bytes, and **three fresh approvals are still required**
+against the hash in (1). **The disclosure recorded as item (3) of corrective
+entry 8 stands unchanged** and still applies to rows 4-6.
+
+**(3) NO RULING CHANGED — BUT A PUBLISHED NUMBER DID, AND THAT IS NEW.**
+Every re-anchor in this sequence so far corrected scaffolding, a
+classification, or a test. **Revision 27 is the first that corrects a
+DISCLOSED QUANTITY.** Section 9's scale statement was wrong in every revision
+from 13 onward:
+
+| | through revision 26 | revision 27 |
+| --- | ---: | ---: |
+| total salted arm-week generations | `8,160` | **`14,688`** |
+| the documented lower branch | `7,344` | **`13,872`** |
+
+The omission was the **prereg 16 sensitivity generation**:
+`2 profiles x 8 cells x 24 salts x 17 weeks = 6,528`. Section 9 had counted
+as though scoring profile were a REPORTING coordinate, so that one generation
+could be re-scored afterwards into `standard` and `ppr`. It is a GENERATION
+coordinate — `loadFeatureBundle` takes `rules` as a build-time parameter and
+every historical stat line is re-priced through it — so those runs do not
+already exist inside the primary grid. **The understatement was eighty
+percent.**
+
+**(4) The count is determined, and section 8.7 rule 4 is what determines
+it.** Rule 4 fixes the row set at 8 cells, 2 endpoints, 2 profiles, and 2025
+only, and **rejects outcome-dependent row sets by name**. Nothing in the
+corrected figure waits on a result. An arithmetic check is recorded with it:
+`2 profiles x 17 weeks` is identically `1 profile x 34 weeks`, so the
+sensitivity generation equals the primary grid exactly, `6,528` by either
+route.
+
+**(5) THE THIRD CATEGORY HAS ITS FIRST MEMBER EVER, and that is
+ledger-relevant.** `[mechanical correction, forced by an implementation
+fact]` had **zero members through revision 26** — it occurred once in the
+document, in its own definition. Revision 27 admits the first, which means
+revision 27 is where its boundary was set. Three things are recorded in
+section 0 rather than left implicit:
+
+- **The boundary decision.** The definition says "the sealed text's OWN
+  derivation". Section 9's count sits in THIS document, not sealed prereg
+  text, so the reading had to be settled before the category could take a
+  member. It is read **descriptively**: the three conditions test why the
+  number is wrong, whether the fix is determinate, and whether it can move a
+  verdict, and **which file the number sits in bears on none of the three.**
+- **The three conditions, shown in order**, with condition 3 demonstrated
+  rather than asserted.
+- **The provenance.** The member was admitted **in the round that found the
+  defect, by the party that drafted the correction, under a boundary reading
+  settled in that same round.** This is the shape leg 5 of the fourth
+  category exists to catch. Leg 5 does not formally bind this category, and
+  that is not a reason to behave as though the hazard is absent.
+
+**(6) Label counts, each stated with the pattern that produced it.**
+
+| pattern | rev 26 | rev 27 |
+| --- | ---: | ---: |
+| `**[mechanical correction, forced by an implementation fact]**`, bracketed | 1 | **2** |
+| `**[substantive prospective amendment]**`, bracketed | 14 | 14 |
+| `**[mechanical correction, forced by an internal contradiction]**`, bracketed | 2 | 2 |
+| `substantive prospective amendment`, any mention | 22 | 22 |
+
+The first row moves from 1 to 2 because the definition itself matches the
+bracketed pattern; the second occurrence is the first application. **A
+drafting defect was caught by this exact check mid-round**: the label was
+first written with both brackets inside one `**…**` span, so the greppable
+form never appeared and the count returned 1 to 1. That is the same defect
+revision 24 made, found by the same instrument.
+
+**(7) SECTIONS 3-8 ARE NOT BYTE-IDENTICAL AT THIS STEP.** Every prior entry
+in this sequence could offer byte-identity for the statistical review's
+scope, and that argument was used to bound re-review cost. **It is not
+available here**, and the reason matters: two of four stale
+`projectionModel.js` locators sat inside **section 8.6.1's normative
+allowlist**, which fixes which fields must be bit-identical across the
+`homeaway-on` / `homeaway-on-stored` comparison.
+
+| | rev 26 | rev 27 |
+| --- | ---: | ---: |
+| sections 3-8, span | 2,259 | **2,260** |
+| lines modified | | 2 |
+| lines added | | 1 |
+
+The allowlist names its fields **by name**, so its meaning never depended on
+the locators and **no ruling, endpoint, status, or selection changes**.
+Repairing only the out-of-scope copy in section 11.3 was considered and
+rejected: it would have left a stale locator inside reviewed normative text
+on the strength of a scope boundary.
+
+**(8) Byte-identity IS available per region**, verified between `b95f860`
+and `8cbd439` with each version's boundaries resolved independently:
+
+| body | rev 26 | rev 27 | differing |
+| --- | ---: | ---: | --- |
+| **section 8.7, whole** | 161 | 161 | **0** |
+| **section 6.2, whole** | 26 | 26 | **0** |
+| section 4.6, whole | 254 | 254 | **0** |
+| section 6.1a, whole | 132 | 132 | **0** |
+
+**Section 8.7 being unedited is the load-bearing row this time.** Section 9's
+corrected figure derives from rule 4; a correction that edited its own
+governing passage would prove nothing. Section 6.2 remains byte-identical
+across **nine** revisions, 18 through 27, which keeps the fourth category's
+leg-5 demonstration true of the current bytes.
+
+**(9) The rule 4 block quote was verified verbatim.** Section 9 introduces it
+as quoted in full rather than cited. An audit found the quote had **added
+bold emphasis to one sentence** that is plain in section 8.7 — the sentence
+section 9 leans on for determinacy. **Fixed before anchoring**, and the whole
+quote then checked word-for-word against its source (480 bytes each side,
+identical after whitespace normalization). The anchored bytes carry a
+verbatim quote. It is recorded because fidelity is that block's entire claim
+and section 11.1 already caveats author-written material presented as
+transcribed.
+
+**(10) Five errata, none touching a ruling.** Section 2 named
+`sweepEvaluator.js` as consuming three `arms` exports it references **zero**
+times, while seven other modules do; because it does require `arms`, the
+error did not announce itself. Four `projectionModel.js` locator sites
+repaired. Section 11.2 described section 10's table as current five revisions
+ago, **pointing readers away from section 10.3**, which section 1 makes
+required reading before any approval — a directional error, not a stale
+number. Section 1 claimed "zero occurrences" where the obvious grep returns
+one.
+
+**Section 10.2 now records that this inventory MISSED those four sites**
+while existing to catch exactly that class, and that they surfaced because a
+stale locator happened to match a regex during an unrelated read, not because
+the instrument found them.
+
+**(11) A second scope asymmetry is recorded in section 1, opposite in shape
+to the first and milder.** Section 9's correction and the section 0 category
+licensing it both sit OUTSIDE sections 3-8, so no approval reaches either.
+**But rule 4, the premise the entire correction rests on, sits INSIDE that
+scope.** A reviewer can therefore falsify the correction without being able
+to approve it. Where the first asymmetry leaves section 0's test
+unexaminable, this one leaves the load-bearing premise examinable.
+
+**(12) Confinement.** One tracked file, 261 insertions / 18 deletions, 19
+hunks, landing only in the preamble, sections 0, 1, 2, 8.6.1, 9, 10 and 11.
+**Zero `.js` files have changed against `c04d6b1` across the entire revision
+19-27 arc.**
+
+**(13) Gate 0 is unchanged and still in force**, the fourth approval remains
+strictly last, single-use, and not self-performable, and no row is pre-filled
+for any approval that has not issued.
