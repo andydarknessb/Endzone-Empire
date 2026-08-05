@@ -1341,3 +1341,158 @@ this arc stages the spec or the ledger by explicit path, never `git add -A`.
 **(12) Gate 0 is unchanged and still in force**, the fourth approval remains
 strictly last, single-use, and not self-performable, and no row is pre-filled
 for any approval that has not issued.
+
+---
+
+### CORRECTIVE ENTRY 13 — appended 2026-08-05
+
+**This entry creates NO approval row.** It re-points the anchor recorded by
+corrective entry 12. **Entries 1-12 are not edited.**
+
+**(1) The anchor has moved again.**
+
+| | |
+| --- | --- |
+| SHA-256 | `693ECFC88C2BD708EA984C568893942CF24134D6E1D23D4EA1ABD80FB9088994` |
+| git blob | `8bc455643d8178a4c913a3a5810e43c1bccc7bd8` |
+| anchor commit | `b7ccf186d3f6688079b42d26634bb028d91f173c` |
+
+**(2) Nothing lapsed.** The superseded anchor (`0762738…` / `E6DB125C…`)
+accumulated no approvals. It drew **an independent statistical review that
+issued NO APPROVAL and raised eight findings**; per the convention R1-R5
+established, no row was written. Rows 4-6 remain lapsed against their own
+superseded bytes, and **three fresh approvals are still required** against the
+hash in (1). **The disclosure recorded as item (3) of corrective entry 8
+stands unchanged.**
+
+**(3) THIS IS THE FIRST RE-ANCHOR SINCE REVISION 18 THAT ANSWERS A REVIEW
+RATHER THAN A SELF-CORRECTION.** Revisions 19 through 28 answered readings,
+pre-submission passes, and the drafting party's own findings. Revision 29
+answers eight findings from an independent statistical review of sections 3-8.
+**One ruling changed**: section 6.2 gains an explicit component-(f) scope.
+Everything else repairs a claim the document made about code or about itself.
+
+**(4) Byte-identity is available PER REGION**, verified between `0762738` and
+`b7ccf186` **by mapping every changed line to its nearest preceding heading**,
+not by slicing. That method is the point of item (7) below.
+
+| region | rev 28 | rev 29 | differing |
+| --- | ---: | ---: | --- |
+| section 4.6 with subsections | 253 | 253 | **0** |
+| **section 8.6.2** | 78 | 78 | **0** |
+| section 8.7 | 160 | 160 | **0** |
+
+**Sections that CHANGED and must be read**: the preamble, 0, 1, 3.2, 6.1, 6.2,
+6.5, 8.6.0, 8.6.1, 8.6.3, 8.6.4, 8.6.5, 9, 10 and 10.2. Sections 3-8 grow from
+**2,260 to 2,352 lines**.
+
+**The five section 8.6.x changes are locator repairs and nothing else:**
+
+| section | repair |
+| --- | --- |
+| 8.6.0 | `projection.service.js:455-459` -> `:475-479` |
+| 8.6.1 | `projectionFeatures.js:177-231` -> `:188` |
+| 8.6.3 | `:478-497` -> `:496`, and `:483-495` -> `:507` |
+| 8.6.4 | `:449` -> `:467` |
+| 8.6.5 | `:478-497` -> `:496` |
+
+No requirement, allowlist entry, field name, or comparator changes in any of
+them. The allowlists name their fields **by name**, so their meaning never
+depended on the citations.
+
+**(5) THE ANCHOR WAS AMENDED BEFORE PUBLICATION, and the superseded commit is
+named here so the record is complete.** An earlier commit of these bytes
+(`16b0c50` / blob `5a50676e` / SHA-256 `B643503B…`) carried a **false
+confinement claim in its preamble**: it named sections 8.6.1 and 8.6.3-8.6.5
+as byte-identical to revision 28 when all four had changed, omitted 8.6.2
+which is the one untouched section of the five, and named 8.6.0 neither way.
+**That commit was never pushed, no remote branch contained it, and no ledger
+entry referenced it.** It was amended rather than superseded by a revision 30,
+because amending an unpublished commit that nothing references finishes a
+commit rather than rewriting shared history. **The ledger's append-only rule
+is not implicated: it protects the published record, and nothing was
+published.**
+
+**(6) The corrected paragraph is the round's own defect class, committed
+inside the summary of the round that documents it.** It asserted a
+byte-identity set that a single command falsifies, in the preamble, in the
+revision whose subject is claims this document makes about itself. **The
+commit message shipped with it was correct throughout** - it named 4.6, 8.6.2
+and 8.7 - so an accurate statement of the same fact sat beside the false one.
+It also inverted the **same** 8.6.2 attribution that this revision records as
+having already travelled three hops: section 10.2's outstanding list filed the
+`loadCachedRows` sites under 8.6.2, the review inherited that, and the
+findings file transcribed it. They live in 8.6.3 and 8.6.5. **A fourth
+recurrence, inside the correction for the third.**
+
+---
+
+**(7) THE STRUCTURAL GAP THIS ROUND SURFACED, which has no other home in this
+project's records.**
+
+**This document's instruments are complete over the artifact and empty over
+the reviewer.** Section 10.2 inventories seven hazard classes, every locator is
+checkable, every count is reproducible, and byte-identity is provable per
+region. **There is no instrument of any kind aimed at whether a review was
+performed under conditions that let it be independent.**
+
+**This round's review was contaminated, and it was caught only because the
+reviewer volunteered a disclosure against their own interest before any
+finding existed to justify it.** That is not a mechanism. It is a
+disposition, and it is not repeatable: a reviewer who did not volunteer, or
+who did not notice, would have produced a review indistinguishable from a
+clean one on every axis this document can measure. **Every instrument here
+would have returned green.**
+
+**Corrective entry 9 is the precedent for recording this.** It creates no
+approval row and carries a disclosure about how review failed, on the
+reasoning that a future approver needs to know what the prior approvals did
+not see. The same reasoning applies with more force here: entry 9's disclosure
+concerned bytes, which are checkable afterward. **This one concerns
+conditions, which are not.**
+
+**What follows from it is a precondition, not a finding**, and it belongs to
+the approver rather than to this document: the first approval requires a
+genuinely independent party, and independence is a fact about the conditions
+of the review, which no artifact-side check can establish.
+
+---
+
+**(8) VERSIONED CONTAMINATION DISCLOSURE.** This project directory carries an
+auto-loading memory index that records the drafting party's conclusions,
+including classification rulings. It loads into any session opened in this
+directory, including a reviewer's.
+
+**Captured as command output at the moment this entry was written,
+2026-08-05T13:09:27-05:00:**
+
+```
+MEMORY.md                              9726 bytes   sha256 0fd53bb5ab942291b4029a60028cef60
+accuracy-roadmap-backtest-rebuild.md  99858 bytes   sha256 5d12af20bbb42b08605fa8d3acd69fb0
+
+names as current anchor:   revision 28, `0762738` / `E6DB125C…`
+mentions revision 29:      0 occurrences in either file
+```
+
+**The version matters and is the reason this is stated as bytes rather than
+as a description.** That index is rewritten as work proceeds - twice on this
+date alone - so a disclosure naming "the memory index" without naming its
+state describes a contaminant that no longer exists by the time anyone checks.
+**An unversioned contamination disclosure is the sixth hazard class this
+revision adds to section 10.2**, and an entry recording that class must not
+commit it.
+
+Note what the capture shows: at the moment revision 29 was anchored, the index
+still named **revision 28** as current and did not mention revision 29 at all.
+A reviewer loading it would have been primed with the previous round's
+conclusions, not this one's.
+
+**(9) Confinement.** One tracked file, 357 insertions / 69 deletions, staged
+by explicit path. **Zero `.js` files have changed against `c04d6b1` across the
+entire revision 19-29 arc.** Eight files belonging to an unrelated
+roster-feature workstream were dirty in the working tree throughout and **none
+was staged**; every commit in this arc names its paths.
+
+**(10) Gate 0 is unchanged and still in force**, the fourth approval remains
+strictly last, single-use, and not self-performable, and no row is pre-filled
+for any approval that has not issued.
