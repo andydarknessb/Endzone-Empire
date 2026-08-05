@@ -2,7 +2,7 @@
 
 Study id: `pit-sweep-2024-2025` (same study as `PREREGISTRATION.md`).
 
-**Status: revision 23. NO APPROVALS ARE IN FORCE FOR THESE BYTES.**
+**Status: revision 24. NO APPROVALS ARE IN FORCE FOR THESE BYTES.**
 
 Revision 18 (SHA-256 `5A0D6E54B2D84494C5D39093C44204A79F32A4DD813F03909C1094339A52BCF8`)
 **was approved** - ledger rows 4, 5, and 6 - and Gate 2 implementation
@@ -43,7 +43,7 @@ and no copy survives (the file was untracked at the time). Revision 13's
 successor blob (`0661eafc95...`, committed as an immutable anchor) was
 submitted for fresh independent statistical review and **REJECTED** on four
 blockers. Revision 14 was that rejection's response; it was itself rejected,
-as was revision 15. **The current revision is 23**, and the full chain is
+as was revision 15. **The current revision is 24**, and the full chain is
 recorded below and in `APPROVAL_LEDGER.md`.
 
 **Revision 14 was also REJECTED**, on five blockers, at blob
@@ -87,7 +87,56 @@ fix:**
   silence was the absolute metrics, which are not deltas. 4.6 closes that
   and states the method for all of them.
 
-**Revision 23 changes no ruling. It repairs four pieces of false or
+**Revision 24 changes no existing ruling and adds one new one.** It answers
+a statistical review of revision 23 that raised findings and issued no
+approval. Three rounds of adversarial reading produced **no finding against
+any ruling in this document**; every defect was in the scaffolding beneath
+them - citations, counts, and directives - which is exactly the material a
+byte-identity proof is trusted to cover and cannot see. What changed:
+
+- **Five satisfied directives now carry dated status blocks** (section 4.4
+  items 1 and 2; section 6.1's `0.30` constant, `3.80` constant, and
+  evaluability-guard rewrite). Each was written in the present tense about
+  code that had already satisfied it, so each read as pending. The
+  requirement text is preserved and the status recorded beneath it, rather
+  than the requirement being rewritten into the past tense - in a
+  preregistered document, what was required and when it was met is worth
+  more than a tidier sentence.
+- **One directive is recorded NOT MET**, in the same place and the same
+  form: section 6.1's required test that `FALSIFIABILITY_FLOOR` is
+  referenced by nothing returning a status. Recording it alongside the five
+  met ones is the point - a block that only ever says MET cannot distinguish
+  done from pending.
+- **Section 6.1 gains a labeled substantive amendment**: the
+  `catastrophicCapCouldFire` comparison is tie-rounded on both operands
+  rather than bare. Prereg 6.6 supports that form and does not compel it,
+  and the section says so in those words rather than citing 6.6 as if it
+  settled the question.
+- **Section 8.6.0's endorsement of `assertControlBitIdentity` is
+  withdrawn.** It described that helper as already implementing "exactly
+  this comparison" four lines above the bullet forbidding that exact use,
+  which would pass vacuously on two `Map`-carrying run objects.
+- **Ten stale locators are repaired, and section 10.2's inventory of them is
+  corrected** on four counts, including a phantom entry cited nowhere in
+  this document and a blanket claim that locator drift never carries a false
+  statement, which is untrue wherever the citation sits inside a directive.
+
+**The status-block form is ADOPTED here as this document's standing way of
+recording a satisfied requirement.** Revision 22 introduced it at a single
+site in section 8.6.1; revision 24 applies it at six more. It is adopted by
+this sentence rather than by repetition, because a convention that becomes
+standing by propagation is harder to revisit than one that became standing
+by decision.
+
+**Byte-identity for the 23 to 24 step is available PER REGION, not
+document-wide.** Sections 4.6 and 8.7 are byte-identical to revision 23 and
+may be diffed. Sections 4.4, 6.1, 8.6.0, 8.6.2, 10.2, 11.2, 1, and this
+preamble changed. Section 6.1 carries a new substantive amendment and cannot
+be diffed past. Earlier ledger entries answered this question document-wide
+in both directions - unavailable for 21 to 22, available for 22 to 23 - and
+carrying either regime forward gives the wrong answer for half of this one.
+
+**Revision 23 changed no ruling. It repaired four pieces of false or
 self-contradictory scaffolding sitting under conclusions that survive
 unchanged**, all found in a review round against revision 22:
 
@@ -112,9 +161,11 @@ unchanged**, all found in a review round against revision 22:
   section; both are restated at their real standing, and the branch they
   support now rests on prereg 6.2 and prereg 16, which are sufficient.
 
-**Because no ruling moved, the byte-identity check IS available for the 22 to
-23 step**, unlike the 21 to 22 step. Sections 4.6.2, 4.6.3, and all five of
-section 8.7's rules are byte-identical.
+**Because no ruling moved at that step, the byte-identity check WAS
+available for the 22 to 23 step**, unlike the 21 to 22 step: sections 4.6.2,
+4.6.3, and all five of section 8.7's rules were byte-identical. That
+statement is about the 22 to 23 step only. **Revision 24's own regime is
+stated above and is neither of these - it is per-region.**
 
 **Revision 22 was the first revision since 18 to change a RULING.** Revisions
 19-21 were narrative and packet corrections; revision 22 answers a findings
@@ -365,21 +416,23 @@ Gate 3 verification (including the independent implementation review), and
 all four approvals are recorded, in `APPROVAL_LEDGER.md`, against the
 SAME approved revision of this document.
 
-**Authorization state as of revision 23: NOTHING IS AUTHORIZED.** Zero of
+**Authorization state as of revision 24: NOTHING IS AUTHORIZED.** Zero of
 the four approvals are in force against THESE bytes. Revision 18 held three
 (ledger rows 4-6) and Gate 2 implementation proceeded under row 6; every
 revision since has superseded those bytes, so all three lapse and must be
-re-issued at the hash of the current anchor. Revisions 19 and 20 themselves
-accumulated no approvals, so neither supersession lapsed anything.
-**Revision 23 awaits all three fresh approvals**: its own independent
-statistical review (sections 3-8, which is where both new sections 4.6 and
-8.7 sit) and, if that issues, the two user attestations (the S3 deviation,
-unchanged in substance from revision 18, and the remainder). **Further Gate
-2 implementation work is NOT currently authorized** - implementation is
-paused at the point revision 19 described and every revision since restates -
-and candidate-cell execution is separately and additionally gated on the
-fourth approval (the independent implementation review of the resulting Gate
-2 code).
+re-issued at the hash of the current anchor. Revisions 19 through 23 each
+accumulated no approvals, so no supersession since has lapsed anything -
+**including revision 23, whose statistical review raised findings and issued
+no approval**, and which is the round revision 24 answers.
+**Revision 24 awaits all three fresh approvals**: its own independent
+statistical review (sections 3-8, which is where sections 4.6 and 8.7 sit,
+and where revision 24's new amendment in section 6.1 sits) and, if that
+issues, the two user attestations (the S3 deviation, unchanged in substance
+from revision 18, and the remainder). **Further Gate 2 implementation work
+is NOT currently authorized** - implementation is paused at the point
+revision 19 described and every revision since restates - and candidate-cell
+execution is separately and additionally gated on the fourth approval (the
+independent implementation review of the resulting Gate 2 code).
 
 **The Gate 2 code built under revision 18's row 6 does not conform to the
 current revision.** `sweepEvidence.js` implements neither section 8.7's
@@ -387,11 +440,15 @@ profile axis nor section 4.6's interval method, and revision 22 widened the
 gap further: it must additionally carry a season coordinate (4.6.1), the
 total reducer (4.6.4), rule 4's fixed row set, and rule 5's `half_ppr`
 pinning - which replaces the coordinate-removal revision 21 called for, so
-any work done against that instruction must be revisited. That code must be
-brought into
-conformance before the fourth approval is sought; the fourth approval is
-single-use and must not be spent on an implementation already known to be
-non-conformant.
+any work done against that instruction must be revisited. **Revision 24 adds
+exactly one further item**, in the opposite direction from the rest: section
+6.1's required test that `FALSIFIABILITY_FLOOR` is referenced by nothing
+returning a status does not exist, and neither does the mutation test that
+changing `0.30` alone changes no status. Everything else section 6.1 and
+section 4.4 require of the code is already MET, as those sections now record
+directly. That code must be brought into conformance before the fourth
+approval is sought; the fourth approval is single-use and must not be spent
+on an implementation already known to be non-conformant.
 
 **No section of THIS document supplies or evidences an approval.**
 `APPROVAL_LEDGER.md` is the sole authoritative record; section 10 below is
@@ -530,7 +587,7 @@ into each week's input value.
      than the run-object shape, that aborts the sweep the instant a real
      collision is detected.
 6. Reuses `assertSaltAffectsOnlyHashValue` (Commit A6,
-   `lib/arms.js:173`) as the integration check that salting the derivation
+   `lib/arms.js:225`) as the integration check that salting the derivation
    changes nothing in a cell's resolved run object except `hashValue`.
 
 ---
@@ -575,8 +632,13 @@ through (e1)) can have one endpoint trigger while its sibling does not.
    normalization**, not on raw floats - a genuinely discrete metric (e.g.
    pairwise accuracy over few eligible pairs) can otherwise register as
    non-degenerate purely from floating-point representation noise.
+
+   **Status of that requirement [revision 24]. MET.** `lib/metrics.js:458`
+   is `distinctValues: new Set(Array.from(sorted, (v) => roundToTie(v))).size`,
+   and the comment at `:449-457` cites "PHASE5_EXECUTION_SPEC.md section 4.4
+   item 1" by name.
 2. **Build the inverted bound's sorted array from the non-tied subset**,
-   fixing `exactSignTest`'s (`lib/arms.js:368-403`) index/sample mismatch:
+   fixing `exactSignTest`'s (`lib/arms.js:765`) index/sample mismatch:
    the current code computes `n`/`k` from `nonTied` (margin-shifted values
    with exact ties dropped) but builds `sortedDeltas` from the FULL,
    untrimmed `weekDeltas` array and indexes it at `sortedDeltas[j - 1]`
@@ -584,6 +646,17 @@ through (e1)) can have one endpoint trigger while its sibling does not.
    any week ties out, the order statistic is read from the wrong position.
    **Fix**: the sorted array must be built from the SAME non-tied subset of
    (unshifted) deltas that produced `n` and `k`.
+
+   **Status of that requirement [revision 24]. MET.** `lib/arms.js:776-778`
+   builds `nonTiedPairs` and derives both `n` and `k` from it, and the
+   comment at `:789-792` cites "Section 4.4 item 2" by name, stating that the
+   sorted array comes from "the SAME non-tied subset (of unshifted x-values)
+   that produced `n` and `k` - never the full, untrimmed weekDeltas array."
+   **The sentence above beginning "the current code computes" is WITHDRAWN.**
+   It described the pre-fix state and went false when the code changed. It is
+   left standing rather than deleted silently, so the record of what was
+   required, and of when it was met, survives - the same disposition section
+   8.6.1 uses for its own withdrawn claim.
 3. **`unevaluable` (never `threshold-not-established`, never a bare `fail`)
    when no finite inverted bound exists** (`j === null`, `bound ===
    Infinity`), per prereg 9.8 point 6's "the endpoint is UNEVALUABLE."
@@ -1107,7 +1180,7 @@ inc  <=  |b| * |e| + 0.01  <=  0.05 * |b| + 0.01
 - **Per-week disclosure threshold, `0.30`** (was `0.50`): **DISCLOSURE
   ONLY - it is NOT an evaluability gate and NOT a comparison operand in any
   decision.** It is used in exactly one place: the per-week count
-  `weeksBelowFalsifiabilityFloor` (`lib/arms.js:448-449`), which prereg 9.8
+  `weeksBelowFalsifiabilityFloor` (`lib/arms.js:882`), which prereg 9.8
   requires published as context for how much of `k` rests on weeks where
   the margin was unattainable. The evaluability gate it was once part of
   has been **replaced entirely by section 6.1a**, which compares a median
@@ -1118,18 +1191,92 @@ inc  <=  |b| * |e| + 0.01  <=  0.05 * |b| + 0.01
 - **Veto-incapable disclosure threshold, `3.80`** (was `4.00`):
   **mechanical rounding correction** - used exclusively inside the
   transparency block's `catastrophicCapCouldFire` disclosure
-  (`lib/arms.js:456`), never gating the veto itself (which fires strictly
+  (the comparison at `lib/arms.js:891-892`, against the constant at
+  `:751`), never gating the veto itself (which fires strictly
   on the directly-measured `inc > 0.20`); cannot change any verdict.
 
-**Required Gate 2 code changes**: `lib/arms.js:366`'s `FALSIFIABILITY_FLOOR
+**Required Gate 2 code changes**: `lib/arms.js:743`'s `FALSIFIABILITY_FLOOR
 = DELTA_F / MAX_EFFECT` -> `(DELTA_F - 0.01) / MAX_EFFECT` (0.30),
-**retained SOLELY as the per-week disclosure constant**; `:456`'s
+**retained SOLELY as the per-week disclosure constant**; `:751`'s
 `catastrophicCapCouldFire` check -> `Number(maxAbsBaseline) >
 (CATASTROPHIC_CAP - 0.01) / MAX_EFFECT` (3.80). **Additionally required**:
 the evaluability guard must be rewritten to section 6.1a's transformed-bound
 median comparison, and `FALSIFIABILITY_FLOOR` must NOT appear anywhere in
 that guard. A test must assert that the constant is referenced by the
 disclosure count and by nothing that returns a status.
+
+**Status of those requirements [revision 24].** Four requirements sit in the
+paragraph above. **Three are MET; the fourth is NOT**, and it is recorded as
+NOT MET rather than left unstated, so a reader can tell a satisfied
+directive from a pending one without reading the code.
+
+- **The `0.30` disclosure constant - MET.** `lib/arms.js:743` is
+  `const FALSIFIABILITY_FLOOR = (DELTA_F - 0.01) / MAX_EFFECT; // 0.30`.
+- **The `3.80` disclosure constant - MET.** `lib/arms.js:751` is
+  `const CATASTROPHIC_CAP_COULD_FIRE_THRESHOLD = (CATASTROPHIC_CAP - 0.01)
+  / MAX_EFFECT; // 3.80`, consumed by the comparison at `:891-892`. **The
+  FORM of that comparison differs from the text above**; it is settled
+  immediately below as a labeled amendment, not inside this status block.
+- **The evaluability-guard rewrite - MET.** `lib/arms.js:924-938` builds the
+  transformed weekly bounds, takes their median, and returns `unevaluable`
+  when `roundToTie(medianWeeklyBound) <= roundToTie(DELTA_F)`. The comment
+  at `:911-912` names it as the falsifiability guard and records that "the
+  pooled 0.30 quantity remains disclosure-only." `FALSIFIABILITY_FLOOR`
+  occurs in exactly three places in `arms.js` - its definition (`:743`), the
+  disclosure count (`:883`), and the export list (`:1624`) - and in none of
+  them inside the guard.
+- **The test asserting the constant is referenced by NOTHING that returns a
+  status - NOT MET.** `backtestArms.test.js:487` asserts the constant's
+  VALUE, carrying the message `'0.30 remains disclosure-only'`; `:577` and
+  `:589` assert the disclosure count's semantics. None of the three tests
+  the negative. **The assertion message states a property the assertion does
+  not check**, which is the shape that makes a missing test read as a
+  present one on a skim. The mutation test required at the end of this
+  section - that changing `0.30` alone changes no status - is the
+  operationalization of the same negative, and it does not exist either.
+  Both remain owed by the Gate 2 implementation round.
+
+**The comparison FORM is amended** **[substantive prospective amendment]**.
+The directive above prescribes a BARE comparison,
+`Number(maxAbsBaseline) > (CATASTROPHIC_CAP - 0.01) / MAX_EFFECT`.
+`lib/arms.js:891-892` instead computes
+`roundToTie(Number(maxAbsBaseline)) > roundToTie(CATASTROPHIC_CAP_COULD_FIRE_THRESHOLD)`,
+which is tie-rounded on BOTH operands. **This document adopts the
+tie-rounded form**, and states its grounds at their real strength rather
+than overstating them.
+
+**Prereg 6.6 SUPPORTS the tie-rounded form; it does not COMPEL it.** Its
+fourth bullet fixes that "**Numeric ties** are decided on values rounded to
+10 decimal places," in a section headed "(global)" - and then names exactly
+one extension beyond tie decisions: "This same rounding defines a zero
+difference in the sign test of component (f)." `catastrophicCapCouldFire` is
+a strict `>`, not a tie test, so 6.6 reaches it only AT the boundary, where
+the comparison does become a tie decision - that is the support. But a
+sealed section that authorises one extension **explicitly** is evidence that
+a second extension needs its own authorisation, not evidence that it is
+already covered. The resolution is supplied HERE, by this document, and is
+submitted for approval as an amendment.
+
+**The bare form is available, and is rejected on the record.** The threshold
+itself is not the hazard: `(0.20 - 0.01) / 0.05` evaluates to exactly the
+double nearest `3.8`, so the derived constant and the literal `3.8` are the
+same value. The hazard is the OTHER operand. `maxAbsBaseline` is a maximum
+over computed per-week mean absolute baselines, so it carries summation-order
+representation noise; a value one unit in the last place above `3.8` makes
+the bare comparison `true` and the tie-rounded comparison `false`. Under the
+bare form the disclosure would flip on a last-bit artifact of how the mean
+was accumulated - the exact condition prereg 6.6's ten-decimal rule exists to
+eliminate, and the condition section 6.2 already requires every boundary
+operation to be normalized against.
+
+**This cannot be deferred to the implementation round**, because the
+mutation tests at the end of this section mandate "the `3.80` disclosure
+comparison tested at its own boundary," and the two forms disagree precisely
+at that boundary. Until the form is settled, the mandated test has no
+determinate expected result. `backtestArms.test.js:506-518` already exercises
+that boundary under the tie-rounded form (`3.8` -> `false`, `3.81` ->
+`true`); **that is evidence of what the code does, not authority for what
+this document requires**, and it is cited here as the former only.
 
 **Required rounding-boundary mutation tests**: synthetic on/off medians
 whose independent `round2` roundings push in opposite directions at the
@@ -1422,7 +1569,7 @@ onPreHomeAwayBaseline({
   not "at most once," not "zero or more times."
 - **Zero calls on either early return**: `projectFromBundle`'s own `if
   (!player)` branch (`projection.service.js:261-277`) and `projectPlayer`'s
-  own `if (baseline.value == null)` branch (`projectionModel.js:1012`) both
+  own `if (baseline.value == null)` branch (`projectionModel.js:1021`) both
   return before the semantic point exists; the callback fires zero times
   for a player-week that exits through either.
 - **Type validation is unconditional, immediate, and required at EVERY
@@ -1884,10 +2031,24 @@ different seed derivation, a different rounding), never the model. This is
 why the sealed requirement is **bit-identity, not the point-identity** the
 `homeaway-on-stored` assertion uses: there is no legitimate source of even
 a last-digit difference between two runs of literally the same
-configuration, so no tolerance is appropriate. `lib/arms.js:213`'s
-`assertControlBitIdentity` already implements exactly this comparison
-(`canonicalJson(controlRun) !== canonicalJson(usage25OffRun)` -> throw),
-committed in Commit A6.
+configuration, so no tolerance is appropriate.
+
+**The required procedure is `assertProjectionRunBitIdentical`
+(`lib/arms.js:387`), NOT `assertControlBitIdentity`.**
+`assertControlBitIdentity` (`lib/arms.js:359`, committed in Commit A6)
+implements the naive run-object form of this comparison,
+`canonicalJson(controlRun) !== canonicalJson(usage25OffRun)` -> throw, and
+**must not be handed two `generateProjections` return values**:
+`canonicalJson` serializes a `Map` to `"{}"`, so such a call would compare
+`"{}"` against `"{}"` and pass vacuously, which is the failure mode this
+assertion exists to prevent. `assertProjectionRunBitIdentical` is the
+Map-safe procedure the bullet below specifies; it reuses
+`assertControlBitIdentity` internally for the PER-PROJECTION plain-object
+comparison only (`lib/arms.js:404`). **[corrected at revision 24]** Revisions
+12-23 carried a sentence here endorsing `assertControlBitIdentity` as
+already implementing "exactly this comparison," four lines above the bullet
+that forbids exactly that use; the endorsement is withdrawn rather than
+deleted silently.
 
 - **[rev13, corrected per rejection finding 1] Comparison rule: BIT-IDENTITY
   via canonical serialization of PER-PROJECTION objects, never of the run
@@ -1934,7 +2095,7 @@ committed in Commit A6.
   in it either. Deliberately stricter than section 8.6.4's comparator, per
   the sealed word "bit-identical."
 
-  **Note on the existing helper**: `lib/arms.js:213`'s
+  **Note on the existing helper**: `lib/arms.js:359`'s
   `assertControlBitIdentity` implements
   `canonicalJson(controlRun) !== canonicalJson(usage25OffRun)`. That is
   correct for the shape its own tests exercise (plain per-run summary
@@ -2159,7 +2320,7 @@ functions it assembles from:**
   divergence at this nested path would, by construction, already have
   shown up at the top-level path too.
 - **[rev11, added per rejection finding 1] `factors.role.pointsContribution`**
-  (`projectionModel.js:1128-1130`: `factors.role = hasRoleData ?
+  (`projectionModel.js:1149-1151`: `factors.role = hasRoleData ?
   {available: true, pointsContribution: null, note: '...'} : null` -
   ALWAYS `null` when `factors.role` itself is non-null; the path is
   included for completeness since it is a genuine numeric/nullable
@@ -2604,6 +2765,8 @@ intact.
 | Findings round against revision 21 — **Source B, styled an independent review** | **NO APPROVAL ISSUED** | 2026-08-04 | Relayed into the working conversation. **The assistant did not observe its execution and cannot attest to its origin — this is a different provenance from R1-R5, each of which was transcribed from a named external reviewer's own message.** Recorded here at that standing and no higher. Findings: CRITICAL 1 (rule 4 fixed a metric-type axis but no row set), CRITICAL 2 (the moving-block carve-out contradicted prereg 10.5's sealed precondition), CRITICAL 3 (rule 5's removal of activation's profile axis rested on a false premise about `calculateFantasyPoints`), WARNING 3 (section 4.6 mislabeled sealed prereg 10.1 content as amendable), WARNING 4 (sections 4.6 and 8.7 defined each other's scope circularly and disagreed about activation), WARNING 5 (the half-PPR-selected cohort underlying rule 4's rows must be disclosed). **Addressed as revision 22.** No approval was sought or issued |
 | Revision 21 → 22 | **not a review round** | 2026-08-04 | Revision 21 was anchored at `ed5b001496a5ffcf1338a431ea4a177b75ce79b4` (SHA-256 `DB9971B8385D17B6039ADF5DF9F4B6EAAACB26607681B80EFE55230EAA0A9E01`, blob `94ae4b746a6a964adf407f3160f30e7a2e774eb4`) and accumulated **no approvals**, so nothing lapsed. **Revision 22 is the first revision since 18 to change a RULING** — sections 1, 4.6, 8.6.1, 8.6.2, and 8.7 all carry normative changes, so the byte-identity shortcut that applied to revisions 20 and 21 does NOT apply here and a reviewer must re-read those sections rather than diffing them. Four of the findings answered originate in assistant-authored text (recorded below), which is why Source A cannot carry review standing on its own |
 | Revision 22 → 23 | **not a review round** | 2026-08-04 | Revision 22 was anchored at `3bac26345ad7d912bae9f0080865dd62b3e9b669` (SHA-256 `B835B5982FA0573777F47285855DA445E765DFAB1526C546FE098D4EE3065C44`, blob `9b452737b523c11ddd1c2c682aed04abaa3901be`) and accumulated **no approvals**, so nothing lapsed. A review round against it found four pieces of false or self-contradictory scaffolding beneath conclusions that all survive: section 4.6.1's "eight of the thirteen" (e2) inequalities for 2024, which is FOUR; rule 4's "NOT the eight-cell factorial grid," contradicted by the same rule nine lines later and by section 4.6.2; section 4.6.1's unqualified both-seasons claim, which rule 4's 2025-only family contradicts without any deferral clause; and two unsupported citations in section 4.6.4 - whole-week undefinedness attributed to prereg 6.6, which is "Null and tie conventions (global)" and says no such thing, and a rho total-ties rule that appears nowhere in the preregistration. **Addressed as revision 23. NO RULING CHANGED**, so unlike the 21 to 22 step the byte-identity check IS available: sections 4.6.2, 4.6.3, and all five of section 8.7's rules are byte-identical to `3bac263` |
+| Statistical review of revision 23 | **NO APPROVAL ISSUED** | 2026-08-04 | Reviewed revision 23 at anchor `3939a278e6c23a7a82298149ba8e573c42866362` (SHA-256 `9222E1F31F71E95DEB29F2DCBB14644C92A2BF424092B8027BB85F0DD5C8F649`, blob `a52c8cfaafae6c444306d5895ad517cf7ec008f3`). **Raised findings and issued no approval**; per the convention R1-R5 established, a round that issues no approval warrants no row in `APPROVAL_LEDGER.md`, and none was written. Revision 23 accumulated **no approvals**, so nothing lapsed when revision 24 superseded it. Three rounds of adversarial reading produced **no finding against any ruling** - every defect was in the scaffolding beneath them. Findings answered: four satisfied directives still written as pending (section 4.4 items 1-2, section 6.1's constants and evaluability guard); a present-tense endorsement in section 8.6.0 of `assertControlBitIdentity` as implementing "exactly this comparison," four lines above the bullet forbidding that exact use; ten stale `file.js:NNN` locators; and four defects in section 10.2's own locator inventory. **Addressed as revision 24** |
+| Revision 23 → 24 | **not a review round** | 2026-08-04 | **NO RULING CHANGED.** Byte-identity is available **PER REGION, not document-wide** - this step is neither of the two regimes the ledger's earlier entries established. Sections 4.6 (all four items and all four subsections) and 8.7 (all five rules, including rule 4's row set and cell-scope paragraph and rule 5's activation pinning) are byte-identical to `3939a27` and may be diffed. Sections 4.4, 6.1, 8.6.0, 8.6.2, 10.2, 11.2, 1, and the preamble all changed and must be read. **Section 6.1 additionally carries a NEW substantive amendment** - the `catastrophicCapCouldFire` comparison form - which no diff against revision 23 can shortcut. A reader who carries either earlier entry's regime forward gets the wrong answer for half this document. **Sequencing**: revision 24 had to anchor BEFORE any approval was commissioned. That constraint does not arise from the amendment - section 6 was always inside the statistical review's sections 3-8 scope, and the status blocks change section 6's bytes under any reading, so the hash moves either way. What the amendment changes is the COST of getting the order wrong: a status-block-only revision would have let a prior approval be re-issued against the new hash after a byte-identity check, whereas a new substantive amendment inside the reviewer's own scope requires a fresh review of text they have never seen |
 | **Independent implementation review** | **pending, strictly last, after Gate 2 code exists** | | scope, complete: the runtime salt-collision guard and its two-level unit/runtime split (section 3.4); the exact-trigger implementation defects, including the (f) no-finite-bound amendment label (section 4.4); the restored permutation-control definitions and aggregation (section 5); the rounding-boundary mutation tests and ten-decimal boundary normalization (section 6.1-6.2); the callback's per-receiver validation, exactly-once invocation, and exception propagation (section 6.5); the S3 non-estimable disclosure (section 7); the signed-boundary table and the exhaustive endpoint/component/cell/run truth table, including the (f)-unevaluable unification (sections 8.1-8.2); **activation's exact numerator/denominator (available && effect!==0, per-position including DEF, over eligible/non-neutral/known-orientation projections) and its precedence against `fail` (section 8.3)**; the restored cell-level ordering-inconclusive behavior and **Level-5 selection precedence, including the provably-unreachable winner-only branch (sections 8.4-8.5)**; **BOTH sealed identity assertions - the `usage-25 == control` bit-identity assertion (section 8.6.0: the Map-safe per-projection canonical-byte comparison and its named prohibition on passing a `Map` to `canonicalJson`, byte-equality with no allowlist and no tolerance, the explicitly-named non-Map run fields, its full player-week/salt scope, its pre-flight invocation point before the permutation control, its run-void disposition, and its seven mutation tests including the Map-serialization regression) and the `homeaway-on-stored` point-identity assertion** (section 8.6.1: its usage-25-only scope, the corrected `useStoredHistory` mechanism explanation, its single-leaf-difference guard), the complete fresh-vs-fresh allowlist (including `homeGames`/`awayGames`, `availability.activeProbability`, `role.pointsContribution`), the independently-frozen and explicitly-enumerated cache-compatible allowlist, **the ordered field-level comparator semantics with per-side type/finiteness validation running BEFORE any cross-side comparison, and raw-input duplicate detection running BEFORE any Map-building loop on both sides of every comparison**, and the descriptive-only cache-QA disposition (section 8.6) |
 
 No candidate cell may be computed while any item above remains unresolved.
@@ -2643,12 +2806,90 @@ code, and no code change can falsify it.
 
 **A LOCATOR check is mechanically automatable and should run on every
 re-anchor**: extract every `file.js:NNN` citation in this document and assert
-the named symbol still resolves at or near that line. Known drift as of
-revision 22, all because citations were taken against Commit A6 rather than
-HEAD: `arms.js:173`, `:213`, `:368-403`, `:448-449`, `:456`;
-`projection.service.js:408` and its siblings; `projectionModel.js:1113`.
-Locator drift is a citation defect, not a claim defect - the underlying
-statements remain true - but it costs a reviewer the ability to check them.
+the named symbol still resolves at or near that line.
+
+**Repaired at revision 24** - ten sites, all drifted because the citations
+were taken against Commit A6 rather than HEAD:
+
+| section | cited | true |
+| --- | --- | --- |
+| 3.4 item 6 | `arms.js:173` | `:225` |
+| 4.4 item 2 | `arms.js:368-403` | `:765` |
+| 6.1 | `arms.js:448-449` | `:882` |
+| 6.1 | `arms.js:456` | `:751` (constant), `:891-892` (comparison) |
+| 6.1 | `arms.js:366` | `:743` |
+| 6.5 | `projectionModel.js:1012` | `:1021` |
+| 8.6.0 (x2) | `arms.js:213` | `:359` |
+| 8.6.2 | `projectionModel.js:1128-1130` | `:1149-1151` |
+| 11.2 | `arms.js:213` | `:359` |
+
+`arms.js:213` was the costliest of the ten, and it was wrong at three
+sites: that line holds a live `if (!SALTS.includes(salt)) throw` salt guard,
+so a reader following the citation landed on real, plausible, unrelated code
+rather than on nothing at all. A locator that resolves to something is worse
+than one that resolves to nothing.
+
+**Still outstanding, NOT repaired at revision 24**: the
+`projection.service.js` family, at five sites - `:408` (section 6.5), `:449`
+and `:478-` (8.6.4), `:455-459` (8.6.0), and `:478-497` (8.6.2). At least two
+are confirmed stale: `generateProjections` is at `:417` and returns at
+`:476-478`, not `:455-459`; `loadCachedRows` is at `:496`, not `:478-497`.
+Revision 22 recorded this family as "`projection.service.js:408` and its
+siblings", which named one member and hid four. They are enumerated here so
+the next pass inherits a work-list rather than a phrase.
+
+**Removed as a phantom**: `projectionModel.js:1113`. Revision 22 listed it
+as known drift, but it occurs in this document exactly once - inside that
+list. It is cited nowhere, so there was never anything to repair or to
+check, and carrying it made the inventory look more complete than it was.
+
+**Revision 22's blanket claim that "locator drift is a citation defect, not
+a claim defect - the underlying statements remain true" is WITHDRAWN. It is
+false whenever the citation sits inside a DIRECTIVE.** A directive carries a
+present-tense claim about the state of the code, so a drifted locator
+travels with a claim that can be false on its own terms. Section 4.4 item
+2's `:368-403` and section 6.1's `:366` and `:456` each anchored a
+requirement whose accompanying description of the code had already been
+overtaken by the code - claim defects, repaired at revision 24 by the status
+blocks in those sections. A stale locator with no directive attached -
+section 3.4's `:173`, section 8.6.2's `:1128-1130` - is the citation-only
+case the original sentence described, and costs a reviewer only the ability
+to check a statement that remains true.
+
+**How the directive defects were found, and the reach of that search
+[revision 24].** One text pattern was run over this document:
+
+```
+the current code|currently (does|implements|touches|builds)|does not yet|must add a|already implements
+```
+
+Against the anchored bytes of revision 23 it matches **3 lines within
+sections 3-8** and **5 lines document-wide** (5 occurrences either way; no
+line carries two). Of the five, **two are the real defects** - section 4.4
+item 2's "the current code computes" and section 8.6.0's "already implements
+exactly this comparison" - and three are correctly not defects: two
+historical narrations of the already-withdrawn `resolveConstants` claim (the
+preamble and this section's own table) and one explicit disclaimer in
+section 8.7 that makes no claim about the sweep's current behaviour.
+
+**The pattern did NOT find the other four satisfied directives.** Section
+4.4 item 1 and section 6.1's three met requirements are phrased as
+imperatives ("Count distinct...", "Required Gate 2 code changes") with no
+present-tense assertion about existing code, so no wording in the pattern
+appears in them; they were found by reading the directive text itself.
+**Six directive requirements were assessed in total: five MET, one NOT MET**
+(section 6.1's test that the constant is referenced by nothing returning a
+status).
+
+**A second, wider sweep was reported during the revision-24 round as
+yielding 8 document-wide hits, but its pattern text was not preserved, so
+that count is NOT reproducible and is not relied on here.** It is recorded
+as an unverified claim rather than dropped, because dropping it would hide
+that a wider search was attempted. The reproducible bound is the pattern
+above, and it is a bound on *directive-shaped phrasings*, not on satisfied
+directives: nothing in this document forces a directive into any particular
+wording, so a requirement met and described in language neither this pattern
+nor a reader anticipated would appear in no count at all.
 
 ---
 
@@ -2730,7 +2971,7 @@ restored; and the "is therefore approved" wording on the (f) no-finite-bound
 amendment corrected to "submitted for approval," since no approval has
 actually been recorded yet. **This round (twelve)**: the SECOND sealed
 identity assertion - `usage-25 == control` bit-identity (prereg 7.3),
-already implemented as `assertControlBitIdentity` (`lib/arms.js:213`) but
+already implemented as `assertControlBitIdentity` (`lib/arms.js:359`) but
 entirely unspecified in this document through revision 11 - restored in
 full with its own canonical-serialization comparison rule (no allowlist, no
 tolerance, deliberately stricter than the point-identity comparator), full
@@ -2782,7 +3023,9 @@ It does not review implementation conformance.
   status -> cohort class), 4.1-4.2 (cohort and injury policy), **4.3
   (outcome truth, and the scoring-profile primary that section 8.7 rests
   on)**, 5.2-5.3 (regret estimands), 6.3, 6.6-6.7 (metric conventions and
-  contrast construction), 7.3 (arms/benchmarks/controls), 8.1-8.3 (salts and
+  contrast construction; **6.6's FOURTH bullet, the ten-decimal tie rule and
+  its single named extension, is what section 6.1's comparison-form
+  amendment turns on**), 7.3 (arms/benchmarks/controls), 8.1-8.3 (salts and
   seeds), 9.1-9.7 (the IUT and components (a)-(e2)), 9.8 (component (f) in
   full), 10.1-10.6 (the CI contract; **10.1 is what section 4.6 extends, and
   10.5-10.6 establish that section 10 reaches non-gating output**),
@@ -2800,7 +3043,9 @@ It does not review implementation conformance.
   8.7's table reproduces; `scripts/backtest/lib/metrics.js`'s
   `BOOTSTRAP_DRAWS`, `BOOTSTRAP_SEED`, `bootstrapMean`, `percentileBound`,
   `MOVING_BLOCK_SEED`, and `movingBlockBootstrap`, which are the primitives
-  section 4.6 mandates and the one it distinguishes itself from.
+  section 4.6 mandates and the one it distinguishes itself from;
+  `scripts/backtest/lib/numbers.js`'s `TIE_DECIMALS` and `roundToTie`, which
+  are what section 6.1's comparison-form amendment adopts.
 - **`APPROVAL_LEDGER.md`**, for the anchor chain and what each prior
   approval attached to.
 
