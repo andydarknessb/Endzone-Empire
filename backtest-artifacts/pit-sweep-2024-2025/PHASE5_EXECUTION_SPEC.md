@@ -87,6 +87,31 @@ fix:**
   silence was the absolute metrics, which are not deltas. 4.6 closes that
   and states the method for all of them.
 
+**Revision 28 changes no ruling, no classification, and no number. It
+corrects SIX SECTION NUMBERS that revision 27 got wrong**, and records the
+hazard class they belong to.
+
+Revision 27's repair record named **section 8.6.1** as the home of the
+fresh-vs-fresh allowlist whose locators it repaired. **That allowlist is
+section 8.6.2's.** The locators, the repair, the "inside sections 3-8" claim
+and the 2-modified-1-added delta were all correct; only the subsection number
+was wrong, at six sites. It matters because 8.6.1 is the scope section for
+the **same assertion pair**, so the pointer resolves to the most plausible
+available wrong text - the failure mode section 10.2 records for
+`arms.js:213`, committed by the section whose function is to be the work-list
+against it.
+
+**Section 10.2 now carries it as a FOURTH hazard class**, distinct from stale
+`file.js:NNN` locators, negative-existence claims, and unqualified internal
+line citations: **a section attribution resolves, just to the wrong section**,
+so neither the locator check nor any byte-identity proof can catch it. The
+mechanical rule is recorded with it - **a slice terminator must match every
+heading level at or above the target's** - because a terminator of
+`/^(### |## )/` does not match `####` and makes section 8.6.1 measure 374
+lines where it has 107. Both the drafting and the audit of revision 27
+committed the error, with different probes, which is the argument for
+recording it as a class.
+
 **Revision 27 changes no ruling. It corrects a DISCLOSED NUMBER that was
 wrong in every revision from 13 onward**, answering a reading of sections 1,
 2, 9, 10, and 11 - five sections no review round had ever examined - that
@@ -116,7 +141,7 @@ and the provenance of how the member was admitted.
 **Five errata ride along**, all outside the rulings: section 2 named
 `sweepEvaluator.js` as consuming three `arms` exports it references zero
 times; four `projectionModel.js` `effectiveGames` locator sites had drifted,
-**two of them inside section 8.6.1's normative allowlist**, so sections 3-8
+**two of them inside section 8.6.2's normative allowlist**, so sections 3-8
 are NOT byte-identical at this step; section 11.2 described section 10's
 table as current five revisions ago, pointing readers away from section 10.3;
 and section 1 claimed "zero occurrences" where the obvious grep returns one.
@@ -726,15 +751,15 @@ Gate 3 verification (including the independent implementation review), and
 all four approvals are recorded, in `APPROVAL_LEDGER.md`, against the
 SAME approved revision of this document.
 
-**Authorization state as of revision 27: NOTHING IS AUTHORIZED.** Zero of
+**Authorization state as of revision 28: NOTHING IS AUTHORIZED.** Zero of
 the four approvals are in force against THESE bytes. Revision 18 held three
 (ledger rows 4-6) and Gate 2 implementation proceeded under row 6; every
 revision since has superseded those bytes, so all three lapse and must be
-re-issued at the hash of the current anchor. Revisions 19 through 26 each
+re-issued at the hash of the current anchor. Revisions 19 through 27 each
 accumulated no approvals, so no supersession since has lapsed anything -
-including revisions 23, 24, 25, and 26, each of which drew a round that
+including revisions 23, 24, 25, 26, and 27, each of which drew a round that
 **raised findings and issued no approval**.
-**Revision 27 awaits all three fresh approvals**: its own independent
+**Revision 28 awaits all three fresh approvals**: its own independent
 statistical review (sections 3-8, which is where sections 4.6, 6.1, 6.2, and
 8.7 sit) and, if that issues, the two user attestations (the S3 deviation,
 unchanged in substance from revision 18, and the remainder). **Section 10.3
@@ -3247,7 +3272,8 @@ intact.
 | Statistical review of revision 25 | **NO APPROVAL ISSUED** | 2026-08-05 | Reviewed revision 25 at anchor `7c5aa846a858e92668d3be9c1633fdac6b3bc776` (SHA-256 `57F7C4F0E39E1141B8CAFDBAB74BBF1C6F6DE4F5ACFB2BC21C64F3CEF22EE7D3`, blob `f5c96136bcaf3f95199e9275ca8b61f5371cfe64`). **Raised three findings and issued no approval**; per the R1-R5 convention a round issuing no approval warrants no ledger row, and none was written. **No finding impugned the category's sole member or any ruling** - all three were DURABILITY defects in section 0's new three-leg test, each a way the test could admit a FUTURE contradiction it should exclude: (i) nothing required that only ONE passage satisfy the legs, so two passages each governing and directing different things would each qualify; (ii) the contested-set qualifier that does the real work sat 31 lines below the legs, in the non-member discussion, where a drafter applying them in order would never reach it; (iii) no leg tested WHEN the governing passage came to exist, so a drafter could add a passage, observe the contradiction it created, and withdraw the older rule as "mechanical" - manufacturing the forcing condition. **Addressed as revision 26** |
 | Revision 25 → 26 | **not a review round** | 2026-08-05 | Revision 25 was anchored at `7c5aa846a858e92668d3be9c1633fdac6b3bc776` (SHA-256 `57F7C4F0…`, blob `f5c96136…`) and accumulated **no approvals**, so nothing lapsed. **NO RULING CHANGED, and the category's sole member keeps its classification** - section 6.1's comparison form remains `[mechanical correction, forced by an internal contradiction]`. Section 0's test goes from three legs to five: leg 2 absorbs the contested-set qualifier, leg 4 adds uniqueness, leg 5 adds priority-and-immutability with identity to be SHOWN not asserted. Both new legs are demonstrated for the sole member in section 0 itself, since leg 5's own text forbids asserting compliance. Also: the section 4.6 characterization is tightened (it DOES contain a universal, over a set section 8.7 defines, so leg 2 fails rather than the section being silent), and two stale INTERNAL line citations introduced by revision 25 are removed, with the hazard recorded in section 10.2. **Byte-identity per region**: sections 4.6, 8.7, 6.1a and **6.2** are byte-identical to `7c5aa84`; sections 0 and 6.1 changed and must be read |
 | Findings round against revision 24 | **NO APPROVAL ISSUED** | 2026-08-04 | Reviewed revision 24 at anchor `227c2e0` (SHA-256 `475ED9CA…`). **Raised findings, issued no approval**; no ledger row was written, per the convention R1-R5 established. One finding is substantive and is disclosed in section 10.3: revision 24's new section 6.1 amendment was **misclassified and misgrounded**, because section 6.2 of this document already compelled the tie-rounded `catastrophicCapCouldFire` comparison and named `3.80` in a list declared complete. **Addressed as revision 25**, which reclassifies the change, regrounds it on section 6.2, adds the missing taxonomy category to section 0, and makes the disclosure in 10.3 |
-| Revision 26 → 27 | **not a review round** | 2026-08-05 | Revision 26 was anchored at `51c0458abf36974966d065d2e384af9614035814` (SHA-256 `668BB9A7…`, blob `ee9c915f…`) and accumulated **no approvals**, so nothing lapsed. **NO RULING CHANGED.** Section 9's scale disclosure is corrected from `8,160` to **`14,688`** (branch `7,344` → `13,872`) by counting the prereg 16 sensitivity generation that section 8.7 rule 4 requires: scoring profile is a GENERATION coordinate, not a reporting one, so `standard` and `ppr` cannot be produced by re-scoring a `half_ppr` run. Labeled **`[mechanical correction, forced by an implementation fact]`** - the **FIRST member that category has ever had**, so section 0 now carries its boundary decision (the definition's "sealed text" is read DESCRIPTIVELY, since section 9's count sits in this document), its three conditions shown in order, and the **provenance disclosure** that the member was admitted in the round that found it, by the party that drafted it. Five errata ride along: section 2 named `sweepEvaluator.js` as consuming `ALL_CELLS`/`SELECTION_FAMILY`/`CONTROL_CELL`, which it references zero times while seven other modules do; four `projectionModel.js` `effectiveGames` locator sites; section 11.2's review-history currency claim, which pointed readers away from section 10.3; and section 1's "zero occurrences". **Sections 3-8 are NOT byte-identical at this step**: two lines change in section 8.6.1's allowlist locators. No ruling, endpoint, status, or selection is affected |
+| Revision 27 → 28 | **not a review round** | 2026-08-05 | Revision 27 was anchored at `8cbd439e2c2480a9180d648b0d6586b0379df97e` (SHA-256 `239F1A4F…`, blob `ce89dd25…`) and accumulated **no approvals**, so nothing lapsed. **NO RULING, NO CLASSIFICATION, AND NO NUMBER CHANGED.** Revision 27's repair record named section **8.6.1** as the home of the fresh-vs-fresh allowlist whose locators it had just repaired; that allowlist is section **8.6.2's**. Six sites corrected: the preamble, this table's revision 26 → 27 row, three rows of section 10.2's repair table, and that table's prose. The locators, the repair, the `inside sections 3-8` claim and the 2-modified-1-added delta were all correct; only the subsection number was wrong. Section 10.2 records it as a **FOURTH hazard class** - a section attribution RESOLVES, just to the wrong section, so neither the locator check nor a byte-identity proof can catch it - together with the mechanical rule that a slice terminator must match every heading level at or above the target's, since a terminator matching only `###` and `##` does not match `####` and makes section 8.6.1 measure 374 lines where it has 107. **Both the drafting and the audit of revision 27 committed the error, with different probes.** Sections 3-8 are byte-identical to `8cbd439` |
+| Revision 26 → 27 | **not a review round** | 2026-08-05 | Revision 26 was anchored at `51c0458abf36974966d065d2e384af9614035814` (SHA-256 `668BB9A7…`, blob `ee9c915f…`) and accumulated **no approvals**, so nothing lapsed. **NO RULING CHANGED.** Section 9's scale disclosure is corrected from `8,160` to **`14,688`** (branch `7,344` → `13,872`) by counting the prereg 16 sensitivity generation that section 8.7 rule 4 requires: scoring profile is a GENERATION coordinate, not a reporting one, so `standard` and `ppr` cannot be produced by re-scoring a `half_ppr` run. Labeled **`[mechanical correction, forced by an implementation fact]`** - the **FIRST member that category has ever had**, so section 0 now carries its boundary decision (the definition's "sealed text" is read DESCRIPTIVELY, since section 9's count sits in this document), its three conditions shown in order, and the **provenance disclosure** that the member was admitted in the round that found it, by the party that drafted it. Five errata ride along: section 2 named `sweepEvaluator.js` as consuming `ALL_CELLS`/`SELECTION_FAMILY`/`CONTROL_CELL`, which it references zero times while seven other modules do; four `projectionModel.js` `effectiveGames` locator sites; section 11.2's review-history currency claim, which pointed readers away from section 10.3; and section 1's "zero occurrences". **Sections 3-8 are NOT byte-identical at this step**: two lines change in section 8.6.2's allowlist locators. No ruling, endpoint, status, or selection is affected |
 | Revision 24 → 25 | **not a review round** | 2026-08-04 | Revision 24 was anchored at `227c2e096934c22a423f7470be44f09b53d3c82f` (SHA-256 `475ED9CADC1E0A094DCC34BF86130375F2C8391FE4B56DDF00C346B91C786C7D`, blob `a89da3af5384b008869d9b57aa9a995ca7cc0393`) and accumulated **no approvals**, so nothing lapsed. **NO RULING CHANGED IN SUBSTANCE** - the tie-rounded comparison form stands exactly as revision 24 adopted it; what changed is its CLASSIFICATION (substantive prospective amendment → mechanical correction forced by an internal contradiction), its GROUNDS (prereg 6.6 → this document's own section 6.2), and the disclosure that the contradiction it resolves was present in approved bytes. Sections changed: preamble, 0, 6.1, 10. **Sections 4.6, 8.7, 5, 6.1a, and 6.2 are byte-identical to `227c2e0`** - 6.2 in particular is untouched, since revision 25 adopts what it already said rather than editing it |
 | Revision 23 → 24 | **not a review round** | 2026-08-04 | **NO RULING CHANGED.** Byte-identity is available **PER REGION, not document-wide** - this step is neither of the two regimes the ledger's earlier entries established. Sections 4.6 (all four items and all four subsections) and 8.7 (all five rules, including rule 4's row set and cell-scope paragraph and rule 5's activation pinning) are byte-identical to `3939a27` and may be diffed. Sections 4.4, 6.1, 8.6.0, 8.6.2, 10.2, 11.2, 1, and the preamble all changed and must be read. **Section 6.1 additionally carries a NEW substantive amendment** - the `catastrophicCapCouldFire` comparison form - which no diff against revision 23 can shortcut. A reader who carries either earlier entry's regime forward gets the wrong answer for half this document. **Sequencing**: revision 24 had to anchor BEFORE any approval was commissioned. That constraint does not arise from the amendment - section 6 was always inside the statistical review's sections 3-8 scope, and the status blocks change section 6's bytes under any reading, so the hash moves either way. What the amendment changes is the COST of getting the order wrong: a status-block-only revision would have let a prior approval be re-issued against the new hash after a byte-identity check, whereas a new substantive amendment inside the reviewer's own scope requires a fresh review of text they have never seen |
 | **Independent implementation review** | **pending, strictly last, after Gate 2 code exists** | | scope, complete: the runtime salt-collision guard and its two-level unit/runtime split (section 3.4); the exact-trigger implementation defects, including the (f) no-finite-bound amendment label (section 4.4); the restored permutation-control definitions and aggregation (section 5); the rounding-boundary mutation tests and ten-decimal boundary normalization (section 6.1-6.2); the callback's per-receiver validation, exactly-once invocation, and exception propagation (section 6.5); the S3 non-estimable disclosure (section 7); the signed-boundary table and the exhaustive endpoint/component/cell/run truth table, including the (f)-unevaluable unification (sections 8.1-8.2); **activation's exact numerator/denominator (available && effect!==0, per-position including DEF, over eligible/non-neutral/known-orientation projections) and its precedence against `fail` (section 8.3)**; the restored cell-level ordering-inconclusive behavior and **Level-5 selection precedence, including the provably-unreachable winner-only branch (sections 8.4-8.5)**; **BOTH sealed identity assertions - the `usage-25 == control` bit-identity assertion (section 8.6.0: the Map-safe per-projection canonical-byte comparison and its named prohibition on passing a `Map` to `canonicalJson`, byte-equality with no allowlist and no tolerance, the explicitly-named non-Map run fields, its full player-week/salt scope, its pre-flight invocation point before the permutation control, its run-void disposition, and its seven mutation tests including the Map-serialization regression) and the `homeaway-on-stored` point-identity assertion** (section 8.6.1: its usage-25-only scope, the corrected `useStoredHistory` mechanism explanation, its single-leaf-difference guard), the complete fresh-vs-fresh allowlist (including `homeGames`/`awayGames`, `availability.activeProbability`, `role.pointsContribution`), the independently-frozen and explicitly-enumerated cache-compatible allowlist, **the ordered field-level comparator semantics with per-side type/finiteness validation running BEFORE any cross-side comparison, and raw-input duplicate detection running BEFORE any Map-building loop on both sides of every comparison**, and the descriptive-only cache-QA disposition (section 8.6) |
@@ -3308,6 +3334,45 @@ numbers while it is being edited. Revision 26 removes both unqualified
 citations rather than repairing them: the section number plus the quoted text
 locates the passage without coordinates that expire.
 
+**SECTION ATTRIBUTION is a FOURTH hazard, distinct from the three above, and
+revision 27 committed it. [recorded and repaired at revision 28]** Revision
+27's own repair record named **section 8.6.1** as the home of the
+fresh-vs-fresh allowlist it had just repaired. That allowlist is **section
+8.6.2's**; 8.6.1 is "Scope: the `homeaway-on-stored` assertion names one
+pair" and ends before it begins. Six sites carried the wrong number: the
+preamble, section 10's history row, three rows of the repair table below, and
+that table's own prose.
+
+**Everything else in that record was correct** - the locators, the repair,
+the "inside sections 3-8" claim, and the description of what the allowlist
+fixes all hold of 8.6.2. **That is exactly what makes this a separate
+class.** A stale `file.js:NNN` locator points at a line and fails to resolve
+to the named symbol. A section attribution points at a SECTION NUMBER, and
+the number **resolves** - to the wrong section. The locator check below
+cannot catch it, because there is nothing unresolvable to find, and no
+byte-identity proof can, because both sections exist and neither changed.
+Worse, 8.6.1 is the scope section for the **same assertion pair**, so a
+reader following it lands on the most plausible available wrong text: the
+failure mode this section records for `arms.js:213`, committed by the section
+whose function is to be the work-list against it.
+
+**The cause is mechanical, and the rule that prevents it is worth stating
+outright.** The region was read by LINE OFFSET and attributed to a subsection
+without ever resolving the enclosing heading. **A slice terminator must match
+every heading level at or above the target's.** A terminator of
+`/^(### |## )/` does not match `####`, so a slice starting at section 8.6.1
+runs to section 8.7 and measures **374 lines where the section has 107** -
+267 extra, silently absorbing 8.6.2, 8.6.3, 8.6.4 and 8.6.5. Section 8.6
+alone has **six** `####` subsections exposed to that hole.
+
+**Both the drafting and the audit of revision 27 committed this, with
+different probes**, which is why it is recorded as a class rather than an
+incident: one attributed a range without resolving its heading, and the other
+verified that attribution with a span too coarse to discriminate between the
+two candidate sections, and so confirmed the wrong label. **A probe that
+cannot distinguish the right answer from the wrong one does not become
+evidence by returning the expected result.**
+
 **A LOCATOR check is mechanically automatable and should run on every
 re-anchor**: extract every `file.js:NNN` citation in this document and assert
 the named symbol still resolves at or near that line.
@@ -3339,9 +3404,9 @@ near-uniform `+11`:
 
 | section | cited | true |
 | --- | --- | --- |
-| 8.6.1, top-level allowlist | `projectionModel.js:1027`, `:1156` | `:1038`, `:1177` |
-| 8.6.1, `factors.recentProduction` | `:1070` | `:1081` |
-| 8.6.1, `factors.recentProduction.games` | `:1069` | `:1080` |
+| 8.6.2, top-level allowlist | `projectionModel.js:1027`, `:1156` | `:1038`, `:1177` |
+| 8.6.2, `factors.recentProduction` | `:1070` | `:1081` |
+| 8.6.2, `factors.recentProduction.games` | `:1069` | `:1080` |
 | 11.3 | `:1027`, `:1070`, `:1156` | `:1038`, `:1081`, `:1177` |
 
 **All three cited lines resolve to real, unrelated code** - `:1027` is
@@ -3352,7 +3417,7 @@ being named.
 
 **Two facts about these four sites matter more than the repair.**
 
-**First, they were inside sections 3-8.** Section 8.6.1's allowlist is
+**First, they were inside sections 3-8.** Section 8.6.2's allowlist is
 normative text: it fixes which fields must be bit-identical across the
 `homeaway-on` / `homeaway-on-stored` comparison. The fields are named by
 name, so the allowlist's MEANING never depended on the locators, and no
