@@ -1216,3 +1216,128 @@ hunks, landing only in the preamble, sections 0, 1, 2, 8.6.1, 9, 10 and 11.
 **(13) Gate 0 is unchanged and still in force**, the fourth approval remains
 strictly last, single-use, and not self-performable, and no row is pre-filled
 for any approval that has not issued.
+
+---
+
+### CORRECTIVE ENTRY 12 — appended 2026-08-05
+
+**This entry creates NO approval row.** It re-points the anchor recorded by
+corrective entry 11, **and it corrects two statements made in entry 11
+itself**, which is append-only and therefore stands unedited. **Entries 1-11
+are not edited.**
+
+**(1) The anchor has moved again.**
+
+| | |
+| --- | --- |
+| SHA-256 | `E6DB125C14ACF54E6A8AA52DD17777FB7447F555742A12BD656B6537A35E372B` |
+| git blob | `d962ca8df3539a244e813691c8a99b27396a106a` |
+| anchor commit | `0762738d9d64800c140b4c318ea06f95bc825c7f` |
+
+**(2) Nothing lapsed.** The superseded anchor (`8cbd439…` / `239F1A4F…`)
+accumulated no approvals. Rows 4-6 remain lapsed against their own superseded
+bytes, and **three fresh approvals are still required** against the hash in
+(1). **The disclosure recorded as item (3) of corrective entry 8 stands
+unchanged.**
+
+---
+
+**(3) CORRECTION TO ENTRY 11. Entry 11 names the wrong section, twice.**
+
+Entry 11 item (7) states that two stale locators "sat inside **section
+8.6.1's normative allowlist**", and item (12) lists the changed sections as
+"the preamble, sections 0, 1, 2, **8.6.1**, 9, 10 and 11".
+
+**Both should read section 8.6.2.** The allowlist in question is section
+8.6.2, "The complete fresh-vs-fresh allowlist". Section 8.6.1 is "Scope: the
+`homeaway-on-stored` assertion names one pair" and ends before the allowlist
+begins.
+
+**Everything else entry 11 states about that repair is correct**: the
+locators (`:1038`, `:1177`, `:1081`, `:1080`), the repair itself, the claim
+that the affected text sits INSIDE sections 3-8, the span moving 2,259 to
+2,260, and the 2-modified-1-added delta. **Only the subsection number is
+wrong.** No count, no scope statement, and no ruling in entry 11 is affected.
+
+**The ledger is append-only, so entry 11 is not edited.** This item is the
+correction of record. A reader of entry 11 should carry it forward.
+
+---
+
+**(4) The same error stood at six sites in revision 27's anchored bytes**,
+and revision 28 corrects all six: the preamble, section 10's revision 26 → 27
+history row, three rows of section 10.2's repair table, and that table's
+prose. **All thirteen pre-existing `8.6.1` references in the document are
+correct and were not touched.**
+
+**(5) Why a wrong section number was worth a re-anchor.** Section 8.6.1 is
+the scope section for the **same assertion pair** as 8.6.2, so a reader
+following the pointer lands on real, plausible, closely-related, wrong text.
+That is the exact failure section 10.2 already records for `arms.js:213` —
+"a locator that resolves to something is worse than one that resolves to
+nothing" — committed three paragraphs above by the table whose function is to
+be the work-list against it. **The section that exists to inventory
+misdirection was the section misdirecting.**
+
+**(6) Section 10.2 now carries this as a FOURTH hazard class.** It is not any
+of the three already inventoried — stale `file.js:NNN` locators,
+negative-existence claims, and unqualified internal line citations:
+
+- A stale `file.js:NNN` locator **fails to resolve** to its named symbol, so
+  a mechanical locator check finds it.
+- **A section attribution RESOLVES.** It just resolves to the wrong section.
+  There is nothing unresolvable to find, both sections exist, and neither
+  changed — **so neither the locator check nor any byte-identity proof can
+  catch it.**
+
+**(7) The mechanical rule, recorded with the class.** The cause was reading a
+region by LINE OFFSET and attributing it to a subsection without resolving
+the enclosing heading. **A slice terminator must match every heading level at
+or above the target's.** A terminator matching only `###` and `##` does not
+match `####`, so a slice starting at section 8.6.1 runs to section 8.7 and
+measures **374 lines where the section has 107** — 267 extra, silently
+absorbing 8.6.2, 8.6.3, 8.6.4 and 8.6.5. **Section 8.6 alone has six `####`
+subsections exposed to that hole.**
+
+**(8) BOTH THE DRAFTING AND THE AUDIT OF REVISION 27 COMMITTED THIS, WITH
+DIFFERENT PROBES.** One attributed a range without resolving its heading. The
+other verified that attribution with a span too coarse to discriminate
+between the two candidate sections — the audit's slice contained the changed
+lines, so it confirmed the label while being structurally incapable of
+testing it. **A probe that cannot distinguish the right answer from the wrong
+one does not become evidence by returning the expected result.** Two
+independent parties reaching the same wrong answer by different routes is the
+argument for recording a class rather than an incident.
+
+**(9) SECTIONS 3-8 ARE BYTE-IDENTICAL to `8cbd439`**, span 2,260 both sides,
+**0 differing**. Entry 11 had to record the loss of that property; it is
+restored here, and the restoration is checkable rather than asserted.
+
+**(10) Byte-identity per region**, verified between `8cbd439` and `0762738`
+with each version's boundaries resolved independently **and with a terminator
+matching `####`**, which is the rule item (7) records:
+
+| body | rev 27 | rev 28 | differing |
+| --- | ---: | ---: | --- |
+| **sections 3-8, whole** | 2,260 | 2,260 | **0** |
+| **section 8.6.2, whole** | 78 | 78 | **0** |
+| section 6.2, whole | 26 | 26 | **0** |
+
+Section 6.2 is now byte-identical across **eleven** revisions, 18 through 28
+inclusive: 26 lines, 0 differing at every step, with the `### 6.2` start
+anchor asserted unique in each and each version's terminator matching `####`.
+
+**(11) Confinement.** One tracked file, 75 insertions / 10 deletions,
+landing only in the preamble, section 1, section 10 and section 10.2. **Zero
+`.js` files have changed against `c04d6b1` across the entire revision 19-28
+arc.**
+
+**Noted for the record**: unrelated in-flight work modified
+`src/lib/draftSim/engine.js` in the working tree during this round, alongside
+four untracked new files under `src/lib/`. **None of it was staged or
+committed here**, and the committed invariant is unaffected — every commit in
+this arc stages the spec or the ledger by explicit path, never `git add -A`.
+
+**(12) Gate 0 is unchanged and still in force**, the fourth approval remains
+strictly last, single-use, and not self-performable, and no row is pre-filled
+for any approval that has not issued.
