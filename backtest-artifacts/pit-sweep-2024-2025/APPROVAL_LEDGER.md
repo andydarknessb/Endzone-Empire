@@ -739,3 +739,166 @@ and section 10 records the step. Neither is a ruling.
 **(10) Gate 0 is unchanged and still in force**, the fourth approval remains
 strictly last, single-use, and not self-performable, and no row is pre-filled
 for any approval that has not issued.
+
+---
+
+### CORRECTIVE ENTRY 9 — appended 2026-08-05
+
+**This entry creates NO approval row.** It re-points the anchor recorded by
+corrective entry 8, and it carries a DISCLOSURE about bytes that WERE
+approved. **Entries 1-8 are not edited.**
+
+**(1) The anchor has moved again.**
+
+| | |
+| --- | --- |
+| SHA-256 | `57F7C4F0E39E1141B8CAFDBAB74BBF1C6F6DE4F5ACFB2BC21C64F3CEF22EE7D3` |
+| git blob | `f5c96136bcaf3f95199e9275ca8b61f5371cfe64` |
+| anchor commit | `7c5aa846a858e92668d3be9c1633fdac6b3bc776` |
+
+**(2) Nothing lapsed.** The superseded anchor (`227c2e0…` / `475ED9CA…`)
+accumulated no approvals. It drew a findings round that **raised findings and
+issued no approval**; per the convention R1-R5 established, no row was
+written. Rows 4-6 remain lapsed against their own superseded bytes, and
+**three fresh approvals are still required** against the hash in (1).
+
+---
+
+**(3) DISCLOSURE — REVISION 18 WAS APPROVED CARRYING AN INTERNAL
+CONTRADICTION. This item has standing independent of any spec revision, and
+is the reason this entry exists.**
+
+Revision 18 — SHA-256
+`5A0D6E54B2D84494C5D39093C44204A79F32A4DD813F03909C1094339A52BCF8`, anchored
+at `85842e70a19b14fb6c5fb8cdfb0bca6a7a367774`, **APPROVED 2026-08-03 and
+recorded here as rows 4, 5, and 6** — contained two passages directing
+different things about the same comparison:
+
+| where, in revision 18 | what it said |
+| --- | --- |
+| section 6.2, lines 845-847 | every comparison against a frozen threshold "applies `roundToTie` … to BOTH operands", within "the complete list of such comparisons, and nothing else" |
+| section 6.2's table, line 857 | that list includes `3.80`, "the `catastrophicCapCouldFire` transparency line" |
+| section 6.1, line 697 | the Gate 2 directive prescribing the BARE form: `Number(maxAbsBaseline) > (CATASTROPHIC_CAP - 0.01) / MAX_EFFECT` |
+
+Section 6.2 named the comparison and required both operands rounded.
+Section 6.1 directed the opposite for the same comparison, roughly one
+hundred and fifty lines earlier. **Both were inside the bytes that rows 4-6
+approved.**
+
+**The contradiction survived revisions 19, 20, 21, 22, 23, and 24**, and was
+noted by no review round — including the round that approved revision 18,
+and including the pre-submission reads and findings rounds against revisions
+21, 22, 23, and 24.
+
+**What it did and did not affect.** `catastrophicCapCouldFire` is
+disclosure-only by both sections' own terms; no verdict, cell status, run
+status, or selection depends on it. The implementation at
+`lib/arms.js:891-892` follows section 6.2, so **no code was ever
+non-conformant on this point and no published number changes**. The harm was
+to reviewability: a reader could follow either passage and believe the
+document required what the other forbade.
+
+**Why a future approver needs this.** Rows 4-6 are cited throughout this
+ledger as the last approvals that issued. This entry records that those
+approvals passed over an internal contradiction, so their weight as evidence
+that the document is internally consistent should be discounted
+accordingly — not because the approvers were careless, but because the
+contradiction spanned two sections a reader is unlikely to hold in view at
+once.
+
+---
+
+**(4) Why the anchor moved: revision 25 changes NO ruling.** It corrects how
+revision 24 classified and grounded one change, and adds the disclosure in
+(3).
+
+- **Section 6.2 of the document already compelled the tie-rounded
+  `catastrophicCapCouldFire` form.** Revision 24 treated the question as
+  open, searched the PREREGISTRATION for authority, found prereg 6.6
+  reaching the comparison only at its boundary, and labeled its resolution a
+  substantive prospective amendment. Revision 24's own supporting text cited
+  section 6.2 **without opening it**; the table there names `3.80`.
+- **The tie-rounded form itself is unchanged.** What changed is the LABEL
+  (substantive prospective amendment → mechanical correction forced by an
+  internal contradiction) and the GROUNDS (prereg 6.6 → section 6.2).
+- **Section 0 gains the category**, which did not previously exist.
+
+**(5) The downgrade is honest, and the bar is stated so a reviewer can test
+it.** Reclassifying substantive → mechanical makes a revision easier to
+approve, so section 0's new category states its forcing condition in the
+label itself. All three legs must hold: the governing passage's subject is
+that class of decision, it declares its scope complete, and it names the
+object explicitly. **If a reasonable reader could reach the governing
+passage and still resolve the question the other way, the forcing condition
+fails and the change is substantive.**
+
+**The category has ONE member and ONE explicitly excluded case.** The
+exclusion is recorded because it draws the edge:
+
+- **Member**: the section 6.1 / 6.2 contradiction above. All three legs hold.
+- **NOT a member**: sections 4.6 and 8.7 at revision 21, which contradicted
+  each other about whether activation carried section 4.6's interval. This
+  was drafted into revision 25 as a second member and **then failed the
+  category's own test**, measured at `ed5b001`: section 4.6's 66 lines
+  contain no completeness declaration and never mention activation. Section
+  8.7 does declare completeness — "Every interval in every family above is
+  section 4.6's, without exception" — and rule 5 does name activation, but
+  *whether activation was one of the families above was the dispute itself*.
+  **A completeness declaration over a set whose membership is contested
+  forces nothing.** Neither passage governed, so the choice genuinely was
+  one a reasonable reader could resolve differently. **Revision 22 was right
+  to classify it as substantive**, and revision 25 says so.
+
+**(6) One generalization was WITHDRAWN IN TEXT rather than deleted.** An
+earlier draft of section 10.3 asserted a general lesson — "before concluding
+a question is unresolved, search for what already governs it" — supported by
+the section 6.2 case plus the 4.6/8.7 case as a second instance. When the
+second instance failed the category's test, the rule was left resting on a
+single case. Section 10.3 now records that the rule was asserted, that its
+precedent did not hold, and that one case does not evidence it, closing:
+"What is recorded here is the instance." The reasoning stays visible so the
+next reader can re-derive the rule rather than inherit it.
+
+**(7) BYTE-IDENTITY IS AVAILABLE PER REGION**, as at entry 8, and verified
+between `227c2e0` and `7c5aa84` with each section's boundaries resolved
+**independently in each version**. That method matters here: revision 25
+inserts section 10.3, which moves section 10.2's terminator, so a shared
+awk range would silently compare different spans.
+
+| body | rev 24 | rev 25 | differing |
+| --- | ---: | ---: | --- |
+| section 4.6, whole | 254 | 254 | **0** |
+| section 8.7, whole | 161 | 161 | **0** |
+| **section 6.2, whole** | 27 | 27 | **0** |
+| section 6.1a, whole | 132 | 132 | **0** |
+| section 10.1 | 13 | 13 | **0** |
+| section 10.2, content only | 106 | 106 | **0** |
+
+**Section 6.2 being byte-identical is the load-bearing row.** Revision 25
+adopts section 6.2's authority; it does not edit it. A correction that
+rewrote its own governing passage would prove nothing.
+
+**Sections that CHANGED and must be read**: the preamble, 0, 1, 6.1, and 10.
+
+**(8) Label counts, each stated with the pattern that produced it** — the
+convention entry 8 adopted, and necessary here because the counts move in
+opposite directions:
+
+| pattern | rev 24 | rev 25 |
+| --- | ---: | ---: |
+| `**[substantive prospective amendment]**`, bracketed | 15 | 14 |
+| `**[mechanical correction, forced by an internal contradiction]**`, bracketed | 0 | 2 |
+| `substantive prospective amendment`, any mention including prose | 20 | 22 |
+
+The bracketed count falls by one because a label was replaced; the
+any-mention count rises because sections 0, 6.1, and 10.3 now *discuss* the
+label without applying it. Either figure alone misleads.
+
+**(9) Confinement.** One tracked file, 235 insertions / 46 deletions, 13
+hunks, landing only in the preamble, section 0, section 1, section 6.1, and
+section 10. `scripts/backtest/` and `server/` remain byte-identical to
+`c04d6b1`; no code has been touched at any point in the revision 19-25 arc.
+
+**(10) Gate 0 is unchanged and still in force**, the fourth approval remains
+strictly last, single-use, and not self-performable, and no row is pre-filled
+for any approval that has not issued.
