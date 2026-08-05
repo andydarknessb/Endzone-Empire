@@ -1496,3 +1496,143 @@ was staged**; every commit in this arc names its paths.
 **(10) Gate 0 is unchanged and still in force**, the fourth approval remains
 strictly last, single-use, and not self-performable, and no row is pre-filled
 for any approval that has not issued.
+
+---
+
+### CORRECTIVE ENTRY 14 — appended 2026-08-05
+
+**This entry creates NO approval row.** It re-points the anchor recorded by
+corrective entry 13. **Entries 1-13 are not edited.**
+
+**(1) The anchor has moved again.**
+
+| | |
+| --- | --- |
+| SHA-256 | `31D3D89D7BA20335381855BFDEC17245B05EB5C65946E4EEC32679FAE3CD001B` |
+| git blob | `c2ce70cbc13572f208f5d3ebdb7935bb32b03d71` |
+| anchor commit | `eda85eb1b6f6d257a3d723cd1a015fa95beae42d` |
+
+**(2) Nothing lapsed.** The superseded anchor (`b7ccf186…` / `693ECFC8…`)
+accumulated no approvals. Rows 4-6 remain lapsed against their own superseded
+bytes, and **three fresh approvals are still required** against the hash in
+(1). **The disclosure recorded as item (3) of corrective entry 8 stands
+unchanged.**
+
+**(3) SECTIONS 3-8 ARE UNTOUCHED.** No ruling, classification, or number
+changed. **2,352 lines in revision 29 and in revision 30, 0 differing.** The
+entire revision lands in the preamble, section 10.2, and section 10's table -
+88 insertions, 0 deletions, one tracked file staged by path.
+
+**This is the first re-anchor in the sequence whose only content is a
+PROCESS STEP.** Every prior one corrected something already written.
+
+**(4) What it adds: the confinement check, specified.**
+
+> Map every changed line to its nearest preceding heading at **any** level -
+> including the document's `#` title, under which the preamble falls - and
+> compare the resulting set against the set the revision claims.
+
+**It is a set equality in BOTH directions**, and the second direction is the
+one that has failed. Every section claimed byte-identical must have zero
+changed lines mapped to it; every section with changed lines must appear in
+the claimed-changed list.
+
+**(5) Why the second direction is load-bearing.** Revision 29's first
+confinement paragraph named four changed sections and **missed a fifth**:
+section 8.6.0 carried a locator repair and appeared in **neither** list.
+A check that only verifies the claimed-identical sections are clean **passes
+that defect**, because 8.6.0 was never claimed either way. An omission is
+invisible to a subset check by construction, and an omission is what happened.
+
+**(6) It is primary because it has no boundary to resolve, and therefore none
+to get wrong.** A slice-based byte-identity proof is perfectly correct when
+its terminator is right. The failure mode is that choosing the terminator is a
+per-call judgment nobody re-makes, and a wrong one **fails silently in the
+passing direction**. The mapping check asks only which heading precedes a
+line. Slicing keeps a secondary role, confirming each claimed-identical
+section independently.
+
+**"Every level" is literal, and the failing pattern is named in the
+specification** so an implementer does not reproduce the bug while following
+the instruction: `/^(### |## )/` does not match `####`, under which a slice
+beginning at section 8.6.1 runs to section 8.7 and measures **374 lines where
+the section has 107**. Section 8.6 alone has six `####` subsections.
+
+**(7) THE SPECIFICATION WAS VALIDATED AGAINST A KNOWN CASE BEFORE ADOPTION,
+and this is the part worth carrying forward.** Run retrospectively over
+`0762738..b7ccf186` - revision 28 to 29 - it returns exactly
+
+```
+preamble, 0, 1, 3.2, 6.1, 6.2, 6.5, 8.6.0, 8.6.1, 8.6.3, 8.6.4, 8.6.5, 9, 10, 10.2
+```
+
+and excludes 4.6, 8.6.2 and 8.7. **That is the known answer, including the
+8.6.0 that the prose had missed.** Run on revision 30's own diff it returns
+`preamble, 10, 10.2` with **zero** changed lines inside sections 3-8.
+
+**Its first implementation returned an EMPTY set**, through a hunk-header
+parsing error that read `@@` as the whole header. **An empty set satisfies a
+subset check vacuously** and would have been reported as a pass. Only the
+known expected answer exposed it. **A confinement check must itself be
+validated against a diff whose answer is already known, or it is one more
+untested instrument** - which is the condition this document keeps
+discovering it is in.
+
+**(8) `check-locators.js` and any scripted form remain BARRED** until Gate 4's
+B3 re-cut, because a new tracked file extends the open prereg 17
+`B..final-head` allowlist violation. **The specification is the durable half
+and is in force now**; the script is a convenience that rides with the other
+batched guards at B3. Nothing in revision 30 licenses landing a tracked file,
+and none was landed.
+
+**(9) A FORWARD CLAUSE FOR REVISION 29, because rows are not edited.** Section
+10's rows are left unedited so the record of what happened stays intact, so
+revision 29's row cannot carry this and revision 30's does:
+
+**Section 6.2 grew from 27 lines to 74 at revision 29 and must be READ, NOT
+DIFFED.** "No ruling changed" and "section 6.2 is not byte-identical" are both
+true, and a reviewer should not have to combine two statements from two rows
+to reach that. All four thresholds in section 6.2's table are component-(f)
+items - `0.20` at 6.4, `0.025` at 6.1a, `3.80` and `0.30` at 6.1, and section
+6 **is** component (f) - so the scope sentence documents a boundary that
+already held and **no comparison entered or left the list**.
+
+**(10) Confinement.** One tracked file, 88 insertions / 0 deletions, staged by
+explicit path.
+
+**THE `.js` INVARIANT HOLDS, BUT THE COMMAND THAT VERIFIED IT NO LONGER
+TESTS IT.** Every entry from 11 through 13 stated it as
+`git diff c04d6b1..HEAD -- '*.js'` returning zero, and that was true when each
+was written. **It is no longer true, and nothing about the study changed.**
+Commit `972c53e`, an unrelated roster-feature commit, landed on `integration`
+between corrective entry 13 and revision 30, bringing six `.js` files into the
+range:
+
+```
+git diff c04d6b1..HEAD -- '*.js'        ->  6 files, ALL from 972c53e
+```
+
+**The invariant is about AUTHORSHIP, not about a range**, and stated correctly
+it holds:
+
+```
+24 study commits examined (docs(backtest) in c04d6b1..HEAD)
+ 0 touching any .js file
+```
+
+**The range-based command isolated the study only for as long as the range
+contained study commits exclusively.** It was never testing what it was taken
+to test; a third party's commit was always sufficient to break it, and one
+finally arrived. **Entries 11-13 are accurate as written and are not edited** -
+they record a command that returned zero, and it did.
+
+**This is the sixth hazard class, applied to an instrument rather than to a
+sentence**: a check whose meaning silently depends on a condition nobody
+restated. Future rounds must verify the `.js` invariant **per commit by
+authorship**, not by diffing the range endpoints. Files belonging to that same
+roster-feature workstream also remained dirty in the working tree throughout
+revision 30 and none was staged.
+
+**(11) Gate 0 is unchanged and still in force**, the fourth approval remains
+strictly last, single-use, and not self-performable, and no row is pre-filled
+for any approval that has not issued.
