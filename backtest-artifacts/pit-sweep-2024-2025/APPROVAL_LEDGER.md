@@ -2019,3 +2019,93 @@ in the arc**, verified by the path filter at this anchor.
 **(11) Gate 0 is unchanged and still in force**, the fourth approval remains
 strictly last, single-use, and not self-performable, and no row is pre-filled
 for any approval that has not issued.
+
+---
+
+### CORRECTIVE ENTRY 18 — appended 2026-08-06
+
+**This entry creates NO approval row.** It re-points the anchor recorded by
+corrective entry 17 and records the outcome of an independent statistical review
+that issued no approval. **Entries 1-17 are not edited.**
+
+**(1) The anchor has moved.**
+
+```
+from   37b9f7d06d0202fb7dcf4b7f48b620e0d82db9fc   revision 33
+       blob 9fe2fb6c17cb6246c3e87b0cc34be8d565a49815
+       SHA-256 023C4B6A7C680608CC92D5F805E2A5F79A21D7001AB8A397684B866C00D7C230
+
+to     81289fa0e980f5b71dbf7c660f036cfa253e44ae   revision 34
+       blob e339020a3e61bfc32a20a3acd2f1f246f155a8b8
+       SHA-256 5EA91A5E23602101E725C5560DAE071BD6A81659AD33E48EC25F64BA6E959F78
+```
+
+Revision 33 accumulated **no approvals**, so nothing lapsed.
+
+**(2) An independent statistical review of revision 33 returned NO APPROVAL.**
+It ran from a fresh clone at `/tmp/r33-independent-review/Endzone-Empire`,
+outside any project directory, with the path disclosed - the second round to meet
+the section 12 bar and the first performed by a party with no prior involvement.
+Three findings: one SUBSTANTIVE, two MINOR, no BLOCKER. All three were in text
+revision 33 did not touch.
+
+**(3) F-A is the finding that carried the rejection, and its provenance is the
+part worth recording.** Section 8.7's scope limit read *"section 8.3 is untouched
+except for the coordinate removal in rule 5"* while rule 5 PINS rather than
+removes. **Revision 22 is the revision that reversed the removal and also wrote
+the parenthetical**: it corrected rule 5 to pin, added *"Rule 5 pins rather than
+removes, and revision 21's contrary reasoning is withdrawn"*, and left the scope
+limit reporting the withdrawn action. The parenthetical then stood unchanged
+through revisions 24, 26, 28, 29, 30, 31, 32 and 33.
+
+**It survived two independent reviews and every confinement check, and the reason
+is structural: byte-identity detects movement, and this text never moved.** The
+revision-32 reviewer examined section 8.7, verified its pinned digests against the
+freeze manifest and rule 4's determinacy on all four coordinates, and did not read
+the closing scope limit against rule 5's body. A reviewer who diffed rather than
+read would have found none of this round's three findings.
+
+**(4) The fifth instance of a remedy producing the hazard it addresses**, after
+section 9's block quote, the memory index warning, section 11.2's revision-27 fix,
+and the ninth hazard class's path-scoped first draft. **This is the first where
+the contradiction was created BY the correction rather than alongside it.**
+
+**(5) The seventh hazard class fired a fourth time.** The preamble read
+"revision 31" at revisions 32 and 33, having read "29" at revision 30 and "26"
+from revision 26 through 28. **Three of the four occurred after section 10.2
+recorded the class**, which establishes that recording a class is not an
+instrument aimed at it.
+
+**(6) Section 10.2a now specifies the identifier-consistency check.** It extracts
+each artifact's (commit, blob, SHA-256, revision) tuple and compares against `git`
+at the named anchor. Two properties are load-bearing: **it must cover artifacts
+outside this repository**, because the memory index sat three revisions stale
+while every check in the specification returned green; and **it must run before
+the anchor commit**, because the preamble's revision number is the one element
+`git` cannot supply.
+
+**Validated against its known case before being relied on**, per the same clause
+the confinement and packet-coverage checks carry: run against revision 33 it
+reports the preamble at 31 against an anchor of 33; run against revision 34 it
+matches. A run reporting no mismatch on revision 33's bytes is broken. **On its
+first real run it reported all four auxiliary artifacts stale**, which is correct
+at the moment of anchoring and is the condition item (8) records.
+
+**(7) What revision 34 changed.** In scope, net **+18** across three sections,
+**no ruling changed**: section 8.7 (+12, F-A), section 8.6.5 (+3, F-B, the
+`byPlayer.set` locator from `:496` to `:507`), section 8.2 (+3, F-C, "no seventh
+bucket" to "no sixth bucket" against a five-member set). Outside scope: the
+preamble (+11) and section 10.2a (+32). The confinement check returns exactly
+`{preamble, 8.2, 8.6.5, 8.7, 10.2a}` and the heading set is identical at 58.
+
+**Sections 8.2, 8.6.5 and 8.7 were all in revision 33's byte-identical column and
+are not in revision 34's.** A reviewer must read them.
+
+**(8) The auxiliary artifacts are stale at the moment of this entry** and are
+re-pinned immediately after it: the handoff, the memory index, and the reviewer
+scope and commission documents, which are untracked by design and transmitted out
+of band.
+
+**(9) Zero of four approvals are in force.** No revision after 18 has ever been
+approved. Per the R1-R5 convention a rejection warrants no approval row, and none
+was written for this round. Gate 0 is unchanged and still in force.
