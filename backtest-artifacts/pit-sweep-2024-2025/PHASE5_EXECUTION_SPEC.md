@@ -57,6 +57,41 @@ blockers. Revision 14 was that rejection's response; it was itself rejected,
 as was revision 15. **The current revision is 31**, and the full chain is
 recorded below and in `APPROVAL_LEDGER.md`.
 
+**Revision 33 answers an independent statistical review that returned NO
+APPROVAL on eight findings, and UNLIKE revisions 30, 31 and 32 it MOVES THE
+APPROVAL SCOPE.** Five sections inside 1010-3361 change, so this is not a
+clean per-region step: **a reviewer must READ the changed sections, not diff
+them.**
+
+- **F2, the blocking finding: three stale locators inside frozen
+  requirements.** Section 8.6.4 cited `projection.service.js:478-497` for
+  `loadCachedRows`; that range is mostly `findRun` and **excludes the
+  `byPlayer.set` loop the requirement is about**, which is at `:506-507`.
+  Repaired to `:496-524`. Section 6.5's two: "around line 1104" pointed at a
+  blank line with the call at `:1127`, and `:261-277` began on a comment with
+  the branch at `:270-283`.
+- **F1: section 6.2's closing clause asserted leg 2 was unsatisfied before
+  revision 29. It was satisfied.** No scope reading admissible at revision 25
+  puts `3.80` outside section 6.2's list. What the scope sentence actually
+  repaired is a completeness declaration that was FALSE read document-wide,
+  since section 8.1's seven passing boundaries are frozen thresholds absent
+  from the table. **The classification label is unchanged.**
+- **F3: section 4.6 item 3 carried `[substantive prospective amendment]`
+  while its body said the level "is NOT re-opened here."** Corrected to
+  `[restates prereg 10.1]`; item 4's amendment narrowed to its APPLICATION.
+  The error ran in the safe direction.
+- **F4: section 4.3 stated `n >= 15` as a universal over every component.**
+  False of component (f), whose sealed minimum is prereg 9.8's 8 clusters and
+  30 rows. Premise scoped; the conclusion is unaffected.
+- **F7: the reviewer packet omitted five sealed sections its own rulings rest
+  on** - prereg 3.3, 5.1, 6.2, 7.1, 7.2. Added, and **section 10.2a now
+  specifies the packet-coverage check** that would have caught it.
+- **F8: section 10.2's heading had been false for eight growths.** It read
+  "The negative-existence inventory [added at revision 22]" while holding the
+  confinement check, the locator check and eight more classes - 31 lines at
+  revision 22, 462 at revision 32. **Split into 10.2 (the inventory) and
+  10.2a (the instruments).** Nothing renumbers.
+
 **Revision 32 changes no ruling, no classification, and no ruling-bearing
 number, and SECTIONS 3-8 ARE UNTOUCHED.** It closes the three items revision
 31 parked, all inside section 10.2, and **it is the last revision before the
@@ -81,10 +116,14 @@ independent statistical review is commissioned.**
 
 **A stopping rule applies from here.** The scope document is built when no
 known-open item would change sections 3-8 or a structural claim the document
-makes about itself. Section 10.2 refinements that surface after this point
-**ride to a revision after the review is commissioned**, because section 10.2
-is outside the approval scope: its improvements make the drafter's checks
-better and change nothing a reviewer reads, verifies, or is asked to approve.
+makes about itself. **Section 10.2 AND section 10.2a refinements** that
+surface after this point **ride to a revision after the review is
+commissioned**, because **both are outside the approval scope**: their
+improvements make the drafter's checks better and change nothing a reviewer
+reads, verifies, or is asked to approve. **[scope extended at revision 33 -
+the rule named only 10.2, and revision 33's split moved every instrument it
+was written to govern into 10.2a, which would have left the rule covering the
+inventory and not the checks.]**
 Letting them gate the commission trades a real cost - the review not
 happening - against an improvement the reviewer never sees.
 
@@ -111,7 +150,7 @@ is the same adjacency the other four describe, and it is why the status line
 needs a reader, not a probe. Corrected here to 31.
 
 **Revision 30 changes no ruling, no classification, and no number, and
-SECTIONS 3-8 ARE UNTOUCHED.** It adds one thing: **section 10.2 now specifies
+SECTIONS 3-8 ARE UNTOUCHED.** It adds one thing: **section 10.2a now specifies
 the confinement check** that revision 29's own preamble failed. Map every
 changed line to its nearest preceding heading at **any** level, and compare
 the resulting set against the set the revision claims - **as a set equality
@@ -1174,12 +1213,32 @@ pairwise - resolve to `1 + (4 x 2) + 2 + 2 = 13` individual inequalities).
 
 ### 4.3 The cluster-count trigger is dead code under prereg 10.4
 
-Prereg 10.4 requires `n >= 15` for a component to be evaluable at all;
-prereg 10.2's cluster-count trigger fires below 12. Since `15 > 12`, the
-cluster-count half of the trigger can never fire; **only the
-degenerate-distribution condition can, and it is evaluated PER ENDPOINT,
-independently** - a two-endpoint component (every co-primary component (a)
-through (e1)) can have one endpoint trigger while its sibling does not.
+Prereg 10.4 requires `n >= 15` for **a BOOTSTRAP component** - (a) through
+(e2) - to be evaluable at all; prereg 10.2's cluster-count trigger fires
+below 12. Since `15 > 12`, the cluster-count half of the trigger can never
+fire; **only the degenerate-distribution condition can, and it is evaluated
+PER ENDPOINT, independently** - a two-endpoint component (every co-primary
+component (a) through (e1)) can have one endpoint trigger while its sibling
+does not.
+
+**[premise scoped at revision 33]** Revisions through 32 stated `n >= 15` as
+a universal over every component. **It is false of component (f)**, whose
+sealed evaluability minimum is prereg 9.8's: *"at least 8 distinct 2025
+season-week clusters with subgroup rows in both cells, AND at least 30
+subgroup rows in total."* Section 8.2's own Level-2 table already names the
+8/30 minimum, so the document stated both and contradicted itself across two
+sections.
+
+**The conclusion of this section is unaffected** - the cluster-count trigger
+is dead for the bootstrap components by the `15 > 12` arithmetic, and dead
+for (f) because (f) uses the exact sign test by construction and never
+consults the trigger at all. **Only the premise was over-broad.**
+
+**The failure path if it had been left**: an implementation applying
+`n >= 15` to (f) declares it unevaluable between 8 and 14 clusters, exactly
+where prereg 9.8 requires the sign test to run, and under section 8.2 that
+surfaces as a cell `inconclusive` - a verdict change driven by a premise the
+sealed text does not support.
 
 ### 4.4 Implementation defects, required fixes
 
@@ -1283,20 +1342,33 @@ composites, and the prereg 10.6 diagnostics - is:
    recomputing the per-week mean over the drawn multiset;
 2. **[restates prereg 10.1, not amendable here]** **exactly 100,000 draws,
    seed 1499811874**, using prereg 10.1's shared resample index;
-3. **[substantive prospective amendment]** reported at the **one-sided
-   `alpha/7 = 0.0071428571` level in both directions** - the lower bound is
-   the `0.0071428571` quantile and the upper bound the `0.9928571429`
-   quantile, exactly as 10.1 states. The level is NOT re-opened here; 10.1
-   fixes it inline and this section inherits it unchanged. A two-sided 95
-   percent normal approximation is specifically NOT permitted;
+3. **[restates prereg 10.1, not amendable here]** **[label corrected at
+   revision 33]** reported at the **one-sided `alpha/7 = 0.0071428571` level
+   in both directions** - the lower bound is the `0.0071428571` quantile and
+   the upper bound the `0.9928571429` quantile, exactly as 10.1 states. The
+   level is NOT re-opened here; 10.1 fixes it inline and this section
+   inherits it unchanged. A two-sided 95 percent normal approximation is
+   specifically NOT permitted;
 4. **[substantive prospective amendment]** taken by the **percentile order
    statistic at `ceil(q * 100000)` clamped to `[1, 100000]`, no
-   interpolation** - this is the extension of bullet 6 to a non-delta
-   statistic, and it is the only part of this list that is not already
-   sealed.
+   interpolation**. **[scope of the amendment narrowed at revision 33]** The
+   RULE is prereg 10.1's, stated there verbatim and not re-opened here.
+   **What is amended is its APPLICATION to a non-delta statistic**, which
+   bullet 6 phrases over bootstrap deltas; that extension is the only part
+   of this list not already sealed.
 
-**Only items 3-4 are amended.** Items 1-2 restate prereg 10.1 and are not
-open to a reviewer to resolve differently.
+**Only item 4 is amended, and only as to its application.** Items 1-3
+restate prereg 10.1 and are not open to a reviewer to resolve differently.
+
+**Why item 3's label changed. [revision 33]** It carried `[substantive
+prospective amendment]` while its own body said the level "is NOT re-opened
+here" and that "this section inherits it unchanged." **A passage that
+inherits a sealed value unchanged is not an amendment to it**, and the label
+contradicted the sentence beneath it for eighteen revisions. **The error ran
+in the SAFE direction** - over-labelling as substantive makes an approval
+harder to obtain, never easier - which is why it was a minor finding rather
+than a blocking one, and why correcting it does not weaken anything a prior
+approver relied on.
 
 #### 4.6.1 The SEASON coordinate **[substantive prospective amendment]**
 
@@ -2094,9 +2166,29 @@ used.
 on this section governing the `catastrophicCapCouldFire` comparison and on
 its list being complete over an uncontested set. Both survive: `3.80` is a
 component-(f) comparison, so it remains inside the universal, and the
-universal's boundary is now stated rather than inferred. Leg 2 of section
-0's test is satisfied over a set that is no longer contested - which is
-what it required and what the unstated scope could not supply.
+universal's boundary is now stated rather than inferred.
+
+**What the scope sentence repaired, stated exactly. [corrected at revision
+33]** Revisions 15 through 32 said here that leg 2 of section 0's test was
+"satisfied over a set that is no longer contested - which is what it
+required and what the unstated scope could not supply." **That asserted leg
+2 was unsatisfied before revision 29, and it was satisfied.** Leg 2's
+rationale is object-specific in its own words - *"because it does not settle
+whether the object is inside it"* - and no scope reading admissible at
+revision 25 puts `3.80` outside this section's list, because this section is
+a subsection of section 6 and section 6's heading names component (f),
+identically at revisions 18, 24, 25, 28 and 32. **The object's membership was
+never contested; only the set's EXTENT was**, which is the defect the
+paragraph above records and the one the scope sentence fixes.
+
+**The real defect was a completeness declaration that was FALSE read
+document-wide.** Section 8.1's seven passing boundaries - `+0.10`, `+0.15`,
+`-0.005`, `-0.01`, `-0.15`, `+0.005`, `0` - are frozen thresholds, are
+compared in section 8.2a, and appear in none of the four rows above. A
+document-wide reading of "and nothing else" was therefore untrue at its outer
+edge while remaining exactly right about `3.80`. **Stating the scope makes
+the declaration true rather than making leg 2 satisfiable**, and section 0's
+leg-2 demonstration was correct as written at every revision.
 
 ### 6.3 Subgroup membership and averaging
 
@@ -2215,13 +2307,16 @@ onPreHomeAwayBaseline({
 
 - `baseline` is `running`, captured raw: finite, unrounded, exactly the
   value immediately before `applyFactor('homeAway', homeAway)`
-  (`projectionModel.js` around line 1104, cited as a locator, not a
-  definition).
+  (`projectionModel.js:1127`, the CALL; the helper's definition is at
+  `:1105`) **[locator repaired at revision 33; "around line 1104" was
+  stale, and `:1104` is a blank line]**.
 - **Called exactly once** per player-week that reaches the semantic point -
   not "at most once," not "zero or more times."
 - **Zero calls on either early return**: `projectFromBundle`'s own `if
-  (!player)` branch (`projection.service.js:261-277`) and `projectPlayer`'s
-  own `if (baseline.value == null)` branch (`projectionModel.js:1021`) both
+  (!player)` branch (`projection.service.js:270-283`) **[locator repaired at
+  revision 33; `:261-277` began on a comment and ended mid-branch]** and
+  `projectPlayer`'s own `if (baseline.value == null)` branch
+  (`projectionModel.js:1021`, verified correct at revision 33) both
   return before the semantic point exists; the callback fires zero times
   for a player-week that exits through either.
 - **Type validation is unconditional, immediate, and required at EVERY
@@ -3131,9 +3226,11 @@ skipping rows present on one side and not the other, does not satisfy
   it later) loses even that inference. **Corrected: the check is a direct
   scan of the raw input for repeated keys, performed and passed BEFORE the
   reduction is allowed to proceed at all.** Concretely:
-  - the **cache-read side** (`loadCachedRows`, `projection.service.js:478-
-    497`): scan `result.rows` for repeated `row.player_id` values BEFORE
-    the `for (const row of result.rows) { byPlayer.set(...) }` loop
+  - the **cache-read side** (`loadCachedRows`, `projection.service.js:496-
+    524`; the `byPlayer.set` loop is at `:506-507`) **[locator repaired at
+    revision 33; `:478-497` was stale, and is the range this finding
+    blocked on]**: scan `result.rows` for repeated `row.player_id` values
+    BEFORE the `for (const row of result.rows) { byPlayer.set(...) }` loop
     executes - `byPlayer.set(row.player_id, ...)` would otherwise silently
     keep only the last SQL row for a duplicate `(run_id, player_id)`, a
     real risk if the underlying table ever violated its own data integrity.
@@ -3580,6 +3677,7 @@ intact.
 | Revision 24 → 25 | **not a review round** | 2026-08-04 | Revision 24 was anchored at `227c2e096934c22a423f7470be44f09b53d3c82f` (SHA-256 `475ED9CADC1E0A094DCC34BF86130375F2C8391FE4B56DDF00C346B91C786C7D`, blob `a89da3af5384b008869d9b57aa9a995ca7cc0393`) and accumulated **no approvals**, so nothing lapsed. **NO RULING CHANGED IN SUBSTANCE** - the tie-rounded comparison form stands exactly as revision 24 adopted it; what changed is its CLASSIFICATION (substantive prospective amendment → mechanical correction forced by an internal contradiction), its GROUNDS (prereg 6.6 → this document's own section 6.2), and the disclosure that the contradiction it resolves was present in approved bytes. Sections changed: preamble, 0, 6.1, 10. **Sections 4.6, 8.7, 5, 6.1a, and 6.2 are byte-identical to `227c2e0`** - 6.2 in particular is untouched, since revision 25 adopts what it already said rather than editing it |
 | Revision 23 → 24 | **not a review round** | 2026-08-04 | **NO RULING CHANGED.** Byte-identity is available **PER REGION, not document-wide** - this step is neither of the two regimes the ledger's earlier entries established. Sections 4.6 (all four items and all four subsections) and 8.7 (all five rules, including rule 4's row set and cell-scope paragraph and rule 5's activation pinning) are byte-identical to `3939a27` and may be diffed. Sections 4.4, 6.1, 8.6.0, 8.6.2, 10.2, 11.2, 1, and the preamble all changed and must be read. **Section 6.1 additionally carries a NEW substantive amendment** - the `catastrophicCapCouldFire` comparison form - which no diff against revision 23 can shortcut. A reader who carries either earlier entry's regime forward gets the wrong answer for half this document. **Sequencing**: revision 24 had to anchor BEFORE any approval was commissioned. That constraint does not arise from the amendment - section 6 was always inside the statistical review's sections 3-8 scope, and the status blocks change section 6's bytes under any reading, so the hash moves either way. What the amendment changes is the COST of getting the order wrong: a status-block-only revision would have let a prior approval be re-issued against the new hash after a byte-identity check, whereas a new substantive amendment inside the reviewer's own scope requires a fresh review of text they have never seen |
 | Independent statistical review of revision 28 | **NO APPROVAL ISSUED** | 2026-08-05 | Reviewed revision 28 at anchor `d0d0def` (SHA-256 `e6db125c…e372b`, blob `d962ca8d…`), scope sections 3-8, lines 843-3102. **Raised eight findings and issued no approval**; per the R1-R5 convention a round issuing no approval warrants no ledger row, and none was written. **PROVENANCE, stated by its three properties rather than by analogy to an existing row**: the review arrived as the reviewer's own first-person account carrying its process, and was transcribed by the assistant into `REVIEW-FINDINGS-revision-28.md`; **the assistant did not observe its execution**; **the reviewer is not named**. That is the text-standing of R1-R5 without their named-reviewer property, and it is not Source B's unattested-origin standing. Transcription to disk does not alter it. **The reviewer withheld approval on independence grounds independently of the findings**, disclosing that an auto-loading persistent memory index written by prior sessions inside this workstream was in context before any choice was made, and that commission section 7 named the expected weak point. **The headline target HELD**: section 8.7 rule 4's row set is determinate at 8 cells, unfalsifiable on the reviewer's probe, because prereg 9.7 carries no applicability condition where 9.3/9.4/9.8 each do. Findings: 1 BLOCKER (section 6.2's unstated scope, read three ways across 6.1/6.1a/8.2a, reaching leg 2 rather than only the comparison); 3 SUBSTANTIVE (the 64-vs-32 composition vector; section 6.5's "verified against the real call graph" alongside three locators that never resolved; section 9's 6,528 attributed to rule 4 when section 8.7's own scope limit forbids a reporting rule forcing a generation); 4 MINOR (`seedFrom`'s locator, later upgraded on the phantom-entry ground; "all four coordinates"; "occurs exactly once"; `buildPriorGames`'s docblock start). **Findings 2 and 3 are SUBSTANTIVE with MECHANICAL REPAIRS** - the axis whose collapse triggered revision 25. **Addressed as revision 29** |
+| Revision 32 → 33 | **INDEPENDENT STATISTICAL REVIEW, NO APPROVAL** | 2026-08-05 | Revision 32 was anchored at `9a037217348117c82d23cc522706dbbd1750dc6c` (SHA-256 `9269EDDA…`, blob `0641d0f0…`) and accumulated **no approvals**, so nothing lapsed. An independent statistical review of sections 3-8, run from a clone outside the project directory with the path disclosed, returned **NO APPROVAL on eight findings** across an original report and three amendments. **UNLIKE revisions 30-32, THIS ONE MOVES THE APPROVAL SCOPE**: sections 4.3, 4.6, 6.2, 6.5 and 8.6.4 change, so a reviewer must READ them rather than diff them. **F2 carried the rejection**: section 8.6.4 cited `projection.service.js:478-497` for `loadCachedRows`, a range that is mostly `findRun` and EXCLUDES the `byPlayer.set` loop at `:506-507` that the frozen requirement is about; repaired to `:496-524`, with section 6.5's two locators repaired to `:1127` and `:270-283`. **F7 was the other substantive**: the packet omitted five sealed sections its own rulings rest on - prereg 3.3, 5.1, 6.2, 7.1, 7.2 - so a reviewer was asked to judge rulings against text they had not been given. **F1 corrected an overstatement, not a label**: section 6.2's closing clause said leg 2 was unsatisfied before revision 29; it was satisfied, no admissible scope reading puts `3.80` outside the list, and the real repair was a completeness declaration false read document-wide. **F3** relabelled section 4.6 item 3, which claimed to amend a level its own body said it inherited unchanged - an error in the SAFE direction. **F4** scoped section 4.3's `n >= 15` premise, false of component (f) whose sealed minimum is prereg 9.8's 8 clusters and 30 rows. **F8** split section 10.2, whose heading had named an inventory for eight growths while holding the instruments; 10.2 keeps the inventory and all ten hazard classes, 10.2a takes the checks, and nothing renumbers |
 | Revision 31 → 32 | **not a review round** | 2026-08-05 | Revision 31 was anchored at `e4774b17875214e7700e74a2eef20bac15bea77c` (SHA-256 `585E992D…`, blob `24fb6d36…`) and accumulated **no approvals**, so nothing lapsed. **NO RULING CHANGED, no classification changed, and SECTIONS 3-8 ARE UNTOUCHED** - 2,352 lines at revision 31 and 32, 0 differing. All three changes land in section 10.2, plus this row and the preamble. **(a)** The `server/` figure is restated under ONE definition: of 182 commits touching `server/`, **159** touch neither `backtest-artifacts/` nor `scripts/backtest/`; revision 31 gave a floor of 140 and named two other boundaries, and one definition applied consistently beats three offered for comparison. The 21-commit gap to the artifact-only boundary is exactly the Gate 2 implementation commits. **(b)** The `.js` invariant filter is widened from commit SUBJECT to PATH. The two agree at every measurement taken, so **this corrects no undercount** - it makes the check test what the claim means, since a study commit typed `fix(backtest)` is caught by the path form and missed by the subject form. **(c)** A count over that population **rots by construction**: it grows with the commit that anchors the revision making the claim. Corrective entries 14 and 15 and the revision-31 ledger commit recorded 24, 25 and 26 respectively; all three were true when written, the invariant never moved, and quoting such a number now requires naming the anchor it was measured at. **This is the LAST revision before the review is commissioned**, under a stopping rule recorded in the preamble: section 10.2 refinements surfacing after this point ride to a revision AFTER commissioning, because 10.2 is outside the approval scope and its improvements change nothing a reviewer reads or approves |
 | Revision 30 → 31 | **not a review round** | 2026-08-05 | Revision 30 was anchored at `eda85eb` and accumulated **no approvals**, so nothing lapsed. **NO RULING CHANGED, no classification changed, and SECTIONS 3-8 ARE UNTOUCHED** - the whole revision lands in sections 10.2, 11.2, this table, and the preamble. Five corrections, all of one family: **a claim or an instrument that measures something ADJACENT to what it asserts.** (1) Section 10.2 gains an **EIGHTH class - a closed-form correction to an unversioned claim rots again**: section 11.2's currency bullet read "extended at every revision through 27", which was *itself* revision 27's repair of a five-revisions-stale predecessor and had gone stale by three, sitting inside a bracketed note explaining that the predecessor "stopped five revisions short". The rule is to DELETE the endpoint, since "current as of the anchored bytes" is self-verifying and cannot rot. (2) The same treatment for section 11.2's two `14-21` bounds, whose heading already fixes the covered range at 1-13. (3) Section 11.2's preamble bullet pointed at "the revision-21 paragraph", which **does not exist** - the preamble was rewritten across revisions 27-30 and no paragraph stating what revision 21 changed survives; a reader following this document's own instruction for the rounds-14-onward account was sent to absent text, so the reference is made structural rather than by title. (4) Section 10.2 gains a **NINTH class - range standing in for authorship**: the confinement diff `c04d6b1..HEAD -- scripts/backtest server` returns 0 files and is offered for "the document revisions touched no code", but it isolates by range and path while the claim is about authorship, and those coincide only while the range holds one party's commits. Commit `972c53e`, an unrelated 17-file client feature, entered the range and the check returned the same 0 - **a check whose validity rests on a property it does not test reports the same answer before and after that property fails.** (5) **The SEVENTH class fired again inside the revision that recorded it**: revision 30 specified the confinement check and repaired revision 29's preamble while shipping its own status line as **"revision 29"** at both sites, in published bytes. The confinement check saw the preamble change and could not see the number inside it go false, because a structural check reports which sections moved, never whether a sentence in one is still true |
 | Revision 29 → 30 | **not a review round** | 2026-08-05 | Revision 29 was anchored at `b7ccf186d3f6688079b42d26634bb028d91f173c` (SHA-256 `693ECFC8…`, blob `8bc45564…`) and accumulated **no approvals**, so nothing lapsed. **NO RULING CHANGED, no classification changed, and SECTIONS 3-8 ARE UNTOUCHED** - the whole revision lands in section 10.2, this table, and the preamble. It adds ONE thing: **the confinement check, specified**. Map every changed line to its nearest preceding heading at ANY level, and compare the resulting set against the set the revision claims, **as a set equality in both directions** - a subset check passes the actual defect, since revision 29's first confinement paragraph missed section 8.6.0 by never claiming it either way. The check is primary because it has no boundary to resolve and therefore none to get wrong; slicing stays secondary, confirming each claimed-identical section. It was validated retrospectively against `0762738..b7ccf186`, where it reproduces the known answer including the 8.6.0 the prose had missed, after a first implementation returned an empty set that a subset check would have accepted. `check-locators.js` stays BARRED until Gate 4's B3 re-cut; the specification is in force now, the script is not. **FORWARD CLAUSE FOR REVISION 29, whose row cannot be edited** (rows are left unedited so the record of what happened stays intact): **section 6.2 grew 27 lines to 74 at revision 29 and must be READ, NOT DIFFED.** "No ruling changed" and "section 6.2 is not byte-identical" are both true, and a reviewer should not have to combine two statements from two rows to reach that. The scope sentence documents a boundary that already held - all four thresholds in its table are component-(f) items, so no comparison entered or left the list |
@@ -3681,78 +3779,14 @@ two candidate sections, and so confirmed the wrong label. **A probe that
 cannot distinguish the right answer from the wrong one does not become
 evidence by returning the expected result.**
 
-**A LOCATOR check is mechanically automatable and should run on every
-re-anchor**: extract every `file.js:NNN` citation in this document and assert
-the named symbol still resolves at or near that line.
-
-**THE CONFINEMENT CHECK, SPECIFIED. [added at revision 30]** The fourth hazard
-class has now fired four times, by four different parties, and **the fourth
-occurred inside the revision correcting the third**. That is past the point
-where care is the remedy. **Every re-anchor must run this check before the
-anchor is taken, and its result belongs in the commit message or the
-corrective entry**:
-
-> **Map every changed line to its nearest preceding heading, and compare the
-> resulting set against the set the revision claims.** Take the new-side line
-> numbers of every hunk from `git diff -U0 <prev-anchor> <candidate>`, and for
-> each one scan upward for the nearest line matching `^#{1,6} ` - **any
-> heading level, including the document's `#` title, under which the preamble
-> falls.** The result is the set of sections that actually changed.
-
-**It is a SET EQUALITY, in both directions, and one direction is the one that
-has failed.**
-
-- Every section the revision claims **byte-identical** must have **zero**
-  changed lines mapped to it.
-- Every section with changed lines mapped to it must appear in the revision's
-  **claimed-changed** list.
-
-**A subset check passes the actual defect.** Revision 29's first confinement
-paragraph named four changed sections and missed a fifth: section 8.6.0
-carried a locator repair and appeared in neither list. Checking only that the
-claimed-identical sections are clean would have passed it, because 8.6.0 was
-never claimed either way. **The second direction is what catches an omission,
-and an omission is what happened.**
-
-**Why this is the PRIMARY check rather than one option of two: it has no
-boundary to resolve, so it has no boundary to get wrong.** A slice-based
-byte-identity proof is perfectly correct when its terminator is right. The
-failure mode is that getting the terminator right is a per-call judgment
-nobody re-makes, and a wrong one fails silently in the passing direction. The
-mapping check asks only "which heading precedes this line", which admits no
-such judgment.
-
-**"Every level" is literal, and here is the pattern that failed.** A
-terminator of `/^(### |## )/` does not match `####`. Under it, a slice
-beginning at section 8.6.1 runs to section 8.7 and measures **374 lines where
-the section has 107**, silently swallowing 8.6.2, 8.6.3, 8.6.4 and 8.6.5.
-**Section 8.6 alone has six `####` subsections.** An implementation that
-enumerates only two heading levels reproduces the bug while following this
-instruction.
-
-**Slicing keeps a secondary role.** For each section claimed byte-identical, a
-diff of the extracted region confirms the mapping check's answer
-independently. Mapping is the belt; slicing is the braces. Do not run slicing
-alone.
-
-**This specification was validated against a known case before being
-adopted**, which is the only evidence that distinguishes a usable check from a
-plausible one. Run retrospectively over `0762738..b7ccf186` - revision 28 to
-29 - it returns exactly `preamble, 0, 1, 3.2, 6.1, 6.2, 6.5, 8.6.0, 8.6.1,
-8.6.3, 8.6.4, 8.6.5, 9, 10, 10.2` and excludes 4.6, 8.6.2 and 8.7, reproducing
-the known answer **including the 8.6.0 that the prose had missed**. Its first
-implementation returned an EMPTY set through a hunk-header parsing error, and
-an empty set satisfies a subset check vacuously; only the known expected
-answer exposed it. **A confinement check must itself be validated against a
-diff whose answer is already known, or it is one more instrument nobody has
-tested.**
-
-**`check-locators.js` and any scripted form of this check remain BARRED from
-the repository until Gate 4's B3 re-cut**, because a new tracked file extends
-the open prereg 17 `B..final-head` allowlist violation. **The specification
-above is the durable half and is in force now**; the script is a convenience
-that rides with the other batched guards at B3. Nothing here licenses landing
-a tracked file.
+**THE INSTRUMENT SPECIFICATIONS MOVED TO SECTION 10.2a AT REVISION 33.** The
+locator check, the confinement check, the packet-coverage check, the
+validate-against-a-known-answer requirement, and the barring of scripted
+forms until B3 are **not inventory entries** and are no longer kept here.
+**This section is the INVENTORY**: what is claimed, what went stale, and the
+classes of failure the instruments do not catch. **The hazard classes stay
+here, because they describe what the instruments MISS** - the eighth and
+ninth cite this inventory's own failures by name.
 
 **Repaired at revision 24** - ten sites, all drifted because the citations
 were taken against Commit A6 rather than HEAD:
@@ -4063,6 +4097,127 @@ directives: nothing in this document forces a directive into any particular
 wording, so a requirement met and described in language neither this pattern
 nor a reader anticipated would appear in no count at all.
 
+### 10.2a Instrument specifications **[split from 10.2 at revision 33]**
+
+**Section 10.2 accreted these while keeping a revision-22 heading that named
+an inventory.** It grew from 31 lines at revision 22 to 462 at revision 32, and
+nine-tenths of that growth was not inventory. A reviewer read the title,
+reasoned correctly from it, and reached a wrong conclusion about where a check
+belongs - **which is the SEVENTH hazard class applied to a heading**: a status
+line has no locator to resolve and no arithmetic to check, so nothing in this
+document could notice that it had been false for eight growths.
+
+**These are the checks. They are mechanical, they run at any anchor, and they
+are findable by someone looking for a check rather than an inventory.**
+
+**A LOCATOR check is mechanically automatable and should run on every
+re-anchor**: extract every `file.js:NNN` citation in this document and assert
+the named symbol still resolves at or near that line.
+
+**THE CONFINEMENT CHECK, SPECIFIED. [added at revision 30]** The fourth hazard
+class has now fired four times, by four different parties, and **the fourth
+occurred inside the revision correcting the third**. That is past the point
+where care is the remedy. **Every re-anchor must run this check before the
+anchor is taken, and its result belongs in the commit message or the
+corrective entry**:
+
+> **Map every changed line to its nearest preceding heading, and compare the
+> resulting set against the set the revision claims.** Take the new-side line
+> numbers of every hunk from `git diff -U0 <prev-anchor> <candidate>`, and for
+> each one scan upward for the nearest line matching `^#{1,6} ` - **any
+> heading level, including the document's `#` title, under which the preamble
+> falls.** The result is the set of sections that actually changed.
+
+**It is a SET EQUALITY, in both directions, and one direction is the one that
+has failed.**
+
+- Every section the revision claims **byte-identical** must have **zero**
+  changed lines mapped to it.
+- Every section with changed lines mapped to it must appear in the revision's
+  **claimed-changed** list.
+
+**A subset check passes the actual defect.** Revision 29's first confinement
+paragraph named four changed sections and missed a fifth: section 8.6.0
+carried a locator repair and appeared in neither list. Checking only that the
+claimed-identical sections are clean would have passed it, because 8.6.0 was
+never claimed either way. **The second direction is what catches an omission,
+and an omission is what happened.**
+
+**Why this is the PRIMARY check rather than one option of two: it has no
+boundary to resolve, so it has no boundary to get wrong.** A slice-based
+byte-identity proof is perfectly correct when its terminator is right. The
+failure mode is that getting the terminator right is a per-call judgment
+nobody re-makes, and a wrong one fails silently in the passing direction. The
+mapping check asks only "which heading precedes this line", which admits no
+such judgment.
+
+**"Every level" is literal, and here is the pattern that failed.** A
+terminator of `/^(### |## )/` does not match `####`. Under it, a slice
+beginning at section 8.6.1 runs to section 8.7 and measures **374 lines where
+the section has 107**, silently swallowing 8.6.2, 8.6.3, 8.6.4 and 8.6.5.
+**Section 8.6 alone has six `####` subsections.** An implementation that
+enumerates only two heading levels reproduces the bug while following this
+instruction.
+
+**Slicing keeps a secondary role.** For each section claimed byte-identical, a
+diff of the extracted region confirms the mapping check's answer
+independently. Mapping is the belt; slicing is the braces. Do not run slicing
+alone.
+
+**This specification was validated against a known case before being
+adopted**, which is the only evidence that distinguishes a usable check from a
+plausible one. Run retrospectively over `0762738..b7ccf186` - revision 28 to
+29 - it returns exactly `preamble, 0, 1, 3.2, 6.1, 6.2, 6.5, 8.6.0, 8.6.1,
+8.6.3, 8.6.4, 8.6.5, 9, 10, 10.2` and excludes 4.6, 8.6.2 and 8.7, reproducing
+the known answer **including the 8.6.0 that the prose had missed**. Its first
+implementation returned an EMPTY set through a hunk-header parsing error, and
+an empty set satisfies a subset check vacuously; only the known expected
+answer exposed it. **A confinement check must itself be validated against a
+diff whose answer is already known, or it is one more instrument nobody has
+tested.**
+
+**THE PACKET-COVERAGE CHECK, SPECIFIED. [added at revision 33]** Section
+11.3(a) supplies the sealed sections a reviewer needs. Nothing checked that
+the supply set covered the citations, and at revision 32 **five cited
+sections were missing** - prereg 3.3, 5.1, 6.2, 7.1 and 7.2 - each carrying a
+ruling inside the review's own scope. The gap survived from revision 21's
+restructuring to revision 33 because **the only instrument that detects a
+packet gap is reading past the packet**, which is what a packet exists to
+make unnecessary.
+
+> **Enumerate every `prereg N(.M)?` cited within the approval scope.
+> Enumerate section 11.3(a)'s supply set, ranges expanded. Assert the
+> difference is empty.**
+
+Both enumerations are in the anchored bytes, so it runs on the document alone
+with no external state. **Three requirements, each learned from a probe that
+failed while this check was being derived:**
+
+1. **Range expansion is mandatory.** `4.1-4.2`, `5.2-5.3`, `6.6-6.7`,
+   `8.1-8.3`, `9.1-9.7`, `10.1-10.6`, `11.1-11.2` each supply every member.
+   A pattern blind to ranges returned **27 against a true 35**.
+2. **Match `prereg N.M`, not bare decimals.** A `\b(\d+\.\d+)\b` sweep
+   harvests `4.6`, `6.1` and `8.7` out of section 11.3(a)'s own dependency
+   annotations, which are SPECIFICATION section numbers, not prereg ones.
+   That returned **38 against a true 35**.
+3. **Validate against the known answer before trusting it.** Run against
+   revision 32 it must return exactly `{3.3, 5.1, 6.2, 7.1, 7.2}`. **A run
+   returning the empty set is broken, not clean** - which is exactly how a
+   subset check passed revision 29's first confinement paragraph.
+
+**Requirement 3 is the same clause the confinement check carries, and for the
+same reason: a second run of a broken probe is not a check.** Two of the
+three requirements above exist because a probe returned a well-formed number
+that was wrong, and neither wrong number looked wrong.
+
+**`check-locators.js`, any scripted form of the packet-coverage check, and
+any scripted form of the confinement check remain BARRED from the repository
+until Gate 4's B3 re-cut**, because a new tracked file extends the open
+prereg 17 `B..final-head` allowlist violation. **The specifications above are
+the durable half and are in force now**; the scripts are a convenience that
+rides with the other batched guards at B3. Nothing here licenses landing a
+tracked file.
+
 ### 10.3 DISCLOSURE: revision 18 was APPROVED carrying an internal contradiction **[added at revision 25]**
 
 **This is stated for the benefit of whoever issues the next approvals, and
@@ -4260,20 +4415,43 @@ It does not review implementation conformance.
 
 - **This document, in full**, with sections 3-8 normative.
 - **`PREREGISTRATION.md` sections**: 1.1 (fetcher contract), 3.1 (roster
-  status -> cohort class), 4.1-4.2 (cohort and injury policy), **4.3
-  (outcome truth, and the scoring-profile primary that section 8.7 rests
-  on)**, 5.2-5.3 (regret estimands), 6.3, 6.6-6.7 (metric conventions and
-  contrast construction; **6.6's FOURTH bullet, the ten-decimal tie rule and
-  its single named extension, is what section 6.1's comparison-form
-  amendment turns on**), 7.3 (arms/benchmarks/controls), 8.1-8.3 (salts and
-  seeds), 9.1-9.7 (the IUT and components (a)-(e2)), 9.8 (component (f) in
-  full), 10.1-10.6 (the CI contract; **10.1 is what section 4.6 extends, and
-  10.5-10.6 establish that section 10 reaches non-gating output**),
-  11.1-11.2 (factor-activation mechanism and thresholds), **12.1 (the
-  factorial family, which section 8.7 rule 1 governs), 12.2 (the attribution
-  composites, rule 2)**, 12.3 (parsimony total order), **16 (the sensitivity
-  register, whose scoring-profile entry sets the limit in rule 4)**, 17
-  (freeze/reproduction mechanics).
+  status -> cohort class), **3.3 (the six macro positions)**, 4.1-4.2
+  (cohort and injury policy), **4.3 (outcome truth, and the scoring-profile
+  primary that section 8.7 rests on)**, **5.1 (candidate-pool ranking)**,
+  5.2-5.3 (regret estimands), **6.2 (the pairwise macro-average)**, 6.3,
+  6.6-6.7 (metric conventions and contrast construction; **6.6's FOURTH
+  bullet, the ten-decimal tie rule and its single named extension, is what
+  section 6.1's comparison-form amendment turns on**), **7.1-7.2 (the cell
+  family and the benchmark arms)**, 7.3 (arms/benchmarks/controls), 8.1-8.3
+  (salts and seeds), 9.1-9.7 (the IUT and components (a)-(e2)), 9.8
+  (component (f) in full), 10.1-10.6 (the CI contract; **10.1 is what
+  section 4.6 extends, and 10.5-10.6 establish that section 10 reaches
+  non-gating output**), 11.1-11.2 (factor-activation mechanism and
+  thresholds), **12.1 (the factorial family, which section 8.7 rule 1
+  governs), 12.2 (the attribution composites, rule 2)**, 12.3 (parsimony
+  total order), **16 (the sensitivity register, whose scoring-profile entry
+  sets the limit in rule 4)**, 17 (freeze/reproduction mechanics).
+
+**Five sections were added at revision 33**, each carrying a ruling inside
+the review's own scope. They were cited within sections 3-8 and not supplied,
+so a reviewer was asked to judge rulings against sealed text they had not
+been given:
+
+| added | what rests on it |
+| --- | --- |
+| **6.2** | section 4.6.4, a frozen classification rule resting "on prereg 6.2 and prereg 16 alone" - with 16 supplied and 6.2 not; and a passage opening **"Sealed"** |
+| **7.1** | section 8.2b, a substantive amendment turning on 7.1/12.1 naming the control as distinct from the seven non-control cells |
+| **7.2** | section 4.6.2, the `control-naive` qualification the section itself calls "not optional" |
+| **5.1** | section 8.7, the activation denominator's ranking |
+| **3.3** | section 5.1, the six macro positions, load-bearing for the `cellKey` byte string that feeds the permutation seed |
+
+**A bare `prereg 11` citation is not a sixth entry**: prereg section 11 has
+exactly 11.1 and 11.2, and both were already supplied.
+
+**Adding five sections closes this instance and not the class.** Nothing
+checked that the packet covered the citations, which is why the gap survived
+from revision 21's restructuring to revision 33. **Section 10.2a specifies
+the check that would have caught it.**
 - **Sealed constants the rulings pin**, for checking the rulings are
   internally coherent - not for code review:
   `scripts/backtest/lib/freezeManifest.js` (`SCORING_PROFILE_NAMES`,
