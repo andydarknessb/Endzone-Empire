@@ -62,12 +62,29 @@ test('permutation raw domains reject missing, extra, duplicate, and reordered co
   assert.throws(() => permutationControl.canonicalObservations(reordered.observations, reordered.rosterRows), /canonical salt\/week\/position\/player order/);
 });
 
-test('the pinned permutation stream has fixed RNG consumption and canonical week-position order', () => {
+test('the production permutation path uses section 5.1 per-(replicate, cellKey) SHA-256 seeding, not a shared stream', () => {
   const control = rawControl();
   const { cells } = permutationControl.canonicalObservations(control.observations, control.rosterRows);
-  const orders = permutationControl.nextOrders(cells, metrics.makeRng(metrics.PERMUTATION_SEED));
-  assert.deepEqual(
-    Object.fromEntries(['2025:2:QB', '2025:2:RB', '2025:9:WR', '2025:18:DEF'].map((key) => [key, orders[key]])),
-    { '2025:2:QB': [1, 0], '2025:2:RB': [0, 1], '2025:9:WR': [1, 0], '2025:18:DEF': [0, 1] }
-  );
+  const built = metrics.buildPermutations({ cells });
+
+  // Step 2: the seed is SHA-256 of `PERMUTATION_SEED|replicate|cellKey`, so the
+  // production orders must equal the pinned derivation cell by cell.
+  const orders = built.replicate(0);
+  for (const cellKey of ['2025:2:QB', '2025:2:RB', '2025:9:WR', '2025:18:DEF']) {
+    assert.deepEqual(orders[cellKey], built.permutationFor(0, cellKey));
+  }
+
+  // Required test (ii): replicate 9,999 is obtainable without generating 0-9,998.
+  assert.ok(Array.isArray(built.permutationFor(9999, '2025:2:QB')));
+
+  // Required test (iv): a one-character change to cellKey yields a different seed.
+  assert.notEqual(built.seedFor(0, '2025:2:QB'), built.seedFor(0, '2025:3:QB'));
+
+  // Required test (iii): a differently-ORDERED roster input yields the SAME
+  // permutation, because step 4 sorts rather than rejects.
+  const shuffled = rawControl();
+  shuffled.rosterRows = [...shuffled.rosterRows].reverse();
+  const { cells: reorderedCells } = permutationControl.canonicalObservations(shuffled.observations, shuffled.rosterRows);
+  assert.deepEqual(reorderedCells, cells);
+  assert.deepEqual(metrics.buildPermutations({ cells: reorderedCells }).replicate(0), orders);
 });

@@ -457,12 +457,20 @@ function crossCheckComponentFEvidence(cellInputs, cellClaims) {
 
 function buildReportFromInputs(inputs) {
   validateInputs(inputs);
-  const permutationControl = metrics.computePermutationControl(inputs.permutationControl);
-  const evidence = sweepEvidence.deriveEvidence(inputs.evidence, { permutation: permutationControl });
+  // Section 8.6.0 pins the pre-flight order: canaries -> the two identity
+  // assertions -> permutation control -> candidate cells. The identity
+  // assertions ran AFTER the permutation control here, which had two
+  // consequences. `runPreflight` captures rather than throws, so the pinned
+  // order always produces a report; the permutation control does throw, so a
+  // malformed control aborted before a sealed identity failure was ever
+  // reported. And it spent the full 10,000-replicate computation before the
+  // cheap harness-integrity gates that can void the run anyway.
   const preflight = sweepPreflight.runPreflight({
     ...inputs.preflight,
     componentFVetoRecords: componentFVetoRecords(inputs.cells, inputs.preflight),
   });
+  const permutationControl = metrics.computePermutationControl(inputs.permutationControl);
+  const evidence = sweepEvidence.deriveEvidence(inputs.evidence, { permutation: permutationControl });
   const cellClaims = preflight.passed
     ? Object.fromEntries(arms.ALL_CELLS.map((cellMeta) => [cellMeta.name, assembleCellClaim(cellMeta, inputs.cells[cellMeta.name], componentFVetoRecords(inputs.cells, inputs.preflight).find((row) => row.cellName === cellMeta.name) || null)]))
     : unevaluatedCellClaims();

@@ -447,11 +447,15 @@ const HEALTHY_F = Object.freeze({
 });
 
 test('revision-18 pinned salt composition vector is byte-exact', () => {
-  const scoringHash = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+  // Section 3.2's pinned vector is THIRTY-TWO hex characters. Revisions 18-28
+  // gave a 64-character stand-in and revision 29 withdrew it: `scoringHash` is
+  // `sha256(...).digest('hex').slice(0, 32)` (projectionModel.js:317-319), so a
+  // 64-character left operand is one the function can never produce.
+  const scoringHash = '0123456789abcdef0123456789abcdef';
   const salt = 'pit-01-879c6f8eae4b';
   assert.equal(
     arms.composeSaltedHashValue({ scoringHash, salt }),
-    '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef:pit-01-879c6f8eae4b'
+    '0123456789abcdef0123456789abcdef:pit-01-879c6f8eae4b'
   );
   assert.throws(() => arms.composeSaltedHashValue({ scoringHash, salt: 'wrong' }), /24 preregistered salts/);
 });
@@ -1125,8 +1129,13 @@ test('section 6.1: FALSIFIABILITY_FLOOR is referenced by the disclosure count an
   const [definition, disclosure, exported] = sites;
   assert.match(definition.line, /^const FALSIFIABILITY_FLOOR = \(DELTA_F - 0\.01\) \/ MAX_EFFECT;/,
     'the first reference must be the definition, retained solely as the per-week disclosure constant');
-  assert.match(disclosure.line, /\.filter\(.*<= FALSIFIABILITY_FLOOR\)\.length/,
+  // The comparison is roundToTie-normalized on BOTH operands (section 6.2's
+  // component-(f) list, fourth row), so the pattern pins the SITE - a filtered
+  // count - rather than the bare comparison form it used to have.
+  assert.match(disclosure.line, /\.filter\(.*FALSIFIABILITY_FLOOR.*\)\.length/,
     'the second reference must be the disclosure COUNT and nothing else');
+  assert.match(disclosure.line, /roundToTie\(Number\(b\)\) <= roundToTie\(FALSIFIABILITY_FLOOR\)/,
+    'section 6.2 requires roundToTie on BOTH operands of this comparison');
   assert.match(exported.line, /^\s*FALSIFIABILITY_FLOOR,\s*$/,
     'the third reference must be the export list');
 

@@ -15,14 +15,6 @@ function canonicalRosterRows(rosterRows, label) {
       || !metrics.MACRO_POSITIONS.includes(row.position) || !Number.isFinite(row.playerId)) {
       throw new Error(`${label}: invalid raw roster row`);
     }
-    const coordinateIndex = metrics.EVALUATED_WEEKS.indexOf(row.week) * metrics.MACRO_POSITIONS.length
-      + metrics.MACRO_POSITIONS.indexOf(row.position);
-    if (coordinateIndex < previousCoordinate
-      || (coordinateIndex === previousCoordinate && row.playerId <= previousPlayerId)) {
-      throw new Error(`${label}: roster rows must be in canonical week/position/player order`);
-    }
-    previousCoordinate = coordinateIndex;
-    previousPlayerId = row.playerId;
     const cellKey = key(row);
     const rowKey = `${cellKey}:${row.playerId}`;
     if (seen.has(rowKey)) throw new Error(`${label}: duplicate roster player ${rowKey}`);
@@ -37,6 +29,12 @@ function canonicalRosterRows(rosterRows, label) {
   if (Object.keys(cells).length !== metrics.EVALUATED_WEEKS.length * metrics.MACRO_POSITIONS.length) {
     throw new Error(`${label}: extra roster coordinate`);
   }
+  // Section 5.1 step 4: "The cell's members are sorted by `playerId` as a NUMBER
+  // ... ascending, before index 0 is assigned." SORTING is what step 4 requires,
+  // and required test (iii) asks that a differently-ordered input yield the SAME
+  // permutation - which a rejection cannot satisfy. Step 4 mandates fail-closed
+  // for DUPLICATES only, and that check is retained above.
+  for (const cellKey of Object.keys(cells)) cells[cellKey].sort((a, b) => a - b);
   return cells;
 }
 
@@ -81,24 +79,15 @@ function canonicalObservations(observations, rosterRows, label = 'permutation co
 }
 
 /**
- * One sealed RNG stream is consumed in this exact week/position order for
- * every replicate.  The resulting order is shared by all salts and passed to
- * both endpoint calculations; neither endpoint may draw its own randomness.
+ * The order for a cell comes from section 5.1's per-`(replicate, cellKey)`
+ * SHA-256 derivation, NOT from a shared stream - there is no stream, and no
+ * consumption order to preserve.  The order is shared by all salts and passed
+ * to both endpoint calculations; neither endpoint may draw its own randomness.
+ *
+ * `canonicalObservations` asserts each salt/cell's row playerIds equal the
+ * cell's canonical member list elementwise, so index `i` of `order` addresses
+ * the same player that `buildPermutations` sorted into position `i`.
  */
-function nextOrders(cells, rng) {
-  const orders = {};
-  for (const week of metrics.EVALUATED_WEEKS) for (const position of metrics.MACRO_POSITIONS) {
-    const cellKey = `2025:${week}:${position}`;
-    const order = Array.from({ length: cells[cellKey].length }, (unused, index) => index);
-    for (let index = order.length - 1; index > 0; index--) {
-      const other = Math.floor(rng() * (index + 1));
-      [order[index], order[other]] = [order[other], order[index]];
-    }
-    orders[cellKey] = order;
-  }
-  return orders;
-}
-
 function scoreWeek(bySaltCell, orders, week, label) {
   const perSalt = metrics.SALTS.map((salt) => {
     const rowsByPosition = {};
@@ -141,9 +130,21 @@ function computePermutationControlFromObservations({ observations, rosterRows, l
   const observedWeeks = metrics.EVALUATED_WEEKS.map((week) => scoreWeek(bySaltCell, null, week, `${label}: observed`));
   const observed = { regret: negativeMean(observedWeeks, 'regret'), pairwise: observedWeeks.reduce((sum, row) => sum + row.pairwise, 0) / observedWeeks.length };
   const permuted = { regret: [], pairwise: [] };
-  const rng = metrics.makeRng(metrics.PERMUTATION_SEED);
+  // Section 5.1 step 2: each (replicate, cellKey) is seeded by SHA-256 of
+  // `PERMUTATION_SEED|replicate|cellKey`, "derived by HASH rather than by
+  // consuming one long stream, so replicate `b` never depends on having
+  // generated replicates 0..b-1", and step 6 forbids sharing a generator across
+  // cells or replicates.
+  //
+  // `buildPermutations` implements exactly that and had NO production caller:
+  // this path previously drew from one shared mulberry32 stream, so `cellKey`
+  // never reached the RNG and the replicate index was not an input to
+  // randomness at all. Section 5.1's determinism tests (ii), (iii), (iv), (vii),
+  // (viii) and (x) all exercise `buildPermutations`, so their entire reach was
+  // the module that did not run.
+  const permutations = metrics.buildPermutations({ cells, label });
   for (let replicate = 0; replicate < metrics.PERMUTATION_DRAWS; replicate++) {
-    const orders = nextOrders(cells, rng);
+    const orders = permutations.replicate(replicate);
     const weeks = metrics.EVALUATED_WEEKS.map((week) => scoreWeek(bySaltCell, orders, week, `${label}: replicate ${replicate}`));
     permuted.regret.push(negativeMean(weeks, 'regret'));
     permuted.pairwise.push(weeks.reduce((sum, row) => sum + row.pairwise, 0) / weeks.length);
@@ -163,4 +164,4 @@ function computePermutationControlFromObservations({ observations, rosterRows, l
   return cloneResult(result);
 }
 
-module.exports = { canonicalRosterRows, canonicalObservations, nextOrders, computePermutationControlFromObservations };
+module.exports = { canonicalRosterRows, canonicalObservations, computePermutationControlFromObservations };

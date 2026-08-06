@@ -909,8 +909,12 @@ function componentFEndpoint({
     subgroupRows,
     meanAbsBaseline: isFiniteNumber(meanAbsBaseline) ? Number(meanAbsBaseline) : null,
     maxAbsBaseline: isFiniteNumber(maxAbsBaseline) ? Number(maxAbsBaseline) : null,
+    // Section 6.2: every comparison against a frozen threshold applies
+    // roundToTie to BOTH operands. This is the fourth row of that section's
+    // component-(f) list and was the only one of the four left bare - the 3.80
+    // disclosure below, the 0.20 veto and DELTA_F were already normalized.
     weeksBelowFalsifiabilityFloor: weekMeanAbsBaselines
-      .filter((b) => isFiniteNumber(b) && Number(b) <= FALSIFIABILITY_FLOOR).length,
+      .filter((b) => isFiniteNumber(b) && roundToTie(Number(b)) <= roundToTie(FALSIFIABILITY_FLOOR)).length,
     weeksWithBaseline: weekMeanAbsBaselines.filter(isFiniteNumber).length,
     // If the realized maximum |b| never exceeds B_ref = cap / maxEffect, the
     // catastrophic veto could not have fired on this data. That is a
@@ -1444,12 +1448,23 @@ function classifyBootstrapEndpoint({
   if (!isFiniteNumber(lower) || !isFiniteNumber(upper)) {
     throw new Error('classifyBootstrapEndpoint: an evaluable endpoint must carry a finite lower and upper bound');
   }
+  // Section 8.2a rule 3: THE PASS TEST IS COMPUTED FIRST, ON THE RAW OPERANDS.
+  // It stays strict (`upper < passing` / `lower > passing`) exactly as prereg
+  // 9.2-9.7 phrase it, while the straddle test below is inclusive and
+  // tie-rounded. The rule says in terms that the two conventions "differ on
+  // purpose and must not be unified", and section 6.2 scopes its
+  // normalize-both-operands rule to component (f) so that this one survives.
+  //
+  // Rounding before this line unifies them: a one-ulp bootstrap bound below a
+  // passing boundary passes strictly and fails once rounded, which turns
+  // `passed` into `threshold-not-established`, the component into `failed`, and
+  // the cell verdict from `pass` into `fail`.
+  const passes = direction === 'below' ? upper < passingBoundary : lower > passingBoundary;
   lower = roundToTie(lower);
   upper = roundToTie(upper);
   passingBoundary = roundToTie(passingBoundary);
   harmfulBoundary = roundToTie(harmfulBoundary);
   favorableBoundary = roundToTie(favorableBoundary);
-  const passes = direction === 'below' ? upper < passingBoundary : lower > passingBoundary;
   if (harmfulBoundary !== favorableBoundary) {
     const lo = Math.min(favorableBoundary, harmfulBoundary);
     const hi = Math.max(favorableBoundary, harmfulBoundary);
