@@ -88,3 +88,58 @@ test('the production permutation path uses section 5.1 per-(replicate, cellKey) 
   assert.deepEqual(reorderedCells, cells);
   assert.deepEqual(metrics.buildPermutations({ cells: reorderedCells }).replicate(0), orders);
 });
+
+// ---------------------------------------------------------------------------
+// Regression coverage for the section 5.1 wiring itself.
+//
+// The fix that routed production through `buildPermutations` was initially
+// shipped with a test that never called the production function and whose first
+// assertion was a tautology (`replicate(index)` is DEFINED as that map). With
+// that test green, reverting the production line to a shared RNG stream still
+// passed the entire suite - the same "conformant twin next to the code that
+// actually runs" defect the fix existed to remove, one level up.
+//
+// These pin the SEAM: that production calls section 5.1's derivation, and that
+// the sort is numeric.
+// ---------------------------------------------------------------------------
+
+test('the production permutation path actually calls section 5.1 derivation, not any other source of orders', () => {
+  // The module memoizes on JSON.stringify({observations, rosterRows}) and the
+  // label is NOT part of that key, so this fixture must differ in the observed
+  // values or the spy sees a cache hit and zero calls - which is exactly what
+  // happened on the first attempt at this test.
+  const control = rawControl();
+  control.observations = control.observations.map((row) => ({ ...row, actual: row.actual + 0.5 }));
+  const realBuild = metrics.buildPermutations;
+  const calls = [];
+  try {
+    metrics.buildPermutations = (args) => {
+      calls.push(args);
+      return realBuild(args);
+    };
+    permutationControl.computePermutationControlFromObservations({
+      observations: control.observations,
+      rosterRows: control.rosterRows,
+    });
+  } finally {
+    metrics.buildPermutations = realBuild;
+  }
+  assert.equal(calls.length, 1, 'production must derive its orders from buildPermutations exactly once');
+  assert.ok(calls[0].cells && typeof calls[0].cells === 'object', 'it must be given the canonical cells');
+  // A shared-stream implementation would never reach this call at all.
+  assert.deepEqual(
+    Object.keys(calls[0].cells).sort(),
+    metrics.EVALUATED_WEEKS.flatMap((week) => metrics.MACRO_POSITIONS.map((p) => `2025:${week}:${p}`)).sort()
+  );
+});
+
+test('section 5.1 step 4 sorts playerIds NUMERICALLY, not lexicographically', () => {
+  // "10" < "9" as strings would reorder the cell, and the fixture's 1/2 ids
+  // cannot tell the two sorts apart.
+  const ids = [1, 9, 10];
+  const rosterRows = metrics.EVALUATED_WEEKS.flatMap((week) => metrics.MACRO_POSITIONS.flatMap(
+    (position) => ids.map((playerId) => ({ season: 2025, week, position, playerId }))
+  ));
+  const cells = permutationControl.canonicalRosterRows([...rosterRows].reverse(), 'numeric sort probe');
+  assert.deepEqual(cells['2025:2:QB'], [1, 9, 10], 'a lexicographic sort would give [1, 10, 9]');
+});

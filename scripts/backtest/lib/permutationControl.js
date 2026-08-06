@@ -8,8 +8,6 @@ function canonicalRosterRows(rosterRows, label) {
   if (!Array.isArray(rosterRows) || rosterRows.length === 0) throw new Error(`${label}: requires canonical raw roster rows`);
   const cells = {};
   const seen = new Set();
-  let previousCoordinate = -1;
-  let previousPlayerId = null;
   for (const row of rosterRows) {
     if (!row || row.season !== 2025 || !metrics.EVALUATED_WEEKS.includes(row.week)
       || !metrics.MACRO_POSITIONS.includes(row.position) || !Number.isFinite(row.playerId)) {

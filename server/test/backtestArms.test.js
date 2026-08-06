@@ -1207,3 +1207,28 @@ test('section 6.1: MUTATION - changing 0.30 alone changes no status, only the di
   assert.ok(disclosureDiffered,
     'the mutation changed no disclosure count either, so this test proved nothing - the probe is broken, not the code');
 });
+
+test('section 8.2a rule 3: the pass test is STRICT on RAW operands, never tie-rounded', () => {
+  // Rounding lower/upper/passing before the pass test unifies two conventions
+  // rule 3 says "differ on purpose and must not be unified": a one-ulp bound
+  // below a passing boundary passes strictly and fails once rounded, turning
+  // `passed` into `threshold-not-established` -> component `failed` -> cell
+  // `fail`. The pre-fix suite used only coarse values and did not reach it.
+  const cases = [
+    { label: 'favorable-negative, one ulp inside', input: { lower: -0.35, upper: -0.15000000005, passingBoundary: -0.15, harmfulBoundary: 0.15, favorableBoundary: -0.15, direction: 'below', evaluable: true } },
+    { label: 'favorable-negative, e1-regret', input: { lower: 0.05, upper: 0.14999999999, passingBoundary: 0.15, harmfulBoundary: 0.15, favorableBoundary: -0.15, direction: 'below', evaluable: true } },
+    { label: 'favorable-positive, a-pairwise', input: { lower: 0.00500000001, upper: 0.9, passingBoundary: 0.005, harmfulBoundary: -0.005, favorableBoundary: 0.005, direction: 'above', evaluable: true } },
+  ];
+  for (const { label, input } of cases) {
+    const result = arms.classifyBootstrapEndpoint(input);
+    assert.equal(result.status, 'passed', `${label}: must pass on the raw strict comparison`);
+    assert.equal(result.passes, true, label);
+  }
+
+  // The straddle test, by contrast, IS inclusive and tie-rounded: an endpoint
+  // landing one ulp outside both boundaries still spans them.
+  const straddle = arms.classifyBootstrapEndpoint({
+    lower: -0.15000000001, upper: 0.15000000001, passingBoundary: -0.15, harmfulBoundary: 0.15, favorableBoundary: -0.15, direction: 'below', evaluable: true,
+  });
+  assert.equal(straddle.status, 'wide-straddle', 'the straddle test keeps the rounded operands');
+});
