@@ -731,18 +731,37 @@ function assertPermutationControl({ regretP, pairwiseP, label = 'perm-control' }
   return { void: false, reason: null, detail: 'the control beats the permutation null on both endpoints', failures: [] };
 }
 
+/**
+ * The allowed keys are RAW INPUTS and INJECTED MACHINERY only. No key here
+ * carries a statistic: section 5's whole point is that the control's numbers are
+ * derived from raw observations rather than supplied, and this list is what
+ * enforces it. Adding a key that names a result would defeat the check.
+ */
+const PERMUTATION_CONTROL_INPUT_KEYS = Object.freeze([
+  'observations', 'rosterRows', 'label',
+  // Section 5 defines T_regret as mean DEPLOYED-POLICY regret over the week's
+  // rosters, so the control needs the same roster/cohort artifacts and the same
+  // lineup machinery the control cell evaluator uses. Without them it can only
+  // compute a per-player error, which is invariant to the permutation.
+  'rosterWeeks', 'cohortWeeks', 'positionRank', 'nameRankById', 'rosterSlots',
+  'availabilityFor', 'optimize', 'ordering',
+]);
+
 function computePermutationControl(input) {
   const { observations, rosterRows, label = 'perm-control' } = input || {};
-  const extra = Object.keys(input || {}).filter((key) => !['observations', 'rosterRows', 'label'].includes(key));
+  const extra = Object.keys(input || {}).filter((key) => !PERMUTATION_CONTROL_INPUT_KEYS.includes(key));
   if (extra.length > 0) {
     throw new Error(`${label}: caller-supplied permutation statistics are prohibited (${extra.join(', ')})`);
   }
   if (!Array.isArray(observations) || !Array.isArray(rosterRows)) {
     throw new Error(`${label}: requires canonical raw control observations; caller-supplied statistics are prohibited`);
   }
+  if (typeof input.optimize !== 'function' || typeof input.availabilityFor !== 'function') {
+    throw new Error(`${label}: the production optimizer and availability rule must be injected; section 5's statistic is a lineup outcome, not a projection error`);
+  }
   // Deliberately lazy: the raw reducer depends on the metric primitives above,
   // while this remains the sole public control entry point.
-  return require('./permutationControl').computePermutationControlFromObservations({ observations, rosterRows, label });
+  return require('./permutationControl').computePermutationControlFromObservations({ ...input, label });
 }
 
 // ---------------------------------------------------------------------------

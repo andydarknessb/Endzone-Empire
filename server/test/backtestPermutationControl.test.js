@@ -4,20 +4,57 @@ const assert = require('node:assert/strict');
 const metrics = require('../../scripts/backtest/lib/metrics');
 const permutationControl = require('../../scripts/backtest/lib/permutationControl');
 
+
+const { optimalAssignment } = require('../../server/services/lineupOptimizer');
+const { availabilityFor } = require('../../server/services/projectionModel');
+const { DEFAULT_ROSTER_SLOTS } = require('../../server/services/lineup.service');
+
+// Section 5's T_regret is mean DEPLOYED-POLICY regret over the week's rosters,
+// so the control needs the same roster/cohort artifacts and lineup machinery the
+// control cell evaluator uses. The runner injects the functions; the --inputs
+// document carries the data.
+function policyInputs(playerIds) {
+  const ids = playerIds || [1, 2];
+  const byWeek = (build) => Object.fromEntries(metrics.EVALUATED_WEEKS.map((week) => [week, build(week)]));
+  return {
+    rosterWeeks: byWeek(() => ({
+      rosters: [{
+        replicate: 1,
+        teamIndex: 0,
+        starters: [],
+        bench: metrics.MACRO_POSITIONS.flatMap((position) => ids.map((id) => ({ playerId: playerKey(position, id) }))),
+      }],
+    })),
+    cohortWeeks: byWeek(() => ({
+      members: metrics.MACRO_POSITIONS.flatMap((position) => ids.map((id) => ({
+        playerId: playerKey(position, id), position, teamKey: `T${playerKey(position, id)}`, injuryStatus: null, onBye: false,
+      }))),
+    })),
+    positionRank: new Map(metrics.MACRO_POSITIONS.map((position, i) => [position, i + 1])),
+    nameRankById: new Map(metrics.MACRO_POSITIONS.flatMap((position) => ids.map((id) => [playerKey(position, id), playerKey(position, id)]))),
+    rosterSlots: DEFAULT_ROSTER_SLOTS,
+    availabilityFor,
+    optimize: optimalAssignment,
+  };
+}
+
+/** Player ids must be unique ACROSS positions once rosters exist. */
+function playerKey(position, id) { return metrics.MACRO_POSITIONS.indexOf(position) * 100 + id; }
+
 function rawControl({ fail = false } = {}) {
   const rosterRows = metrics.EVALUATED_WEEKS.flatMap((week) => metrics.MACRO_POSITIONS.flatMap((position) => [
-    { season: 2025, week, position, playerId: 1 },
-    { season: 2025, week, position, playerId: 2 },
+    { season: 2025, week, position, playerId: playerKey(position, 1) },
+    { season: 2025, week, position, playerId: playerKey(position, 2) },
   ]));
   const observations = metrics.SALTS.flatMap((salt) => metrics.EVALUATED_WEEKS.flatMap((week) => metrics.MACRO_POSITIONS.flatMap((position) => [
-    { season: 2025, week, salt, position, playerId: 1, actual: fail ? 0 : 1, projected: 1 },
-    { season: 2025, week, salt, position, playerId: 2, actual: fail ? 1 : 0, projected: 0 },
+    { season: 2025, week, salt, position, playerId: playerKey(position, 1), actual: fail ? 0 : 1, projected: 1 },
+    { season: 2025, week, salt, position, playerId: playerKey(position, 2), actual: fail ? 1 : 0, projected: 0 },
   ])));
   return { observations, rosterRows };
 }
 
 test('permutation control derives both published endpoints from one sealed 10,000-replicate raw stream', () => {
-  const result = metrics.computePermutationControl(rawControl());
+  const result = metrics.computePermutationControl({ ...rawControl(), ...policyInputs() });
   assert.deepEqual(
     { seed: result.seed, replicates: result.replicates, regret: result.regret.observed, pairwise: result.pairwise.observed },
     { seed: 940227589, replicates: 10000, regret: 0, pairwise: 1 }
@@ -46,11 +83,11 @@ test('permutation raw domains reject missing, extra, duplicate, and reordered co
   assert.throws(() => permutationControl.canonicalObservations(missingPosition.observations, missingPosition.rosterRows), /missing roster cell/);
 
   const missingPlayer = rawControl();
-  missingPlayer.observations = missingPlayer.observations.filter((row) => !(row.salt === metrics.SALTS[0] && row.week === 2 && row.position === 'QB' && row.playerId === 2));
+  missingPlayer.observations = missingPlayer.observations.filter((row) => !(row.salt === metrics.SALTS[0] && row.week === 2 && row.position === 'QB' && row.playerId === playerKey('QB', 2)));
   assert.throws(() => permutationControl.canonicalObservations(missingPlayer.observations, missingPlayer.rosterRows), /salt player domain differs/);
 
   const extraPlayer = rawControl();
-  extraPlayer.observations.push({ season: 2025, week: 18, salt: metrics.SALTS.at(-1), position: 'DEF', playerId: 3, actual: 0, projected: 0 });
+  extraPlayer.observations.push({ season: 2025, week: 18, salt: metrics.SALTS.at(-1), position: 'DEF', playerId: playerKey('DEF', 3), actual: 0, projected: 0 });
   assert.throws(() => permutationControl.canonicalObservations(extraPlayer.observations, extraPlayer.rosterRows), /salt player domain differs/);
 
   const duplicate = rawControl();
@@ -120,6 +157,7 @@ test('the production permutation path actually calls section 5.1 derivation, not
     permutationControl.computePermutationControlFromObservations({
       observations: control.observations,
       rosterRows: control.rosterRows,
+      ...policyInputs(),
     });
   } finally {
     metrics.buildPermutations = realBuild;

@@ -53,6 +53,13 @@ const sweepInference = require('../../scripts/backtest/lib/sweepInference');
 const sweepReport = require('../../scripts/backtest/lib/sweepReport');
 const sweepPreflight = require('../../scripts/backtest/lib/sweepPreflight');
 const sweepEvidence = require('../../scripts/backtest/lib/sweepEvidence');
+// Section 5's T_regret is a LINEUP outcome, so the permutation control needs
+// the same production machinery the control cell evaluator uses. Functions
+// cannot travel in an --inputs document, so the runner injects them here and
+// the document carries only data - the same split run-backtest-mde.js uses.
+const { optimalAssignment } = require('../services/lineupOptimizer');
+const { availabilityFor } = require('../services/projectionModel');
+const { DEFAULT_ROSTER_SLOTS } = require('../services/lineup.service');
 
 // ---------------------------------------------------------------------------
 // CLI
@@ -153,7 +160,27 @@ function validateInputs(inputs, { label = '--inputs' } = {}) {
   if (!inputs.permutationControl || typeof inputs.permutationControl !== 'object') {
     throw new Error(`${label}.permutationControl: must be an object`);
   }
-  assertClosedKeys(inputs.permutationControl, ['observations', 'rosterRows'], `${label}.permutationControl`);
+  // Section 5's T_regret is mean DEPLOYED-POLICY regret over the week's rosters,
+  // so the control needs the same roster/cohort artifacts the control cell
+  // evaluator uses. Only DATA is accepted here: `rosterSlots`, `availabilityFor`
+  // and `optimize` are injected by this runner, never read from the document, so
+  // an operator cannot substitute a different optimizer or slot model.
+  assertClosedKeys(
+    inputs.permutationControl,
+    ['observations', 'rosterRows', 'rosterWeeks', 'cohortWeeks', 'positionRank', 'nameRankById'],
+    `${label}.permutationControl`
+  );
+  for (const key of ['rosterWeeks', 'cohortWeeks']) {
+    const artifact = inputs.permutationControl[key];
+    if (!artifact || typeof artifact !== 'object' || Array.isArray(artifact)) {
+      throw new Error(`${label}.permutationControl.${key}: must map each evaluated week to its artifact; section 5's statistic is a lineup outcome and cannot be computed without it`);
+    }
+  }
+  for (const key of ['positionRank', 'nameRankById']) {
+    if (!inputs.permutationControl[key] || typeof inputs.permutationControl[key] !== 'object') {
+      throw new Error(`${label}.permutationControl.${key}: must be an object; candidate order fails closed rather than guessing`);
+    }
+  }
   for (const key of ['observations', 'rosterRows']) {
     if (!Array.isArray(inputs.permutationControl[key])) {
       throw new Error(`${label}.permutationControl.${key}: must be canonical raw control observations`);
@@ -469,7 +496,12 @@ function buildReportFromInputs(inputs) {
     ...inputs.preflight,
     componentFVetoRecords: componentFVetoRecords(inputs.cells, inputs.preflight),
   });
-  const permutationControl = metrics.computePermutationControl(inputs.permutationControl);
+  const permutationControl = metrics.computePermutationControl({
+    ...inputs.permutationControl,
+    rosterSlots: inputs.permutationControl.rosterSlots || DEFAULT_ROSTER_SLOTS,
+    availabilityFor,
+    optimize: optimalAssignment,
+  });
   const evidence = sweepEvidence.deriveEvidence(inputs.evidence, { permutation: permutationControl });
   const cellClaims = preflight.passed
     ? Object.fromEntries(arms.ALL_CELLS.map((cellMeta) => [cellMeta.name, assembleCellClaim(cellMeta, inputs.cells[cellMeta.name], componentFVetoRecords(inputs.cells, inputs.preflight).find((row) => row.cellName === cellMeta.name) || null)]))

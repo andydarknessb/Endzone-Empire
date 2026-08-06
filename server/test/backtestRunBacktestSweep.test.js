@@ -93,14 +93,36 @@ function syntheticEvidence() {
 }
 
 function syntheticPermutationControl({ fail = false } = {}) {
+  // Player ids must be unique ACROSS positions once rosters exist, because a
+  // roster is a set of players and a cohort maps id -> position.
+  const pid = (position, n) => metrics.MACRO_POSITIONS.indexOf(position) * 100 + n;
   const rosterRows = metrics.EVALUATED_WEEKS.flatMap((week) => metrics.MACRO_POSITIONS.flatMap((position) => [
-    { season: 2025, week, position, playerId: 1 },
-    { season: 2025, week, position, playerId: 2 },
+    { season: 2025, week, position, playerId: pid(position, 1) },
+    { season: 2025, week, position, playerId: pid(position, 2) },
   ]));
-  return { rosterRows, observations: metrics.SALTS.flatMap((salt) => metrics.EVALUATED_WEEKS.flatMap((week) => metrics.MACRO_POSITIONS.flatMap((position) => [
-    { season: 2025, week, salt, position, playerId: 1, actual: fail ? 0 : 1, projected: 1 },
-    { season: 2025, week, salt, position, playerId: 2, actual: fail ? 1 : 0, projected: 0 },
-  ]))) };
+  // Section 5's T_regret is mean DEPLOYED-POLICY regret over the week's rosters,
+  // so the control carries the same roster/cohort artifacts the control cell
+  // evaluator uses. The RUNNER injects rosterSlots/availabilityFor/optimize -
+  // functions cannot travel in an --inputs document - so only data appears here.
+  const byWeek = (build) => Object.fromEntries(metrics.EVALUATED_WEEKS.map((week) => [week, build(week)]));
+  const everyPlayer = metrics.MACRO_POSITIONS.flatMap((position) => [pid(position, 1), pid(position, 2)]);
+  return {
+    rosterRows,
+    observations: metrics.SALTS.flatMap((salt) => metrics.EVALUATED_WEEKS.flatMap((week) => metrics.MACRO_POSITIONS.flatMap((position) => [
+      { season: 2025, week, salt, position, playerId: pid(position, 1), actual: fail ? 0 : 1, projected: 1 },
+      { season: 2025, week, salt, position, playerId: pid(position, 2), actual: fail ? 1 : 0, projected: 0 },
+    ]))),
+    rosterWeeks: byWeek(() => ({
+      rosters: [{ replicate: 1, teamIndex: 0, starters: [], bench: everyPlayer.map((playerId) => ({ playerId })) }],
+    })),
+    cohortWeeks: byWeek(() => ({
+      members: metrics.MACRO_POSITIONS.flatMap((position) => [1, 2].map((n) => ({
+        playerId: pid(position, n), position, teamKey: `T${pid(position, n)}`, injuryStatus: null, onBye: false,
+      }))),
+    })),
+    positionRank: Object.fromEntries(metrics.MACRO_POSITIONS.map((position, i) => [position, i + 1])),
+    nameRankById: Object.fromEntries(everyPlayer.map((playerId) => [playerId, playerId])),
+  };
 }
 
 function treatedActivationInput() {

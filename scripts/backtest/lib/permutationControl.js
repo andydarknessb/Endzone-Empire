@@ -1,8 +1,97 @@
 'use strict';
 
 const metrics = require('./metrics');
+const policy = require('./policy');
 
 function key(row) { return `${row.season}:${row.week}:${row.position}`; }
+
+/**
+ * Section 5 pins `T_regret = -mean(regret)` as "the mean deployed-policy regret
+ * (prereg 5.2, section 6.1's per-season-week score: the mean over the
+ * season-week's 50 rosters)".
+ *
+ * This precomputes everything about that statistic which the permutation cannot
+ * change, so the replicate loop does the minimum work the definition allows:
+ *
+ *  - roster ENTRIES, which depend on the week's roster and cohort artifacts;
+ *  - the ACTUAL points map, which the permutation never touches;
+ *  - the BEST legal lineup per roster, computed under actual points - so it is
+ *    permutation-invariant by construction and is solved once, not 10,000 times.
+ *
+ * Only the STARTED lineup varies, because the permutation reassigns the
+ * projections a manager would have chosen from. That is the irreducible part.
+ */
+function buildPolicyContext({
+  rosterWeeks, cohortWeeks, positionRank, nameRankById, rosterSlots, availabilityFor, optimize, ordering, actualsByWeek, label,
+}) {
+  const ranks = {
+    positionRank: positionRank instanceof Map ? positionRank : new Map(Object.entries(positionRank || {})),
+    nameRankById: nameRankById instanceof Map
+      ? nameRankById
+      : new Map(Object.entries(nameRankById || {}).map(([id, rank]) => [Number(id), rank])),
+  };
+  const entriesByWeek = new Map();
+  const bestByWeek = new Map();
+  for (const week of metrics.EVALUATED_WEEKS) {
+    const rosterWeek = rosterWeeks[week] || rosterWeeks[String(week)];
+    const cohortWeek = cohortWeeks[week] || cohortWeeks[String(week)];
+    if (!rosterWeek || !Array.isArray(rosterWeek.rosters)) throw new Error(`${label}: missing roster artifact for week ${week}`);
+    if (!cohortWeek || !Array.isArray(cohortWeek.members)) throw new Error(`${label}: missing cohort artifact for week ${week}`);
+    const cohortByPlayerId = new Map(cohortWeek.members.map((m) => [m.playerId, m]));
+    const actuals = actualsByWeek.get(week);
+    const entries = rosterWeek.rosters.map((roster) => rosterEntriesFor({ roster, cohortByPlayerId, label }));
+    entriesByWeek.set(week, entries);
+    bestByWeek.set(week, entries.map((rosterEntries) => policy.deployedPolicyLineup({
+      entries: rosterEntries, projections: actuals, ranks, rosterSlots, availabilityFor, optimize, ordering, label: `${label}: best`,
+    }).started));
+  }
+  return { entriesByWeek, bestByWeek, ranks, rosterSlots, availabilityFor, optimize, ordering };
+}
+
+/** Mirrors controlCellEvaluator's rosterEntries: the identity a lineup is built from. */
+function rosterEntriesFor({ roster, cohortByPlayerId, label }) {
+  const identify = (p, slot) => {
+    const member = cohortByPlayerId.get(p.playerId);
+    if (!member) {
+      throw new Error(`${label}: roster player ${p.playerId} has no cohort entry for this week - the roster and cohort artifacts must be built from the SAME week`);
+    }
+    return {
+      playerId: p.playerId,
+      position: member.position,
+      teamKey: member.teamKey,
+      injuryStatus: member.injuryStatus,
+      onBye: member.onBye,
+      locked: false,
+      slot,
+    };
+  };
+  return [
+    ...roster.starters.map((s) => identify(s, s.slot)),
+    ...roster.bench.map((b) => identify(b, policy.BENCH)),
+  ];
+}
+
+/** The per-season-week score: mean deployed-policy regret over the week's rosters. */
+function weekDeployedPolicyRegret({ week, projections, actuals, ctx, label }) {
+  const entries = ctx.entriesByWeek.get(week);
+  const best = ctx.bestByWeek.get(week);
+  const rosterRegrets = entries.map((rosterEntries, index) => {
+    const started = policy.deployedPolicyLineup({
+      entries: rosterEntries,
+      projections,
+      ranks: ctx.ranks,
+      rosterSlots: ctx.rosterSlots,
+      availabilityFor: ctx.availabilityFor,
+      optimize: ctx.optimize,
+      ordering: ctx.ordering,
+      label,
+    });
+    return policy.regretFor({
+      startedPlayerIds: started.started, bestPlayerIds: best[index], actualPoints: actuals, label,
+    });
+  });
+  return metrics.weekRegret(rosterRegrets, { label });
+}
 
 function canonicalRosterRows(rosterRows, label) {
   if (!Array.isArray(rosterRows) || rosterRows.length === 0) throw new Error(`${label}: requires canonical raw roster rows`);
@@ -86,21 +175,31 @@ function canonicalObservations(observations, rosterRows, label = 'permutation co
  * cell's canonical member list elementwise, so index `i` of `order` addresses
  * the same player that `buildPermutations` sorted into position `i`.
  */
-function scoreWeek(bySaltCell, orders, week, label) {
+function scoreWeek(bySaltCell, orders, week, label, ctx, actualsByWeek) {
+  const actuals = actualsByWeek.get(week);
   const perSalt = metrics.SALTS.map((salt) => {
     const rowsByPosition = {};
-    const regrets = [];
+    // The projections a manager would have chosen from, AFTER the permutation.
+    const projections = new Map();
     for (const position of metrics.MACRO_POSITIONS) {
       const cellKey = `2025:${week}:${position}`;
       const rows = bySaltCell.get(`${salt}:${cellKey}`);
       const permuted = orders
         ? metrics.gatherPermutedProjections({ playerIds: rows.map((r) => r.playerId), projections: rows.map((r) => r.projected), order: orders[cellKey], label })
         : rows.map((r) => ({ playerId: r.playerId, projected: r.projected }));
-      const assigned = rows.map((row, i) => ({ actual: row.actual, projected: permuted[i].projected }));
-      rowsByPosition[position] = assigned;
-      regrets.push(...assigned.map((row) => Math.abs(row.projected - row.actual)));
+      rowsByPosition[position] = rows.map((row, i) => ({ actual: row.actual, projected: permuted[i].projected }));
+      rows.forEach((row, i) => projections.set(row.playerId, permuted[i].projected));
     }
-    return { regret: metrics.weekRegret(regrets, { label }), pairwise: metrics.weekPairwise(rowsByPosition, { label }).score };
+    // Section 5: the mean DEPLOYED-POLICY regret over the week's rosters, which
+    // is `best legal lineup under actuals` minus `the lineup these projections
+    // would have started`, scored on actuals. NOT mean |projected - actual|:
+    // that statistic is invariant to reassigning projections under a uniform
+    // bias, so the permutation would be invisible to the very control whose
+    // purpose is to detect that the ranking skill has been destroyed.
+    return {
+      regret: weekDeployedPolicyRegret({ week, projections, actuals, ctx, label }),
+      pairwise: metrics.weekPairwise(rowsByPosition, { label }).score,
+    };
   });
   return { regret: perSalt.reduce((sum, value) => sum + value.regret, 0) / perSalt.length, pairwise: perSalt.reduce((sum, value) => sum + value.pairwise, 0) / perSalt.length };
 }
@@ -121,11 +220,22 @@ function negativeMean(rows, field) {
   return value === 0 ? 0 : value;
 }
 
-function computePermutationControlFromObservations({ observations, rosterRows, label = 'permutation control' }) {
+function computePermutationControlFromObservations({
+  observations, rosterRows, rosterWeeks, cohortWeeks, positionRank, nameRankById,
+  rosterSlots, availabilityFor, optimize, ordering, label = 'permutation control',
+}) {
   const { bySaltCell, cells } = canonicalObservations(observations, rosterRows, label);
-  const cacheKey = JSON.stringify({ observations, rosterRows });
+  const cacheKey = JSON.stringify({ observations, rosterRows, rosterWeeks, cohortWeeks });
+  // Actual points are a property of (week, player) and are never touched by the
+  // permutation, so they are collected once and shared by every replicate.
+  const actualsByWeek = new Map(metrics.EVALUATED_WEEKS.map((week) => [week, new Map()]));
+  for (const row of observations) actualsByWeek.get(row.week).set(row.playerId, row.actual);
+  const ctx = buildPolicyContext({
+    rosterWeeks, cohortWeeks, positionRank, nameRankById, rosterSlots,
+    availabilityFor, optimize, ordering, actualsByWeek, label,
+  });
   if (resultCache.has(cacheKey)) return cloneResult(resultCache.get(cacheKey));
-  const observedWeeks = metrics.EVALUATED_WEEKS.map((week) => scoreWeek(bySaltCell, null, week, `${label}: observed`));
+  const observedWeeks = metrics.EVALUATED_WEEKS.map((week) => scoreWeek(bySaltCell, null, week, `${label}: observed`, ctx, actualsByWeek));
   const observed = { regret: negativeMean(observedWeeks, 'regret'), pairwise: observedWeeks.reduce((sum, row) => sum + row.pairwise, 0) / observedWeeks.length };
   const permuted = { regret: [], pairwise: [] };
   // Section 5.1 step 2: each (replicate, cellKey) is seeded by SHA-256 of
@@ -143,7 +253,7 @@ function computePermutationControlFromObservations({ observations, rosterRows, l
   const permutations = metrics.buildPermutations({ cells, label });
   for (let replicate = 0; replicate < metrics.PERMUTATION_DRAWS; replicate++) {
     const orders = permutations.replicate(replicate);
-    const weeks = metrics.EVALUATED_WEEKS.map((week) => scoreWeek(bySaltCell, orders, week, `${label}: replicate ${replicate}`));
+    const weeks = metrics.EVALUATED_WEEKS.map((week) => scoreWeek(bySaltCell, orders, week, `${label}: replicate ${replicate}`, ctx, actualsByWeek));
     permuted.regret.push(negativeMean(weeks, 'regret'));
     permuted.pairwise.push(weeks.reduce((sum, row) => sum + row.pairwise, 0) / weeks.length);
   }
