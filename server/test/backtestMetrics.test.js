@@ -494,6 +494,26 @@ test('the permutation transition, seed, canonical order, and GATHER direction ar
     metrics.gatherPermutedProjections({ playerIds: [1, 2, 9, 10], projections: ['a', 'b', 'c', 'd'], order }),
     [{ playerId: 1, projected: 'b' }, { playerId: 2, projected: 'a' }, { playerId: 9, projected: 'c' }, { playerId: 10, projected: 'd' }]
   );
+
+  // Section 5.1 required test (viii): GATHER not SCATTER, on a permutation that
+  // is NOT self-inverse. The order above is a transposition, so it is an
+  // involution and GATHER and SCATTER produce identical output on it - a SCATTER
+  // implementation passes that assertion unchanged, which makes it no test of
+  // the distinction at all. Replicate 1 gives a 4-cycle, which separates them.
+  const cyclic = built.permutationFor(1, '2025:9:RB');
+  assert.deepEqual(cyclic, [2, 0, 3, 1]);
+  assert.ok(cyclic.some((value, index) => cyclic[value] !== index), 'test (viii) requires a permutation that is not self-inverse');
+  const projections = ['a', 'b', 'c', 'd'];
+  // GATHER (step 5a): target i RECEIVES the projection at source order[i].
+  assert.deepEqual(
+    metrics.gatherPermutedProjections({ playerIds: [1, 2, 9, 10], projections, order: cyclic }),
+    [{ playerId: 1, projected: 'c' }, { playerId: 2, projected: 'a' }, { playerId: 9, projected: 'd' }, { playerId: 10, projected: 'b' }]
+  );
+  // SCATTER, the inverse assignment, is what step 5a is NOT. Asserted explicitly
+  // so the two are pinned apart rather than merely assumed to differ.
+  const scatter = [];
+  cyclic.forEach((source, target) => { scatter[source] = projections[target]; });
+  assert.notDeepEqual(scatter, cyclic.map((source) => projections[source]));
   assert.throws(() => metrics.buildPermutations({ cells: { '2025:2:QB': [1, 1] } }), /duplicate playerId/);
 });
 

@@ -131,7 +131,7 @@ function assertHomeAwayRunPointIdentity({ leftRun, rightRun, leftPlayerIds, righ
   return true;
 }
 
-function assertIdentityCoverage({ cohortRosterRows, controlUsage25Records, homeAwayStoredRecords, label = 'preflight identity' }) {
+function assertIdentityCoverage({ cohortRosterRows, controlUsage25Records, homeAwayStoredRecords, baseConstants, label = 'preflight identity' }) {
   const controlUsage25 = assertControlUsage25IdentityCoverage({
     cohortRosterRows,
     controlUsage25Records,
@@ -140,6 +140,7 @@ function assertIdentityCoverage({ cohortRosterRows, controlUsage25Records, homeA
   const homeAwayStored = assertHomeAwayStoredPointIdentityCoverage({
     cohortRosterRows,
     homeAwayStoredRecords,
+    baseConstants,
     label: `${label}: homeaway-on == homeaway-on-stored`,
   });
   return { controlUsage25, homeAwayStored, passed: true };
@@ -163,7 +164,28 @@ function assertControlUsage25IdentityCoverage({ cohortRosterRows, controlUsage25
   return { ...controlCoverage, passed: true };
 }
 
-function assertHomeAwayStoredPointIdentityCoverage({ cohortRosterRows, homeAwayStoredRecords, label = 'preflight identity: homeaway-on == homeaway-on-stored' }) {
+function assertHomeAwayStoredPointIdentityCoverage({ cohortRosterRows, homeAwayStoredRecords, baseConstants, label = 'preflight identity: homeaway-on == homeaway-on-stored' }) {
+  // Section 8.6.1: "BEFORE comparing outputs, assert the two arms' resolved
+  // constants differ in EXACTLY the homeAway.useStoredHistory leaf and nothing
+  // else ... so a bug in constructing the 'on-stored' variant is caught
+  // STRUCTURALLY, not just by the numeric comparison downstream."
+  //
+  // This guard existed, was exported, and had no caller. That is load-bearing
+  // rather than cosmetic: 8.6.1 also says useStoredHistory "is therefore
+  // expected to be a complete no-op on every published field today", so the
+  // numeric comparison below passes VACUOUSLY by design. An on-stored variant
+  // built by mistake with plain resolveConstants would be the identical
+  // configuration, compare point-identical to itself, and the sealed assertion
+  // would have verified nothing.
+  if (!baseConstants || typeof baseConstants !== 'object') {
+    throw new Error(`${label}: the production MODEL_CONSTANTS must be injected so the single-leaf guard can run before the output comparison`);
+  }
+  const usage25 = arms.ALL_CELLS.find((cell) => cell.blendWeight === 0.25 && cell.homeAway === 'on');
+  arms.assertOnlyStoredHistoryLeafDiffers({
+    baseResolved: arms.resolveConstants({ cell: usage25, baseConstants, label }),
+    storedResolved: arms.resolveConstantsWithStoredHistory({ cell: usage25, baseConstants, label }),
+    label: `${label}: single-leaf`,
+  });
   const storedCoverage = assertRecordCoverage({
     cohortRosterRows,
     records: homeAwayStoredRecords,
@@ -242,7 +264,7 @@ function assertComponentFVetoCoverage({ cohortRosterRows, matchedOffBaselineRows
   return { cellCount: actualCells.size, complete: true, passed: true };
 }
 
-function runPreflight({ cohortRosterRows, controlUsage25Records, homeAwayStoredRecords, saltSeedRecords, matchedOffBaselineRows, componentFVetoRecords, label = 'sweep preflight' }) {
+function runPreflight({ baseConstants, cohortRosterRows, controlUsage25Records, homeAwayStoredRecords, saltSeedRecords, matchedOffBaselineRows, componentFVetoRecords, label = 'sweep preflight' }) {
   const capture = (name, fn) => {
     try {
       return fn();
@@ -254,7 +276,7 @@ function runPreflight({ cohortRosterRows, controlUsage25Records, homeAwayStoredR
     cohortRosterRows, controlUsage25Records, label: `${label}: usage-25 x off == control`,
   }));
   const homeAwayStored = capture('homeaway stored identity', () => assertHomeAwayStoredPointIdentityCoverage({
-    cohortRosterRows, homeAwayStoredRecords, label: `${label}: homeaway-on == homeaway-on-stored`,
+    cohortRosterRows, homeAwayStoredRecords, baseConstants, label: `${label}: homeaway-on == homeaway-on-stored`,
   }));
   const identities = { controlUsage25, homeAwayStored, passed: controlUsage25.passed && homeAwayStored.passed };
   const saltSeeds = capture('salt seed guard', () => assertSaltSeedCoverage({

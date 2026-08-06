@@ -6,6 +6,9 @@ const assert = require('node:assert/strict');
 const preflight = require('../../scripts/backtest/lib/sweepPreflight');
 const { SALTS } = require('../../scripts/backtest/lib/metrics');
 const { ALL_CELLS } = require('../../scripts/backtest/lib/arms');
+// Section 8.6.1's single-leaf guard resolves both arms from the REAL shipped
+// constants, so the preflight is exercised against what production runs.
+const { MODEL_CONSTANTS } = require('../services/projectionModel');
 
 const cohortRosterRows = [{ season: 2025, week: 2, playerId: 7 }];
 const projection = () => ({ playerId: 7, median: 12.5, p10: 4, factors: {} });
@@ -42,6 +45,7 @@ function matchedOffBaselineRows() {
 
 test('runPreflight derives both identity gates and exhaustive salt seeds from raw-shaped synthetic records', () => {
   const result = preflight.runPreflight({
+    baseConstants: MODEL_CONSTANTS,
     cohortRosterRows,
     controlUsage25Records: identityRecords(),
     homeAwayStoredRecords: identityRecords(),
@@ -59,6 +63,7 @@ test('runPreflight derives both identity gates and exhaustive salt seeds from ra
 test('authoritative preflight refuses an empty or truncated cohort/roster domain', () => {
   assert.throws(() => preflight.deriveCohortPlayerWeeks([]), /non-empty validated cohort\/roster domain/);
   const result = preflight.runPreflight({
+    baseConstants: MODEL_CONSTANTS,
     cohortRosterRows: [], controlUsage25Records: [], homeAwayStoredRecords: [], saltSeedRecords: [],
     matchedOffBaselineRows: [], componentFVetoRecords: [],
   });
@@ -109,6 +114,7 @@ test('salt preflight requires exactly the 24 preregistered salts for every coord
 
 test('preflight fails closed on missing identity coverage, an identity mutation, or a salt-seed collision', () => {
   assert.throws(() => preflight.assertIdentityCoverage({
+    baseConstants: MODEL_CONSTANTS,
     cohortRosterRows,
     controlUsage25Records: identityRecords().slice(1),
     homeAwayStoredRecords: identityRecords(),
@@ -117,6 +123,7 @@ test('preflight fails closed on missing identity coverage, an identity mutation,
   const mutated = identityRecords();
   mutated[0].rightRun.projections.get(7).median = 12.500000001;
   assert.throws(() => preflight.assertIdentityCoverage({
+    baseConstants: MODEL_CONSTANTS,
     cohortRosterRows, controlUsage25Records: mutated, homeAwayStoredRecords: identityRecords(),
   }), /not bit-identical/);
 
@@ -131,6 +138,7 @@ test('preflight rejects a projection Map that silently dropped a raw player id',
   const records = identityRecords();
   records[0].leftPlayerIds = [7, 8];
   assert.throws(() => preflight.assertIdentityCoverage({
+    baseConstants: MODEL_CONSTANTS,
     cohortRosterRows, controlUsage25Records: records, homeAwayStoredRecords: identityRecords(),
   }), /does not cover the expected player-week set/);
 });
@@ -142,10 +150,42 @@ test('preflight accepts JSON-shaped raw projection arrays without weakening dupl
     rightRun: { ...record.rightRun, projections: [...record.rightRun.projections.values()] },
   }));
   assert.equal(preflight.assertIdentityCoverage({
+    baseConstants: MODEL_CONSTANTS,
     cohortRosterRows, controlUsage25Records: records, homeAwayStoredRecords: records,
   }).passed, true);
   records[0].leftRun.projections.push({ ...records[0].leftRun.projections[0] });
   assert.throws(() => preflight.assertIdentityCoverage({
+    baseConstants: MODEL_CONSTANTS,
     cohortRosterRows, controlUsage25Records: records, homeAwayStoredRecords: identityRecords(),
   }), /duplicate id/);
+});
+
+test('section 8.6.1: the single-leaf constants guard RUNS, and a mis-built on-stored variant is caught structurally', () => {
+  // 8.6.1 says useStoredHistory "is expected to be a complete no-op on every
+  // published field today", so the numeric comparison downstream passes
+  // VACUOUSLY. The structural guard is the only thing that can catch an
+  // on-stored arm built with plain resolveConstants - it would be the identical
+  // configuration, compare point-identical to itself, and verify nothing.
+  //
+  // Before this, the guard was defined, exported, and had NO caller.
+  const records = identityRecords();
+
+  // It runs: withholding the constants now fails the identity gate rather than
+  // silently skipping the check.
+  const withoutConstants = preflight.runPreflight({
+    cohortRosterRows, controlUsage25Records: records, homeAwayStoredRecords: records,
+    saltSeedRecords: seedRecords(), matchedOffBaselineRows: matchedOffBaselineRows(),
+  });
+  assert.equal(withoutConstants.identities.homeAwayStored.passed, false);
+  assert.match(withoutConstants.identities.homeAwayStored.detail, /MODEL_CONSTANTS must be injected/);
+
+  // And it has teeth: an "on-stored" variant that is really the base variant -
+  // the exact mis-build 8.6.1 exists to catch - is rejected by name.
+  const arms = require('../../scripts/backtest/lib/arms');
+  const usage25 = arms.ALL_CELLS.find((cell) => cell.blendWeight === 0.25 && cell.homeAway === 'on');
+  const base = arms.resolveConstants({ cell: usage25, baseConstants: MODEL_CONSTANTS });
+  assert.throws(
+    () => arms.assertOnlyStoredHistoryLeafDiffers({ baseResolved: base, storedResolved: base }),
+    /must have useStoredHistory === true/
+  );
 });

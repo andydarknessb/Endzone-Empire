@@ -60,6 +60,11 @@ const sweepEvidence = require('../../scripts/backtest/lib/sweepEvidence');
 const { optimalAssignment } = require('../services/lineupOptimizer');
 const { availabilityFor } = require('../services/projectionModel');
 const { DEFAULT_ROSTER_SLOTS } = require('../services/lineup.service');
+// Section 8.6.1's single-leaf constants guard resolves both arms itself, so it
+// needs production's own MODEL_CONSTANTS. Injected here rather than read from
+// the --inputs document, for the same reason as the optimizer: an operator
+// must not be able to supply the constants an identity assertion checks.
+const model = require('../services/projectionModel');
 
 // ---------------------------------------------------------------------------
 // CLI
@@ -494,6 +499,7 @@ function buildReportFromInputs(inputs) {
   // cheap harness-integrity gates that can void the run anyway.
   const preflight = sweepPreflight.runPreflight({
     ...inputs.preflight,
+    baseConstants: model.MODEL_CONSTANTS,
     componentFVetoRecords: componentFVetoRecords(inputs.cells, inputs.preflight),
   });
   const permutationControl = metrics.computePermutationControl({
