@@ -209,6 +209,18 @@ remain prohibited pending the final independent implementation review.
 | 4 | `PHASE5_EXECUTION_SPEC.md` | `5A0D6E54B2D84494C5D39093C44204A79F32A4DD813F03909C1094339A52BCF8` | independent statistical review | 2026-08-03 | revision 18, sections 3-8; exact git blob `147a2e0d1f284403b59d96d7e2f82c2da74989e4` at commit `85842e70a19b14fb6c5fb8cdfb0bca6a7a367774` | **APPROVED** |
 | 5 | `PHASE5_EXECUTION_SPEC.md` | `5A0D6E54B2D84494C5D39093C44204A79F32A4DD813F03909C1094339A52BCF8` | user | 2026-08-03 | S3 structurally non-estimable prospective deviation; no S3 estimate | **APPROVED** |
 | 6 | `PHASE5_EXECUTION_SPEC.md` | `5A0D6E54B2D84494C5D39093C44204A79F32A4DD813F03909C1094339A52BCF8` | user | 2026-08-03 | remainder of revision 18, sections 3-8; Gate 2 implementation only; no candidate execution | **APPROVED** |
+| 7 | `PHASE5_EXECUTION_SPEC.md` | `5EA91A5E23602101E725C5560DAE071BD6A81659AD33E48EC25F64BA6E959F78` | independent statistical review | 2026-08-06 | revision 34, sections 3-8; exact git blob `e339020a3e61bfc32a20a3acd2f1f246f155a8b8` at commit `81289fa0e980f5b71dbf7c660f036cfa253e44ae`. **Reach as stated by the approver**: the three repaired sections and the changed bytes were read directly; the 2,407 carried-over scope lines were NOT re-read and rest on that reviewer's revision-33 examination plus verified byte-identity | **APPROVED** |
+
+**Row 7's earlier reservation is superseded — see corrective entry 19.** The
+paragraph that follows was written at corrective entry 2, when rows 4-6 were
+live and the implementation review was the only approval still outstanding.
+That premise lapsed at corrective entry 3, when rows 4-6 lapsed with the
+bytes they authenticated. The reservation named which approval was expected
+next, not a numbering rule; rows are appended in the order approvals issue,
+so the Gate 2 implementation review now takes row 8. **The substantive rule
+it carried is untouched and was honored here**: no row is pre-filled in
+anticipation, and row 7 was written only after the approver issued an
+approval naming the revision, the scope, the blob and the commit.
 
 **No row below this line is filled in.** Row 7 is reserved for the Gate 2
 independent implementation review, once it actually occurs. It must be added
@@ -2109,3 +2121,127 @@ of band.
 **(9) Zero of four approvals are in force.** No revision after 18 has ever been
 approved. Per the R1-R5 convention a rejection warrants no approval row, and none
 was written for this round. Gate 0 is unchanged and still in force.
+
+---
+
+### CORRECTIVE ENTRY 19 — appended 2026-08-06
+
+**This entry records the FIRST APPROVAL TO ISSUE SINCE REVISION 18**, and
+creates approval row 7. **Entries 1-18 are not edited.**
+
+**(1) An approval has issued.** An independent statistical review of revision
+34, sections 3-8, returned APPROVED against:
+
+```
+SHA-256   5EA91A5E23602101E725C5560DAE071BD6A81659AD33E48EC25F64BA6E959F78
+git blob  e339020a3e61bfc32a20a3acd2f1f246f155a8b8
+anchor    81289fa0e980f5b71dbf7c660f036cfa253e44ae
+```
+
+All three identifiers were verified against git before the row was written.
+The approver wrote no row and drafted none, per the standing convention;
+row 7 was written by the commissioning party at the approver's explicit
+direction, after the approval issued.
+
+**(2) The status block near the top of this file is SUPERSEDED, not edited.**
+The `PHASE5_EXECUTION_SPEC.md` row there reads **"NO APPROVAL IN FORCE, AND
+NOTHING IS AUTHORIZED."** That statement is now false in its first clause and
+still true in its second. **One of four approvals is in force**; the two user
+attestations and the Gate 2 independent implementation review are not. **Gate 0
+is unchanged and remains in force**: no candidate-cell execution, no real-data
+access, no sweep generation, no result inspection. Gate 2 implementation work
+is still unauthorized, because it requires all three specification approvals
+against the same bytes and only one exists.
+
+**(3) The approval's reach is narrower than "sections 3-8 were re-read", and
+the approver said so unprompted.** The three repaired sections and the changed
+bytes were read directly. The remaining **2,407 carried-over scope lines were
+not re-read**; they rest on that reviewer's revision-33 examination plus
+verified byte-identity, and on the fact that no tracked source file changed
+between the two anchors, which is what carries their 85 locator verifications
+forward. This is recorded because a later reader must not mistake row 7 for a
+fresh reading of all 2,428 lines.
+
+**(4) The approver was arguably conflicted, proceeded, and mitigated it — and
+the exit route this party offered them did not exist.** They had specified
+F-A's repair at drafting precision in the prior round. Before reading the
+repair, they re-derived what section 8.3 must carry from prereg 11 (which names
+no scoring profile), prereg 4.3, and the code chain `homeMean`/`awayMean` ->
+`calculateFantasyPoints(row.stats, rules)`, concluding that activation is
+profile-contingent and inherits the primary, so rule 5 **pins** a coordinate
+rather than removing one. That reaches F-A's conclusion without relying on F-A.
+
+**The commission's offered exit was defective.** It invited them to withdraw
+"on section 8.7 specifically," but this ledger's own convention scopes every
+approval to sections 3-8 **as an indivisible unit**, so disqualification on one
+section is disqualification on the whole. **A commission must not offer an exit
+the approval convention forbids**, and this one did.
+
+**(5) Two counts in the anchored bytes are WRONG and are deliberately NOT
+corrected here.**
+
+| where | says | measured |
+| --- | --- | --- |
+| section 8.7, the F-A correction note | stale parenthetical present "revision 22 through revision 33" | present from **revision 19** (`9759a64`) through revision 33 (`37b9f7d`) |
+| preamble, status-line provenance | "the FOURTH recorded instance", over a three-member enumeration | **five stale revisions** (27, 28, 30, 32, 33) across **three** carry-forward runs |
+
+Both were found by the approving reviewer, who judged neither worth
+withholding on. **Correcting either would change the blob and lapse the
+approval recorded above** — which is the mechanism this ledger exists to
+enforce, and it operates against corrections this party would like to make just
+as it operates against everyone else. **They ride with the next re-anchor made
+for a substantive reason.** Until then, row 7's bytes contain two known-wrong
+counts, and that is the honest state of the record.
+
+The second is the sharper of the two: the miscount sits inside the passage that
+records the status-line hazard class, adjacent to the identifier-consistency
+check added at revision 34 to catch stale identifiers. **A passage specifying an
+instrument is not itself subject to that instrument** — the check resolves
+hashes, and nothing counts the enumeration the prose summarizes.
+
+**(6) Three packet defects, found by the same reviewer reading past the
+packet.** Two are corrected; one is a convention this file should state.
+
+- The packet gave the document as **4,567 lines**; it is **4,575**. Corrected
+  in both untracked packet documents.
+- The packet gave this ledger as **2,111 lines / eighteen entries**, its size
+  at branch HEAD, while directing the reviewer to check out the anchor, where
+  it is **2,021 lines / seventeen entries**. The revision-33 packet made the
+  identical error one commit earlier. **The gap is structural: the corrective
+  entry that re-points the ledger to an anchor names that anchor, so it can
+  only be committed after it, and no anchor can ever carry its own re-pointing
+  entry.** Packets must therefore state the ref alongside any ledger figure.
+- The packet listed the commission and scope documents among section 11.3(a)
+  contents without noting they are untracked and hand-delivered. They are kept
+  out of the repository deliberately: committing drafting-party framing into the
+  clone a reviewer is asked to review from would defeat the clone-based
+  independence remedy. The commission now says so.
+
+**(7) A stale statement in this file, superseded.** The hashing guidance near
+the top states that this repository has `core.autocrlf=true` and **"no
+`.gitattributes` covering these artifacts."** A tracked
+`backtest-artifacts/.gitattributes` carrying `* text eol=lf` has existed since
+2026-08-02 and is present at anchor `81289fa`, so these artifacts ARE
+normalized and a working-tree hash coincides with the blob hash. The guidance's
+instruction — hash the blob — remains correct and is the safer habit
+regardless; only its stated reason is obsolete. Not edited.
+
+**(8) Two probe failures disclosed by the approver, recorded because the
+pattern is this project's most persistent.** Their section parser keyed
+`### 8.2a` as `8.2` and overwrote it, so the first run reported F-C unrepaired,
+which was false. And a line-bounded grep missed the section 8.7 parenthetical
+because it wraps across a newline — that first result would have **supported**
+this party's provenance claim, and the corrected probe is what refuted it.
+Every structural conclusion in that review was then cross-checked by a raw
+line-level diff using no section parsing: **3 hunks, 22 added, 4 removed,
+2,407 of the scope lines carried over.** The net, +18, agrees with this party's
+independent measurement; the span figures differ by one because the two parties
+terminate the scope range on different sides of the section 9 heading. **Only
+the net is a property of the document**, which section 2b of the scope document
+already states.
+
+**(9) One of four approvals is in force.** Row 7 stands against
+`5EA91A5E…`. Still required: two user attestations against these same bytes,
+and the Gate 2 independent implementation review, which now takes row 8. **Any
+change to `PHASE5_EXECUTION_SPEC.md` lapses row 7 automatically.** Gate 0 is
+unchanged and still in force.
