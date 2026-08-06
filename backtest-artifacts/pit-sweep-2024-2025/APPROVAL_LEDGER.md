@@ -210,6 +210,8 @@ remain prohibited pending the final independent implementation review.
 | 5 | `PHASE5_EXECUTION_SPEC.md` | `5A0D6E54B2D84494C5D39093C44204A79F32A4DD813F03909C1094339A52BCF8` | user | 2026-08-03 | S3 structurally non-estimable prospective deviation; no S3 estimate | **APPROVED** |
 | 6 | `PHASE5_EXECUTION_SPEC.md` | `5A0D6E54B2D84494C5D39093C44204A79F32A4DD813F03909C1094339A52BCF8` | user | 2026-08-03 | remainder of revision 18, sections 3-8; Gate 2 implementation only; no candidate execution | **APPROVED** |
 | 7 | `PHASE5_EXECUTION_SPEC.md` | `5EA91A5E23602101E725C5560DAE071BD6A81659AD33E48EC25F64BA6E959F78` | independent statistical review | 2026-08-06 | revision 34, sections 3-8; exact git blob `e339020a3e61bfc32a20a3acd2f1f246f155a8b8` at commit `81289fa0e980f5b71dbf7c660f036cfa253e44ae`. **Reach as stated by the approver**: the three repaired sections and the changed bytes were read directly; the 2,407 carried-over scope lines were NOT re-read and rest on that reviewer's revision-33 examination plus verified byte-identity | **APPROVED** |
+| 8 | `PHASE5_EXECUTION_SPEC.md` | `5EA91A5E23602101E725C5560DAE071BD6A81659AD33E48EC25F64BA6E959F78` | user | 2026-08-06 | S3 structurally non-estimable prospective deviation (section 7): reserve-class rows are excluded at roster construction under the frozen active-only cohort before any injury-status mapping, so prereg 4.2's rule has no row to apply to. **No S3 estimate is published**; exclusion counts may be published as context, never as a substitute S3 result; disclosed as an explicit prospective deviation from prereg 4.2. Unchanged in substance from row 5 | **APPROVED** |
+| 9 | `PHASE5_EXECUTION_SPEC.md` | `5EA91A5E23602101E725C5560DAE071BD6A81659AD33E48EC25F64BA6E959F78` | user | 2026-08-06 | remainder of revision 34, all provisions outside row 8's S3 deviation. **Scope of authorization: Gate 2 IMPLEMENTATION only — does NOT authorize candidate-cell execution**, which remains gated on the fourth approval. Attested after being shown section 10.3's disclosure and the two known-wrong counts recorded at corrective entry 19 item (5); the approver attested with knowledge of both, not in ignorance of them | **APPROVED** |
 
 **Row 7's earlier reservation is superseded — see corrective entry 19.** The
 paragraph that follows was written at corrective entry 2, when rows 4-6 were
@@ -2245,3 +2247,89 @@ already states.
 and the Gate 2 independent implementation review, which now takes row 8. **Any
 change to `PHASE5_EXECUTION_SPEC.md` lapses row 7 automatically.** Gate 0 is
 unchanged and still in force.
+
+---
+
+### CORRECTIVE ENTRY 20 — appended 2026-08-06
+
+**This entry creates approval rows 8 and 9**, the two user attestations
+against revision 34. **With row 7, three of four approvals are now in force
+against the same bytes. Entries 1-19 are not edited.**
+
+**(1) Both attestations issued against the same bytes row 7 authenticates.**
+
+```
+SHA-256   5EA91A5E23602101E725C5560DAE071BD6A81659AD33E48EC25F64BA6E959F78
+git blob  e339020a3e61bfc32a20a3acd2f1f246f155a8b8
+anchor    81289fa0e980f5b71dbf7c660f036cfa253e44ae
+```
+
+All three approvals in force therefore attach to one identical hash, which is
+the condition the specification requires and which rows 4-6 last satisfied at
+revision 18.
+
+**(2) WHAT GATE STATE THIS PRODUCES, stated exactly.** Specification lines
+971 and 1008-1010 govern. **Gate 2 IMPLEMENTATION work is now authorized** —
+it had been paused since revision 19 and every revision since restated the
+pause. **Candidate-cell execution is NOT authorized** and is separately and
+additionally gated on the fourth approval, the independent implementation
+review of the resulting Gate 2 code, which does not yet exist. **Gate 0 is
+unchanged and still in force**: no execution of any candidate cell against any
+freeze state, no real-data access including `backtest-data/snapshot/`, no
+sweep generation, no result inspection. Row 9 states the same limit in its own
+scope text so the constraint survives reading the table alone.
+
+**(3) The approver attested with disclosure, and what was disclosed is
+recorded.** Before either row was written, the approver was shown: section
+10.3's disclosure that revision 18 was approved carrying an internal
+contradiction between sections 6.1 and 6.2 that six subsequent revisions and
+the approving round did not catch; the boundary geometry at specification
+lines 979-1003, whose fourth row is the instance where BOTH halves sat inside
+sections 3-8 and four rounds still missed the contradiction; and **the two
+counts in these bytes that are known to be wrong** — section 8.7's "revision
+22" against a measured revision 19, and the preamble's "FOURTH recorded
+instance" against a measured five stale revisions across three carry-forward
+runs. **These attestations are therefore made with knowledge of two defects in
+the attested bytes, not in ignorance of them**, which is the deliberate price
+of not lapsing row 7. Section 10.3 could not itself carry that disclosure
+because the defects postdate it.
+
+**(4) The scope of row 9 was the approver's decision, and they made it.**
+Specification line 1003 assigns the remainder attestation's scope to the
+approver and names the boundary geometry as what turns on it. The approver
+chose the revision-18 precedent: **Gate 2 implementation only, no candidate
+execution.** An alternative was offered and declined — attesting to the
+provisions while withholding implementation authorization until the B3 re-cut
+repairs `POST_B_ALLOWED_PATHS` — so implementation is authorized while the
+`backtest-reproduction` workflow is red for a reason specification section 1
+already assigns to Gate 4. **That is a known and accepted condition, not an
+oversight**, and it is recorded here so no later reader mistakes it for one.
+
+**(5) ENTRY 19'S ROW-8 ASSIGNMENT IS SUPERSEDED, AND THIS IS THE SECOND TIME
+THIS LEDGER HAS MADE THIS EXACT MISTAKE.** Entry 19 stated that the Gate 2
+implementation review "now takes row 8." It does not: the two user
+attestations issued next and took rows 8 and 9. **Entry 19 made that
+assignment in the same breath as superseding corrective entry 2's reservation
+of row 7 for that same implementation review — it diagnosed the error and
+committed it in one paragraph.**
+
+The failure is identical both times: **a row number was assigned by predicting
+which approval would issue next, and the prediction is not the drafting
+party's to make.** Entry 2's prediction survived from 2026-08-03 to 2026-08-06
+before being falsified; entry 19's survived a matter of hours.
+
+**The rule, stated once and generally, superseding both instances: rows are
+numbered in the order approvals issue, and NO FUTURE ROW NUMBER IS EVER NAMED
+IN ADVANCE.** The Gate 2 implementation review takes whatever number is next
+when, and if, it issues. Nothing is reserved for it. The substantive rule both
+predictions carried alongside — never pre-fill a row in anticipation — is
+unaffected, was honored on all three rows now in force, and is the part that
+was always doing the real work.
+
+**(6) What remains.** One approval: the independent implementation review of
+the Gate 2 code, which cannot be commissioned until that code exists and is
+conformant. The specification's own section 1 records the code as currently
+non-conformant by the author's disclosure, and two open defects in
+`sweepEvidence.js` were raised by a pre-submission review and remain unfixed
+as amendment-class work. **Any change to `PHASE5_EXECUTION_SPEC.md` lapses
+rows 7, 8 and 9 together**, since all three attach to one hash.
