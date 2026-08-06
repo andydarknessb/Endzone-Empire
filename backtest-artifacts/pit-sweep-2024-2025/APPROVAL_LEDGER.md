@@ -1892,3 +1892,130 @@ remained dirty in the working tree throughout and none was staged.
 **(10) Gate 0 is unchanged and still in force**, the fourth approval remains
 strictly last, single-use, and not self-performable, and no row is pre-filled
 for any approval that has not issued.
+
+---
+
+### CORRECTIVE ENTRY 17 — appended 2026-08-05
+
+**This entry creates NO approval row.** It re-points the anchor recorded by
+corrective entry 16. **Entries 1-16 are not edited.**
+
+**(1) The anchor has moved again.**
+
+| | |
+| --- | --- |
+| SHA-256 | `023C4B6A7C680608CC92D5F805E2A5F79A21D7001AB8A397684B866C00D7C230` |
+| git blob | `9fe2fb6c17cb6246c3e87b0cc34be8d565a49815` |
+| anchor commit | `37b9f7d06d0202fb7dcf4b7f48b620e0d82db9fc` |
+
+**(2) THE ROUND'S OUTCOME: an independent statistical review of sections 3-8
+returned NO APPROVAL on eight findings**, across an original report and three
+amendments. **The reviewer ran from a clone outside this project directory
+and disclosed the path**, which is the bar section 12 of the scope document
+states and the first time it has been met. Nothing lapsed: the superseded
+anchor (`9a03721…` / `9269EDDA…`) held no approvals, rows 4-6 remain lapsed
+against their own bytes, and **three fresh approvals are still required.**
+
+**(3) THIS REVISION MOVES THE APPROVAL SCOPE, and the three before it did
+not.** Sections 4.3, 4.6, 6.2, 6.5 and 8.6.4 change - **86 lines inside
+1010-3361**. A reviewer must READ them rather than diff them. Eleven sections
+claimed unchanged verify at **0 differing**: 3.2, 6.1, 6.1a, 8.6.0, 8.6.1,
+8.6.2, 8.6.3, 8.6.5, 8.7, 4.6.1, 4.6.4.
+
+**(4) The two substantive findings.**
+
+**F2 carried the rejection.** Section 8.6.4 cited
+`projection.service.js:478-497` for `loadCachedRows`. Measured at the anchor,
+that range is `478-480` the tail of `generateProjections`, `484` a constant,
+`486-494` **the whole of `findRun`**, and only `496-497` `loadCachedRows` -
+and it **excludes the `byPlayer.set` loop at `:506-507` that the frozen
+requirement is about.** An implementation reviewer opening it to verify a
+duplicate-detection rule finds a function with no `result.rows` iteration at
+all. Repaired to `:496-524`.
+
+**F7: the packet omitted five sealed sections its own rulings rest on** -
+prereg 3.3, 5.1, 6.2, 7.1, 7.2. Section 4.6.4 rests a frozen classification
+rule on *"prereg 6.2 and prereg 16 alone"* with 16 supplied and 6.2 not.
+**A reviewer was asked to judge rulings against text they had not been
+given.**
+
+**(5) F1 corrected an overstatement, NOT a label, and the distinction
+matters.** Section 6.2's closing clause asserted leg 2 was unsatisfied before
+revision 29. **It was satisfied.** Leg 2's rationale is object-specific in
+its own words, and no scope reading admissible at revision 25 puts `3.80`
+outside the list, because section 6.2 is a subsection of section 6 and
+section 6's heading names component (f). **What the scope sentence actually
+repaired is a completeness declaration that was FALSE read document-wide**,
+since section 8.1's seven passing boundaries are frozen thresholds absent
+from the table. **Section 6.1's classification label is unchanged and section
+0's leg-2 demonstration was correct as written at every revision.**
+
+**(6) F8 split section 10.2, whose heading had been false for eight
+growths.** It read "The negative-existence inventory [added at revision 22]"
+while holding the confinement check, the locator check and eight further
+hazard classes - **31 lines at revision 22, 462 at revision 32.** Section
+10.2 keeps the inventory and all ten hazard classes, because they describe
+what the instruments MISS; **section 10.2a takes the checks.** Nothing
+renumbers.
+
+**The reference audit ran in BOTH directions**: no surviving "section 10.2"
+reference points at moved content, and no "10.2a" reference points at content
+that stayed. **This is the fourth hazard class applied to the operation that
+creates it**, and it was run as a set comparison rather than by reading.
+
+**(7) ONE REFERENCE THE REVIEW'S OWN AUDIT MISCLASSIFIED.** The audit filed
+fifteen "section 10.2" references and concluded fourteen needed no change.
+**One of the fourteen did.** The stopping rule - *"section 10.2 refinements
+that surface after this point ride to a revision after the review is
+commissioned"* - names only 10.2, and **the split moved every instrument that
+rule was written to govern into 10.2a.** Left alone it would have covered the
+inventory and not the checks. Scope extended to both.
+
+**It was found by reading the fifteen lines rather than trusting their
+classification**, which is the same method that has produced every finding in
+this workstream that a probe did not.
+
+**(8) THE BOUNDARY OBSERVATION, which has no other home.** Findings have now
+arrived from outside the assigned boundary **four rounds running**:
+
+| round | finding | came from |
+| --- | --- | --- |
+| revision 29 | the rule-4 attribution | reading past the assigned scope |
+| revision 33 | F7, the packet gap | reading past the packet |
+| revision 33 | F1's resolution | testing a demonstration rather than accepting it |
+| revision 33 | F8 | a reviewer error the drafting party caught |
+
+**Nothing in this document is aimed at that seam, in either direction.**
+Errors inside the boundary get caught by the party on the other side, and
+findings arrive from outside it - and in every case the detector was a person
+who happened to look, not a check that fired.
+
+**This is the third instance of one geometry.** Section 12 records that the
+instruments are complete over the artifact and empty over the reviewer. F7
+extends it: empty over the packet. This item extends it again: **empty over
+the boundary itself.** A boundary cannot report that it is drawn in the wrong
+place, because everything that would show it is on the other side. **What has
+worked four times is a second party with a different assignment and
+permission to look outside it** - a property of how the work is staffed, not
+of anything the document can specify, and recorded here as a limit rather
+than as an open item someone later tries to close with a check.
+
+**(9) THE PROVENANCE OF F8, recorded as the reviewer recorded it.** The
+evidence is theirs - they reasoned from section 10.2's title and reached a
+wrong conclusion about where a check belongs. **The finding is the drafting
+party's.** Counting it as the review's would inflate the round's record, and
+**a review that counts findings it walked into as findings it made is
+measuring the wrong population.**
+
+**(10) Confinement.** One tracked file, 297 insertions / 119 deletions,
+staged by explicit path. The confinement check returns the preamble, sections
+4.3, 4.6, 6.2, 6.5, 8.6.4, 10, 10.2, 10.2a and 11.3(a), and nothing else -
+predicted before it was run and matched. **Label counts reconcile exactly**:
+`[substantive prospective amendment]` 14 to 13 and
+`[restates prereg 10.1, not amendable here]` 2 to 3, one label moved by F3,
+all others unchanged. **No study commit has changed a `.js` file at any point
+in the arc**, verified by the path filter at this anchor.
+
+**(11) Gate 0 is unchanged and still in force**, the fourth approval remains
+strictly last, single-use, and not self-performable, and no row is pre-filled
+for any approval that has not issued.
