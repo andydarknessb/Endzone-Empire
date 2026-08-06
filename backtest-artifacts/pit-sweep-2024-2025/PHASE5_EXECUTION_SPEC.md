@@ -2,7 +2,7 @@
 
 Study id: `pit-sweep-2024-2025` (same study as `PREREGISTRATION.md`).
 
-**Status: revision 31. NO APPROVALS ARE IN FORCE FOR THESE BYTES.**
+**Status: revision 34. NO APPROVALS ARE IN FORCE FOR THESE BYTES.**
 
 **[stale status corrected at revision 29]** This line and the one below read
 "revision 26" from revision 26 through revision 28, while the document was
@@ -54,8 +54,19 @@ and no copy survives (the file was untracked at the time). Revision 13's
 successor blob (`0661eafc95...`, committed as an immutable anchor) was
 submitted for fresh independent statistical review and **REJECTED** on four
 blockers. Revision 14 was that rejection's response; it was itself rejected,
-as was revision 15. **The current revision is 31**, and the full chain is
+as was revision 15. **The current revision is 34**, and the full chain is
 recorded below and in `APPROVAL_LEDGER.md`.
+
+**[status line corrected at revision 34, the FOURTH recorded instance.]** These
+two lines read "31" at revisions 32 and 33, having read "29" at revision 30 and
+"26" from revision 26 through 28. **Section 10.2's seventh hazard class exists
+because of this exact defect and did not prevent its third and fourth
+occurrences**: a status line has no locator to resolve, no arithmetic to check,
+and byte-identity is silent because the line does not change. It is outside
+sections 3-8, so no reviewer scoped to the approval range meets it. **Recording
+a hazard class is not an instrument aimed at it**, which is what four
+occurrences under a recorded class demonstrate. Section 10.2a now specifies the
+identifier-consistency check that is.
 
 **Revision 33 answers an independent statistical review that returned NO
 APPROVAL on eight findings, and UNLIKE revisions 30, 31 and 32 it MOVES THE
@@ -2455,7 +2466,10 @@ boundary); **`wide-straddle`** (fully evaluated, interval spans both the
 favorable boundary and the harmful boundary per the table above -
 bootstrap-based endpoints only, never (f)); **`threshold-not-established`**
 - the exhaustive catch-all: every other fully-evaluated outcome, with no
-exceptions and no seventh bucket. For a triggered endpoint (section 4):
+exceptions and no sixth bucket **[count corrected at revision 34; this read
+"no seventh bucket" from the earliest anchor, where the Level-3 ordering had six
+entries and the Level-4 set has always had five - section 8.2a rule 8 states
+five correctly]**. For a triggered endpoint (section 4):
 exact-side non-estimability (`unevaluable`) always takes precedence over a
 bootstrap-side `wide-straddle` (an endpoint must be "fully evaluated" -
 both procedures produced a usable result - before wide-straddle can even
@@ -3267,7 +3281,10 @@ grepping the sweep-adjacent tree (`snapshotClient.js`,
 `run-backtest-mde.js`, `run-backtest-extraction.js`) for those four
 function names, with zero matches. The cache-persistence question (does
 top-level `effectiveGames` survive a production cache round trip; can
-`loadCachedRows`'s `byPlayer.set(row.player_id, ...)`, `:496`, silently
+`loadCachedRows`'s `byPlayer.set(row.player_id, ...)`, `:507` **[locator
+repaired at revision 34; `:496` is the function signature, eleven lines short
+of the loop, and was the one sibling citation revision 33's repair of section
+8.6.4 did not reach]**, silently
 last-win on a duplicate SQL row) is a real, useful finding about PRODUCTION
 code quality, but the sweep's own execution path never exercises a live
 cache at all. Reported as a labeled "cache-persistence fidelity
@@ -3449,8 +3466,20 @@ gate, since falling below 0.85 forces a cell to `inconclusive`.
 
 **Scope limit.** This section governs DESCRIPTIVE publication only. It
 changes no component endpoint, no Level 2/3/4/5 status, no activation
-THRESHOLD or verdict (section 8.3 is untouched except for the coordinate
-removal in rule 5), and no selection. The (e2) gates continue to evaluate
+THRESHOLD or verdict (section 8.3 is untouched; rule 5 PINS its activation
+rows to `half_ppr` and adds no threshold or verdict), and no selection.
+**[corrected at revision 34]** This parenthetical read "except for the
+coordinate removal in rule 5" from revision 22 through revision 33. **Revision
+22 is the revision that reversed the removal**: it corrected rule 5 to pin
+rather than remove, added the sentence "Rule 5 pins rather than removes, and
+revision 21's contrary reasoning is withdrawn", and left the scope limit
+reporting the withdrawn action. The two differ materially - under removal,
+section 8.3 carries no profile coordinate and `standard`/`ppr` activation rows
+are unrepresentable; under pinning it carries exactly one fixed at `half_ppr`,
+those rows are representable but not published, and the Gate 2 mismatch rule 5
+exists to keep expressible stays expressible. An implementer taking the scope
+limit at its word would build the shape rule 5 argues against. **No ruling
+moves; rule 5 governed throughout.** The (e2) gates continue to evaluate
 `standard` and `ppr` exactly as section 4.2 and prereg 9.7 already require -
 rule 4 governs what is additionally REPORTED, never what is GATED.
 
@@ -4210,8 +4239,48 @@ same reason: a second run of a broken probe is not a check.** Two of the
 three requirements above exist because a probe returned a well-formed number
 that was wrong, and neither wrong number looked wrong.
 
-**`check-locators.js`, any scripted form of the packet-coverage check, and
-any scripted form of the confinement check remain BARRED from the repository
+**THE IDENTIFIER-CONSISTENCY CHECK, SPECIFIED. [added at revision 34]** The
+seventh hazard class - the status line - has now fired four times: the preamble
+read "26" from revision 26 through 28, "29" at revision 30, and "31" at
+revisions 32 and 33. **Three of those four occurred after the class was
+recorded in section 10.2**, which is what establishes that recording a class is
+not an instrument aimed at it. No locator resolves, no arithmetic checks, and
+byte-identity is silent because the line does not change.
+
+```
+for every artifact that quotes this document's anchor - the preamble, the
+handoff, the memory index, the reviewer scope document, the commission:
+  extract its (commit, blob, SHA-256, revision number) tuple
+  compare each element to `git rev-parse` and `sha256sum` at the named anchor
+  assert every element matches, and assert the revision number matches the
+  preamble's
+```
+
+**It is a set comparison, like the other three, and it runs on the document
+plus `git` with no external state.** Two properties matter. **First, it must
+cover artifacts outside this repository** - the memory index sat three
+revisions stale while every check in this document returned green, and the
+scope and commission documents are untracked by design, so a check scoped to
+tracked files misses exactly the artifacts that tell a reviewer where the
+bytes are. **Second, it must be run before the anchor commit, not after**: the
+preamble's revision number is the one element that cannot be derived from
+`git`, so it is the element a post-anchor check would confirm against itself.
+
+**A presence test is not this check.** Asserting that the correct identifier
+appears somewhere in an artifact passes while a second, wrong occurrence sits
+elsewhere in the same file. **Every hash-shaped token in the artifact must
+resolve** - `git cat-file -e` on each - and every one that names this anchor must
+equal it. The first run of this check reported an artifact OK while it carried a
+malformed short hash produced by a careless substitution, because a correct hash
+appeared on a different line.
+
+**Validated against a known case, per the requirement above**: run against
+revision 33 it must report the preamble at "31" against an anchor of 33. A run
+reporting no mismatch on those bytes is broken.
+
+**`check-locators.js`, any scripted form of the packet-coverage check, the
+identifier-consistency check, and any scripted form of the confinement check
+remain BARRED from the repository
 until Gate 4's B3 re-cut**, because a new tracked file extends the open
 prereg 17 `B..final-head` allowlist violation. **The specifications above are
 the durable half and are in force now**; the scripts are a convenience that
