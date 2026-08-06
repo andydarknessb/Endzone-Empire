@@ -1090,3 +1090,111 @@ test('the parsimony key exposes each rule so a reader can audit the ordering', (
   assert.deepEqual(key('usage-60-on'),
     { changedConstants: 2, activatesFactor: 1, blendWeightChange: 0.35, fixedOrder: 6 });
 });
+
+// ---------------------------------------------------------------------------
+// Section 6.1's two owed directives (recorded NOT MET at revision 24).
+//
+// The spec requires "a test must assert that the constant is referenced by the
+// disclosure count and by nothing that returns a status", and a mutation test
+// "that changing 0.30 alone changes no status". Both are operationalizations of
+// the same NEGATIVE, which is why the value assertion at the top of this file
+// did not satisfy them: it carries the message '0.30 remains disclosure-only'
+// while checking only that the number is 0.3 - an assertion message stating a
+// property the assertion does not check.
+// ---------------------------------------------------------------------------
+
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+const ARMS_PATH = path.join(__dirname, '..', '..', 'scripts', 'backtest', 'lib', 'arms.js');
+
+test('section 6.1: FALSIFIABILITY_FLOOR is referenced by the disclosure count and by nothing that returns a status', () => {
+  const source = fs.readFileSync(ARMS_PATH, 'utf8');
+  const lines = source.split(/\r?\n/);
+  const sites = lines
+    .map((line, index) => ({ line, number: index + 1 }))
+    .filter((entry) => /\bFALSIFIABILITY_FLOOR\b/.test(entry.line))
+    // The docblock above the suppression discusses the constant by name in
+    // prose; only code references are in scope for this negative.
+    .filter((entry) => !/^\s*(\*|\/\/)/.test(entry.line));
+
+  assert.equal(sites.length, 3,
+    `expected exactly three code references, got ${sites.length}: ${sites.map((s) => s.number).join(', ')}`);
+
+  const [definition, disclosure, exported] = sites;
+  assert.match(definition.line, /^const FALSIFIABILITY_FLOOR = \(DELTA_F - 0\.01\) \/ MAX_EFFECT;/,
+    'the first reference must be the definition, retained solely as the per-week disclosure constant');
+  assert.match(disclosure.line, /\.filter\(.*<= FALSIFIABILITY_FLOOR\)\.length/,
+    'the second reference must be the disclosure COUNT and nothing else');
+  assert.match(exported.line, /^\s*FALSIFIABILITY_FLOOR,\s*$/,
+    'the third reference must be the export list');
+
+  // The disclosure site must feed a transparency field, never a status. Its
+  // enclosing assignment is the count, so the constant cannot reach a verdict.
+  assert.match(lines[disclosure.number - 2], /weeksBelowFalsifiabilityFloor/,
+    'the disclosure reference must be the weeksBelowFalsifiabilityFloor field');
+
+  // And it must not appear inside the evaluability guard, which section 6.1a
+  // requires be written as the transformed-bound median comparison.
+  const guardStart = lines.findIndex((line) => /medianWeeklyBound/.test(line));
+  assert.ok(guardStart > 0, 'the transformed-bound median guard must exist');
+  const guardEnd = guardStart + 30;
+  for (const site of sites) {
+    assert.ok(site.number < guardStart || site.number > guardEnd,
+      `FALSIFIABILITY_FLOOR must not appear inside the evaluability guard (line ${site.number})`);
+  }
+});
+
+test('section 6.1: MUTATION - changing 0.30 alone changes no status, only the disclosure count', (t) => {
+  const source = fs.readFileSync(ARMS_PATH, 'utf8');
+  const libDir = path.dirname(ARMS_PATH).split(path.sep).join('/');
+  const mutated = source
+    .replace(
+      /^const FALSIFIABILITY_FLOOR = \(DELTA_F - 0\.01\) \/ MAX_EFFECT;.*$/m,
+      'const FALSIFIABILITY_FLOOR = 99;'
+    )
+    .replace(/require\('\.\//g, `require('${libDir}/`);
+  assert.ok(mutated.includes('FALSIFIABILITY_FLOOR = 99;'), 'the mutation must actually apply');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'arms-mutation-'));
+  const mutantPath = path.join(dir, 'arms.mutant.js');
+  fs.writeFileSync(mutantPath, mutated);
+  t.after(() => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } });
+  const mutant = require(mutantPath);
+  assert.equal(mutant.FALSIFIABILITY_FLOOR, 99, 'the mutant must carry the mutated constant');
+
+  // A battery spanning every (f) outcome: healthy, below the row minimum, a
+  // failing endpoint, and an unevaluable one.
+  const nearFloor = { ...HEALTHY_F, weekDeltas: new Array(8).fill(-0.29), weekMeanAbsBaselines: new Array(8).fill(1.0) };
+  const cases = [
+    { label: 'healthy', input: { f1: HEALTHY_F, f2: HEALTHY_F, veto: HEALTHY_VETO } },
+    { label: 'near the floor', input: { f1: nearFloor, f2: nearFloor, veto: HEALTHY_VETO } },
+    { label: 'below row minimum', input: { f1: { ...HEALTHY_F, subgroupRows: 5 }, f2: HEALTHY_F, veto: HEALTHY_VETO } },
+    { label: 'f2 harmful', input: { f1: HEALTHY_F, f2: { ...HEALTHY_F, weekDeltas: new Array(8).fill(0.5) }, veto: HEALTHY_VETO } },
+  ];
+
+  let disclosureDiffered = false;
+  for (const { label, input } of cases) {
+    const before = arms.componentF(input);
+    const after = mutant.componentF(input);
+
+    assert.equal(after.status, before.status, `${label}: status changed`);
+    assert.equal(after.passes, before.passes, `${label}: passes changed`);
+    assert.equal(after.claimVerdict, before.claimVerdict, `${label}: claimVerdict changed`);
+    for (const key of Object.keys(before.endpoints || {})) {
+      assert.equal(after.endpoints[key].passes, before.endpoints[key].passes, `${label}/${key}: endpoint passes changed`);
+      assert.equal(after.endpoints[key].status, before.endpoints[key].status, `${label}/${key}: endpoint status changed`);
+    }
+    for (const [index, row] of (before.transparency || []).entries()) {
+      if (after.transparency[index].weeksBelowFalsifiabilityFloor !== row.weeksBelowFalsifiabilityFloor) {
+        disclosureDiffered = true;
+      }
+    }
+  }
+
+  // The mutation must be LIVE. If the constant reached nothing at all, this
+  // test would pass vacuously and prove nothing about statuses.
+  assert.ok(disclosureDiffered,
+    'the mutation changed no disclosure count either, so this test proved nothing - the probe is broken, not the code');
+});

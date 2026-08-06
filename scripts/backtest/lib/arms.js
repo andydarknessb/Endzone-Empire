@@ -497,12 +497,42 @@ const CACHE_COMPATIBLE_ALLOWLIST = Object.freeze([
   'factors.role.pointsContribution',
 ]);
 
+/**
+ * Read-only path existence check over the enumerated leaf list above.
+ *
+ * The `nosemgrep` below suppresses `prototype-pollution-loop`, which matches the
+ * shape `cur = cur[segment]` inside a loop. The suppression rests on ONE
+ * argument, which is sufficient by itself:
+ *
+ * **Nothing is ever written.** `cur = cur[segment]` rebinds a local variable;
+ * there is no assignment INTO any object anywhere in this function. Prototype
+ * pollution requires a write, and this is a pure read. The rule's own pattern
+ * is `$SMTH = $SMTH[$A]` - it matches the self-rebinding READ, not a write.
+ *
+ * **What is deliberately NOT claimed:** that `__proto__` cannot be reached. It
+ * can. `JSON.parse('{"__proto__": {...}}')` creates `__proto__` as an OWN data
+ * property, and a null-prototype object can be given an own `__proto__` by
+ * assignment, so `Object.prototype.hasOwnProperty.call(cur, segment)` is true
+ * for it in both cases and traversal continues. Reaching a prototype object
+ * here is inert precisely because nothing is written to it. An earlier version
+ * of this comment asserted the own-property gate blocked `__proto__`; that was
+ * false, and a future caller must not rely on it.
+ *
+ * The own-property gate does close a different hole: using
+ * `Object.prototype.hasOwnProperty.call` rather than `cur.hasOwnProperty`
+ * survives an object that shadows `hasOwnProperty` with a non-function.
+ *
+ * Callers pass paths from the hardcoded literal list above, so the segment
+ * domain is fixed too - but that constrains today's callers, not the function,
+ * and is not what this suppression rests on.
+ */
 function hasOwnPath(obj, path) {
   const segments = path.split('.');
   let cur = obj;
   for (const segment of segments) {
     if (cur === null || typeof cur !== 'object') return false;
     if (!Object.prototype.hasOwnProperty.call(cur, segment)) return false;
+    // nosemgrep: javascript.lang.security.audit.prototype-pollution.prototype-pollution-loop.prototype-pollution-loop
     cur = cur[segment];
   }
   return true;
