@@ -10,6 +10,8 @@ const sweepEvaluator = require('../../scripts/backtest/lib/sweepEvaluator');
 const metrics = require('../../scripts/backtest/lib/metrics');
 const sweepEvidence = require('../../scripts/backtest/lib/sweepEvidence');
 
+const PRIMARY = sweepEvidence.PRIMARY_PROFILE;
+
 // ---------------------------------------------------------------------------
 // Fixture construction: a full, valid --inputs document
 // ---------------------------------------------------------------------------
@@ -81,11 +83,12 @@ function syntheticPreflight() {
 function syntheticEvidence() {
   const weekly = (point) => metrics.EVALUATED_WEEKS.map((week) => ({ week, value: point + (week - 2) * 0.0001 }));
   return {
-    metricWeeks: arms.ALL_CELLS.flatMap((cell, cellIndex) => ['absolute', 'paired-delta'].flatMap((estimand) => sweepEvidence.METRIC_KEYS.flatMap((endpoint, index) => weekly((estimand === 'absolute' ? 1 + cellIndex : cellIndex * 0.01) + index * 0.001).map(({ week, value }) => ({ season: '2025', scoringProfile: 'standard', cell: cell.name, endpoint, estimand, week, value }))))),
-    movingBlockWeeks: arms.ALL_CELLS.flatMap((cell) => metrics.MOVING_BLOCK_LENGTHS.flatMap((blockLength) => sweepEvidence.METRIC_KEYS.flatMap((endpoint) => weekly(0).map(({ week, value }) => ({ season: '2025', scoringProfile: 'standard', cell: cell.name, endpoint, estimand: 'absolute', sensitivity: `moving-block-${blockLength}`, week, value }))))),
-    attributionWeeks: sweepEvidence.ATTRIBUTION_CELL_NAMES.flatMap((cell) => ['usage-main', 'home-away-main', 'interaction'].flatMap((estimand, estimateIndex) => sweepEvidence.METRIC_KEYS.flatMap((endpoint) => weekly(0.01 + estimateIndex * 0.01).map(({ week, value }) => ({ season: '2025', scoringProfile: 'standard', cell, endpoint, estimand, week, value }))))),
-    diagnosticWeeks: ['control-naive', 'usage-signal'].flatMap((estimand, estimateIndex) => sweepEvidence.METRIC_KEYS.flatMap((endpoint) => weekly(-0.1 + estimateIndex * 0.2).map(({ week, value }) => ({ season: '2025', scoringProfile: 'standard', endpoint, estimand, week, value })))),
-    activationWeeks: sweepEvidence.ON_CELL_NAMES.flatMap((cell) => ['2025', '2024'].flatMap((season) => metrics.EVALUATED_WEEKS.flatMap((week) => metrics.MACRO_POSITIONS.map((position) => ({ cell, season, scoringProfile: 'standard', week, position, eligible: 1, activated: 1, excludedIneligible: 0 }))))),
+    metricWeeks: sweepEvidence.SEASONS.flatMap((season) => arms.ALL_CELLS.flatMap((cell, cellIndex) => ['absolute', 'paired-delta'].flatMap((estimand) => sweepEvidence.METRIC_KEYS.flatMap((endpoint, index) => weekly((estimand === 'absolute' ? 1 + cellIndex : cellIndex * 0.01) + index * 0.001).map(({ week, value }) => ({ season, scoringProfile: PRIMARY, cell: cell.name, endpoint, estimand, week, value })))))),
+    movingBlockWeeks: sweepEvidence.SEASONS.flatMap((season) => arms.ALL_CELLS.flatMap((cell) => metrics.MOVING_BLOCK_LENGTHS.flatMap((blockLength) => sweepEvidence.METRIC_KEYS.flatMap((endpoint) => weekly(0).map(({ week, value }) => ({ season, scoringProfile: PRIMARY, cell: cell.name, endpoint, estimand: 'absolute', sensitivity: `moving-block-${blockLength}`, week, value })))))),
+    attributionWeeks: sweepEvidence.SEASONS.flatMap((season) => sweepEvidence.ATTRIBUTION_CELL_NAMES.flatMap((cell) => ['usage-main', 'home-away-main', 'interaction'].flatMap((estimand, estimateIndex) => sweepEvidence.METRIC_KEYS.flatMap((endpoint) => weekly(0.01 + estimateIndex * 0.01).map(({ week, value }) => ({ season, scoringProfile: PRIMARY, cell, endpoint, estimand, week, value })))))),
+    diagnosticWeeks: sweepEvidence.SEASONS.flatMap((season) => ['control-naive', 'usage-signal'].flatMap((estimand, estimateIndex) => sweepEvidence.METRIC_KEYS.flatMap((endpoint) => weekly(-0.1 + estimateIndex * 0.2).map(({ week, value }) => ({ season, scoringProfile: PRIMARY, endpoint, estimand, week, value }))))),
+    activationWeeks: sweepEvidence.ON_CELL_NAMES.flatMap((cell) => ['2025', '2024'].flatMap((season) => metrics.EVALUATED_WEEKS.flatMap((week) => metrics.MACRO_POSITIONS.map((position) => ({ cell, season, scoringProfile: PRIMARY, week, position, eligible: 1, activated: 1, excludedIneligible: 0 }))))),
+    sensitivityWeeks: sweepEvidence.SENSITIVITY_SEASONS.flatMap((season) => sweepEvidence.SENSITIVITY_PROFILES.flatMap((scoringProfile) => arms.ALL_CELLS.flatMap((cell, cellIndex) => sweepEvidence.SENSITIVITY_ENDPOINTS.flatMap((endpoint, index) => weekly(1 + cellIndex + index * 0.001).map(({ week, value }) => ({ season, scoringProfile, cell: cell.name, endpoint, estimand: 'absolute', week, value })))))),
   };
 }
 
@@ -140,7 +143,12 @@ function fullPassingInputs({ permutationControl = syntheticPermutationControl() 
   const evidence = syntheticEvidence();
   for (const row of evidence.metricWeeks) {
     if (row.estimand === 'paired-delta' && ['regret', 'pairwise'].includes(row.endpoint)) {
-      row.value = cells[row.cell].a[row.endpoint === 'regret' ? 'regretWeekDeltas' : 'pairwiseWeekDeltas'][row.week];
+      // Each season's descriptive paired delta must equal the gating component
+      // that OWNS that season: (a) is the 2025 co-primary, (e1) the 2024
+      // co-primary safety gate (prereg 9.6). Seeding both seasons from (a) would
+      // make the 2024 cross-check pass only because nothing was checking it.
+      const component = row.season === '2024' ? 'e1' : 'a';
+      row.value = cells[row.cell][component][row.endpoint === 'regret' ? 'regretWeekDeltas' : 'pairwiseWeekDeltas'][row.week];
     }
   }
   return {
@@ -288,8 +296,12 @@ test('main(): an UNEVALUABLE endpoint still publishes its n, k, p, bound, and tr
   const dropped = variedSeries(-1, 0.6);
   delete dropped[2]; delete dropped[3]; delete dropped[4];
   inputs.cells['usage-40-off'].a.regretWeekDeltas = dropped;
+  // Component (a) owns 2025 only, so only the 2025 descriptive rows may be
+  // blanked. Dropping both seasons' rows would put the 2024 row out of step with
+  // component (e1), which still has those weeks, and fail the cross-check for a
+  // reason this test is not about.
   for (const row of inputs.evidence.metricWeeks) {
-    if (row.cell === 'usage-40-off' && row.estimand === 'paired-delta' && row.endpoint === 'regret' && [2, 3, 4].includes(row.week)) row.value = { nonfinite: '+Infinity' };
+    if (row.season === '2025' && row.cell === 'usage-40-off' && row.estimand === 'paired-delta' && row.endpoint === 'regret' && [2, 3, 4].includes(row.week)) row.value = { nonfinite: '+Infinity' };
   }
   const inputsPath = path.join(dir, 'inputs.json');
   fs.writeFileSync(inputsPath, JSON.stringify(inputs));
@@ -360,7 +372,17 @@ test('main(): a comfortably-passing inputs document produces a VALID run with a 
   assert.match(markdown, /## Descriptive evidence/);
   assert.match(markdown, /Permutation: seed=940227589, replicates=10000/);
   assert.match(markdown, /### Eight-cell metrics/);
+  // Section 8.7 rule 1: the factorial family is the formal primary, half_ppr.
+  assert.match(markdown, /\| 2025 \| half_ppr \| usage-25-off \| absolute \| regret \|/);
+  // Section 4.6.1: both seasons are published.
+  assert.match(markdown, /\| 2024 \| half_ppr \| usage-25-off \| absolute \| regret \|/);
+  // Section 8.7 rule 4: prereg 16's family carries standard and ppr, 2025 only.
+  assert.match(markdown, /### Scoring-profile sensitivity \(prereg 16\)/);
   assert.match(markdown, /\| 2025 \| standard \| usage-25-off \| absolute \| regret \|/);
+  assert.match(markdown, /\| 2025 \| ppr \| usage-25-off \| absolute \| regret \|/);
+  // Section 4.6: mandatory self-description distinguishes the two methods.
+  assert.match(markdown, /percentile-cluster-bootstrap \| 100000 \| 1499811874/);
+  assert.match(markdown, /moving-block-bootstrap \| 100000 \| 588165040/);
   assert.match(markdown, /### Moving-block sensitivity/);
   assert.match(markdown, /### Attribution composites/);
   assert.match(markdown, /### Activation aggregates/);
@@ -428,12 +450,15 @@ test('main(): caller-published permutation evidence is prohibited; the report de
 test('main(): raw weekly evidence is cross-checked against claim and activation gate inputs', (t) => {
   const dir = tmpDir(t);
   const claimMismatch = fullPassingInputs();
-  claimMismatch.evidence.metricWeeks.find((row) => row.cell === 'usage-40-off' && row.estimand === 'paired-delta' && row.endpoint === 'regret' && row.week === 2).value = 99;
+  // The season predicate is load-bearing: without it this depends on SEASONS[0]
+  // being '2025', and reordering SEASONS would corrupt the 2024 row instead and
+  // make the assertion below fail for an unrelated reason.
+  claimMismatch.evidence.metricWeeks.find((row) => row.season === '2025' && row.cell === 'usage-40-off' && row.estimand === 'paired-delta' && row.endpoint === 'regret' && row.week === 2).value = 99;
   const claimPath = path.join(dir, 'claim-mismatch.json');
   fs.writeFileSync(claimPath, JSON.stringify(claimMismatch));
   assert.throws(
     () => runBacktestSweep.main(['--inputs', claimPath, '--out-json', path.join(dir, 'claim.json'), '--out-markdown', path.join(dir, 'claim.md')]),
-    /paired usage-40-off\/regret\/week-2 does not match component-\(a\) input/
+    /paired usage-40-off\/2025\/regret\/week-2 does not match component-\(a\) input/
   );
 
   const activationMismatch = fullPassingInputs();

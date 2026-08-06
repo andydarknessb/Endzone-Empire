@@ -7,11 +7,35 @@
  */
 
 const { ALL_CELLS } = require('./arms');
-const { MACRO_POSITIONS, EVALUATED_WEEKS, MOVING_BLOCK_LENGTHS, PERMUTATION_DRAWS, PERMUTATION_SEED, movingBlockBootstrap } = require('./metrics');
+const {
+  MACRO_POSITIONS, EVALUATED_WEEKS, MOVING_BLOCK_LENGTHS, PERMUTATION_DRAWS, PERMUTATION_SEED,
+  movingBlockBootstrap, buildBootstrapResamples, bootstrapMean,
+  BOOTSTRAP_DRAWS, BOOTSTRAP_SEED, MOVING_BLOCK_SEED, COMPONENT_ALPHA,
+} = require('./metrics');
+const { PRIMARY_SCORING_PROFILE, SCORING_PROFILE_NAMES } = require('./freezeManifest');
 
 const METRIC_KEYS = Object.freeze(['regret', 'pairwise', 'mae', 'rmse', 'rho', 'wis', 'coverage']);
 const SEASONS = Object.freeze(['2025', '2024']);
-const SCORING_PROFILES = Object.freeze(['standard']);
+
+/**
+ * Section 8.7 rules 1-3 and 5: every unqualified family inherits prereg 4.3's
+ * formal primary.  The identifier comes from the sealed freeze manifest rather
+ * than a literal here, so the two can never drift apart.
+ */
+const PRIMARY_PROFILE = PRIMARY_SCORING_PROFILE;
+const SCORING_PROFILES = Object.freeze([PRIMARY_PROFILE]);
+
+/**
+ * Section 8.7 rule 4: prereg 16's sensitivity publication is `standard` and
+ * `ppr`, ABSOLUTE METRICS ONLY, endpoints `regret` and `pairwise`, season 2025
+ * only, over the control cell and every candidate receiving an (e2) evaluation
+ * - 8 cells x 2 endpoints x 2 profiles.  Paired deltas, the 12.2 composites and
+ * the 10.6 diagnostics are NOT published for these two profiles.
+ */
+const SENSITIVITY_PROFILES = Object.freeze(SCORING_PROFILE_NAMES.filter((name) => name !== PRIMARY_PROFILE));
+const SENSITIVITY_ENDPOINTS = Object.freeze(['regret', 'pairwise']);
+const SENSITIVITY_SEASONS = Object.freeze(['2025']);
+
 const ESTIMANDS = Object.freeze(['absolute', 'paired-delta']);
 const ATTRIBUTION_ESTIMANDS = Object.freeze(['usage-main', 'home-away-main', 'interaction']);
 const DIAGNOSTIC_ESTIMANDS = Object.freeze(['control-naive', 'usage-signal']);
@@ -37,7 +61,6 @@ function encodeNumber(value) {
 }
 
 function finite(value) { return typeof value === 'number' && Number.isFinite(value); }
-function mean(values) { return values.reduce((sum, value) => sum + value, 0) / values.length; }
 function coordinate(row, fields) { return fields.map((field) => String(row[field])).join(':'); }
 
 function exactRows(rows, expected, fields, label) {
@@ -58,27 +81,34 @@ function exactRows(rows, expected, fields, label) {
 }
 
 function expectedMetricWeeks() {
-  return CELL_NAMES.flatMap((cell) => ESTIMANDS.flatMap((estimand) => METRIC_KEYS.flatMap((endpoint) => EVALUATED_WEEKS.map(
-    (week) => ({ season: '2025', scoringProfile: 'standard', cell, endpoint, estimand, week })
-  ))));
+  return SEASONS.flatMap((season) => CELL_NAMES.flatMap((cell) => ESTIMANDS.flatMap((estimand) => METRIC_KEYS.flatMap((endpoint) => EVALUATED_WEEKS.map(
+    (week) => ({ season, scoringProfile: PRIMARY_PROFILE, cell, endpoint, estimand, week })
+  )))));
 }
 
 function expectedMovingWeeks() {
-  return CELL_NAMES.flatMap((cell) => MOVING_BLOCK_LENGTHS.flatMap((blockLength) => METRIC_KEYS.flatMap((endpoint) => EVALUATED_WEEKS.map(
-    (week) => ({ season: '2025', scoringProfile: 'standard', cell, endpoint, estimand: 'absolute', sensitivity: `moving-block-${blockLength}`, week })
-  ))));
+  return SEASONS.flatMap((season) => CELL_NAMES.flatMap((cell) => MOVING_BLOCK_LENGTHS.flatMap((blockLength) => METRIC_KEYS.flatMap((endpoint) => EVALUATED_WEEKS.map(
+    (week) => ({ season, scoringProfile: PRIMARY_PROFILE, cell, endpoint, estimand: 'absolute', sensitivity: `moving-block-${blockLength}`, week })
+  )))));
 }
 
 function expectedAttributionWeeks() {
-  return ATTRIBUTION_CELL_NAMES.flatMap((cell) => ATTRIBUTION_ESTIMANDS.flatMap((estimand) => METRIC_KEYS.flatMap((endpoint) => EVALUATED_WEEKS.map(
-    (week) => ({ season: '2025', scoringProfile: 'standard', cell, endpoint, estimand, week })
-  ))));
+  return SEASONS.flatMap((season) => ATTRIBUTION_CELL_NAMES.flatMap((cell) => ATTRIBUTION_ESTIMANDS.flatMap((estimand) => METRIC_KEYS.flatMap((endpoint) => EVALUATED_WEEKS.map(
+    (week) => ({ season, scoringProfile: PRIMARY_PROFILE, cell, endpoint, estimand, week })
+  )))));
 }
 
 function expectedDiagnosticWeeks() {
-  return DIAGNOSTIC_ESTIMANDS.flatMap((estimand) => METRIC_KEYS.flatMap((endpoint) => EVALUATED_WEEKS.map(
-    (week) => ({ season: '2025', scoringProfile: 'standard', endpoint, estimand, week })
-  )));
+  return SEASONS.flatMap((season) => DIAGNOSTIC_ESTIMANDS.flatMap((estimand) => METRIC_KEYS.flatMap((endpoint) => EVALUATED_WEEKS.map(
+    (week) => ({ season, scoringProfile: PRIMARY_PROFILE, endpoint, estimand, week })
+  ))));
+}
+
+/** Section 8.7 rule 4's row set, fixed at revision 22: 8 cells x 2 endpoints x 2 profiles, 2025 only. */
+function expectedSensitivityWeeks() {
+  return SENSITIVITY_SEASONS.flatMap((season) => SENSITIVITY_PROFILES.flatMap((scoringProfile) => CELL_NAMES.flatMap((cell) => SENSITIVITY_ENDPOINTS.flatMap((endpoint) => EVALUATED_WEEKS.map(
+    (week) => ({ season, scoringProfile, cell, endpoint, estimand: 'absolute', week })
+  )))));
 }
 
 function expectedActivationWeeks() {
@@ -89,7 +119,7 @@ function normalizeMetricRow(row, label, moving = false) {
   closed(row, moving
     ? ['season', 'scoringProfile', 'cell', 'endpoint', 'estimand', 'sensitivity', 'week', 'value']
     : ['season', 'scoringProfile', 'cell', 'endpoint', 'estimand', 'week', 'value'], label);
-  if (String(row.season) !== '2025' || row.scoringProfile !== 'standard' || !CELL_NAMES.includes(row.cell)
+  if (!SEASONS.includes(String(row.season)) || row.scoringProfile !== PRIMARY_PROFILE || !CELL_NAMES.includes(row.cell)
     || !METRIC_KEYS.includes(row.endpoint) || !ESTIMANDS.includes(row.estimand) || !EVALUATED_WEEKS.includes(row.week)) {
     throw new Error(`${label}: invalid season/profile/cell/endpoint/estimand/week coordinate`);
   }
@@ -99,16 +129,26 @@ function normalizeMetricRow(row, label, moving = false) {
   return { ...row, season: String(row.season), value: encodeNumber(row.value) };
 }
 
+function normalizeSensitivityRow(row, label) {
+  closed(row, ['season', 'scoringProfile', 'cell', 'endpoint', 'estimand', 'week', 'value'], label);
+  if (!SENSITIVITY_SEASONS.includes(String(row.season)) || !SENSITIVITY_PROFILES.includes(row.scoringProfile)
+    || !CELL_NAMES.includes(row.cell) || !SENSITIVITY_ENDPOINTS.includes(row.endpoint)
+    || row.estimand !== 'absolute' || !EVALUATED_WEEKS.includes(row.week)) {
+    throw new Error(`${label}: invalid prereg 16 sensitivity coordinate`);
+  }
+  return { ...row, season: String(row.season), value: encodeNumber(row.value) };
+}
+
 function normalizeAttributionRow(row, label) {
   closed(row, ['season', 'scoringProfile', 'cell', 'endpoint', 'estimand', 'week', 'value'], label);
-  if (String(row.season) !== '2025' || row.scoringProfile !== 'standard' || !ATTRIBUTION_CELL_NAMES.includes(row.cell)
+  if (!SEASONS.includes(String(row.season)) || row.scoringProfile !== PRIMARY_PROFILE || !ATTRIBUTION_CELL_NAMES.includes(row.cell)
     || !METRIC_KEYS.includes(row.endpoint) || !ATTRIBUTION_ESTIMANDS.includes(row.estimand) || !EVALUATED_WEEKS.includes(row.week)) throw new Error(`${label}: invalid attribution coordinate`);
   return { ...row, season: String(row.season), value: encodeNumber(row.value) };
 }
 
 function normalizeDiagnosticRow(row, label) {
   closed(row, ['season', 'scoringProfile', 'endpoint', 'estimand', 'week', 'value'], label);
-  if (String(row.season) !== '2025' || row.scoringProfile !== 'standard' || !METRIC_KEYS.includes(row.endpoint)
+  if (!SEASONS.includes(String(row.season)) || row.scoringProfile !== PRIMARY_PROFILE || !METRIC_KEYS.includes(row.endpoint)
     || !DIAGNOSTIC_ESTIMANDS.includes(row.estimand) || !EVALUATED_WEEKS.includes(row.week)) throw new Error(`${label}: invalid diagnostic coordinate`);
   return { ...row, season: String(row.season), value: encodeNumber(row.value) };
 }
@@ -124,18 +164,97 @@ function normalizeActivationRow(row, label) {
   return { ...row, season: String(row.season) };
 }
 
-function summarizeWeeks(rows, { key, label }) {
-  const weeks = rows.map((row) => ({ week: row.week, value: row.value }));
-  const values = weeks.map((row) => row.value);
-  if (!values.every(finite)) {
-    const marker = values.find((value) => !finite(value));
-    return { key, status: 'unevaluable', point: marker, lower: marker, upper: marker, weeks, reason: `${label}: nonfinite weekly evidence` };
+const DESCRIPTIVE_METHOD = 'percentile-cluster-bootstrap';
+const MOVING_BLOCK_METHOD = 'moving-block-bootstrap';
+
+/**
+ * Section 4.6.3: prereg 10.1's shared resample index is shared PER CLUSTER
+ * COUNT.  `buildBootstrapResamples` is seeded, so equal `n` already yields
+ * byte-identical draws; this cache only avoids rebuilding a `draws x n` index
+ * once per row.  Rows with different `n` necessarily do not share, because a
+ * `draws x n` index cannot be reused at a different `n`.
+ */
+const resampleCache = new Map();
+function sharedResamples(clusterCount, label) {
+  // Keyed on the seed and draw count as well as the cluster count: those are
+  // fixed here, but a cache keyed on `n` alone would silently return the wrong
+  // index the moment anyone parameterized either, and a wrong-but-plausible
+  // resample index is not a failure that announces itself.
+  const cacheKey = `${BOOTSTRAP_SEED}:${BOOTSTRAP_DRAWS}:${clusterCount}`;
+  if (!resampleCache.has(cacheKey)) {
+    resampleCache.set(cacheKey, buildBootstrapResamples({ clusterCount, label }));
   }
-  const point = mean(values);
-  const variance = values.length > 1
-    ? values.reduce((sum, value) => sum + (value - point) ** 2, 0) / (values.length - 1) : 0;
-  const margin = 1.96 * Math.sqrt(variance / values.length);
-  return { key, status: 'estimated', point, lower: point - margin, upper: point + margin, weeks, reason: null };
+  return resampleCache.get(cacheKey);
+}
+
+/**
+ * The descriptive interval of section 4.6, with section 4.6.4's TOTAL reducer.
+ *
+ * `survivingWeeks`, when supplied, is the family-level surviving set required
+ * by section 4.6.2 for an ABSOLUTE-METRIC family: a week survives only if it
+ * has rows in ALL EIGHT cells, taken within a family and separately for each
+ * `(season, scoringProfile, endpoint)`.  Contrasts pass null and take their own
+ * finite weeks, which is prereg 10.4's contrast-scoped rule.
+ *
+ * Section 4.6.4 forbids this from ever throwing: a descriptive row's status is
+ * never a Level 1/2/3/4/5 input.  Self-description is mandatory, so every row
+ * carries its method, alpha, draw count, seed, surviving cluster count, season,
+ * scoring profile and status alongside its bounds.
+ */
+function summarizeWeeks(rows, { key, label, season, scoringProfile, survivingWeeks = null, computeInterval = true }) {
+  if (!rows) throw new Error(`${label}: no rows for this coordinate; the expected set and the derivation disagree`);
+  const weeks = rows.map((row) => ({ week: row.week, value: row.value }));
+  const surviving = survivingWeeks
+    ? weeks.filter((row) => survivingWeeks.has(row.week))
+    : weeks.filter((row) => finite(row.value));
+  const self = {
+    key, season, scoringProfile, method: DESCRIPTIVE_METHOD, alpha: COMPONENT_ALPHA,
+    draws: BOOTSTRAP_DRAWS, seed: BOOTSTRAP_SEED, clusters: surviving.length, weeks,
+  };
+  if (surviving.length === 0 || !surviving.every((row) => finite(row.value))) {
+    const reason = surviving.length === 0
+      ? `${label}: no surviving clusters`
+      : `${label}: nonfinite value in a surviving cluster`;
+    return { ...self, status: 'unevaluable', point: null, lower: null, upper: null, reason };
+  }
+  if (surviving.length === 1) {
+    return {
+      ...self, status: 'degenerate', point: surviving[0].value, lower: null, upper: null,
+      reason: `${label}: one surviving cluster; a one-cluster bootstrap interval is a zero-width artifact`,
+    };
+  }
+  const weekValues = surviving.map((row) => row.value);
+  // The moving-block path needs only the survivor set and the 4.6.4 status; it
+  // publishes prereg 10.5's own bounds and discards section 4.6's. Running the
+  // percentile bootstrap there would burn a third of the derivation's work to
+  // produce three numbers that are then thrown away.
+  if (!computeInterval) {
+    return {
+      ...self, status: 'estimated', point: weekValues.reduce((sum, value) => sum + value, 0) / weekValues.length,
+      lower: null, upper: null, distinctValues: null, reason: null,
+    };
+  }
+  const bootstrap = bootstrapMean({
+    weekValues, resamples: sharedResamples(weekValues.length, label), alpha: COMPONENT_ALPHA, label,
+  });
+  return {
+    ...self, status: 'estimated', point: bootstrap.point, lower: bootstrap.lower, upper: bootstrap.upper,
+    distinctValues: bootstrap.distinctValues, reason: null,
+  };
+}
+
+/**
+ * Section 4.6.2's union drop, for ONE absolute-metric family: the set of weeks
+ * finite in EVERY cell, computed per `(season, scoringProfile, endpoint)` and
+ * never pooled across families, so a sparse week in a `ppr` sensitivity row
+ * never drops a week from the primary `half_ppr` matrix.
+ */
+function survivingUnion(grouped, cells, keyFor) {
+  return new Set(EVALUATED_WEEKS.filter((week) => cells.every((cell) => {
+    const rows = grouped.get(keyFor(cell)) || [];
+    const row = rows.find((candidate) => candidate.week === week);
+    return row && finite(row.value);
+  })));
 }
 
 function group(rows, fields) {
@@ -149,37 +268,115 @@ function group(rows, fields) {
 }
 
 function deriveMetricMatrix(rows) {
-  const grouped = group(rows, ['cell', 'estimand', 'endpoint']);
-  return CELL_NAMES.map((cell) => ({
-    season: '2025', scoringProfile: 'standard', cell,
-    absoluteMetrics: METRIC_KEYS.map((key) => summarizeWeeks(grouped.get(`${cell}:absolute:${key}`), { key, label: `absolute ${cell}/${key}` })),
-    pairedDeltas: METRIC_KEYS.map((key) => summarizeWeeks(grouped.get(`${cell}:paired-delta:${key}`), { key, label: `paired ${cell}/${key}` })),
+  const grouped = group(rows, ['season', 'cell', 'estimand', 'endpoint']);
+  return SEASONS.flatMap((season) => {
+    // Section 4.6.2: the union is per (season, scoringProfile, endpoint), over
+    // the eight cells, and applies to ABSOLUTE metrics only.  Paired deltas are
+    // contrasts and keep prereg 10.4's contrast-scoped surviving set, so that a
+    // descriptive paired delta and its gating counterpart share one cluster set.
+    const unions = new Map(METRIC_KEYS.map((key) => [
+      key, survivingUnion(grouped, CELL_NAMES, (cell) => `${season}:${cell}:absolute:${key}`),
+    ]));
+    return CELL_NAMES.map((cell) => ({
+      season, scoringProfile: PRIMARY_PROFILE, cell,
+      absoluteMetrics: METRIC_KEYS.map((key) => summarizeWeeks(grouped.get(`${season}:${cell}:absolute:${key}`), {
+        key, label: `absolute ${season}/${cell}/${key}`, season, scoringProfile: PRIMARY_PROFILE, survivingWeeks: unions.get(key),
+      })),
+      pairedDeltas: METRIC_KEYS.map((key) => summarizeWeeks(grouped.get(`${season}:${cell}:paired-delta:${key}`), {
+        key, label: `paired ${season}/${cell}/${key}`, season, scoringProfile: PRIMARY_PROFILE,
+      })),
+    }));
+  });
+}
+
+/** Section 8.7 rule 4 / prereg 16: absolute metrics only, `standard` and `ppr`, 2025 only. */
+function deriveSensitivity(rows) {
+  const grouped = group(rows, ['season', 'scoringProfile', 'cell', 'endpoint']);
+  return SENSITIVITY_SEASONS.flatMap((season) => SENSITIVITY_PROFILES.flatMap((scoringProfile) => {
+    const unions = new Map(SENSITIVITY_ENDPOINTS.map((key) => [
+      key, survivingUnion(grouped, CELL_NAMES, (cell) => `${season}:${scoringProfile}:${cell}:${key}`),
+    ]));
+    return CELL_NAMES.flatMap((cell) => SENSITIVITY_ENDPOINTS.map((key) => ({
+      cell,
+      estimand: 'absolute',
+      ...summarizeWeeks(grouped.get(`${season}:${scoringProfile}:${cell}:${key}`), {
+        key, label: `sensitivity ${season}/${scoringProfile}/${cell}/${key}`, season, scoringProfile, survivingWeeks: unions.get(key),
+      }),
+      endpoint: key,
+    })));
   }));
 }
 
 function deriveMovingBlock(rows) {
-  const grouped = group(rows, ['cell', 'endpoint', 'sensitivity']);
-  return CELL_NAMES.flatMap((cell) => METRIC_KEYS.flatMap((key) => MOVING_BLOCK_LENGTHS.map((blockLength) => {
-    const summary = summarizeWeeks(grouped.get(`${cell}:${key}:moving-block-${blockLength}`), { key, label: `moving ${cell}/${key}/${blockLength}` });
-    const moving = summary.status === 'estimated'
-      ? movingBlockBootstrap({ weekValues: summary.weeks.map((week) => week.value), blockLength }) : null;
-    return { season: '2025', scoringProfile: 'standard', cell, endpoint: key, estimand: 'absolute', sensitivity: `moving-block-${blockLength}`, blockLength, point: moving ? moving.point : summary.point, lower: moving ? moving.lower : summary.lower, upper: moving ? moving.upper : summary.upper, weeks: summary.weeks, status: summary.status, reason: summary.reason };
-  })));
+  const grouped = group(rows, ['season', 'cell', 'endpoint', 'sensitivity']);
+  return SEASONS.flatMap((season) => CELL_NAMES.flatMap((cell) => METRIC_KEYS.flatMap((key) => MOVING_BLOCK_LENGTHS.map((blockLength) => {
+    const label = `moving ${season}/${cell}/${key}/${blockLength}`;
+    const summary = summarizeWeeks(grouped.get(`${season}:${cell}:${key}:moving-block-${blockLength}`), {
+      key, label, season, scoringProfile: PRIMARY_PROFILE, computeInterval: false,
+    });
+    const survivingValues = summary.weeks.filter((week) => finite(week.value)).map((week) => week.value);
+    // Section 4.6.2's union covers rule 1's and rule 4's absolute families; its
+    // case list is stated as exhaustive over section 4.6's scope and does not
+    // reach prereg 10.5, so a moving-block row keeps its own surviving weeks.
+    const contiguous = survivingValues.length === summary.weeks.length;
+    // Section 4.6.5: prereg 10.5 keeps its own sealed construction and its own
+    // bounds.  The primary interval is published on the cell's own row, so this
+    // record never duplicates it.
+    //
+    // Section 4.6.4 requires this to be TOTAL.  `movingBlockBootstrap` throws
+    // when the surviving cluster count is below the block length, and under the
+    // 4.6.4 reducer `estimated` means only TWO OR MORE surviving clusters - so a
+    // 2-cluster series at blockLength 3 would abort the whole run over a
+    // descriptive sensitivity that gates nothing.  A block that cannot be formed
+    // is an unevaluable ROW, never an exception.
+    // STRICTLY GREATER than the block length, not `>=`: at n === blockLength the
+    // only admissible start index is 0, so all 100,000 draws are the identical
+    // block and lower === upper === point. Publishing that as an interval is the
+    // same zero-width artifact the `degenerate` status exists to refuse.
+    const formable = summary.status === 'estimated' && survivingValues.length > blockLength;
+    const moving = formable ? movingBlockBootstrap({ weekValues: survivingValues, blockLength, label }) : null;
+    const blocked = summary.status === 'estimated' && !formable;
+    const status = blocked ? 'unevaluable' : summary.status;
+    return {
+      season, scoringProfile: PRIMARY_PROFILE, cell, endpoint: key, estimand: 'absolute',
+      sensitivity: `moving-block-${blockLength}`, blockLength,
+      // Bounds are published only when the moving-block construction actually
+      // ran; falling back to section 4.6's interval here would publish the
+      // primary bounds under prereg 10.5's method label.
+      point: status === 'unevaluable' ? null : (moving ? moving.point : summary.point),
+      lower: moving ? moving.lower : null,
+      upper: moving ? moving.upper : null,
+      // Self-description names prereg 10.5's OWN construction, not section
+      // 4.6's, so a moving-block interval is never mistaken for the primary one.
+      method: MOVING_BLOCK_METHOD, alpha: COMPONENT_ALPHA, draws: BOOTSTRAP_DRAWS, seed: MOVING_BLOCK_SEED,
+      weeks: summary.weeks, clusters: summary.clusters, status,
+      // Survivors are compacted before blocking, so a dropped week makes two
+      // non-adjacent weeks adjacent in the drawn block. The moving-block
+      // sensitivity exists to probe SERIAL structure, so a reader must be able
+      // to see when the series it ran on was not contiguous.
+      contiguous,
+      reason: blocked
+        ? `${label}: ${survivingValues.length} surviving clusters cannot form a block of ${blockLength} without a zero-width interval`
+        : summary.reason,
+    };
+  }))));
 }
 
 function deriveAttribution(rows) {
-  const grouped = group(rows, ['cell', 'endpoint', 'estimand']);
-  return ATTRIBUTION_CELL_NAMES.flatMap((cell) => METRIC_KEYS.map((key) => ({
-    season: '2025', scoringProfile: 'standard', cell, endpoint: key,
-    usageMain: summarizeWeeks(grouped.get(`${cell}:${key}:usage-main`), { key, label: `usage ${cell}/${key}` }),
-    homeAwayMain: summarizeWeeks(grouped.get(`${cell}:${key}:home-away-main`), { key, label: `homeAway ${cell}/${key}` }),
-    interaction: summarizeWeeks(grouped.get(`${cell}:${key}:interaction`), { key, label: `interaction ${cell}/${key}` }),
-  })));
+  const grouped = group(rows, ['season', 'cell', 'endpoint', 'estimand']);
+  return SEASONS.flatMap((season) => ATTRIBUTION_CELL_NAMES.flatMap((cell) => METRIC_KEYS.map((key) => ({
+    season, scoringProfile: PRIMARY_PROFILE, cell, endpoint: key,
+    usageMain: summarizeWeeks(grouped.get(`${season}:${cell}:${key}:usage-main`), { key, label: `usage ${season}/${cell}/${key}`, season, scoringProfile: PRIMARY_PROFILE }),
+    homeAwayMain: summarizeWeeks(grouped.get(`${season}:${cell}:${key}:home-away-main`), { key, label: `homeAway ${season}/${cell}/${key}`, season, scoringProfile: PRIMARY_PROFILE }),
+    interaction: summarizeWeeks(grouped.get(`${season}:${cell}:${key}:interaction`), { key, label: `interaction ${season}/${cell}/${key}`, season, scoringProfile: PRIMARY_PROFILE }),
+  }))));
 }
 
 function deriveDiagnostics(rows, permutation) {
-  const grouped = group(rows, ['endpoint', 'estimand']);
-  const metricsFor = (estimand) => METRIC_KEYS.map((key) => summarizeWeeks(grouped.get(`${key}:${estimand}`), { key, label: `${estimand}/${key}` }));
+  const grouped = group(rows, ['season', 'endpoint', 'estimand']);
+  const metricsFor = (estimand) => SEASONS.flatMap((season) => METRIC_KEYS.map((key) => summarizeWeeks(grouped.get(`${season}:${key}:${estimand}`), {
+    key, label: `${season}/${estimand}/${key}`, season, scoringProfile: PRIMARY_PROFILE,
+  })));
   return {
     controlNaive: metricsFor('control-naive'),
     usageSignal: metricsFor('usage-signal'),
@@ -219,16 +416,18 @@ function validatePermutation(permutation) {
 }
 
 function deriveEvidence(evidence, { permutation } = {}) {
-  closed(evidence, ['metricWeeks', 'movingBlockWeeks', 'attributionWeeks', 'diagnosticWeeks', 'activationWeeks'], 'evidence');
+  closed(evidence, ['metricWeeks', 'movingBlockWeeks', 'attributionWeeks', 'diagnosticWeeks', 'activationWeeks', 'sensitivityWeeks'], 'evidence');
   validatePermutation(permutation);
   const metricWeeks = exactRows(evidence.metricWeeks.map((row, index) => normalizeMetricRow(row, `evidence.metricWeeks[${index}]`)), expectedMetricWeeks(), ['season', 'scoringProfile', 'cell', 'endpoint', 'estimand', 'week'], 'evidence.metricWeeks');
   const movingBlockWeeks = exactRows(evidence.movingBlockWeeks.map((row, index) => normalizeMetricRow(row, `evidence.movingBlockWeeks[${index}]`, true)), expectedMovingWeeks(), ['season', 'scoringProfile', 'cell', 'endpoint', 'estimand', 'sensitivity', 'week'], 'evidence.movingBlockWeeks');
   const attributionWeeks = exactRows(evidence.attributionWeeks.map((row, index) => normalizeAttributionRow(row, `evidence.attributionWeeks[${index}]`)), expectedAttributionWeeks(), ['season', 'scoringProfile', 'cell', 'endpoint', 'estimand', 'week'], 'evidence.attributionWeeks');
   const diagnosticWeeks = exactRows(evidence.diagnosticWeeks.map((row, index) => normalizeDiagnosticRow(row, `evidence.diagnosticWeeks[${index}]`)), expectedDiagnosticWeeks(), ['season', 'scoringProfile', 'endpoint', 'estimand', 'week'], 'evidence.diagnosticWeeks');
   const activationWeeks = exactRows(evidence.activationWeeks.map((row, index) => normalizeActivationRow(row, `evidence.activationWeeks[${index}]`)), expectedActivationWeeks(), ['cell', 'season', 'scoringProfile', 'week', 'position'], 'evidence.activationWeeks');
+  const sensitivityWeeks = exactRows(evidence.sensitivityWeeks.map((row, index) => normalizeSensitivityRow(row, `evidence.sensitivityWeeks[${index}]`)), expectedSensitivityWeeks(), ['season', 'scoringProfile', 'cell', 'endpoint', 'week'], 'evidence.sensitivityWeeks');
   const activation = deriveActivation(activationWeeks);
   return {
     cells: deriveMetricMatrix(metricWeeks),
+    sensitivity: deriveSensitivity(sensitivityWeeks),
     movingBlock: deriveMovingBlock(movingBlockWeeks),
     attribution: deriveAttribution(attributionWeeks),
     diagnostics: deriveDiagnostics(diagnosticWeeks, permutation),
@@ -242,7 +441,7 @@ function crossCheckActivationGate(cellClaims, evidence) {
     const activation = cellClaims[cell] && cellClaims[cell].activation;
     if (!activation || !activation.bySeason) throw new Error(`evidence activation: missing claim activation for ${cell}`);
     for (const season of SEASONS) for (const position of MACRO_POSITIONS) {
-      const aggregate = evidence.activationAggregates.find((row) => row.cell === cell && row.season === season && row.scoringProfile === 'standard').positions[position];
+      const aggregate = evidence.activationAggregates.find((row) => row.cell === cell && row.season === season && row.scoringProfile === PRIMARY_PROFILE).positions[position];
       const claim = activation.bySeason[season].byPosition[position];
       if (!claim || aggregate.eligible !== claim.eligible || aggregate.activated !== claim.activated || aggregate.excludedIneligible !== claim.excludedIneligible || aggregate.rate !== claim.rate) {
         throw new Error(`evidence activation: aggregate does not match activation gate for ${cell}/${season}/${position}`);
@@ -251,18 +450,35 @@ function crossCheckActivationGate(cellClaims, evidence) {
   }
 }
 
+/**
+ * Each season's descriptive paired delta must equal the gating component that
+ * owns that season, which is what section 4.6.1 means by "one number never
+ * carries two different intervals": component (a) is the 2025 co-primary and
+ * component (e1) is the 2024 co-primary safety gate (prereg 9.6), and both
+ * carry the same `{regretWeekDeltas, pairwiseWeekDeltas}` shape.
+ *
+ * Checking only 2025 would leave the 2024 rows - which the season coordinate of
+ * section 4.6.1 newly requires - published against nothing, so a 2024
+ * descriptive delta could silently disagree with the (e1) gate for the same
+ * cell and endpoint.
+ */
+const CLAIM_COMPONENT_BY_SEASON = Object.freeze({ 2025: 'a', 2024: 'e1' });
+
 function crossCheckClaimInputs(cellInputs, evidence) {
   for (const cell of CELL_NAMES) {
-    const source = cellInputs[cell] && cellInputs[cell].a;
-    const published = evidence.cells.find((row) => row.cell === cell);
-    if (!source || !published) throw new Error(`evidence claims: missing component-(a) input or published row for ${cell}`);
-    for (const [endpoint, inputKey] of [['regret', 'regretWeekDeltas'], ['pairwise', 'pairwiseWeekDeltas']]) {
-      const weekly = published.pairedDeltas.find((row) => row.key === endpoint).weeks;
-      for (const row of weekly) {
-        const sourceValue = source[inputKey][row.week];
-        const matchesMissing = sourceValue === undefined && !finite(row.value);
-        if (!matchesMissing && (!finite(row.value) || row.value !== sourceValue)) {
-          throw new Error(`evidence claims: paired ${cell}/${endpoint}/week-${row.week} does not match component-(a) input`);
+    for (const season of SEASONS) {
+      const component = CLAIM_COMPONENT_BY_SEASON[season];
+      const source = cellInputs[cell] && cellInputs[cell][component];
+      const published = evidence.cells.find((row) => row.cell === cell && row.season === season && row.scoringProfile === PRIMARY_PROFILE);
+      if (!source || !published) throw new Error(`evidence claims: missing component-(${component}) input or published ${season} row for ${cell}`);
+      for (const [endpoint, inputKey] of [['regret', 'regretWeekDeltas'], ['pairwise', 'pairwiseWeekDeltas']]) {
+        const weekly = published.pairedDeltas.find((row) => row.key === endpoint).weeks;
+        for (const row of weekly) {
+          const sourceValue = source[inputKey][row.week];
+          const matchesMissing = sourceValue === undefined && !finite(row.value);
+          if (!matchesMissing && (!finite(row.value) || row.value !== sourceValue)) {
+            throw new Error(`evidence claims: paired ${cell}/${season}/${endpoint}/week-${row.week} does not match component-(${component}) input`);
+          }
         }
       }
     }
@@ -271,5 +487,7 @@ function crossCheckClaimInputs(cellInputs, evidence) {
 
 module.exports = {
   METRIC_KEYS, SEASONS, SCORING_PROFILES, ESTIMANDS, CELL_NAMES, ON_CELL_NAMES, ATTRIBUTION_CELL_NAMES,
+  PRIMARY_PROFILE, SENSITIVITY_PROFILES, SENSITIVITY_ENDPOINTS, SENSITIVITY_SEASONS,
+  DESCRIPTIVE_METHOD, MOVING_BLOCK_METHOD,
   encodeNumber, deriveEvidence, crossCheckActivationGate, crossCheckClaimInputs,
 };

@@ -498,16 +498,34 @@ function renderActivation(activation) {
 }
 
 function displayValue(value) {
-  return value && typeof value === 'object' && value.nonfinite ? value.nonfinite : String(value);
+  if (value && typeof value === 'object' && value.nonfinite) return value.nonfinite;
+  // Section 4.6.4 publishes null bounds for `unevaluable` and `degenerate` rows
+  // rather than a non-finite marker, so `String(null)` would print the literal
+  // word "null" in a published table. The row's own `status` column says why the
+  // bound is absent; the cell itself just needs to read as absent.
+  if (value === null || value === undefined) return '-';
+  return String(value);
 }
 
 function renderEvidenceTables(evidence) {
-  const lines = ['', '### Eight-cell metrics', '', '| season | profile | cell | estimand | endpoint | point | CI |', '| --- | --- | --- | --- | --- | ---: | --- |'];
+  // Section 4.6: self-description is mandatory on every published descriptive
+  // row - method, alpha, draws, surviving cluster count, season, profile and
+  // status - so a prereg 12.1 primary interval and a prereg 10.5 moving-block
+  // interval are never typographically indistinguishable.
+  const selfDescription = (row) => `${row.status} | ${row.clusters} | ${row.method} | ${row.draws} | ${row.seed} | ${row.alpha}`;
+  const SELF_HEADER = 'status | n | method | draws | seed | alpha';
+  const SELF_RULE = '--- | ---: | --- | ---: | ---: | ---:';
+  const lines = ['', '### Eight-cell metrics (prereg 12.1)', '', `| season | profile | cell | estimand | endpoint | point | CI | ${SELF_HEADER} |`, `| --- | --- | --- | --- | --- | ---: | --- | ${SELF_RULE} |`];
   for (const cell of evidence.cells) for (const [estimand, rows] of [['absolute', cell.absoluteMetrics], ['paired-delta', cell.pairedDeltas]]) {
-    for (const row of rows) lines.push(`| ${cell.season} | ${cell.scoringProfile} | ${cell.cell} | ${estimand} | ${row.key} | ${displayValue(row.point)} | [${displayValue(row.lower)}, ${displayValue(row.upper)}] |`);
+    for (const row of rows) lines.push(`| ${cell.season} | ${cell.scoringProfile} | ${cell.cell} | ${estimand} | ${row.key} | ${displayValue(row.point)} | [${displayValue(row.lower)}, ${displayValue(row.upper)}] | ${selfDescription(row)} |`);
   }
-  lines.push('', '### Moving-block sensitivity', '', '| season | profile | cell | endpoint | sensitivity | point | CI |', '| --- | --- | --- | --- | --- | ---: | --- |');
-  for (const row of evidence.movingBlock) lines.push(`| ${row.season} | ${row.scoringProfile} | ${row.cell} | ${row.endpoint} | ${row.sensitivity} | ${displayValue(row.point)} | [${displayValue(row.lower)}, ${displayValue(row.upper)}] |`);
+  // Section 8.7 rule 4: prereg 16's sensitivity publication, absolute metrics
+  // only, `standard` and `ppr`, 2025 only.  Published as its own table because
+  // it is NOT rule 1's family.
+  lines.push('', '### Scoring-profile sensitivity (prereg 16)', '', `| season | profile | cell | estimand | endpoint | point | CI | ${SELF_HEADER} |`, `| --- | --- | --- | --- | --- | ---: | --- | ${SELF_RULE} |`);
+  for (const row of evidence.sensitivity) lines.push(`| ${row.season} | ${row.scoringProfile} | ${row.cell} | ${row.estimand} | ${row.endpoint} | ${displayValue(row.point)} | [${displayValue(row.lower)}, ${displayValue(row.upper)}] | ${selfDescription(row)} |`);
+  lines.push('', '### Moving-block sensitivity (prereg 10.5)', '', `| season | profile | cell | endpoint | sensitivity | point | CI | ${SELF_HEADER} |`, `| --- | --- | --- | --- | --- | ---: | --- | ${SELF_RULE} |`);
+  for (const row of evidence.movingBlock) lines.push(`| ${row.season} | ${row.scoringProfile} | ${row.cell} | ${row.endpoint} | ${row.sensitivity} | ${displayValue(row.point)} | [${displayValue(row.lower)}, ${displayValue(row.upper)}] | ${selfDescription(row)} |`);
   lines.push('', '### Attribution composites', '', '| season | profile | cell | endpoint | usage main | home-away main | interaction |', '| --- | --- | --- | --- | ---: | ---: | ---: |');
   for (const row of evidence.attribution) lines.push(`| ${row.season} | ${row.scoringProfile} | ${row.cell} | ${row.endpoint} | ${displayValue(row.usageMain.point)} | ${displayValue(row.homeAwayMain.point)} | ${displayValue(row.interaction.point)} |`);
   lines.push('', '### Activation aggregates', '', '| season | profile | cell | position | eligible | activated | excluded | rate |', '| --- | --- | --- | --- | ---: | ---: | ---: | ---: |');
