@@ -930,6 +930,18 @@ function componentFEndpoint({
 
   // (i) The evaluability MINIMUM: at least 8 distinct 2025 clusters AND at
   //     least 30 subgroup rows.
+  //
+  // Every unevaluable return still carries qualifyingWeekCount: section 6.1a
+  // item 1 defines the qualifying week count by the endpoint's own D_w series,
+  // so it is well-defined whether or not the endpoint is evaluable - and the
+  // runner's evidence cross-check compares it against that series' length for
+  // EVERY published endpoint. The two pre-guard returns must NOT carry
+  // weeklyBounds/medianWeeklyBound: this one fires before the alignment check,
+  // so inside it the series may be misaligned or non-finite and the bounds are
+  // not computable. An earlier form returned the bare transparency block here,
+  // and the run ABORTED at the cross-check (null !== weekDeltas.length) on a
+  // schema-valid document whose section 8.2 outcome is cell `inconclusive` -
+  // the sparse-subgroup case prereg 9.8's inconclusive exception exists for.
   if (clusters < MIN_F_CLUSTERS || subgroupRows < MIN_F_ROWS) {
     return {
       endpoint,
@@ -939,7 +951,7 @@ function componentFEndpoint({
         + `the minimum is ${MIN_F_CLUSTERS} clusters and ${MIN_F_ROWS} rows. Zero rows is "not `
         + 'estimable", not a formal pass, and 2024 cannot rescue sparse 2025 evidence.',
       passes: false,
-      transparency: transparency(),
+      transparency: { ...transparency(), qualifyingWeekCount: clusters },
     };
   }
   // (ii) The falsifiability guard is the median of the transformed WEEKLY
@@ -952,7 +964,9 @@ function componentFEndpoint({
       claimVerdict: 'inconclusive',
       reason: 'the qualifying-week mean |b| series is missing, non-finite, or misaligned with weekDeltas',
       passes: false,
-      transparency: transparency(),
+      // qualifyingWeekCount carried; bounds not computable from a series this
+      // branch just rejected - see the comment above the minimum check.
+      transparency: { ...transparency(), qualifyingWeekCount: clusters },
     };
   }
   const weeklyBounds = weekMeanAbsBaselines.map((value) => MAX_EFFECT * Number(value) + 0.01).sort((a, b) => a - b);

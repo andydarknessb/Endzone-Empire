@@ -724,6 +724,50 @@ test('validateInputs requires orderingSensitivity: an object for every candidate
 });
 
 // ---------------------------------------------------------------------------
+// Section 8.2: an unevaluable component (f) is a CELL verdict, never an abort
+// ---------------------------------------------------------------------------
+
+test('an unevaluable component (f) - all three early causes - produces cell inconclusive THROUGH the runner, never an abort (round-3 BLOCKER 1)', () => {
+  // Round 3: the two pre-guard unevaluable returns carried a bare transparency
+  // block, summarize mapped the absent qualifyingWeekCount to null, and the
+  // runner's evidence cross-check threw on null !== weekDeltas.length - so a
+  // schema-valid document whose section 8.2 outcome is cell `inconclusive`
+  // aborted the whole authoritative run AFTER the full permutation-control
+  // compute. The unit tests exercised componentFEndpoint directly; nothing
+  // routed an unevaluable (f) through the gate - round 2's "true of the
+  // library function and false of the gate", again.
+  // Negative control: revert the producer returns to the bare transparency()
+  // and every case below throws instead of reporting.
+  // (Cheap despite three full reports: the permutationControl fixture is
+  // byte-identical across cases, so the control computes once and cache-hits.)
+  // HEALTHY_F_ENDPOINT is frozen and shared, so each case REPLACES f1.
+  const cases = [
+    ['below the minimum by clusters', {
+      ...HEALTHY_F_ENDPOINT,
+      weekDeltas: HEALTHY_F_ENDPOINT.weekDeltas.slice(0, 7),
+      weekMeanAbsBaselines: HEALTHY_F_ENDPOINT.weekMeanAbsBaselines.slice(0, 7),
+    }, 7],
+    ['below the minimum by rows', { ...HEALTHY_F_ENDPOINT, subgroupRows: 29 }, 8],
+    ['misaligned mean-|b| series', {
+      ...HEALTHY_F_ENDPOINT,
+      weekMeanAbsBaselines: HEALTHY_F_ENDPOINT.weekMeanAbsBaselines.slice(0, 7),
+    }, 8],
+  ];
+  for (const [name, f1Replacement, expectedQualifyingWeeks] of cases) {
+    const inputs = fullPassingInputs();
+    inputs.cells['usage-00-on'].f.f1 = f1Replacement;
+    const report = runBacktestSweep.buildReportFromInputs(inputs, { expectedRosterCount: 1 });
+    assert.equal(report.run.status, 'valid', `${name}: sparse (f) evidence must not void or abort the run`);
+    const cell = report.cells.find((c) => c.name === 'usage-00-on');
+    assert.equal(cell.components.f.status, 'unevaluable', name);
+    assert.equal(cell.verdict, 'inconclusive', `${name}: prereg 9.8's explicit override, section 8.2's Level-2 row`);
+    const f1 = cell.components.f.evidence.transparency.find((t) => t.endpoint === 'f1-subgroup-mae');
+    assert.equal(f1.qualifyingWeekCount, expectedQualifyingWeeks,
+      `${name}: the qualifying week count is defined by the D_w series itself (section 6.1a item 1), evaluable or not`);
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Reproduction: --verify-against
 // ---------------------------------------------------------------------------
 

@@ -44,7 +44,6 @@
  */
 
 const arms = require('./arms');
-const sweepEvidence = require('./sweepEvidence');
 const { canonicalJson } = require('./snapshotStore');
 
 const REQUIRED_STATES_WITH_REASON = Object.freeze(['unevaluable', 'wide-straddle', 'vetoed']);
