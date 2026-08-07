@@ -9,9 +9,12 @@
  *
  * SCOPE, STATED PLAINLY: this script is a REDUCER, not a candidate-cell
  * COMPUTER. It reads an already-assembled `--inputs` JSON artifact - one
- * `weekDeltas` series per co-primary/e2 endpoint, per cell, already averaged
- * over the 24 salts (`saltPairedDelta`) - and reduces it through the pure
- * evaluator/inference/report pipeline to a report. It does NOT call
+ * `weekDeltas` series per co-primary/e2 endpoint and for (f)'s f2, per cell,
+ * already averaged over the 24 salts (`saltPairedDelta`); f1's series and
+ * every (f) gate operand are DERIVED from the document's own raw records
+ * (rounds 3 and 5), which is arithmetic over supplied data, not candidate
+ * computation - and reduces it through the pure evaluator/inference/report
+ * pipeline to a report. It does NOT call
  * `generateProjections`, does NOT touch a database or a snapshot client, and
  * does NOT compute a single candidate cell's projections itself. Building
  * THAT - the actual per-player-week generation across 8 cells x 24 salts x
@@ -120,11 +123,21 @@ const E2_ENDPOINT_INPUT_KEYS = Object.freeze(['key', 'weekDeltas']);
 // Round 3, SUBSTANTIVE 2: the four evaluability-gate operands (subgroupRows,
 // meanAbsBaseline, maxAbsBaseline, weekMeanAbsBaselines) are DERIVED from
 // preflight.matchedOffBaselineRows - section 6.1a item 2's definition run as
-// code - and may no longer be supplied. They were previously read verbatim
-// and "cross-checked" against the copies they were read from, while the same
-// document's raw rows contradicted them. Only the weekDeltas series stays
-// supplied: its per-week deltas need per-salt errors the document does not
-// carry row-wise.
+// code - and may no longer be supplied.
+//
+// Round 5, SUBSTANTIVE F: f1's weekDeltas is DERIVED too, and the document
+// may not carry f1 at all. The round-3 justification for keeping the series
+// supplied - "its per-week deltas need per-salt errors the document does not
+// carry row-wise" - was FALSE for f1: f.veto.realizations carries exactly
+// those per-salt differences row-wise (inc = |e_on| - |e_off|, section 6.4),
+// and by sections 6.3 + 6.4 + prereg 9.8, D_w(f1) is exactly the mean over
+// salts of the per-salt week mean of inc. A supplied f1 series was a second
+// source of truth the document's own attested evidence already determined -
+// the shipped fixture contradicted itself for two rounds, and a falsified
+// series flipped a cell verdict against its own realizations. Only f2 stays
+// supplied: inc destroys the individual error signs its |mean(e)| needs
+// (proven by counterexample - two realization sets with identical inc and
+// different f2).
 const F_ENDPOINT_INPUT_KEYS = Object.freeze(['weekDeltas']);
 const F_VETO_INPUT_KEYS = Object.freeze(['realizations']);
 const F_VETO_REALIZATION_KEYS = Object.freeze(['season', 'week', 'playerId', 'salt', 'incrementalError']);
@@ -135,6 +148,43 @@ function assertClosedKeys(obj, allowed, label) {
   const extra = Object.keys(obj || {}).filter((k) => !allowed.includes(k));
   if (extra.length > 0) {
     throw new Error(`${label}: unexpected key(s): ${extra.join(', ')}`);
+  }
+}
+
+// The evaluated 17-week grid as string keys, once.
+const WEEK_KEYS = Object.freeze(metrics.EVALUATED_WEEKS.map(String));
+
+/**
+ * A `{ [week]: number }` contrast series, VALUE-validated.
+ *
+ * Round 5, MINOR G: the container check accepted anything object-shaped, and
+ * `dropWeeks` decides presence with the COERCING `isFiniteNumber`, so a
+ * quoted number ('0.5') survived the filter and then concatenated into
+ * `bootstrapMean`'s numeric accumulator - producing an unlocated
+ * classifyBootstrapEndpoint abort on non-integer data, and on all-integer
+ * data a FINITE, corrupted CI bound (6.5e14) published inside a `valid` run.
+ * Malformed values ({}, NaN, '+Infinity', 'n/a') were meanwhile silently
+ * indistinguishable from a legitimately dropped week, so three of them
+ * flipped a cell verdict and moved the SELECTED cell with no diagnostic.
+ *
+ * Unlike (f) - whose week set is DEFINED by presence, so absence is
+ * self-contradictory - prereg 10.4 genuinely permits a week here to carry no
+ * rows. Absence is expressed by OMITTING the key, the only form the harness
+ * has ever produced and the same form crossCheckClaimInputs already requires
+ * (`sourceValue === undefined`). A present key is a claim that the week WAS
+ * measured, so it must carry a real, finite number.
+ */
+function assertWeekDeltaSeries(series, label) {
+  if (!series || typeof series !== 'object' || Array.isArray(series)) {
+    throw new Error(`${label}: must be a { [week]: number } object keyed by evaluated week - an array is the (f) series' shape, and its indices would silently misalign the weeks`);
+  }
+  for (const [week, value] of Object.entries(series)) {
+    if (!WEEK_KEYS.includes(week)) {
+      throw new Error(`${label}: week ${JSON.stringify(week)} is outside the evaluated grid (weeks ${WEEK_KEYS[0]}-${WEEK_KEYS[WEEK_KEYS.length - 1]}, prereg 4.1) - a key the evaluator never reads is evidence that silently does nothing`);
+    }
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      throw new Error(`${label}.week-${week}: must be a finite number, got ${JSON.stringify(value)}. A week with no rows for this arm is dropped by OMITTING its key (prereg 10.4); never write a placeholder`);
+    }
   }
 }
 
@@ -232,9 +282,7 @@ function validateInputs(inputs, { label = '--inputs' } = {}) {
       }
       assertClosedKeys(cellInput[key], CO_PRIMARY_INPUT_KEYS, `${cellLabel}.${key}`);
       for (const seriesKey of CO_PRIMARY_INPUT_KEYS) {
-        if (!cellInput[key][seriesKey] || typeof cellInput[key][seriesKey] !== 'object') {
-          throw new Error(`${cellLabel}.${key}.${seriesKey}: must be a { [week]: number } object`);
-        }
+        assertWeekDeltaSeries(cellInput[key][seriesKey], `${cellLabel}.${key}.${seriesKey}`);
       }
     }
     if (!cellInput.e2 || typeof cellInput.e2 !== 'object') throw new Error(`${cellLabel}.e2: must be an object`);
@@ -247,15 +295,25 @@ function validateInputs(inputs, { label = '--inputs' } = {}) {
       if (typeof endpoint.key !== 'string' || !sweepEvaluator.E2_ENDPOINT_KEYS.includes(endpoint.key)) {
         throw new Error(`${endpointLabel}.key: must be one of the thirteen preregistered (e2) keys`);
       }
-      if (!endpoint.weekDeltas || typeof endpoint.weekDeltas !== 'object') {
-        throw new Error(`${endpointLabel}.weekDeltas: must be a { [week]: number } object`);
-      }
+      assertWeekDeltaSeries(endpoint.weekDeltas, `${endpointLabel}(${endpoint.key}).weekDeltas`);
     }
 
     if (isOnCell) {
       if (!cellInput.f || typeof cellInput.f !== 'object') throw new Error(`${cellLabel}.f: must be an object for an "on" cell`);
-      assertClosedKeys(cellInput.f, ['f1', 'f2', 'veto'], `${cellLabel}.f`);
-      for (const endpointKey of ['f1', 'f2']) {
+      // Round 5, SUBSTANTIVE F: f1 is fully DERIVED and the key may not
+      // appear at all - not `null` (that family means "not applicable", and
+      // f1 is applicable; a null would read as "no f1 evidence", the exact
+      // misreading BLOCKER A punished), not an empty object (which would
+      // survive a closed-key check silently). Absent, structurally.
+      if ('f1' in cellInput.f) {
+        throw new Error(
+          `${cellLabel}.f: unexpected key(s): f1 - f1's D_w series is DERIVED from f.veto.realizations `
+          + '(sections 6.3 + 6.4, prereg 9.8); supplying it would give the document two sources of '
+          + 'truth for one quantity, and the raw realizations already win.'
+        );
+      }
+      assertClosedKeys(cellInput.f, ['f2', 'veto'], `${cellLabel}.f`);
+      for (const endpointKey of ['f2']) {
         if (!cellInput.f[endpointKey] || typeof cellInput.f[endpointKey] !== 'object') {
           throw new Error(`${cellLabel}.f.${endpointKey}: must be an object`);
         }
@@ -281,7 +339,10 @@ function validateInputs(inputs, { label = '--inputs' } = {}) {
         // from"), so a null aligned 1:1 to a QUALIFYING week is
         // self-contradictory, not a legitimate drop - the sibling of 6.4a's
         // "a missing realization is a HARD ERROR". An empty array stays
-        // legal: an empty subgroup has zero qualifying weeks.
+        // legal: an empty subgroup has zero qualifying weeks. (This loop now
+        // guards f2 only - f1's series is derived, and its finiteness is
+        // guaranteed harder still: assertVetoRealizationCoverage rejects any
+        // non-finite incrementalError in preflight, before derivation runs.)
         const weekDeltas = cellInput.f[endpointKey].weekDeltas;
         if (!Array.isArray(weekDeltas) || weekDeltas.some((d) => typeof d !== 'number' || !Number.isFinite(d))) {
           throw new Error(
@@ -454,7 +515,7 @@ function controlBaselineClaim(cellMeta) {
   };
 }
 
-function assembleCellClaim(cellMeta, cellInput, derivedFVeto = null, derivedFOperands = null) {
+function assembleCellClaim(cellMeta, cellInput, derivedFVeto = null, derivedFOperands = null, derivedF1WeekDeltas = null) {
   if (cellMeta.name === arms.CONTROL_CELL) {
     return controlBaselineClaim(cellMeta);
   }
@@ -464,13 +525,19 @@ function assembleCellClaim(cellMeta, cellInput, derivedFVeto = null, derivedFOpe
     if (!derivedFOperands) {
       throw new Error(`${cellMeta.name}: an on-cell claim requires the derived component (f) operands (round 3, SUBSTANTIVE 2)`);
     }
+    if (!Array.isArray(derivedF1WeekDeltas)) {
+      throw new Error(`${cellMeta.name}: an on-cell claim requires f1's DERIVED D_w series (round 5, SUBSTANTIVE F)`);
+    }
     // Section 6.1a item 1: the qualifying weeks are "the identical week set
     // the endpoint's own D_w series is built from". The count is now DERIVED
     // from the raw rows, so a document whose weekDeltas disagree with it is
     // MALFORMED (throw-class), never sparse evidence - and this is a
     // guarantee the supplied-operand contract could not express, because
     // clusters used to be the supplied array's own length.
-    for (const endpointKey of ['f1', 'f2']) {
+    // f2 only: f1's series is derived and matches the qualifying set by
+    // construction (deriveComponentFOneSeries fails closed on both directions
+    // of a week-set mismatch, which is strictly stronger than this check).
+    for (const endpointKey of ['f2']) {
       const weekDeltas = cellInput.f[endpointKey].weekDeltas;
       if (!Array.isArray(weekDeltas) || weekDeltas.length !== derivedFOperands.qualifyingWeekCount) {
         throw new Error(
@@ -490,9 +557,9 @@ function assembleCellClaim(cellMeta, cellInput, derivedFVeto = null, derivedFOpe
     e2: evaluateE2(cellInput),
     f: isOnCell
       ? arms.componentF({
-        // The document supplies only the D_w series; every gate operand is
-        // the derived value (round 3, SUBSTANTIVE 2).
-        f1: { weekDeltas: cellInput.f.f1.weekDeltas, ...componentFOperandFields(derivedFOperands) },
+        // f1's series and every gate operand are DERIVED (rounds 3 and 5);
+        // the document supplies only f2's series and the raw realizations.
+        f1: { weekDeltas: derivedF1WeekDeltas, ...componentFOperandFields(derivedFOperands) },
         f2: { weekDeltas: cellInput.f.f2.weekDeltas, ...componentFOperandFields(derivedFOperands) },
         veto: derivedFVeto,
       })
@@ -561,8 +628,74 @@ function deriveComponentFOperands(cellName, { matchedOffBaselineRows, cohortRost
       const values = byWeek.get(week);
       return values.reduce((sum, value) => sum + value, 0) / values.length;
     }),
+    // The week LIST rides with the count so the f1 derivation below maps over
+    // the identical set (section 6.1a item 1: "the identical week set the
+    // endpoint's own D_w series is built from").
+    qualifyingWeeks,
     qualifyingWeekCount: qualifyingWeeks.length,
   };
+}
+
+/**
+ * Round 5, SUBSTANTIVE F: f1's D_w series, derived from the veto realizations
+ * the same document already attests complete. Section 6.3 LITERALLY: the mean
+ * over the 24 salts of the per-salt week mean - NOT the flat mean over the
+ * week's realizations, which is mathematically identical and NOT bit-identical
+ * (last-ulp drift even on constant input), and the JSON report is
+ * byte-compared by --verify-against with no rounding in between. Iteration
+ * order is pinned twice - salts in metrics.SALTS order, rows ascending by
+ * playerId - so the series is reproducible byte-for-byte.
+ *
+ * 2025 SCOPING is required, not stylistic: the veto domain is deliberately
+ * unscoped by season (the SPEC-C interim), while f1's estimand is "the MEDIAN
+ * over 2025 season-weeks" (prereg 9.8) and its qualifying weeks are the
+ * 2025-only set deriveComponentFOperands computes. The two derivations stay
+ * SEPARATE functions for the same reason their docblocks already state: they
+ * must never share a season-filtered helper.
+ *
+ * Fails closed both ways on the week set (section 6.1a item 1's identity):
+ * a 2025 realization week outside the qualifying set, or a qualifying week
+ * with no realizations, is a malformed document - stronger than the length
+ * check the supplied series used to get.
+ */
+function deriveComponentFOneSeries(cellName, { realizations, qualifyingWeeks }) {
+  const rows2025 = realizations.filter((row) => Number(row.season) === 2025);
+  const qualifying = new Set(qualifyingWeeks.map(Number));
+  for (const row of rows2025) {
+    if (!qualifying.has(Number(row.week))) {
+      throw new Error(
+        `${cellName} f1: a 2025 realization for week ${row.week} lies outside the derived qualifying `
+        + 'week set - section 6.1a item 1 pins the identical week set, so the document is malformed.'
+      );
+    }
+  }
+  return qualifyingWeeks.map((week) => {
+    const rows = rows2025.filter((row) => Number(row.week) === Number(week));
+    if (rows.length === 0) {
+      throw new Error(
+        `${cellName} f1: qualifying week ${week} has no 2025 realizations - the veto coverage the `
+        + 'document attests makes this impossible on a well-formed document.'
+      );
+    }
+    const byPlayer = new Map();
+    for (const row of rows) {
+      const pid = Number(row.playerId);
+      if (!byPlayer.has(pid)) byPlayer.set(pid, new Map());
+      byPlayer.get(pid).set(row.salt, Number(row.incrementalError));
+    }
+    const players = [...byPlayer.keys()].sort((a, b) => a - b);
+    const perSalt = Object.fromEntries(metrics.SALTS.map((salt) => [salt,
+      players.reduce((sum, pid) => sum + byPlayer.get(pid).get(salt), 0) / players.length]));
+    // Reuse the sealed helper rather than re-implementing its arithmetic: the
+    // realization IS already the same-salt on-minus-off difference, so the
+    // comparator is zero and `a - 0 === a` bit-exactly - and this inherits
+    // saltPairedDelta's own missing-salt failure mode.
+    return metrics.saltPairedDelta({
+      candidateBySalt: perSalt,
+      comparatorBySalt: Object.fromEntries(metrics.SALTS.map((salt) => [salt, 0])),
+      label: `${cellName} f1 D_w week ${week}`,
+    });
+  });
 }
 
 function componentFVetoRecords(cells, { cohortRosterRows, matchedOffBaselineRows }) {
@@ -590,7 +723,7 @@ function unevaluatedCellClaims() {
   return Object.fromEntries(arms.ALL_CELLS.map((cell) => [cell.name, {}]));
 }
 
-function crossCheckComponentFEvidence(cellInputs, cellClaims, derivedFOperandsByCell, vetoRecordsByCell) {
+function crossCheckComponentFEvidence(cellInputs, cellClaims, derivedFOperandsByCell, vetoRecordsByCell, derivedF1SeriesByCell) {
   for (const cellMeta of arms.ALL_CELLS.filter((cell) => cell.homeAway === 'on')) {
     const component = cellClaims[cellMeta.name].components.f;
     const published = component && component.evidence;
@@ -605,9 +738,13 @@ function crossCheckComponentFEvidence(cellInputs, cellClaims, derivedFOperandsBy
     }
     for (const [index, endpoint] of ['f1', 'f2'].entries()) {
       const transparency = published.transparency[index];
-      const raw = source[endpoint];
+      // f1's series is DERIVED (round 5) - its length leg checks against the
+      // derived series; f2's still checks against the supplied document.
+      const seriesLength = endpoint === 'f1'
+        ? derivedF1SeriesByCell[cellMeta.name].length
+        : source[endpoint].weekDeltas.length;
       if (transparency.subgroupRows !== derived.subgroupRows || transparency.meanAbsBaseline !== derived.meanAbsBaseline
-        || transparency.maxAbsBaseline !== derived.maxAbsBaseline || transparency.qualifyingWeekCount !== raw.weekDeltas.length
+        || transparency.maxAbsBaseline !== derived.maxAbsBaseline || transparency.qualifyingWeekCount !== seriesLength
         || transparency.qualifyingWeekCount !== derived.qualifyingWeekCount) {
         throw new Error(`component (f) evidence: published ${cellMeta.name}/${endpoint} transparency does not match the derived operands`);
       }
@@ -712,12 +849,23 @@ function buildReportFromInputs(inputs, { expectedRosterCount = rosters.TEAM_COUN
   const vetoRecordsByCell = harnessOk
     ? Object.fromEntries(componentFVetoRecords(inputs.cells, inputs.preflight).map((row) => [row.cellName, row]))
     : null;
+  // Round 5, SUBSTANTIVE F: f1's D_w series, derived ONCE per on-cell after
+  // the preflight has attested the realizations complete (deriving earlier
+  // would read realizations the preflight is about to reject), and shared by
+  // claim assembly and the evidence cross-check so both read the same array.
+  const derivedF1SeriesByCell = harnessOk
+    ? Object.fromEntries(arms.ALL_CELLS.filter((cell) => cell.homeAway === 'on')
+      .map((cell) => [cell.name, deriveComponentFOneSeries(cell.name, {
+        realizations: inputs.cells[cell.name].f.veto.realizations,
+        qualifyingWeeks: derivedFOperandsByCell[cell.name].qualifyingWeeks,
+      })]))
+    : null;
   const cellClaims = harnessOk
-    ? Object.fromEntries(arms.ALL_CELLS.map((cellMeta) => [cellMeta.name, assembleCellClaim(cellMeta, inputs.cells[cellMeta.name], vetoRecordsByCell[cellMeta.name] || null, cellMeta.homeAway === 'on' ? derivedFOperandsByCell[cellMeta.name] : null)]))
+    ? Object.fromEntries(arms.ALL_CELLS.map((cellMeta) => [cellMeta.name, assembleCellClaim(cellMeta, inputs.cells[cellMeta.name], vetoRecordsByCell[cellMeta.name] || null, cellMeta.homeAway === 'on' ? derivedFOperandsByCell[cellMeta.name] : null, cellMeta.homeAway === 'on' ? derivedF1SeriesByCell[cellMeta.name] : null)]))
     : unevaluatedCellClaims();
   if (harnessOk) sweepEvidence.crossCheckActivationGate(cellClaims, evidence);
   if (harnessOk) sweepEvidence.crossCheckClaimInputs(inputs.cells, evidence);
-  if (harnessOk) crossCheckComponentFEvidence(inputs.cells, cellClaims, derivedFOperandsByCell, vetoRecordsByCell);
+  if (harnessOk) crossCheckComponentFEvidence(inputs.cells, cellClaims, derivedFOperandsByCell, vetoRecordsByCell, derivedF1SeriesByCell);
   const sweep = sweepInference.evaluateSweep({
     cellClaims,
     permutationControl: harnessOk
@@ -806,6 +954,7 @@ module.exports = {
   validateInputs,
   componentFVetoRecords,
   deriveComponentFOperands,
+  deriveComponentFOneSeries,
   preflightFailureDetails,
   boundariesFor,
   assembleCellClaim,

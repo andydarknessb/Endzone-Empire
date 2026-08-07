@@ -55,6 +55,8 @@ function passingE2Input() {
 const COHORT_WEEKS = Object.freeze([2, 3, 4, 5, 6, 7, 8, 9]);
 const COHORT_PLAYERS = Object.freeze([7, 8, 9, 10, 11]);
 
+// f2 ONLY: f1's series is DERIVED from the veto realizations (round 5), so
+// the document carries no f1 key at all.
 const HEALTHY_F_ENDPOINT = Object.freeze({
   weekDeltas: new Array(COHORT_WEEKS.length).fill(-0.01),
 });
@@ -63,8 +65,14 @@ function healthyFVeto(subgroupPlayerWeeks) {
   const playerWeeks = subgroupPlayerWeeks
     || COHORT_WEEKS.flatMap((week) => COHORT_PLAYERS.map((playerId) => ({ week, playerId })));
   return {
+    // -0.01: FAVOURABLE. The old +0.01 made the fixture internally false -
+    // its supplied f1 series said -0.01 while its own realizations said
+    // +0.01, sign-opposite, and nothing looked for two rounds (round 5,
+    // SUBSTANTIVE F). Under derivation the realizations ARE f1's series, and
+    // a comfortably-passing flagship should not describe a harmful
+    // configuration.
     realizations: playerWeeks.flatMap(({ week, playerId }) => metrics.SALTS.map((salt) => (
-      { season: 2025, week, playerId, salt, incrementalError: 0.01 }
+      { season: 2025, week, playerId, salt, incrementalError: -0.01 }
     ))),
   };
 }
@@ -180,7 +188,7 @@ function fullPassingInputs({ permutationControl = syntheticPermutationControl() 
       d: passingCoPrimaryInput(),
       e1: passingCoPrimaryInput(),
       e2: passingE2Input(),
-      f: isOnCell ? { f1: HEALTHY_F_ENDPOINT, f2: HEALTHY_F_ENDPOINT, veto: healthyFVeto() } : null,
+      f: isOnCell ? { f2: HEALTHY_F_ENDPOINT, veto: healthyFVeto() } : null,
       activation: isOnCell ? treatedActivationInput() : null,
       // Prereg 5.2/16: null only for the control (no verdict to contradict).
       orderingSensitivity: isControlCell ? null : { contradicted: false, detail: null },
@@ -280,7 +288,7 @@ test('validateInputs requires activation to carry BOTH seasons independently (pr
 
 test('validateInputs requires f/activation to be null for an off-cell, and present for an on-cell', () => {
   const offWithF = fullPassingInputs();
-  offWithF.cells['usage-40-off'].f = { f1: HEALTHY_F_ENDPOINT, f2: HEALTHY_F_ENDPOINT };
+  offWithF.cells['usage-40-off'].f = { f2: HEALTHY_F_ENDPOINT };
   assert.throws(() => runBacktestSweep.validateInputs(offWithF), /f: must be null for an "off" cell/);
 
   const onMissingF = fullPassingInputs();
@@ -385,10 +393,16 @@ test('main(): an infinite inverted bound is published as a flag, never dropped a
   // finite inverted bound exists at alpha/7. exactBound must publish as
   // null with exactBoundIsInfinite true, and the report must still
   // canonically serialize (assertFinite refuses raw Infinity).
-  inputs.cells['usage-25-on'].f.f1 = {
-    ...HEALTHY_F_ENDPOINT,
-    weekDeltas: [arms.DELTA_F, arms.DELTA_F, ...new Array(6).fill(-0.01)],
-  };
+  // f1 is DERIVED (round 5), so the tie-heavy state is produced through the
+  // REALIZATIONS: weeks 2 and 3's per-week mean incrementalError lands
+  // exactly on DELTA_F. The derivation cannot produce 0.025 bit-exactly
+  // (float drift at the last ulp), and the ties survive anyway because
+  // exactSignTest ties on roundToTie(x - margin) - which is 0 for the
+  // drifted value. If that tie test is ever "simplified" to x === margin,
+  // this test and the study's tie convention both break silently.
+  for (const row of inputs.cells['usage-25-on'].f.veto.realizations) {
+    if (row.week === 2 || row.week === 3) row.incrementalError = arms.DELTA_F;
+  }
   const inputsPath = path.join(dir, 'inputs.json');
   fs.writeFileSync(inputsPath, JSON.stringify(inputs));
   assert.doesNotThrow(() => runBacktestSweep.main([
@@ -824,7 +838,8 @@ test('an unevaluable component (f) - sparse RAW evidence - produces cell inconcl
       // 30 rows (rows pass at exactly the minimum, clusters 6 < 8). Both
       // endpoints' weekDeltas shrink to match the derived week set.
       flipBaselinesPositive(inputs, (row) => row.week >= 8);
-      inputs.cells['usage-00-on'].f.f1 = { weekDeltas: new Array(6).fill(-0.01) };
+      // f1's derived series auto-tracks the surviving weeks; only the
+      // supplied f2 series must shrink to match.
       inputs.cells['usage-00-on'].f.f2 = { weekDeltas: new Array(6).fill(-0.01) };
     }, 6],
     ['below the minimum by rows', (inputs) => {
@@ -859,7 +874,7 @@ test('the (f) gate operands are DERIVED from the raw rows; the document may not 
   // Negative control: revert assembleCellClaim to spread the document's f
   // endpoints verbatim - the derived assertions below fail on null.
   const supplied = fullPassingInputs();
-  supplied.cells['usage-00-on'].f.f1 = { weekDeltas: new Array(8).fill(-0.01), subgroupRows: 40 };
+  supplied.cells['usage-00-on'].f.f2 = { weekDeltas: new Array(8).fill(-0.01), subgroupRows: 40 };
   assert.throws(() => runBacktestSweep.validateInputs(supplied), /unexpected key\(s\): subgroupRows/);
 
   const report = runBacktestSweep.buildReportFromInputs(fullPassingInputs(), { expectedRosterCount: 1 });
@@ -880,7 +895,7 @@ test('a weekDeltas series misaligned with the DERIVED qualifying weeks is a malf
   // contract this was unverifiable (clusters WAS the supplied array's own
   // length); under derivation a disagreement is a malformed document.
   const inputs = fullPassingInputs();
-  inputs.cells['usage-00-on'].f.f1 = { weekDeltas: new Array(7).fill(-0.01) };
+  inputs.cells['usage-00-on'].f.f2 = { weekDeltas: new Array(7).fill(-0.01) };
   assert.throws(
     () => runBacktestSweep.buildReportFromInputs(inputs, { expectedRosterCount: 1 }),
     /carries 7 weekDeltas against 8 derived qualifying weeks/
@@ -941,8 +956,74 @@ test('deriveComponentFOperands pins per-week grouping, 2025 scoping, the b <= 0 
     // Ascending weeks [2, 4]; a flat fill of the pooled mean would give
     // [4/3, 4/3] and lose the per-week grouping section 6.1a item 2 defines.
     weekMeanAbsBaselines: [2, 0],
+    qualifyingWeeks: [2, 4],
     qualifyingWeekCount: 2,
   });
+});
+
+test('a supplied f.f1 is rejected outright - the document may not carry a second source of truth for a derived series (round-5 SUBSTANTIVE F)', () => {
+  const supplied = fullPassingInputs();
+  supplied.cells['usage-00-on'].f.f1 = { weekDeltas: new Array(8).fill(-0.01) };
+  assert.throws(
+    () => runBacktestSweep.validateInputs(supplied),
+    /unexpected key\(s\): f1 - f1's D_w series is DERIVED from f\.veto\.realizations/
+  );
+});
+
+test('deriveComponentFOneSeries: the section 6.3 form, the 2025 filter, pinned iteration order, and week-set equality (round-5 SUBSTANTIVE F)', () => {
+  // Two qualifying weeks, two players, values chosen so the per-salt week
+  // mean differs from any flat-fill shortcut, plus a 2024 realization that
+  // must be EXCLUDED by the season filter (it belongs to the veto's wider
+  // domain, not f1's).
+  const realizations = [];
+  for (const salt of metrics.SALTS) {
+    realizations.push({ season: 2025, week: 2, playerId: 7, salt, incrementalError: 0.1 });
+    realizations.push({ season: 2025, week: 2, playerId: 8, salt, incrementalError: 0.3 });
+    realizations.push({ season: 2025, week: 4, playerId: 7, salt, incrementalError: -0.05 });
+    realizations.push({ season: 2024, week: 2, playerId: 7, salt, incrementalError: 99 });
+  }
+  const series = runBacktestSweep.deriveComponentFOneSeries('usage-00-on', {
+    realizations, qualifyingWeeks: [2, 4],
+  });
+  // Week 2: per-salt mean (0.1 + 0.3) / 2 = 0.2 under every salt -> D_w 0.2.
+  // Week 4: -0.05. The 2024 value (99) must contribute NOTHING.
+  assert.equal(series.length, 2);
+  assert.ok(Math.abs(series[0] - 0.2) < 1e-12, `week 2: ${series[0]}`);
+  assert.ok(Math.abs(series[1] - -0.05) < 1e-12, `week 4: ${series[1]}`);
+
+  // Week-set equality fails closed BOTH ways (section 6.1a item 1).
+  assert.throws(
+    () => runBacktestSweep.deriveComponentFOneSeries('usage-00-on', {
+      realizations, qualifyingWeeks: [2],
+    }),
+    /a 2025 realization for week 4 lies outside the derived qualifying/
+  );
+  assert.throws(
+    () => runBacktestSweep.deriveComponentFOneSeries('usage-00-on', {
+      realizations, qualifyingWeeks: [2, 4, 9],
+    }),
+    /qualifying week 9 has no 2025 realizations/
+  );
+});
+
+test('a document whose realizations state HARM cannot publish a passing (f) - the derived series IS the evidence (round-5 SUBSTANTIVE F)', () => {
+  // Round 5's verdict flip: realizations all +0.19 (harmful, below the 0.20
+  // catastrophic cap, so no veto fires) previously coexisted with a supplied
+  // favourable series and the cell PASSED. Under derivation the same
+  // document fails, because the series is now computed from the evidence the
+  // document itself attests complete.
+  // Negative control: replace the derived series at the componentF call with
+  // a fabricated favourable one - this test reports pass and fails.
+  const inputs = fullPassingInputs();
+  for (const row of inputs.cells['usage-00-on'].f.veto.realizations) {
+    row.incrementalError = 0.19;
+  }
+  const report = runBacktestSweep.buildReportFromInputs(inputs, { expectedRosterCount: 1 });
+  assert.equal(report.run.status, 'valid');
+  const cell = report.cells.find((c) => c.name === 'usage-00-on');
+  assert.equal(cell.components.f.status, 'failed', 'eight weeks of +0.19 against a 0.025 margin');
+  assert.equal(cell.verdict, 'fail');
+  assert.equal(cell.components.f.evidence.veto.catastrophicVeto, false, '0.19 is harmful but below the cap - the veto is not what catches this');
 });
 
 test('a component (f) week delta that is null, non-finite, or non-numeric is a MALFORMED document - absent evidence can never pass the no-harm gate (round-4 BLOCKER A)', () => {
@@ -966,13 +1047,69 @@ test('a component (f) week delta that is null, non-finite, or non-numeric is a M
     ['string entry', new Array(8).fill('x')],
   ]) {
     const inputs = fullPassingInputs();
-    inputs.cells['usage-00-on'].f.f1 = { weekDeltas: badDeltas };
+    inputs.cells['usage-00-on'].f.f2 = { weekDeltas: badDeltas };
     assert.throws(
       () => runBacktestSweep.validateInputs(inputs),
       /every entry must be a finite number/,
       name
     );
   }
+});
+
+test('every co-primary and (e2) week delta must be a finite NUMBER - coercible and malformed values are rejected at the boundary, with the key named (round-5 MINOR G)', (t) => {
+  // Round 5: the container check accepted anything object-shaped. A quoted
+  // number ('0.5') survived dropWeeks' coercing presence filter and
+  // string-concatenated into bootstrapMean's accumulator - an unlocated
+  // classifyBootstrapEndpoint abort on non-integer data, and on all-integer
+  // data a FINITE corrupted bound (6.5e14) published inside a valid run.
+  // Malformed values (NaN, 'n/a', {nonfinite}) were silently
+  // indistinguishable from a sanctioned dropped week: three of them flipped
+  // a cell verdict and moved the SELECTED cell with no diagnostic.
+  // Negative control: remove the assertWeekDeltaSeries value loop - the
+  // quoted-number case aborts from classifyBootstrapEndpoint instead and the
+  // located-message assertion fails.
+  const seriesSites = [
+    ['a.regretWeekDeltas', (inputs, value) => { inputs.cells['usage-40-off'].a.regretWeekDeltas[5] = value; return /usage-40-off\.a\.regretWeekDeltas\.week-5/; }],
+    ['d.pairwiseWeekDeltas (no cross-check backstop)', (inputs, value) => { inputs.cells['usage-40-off'].d.pairwiseWeekDeltas[7] = value; return /usage-40-off\.d\.pairwiseWeekDeltas\.week-7/; }],
+    ['e2 endpoint', (inputs, value) => { inputs.cells['usage-40-off'].e2.endpoints[0].weekDeltas[9] = value; return /e2\.endpoints\[0\]\(.*\)\.weekDeltas\.week-9/; }],
+  ];
+  for (const [name, plant] of seriesSites) {
+    for (const bad of ['0.5', [1], NaN, 'n/a', null, true, {}, { nonfinite: '+Infinity' }]) {
+      const inputs = fullPassingInputs();
+      const locator = plant(inputs, bad);
+      assert.throws(() => runBacktestSweep.validateInputs(inputs), locator,
+        `${name} <- ${JSON.stringify(bad)} must be rejected AT THE BOUNDARY with the key named`);
+    }
+  }
+
+  // An ARRAY-shaped series is the (f) contract's shape and would silently
+  // misalign the weeks by its zero-based indices - rejected as a container.
+  const arrayShaped = fullPassingInputs();
+  arrayShaped.cells['usage-40-off'].d.regretWeekDeltas = new Array(17).fill(-1);
+  assert.throws(() => runBacktestSweep.validateInputs(arrayShaped), /an array is the \(f\) series' shape/);
+
+  // An out-of-grid week key is evidence the evaluator never reads.
+  const outOfGrid = fullPassingInputs();
+  outOfGrid.cells['usage-40-off'].d.regretWeekDeltas[19] = -1;
+  assert.throws(() => runBacktestSweep.validateInputs(outOfGrid), /week "19" is outside the evaluated grid/);
+
+  // The drop convention SURVIVES the tightening: absence is key omission
+  // (with the matching 2025 descriptive rows blanked, as the harness would),
+  // and a single deletion keeps prereg 10.4's existing disposition.
+  const dir = tmpDir(t);
+  const dropped = fullPassingInputs();
+  delete dropped.cells['usage-40-off'].a.regretWeekDeltas[5];
+  for (const row of dropped.evidence.metricWeeks) {
+    if (row.season === '2025' && row.cell === 'usage-40-off' && row.estimand === 'paired-delta' && row.endpoint === 'regret' && row.week === 5) row.value = { nonfinite: '+Infinity' };
+  }
+  const inputsPath = path.join(dir, 'inputs.json');
+  fs.writeFileSync(inputsPath, JSON.stringify(dropped));
+  const code = runBacktestSweep.main(['--inputs', inputsPath, '--out-json', path.join(dir, 'r.json'), '--out-markdown', path.join(dir, 'r.md')], { expectedRosterCount: 1 });
+  assert.equal(code, 0, 'one omitted week still drops cleanly through the full pipeline');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'r.json'), 'utf8')).run.status, 'valid');
+
+  // And the flagship document still validates unchanged.
+  assert.doesNotThrow(() => runBacktestSweep.validateInputs(fullPassingInputs()));
 });
 
 test('the veto publishes its OWN subgroup size, and section 6.4a\'s arithmetic reconciles on the report alone (round-4 SUBSTANTIVE B)', () => {

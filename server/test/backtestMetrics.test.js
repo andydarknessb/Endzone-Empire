@@ -285,6 +285,25 @@ test('the SHARED resamples are identical for every component that uses them', ()
   }), /15 surviving clusters but the shared resamples were built for 17/);
 });
 
+test('bootstrapMean rejects non-number week values with strict typeof - a coercible string must never reach the accumulator (round-5 MINOR G)', () => {
+  // A quoted number ('1') passes a coercing isFiniteNumber guard, then
+  // STRING-CONCATENATES into the resample accumulator. On all-integer data
+  // the concatenation stays a parseable numeric literal, so the corrupted
+  // bound comes out FINITE and publishes without any abort. Strict typeof is
+  // the library's own layer under the document-boundary check.
+  // Negative control: revert this guard to the coercing isFiniteNumber -
+  // the '1' case below returns a finite corrupted bound instead of throwing.
+  const resamples = metrics.buildBootstrapResamples({ clusterCount: 17 });
+  for (const bad of ['1', '0.5', null, true, [2], NaN, Infinity]) {
+    const weekValues = Array.from({ length: 17 }, (unused, i) => i % 5 === 3 ? bad : 1);
+    assert.throws(
+      () => metrics.bootstrapMean({ weekValues, resamples }),
+      /is not a finite number/,
+      `${JSON.stringify(bad)} must be rejected before the accumulator sees it`
+    );
+  }
+});
+
 test('percentile bounds use the fixed order statistic, with no interpolation', () => {
   const sorted = Array.from({ length: 100 }, (unused, i) => i + 1);
   // ceil(q * n), clamped to [1, n].

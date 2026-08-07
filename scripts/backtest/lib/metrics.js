@@ -428,8 +428,14 @@ function bootstrapMean({ weekValues, resamples, alpha = COMPONENT_ALPHA, label =
       `${resamples.clusterCount}. The resample index must be built AFTER week dropping, and shared.`
     );
   }
+  // Strict typeof, NOT the coercing isFiniteNumber: the accumulator below
+  // requires real numbers, and a quoted number ('1') that survives a coercing
+  // guard string-concatenates into it - on all-integer data the concatenation
+  // stays a valid numeric literal, so the corrupted bound comes out FINITE
+  // and publishes inside a valid run (round 5, MINOR G). The document
+  // boundary rejects such values first; this is the library's own layer.
   for (const v of weekValues) {
-    if (!isFiniteNumber(v)) throw new Error(`${label}: week value ${JSON.stringify(v)} is not a number`);
+    if (typeof v !== 'number' || !Number.isFinite(v)) throw new Error(`${label}: week value ${JSON.stringify(v)} is not a finite number`);
   }
   const stats = new Float64Array(resamples.draws);
   for (let d = 0; d < resamples.draws; d++) {
