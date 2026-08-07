@@ -942,6 +942,102 @@ test('deriveComponentFOperands pins per-week grouping, 2025 scoping, the b <= 0 
   });
 });
 
+test('a component (f) week delta that is null, non-finite, or non-numeric is a MALFORMED document - absent evidence can never pass the no-harm gate (round-4 BLOCKER A)', () => {
+  // Round 4: Number(null) === 0, the most favourable value the margin-shifted
+  // sign test can see - a schema-valid document with NO (f) evidence at all
+  // published a valid run with f passed (exactP 0.00390625) and a selected
+  // cell. A qualifying week's delta is computable by construction (the same
+  // document's veto coverage asserts a realization for every subgroup
+  // player-week x salt), so an absent or non-finite entry contradicts the
+  // document itself: throw-class at validation, never sparse evidence. This
+  // is deliberately NOT the dropWeeks convention, which exists for series
+  // whose weeks can legitimately drop.
+  // Negative control: remove the validateInputs entry check - the all-null
+  // document then dies on arms' own fail-closed guard with a DIFFERENT
+  // message and this regex fails; remove both layers and the round-4
+  // reviewer's `passed` verdict reproduces.
+  for (const [name, badDeltas] of [
+    ['all null - no evidence at all', new Array(8).fill(null)],
+    ['one null week', [null, ...new Array(7).fill(-0.01)]],
+    ['NaN entry', new Array(8).fill(NaN)],
+    ['string entry', new Array(8).fill('x')],
+  ]) {
+    const inputs = fullPassingInputs();
+    inputs.cells['usage-00-on'].f.f1 = { weekDeltas: badDeltas };
+    assert.throws(
+      () => runBacktestSweep.validateInputs(inputs),
+      /every entry must be a finite number/,
+      name
+    );
+  }
+});
+
+test('the veto publishes its OWN subgroup size, and section 6.4a\'s arithmetic reconciles on the report alone (round-4 SUBSTANTIVE B)', () => {
+  // Before this field, the only published subgroup size was the GATE's
+  // (2025-scoped) set, so 6.4a's attestation - realizationCount === 24 x
+  // |subgroup player-weeks| - failed against the report's own numbers
+  // wherever the two domains differ. On the single-season fixture they
+  // coincide at 40; the two-season case is the next test.
+  const report = runBacktestSweep.buildReportFromInputs(fullPassingInputs(), { expectedRosterCount: 1 });
+  const veto = report.cells.find((c) => c.name === 'usage-00-on').components.f.evidence.veto;
+  assert.equal(veto.subgroupPlayerWeekCount, 40);
+  assert.equal(veto.realizationCount, metrics.SALTS.length * veto.subgroupPlayerWeekCount,
+    'section 6.4a mutation test (iv), runnable by a reader on the report alone');
+});
+
+test('a 2024 subgroup player-week widens the VETO domain but not the gate operands, and both published counts reconcile (round-4 SUBSTANTIVE B; season scope rides as SPEC-C)', () => {
+  // The veto stays deliberately UNSCOPED pending SPEC-C's re-anchor ruling -
+  // the wide reading is fail-safe, it can only veto MORE - and the report now
+  // carries the veto's own domain size so 6.4a's arithmetic is checkable even
+  // where the domains differ. A catastrophic 2024 realization vetoes under
+  // today's reading; this test DOCUMENTS that reading (the consequence SPEC-C
+  // must rule on), it does not assert the reading is the sealed one.
+  const inputs = fullPassingInputs();
+  // One 2024 cohort player-week, every coverage assertion satisfied:
+  inputs.preflight.cohortRosterRows.push({ season: 2024, week: 2, playerId: 7 });
+  const model = require('../services/projectionModel');
+  const usage25 = arms.ALL_CELLS.find((cell) => cell.blendWeight === 0.25 && cell.homeAway === 'on');
+  const rawRun = () => ({
+    projections: [{ playerId: 7, median: 19.5, p10: 4, factors: {} }],
+    inputCutoff: '2025-09-01T00:00:00.000Z', sourceCoverage: { synthetic: true },
+  });
+  for (const family of ['controlUsage25Records', 'homeAwayStoredRecords']) {
+    for (const salt of metrics.SALTS) {
+      inputs.preflight[family].push({
+        season: 2024, week: 2, salt,
+        leftPlayerIds: [7], rightPlayerIds: [7], leftRun: rawRun(), rightRun: rawRun(),
+        leftConstants: arms.resolveConstants({ cell: usage25, baseConstants: model.MODEL_CONSTANTS }),
+        rightConstants: arms.resolveConstantsWithStoredHistory({ cell: usage25, baseConstants: model.MODEL_CONSTANTS }),
+      });
+    }
+  }
+  for (const cell of arms.ALL_CELLS) {
+    inputs.preflight.saltSeedRecords.push({
+      cellName: cell.name, season: 2024, week: 2, playerId: 7,
+      seedsBySalt: Object.fromEntries(metrics.SALTS.map((salt, index) => [salt, index])),
+    });
+  }
+  for (const cell of arms.ALL_CELLS.filter((c) => c.homeAway === 'on')) {
+    inputs.preflight.matchedOffBaselineRows.push({ cellName: cell.name, season: 2024, week: 2, playerId: 7, baseline: -1 });
+    for (const salt of metrics.SALTS) {
+      inputs.cells[cell.name].f.veto.realizations.push({
+        season: 2024, week: 2, playerId: 7, salt,
+        // Only usage-00-on's 2024 realization is catastrophic (> 0.2).
+        incrementalError: cell.name === 'usage-00-on' && salt === metrics.SALTS[0] ? 0.5 : 0.01,
+      });
+    }
+  }
+  const report = runBacktestSweep.buildReportFromInputs(inputs, { expectedRosterCount: 1 });
+  const cell = report.cells.find((c) => c.name === 'usage-00-on');
+  const f1 = cell.components.f.evidence.transparency.find((t) => t.endpoint === 'f1-subgroup-mae');
+  assert.equal(f1.subgroupRows, 40, 'the gate operands stay 2025-scoped (prereg 9.8)');
+  assert.equal(f1.qualifyingWeekCount, 8, 'the 2024 week never enters the qualifying set');
+  const veto = cell.components.f.evidence.veto;
+  assert.equal(veto.subgroupPlayerWeekCount, 41, 'the veto domain includes the 2024 player-week');
+  assert.equal(veto.realizationCount, metrics.SALTS.length * 41, '24 x 41 = 984, checkable on the report alone');
+  assert.equal(cell.verdict, 'vetoed', "today's unscoped reading: a catastrophic 2024 realization vetoes");
+});
+
 test('the runner injects ORDERINGS.PRIMARY by VALUE - presence is the guard, identity is this test (round-3 SUBSTANTIVE 4, QA follow-up)', (t) => {
   // The fail-closed guard pins that SOME ordering is injected; nothing pinned
   // WHICH. Swapping the injection to any other ordering would previously have

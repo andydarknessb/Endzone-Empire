@@ -795,6 +795,15 @@ const CATASTROPHIC_CAP_COULD_FIRE_THRESHOLD = (CATASTROPHIC_CAP - 0.01) / MAX_EF
 function exactSignTest({
   weekDeltas, margin = DELTA_F, alpha = COMPONENT_ALPHA, favorablePositive = false, label = 'component (f)',
 }) {
+  // Round 4, BLOCKER A: Number(null) is 0 and Number('x') is NaN - a bare
+  // coercion let an ABSENT week count as a favourable non-tied sign, the one
+  // direction prereg 9.1 forbids. Fail closed like bootstrapMean: this
+  // function's other caller (the triggered-endpoint path) pre-filters through
+  // dropWeeks, and the component (f) path validates the document upstream, so
+  // this guard protects direct library callers.
+  if (!Array.isArray(weekDeltas) || weekDeltas.some((d) => !isFiniteNumber(d))) {
+    throw new Error(`${label}: every week delta must be a finite number; absent evidence is never a favourable sign`);
+  }
   const sign = favorablePositive ? -1 : 1;
   const effectiveMargin = sign * margin;
   // Section 4.4 item 1: count distinct values AFTER ten-decimal
@@ -1049,7 +1058,19 @@ function assertVetoRealizationCoverage({ subgroupPlayerWeeks, realizations, labe
   if (missing.length > 0 || unexpected.length > 0) {
     throw new Error(`${label}: incomplete player-week x salt coverage; missing ${missing.length}, unexpected ${unexpected.length}`);
   }
-  return { expectedCount: expected.size, realizationCount: actual.size, complete: true };
+  // Round 4, SUBSTANTIVE B: the veto's OWN subgroup size is published so
+  // section 6.4a's attestation (realizationCount === 24 x |subgroup
+  // player-weeks|) is checkable from the report's own numbers. The gate
+  // operands' subgroupRows is a DIFFERENT set (2025-scoped, per prereg 9.8's
+  // evaluability quantities); on the real two-season cohort the two counts
+  // necessarily differ, and before this field the only published subgroup
+  // size was the gate's, so the veto arithmetic failed against it.
+  return {
+    subgroupPlayerWeekCount: expectedPlayerWeeks.size,
+    expectedCount: expected.size,
+    realizationCount: actual.size,
+    complete: true,
+  };
 }
 
 function evaluateCatastrophicVeto({ subgroupPlayerWeeks, realizations, label = 'component (f) veto' }) {
@@ -1311,6 +1332,7 @@ function summarizeTransparency(t) {
 function summarizeVeto(veto) {
   if (!veto) return null;
   return {
+    subgroupPlayerWeekCount: isFiniteNumber(veto.subgroupPlayerWeekCount) ? Number(veto.subgroupPlayerWeekCount) : null,
     expectedCount: isFiniteNumber(veto.expectedCount) ? Number(veto.expectedCount) : null,
     realizationCount: isFiniteNumber(veto.realizationCount) ? Number(veto.realizationCount) : null,
     complete: veto.complete === true,

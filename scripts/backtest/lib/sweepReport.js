@@ -123,7 +123,7 @@ const TRANSPARENCY_KEYS = Object.freeze([
   'nonTiedWeeks', 'k', 'exactP', 'invertedBound',
   'weeklyBounds', 'medianWeeklyBound', 'qualifyingWeekCount',
 ]);
-const VETO_EVIDENCE_KEYS = Object.freeze(['expectedCount', 'realizationCount', 'complete', 'catastrophicVeto', 'reason', 'realizations']);
+const VETO_EVIDENCE_KEYS = Object.freeze(['subgroupPlayerWeekCount', 'expectedCount', 'realizationCount', 'complete', 'catastrophicVeto', 'reason', 'realizations']);
 // `arms.activationReport`/`activationReportBothSeasons` also carry their own
 // `label` (a caller-supplied diagnostic string, e.g. "activation 2025") -
 // accepted here but not surfaced in the normalized report, since it names
@@ -190,6 +190,9 @@ function normalizeVeto(veto, { label }) {
   if (!veto) return null;
   assertClosedKeys(veto, VETO_EVIDENCE_KEYS, { label });
   return {
+    // Section 6.4a's attestation is checkable ONLY against the veto's own
+    // domain size - the gate operands' subgroupRows is a different set.
+    subgroupPlayerWeekCount: typeof veto.subgroupPlayerWeekCount === 'number' ? veto.subgroupPlayerWeekCount : null,
     expectedCount: typeof veto.expectedCount === 'number' ? veto.expectedCount : null,
     realizationCount: typeof veto.realizationCount === 'number' ? veto.realizationCount : null,
     complete: veto.complete === true,

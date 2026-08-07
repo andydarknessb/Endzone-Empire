@@ -665,6 +665,44 @@ test('component (f) runs BOTH preregistered endpoints and passes only if BOTH pa
   }).claimVerdict, 'fail');
 });
 
+test('f1 and f2 with DIFFERENT qualifying week SETS evaluate independently - one endpoint firing does not fire the other (spec 6.1a mutation test (iv); round-4 MINOR D)', () => {
+  // The runner-level derivation yields one shared operand set (a disclosed
+  // narrowing); arms.js keeps per-endpoint independence REPRESENTABLE, and no
+  // prior test exercised differing week SETS - only differing rows or deltas.
+  // f2's own NINE-week set clears both minimums but misses the falsifiability
+  // floor (0.05 * 0.1 + 0.01 = 0.015 <= DELTA_F 0.025); f1's eight-week set
+  // clears it. The guard fires per endpoint, on each endpoint's own set.
+  const result = arms.componentF({
+    f1: HEALTHY_F,
+    f2: {
+      weekDeltas: new Array(9).fill(-0.01),
+      subgroupRows: 40,
+      meanAbsBaseline: 0.1,
+      weekMeanAbsBaselines: new Array(9).fill(0.1),
+    },
+    veto: HEALTHY_VETO,
+  });
+  assert.equal(result.endpoints['f1-subgroup-mae'].status, 'passed', "f1 evaluates on its own set; f2's guard does not fire it");
+  assert.equal(result.endpoints['f2-subgroup-absolute-bias'].status, 'unevaluable');
+  assert.match(result.endpoints['f2-subgroup-absolute-bias'].reason, /median transformed weekly attainable bound/);
+  assert.equal(result.status, 'unevaluable');
+  assert.equal(result.claimVerdict, 'inconclusive');
+});
+
+test('exactSignTest refuses a non-finite week delta outright - absent evidence is never a favourable sign (round-4 BLOCKER A)', () => {
+  // Number(null) === 0, and 0 is the most favourable value the margin-shifted
+  // sign test can see. The document boundary rejects such a series first; this
+  // guard is the library's own fail-closed layer, mirroring bootstrapMean.
+  // Negative control: remove the guard - the all-null series returns
+  // { passes: true } with p = 0.00390625.
+  for (const bad of [[null, -0.01, -0.01], [NaN, -0.01], ['x', -0.01], [undefined, -0.01]]) {
+    assert.throws(
+      () => arms.exactSignTest({ weekDeltas: bad }),
+      /every week delta must be a finite number/
+    );
+  }
+});
+
 test('component (f) combiner: a veto outranks an unevaluable endpoint', () => {
   // A veto is positive evidence of harm; unevaluable is merely absent
   // evidence. Missing evidence in one endpoint must never mask measured harm

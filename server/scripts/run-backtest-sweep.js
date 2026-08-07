@@ -260,6 +260,27 @@ function validateInputs(inputs, { label = '--inputs' } = {}) {
           throw new Error(`${cellLabel}.f.${endpointKey}: must be an object`);
         }
         assertClosedKeys(cellInput.f[endpointKey], F_ENDPOINT_INPUT_KEYS, `${cellLabel}.f.${endpointKey}`);
+        // Round 4, BLOCKER A: Number(null) is 0, and 0 is the most favourable
+        // value the margin-shifted sign test can see - a document with NO (f)
+        // evidence at all published a valid run with the no-harm gate passed.
+        // Every entry must be a FINITE NUMBER, throw-class, because under the
+        // derived-operand contract a qualifying week's delta is computable BY
+        // CONSTRUCTION: the veto coverage assertion demands a realization for
+        // every subgroup player-week x salt, so evidence exists for every
+        // qualifying week by the document's own attestation, and an absent or
+        // non-finite entry contradicts it - malformed, never sparse. (This is
+        // deliberately NOT the dropWeeks convention: that exists for series
+        // whose weeks can legitimately drop; this series is aligned 1:1 to
+        // weeks whose evidence the same document asserts complete. An empty
+        // array stays legal - an empty subgroup has zero qualifying weeks.)
+        const weekDeltas = cellInput.f[endpointKey].weekDeltas;
+        if (!Array.isArray(weekDeltas) || weekDeltas.some((d) => typeof d !== 'number' || !Number.isFinite(d))) {
+          throw new Error(
+            `${cellLabel}.f.${endpointKey}.weekDeltas: every entry must be a finite number - a `
+            + 'qualifying week with no delta contradicts the document\'s own complete veto coverage, '
+            + 'and absent evidence must never read as a favourable sign (prereg 9.1).'
+          );
+        }
       }
       if (!cellInput.f.veto || typeof cellInput.f.veto !== 'object') {
         throw new Error(`${cellLabel}.f.veto: must contain the complete player-week x salt realization domain`);
@@ -560,7 +581,7 @@ function unevaluatedCellClaims() {
   return Object.fromEntries(arms.ALL_CELLS.map((cell) => [cell.name, {}]));
 }
 
-function crossCheckComponentFEvidence(cellInputs, cellClaims, derivedFOperandsByCell) {
+function crossCheckComponentFEvidence(cellInputs, cellClaims, derivedFOperandsByCell, vetoRecordsByCell) {
   for (const cellMeta of arms.ALL_CELLS.filter((cell) => cell.homeAway === 'on')) {
     const component = cellClaims[cellMeta.name].components.f;
     const published = component && component.evidence;
@@ -584,6 +605,15 @@ function crossCheckComponentFEvidence(cellInputs, cellClaims, derivedFOperandsBy
     }
     if (published.veto.realizationCount !== source.veto.realizations.length || published.veto.complete !== true) {
       throw new Error(`component (f) evidence: published ${cellMeta.name} veto completeness does not match raw realizations`);
+    }
+    // Round 4, SUBSTANTIVE B: section 6.4a's attestation, checked against the
+    // veto's OWN derived domain - realizationCount === 24 x |subgroup
+    // player-weeks|, with the size itself published so a reader can run the
+    // same arithmetic on the report alone.
+    const derivedVetoPlayerWeeks = vetoRecordsByCell[cellMeta.name].subgroupPlayerWeeks.length;
+    if (published.veto.subgroupPlayerWeekCount !== derivedVetoPlayerWeeks
+      || published.veto.realizationCount !== metrics.SALTS.length * derivedVetoPlayerWeeks) {
+      throw new Error(`component (f) evidence: published ${cellMeta.name} veto domain size does not reconcile with the derived subgroup (section 6.4a)`);
     }
   }
 }
@@ -670,12 +700,15 @@ function buildReportFromInputs(inputs, { expectedRosterCount = rosters.TEAM_COUN
     ? Object.fromEntries(arms.ALL_CELLS.filter((cell) => cell.homeAway === 'on')
       .map((cell) => [cell.name, deriveComponentFOperands(cell.name, inputs.preflight)]))
     : null;
+  const vetoRecordsByCell = harnessOk
+    ? Object.fromEntries(componentFVetoRecords(inputs.cells, inputs.preflight).map((row) => [row.cellName, row]))
+    : null;
   const cellClaims = harnessOk
-    ? Object.fromEntries(arms.ALL_CELLS.map((cellMeta) => [cellMeta.name, assembleCellClaim(cellMeta, inputs.cells[cellMeta.name], componentFVetoRecords(inputs.cells, inputs.preflight).find((row) => row.cellName === cellMeta.name) || null, cellMeta.homeAway === 'on' ? derivedFOperandsByCell[cellMeta.name] : null)]))
+    ? Object.fromEntries(arms.ALL_CELLS.map((cellMeta) => [cellMeta.name, assembleCellClaim(cellMeta, inputs.cells[cellMeta.name], vetoRecordsByCell[cellMeta.name] || null, cellMeta.homeAway === 'on' ? derivedFOperandsByCell[cellMeta.name] : null)]))
     : unevaluatedCellClaims();
   if (harnessOk) sweepEvidence.crossCheckActivationGate(cellClaims, evidence);
   if (harnessOk) sweepEvidence.crossCheckClaimInputs(inputs.cells, evidence);
-  if (harnessOk) crossCheckComponentFEvidence(inputs.cells, cellClaims, derivedFOperandsByCell);
+  if (harnessOk) crossCheckComponentFEvidence(inputs.cells, cellClaims, derivedFOperandsByCell, vetoRecordsByCell);
   const sweep = sweepInference.evaluateSweep({
     cellClaims,
     permutationControl: harnessOk
