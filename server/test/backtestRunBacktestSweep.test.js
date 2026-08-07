@@ -9,6 +9,7 @@ const arms = require('../../scripts/backtest/lib/arms');
 const sweepEvaluator = require('../../scripts/backtest/lib/sweepEvaluator');
 const metrics = require('../../scripts/backtest/lib/metrics');
 const sweepEvidence = require('../../scripts/backtest/lib/sweepEvidence');
+const { ORDERINGS } = require('../../scripts/backtest/lib/ordering');
 
 const PRIMARY = sweepEvidence.PRIMARY_PROFILE;
 
@@ -881,6 +882,78 @@ test('a weekDeltas series misaligned with the DERIVED qualifying weeks is a malf
     () => runBacktestSweep.buildReportFromInputs(inputs, { expectedRosterCount: 1 }),
     /carries 7 weekDeltas against 8 derived qualifying weeks/
   );
+});
+
+test('a matched-off baseline row OUTSIDE the cohort domain voids the run - extra raw rows cannot widen the (f) gate operands (round-3 SUBSTANTIVE 2, QA follow-up)', () => {
+  // QA probe on the first derivation: baseline rows for weeks the cohort
+  // never carried inflated subgroupRows/qualifyingWeekCount past the veto
+  // domain with the preflight green - SUBSTANTIVE 2's divergence by another
+  // door, extra raw rows instead of a free-hand number. The preflight now
+  // rejects the superset outright (extra input is rejected, never silently
+  // ignored), and the derivation additionally intersects with the cohort as
+  // defense in depth.
+  // Negative control: remove the preflight rejection - this reports VALID
+  // (the derivation's own intersection holds the operands at 40) instead of
+  // VOID, and the assertion below fails.
+  const inputs = fullPassingInputs();
+  for (const week of [10, 11, 12]) {
+    for (const playerId of COHORT_PLAYERS) {
+      inputs.preflight.matchedOffBaselineRows.push({ cellName: 'usage-00-on', season: 2025, week, playerId, baseline: -1 });
+    }
+  }
+  const report = runBacktestSweep.buildReportFromInputs(inputs, { expectedRosterCount: 1 });
+  assert.equal(report.run.status, 'void');
+  assert.match(report.run.detail, /OUTSIDE the cohort domain/);
+});
+
+test('deriveComponentFOperands pins per-week grouping, 2025 scoping, the b <= 0 boundary, cohort intersection, and mean-vs-max (round-3 SUBSTANTIVE 2, QA follow-up)', () => {
+  // The flagship fixture is uniform (|b| = 1 everywhere), so it cannot
+  // distinguish mean from max, per-week grouping from a flat fill, or the
+  // season filter from its absence. This heterogeneous row set can - each
+  // excluded row below is excluded by exactly one filter.
+  const matchedOffBaselineRows = [
+    { cellName: 'usage-00-on', season: 2025, week: 2, playerId: 7, baseline: -1 },
+    { cellName: 'usage-00-on', season: 2025, week: 2, playerId: 8, baseline: -3 },
+    // b = 0 is IN the subgroup (prereg 9.8: "at or below zero").
+    { cellName: 'usage-00-on', season: 2025, week: 4, playerId: 7, baseline: 0 },
+    // Excluded: positive baseline (out of subgroup, in cohort).
+    { cellName: 'usage-00-on', season: 2025, week: 3, playerId: 7, baseline: 2 },
+    // Excluded: 2024 (in cohort - only the season filter removes it).
+    { cellName: 'usage-00-on', season: 2024, week: 2, playerId: 7, baseline: -5 },
+    // Excluded: another cell's row.
+    { cellName: 'usage-25-on', season: 2025, week: 2, playerId: 7, baseline: -7 },
+    // Excluded: outside the cohort domain (the intersection, defense in depth).
+    { cellName: 'usage-00-on', season: 2025, week: 9, playerId: 99, baseline: -9 },
+  ];
+  const cohortRosterRows = [
+    { season: 2025, week: 2, playerId: 7 }, { season: 2025, week: 2, playerId: 8 },
+    { season: 2025, week: 3, playerId: 7 }, { season: 2025, week: 4, playerId: 7 },
+    { season: 2024, week: 2, playerId: 7 }, { season: 2025, week: 9, playerId: 7 },
+  ];
+  const derived = runBacktestSweep.deriveComponentFOperands('usage-00-on', { matchedOffBaselineRows, cohortRosterRows });
+  assert.deepEqual(derived, {
+    subgroupRows: 3,
+    meanAbsBaseline: (1 + 3 + 0) / 3,
+    maxAbsBaseline: 3, // mean !== max here; a swapped derivation fails
+    // Ascending weeks [2, 4]; a flat fill of the pooled mean would give
+    // [4/3, 4/3] and lose the per-week grouping section 6.1a item 2 defines.
+    weekMeanAbsBaselines: [2, 0],
+    qualifyingWeekCount: 2,
+  });
+});
+
+test('the runner injects ORDERINGS.PRIMARY by VALUE - presence is the guard, identity is this test (round-3 SUBSTANTIVE 4, QA follow-up)', (t) => {
+  // The fail-closed guard pins that SOME ordering is injected; nothing pinned
+  // WHICH. Swapping the injection to any other ordering would previously have
+  // been caught by no assertion.
+  const realCompute = metrics.computePermutationControl;
+  const captured = [];
+  t.after(() => { metrics.computePermutationControl = realCompute; });
+  metrics.computePermutationControl = (args) => { captured.push(args); return realCompute(args); };
+  runBacktestSweep.buildReportFromInputs(fullPassingInputs(), { expectedRosterCount: 1 });
+  assert.equal(captured.length, 1);
+  assert.equal(captured[0].ordering, ORDERINGS.PRIMARY);
+  assert.equal(captured[0].expectedRosterCount, 1, 'the override travels to the control unchanged');
 });
 
 // ---------------------------------------------------------------------------

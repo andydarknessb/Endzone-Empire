@@ -487,6 +487,29 @@ test('an (f) endpoint is UNEVALUABLE below the minimums, and that is INCONCLUSIV
   assert.match(zeroRows.reason, /2024 cannot rescue sparse 2025 evidence/);
 });
 
+test('EVERY unevaluable (f) return carries qualifyingWeekCount, including the misaligned-series branch (round-3 BLOCKER 1, QA follow-up)', () => {
+  // Section 6.1a item 1 defines the qualifying week count by the endpoint's
+  // own D_w series, so it is publishable whether or not the endpoint is
+  // evaluable - and the runner's evidence cross-check compares it against
+  // that series' length for every published endpoint. The runner can no
+  // longer REACH this branch (the derivation aligns the series by
+  // construction and a length mismatch is a malformed document before
+  // componentF runs), but componentFEndpoint is a library callable outside
+  // the runner, and the round-3 fix covered BOTH pre-guard returns.
+  // Negative control: revert this return to the bare transparency block -
+  // qualifyingWeekCount comes back undefined and the equality below fails.
+  const misaligned = arms.componentFEndpoint({
+    ...HEALTHY_F,
+    weekMeanAbsBaselines: new Array(7).fill(1.0),
+  });
+  assert.equal(misaligned.status, 'unevaluable');
+  assert.match(misaligned.reason, /misaligned/);
+  assert.equal(misaligned.transparency.qualifyingWeekCount, HEALTHY_F.weekDeltas.length);
+
+  const belowMinimum = arms.componentFEndpoint({ ...HEALTHY_F, subgroupRows: 29 });
+  assert.equal(belowMinimum.transparency.qualifyingWeekCount, HEALTHY_F.weekDeltas.length);
+});
+
 test('component (f) uses the transformed weekly-median bound only', () => {
   assert.equal(arms.FALSIFIABILITY_FLOOR, 0.3, '0.30 remains disclosure-only');
   const pooledPassesButMedianFails = arms.componentFEndpoint({

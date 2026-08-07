@@ -501,9 +501,18 @@ function assembleCellClaim(cellMeta, cellInput, derivedFVeto = null, derivedFOpe
  * arms unit tests keep that representability; the round-3 response records
  * the consequence.
  */
-function deriveComponentFOperands(cellName, { matchedOffBaselineRows }) {
+function deriveComponentFOperands(cellName, { matchedOffBaselineRows, cohortRosterRows }) {
+  // Domain identity BY CONSTRUCTION: the operands derive from the same
+  // cohort-intersected rows the veto domain uses. The preflight also rejects
+  // out-of-cohort baseline rows outright, so this intersection is defense in
+  // depth for direct library callers rather than the primary gate - the QA
+  // pass on the first derivation showed an unintersected read let extra raw
+  // rows widen the gate operands past the veto domain with the preflight
+  // green, which is SUBSTANTIVE 2's divergence by another door.
+  const cohortKeys = new Set((cohortRosterRows || []).map((row) => `${Number(row.season)}:${Number(row.week)}:${Number(row.playerId)}`));
   const subgroup = matchedOffBaselineRows.filter((row) => row.cellName === cellName
-    && Number(row.season) === 2025 && Number(row.baseline) <= 0);
+    && Number(row.season) === 2025 && Number(row.baseline) <= 0
+    && cohortKeys.has(`${Number(row.season)}:${Number(row.week)}:${Number(row.playerId)}`));
   const byWeek = new Map();
   for (const row of subgroup) {
     const week = Number(row.week);
@@ -754,6 +763,7 @@ module.exports = {
   parseArgs,
   validateInputs,
   componentFVetoRecords,
+  deriveComponentFOperands,
   preflightFailureDetails,
   boundariesFor,
   assembleCellClaim,

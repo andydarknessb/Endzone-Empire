@@ -241,9 +241,20 @@ function assertComponentFVetoCoverage({ cohortRosterRows, matchedOffBaselineRows
   if (!Array.isArray(matchedOffBaselineRows) || !Array.isArray(records)) throw new Error(`${label}: matchedOffBaselineRows and records must be arrays`);
   const expectedCells = new Set(arms.ALL_CELLS.filter((cell) => cell.homeAway === 'on').map((cell) => cell.name));
   const cohort = deriveCohortPlayerWeeks(cohortRosterRows, `${label}: cohort roster`);
+  const cohortKeys = new Set(cohort.map((row) => playerWeekKey(row, label)));
   const baselineByCell = new Map();
   for (const row of matchedOffBaselineRows) {
     if (!row || !expectedCells.has(row.cellName) || !Number.isFinite(Number(row.baseline))) throw new Error(`${label}: every matched-off baseline needs an on-cell and finite baseline`);
+    // Subgroup membership is assigned over the COHORT's player-weeks (prereg
+    // 9.8). A baseline row outside that domain has no legitimate role, and an
+    // unrejected superset would widen the derived component (f) gate operands
+    // past the veto domain - the round-3 SUBSTANTIVE 2 divergence, reachable
+    // through extra raw rows instead of a free-hand number. Extra input is
+    // rejected, never silently ignored (the same posture as the veto's own
+    // extra-composite-key check).
+    if (!cohortKeys.has(playerWeekKey(row, label))) {
+      throw new Error(`${label}: matched-off baseline ${row.cellName}:${playerWeekKey(row, label)} lies OUTSIDE the cohort domain`);
+    }
     const key = `${row.cellName}:${playerWeekKey(row, label)}`;
     if (baselineByCell.has(key)) throw new Error(`${label}: duplicate matched-off baseline ${key}`);
     baselineByCell.set(key, Number(row.baseline));

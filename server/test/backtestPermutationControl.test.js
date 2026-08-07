@@ -317,6 +317,19 @@ test('prereg 6.2: a dropped pairwise week is EXCLUDED from the mean, never score
   assert.equal(result.pairwise.observed, 1, 'the mean over the 16 SURVIVING weeks; the coercing mean gave 16/17');
   assert.equal(result.regret.observed, 0, 'tied actuals make week 2 regret-neutral; the other 16 weeks stay ordered');
   assert.equal(result.void, false);
+
+  // Drop WITNESS, unit-level: with every surviving week scoring exactly 1,
+  // the end-to-end mean cannot distinguish "week 2 excluded" from "week 2
+  // included at a perfect score" - so the drop itself is pinned directly.
+  // Removing prereg 6.2's drop rule from weekPairwise fails here, not above.
+  const tiedWeekRows = Object.fromEntries(metrics.MACRO_POSITIONS.map((position) => [position,
+    ['QB', 'RB'].includes(position)
+      ? [{ actual: 15, projected: 110 }, { actual: 15, projected: 120 }]
+      : [{ actual: 10, projected: 110 }, { actual: 20, projected: 120 }],
+  ]));
+  const witness = metrics.weekPairwise(tiedWeekRows, { label: 'drop witness' });
+  assert.equal(witness.weekDropped, true, 'two of six positions have no eligible pair, so the WEEK drops (prereg 6.2)');
+  assert.equal(witness.score, null);
 });
 
 test('cross-salt actual inconsistency fails closed - the pairwise drop convention rests on it (round-3 MINOR 5)', () => {
