@@ -596,6 +596,15 @@ test('main(): each component (f) raw-evidence preflight failure independently VO
     ['extra composite key', (inputs) => inputs.cells['usage-25-on'].f.veto.realizations.push({ ...inputs.cells['usage-25-on'].f.veto.realizations[0], playerId: 99 })],
     ['missing incremental error', (inputs) => delete inputs.cells['usage-25-on'].f.veto.realizations[0].incrementalError],
     ['nonfinite incremental error', (inputs) => { inputs.cells['usage-25-on'].f.veto.realizations[0].incrementalError = Infinity; }],
+    // Round-5 QA: since f1's series is DERIVED from this field, a coercible
+    // string previously slipped the preflight's coercing guard and flowed
+    // into a PUBLISHED VERDICT (Number('0.19') everywhere downstream) - the
+    // one realization field whose value feeds arithmetic must be a real
+    // number, and a violation voids like its non-finite siblings, never
+    // scores. Negative control: revert the coverage assertion's strict
+    // typeof to the coercing isFiniteNumber - this case publishes a valid
+    // run with a verdict instead of voiding.
+    ['coercible string incremental error', (inputs) => { inputs.cells['usage-25-on'].f.veto.realizations[0].incrementalError = '0.19'; }],
   ];
   for (const [name, mutate] of cases) {
     const dir = tmpDir(t);
@@ -971,25 +980,38 @@ test('a supplied f.f1 is rejected outright - the document may not carry a second
 });
 
 test('deriveComponentFOneSeries: the section 6.3 form, the 2025 filter, pinned iteration order, and week-set equality (round-5 SUBSTANTIVE F)', () => {
-  // Two qualifying weeks, two players, values chosen so the per-salt week
-  // mean differs from any flat-fill shortcut, plus a 2024 realization that
-  // must be EXCLUDED by the season filter (it belongs to the veto's wider
-  // domain, not f1's).
+  // Three qualifying weeks plus a 2024 realization that must be EXCLUDED by
+  // the season filter (it belongs to the veto's wider domain, not f1's).
+  // Week 6's rows are deliberately INSERTED out of pid order (9, 7, 8) with
+  // values whose reduce is order-sensitive in the last ulp.
   const realizations = [];
   for (const salt of metrics.SALTS) {
     realizations.push({ season: 2025, week: 2, playerId: 7, salt, incrementalError: 0.1 });
     realizations.push({ season: 2025, week: 2, playerId: 8, salt, incrementalError: 0.3 });
     realizations.push({ season: 2025, week: 4, playerId: 7, salt, incrementalError: -0.05 });
     realizations.push({ season: 2024, week: 2, playerId: 7, salt, incrementalError: 99 });
+    realizations.push({ season: 2025, week: 6, playerId: 9, salt, incrementalError: 0.35 });
+    realizations.push({ season: 2025, week: 6, playerId: 7, salt, incrementalError: 0.1 });
+    realizations.push({ season: 2025, week: 6, playerId: 8, salt, incrementalError: 0.2 });
   }
   const series = runBacktestSweep.deriveComponentFOneSeries('usage-00-on', {
-    realizations, qualifyingWeeks: [2, 4],
+    realizations, qualifyingWeeks: [2, 4, 6],
   });
-  // Week 2: per-salt mean (0.1 + 0.3) / 2 = 0.2 under every salt -> D_w 0.2.
-  // Week 4: -0.05. The 2024 value (99) must contribute NOTHING.
-  assert.equal(series.length, 2);
-  assert.ok(Math.abs(series[0] - 0.2) < 1e-12, `week 2: ${series[0]}`);
-  assert.ok(Math.abs(series[1] - -0.05) < 1e-12, `week 4: ${series[1]}`);
+  assert.equal(series.length, 3);
+  // EXACT BIT equality, not a tolerance (round-5 QA): a 1e-12 window is four
+  // orders of magnitude wider than the last-ulp differences the literal 6.3
+  // form exists to pin, so it cannot tell this form from the flat mean it
+  // was chosen over - and arms publishes the raw D_w as test.bound, so a
+  // form change alters report BYTES while a tolerance test stays green.
+  // Negative controls: a flat-mean rewrite fails weeks 2 and 6 (week 6 flat
+  // is 0.21666666666666642); dropping the ascending-pid sort fails week 6
+  // (its insertion-order reduce lands on 0.2166666666666667). All three
+  // values survive the 24-salt mean distinct - triples where the per-salt
+  // means differ but the salt means collapse exist, and this one was chosen
+  // because it does not.
+  assert.equal(series[0], 0.20000000000000007, `week 2 (literal form): ${series[0]}`);
+  assert.equal(series[1], -0.05000000000000002, `week 4: ${series[1]}`);
+  assert.equal(series[2], 0.21666666666666676, `week 6 (pid-ascending reduce): ${series[2]}`);
 
   // Week-set equality fails closed BOTH ways (section 6.1a item 1).
   assert.throws(
@@ -1000,9 +1022,35 @@ test('deriveComponentFOneSeries: the section 6.3 form, the 2025 filter, pinned i
   );
   assert.throws(
     () => runBacktestSweep.deriveComponentFOneSeries('usage-00-on', {
-      realizations, qualifyingWeeks: [2, 4, 9],
+      realizations, qualifyingWeeks: [2, 4, 6, 9],
     }),
     /qualifying week 9 has no 2025 realizations/
+  );
+
+  // Own-layer guards (round-5 QA): unreachable through main() because the
+  // preflight coverage assertion rejects both states first, but the function
+  // is exported, and without them a NaN pid collapses distinct players onto
+  // one Map key and a duplicate (playerId, salt) row last-write-wins - both
+  // silently mis-averaging.
+  assert.throws(
+    () => runBacktestSweep.deriveComponentFOneSeries('usage-00-on', {
+      realizations: metrics.SALTS.flatMap((salt) => [
+        { season: 2025, week: 2, playerId: 'alice', salt, incrementalError: 0.1 },
+        { season: 2025, week: 2, playerId: 'bob', salt, incrementalError: 99 },
+      ]),
+      qualifyingWeeks: [2],
+    }),
+    /week 2 realization has a non-finite playerId \("alice"\)/
+  );
+  assert.throws(
+    () => runBacktestSweep.deriveComponentFOneSeries('usage-00-on', {
+      realizations: [
+        ...metrics.SALTS.map((salt) => ({ season: 2025, week: 2, playerId: 7, salt, incrementalError: 0.1 })),
+        { season: 2025, week: 2, playerId: 7, salt: metrics.SALTS[0], incrementalError: 99 },
+      ],
+      qualifyingWeeks: [2],
+    }),
+    /week 2 has duplicate realizations for playerId 7, salt/
   );
 });
 
@@ -1082,11 +1130,20 @@ test('every co-primary and (e2) week delta must be a finite NUMBER - coercible a
     }
   }
 
+  // The rejection must name the value the operator actually wrote:
+  // JSON.stringify renders NaN and +/-Infinity as the literal `null`, and
+  // "got null" for a NaN is the Number(null) class of misreading (round-5
+  // QA). Negative control: revert the renderer to bare JSON.stringify - this
+  // assertion fails with "got null".
+  const nanPlant = fullPassingInputs();
+  nanPlant.cells['usage-40-off'].a.regretWeekDeltas[5] = NaN;
+  assert.throws(() => runBacktestSweep.validateInputs(nanPlant), /got NaN/);
+
   // An ARRAY-shaped series is the (f) contract's shape and would silently
   // misalign the weeks by its zero-based indices - rejected as a container.
   const arrayShaped = fullPassingInputs();
   arrayShaped.cells['usage-40-off'].d.regretWeekDeltas = new Array(17).fill(-1);
-  assert.throws(() => runBacktestSweep.validateInputs(arrayShaped), /an array is the \(f\) series' shape/);
+  assert.throws(() => runBacktestSweep.validateInputs(arrayShaped), /the array is the \(f\) series' shape/);
 
   // An out-of-grid week key is evidence the evaluator never reads.
   const outOfGrid = fullPassingInputs();

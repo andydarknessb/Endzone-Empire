@@ -1044,9 +1044,17 @@ function assertVetoRealizationCoverage({ subgroupPlayerWeeks, realizations, labe
   const expected = new Set([...expectedPlayerWeeks].flatMap((key) => SALTS.map((salt) => `${key}:${salt}`)));
   const actual = new Set();
   for (const row of realizations) {
+    // incrementalError is STRICT typeof, not the coercing isFiniteNumber:
+    // since round 5 this field is the sole determinant of f1's derived D_w
+    // series, and a coercible string ('0.19') previously passed the coercing
+    // guard and flowed into a published verdict. Strict typeof makes it a
+    // preflight failure that VOIDS with a report - the same disposition its
+    // non-finite and missing siblings already get. The identity fields
+    // (season, week, playerId) stay coerced: their values feed only joins
+    // that coerce identically on both sides, never published arithmetic.
     if (!row || !Number.isInteger(Number(row.season)) || !Number.isInteger(Number(row.week))
       || !Number.isFinite(Number(row.playerId)) || !SALTS.includes(row.salt)
-      || !isFiniteNumber(row.incrementalError)) {
+      || typeof row.incrementalError !== 'number' || !Number.isFinite(row.incrementalError)) {
       throw new Error(`${label}: every realization requires finite season, week, playerId, incrementalError, and a preregistered salt`);
     }
     const key = `${playerWeekKey(row)}:${row.salt}`;

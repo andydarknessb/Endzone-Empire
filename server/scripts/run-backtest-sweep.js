@@ -175,15 +175,23 @@ const WEEK_KEYS = Object.freeze(metrics.EVALUATED_WEEKS.map(String));
  * measured, so it must carry a real, finite number.
  */
 function assertWeekDeltaSeries(series, label) {
-  if (!series || typeof series !== 'object' || Array.isArray(series)) {
-    throw new Error(`${label}: must be a { [week]: number } object keyed by evaluated week - an array is the (f) series' shape, and its indices would silently misalign the weeks`);
+  if (Array.isArray(series)) {
+    throw new Error(`${label}: must be a { [week]: number } object keyed by evaluated week, not an array - the array is the (f) series' shape, and its indices would silently misalign the weeks`);
+  }
+  if (!series || typeof series !== 'object') {
+    throw new Error(`${label}: must be a { [week]: number } object keyed by evaluated week`);
   }
   for (const [week, value] of Object.entries(series)) {
     if (!WEEK_KEYS.includes(week)) {
       throw new Error(`${label}: week ${JSON.stringify(week)} is outside the evaluated grid (weeks ${WEEK_KEYS[0]}-${WEEK_KEYS[WEEK_KEYS.length - 1]}, prereg 4.1) - a key the evaluator never reads is evidence that silently does nothing`);
     }
     if (typeof value !== 'number' || !Number.isFinite(value)) {
-      throw new Error(`${label}.week-${week}: must be a finite number, got ${JSON.stringify(value)}. A week with no rows for this arm is dropped by OMITTING its key (prereg 10.4); never write a placeholder`);
+      // String(value) for numbers, not JSON.stringify: JSON renders NaN and
+      // +/-Infinity as the literal `null`, and a rejection that names a
+      // DIFFERENT value than the one supplied is exactly the Number(null)
+      // class of misreading this repo keeps having to guard against.
+      const rendered = typeof value === 'number' ? String(value) : JSON.stringify(value);
+      throw new Error(`${label}.week-${week}: must be a finite number, got ${rendered}. A week with no rows for this arm is dropped by OMITTING its key (prereg 10.4); never write a placeholder`);
     }
   }
 }
@@ -680,7 +688,19 @@ function deriveComponentFOneSeries(cellName, { realizations, qualifyingWeeks }) 
     const byPlayer = new Map();
     for (const row of rows) {
       const pid = Number(row.playerId);
+      // Own-layer guards, same doctrine as bootstrapMean's strict typeof: the
+      // preflight coverage assertion makes both states unreachable through
+      // main(), but this function is exported, and without these a NaN pid
+      // collapses distinct players onto one Map key (SameValueZero) and a
+      // duplicate (playerId, salt) row silently last-write-wins - both
+      // mis-averaging instead of failing.
+      if (!Number.isFinite(pid)) {
+        throw new Error(`${cellName} f1: week ${week} realization has a non-finite playerId (${JSON.stringify(row.playerId)})`);
+      }
       if (!byPlayer.has(pid)) byPlayer.set(pid, new Map());
+      if (byPlayer.get(pid).has(row.salt)) {
+        throw new Error(`${cellName} f1: week ${week} has duplicate realizations for playerId ${pid}, salt ${row.salt}`);
+      }
       byPlayer.get(pid).set(row.salt, Number(row.incrementalError));
     }
     const players = [...byPlayer.keys()].sort((a, b) => a - b);
@@ -738,8 +758,13 @@ function crossCheckComponentFEvidence(cellInputs, cellClaims, derivedFOperandsBy
     }
     for (const [index, endpoint] of ['f1', 'f2'].entries()) {
       const transparency = published.transparency[index];
-      // f1's series is DERIVED (round 5) - its length leg checks against the
-      // derived series; f2's still checks against the supplied document.
+      // f1's length leg is SELF-CONSISTENT BY CONSTRUCTION under derivation
+      // (round-5 QA): the derived series maps over qualifyingWeeks, and the
+      // published qualifyingWeekCount is that same array's length two calls
+      // later - so this leg validates no document evidence and can only fire
+      // if a future edit decouples the three sites. It is retained as that
+      // decoupling tripwire, not as a cross-check; f2's leg still checks the
+      // published count against the SUPPLIED document series.
       const seriesLength = endpoint === 'f1'
         ? derivedF1SeriesByCell[cellMeta.name].length
         : source[endpoint].weekDeltas.length;
