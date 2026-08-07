@@ -66,6 +66,39 @@ test('permutation control derives both published endpoints from one sealed 10,00
   assert.equal(result.pairwise.draws, 10000);
 });
 
+test('section 5: T_regret is DEPLOYED-POLICY regret - a level-biased but correctly-ORDERED projection has zero regret and a live permutation leg', () => {
+  // NEW-A (round 2): every prior fixture set projected === actual, where
+  // deployed-policy regret and the pre-0d6a753 statistic (mean per-player
+  // |projected - actual|) are BOTH exactly 0 - reverting the scorer passed the
+  // entire suite. This fixture separates them: a uniform +100 level bias with
+  // the within-cell ORDER preserved (the worked diverging input from
+  // MEMO-blocker3-permutation-regret.md section 1).
+  //   deployed-policy regret: ordered projections still start the best lineup,
+  //     so T_obs = 0; a permuted cell starts the wrong player and degrades T
+  //     -> p = 1/10001, run live.
+  //   per-player error: |(a+100) - a| = 100 for every row, and a swap scores
+  //     (100+d) + (100-d) over the pair - permutation-INVARIANT. T_obs = -100,
+  //     every replicate ties, p = 1, and the regret leg VOIDS the run.
+  // (A probe with projected = 0 for every player was rejected: uniform
+  //  projections are order-DEGENERATE, so the started lineup is decided by rank
+  //  tie-breaks rather than by the statistic under test.)
+  // Negative control: revert scoreWeek's regret leg to per-player error - this
+  // test fails on observed, p, AND void while the rest of the file passes.
+  const rosterRows = metrics.EVALUATED_WEEKS.flatMap((week) => metrics.MACRO_POSITIONS.flatMap((position) => [
+    { season: 2025, week, position, playerId: playerKey(position, 1) },
+    { season: 2025, week, position, playerId: playerKey(position, 2) },
+  ]));
+  const observations = metrics.SALTS.flatMap((salt) => metrics.EVALUATED_WEEKS.flatMap((week) => metrics.MACRO_POSITIONS.flatMap((position) => [
+    { season: 2025, week, salt, position, playerId: playerKey(position, 1), actual: 10, projected: 110 },
+    { season: 2025, week, salt, position, playerId: playerKey(position, 2), actual: 20, projected: 120 },
+  ])));
+  const result = metrics.computePermutationControl({ observations, rosterRows, ...policyInputs() });
+  assert.equal(result.regret.observed, 0, 'ordered projections start the best lineup: regret 0. Per-player error gives -100');
+  assert.equal(result.regret.p, 1 / 10001, 'the permutation must DEGRADE the statistic. Per-player error is invariant: p = 1');
+  assert.equal(result.void, false, 'under per-player error the regret leg voids the run');
+  assert.equal(result.pairwise.observed, 1, 'liveness: the level bias leaves the pairwise leg untouched');
+});
+
 test('permutation raw domains reject missing, extra, duplicate, and reordered coordinates before reduction', () => {
   const valid = rawControl();
   assert.doesNotThrow(() => permutationControl.canonicalObservations(valid.observations, valid.rosterRows));
