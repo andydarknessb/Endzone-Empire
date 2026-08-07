@@ -48,6 +48,77 @@ function buildPolicyContext({
   return { entriesByWeek, bestByWeek, ranks, rosterSlots, availabilityFor, optimize, ordering };
 }
 
+/**
+ * Section 5 pins the score as "the mean over the season-week's 50 ROSTERS", and
+ * section 6.4a states the governing principle: "A missing realization is a HARD
+ * ERROR that aborts the run, never a silently smaller ... domain: a [gate] whose
+ * domain quietly shrank is a safety gate reporting 'no catastrophic row found'
+ * about rows it never looked at."
+ *
+ * `canonicalObservations` asserts complete coverage between the observations and
+ * `rosterRows`. The roster and cohort artifacts are INDEPENDENT inputs and had no
+ * such assertion, so a player present in them and absent from the observation
+ * domain carried no projection and no actual - and both `policy.pointsValue` and
+ * `regretFor`'s scorer read a missing value as ZERO. That is the
+ * missing-evidence-becomes-a-measured-zero failure, and it moved T_obs, which
+ * feeds p_hat, which decides whether the run voids.
+ *
+ * The COUNT is likewise INJECTED - like the optimizer and the slot model, never
+ * read from the --inputs document. Production passes rosters.TEAM_COUNT *
+ * rosters.REPLICATES (the same 10 x 5 = 50 that rosters.js asserts when
+ * BUILDING an artifact), so an operator cannot weaken the denominator section 5
+ * pins. It is a parameter rather than a literal because a conformant control is
+ * 50 rosters x 24 salts x 17 weeks x 10,000 replicates = 204,000,000 lineup
+ * solves, about an hour. That is a production run, not a unit test. Tests
+ * inject a small count to exercise the derivation, and assert separately that
+ * the runner passes the pinned 50 and that a wrong count is rejected.
+ */
+function assertPolicyArtifactDomain({ rosterWeeks, cohortWeeks, actualsByWeek, cells, expectedRosterCount, label }) {
+  if (!Number.isInteger(expectedRosterCount) || expectedRosterCount <= 0) {
+    throw new Error(`${label}: the pinned roster count must be injected; section 5's denominator is not operator-supplied`);
+  }
+  for (const week of metrics.EVALUATED_WEEKS) {
+    const rosterWeek = rosterWeeks[week] || rosterWeeks[String(week)];
+    const cohortWeek = cohortWeeks[week] || cohortWeeks[String(week)];
+    if (!rosterWeek || !Array.isArray(rosterWeek.rosters)) throw new Error(`${label}: missing roster artifact for week ${week}`);
+    if (!cohortWeek || !Array.isArray(cohortWeek.members)) throw new Error(`${label}: missing cohort artifact for week ${week}`);
+    if (rosterWeek.rosters.length !== expectedRosterCount) {
+      throw new Error(
+        `${label}: week ${week} carries ${rosterWeek.rosters.length} rosters, not the ${expectedRosterCount} `
+        + 'section 5 pins as the denominator. A truncated roster artifact silently changes the statistic.'
+      );
+    }
+    // The observation domain for this week: every player the control actually
+    // observed, across every position.
+    const observed = actualsByWeek.get(week);
+    const rostered = new Set(rosterWeek.rosters.flatMap((roster) => [
+      ...roster.starters.map((s) => s.playerId), ...roster.bench.map((b) => b.playerId),
+    ]));
+    for (const playerId of rostered) {
+      if (!observed.has(playerId)) {
+        throw new Error(
+          `${label}: week ${week} roster player ${playerId} has no observation. It would score ZERO in `
+          + 'both the started and the best lineup rather than being absent, which is a measured zero '
+          + 'standing in for missing evidence.'
+        );
+      }
+    }
+    // And the cohort must cover the roster, which `rosterEntriesFor` also
+    // enforces per player - asserted here too so the failure names the artifact
+    // rather than surfacing mid-derivation.
+    const cohortIds = new Set(cohortWeek.members.map((m) => m.playerId));
+    for (const playerId of rostered) {
+      if (!cohortIds.has(playerId)) throw new Error(`${label}: week ${week} roster player ${playerId} has no cohort entry`);
+    }
+  }
+  // `cells` is the permutation domain; it is already asserted against the
+  // observations, so this only records that both were checked against the same
+  // week set rather than two different ones.
+  if (Object.keys(cells).length !== metrics.EVALUATED_WEEKS.length * metrics.MACRO_POSITIONS.length) {
+    throw new Error(`${label}: permutation cell domain and policy artifacts disagree on the week set`);
+  }
+}
+
 /** Mirrors controlCellEvaluator's rosterEntries: the identity a lineup is built from. */
 function rosterEntriesFor({ roster, cohortByPlayerId, label }) {
   const identify = (p, slot) => {
@@ -222,19 +293,48 @@ function negativeMean(rows, field) {
 
 function computePermutationControlFromObservations({
   observations, rosterRows, rosterWeeks, cohortWeeks, positionRank, nameRankById,
-  rosterSlots, availabilityFor, optimize, ordering, label = 'permutation control',
+  rosterSlots, availabilityFor, optimize, ordering, expectedRosterCount, label = 'permutation control',
 }) {
   const { bySaltCell, cells } = canonicalObservations(observations, rosterRows, label);
-  const cacheKey = JSON.stringify({ observations, rosterRows, rosterWeeks, cohortWeeks });
+  // The key must cover EVERY input that can change the result. `positionRank`
+  // and `nameRankById` decide candidate order, which policy.js's own docblock
+  // calls load-bearing ("equal costs resolve by CANDIDATE COLUMN ORDER"), and
+  // `rosterSlots`/`ordering` change the lineup outright. Omitting them returned a
+  // stale result for a different question - the exact failure sweepEvidence.js's
+  // resample cache is commented against: "a wrong-but-plausible [result] is not
+  // a failure that announces itself."
+  //
+  // The three function-valued inputs cannot be serialized at all, so they are
+  // compared by REFERENCE on the cached entry rather than encoded in the key.
+  //
+  // `positionRank`/`nameRankById` arrive as Maps from tests and plain objects
+  // from production JSON - and JSON.stringify(new Map()) is '{}', so an
+  // un-canonicalized Map would contribute NOTHING to the key and two calls
+  // differing only in rank order would collide. Maps become entry arrays.
+  const canonicalRankMap = (value) => (value instanceof Map ? [...value.entries()] : value);
+  const cacheKey = JSON.stringify({
+    observations, rosterRows, rosterWeeks, cohortWeeks, rosterSlots, ordering, expectedRosterCount,
+    positionRank: canonicalRankMap(positionRank), nameRankById: canonicalRankMap(nameRankById),
+  });
+  const machinery = { availabilityFor, optimize };
+  const cached = resultCache.get(cacheKey);
+  // A hit may return before assertPolicyArtifactDomain below. That is sound
+  // BECAUSE the key is complete: identical bytes mean the same inputs already
+  // computed successfully, so the assertion ran and passed for exactly this
+  // input set. Rejections throw before the cache is written, so a failure is
+  // never replayed as a success.
+  if (cached && cached.machinery.availabilityFor === availabilityFor && cached.machinery.optimize === optimize) {
+    return cloneResult(cached.result);
+  }
   // Actual points are a property of (week, player) and are never touched by the
   // permutation, so they are collected once and shared by every replicate.
   const actualsByWeek = new Map(metrics.EVALUATED_WEEKS.map((week) => [week, new Map()]));
   for (const row of observations) actualsByWeek.get(row.week).set(row.playerId, row.actual);
+  assertPolicyArtifactDomain({ rosterWeeks, cohortWeeks, actualsByWeek, cells, expectedRosterCount, label });
   const ctx = buildPolicyContext({
     rosterWeeks, cohortWeeks, positionRank, nameRankById, rosterSlots,
     availabilityFor, optimize, ordering, actualsByWeek, label,
   });
-  if (resultCache.has(cacheKey)) return cloneResult(resultCache.get(cacheKey));
   const observedWeeks = metrics.EVALUATED_WEEKS.map((week) => scoreWeek(bySaltCell, null, week, `${label}: observed`, ctx, actualsByWeek));
   const observed = { regret: negativeMean(observedWeeks, 'regret'), pairwise: observedWeeks.reduce((sum, row) => sum + row.pairwise, 0) / observedWeeks.length };
   const permuted = { regret: [], pairwise: [] };
@@ -268,7 +368,7 @@ function computePermutationControlFromObservations({
     pairwise: { observed: observed.pairwise, ...pairwise },
   };
   if (resultCache.size >= 8) resultCache.delete(resultCache.keys().next().value);
-  resultCache.set(cacheKey, result);
+  resultCache.set(cacheKey, { result, machinery });
   return cloneResult(result);
 }
 

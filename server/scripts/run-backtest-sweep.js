@@ -60,11 +60,7 @@ const sweepEvidence = require('../../scripts/backtest/lib/sweepEvidence');
 const { optimalAssignment } = require('../services/lineupOptimizer');
 const { availabilityFor } = require('../services/projectionModel');
 const { DEFAULT_ROSTER_SLOTS } = require('../services/lineup.service');
-// Section 8.6.1's single-leaf constants guard resolves both arms itself, so it
-// needs production's own MODEL_CONSTANTS. Injected here rather than read from
-// the --inputs document, for the same reason as the optimizer: an operator
-// must not be able to supply the constants an identity assertion checks.
-const model = require('../services/projectionModel');
+const rosters = require('../../scripts/backtest/lib/rosters');
 
 // ---------------------------------------------------------------------------
 // CLI
@@ -487,7 +483,32 @@ function crossCheckComponentFEvidence(cellInputs, cellClaims) {
 // main
 // ---------------------------------------------------------------------------
 
-function buildReportFromInputs(inputs) {
+/**
+ * `overrides.expectedRosterCount` is a TEST-ONLY seam, and a named smell: a
+ * test-only parameter on a production function. It exists because section 5's
+ * conformant control is 50 rosters x 24 salts x 17 weeks x 10,000 replicates =
+ * 204,000,000 lineup solves - roughly an hour (see the main() docblock) - so a
+ * test suite that lets the runner inject the real denominator cannot also run
+ * to completion. The alternatives were worse: a permanently-skipped hour-long
+ * test, or dropping end-to-end coverage of the control - the untested-seam
+ * pattern three prior findings share.
+ *
+ * An operator cannot reach it:
+ *  - not from the CLI: parseArgs throws on any unknown argument;
+ *  - not from the --inputs document: validateInputs closes
+ *    inputs.permutationControl's key list, which must never gain
+ *    expectedRosterCount;
+ *  - not from backtest-entrypoint.js: it shells this script with argv only,
+ *    and a function parameter cannot cross a process boundary.
+ * Unknown override keys throw, so a typo'd override configures nothing
+ * silently. One test runs main() with NO override and asserts the pinned 50
+ * is what a 1-roster fixture is rejected against.
+ */
+function buildReportFromInputs(inputs, { expectedRosterCount = rosters.TEAM_COUNT * rosters.REPLICATES, ...unknown } = {}) {
+  const unknownKeys = Object.keys(unknown);
+  if (unknownKeys.length > 0) {
+    throw new Error(`run-backtest-sweep: unknown override key(s): ${unknownKeys.join(', ')}`);
+  }
   validateInputs(inputs);
   // Section 8.6.0 pins the pre-flight order: canaries -> the two identity
   // assertions -> permutation control -> candidate cells. The identity
@@ -499,14 +520,23 @@ function buildReportFromInputs(inputs) {
   // cheap harness-integrity gates that can void the run anyway.
   const preflight = sweepPreflight.runPreflight({
     ...inputs.preflight,
-    baseConstants: model.MODEL_CONSTANTS,
     componentFVetoRecords: componentFVetoRecords(inputs.cells, inputs.preflight),
   });
   const permutationControl = metrics.computePermutationControl({
     ...inputs.permutationControl,
-    rosterSlots: inputs.permutationControl.rosterSlots || DEFAULT_ROSTER_SLOTS,
+    // Unconditional, with NO fallback read of the document. The previous form
+    // was `inputs.permutationControl.rosterSlots || DEFAULT_ROSTER_SLOTS`, which
+    // contradicted the comment above the closed-key list: the boundary held only
+    // because `rosterSlots` is absent from a key array in a DIFFERENT function,
+    // so adding it there - the obvious edit for anyone making those lists
+    // consistent - would have made the slot model operator-supplied in one line.
+    // Now the read does not exist to be enabled.
+    rosterSlots: DEFAULT_ROSTER_SLOTS,
     availabilityFor,
     optimize: optimalAssignment,
+    // Section 5 pins the denominator; defaulted from the same constants
+    // rosters.js asserts when BUILDING an artifact, never from the document.
+    expectedRosterCount,
   });
   const evidence = sweepEvidence.deriveEvidence(inputs.evidence, { permutation: permutationControl });
   const cellClaims = preflight.passed
@@ -528,7 +558,20 @@ function buildReportFromInputs(inputs) {
   return sweepReport.buildReport({ studyId: inputs.studyId, sweep: { ...sweep, evidence } });
 }
 
-function main(argv) {
+/**
+ * RUNTIME, for whoever first runs this against a real --inputs artifact at
+ * Gate 4: the permutation control alone is 50 rosters x 24 salts x 17 weeks x
+ * 10,000 replicates = 204,000,000 deployedPolicyLineup solves. Measured at
+ * 15.2 us/call on drafting hardware (MEMO-blocker3-permutation-regret.md
+ * section 3) and independently re-measured at 21.34 us/call worst-realistic in
+ * the round-2 review (~73 minutes), a real run takes roughly ONE TO THREE
+ * HOURS single-core before the report is written. It has not hung.
+ *
+ * `overrides` is forwarded verbatim to buildReportFromInputs - see the seam
+ * docblock there. The require.main block below passes argv only, so nothing
+ * outside a test can supply it.
+ */
+function main(argv, overrides = {}) {
   const args = parseArgs(argv);
 
   // args.inputs is the operator's own CLI argument to this locally-invoked
@@ -542,7 +585,7 @@ function main(argv) {
     throw new Error(`run-backtest-sweep: could not read/parse ${inputsPath}: ${err.message}`);
   }
 
-  const report = buildReportFromInputs(inputs);
+  const report = buildReportFromInputs(inputs, overrides);
   const canonicalBytes = `${sweepReport.canonicalizeReport(report)}\n`;
   const markdownBytes = sweepReport.renderMarkdown(report);
 

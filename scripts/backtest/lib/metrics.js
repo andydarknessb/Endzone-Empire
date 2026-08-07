@@ -744,7 +744,7 @@ const PERMUTATION_CONTROL_INPUT_KEYS = Object.freeze([
   // lineup machinery the control cell evaluator uses. Without them it can only
   // compute a per-player error, which is invariant to the permutation.
   'rosterWeeks', 'cohortWeeks', 'positionRank', 'nameRankById', 'rosterSlots',
-  'availabilityFor', 'optimize', 'ordering',
+  'availabilityFor', 'optimize', 'ordering', 'expectedRosterCount',
 ]);
 
 function computePermutationControl(input) {

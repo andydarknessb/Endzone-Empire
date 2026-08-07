@@ -335,11 +335,17 @@ test('main(): an UNEVALUABLE endpoint still publishes its n, k, p, bound, and tr
   }
   const inputsPath = path.join(dir, 'inputs.json');
   fs.writeFileSync(inputsPath, JSON.stringify(inputs));
+  // Every main() call that REACHES the control passes the test-only
+  // { expectedRosterCount: 1 } override: the fixtures carry one roster, and
+  // the conformant 50 is a ~1-hour production run. The runner-default test
+  // below proves main() WITHOUT the override injects the pinned 50. Calls that
+  // fail before the control (bad file, bad JSON, bad schema) stay bare - an
+  // override on a path that never reaches the control is dead configuration.
   runBacktestSweep.main([
     '--inputs', inputsPath,
     '--out-json', path.join(dir, 'report.json'),
     '--out-markdown', path.join(dir, 'REPORT.md'),
-  ]);
+  ], { expectedRosterCount: 1 });
   const report = JSON.parse(fs.readFileSync(path.join(dir, 'report.json'), 'utf8'));
   const cell = report.cells.find((c) => c.name === 'usage-40-off');
   assert.equal(cell.components.a.status, 'unevaluable');
@@ -373,7 +379,7 @@ test('main(): an infinite inverted bound is published as a flag, never dropped a
     '--inputs', inputsPath,
     '--out-json', path.join(dir, 'report.json'),
     '--out-markdown', path.join(dir, 'REPORT.md'),
-  ]), 'an infinite bound must not crash canonical serialization');
+  ], { expectedRosterCount: 1 }), 'an infinite bound must not crash canonical serialization');
   const report = JSON.parse(fs.readFileSync(path.join(dir, 'report.json'), 'utf8'));
   const cell = report.cells.find((c) => c.name === 'usage-25-on');
   assert.equal(cell.components.f.status, 'unevaluable');
@@ -387,7 +393,7 @@ test('main(): a comfortably-passing inputs document produces a VALID run with a 
   const outMarkdown = path.join(dir, 'REPORT.md');
   fs.writeFileSync(inputsPath, JSON.stringify(fullPassingInputs()));
 
-  const code = runBacktestSweep.main(['--inputs', inputsPath, '--out-json', outJson, '--out-markdown', outMarkdown]);
+  const code = runBacktestSweep.main(['--inputs', inputsPath, '--out-json', outJson, '--out-markdown', outMarkdown], { expectedRosterCount: 1 });
   assert.equal(code, 0);
 
   const report = JSON.parse(fs.readFileSync(outJson, 'utf8'));
@@ -448,7 +454,7 @@ test('main(): a permutation-control threshold miss produces a VOID run with no c
     permutationControl: syntheticPermutationControl({ fail: true }),
   })));
 
-  runBacktestSweep.main(['--inputs', inputsPath, '--out-json', outJson, '--out-markdown', outMarkdown]);
+  runBacktestSweep.main(['--inputs', inputsPath, '--out-json', outJson, '--out-markdown', outMarkdown], { expectedRosterCount: 1 });
 
   const report = JSON.parse(fs.readFileSync(outJson, 'utf8'));
   assert.equal(report.run.status, 'void');
@@ -472,7 +478,7 @@ test('main(): caller-published permutation evidence is prohibited; the report de
       '--inputs', inputsPath,
       '--out-json', path.join(dir, 'report.json'),
       '--out-markdown', path.join(dir, 'REPORT.md'),
-    ]),
+    ], { expectedRosterCount: 1 }),
     /closed shape violation.*extra permutation/
   );
 });
@@ -487,7 +493,7 @@ test('main(): raw weekly evidence is cross-checked against claim and activation 
   const claimPath = path.join(dir, 'claim-mismatch.json');
   fs.writeFileSync(claimPath, JSON.stringify(claimMismatch));
   assert.throws(
-    () => runBacktestSweep.main(['--inputs', claimPath, '--out-json', path.join(dir, 'claim.json'), '--out-markdown', path.join(dir, 'claim.md')]),
+    () => runBacktestSweep.main(['--inputs', claimPath, '--out-json', path.join(dir, 'claim.json'), '--out-markdown', path.join(dir, 'claim.md')], { expectedRosterCount: 1 }),
     /paired usage-40-off\/2025\/regret\/week-2 does not match component-\(a\) input/
   );
 
@@ -496,7 +502,7 @@ test('main(): raw weekly evidence is cross-checked against claim and activation 
   const activationPath = path.join(dir, 'activation-mismatch.json');
   fs.writeFileSync(activationPath, JSON.stringify(activationMismatch));
   assert.throws(
-    () => runBacktestSweep.main(['--inputs', activationPath, '--out-json', path.join(dir, 'activation.json'), '--out-markdown', path.join(dir, 'activation.md')]),
+    () => runBacktestSweep.main(['--inputs', activationPath, '--out-json', path.join(dir, 'activation.json'), '--out-markdown', path.join(dir, 'activation.md')], { expectedRosterCount: 1 }),
     /aggregate does not match activation gate/
   );
 });
@@ -518,7 +524,7 @@ test('main(): each sealed identity gate failing from raw records independently V
       '--inputs', inputsPath,
       '--out-json', path.join(dir, 'report.json'),
       '--out-markdown', path.join(dir, 'REPORT.md'),
-    ]);
+    ], { expectedRosterCount: 1 });
     const report = JSON.parse(fs.readFileSync(path.join(dir, 'report.json'), 'utf8'));
     assert.equal(report.run.status, 'void', `${name} alone must void the run`);
     assert.equal(report.cells, null, name);
@@ -542,7 +548,7 @@ test('main(): each salt preflight failure independently VOIDS the run from raw s
       '--inputs', inputsPath,
       '--out-json', path.join(dir, 'report.json'),
       '--out-markdown', path.join(dir, 'REPORT.md'),
-    ]);
+    ], { expectedRosterCount: 1 });
     const report = JSON.parse(fs.readFileSync(path.join(dir, 'report.json'), 'utf8'));
     assert.equal(report.run.status, 'void', name);
     assert.equal(report.cells, null, name);
@@ -568,7 +574,7 @@ test('main(): each component (f) raw-evidence preflight failure independently VO
       '--inputs', inputsPath,
       '--out-json', path.join(dir, 'report.json'),
       '--out-markdown', path.join(dir, 'REPORT.md'),
-    ]);
+    ], { expectedRosterCount: 1 });
     const report = JSON.parse(fs.readFileSync(path.join(dir, 'report.json'), 'utf8'));
     assert.equal(report.run.status, 'void', name);
     assert.equal(report.cells, null, name);
@@ -635,7 +641,7 @@ test('main(): (b)/(c) not-applicable is reported as such, and a FAILING (b)/(c) 
     '--inputs', inputsPath,
     '--out-json', path.join(dir, 'report.json'),
     '--out-markdown', path.join(dir, 'REPORT.md'),
-  ]);
+  ], { expectedRosterCount: 1 });
   const report = JSON.parse(fs.readFileSync(path.join(dir, 'report.json'), 'utf8'));
   const usage40Off = report.cells.find((c) => c.name === 'usage-40-off');
   assert.equal(usage40Off.components.c.status, 'failed', '(c) genuinely applies to usage-40-off and genuinely fails here');
@@ -680,7 +686,7 @@ test('main(): a cell-level ordering contradiction forces that cell inconclusive,
     '--inputs', inputsPath,
     '--out-json', path.join(dir, 'report.json'),
     '--out-markdown', path.join(dir, 'REPORT.md'),
-  ]);
+  ], { expectedRosterCount: 1 });
   const report = JSON.parse(fs.readFileSync(path.join(dir, 'report.json'), 'utf8'));
   const usage40Off = report.cells.find((c) => c.name === 'usage-40-off');
   assert.equal(usage40Off.verdict, 'inconclusive');
@@ -730,7 +736,7 @@ test('main(): --verify-against succeeds when regenerating from the SAME inputs, 
   const committedJson = path.join(dir, 'committed-report.json');
   runBacktestSweep.main([
     '--inputs', inputsPath, '--out-json', committedJson, '--out-markdown', path.join(dir, 'committed-REPORT.md'),
-  ]);
+  ], { expectedRosterCount: 1 });
 
   // Second, independent generation, verified against the first - the
   // reproduction check this script can actually offer without a Docker/DB
@@ -741,7 +747,7 @@ test('main(): --verify-against succeeds when regenerating from the SAME inputs, 
     '--out-json', regeneratedJson,
     '--out-markdown', path.join(dir, 'regenerated-REPORT.md'),
     '--verify-against', committedJson,
-  ]));
+  ], { expectedRosterCount: 1 }));
 
   // A genuine divergence (different inputs) must be CAUGHT, not silently
   // accepted - proving the check actually compares content, not just that
@@ -756,7 +762,56 @@ test('main(): --verify-against succeeds when regenerating from the SAME inputs, 
       '--out-json', path.join(dir, 'divergent-report.json'),
       '--out-markdown', path.join(dir, 'divergent-REPORT.md'),
       '--verify-against', committedJson,
-    ]),
+    ], { expectedRosterCount: 1 }),
     /NOT byte-identical.*not reproducible/s
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Section 5's pinned denominator: the seam is test-only, the default is 50
+// ---------------------------------------------------------------------------
+
+test('main() injects section 5\'s pinned 50-roster denominator, unreachable from the CLI and the --inputs document (NEW-B)', (t) => {
+  // The seam is a test-only options parameter. Three boundaries keep the count
+  // out of an operator's hands, each pinned here:
+  assert.throws(
+    () => runBacktestSweep.parseArgs(['--inputs', 'a.json', '--out-json', 'b.json', '--out-markdown', 'c.md', '--expected-roster-count', '1']),
+    /unknown argument --expected-roster-count/
+  );
+  const doc = fullPassingInputs();
+  doc.permutationControl.expectedRosterCount = 1;
+  assert.throws(() => runBacktestSweep.validateInputs(doc), /unexpected key\(s\).*expectedRosterCount/);
+  // And with NO override, main() injects the pinned 50: the 1-roster fixture
+  // is rejected on the count mismatch, proving the default END TO END through
+  // the CLI and the file path. Cheap: assertPolicyArtifactDomain throws before
+  // the policy context is built or a replicate runs - and rejections are never
+  // cached, so this cannot poison the earlier successful runs.
+  // Negative control: change the runner default to 1 - this stops throwing.
+  const dir = tmpDir(t);
+  const inputsPath = path.join(dir, 'inputs.json');
+  fs.writeFileSync(inputsPath, JSON.stringify(fullPassingInputs()));
+  assert.throws(
+    () => runBacktestSweep.main([
+      '--inputs', inputsPath,
+      '--out-json', path.join(dir, 'report.json'),
+      '--out-markdown', path.join(dir, 'REPORT.md'),
+    ]),
+    /carries 1 rosters, not the 50 /
+  );
+});
+
+test('buildReportFromInputs rejects a contradicted injected count and an unknown override key (NEW-B)', () => {
+  // The count participates in the cache key, so the count-3 call cannot
+  // stale-hit the earlier successful { expectedRosterCount: 1 } runs on the
+  // same fixture - dropping expectedRosterCount from the key turns this throw
+  // into a silently-returned stale success, which is the negative control.
+  assert.throws(
+    () => runBacktestSweep.buildReportFromInputs(fullPassingInputs(), { expectedRosterCount: 3 }),
+    /carries 1 rosters, not the 3 /
+  );
+  // A typo'd override must throw, not silently configure nothing.
+  assert.throws(
+    () => runBacktestSweep.buildReportFromInputs(fullPassingInputs(), { expectedRosterCounts: 1 }),
+    /unknown override key\(s\): expectedRosterCounts/
   );
 });

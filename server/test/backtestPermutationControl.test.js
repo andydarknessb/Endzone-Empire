@@ -35,6 +35,13 @@ function policyInputs(playerIds) {
     rosterSlots: DEFAULT_ROSTER_SLOTS,
     availabilityFor,
     optimize: optimalAssignment,
+    // Section 5 pins the denominator at 50 rosters (10 teams x 5 replicates),
+    // which is 204M lineup solves - a production run, not a unit test. The
+    // count is INJECTED, so tests exercise the derivation at 1 roster; the
+    // runner-default test in backtestRunBacktestSweep.test.js proves main()
+    // injects the pinned 50, and the rejection test below proves a count the
+    // artifacts contradict fails closed.
+    expectedRosterCount: 1,
   };
 }
 
@@ -201,6 +208,64 @@ test('the production permutation path actually calls section 5.1 derivation, not
   assert.deepEqual(
     Object.keys(calls[0].cells).sort(),
     metrics.EVALUATED_WEEKS.flatMap((week) => metrics.MACRO_POSITIONS.map((p) => `2025:${week}:${p}`)).sort()
+  );
+});
+
+test('the result cache keys on every result-changing input, including Map-valued rank inputs (NEW-C)', () => {
+  // NEW-C (round 2): the key omitted positionRank/nameRankById/rosterSlots/
+  // ordering - inputs that change the lineup, and with it the result. Worse,
+  // JSON.stringify(new Map()) === '{}', so even once keyed, a Map-valued rank
+  // contributed NOTHING until canonicalized to its entry array.
+  //
+  // ORDER COUPLING, on purpose: this test reuses the seam-spy test's
+  // observation stream (actual + 0.5), whose result that test - which runs
+  // just above - has already cached. A key that drops the Maps therefore
+  // COLLIDES with that entry: the first call here would stale-hit and the spy
+  // would see zero buildPermutations calls. Without the pre-seeded entry the
+  // first call would miss for the wrong reason and this test would prove
+  // nothing, so do not reorder it above the spy test.
+  // Negative control: drop canonicalRankMap from the cache key - the first
+  // assertion fails on a stale hit.
+  const control = rawControl();
+  control.observations = control.observations.map((row) => ({ ...row, actual: row.actual + 0.5 }));
+  const inputs = policyInputs();
+  // Same players, reversed tie-break ranking - a result-changing input.
+  const reversedNameRank = new Map([...inputs.nameRankById.entries()].map(([id]) => [id, -id]));
+  const realBuild = metrics.buildPermutations;
+  const calls = [];
+  try {
+    metrics.buildPermutations = (args) => { calls.push(args); return realBuild(args); };
+    permutationControl.computePermutationControlFromObservations({
+      observations: control.observations, rosterRows: control.rosterRows,
+      ...inputs, nameRankById: reversedNameRank,
+    });
+    assert.equal(calls.length, 1, 'a changed Map-valued rank input must MISS the cache and recompute');
+    permutationControl.computePermutationControlFromObservations({
+      observations: control.observations, rosterRows: control.rosterRows,
+      ...inputs, nameRankById: reversedNameRank,
+    });
+    assert.equal(calls.length, 1, 'an identical repeat call must HIT the cache');
+  } finally {
+    metrics.buildPermutations = realBuild;
+  }
+});
+
+test('the pinned roster count fails closed: missing and contradicted injections are rejected before any replicate runs (NEW-B)', () => {
+  // Both rejections throw in assertPolicyArtifactDomain - before the policy
+  // context is built or a single replicate runs - and a rejection is never
+  // cached, so it cannot mask or be masked by another call. The fail:true
+  // stream keeps both keys novel in this file.
+  const missing = { ...rawControl({ fail: true }), ...policyInputs() };
+  delete missing.expectedRosterCount;
+  assert.throws(
+    () => permutationControl.computePermutationControlFromObservations(missing),
+    /the pinned roster count must be injected/
+  );
+  assert.throws(
+    () => permutationControl.computePermutationControlFromObservations({
+      ...rawControl({ fail: true }), ...policyInputs(), expectedRosterCount: 3,
+    }),
+    /carries 1 rosters, not the 3 /
   );
 });
 
