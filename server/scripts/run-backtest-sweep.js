@@ -703,13 +703,30 @@ function deriveComponentFOneSeries(cellName, { realizations, qualifyingWeeks }) 
       }
       byPlayer.get(pid).set(row.salt, Number(row.incrementalError));
     }
+    // Named-cause guard (round 6, MINOR I): without it, a player-week
+    // missing one salt flowed a NaN into perSalt and saltPairedDelta
+    // reported "salt ... is missing from the candidate or the comparator" -
+    // but no salt is ever missing from the constructed object; a PLAYER ROW
+    // is. The message must name the thing that is actually absent.
+    for (const [pid, bySalt] of byPlayer) {
+      if (bySalt.size !== metrics.SALTS.length) {
+        const absent = metrics.SALTS.filter((salt) => !bySalt.has(salt));
+        throw new Error(
+          `${cellName} f1: week ${week} playerId ${pid} has realizations for ${bySalt.size} of `
+          + `${metrics.SALTS.length} salts - missing ${absent.join(', ')}. Section 6.4's domain is the `
+          + 'complete player-week x salt Cartesian product, so a partial player-week is a malformed input, '
+          + 'not a smaller average.'
+        );
+      }
+    }
     const players = [...byPlayer.keys()].sort((a, b) => a - b);
     const perSalt = Object.fromEntries(metrics.SALTS.map((salt) => [salt,
       players.reduce((sum, pid) => sum + byPlayer.get(pid).get(salt), 0) / players.length]));
     // Reuse the sealed helper rather than re-implementing its arithmetic: the
     // realization IS already the same-salt on-minus-off difference, so the
-    // comparator is zero and `a - 0 === a` bit-exactly - and this inherits
-    // saltPairedDelta's own missing-salt failure mode.
+    // comparator is zero and `a - 0 === a` bit-exactly. saltPairedDelta's own
+    // pairing check remains beneath this as a second layer; the salt-coverage
+    // guard above fires first and names the true cause (round 6, MINOR I).
     return metrics.saltPairedDelta({
       candidateBySalt: perSalt,
       comparatorBySalt: Object.fromEntries(metrics.SALTS.map((salt) => [salt, 0])),

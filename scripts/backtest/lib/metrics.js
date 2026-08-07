@@ -503,6 +503,15 @@ function movingBlockBootstrap({
   }
   const n = weekValues.length;
   if (n < blockLength) throw new Error(`${label}: ${n} clusters cannot form a block of ${blockLength}`);
+  // Strict typeof, mirroring bootstrapMean's guard (round 6, MINOR H): this
+  // accumulator is the same shape, and the same quoted '1' that motivated
+  // that guard produced the same finite corrupted bound (653594771241830.1)
+  // here. Unreachable from the production entry - deriveMovingBlock
+  // pre-filters with sweepEvidence's strict finite() - so this is the
+  // library's own layer, and prereg 10.5's row is published evidence.
+  for (const v of weekValues) {
+    if (typeof v !== 'number' || !Number.isFinite(v)) throw new Error(`${label}: week value ${JSON.stringify(v)} is not a finite number`);
+  }
   const rng = makeRng(seed);
   const blocks = Math.ceil(n / blockLength);
   const stats = new Float64Array(draws);

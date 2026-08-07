@@ -304,6 +304,22 @@ test('bootstrapMean rejects non-number week values with strict typeof - a coerci
   }
 });
 
+test('movingBlockBootstrap rejects non-number week values with the same strict typeof as bootstrapMean (round-6 MINOR H)', () => {
+  // Round 6: bootstrapMean got the strict guard and its identical sibling
+  // accumulator nine lines later did not - the same quoted '1' among sixteen
+  // 1s returned lower=1, upper=653594771241830.1, both finite, no abort.
+  // Negative control: remove movingBlockBootstrap's value loop - the '1'
+  // case below returns that finite corrupted bound instead of throwing.
+  for (const bad of ['1', '0.5', null, true, [2], NaN, Infinity]) {
+    const weekValues = Array.from({ length: 17 }, (unused, i) => i % 5 === 3 ? bad : 1);
+    assert.throws(
+      () => metrics.movingBlockBootstrap({ weekValues, blockLength: 2 }),
+      /is not a finite number/,
+      `${JSON.stringify(bad)} must be rejected before the accumulator sees it`
+    );
+  }
+});
+
 test('percentile bounds use the fixed order statistic, with no interpolation', () => {
   const sorted = Array.from({ length: 100 }, (unused, i) => i + 1);
   // ceil(q * n), clamped to [1, n].

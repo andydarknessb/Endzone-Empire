@@ -1052,6 +1052,23 @@ test('deriveComponentFOneSeries: the section 6.3 form, the 2025 filter, pinned i
     }),
     /week 2 has duplicate realizations for playerId 7, salt/
   );
+
+  // A player-week missing one salt must name the TRUE cause - a missing
+  // player row - not saltPairedDelta's "salt ... is missing", since every
+  // salt key is constructed and none is ever absent (round-6 MINOR I).
+  // Negative control: remove the salt-coverage guard - the message reverts
+  // to the salt-blaming one and this regex fails.
+  const missingOneSalt = metrics.SALTS.flatMap((salt) => [
+    { season: 2025, week: 2, playerId: 7, salt, incrementalError: 0.1 },
+    { season: 2025, week: 2, playerId: 8, salt, incrementalError: 0.2 },
+  ]);
+  missingOneSalt.splice(missingOneSalt.findIndex((r) => r.playerId === 8 && r.salt === metrics.SALTS[3]), 1);
+  assert.throws(
+    () => runBacktestSweep.deriveComponentFOneSeries('usage-00-on', {
+      realizations: missingOneSalt, qualifyingWeeks: [2],
+    }),
+    /week 2 playerId 8 has realizations for 23 of 24 salts - missing/
+  );
 });
 
 test('a document whose realizations state HARM cannot publish a passing (f) - the derived series IS the evidence (round-5 SUBSTANTIVE F)', () => {
