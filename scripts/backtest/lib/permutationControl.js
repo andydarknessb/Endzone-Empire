@@ -304,7 +304,7 @@ function computePermutationControlFromObservations({
   // resample cache is commented against: "a wrong-but-plausible [result] is not
   // a failure that announces itself."
   //
-  // The three function-valued inputs cannot be serialized at all, so they are
+  // The two function-valued inputs cannot be serialized at all, so they are
   // compared by REFERENCE on the cached entry rather than encoded in the key.
   //
   // `positionRank`/`nameRankById` arrive as Maps from tests and plain objects

@@ -805,6 +805,12 @@ test('buildReportFromInputs rejects a contradicted injected count and an unknown
   // stale-hit the earlier successful { expectedRosterCount: 1 } runs on the
   // same fixture - dropping expectedRosterCount from the key turns this throw
   // into a silently-returned stale success, which is the negative control.
+  // PREMISE, self-checked: a count-1 SUCCESS on this exact fixture must exist
+  // in-process before the contradicted call, or the negative control above
+  // has no stale entry to hit and this test proves less than it claims. This
+  // call makes the premise local (cache hit if the earlier main() tests ran;
+  // a fresh computation under test isolation) instead of order-coupled.
+  assert.ok(runBacktestSweep.buildReportFromInputs(fullPassingInputs(), { expectedRosterCount: 1 }));
   assert.throws(
     () => runBacktestSweep.buildReportFromInputs(fullPassingInputs(), { expectedRosterCount: 3 }),
     /carries 1 rosters, not the 3 /

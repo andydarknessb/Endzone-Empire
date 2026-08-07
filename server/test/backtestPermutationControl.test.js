@@ -74,15 +74,20 @@ test('permutation control derives both published endpoints from one sealed 10,00
 });
 
 test('section 5: T_regret is DEPLOYED-POLICY regret - a level-biased but correctly-ORDERED projection has zero regret and a live permutation leg', () => {
-  // NEW-A (round 2): every prior fixture set projected === actual, where
-  // deployed-policy regret and the pre-0d6a753 statistic (mean per-player
-  // |projected - actual|) are BOTH exactly 0 - reverting the scorer passed the
-  // entire suite. This fixture separates them: a uniform +100 level bias with
-  // the within-cell ORDER preserved (the worked diverging input from
+  // NEW-A (round 2): every prior PASSING fixture set projected === actual,
+  // where deployed-policy regret and the pre-0d6a753 statistic (mean
+  // per-player |projected - actual|) are BOTH exactly 0 - and the fail:true
+  // variants are equally blind (both statistics land at T = -1, p = 1) - so
+  // reverting the scorer left the whole suite's results identical. This
+  // fixture separates them: a uniform +100 level bias with the within-cell
+  // ORDER preserved (the worked diverging input from
   // MEMO-blocker3-permutation-regret.md section 1).
   //   deployed-policy regret: ordered projections still start the best lineup,
   //     so T_obs = 0; a permuted cell starts the wrong player and degrades T
-  //     -> p = 1/10001, run live.
+  //     -> p = 1/10001, run live. (The decisive cells are the SINGLE-slot
+  //     positions - QB, K, DEF; RB/WR/TE swaps are absorbed by the two-slot +
+  //     FLEX geometry. The seeded p is exact either way: no replicate leaves
+  //     all 51 decisive cells unpermuted.)
   //   per-player error: |(a+100) - a| = 100 for every row, and a swap scores
   //     (100+d) + (100-d) over the pair - permutation-INVARIANT. T_obs = -100,
   //     every replicate ties, p = 1, and the regret leg VOIDS the run.
@@ -211,21 +216,24 @@ test('the production permutation path actually calls section 5.1 derivation, not
   );
 });
 
-test('the result cache keys on every result-changing input, including Map-valued rank inputs (NEW-C)', () => {
+test('the result cache MISSES on a changed Map-valued rank input and HITS on an identical repeat (NEW-C)', () => {
   // NEW-C (round 2): the key omitted positionRank/nameRankById/rosterSlots/
   // ordering - inputs that change the lineup, and with it the result. Worse,
   // JSON.stringify(new Map()) === '{}', so even once keyed, a Map-valued rank
   // contributed NOTHING until canonicalized to its entry array.
   //
-  // ORDER COUPLING, on purpose: this test reuses the seam-spy test's
-  // observation stream (actual + 0.5), whose result that test - which runs
-  // just above - has already cached. A key that drops the Maps therefore
-  // COLLIDES with that entry: the first call here would stale-hit and the spy
-  // would see zero buildPermutations calls. Without the pre-seeded entry the
-  // first call would miss for the wrong reason and this test would prove
-  // nothing, so do not reorder it above the spy test.
-  // Negative control: drop canonicalRankMap from the cache key - the first
-  // assertion fails on a stale hit.
+  // COVERAGE LIMIT, stated: this pins nameRankById - the input whose Map hole
+  // was the found failure mode - and the repeat-call hit. positionRank,
+  // rosterSlots and ordering are in the key but have no per-input variation
+  // test, because each variation costs a full 10,000-replicate computation.
+  //
+  // ORDER COUPLING, on purpose and SELF-CHECKED below: this test reuses the
+  // seam-spy test's observation stream (actual + 0.5), whose result that test
+  // - which runs just above - has already cached. A key that drops the Maps
+  // COLLIDES with that entry: the divergent call would stale-hit and the spy
+  // would see zero buildPermutations calls.
+  // Negative control: drop canonicalRankMap from the cache key - the
+  // divergent-call assertion fails on a stale hit.
   const control = rawControl();
   control.observations = control.observations.map((row) => ({ ...row, actual: row.actual + 0.5 }));
   const inputs = policyInputs();
@@ -235,6 +243,16 @@ test('the result cache keys on every result-changing input, including Map-valued
   const calls = [];
   try {
     metrics.buildPermutations = (args) => { calls.push(args); return realBuild(args); };
+    // PREMISE, self-checked: the spy test's identical call must still be
+    // cached, or the stale-hit discrimination below proves nothing. If this
+    // assertion fails, the file was reordered (or the pre-seeding fixture
+    // changed) and this test has silently lost its discriminating power -
+    // which also means it fails loudly under --test-name-pattern isolation,
+    // by design.
+    permutationControl.computePermutationControlFromObservations({
+      observations: control.observations, rosterRows: control.rosterRows, ...inputs,
+    });
+    assert.equal(calls.length, 0, 'PREMISE: the seam-spy test must have cached this exact call already');
     permutationControl.computePermutationControlFromObservations({
       observations: control.observations, rosterRows: control.rosterRows,
       ...inputs, nameRankById: reversedNameRank,
