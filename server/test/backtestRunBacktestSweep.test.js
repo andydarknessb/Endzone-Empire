@@ -62,9 +62,17 @@ function syntheticPreflight() {
     projections: [{ playerId: 7, median: 12.5, p10: 4, factors: {} }],
     inputCutoff: '2025-09-01T00:00:00.000Z', sourceCoverage: { synthetic: true },
   });
+  // Section 8.6.1's single-leaf guard runs on the constants the two arms were
+  // ACTUALLY built with, so the records carry them. The on-stored arm differs
+  // from its twin in exactly homeAway.useStoredHistory.
+  const model = require('../services/projectionModel');
+  const usage25 = arms.ALL_CELLS.find((cell) => cell.blendWeight === 0.25 && cell.homeAway === 'on');
+  const baseResolved = () => arms.resolveConstants({ cell: usage25, baseConstants: model.MODEL_CONSTANTS });
+  const storedResolved = () => arms.resolveConstantsWithStoredHistory({ cell: usage25, baseConstants: model.MODEL_CONSTANTS });
   const records = () => metrics.SALTS.map((salt) => ({
     season: 2025, week: 2, salt,
     leftPlayerIds: [7], rightPlayerIds: [7], leftRun: rawRun(), rightRun: rawRun(),
+    leftConstants: baseResolved(), rightConstants: storedResolved(),
   }));
   return {
     cohortRosterRows,
