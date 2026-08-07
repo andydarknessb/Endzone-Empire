@@ -8,6 +8,7 @@ const permutationControl = require('../../scripts/backtest/lib/permutationContro
 const { optimalAssignment } = require('../../server/services/lineupOptimizer');
 const { availabilityFor } = require('../../server/services/projectionModel');
 const { DEFAULT_ROSTER_SLOTS } = require('../../server/services/lineup.service');
+const { ORDERINGS } = require('../../scripts/backtest/lib/ordering');
 
 // Section 5's T_regret is mean DEPLOYED-POLICY regret over the week's rosters,
 // so the control needs the same roster/cohort artifacts and lineup machinery the
@@ -35,6 +36,9 @@ function policyInputs(playerIds) {
     rosterSlots: DEFAULT_ROSTER_SLOTS,
     availabilityFor,
     optimize: optimalAssignment,
+    // Injected machinery, like the optimizer: the module fails closed on a
+    // missing ordering rather than riding policy.js's default (round 3).
+    ordering: ORDERINGS.PRIMARY,
     // Section 5 pins the denominator at 50 rosters (10 teams x 5 replicates),
     // which is 204M lineup solves - a production run, not a unit test. The
     // count is INJECTED, so tests exercise the derivation at 1 roster; the
@@ -284,6 +288,63 @@ test('the pinned roster count fails closed: missing and contradicted injections 
       ...rawControl({ fail: true }), ...policyInputs(), expectedRosterCount: 3,
     }),
     /carries 1 rosters, not the 3 /
+  );
+});
+
+test('prereg 6.2: a dropped pairwise week is EXCLUDED from the mean, never scored 0 (round-3 MINOR 5)', () => {
+  // weekPairwise returns score null for a week where more than one position
+  // has no eligible pair; the salt mean previously coerced that null to 0
+  // ("sum + null === sum"), scoring the dropped week as the minimum possible
+  // accuracy - a measured zero standing in for missing evidence. Week 2's QB
+  // and RB actuals TIE here, so week 2 drops under every salt and every
+  // replicate (eligibility is a function of the actuals alone, identical
+  // across salts), and the observed pairwise must be the mean of the 16
+  // SURVIVING weeks - exactly 1. p_hat was invariant to the old bug because
+  // both T_obs and every T_b shared it; the discriminator is the published
+  // statistic itself.
+  // Negative control: restore the coercing reduce in either aggregation site
+  // - this fails with 16/17 (observed) or a shifted p (one-sided change).
+  const rosterRows = metrics.EVALUATED_WEEKS.flatMap((week) => metrics.MACRO_POSITIONS.flatMap((position) => [
+    { season: 2025, week, position, playerId: playerKey(position, 1) },
+    { season: 2025, week, position, playerId: playerKey(position, 2) },
+  ]));
+  const tied = (week, position) => week === 2 && (position === 'QB' || position === 'RB');
+  const observations = metrics.SALTS.flatMap((salt) => metrics.EVALUATED_WEEKS.flatMap((week) => metrics.MACRO_POSITIONS.flatMap((position) => [
+    { season: 2025, week, salt, position, playerId: playerKey(position, 1), actual: tied(week, position) ? 15 : 10, projected: 110 },
+    { season: 2025, week, salt, position, playerId: playerKey(position, 2), actual: tied(week, position) ? 15 : 20, projected: 120 },
+  ])));
+  const result = metrics.computePermutationControl({ observations, rosterRows, ...policyInputs() });
+  assert.equal(result.pairwise.observed, 1, 'the mean over the 16 SURVIVING weeks; the coercing mean gave 16/17');
+  assert.equal(result.regret.observed, 0, 'tied actuals make week 2 regret-neutral; the other 16 weeks stay ordered');
+  assert.equal(result.void, false);
+});
+
+test('cross-salt actual inconsistency fails closed - the pairwise drop convention rests on it (round-3 MINOR 5)', () => {
+  // actualsByWeek was last-wins: the same (week, player) carrying different
+  // actuals under two salts silently kept whichever salt sorted last, and the
+  // permutation-invariance of prereg 6.2's drop (identical week set in T_obs
+  // and every T_b) rests on cross-salt consistency. Now it is asserted.
+  const control = rawControl();
+  const target = control.observations.findIndex((row) => row.salt === metrics.SALTS[1]
+    && row.week === 2 && row.position === 'QB' && row.playerId === playerKey('QB', 1));
+  control.observations[target] = { ...control.observations[target], actual: 99 };
+  assert.throws(
+    () => permutationControl.computePermutationControlFromObservations({ ...control, ...policyInputs() }),
+    /under one salt and .* under another/
+  );
+});
+
+test('a missing lineup ordering is rejected fail-closed, never defaulted three modules away (round-3 SUBSTANTIVE 4)', () => {
+  // metrics' key list admits `ordering` as injected machinery, but nothing
+  // injected it: production reached the right value only through policy.js's
+  // own destructuring default, one key-list edit from operator-supplied. The
+  // runner now injects ORDERINGS.PRIMARY explicitly and this module refuses
+  // undefined, mirroring the optimize/availabilityFor guard.
+  const inputs = { ...rawControl(), ...policyInputs() };
+  delete inputs.ordering;
+  assert.throws(
+    () => permutationControl.computePermutationControlFromObservations(inputs),
+    /the lineup ordering must be injected explicitly/
   );
 });
 

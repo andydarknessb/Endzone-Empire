@@ -61,6 +61,7 @@ const { optimalAssignment } = require('../services/lineupOptimizer');
 const { availabilityFor } = require('../services/projectionModel');
 const { DEFAULT_ROSTER_SLOTS } = require('../services/lineup.service');
 const rosters = require('../../scripts/backtest/lib/rosters');
+const { ORDERINGS } = require('../../scripts/backtest/lib/ordering');
 
 // ---------------------------------------------------------------------------
 // CLI
@@ -540,6 +541,12 @@ function buildReportFromInputs(inputs, { expectedRosterCount = rosters.TEAM_COUN
       rosterSlots: DEFAULT_ROSTER_SLOTS,
       availabilityFor,
       optimize: optimalAssignment,
+      // The lineup ORDERING is injected like the optimizer and the slot model
+      // - never from the document, and never via policy.js's own destructuring
+      // default three modules away. Round 3: a value the runner does not
+      // explicitly pin is one key-list edit from operator-supplied, and
+      // metrics' key list already names this one.
+      ordering: ORDERINGS.PRIMARY,
       // Section 5 pins the denominator; defaulted from the same constants
       // rosters.js asserts when BUILDING an artifact, never from the document.
       expectedRosterCount,

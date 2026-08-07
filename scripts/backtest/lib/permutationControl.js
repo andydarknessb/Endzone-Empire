@@ -272,7 +272,45 @@ function scoreWeek(bySaltCell, orders, week, label, ctx, actualsByWeek) {
       pairwise: metrics.weekPairwise(rowsByPosition, { label }).score,
     };
   });
-  return { regret: perSalt.reduce((sum, value) => sum + value.regret, 0) / perSalt.length, pairwise: perSalt.reduce((sum, value) => sum + value.pairwise, 0) / perSalt.length };
+  // Prereg 6.2: a week where more than one position has no eligible pair is
+  // DROPPED from the pairwise macro-average - weekPairwise returns score null,
+  // and null must never coerce to 0 in a mean (`sum + null === sum` scored a
+  // dropped week as the minimum possible accuracy). Eligibility is a function
+  // of the ACTUALS, which are asserted identical across salts, so a week
+  // either drops under every salt or under none - a mixed state means the
+  // premise failed and this fails closed rather than averaging around it.
+  const pairwiseBySalt = perSalt.map((value) => value.pairwise);
+  const droppedSalts = pairwiseBySalt.filter((value) => value === null).length;
+  if (droppedSalts > 0 && droppedSalts < pairwiseBySalt.length) {
+    throw new Error(
+      `${label}: week ${week} dropped from the pairwise macro-average under ${droppedSalts} of `
+      + `${pairwiseBySalt.length} salts. Eligibility depends only on the actuals, which are `
+      + 'identical across salts, so a mixed drop state is impossible on consistent input.'
+    );
+  }
+  return {
+    regret: perSalt.reduce((sum, value) => sum + value.regret, 0) / perSalt.length,
+    pairwise: droppedSalts > 0 ? null : pairwiseBySalt.reduce((sum, value) => sum + value, 0) / pairwiseBySalt.length,
+  };
+}
+
+/**
+ * The 17-week pairwise mean over SURVIVING weeks: a dropped week (prereg 6.2)
+ * is excluded from numerator AND denominator, never scored 0. Observed and
+ * every permutation replicate share this helper because section 5.1 step 9
+ * requires the IDENTICAL code path - a one-sided change here would turn a
+ * shared convention into a divergence between T_obs and the T_b distribution,
+ * i.e. a wrong p-value on the gate that can void the run.
+ */
+function meanPairwiseOverSurvivingWeeks(weekRows, label) {
+  const surviving = weekRows.filter((row) => row.pairwise !== null);
+  if (surviving.length === 0) {
+    throw new Error(
+      `${label}: every evaluated week dropped from the pairwise macro-average (prereg 6.2) - `
+      + 'no surviving week means no publishable statistic, never a zero.'
+    );
+  }
+  return surviving.reduce((sum, row) => sum + row.pairwise, 0) / surviving.length;
 }
 
 const resultCache = new Map();
@@ -295,6 +333,15 @@ function computePermutationControlFromObservations({
   observations, rosterRows, rosterWeeks, cohortWeeks, positionRank, nameRankById,
   rosterSlots, availabilityFor, optimize, ordering, expectedRosterCount, label = 'permutation control',
 }) {
+  // The ORDERING is injected machinery like the optimizer and the slot model.
+  // Refusing undefined here (mirroring metrics' optimize/availabilityFor
+  // guard) means production can never silently ride policy.js's own
+  // destructuring default three modules away - a value the runner does not
+  // explicitly pin is one key-list edit from operator-supplied (round 3,
+  // recording MINOR D's lesson on this parameter).
+  if (typeof ordering !== 'string' || ordering.length === 0) {
+    throw new Error(`${label}: the lineup ordering must be injected explicitly; it is machinery, not a defaultable detail`);
+  }
   const { bySaltCell, cells } = canonicalObservations(observations, rosterRows, label);
   // The key must cover EVERY input that can change the result. `positionRank`
   // and `nameRankById` decide candidate order, which policy.js's own docblock
@@ -328,15 +375,31 @@ function computePermutationControlFromObservations({
   }
   // Actual points are a property of (week, player) and are never touched by the
   // permutation, so they are collected once and shared by every replicate.
+  // Cross-salt consistency is ASSERTED, not assumed: pairwise eligibility (and
+  // with it prereg 6.2's drop) is a function of the actuals, and the
+  // permutation-invariance that keeps the drop identical between T_obs and
+  // every T_b rests on the same (week, player) carrying the same actual under
+  // all 24 salts. This map used to be last-wins.
   const actualsByWeek = new Map(metrics.EVALUATED_WEEKS.map((week) => [week, new Map()]));
-  for (const row of observations) actualsByWeek.get(row.week).set(row.playerId, row.actual);
+  for (const row of observations) {
+    const weekActuals = actualsByWeek.get(row.week);
+    const existing = weekActuals.get(row.playerId);
+    if (existing !== undefined && existing !== row.actual) {
+      throw new Error(
+        `${label}: player ${row.playerId} week ${row.week} carries actual ${row.actual} under one `
+        + `salt and ${existing} under another - actual points are a property of (week, player), `
+        + 'and the pairwise drop convention rests on their cross-salt consistency.'
+      );
+    }
+    weekActuals.set(row.playerId, row.actual);
+  }
   assertPolicyArtifactDomain({ rosterWeeks, cohortWeeks, actualsByWeek, cells, expectedRosterCount, label });
   const ctx = buildPolicyContext({
     rosterWeeks, cohortWeeks, positionRank, nameRankById, rosterSlots,
     availabilityFor, optimize, ordering, actualsByWeek, label,
   });
   const observedWeeks = metrics.EVALUATED_WEEKS.map((week) => scoreWeek(bySaltCell, null, week, `${label}: observed`, ctx, actualsByWeek));
-  const observed = { regret: negativeMean(observedWeeks, 'regret'), pairwise: observedWeeks.reduce((sum, row) => sum + row.pairwise, 0) / observedWeeks.length };
+  const observed = { regret: negativeMean(observedWeeks, 'regret'), pairwise: meanPairwiseOverSurvivingWeeks(observedWeeks, `${label}: observed`) };
   const permuted = { regret: [], pairwise: [] };
   // Section 5.1 step 2: each (replicate, cellKey) is seeded by SHA-256 of
   // `PERMUTATION_SEED|replicate|cellKey`, "derived by HASH rather than by
@@ -355,7 +418,7 @@ function computePermutationControlFromObservations({
     const orders = permutations.replicate(replicate);
     const weeks = metrics.EVALUATED_WEEKS.map((week) => scoreWeek(bySaltCell, orders, week, `${label}: replicate ${replicate}`, ctx, actualsByWeek));
     permuted.regret.push(negativeMean(weeks, 'regret'));
-    permuted.pairwise.push(weeks.reduce((sum, row) => sum + row.pairwise, 0) / weeks.length);
+    permuted.pairwise.push(meanPairwiseOverSurvivingWeeks(weeks, `${label}: replicate ${replicate}`));
   }
   const regret = metrics.permutationPValue({ observed: observed.regret, permuted: permuted.regret, label: `${label}: regret` });
   const pairwise = metrics.permutationPValue({ observed: observed.pairwise, permuted: permuted.pairwise, label: `${label}: pairwise` });
