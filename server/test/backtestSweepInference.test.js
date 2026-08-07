@@ -53,6 +53,39 @@ test('a canary failure or an identity-assertion failure also void the run', () =
   );
 });
 
+test('a NOT-RUN control is accepted only beside a void-forcing harness failure, and rejected on a clean run (round-3 SUBSTANTIVE 3)', () => {
+  // Section 8.6.0's disposition: a harness failure voids the run BEFORE the
+  // control runs, so the runner skips it and passes this marker instead of
+  // fabricated p-values. On a clean run the marker is a bug, not a shortcut.
+  const notRun = { notRun: true };
+  assert.throws(
+    () => sweepInference.evaluateSweep({ cellClaims: allCells(), permutationControl: notRun }),
+    /skipped ONLY when a void-forcing preflight or canary failure/
+  );
+  const voided = sweepInference.evaluateSweep({
+    cellClaims: allCells(), permutationControl: notRun, identityAssertionsPassed: false,
+  });
+  assert.equal(voided.run.status, 'void');
+  assert.match(voided.run.reasons.join(';'), /sealed identity assertion failed/);
+  assert.doesNotMatch(voided.run.reasons.join(';'), /permutation control missed/,
+    'the void reasons are the harness failures; the control was never measured against its threshold');
+  assert.equal(voided.permutationControl.reason, 'not-run');
+  assert.match(voided.permutationControl.detail, /NOT RUN/);
+  const canaryVoided = sweepInference.evaluateSweep({
+    cellClaims: allCells(), permutationControl: notRun, canariesPassed: false,
+  });
+  assert.equal(canaryVoided.run.status, 'void');
+  assert.equal(canaryVoided.permutationControl.reason, 'not-run');
+  // The component (f) veto leg has no boolean of its own - it voids through
+  // preflightFailures alone, and must count as void-forcing too.
+  const vetoVoided = sweepInference.evaluateSweep({
+    cellClaims: allCells(), permutationControl: notRun,
+    preflightFailures: ['component (f) veto: incomplete player-week x salt coverage'],
+  });
+  assert.equal(vetoVoided.run.status, 'void');
+  assert.equal(vetoVoided.permutationControl.reason, 'not-run');
+});
+
 test('a valid run with no passing cells reaches Level 5 as no-proposal (none passed)', () => {
   const result = sweepInference.evaluateSweep({
     cellClaims: allCells('fail'), permutationControl: cleanPermutation,

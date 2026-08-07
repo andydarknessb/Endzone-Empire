@@ -511,43 +511,57 @@ function buildReportFromInputs(inputs, { expectedRosterCount = rosters.TEAM_COUN
   }
   validateInputs(inputs);
   // Section 8.6.0 pins the pre-flight order: canaries -> the two identity
-  // assertions -> permutation control -> candidate cells. The identity
-  // assertions ran AFTER the permutation control here, which had two
-  // consequences. `runPreflight` captures rather than throws, so the pinned
-  // order always produces a report; the permutation control does throw, so a
-  // malformed control aborted before a sealed identity failure was ever
-  // reported. And it spent the full 10,000-replicate computation before the
-  // cheap harness-integrity gates that can void the run anyway.
+  // assertions -> permutation control -> candidate cells - and pins the
+  // DISPOSITION: "Level 1 void, immediately". `runPreflight` captures rather
+  // than throws; everything downstream of a harness failure is then SKIPPED,
+  // for two reasons the round-3 review separated. A malformed control document
+  // throws inside canonicalObservations, so running the control after a
+  // captured failure could discard the void report the capture existed to
+  // produce. And a conformant control is a ~204,000,000-solve, 1-3 hour
+  // computation (see the main() docblock) - burning it after the harness is
+  // known broken defeats 8.6.0's stated rationale, and publishing its
+  // p-values inside a report that declares the harness broken is worse.
   const preflight = sweepPreflight.runPreflight({
     ...inputs.preflight,
     componentFVetoRecords: componentFVetoRecords(inputs.cells, inputs.preflight),
   });
-  const permutationControl = metrics.computePermutationControl({
-    ...inputs.permutationControl,
-    // Unconditional, with NO fallback read of the document. The previous form
-    // was `inputs.permutationControl.rosterSlots || DEFAULT_ROSTER_SLOTS`, which
-    // contradicted the comment above the closed-key list: the boundary held only
-    // because `rosterSlots` is absent from a key array in a DIFFERENT function,
-    // so adding it there - the obvious edit for anyone making those lists
-    // consistent - would have made the slot model operator-supplied in one line.
-    // Now the read does not exist to be enabled.
-    rosterSlots: DEFAULT_ROSTER_SLOTS,
-    availabilityFor,
-    optimize: optimalAssignment,
-    // Section 5 pins the denominator; defaulted from the same constants
-    // rosters.js asserts when BUILDING an artifact, never from the document.
-    expectedRosterCount,
-  });
-  const evidence = sweepEvidence.deriveEvidence(inputs.evidence, { permutation: permutationControl });
-  const cellClaims = preflight.passed
+  // Canaries are FIRST in the pinned order and void-forcing on their own.
+  const harnessOk = preflight.passed && inputs.canariesPassed === true;
+  const permutationControl = harnessOk
+    ? metrics.computePermutationControl({
+      ...inputs.permutationControl,
+      // Unconditional, with NO fallback read of the document. The previous form
+      // was `inputs.permutationControl.rosterSlots || DEFAULT_ROSTER_SLOTS`, which
+      // contradicted the comment above the closed-key list: the boundary held only
+      // because `rosterSlots` is absent from a key array in a DIFFERENT function,
+      // so adding it there - the obvious edit for anyone making those lists
+      // consistent - would have made the slot model operator-supplied in one line.
+      // Now the read does not exist to be enabled.
+      rosterSlots: DEFAULT_ROSTER_SLOTS,
+      availabilityFor,
+      optimize: optimalAssignment,
+      // Section 5 pins the denominator; defaulted from the same constants
+      // rosters.js asserts when BUILDING an artifact, never from the document.
+      expectedRosterCount,
+    })
+    // NOT-RUN, never fabricated p-values: sweepInference accepts this marker
+    // only beside a void-forcing failure and throws on a clean run, so the
+    // skip cannot be used to dodge the gate.
+    : null;
+  const evidence = harnessOk
+    ? sweepEvidence.deriveEvidence(inputs.evidence, { permutation: permutationControl })
+    : null;
+  const cellClaims = harnessOk
     ? Object.fromEntries(arms.ALL_CELLS.map((cellMeta) => [cellMeta.name, assembleCellClaim(cellMeta, inputs.cells[cellMeta.name], componentFVetoRecords(inputs.cells, inputs.preflight).find((row) => row.cellName === cellMeta.name) || null)]))
     : unevaluatedCellClaims();
-  if (preflight.passed) sweepEvidence.crossCheckActivationGate(cellClaims, evidence);
-  if (preflight.passed) sweepEvidence.crossCheckClaimInputs(inputs.cells, evidence);
-  if (preflight.passed) crossCheckComponentFEvidence(inputs.cells, cellClaims);
+  if (harnessOk) sweepEvidence.crossCheckActivationGate(cellClaims, evidence);
+  if (harnessOk) sweepEvidence.crossCheckClaimInputs(inputs.cells, evidence);
+  if (harnessOk) crossCheckComponentFEvidence(inputs.cells, cellClaims);
   const sweep = sweepInference.evaluateSweep({
     cellClaims,
-    permutationControl: { regretP: permutationControl.regret.p, pairwiseP: permutationControl.pairwise.p },
+    permutationControl: harnessOk
+      ? { regretP: permutationControl.regret.p, pairwiseP: permutationControl.pairwise.p }
+      : { notRun: true },
     canariesPassed: inputs.canariesPassed,
     identityAssertionsPassed: preflight.identities.passed,
     saltCollisionPassed: preflight.saltSeeds.passed,

@@ -582,6 +582,49 @@ test('main(): each component (f) raw-evidence preflight failure independently VO
   }
 });
 
+test('a harness failure voids IMMEDIATELY: the control never runs, and a malformed control document cannot swallow the void report (round-3 SUBSTANTIVE 3)', (t) => {
+  // Round 3: the runner captured preflight failures, then called the control
+  // unconditionally. A malformed control document threw inside
+  // canonicalObservations and the captured sealed-identity failure was never
+  // reported - no report at all - while a well-formed one burned the full
+  // 10,000-replicate compute (1-3 h on real data) AFTER the harness was known
+  // broken, then published control p-values inside the very report that
+  // declares the harness broken. Now any harness failure skips the control
+  // and the report carries an explicit NOT-RUN marker - never fabricated
+  // p-values (sweepInference rejects the marker on a clean run).
+  // Negative control: revert the harnessOk gate to the unconditional call -
+  // case (a) throws "invalid raw observation" instead of reporting void, and
+  // the spy records an invocation.
+  const realCompute = metrics.computePermutationControl;
+  const invocations = [];
+  t.after(() => { metrics.computePermutationControl = realCompute; });
+  metrics.computePermutationControl = (args) => { invocations.push(args); return realCompute(args); };
+
+  // (a) A sealed-identity failure PLUS a malformed control document.
+  const compound = fullPassingInputs();
+  compound.preflight.homeAwayStoredRecords = compound.preflight.homeAwayStoredRecords
+    .map(({ leftConstants, rightConstants, ...rest }) => rest);
+  compound.permutationControl.observations[0] = { ...compound.permutationControl.observations[0], projected: null };
+  const report = runBacktestSweep.buildReportFromInputs(compound, { expectedRosterCount: 1 });
+  assert.equal(report.run.status, 'void');
+  assert.match(report.run.detail, /raw-evidence preflight failed: homeaway stored identity/);
+  assert.equal(report.cells, null);
+  assert.equal(report.evidence, null, 'no evidence is derived on a harness the report declares broken');
+  assert.equal(report.permutationControl.reason, 'not-run');
+  assert.match(report.permutationControl.detail, /NOT RUN/);
+  assert.equal(invocations.length, 0, 'the control must never be invoked after a harness failure');
+
+  // (b) A canary failure alone - FIRST in section 8.6.0's pinned order, and
+  // previously ungated: it voided the run only after the control had run.
+  const canary = fullPassingInputs();
+  canary.canariesPassed = false;
+  const canaryReport = runBacktestSweep.buildReportFromInputs(canary, { expectedRosterCount: 1 });
+  assert.equal(canaryReport.run.status, 'void');
+  assert.match(canaryReport.run.detail, /a canary failed \(prereg 17\)/);
+  assert.equal(canaryReport.permutationControl.reason, 'not-run');
+  assert.equal(invocations.length, 0, 'a canary failure alone must also skip the control');
+});
+
 test('validateInputs requires raw preflight records, never operator-supplied identity/salt booleans', () => {
   const missingBoth = fullPassingInputs();
   missingBoth.preflight = true;

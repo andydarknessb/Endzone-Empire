@@ -24,7 +24,9 @@ const metrics = require('./metrics');
  * sweep. `permutationControl`: `{ regretP, pairwiseP }`, the control cell's
  * plus-one p-values against the permutation null (section 5) -
  * `metrics.assertPermutationControl` is the single source of truth for the
- * `p <= 0.001` threshold. `canariesPassed`/`identityAssertionsPassed`/
+ * `p <= 0.001` threshold - or `{ notRun: true }` when a void-forcing harness
+ * failure skipped the control (section 8.6.0's disposition; rejected on a
+ * clean run). `canariesPassed`/`identityAssertionsPassed`/
  * `saltCollisionPassed`: the other named `void` causes (prereg 17; section
  * 8.6's two sealed assertions; section 3.4 item 5's salt-collision guard),
  * booleans derived by the raw-record preflight, rather than operator-supplied
@@ -58,19 +60,54 @@ function evaluateSweep({
     throw new Error(`${label}: cellClaims names cell(s) outside the preregistered 8: ${extraCells.join(', ')}`);
   }
 
-  const permResult = metrics.assertPermutationControl({
-    regretP: permutationControl.regretP,
-    pairwiseP: permutationControl.pairwiseP,
-    label: `${label}: permutation control`,
-  });
+  // Section 8.6.0's disposition on a harness failure is "Level 1 void,
+  // immediately" - the control is skipped, never computed on a harness the
+  // same report declares broken. The marker is accepted ONLY beside a
+  // void-forcing failure: on a clean run the control is mandatory and a
+  // caller cannot use the skip to dodge the gate. No p-values are fabricated
+  // - metrics.assertPermutationControl stays the single source of the 0.001
+  // threshold and is simply not called for a control that never ran.
+  const controlNotRun = permutationControl && permutationControl.notRun === true;
+  // Void-forcing means ANY leg classifyRun voids on: the three booleans OR a
+  // captured raw-evidence preflight failure (the component (f) veto leg flows
+  // through preflightFailures alone, with no boolean of its own).
+  const voidForcingFailure = !canariesPassed || !identityAssertionsPassed || !saltCollisionPassed
+    || (Array.isArray(preflightFailures) && preflightFailures.length > 0);
+  if (controlNotRun && !voidForcingFailure) {
+    throw new Error(
+      `${label}: the permutation control may be skipped ONLY when a void-forcing preflight or `
+      + 'canary failure precedes it (section 8.6.0, disposition on failure); on a clean run the '
+      + 'control is mandatory.'
+    );
+  }
+  const permResult = controlNotRun
+    ? {
+      void: false,
+      reason: 'not-run',
+      detail: 'the permutation control was NOT RUN: a canary or raw-evidence preflight failure '
+        + 'voids the run before the control per section 8.6.0, so no control statistic exists '
+        + 'for this run and none is published.',
+      failures: [],
+    }
+    : metrics.assertPermutationControl({
+      regretP: permutationControl.regretP,
+      pairwiseP: permutationControl.pairwiseP,
+      label: `${label}: permutation control`,
+    });
 
   const run = arms.classifyRun({
     canariesPassed,
-    permutationControlPassed: !permResult.void,
+    // On a skipped control the run's void reasons are the harness failures
+    // themselves; adding a control reason would claim the control missed a
+    // threshold it was never measured against.
+    permutationControlPassed: controlNotRun ? true : !permResult.void,
     identityAssertionsPassed,
     saltCollisionPassed,
     preflightFailures,
   });
+  if (controlNotRun && run.status !== 'void') {
+    throw new Error(`${label}: a skipped control must land on a void run - classifyRun disagrees, which is a bug`);
+  }
 
   if (run.status === 'void') {
     return {
