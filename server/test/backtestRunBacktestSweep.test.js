@@ -423,6 +423,9 @@ test('main(): a comfortably-passing inputs document produces a VALID run with a 
   assert.match(markdown, /Outcome: \*\*selected\*\*/);
   assert.match(markdown, /## Descriptive evidence/);
   assert.match(markdown, /Permutation: seed=940227589, replicates=10000/);
+  // Section 6.4a's attestation is checkable on the MARKDOWN artifact alone,
+  // not only the JSON one (round-4 QA follow-up).
+  assert.match(markdown, /veto coverage: subgroup player-weeks=40, expected=960, realized=960, complete=true/);
   assert.match(markdown, /### Eight-cell metrics/);
   // Section 8.7 rule 1: the factorial family is the formal primary, half_ppr.
   assert.match(markdown, /\| 2025 \| half_ppr \| usage-25-off \| absolute \| regret \|/);
@@ -992,6 +995,10 @@ test('a 2024 subgroup player-week widens the VETO domain but not the gate operan
   // where the domains differ. A catastrophic 2024 realization vetoes under
   // today's reading; this test DOCUMENTS that reading (the consequence SPEC-C
   // must rule on), it does not assert the reading is the sealed one.
+  // (Precision on this test's teeth: under a quietly 2025-scoped veto it
+  // still fails, but via the coverage assertion's throw - 984 realizations
+  // against a 40-player-week domain is "unexpected 24" - which fires inside
+  // assembleCellClaim before the count assertions below are reached.)
   const inputs = fullPassingInputs();
   // One 2024 cohort player-week, every coverage assertion satisfied:
   inputs.preflight.cohortRosterRows.push({ season: 2024, week: 2, playerId: 7 });

@@ -477,7 +477,10 @@ function renderComponentsTable(components) {
     }
     if (components.f.evidence.veto) {
       const veto = components.f.evidence.veto;
-      lines.push(`- veto coverage: expected=${veto.expectedCount}, realized=${veto.realizationCount}, complete=${veto.complete}, catastrophic=${veto.catastrophicVeto}`);
+      // The veto's OWN domain size leads the line so section 6.4a's
+      // attestation (realized === 24 x subgroup player-weeks) is checkable on
+      // the Markdown artifact alone, not only the JSON one.
+      lines.push(`- veto coverage: subgroup player-weeks=${veto.subgroupPlayerWeekCount}, expected=${veto.expectedCount}, realized=${veto.realizationCount}, complete=${veto.complete}, catastrophic=${veto.catastrophicVeto}`);
       for (const realization of veto.realizations) {
         lines.push(`  - realization: season=${realization.season}, week=${realization.week}, player=${realization.playerId}, salt=${realization.salt}, incrementalError=${realization.incrementalError}`);
       }

@@ -268,11 +268,20 @@ function validateInputs(inputs, { label = '--inputs' } = {}) {
         // CONSTRUCTION: the veto coverage assertion demands a realization for
         // every subgroup player-week x salt, so evidence exists for every
         // qualifying week by the document's own attestation, and an absent or
-        // non-finite entry contradicts it - malformed, never sparse. (This is
-        // deliberately NOT the dropWeeks convention: that exists for series
-        // whose weeks can legitimately drop; this series is aligned 1:1 to
-        // weeks whose evidence the same document asserts complete. An empty
-        // array stays legal - an empty subgroup has zero qualifying weeks.)
+        // non-finite entry contradicts it - malformed, never sparse.
+        //
+        // The sealed convention this DECLINES, named so the argument is won
+        // rather than omitted: prereg 10.4's drop-and-report rule ("a week
+        // with no rows for an arm is dropped ... more than 2 of the 17
+        // evaluated weeks drop -> UNEVALUABLE"). That rule governs series
+        // over the FIXED 17-week grid, where a week can legitimately carry no
+        // rows. Component (f)'s week set is DEFINED by presence (prereg 9.8
+        // step 1: weeks WITH subgroup rows in both cells; spec 6.1a item 1:
+        // "the identical week set the endpoint's own D_w series is built
+        // from"), so a null aligned 1:1 to a QUALIFYING week is
+        // self-contradictory, not a legitimate drop - the sibling of 6.4a's
+        // "a missing realization is a HARD ERROR". An empty array stays
+        // legal: an empty subgroup has zero qualifying weeks.
         const weekDeltas = cellInput.f[endpointKey].weekDeltas;
         if (!Array.isArray(weekDeltas) || weekDeltas.some((d) => typeof d !== 'number' || !Number.isFinite(d))) {
           throw new Error(
