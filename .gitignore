@@ -87,3 +87,9 @@ test-results/
 # backtest-data/observed-hosts.json, and backtest-data/inspection/.
 backtest-data/sources/*
 !backtest-data/sources/provenance.json
+
+# The agent memory index is deliberately UNTRACKED: it auto-loads into an
+# agent context from inside any clone, which defeated the review independence
+# bar (round-2 disclosure). It stays local, like the hand-delivered review
+# documents. docs/agents/* remains tracked - reference-only, never auto-loaded.
+CLAUDE.md
