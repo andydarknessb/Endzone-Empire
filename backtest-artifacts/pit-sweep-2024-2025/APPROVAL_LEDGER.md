@@ -212,6 +212,7 @@ remain prohibited pending the final independent implementation review.
 | 7 | `PHASE5_EXECUTION_SPEC.md` | `5EA91A5E23602101E725C5560DAE071BD6A81659AD33E48EC25F64BA6E959F78` | independent statistical review | 2026-08-06 | revision 34, sections 3-8; exact git blob `e339020a3e61bfc32a20a3acd2f1f246f155a8b8` at commit `81289fa0e980f5b71dbf7c660f036cfa253e44ae`. **Reach as stated by the approver**: the three repaired sections and the changed bytes were read directly; the 2,407 carried-over scope lines were NOT re-read and rest on that reviewer's revision-33 examination plus verified byte-identity | **APPROVED** |
 | 8 | `PHASE5_EXECUTION_SPEC.md` | `5EA91A5E23602101E725C5560DAE071BD6A81659AD33E48EC25F64BA6E959F78` | user | 2026-08-06 | S3 structurally non-estimable prospective deviation (section 7): reserve-class rows are excluded at roster construction under the frozen active-only cohort before any injury-status mapping, so prereg 4.2's rule has no row to apply to. **No S3 estimate is published**; exclusion counts may be published as context, never as a substitute S3 result; disclosed as an explicit prospective deviation from prereg 4.2. Unchanged in substance from row 5 | **APPROVED** |
 | 9 | `PHASE5_EXECUTION_SPEC.md` | `5EA91A5E23602101E725C5560DAE071BD6A81659AD33E48EC25F64BA6E959F78` | user | 2026-08-06 | remainder of revision 34, all provisions outside row 8's S3 deviation. **Scope of authorization: Gate 2 IMPLEMENTATION only — does NOT authorize candidate-cell execution**, which remains gated on the fourth approval. Attested after being shown section 10.3's disclosure and the two known-wrong counts recorded at corrective entry 19 item (5); the approver attested with knowledge of both, not in ignorance of them | **APPROVED** |
+| 10 | `PHASE5_EXECUTION_SPEC.md` | `5EA91A5E23602101E725C5560DAE071BD6A81659AD33E48EC25F64BA6E959F78` | independent implementation review | 2026-08-07 | Gate 2 implementation conformance to revision 34, sections 3-8 (lines 1060-3487; spec blob `e339020a3e61bfc32a20a3acd2f1f246f155a8b8` at anchor `81289fa0e980f5b71dbf7c660f036cfa253e44ae`), **reviewed at implementation commit `6e9411b8760525ea56182f47a7733a69ad0dd7c2`** on branch `integration`; reviewer of rounds 3-6, no authorship of any repair in the range. **Bounded as stated by the approver**: by the round-6 reach statement — four standing UNCHECKED items (real `seedFrom` output, section 4.6.2's contrast producers, the Semgrep scanner verdict, the microbenchmark) and the non-existence of the `--inputs` producer, so generation-side requirements are verified only as far as the reducer reaches — and by two open MINOR findings (H: `movingBlockBootstrap`'s unguarded accumulator; I: a mis-attributed diagnostic), neither reachable through the production entry point, which the approver expects closed or answered rather than silently carried. **Does NOT authorize candidate-cell execution**: Gate 4's B3 re-cut carrying the complete Phase 5 implementation and Gate 3's verification of it remain, per specification section 1 | **APPROVED** |
 
 **Row 7's earlier reservation is superseded — see corrective entry 19.** The
 paragraph that follows was written at corrective entry 2, when rows 4-6 were
@@ -2333,3 +2334,84 @@ non-conformant by the author's disclosure, and two open defects in
 `sweepEvidence.js` were raised by a pre-submission review and remain unfixed
 as amendment-class work. **Any change to `PHASE5_EXECUTION_SPEC.md` lapses
 rows 7, 8 and 9 together**, since all three attach to one hash.
+
+---
+
+### CORRECTIVE ENTRY 21 — appended 2026-08-07
+
+**This entry records the FOURTH AND FINAL OUTSTANDING APPROVAL and creates
+approval row 10.** With rows 7, 8 and 9, **all four approvals are now in
+force against the same bytes** — the condition the specification requires
+and which has never previously obtained. **Entries 1-20 are not edited.**
+
+**(1) The approval issued.** The independent implementation review of the
+Gate 2 code (its sixth round; the same reviewer performed rounds 3 through
+6 and authored no repair in the range) returned APPROVAL of implementation
+commit `6e9411b8760525ea56182f47a7733a69ad0dd7c2` on branch `integration`,
+for conformance to sections 3-8 of revision 34:
+
+```
+SHA-256   5EA91A5E23602101E725C5560DAE071BD6A81659AD33E48EC25F64BA6E959F78
+git blob  e339020a3e61bfc32a20a3acd2f1f246f155a8b8
+anchor    81289fa0e980f5b71dbf7c660f036cfa253e44ae
+reviewed  6e9411b8760525ea56182f47a7733a69ad0dd7c2   (implementation commit)
+```
+
+All identifiers were verified against git before the row was written. The
+approver wrote no row, drafted none, and named no number, closing their
+report with "recording it is the commissioning party's" — which is the
+explicit direction under which row 10 was written, after the approval
+issued. **Row 10 is the number because it was next when the approval
+issued**; per entry 20 item (5)'s rule, no number had been named in advance,
+and none is named now for anything future.
+
+**(2) WHAT GATE STATE THIS PRODUCES, stated exactly.** All four approvals
+attach to one identical hash. **Candidate-cell execution remains NOT
+authorized.** Specification section 1's remaining preconditions are
+unchanged by this row and are named in the approval itself: Gate 4's B3
+re-cut carrying the complete Phase 5 implementation, and Gate 3's
+verification of it. **Gate 0 is unchanged and still in force**: no execution
+of any candidate cell against any freeze state, no real-data access
+including `backtest-data/snapshot/`, no sweep generation, no result
+inspection. A reader holding this entry alone must not conclude the study
+can run; four approvals are necessary and are now present, and they are
+still not sufficient.
+
+**(3) The approval's reach, recorded so row 10 is not over-read.** The
+approver bounded it explicitly: the four standing UNCHECKED items (real
+`seedFrom` output; section 4.6.2's contrast producers including
+`control-naive`; the Semgrep scanner verdict; the 15.2 µs benchmark on
+drafting hardware) and the fact that **the `--inputs` producer does not
+exist**, so every requirement about how the document's raw records are
+generated is verified only as far as the reducer can reach. Two MINOR
+findings are open at the reviewed commit — H, `movingBlockBootstrap`'s
+accumulator lacking the strict-typeof guard its sibling `bootstrapMean`
+received in the same range, and I, a missing-realization diagnostic naming
+a missing salt where a player row is missing — neither reachable through
+the production entry point, neither changing any status on a document that
+passes validation, and both expected by the approver to be closed or
+answered rather than silently carried. **Their closure will land in commits
+after `6e9411b` and is therefore outside row 10's reviewed bytes**; the B3
+re-cut and Gate 3's verification are where the complete implementation,
+including any such commits, is examined as a whole.
+
+**(4) The lapse arithmetic, restated over four rows.** Any change to
+`PHASE5_EXECUTION_SPEC.md` lapses rows 7, 8, 9 and 10 together, since all
+four attach to one hash. The deferral plan already accepts this: SPEC-C
+(the veto's season scope, a decision item) and the seven inert
+specification findings ride at Gate 4's B3 re-cut, and resolving them will
+move the specification bytes. **When that happens, all four approvals lapse
+and must be re-issued against the new anchor — a known and accepted cost of
+the deferral plan, recorded here so no later reader mistakes the lapse for
+an accident.**
+
+**(5) One process defect this round, disclosed by the approver and recorded
+with its remedy.** The round-6 packet first reached the reviewer incomplete
+— six of eleven files, without the commission — and the reviewer stopped
+before reading any code, said so, and received the complete packet on
+request. This is the second firing of the packet-assembly class (round 3's
+packet promised attachments it did not deliver). **Standing remedy: every
+packet delivery now includes a SHA-256 manifest of its files, and the
+reviewer verifies receipt against it before starting.** The round-6
+manifest was so delivered, and the reviewer's own report records that no
+code was read before the commission was in hand.
