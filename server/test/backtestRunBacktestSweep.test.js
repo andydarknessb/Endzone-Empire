@@ -42,24 +42,38 @@ function passingE2Input() {
   };
 }
 
+// Round 3, SUBSTANTIVE 2: the four (f) gate operands are DERIVED from
+// preflight.matchedOffBaselineRows, so the endpoint input carries only its
+// weekDeltas series and the RAW DOMAIN below is what makes (f) evaluable:
+// 8 qualifying 2025 weeks x 5 players = 40 subgroup rows (b = -1 everywhere,
+// so mean |b| = max |b| = 1.0 and every week's transformed bound
+// 0.05*1.0 + 0.01 = 0.06 clears DELTA_F 0.025). The previous fixture
+// SUPPLIED subgroupRows 40 beside a raw domain of one player-week - the
+// round-3 reviewer showed the flagship fixture passed only via the
+// unreconciled copies.
+const COHORT_WEEKS = Object.freeze([2, 3, 4, 5, 6, 7, 8, 9]);
+const COHORT_PLAYERS = Object.freeze([7, 8, 9, 10, 11]);
+
 const HEALTHY_F_ENDPOINT = Object.freeze({
-  weekDeltas: new Array(8).fill(-0.01),
-  subgroupRows: 40,
-  meanAbsBaseline: 1.0,
-  maxAbsBaseline: 2.0,
-  weekMeanAbsBaselines: new Array(8).fill(1.0),
+  weekDeltas: new Array(COHORT_WEEKS.length).fill(-0.01),
 });
 
-function healthyFVeto() {
+function healthyFVeto(subgroupPlayerWeeks) {
+  const playerWeeks = subgroupPlayerWeeks
+    || COHORT_WEEKS.flatMap((week) => COHORT_PLAYERS.map((playerId) => ({ week, playerId })));
   return {
-    realizations: metrics.SALTS.map((salt) => ({ season: 2025, week: 2, playerId: 7, salt, incrementalError: 0.01 })),
+    realizations: playerWeeks.flatMap(({ week, playerId }) => metrics.SALTS.map((salt) => (
+      { season: 2025, week, playerId, salt, incrementalError: 0.01 }
+    ))),
   };
 }
 
 function syntheticPreflight() {
-  const cohortRosterRows = [{ season: 2025, week: 2, playerId: 7 }];
+  const cohortRosterRows = COHORT_WEEKS.flatMap((week) => COHORT_PLAYERS.map((playerId) => (
+    { season: 2025, week, playerId }
+  )));
   const rawRun = () => ({
-    projections: [{ playerId: 7, median: 12.5, p10: 4, factors: {} }],
+    projections: COHORT_PLAYERS.map((playerId) => ({ playerId, median: 12.5 + playerId, p10: 4, factors: {} })),
     inputCutoff: '2025-09-01T00:00:00.000Z', sourceCoverage: { synthetic: true },
   });
   // Section 8.6.1's single-leaf guard runs on the constants the two arms were
@@ -69,22 +83,23 @@ function syntheticPreflight() {
   const usage25 = arms.ALL_CELLS.find((cell) => cell.blendWeight === 0.25 && cell.homeAway === 'on');
   const baseResolved = () => arms.resolveConstants({ cell: usage25, baseConstants: model.MODEL_CONSTANTS });
   const storedResolved = () => arms.resolveConstantsWithStoredHistory({ cell: usage25, baseConstants: model.MODEL_CONSTANTS });
-  const records = () => metrics.SALTS.map((salt) => ({
-    season: 2025, week: 2, salt,
-    leftPlayerIds: [7], rightPlayerIds: [7], leftRun: rawRun(), rightRun: rawRun(),
+  const records = () => COHORT_WEEKS.flatMap((week) => metrics.SALTS.map((salt) => ({
+    season: 2025, week, salt,
+    leftPlayerIds: [...COHORT_PLAYERS], rightPlayerIds: [...COHORT_PLAYERS],
+    leftRun: rawRun(), rightRun: rawRun(),
     leftConstants: baseResolved(), rightConstants: storedResolved(),
-  }));
+  })));
   return {
     cohortRosterRows,
     controlUsage25Records: records(),
     homeAwayStoredRecords: records(),
-    saltSeedRecords: arms.ALL_CELLS.map((cell) => ({
-      cellName: cell.name, season: 2025, week: 2, playerId: 7,
+    saltSeedRecords: arms.ALL_CELLS.flatMap((cell) => COHORT_WEEKS.flatMap((week) => COHORT_PLAYERS.map((playerId) => ({
+      cellName: cell.name, season: 2025, week, playerId,
       seedsBySalt: Object.fromEntries(metrics.SALTS.map((salt, index) => [salt, index])),
-    })),
-    matchedOffBaselineRows: arms.ALL_CELLS.filter((cell) => cell.homeAway === 'on').map((cell) => ({
-      cellName: cell.name, season: 2025, week: 2, playerId: 7, baseline: -1,
-    })),
+    })))),
+    matchedOffBaselineRows: arms.ALL_CELLS.filter((cell) => cell.homeAway === 'on').flatMap((cell) => COHORT_WEEKS.flatMap((week) => COHORT_PLAYERS.map((playerId) => ({
+      cellName: cell.name, season: 2025, week, playerId, baseline: -1,
+    })))),
   };
 }
 
@@ -770,7 +785,21 @@ test('validateInputs requires orderingSensitivity: an object for every candidate
 // Section 8.2: an unevaluable component (f) is a CELL verdict, never an abort
 // ---------------------------------------------------------------------------
 
-test('an unevaluable component (f) - all three early causes - produces cell inconclusive THROUGH the runner, never an abort (round-3 BLOCKER 1)', () => {
+// Flip a slice of usage-00-on's matched-off baselines POSITIVE (out of the
+// b <= 0 subgroup), and shrink the cell's veto realizations to the surviving
+// subgroup - the veto domain is b <= 0 too, and its coverage is asserted.
+function flipBaselinesPositive(inputs, predicate) {
+  for (const row of inputs.preflight.matchedOffBaselineRows) {
+    if (row.cellName === 'usage-00-on' && predicate(row)) row.baseline = 1;
+  }
+  const surviving = inputs.preflight.matchedOffBaselineRows
+    .filter((row) => row.cellName === 'usage-00-on' && row.baseline <= 0)
+    .map(({ week, playerId }) => ({ week, playerId }));
+  inputs.cells['usage-00-on'].f.veto = healthyFVeto(surviving);
+  return surviving;
+}
+
+test('an unevaluable component (f) - sparse RAW evidence - produces cell inconclusive THROUGH the runner, never an abort (round-3 BLOCKER 1)', () => {
   // Round 3: the two pre-guard unevaluable returns carried a bare transparency
   // block, summarize mapped the absent qualifyingWeekCount to null, and the
   // runner's evidence cross-check threw on null !== weekDeltas.length - so a
@@ -779,26 +808,31 @@ test('an unevaluable component (f) - all three early causes - produces cell inco
   // compute. The unit tests exercised componentFEndpoint directly; nothing
   // routed an unevaluable (f) through the gate - round 2's "true of the
   // library function and false of the gate", again.
+  // Sparsity now lives in the RAW rows (the operands are derived), so each
+  // case shapes the matched-off baseline domain rather than supplied numbers.
   // Negative control: revert the producer returns to the bare transparency()
   // and every case below throws instead of reporting.
-  // (Cheap despite three full reports: the permutationControl fixture is
+  // (Cheap despite two full reports: the permutationControl fixture is
   // byte-identical across cases, so the control computes once and cache-hits.)
-  // HEALTHY_F_ENDPOINT is frozen and shared, so each case REPLACES f1.
   const cases = [
-    ['below the minimum by clusters', {
-      ...HEALTHY_F_ENDPOINT,
-      weekDeltas: HEALTHY_F_ENDPOINT.weekDeltas.slice(0, 7),
-      weekMeanAbsBaselines: HEALTHY_F_ENDPOINT.weekMeanAbsBaselines.slice(0, 7),
-    }, 7],
-    ['below the minimum by rows', { ...HEALTHY_F_ENDPOINT, subgroupRows: 29 }, 8],
-    ['misaligned mean-|b| series', {
-      ...HEALTHY_F_ENDPOINT,
-      weekMeanAbsBaselines: HEALTHY_F_ENDPOINT.weekMeanAbsBaselines.slice(0, 7),
+    ['below the minimum by clusters', (inputs) => {
+      // Weeks 8 and 9 leave the subgroup: 6 qualifying weeks x 5 players =
+      // 30 rows (rows pass at exactly the minimum, clusters 6 < 8). Both
+      // endpoints' weekDeltas shrink to match the derived week set.
+      flipBaselinesPositive(inputs, (row) => row.week >= 8);
+      inputs.cells['usage-00-on'].f.f1 = { weekDeltas: new Array(6).fill(-0.01) };
+      inputs.cells['usage-00-on'].f.f2 = { weekDeltas: new Array(6).fill(-0.01) };
+    }, 6],
+    ['below the minimum by rows', (inputs) => {
+      // 11 player-weeks leave the subgroup, spread so every week keeps at
+      // least one row: 8 clusters, 29 rows < 30.
+      flipBaselinesPositive(inputs, (row) => ((row.playerId === 8 || row.playerId === 9) && row.week <= 6)
+        || (row.playerId === 8 && row.week === 7));
     }, 8],
   ];
-  for (const [name, f1Replacement, expectedQualifyingWeeks] of cases) {
+  for (const [name, mutate, expectedQualifyingWeeks] of cases) {
     const inputs = fullPassingInputs();
-    inputs.cells['usage-00-on'].f.f1 = f1Replacement;
+    mutate(inputs);
     const report = runBacktestSweep.buildReportFromInputs(inputs, { expectedRosterCount: 1 });
     assert.equal(report.run.status, 'valid', `${name}: sparse (f) evidence must not void or abort the run`);
     const cell = report.cells.find((c) => c.name === 'usage-00-on');
@@ -808,6 +842,45 @@ test('an unevaluable component (f) - all three early causes - produces cell inco
     assert.equal(f1.qualifyingWeekCount, expectedQualifyingWeeks,
       `${name}: the qualifying week count is defined by the D_w series itself (section 6.1a item 1), evaluable or not`);
   }
+});
+
+test('the (f) gate operands are DERIVED from the raw rows; the document may not supply them (round-3 SUBSTANTIVE 2)', () => {
+  // The four operands were read verbatim from the document and "cross-checked"
+  // against the copies they were read from, while the raw rows contradicted
+  // them - the round-2 fixture published subgroupRows 40 beside a derived
+  // one-player-week veto domain in a single valid report. Now the operands
+  // derive from preflight.matchedOffBaselineRows (section 6.1a item 2 run as
+  // code), the document cannot carry them, and the published transparency and
+  // veto domain come from the SAME rows.
+  // Negative control: revert assembleCellClaim to spread the document's f
+  // endpoints verbatim - the derived assertions below fail on null.
+  const supplied = fullPassingInputs();
+  supplied.cells['usage-00-on'].f.f1 = { weekDeltas: new Array(8).fill(-0.01), subgroupRows: 40 };
+  assert.throws(() => runBacktestSweep.validateInputs(supplied), /unexpected key\(s\): subgroupRows/);
+
+  const report = runBacktestSweep.buildReportFromInputs(fullPassingInputs(), { expectedRosterCount: 1 });
+  const cell = report.cells.find((c) => c.name === 'usage-00-on');
+  const f1 = cell.components.f.evidence.transparency.find((t) => t.endpoint === 'f1-subgroup-mae');
+  assert.equal(f1.subgroupRows, 40, 'derived: 8 weeks x 5 players, all b <= 0');
+  assert.equal(f1.meanAbsBaseline, 1, 'derived mean |b|; a supplied copy can no longer disagree');
+  assert.equal(f1.maxAbsBaseline, 1, 'derived max |b|; the old fixture SUPPLIED 2.0 against raw rows of |b| = 1');
+  assert.equal(f1.qualifyingWeekCount, 8);
+  const veto = cell.components.f.evidence.veto;
+  assert.equal(veto.expectedCount, metrics.SALTS.length * 40, 'the veto domain and the gate operands come from the same raw rows');
+  assert.equal(veto.complete, true);
+});
+
+test('a weekDeltas series misaligned with the DERIVED qualifying weeks is a malformed document, never sparse evidence (round-3 SUBSTANTIVE 2)', () => {
+  // Section 6.1a item 1 pins the qualifying weeks as "the identical week set
+  // the endpoint's own D_w series is built from". Under the supplied-operand
+  // contract this was unverifiable (clusters WAS the supplied array's own
+  // length); under derivation a disagreement is a malformed document.
+  const inputs = fullPassingInputs();
+  inputs.cells['usage-00-on'].f.f1 = { weekDeltas: new Array(7).fill(-0.01) };
+  assert.throws(
+    () => runBacktestSweep.buildReportFromInputs(inputs, { expectedRosterCount: 1 }),
+    /carries 7 weekDeltas against 8 derived qualifying weeks/
+  );
 });
 
 // ---------------------------------------------------------------------------

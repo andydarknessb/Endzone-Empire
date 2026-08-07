@@ -117,9 +117,15 @@ const PREFLIGHT_KEYS = Object.freeze([
 const CO_PRIMARY_INPUT_KEYS = Object.freeze(['regretWeekDeltas', 'pairwiseWeekDeltas']);
 const E2_INPUT_KEYS = Object.freeze(['endpoints']);
 const E2_ENDPOINT_INPUT_KEYS = Object.freeze(['key', 'weekDeltas']);
-const F_ENDPOINT_INPUT_KEYS = Object.freeze([
-  'weekDeltas', 'subgroupRows', 'meanAbsBaseline', 'maxAbsBaseline', 'weekMeanAbsBaselines',
-]);
+// Round 3, SUBSTANTIVE 2: the four evaluability-gate operands (subgroupRows,
+// meanAbsBaseline, maxAbsBaseline, weekMeanAbsBaselines) are DERIVED from
+// preflight.matchedOffBaselineRows - section 6.1a item 2's definition run as
+// code - and may no longer be supplied. They were previously read verbatim
+// and "cross-checked" against the copies they were read from, while the same
+// document's raw rows contradicted them. Only the weekDeltas series stays
+// supplied: its per-week deltas need per-salt errors the document does not
+// carry row-wise.
+const F_ENDPOINT_INPUT_KEYS = Object.freeze(['weekDeltas']);
 const F_VETO_INPUT_KEYS = Object.freeze(['realizations']);
 const F_VETO_REALIZATION_KEYS = Object.freeze(['season', 'week', 'playerId', 'salt', 'incrementalError']);
 const CELL_INPUT_KEYS = Object.freeze(['a', 'b', 'c', 'd', 'e1', 'e2', 'f', 'activation', 'orderingSensitivity']);
@@ -397,6 +403,16 @@ function evaluateE2(cellInput) {
  * `verdict: 'baseline'` is a distinct fifth value `sweepReport.js` accepts
  * ONLY for the control cell, never for a candidate.
  */
+/** The four derived gate operands, shaped for arms.componentFEndpoint. */
+function componentFOperandFields(derived) {
+  return {
+    subgroupRows: derived.subgroupRows,
+    meanAbsBaseline: derived.meanAbsBaseline,
+    maxAbsBaseline: derived.maxAbsBaseline,
+    weekMeanAbsBaselines: derived.weekMeanAbsBaselines,
+  };
+}
+
 function controlBaselineClaim(cellMeta) {
   return {
     cell: cellMeta.name,
@@ -408,12 +424,33 @@ function controlBaselineClaim(cellMeta) {
   };
 }
 
-function assembleCellClaim(cellMeta, cellInput, derivedFVeto = null) {
+function assembleCellClaim(cellMeta, cellInput, derivedFVeto = null, derivedFOperands = null) {
   if (cellMeta.name === arms.CONTROL_CELL) {
     return controlBaselineClaim(cellMeta);
   }
   const isOnCell = cellMeta.homeAway === 'on';
   const usageDiffersFromControl = cellMeta.blendWeight !== arms.CONTROL_BLEND_WEIGHT;
+  if (isOnCell) {
+    if (!derivedFOperands) {
+      throw new Error(`${cellMeta.name}: an on-cell claim requires the derived component (f) operands (round 3, SUBSTANTIVE 2)`);
+    }
+    // Section 6.1a item 1: the qualifying weeks are "the identical week set
+    // the endpoint's own D_w series is built from". The count is now DERIVED
+    // from the raw rows, so a document whose weekDeltas disagree with it is
+    // MALFORMED (throw-class), never sparse evidence - and this is a
+    // guarantee the supplied-operand contract could not express, because
+    // clusters used to be the supplied array's own length.
+    for (const endpointKey of ['f1', 'f2']) {
+      const weekDeltas = cellInput.f[endpointKey].weekDeltas;
+      if (!Array.isArray(weekDeltas) || weekDeltas.length !== derivedFOperands.qualifyingWeekCount) {
+        throw new Error(
+          `${cellMeta.name}.f.${endpointKey}: carries ${Array.isArray(weekDeltas) ? weekDeltas.length : 'no'} `
+          + `weekDeltas against ${derivedFOperands.qualifyingWeekCount} derived qualifying weeks - `
+          + 'section 6.1a item 1 pins the identical week set, so a mismatched document is malformed.'
+        );
+      }
+    }
+  }
   const components = {
     a: evaluateCoPrimary('a', cellInput.a),
     b: isOnCell ? evaluateCoPrimary('b', cellInput.b) : { applicable: false },
@@ -421,7 +458,15 @@ function assembleCellClaim(cellMeta, cellInput, derivedFVeto = null) {
     d: evaluateCoPrimary('d', cellInput.d),
     e1: evaluateCoPrimary('e1', cellInput.e1),
     e2: evaluateE2(cellInput),
-    f: isOnCell ? arms.componentF({ f1: cellInput.f.f1, f2: cellInput.f.f2, veto: derivedFVeto }) : { applicable: false },
+    f: isOnCell
+      ? arms.componentF({
+        // The document supplies only the D_w series; every gate operand is
+        // the derived value (round 3, SUBSTANTIVE 2).
+        f1: { weekDeltas: cellInput.f.f1.weekDeltas, ...componentFOperandFields(derivedFOperands) },
+        f2: { weekDeltas: cellInput.f.f2.weekDeltas, ...componentFOperandFields(derivedFOperands) },
+        veto: derivedFVeto,
+      })
+      : { applicable: false },
   };
   const activation = isOnCell
     ? arms.activationReportBothSeasons({
@@ -431,6 +476,54 @@ function assembleCellClaim(cellMeta, cellInput, derivedFVeto = null) {
   return arms.evaluateClaim({
     cell: cellMeta.name, components, activation, orderingSensitivity: cellInput.orderingSensitivity,
   });
+}
+
+/**
+ * Round 3, SUBSTANTIVE 2: component (f)'s evaluability-gate operands, derived
+ * per on-cell from the raw matched-off-cell baseline rows the document
+ * already carries. Section 6.1a item 2: "`meanAbsBaseline_w` is the mean
+ * `|b|` over that week's subgroup rows, `b` being the pre-homeAway baseline
+ * captured by `onPreHomeAwayBaseline` (section 6.5) in the MATCHED OFF-CELL,
+ * which is where subgroup membership is assigned (prereg 9.8)" - membership
+ * is b <= 0, and the qualifying weeks are "the identical week set the
+ * endpoint's own D_w series is built from" (item 1), which assembleCellClaim
+ * enforces against each endpoint's weekDeltas length.
+ *
+ * Scoping is deliberately ASYMMETRIC and the two must never share a
+ * season-filtered helper: these GATE operands are 2025-only (prereg 9.8:
+ * "2024 can never rescue sparse 2025 evidence"); the VETO domain below is
+ * not season-filtered (sections 6.3/6.4a assign membership per
+ * (season, week, blendWeight, playerId)).
+ *
+ * Under the frozen definition both endpoints derive the IDENTICAL operands -
+ * f1 and f2 are still evaluated independently in arms.js, but a runner-level
+ * derivation cannot produce differing weekMeanAbsBaselines for them. The
+ * arms unit tests keep that representability; the round-3 response records
+ * the consequence.
+ */
+function deriveComponentFOperands(cellName, { matchedOffBaselineRows }) {
+  const subgroup = matchedOffBaselineRows.filter((row) => row.cellName === cellName
+    && Number(row.season) === 2025 && Number(row.baseline) <= 0);
+  const byWeek = new Map();
+  for (const row of subgroup) {
+    const week = Number(row.week);
+    if (!byWeek.has(week)) byWeek.set(week, []);
+    byWeek.get(week).push(Math.abs(Number(row.baseline)));
+  }
+  const qualifyingWeeks = [...byWeek.keys()].sort((a, b) => a - b);
+  const abs = subgroup.map((row) => Math.abs(Number(row.baseline)));
+  return {
+    subgroupRows: subgroup.length,
+    meanAbsBaseline: abs.length > 0 ? abs.reduce((sum, value) => sum + value, 0) / abs.length : null,
+    maxAbsBaseline: abs.length > 0 ? Math.max(...abs) : null,
+    // Ascending-week emission. Every consumer is order-invariant: the floor
+    // disclosure counts, and the falsifiability guard sorts before its median.
+    weekMeanAbsBaselines: qualifyingWeeks.map((week) => {
+      const values = byWeek.get(week);
+      return values.reduce((sum, value) => sum + value, 0) / values.length;
+    }),
+    qualifyingWeekCount: qualifyingWeeks.length,
+  };
 }
 
 function componentFVetoRecords(cells, { cohortRosterRows, matchedOffBaselineRows }) {
@@ -458,20 +551,26 @@ function unevaluatedCellClaims() {
   return Object.fromEntries(arms.ALL_CELLS.map((cell) => [cell.name, {}]));
 }
 
-function crossCheckComponentFEvidence(cellInputs, cellClaims) {
+function crossCheckComponentFEvidence(cellInputs, cellClaims, derivedFOperandsByCell) {
   for (const cellMeta of arms.ALL_CELLS.filter((cell) => cell.homeAway === 'on')) {
     const component = cellClaims[cellMeta.name].components.f;
     const published = component && component.evidence;
     const source = cellInputs[cellMeta.name].f;
+    // Round 3, SUBSTANTIVE 2: the comparison target is the DERIVED operands,
+    // not the document - the previous form compared the published copy
+    // against the raw copy it was copied from, a self-check that could catch
+    // only normalization drops, never a falsified operand.
+    const derived = derivedFOperandsByCell[cellMeta.name];
     if (!published || !Array.isArray(published.transparency) || published.transparency.length !== 2 || !published.veto) {
       throw new Error(`component (f) evidence: incomplete transparency or veto evidence for ${cellMeta.name}`);
     }
     for (const [index, endpoint] of ['f1', 'f2'].entries()) {
       const transparency = published.transparency[index];
       const raw = source[endpoint];
-      if (transparency.subgroupRows !== raw.subgroupRows || transparency.meanAbsBaseline !== raw.meanAbsBaseline
-        || transparency.maxAbsBaseline !== raw.maxAbsBaseline || transparency.qualifyingWeekCount !== raw.weekDeltas.length) {
-        throw new Error(`component (f) evidence: published ${cellMeta.name}/${endpoint} transparency does not match raw input`);
+      if (transparency.subgroupRows !== derived.subgroupRows || transparency.meanAbsBaseline !== derived.meanAbsBaseline
+        || transparency.maxAbsBaseline !== derived.maxAbsBaseline || transparency.qualifyingWeekCount !== raw.weekDeltas.length
+        || transparency.qualifyingWeekCount !== derived.qualifyingWeekCount) {
+        throw new Error(`component (f) evidence: published ${cellMeta.name}/${endpoint} transparency does not match the derived operands`);
       }
     }
     if (published.veto.realizationCount !== source.veto.realizations.length || published.veto.complete !== true) {
@@ -558,12 +657,16 @@ function buildReportFromInputs(inputs, { expectedRosterCount = rosters.TEAM_COUN
   const evidence = harnessOk
     ? sweepEvidence.deriveEvidence(inputs.evidence, { permutation: permutationControl })
     : null;
+  const derivedFOperandsByCell = harnessOk
+    ? Object.fromEntries(arms.ALL_CELLS.filter((cell) => cell.homeAway === 'on')
+      .map((cell) => [cell.name, deriveComponentFOperands(cell.name, inputs.preflight)]))
+    : null;
   const cellClaims = harnessOk
-    ? Object.fromEntries(arms.ALL_CELLS.map((cellMeta) => [cellMeta.name, assembleCellClaim(cellMeta, inputs.cells[cellMeta.name], componentFVetoRecords(inputs.cells, inputs.preflight).find((row) => row.cellName === cellMeta.name) || null)]))
+    ? Object.fromEntries(arms.ALL_CELLS.map((cellMeta) => [cellMeta.name, assembleCellClaim(cellMeta, inputs.cells[cellMeta.name], componentFVetoRecords(inputs.cells, inputs.preflight).find((row) => row.cellName === cellMeta.name) || null, cellMeta.homeAway === 'on' ? derivedFOperandsByCell[cellMeta.name] : null)]))
     : unevaluatedCellClaims();
   if (harnessOk) sweepEvidence.crossCheckActivationGate(cellClaims, evidence);
   if (harnessOk) sweepEvidence.crossCheckClaimInputs(inputs.cells, evidence);
-  if (harnessOk) crossCheckComponentFEvidence(inputs.cells, cellClaims);
+  if (harnessOk) crossCheckComponentFEvidence(inputs.cells, cellClaims, derivedFOperandsByCell);
   const sweep = sweepInference.evaluateSweep({
     cellClaims,
     permutationControl: harnessOk
