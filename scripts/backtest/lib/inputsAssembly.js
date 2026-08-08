@@ -90,11 +90,21 @@
  * Everything here fails CLOSED: duplicate or missing coordinates, a partial
  * salt set for a generated week, an endpoint null under some salts but not
  * others, a subgroup error row outside the derived veto domain (or a domain
- * member without one), and a malformed activation record are all throw-class
- * defects of the RECORDS, surfaced by name at assembly time - never
- * smoothed into a smaller domain or a favorable default (round 4 BLOCKER A's
- * lesson, applied at the layer that writes the document instead of the layer
- * that reads it).
+ * member without one, or naming a cell no per-cell pass would read), a
+ * duplicate or non-finite cohort/baseline identity, and a malformed
+ * activation record are all throw-class defects of the RECORDS, surfaced by
+ * name at assembly time - never smoothed into a smaller domain or a
+ * favorable default (round 4 BLOCKER A's lesson, applied at the layer that
+ * writes the document instead of the layer that reads it).
+ *
+ * Two boundaries deliberately left to neighbors: record CONTENTS inside the
+ * preflight capture arrays are deep-validated by the reducer's preflight
+ * (this module pins their ARRAY ORDER via `canonicalizePreflight`, because
+ * reducer-side float summations follow document row order); and the output
+ * document shares structure with the input records (no defensive deep copy)
+ * - a generation driver must treat its captures as immutable once handed
+ * over, the same contract `canonicalJson` serialization then freezes into
+ * bytes.
  */
 
 const metrics = require('./metrics');
@@ -343,16 +353,51 @@ function assembleE2(groups, { cellName }) {
  * the matched off-cell, intersected with the cohort, NOT season-filtered -
  * sections 6.3/6.4a; the 2025-only scoping belongs to the GATE operands and
  * qualifying weeks alone, prereg 9.8).
+ *
+ * Own-layer hardening (QA on the first cut): a non-finite identity field or a
+ * duplicate domain member throws HERE, not three layers down. Without the
+ * finiteness check a NaN playerId turns membership into `'x:y:NaN'` string
+ * collisions, and a NaN baseline is silently a non-member (`NaN <= 0` is
+ * false) - fail-open by coercion, the exact round-4 shape. Without the
+ * duplicate check a duplicated cohort row double-counts a player in f2's
+ * per-week mean while the assembled document still LOOKS complete. The
+ * reducer's preflight re-derives and voids on the same defects; this layer's
+ * job is to refuse to write the corrupt document at all.
  */
-function deriveSubgroupDomain({ cohortRosterRows, matchedOffBaselineRows, cellName }) {
-  const negativeBaselineKeys = new Set(
-    (matchedOffBaselineRows || [])
-      .filter((row) => row.cellName === cellName && Number(row.baseline) <= 0)
-      .map((row) => `${Number(row.season)}:${Number(row.week)}:${Number(row.playerId)}`)
-  );
-  return (cohortRosterRows || [])
-    .filter((row) => negativeBaselineKeys.has(`${Number(row.season)}:${Number(row.week)}:${Number(row.playerId)}`))
-    .map((row) => ({ season: Number(row.season), week: Number(row.week), playerId: Number(row.playerId) }));
+function deriveSubgroupDomain({ cohortRosterRows, matchedOffBaselineRows, cellName, label = `${cellName} subgroup domain` }) {
+  const requireFinite = (row, field, rowLabel) => {
+    const value = Number(row[field]);
+    if (!Number.isFinite(value)) {
+      throw new Error(`${rowLabel}.${field}: must coerce to a finite number, got ${JSON.stringify(row[field])}`);
+    }
+    return value;
+  };
+  const negativeBaselineKeys = new Set();
+  for (const [index, row] of (matchedOffBaselineRows || []).entries()) {
+    if (!row || row.cellName !== cellName) continue;
+    const rowLabel = `${label}: matchedOffBaselineRows[${index}]`;
+    const season = requireFinite(row, 'season', rowLabel);
+    const week = requireFinite(row, 'week', rowLabel);
+    const playerId = requireFinite(row, 'playerId', rowLabel);
+    const baseline = requireFinite(row, 'baseline', rowLabel);
+    if (baseline <= 0) negativeBaselineKeys.add(`${season}:${week}:${playerId}`);
+  }
+  const domain = [];
+  const seen = new Set();
+  for (const [index, row] of (cohortRosterRows || []).entries()) {
+    const rowLabel = `${label}: cohortRosterRows[${index}]`;
+    const season = requireFinite(row || {}, 'season', rowLabel);
+    const week = requireFinite(row || {}, 'week', rowLabel);
+    const playerId = requireFinite(row || {}, 'playerId', rowLabel);
+    const key = `${season}:${week}:${playerId}`;
+    if (!negativeBaselineKeys.has(key)) continue;
+    if (seen.has(key)) {
+      throw new Error(`${label}: duplicate cohort player-week (${key}) would double-count a subgroup member in f2's per-week mean - a defect of the records, never a bigger subgroup`);
+    }
+    seen.add(key);
+    domain.push({ season, week, playerId });
+  }
+  return domain;
 }
 
 /**
@@ -636,21 +681,68 @@ function assembleEvidence(groups, { componentSeriesByCell, activationWeeks }) {
  * emission order is LOAD-BEARING (salt -> week -> position -> playerId,
  * strictly ascending - `permutationControl.js` rejects out-of-order input),
  * and the roster rows are sorted the same way minus the salt coordinate so
- * the document's bytes never depend on generation-loop order. Everything
- * else passes through; deep validation is the reducer's preflight's job.
+ * the document's bytes never depend on generation-loop order.
+ *
+ * The SORT-KEY fields are validated here, fail-closed: an unknown salt,
+ * week, position, or a non-finite playerId would rank at `indexOf`'s -1,
+ * where two differently-invalid rows collide and keep input order in the
+ * bytes - nondeterminism layered on top of a document the reducer would
+ * reject anyway. Week membership is checked UNcoerced, matching the
+ * reducer's own `canonicalObservations`. Everything beyond the sort keys
+ * passes through; deep validation is the reducer's preflight's job.
  */
 function canonicalizePermutationControl(permutationControl, { label = 'permutationControl' } = {}) {
   assertClosedKeys(permutationControl, PERMUTATION_CONTROL_KEYS, label);
   for (const key of ['observations', 'rosterRows']) {
     if (!Array.isArray(permutationControl[key])) throw new Error(`${label}.${key}: must be an array`);
   }
-  const coordinateIndex = (row) => (SALTS.indexOf(row.salt) * EVALUATED_WEEKS.length + EVALUATED_WEEKS.indexOf(Number(row.week))) * MACRO_POSITIONS.length
+  const assertSortKeys = (row, index, arrayName, withSalt) => {
+    const rowLabel = `${label}.${arrayName}[${index}]`;
+    if (!row || typeof row !== 'object') throw new Error(`${rowLabel}: must be an object`);
+    if (withSalt && !SALTS.includes(row.salt)) throw new Error(`${rowLabel}.salt: ${JSON.stringify(row.salt)} is not one of the 24 preregistered salts`);
+    if (!EVALUATED_WEEKS.includes(row.week)) throw new Error(`${rowLabel}.week: ${JSON.stringify(row.week)} is outside the evaluated grid (checked uncoerced, as the reducer will)`);
+    if (!MACRO_POSITIONS.includes(row.position)) throw new Error(`${rowLabel}.position: ${JSON.stringify(row.position)} is not a macro position`);
+    if (!isFiniteNumber(row.playerId)) throw new Error(`${rowLabel}.playerId: must be a finite number, got ${JSON.stringify(row.playerId)}`);
+  };
+  permutationControl.observations.forEach((row, index) => assertSortKeys(row, index, 'observations', true));
+  permutationControl.rosterRows.forEach((row, index) => assertSortKeys(row, index, 'rosterRows', false));
+  const coordinateIndex = (row) => (SALTS.indexOf(row.salt) * EVALUATED_WEEKS.length + EVALUATED_WEEKS.indexOf(row.week)) * MACRO_POSITIONS.length
     + MACRO_POSITIONS.indexOf(row.position);
-  const observations = [...permutationControl.observations].sort((a, b) => (coordinateIndex(a) - coordinateIndex(b)) || (Number(a.playerId) - Number(b.playerId)));
-  const rosterRows = [...permutationControl.rosterRows].sort((a, b) => (EVALUATED_WEEKS.indexOf(Number(a.week)) - EVALUATED_WEEKS.indexOf(Number(b.week)))
+  const observations = [...permutationControl.observations].sort((a, b) => (coordinateIndex(a) - coordinateIndex(b)) || (a.playerId - b.playerId));
+  const rosterRows = [...permutationControl.rosterRows].sort((a, b) => (EVALUATED_WEEKS.indexOf(a.week) - EVALUATED_WEEKS.indexOf(b.week))
     || (MACRO_POSITIONS.indexOf(a.position) - MACRO_POSITIONS.indexOf(b.position))
-    || (Number(a.playerId) - Number(b.playerId)));
+    || (a.playerId - b.playerId));
   return { ...permutationControl, observations, rosterRows };
+}
+
+/**
+ * Canonicalize the five preflight capture arrays into pinned natural-key
+ * orders, so the document's bytes - and every reducer-side number whose
+ * float summation follows document row order (`deriveComponentFOperands`'s
+ * `weekMeanAbsBaselines` in particular) - never depend on the generation
+ * loop's enumeration order. Record CONTENTS pass through untouched; only
+ * array order is pinned. Sort keys coerce with `Number()` for ordering
+ * only - a non-numeric coordinate still reaches the reducer's preflight,
+ * whose deep validation owns the rejection. (The matched-off baseline rows
+ * that feed component (f) are additionally hardened by
+ * `deriveSubgroupDomain`'s own finiteness checks.)
+ */
+function canonicalizePreflight(preflight, { label = 'preflight' } = {}) {
+  assertClosedKeys(preflight, PREFLIGHT_KEYS, label);
+  for (const key of PREFLIGHT_KEYS) {
+    if (!Array.isArray(preflight[key])) throw new Error(`${label}.${key}: must be an array of raw capture records`);
+  }
+  const bySeasonWeekPlayer = (a, b) => (Number(a.season) - Number(b.season)) || (Number(a.week) - Number(b.week)) || (Number(a.playerId) - Number(b.playerId));
+  const cellRank = (name) => CELL_NAMES.indexOf(name);
+  const byCellThenPlayerWeek = (a, b) => (cellRank(a.cellName) - cellRank(b.cellName)) || bySeasonWeekPlayer(a, b);
+  const bySeasonWeekSalt = (a, b) => (Number(a.season) - Number(b.season)) || (Number(a.week) - Number(b.week)) || (SALTS.indexOf(a.salt) - SALTS.indexOf(b.salt));
+  return {
+    cohortRosterRows: [...preflight.cohortRosterRows].sort(bySeasonWeekPlayer),
+    controlUsage25Records: [...preflight.controlUsage25Records].sort(bySeasonWeekSalt),
+    homeAwayStoredRecords: [...preflight.homeAwayStoredRecords].sort(bySeasonWeekSalt),
+    saltSeedRecords: [...preflight.saltSeedRecords].sort(byCellThenPlayerWeek),
+    matchedOffBaselineRows: [...preflight.matchedOffBaselineRows].sort(byCellThenPlayerWeek),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -678,9 +770,26 @@ function assembleSweepInputs({
   for (const [name, value] of [['canariesPassed', canariesPassed], ['orderingDisagreement', orderingDisagreement], ['deployedPolicyDisagreement', deployedPolicyDisagreement]]) {
     if (typeof value !== 'boolean') throw new Error(`assembleSweepInputs: ${name} must be a boolean`);
   }
-  assertClosedKeys(preflight, PREFLIGHT_KEYS, 'assembleSweepInputs: preflight');
+  // Canonicalized ONCE, and the same canonical object both feeds the (f)
+  // domain derivation and lands in the document - two views of one array,
+  // never two arrays.
+  const canonicalPreflight = canonicalizePreflight(preflight, { label: 'assembleSweepInputs: preflight' });
 
   const groups = indexArmWeekMetrics(armWeekMetrics);
+
+  // Every subgroup error row is shape-validated GLOBALLY before the per-cell
+  // passes, because each per-cell pass reads only its own cell's rows: a row
+  // naming an off cell, an unknown cell, or nothing at all would otherwise be
+  // read by NO pass and silently vanish - fail-open by omission (QA on the
+  // first cut). Per-cell domain checks stay in assembleComponentF.
+  const onCellNames = arms.ALL_CELLS.filter((cell) => cell.homeAway === 'on').map((cell) => cell.name);
+  for (const [index, row] of (subgroupErrorRows || []).entries()) {
+    const rowLabel = `assembleSweepInputs: subgroupErrorRows[${index}]`;
+    assertClosedKeys(row, SUBGROUP_ERROR_ROW_KEYS, rowLabel);
+    if (!onCellNames.includes(row.cellName)) {
+      throw new Error(`${rowLabel}.cellName: ${JSON.stringify(row.cellName)} is not an "on" cell - a row no per-cell pass would read must be rejected, never silently discarded`);
+    }
+  }
 
   // Ordering sensitivity: exactly the 7 candidate cells (prereg 5.2/16; the
   // control receives no verdict to contradict, row 26 ruling).
@@ -690,6 +799,9 @@ function assembleSweepInputs({
     const sensitivity = orderingSensitivityByCell[name];
     if (!sensitivity || typeof sensitivity !== 'object' || typeof sensitivity.contradicted !== 'boolean') {
       throw new Error(`assembleSweepInputs: orderingSensitivityByCell.${name} must carry a boolean 'contradicted'`);
+    }
+    if (sensitivity.detail !== undefined && sensitivity.detail !== null && typeof sensitivity.detail !== 'string') {
+      throw new Error(`assembleSweepInputs: orderingSensitivityByCell.${name}.detail must be a string or null`);
     }
   }
 
@@ -712,8 +824,8 @@ function assembleSweepInputs({
       ? assembleComponentF({
         cellName: cellMeta.name,
         domain: deriveSubgroupDomain({
-          cohortRosterRows: preflight.cohortRosterRows,
-          matchedOffBaselineRows: preflight.matchedOffBaselineRows,
+          cohortRosterRows: canonicalPreflight.cohortRosterRows,
+          matchedOffBaselineRows: canonicalPreflight.matchedOffBaselineRows,
           cellName: cellMeta.name,
         }),
         subgroupErrorRows,
@@ -743,7 +855,7 @@ function assembleSweepInputs({
   return {
     studyId,
     canariesPassed,
-    preflight,
+    preflight: canonicalPreflight,
     permutationControl: canonicalizePermutationControl(permutationControl),
     orderingDisagreement,
     deployedPolicyDisagreement,
@@ -766,5 +878,6 @@ module.exports = {
   assembleActivation,
   assembleEvidence,
   canonicalizePermutationControl,
+  canonicalizePreflight,
   assembleSweepInputs,
 };

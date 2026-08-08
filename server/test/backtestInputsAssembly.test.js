@@ -46,16 +46,22 @@ function metricValue({ scoringProfile, arm, endpoint, season, week, salt }) {
   const weekIndex = EVALUATED_WEEKS.indexOf(week);
   const saltIndex = SALTS.indexOf(salt);
   const sign = favorSign(endpoint);
+  // The season term multiplies the ARM-SPECIFIC component (not the shared
+  // base), so a 2024 contrast is byte-DIFFERENT from its 2025 twin: an
+  // arm-independent season offset would cancel in every candidate-minus-
+  // comparator delta, and a wrong season mapping (e1 fed 2025 data,
+  // mae-2024 fed 2025 data) would be undetectable (QA on the first cut).
+  const seasonFactor = season === 2024 ? 1.07 : 1;
   const base = CONTROL_BASE[endpoint] + PROFILE_OFFSET[scoringProfile]
     + (season === 2024 ? 0.03 : 0) + weekIndex * 0.0007 + saltIndex * 1e-5;
   const cellMeta = arms.ALL_CELLS.find((cell) => cell.name === arm);
   if (cellMeta) {
     const ordinal = armOrdinal(arm);
-    return base - sign * (0.4 * goodness(cellMeta) + 0.004 * ordinal
+    return base - sign * seasonFactor * (0.4 * goodness(cellMeta) + 0.004 * ordinal
       + weekIndex * 1e-4 * (1 + ordinal) + saltIndex * 1e-6 * (1 + ordinal));
   }
   const handicap = arm === inputsAssembly.ARM_NAIVE ? 0.8 : 0.5;
-  return base + sign * (handicap + weekIndex * 5e-5);
+  return base + sign * seasonFactor * (handicap + weekIndex * 5e-5);
 }
 
 function armWeekRecord(scoringProfile, arm, season, week, salt) {
@@ -80,8 +86,14 @@ function syntheticArmWeekMetrics() {
 
 function subgroupError(field, { week, playerId, salt }) {
   const saltIndex = SALTS.indexOf(salt);
+  // errorOn alternates SIGN by player parity, so |mean(e)| and mean(|e|)
+  // genuinely differ within every week: an all-same-signed fixture cannot
+  // distinguish prereg 9.8's abs-of-mean f2 from a mean-of-abs substitution
+  // (QA on the first cut). Magnitudes keep |errorOn| < |errorOff| on every
+  // row, so inc stays negative and the veto never fires.
+  const orientation = playerId % 2 === 0 ? 1 : -1;
   return field === 'errorOn'
-    ? -0.004 - week * 1e-4 - playerId * 1e-5 - saltIndex * 1e-6
+    ? orientation * (0.004 + week * 1e-4 + playerId * 1e-5 + saltIndex * 1e-6)
     : -0.03 - week * 2e-4 - playerId * 1e-5 - saltIndex * 1e-6;
 }
 
@@ -228,6 +240,59 @@ test('a component weekDelta is exactly saltPairedDelta over the 24 same-salt del
     label: 'expected',
   });
   assert.equal(inputs.cells[cell].a.regretWeekDeltas[week], expected);
+});
+
+test('components (b), (c), (d), (e1) each pin their preregistered comparator and season, bit-exactly', () => {
+  const inputs = inputsAssembly.assembleSweepInputs(universe());
+  const week = 11;
+  const expectedDelta = (candidate, comparator, endpoint, season) => metrics.saltPairedDelta({
+    candidateBySalt: Object.fromEntries(SALTS.map((salt) => [salt, metricValue({ scoringProfile: PRIMARY, arm: candidate, endpoint, season, week, salt })])),
+    comparatorBySalt: Object.fromEntries(SALTS.map((salt) => [salt, metricValue({ scoringProfile: PRIMARY, arm: comparator, endpoint, season, week, salt })])),
+    label: 'expected',
+  });
+  // (b): the matched same-usage OFF cell (prereg 9.3) - NOT the control.
+  assert.equal(inputs.cells['usage-40-on'].b.regretWeekDeltas[week], expectedDelta('usage-40-on', 'usage-40-off', 'regret', 2025));
+  // (c): usage-25 at the SAME homeAway setting (prereg 9.4) - NOT the control.
+  assert.equal(inputs.cells['usage-40-on'].c.pairwiseWeekDeltas[week], expectedDelta('usage-40-on', 'usage-25-on', 'pairwise', 2025));
+  // A control-comparator substitution for (c) must be DETECTABLE: the two
+  // expected values differ in this fixture (delta-goodness 1 vs 2).
+  assert.notEqual(expectedDelta('usage-40-on', 'usage-25-on', 'pairwise', 2025), expectedDelta('usage-40-on', arms.CONTROL_CELL, 'pairwise', 2025));
+  // (d): the naive-recency benchmark (prereg 9.5).
+  assert.equal(inputs.cells['usage-40-on'].d.regretWeekDeltas[week], expectedDelta('usage-40-on', inputsAssembly.ARM_NAIVE, 'regret', 2025));
+  // (e1): the control under SEASON 2024 (prereg 9.6), byte-different from
+  // the 2025 (a) series in this fixture by construction.
+  assert.equal(inputs.cells['usage-40-on'].e1.regretWeekDeltas[week], expectedDelta('usage-40-on', arms.CONTROL_CELL, 'regret', 2024));
+  assert.notEqual(inputs.cells['usage-40-on'].e1.regretWeekDeltas[week], inputs.cells['usage-40-on'].a.regretWeekDeltas[week]);
+});
+
+test('e2 season suffixes draw the named season: mae-2024 is byte-different from mae-2025', () => {
+  const inputs = inputsAssembly.assembleSweepInputs(universe());
+  const cell = 'usage-00-off';
+  const week = 8;
+  const endpointFor = (key) => inputs.cells[cell].e2.endpoints.find((e) => e.key === key);
+  const expected = (season) => metrics.saltPairedDelta({
+    candidateBySalt: Object.fromEntries(SALTS.map((salt) => [salt, metricValue({ scoringProfile: PRIMARY, arm: cell, endpoint: 'mae', season, week, salt })])),
+    comparatorBySalt: Object.fromEntries(SALTS.map((salt) => [salt, metricValue({ scoringProfile: PRIMARY, arm: arms.CONTROL_CELL, endpoint: 'mae', season, week, salt })])),
+    label: 'expected',
+  });
+  assert.equal(endpointFor('mae-2024').weekDeltas[week], expected(2024));
+  assert.equal(endpointFor('mae-2025').weekDeltas[week], expected(2025));
+  assert.notEqual(expected(2024), expected(2025), 'the fixture must make a season swap detectable');
+});
+
+test('f2 implements abs-of-mean (prereg 9.8), byte-exactly, and the fixture distinguishes it from mean-of-abs', () => {
+  const inputs = inputsAssembly.assembleSweepInputs(universe());
+  const week = COHORT_WEEKS[2];
+  const absOfMean = (field) => Object.fromEntries(SALTS.map((salt) => [salt,
+    Math.abs(COHORT_PLAYERS.reduce((sum, playerId) => sum + subgroupError(field, { week, playerId, salt }), 0) / COHORT_PLAYERS.length),
+  ]));
+  const expected = metrics.saltPairedDelta({
+    candidateBySalt: absOfMean('errorOn'), comparatorBySalt: absOfMean('errorOff'), label: 'expected',
+  });
+  assert.equal(inputs.cells['usage-25-on'].f.f2.weekDeltas[2], expected);
+  const meanOfAbs = SALTS.reduce((sum, salt) => sum + COHORT_PLAYERS.reduce((inner, playerId) => inner + Math.abs(subgroupError('errorOn', { week, playerId, salt })), 0) / COHORT_PLAYERS.length, 0) / SALTS.length;
+  const absOfMeanOn = SALTS.reduce((sum, salt) => sum + absOfMean('errorOn')[salt], 0) / SALTS.length;
+  assert.notEqual(meanOfAbs, absOfMeanOn, 'the mixed-sign fixture must separate the two estimators');
 });
 
 test('the control cell carries exact-zero self-contrast series for (a) and (e1)', () => {
@@ -470,6 +535,59 @@ test('orderingSensitivityByCell must cover exactly the seven candidates - a cont
   const missingCandidate = universe();
   delete missingCandidate.orderingSensitivityByCell['usage-60-on'];
   assert.throws(() => inputsAssembly.assembleSweepInputs(missingCandidate), /orderingSensitivityByCell/);
+});
+
+test('a subgroup error row naming an off cell or unknown cell is rejected, never silently discarded', () => {
+  const offCell = universe();
+  offCell.subgroupErrorRows.push({ ...offCell.subgroupErrorRows[0], cellName: 'usage-25-off' });
+  assert.throws(() => inputsAssembly.assembleSweepInputs(offCell), /not an "on" cell.*never silently discarded/s);
+  const unknown = universe();
+  unknown.subgroupErrorRows.push({ ...unknown.subgroupErrorRows[0], cellName: 'usage-99-on' });
+  assert.throws(() => inputsAssembly.assembleSweepInputs(unknown), /not an "on" cell/);
+});
+
+test('a duplicate cohort player-week that lands in the subgroup domain is rejected before it can double-count', () => {
+  const broken = universe();
+  broken.preflight.cohortRosterRows.push({ season: 2025, week: 3, playerId: 8 });
+  assert.throws(() => inputsAssembly.assembleSweepInputs(broken), /duplicate cohort player-week \(2025:3:8\)/);
+});
+
+test('a non-finite identity field in the cohort or baseline rows is rejected at assembly, not coerced', () => {
+  const nanCohort = universe();
+  nanCohort.preflight.cohortRosterRows[0] = { ...nanCohort.preflight.cohortRosterRows[0], playerId: 'seven' };
+  assert.throws(() => inputsAssembly.assembleSweepInputs(nanCohort), /playerId: must coerce to a finite number/);
+  const nanBaseline = universe();
+  const row = nanBaseline.preflight.matchedOffBaselineRows.find((candidate) => candidate.cellName === 'usage-25-on');
+  row.baseline = 'NaN';
+  assert.throws(() => inputsAssembly.assembleSweepInputs(nanBaseline), /baseline: must coerce to a finite number/);
+});
+
+test('preflight capture arrays are canonicalized: shuffled capture order yields a byte-identical document', () => {
+  const shuffled = universe();
+  shuffled.preflight.cohortRosterRows.reverse();
+  shuffled.preflight.matchedOffBaselineRows.reverse();
+  shuffled.preflight.saltSeedRecords.reverse();
+  shuffled.preflight.controlUsage25Records.reverse();
+  shuffled.preflight.homeAwayStoredRecords.reverse();
+  assert.equal(
+    canonicalJson(inputsAssembly.assembleSweepInputs(shuffled)),
+    canonicalJson(inputsAssembly.assembleSweepInputs(universe()))
+  );
+});
+
+test('a permutation observation with an unknown salt or out-of-grid week is rejected at the sort boundary', () => {
+  const badSalt = universe();
+  badSalt.permutationControl.observations.push({ ...badSalt.permutationControl.observations[0], salt: 'pit-99-000000000000' });
+  assert.throws(() => inputsAssembly.assembleSweepInputs(badSalt), /not one of the 24 preregistered salts/);
+  const stringWeek = universe();
+  stringWeek.permutationControl.observations.push({ ...stringWeek.permutationControl.observations[0], week: '7' });
+  assert.throws(() => inputsAssembly.assembleSweepInputs(stringWeek), /outside the evaluated grid \(checked uncoerced/);
+});
+
+test('orderingSensitivity detail must be a string or null', () => {
+  const broken = universe();
+  broken.orderingSensitivityByCell['usage-40-on'].detail = 42;
+  assert.throws(() => inputsAssembly.assembleSweepInputs(broken), /detail must be a string or null/);
 });
 
 test('saltMean is strict-typeof at its own layer: a quoted number throws instead of concatenating', () => {
