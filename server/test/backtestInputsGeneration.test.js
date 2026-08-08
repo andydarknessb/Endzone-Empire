@@ -291,6 +291,7 @@ function assembleFrom(records) {
     subgroupErrorRows: records.subgroupErrorRows,
     activationRecords: records.activationRecords,
     orderingSensitivityByCell: Object.fromEntries(arms.SELECTION_FAMILY.map((cell) => [cell.name, { contradicted: false, detail: null }])),
+    sensitivityAudit: inputsSensitivity.placeholderSensitivityAudit(),
     preflight: records.preflight,
     permutationControl: syntheticPermutationControl(),
   });
@@ -417,6 +418,10 @@ test('the driver\'s records assemble into a document the approved reducer valida
     subgroupErrorRows: records.subgroupErrorRows,
     activationRecords: records.activationRecords,
     orderingSensitivityByCell: sensitivity.orderingSensitivityByCell,
+    sensitivityAudit: {
+      winnersByPass: sensitivity.detail.winnersByPass,
+      estimandReconciliation: sensitivity.detail.estimandReconciliation,
+    },
     preflight: records.preflight,
     permutationControl: syntheticPermutationControl(),
   });
@@ -1126,7 +1131,21 @@ test('assembleFinalDocument bakes the DERIVED sensitivity inputs into a reducer-
     },
     orderingDisagreement: true,
     deployedPolicyDisagreement: true,
-    detail: {},
+    // The injected trail must tell the same story as the injected boolean:
+    // the document validators reject a halted=true beside winners that agree
+    // (decision D6's fail-closed internal consistency).
+    detail: {
+      winnersByPass: {
+        'ordering:db-collation': null, 'ordering:duplicate-shuffle': null, 'estimand:force-fill': null,
+      },
+      estimandReconciliation: {
+        selection: null,
+        halted: true,
+        reason: 'estimand-disagreement',
+        detail: 'injected halt',
+        winners: { deployedPolicy: 'usage-40-off', forceFill: null },
+      },
+    },
   };
   let validated = 0;
   const reducer = {
@@ -1144,6 +1163,10 @@ test('assembleFinalDocument bakes the DERIVED sensitivity inputs into a reducer-
   assert.deepEqual(document.cells['usage-40-off'].orderingSensitivity, { contradicted: true, detail: 'injected' });
   assert.equal(document.orderingDisagreement, true, 'the document carries the DERIVED boolean, never a hardcoded false');
   assert.equal(document.deployedPolicyDisagreement, true);
+  // Decision D6: the DERIVED audit trail rides the final document, never the
+  // placeholder the comparison documents carry.
+  assert.deepEqual(document.sensitivityAudit.winnersByPass, derived.detail.winnersByPass);
+  assert.deepEqual(document.sensitivityAudit.estimandReconciliation, derived.detail.estimandReconciliation);
   assert.equal(document.studyId, runBacktestInputs.STUDY_ID);
   assert.ok(validated >= 1, "the finished document must pass the reducer's own validateInputs before anyone serializes it");
 });

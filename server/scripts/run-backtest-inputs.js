@@ -704,6 +704,14 @@ function assembleFinalDocument({
     subgroupErrorRows: records.subgroupErrorRows,
     activationRecords: records.activationRecords,
     orderingSensitivityByCell: sensitivity.orderingSensitivityByCell,
+    // Decision D6 (ruled 2026-08-08): the DERIVED audit trail rides the final
+    // document - never the placeholder the comparison documents carry - so
+    // the published report can show which winner each pass produced and how
+    // the estimand halt was reconciled.
+    sensitivityAudit: {
+      winnersByPass: sensitivity.detail.winnersByPass,
+      estimandReconciliation: sensitivity.detail.estimandReconciliation,
+    },
     preflight: records.preflight,
     permutationControl,
   });

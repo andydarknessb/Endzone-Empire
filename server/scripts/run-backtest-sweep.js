@@ -112,8 +112,19 @@ function parseArgs(argv) {
 const COMPONENT_KEYS = Object.freeze(['a', 'b', 'c', 'd', 'e1']);
 const TOP_LEVEL_KEYS = Object.freeze([
   'studyId', 'canariesPassed', 'preflight', 'permutationControl',
-  'orderingDisagreement', 'deployedPolicyDisagreement', 'cells', 'evidence',
+  'orderingDisagreement', 'deployedPolicyDisagreement', 'sensitivityAudit', 'cells', 'evidence',
 ]);
+// Decision D6 (ruled 2026-08-08): the estimand audit trail is a required
+// document key.  These closed lists are the REDUCER's own - deliberately not
+// imported from the producer, per the same independence rule as every other
+// list here.  The winners themselves are attested producer data (the reducer
+// receives neither the variant armWeekMetrics nor the per-pass claims, so it
+// cannot recompute them - same trust class as `preflight`); what the reducer
+// CAN check, it does, in validateInputs.
+const SENSITIVITY_AUDIT_KEYS = Object.freeze(['winnersByPass', 'estimandReconciliation']);
+const SENSITIVITY_AUDIT_PASS_KEYS = Object.freeze(['ordering:db-collation', 'ordering:duplicate-shuffle', 'estimand:force-fill']);
+const ESTIMAND_RECONCILIATION_KEYS = Object.freeze(['selection', 'halted', 'reason', 'detail', 'winners']);
+const ESTIMAND_WINNER_KEYS = Object.freeze(['deployedPolicy', 'forceFill']);
 const PREFLIGHT_KEYS = Object.freeze([
   'cohortRosterRows', 'controlUsage25Records', 'homeAwayStoredRecords', 'saltSeedRecords', 'matchedOffBaselineRows',
 ]);
@@ -197,6 +208,67 @@ function assertWeekDeltaSeries(series, label) {
 }
 
 /**
+ * Validate the document's sensitivity audit trail (decision D6).  The
+ * reducer cannot recompute the winners (it never sees the variant
+ * armWeekMetrics), but a trail whose own story contradicts itself - or
+ * contradicts the document's `deployedPolicyDisagreement` boolean the run
+ * verdict actually consumes - is rejected, never published.  Note the MIXED
+ * basis carried as one map: the `ordering:*` winners are stage-1
+ * placeholder-basis, the `estimand:force-fill` winner is stage-2
+ * post-contradiction (determinations 9/10).
+ */
+function validateSensitivityAudit(audit, deployedPolicyDisagreement, label) {
+  if (!audit || typeof audit !== 'object' || Array.isArray(audit)) {
+    throw new Error(`${label}: must be the derived audit-trail object; a document without its trail is not auditable from the report alone`);
+  }
+  assertClosedKeys(audit, SENSITIVITY_AUDIT_KEYS, label);
+  for (const key of SENSITIVITY_AUDIT_KEYS) {
+    if (!audit[key] || typeof audit[key] !== 'object' || Array.isArray(audit[key])) throw new Error(`${label}.${key}: must be an object`);
+  }
+  const candidateNames = arms.SELECTION_FAMILY.map((cell) => cell.name);
+  const winner = (value, valueLabel) => {
+    if (value !== null && !candidateNames.includes(value)) {
+      throw new Error(`${valueLabel}: must be null or a candidate cell name, got ${JSON.stringify(value)}`);
+    }
+    return value;
+  };
+  assertClosedKeys(audit.winnersByPass, SENSITIVITY_AUDIT_PASS_KEYS, `${label}.winnersByPass`);
+  for (const key of SENSITIVITY_AUDIT_PASS_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(audit.winnersByPass, key)) {
+      throw new Error(`${label}.winnersByPass: missing required pass ${JSON.stringify(key)} - a pass with no recorded winner cannot show stability`);
+    }
+    winner(audit.winnersByPass[key], `${label}.winnersByPass[${JSON.stringify(key)}]`);
+  }
+  const reconciliation = audit.estimandReconciliation;
+  assertClosedKeys(reconciliation, ESTIMAND_RECONCILIATION_KEYS, `${label}.estimandReconciliation`);
+  for (const key of ESTIMAND_RECONCILIATION_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(reconciliation, key)) throw new Error(`${label}.estimandReconciliation.${key}: missing`);
+  }
+  if (typeof reconciliation.halted !== 'boolean') throw new Error(`${label}.estimandReconciliation.halted: must be a boolean`);
+  if (reconciliation.reason !== null && typeof reconciliation.reason !== 'string') throw new Error(`${label}.estimandReconciliation.reason: must be a string or null`);
+  if (typeof reconciliation.detail !== 'string') throw new Error(`${label}.estimandReconciliation.detail: must be a string`);
+  assertClosedKeys(reconciliation.winners, ESTIMAND_WINNER_KEYS, `${label}.estimandReconciliation.winners`);
+  const deployedPolicy = winner(reconciliation.winners.deployedPolicy, `${label}.estimandReconciliation.winners.deployedPolicy`);
+  const forceFill = winner(reconciliation.winners.forceFill, `${label}.estimandReconciliation.winners.forceFill`);
+  const selection = winner(reconciliation.selection, `${label}.estimandReconciliation.selection`);
+  if (reconciliation.halted !== (deployedPolicy !== forceFill)) {
+    throw new Error(`${label}.estimandReconciliation: halted=${reconciliation.halted} contradicts its own winners (deployedPolicy=${JSON.stringify(deployedPolicy)}, forceFill=${JSON.stringify(forceFill)})`);
+  }
+  if (selection !== (reconciliation.halted ? null : deployedPolicy)) {
+    throw new Error(`${label}.estimandReconciliation: selection=${JSON.stringify(selection)} contradicts halted=${reconciliation.halted} and deployedPolicy=${JSON.stringify(deployedPolicy)}`);
+  }
+  if (audit.winnersByPass['estimand:force-fill'] !== forceFill) {
+    throw new Error(`${label}: winnersByPass['estimand:force-fill'] disagrees with estimandReconciliation.winners.forceFill`);
+  }
+  // The one cross-document invariant: the boolean the run verdict consumes
+  // must be the trail's own halt - a laundered trail beside a clean boolean
+  // (or the reverse) is a document telling two stories.
+  if (deployedPolicyDisagreement !== reconciliation.halted) {
+    throw new Error(`${label}: deployedPolicyDisagreement=${deployedPolicyDisagreement} disagrees with the audit trail's halted=${reconciliation.halted}`);
+  }
+}
+
+/**
  * Validate the whole `--inputs` document against the closed schema, throwing
  * an ACTIONABLE, path-specific error on the first thing wrong - never a
  * partial read that fails deep inside the evaluator with a confusing
@@ -211,6 +283,7 @@ function validateInputs(inputs, { label = '--inputs' } = {}) {
   for (const flag of ['canariesPassed', 'orderingDisagreement', 'deployedPolicyDisagreement']) {
     if (typeof inputs[flag] !== 'boolean') throw new Error(`${label}.${flag}: must be a boolean`);
   }
+  validateSensitivityAudit(inputs.sensitivityAudit, inputs.deployedPolicyDisagreement, `${label}.sensitivityAudit`);
   if (!inputs.preflight || typeof inputs.preflight !== 'object') {
     throw new Error(`${label}.preflight: must carry raw identity and salt-seed records; operator-supplied pass/fail booleans are prohibited`);
   }
@@ -968,7 +1041,10 @@ function buildReportFromInputs(inputs, { expectedRosterCount = rosters.TEAM_COUN
     orderingDisagreement: inputs.orderingDisagreement,
     deployedPolicyDisagreement: inputs.deployedPolicyDisagreement,
   });
-  return sweepReport.buildReport({ studyId: inputs.studyId, sweep: { ...sweep, evidence } });
+  // Decision D6: the validated audit trail rides to publication.  It is
+  // selection-level, candidate-claims-derived evidence, so buildReport
+  // publishes it null on a void run (prereg 7.3), mirroring `cells`.
+  return sweepReport.buildReport({ studyId: inputs.studyId, sweep: { ...sweep, evidence, sensitivityAudit: inputs.sensitivityAudit } });
 }
 
 /**

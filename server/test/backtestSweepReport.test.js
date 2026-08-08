@@ -73,6 +73,43 @@ test('buildReport: end to end, a valid run with a selected cell publishes all 8 
   assert.ok(report.selection.reason, 'the parsimony reason string is carried into the report');
 });
 
+test('decision D6: buildReport publishes the sensitivity audit trail on a valid run and null on a void run or when absent', () => {
+  const audit = {
+    winnersByPass: { 'ordering:db-collation': null, 'ordering:duplicate-shuffle': null, 'estimand:force-fill': 'usage-40-off' },
+    estimandReconciliation: {
+      selection: null, halted: true, reason: 'estimand-disagreement', detail: 'winners disagree',
+      winners: { deployedPolicy: null, forceFill: 'usage-40-off' },
+    },
+  };
+  const valid = sweepInference.evaluateSweep({ cellClaims: allCells('fail'), permutationControl: cleanPermutation });
+  const report = sweepReport.buildReport({ studyId: 'pit-sweep-2024-2025', sweep: { ...valid, sensitivityAudit: audit } });
+  assert.equal(report.run.status, 'valid');
+  assert.deepEqual(report.sensitivityAudit, audit);
+
+  // Absent from the sweep (unit fixtures): null, mirroring evidence.
+  assert.equal(sweepReport.buildReport({ studyId: 'pit-sweep-2024-2025', sweep: valid }).sensitivityAudit, null);
+
+  // Void run: null even when supplied - selection-level evidence (prereg 7.3).
+  const voidSweep = sweepInference.evaluateSweep({
+    cellClaims: allCells('pass'), permutationControl: { regretP: 0.5, pairwiseP: 0.0001 },
+  });
+  const voidReport = sweepReport.buildReport({ studyId: 'pit-sweep-2024-2025', sweep: { ...voidSweep, sensitivityAudit: audit } });
+  assert.equal(voidReport.run.status, 'void');
+  assert.equal(voidReport.sensitivityAudit, null);
+
+  // The Markdown block renders sorted, with the halt visible.
+  // eslint-disable-next-line testing-library/render-result-naming-convention
+  const rendered = sweepReport.renderMarkdown(report);
+  assert.match(rendered, /## Sensitivity audit \(spec 8\.4\/8\.5\)/);
+  assert.match(rendered, /- winner estimand:force-fill: usage-40-off/);
+  assert.match(rendered, /- estimand reconciliation: halted=true, selection=-, deployedPolicy=-, forceFill=usage-40-off, reason=estimand-disagreement/);
+  // A closed-shape violation in the trail is rejected at publication.
+  assert.throws(
+    () => sweepReport.buildReport({ studyId: 'pit-sweep-2024-2025', sweep: { ...valid, sensitivityAudit: { ...audit, extra: 1 } } }),
+    /unexpected key\(s\).*extra/
+  );
+});
+
 // ---------------------------------------------------------------------------
 // The closed schema
 // ---------------------------------------------------------------------------

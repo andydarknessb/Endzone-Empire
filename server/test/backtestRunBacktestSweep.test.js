@@ -215,8 +215,33 @@ function fullPassingInputs({ permutationControl = syntheticPermutationControl() 
     permutationControl,
     orderingDisagreement: false,
     deployedPolicyDisagreement: false,
+    sensitivityAudit: passingSensitivityAudit(),
     cells,
     evidence,
+  };
+}
+
+/**
+ * Decision D6: a self-consistent audit trail for a clean run - every pass
+ * selects the same winner, no halt.  The winners are attested producer data
+ * (the reducer cannot recompute them), so they need not match the verdicts
+ * the fixture's cells produce; only the trail's internal story and the
+ * document's `deployedPolicyDisagreement` are checkable.
+ */
+function passingSensitivityAudit() {
+  return {
+    winnersByPass: {
+      'ordering:db-collation': 'usage-40-off',
+      'ordering:duplicate-shuffle': 'usage-40-off',
+      'estimand:force-fill': 'usage-40-off',
+    },
+    estimandReconciliation: {
+      selection: 'usage-40-off',
+      halted: false,
+      reason: null,
+      detail: 'both estimands select the same cell',
+      winners: { deployedPolicy: 'usage-40-off', forceFill: 'usage-40-off' },
+    },
   };
 }
 
@@ -261,6 +286,31 @@ test('validateInputs accepts a well-formed document and refuses a non-object', (
 test('validateInputs refuses an unexpected top-level key', () => {
   const bad = { ...fullPassingInputs(), extra: true };
   assert.throws(() => runBacktestSweep.validateInputs(bad), /unexpected key\(s\).*extra/);
+});
+
+test('decision D6: validateInputs refuses a document whose audit trail is missing, self-contradictory, or contradicts the halt boolean', () => {
+  const missing = fullPassingInputs();
+  delete missing.sensitivityAudit;
+  assert.throws(() => runBacktestSweep.validateInputs(missing), /sensitivityAudit: must be the derived audit-trail object/);
+
+  // The trail's own halt disagreeing with the boolean the run verdict
+  // consumes - a document telling two stories - is rejected even though each
+  // half is well-formed on its own.
+  const laundered = fullPassingInputs();
+  laundered.deployedPolicyDisagreement = true;
+  assert.throws(() => runBacktestSweep.validateInputs(laundered), /deployedPolicyDisagreement=true disagrees with the audit trail's halted=false/);
+
+  const inconsistent = fullPassingInputs();
+  inconsistent.sensitivityAudit.estimandReconciliation.halted = true;
+  assert.throws(() => runBacktestSweep.validateInputs(inconsistent), /halted=true contradicts its own winners/);
+
+  const missingPass = fullPassingInputs();
+  delete missingPass.sensitivityAudit.winnersByPass['ordering:duplicate-shuffle'];
+  assert.throws(() => runBacktestSweep.validateInputs(missingPass), /missing required pass "ordering:duplicate-shuffle"/);
+
+  const controlWinner = fullPassingInputs();
+  controlWinner.sensitivityAudit.winnersByPass['ordering:db-collation'] = 'usage-25-off';
+  assert.throws(() => runBacktestSweep.validateInputs(controlWinner), /must be null or a candidate cell name/);
 });
 
 test('validateInputs refuses a missing or extra cell', () => {
@@ -466,6 +516,17 @@ test('main(): a comfortably-passing inputs document produces a VALID run with a 
   assert.match(markdown, /### Attribution composites/);
   assert.match(markdown, /### Activation aggregates/);
   assert.doesNotMatch(markdown, /Eight-cell metrics: \d+/);
+  // Decision D6: the audit trail publishes in the report AND the Markdown.
+  assert.deepEqual(report.sensitivityAudit.winnersByPass, {
+    'estimand:force-fill': 'usage-40-off',
+    'ordering:db-collation': 'usage-40-off',
+    'ordering:duplicate-shuffle': 'usage-40-off',
+  });
+  assert.equal(report.sensitivityAudit.estimandReconciliation.halted, false);
+  assert.equal(report.sensitivityAudit.estimandReconciliation.winners.deployedPolicy, 'usage-40-off');
+  assert.match(markdown, /## Sensitivity audit \(spec 8\.4\/8\.5\)/);
+  assert.match(markdown, /- winner estimand:force-fill: usage-40-off/);
+  assert.match(markdown, /- estimand reconciliation: halted=false, selection=usage-40-off, deployedPolicy=usage-40-off, forceFill=usage-40-off/);
 
   // Independent implementation review finding: the report previously
   // discarded component (f) transparency, bootstrap n/CI, and per-season
@@ -502,6 +563,9 @@ test('main(): a permutation-control threshold miss produces a VOID run with no c
   const report = JSON.parse(fs.readFileSync(outJson, 'utf8'));
   assert.equal(report.run.status, 'void');
   assert.equal(report.cells, null);
+  // Decision D6: the audit trail is selection-level evidence, so a void run
+  // publishes null - mirroring cells (prereg 7.3).
+  assert.equal(report.sensitivityAudit, null);
   assert.deepEqual(Object.keys(report.evidence), ['diagnostics']);
 
   const markdown = fs.readFileSync(outMarkdown, 'utf8');

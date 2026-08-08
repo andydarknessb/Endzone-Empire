@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const inputsAssembly = require('../../scripts/backtest/lib/inputsAssembly');
+const inputsSensitivity = require('../../scripts/backtest/lib/inputsSensitivity');
 const runBacktestSweep = require('../scripts/run-backtest-sweep');
 const arms = require('../../scripts/backtest/lib/arms');
 const metrics = require('../../scripts/backtest/lib/metrics');
@@ -195,6 +196,7 @@ function universe(overrides = {}) {
     subgroupErrorRows: syntheticSubgroupErrorRows(),
     activationRecords: syntheticActivationRecords(),
     orderingSensitivityByCell: syntheticOrderingSensitivity(),
+    sensitivityAudit: inputsSensitivity.placeholderSensitivityAudit(),
     preflight: syntheticPreflight(),
     permutationControl: syntheticPermutationControl(),
     ...overrides,
@@ -590,6 +592,42 @@ test('orderingSensitivity detail must be a string or null', () => {
   const broken = universe();
   broken.orderingSensitivityByCell['usage-40-on'].detail = 42;
   assert.throws(() => inputsAssembly.assembleSweepInputs(broken), /detail must be a string or null/);
+});
+
+test('decision D6: the mirrored sensitivity-audit pass-key list cannot drift from inputsSensitivity\'s own', () => {
+  // inputsAssembly cannot import inputsSensitivity (the comparison documents
+  // are assembled THROUGH inputsAssembly), so the pass-key list is mirrored
+  // and this pin is the drift guard.
+  assert.deepEqual([...inputsAssembly.SENSITIVITY_AUDIT_PASS_KEYS], [...inputsSensitivity.SENSITIVITY_PASS_KEYS]);
+});
+
+test('decision D6: a sensitivity-audit trail that contradicts its own story is rejected, never assembled', () => {
+  // Missing entirely.
+  const missing = universe();
+  delete missing.sensitivityAudit;
+  assert.throws(() => inputsAssembly.assembleSweepInputs(missing), /sensitivityAudit: must be an object/);
+  // halted beside winners that agree.
+  const launderedHalt = universe();
+  launderedHalt.sensitivityAudit.estimandReconciliation.halted = true;
+  assert.throws(() => inputsAssembly.assembleSweepInputs(launderedHalt), /halted=true contradicts its own winners/);
+  // A selection published despite a halt.
+  const haltedSelection = universe();
+  haltedSelection.sensitivityAudit.estimandReconciliation.winners.deployedPolicy = 'usage-40-off';
+  haltedSelection.sensitivityAudit.estimandReconciliation.halted = true;
+  haltedSelection.sensitivityAudit.estimandReconciliation.selection = 'usage-40-off';
+  assert.throws(() => inputsAssembly.assembleSweepInputs(haltedSelection), /selection="usage-40-off" contradicts halted=true/);
+  // The estimand pass row disagreeing with the reconciliation's own winner.
+  const forked = universe();
+  forked.sensitivityAudit.winnersByPass['estimand:force-fill'] = 'usage-40-off';
+  assert.throws(() => inputsAssembly.assembleSweepInputs(forked), /disagrees with estimandReconciliation.winners.forceFill/);
+  // A winner outside the candidate family (the control can never win).
+  const controlWinner = universe();
+  controlWinner.sensitivityAudit.winnersByPass['ordering:db-collation'] = arms.CONTROL_CELL;
+  assert.throws(() => inputsAssembly.assembleSweepInputs(controlWinner), /must be null or a candidate cell name/);
+  // An unknown pass key.
+  const extraPass = universe();
+  extraPass.sensitivityAudit.winnersByPass['ordering:bogus'] = null;
+  assert.throws(() => inputsAssembly.assembleSweepInputs(extraPass), /winnersByPass: closed shape violation/);
 });
 
 test('saltMean is strict-typeof at its own layer: a quoted number throws instead of concatenating', () => {

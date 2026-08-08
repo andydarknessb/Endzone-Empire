@@ -169,6 +169,28 @@ function placeholderOrderingSensitivityByCell() {
 }
 
 /**
+ * The placeholder `sensitivityAudit` every COMPARISON document carries
+ * (decision D6, same fixed-point doctrine as determination 9): all winners
+ * null, no halt.  The real trail is this derivation's own OUTPUT and belongs
+ * only to the FINAL document - a comparison document carrying real winners
+ * would be feeding the comparison its own answer.  The shape satisfies the
+ * document validators' internal-consistency checks by construction
+ * (halted=false with equal null winners, null selection).
+ */
+function placeholderSensitivityAudit() {
+  return {
+    winnersByPass: Object.fromEntries(SENSITIVITY_PASS_KEYS.map((key) => [key, null])),
+    estimandReconciliation: {
+      selection: null,
+      halted: false,
+      reason: null,
+      detail: 'placeholder: the audit trail is the sensitivity derivation\'s own output and belongs only to the final document (determination 9)',
+      winners: { deployedPolicy: null, forceFill: null },
+    },
+  };
+}
+
+/**
  * Assemble one comparison document: the caller's raw records with ONE
  * sensitivity configuration's `armWeekMetrics` swapped in, and the
  * `orderingSensitivityByCell` the pass calls for - the PLACEHOLDER for the
@@ -197,6 +219,7 @@ function assembleComparisonDocument({
     subgroupErrorRows: records.subgroupErrorRows,
     activationRecords: records.activationRecords,
     orderingSensitivityByCell: orderingSensitivityByCell || placeholderOrderingSensitivityByCell(),
+    sensitivityAudit: placeholderSensitivityAudit(),
     preflight: records.preflight,
     permutationControl,
   });
@@ -421,6 +444,7 @@ module.exports = {
   ORDERING_PASSES,
   IUT_VERDICTS,
   placeholderOrderingSensitivityByCell,
+  placeholderSensitivityAudit,
   assembleComparisonDocument,
   assertClaimsPassResult,
   claimsPass,

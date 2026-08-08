@@ -129,6 +129,19 @@ const SEASON_STRINGS = sweepEvidence.SEASONS;
 
 const ARM_RECORD_KEYS = Object.freeze(['scoringProfile', 'arm', 'season', 'week', 'salt', 'values']);
 const SUBGROUP_ERROR_ROW_KEYS = Object.freeze(['cellName', 'season', 'week', 'playerId', 'salt', 'errorOn', 'errorOff']);
+/**
+ * Decision D6 (ruled by the user 2026-08-08, riding to the B3 revision): the
+ * estimand audit trail - `winnersByPass` and `estimandReconciliation` - rides
+ * the document so the published report can carry it.  The pass-key list is
+ * MIRRORED from `inputsSensitivity.SENSITIVITY_PASS_KEYS`, which cannot be
+ * imported here without a require cycle (inputsSensitivity assembles its
+ * comparison documents THROUGH this module); drift between the two lists is
+ * pinned by test.
+ */
+const SENSITIVITY_AUDIT_KEYS = Object.freeze(['winnersByPass', 'estimandReconciliation']);
+const SENSITIVITY_AUDIT_PASS_KEYS = Object.freeze(['ordering:db-collation', 'ordering:duplicate-shuffle', 'estimand:force-fill']);
+const ESTIMAND_RECONCILIATION_KEYS = Object.freeze(['selection', 'halted', 'reason', 'detail', 'winners']);
+const ESTIMAND_WINNER_KEYS = Object.freeze(['deployedPolicy', 'forceFill']);
 const ACTIVATION_RECORD_KEYS = Object.freeze(['cell', 'season', 'week', 'position', 'projections']);
 const PERMUTATION_CONTROL_KEYS = Object.freeze(['observations', 'rosterRows', 'rosterWeeks', 'cohortWeeks', 'positionRank', 'nameRankById']);
 const PREFLIGHT_KEYS = Object.freeze(['cohortRosterRows', 'controlUsage25Records', 'homeAwayStoredRecords', 'saltSeedRecords', 'matchedOffBaselineRows']);
@@ -757,6 +770,62 @@ function canonicalizePreflight(preflight, { label = 'preflight' } = {}) {
   };
 }
 
+/**
+ * Validate and canonicalize the sensitivity audit trail (decision D6).
+ *
+ * `winnersByPass` has a MIXED basis, and the schema must not flatten that
+ * fact: the two `ordering:*` rows are the STAGE-1 placeholder-basis winners
+ * (determination 9) while the `estimand:force-fill` row is the STAGE-2
+ * post-contradiction winner (determination 10) - one map, because that is
+ * exactly the set of winners spec 8.4's two disagreement rules consumed.
+ *
+ * Fail-closed internal consistency, recomputable from the trail alone:
+ * `halted` must equal the winners' actual disagreement, `selection` must be
+ * the deployed-policy winner or null under a halt, and the estimand row of
+ * `winnersByPass` must equal the reconciliation's own force-fill winner - a
+ * trail whose story contradicts itself is rejected here, never published.
+ */
+function canonicalizeSensitivityAudit(sensitivityAudit, { label }) {
+  assertClosedKeys(sensitivityAudit, SENSITIVITY_AUDIT_KEYS, label);
+  const candidateNames = arms.SELECTION_FAMILY.map((cell) => cell.name);
+  const winner = (value, valueLabel) => {
+    if (value !== null && !candidateNames.includes(value)) {
+      throw new Error(`${valueLabel}: must be null or a candidate cell name, got ${JSON.stringify(value)}`);
+    }
+    return value;
+  };
+  assertClosedKeys(sensitivityAudit.winnersByPass, SENSITIVITY_AUDIT_PASS_KEYS, `${label}.winnersByPass`);
+  const winnersByPass = Object.fromEntries(SENSITIVITY_AUDIT_PASS_KEYS.map((key) => [
+    key, winner(sensitivityAudit.winnersByPass[key], `${label}.winnersByPass[${JSON.stringify(key)}]`),
+  ]));
+  const reconciliation = sensitivityAudit.estimandReconciliation;
+  assertClosedKeys(reconciliation, ESTIMAND_RECONCILIATION_KEYS, `${label}.estimandReconciliation`);
+  assertClosedKeys(reconciliation.winners, ESTIMAND_WINNER_KEYS, `${label}.estimandReconciliation.winners`);
+  if (typeof reconciliation.halted !== 'boolean') throw new Error(`${label}.estimandReconciliation.halted: must be a boolean`);
+  if (reconciliation.reason !== null && typeof reconciliation.reason !== 'string') throw new Error(`${label}.estimandReconciliation.reason: must be a string or null`);
+  if (typeof reconciliation.detail !== 'string') throw new Error(`${label}.estimandReconciliation.detail: must be a string`);
+  const winners = {
+    deployedPolicy: winner(reconciliation.winners.deployedPolicy, `${label}.estimandReconciliation.winners.deployedPolicy`),
+    forceFill: winner(reconciliation.winners.forceFill, `${label}.estimandReconciliation.winners.forceFill`),
+  };
+  const selection = winner(reconciliation.selection, `${label}.estimandReconciliation.selection`);
+  if (reconciliation.halted !== (winners.deployedPolicy !== winners.forceFill)) {
+    throw new Error(`${label}.estimandReconciliation: halted=${reconciliation.halted} contradicts its own winners (deployedPolicy=${JSON.stringify(winners.deployedPolicy)}, forceFill=${JSON.stringify(winners.forceFill)})`);
+  }
+  if (selection !== (reconciliation.halted ? null : winners.deployedPolicy)) {
+    throw new Error(`${label}.estimandReconciliation: selection=${JSON.stringify(selection)} contradicts halted=${reconciliation.halted} and deployedPolicy=${JSON.stringify(winners.deployedPolicy)}`);
+  }
+  if (winnersByPass['estimand:force-fill'] !== winners.forceFill) {
+    throw new Error(`${label}: winnersByPass['estimand:force-fill']=${JSON.stringify(winnersByPass['estimand:force-fill'])} disagrees with estimandReconciliation.winners.forceFill=${JSON.stringify(winners.forceFill)}`);
+  }
+  return {
+    winnersByPass,
+    estimandReconciliation: {
+      selection, halted: reconciliation.halted, reason: reconciliation.reason, detail: reconciliation.detail, winners,
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // The whole document
 // ---------------------------------------------------------------------------
@@ -775,6 +844,7 @@ function assembleSweepInputs({
   subgroupErrorRows,
   activationRecords,
   orderingSensitivityByCell,
+  sensitivityAudit,
   preflight,
   permutationControl,
 }) {
@@ -871,6 +941,7 @@ function assembleSweepInputs({
     permutationControl: canonicalizePermutationControl(permutationControl),
     orderingDisagreement,
     deployedPolicyDisagreement,
+    sensitivityAudit: canonicalizeSensitivityAudit(sensitivityAudit, { label: 'assembleSweepInputs: sensitivityAudit' }),
     cells,
     evidence: assembleEvidence(groups, { componentSeriesByCell, activationWeeks }),
   };
@@ -891,5 +962,7 @@ module.exports = {
   assembleEvidence,
   canonicalizePermutationControl,
   canonicalizePreflight,
+  canonicalizeSensitivityAudit,
+  SENSITIVITY_AUDIT_PASS_KEYS,
   assembleSweepInputs,
 };

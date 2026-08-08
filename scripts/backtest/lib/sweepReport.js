@@ -134,7 +134,11 @@ const ACTIVATION_POSITION_KEYS = Object.freeze(['eligible', 'activated', 'exclud
 const ORDERING_SENSITIVITY_KEYS = Object.freeze(['contradicted', 'detail']);
 const SELECTION_KEYS = Object.freeze(['outcome', 'reasons', 'reason', 'selected', 'ranked']);
 const RANKED_CELL_KEYS = Object.freeze(['name', 'blendWeight', 'homeAway']);
-const REPORT_KEYS = Object.freeze(['studyId', 'run', 'permutationControl', 'cells', 'selection', 'evidence']);
+// Decision D6 (ruled 2026-08-08): the estimand audit trail is published.
+const SENSITIVITY_AUDIT_KEYS = Object.freeze(['winnersByPass', 'estimandReconciliation']);
+const ESTIMAND_RECONCILIATION_KEYS = Object.freeze(['selection', 'halted', 'reason', 'detail', 'winners']);
+const ESTIMAND_WINNER_KEYS = Object.freeze(['deployedPolicy', 'forceFill']);
+const REPORT_KEYS = Object.freeze(['studyId', 'run', 'permutationControl', 'cells', 'selection', 'sensitivityAudit', 'evidence']);
 
 /** Normalize one bootstrap/exact endpoint's evidence summary to the closed shape. */
 function normalizeEndpointEvidence(endpoint, { label }) {
@@ -358,6 +362,40 @@ function normalizeSelection(selection, { label = 'report.selection' } = {}) {
 }
 
 /**
+ * Normalize the sensitivity audit trail (decision D6) to the closed shape.
+ * The two `ordering:*` rows of `winnersByPass` are STAGE-1 placeholder-basis
+ * winners; the `estimand:force-fill` row is the STAGE-2 post-contradiction
+ * winner (determinations 9/10) - a reader of the published report needs that
+ * distinction from the spec, not from the shape, which deliberately carries
+ * them as the one map spec 8.4's disagreement rules consumed.
+ */
+function normalizeSensitivityAudit(audit, { label }) {
+  if (!audit) return null;
+  assertClosedKeys(audit, SENSITIVITY_AUDIT_KEYS, { label });
+  const winner = (value) => (typeof value === 'string' ? value : null);
+  const winnersByPass = {};
+  for (const key of Object.keys(audit.winnersByPass || {}).sort()) {
+    winnersByPass[key] = winner(audit.winnersByPass[key]);
+  }
+  const reconciliation = audit.estimandReconciliation || {};
+  assertClosedKeys(reconciliation, ESTIMAND_RECONCILIATION_KEYS, { label: `${label}.estimandReconciliation` });
+  assertClosedKeys(reconciliation.winners || {}, ESTIMAND_WINNER_KEYS, { label: `${label}.estimandReconciliation.winners` });
+  return {
+    winnersByPass,
+    estimandReconciliation: {
+      selection: winner(reconciliation.selection),
+      halted: reconciliation.halted === true,
+      reason: typeof reconciliation.reason === 'string' ? reconciliation.reason : null,
+      detail: typeof reconciliation.detail === 'string' ? reconciliation.detail : null,
+      winners: {
+        deployedPolicy: winner((reconciliation.winners || {}).deployedPolicy),
+        forceFill: winner((reconciliation.winners || {}).forceFill),
+      },
+    },
+  };
+}
+
+/**
  * Build the closed-schema report. `sweep` is exactly what
  * `sweepInference.evaluateSweep()` returns. `studyId` is the preregistered
  * study identifier (`pit-sweep-2024-2025`), threaded through rather than
@@ -404,6 +442,10 @@ function buildReport({ studyId, sweep, label = 'sweepReport' }) {
     },
     cells,
     selection: normalizeSelection(selection, { label: `${label}.selection` }),
+    // Decision D6: selection-level, candidate-claims-derived evidence, so a
+    // void run publishes null (prereg 7.3), mirroring `cells`.
+    sensitivityAudit: run.status === 'void' ? null
+      : normalizeSensitivityAudit(sweep.sensitivityAudit === undefined ? null : sweep.sensitivityAudit, { label: `${label}.sensitivityAudit` }),
     // A void report retains only its independently derived pipeline
     // diagnostic.  Candidate matrix/sensitivity/profile evidence would be a
     // candidate-cell result and is therefore not publishable on a void run.
@@ -610,6 +652,20 @@ function renderMarkdown(report) {
   }
   if (report.selection.reason) {
     lines.push('', escapeMd(report.selection.reason));
+  }
+  // Decision D6: the audit trail publishes beside the selection it explains.
+  // Keys render sorted for byte determinism.  The ordering:* winners are
+  // stage-1 placeholder-basis; the estimand:force-fill winner is stage-2
+  // post-contradiction (determinations 9/10).
+  if (report.sensitivityAudit) {
+    lines.push('', '## Sensitivity audit (spec 8.4/8.5)', '');
+    for (const key of Object.keys(report.sensitivityAudit.winnersByPass).sort()) {
+      lines.push(`- winner ${escapeMd(key)}: ${report.sensitivityAudit.winnersByPass[key] === null ? '-' : escapeMd(report.sensitivityAudit.winnersByPass[key])}`);
+    }
+    const reconciliation = report.sensitivityAudit.estimandReconciliation;
+    const show = (value) => (value === null ? '-' : escapeMd(value));
+    lines.push(`- estimand reconciliation: halted=${reconciliation.halted}, selection=${show(reconciliation.selection)}, deployedPolicy=${show(reconciliation.winners.deployedPolicy)}, forceFill=${show(reconciliation.winners.forceFill)}${reconciliation.reason ? `, reason=${escapeMd(reconciliation.reason)}` : ''}`);
+    if (reconciliation.detail) lines.push('', escapeMd(reconciliation.detail));
   }
   lines.push('');
   return lines.join('\n');
