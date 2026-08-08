@@ -274,6 +274,64 @@ function benchmarkProjectionsForWeek({
 }
 
 // ---------------------------------------------------------------------------
+// The playerId key-type boundary
+// ---------------------------------------------------------------------------
+
+/**
+ * Fail closed if any artifact `playerId` is not ALREADY a finite number.
+ *
+ * This layer is the only one that reads JSON, so it is the only one that can
+ * hold this line. The hazard, found by an adversarial QA pass on `7411d28`:
+ * `inputsGeneration.cohortPlayerIds` COERCES with `Number(member.playerId)`,
+ * so the ids handed to `generate` are always numeric and the projections Map
+ * always satisfies `armWeekEvaluator`'s `numericKeyed` guard - the guard
+ * written to catch exactly this class. But `evaluateArmWeek` is handed the RAW
+ * cohort and looks players up by the raw `member.playerId`. String ids
+ * therefore pass every existing check while scoring nothing: a demonstrated
+ * all-string cohort published `regret: 0` for all 14,688 arm-weeks with the
+ * other six endpoints null, and the reducer called that run `valid` with zero
+ * reasons - canaries, both identity assertions and the salt-collision guard
+ * all "held". A partial string cohort is worse, because the counts, baseline
+ * rows and subgroup rows stay byte-identical to the honest run (they all
+ * travel on the coerced ids) while the scored endpoints quietly move.
+ *
+ * ASSERTED, never coerced. Coercing here would make the two layers agree by
+ * hiding a real type defect in a frozen Commit-A artifact; the whole point is
+ * that a cohort whose ids are not what the contract says must stop the run
+ * before 14,688 generations pay for it. Verified against the committed
+ * artifacts: 562/562 cohort members and 800/800 roster players in 2025w2 are
+ * already `number`, so this is a latent contract hazard being pinned, not a
+ * live defect being repaired.
+ *
+ * `actualPointsByPlayerId` is deliberately NOT covered: JSON object keys are
+ * always strings, so that map is legitimately string-keyed on disk and is
+ * converted at the call site below. That asymmetry is the tell that made this
+ * defect invisible - one map was known to need conversion and the other was
+ * assumed not to.
+ */
+function assertNumericPlayerIds({ rosterWeek, cohortWeek, label }) {
+  const bad = (what, index, value) => new Error(
+    `${label}: ${what}[${index}].playerId is ${JSON.stringify(value)} (${typeof value}), not a finite number. `
+    + 'Cohort and roster ids must already be numeric: the generation path coerces them and the scoring path '
+    + 'does not, so a string id scores nothing while every count, baseline and subgroup row stays identical '
+    + 'to an honest run.'
+  );
+  (cohortWeek.members || []).forEach((member, index) => {
+    const id = member && member.playerId;
+    if (typeof id !== 'number' || !Number.isFinite(id)) throw bad('cohortWeek.members', index, id);
+  });
+  (rosterWeek.rosters || []).forEach((roster, rosterIndex) => {
+    (roster.players || []).forEach((player, index) => {
+      const id = player && player.playerId;
+      if (typeof id !== 'number' || !Number.isFinite(id)) {
+        throw bad(`rosterWeek.rosters[${rosterIndex}].players`, index, id);
+      }
+    });
+  });
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // The generation seam (wiring obligations 1-3)
 // ---------------------------------------------------------------------------
 
@@ -433,6 +491,9 @@ async function main(argv) {
   for (const [key, rosterWeek] of Object.entries(rosterIndexByWeek)) {
     const cohortWeek = cohortIndexByWeek[key];
     if (!cohortWeek) throw new Error(`run-backtest-inputs: no cohort artifact for ${key}`);
+    // Before anything is generated: the ids the scoring path reads raw must be
+    // the same type as the ids the generation path coerces.
+    assertNumericPlayerIds({ rosterWeek, cohortWeek, label: `run-backtest-inputs ${key}` });
     weekArtifacts.set(key, {
       rosterWeek,
       cohortWeek: {
@@ -525,6 +586,7 @@ module.exports = {
   verifyCohortFreezeHash,
   buildBenchmarkPriorGamesIndex,
   benchmarkProjectionsForWeek,
+  assertNumericPlayerIds,
   makeGenerate,
   seedFor,
   buildArtifact,

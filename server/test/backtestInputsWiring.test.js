@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
 
 const script = require('../scripts/run-backtest-inputs');
 const inputsGeneration = require('../../scripts/backtest/lib/inputsGeneration');
@@ -213,6 +214,49 @@ test('a playerId with no cohort member is named, never handed an empty history',
     () => script.benchmarkProjectionsForWeek({ ...fixtures, playerIds: [11, 900, 4242] }),
     /no cohort member for playerId 4242/
   );
+});
+
+// ---------------------------------------------------------------------------
+// The playerId key-type boundary
+// ---------------------------------------------------------------------------
+
+const HONEST_WEEK = () => ({
+  cohortWeek: { members: [{ playerId: 11 }, { playerId: 900 }] },
+  rosterWeek: { rosters: [{ players: [{ playerId: 11 }, { playerId: 900 }] }] },
+});
+
+test('numeric cohort and roster ids pass, and the real committed artifacts satisfy it', () => {
+  assert.equal(script.assertNumericPlayerIds({ ...HONEST_WEEK(), label: 'x' }), true);
+
+  // Against real frozen Commit-A artifacts, not a fixture: this is the claim
+  // that the assertion is a contract pin rather than a live repair.
+  const root = 'backtest-artifacts/pit-sweep-2024-2025';
+  const cohortWeek = JSON.parse(fs.readFileSync(`${root}/cohort-weeks/2025-w2.json`, 'utf8'));
+  const rosterWeek = JSON.parse(fs.readFileSync(`${root}/roster-weeks/2025-w2.json`, 'utf8'));
+  assert.equal(script.assertNumericPlayerIds({ rosterWeek, cohortWeek, label: '2025:2' }), true);
+  assert.ok(cohortWeek.members.length > 0 && rosterWeek.rosters.length > 0, 'the artifacts must be non-empty for this to mean anything');
+});
+
+test('NEGATIVE CONTROL: a string cohort id is refused, not coerced into agreement', () => {
+  // The demonstrated defect: string ids score nothing while every count,
+  // baseline row and subgroup row stays byte-identical to an honest run,
+  // because those paths travel on `cohortPlayerIds`' coerced ids.
+  const partial = HONEST_WEEK();
+  partial.cohortWeek.members[1].playerId = '900';
+  assert.throws(
+    () => script.assertNumericPlayerIds({ ...partial, label: 'w' }),
+    /cohortWeek\.members\[1\]\.playerId is "900" \(string\), not a finite number/
+  );
+
+  const roster = HONEST_WEEK();
+  roster.rosterWeek.rosters[0].players[0].playerId = '11';
+  assert.throws(() => script.assertNumericPlayerIds({ ...roster, label: 'w' }), /rosterWeek\.rosters\[0\]\.players\[0\]\.playerId/);
+
+  for (const value of [null, undefined, NaN, '11']) {
+    const bad = HONEST_WEEK();
+    bad.cohortWeek.members[0].playerId = value;
+    assert.throws(() => script.assertNumericPlayerIds({ ...bad, label: 'w' }), /not a finite number/, `${JSON.stringify(value)} must be refused`);
+  }
 });
 
 // ---------------------------------------------------------------------------
