@@ -227,6 +227,13 @@ function buildPriorGames({
       points,
       weeksAgo: weeksAgo({ gameSeason: row.season, gameWeek: row.week, season, week }),
       sameSeason,
+      // DELIBERATE ASYMMETRY - do not symmetrize these two gates (backtest
+      // spec section 8.6.1). `opponent` answers to `crossSeason` alone and
+      // `isHome` to `useStoredHistory` alone, each flag reaching exactly ONE
+      // field on a prior-season row. The sealed stored-history no-op
+      // rationale rests on `isHome` being the only field `useStoredHistory`
+      // reaches; granting either flag the other's field would falsify that
+      // argument while leaving it reading as valid.
       opponent: trusted && (sameSeason || crossSeason) ? trusted.opponent : null,
       isHome: trusted && (sameSeason || useStoredHistory) ? trusted.isHome : null,
       hasRole: hasRoleSignal(row.stats),
