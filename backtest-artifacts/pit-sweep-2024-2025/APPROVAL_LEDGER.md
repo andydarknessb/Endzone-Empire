@@ -2415,3 +2415,53 @@ packet delivery now includes a SHA-256 manifest of its files, and the
 reviewer verifies receipt against it before starting.** The round-6
 manifest was so delivered, and the reviewer's own report records that no
 code was read before the commission was in hand.
+
+---
+
+### CORRECTIVE ENTRY 22 — appended 2026-08-07
+
+**This entry corrects two statements in corrective entry 21, found by the
+drafting party's own post-append audit the same day. No approval row is
+created or altered; row 10 stands as written. Entries 1-21 are not
+edited.**
+
+**(1) Entry 21 item (5) overstated the manifest remedy, twice, and the
+overstatements are withdrawn.** What that item asserts: a standing remedy
+under which "the reviewer verifies receipt against it before starting",
+and that "the round-6 manifest was so delivered". The corrections:
+
+- **The manifest did not exist when the round-6 packet was first
+  delivered.** It was created FOR the corrective re-delivery, after the
+  reviewer had already reported the packet incomplete. The remedy is a
+  forward-looking policy plus one corrective re-delivery — not a practice
+  the round-6 review ran under from the start, which is what "was so
+  delivered" invites a reader to conclude.
+- **The reviewer-verification clause states the remedy's DESIGN, not an
+  observed behavior.** The round-6 report does not mention the manifest at
+  all. What it records — and what item (5)'s final clause accurately rests
+  on — is that the reviewer stopped on the incompleteness itself, read no
+  code, and proceeded only once the commission was in hand. That clause's
+  sourcing is the reviewer's report; the two preceding sentences' sourcing
+  is the drafting party's own intent, and the evidentiary weight belongs
+  where the sourcing is. A later auditor must not conclude from item (5)
+  that manifest verification was an observed, in-force reviewer practice
+  during round 6.
+
+**(2) Entry 21 item (3)'s gloss enumerates five of the six bounds** the
+approver's reach statement places on row 10. The sixth, omitted there and
+restored here: **the modules not read beyond the constants sections 3-8
+cite** — `mde.js`, `rosterGeneration.js`, `asOfView.js`, `cohort.js`,
+`snapshotClient.js`, `lineupOptimizer.js`. Row 10's own scope cell is
+unaffected: it incorporates the approver's reach statement whole rather
+than enumerating it, so the omission lived only in the narrative gloss
+whose stated purpose was preventing over-reading.
+
+**(3) Provenance of these corrections.** Both were found by the drafting
+party's standing post-work audit — an agent commissioned to verify entry
+21 against the approval report it records — within hours of the append,
+before any delivery of the round-6 response document. The same audit
+verified entry 21's substance clean against the report: the append pure,
+no future row number named, no widening of the approval's scope, and all
+four recorded identifiers resolving against git. These two statements were
+the only substantive misses, and the correction is made in the
+immediately-next entry, per this ledger's own precedent.
