@@ -47,14 +47,19 @@
  *
  * WHAT IT WRITES, AND WHY NOT THE `--inputs` DOCUMENT ITSELF
  *
- * `assembleSweepInputs` additionally requires `permutationControl`
- * (increment 4), `orderingSensitivityByCell` (a SECOND full reducer pass
- * under the ordering variant, so it belongs to whatever owns both passes),
+ * Since increment 4 this script captures the permutation control too
+ * (`lib/inputsPermutationCapture` - 408 further control-cell generations,
+ * additional to the 14,688 grid, no reuse in either direction) and carries
+ * the assembled `permutationControl` block in the records artifact.
+ * `assembleSweepInputs` still additionally requires
+ * `orderingSensitivityByCell` (a SECOND full reducer pass under the ordering
+ * variant, so it belongs to whatever owns both passes - increment 5),
  * `studyId` and the three canary booleans. This script therefore stops one
  * step short by design: it writes the GENERATION RECORDS (`armWeekMetrics`,
- * `subgroupErrorRows`, `activationRecords`, `preflight`) plus their counts,
- * and assembly happens once those inputs exist. Writing a half-populated
- * document here would produce something that looks assemblable and is not.
+ * `subgroupErrorRows`, `activationRecords`, `preflight`, `permutationControl`)
+ * plus their counts, and assembly happens once those inputs exist. Writing a
+ * half-populated document here would produce something that looks assemblable
+ * and is not.
  *
  * Whether that intermediate records artifact should exist AT ALL, rather than
  * only ever writing the complete `--inputs` document, is producer-side
@@ -113,6 +118,8 @@ const crypto = require('crypto');
 
 const snapshotClientLib = require('../../scripts/backtest/lib/snapshotClient');
 const inputsGeneration = require('../../scripts/backtest/lib/inputsGeneration');
+const inputsPermutationCapture = require('../../scripts/backtest/lib/inputsPermutationCapture');
+const metrics = require('../../scripts/backtest/lib/metrics');
 const ordering = require('../../scripts/backtest/lib/ordering');
 const rostersLib = require('../../scripts/backtest/lib/rosters');
 const naive = require('../../scripts/backtest/lib/naive');
@@ -305,9 +312,10 @@ function benchmarkProjectionsForWeek({
  *
  * `actualPointsByPlayerId` is deliberately NOT covered: JSON object keys are
  * always strings, so that map is legitimately string-keyed on disk and is
- * converted at the call site below. That asymmetry is the tell that made this
- * defect invisible - one map was known to need conversion and the other was
- * assumed not to.
+ * converted at the call site below - by `numericOutcomeTruthMap`, which is
+ * strict about both key form and value type. That asymmetry is the tell that
+ * made this defect invisible - one map was known to need conversion and the
+ * other was assumed not to.
  */
 function assertNumericPlayerIds({ rosterWeek, cohortWeek, label }) {
   const bad = (what, index, value) => new Error(
@@ -396,6 +404,117 @@ function seedFor({ hashValue, season, week, playerId }) {
   return model.seedFrom(model.MODEL_VERSION, hashValue, season, week, playerId);
 }
 
+/**
+ * The frozen cohort's outcome truth, converted to the numeric-keyed Map the
+ * pure layer reads - STRICTLY. The previous form was bare
+ * `[Number(id), points]`, and `Number` accepts aliases: `"1.0"`, `" 1"` and
+ * `"0x1"` all coerce to `1`, so a cohort artifact carrying both `"1"` and
+ * `"1.0"` as keys silently published the LAST one's value as player 1's
+ * actual, with zero errors anywhere downstream (the reducer derives actuals
+ * only from observation rows, so nothing ever re-reads the raw map). A key
+ * must be the canonical decimal rendering of a non-negative integer, and a
+ * value must already be a finite number - asserted, never coerced, the same
+ * line `assertNumericPlayerIds` holds for the ids (adversarial QA finding F1
+ * on increment 4).
+ */
+function numericOutcomeTruthMap(source, label) {
+  const map = new Map();
+  for (const [key, points] of Object.entries(source || {})) {
+    if (!/^(0|[1-9][0-9]*)$/.test(key)) {
+      throw new Error(
+        `${label}: actualPointsByPlayerId key ${JSON.stringify(key)} is not a canonical non-negative integer playerId. `
+        + 'Bare Number() would accept "1.0", " 1" and "0x1" as aliases of player 1, silently overwriting an honest '
+        + 'actual last-wins.'
+      );
+    }
+    const playerId = Number(key);
+    if (typeof points !== 'number' || !Number.isFinite(points)) {
+      throw new Error(`${label}: actualPointsByPlayerId[${key}] is ${JSON.stringify(points)} (${typeof points}), not a finite number - outcome truth is asserted, never coerced`);
+    }
+    // Unreachable while the key form is canonical (distinct canonical strings
+    // are distinct numbers); kept so a future loosening of the key rule fails
+    // here instead of last-winning.
+    if (map.has(playerId)) throw new Error(`${label}: duplicate actualPointsByPlayerId key for player ${playerId}`);
+    map.set(playerId, points);
+  }
+  return map;
+}
+
+// ---------------------------------------------------------------------------
+// The permutation-control document block (increment 4's wiring half)
+// ---------------------------------------------------------------------------
+
+/**
+ * Assemble the `--inputs` document's `permutationControl` block: the captured
+ * observations and roster rows, the 2025 week artifacts, and the two
+ * DB-produced rank artifacts (`assembleSweepInputs` closes the block to
+ * exactly these six keys).
+ *
+ * Two traps this function exists to hold, each producing a document that
+ * still validates:
+ *
+ *   1. The embedded roster/cohort artifacts must be the RAW PARSED JSON, not
+ *      the Map-converted copies `main` builds for the pure layer.
+ *      `canonicalJson` serializes a `Map` as `{}` silently (its own docblock
+ *      says so - it is why the Map-safe wrapper exists elsewhere), so an
+ *      embedded Map-converted cohort week would write
+ *      `actualPointsByPlayerId: {}` into the document without an error
+ *      anywhere. Asserted here, fail-closed.
+ *   2. The rank indexes are Maps in memory (`ordering.buildRankIndex`) and
+ *      must become plain objects to survive serialization at all - the same
+ *      `Map -> '{}'` collapse, on the two artifacts whose whole job is to
+ *      pin candidate order. The reducer converts them back
+ *      (`buildPolicyContext` re-Maps with `Number(id)` on the name ranks).
+ */
+function buildPermutationControlBlock({ capture, rosterIndexByWeek, cohortIndexByWeek, ranks, label = 'run-backtest-inputs permutationControl' }) {
+  const rosterWeeks = {};
+  const cohortWeeks = {};
+  for (const week of metrics.EVALUATED_WEEKS) {
+    const key = `${inputsPermutationCapture.PERMUTATION_SEASON}:${week}`;
+    const rosterWeek = rosterIndexByWeek[key];
+    const cohortWeek = cohortIndexByWeek[key];
+    if (!rosterWeek || !cohortWeek) {
+      throw new Error(`${label}: no frozen artifacts for ${key} - the block must carry every 2025 evaluated week`);
+    }
+    if (cohortWeek.actualPointsByPlayerId instanceof Map) {
+      throw new Error(
+        `${label}: ${key}'s cohort artifact carries actualPointsByPlayerId as a Map. The block must embed the RAW `
+        + 'parsed artifact: canonicalJson serializes a Map as {} silently, so the document would validate while '
+        + 'carrying no outcome truth at all'
+      );
+    }
+    rosterWeeks[week] = rosterWeek;
+    cohortWeeks[week] = cohortWeek;
+  }
+  // The capture and the embedded artifacts must describe the SAME cohort. In
+  // main they are the same objects by construction; this holds the line for
+  // every other caller, because the reducer's own cross-checks are
+  // one-directional (rostered subset-of observed/cohort) and would accept a
+  // phantom observation member that participates in every permutation cell.
+  // rosterRows suffices as the checked side: the capture already proved the
+  // observations' per-cell ids equal the rosterRows cells elementwise.
+  const memberIdsByWeek = new Map(Object.entries(cohortWeeks).map(([week, cohortWeek]) => [
+    Number(week), new Set((cohortWeek.members || []).map((member) => member.playerId)),
+  ]));
+  for (const row of capture.rosterRows) {
+    const memberIds = memberIdsByWeek.get(row.week);
+    if (!memberIds || !memberIds.has(row.playerId)) {
+      throw new Error(
+        `${label}: captured roster row ${row.week}:${row.position}:${row.playerId} names a player the embedded `
+        + 'cohort artifact does not carry - the capture and the embedded artifacts were built from different inputs'
+      );
+    }
+  }
+  return {
+    observations: capture.observations,
+    rosterRows: capture.rosterRows,
+    rosterWeeks,
+    cohortWeeks,
+    positionRank: Object.fromEntries(ranks.positionRank),
+    nameRankById: Object.fromEntries([...ranks.nameRankById].map(([id, rank]) => [String(id), rank])),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // The written artifact
 // ---------------------------------------------------------------------------
@@ -405,14 +524,37 @@ function seedFor({ hashValue, season, week, playerId }) {
  * artifact (`assertEnvironmentFree` is reused, not re-implemented): no Node
  * version, no absolute path, no timestamp - runtime identity belongs only to
  * freeze Commit B's manifest.
+ *
+ * Since increment 4 the bundle also carries the assembled `permutationControl`
+ * block and its capture counts - REQUIRED, not optional: a records artifact
+ * without the block would look one-increment-from-assemblable while silently
+ * missing a piece the sealed schema demands, which is exactly the
+ * half-populated-document shape the module docblock forswears.
  */
-function buildArtifact(records) {
+function buildArtifact(records, { permutationControl, permutationCounts } = {}) {
+  if (!permutationControl || typeof permutationControl !== 'object') {
+    throw new Error('run-backtest-inputs: buildArtifact requires the permutationControl block - a records artifact without it looks assemblable and is not');
+  }
+  if (!permutationCounts || typeof permutationCounts !== 'object') {
+    throw new Error('run-backtest-inputs: buildArtifact requires the permutation capture counts');
+  }
+  // Every member is required BY NAME: a records artifact silently missing one
+  // (a refactor that stops threading armWeekMetrics, say) would serialize,
+  // pass assertEnvironmentFree, and read as a checkpoint while carrying
+  // nothing to assemble (mutation-QA finding wir-01/02 on increment 4).
+  for (const key of ['armWeekMetrics', 'subgroupErrorRows', 'activationRecords']) {
+    if (!Array.isArray(records[key])) throw new Error(`run-backtest-inputs: buildArtifact requires records.${key} as an array`);
+  }
+  for (const key of ['preflight', 'counts']) {
+    if (!records[key] || typeof records[key] !== 'object') throw new Error(`run-backtest-inputs: buildArtifact requires records.${key}`);
+  }
   return {
     armWeekMetrics: records.armWeekMetrics,
     subgroupErrorRows: records.subgroupErrorRows,
     activationRecords: records.activationRecords,
     preflight: records.preflight,
-    counts: records.counts,
+    permutationControl,
+    counts: { ...records.counts, permutationControl: permutationCounts },
   };
 }
 
@@ -498,9 +640,7 @@ async function main(argv) {
       rosterWeek,
       cohortWeek: {
         ...cohortWeek,
-        actualPointsByPlayerId: new Map(Object.entries(cohortWeek.actualPointsByPlayerId || {}).map(
-          ([id, points]) => [Number(id), points]
-        )),
+        actualPointsByPlayerId: numericOutcomeTruthMap(cohortWeek.actualPointsByPlayerId, `run-backtest-inputs ${key}`),
       },
       positionRank: ranks.positionRank,
       nameRankById: ranks.nameRankById,
@@ -548,6 +688,23 @@ async function main(argv) {
     });
   };
 
+  // The permutation-control capture runs FIRST: 408 generations against the
+  // same seam, so the failure classes only generation can surface (a domain
+  // member with no finite median, a rostered player outside the domain) cost
+  // 408 runs to discover, not 14,688 - and the ordering matches the direction
+  // section 8.6.0 pins for the preflight block (permutation control before
+  // candidate cells).
+  const capture = await inputsPermutationCapture.capturePermutationControlObservations({
+    weekArtifacts,
+    baseConstants: model.MODEL_CONSTANTS,
+    scoringHashFor,
+    generate,
+    seedFor,
+  });
+  const permutationControl = buildPermutationControlBlock({
+    capture, rosterIndexByWeek, cohortIndexByWeek, ranks,
+  });
+
   const records = await inputsGeneration.generateSweepInputRecords({
     weekArtifacts,
     baseConstants: model.MODEL_CONSTANTS,
@@ -561,13 +718,16 @@ async function main(argv) {
 
   assertGridComplete(records.counts);
 
-  const serialized = serializeArtifact(buildArtifact(records));
+  const serialized = serializeArtifact(buildArtifact(records, { permutationControl, permutationCounts: capture.counts }));
   // args.out is the operator's own CLI argument to this locally-invoked tool.
   // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
   fs.mkdirSync(path.dirname(path.resolve(String(args.out))), { recursive: true });
   // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
   fs.writeFileSync(path.resolve(String(args.out)), serialized, 'utf8');
-  console.log(`wrote inputs generation records to ${args.out} (${records.counts.generations} generations)`);
+  console.log(
+    `wrote inputs generation records to ${args.out} `
+    + `(${records.counts.generations} grid generations + ${capture.counts.generations} permutation-control generations)`
+  );
   return 0;
 }
 
@@ -589,6 +749,8 @@ module.exports = {
   assertNumericPlayerIds,
   makeGenerate,
   seedFor,
+  numericOutcomeTruthMap,
+  buildPermutationControlBlock,
   buildArtifact,
   serializeArtifact,
   assertGridComplete,

@@ -74,7 +74,18 @@ test('the executed generation count is checked against section 9, not just the p
 // The written artifact
 // ---------------------------------------------------------------------------
 
-test('the records artifact is canonical and environment-free', () => {
+function minimalPermutationBlock() {
+  return {
+    observations: [{ season: 2025, week: 2, salt: 's', position: 'QB', playerId: 1, actual: 1, projected: 2 }],
+    rosterRows: [{ season: 2025, week: 2, position: 'QB', playerId: 1 }],
+    rosterWeeks: { 2: { rosters: [] } },
+    cohortWeeks: { 2: { members: [], actualPointsByPlayerId: { 1: 7.5 } } },
+    positionRank: { QB: 1 },
+    nameRankById: { 1: 1 },
+  };
+}
+
+test('the records artifact is canonical, environment-free, and refuses to omit the permutation control', () => {
   const records = {
     armWeekMetrics: [{ scoringProfile: 'half_ppr', arm: 'usage-25-off', season: 2025, week: 1, salt: 's1', values: {} }],
     subgroupErrorRows: [],
@@ -82,9 +93,22 @@ test('the records artifact is canonical and environment-free', () => {
     preflight: { cohortRosterRows: [], saltSeedRecords: [] },
     counts: { generations: 14688 },
   };
-  const serialized = script.serializeArtifact(script.buildArtifact(records));
+  const withBlock = { permutationControl: minimalPermutationBlock(), permutationCounts: { generations: 408 } };
+  const serialized = script.serializeArtifact(script.buildArtifact(records, withBlock));
   assert.equal(serialized.endsWith('\n'), true);
-  assert.deepEqual(JSON.parse(serialized).counts, { generations: 14688 });
+  const parsed = JSON.parse(serialized);
+  assert.deepEqual(parsed.counts, { generations: 14688, permutationControl: { generations: 408 } });
+  // The Map trap, pinned from the round trip side: the embedded cohort
+  // artifact's outcome truth must SURVIVE serialization, not collapse to {}.
+  assert.deepEqual(parsed.permutationControl.cohortWeeks[2].actualPointsByPlayerId, { 1: 7.5 });
+
+  // NEGATIVE CONTROL: a records artifact without the block looks
+  // one-increment-from-assemblable and is not - refused, not written.
+  assert.throws(() => script.buildArtifact(records), /requires the permutationControl block/);
+  assert.throws(
+    () => script.buildArtifact(records, { permutationControl: minimalPermutationBlock() }),
+    /requires the permutation capture counts/
+  );
 
   // NEGATIVE CONTROL: a leaked absolute path is refused, not written.
   assert.throws(
@@ -343,6 +367,137 @@ test('the profile decides the rules, the reconstruction is the season\'s own, an
 // ---------------------------------------------------------------------------
 // The final seed
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// The permutation-control document block (increment 4)
+// ---------------------------------------------------------------------------
+
+const metrics = require('../../scripts/backtest/lib/metrics');
+const { canonicalJson } = require('../../scripts/backtest/lib/snapshotStore');
+
+function blockFixtures({ mapConverted = false } = {}) {
+  const rosterIndexByWeek = {};
+  const cohortIndexByWeek = {};
+  for (const week of metrics.EVALUATED_WEEKS) {
+    rosterIndexByWeek[`2025:${week}`] = { season: 2025, week, rosters: [{ players: [] }] };
+    cohortIndexByWeek[`2025:${week}`] = {
+      season: 2025,
+      week,
+      members: [{ playerId: 11 }],
+      actualPointsByPlayerId: mapConverted ? new Map([[11, 9.5]]) : { 11: 9.5 },
+    };
+  }
+  // A 2024 week that must NOT be embedded: section 5 is 2025-only.
+  rosterIndexByWeek['2024:2'] = { season: 2024, week: 2, rosters: [] };
+  cohortIndexByWeek['2024:2'] = { season: 2024, week: 2, members: [], actualPointsByPlayerId: {} };
+  return {
+    capture: {
+      observations: [{ season: 2025, week: 2, salt: 's', position: 'QB', playerId: 11, actual: 9.5, projected: 12 }],
+      rosterRows: [{ season: 2025, week: 2, position: 'QB', playerId: 11 }],
+      counts: { generations: 408 },
+    },
+    rosterIndexByWeek,
+    cohortIndexByWeek,
+    ranks: {
+      positionRank: new Map([['QB', 1], ['RB', 2]]),
+      nameRankById: new Map([[11, 4], [900, 7]]),
+    },
+  };
+}
+
+test('the block carries the six closed keys: raw 2025 artifacts by identity, rank Maps as plain objects', () => {
+  const fixtures = blockFixtures();
+  const block = script.buildPermutationControlBlock(fixtures);
+
+  assert.deepEqual(
+    Object.keys(block).sort(),
+    ['cohortWeeks', 'nameRankById', 'observations', 'positionRank', 'rosterRows', 'rosterWeeks'],
+    'assembleSweepInputs closes the block to exactly these keys'
+  );
+  assert.equal(block.observations, fixtures.capture.observations);
+  assert.equal(block.rosterRows, fixtures.capture.rosterRows);
+  for (const week of metrics.EVALUATED_WEEKS) {
+    // IDENTITY, not a copy: the embedded artifact is the raw parsed JSON the
+    // freeze hash verified, byte for byte.
+    assert.equal(block.rosterWeeks[week], fixtures.rosterIndexByWeek[`2025:${week}`]);
+    assert.equal(block.cohortWeeks[week], fixtures.cohortIndexByWeek[`2025:${week}`]);
+  }
+  assert.equal(2024 in block.rosterWeeks, false, 'section 5 is 2025-only; the 2024 artifacts must not ride along');
+  // The two DB-produced rank artifacts survive serialization as plain objects.
+  assert.deepEqual(block.positionRank, { QB: 1, RB: 2 });
+  assert.deepEqual(block.nameRankById, { 11: 4, 900: 7 });
+  assert.equal(canonicalJson(block.nameRankById) === '{}', false);
+});
+
+test('NEGATIVE CONTROL: a Map-converted cohort artifact would serialize its outcome truth as {} - refused by name', () => {
+  const fixtures = blockFixtures({ mapConverted: true });
+  // The defect being pinned: canonicalJson collapses a Map to {} silently.
+  assert.equal(canonicalJson(fixtures.cohortIndexByWeek['2025:2'].actualPointsByPlayerId), '{}');
+  assert.throws(
+    () => script.buildPermutationControlBlock(fixtures),
+    /actualPointsByPlayerId as a Map.*carrying no outcome truth at all/s
+  );
+});
+
+test('a missing 2025 evaluated week fails the block, never a partial embed', () => {
+  const fixtures = blockFixtures();
+  delete fixtures.cohortIndexByWeek['2025:9'];
+  assert.throws(() => script.buildPermutationControlBlock(fixtures), /no frozen artifacts for 2025:9/);
+});
+
+test('a captured player the embedded cohort does not carry fails the block (adversarial finding F5)', () => {
+  const fixtures = blockFixtures();
+  fixtures.capture.rosterRows.push({ season: 2025, week: 3, position: 'RB', playerId: 999 });
+  assert.throws(
+    () => script.buildPermutationControlBlock(fixtures),
+    /captured roster row 3:RB:999 names a player the embedded cohort artifact does not carry/
+  );
+});
+
+test('the outcome-truth conversion is STRICT: alias keys and non-number values are refused, never coerced (adversarial finding F1)', () => {
+  const honest = script.numericOutcomeTruthMap({ 1: 11, 42: 0 }, 'w');
+  assert.deepEqual([...honest.entries()], [[1, 11], [42, 0]]);
+
+  // NEGATIVE CONTROL: every one of these keys satisfies bare Number() as
+  // player 1, so the old conversion silently overwrote 11 last-wins.
+  for (const alias of ['1.0', ' 1', '0x1', '1e0', '+1']) {
+    assert.throws(
+      () => script.numericOutcomeTruthMap({ 1: 11, [alias]: 3.25 }, 'w'),
+      /not a canonical non-negative integer playerId/,
+      `${JSON.stringify(alias)} must be refused`
+    );
+  }
+  assert.throws(() => script.numericOutcomeTruthMap({ 1: '7.5' }, 'w'), /is "7\.5" \(string\), not a finite number/);
+  assert.throws(() => script.numericOutcomeTruthMap({ 1: null }, 'w'), /not a finite number/);
+});
+
+test('PATCH G: every record member survives into the serialized artifact by value, under the closed key set', () => {
+  const records = {
+    armWeekMetrics: [{ scoringProfile: 'half_ppr', arm: 'usage-25-off', season: 2025, week: 1, salt: 's1', values: {} }],
+    subgroupErrorRows: [{ cellName: 'usage-40-on', week: 2 }],
+    activationRecords: [{ cell: 'usage-40-on', position: 'QB' }],
+    preflight: { cohortRosterRows: [{ week: 2 }], saltSeedRecords: [] },
+    counts: { generations: 14688 },
+  };
+  const withBlock = { permutationControl: minimalPermutationBlock(), permutationCounts: { generations: 408 } };
+  const parsed = JSON.parse(script.serializeArtifact(script.buildArtifact(records, withBlock)));
+
+  assert.deepEqual(
+    Object.keys(parsed).sort(),
+    ['activationRecords', 'armWeekMetrics', 'counts', 'permutationControl', 'preflight', 'subgroupErrorRows'],
+    'a dropped record key would serialize, validate, and read as a checkpoint carrying nothing to assemble'
+  );
+  assert.deepEqual(parsed.armWeekMetrics, records.armWeekMetrics);
+  assert.deepEqual(parsed.subgroupErrorRows, records.subgroupErrorRows);
+  assert.deepEqual(parsed.activationRecords, records.activationRecords);
+  assert.deepEqual(parsed.preflight, records.preflight);
+
+  // And buildArtifact itself refuses a records object missing any member.
+  for (const key of ['armWeekMetrics', 'subgroupErrorRows', 'activationRecords', 'preflight']) {
+    const { [key]: _dropped, ...withoutKey } = records;
+    assert.throws(() => script.buildArtifact(withoutKey, withBlock), new RegExp(`requires records\\.${key}`));
+  }
+});
 
 test('the seed is the pinned parts in the pinned order, as an unsigned 32-bit integer', () => {
   const seed = script.seedFor({ hashValue: 'abc123', season: 2025, week: 4, playerId: 11 });
