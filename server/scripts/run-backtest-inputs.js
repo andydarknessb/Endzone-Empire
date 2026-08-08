@@ -142,6 +142,7 @@ const inputsAssembly = require('../../scripts/backtest/lib/inputsAssembly');
 const inputsGeneration = require('../../scripts/backtest/lib/inputsGeneration');
 const inputsPermutationCapture = require('../../scripts/backtest/lib/inputsPermutationCapture');
 const inputsSensitivity = require('../../scripts/backtest/lib/inputsSensitivity');
+const sweepPreflightLib = require('../../scripts/backtest/lib/sweepPreflight');
 const metrics = require('../../scripts/backtest/lib/metrics');
 const ordering = require('../../scripts/backtest/lib/ordering');
 const rostersLib = require('../../scripts/backtest/lib/rosters');
@@ -199,7 +200,7 @@ function requireFlagValue(argv, index, flagName) {
 
 function parseArgs(argv) {
   const args = {
-    rehydratedSnapshot: null, rehydratedSources: null, rosters: null, cohort: null, out: null, recordsOut: null,
+    rehydratedSnapshot: null, rehydratedSources: null, rosters: null, cohort: null, out: null, recordsOut: null, recordsIn: null,
   };
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i];
@@ -213,7 +214,35 @@ function parseArgs(argv) {
     // never a defaulted one - omitted means "do not write it", not "write it
     // somewhere I did not say".
     else if (token === '--records-out') args.recordsOut = requireFlagValue(argv, ++i, token);
+    // Decision D3 (ruled 2026-08-08): resume assembly from a checkpoint this
+    // script wrote. The resume path reads NO Commit-A artifacts, so the four
+    // input directories are FORBIDDEN beside it, not merely unused - allowing
+    // both would leave "which path ran?" ambiguous, the masquerade shape
+    // wiring obligation 3 exists to prevent.
+    else if (token === '--records-in') args.recordsIn = requireFlagValue(argv, ++i, token);
     else throw new Error(`run-backtest-inputs: unknown argument ${token}`);
+  }
+  if (args.recordsIn) {
+    if (args.recordsOut) {
+      throw new Error('run-backtest-inputs: --records-in cannot be combined with --records-out - a resume either reads the checkpoint or a generation writes one, and writing back what was just read is either a no-op or a laundering rewrite');
+    }
+    for (const [flag, value] of [
+      ['--rehydrated-snapshot', args.rehydratedSnapshot],
+      ['--rehydrated-sources', args.rehydratedSources],
+      ['--rosters', args.rosters],
+      ['--cohort', args.cohort],
+    ]) {
+      if (value) {
+        throw new Error(`run-backtest-inputs: ${flag} cannot be combined with --records-in - the resume path reads no Commit-A artifacts (the embedded week artifacts are hash-bound to the checkpoint), and a flag no path reads is a flag that silently does nothing`);
+      }
+    }
+    if (!args.out) {
+      throw new Error(
+        'run-backtest-inputs: --out is required, with no default. A defaulted output path is a path '
+        + 'that can silently land outside the container\'s dedicated writable output mount.'
+      );
+    }
+    return args;
   }
   for (const [flag, value] of [
     ['--rehydrated-snapshot', args.rehydratedSnapshot],
@@ -632,7 +661,11 @@ function buildArtifact(records, { permutationControl, permutationCounts } = {}) 
       throw new Error(`run-backtest-inputs: buildArtifact requires records.armWeekMetricsBySensitivity[${JSON.stringify(key)}] as an array`);
     }
   }
-  return {
+  const artifact = {
+    // Decision D3 (ruled 2026-08-08): the checkpoint names which sealed study
+    // it belongs to and carries its own digest, so `--records-in` can prove
+    // the file is the one a generation run wrote before trusting a byte of it.
+    studyId: STUDY_ID,
     armWeekMetrics: records.armWeekMetrics,
     armWeekMetricsBySensitivity: records.armWeekMetricsBySensitivity,
     subgroupErrorRows: records.subgroupErrorRows,
@@ -641,6 +674,124 @@ function buildArtifact(records, { permutationControl, permutationCounts } = {}) 
     permutationControl,
     counts: { ...records.counts, permutationControl: permutationCounts },
   };
+  // The writer holds itself to the loader's shape contract, so the two can
+  // never drift: a checkpoint buildArtifact would write that
+  // loadRecordsArtifact would refuse is a bug caught at write time.
+  assertRecordsArtifactShape(artifact, { label: 'run-backtest-inputs: buildArtifact' });
+  return { ...artifact, recordsHash: sha256Hex(canonicalJson(artifact)) };
+}
+
+/** SHA-256 hex over canonical text - the same digest form the freeze-hash verifiers above use. */
+function sha256Hex(text) {
+  return crypto.createHash('sha256').update(text, 'utf8').digest('hex');
+}
+
+/**
+ * Every member of the records checkpoint required BY NAME, shared by the
+ * writer (`buildArtifact` self-checks its output) and the loader
+ * (`loadRecordsArtifact`) so the two cannot drift (decision D3). Validates
+ * the artifact WITHOUT its `recordsHash` key - the hash covers exactly this
+ * shape.
+ */
+function assertRecordsArtifactShape(artifact, { label = 'run-backtest-inputs records artifact' } = {}) {
+  if (!artifact || typeof artifact !== 'object' || Array.isArray(artifact)) throw new Error(`${label}: must be an object`);
+  if (artifact.studyId !== STUDY_ID) {
+    throw new Error(`${label}: studyId must be the sealed ${JSON.stringify(STUDY_ID)}, got ${JSON.stringify(artifact.studyId)} - a checkpoint answering to a different study must never assemble this one's document`);
+  }
+  for (const key of ['armWeekMetrics', 'subgroupErrorRows', 'activationRecords']) {
+    if (!Array.isArray(artifact[key])) throw new Error(`${label}: requires ${key} as an array`);
+  }
+  if (!artifact.armWeekMetricsBySensitivity || typeof artifact.armWeekMetricsBySensitivity !== 'object') {
+    throw new Error(`${label}: requires armWeekMetricsBySensitivity`);
+  }
+  for (const key of inputsSensitivity.SENSITIVITY_PASS_KEYS) {
+    if (!Array.isArray(artifact.armWeekMetricsBySensitivity[key])) {
+      throw new Error(`${label}: requires armWeekMetricsBySensitivity[${JSON.stringify(key)}] as an array`);
+    }
+  }
+  if (!artifact.preflight || typeof artifact.preflight !== 'object') throw new Error(`${label}: requires preflight`);
+  for (const key of ['cohortRosterRows', 'controlUsage25Records', 'homeAwayStoredRecords', 'saltSeedRecords', 'matchedOffBaselineRows']) {
+    if (!Array.isArray(artifact.preflight[key])) throw new Error(`${label}: requires preflight.${key} as an array`);
+  }
+  if (!artifact.permutationControl || typeof artifact.permutationControl !== 'object') throw new Error(`${label}: requires the permutationControl block`);
+  for (const key of ['observations', 'rosterRows', 'rosterWeeks', 'cohortWeeks', 'positionRank', 'nameRankById']) {
+    if (!(key in artifact.permutationControl)) throw new Error(`${label}: requires permutationControl.${key}`);
+  }
+  if (!artifact.counts || typeof artifact.counts !== 'object') throw new Error(`${label}: requires counts`);
+  if (!artifact.counts.permutationControl || typeof artifact.counts.permutationControl !== 'object') {
+    throw new Error(`${label}: requires counts.permutationControl`);
+  }
+  return true;
+}
+
+/**
+ * Decision D3: parse and validate a `--records-in` checkpoint.
+ *
+ * What a resume RE-RUNS from disk, so the checkpoint cannot become a
+ * laundering channel: the artifact's own digest; the sealed grid counts; the
+ * 8.6.0/8.6.1 identity coverage AND value bit-identity
+ * (`sweepPreflight.assertIdentityCoverage` - the reducer's own, never a
+ * re-implementation); salt-seed coverage; the embedded outcome-truth key
+ * discipline (the laundered-baseline-id class applies to loaded JSON exactly
+ * as to Commit-A artifacts).
+ *
+ * What it CANNOT re-run, stated honestly (riding to the revision-35 text):
+ * non-aliasing is UNVERIFIABLE from disk - `assertRunsNotAliased` compares
+ * references and a JSON round trip mints fresh objects, so the resume's
+ * non-aliasing guarantee is INHERITED from the writer's generation-time
+ * enforcement and bound to it by `recordsHash`, never re-proven.  The
+ * per-generation guards' operands (the 14,688 scored runs) are not in the
+ * artifact; only their derived metrics are - trusted-from-writer,
+ * hash-pinned.  Observation canonicality is re-verified by the reducer's own
+ * permutation gate when the assembled document is consumed.  Whether a
+ * checkpoint from a COMPLETED run may be resumed is a D3 spec detail; the
+ * loader validates the artifact, not the operator's reason for resuming.
+ */
+function loadRecordsArtifact(serialized, { label = 'run-backtest-inputs --records-in' } = {}) {
+  if (typeof serialized !== 'string' || serialized.length === 0) {
+    throw new Error(`${label}: requires the checkpoint's serialized bytes`);
+  }
+  // Symmetric with the writer: the same environment-free line, on the bytes
+  // as read.
+  mdeScript.assertEnvironmentFree(serialized, { label: 'inputs-generation-records' });
+  let parsed;
+  try {
+    parsed = JSON.parse(serialized);
+  } catch (err) {
+    throw new Error(`${label}: could not parse the checkpoint: ${err.message}`);
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error(`${label}: must be an object`);
+  const { recordsHash, ...content } = parsed;
+  if (typeof recordsHash !== 'string' || recordsHash.length !== 64) {
+    throw new Error(`${label}: recordsHash is missing or malformed - a checkpoint without its own digest cannot prove it is the one a generation run wrote`);
+  }
+  const recomputed = sha256Hex(canonicalJson(content));
+  if (recomputed !== recordsHash) {
+    throw new Error(`${label}: records checkpoint hash mismatch - the file is not the one a generation run wrote (stored ${recordsHash}, recomputed ${recomputed})`);
+  }
+  assertRecordsArtifactShape(content, { label });
+  assertGridComplete(content.counts, { label });
+  const captureGenerations = content.counts.permutationControl.generations;
+  if (captureGenerations !== inputsPermutationCapture.CAPTURE_TOTAL) {
+    throw new Error(`${label}: the checkpoint records ${captureGenerations} permutation-control generations, but section 5's scope is ${inputsPermutationCapture.CAPTURE_TOTAL}`);
+  }
+  sweepPreflightLib.assertIdentityCoverage({
+    cohortRosterRows: content.preflight.cohortRosterRows,
+    controlUsage25Records: content.preflight.controlUsage25Records,
+    homeAwayStoredRecords: content.preflight.homeAwayStoredRecords,
+    label: `${label} identity`,
+  });
+  sweepPreflightLib.assertSaltSeedCoverage({
+    cohortRosterRows: content.preflight.cohortRosterRows,
+    records: content.preflight.saltSeedRecords,
+    label: `${label} salt seeds`,
+  });
+  for (const [week, cohortWeek] of Object.entries(content.permutationControl.cohortWeeks)) {
+    if (!cohortWeek || typeof cohortWeek !== 'object') throw new Error(`${label}: cohortWeeks[${week}] must be an object`);
+    numericOutcomeTruthMap(cohortWeek.actualPointsByPlayerId, `${label} cohortWeeks[${week}]`);
+  }
+  const { permutationControl, studyId: _studyId, ...records } = content;
+  return { records, permutationControl };
 }
 
 function serializeArtifact(artifact) {
@@ -741,6 +892,28 @@ function assertGridComplete(counts, { label = 'run-backtest-inputs' } = {}) {
   return true;
 }
 
+/**
+ * Serialize and write the finished `--inputs` document, with the one console
+ * line both paths share. Extracted so the resume path (decision D3) and the
+ * generation path cannot drift in what they write or how they validate it.
+ */
+function writeInputsDocument({ outPath, document, sensitivity, gridGenerations, captureGenerations, source }) {
+  const serialized = serializeInputsDocument(document);
+  // outPath is the operator's own CLI argument to this locally-invoked tool.
+  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
+  fs.mkdirSync(path.dirname(path.resolve(String(outPath))), { recursive: true });
+  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
+  fs.writeFileSync(path.resolve(String(outPath)), serialized, 'utf8');
+  const contradictedCells = Object.entries(sensitivity.orderingSensitivityByCell)
+    .filter(([, value]) => value.contradicted).map(([name]) => name);
+  console.log(
+    `wrote the complete --inputs document to ${outPath} `
+    + `(${source}: ${gridGenerations} grid generations + ${captureGenerations} permutation-control generations; `
+    + `ordering-contradicted cells: ${contradictedCells.length > 0 ? contradictedCells.join(', ') : 'none'}; `
+    + `orderingDisagreement=${sensitivity.orderingDisagreement}; deployedPolicyDisagreement=${sensitivity.deployedPolicyDisagreement})`
+  );
+}
+
 // ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
@@ -757,6 +930,34 @@ async function main(argv, { probes, ...unknown } = {}) {
   // is the only value `canariesPassed` can carry in a document this script
   // writes (see the module docblock).
   const canariesPassed = await runCanaries(probes ? { probes } : {});
+
+  // Decision D3: the checkpoint resume path. Canaries run FIRST even here -
+  // `canariesPassed` has no stored spelling, and a resume that read one from
+  // the checkpoint would be exactly the operator-supplied assertion the
+  // module docblock forbids. Resumed records never masquerade as generation:
+  // this branch builds no generate seam, runs no permutation capture, and
+  // performs no grid generation - wiring obligation 3 is untouched because
+  // generation and resume share no code path at all (pinned by a
+  // source-structure test that scans this branch for those symbols).
+  if (args.recordsIn) {
+    // args.recordsIn is the operator's own CLI argument to this
+    // locally-invoked tool.
+    // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
+    const serializedRecords = fs.readFileSync(path.resolve(String(args.recordsIn)), 'utf8');
+    const loaded = loadRecordsArtifact(serializedRecords);
+    const assembled = assembleFinalDocument({
+      records: loaded.records, permutationControl: loaded.permutationControl, canariesPassed,
+    });
+    writeInputsDocument({
+      outPath: args.out,
+      document: assembled.document,
+      sensitivity: assembled.sensitivity,
+      gridGenerations: loaded.records.counts.generations,
+      captureGenerations: loaded.records.counts.permutationControl.generations,
+      source: `resumed from the records checkpoint at ${args.recordsIn}`,
+    });
+    return 0;
+  }
 
   const snapshot = snapshotClientLib.loadSnapshot({ root: args.rehydratedSnapshot });
   const readSource = makeSourceReader({
@@ -910,20 +1111,14 @@ async function main(argv, { probes, ...unknown } = {}) {
     records, permutationControl, canariesPassed,
   });
 
-  const serialized = serializeInputsDocument(document);
-  // args.out is the operator's own CLI argument to this locally-invoked tool.
-  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
-  fs.mkdirSync(path.dirname(path.resolve(String(args.out))), { recursive: true });
-  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
-  fs.writeFileSync(path.resolve(String(args.out)), serialized, 'utf8');
-  const contradictedCells = Object.entries(sensitivity.orderingSensitivityByCell)
-    .filter(([, value]) => value.contradicted).map(([name]) => name);
-  console.log(
-    `wrote the complete --inputs document to ${args.out} `
-    + `(${records.counts.generations} grid generations + ${capture.counts.generations} permutation-control generations; `
-    + `ordering-contradicted cells: ${contradictedCells.length > 0 ? contradictedCells.join(', ') : 'none'}; `
-    + `orderingDisagreement=${sensitivity.orderingDisagreement}; deployedPolicyDisagreement=${sensitivity.deployedPolicyDisagreement})`
-  );
+  writeInputsDocument({
+    outPath: args.out,
+    document,
+    sensitivity,
+    gridGenerations: records.counts.generations,
+    captureGenerations: capture.counts.generations,
+    source: 'generated',
+  });
   return 0;
 }
 
@@ -950,6 +1145,8 @@ module.exports = {
   numericOutcomeTruthMap,
   buildPermutationControlBlock,
   buildArtifact,
+  assertRecordsArtifactShape,
+  loadRecordsArtifact,
   serializeArtifact,
   serializeInputsDocument,
   assembleFinalDocument,

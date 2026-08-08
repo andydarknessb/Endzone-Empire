@@ -5,6 +5,8 @@ const fs = require('fs');
 const script = require('../scripts/run-backtest-inputs');
 const inputsGeneration = require('../../scripts/backtest/lib/inputsGeneration');
 const inputsSensitivity = require('../../scripts/backtest/lib/inputsSensitivity');
+const backtestMetrics = require('../../scripts/backtest/lib/metrics');
+const backtestArms = require('../../scripts/backtest/lib/arms');
 const naive = require('../../scripts/backtest/lib/naive');
 const { PRIMARY_SCORING_PROFILE } = require('../../scripts/backtest/lib/freezeManifest');
 const model = require('../services/projectionModel');
@@ -41,6 +43,8 @@ test('every flag is required with no default, and unknown tokens are refused', (
     // The one deliberately OPTIONAL flag (determination 7's interim
     // checkpoint): omitted means "do not write it", never a defaulted path.
     recordsOut: null,
+    // Decision D3's resume flag - null unless resuming.
+    recordsIn: null,
   });
   assert.equal(
     script.parseArgs([...FIVE_FLAGS, '--records-out', '/out/checkpoint.json']).recordsOut,
@@ -100,7 +104,7 @@ test('the records artifact is canonical, environment-free, and refuses to omit t
     armWeekMetricsBySensitivity: Object.fromEntries(inputsSensitivity.SENSITIVITY_PASS_KEYS.map((key) => [key, []])),
     subgroupErrorRows: [],
     activationRecords: [],
-    preflight: { cohortRosterRows: [], saltSeedRecords: [] },
+    preflight: { cohortRosterRows: [], controlUsage25Records: [], homeAwayStoredRecords: [], saltSeedRecords: [], matchedOffBaselineRows: [] },
     counts: { generations: 14688 },
   };
   const withBlock = { permutationControl: minimalPermutationBlock(), permutationCounts: { generations: 408 } };
@@ -489,7 +493,7 @@ test('PATCH G: every record member survives into the serialized artifact by valu
     ])),
     subgroupErrorRows: [{ cellName: 'usage-40-on', week: 2 }],
     activationRecords: [{ cell: 'usage-40-on', position: 'QB' }],
-    preflight: { cohortRosterRows: [{ week: 2 }], saltSeedRecords: [] },
+    preflight: { cohortRosterRows: [{ week: 2 }], controlUsage25Records: [], homeAwayStoredRecords: [], saltSeedRecords: [], matchedOffBaselineRows: [] },
     counts: { generations: 14688 },
   };
   const withBlock = { permutationControl: minimalPermutationBlock(), permutationCounts: { generations: 408 } };
@@ -497,9 +501,13 @@ test('PATCH G: every record member survives into the serialized artifact by valu
 
   assert.deepEqual(
     Object.keys(parsed).sort(),
-    ['activationRecords', 'armWeekMetrics', 'armWeekMetricsBySensitivity', 'counts', 'permutationControl', 'preflight', 'subgroupErrorRows'],
+    // studyId and recordsHash joined the checkpoint at decision D3: the
+    // checkpoint names its sealed study and carries its own digest.
+    ['activationRecords', 'armWeekMetrics', 'armWeekMetricsBySensitivity', 'counts', 'permutationControl', 'preflight', 'recordsHash', 'studyId', 'subgroupErrorRows'],
     'a dropped record key would serialize, validate, and read as a checkpoint carrying nothing to assemble'
   );
+  assert.equal(parsed.studyId, script.STUDY_ID);
+  assert.match(parsed.recordsHash, /^[0-9a-f]{64}$/);
   assert.deepEqual(parsed.armWeekMetrics, records.armWeekMetrics);
   assert.deepEqual(parsed.armWeekMetricsBySensitivity, records.armWeekMetricsBySensitivity);
   assert.deepEqual(parsed.subgroupErrorRows, records.subgroupErrorRows);
@@ -594,6 +602,177 @@ test('the complete document serializes canonically and environment-free', () => 
     () => script.serializeInputsDocument({ note: 'C:\\Users\\someone\\backtest-data\\snapshot' }),
     /absolute-path-shaped/
   );
+});
+
+// ---------------------------------------------------------------------------
+// Decision D3 (ruled 2026-08-08): --records-in, the checkpoint resume path
+// ---------------------------------------------------------------------------
+
+const nodeCrypto = require('node:crypto');
+
+/** Re-hash a parsed checkpoint after deliberate tampering, so a test can prove a guard other than the digest catches the defect. */
+function rehash(parsedArtifact) {
+  const { recordsHash: _oldHash, ...content } = parsedArtifact;
+  const recordsHash = nodeCrypto.createHash('sha256').update(canonicalJson(content), 'utf8').digest('hex');
+  return `${canonicalJson({ ...content, recordsHash })}\n`;
+}
+
+const D3_USAGE25_ON = backtestArms.ALL_CELLS.find((cell) => cell.blendWeight === 0.25 && cell.homeAway === 'on');
+const D3_BASE_RESOLVED = backtestArms.resolveConstants({ cell: D3_USAGE25_ON, baseConstants: model.MODEL_CONSTANTS });
+const D3_STORED_RESOLVED = backtestArms.resolveConstantsWithStoredHistory({ cell: D3_USAGE25_ON, baseConstants: model.MODEL_CONSTANTS });
+const D3_PLAYER_WEEK = { season: 2025, week: 2, playerId: 7 };
+
+/** Identity records in the ARRAY-form run shape the writer serializes (the Hazard-1 fix) - real coverage, so the loader's re-run guards genuinely execute. */
+function d3IdentityRecords() {
+  const projection = () => ({ playerId: 7, median: 12.5, p10: 4, factors: {} });
+  const run = () => ({ projections: [projection()], inputCutoff: '2025-09-01T00:00:00.000Z', sourceCoverage: { synthetic: true } });
+  return backtestMetrics.SALTS.map((salt) => ({
+    season: 2025, week: 2, salt,
+    leftPlayerIds: [7], rightPlayerIds: [7], leftRun: run(), rightRun: run(),
+    leftConstants: D3_BASE_RESOLVED, rightConstants: D3_STORED_RESOLVED,
+  }));
+}
+
+function d3Records() {
+  return {
+    armWeekMetrics: [{ scoringProfile: 'half_ppr', arm: 'usage-25-off', season: 2025, week: 2, salt: backtestMetrics.SALTS[0], values: {} }],
+    armWeekMetricsBySensitivity: Object.fromEntries(inputsSensitivity.SENSITIVITY_PASS_KEYS.map((key) => [key, []])),
+    subgroupErrorRows: [],
+    activationRecords: [],
+    preflight: {
+      cohortRosterRows: [{ ...D3_PLAYER_WEEK, position: 'RB', onBye: false }],
+      controlUsage25Records: d3IdentityRecords(),
+      homeAwayStoredRecords: d3IdentityRecords(),
+      saltSeedRecords: backtestArms.ALL_CELLS.map((cell) => ({
+        cellName: cell.name, ...D3_PLAYER_WEEK,
+        seedsBySalt: Object.fromEntries(backtestMetrics.SALTS.map((salt, index) => [salt, index])),
+      })),
+      matchedOffBaselineRows: backtestArms.ALL_CELLS.filter((cell) => cell.homeAway === 'on')
+        .map((cell) => ({ cellName: cell.name, ...D3_PLAYER_WEEK, baseline: -1 })),
+    },
+    counts: { generations: 14688 },
+  };
+}
+
+function d3CheckpointText() {
+  return script.serializeArtifact(script.buildArtifact(d3Records(), {
+    permutationControl: minimalPermutationBlock(), permutationCounts: { generations: 408 },
+  }));
+}
+
+test('decision D3: --records-in forbids the generation inputs and --records-out, and still requires --out', () => {
+  const parsed = script.parseArgs(['--records-in', '/ckpt.json', '--out', '/out/inputs.json']);
+  assert.equal(parsed.recordsIn, '/ckpt.json');
+  assert.equal(parsed.out, '/out/inputs.json');
+  assert.throws(
+    () => script.parseArgs(['--records-in', '/c', '--out', '/o', '--records-out', '/r']),
+    /cannot be combined with --records-out/
+  );
+  for (const [flag, value] of [
+    ['--rehydrated-snapshot', '/snap'], ['--rehydrated-sources', '/src'], ['--rosters', '/r'], ['--cohort', '/c2'],
+  ]) {
+    assert.throws(
+      () => script.parseArgs(['--records-in', '/c', '--out', '/o', flag, value]),
+      /cannot be combined with --records-in/,
+      `${flag} must be refused beside --records-in`
+    );
+  }
+  assert.throws(() => script.parseArgs(['--records-in', '/c']), /--out is required/);
+  assert.throws(() => script.parseArgs(['--records-in']), /--records-in requires a value/);
+});
+
+test('decision D3: a checkpoint round-trips through loadRecordsArtifact with every member and the identity runs\' projections intact', () => {
+  const loaded = script.loadRecordsArtifact(d3CheckpointText());
+  const original = d3Records();
+  assert.deepEqual(loaded.records.armWeekMetrics, original.armWeekMetrics);
+  assert.deepEqual(loaded.records.armWeekMetricsBySensitivity, original.armWeekMetricsBySensitivity);
+  assert.deepEqual(loaded.records.subgroupErrorRows, original.subgroupErrorRows);
+  assert.deepEqual(loaded.records.activationRecords, original.activationRecords);
+  // The Hazard-1 regression pinned from the RESUME side: the identity runs'
+  // projections survive the round trip with their values, never {}.
+  assert.deepEqual(
+    loaded.records.preflight.controlUsage25Records[0].leftRun.projections,
+    [{ playerId: 7, median: 12.5, p10: 4, factors: {} }]
+  );
+  assert.deepEqual(loaded.records.counts, { generations: 14688, permutationControl: { generations: 408 } });
+  assert.deepEqual(loaded.permutationControl, minimalPermutationBlock());
+  // studyId authenticated the checkpoint and is then stripped, so `records`
+  // mirrors the generateSweepInputRecords seam shape exactly.
+  assert.equal('studyId' in loaded.records, false);
+});
+
+test('decision D3: the loader refuses a tampered, mistitled, truncated, or miscounted checkpoint by name', () => {
+  // A value changed without re-hashing: the digest catches it.
+  const tampered = JSON.parse(d3CheckpointText());
+  tampered.armWeekMetrics[0].week = 3;
+  assert.throws(() => script.loadRecordsArtifact(`${canonicalJson(tampered)}\n`), /hash mismatch/);
+
+  // A missing digest is refused outright.
+  const { recordsHash: _dropped, ...noHash } = JSON.parse(d3CheckpointText());
+  assert.throws(() => script.loadRecordsArtifact(`${canonicalJson(noHash)}\n`), /recordsHash is missing or malformed/);
+
+  // Re-hashed tampering has to get past the named gate instead.
+  const wrongStudy = JSON.parse(d3CheckpointText());
+  wrongStudy.studyId = 'some-other-study';
+  assert.throws(() => script.loadRecordsArtifact(rehash(wrongStudy)), /studyId must be the sealed/);
+
+  const droppedPass = JSON.parse(d3CheckpointText());
+  delete droppedPass.armWeekMetricsBySensitivity['estimand:force-fill'];
+  assert.throws(() => script.loadRecordsArtifact(rehash(droppedPass)), /requires armWeekMetricsBySensitivity\["estimand:force-fill"\]/);
+
+  const droppedPreflight = JSON.parse(d3CheckpointText());
+  delete droppedPreflight.preflight.matchedOffBaselineRows;
+  assert.throws(() => script.loadRecordsArtifact(rehash(droppedPreflight)), /requires preflight\.matchedOffBaselineRows/);
+
+  const shortGrid = JSON.parse(d3CheckpointText());
+  shortGrid.counts.generations = 14688 - 816;
+  assert.throws(() => script.loadRecordsArtifact(rehash(shortGrid)), /sealed grid is 14688/);
+
+  const shortCapture = JSON.parse(d3CheckpointText());
+  shortCapture.counts.permutationControl.generations = 407;
+  assert.throws(() => script.loadRecordsArtifact(rehash(shortCapture)), /section 5's scope is 408/);
+});
+
+test('decision D3: a tampered identity-run VALUE is caught on load even under a consistent re-hash - the 8.6.0 guards genuinely re-run from disk', () => {
+  // This is the laundering-channel test: an operator who edits a projection
+  // and dutifully re-hashes produces a checkpoint whose digest is perfect and
+  // whose identity claim is false. Only genuinely re-running the reducer's
+  // own bit-identity check from disk catches it - reference-based
+  // non-aliasing cannot (a JSON round trip mints fresh objects), which is why
+  // the loader's docblock inherits that guarantee from the writer instead of
+  // pretending to re-prove it.
+  const doctored = JSON.parse(d3CheckpointText());
+  doctored.preflight.controlUsage25Records[0].rightRun.projections[0].median = 99;
+  assert.throws(() => script.loadRecordsArtifact(rehash(doctored)), /identity/);
+});
+
+test('decision D3: the resume path runs the canaries FIRST and its first filesystem touch is the checkpoint itself', async () => {
+  const open = Object.fromEntries(['tcp', 'https', 'globalPool', 'freshPgClient'].map((name) => [name, () => Promise.resolve('answered')]));
+  await assert.rejects(
+    script.main(['--records-in', '/nonexistent-checkpoint.json', '--out', '/out/inputs.json'], { probes: open }),
+    /canaries REACHED/
+  );
+  const blocked = () => Promise.reject(new Error('ENETUNREACH'));
+  const probesOk = { tcp: blocked, https: blocked, globalPool: blocked, freshPgClient: blocked };
+  await assert.rejects(
+    script.main(['--records-in', '/nonexistent-checkpoint.json', '--out', '/out/inputs.json'], { probes: probesOk }),
+    /nonexistent-checkpoint/
+  );
+});
+
+test('decision D3: the resume branch shares no code path with generation (wiring obligation 3)', () => {
+  const source = fs.readFileSync(require.resolve('../scripts/run-backtest-inputs'), 'utf8');
+  // Anchor on the branch's own comment - parseArgs also tests args.recordsIn,
+  // and slicing from there would sweep in the whole generation seam.
+  const branchStart = source.indexOf('// Decision D3: the checkpoint resume path');
+  const branchEnd = source.indexOf('const snapshot = snapshotClientLib.loadSnapshot');
+  assert.ok(branchStart > 0 && branchEnd > branchStart, 'the resume branch must precede the snapshot load');
+  const branch = source.slice(branchStart, branchEnd);
+  for (const symbol of ['makeGenerate(', 'capturePermutationControlObservations', 'generateSweepInputRecords']) {
+    assert.equal(branch.includes(symbol), false, `the resume branch must never call ${symbol} - resumed records skip generation entirely and never masquerade as generate calls`);
+  }
+  assert.ok(branch.includes('loadRecordsArtifact('), 'the resume branch loads the checkpoint');
+  assert.ok(branch.includes('assembleFinalDocument({'), 'the resume branch reuses the one shared assembly');
 });
 
 test('the --records-out checkpoint is written BEFORE the sensitivity passes - its whole run-economics rationale (mutation QA R7)', () => {
