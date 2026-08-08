@@ -808,7 +808,12 @@ test('a subgroup member with no finite median is a defect of the run, not a spar
     }
     return run;
   };
-  await assert.rejects(runOneWeek({ generate }), /has no finite on-cell median under salt/);
+  // Since the shell-run closure, the missing median is caught at the scored
+  // collection's own boundary (projectionsMapOf's per-entry check), at the
+  // same coordinate but earlier and for EVERY cohort member, not only
+  // subgroup members; the deeper subgroup-pairing check in
+  // emitSubgroupErrorRows remains as defense in depth behind it.
+  await assert.rejects(runOneWeek({ generate }), /carries no finite median/);
 });
 
 test('a subgroup member with no resolved outcome has no error, rather than a zero one', async () => {
@@ -1251,6 +1256,91 @@ test('a constant-returning scoringHashFor is rejected before any generation is p
     inputsGeneration.generateSweepInputRecords(baseArgs({ scoringHashFor: () => 'a1b2c3' })),
     /the profiles' seed streams must be distinct/
   );
+});
+
+// ---------------------------------------------------------------------------
+// Adversarial-QA closures on the backlog closure itself: the four confirmed
+// escapes (shell runs, partial runs, memoized 8.6.0 sides, baseline-row id
+// laundering) each pinned shut
+// ---------------------------------------------------------------------------
+
+test('a SHELL run - full key coverage, substance-free values - is rejected at the boundary, not scored as an all-empty lineup', async () => {
+  // Numeric keys and size 16 satisfied the emptiness check while every value
+  // carried no median, so the evaluator scored exactly the all-empty lineup
+  // A2 exists to block - and a sensitivity-profile cell had no other
+  // output-side check at all.
+  await assert.rejects(
+    inputsGeneration.generateSweepInputRecords(baseArgs({
+      profiles: ['standard'],
+      weekArtifacts: new Map([[`${PRIMARY_SEASON}:2`, makeWeekArtifacts({ season: PRIMARY_SEASON, week: 2 })]]),
+      generate: async ({ playerIds }) => ({
+        projections: new Map(playerIds.map((id) => [id, {}])), inputCutoff: INPUT_CUTOFF, sourceCoverage: SOURCE_COVERAGE,
+      }),
+    })),
+    /carries no finite median/
+  );
+});
+
+test('a projection dropped AFTER its baseline was captured is caught at the boundary, never published as a silently moved regret', async () => {
+  // Player 2 is NOT a subgroup member, so the subgroup-pairing checks never
+  // saw it; the dropped projection previously moved the published regret by
+  // +3.1 points at the coordinate with no failure anywhere. The scored
+  // collection now gets the same exact key-set check the identity arms
+  // always had (sweepPreflight.assertMapMatchesRawIds - the reducer's own).
+  const { generate: inner } = makeGenerator();
+  const generate = async (args) => {
+    const run = await inner(args);
+    if (args.modelConstants.usage.blendWeight === 0.4 && args.modelConstants.homeAway.enabled !== true) {
+      run.projections.delete(2);
+    }
+    return run;
+  };
+  await assert.rejects(runOneWeek({ generate }), /projection keys do not exactly match the raw playerIds set/);
+});
+
+test('a memoizing harness cannot satisfy 8.6.0 with its own object - aliased identity sides are rejected at generation time', async () => {
+  // The independent control receives arguments identical to the
+  // `usage-25 x off` cell BY DESIGN, so a results-cache keyed on generation
+  // inputs returns one object for both sides: 816 records of "independent
+  // regeneration" evidence with zero independent generations, passing the
+  // bit-identity trivially - verbatim the reuse section 9 forbids.
+  const cache = new Map();
+  const { generate: inner } = makeGenerator();
+  const generate = async (args) => {
+    const key = [
+      args.hashValue,
+      args.modelConstants.usage.blendWeight,
+      args.modelConstants.homeAway.enabled === true,
+      args.modelConstants.homeAway.useStoredHistory === true,
+      args.season,
+      args.week,
+    ].join('|');
+    if (cache.has(key)) return cache.get(key);
+    const run = await inner(args);
+    cache.set(key, run);
+    return run;
+  };
+  await assert.rejects(runOneWeek({ generate }), /the two sides are the SAME run object/);
+});
+
+test('a corrupted baseline-row playerId is rejected by type, never laundered onto a different real player', async () => {
+  // `Number(true) === 1`: the corrupted row previously landed on player 1,
+  // fabricating player 1's subgroup membership AND masking the run-voiding
+  // coverage gap left by player 1's own missing callback - the same
+  // assert-never-coerce rule A1 pinned for cohort ids, at the callback
+  // boundary.
+  const { generate: inner } = makeGenerator();
+  const generate = async (args) => inner({
+    ...args,
+    onPreHomeAwayBaseline: args.onPreHomeAwayBaseline
+      ? (row) => {
+        if (row.playerId === 1) return;
+        args.onPreHomeAwayBaseline(row);
+        if (row.playerId === 5) args.onPreHomeAwayBaseline({ ...row, playerId: true });
+      }
+      : undefined,
+  });
+  await assert.rejects(runOneWeek({ generate }), /playerId must be a number/);
 });
 
 test('FIXTURE-FIX: a benchmark arm-week is scored from ITS OWN week\'s benchmark projections', async () => {

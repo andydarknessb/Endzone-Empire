@@ -42,6 +42,16 @@
  *      pre-homeAway baseline `b` (section 6.5); a wiring that drops it
  *      produces zero baseline rows, which this module rejects by name rather
  *      than letting the empty subgroup look like a small one.
+ *   3. `generate` MUST genuinely generate on EVERY call - no results cache,
+ *      no memoization keyed on the arguments. The 8.6.0 control receives
+ *      arguments identical to the `usage-25 x off` cell's BY DESIGN, so a
+ *      cache collapses exactly that pair and the 816 "independent
+ *      regeneration" records would compare an object against itself
+ *      (section 9's forbidden reuse). `assertRunsNotAliased` below rejects
+ *      every non-cloning cache at generation time; a cache that CLONES its
+ *      hits is invisible to this module by construction, which is why
+ *      genuine regeneration is stated here as a wiring obligation rather
+ *      than only enforced.
  *
  * WHAT IS CAPTURED, AND WHY EACH MUST BE CAPTURED HERE
  *
@@ -376,8 +386,30 @@ function projectionFor(run, playerId) {
   return null;
 }
 
-/** A run's projections as a numeric-keyed Map, for `armWeekEvaluator` (which requires numeric keys and rejects string ones). */
-function projectionsMapOf(run, label) {
+/**
+ * A run's projections as a numeric-keyed Map, for `armWeekEvaluator` (which
+ * requires numeric keys and rejects string ones).
+ *
+ * When `playerIds` is supplied (every SCORED collection - the 8 cells under
+ * every profile, and both benchmark arms - passes it), two further checks
+ * close the two ways QA showed A2's emptiness rejection alone is satisfiable
+ * by a defective run:
+ *
+ *   - EXACT key-set coverage, via the reducer's own exported
+ *     `sweepPreflight.assertMapMatchesRawIds` (determination 12's rule:
+ *     never a re-implementation). A projection dropped AFTER its baseline
+ *     was captured otherwise publishes a silently moved regret - the
+ *     coverage posture (risk A, `emitBaselineRows`) already holds that every
+ *     cohort player-week reaches the homeAway step, so a scored collection
+ *     missing one is incoherent, not sparse.
+ *   - a finite median PER ENTRY (`medianOf`'s own tolerance: an object with
+ *     a finite `median`, or a bare finite number). A "shell" run - full
+ *     numeric key coverage, substance-free values - otherwise passes both
+ *     the emptiness and the coverage checks and is scored as the same
+ *     all-empty lineup A2 exists to block, indistinguishable in the
+ *     document from the legitimate interval-free benchmark shape.
+ */
+function projectionsMapOf(run, label, { playerIds } = {}) {
   const map = run && run.projections;
   const asMap = (() => {
     if (map instanceof Map) return map;
@@ -397,6 +429,18 @@ function projectionsMapOf(run, label) {
   if (asMap.size === 0) {
     throw new Error(`${label}: the projections collection is EMPTY - an arm-week that generated nothing must fail by name rather than be scored as an all-empty lineup`);
   }
+  if (playerIds) {
+    sweepPreflight.assertMapMatchesRawIds({ run: { projections: asMap }, playerIds, label });
+    for (const [playerId, projection] of asMap) {
+      if (medianOf(projection) === null) {
+        throw new Error(
+          `${label}: playerId ${playerId}'s projection carries no finite median (${JSON.stringify(projection)}). `
+          + 'A projection that reached publication carries a finite round2 median; a substance-free entry would be '
+          + 'scored as an empty lineup slot and read as sparse evidence rather than as the broken run it is'
+        );
+      }
+    }
+  }
   return asMap;
 }
 
@@ -411,6 +455,40 @@ function medianOf(projection) {
 function actualFor(cohortWeek, playerId) {
   const source = cohortWeek.actualPointsByPlayerId;
   return source instanceof Map ? source.get(playerId) : (source || {})[playerId];
+}
+
+/**
+ * The two sides of a sealed identity record must be DIFFERENT objects (QA:
+ * a results-cache keyed on generation inputs returns ONE object for both
+ * sides of 8.6.0 - the control and the `usage-25 x off` cell receive
+ * identical arguments by design - so all 816 "independent regeneration"
+ * records would compare an object against itself and prove nothing, which
+ * is verbatim the reuse section 9 forbids). Checked at three depths: the
+ * run, its projections collection, and every per-player projection object.
+ * A cache that CLONES its hits is undetectable here by construction -
+ * genuine regeneration is therefore also a wiring obligation (see the
+ * module docblock), and this guard closes the whole non-cloning class.
+ */
+function assertRunsNotAliased({ leftRun, rightRun, label }) {
+  if (leftRun === rightRun) {
+    throw new Error(`${label}: the two sides are the SAME run object - one generation reused as its own control is the reuse section 9 forbids, and the identity assertion over it proves nothing`);
+  }
+  const entriesOf = (run) => {
+    const map = run && run.projections;
+    if (map instanceof Map) return [...map.entries()];
+    if (map && typeof map === 'object' && !Array.isArray(map)) return Object.entries(map);
+    return [];
+  };
+  if (leftRun && rightRun && leftRun.projections && leftRun.projections === rightRun.projections) {
+    throw new Error(`${label}: the two sides share one projections collection - one generation reused as its own control is the reuse section 9 forbids`);
+  }
+  const right = new Map(entriesOf(rightRun));
+  for (const [playerId, projection] of entriesOf(leftRun)) {
+    if (projection !== null && typeof projection === 'object' && projection === right.get(playerId)) {
+      throw new Error(`${label}: playerId ${playerId}'s projection object is SHARED between the two sides - a memoizing harness returned one generation for both, which is the reuse section 9 forbids`);
+    }
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -444,8 +522,15 @@ function recordBaselines({ captured, cellMeta, season, week, baselineByOffCell, 
   for (const [index, row] of captured.entries()) {
     const rowLabel = `${where}: onPreHomeAwayBaseline[${index}]`;
     if (!row || typeof row !== 'object') throw new Error(`${rowLabel}: must be a capture object`);
-    const playerId = Number(row.playerId);
-    if (!Number.isFinite(playerId)) throw new Error(`${rowLabel}: playerId must be finite, got ${JSON.stringify(row.playerId)}`);
+    // ASSERTED, never coerced - the same rule A1 pinned for cohort ids. A
+    // bare `Number()` here launders a corrupted row onto a DIFFERENT real
+    // player (`Number(true) === 1`, `Number([5]) === 5`), which both
+    // fabricates that player's subgroup membership and masks the run-voiding
+    // coverage gap left by the player whose own row went missing.
+    const playerId = row.playerId;
+    if (typeof playerId !== 'number' || !Number.isFinite(playerId)) {
+      throw new Error(`${rowLabel}: playerId must be a number, got ${JSON.stringify(row.playerId)} - a coerced id could land on a different real player, fabricating its membership while masking a coverage gap`);
+    }
     if (Number(row.season) !== Number(season) || Number(row.week) !== Number(week)) {
       throw new Error(`${rowLabel}: reports ${row.season}w${row.week}, not the week being generated`);
     }
@@ -910,7 +995,7 @@ async function generateSweepInputRecords({
               // second, differently-priced membership rule for one subgroup.
               captureBaseline: isOff && isPrimary,
             });
-            const projections = projectionsMapOf(run, `${where} ${cellMeta.name} ${salt}`);
+            const projections = projectionsMapOf(run, `${where} ${cellMeta.name} ${salt}`, { playerIds });
 
             const evaluateArgs = {
               season,
@@ -985,9 +1070,22 @@ async function generateSweepInputRecords({
             }
             // Section 8.6.0: LEFT is the independently generated control,
             // RIGHT is the primary grid's own `usage-25 x off` cell. The two
-            // are never the same object - that is the whole point of the 816
-            // extra runs - and this module holds no path by which they could
-            // become one.
+            // must never be the same object - that is the whole point of the
+            // 816 extra runs. The injected `generate` IS a path by which they
+            // could become one (a results-cache keyed on generation inputs
+            // collapses exactly this pair, since both sides receive identical
+            // arguments), so aliasing is REJECTED here rather than assumed
+            // away.
+            assertRunsNotAliased({
+              leftRun: independentControl.run,
+              rightRun: identityHold.usage25OffRun,
+              label: `${where} ${salt}: 8.6.0 sides`,
+            });
+            assertRunsNotAliased({
+              leftRun: identityHold.onRun,
+              rightRun: twin.run,
+              label: `${where} ${salt}: 8.6.1 sides`,
+            });
             controlUsage25Records.push({
               season,
               week,
@@ -1061,7 +1159,7 @@ async function generateSweepInputRecords({
               week,
               rosterWeek,
               cohortWeek,
-              projectionsByPlayerId: projectionsMapOf({ projections }, `${where} ${arm}`),
+              projectionsByPlayerId: projectionsMapOf({ projections }, `${where} ${arm}`, { playerIds }),
               positionRank,
               nameRankById,
               availabilityFor,
