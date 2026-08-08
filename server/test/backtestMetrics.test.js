@@ -318,6 +318,23 @@ test('movingBlockBootstrap rejects non-number week values with the same strict t
       `${JSON.stringify(bad)} must be rejected before the accumulator sees it`
     );
   }
+
+  // Round-6 QA: a non-array with no .length gave n = undefined, and
+  // `undefined < blockLength` is false, so the function returned all-NaN
+  // bounds WITHOUT throwing - bootstrapMean is covered by its cluster-count
+  // identity, this function needs its own floor. Negative control: remove
+  // the Array.isArray floor - the first case returns NaN bounds silently.
+  for (const notArray of [{ length: undefined, reduce: () => 0 }, null, 'seventeen', {}]) {
+    assert.throws(
+      () => metrics.movingBlockBootstrap({ weekValues: notArray, blockLength: 2 }),
+      /week values must be a non-empty array/,
+      `${JSON.stringify(notArray)} must be rejected as a container`
+    );
+  }
+  assert.throws(
+    () => metrics.movingBlockBootstrap({ weekValues: [], blockLength: 2 }),
+    /week values must be a non-empty array/
+  );
 });
 
 test('percentile bounds use the fixed order statistic, with no interpolation', () => {

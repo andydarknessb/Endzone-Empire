@@ -1069,6 +1069,63 @@ test('deriveComponentFOneSeries: the section 6.3 form, the 2025 filter, pinned i
     }),
     /week 2 playerId 8 has realizations for 23 of 24 salts - missing/
   );
+
+  // Round-6 QA hardening of that guard - MEMBERSHIP, not cardinality:
+  // (a) a size-preserving salt SUBSTITUTION (one character changed) keeps
+  // size 24 and previously walked past the check, resurrecting the exact
+  // salt-blaming message the guard was added against;
+  // (b) a pure ADDITION made "25 of 24 - missing ." with an empty list.
+  // Negative control: revert the check to bySalt.size !== SALTS.length -
+  // (a) reverts to the saltPairedDelta message and its regex fails.
+  const substituted = metrics.SALTS.flatMap((salt) => [
+    { season: 2025, week: 2, playerId: 7, salt, incrementalError: 0.1 },
+    { season: 2025, week: 2, playerId: 8, salt: salt === metrics.SALTS[3] ? `${metrics.SALTS[3]}x` : salt, incrementalError: 0.2 },
+  ]);
+  assert.throws(
+    () => runBacktestSweep.deriveComponentFOneSeries('usage-00-on', {
+      realizations: substituted, qualifyingWeeks: [2],
+    }),
+    /week 2 playerId 8 has realizations for 24 of 24 salts - missing pit-04-[0-9a-f]+ - carrying unknown salt\(s\)/
+  );
+  const added = metrics.SALTS.flatMap((salt) => [
+    { season: 2025, week: 2, playerId: 7, salt, incrementalError: 0.1 },
+  ]);
+  added.push({ season: 2025, week: 2, playerId: 7, salt: 'pit-99-deadbeefcafe', incrementalError: 0.1 });
+  assert.throws(
+    () => runBacktestSweep.deriveComponentFOneSeries('usage-00-on', {
+      realizations: added, qualifyingWeeks: [2],
+    }),
+    /25 of 24 salts - carrying unknown salt\(s\) pit-99-deadbeefcafe/
+  );
+
+  // WHICH partial player gets named must not depend on document row order:
+  // both players below are partial, rows arrive with pid 8 first, and the
+  // sorted iteration names pid 7.
+  const twoPartial = metrics.SALTS.slice(1).flatMap((salt) => [
+    { season: 2025, week: 2, playerId: 8, salt, incrementalError: 0.2 },
+    { season: 2025, week: 2, playerId: 7, salt, incrementalError: 0.1 },
+  ]);
+  assert.throws(
+    () => runBacktestSweep.deriveComponentFOneSeries('usage-00-on', {
+      realizations: twoPartial, qualifyingWeeks: [2],
+    }),
+    /week 2 playerId 7 has realizations for 23 of 24 salts/
+  );
+
+  // The one field that determines the published number gets its own strict
+  // layer too (round-6 QA): at this exported layer a null previously
+  // coerced to a MEASURED ZERO and a '0.2' string into a verdict.
+  for (const [bad, renderedAs] of [[null, 'null'], ['0.2', '"0.2"'], [NaN, 'NaN']]) {
+    const badInc = metrics.SALTS.flatMap((salt) => [
+      { season: 2025, week: 2, playerId: 7, salt, incrementalError: salt === metrics.SALTS[5] ? bad : 0.1 },
+    ]);
+    assert.throws(
+      () => runBacktestSweep.deriveComponentFOneSeries('usage-00-on', {
+        realizations: badInc, qualifyingWeeks: [2],
+      }),
+      new RegExp(`week 2 playerId 7 salt pit-06-[0-9a-f]+: incrementalError must be a finite number, got ${renderedAs.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`)
+    );
+  }
 });
 
 test('a document whose realizations state HARM cannot publish a passing (f) - the derived series IS the evidence (round-5 SUBSTANTIVE F)', () => {

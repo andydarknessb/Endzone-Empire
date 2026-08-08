@@ -701,25 +701,43 @@ function deriveComponentFOneSeries(cellName, { realizations, qualifyingWeeks }) 
       if (byPlayer.get(pid).has(row.salt)) {
         throw new Error(`${cellName} f1: week ${week} has duplicate realizations for playerId ${pid}, salt ${row.salt}`);
       }
-      byPlayer.get(pid).set(row.salt, Number(row.incrementalError));
+      // Strict typeof for the one field that determines the published number
+      // (round-6 QA): without it a null coerced to a MEASURED ZERO (round-4
+      // BLOCKER A's shape) and a '0.2' string coerced into a verdict, at
+      // this exported layer - the preflight's own strict check covers
+      // main()'s path, not a direct caller's.
+      if (typeof row.incrementalError !== 'number' || !Number.isFinite(row.incrementalError)) {
+        const rendered = typeof row.incrementalError === 'number' ? String(row.incrementalError) : JSON.stringify(row.incrementalError);
+        throw new Error(`${cellName} f1: week ${week} playerId ${pid} salt ${row.salt}: incrementalError must be a finite number, got ${rendered}`);
+      }
+      byPlayer.get(pid).set(row.salt, row.incrementalError);
     }
-    // Named-cause guard (round 6, MINOR I): without it, a player-week
-    // missing one salt flowed a NaN into perSalt and saltPairedDelta
-    // reported "salt ... is missing from the candidate or the comparator" -
-    // but no salt is ever missing from the constructed object; a PLAYER ROW
-    // is. The message must name the thing that is actually absent.
-    for (const [pid, bySalt] of byPlayer) {
-      if (bySalt.size !== metrics.SALTS.length) {
-        const absent = metrics.SALTS.filter((salt) => !bySalt.has(salt));
+    // Named-cause guard (round 6, MINOR I; hardened by the same round's QA):
+    // without it, a player-week missing one salt flowed a NaN into perSalt
+    // and saltPairedDelta reported "salt ... is missing from the candidate
+    // or the comparator" - but no salt is ever missing from the constructed
+    // object; a PLAYER ROW is. MEMBERSHIP, not cardinality: a
+    // size-preserving salt substitution keeps size 24 while both losing a
+    // preregistered salt and carrying an unknown one, and a pure addition
+    // makes size 25 with nothing missing - each half of the check names its
+    // own defect. Iteration over SORTED pids so which player gets named
+    // never depends on document row order.
+    const players = [...byPlayer.keys()].sort((a, b) => a - b);
+    for (const pid of players) {
+      const bySalt = byPlayer.get(pid);
+      const absent = metrics.SALTS.filter((salt) => !bySalt.has(salt));
+      const unknown = [...bySalt.keys()].filter((salt) => !metrics.SALTS.includes(salt));
+      if (absent.length > 0 || unknown.length > 0) {
         throw new Error(
           `${cellName} f1: week ${week} playerId ${pid} has realizations for ${bySalt.size} of `
-          + `${metrics.SALTS.length} salts - missing ${absent.join(', ')}. Section 6.4's domain is the `
-          + 'complete player-week x salt Cartesian product, so a partial player-week is a malformed input, '
-          + 'not a smaller average.'
+          + `${metrics.SALTS.length} salts`
+          + (absent.length > 0 ? ` - missing ${absent.join(', ')}` : '')
+          + (unknown.length > 0 ? ` - carrying unknown salt(s) ${unknown.join(', ')} (not among the 24 preregistered)` : '')
+          + '. Section 6.4\'s domain is the complete player-week x salt Cartesian product over the '
+          + 'preregistered salts, so anything else is a malformed input, not a different average.'
         );
       }
     }
-    const players = [...byPlayer.keys()].sort((a, b) => a - b);
     const perSalt = Object.fromEntries(metrics.SALTS.map((salt) => [salt,
       players.reduce((sum, pid) => sum + byPlayer.get(pid).get(salt), 0) / players.length]));
     // Reuse the sealed helper rather than re-implementing its arithmetic: the

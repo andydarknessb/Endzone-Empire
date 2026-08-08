@@ -501,6 +501,14 @@ function movingBlockBootstrap({
       `${BOOTSTRAP_DRAWS} draws as the primary bootstrap, not ${draws}`
     );
   }
+  // A real, non-empty array (round-6 QA): a non-array with no .length gave
+  // n = undefined, and `undefined < blockLength` is false, so the function
+  // returned all-NaN bounds without throwing. bootstrapMean is covered by
+  // its cluster-count identity against the shared resamples; this function
+  // has no resamples object, so it needs its own floor.
+  if (!Array.isArray(weekValues) || weekValues.length === 0) {
+    throw new Error(`${label}: week values must be a non-empty array`);
+  }
   const n = weekValues.length;
   if (n < blockLength) throw new Error(`${label}: ${n} clusters cannot form a block of ${blockLength}`);
   // Strict typeof, mirroring bootstrapMean's guard (round 6, MINOR H): this
