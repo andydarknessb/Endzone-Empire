@@ -452,6 +452,13 @@ test('main(): a comfortably-passing inputs document produces a VALID run with a 
   assert.match(markdown, /### Scoring-profile sensitivity \(prereg 16\)/);
   assert.match(markdown, /\| 2025 \| standard \| usage-25-off \| absolute \| regret \|/);
   assert.match(markdown, /\| 2025 \| ppr \| usage-25-off \| absolute \| regret \|/);
+  // Decision D2 (2026-08-08): prereg 16's week-window families - weeks-2-17
+  // and the Week-18 absolute rows on their own, primary profile, both seasons.
+  assert.match(markdown, /### Week-window sensitivity \(prereg 16\)/);
+  assert.match(markdown, /\| 2025 \| half_ppr \| usage-25-off \| weeks-2-17 \| absolute \| regret \|/);
+  assert.match(markdown, /\| 2024 \| half_ppr \| usage-25-off \| week-18-only \| absolute \| regret \|/);
+  // The one-cluster Week-18 row publishes a degenerate point with no interval.
+  assert.match(markdown, /week-18-only \| absolute \| regret \| [-\d.]+ \| \[-, -\] \| degenerate \| 1 \|/);
   // Section 4.6: mandatory self-description distinguishes the two methods.
   assert.match(markdown, /percentile-cluster-bootstrap \| 100000 \| 1499811874/);
   assert.match(markdown, /moving-block-bootstrap \| 100000 \| 588165040/);

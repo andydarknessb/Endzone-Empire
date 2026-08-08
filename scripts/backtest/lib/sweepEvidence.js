@@ -36,6 +36,25 @@ const SENSITIVITY_PROFILES = Object.freeze(SCORING_PROFILE_NAMES.filter((name) =
 const SENSITIVITY_ENDPOINTS = Object.freeze(['regret', 'pairwise']);
 const SENSITIVITY_SEASONS = Object.freeze(['2025']);
 
+/**
+ * Prereg 16's two WEEK-WINDOW families (SPEC-A, decision D2 ruled by the user
+ * 2026-08-08: implement; riding to the B3 revision for sealed text).  The
+ * weeks-2-17 sensitivity drops Week 18, whose widespread starter rest is a
+ * common shock the paired contrasts already cancel; the Week-18 absolute
+ * metrics are additionally published on their own - a one-cluster family that
+ * lands in section 4.6.4's `degenerate` branch by construction.  Both families
+ * are DERIVED from rule 1's already-validated per-week rows, never a second
+ * input array, so one number can never carry two different values - section
+ * 4.6.1's identity doctrine.  Scope defaults pending the revision-35 text:
+ * absolute metrics only, the primary profile only (rule 4's "and nothing
+ * else" bars composing these windows with `standard`/`ppr`), both seasons,
+ * all seven endpoints over all eight cells, no moving-block companions.
+ */
+const WEEK_WINDOWS = Object.freeze([
+  Object.freeze({ window: 'weeks-2-17', weeks: Object.freeze(EVALUATED_WEEKS.filter((week) => week !== 18)) }),
+  Object.freeze({ window: 'week-18-only', weeks: Object.freeze([18]) }),
+]);
+
 const ESTIMANDS = Object.freeze(['absolute', 'paired-delta']);
 const ATTRIBUTION_ESTIMANDS = Object.freeze(['usage-main', 'home-away-main', 'interaction']);
 const DIAGNOSTIC_ESTIMANDS = Object.freeze(['control-naive', 'usage-signal']);
@@ -307,6 +326,45 @@ function deriveSensitivity(rows) {
   }));
 }
 
+/**
+ * The two prereg 16 week-window families, computed from the SAME normalized
+ * `metricWeeks` rows as rule 1's matrix.  Section 4.6.2's all-eight-cells
+ * union is taken first, per `(season, scoringProfile, endpoint)` over the FULL
+ * family, then intersected with the window: a week that fails the union in any
+ * cell is dropped for every cell, so one cell's nonfinite week 18 makes the
+ * whole `week-18-only` family unevaluable - the commensurability-consistent
+ * reading of 4.6.2.  There is no cluster floor on this path: prereg 10.4's
+ * `n >= 15` floor is component-scoped, and a descriptive window degrades
+ * through `degenerate` to `unevaluable` (4.6.4) without ever voiding anything
+ * or switching method.  A 16-cluster weeks-2-17 row shares its resample index
+ * with every other 16-cluster row via `sharedResamples`, exactly as 4.6.3
+ * promises.
+ */
+function deriveWeekWindows(rows) {
+  const grouped = group(rows, ['season', 'cell', 'estimand', 'endpoint']);
+  return WEEK_WINDOWS.flatMap(({ window, weeks }) => SEASONS.flatMap((season) => {
+    const unions = new Map(METRIC_KEYS.map((key) => {
+      const union = survivingUnion(grouped, CELL_NAMES, (cell) => `${season}:${cell}:absolute:${key}`);
+      return [key, new Set(weeks.filter((week) => union.has(week)))];
+    }));
+    return CELL_NAMES.flatMap((cell) => METRIC_KEYS.map((key) => {
+      // The row's published `weeks` are the window's weeks alone: the row is a
+      // re-analysis over the restricted window, and listing all 17 would make
+      // `clusters` unauditable against its own self-description.
+      const windowRows = grouped.get(`${season}:${cell}:absolute:${key}`).filter((row) => weeks.includes(row.week));
+      return {
+        cell,
+        estimand: 'absolute',
+        window,
+        ...summarizeWeeks(windowRows, {
+          key, label: `week-window ${window} ${season}/${cell}/${key}`, season, scoringProfile: PRIMARY_PROFILE, survivingWeeks: unions.get(key),
+        }),
+        endpoint: key,
+      };
+    }));
+  }));
+}
+
 function deriveMovingBlock(rows) {
   const grouped = group(rows, ['season', 'cell', 'endpoint', 'sensitivity']);
   return SEASONS.flatMap((season) => CELL_NAMES.flatMap((cell) => METRIC_KEYS.flatMap((key) => MOVING_BLOCK_LENGTHS.map((blockLength) => {
@@ -428,6 +486,7 @@ function deriveEvidence(evidence, { permutation } = {}) {
   return {
     cells: deriveMetricMatrix(metricWeeks),
     sensitivity: deriveSensitivity(sensitivityWeeks),
+    weekWindows: deriveWeekWindows(metricWeeks),
     movingBlock: deriveMovingBlock(movingBlockWeeks),
     attribution: deriveAttribution(attributionWeeks),
     diagnostics: deriveDiagnostics(diagnosticWeeks, permutation),
@@ -487,7 +546,7 @@ function crossCheckClaimInputs(cellInputs, evidence) {
 
 module.exports = {
   METRIC_KEYS, SEASONS, SCORING_PROFILES, ESTIMANDS, CELL_NAMES, ON_CELL_NAMES, ATTRIBUTION_CELL_NAMES,
-  PRIMARY_PROFILE, SENSITIVITY_PROFILES, SENSITIVITY_ENDPOINTS, SENSITIVITY_SEASONS,
+  PRIMARY_PROFILE, SENSITIVITY_PROFILES, SENSITIVITY_ENDPOINTS, SENSITIVITY_SEASONS, WEEK_WINDOWS,
   DESCRIPTIVE_METHOD, MOVING_BLOCK_METHOD,
   encodeNumber, deriveEvidence, crossCheckActivationGate, crossCheckClaimInputs,
 };

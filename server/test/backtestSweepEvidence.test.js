@@ -60,6 +60,68 @@ test('section 8.7 rule 4 publishes the prereg 16 sensitivity family as standard 
   assert.ok(result.attribution.every((row) => row.scoringProfile === 'half_ppr'));
 });
 
+test('decision D2: the prereg 16 week-window families are derived from rule 1\'s rows, weeks-2-17 estimated and week-18-only degenerate by construction', () => {
+  const result = evidence.deriveEvidence(fixture(), { permutation });
+  // 2 windows x 2 seasons x 8 cells x 7 endpoints; primary profile only,
+  // absolute only, both seasons (4.6.1's default; the 2025-only exception is
+  // scoped to rule 4's scoring-profile family alone).
+  assert.equal(result.weekWindows.length, 2 * 2 * 8 * 7);
+  assert.deepEqual([...new Set(result.weekWindows.map((row) => row.season))].sort(), ['2024', '2025']);
+  assert.ok(result.weekWindows.every((row) => row.scoringProfile === 'half_ppr' && row.estimand === 'absolute'));
+  assert.deepEqual([...new Set(result.weekWindows.map((row) => row.window))], ['weeks-2-17', 'week-18-only']);
+
+  const windowed = result.weekWindows.filter((row) => row.window === 'weeks-2-17');
+  assert.ok(windowed.every((row) => row.status === 'estimated' && row.clusters === 16));
+  // The published weeks are the window's weeks alone - never all 17.
+  assert.ok(windowed.every((row) => row.weeks.length === 16 && !row.weeks.some((week) => week.week === 18)));
+  // Identity doctrine (4.6.1): the point is the mean of the SAME per-week
+  // values rule 1's matrix published, restricted to the window.
+  const restricted = windowed.find((row) => row.season === '2025' && row.cell === result.cells[0].cell && row.key === 'regret');
+  assert.ok(Math.abs(restricted.point - 0.0075) < 1e-12);
+  assert.ok(restricted.lower < restricted.point && restricted.upper > restricted.point);
+
+  const week18 = result.weekWindows.filter((row) => row.window === 'week-18-only');
+  // One surviving cluster: 4.6.4's degenerate branch, point published, no
+  // interval, and the bootstrap never called - this is the case the sealed
+  // text says prereg 16's Week-18-alone requirement produces by construction.
+  assert.ok(week18.every((row) => row.status === 'degenerate' && row.clusters === 1 && row.lower === null && row.upper === null));
+  assert.ok(week18.every((row) => row.weeks.length === 1 && row.weeks[0].week === 18));
+  const alone = week18.find((row) => row.season === '2025' && row.cell === result.cells[0].cell && row.key === 'regret');
+  assert.equal(alone.point, 0.016);
+});
+
+test('decision D2: the 4.6.2 all-eight-cells union composes with the window, so one cell\'s sparse week drops it family-wide', () => {
+  // One cell's nonfinite week 18 makes the ENTIRE week-18-only family
+  // unevaluable for that (season, endpoint) - across all eight cells - and
+  // leaves weeks-2-17 untouched.
+  const input = fixture();
+  const target = input.metricWeeks[0];
+  for (const row of input.metricWeeks) {
+    if (row.season === '2025' && row.estimand === 'absolute' && row.endpoint === 'regret' && row.cell === target.cell && row.week === 18) row.value = { nonfinite: 'NaN' };
+  }
+  const result = evidence.deriveEvidence(input, { permutation });
+  const week18 = result.weekWindows.filter((row) => row.window === 'week-18-only' && row.season === '2025' && row.key === 'regret');
+  assert.equal(week18.length, 8);
+  assert.ok(week18.every((row) => row.status === 'unevaluable' && row.clusters === 0 && row.point === null));
+  assert.ok(result.weekWindows.filter((row) => row.window === 'weeks-2-17' && row.season === '2025' && row.key === 'regret')
+    .every((row) => row.status === 'estimated' && row.clusters === 16));
+  // A different endpoint and the other season keep their own unions.
+  assert.ok(result.weekWindows.filter((row) => row.window === 'week-18-only' && (row.season === '2024' || row.key === 'pairwise'))
+    .every((row) => row.status === 'degenerate'));
+
+  // Symmetrically, a mid-window sparse week drops weeks-2-17 to 15 clusters
+  // family-wide and leaves week-18-only untouched.
+  const midDrop = fixture();
+  for (const row of midDrop.metricWeeks) {
+    if (row.season === '2025' && row.estimand === 'absolute' && row.endpoint === 'regret' && row.cell === target.cell && row.week === 2) row.value = { nonfinite: 'NaN' };
+  }
+  const dropped = evidence.deriveEvidence(midDrop, { permutation });
+  assert.ok(dropped.weekWindows.filter((row) => row.window === 'weeks-2-17' && row.season === '2025' && row.key === 'regret')
+    .every((row) => row.status === 'estimated' && row.clusters === 15));
+  assert.ok(dropped.weekWindows.filter((row) => row.window === 'week-18-only' && row.season === '2025' && row.key === 'regret')
+    .every((row) => row.status === 'degenerate' && row.clusters === 1));
+});
+
 test('section 4.6 publishes a percentile cluster bootstrap with mandatory self-description, never a normal approximation', () => {
   const result = evidence.deriveEvidence(fixture(), { permutation });
   const row = result.cells[0].absoluteMetrics[0];

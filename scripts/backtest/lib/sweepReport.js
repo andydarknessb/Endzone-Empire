@@ -529,6 +529,14 @@ function renderEvidenceTables(evidence) {
   // it is NOT rule 1's family.
   lines.push('', '### Scoring-profile sensitivity (prereg 16)', '', `| season | profile | cell | estimand | endpoint | point | CI | ${SELF_HEADER} |`, `| --- | --- | --- | --- | --- | ---: | --- | ${SELF_RULE} |`);
   for (const row of evidence.sensitivity) lines.push(`| ${row.season} | ${row.scoringProfile} | ${row.cell} | ${row.estimand} | ${row.endpoint} | ${displayValue(row.point)} | [${displayValue(row.lower)}, ${displayValue(row.upper)}] | ${selfDescription(row)} |`);
+  // Prereg 16's week-window families (SPEC-A / decision D2, ruled 2026-08-08):
+  // the weeks-2-17 re-analysis and the Week-18 absolute rows on their own,
+  // primary profile, both seasons, absolute metrics only, derived from rule
+  // 1's per-week rows.  A `week-18-only` row is a one-cluster family, so its
+  // status is `degenerate` by construction and its CI reads as absent - that
+  // is 4.6.4's refusal of a zero-width artifact, not a rendering gap.
+  lines.push('', '### Week-window sensitivity (prereg 16)', '', `| season | profile | cell | window | estimand | endpoint | point | CI | ${SELF_HEADER} |`, `| --- | --- | --- | --- | --- | --- | ---: | --- | ${SELF_RULE} |`);
+  for (const row of evidence.weekWindows) lines.push(`| ${row.season} | ${row.scoringProfile} | ${row.cell} | ${row.window} | ${row.estimand} | ${row.endpoint} | ${displayValue(row.point)} | [${displayValue(row.lower)}, ${displayValue(row.upper)}] | ${selfDescription(row)} |`);
   lines.push('', '### Moving-block sensitivity (prereg 10.5)', '', `| season | profile | cell | endpoint | sensitivity | point | CI | ${SELF_HEADER} |`, `| --- | --- | --- | --- | --- | ---: | --- | ${SELF_RULE} |`);
   for (const row of evidence.movingBlock) lines.push(`| ${row.season} | ${row.scoringProfile} | ${row.cell} | ${row.endpoint} | ${row.sensitivity} | ${displayValue(row.point)} | [${displayValue(row.lower)}, ${displayValue(row.upper)}] | ${selfDescription(row)} |`);
   lines.push('', '### Attribution composites', '', '| season | profile | cell | endpoint | usage main | home-away main | interaction |', '| --- | --- | --- | --- | ---: | ---: | ---: |');
