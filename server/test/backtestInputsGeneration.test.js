@@ -1411,3 +1411,31 @@ test('FIXTURE-FIX: the two benchmark arms are not the same numbers', async () =>
   assert.notEqual(canonicalJson(at('naive-recency').values), canonicalJson(at('usage-signal').values),
     'the two benchmarks are different models; publishing one from the other\'s projections must fail');
 });
+
+test('assertRunsNotAliased catches a shared per-player projection object in EVERY collection shape, including the serialization-safe array form (adversarial QA on c95d751)', () => {
+  const inputsGeneration = require('../../scripts/backtest/lib/inputsGeneration');
+  const shared = { playerId: 7, median: 12.5 };
+  const asMap = (projection) => ({ projections: new Map([[7, projection]]) });
+  const asArray = (projection) => ({ projections: [projection] });
+  const asObject = (projection) => ({ projections: { 7: projection } });
+  // A non-cloning cache returns new run/container objects wrapping the SAME
+  // per-player projection - the third depth must fire for all shapes and all
+  // cross-shape pairs, since records are captured in the array form.
+  for (const [name, left, right] of [
+    ['map/map', asMap(shared), asMap(shared)],
+    ['array/array', asArray(shared), asArray(shared)],
+    ['object/object', asObject(shared), asObject(shared)],
+    ['map/array', asMap(shared), asArray(shared)],
+    ['array/object', asArray(shared), asObject(shared)],
+  ]) {
+    assert.throws(() => inputsGeneration.assertRunsNotAliased({ leftRun: left, rightRun: right, label: name }),
+      /projection object is SHARED between the two sides/, name);
+  }
+  // Distinct objects with equal values pass - the guard is about aliasing,
+  // never about value equality (bit-identity is the sealed assertion's job).
+  assert.equal(inputsGeneration.assertRunsNotAliased({
+    leftRun: asArray({ playerId: 7, median: 12.5 }),
+    rightRun: asArray({ playerId: 7, median: 12.5 }),
+    label: 'distinct',
+  }), true);
+});

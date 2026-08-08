@@ -42,12 +42,14 @@ function deriveCohortPlayerWeeks(rows, label = 'cohort roster') {
  * exclusion), so it carries no (f) evidence either: its error pair is an
  * exactly-zero delta that can only dilute `D_w` toward the veto NOT firing.
  *
- * THE PERMUTATION DOMAIN IS DELIBERATELY NOT FILTERED (determination 8's
- * asymmetry, part of the same ruling): the reducer's policy-artifact domain
- * requires an observation for every rostered player and byes stay rostered,
- * so byes remain IN section 5's cells while leaving 6.3's subgroup. Baseline
- * and identity COVERAGE stay total over the whole cohort as well - only the
- * subgroup's membership narrows.
+ * THE PERMUTATION DOMAIN DOES NOT TAKE THIS PREDICATE'S BYE LEG
+ * (determination 8's asymmetry, part of the same ruling): the reducer's
+ * policy-artifact domain requires an observation for every rostered player
+ * and byes stay rostered, so byes remain IN section 5's cells while leaving
+ * 6.3's subgroup. (The macro-position leg is NOT asymmetric - determination
+ * 8's own domain already excludes non-macro members, as counted
+ * exclusions.) Baseline and identity COVERAGE stay total over the whole
+ * cohort as well - only the subgroup's membership narrows.
  *
  * `position` and `onBye` are asserted, never coerced or defaulted (QA
  * finding A1's doctrine): a malformed field silently excluding a member
@@ -111,17 +113,29 @@ function normalizeProjectionRun(run, label) {
 function serializableProjectionRun(run, label) {
   if (!run || typeof run !== 'object') throw new Error(`${label}: run must be an object`);
   if (Array.isArray(run.projections)) {
+    const seen = new Set();
+    let sorted = true;
     for (const [index, projection] of run.projections.entries()) {
       if (!projection || typeof projection !== 'object' || !Number.isFinite(Number(projection.playerId))) {
         throw new Error(`${label}: raw projections[${index}] must be an object with a finite playerId`);
       }
+      const canonical = String(Number(projection.playerId));
+      if (seen.has(canonical)) {
+        throw new Error(`${label}: raw projections carry canonical playerId ${canonical} twice - two conflicting projections for one player is evidence corruption, never a bigger run`);
+      }
+      seen.add(canonical);
+      if (index > 0 && Number(run.projections[index - 1].playerId) > Number(projection.playerId)) sorted = false;
     }
-    return run;
+    if (sorted) return run;
+    // Re-sorted COPY, never in place: document bytes must not depend on
+    // which shape the caller happened to hold.
+    return { ...run, projections: [...run.projections].sort((a, b) => Number(a.playerId) - Number(b.playerId)) };
   }
   if (!(run.projections instanceof Map)) {
     throw new Error(`${label}: projections must be a Map or a raw projections array`);
   }
   const projections = [];
+  const seen = new Set();
   for (const [id, projection] of run.projections) {
     if (!projection || typeof projection !== 'object') {
       throw new Error(`${label}: projection for playerId ${JSON.stringify(id)} must be an object to survive serialization - a bare value has no playerId for the reducer to re-key`);
@@ -129,6 +143,15 @@ function serializableProjectionRun(run, label) {
     if (Number(projection.playerId) !== Number(id) || !Number.isFinite(Number(id))) {
       throw new Error(`${label}: projection.playerId ${JSON.stringify(projection.playerId)} disagrees with its Map key ${JSON.stringify(id)} - serialization keeps one of the two, so they must agree`);
     }
+    // Canonical-duplicate rejection (adversarial QA on c95d751): Map keys 7
+    // and '7' are distinct to SameValue but collapse to one canonical id in
+    // the array form - two conflicting projections for one player must be
+    // rejected at the serialization boundary, not silently carried.
+    const canonical = String(Number(id));
+    if (seen.has(canonical)) {
+      throw new Error(`${label}: projections carry canonical playerId ${canonical} under two Map keys - two conflicting projections for one player is evidence corruption, never a bigger run`);
+    }
+    seen.add(canonical);
     projections.push(projection);
   }
   projections.sort((a, b) => Number(a.playerId) - Number(b.playerId));

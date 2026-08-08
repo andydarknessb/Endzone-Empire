@@ -771,12 +771,26 @@ function componentFVetoRecords(cells, { cohortRosterRows, matchedOffBaselineRows
     .map((cell) => ({
       cellName: cell.name,
       // Membership = b <= 0 AND prereg-4.1 eligibility (the A4 ruling) -
-      // the same conjunction every other derivation applies, so the four
-      // sites cannot disagree about who is in the subgroup.
-      subgroupPlayerWeeks: cohortRosterRows.filter((row, index) => sweepPreflight.componentFSubgroupEligible(row, `componentFVetoRecords: cohort roster[${index}]`)
-        && matchedOffBaselineRows.some((baseline) => baseline.cellName === cell.name
+      // the same conjunction every other derivation applies, so the sites
+      // cannot disagree about who is in the subgroup. The predicate's throw
+      // is swallowed HERE ONLY because this derivation runs EAGERLY, as an
+      // argument to `runPreflight`, outside its capture (the adversarial QA
+      // on c95d751 demonstrated a malformed roster row crashing the reducer
+      // instead of writing the pinned "Level 1 void, immediately" report).
+      // This cannot fail open: `assertComponentFVetoCoverage` validates the
+      // SAME rows inside the capture and voids the run by name, so a
+      // malformed row never reaches any published number - the swallow only
+      // preserves WHERE the failure is reported.
+      subgroupPlayerWeeks: cohortRosterRows.filter((row, index) => {
+        try {
+          if (!sweepPreflight.componentFSubgroupEligible(row, `componentFVetoRecords: cohort roster[${index}]`)) return false;
+        } catch {
+          return false;
+        }
+        return matchedOffBaselineRows.some((baseline) => baseline.cellName === cell.name
         && Number(baseline.season) === Number(row.season) && Number(baseline.week) === Number(row.week)
-        && Number(baseline.playerId) === Number(row.playerId) && Number(baseline.baseline) <= 0)),
+        && Number(baseline.playerId) === Number(row.playerId) && Number(baseline.baseline) <= 0);
+      }),
       ...cells[cell.name].f.veto,
     }));
 }

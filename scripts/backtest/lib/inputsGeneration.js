@@ -473,10 +473,21 @@ function assertRunsNotAliased({ leftRun, rightRun, label }) {
   if (leftRun === rightRun) {
     throw new Error(`${label}: the two sides are the SAME run object - one generation reused as its own control is the reuse section 9 forbids, and the identity assertion over it proves nothing`);
   }
+  // Keys are canonicalized to one string form across ALL three collection
+  // shapes, because the per-projection depth compares left's entries against
+  // right's BY KEY: a Map keyed 7 against an array keyed by playerId 7 (or a
+  // plain object keyed '7') must land on the same entry, or a shared object
+  // slips through on a key-type mismatch. The ARRAY branch exists because
+  // records are captured in the serialization-safe array form
+  // (`sweepPreflight.serializableProjectionRun`) - the adversarial QA on
+  // `c95d751` demonstrated a non-cloning cache whose array-form hits walked
+  // straight past a `[]` here, re-opening exactly the memoized-8.6.0 escape
+  // this guard was built to close.
   const entriesOf = (run) => {
     const map = run && run.projections;
-    if (map instanceof Map) return [...map.entries()];
-    if (map && typeof map === 'object' && !Array.isArray(map)) return Object.entries(map);
+    if (map instanceof Map) return [...map.entries()].map(([id, projection]) => [String(Number(id)), projection]);
+    if (Array.isArray(map)) return map.map((projection) => [String(Number(projection && projection.playerId)), projection]);
+    if (map && typeof map === 'object') return Object.entries(map).map(([id, projection]) => [String(Number(id)), projection]);
     return [];
   };
   if (leftRun && rightRun && leftRun.projections && leftRun.projections === rightRun.projections) {
@@ -1117,10 +1128,10 @@ async function generateSweepInputRecords({
             // as a raw array, `sweepPreflight.serializableProjectionRun`):
             // a production run carries a Map, and `canonicalJson` writes any
             // Map as `{}` SILENTLY - so Map-carrying records would reach the
-            // `--records-out` checkpoint and the final document as 1,632
-            // empty run sides the reducer's preflight then voids. The
-            // aliasing guard above ran on the ORIGINAL objects, before this
-            // conversion mints copies.
+            // `--records-out` checkpoint and the final document with all
+            // 3,264 run sides (1,632 records x 2 sides) empty, and the
+            // reducer's preflight then voids. The aliasing guard above ran
+            // on the ORIGINAL objects, before this conversion mints copies.
             controlUsage25Records.push({
               season,
               week,
@@ -1298,6 +1309,7 @@ module.exports = {
   buildGenerationPlan,
   round2,
   cohortPlayerIds,
+  assertRunsNotAliased,
   evaluateSensitivityVariants,
   generateSweepInputRecords,
 };

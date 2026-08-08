@@ -266,3 +266,16 @@ test('serializableProjectionRun: a Map-carrying run converts to the raw array fo
   }, 't'), /must be an object to survive serialization/);
   assert.throws(() => preflight.serializableProjectionRun({ projections: {} }, 't'), /Map or a raw projections array/);
 });
+
+test('serializableProjectionRun rejects canonical-duplicate ids (Map keys 7 and "7") and re-sorts an unsorted array as a copy (adversarial QA on c95d751)', () => {
+  assert.throws(() => preflight.serializableProjectionRun({
+    projections: new Map([[7, { playerId: 7, median: 1 }], ['7', { playerId: '7', median: 2 }]]),
+  }, 't'), /canonical playerId 7 under two Map keys/);
+  assert.throws(() => preflight.serializableProjectionRun({
+    projections: [{ playerId: 7, median: 1 }, { playerId: '7', median: 2 }],
+  }, 't'), /canonical playerId 7 twice/);
+  const unsorted = { projections: [{ playerId: 9, median: 1 }, { playerId: 7, median: 2 }], inputCutoff: 'x' };
+  const result = preflight.serializableProjectionRun(unsorted, 't');
+  assert.deepEqual(result.projections.map((p) => p.playerId), [7, 9]);
+  assert.deepEqual(unsorted.projections.map((p) => p.playerId), [9, 7], "the caller's array is never mutated");
+});

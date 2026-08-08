@@ -1435,3 +1435,16 @@ test('buildReportFromInputs rejects a contradicted injected count and an unknown
     /unknown override key\(s\): expectedRosterCounts/
   );
 });
+
+test('a malformed eligibility field on a roster row produces the pinned Level-1 VOID report, never a reducer crash (adversarial QA on c95d751)', () => {
+  const inputs = fullPassingInputs();
+  // Strip onBye from one roster row: componentFVetoRecords derives EAGERLY,
+  // outside runPreflight's capture, so before the fix this crashed the
+  // reducer instead of writing the void report the capture exists for.
+  const row = inputs.preflight.cohortRosterRows[0];
+  delete row.onBye;
+  const report = runBacktestSweep.buildReportFromInputs(inputs, { expectedRosterCount: 1 });
+  assert.equal(report.run.status, 'void');
+  assert.match(report.run.reasons.join(' '), /boolean onBye/);
+  assert.equal(report.cells, null, 'no candidate-cell results survive a harness failure');
+});
