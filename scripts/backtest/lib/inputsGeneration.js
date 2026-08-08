@@ -27,11 +27,16 @@
  * because a wiring that gets them wrong produces a document that still
  * validates:
  *
- *   1. `generate` MUST pass `weatherService: false` on every call. It is the
- *      exactness precondition for component (f) (`median_on - median_off =
- *      b * e` holds only because weather is applied AFTER homeAway,
- *      `projectionModel.js:1107`), and this module cannot check it: weather
- *      changes the numbers, not their shape.
+ *   1. The driver itself now passes `weatherService: false` on every
+ *      `generate` call (QA finding A5: `runInputsByArm` records the flag as
+ *      a generation input, so the record must be of an input that was
+ *      actually sent, not a fabricated provenance line). The wiring MUST
+ *      STILL pin its own literal `false` into `generateProjections`
+ *      regardless of what arrives - weather off is the exactness
+ *      precondition for component (f) (`median_on - median_off = b * e`
+ *      holds only because weather is applied AFTER homeAway,
+ *      `projectionModel.js:1107`), and this module cannot verify the flag
+ *      survived the seam: weather changes the numbers, not their shape.
  *   2. `generate` MUST forward `onPreHomeAwayBaseline` unchanged into
  *      `generateProjections`. The callback is the ONLY source of the
  *      pre-homeAway baseline `b` (section 6.5); a wiring that drops it
@@ -134,14 +139,38 @@
  *     unchanged, and the counts are published. The invariance is not
  *     assumed: every salt's (eligible, activated) pair is checked against
  *     the reference salt's, per player, and a divergence throws.
- *  6. The subgroup error pair of section 6.1 is formed from the projection
- *     objects' `median` field with `round2` applied at the boundary, per
- *     6.1's "round2 on medians before error computation". Production
- *     already publishes a round2-rounded median, so the boundary
- *     application is idempotent; it is applied explicitly anyway so the
- *     document's arithmetic does not silently depend on production's
+ *  6. WITHDRAWN AS A DETERMINATION (QA finding S4; the number is retained
+ *     so the register stays dense and no later determination renumbers).
+ *     The subgroup error pair's rounding is PINNED BY THE SEALED TEXT, not
+ *     by this module: section 6.1 defines `error_on = round2(median_on_raw)
+ *     - actual` and `error_off = round2(median_off_raw) - actual`, each
+ *     side independently rounded at the error boundary. The earlier filing
+ *     here claimed the sealed text did not pin this and cited 6.1 with a
+ *     paraphrase presented as a quotation ("round2 on medians before error
+ *     computation" - a string that appears in neither sealed document).
+ *     The CODE was and is conformant; only the filing was wrong, and a
+ *     reviewer must not be invited to rule on something already ruled.
+ *     Production already publishes a round2-rounded median, so the boundary
+ *     application is idempotent today; it is applied explicitly anyway so
+ *     the document's arithmetic does not silently depend on production's
  *     rounding staying where it is (the test below pins this module's
  *     `round2` to production's byte-for-byte).
+ * 12. (7-11 are pinned in `run-backtest-inputs.js`'s and
+ *     `inputsSensitivity.js`'s registers; this module continues at 12.)
+ *     The two sealed identity assertions (8.6.0/8.6.1) also run AT
+ *     GENERATION TIME, once per (season, week) the moment all 24 salts'
+ *     operands exist, via the reducer's own exported
+ *     `sweepPreflight.assertIdentityCoverage` - never a re-implementation
+ *     (QA finding S2). The sealed invocation point ("BEFORE any candidate
+ *     cell's metrics are computed, and before the permutation control
+ *     runs") is a PREFLIGHT-block ordering the reducer still owns and
+ *     re-runs from the document; at generation time a strictly-before
+ *     ordering is impossible, because the assertions' own operands include
+ *     the week's generated cell runs. What the per-week invocation
+ *     preserves is the clause's stated rationale - "running them after
+ *     computing candidate metrics would burn the full sweep's runtime
+ *     discovering the harness was broken all along" - by aborting at the
+ *     first week whose identities fail rather than after the full grid.
  *
  * KNOWN REAL-DATA RISKS, named because the first authoritative run is where
  * they will surface and neither is this module's to decide:
@@ -193,6 +222,7 @@ const metrics = require('./metrics');
 const armWeekEvaluator = require('./armWeekEvaluator');
 const inputsAssembly = require('./inputsAssembly');
 const inputsSensitivity = require('./inputsSensitivity');
+const sweepPreflight = require('./sweepPreflight');
 const { PRIMARY_SCORING_PROFILE, SCORING_PROFILE_NAMES } = require('./freezeManifest');
 const { isFiniteNumber, roundToTie } = require('./numbers');
 
@@ -305,9 +335,16 @@ function cohortPlayerIds(cohortWeek, label) {
   const ids = [];
   const seen = new Set();
   for (const [index, member] of (cohortWeek.members || []).entries()) {
-    const id = Number(member && member.playerId);
-    if (!Number.isFinite(id)) {
-      throw new Error(`${label}: cohort member[${index}] has no finite playerId`);
+    // Asserted, never coerced (QA finding A1): `evaluateArmWeek` scores by
+    // the RAW member.playerId, so a layer that coerces here while the
+    // evaluator reads raw can hold two key types at once - a demonstrated
+    // all-string cohort published regret 0 for every arm-week and the
+    // reducer called that run valid with zero reasons. The JSON boundary
+    // already asserts (`run-backtest-inputs.assertNumericPlayerIds`); with
+    // this layer asserting too, the two cannot disagree by construction.
+    const id = member && member.playerId;
+    if (typeof id !== 'number' || !Number.isFinite(id)) {
+      throw new Error(`${label}: cohort member[${index}] playerId must be a finite number, got ${JSON.stringify(id)} - ids are asserted, never coerced`);
     }
     if (seen.has(id)) {
       // The control evaluator deduplicates with a Set because it only needs a
@@ -342,11 +379,25 @@ function projectionFor(run, playerId) {
 /** A run's projections as a numeric-keyed Map, for `armWeekEvaluator` (which requires numeric keys and rejects string ones). */
 function projectionsMapOf(run, label) {
   const map = run && run.projections;
-  if (map instanceof Map) return map;
-  if (map && typeof map === 'object' && !Array.isArray(map)) {
-    return new Map(Object.entries(map).map(([key, value]) => [Number(key), value]));
+  const asMap = (() => {
+    if (map instanceof Map) return map;
+    if (map && typeof map === 'object' && !Array.isArray(map)) {
+      return new Map(Object.entries(map).map(([key, value]) => [Number(key), value]));
+    }
+    return null;
+  })();
+  if (!asMap) {
+    throw new Error(`${label}: generate() must return a run carrying a projections Map keyed by numeric playerId`);
   }
-  throw new Error(`${label}: generate() must return a run carrying a projections Map keyed by numeric playerId`);
+  // QA finding A2: an empty Map is truthy, and an arm-week evaluated over
+  // zero projections publishes an all-empty-lineup regret - on the fixture a
+  // ~7x inflation of the prereg 7.2 comparator, in the flattering direction,
+  // reading as sparse evidence rather than as absence. Zero projections is a
+  // defect of the run, whatever the profile, and it fails here by name.
+  if (asMap.size === 0) {
+    throw new Error(`${label}: the projections collection is EMPTY - an arm-week that generated nothing must fail by name rather than be scored as an all-empty lineup`);
+  }
+  return asMap;
 }
 
 /** The projection's median as a finite number, or null. Mirrors `armWeekEvaluator.intervalRows`' bare-number tolerance. */
@@ -400,6 +451,16 @@ function recordBaselines({ captured, cellMeta, season, week, baselineByOffCell, 
     }
     if (!isFiniteNumber(row.baseline)) {
       throw new Error(`${rowLabel}: baseline must be a finite number, got ${JSON.stringify(row.baseline)} - section 6.5 captures the raw pre-homeAway value b, and a non-finite b has no subgroup membership`);
+    }
+    // QA finding A3: this comparison is the one guard whose own error text
+    // says a well-formed baseline from the wrong cell is undetectable
+    // downstream - and a bare Number() here coerces every missing shape to
+    // 0, which IS a sealed cell's blend weight (usage-00), and is also
+    // production's own fallback when resolved constants fail to reach the
+    // model. The coercion would satisfy the guard with exactly the failure
+    // it exists to catch, so missing is rejected by name first.
+    if (!isFiniteNumber(row.blendWeight)) {
+      throw new Error(`${rowLabel}: blendWeight must be a finite number, got ${JSON.stringify(row.blendWeight)} - a missing value would coerce to 0, which is the usage-00 cells' blend weight, so it must never reach the provenance comparison`);
     }
     if (roundToTie(Number(row.blendWeight)) !== roundToTie(cellMeta.blendWeight)) {
       throw new Error(
@@ -478,7 +539,8 @@ function emitBaselineRows({ onCells, matchedOffNameFor, baselineByOffCell, playe
 /**
  * `subgroupErrorRows`: the section 6.1 error pair for every subgroup
  * player-week x salt. `errorOn`/`errorOff` are `round2(median) - actual` for
- * the on cell and its matched off cell at the SAME salt (determination 6);
+ * the on cell and its matched off cell at the SAME salt (sealed section
+ * 6.1's own definition - see the withdrawn determination 6 above);
  * membership is `b <= 0` in the matched off cell, which is exactly the rule
  * `inputsAssembly.deriveSubgroupDomain` re-derives from the same baseline
  * rows - so the two layers cannot disagree about who is in the subgroup.
@@ -606,6 +668,17 @@ function evaluateSensitivityVariants({ evaluateArgs, primaryEvaluation, where })
  * real collision is detected" is a runtime requirement, and the reducer runs
  * hours later on a document that would by then be complete.
  *
+ * The check runs for EVERY generated profile (QA finding S1): the sealed
+ * runtime guard is mandatory "for EVERY evaluated player-week it actually
+ * computes" (section 3.4's runtime level), and each sensitivity profile
+ * derives its own seed stream from its own scoring hash, so a primary-only
+ * check would leave 6,528 generations' seeds unexamined on streams the
+ * primary's pass never touches. RECORDS are emitted for the primary profile
+ * only (`saltSeedRecords` is null otherwise): the closed document schema
+ * carries no `scoringProfile` field on a salt-seed row and so cannot express
+ * the sensitivity streams - their check is generation-time-only, which is
+ * the only place it can happen.
+ *
  * `seedFrom(modelVersion, hashValue, season, week, playerId)` takes no cell
  * argument, so the eight per-cell records of one player-week are the SAME
  * map by construction rather than eight computations; one object is built
@@ -630,10 +703,12 @@ function emitSaltSeedRecords({ scoringHash, seedFor, playerIds, season, week, sa
       seedsBySalt[salt] = seed;
     }
     arms.assertSaltsProduceDistinctSeeds({ seedsBySalt, label: `${where}: playerId ${playerId} salt seeds` });
-    for (const cell of arms.ALL_CELLS) {
-      saltSeedRecords.push({
-        cellName: cell.name, season, week, playerId, seedsBySalt,
-      });
+    if (saltSeedRecords) {
+      for (const cell of arms.ALL_CELLS) {
+        saltSeedRecords.push({
+          cellName: cell.name, season, week, playerId, seedsBySalt,
+        });
+      }
     }
   }
 }
@@ -661,9 +736,12 @@ function emitSaltSeedRecords({ scoringHash, seedFor, playerIds, season, week, sa
  *     (`model.scoringHash(SCORING_PRESETS[profile])`). Salting is done here
  *     by `arms.composeSaltedHashValue`.
  *   - `generate({ scoringProfile, season, week, playerIds, hashValue,
- *     modelConstants, onPreHomeAwayBaseline })` -> the `generateProjections`
- *     return object `{ projections: Map, inputCutoff, sourceCoverage }`. See
- *     the module docblock's two obligations.
+ *     modelConstants, weatherService, onPreHomeAwayBaseline })` -> the
+ *     `generateProjections` return object `{ projections: Map, inputCutoff,
+ *     sourceCoverage }`. `weatherService` arrives as the literal `false` on
+ *     every call (QA finding A5); the wiring must still pin its own literal
+ *     rather than trust the argument. See the module docblock's two
+ *     obligations.
  *   - `seedFor({ hashValue, season, week, playerId })` -> the final unsigned
  *     32-bit seed that generation used (`model.seedFrom(MODEL_VERSION,
  *     hashValue, season, week, playerId)`).
@@ -698,6 +776,25 @@ async function generateSweepInputRecords({
     }
   }
 
+  // QA finding A6: the profiles' scoring hashes ARE their seed streams -
+  // every final seed derives from the salted hash - so a constant-returning
+  // `scoringHashFor` would run the whole grid on ONE stream while publishing
+  // three profiles' results. Computed and checked pairwise-distinct up
+  // front, before any generation is paid for.
+  const scoringHashByProfile = new Map();
+  for (const scoringProfile of profiles) {
+    const scoringHash = scoringHashFor(scoringProfile);
+    if (typeof scoringHash !== 'string' || !/^[0-9a-f]+$/.test(scoringHash)) {
+      throw new Error(`${label}: scoringHashFor(${JSON.stringify(scoringProfile)}) must return a lowercase hexadecimal scoring hash`);
+    }
+    for (const [other, otherHash] of scoringHashByProfile) {
+      if (otherHash === scoringHash) {
+        throw new Error(`${label}: scoringHashFor returned the identical hash for ${JSON.stringify(other)} and ${JSON.stringify(scoringProfile)} - the profiles' seed streams must be distinct, or the whole grid runs on one stream while publishing three`);
+      }
+    }
+    scoringHashByProfile.set(scoringProfile, scoringHash);
+  }
+
   const armWeekMetrics = [];
   // One full armWeekMetrics array per sensitivity configuration (increment
   // 5) - same universe, same record shape, only the evaluation knob moved.
@@ -727,10 +824,7 @@ async function generateSweepInputRecords({
 
   for (const scoringProfile of profiles) {
     const isPrimary = scoringProfile === PRIMARY_SCORING_PROFILE;
-    const scoringHash = scoringHashFor(scoringProfile);
-    if (typeof scoringHash !== 'string' || !/^[0-9a-f]+$/.test(scoringHash)) {
-      throw new Error(`${label}: scoringHashFor(${JSON.stringify(scoringProfile)}) must return a lowercase hexadecimal scoring hash`);
-    }
+    const scoringHash = scoringHashByProfile.get(scoringProfile);
 
     for (const season of seasonsFor(scoringProfile)) {
       for (const week of EVALUATED_WEEKS) {
@@ -755,6 +849,13 @@ async function generateSweepInputRecords({
         const activationByCellSalt = new Map();
         const runInputsByArm = new Map();
         const keyOf = (name, salt) => `${name}|${salt}`;
+        // Slice boundaries for THIS week's identity records, so the
+        // generation-time identity assertions below (determination 12)
+        // run over exactly the 24 salts this week produced.
+        const identityRecordStart = {
+          controlUsage25: controlUsage25Records.length,
+          homeAwayStored: homeAwayStoredRecords.length,
+        };
 
         for (const salt of SALTS) {
           const hashValue = arms.composeSaltedHashValue({ scoringHash, salt, label: `${where} ${salt}` });
@@ -785,7 +886,10 @@ async function generateSweepInputRecords({
               ? (row) => { captured.push(row); }
               : undefined;
             const run = await generate({
-              scoringProfile, season, week, playerIds, hashValue, modelConstants, onPreHomeAwayBaseline,
+              // `weatherService: false` is passed for real (QA finding A5),
+              // so the `runInputsByArm` record above describes an input that
+              // was actually sent; the wiring still pins its own literal.
+              scoringProfile, season, week, playerIds, hashValue, modelConstants, weatherService: false, onPreHomeAwayBaseline,
             });
             runCounter.generations += 1;
             if (!run || typeof run !== 'object') throw new Error(`${where} ${arm} ${salt}: generate() must return a run object`);
@@ -914,9 +1018,35 @@ async function generateSweepInputRecords({
 
         // --- end-of-week reductions -------------------------------------
 
+        if (isPrimary) {
+          // The two sealed identity assertions (8.6.0/8.6.1), run AT
+          // GENERATION TIME over this week's full 24-salt domain via the
+          // reducer's own exported preflight assertions - never a
+          // re-implementation (determination 12; QA finding S2). The
+          // reducer still re-runs them from the document; this is the
+          // early abort the sealed rationale asks for, so a broken harness
+          // is discovered at the first week rather than after the grid.
+          sweepPreflight.assertIdentityCoverage({
+            cohortRosterRows: playerIds.map((playerId) => ({ season, week, playerId })),
+            controlUsage25Records: controlUsage25Records.slice(identityRecordStart.controlUsage25),
+            homeAwayStoredRecords: homeAwayStoredRecords.slice(identityRecordStart.homeAwayStored),
+            label: `${where} generation-time identity`,
+          });
+        }
+
         for (const [arm, runsBySalt] of runInputsByArm.entries()) {
           arms.assertSaltAffectsOnlyHashValue({ runsBySalt, label: `${where} ${arm} salt inputs` });
         }
+
+        // The runtime salt-seed guard runs for EVERY profile (QA finding
+        // S1) - each profile's stream derives from its own scoring hash -
+        // while records are emitted for the primary alone, the only stream
+        // the closed schema can express.
+        emitSaltSeedRecords({
+          scoringHash, seedFor, playerIds, season, week,
+          saltSeedRecords: isPrimary ? saltSeedRecords : null,
+          where,
+        });
 
         if (isPrimary) {
           // Benchmarks (prereg 7.2): salt-free generation, published under
@@ -971,9 +1101,6 @@ async function generateSweepInputRecords({
           });
           emitActivationRecords({
             onCells, activationByCellSalt, keyOf, cohortWeek, season, week, activationRecords, where,
-          });
-          emitSaltSeedRecords({
-            scoringHash, seedFor, playerIds, season, week, saltSeedRecords, where,
           });
         }
       }

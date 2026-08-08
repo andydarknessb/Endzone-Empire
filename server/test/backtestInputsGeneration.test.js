@@ -24,8 +24,11 @@ const SEASONS = [PRIMARY_SEASON, SAFETY_SEASON];
 const ON_CELLS = arms.ALL_CELLS.filter((cell) => cell.homeAway === 'on');
 /** The fixture roster below: 2 QB, 4 RB, 4 WR, 2 TE, 2 K, 2 DEF. */
 const COHORT_SIZE = 16;
-/** Of those sixteen, ids 5, 10 and 15 carry a non-positive matched-off baseline. */
-const SUBGROUP_SIZE = 3;
+// Of those sixteen: ids 5, 10 and 15 always carry a NEGATIVE matched-off
+// baseline, id 8 carries b === 0 everywhere (spec 6.3 is `b <= 0`, not
+// `b < 0`), and id 3's sign depends on the cell's blend weight - so the
+// subgroup domain is DERIVED per cell in the assertions below, never a
+// constant the mutants can hide behind (the F-BLIND lesson).
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -107,15 +110,21 @@ const INPUT_CUTOFF = '2025-09-01T00:00:00.000Z';
 const SOURCE_COVERAGE = Object.freeze({ synthetic: true });
 
 /**
- * The subgroup (spec 6.3: `b <= 0` in the matched off cell) is every fifth
- * player, and `b` VARIES WITH THE BLEND WEIGHT - so a driver that captured
- * every on cell's baseline from the CONTROL's off cell instead of from its own
- * matched off cell would produce numerically different rows, not identical
- * ones. (Increment 1's QA lesson: an all-favourable fixture cannot detect a
- * substituted comparator.)
+ * The subgroup (spec 6.3: `b <= 0` in the matched off cell) VARIES BY CELL
+ * and `b` VARIES WITH THE BLEND WEIGHT - so a driver that captured every on
+ * cell's baseline from the CONTROL's off cell instead of from its own
+ * matched off cell would produce a numerically different DOMAIN, not merely
+ * different values. (Increment 1's QA lesson, sharpened by the increment-3
+ * mutation sweep: a sign that depends only on `playerId % 5` made the
+ * subgroup one constant across all 8 cells x 2 seasons x 17 weeks, and
+ * membership-from-the-wrong-cell survived 32/32 tests.) Player 8's b === 0
+ * makes the `b <= 0` vs `b < 0` boundary decidable; player 3's sign flips
+ * with the blend weight so membership itself discriminates the cells.
  */
 function baselineFor({ blendWeight, season, week, playerId }) {
   const magnitude = 1 + ((playerId % 7) * 0.5) + (blendWeight * 2) + ((week % 5) * 0.1) + (season === SAFETY_SEASON ? 0.25 : 0);
+  if (playerId === 8) return 0;
+  if (playerId === 3) return blendWeight >= 0.4 ? -magnitude : magnitude;
   return playerId % 5 === 0 ? -magnitude : magnitude;
 }
 
@@ -132,11 +141,13 @@ const HOME_AWAY_EFFECT = 0.03;
  */
 function makeGenerator({ mutate = null } = {}) {
   const calls = [];
-  const generate = async ({ scoringProfile, season, week, playerIds, hashValue, modelConstants, onPreHomeAwayBaseline }) => {
+  const generate = async ({ scoringProfile, season, week, playerIds, hashValue, modelConstants, weatherService, onPreHomeAwayBaseline }) => {
     const blendWeight = modelConstants.usage.blendWeight;
     const homeAwayOn = modelConstants.homeAway.enabled === true;
     const saltIndex = SALTS.indexOf(String(hashValue).split(':')[1]);
     assert.ok(saltIndex >= 0, 'the driver must salt the hashValue with a preregistered salt');
+    assert.equal(String(hashValue).split(':')[0], SCORING_HASHES[scoringProfile], 'the driver must salt the profile\'s OWN scoring hash');
+    assert.equal(weatherService, false, 'the driver must pass weatherService: false on every call (QA A5): the audit operand records the flag, so it must describe an input that was actually sent');
     const profileOffset = { half_ppr: 0, standard: -0.4, ppr: 0.6 }[scoringProfile];
     calls.push({ scoringProfile, season, week, hashValue, blendWeight, homeAwayOn, useStoredHistory: modelConstants.homeAway.useStoredHistory === true });
 
@@ -149,6 +160,10 @@ function makeGenerator({ mutate = null } = {}) {
       // The salt moves the median (it is the simulation seed) but never the
       // baseline, which is resolved before the draw - the invariance the
       // driver checks.
+      // toFixed(4), NOT toFixed(2): a 2dp fixture median makes the module's
+      // round2-at-the-error-boundary the identity, which is exactly the
+      // claim the boundary exists to protect (F-BLIND). And the season term
+      // means 2024 is not a relabelling of 2025.
       const median = Number((
         (playerId * 1.1)
         + (homeAwayOn ? baseline * HOME_AWAY_EFFECT : 0)
@@ -156,7 +171,8 @@ function makeGenerator({ mutate = null } = {}) {
         + (saltIndex * 0.01)
         + profileOffset
         + ((week % 4) * 0.05)
-      ).toFixed(2));
+        + (season === SAFETY_SEASON ? 0.07 : 0)
+      ).toFixed(4));
       projections.set(playerId, {
         playerId,
         median,
@@ -195,7 +211,9 @@ function seedFor({ hashValue, season, week, playerId }) {
 /** The benchmarks (prereg 7.2): no intervals, so coverage/WIS score null with published exclusion counts. */
 async function benchmarkProjectionsFor({ season, week, playerIds }) {
   const build = (scale) => new Map(playerIds.map((playerId) => [playerId, {
-    playerId, median: Number((playerId * scale + (week % 3)).toFixed(2)), p10: null, p25: null, p75: null, p90: null, factors: {},
+    // week * 0.13, not (week % 3): 2 % 3 === 5 % 3, and a degenerate week
+    // term let a benchmark scored from another week's projections survive.
+    playerId, median: Number((playerId * scale + (week * 0.13)).toFixed(2)), p10: null, p25: null, p75: null, p90: null, factors: {},
   }]));
   return {
     'naive-recency': build(0.9),
@@ -337,7 +355,7 @@ test('the driver is structurally incapable of generating a projection or opening
   const requires = [...code.matchAll(/require\(\s*['"]([^'"]+)['"]\s*\)/g)].map((match) => match[1]);
   assert.deepEqual(
     requires.sort(),
-    ['./armWeekEvaluator', './arms', './freezeManifest', './inputsAssembly', './inputsSensitivity', './metrics', './numbers'],
+    ['./armWeekEvaluator', './arms', './freezeManifest', './inputsAssembly', './inputsSensitivity', './metrics', './numbers', './sweepPreflight'],
     'pure computation only - no fs, no path, no database driver, and nothing under server/services'
   );
   // Named as CALL shapes, not bare substrings: the module names
@@ -466,8 +484,14 @@ test('the record counts are the grid\'s, and the two never-scored arms are gener
   assert.equal(records.counts.homeAwayStoredRecords, 24 * weeks * 2);
   assert.equal(records.counts.saltSeedRecords, 8 * COHORT_SIZE * weeks * 2);
   assert.equal(records.counts.matchedOffBaselineRows, ON_CELLS.length * COHORT_SIZE * weeks * 2);
-  // Every fifth player is in the subgroup (b <= 0), across both seasons.
-  assert.equal(records.counts.subgroupErrorRows, ON_CELLS.length * SUBGROUP_SIZE * weeks * 2 * SALTS.length);
+  // The subgroup domain is DERIVED from baselineFor per cell (its sign
+  // depends on playerId AND blendWeight, never on week or season), so a
+  // driver reading membership from the wrong cell's baseline map changes
+  // this count rather than being invisible to it.
+  const ALL_IDS = Array.from({ length: COHORT_SIZE }, (u, i) => i + 1);
+  const expectedSubgroup = ON_CELLS.reduce((sum, c) => sum
+    + ALL_IDS.filter((pid) => baselineFor({ blendWeight: c.blendWeight, season: PRIMARY_SEASON, week: 2, playerId: pid }) <= 0).length, 0);
+  assert.equal(records.counts.subgroupErrorRows, expectedSubgroup * weeks * 2 * SALTS.length);
 });
 
 test('the sensitivity profiles carry the 8 cells for 2025 only, and no benchmark', async () => {
@@ -508,7 +532,7 @@ test('the sensitivity profiles are scored against the PRIMARY profile\'s outcome
     const median = Number((
       (member.playerId * 1.1) + (cell.homeAway === 'on' ? baseline * HOME_AWAY_EFFECT : 0)
       + (cell.blendWeight * 0.8) + (SALTS.indexOf(salt) * 0.01) + (-0.4) + ((week % 4) * 0.05)
-    ).toFixed(2));
+    ).toFixed(4));
     return [member.playerId, {
       playerId: member.playerId, median, p10: median - 2, p25: median - 1, p75: median + 1, p90: median + 2, factors: {},
     }];
@@ -561,7 +585,9 @@ test('every baseline row is labelled with its ON cell but carries the MATCHED OF
     // The discrimination: the CONTROL's off cell is the plausible wrong
     // source, and for every cell whose blend weight is not 0.25 it yields a
     // different number.
-    if (cell.blendWeight !== arms.CONTROL_BLEND_WEIGHT) {
+    // Player 8's b === 0 is deliberately identical in every cell (a zero has
+    // no magnitude to vary), so the source discrimination skips it.
+    if (cell.blendWeight !== arms.CONTROL_BLEND_WEIGHT && row.playerId !== 8) {
       const wrong = baselineFor({ blendWeight: arms.CONTROL_BLEND_WEIGHT, season: PRIMARY_SEASON, week: 7, playerId: row.playerId });
       assert.notEqual(expected, wrong, 'the fixture must be able to tell the two sources apart');
       assert.notEqual(row.baseline, wrong);
@@ -578,7 +604,10 @@ test('subgroup error rows pair the on and off cells at the SAME salt, over round
   const artifacts = makeWeekArtifacts({ season: PRIMARY_SEASON, week: 9 });
 
   for (const row of rows) {
-    assert.equal(row.playerId % 5, 0, 'membership is b <= 0 in the matched off cell, which the fixture makes every fifth player');
+    assert.ok(
+      baselineFor({ blendWeight: cell.blendWeight, season: PRIMARY_SEASON, week: 9, playerId: row.playerId }) <= 0,
+      'membership is b <= 0 in the MATCHED off cell'
+    );
     const actual = artifacts.cohortWeek.actualPointsByPlayerId.get(row.playerId);
     const saltIndex = SALTS.indexOf(row.salt);
     const medianFor = (homeAwayOn) => {
@@ -586,7 +615,7 @@ test('subgroup error rows pair the on and off cells at the SAME salt, over round
       return Number((
         (row.playerId * 1.1) + (homeAwayOn ? baseline * HOME_AWAY_EFFECT : 0)
         + (cell.blendWeight * 0.8) + (saltIndex * 0.01) + 0 + ((9 % 4) * 0.05)
-      ).toFixed(2));
+      ).toFixed(4));
     };
     assert.equal(row.errorOn, inputsGeneration.round2(medianFor(true)) - actual);
     assert.equal(row.errorOff, inputsGeneration.round2(medianFor(false)) - actual);
@@ -598,9 +627,15 @@ test('subgroup error rows pair the on and off cells at the SAME salt, over round
     }
     assert.equal(offName, arms.cellName({ blendWeight: cell.blendWeight, homeAway: 'off' }));
   }
-  // Exact coverage: the derived domain x the 24 salts, no more and no less.
+  // Exact coverage: the derived domain x the 24 salts, no more and no less -
+  // and the domain is asserted POSITIVELY against baselineFor's own rule, so
+  // a membership read from the wrong cell's baseline map changes the set
+  // rather than passing on cardinality alone. b === 0 (player 8) is IN.
   const domain = new Set(rows.map((row) => row.playerId));
   assert.equal(rows.length, domain.size * SALTS.length);
+  const expectedDomain = Array.from({ length: COHORT_SIZE }, (u, i) => i + 1)
+    .filter((pid) => baselineFor({ blendWeight: cell.blendWeight, season: PRIMARY_SEASON, week: 9, playerId: pid }) <= 0);
+  assert.deepEqual([...domain].sort((a, b) => a - b), expectedDomain, 'the domain must come from THIS cell\'s matched off cell, and b === 0 is a member');
 });
 
 test('activation counts are per player, not per salt, and come from the reference salt', async () => {
@@ -797,8 +832,15 @@ test('a generator that returns no projections Map is rejected', async () => {
 });
 
 test('a benchmark arm the caller does not supply is named', async () => {
+  // The present arm carries REAL projections: an empty Map is no longer a
+  // way to be "present" (QA A2 below), and this test is about ABSENCE.
   await assert.rejects(
-    runOneWeek({ benchmarkProjectionsFor: async () => ({ 'naive-recency': new Map() }) }),
+    runOneWeek({
+      benchmarkProjectionsFor: async (args) => {
+        const benchmarks = await benchmarkProjectionsFor(args);
+        return { 'naive-recency': benchmarks['naive-recency'] };
+      },
+    }),
     /returned no usage-signal projections/
   );
 });
@@ -1099,4 +1141,183 @@ test('assembleFinalDocument bakes the DERIVED sensitivity inputs into a reducer-
   assert.equal(document.deployedPolicyDisagreement, true);
   assert.equal(document.studyId, runBacktestInputs.STUDY_ID);
   assert.ok(validated >= 1, "the finished document must pass the reducer's own validateInputs before anyone serializes it");
+});
+
+// ---------------------------------------------------------------------------
+// QA closures on the increment-3 backlog (findings S2, A1, A3, S1, A2, A5,
+// A6, and the F-BLIND fixture patch), worked against the post-increment-5
+// tree
+// ---------------------------------------------------------------------------
+
+test('a stored-history twin that diverges from its on cell aborts AT GENERATION TIME, not hours later in the reducer (QA S2)', async () => {
+  const { generate: inner } = makeGenerator();
+  const generate = async (args) => {
+    const run = await inner(args);
+    if (args.modelConstants.homeAway.useStoredHistory === true) {
+      const projection = run.projections.get(1);
+      run.projections.set(1, { ...projection, median: projection.median + 0.01 });
+    }
+    return run;
+  };
+  await assert.rejects(runOneWeek({ generate }), /homeaway-on == homeaway-on-stored/);
+});
+
+test('an independent control that is not bit-identical to usage-25 x off aborts at generation time (QA S2)', async () => {
+  const { generate: inner } = makeGenerator();
+  // The independent control arm receives IDENTICAL constants and hashValue
+  // to the usage-25 x off cell - that identity is the assertion - so the
+  // second call a salt makes with the control coordinate is the control
+  // arm, and a generator that is not deterministic across the two calls is
+  // exactly what 8.6.0 exists to catch.
+  const seen = new Set();
+  const generate = async (args) => {
+    const run = await inner(args);
+    if (args.modelConstants.usage.blendWeight === arms.CONTROL_BLEND_WEIGHT
+      && args.modelConstants.homeAway.enabled !== true) {
+      const key = `${args.season}:${args.week}:${args.hashValue}`;
+      if (seen.has(key)) {
+        const projection = run.projections.get(2);
+        run.projections.set(2, { ...projection, median: projection.median + 0.01 });
+      }
+      seen.add(key);
+    }
+    return run;
+  };
+  await assert.rejects(runOneWeek({ generate }), /usage-25 x off == control/);
+});
+
+test('a cohort whose playerIds are strings is rejected by name, never coerced (QA A1)', async () => {
+  const artifacts = makeWeekArtifacts({ season: PRIMARY_SEASON, week: 2 });
+  artifacts.cohortWeek.members = artifacts.cohortWeek.members.map((m) => ({ ...m, playerId: String(m.playerId) }));
+  await assert.rejects(
+    inputsGeneration.generateSweepInputRecords(primaryOnly({ weekArtifacts: new Map([[`${PRIMARY_SEASON}:2`, artifacts]]) })),
+    /ids are asserted, never coerced/
+  );
+});
+
+test('a baseline whose blendWeight is missing cannot satisfy the provenance guard by coercing to usage-00 (QA A3)', async () => {
+  // The bypass being killed: Number(null) === 0, and 0 IS usage-00-off's
+  // blend weight - so a missing blendWeight reported only in that cell used
+  // to pass the provenance comparison silently.
+  const { generate: inner } = makeGenerator();
+  const generate = async (args) => inner({
+    ...args,
+    onPreHomeAwayBaseline: (args.onPreHomeAwayBaseline && args.modelConstants.usage.blendWeight === 0)
+      ? (row) => args.onPreHomeAwayBaseline({ ...row, blendWeight: null })
+      : args.onPreHomeAwayBaseline,
+  });
+  await assert.rejects(runOneWeek({ generate }), /blendWeight must be a finite number/);
+});
+
+test('the salt-seed collision guard covers the sensitivity profiles\' own seed streams (QA S1)', async () => {
+  const collide = ({ hashValue, season, week, playerId }) => (playerId === 3
+    ? 42
+    : seedFor({ hashValue, season, week, playerId }));
+  await assert.rejects(
+    inputsGeneration.generateSweepInputRecords(baseArgs({
+      profiles: ['standard'],
+      weekArtifacts: new Map([[`${PRIMARY_SEASON}:2`, makeWeekArtifacts({ season: PRIMARY_SEASON, week: 2 })]]),
+      seedFor: collide,
+    })),
+    /produced the identical final seed/
+  );
+});
+
+test('an EMPTY benchmark projections collection is rejected by name, not scored as an all-empty lineup (QA A2)', async () => {
+  await assert.rejects(
+    runOneWeek({
+      benchmarkProjectionsFor: async (args) => {
+        const benchmarks = await benchmarkProjectionsFor(args);
+        return { ...benchmarks, 'naive-recency': new Map() };
+      },
+    }),
+    /projections collection is EMPTY/
+  );
+});
+
+test('a sensitivity-profile generation that returns no projections is rejected - the output-side checks are not primary-only (QA A2)', async () => {
+  await assert.rejects(
+    inputsGeneration.generateSweepInputRecords(baseArgs({
+      profiles: ['standard'],
+      weekArtifacts: new Map([[`${PRIMARY_SEASON}:2`, makeWeekArtifacts({ season: PRIMARY_SEASON, week: 2 })]]),
+      generate: async () => ({ projections: new Map(), inputCutoff: INPUT_CUTOFF, sourceCoverage: SOURCE_COVERAGE }),
+    })),
+    /projections collection is EMPTY/
+  );
+});
+
+test('a constant-returning scoringHashFor is rejected before any generation is paid for (QA A6)', async () => {
+  await assert.rejects(
+    inputsGeneration.generateSweepInputRecords(baseArgs({ scoringHashFor: () => 'a1b2c3' })),
+    /the profiles' seed streams must be distinct/
+  );
+});
+
+test('FIXTURE-FIX: a benchmark arm-week is scored from ITS OWN week\'s benchmark projections', async () => {
+  const records = await fullGrid();
+  const season = PRIMARY_SEASON;
+  const week = 5;
+  const artifacts = makeWeekArtifacts({ season, week });
+  const playerIds = artifacts.cohortWeek.members.map((m) => m.playerId);
+  const benches = await benchmarkProjectionsFor({ season, week, playerIds });
+  for (const arm of inputsAssembly.BENCHMARK_ARMS) {
+    const rescored = armWeekEvaluatorLib.evaluateArmWeek({
+      season,
+      week,
+      rosterWeek: artifacts.rosterWeek,
+      cohortWeek: artifacts.cohortWeek,
+      projectionsByPlayerId: benches[arm],
+      positionRank: artifacts.positionRank,
+      nameRankById: artifacts.nameRankById,
+      availabilityFor,
+      optimize: optimalAssignment,
+    });
+    const published = records.armWeekMetrics.find((row) => row.arm === arm
+      && row.season === season && row.week === week && row.salt === SALTS[0]);
+    assert.deepEqual(published.values, rescored.values, arm);
+  }
+});
+
+test('FIXTURE-FIX: arm-week values are positively pinned in BOTH seasons', async () => {
+  const records = await fullGrid();
+  const week = 9;
+  const salt = SALTS[5];
+  for (const season of SEASONS) {
+    for (const cell of [arms.ALL_CELLS.find((c) => c.name === arms.CONTROL_CELL), ON_CELLS[3]]) {
+      const artifacts = makeWeekArtifacts({ season, week });
+      const playerIds = artifacts.cohortWeek.members.map((m) => m.playerId);
+      const run = await makeGenerator().generate({
+        scoringProfile: 'half_ppr',
+        season,
+        week,
+        playerIds,
+        hashValue: arms.composeSaltedHashValue({ scoringHash: SCORING_HASHES.half_ppr, salt }),
+        modelConstants: arms.resolveConstants({ cell, baseConstants: model.MODEL_CONSTANTS }),
+        weatherService: false,
+      });
+      const rescored = armWeekEvaluatorLib.evaluateArmWeek({
+        season,
+        week,
+        rosterWeek: artifacts.rosterWeek,
+        cohortWeek: artifacts.cohortWeek,
+        projectionsByPlayerId: run.projections,
+        positionRank: artifacts.positionRank,
+        nameRankById: artifacts.nameRankById,
+        availabilityFor,
+        optimize: optimalAssignment,
+      });
+      const published = records.armWeekMetrics.find((row) => row.scoringProfile === 'half_ppr'
+        && row.arm === cell.name && row.season === season && row.week === week && row.salt === salt);
+      assert.ok(published, `${cell.name} ${season}w${week} must be published`);
+      assert.deepEqual(published.values, rescored.values, `${cell.name} ${season}w${week}`);
+    }
+  }
+});
+
+test('FIXTURE-FIX: the two benchmark arms are not the same numbers', async () => {
+  const records = await fullGrid();
+  const at = (arm) => records.armWeekMetrics.find((row) => row.arm === arm
+    && row.season === PRIMARY_SEASON && row.week === 5 && row.salt === SALTS[0]);
+  assert.notEqual(canonicalJson(at('naive-recency').values), canonicalJson(at('usage-signal').values),
+    'the two benchmarks are different models; publishing one from the other\'s projections must fail');
 });
