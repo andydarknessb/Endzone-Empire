@@ -60,6 +60,17 @@
  *     candidate-cell EXECUTION remains separately gated on the independent
  *     implementation review, and nothing in this file's own `freeze`-mode
  *     default path changed to invoke it.
+ *   - **`inputs`** (Gate 2 increment 5): runs the canaries (the same step-1
+ *     probes as `freeze` mode - if any route out is reachable, nothing else
+ *     runs), then shells to `run-backtest-inputs.js`, the `--inputs`
+ *     PRODUCER, forwarding every argument after `inputs` unchanged. The
+ *     producer re-runs the same canary probes in-process as
+ *     `canariesPassed`'s only source, so the standalone step here is the
+ *     container-level abort discipline, not the document's evidence. Adding
+ *     this mode is likewise Gate 2 IMPLEMENTATION only: candidate-cell
+ *     EXECUTION - actually invoking this mode against real data - remains
+ *     barred until Gate 4/Gate 3, and nothing in `freeze` mode's default
+ *     path invokes it.
  *
  * An unrecognized mode is a HARD ERROR before anything else runs - never a
  * silent fallback to `freeze`, which would make a typo in a real invocation
@@ -271,7 +282,7 @@ function main() {
 // Mode dispatch (see module docblock)
 // ---------------------------------------------------------------------------
 
-const MODES = Object.freeze(['freeze', 'sweep']);
+const MODES = Object.freeze(['freeze', 'sweep', 'inputs']);
 
 /**
  * Pure: which mode was requested. No `argv` at all is `freeze`, for exact
@@ -305,10 +316,35 @@ function runSweep(argv) {
   );
 }
 
+/**
+ * `inputs` mode: canaries first (the identical step-1 discipline `freeze`
+ * mode's sequence opens with - a container with a reachable route out runs
+ * nothing), then `run-backtest-inputs.js` with every argument after `inputs`
+ * forwarded unchanged - `--rehydrated-snapshot`/`--rehydrated-sources`/
+ * `--rosters`/`--cohort`/`--out` (all required, no defaults) and the
+ * optional `--records-out` checkpoint, exactly as that script's own CLI
+ * defines them. No default output path is invented here, for the same
+ * reason `runSweep` invents none: there is no frozen mount contract for
+ * sweep-inputs artifacts yet, since Gate 4 has not produced one.
+ */
+function runInputs(argv) {
+  run(
+    'canaries',
+    'node',
+    [path.join(WORKTREE, 'server/scripts/run-backtest-canaries.js')]
+  );
+  run(
+    'run-backtest-inputs',
+    'node',
+    [path.join(WORKTREE, 'server/scripts/run-backtest-inputs.js'), ...argv]
+  );
+}
+
 if (require.main === module) {
   const mode = parseMode(process.argv.slice(2));
   if (mode === 'freeze') main();
-  else runSweep(process.argv.slice(3));
+  else if (mode === 'sweep') runSweep(process.argv.slice(3));
+  else runInputs(process.argv.slice(3));
 }
 
 module.exports = {
@@ -320,5 +356,6 @@ module.exports = {
   assertArtifactTreesByteIdentical,
   parseMode,
   runSweep,
+  runInputs,
   main,
 };

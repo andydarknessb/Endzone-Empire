@@ -86,6 +86,21 @@
  * owns both passes, increment 5). Those two are the caller's to supply, and
  * `assembleSweepInputs` already fails closed if they are absent or malformed.
  *
+ * SINCE INCREMENT 5 this module also emits the RAW MATERIAL that second pass
+ * consumes: `armWeekMetricsBySensitivity`, one full `armWeekMetrics` array
+ * per sensitivity configuration (`inputsSensitivity.SENSITIVITY_PASSES` -
+ * prereg 5.2's two ordering variants and prereg 5.3's force-fill estimand).
+ * Each scored arm-week is re-evaluated over the SAME generated projections
+ * with only the evaluation knob changed - an evaluation-time re-scoring,
+ * never a regeneration, so the sealed grid arithmetic (section 9's 14,688)
+ * is untouched and `counts.generations` cannot move. Only `regret` is
+ * lineup-dependent; every other endpoint of a variant evaluation is asserted
+ * bit-identical to the primary's, so a sensitivity knob that leaks past the
+ * lineup solve fails HERE by name rather than surfacing as a mysteriously
+ * moved pairwise series three layers downstream. The verdict COMPARISON
+ * itself stays with `inputsSensitivity`/the wiring, which own the reducer
+ * passes this module's outputs feed.
+ *
  * FAIL-CLOSED POSTURE (round 4 BLOCKER A's lesson, at the generation layer)
  *
  * Every capture is checked at the coordinate that produced it: a baseline
@@ -177,6 +192,7 @@ const arms = require('./arms');
 const metrics = require('./metrics');
 const armWeekEvaluator = require('./armWeekEvaluator');
 const inputsAssembly = require('./inputsAssembly');
+const inputsSensitivity = require('./inputsSensitivity');
 const { PRIMARY_SCORING_PROFILE, SCORING_PROFILE_NAMES } = require('./freezeManifest');
 const { isFiniteNumber, roundToTie } = require('./numbers');
 
@@ -551,6 +567,39 @@ function emitActivationRecords({ onCells, activationByCellSalt, keyOf, cohortWee
 }
 
 /**
+ * Re-evaluate one scored arm-week under every sensitivity configuration
+ * (increment 5): the SAME projections, roster and cohort artifacts, with only
+ * the evaluation knob changed - prereg 5.2's two ordering variants move the
+ * candidate order the optimizer resolves ties by, prereg 5.3's force-fill
+ * estimand changes what a legal lineup is. Only `regret` may move: every
+ * other endpoint is computed from projections and actuals with no lineup in
+ * between, and that invariant is ASSERTED per endpoint (`Object.is`, so
+ * null/NaN states compare honestly) rather than assumed - a sensitivity knob
+ * that reaches pairwise or the point metrics has leaked past the lineup
+ * solve, which is a defect of the evaluator, not a sensitivity finding.
+ */
+function evaluateSensitivityVariants({ evaluateArgs, primaryEvaluation, where }) {
+  const byKey = {};
+  for (const pass of inputsSensitivity.SENSITIVITY_PASSES) {
+    const evaluation = armWeekEvaluator.evaluateArmWeek({
+      ...evaluateArgs, ordering: pass.ordering, estimand: pass.estimand, label: `${where} ${pass.key}`,
+    });
+    for (const endpoint of Object.keys(primaryEvaluation.values)) {
+      if (endpoint === 'regret') continue;
+      if (!Object.is(primaryEvaluation.values[endpoint], evaluation.values[endpoint])) {
+        throw new Error(
+          `${where}: sensitivity configuration ${pass.key} moved endpoint '${endpoint}' `
+          + `(${JSON.stringify(primaryEvaluation.values[endpoint])} -> ${JSON.stringify(evaluation.values[endpoint])}). `
+          + 'Only regret is lineup-dependent; every other endpoint must be bit-identical across the sensitivity passes'
+        );
+      }
+    }
+    byKey[pass.key] = evaluation;
+  }
+  return byKey;
+}
+
+/**
  * `preflight.saltSeedRecords`: the 24 final seeds each cohort player-week
  * actually used, per cell, with the section 3.4.5 collision check run HERE
  * as well as in the reducer's preflight - "aborting the sweep the instant a
@@ -650,6 +699,11 @@ async function generateSweepInputRecords({
   }
 
   const armWeekMetrics = [];
+  // One full armWeekMetrics array per sensitivity configuration (increment
+  // 5) - same universe, same record shape, only the evaluation knob moved.
+  const armWeekMetricsBySensitivity = Object.fromEntries(
+    inputsSensitivity.SENSITIVITY_PASSES.map((pass) => [pass.key, []])
+  );
   const subgroupErrorRows = [];
   const activationRecords = [];
   const cohortRosterRows = [];
@@ -754,7 +808,7 @@ async function generateSweepInputRecords({
             });
             const projections = projectionsMapOf(run, `${where} ${cellMeta.name} ${salt}`);
 
-            const evaluation = armWeekEvaluator.evaluateArmWeek({
+            const evaluateArgs = {
               season,
               week,
               rosterWeek,
@@ -764,11 +818,21 @@ async function generateSweepInputRecords({
               nameRankById,
               availabilityFor,
               optimize,
-              label: `${where} ${cellMeta.name} ${salt}`,
+            };
+            const evaluation = armWeekEvaluator.evaluateArmWeek({
+              ...evaluateArgs, label: `${where} ${cellMeta.name} ${salt}`,
             });
             armWeekMetrics.push(armWeekEvaluator.toArmWeekMetricsRecord({
               scoringProfile, arm: cellMeta.name, salt, evaluation, label: `${where} ${cellMeta.name} ${salt}`,
             }));
+            const variantEvaluations = evaluateSensitivityVariants({
+              evaluateArgs, primaryEvaluation: evaluation, where: `${where} ${cellMeta.name} ${salt}`,
+            });
+            for (const pass of inputsSensitivity.SENSITIVITY_PASSES) {
+              armWeekMetricsBySensitivity[pass.key].push(armWeekEvaluator.toArmWeekMetricsRecord({
+                scoringProfile, arm: cellMeta.name, salt, evaluation: variantEvaluations[pass.key], label: `${where} ${cellMeta.name} ${salt} ${pass.key}`,
+              }));
+            }
 
             if (isPrimary) {
               // Medians for the (f) subgroup pairing, and the on-cells'
@@ -862,7 +926,7 @@ async function generateSweepInputRecords({
           for (const arm of inputsAssembly.BENCHMARK_ARMS) {
             const projections = benchmarks && benchmarks[arm];
             if (!projections) throw new Error(`${where}: benchmarkProjectionsFor returned no ${arm} projections`);
-            const evaluation = armWeekEvaluator.evaluateArmWeek({
+            const evaluateArgs = {
               season,
               week,
               rosterWeek,
@@ -872,12 +936,29 @@ async function generateSweepInputRecords({
               nameRankById,
               availabilityFor,
               optimize,
-              label: `${where} ${arm}`,
+            };
+            const evaluation = armWeekEvaluator.evaluateArmWeek({
+              ...evaluateArgs, label: `${where} ${arm}`,
+            });
+            // The benchmarks participate in the sensitivity passes on the
+            // same terms as the cells: component (d) contrasts every
+            // candidate against naive-recency's regret, so a variant
+            // document with primary-ordering benchmark rows would compare a
+            // variant lineup against a primary one and call the difference
+            // evidence. Evaluated once (determination 4's salt-free rule),
+            // published under all 24 salts, per pass.
+            const variantEvaluations = evaluateSensitivityVariants({
+              evaluateArgs, primaryEvaluation: evaluation, where: `${where} ${arm}`,
             });
             for (const salt of SALTS) {
               armWeekMetrics.push(armWeekEvaluator.toArmWeekMetricsRecord({
                 scoringProfile, arm, salt, evaluation, label: `${where} ${arm} ${salt}`,
               }));
+              for (const pass of inputsSensitivity.SENSITIVITY_PASSES) {
+                armWeekMetricsBySensitivity[pass.key].push(armWeekEvaluator.toArmWeekMetricsRecord({
+                  scoringProfile, arm, salt, evaluation: variantEvaluations[pass.key], label: `${where} ${arm} ${salt} ${pass.key}`,
+                }));
+              }
             }
           }
 
@@ -899,8 +980,22 @@ async function generateSweepInputRecords({
     }
   }
 
+  // Every sensitivity configuration must carry the identical record universe
+  // - a pass that silently skipped an arm-week would assemble into a variant
+  // document `indexArmWeekMetrics` rejects hours later, with no cause
+  // attached to the coordinate that skipped.
+  for (const pass of inputsSensitivity.SENSITIVITY_PASSES) {
+    if (armWeekMetricsBySensitivity[pass.key].length !== armWeekMetrics.length) {
+      throw new Error(
+        `${label}: sensitivity pass ${pass.key} produced ${armWeekMetricsBySensitivity[pass.key].length} records `
+        + `against the primary's ${armWeekMetrics.length} - the variant universes must be identical`
+      );
+    }
+  }
+
   return {
     armWeekMetrics,
+    armWeekMetricsBySensitivity,
     subgroupErrorRows,
     activationRecords,
     preflight: {
@@ -913,6 +1008,9 @@ async function generateSweepInputRecords({
     counts: {
       generations: runCounter.generations,
       armWeekMetrics: armWeekMetrics.length,
+      armWeekMetricsBySensitivity: Object.fromEntries(
+        inputsSensitivity.SENSITIVITY_PASSES.map((pass) => [pass.key, armWeekMetricsBySensitivity[pass.key].length])
+      ),
       subgroupErrorRows: subgroupErrorRows.length,
       activationRecords: activationRecords.length,
       cohortRosterRows: cohortRosterRows.length,
@@ -940,5 +1038,6 @@ module.exports = {
   buildGenerationPlan,
   round2,
   cohortPlayerIds,
+  evaluateSensitivityVariants,
   generateSweepInputRecords,
 };

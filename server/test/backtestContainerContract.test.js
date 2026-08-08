@@ -48,15 +48,32 @@ test('parseMode defaults to freeze with no argv, for exact backward compatibilit
 });
 
 test('parseMode recognizes every declared mode', () => {
-  assert.deepEqual([...entrypoint.MODES], ['freeze', 'sweep']);
+  assert.deepEqual([...entrypoint.MODES], ['freeze', 'sweep', 'inputs']);
   for (const mode of entrypoint.MODES) {
     assert.equal(entrypoint.parseMode([mode]), mode);
   }
 });
 
 test('parseMode refuses an unrecognized mode rather than silently defaulting to freeze', () => {
-  assert.throws(() => entrypoint.parseMode(['bogus']), /unknown mode 'bogus'.*freeze, sweep/s);
+  assert.throws(() => entrypoint.parseMode(['bogus']), /unknown mode 'bogus'.*freeze, sweep, inputs/s);
   assert.throws(() => entrypoint.parseMode(['Freeze']), /unknown mode 'Freeze'/, 'mode names are case-sensitive, never fuzzily matched');
+});
+
+test('inputs mode runs the canaries FIRST, then the producer, forwarding argv unchanged', () => {
+  // The dispatch is read from source rather than executed: runInputs shells
+  // real scripts against fixed container mounts, which a unit test has
+  // neither. What must hold is structural - the canary step precedes the
+  // producer step inside runInputs, the producer receives `...argv`, and the
+  // require.main dispatch actually routes 'inputs' to runInputs.
+  const source = fs.readFileSync(path.join(__dirname, '..', '..', 'backtest-entrypoint.js'), 'utf8');
+  const body = source.match(/function runInputs\(argv\) \{([\s\S]*?)\n\}/);
+  assert.ok(body, 'runInputs must exist');
+  const canaryIndex = body[1].indexOf('run-backtest-canaries.js');
+  const producerIndex = body[1].indexOf('run-backtest-inputs.js');
+  assert.ok(canaryIndex >= 0 && producerIndex >= 0, 'runInputs must invoke the canaries and the producer');
+  assert.ok(canaryIndex < producerIndex, 'the canaries must run BEFORE the producer (prereg 17 / spec 8.6.0 pinned order)');
+  assert.match(body[1], /run-backtest-inputs\.js'\), \.\.\.argv\]/, 'the producer receives every argument after the mode, unchanged');
+  assert.match(source, /else runInputs\(process\.argv\.slice\(3\)\)/, "the require.main dispatch routes 'inputs' to runInputs");
 });
 
 test('MUTATION TEST: changed, missing, or extra regenerated artifact bytes are refused', (t) => {

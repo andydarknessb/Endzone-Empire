@@ -5,6 +5,7 @@ const path = require('node:path');
 
 const inputsGeneration = require('../../scripts/backtest/lib/inputsGeneration');
 const inputsAssembly = require('../../scripts/backtest/lib/inputsAssembly');
+const inputsSensitivity = require('../../scripts/backtest/lib/inputsSensitivity');
 const sweepPreflight = require('../../scripts/backtest/lib/sweepPreflight');
 const arms = require('../../scripts/backtest/lib/arms');
 const metrics = require('../../scripts/backtest/lib/metrics');
@@ -336,7 +337,7 @@ test('the driver is structurally incapable of generating a projection or opening
   const requires = [...code.matchAll(/require\(\s*['"]([^'"]+)['"]\s*\)/g)].map((match) => match[1]);
   assert.deepEqual(
     requires.sort(),
-    ['./armWeekEvaluator', './arms', './freezeManifest', './inputsAssembly', './metrics', './numbers'],
+    ['./armWeekEvaluator', './arms', './freezeManifest', './inputsAssembly', './inputsSensitivity', './metrics', './numbers'],
     'pure computation only - no fs, no path, no database driver, and nothing under server/services'
   );
   // Named as CALL shapes, not bare substrings: the module names
@@ -367,7 +368,40 @@ test('round2 is pinned to production\'s, not merely similar to it', () => {
 
 test('the driver\'s records assemble into a document the approved reducer validates and reduces to a non-void run', async () => {
   const records = await fullGrid();
-  const inputs = assembleFrom(records);
+
+  // Increment 5: the sensitivity comparison passes run against the REAL
+  // reducer's exported claim assembly. This universe is deliberately tie-free
+  // and all-positive, so every pass reproduces the primary's verdicts and
+  // winner exactly - nothing contradicted, neither disagreement - and the
+  // discriminating fixtures (where the knobs DO move regret) live in their
+  // own test below.
+  const sensitivity = inputsSensitivity.deriveSensitivityInputs({
+    studyId: 'pit-sweep-2024-2025',
+    canariesPassed: true,
+    records,
+    permutationControl: syntheticPermutationControl(),
+    reducer: runBacktestSweep,
+  });
+  for (const cell of arms.SELECTION_FAMILY) {
+    assert.deepEqual(sensitivity.orderingSensitivityByCell[cell.name], { contradicted: false, detail: null });
+  }
+  assert.equal(sensitivity.orderingDisagreement, false);
+  assert.equal(sensitivity.deployedPolicyDisagreement, false);
+
+  // The FINAL document carries the DERIVED sensitivity inputs - the complete
+  // producer path, end to end.
+  const inputs = inputsAssembly.assembleSweepInputs({
+    studyId: 'pit-sweep-2024-2025',
+    canariesPassed: true,
+    orderingDisagreement: sensitivity.orderingDisagreement,
+    deployedPolicyDisagreement: sensitivity.deployedPolicyDisagreement,
+    armWeekMetrics: records.armWeekMetrics,
+    subgroupErrorRows: records.subgroupErrorRows,
+    activationRecords: records.activationRecords,
+    orderingSensitivityByCell: sensitivity.orderingSensitivityByCell,
+    preflight: records.preflight,
+    permutationControl: syntheticPermutationControl(),
+  });
   runBacktestSweep.validateInputs(inputs);
 
   const report = runBacktestSweep.buildReportFromInputs(inputs, { expectedRosterCount: 1 });
@@ -773,4 +807,296 @@ test('an unsealed scoring profile and a missing injection are both rejected up f
   await assert.rejects(inputsGeneration.generateSweepInputRecords(baseArgs({ profiles: ['ppr-6'] })), /is not a sealed scoring profile/);
   await assert.rejects(inputsGeneration.generateSweepInputRecords(baseArgs({ generate: null })), /generate must be injected/);
   await assert.rejects(inputsGeneration.generateSweepInputRecords(baseArgs({ scoringHashFor: () => 'NOT-HEX' })), /must return a lowercase hexadecimal scoring hash/);
+});
+
+// ---------------------------------------------------------------------------
+// The sensitivity re-evaluations (increment 5)
+// ---------------------------------------------------------------------------
+
+test('every sensitivity pass carries the identical record universe, byte-identical here because this universe is sensitivity-blind', async () => {
+  const records = await fullGrid();
+  assert.deepEqual(
+    records.counts.armWeekMetricsBySensitivity,
+    Object.fromEntries(inputsSensitivity.SENSITIVITY_PASS_KEYS.map((key) => [key, records.counts.armWeekMetrics]))
+  );
+  const coordOf = (row) => `${row.scoringProfile}|${row.arm}|${row.season}|${row.week}|${row.salt}`;
+  const primaryCoords = records.armWeekMetrics.map(coordOf);
+  for (const key of inputsSensitivity.SENSITIVITY_PASS_KEYS) {
+    const rows = records.armWeekMetricsBySensitivity[key];
+    assert.deepEqual(rows.map(coordOf), primaryCoords, `${key} must cover the identical coordinates in the identical order`);
+    // This universe has no projection ties, no duplicate name ranks, no
+    // negative projections and no null projections - so every knob is
+    // outcome-neutral and the variant records are BYTE-identical. That is a
+    // property of the fixture, not of the passes; the discriminating
+    // universe below is where each knob provably moves a number.
+    assert.equal(canonicalJson(rows), canonicalJson(records.armWeekMetrics), `${key} must be byte-identical on a tie-free universe`);
+  }
+});
+
+/**
+ * A universe where each sensitivity knob has a real decision to flip, per
+ * the id layout of makeRoster (QB 1-2, RB 3-6, WR 7-10, TE 11-12, K 13-14,
+ * DEF 15-16):
+ *   - RBs 4, 5 and 6 TIE for the second RB slot and share a NAME RANK (the
+ *     duplicate-name run production leaves unordered; three members because
+ *     the seed-1 shuffle leaves a two-element run in place).
+ *   - bench WR 10 and bench TE 12 TIE for FLEX; the TE outranks the WR by
+ *     NAME, so the DB-collation variant (name first, position ignored)
+ *     reverses the primary's position-first tie-break.
+ *   - both Ks (13, 14) are NEGATIVE: the deployed policy leaves the K slot
+ *     empty, force-fill starts one.
+ * The ties survive only where homeAway is OFF (the on-cells' baseline*effect
+ * term is player-specific), which is enough: discrimination needs SOME
+ * moved record, not every record.
+ */
+const DISCRIMINATING_MEDIANS = Object.freeze({
+  1: 20, 2: 1, 3: 19, 4: 2, 5: 2, 6: 2, 7: 18, 8: 17, 9: 3, 10: 10,
+  11: 15, 12: 10, 13: -5, 14: -7, 15: 8, 16: 1,
+});
+
+function discriminatingWeekArtifactMap() {
+  const map = makeWeekArtifactMap();
+  for (const artifacts of map.values()) {
+    artifacts.nameRankById = new Map([...artifacts.nameRankById.keys()].map((playerId) => {
+      if (playerId === 12) return [playerId, 1];
+      if (playerId === 10) return [playerId, 2];
+      if (playerId === 4 || playerId === 5 || playerId === 6) return [playerId, 50];
+      return [playerId, 100 + playerId];
+    }));
+  }
+  return map;
+}
+
+function discriminatingGenerator() {
+  return async ({ season, week, playerIds, hashValue, modelConstants, onPreHomeAwayBaseline }) => {
+    const blendWeight = modelConstants.usage.blendWeight;
+    const homeAwayOn = modelConstants.homeAway.enabled === true;
+    const saltIndex = SALTS.indexOf(String(hashValue).split(':')[1]);
+    const projections = new Map();
+    for (const playerId of playerIds) {
+      const baseline = baselineFor({ blendWeight, season, week, playerId });
+      if (onPreHomeAwayBaseline) {
+        onPreHomeAwayBaseline({ playerId, position: 'RB', season, week, blendWeight, baseline });
+      }
+      // Every non-table term is GLOBAL to the week's generation (or zero in
+      // off cells), so the engineered ties survive exactly there.
+      const median = Number((
+        DISCRIMINATING_MEDIANS[playerId]
+        + (homeAwayOn ? baseline * HOME_AWAY_EFFECT : 0)
+        + (blendWeight * 0.8)
+        + (saltIndex * 0.01)
+      ).toFixed(2));
+      projections.set(playerId, {
+        playerId,
+        median,
+        mean: median,
+        p10: median - 2,
+        p25: median - 1,
+        p75: median + 1,
+        p90: median + 2,
+        sampleSize: 8,
+        eligible: true,
+        neutralSite: false,
+        knownOrientation: true,
+        factors: {
+          homeAway: homeAwayOn
+            ? { available: true, effect: HOME_AWAY_EFFECT, pointsContribution: Number((baseline * HOME_AWAY_EFFECT).toFixed(2)) }
+            : { available: false, effect: 0, pointsContribution: 0 },
+        },
+      });
+    }
+    return { projections, inputCutoff: INPUT_CUTOFF, sourceCoverage: SOURCE_COVERAGE };
+  };
+}
+
+test('each sensitivity knob MOVES regret in a universe with something to decide, and moves nothing else', async () => {
+  const records = await inputsGeneration.generateSweepInputRecords(primaryOnly({
+    weekArtifacts: discriminatingWeekArtifactMap(),
+    generate: discriminatingGenerator(),
+  }));
+  const keyOf = (row) => `${row.scoringProfile}|${row.arm}|${row.season}|${row.week}|${row.salt}`;
+  const primaryByKey = new Map(records.armWeekMetrics.map((row) => [keyOf(row), row]));
+  for (const pass of inputsSensitivity.SENSITIVITY_PASSES) {
+    const rows = records.armWeekMetricsBySensitivity[pass.key];
+    const moved = rows.filter((row) => row.values.regret !== primaryByKey.get(keyOf(row)).values.regret);
+    // A pass whose records were silently copied from the primary evaluation
+    // - the exact mutant the tie-free universe cannot see - dies here.
+    assert.ok(moved.length > 0, `${pass.key} must move regret somewhere in this universe`);
+    for (const row of rows) {
+      const primary = primaryByKey.get(keyOf(row));
+      for (const endpoint of Object.keys(primary.values)) {
+        if (endpoint === 'regret') continue;
+        assert.ok(Object.is(primary.values[endpoint], row.values[endpoint]), `${pass.key} must not move ${endpoint} at ${keyOf(row)}`);
+      }
+    }
+  }
+  // The force-fill knob fires on EVERY cell arm-week: the negative-K slot is
+  // empty under the deployed policy in every cell, and the started K's actual
+  // points are never zero.
+  const forceFill = records.armWeekMetricsBySensitivity['estimand:force-fill'];
+  const cellRows = forceFill.filter((row) => arms.ALL_CELLS.some((cell) => cell.name === row.arm));
+  const cellMoved = cellRows.filter((row) => row.values.regret !== primaryByKey.get(keyOf(row)).values.regret);
+  assert.equal(cellMoved.length, cellRows.length, 'every cell arm-week must feel the estimand change');
+});
+
+// ---------------------------------------------------------------------------
+// QA closures on increment 5 (adversarial finding 1; mutation survivors
+// S8/S14, G4, R4/R5/R6)
+// ---------------------------------------------------------------------------
+
+const runBacktestInputs = require('../scripts/run-backtest-inputs');
+const armWeekEvaluatorLib = require('../../scripts/backtest/lib/armWeekEvaluator');
+
+test('the non-regret invariance guard actually fires (mutation QA G4)', () => {
+  const artifacts = makeWeekArtifacts({ season: PRIMARY_SEASON, week: 3 });
+  const projections = new Map(artifacts.cohortWeek.members.map((m) => [m.playerId, {
+    playerId: m.playerId, median: m.playerId, p10: m.playerId - 2, p25: m.playerId - 1, p75: m.playerId + 1, p90: m.playerId + 2, factors: {},
+  }]));
+  const evaluateArgs = {
+    season: PRIMARY_SEASON,
+    week: 3,
+    rosterWeek: artifacts.rosterWeek,
+    cohortWeek: artifacts.cohortWeek,
+    projectionsByPlayerId: projections,
+    positionRank: artifacts.positionRank,
+    nameRankById: artifacts.nameRankById,
+    availabilityFor,
+    optimize: optimalAssignment,
+  };
+  const primaryEvaluation = armWeekEvaluatorLib.evaluateArmWeek({ ...evaluateArgs, label: 'g4' });
+  // Sanity: the real invariants hold on an honest evaluation.
+  assert.ok(inputsGeneration.evaluateSensitivityVariants({ evaluateArgs, primaryEvaluation, where: 'g4' }));
+  // A primary whose non-regret endpoint disagrees with the variant's - the
+  // shape an evaluator defect would produce - must throw by endpoint name.
+  const doctored = { ...primaryEvaluation, values: { ...primaryEvaluation.values, pairwise: (primaryEvaluation.values.pairwise ?? 0) + 1 } };
+  assert.throws(
+    () => inputsGeneration.evaluateSensitivityVariants({ evaluateArgs, primaryEvaluation: doctored, where: 'g4' }),
+    /moved endpoint 'pairwise'/
+  );
+});
+
+test('a comparison document reflects the metrics it was PASSED, under the sensitivity inputs it was GIVEN (mutation QA S8/S14)', async () => {
+  const records = await fullGrid();
+  // S8: the armWeekMetrics ARGUMENT is what assembles - proven both ways: a
+  // valid argument assembles even when records.armWeekMetrics could not, and
+  // an unassemblable argument fails even when records.armWeekMetrics could.
+  const doc = inputsSensitivity.assembleComparisonDocument({
+    studyId: 'pit-sweep-2024-2025',
+    canariesPassed: true,
+    records: { ...records, armWeekMetrics: [] },
+    armWeekMetrics: records.armWeekMetrics,
+    permutationControl: syntheticPermutationControl(),
+  });
+  assert.ok(doc.cells, 'a valid argument must assemble even when records.armWeekMetrics would not');
+  assert.throws(() => inputsSensitivity.assembleComparisonDocument({
+    studyId: 'pit-sweep-2024-2025', canariesPassed: true, records, armWeekMetrics: [], permutationControl: syntheticPermutationControl(),
+  }), Error, 'an empty argument must fail even when records.armWeekMetrics would assemble');
+  // S14: a stage-1 comparison document carries the all-uncontradicted
+  // placeholder - contradicted-true placeholders degrade every pass
+  // symmetrically toward inconclusive and mask real contradictions.
+  for (const cell of arms.SELECTION_FAMILY) {
+    assert.deepEqual(doc.cells[cell.name].orderingSensitivity, { contradicted: false, detail: null });
+  }
+  // ...and the stage-2 path carries exactly the derived flags it was given.
+  const flagged = {
+    ...inputsSensitivity.placeholderOrderingSensitivityByCell(),
+    [arms.SELECTION_FAMILY[0].name]: { contradicted: true, detail: 'injected' },
+  };
+  const flaggedDoc = inputsSensitivity.assembleComparisonDocument({
+    studyId: 'pit-sweep-2024-2025',
+    canariesPassed: true,
+    records,
+    armWeekMetrics: records.armWeekMetrics,
+    permutationControl: syntheticPermutationControl(),
+    orderingSensitivityByCell: flagged,
+  });
+  assert.deepEqual(flaggedDoc.cells[arms.SELECTION_FAMILY[0].name].orderingSensitivity, { contradicted: true, detail: 'injected' });
+});
+
+test('the estimand halt is evaluated on the POST-contradiction basis (adversarial QA finding 1)', async () => {
+  const records = await fullGrid();
+  // The demonstrated scenario: two candidates pass under the primary
+  // ordering; the parsimony winner (A) is CONTRADICTED by the DB-collation
+  // variant. The final document therefore demotes A and selects B - and the
+  // force-fill estimand, which endorses only A, must halt that selection.
+  // A halt evaluated on placeholder-basis winners reads false here (both
+  // placeholder winners are A), which is exactly the escape this test pins
+  // shut.
+  const A = 'usage-00-off';
+  const B = 'usage-00-on';
+  let calls = 0;
+  const scriptFor = (passIndex, name) => {
+    const passing = {
+      0: [A, B], // stage-1 primary: winner A by parsimony
+      1: [B], // db-collation flips A to fail
+      2: [A, B], // duplicate-shuffle agrees with the primary
+      3: [A, B], // stage-2 final primary: A is demoted by its flag below
+      4: [A], // stage-2 final force-fill: only A would pass
+    }[passIndex] || [];
+    return passing.includes(name) ? 'pass' : 'fail';
+  };
+  const reducer = {
+    ...runBacktestSweep,
+    // The wrapper mirrors evaluateClaim's own demotion rule: a cell whose
+    // document input says contradicted is inconclusive, whatever the script
+    // would have said - which is what makes the stage-2 passes read the
+    // derived flags the way the final reducer will.
+    assembleCellClaim: (cellMeta, cellInput) => {
+      const passIndex = Math.floor(calls / arms.ALL_CELLS.length);
+      calls += 1;
+      if (cellMeta.name === arms.CONTROL_CELL) return { cell: cellMeta.name, verdict: 'baseline' };
+      if (cellInput.orderingSensitivity && cellInput.orderingSensitivity.contradicted) {
+        return { cell: cellMeta.name, verdict: 'inconclusive' };
+      }
+      return { cell: cellMeta.name, verdict: scriptFor(passIndex, cellMeta.name) };
+    },
+  };
+  const sensitivity = inputsSensitivity.deriveSensitivityInputs({
+    studyId: 'pit-sweep-2024-2025',
+    canariesPassed: true,
+    records,
+    permutationControl: syntheticPermutationControl(),
+    reducer,
+  });
+  assert.equal(sensitivity.orderingSensitivityByCell[A].contradicted, true);
+  assert.equal(sensitivity.orderingDisagreement, false);
+  assert.equal(sensitivity.detail.primaryWinner, A);
+  assert.equal(sensitivity.detail.finalPrimaryWinner, B, 'the stage-2 primary winner reflects the derived demotion');
+  assert.equal(
+    sensitivity.deployedPolicyDisagreement, true,
+    'the halt must fire against the winner the final document will actually select, not the placeholder-basis winner'
+  );
+  assert.deepEqual(sensitivity.detail.estimandReconciliation.winners, { deployedPolicy: B, forceFill: null });
+  assert.equal(sensitivity.detail.winnersByPass['estimand:force-fill'], null);
+});
+
+test('assembleFinalDocument bakes the DERIVED sensitivity inputs into a reducer-validated document (mutation QA R4/R5/R6)', async () => {
+  const records = await fullGrid();
+  const derived = {
+    orderingSensitivityByCell: {
+      ...inputsSensitivity.placeholderOrderingSensitivityByCell(),
+      'usage-40-off': { contradicted: true, detail: 'injected' },
+    },
+    orderingDisagreement: true,
+    deployedPolicyDisagreement: true,
+    detail: {},
+  };
+  let validated = 0;
+  const reducer = {
+    ...runBacktestSweep,
+    validateInputs: (...args) => { validated += 1; return runBacktestSweep.validateInputs(...args); },
+  };
+  const { document, sensitivity } = runBacktestInputs.assembleFinalDocument({
+    records,
+    permutationControl: syntheticPermutationControl(),
+    canariesPassed: true,
+    reducer,
+    deriveSensitivityInputsImpl: () => derived,
+  });
+  assert.equal(sensitivity, derived);
+  assert.deepEqual(document.cells['usage-40-off'].orderingSensitivity, { contradicted: true, detail: 'injected' });
+  assert.equal(document.orderingDisagreement, true, 'the document carries the DERIVED boolean, never a hardcoded false');
+  assert.equal(document.deployedPolicyDisagreement, true);
+  assert.equal(document.studyId, runBacktestInputs.STUDY_ID);
+  assert.ok(validated >= 1, "the finished document must pass the reducer's own validateInputs before anyone serializes it");
 });

@@ -45,31 +45,52 @@
  * assertions, the per-arm-week scoring) lives in the pure, tested modules
  * this file calls.
  *
- * WHAT IT WRITES, AND WHY NOT THE `--inputs` DOCUMENT ITSELF
+ * WHAT IT WRITES: the COMPLETE `--inputs` DOCUMENT (since increment 5)
  *
  * Since increment 4 this script captures the permutation control too
  * (`lib/inputsPermutationCapture` - 408 further control-cell generations,
- * additional to the 14,688 grid, no reuse in either direction) and carries
- * the assembled `permutationControl` block in the records artifact.
- * `assembleSweepInputs` still additionally requires
- * `orderingSensitivityByCell` (a SECOND full reducer pass under the ordering
- * variant, so it belongs to whatever owns both passes - increment 5),
- * `studyId` and the three canary booleans. This script therefore stops one
- * step short by design: it writes the GENERATION RECORDS (`armWeekMetrics`,
- * `subgroupErrorRows`, `activationRecords`, `preflight`, `permutationControl`)
- * plus their counts, and assembly happens once those inputs exist. Writing a
- * half-populated document here would produce something that looks assemblable
- * and is not.
+ * additional to the 14,688 grid, no reuse in either direction). Increment 5
+ * closed the remaining gap: the sensitivity comparison passes
+ * (`lib/inputsSensitivity` - prereg 5.2's two ordering variants and prereg
+ * 5.3's force-fill estimand, each a variant document evaluated through the
+ * REDUCER'S OWN exported claim assembly) now produce
+ * `orderingSensitivityByCell` and the two disagreement booleans;
+ * `canariesPassed` comes from the real canary probes run IN THIS PROCESS
+ * before anything is generated (see THE CANARIES below); `studyId` is the
+ * sealed study id. `--out` therefore receives the complete, validated
+ * `--inputs` document - the interface the sealed schema actually names.
  *
- * Whether that intermediate records artifact should exist AT ALL, rather than
- * only ever writing the complete `--inputs` document, is producer-side
- * DETERMINATION 7 and rides with the B3 deferral batch. It is not settled
- * here. The case for it is run economics - generation is 14,688 real
- * projection runs plus the permutation control, and increment 3's own risk A
- * expects the first authoritative run to die on baseline coverage, so a
- * checkpoint between generation and assembly makes that failure cost one
- * assembly pass instead of a full regeneration. The case against is that an
- * intermediate artifact is an interface appearing nowhere in the sealed spec.
+ * `--records-out`, OPTIONAL, additionally writes the intermediate
+ * generation-records checkpoint (the artifact increments 3-4 wrote as
+ * `--out`). Whether that checkpoint should exist AT ALL is producer-side
+ * DETERMINATION 7 and rides with the B3 deferral batch - NOT settled here:
+ * the flag is optional precisely so both answers remain available. The case
+ * for it is run economics - generation is 14,688 real projection runs plus
+ * the permutation control, and increment 3's own risk A expects the first
+ * authoritative run to die on baseline coverage, so a checkpoint between
+ * generation and assembly makes that failure cost one assembly pass instead
+ * of a full regeneration. The case against is that an intermediate artifact
+ * is an interface appearing nowhere in the sealed spec. Stated honestly
+ * (adversarial QA on increment 5): NO resume path consumes the checkpoint
+ * yet - there is no `--records-in` - so its economics are aspirational until
+ * determination 7 is ruled; today it is evidence for the post-mortem, not a
+ * restart point.
+ *
+ * THE CANARIES (prereg 17; spec 8.6.0's pinned order puts them FIRST)
+ *
+ * `canariesPassed` is deliberately NOT a CLI flag: an operator-supplied
+ * pass/fail boolean is exactly the class of assertion the reducer's own
+ * preflight refuses for the identity records, and the same reasoning holds
+ * one document key over. The only source of `canariesPassed: true` is
+ * `runCanaries` below - the SAME four real probes
+ * `run-backtest-canaries.js` wires (raw TCP, HTTPS, the global pool, a
+ * fresh pg client), through the same `guards.assertOffline` decision logic,
+ * run in this process before any generation. If any route out is open the
+ * producer throws and no document exists; there is no code path that writes
+ * `canariesPassed: false`, because a run that fails its canaries has no
+ * business generating 15,096 projections first - the entrypoint's abort is
+ * the disposition, and the reducer's void reporting covers documents whose
+ * booleans a FUTURE producer might legitimately set false.
  *
  * RUNNING THIS IS STILL BARRED. Gate 0 holds candidate-cell execution against
  * real data; this file is the wiring, tested against synthetic fixtures by
@@ -117,14 +138,17 @@ const path = require('path');
 const crypto = require('crypto');
 
 const snapshotClientLib = require('../../scripts/backtest/lib/snapshotClient');
+const inputsAssembly = require('../../scripts/backtest/lib/inputsAssembly');
 const inputsGeneration = require('../../scripts/backtest/lib/inputsGeneration');
 const inputsPermutationCapture = require('../../scripts/backtest/lib/inputsPermutationCapture');
+const inputsSensitivity = require('../../scripts/backtest/lib/inputsSensitivity');
 const metrics = require('../../scripts/backtest/lib/metrics');
 const ordering = require('../../scripts/backtest/lib/ordering');
 const rostersLib = require('../../scripts/backtest/lib/rosters');
 const naive = require('../../scripts/backtest/lib/naive');
 const { canonicalJson } = require('../../scripts/backtest/lib/snapshotStore');
 const { PRIMARY_SCORING_PROFILE } = require('../../scripts/backtest/lib/freezeManifest');
+const { assertOffline, CANARY_NAMES } = require('../../scripts/backtest/lib/guards');
 const { makeSourceReader } = require('../../scripts/backtest/snapshot-checks');
 
 // Reused verbatim rather than re-derived: the two scripts must load the SAME
@@ -134,6 +158,15 @@ const { makeSourceReader } = require('../../scripts/backtest/snapshot-checks');
 // subtly different reconstructions.
 const mdeScript = require('./run-backtest-mde');
 const rostersScript = require('./run-backtest-rosters');
+// The REDUCER's exported claim assembly, injected into the sensitivity
+// comparison passes, and its validateInputs run over the finished document -
+// so the document this script writes is one the sweep will actually accept,
+// checked at write time rather than discovered at Gate 4.
+const sweepScript = require('./run-backtest-sweep');
+// The four real canary probes (raw TCP, HTTPS, the global pool, a fresh pg
+// client), reused - never re-implemented - for the in-process canary run
+// that is `canariesPassed`'s only source (see the module docblock).
+const canariesScript = require('./run-backtest-canaries');
 
 const { generateProjections } = require('../services/projection.service');
 const { availabilityFor } = require('../services/projectionModel');
@@ -141,6 +174,16 @@ const { optimalAssignment } = require('../services/lineupOptimizer');
 const model = require('../services/projectionModel');
 const { SCORING_PRESETS, calculateFantasyPoints } = require('../services/scoring.service');
 const { usageFromStats } = require('../services/projectionFeatures');
+
+/**
+ * The sealed study id - the opening of both sealed texts
+ * (`PREREGISTRATION.md`/`PHASE5_EXECUTION_SPEC.md`, each line 3: "Study id:
+ * `pit-sweep-2024-2025`") and the committed artifact directory's own name.
+ * A literal here, pinned by test against the artifact path, because the
+ * document's `studyId` names which sealed study its verdicts answer to and
+ * must never be derivable from anything an operator can vary.
+ */
+const STUDY_ID = 'pit-sweep-2024-2025';
 
 // ---------------------------------------------------------------------------
 // CLI
@@ -156,7 +199,7 @@ function requireFlagValue(argv, index, flagName) {
 
 function parseArgs(argv) {
   const args = {
-    rehydratedSnapshot: null, rehydratedSources: null, rosters: null, cohort: null, out: null,
+    rehydratedSnapshot: null, rehydratedSources: null, rosters: null, cohort: null, out: null, recordsOut: null,
   };
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i];
@@ -165,6 +208,11 @@ function parseArgs(argv) {
     else if (token === '--rosters') args.rosters = requireFlagValue(argv, ++i, token);
     else if (token === '--cohort') args.cohort = requireFlagValue(argv, ++i, token);
     else if (token === '--out') args.out = requireFlagValue(argv, ++i, token);
+    // OPTIONAL, the one deliberate exception to the all-required rule: it
+    // names an ADDITIONAL output (the determination-7 interim checkpoint),
+    // never a defaulted one - omitted means "do not write it", not "write it
+    // somewhere I did not say".
+    else if (token === '--records-out') args.recordsOut = requireFlagValue(argv, ++i, token);
     else throw new Error(`run-backtest-inputs: unknown argument ${token}`);
   }
   for (const [flag, value] of [
@@ -204,6 +252,30 @@ function verifyRosterFreezeHash(parsed) {
 function verifyCohortFreezeHash(parsed) {
   const { freezeHash: _stored, ...rest } = parsed;
   return crypto.createHash('sha256').update(canonicalJson(rest), 'utf8').digest('hex');
+}
+
+// ---------------------------------------------------------------------------
+// The in-process canary run (`canariesPassed`'s only source)
+// ---------------------------------------------------------------------------
+
+/**
+ * Run the four real canary probes through the same `guards.assertOffline`
+ * decision logic `run-backtest-canaries.js` wires, and return `true` - the
+ * one value `canariesPassed` can ever take in a document this script writes.
+ * Any open route THROWS before a single projection is generated (prereg 17;
+ * spec 8.6.0 pins canaries FIRST in the preflight order, and the producer
+ * puts them first at generation time too - first only: the rest of that
+ * pinned order is the REDUCER's preflight block, and the generation-time
+ * identity assertions remain the increment-3 backlog's open item S2, not a
+ * thing this function discharges).
+ *
+ * `probes` is a test seam: the real probes reach for the network by design
+ * (proving it absent), which a unit test can neither rely on nor safely
+ * exercise. Production callers pass nothing.
+ */
+async function runCanaries({ probes = canariesScript.PROBES } = {}) {
+  await assertOffline({ probes, names: CANARY_NAMES, label: 'run-backtest-inputs canaries' });
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -548,8 +620,21 @@ function buildArtifact(records, { permutationControl, permutationCounts } = {}) 
   for (const key of ['preflight', 'counts']) {
     if (!records[key] || typeof records[key] !== 'object') throw new Error(`run-backtest-inputs: buildArtifact requires records.${key}`);
   }
+  // The sensitivity re-evaluations are checkpoint members on the same terms
+  // (increment 5): a checkpoint without them cannot feed the comparison
+  // passes, so resuming from it would silently regenerate what it was
+  // supposed to have saved.
+  if (!records.armWeekMetricsBySensitivity || typeof records.armWeekMetricsBySensitivity !== 'object') {
+    throw new Error('run-backtest-inputs: buildArtifact requires records.armWeekMetricsBySensitivity');
+  }
+  for (const key of inputsSensitivity.SENSITIVITY_PASS_KEYS) {
+    if (!Array.isArray(records.armWeekMetricsBySensitivity[key])) {
+      throw new Error(`run-backtest-inputs: buildArtifact requires records.armWeekMetricsBySensitivity[${JSON.stringify(key)}] as an array`);
+    }
+  }
   return {
     armWeekMetrics: records.armWeekMetrics,
+    armWeekMetricsBySensitivity: records.armWeekMetricsBySensitivity,
     subgroupErrorRows: records.subgroupErrorRows,
     activationRecords: records.activationRecords,
     preflight: records.preflight,
@@ -562,6 +647,70 @@ function serializeArtifact(artifact) {
   const serialized = `${canonicalJson(artifact)}\n`;
   mdeScript.assertEnvironmentFree(serialized, { label: 'inputs-generation-records' });
   return serialized;
+}
+
+/**
+ * The complete `--inputs` document's bytes: canonical JSON, environment-free
+ * on the same terms as every other written artifact (no Node version, no
+ * absolute path, no timestamp - runtime identity belongs only to freeze
+ * Commit B's manifest).
+ */
+function serializeInputsDocument(document) {
+  const serialized = `${canonicalJson(document)}\n`;
+  mdeScript.assertEnvironmentFree(serialized, { label: 'sweep-inputs-document' });
+  return serialized;
+}
+
+/**
+ * The sensitivity passes plus the final assembly, as ONE exported function -
+ * extracted from `main`'s tail so the load-bearing wiring decisions are
+ * pinned by tests rather than living in a path no test executes (mutation QA
+ * on increment 5: a `main` that quietly fed the assembler placeholder
+ * sensitivity inputs, or dropped the write-time validation, survived every
+ * test while shipping the exact defect increment 5 exists to prevent):
+ *
+ *   - the document's `orderingSensitivityByCell` and the two disagreement
+ *     booleans are the DERIVED values, never placeholders;
+ *   - the finished document is validated with the REDUCER's own
+ *     `validateInputs` before anyone serializes it.
+ *
+ * `deriveSensitivityInputsImpl` is a test seam (the real derivation needs a
+ * full consistent record universe per pass; the seam lets a test pin that
+ * whatever the derivation returns is what the document carries). Production
+ * callers pass neither override.
+ */
+function assembleFinalDocument({
+  records,
+  permutationControl,
+  canariesPassed,
+  reducer = sweepScript,
+  deriveSensitivityInputsImpl = inputsSensitivity.deriveSensitivityInputs,
+  label = 'run-backtest-inputs',
+}) {
+  const sensitivity = deriveSensitivityInputsImpl({
+    studyId: STUDY_ID,
+    canariesPassed,
+    records,
+    permutationControl,
+    reducer,
+    label: `${label} sensitivity`,
+  });
+  const document = inputsAssembly.assembleSweepInputs({
+    studyId: STUDY_ID,
+    canariesPassed,
+    orderingDisagreement: sensitivity.orderingDisagreement,
+    deployedPolicyDisagreement: sensitivity.deployedPolicyDisagreement,
+    armWeekMetrics: records.armWeekMetrics,
+    subgroupErrorRows: records.subgroupErrorRows,
+    activationRecords: records.activationRecords,
+    orderingSensitivityByCell: sensitivity.orderingSensitivityByCell,
+    preflight: records.preflight,
+    permutationControl,
+  });
+  // The document this script writes must be one the sweep actually accepts -
+  // checked with the reducer's own validator at write time, not at Gate 4.
+  reducer.validateInputs(document, { label: `${label} --out document` });
+  return { document, sensitivity };
 }
 
 /**
@@ -588,8 +737,18 @@ function assertGridComplete(counts, { label = 'run-backtest-inputs' } = {}) {
 // main
 // ---------------------------------------------------------------------------
 
-async function main(argv) {
+async function main(argv, { probes, ...unknown } = {}) {
+  const unknownKeys = Object.keys(unknown);
+  if (unknownKeys.length > 0) {
+    throw new Error(`run-backtest-inputs: unknown override key(s): ${unknownKeys.join(', ')}`);
+  }
   const args = parseArgs(argv);
+
+  // Canaries FIRST (prereg 17): if any route out is open, this throws and
+  // nothing else - not even a snapshot load - happens. The returned `true`
+  // is the only value `canariesPassed` can carry in a document this script
+  // writes (see the module docblock).
+  const canariesPassed = await runCanaries(probes ? { probes } : {});
 
   const snapshot = snapshotClientLib.loadSnapshot({ root: args.rehydratedSnapshot });
   const readSource = makeSourceReader({
@@ -718,15 +877,44 @@ async function main(argv) {
 
   assertGridComplete(records.counts);
 
-  const serialized = serializeArtifact(buildArtifact(records, { permutationControl, permutationCounts: capture.counts }));
+  // The determination-7 interim checkpoint, written BEFORE the sensitivity
+  // passes when asked for: it exists so a failure downstream of generation
+  // costs one assembly pass rather than a regeneration, which only works if
+  // it is on disk before the passes that might fail.
+  if (args.recordsOut) {
+    const serializedRecords = serializeArtifact(buildArtifact(records, { permutationControl, permutationCounts: capture.counts }));
+    // args.recordsOut is the operator's own CLI argument to this
+    // locally-invoked tool.
+    // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
+    fs.mkdirSync(path.dirname(path.resolve(String(args.recordsOut))), { recursive: true });
+    // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
+    fs.writeFileSync(path.resolve(String(args.recordsOut)), serializedRecords, 'utf8');
+    console.log(`wrote inputs generation records checkpoint to ${args.recordsOut}`);
+  }
+
+  // --- the sensitivity comparison passes + final assembly (increment 5) ----
+  // Prereg 5.2's two ordering variants and prereg 5.3's force-fill estimand,
+  // each a complete variant document evaluated through the reducer's own
+  // exported claim assembly, then compared against the primary and baked into
+  // the validated final document. See lib/inputsSensitivity's docblock for
+  // determinations 9-11.
+  const { document, sensitivity } = assembleFinalDocument({
+    records, permutationControl, canariesPassed,
+  });
+
+  const serialized = serializeInputsDocument(document);
   // args.out is the operator's own CLI argument to this locally-invoked tool.
   // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
   fs.mkdirSync(path.dirname(path.resolve(String(args.out))), { recursive: true });
   // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
   fs.writeFileSync(path.resolve(String(args.out)), serialized, 'utf8');
+  const contradictedCells = Object.entries(sensitivity.orderingSensitivityByCell)
+    .filter(([, value]) => value.contradicted).map(([name]) => name);
   console.log(
-    `wrote inputs generation records to ${args.out} `
-    + `(${records.counts.generations} grid generations + ${capture.counts.generations} permutation-control generations)`
+    `wrote the complete --inputs document to ${args.out} `
+    + `(${records.counts.generations} grid generations + ${capture.counts.generations} permutation-control generations; `
+    + `ordering-contradicted cells: ${contradictedCells.length > 0 ? contradictedCells.join(', ') : 'none'}; `
+    + `orderingDisagreement=${sensitivity.orderingDisagreement}; deployedPolicyDisagreement=${sensitivity.deployedPolicyDisagreement})`
   );
   return 0;
 }
@@ -741,7 +929,9 @@ if (require.main === module) {
 }
 
 module.exports = {
+  STUDY_ID,
   parseArgs,
+  runCanaries,
   verifyRosterFreezeHash,
   verifyCohortFreezeHash,
   buildBenchmarkPriorGamesIndex,
@@ -753,6 +943,8 @@ module.exports = {
   buildPermutationControlBlock,
   buildArtifact,
   serializeArtifact,
+  serializeInputsDocument,
+  assembleFinalDocument,
   assertGridComplete,
   main,
 };

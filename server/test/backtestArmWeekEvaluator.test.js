@@ -374,3 +374,146 @@ test('evaluation is deterministic: two identical runs are byte-identical', () =>
   const second = armWeekEvaluator.evaluateArmWeek(weekInputs());
   assert.equal(canonicalJson(first), canonicalJson(second));
 });
+
+// ---------------------------------------------------------------------------
+// The sensitivity knobs (increment 5): ordering variants and the force-fill
+// estimand. Each fixture DISCRIMINATES - the knob changes a real started
+// lineup with a real actual-points consequence - so a knob that silently
+// stopped reaching the lineup solve yields a DIFFERENT number, not an
+// identical one (the fixture-blindness lesson, applied up front this time).
+// ---------------------------------------------------------------------------
+
+const { ORDERINGS: TEST_ORDERINGS } = require('../../scripts/backtest/lib/ordering');
+const { ESTIMANDS: TEST_ESTIMANDS } = require('../../scripts/backtest/lib/policy');
+
+/**
+ * A projections override with three engineered decision points:
+ *   - K starter (15) and K bench (16) are NEGATIVE: the deployed policy's
+ *     dummy (cost 0) beats both and leaves the K slot EMPTY; force-fill
+ *     starts the least-negative one.
+ *   - the FLEX tie: bench WR (10) and bench TE (14, deepBench K/DEF ids
+ *     shift) - constructed below against the actual id layout.
+ * Ids under makeRoster({deepBench: true}): QB 1 starter, 2 bench; RB 3,4
+ * starters, 5,6,7 bench; WR 8,9 starters, 10,11,12 bench; TE 13 starter,
+ * 14 bench; K 15 starter, 16 bench; DEF 17 starter, 18 bench.
+ */
+function sensitivityFixture() {
+  const inputs = weekInputs({ deepBench: true });
+  const medians = new Map([
+    [1, 20], [2, 1],
+    // RBs: 3 is the clear RB1; 5, 6 and 7 TIE for RB2 and share a NAME RANK
+    // (duplicate names, the case production leaves unordered - three of them,
+    // because the seed-1 shuffle happens to leave a two-element run in place);
+    // 4 trails.
+    [3, 19], [4, 1], [5, 2], [6, 2], [7, 2],
+    // WRs: 8 and 9 are clear starters; 10 ties the bench TE for FLEX.
+    [8, 18], [9, 17], [10, 10], [11, 3], [12, 2.5],
+    // TEs: 13 starts; 14 ties WR 10 for FLEX at 10.
+    [13, 15], [14, 10],
+    // Ks: BOTH NEGATIVE - the deployed policy leaves the slot empty.
+    [15, -5], [16, -7],
+    [17, 8], [18, 1],
+  ]);
+  inputs.projectionsByPlayerId = new Map([...inputs.projectionsByPlayerId].map(([playerId, projection]) => {
+    const median = medians.get(playerId);
+    return [playerId, { ...projection, median, p10: median - 2, p25: median - 1, p75: median + 1, p90: median + 2 }];
+  }));
+  // Name ranks: the bench TE (14) outranks the FLEX-tied WR (10) by NAME, so
+  // the DB-collation variant (name first, position ignored) reverses the
+  // primary's position-first tie-break; the duplicate RBs share rank 50.
+  inputs.nameRankById = new Map([...inputs.nameRankById.keys()].map((playerId) => {
+    if (playerId === 14) return [playerId, 1];
+    if (playerId === 10) return [playerId, 2];
+    if (playerId === 5 || playerId === 6 || playerId === 7) return [playerId, 50];
+    return [playerId, 100 + playerId];
+  }));
+  // Actuals: distinct per player so every flipped starter changes the score.
+  return inputs;
+}
+
+test('the DB-collation ordering variant changes regret through a FLEX tie, and nothing else', () => {
+  const primary = armWeekEvaluator.evaluateArmWeek({ ...sensitivityFixture(), label: 'sens primary' });
+  const variant = armWeekEvaluator.evaluateArmWeek({
+    ...sensitivityFixture(), ordering: TEST_ORDERINGS.DB_COLLATION, label: 'sens db-collation',
+  });
+  // Primary tie-break: position first, so the WR (10) wins FLEX; the
+  // DB-collation variant orders by name rank, so the TE (14, rank 1) wins.
+  const primaryStarted = primary.detail.perRosterDetail[0].started;
+  const variantStarted = variant.detail.perRosterDetail[0].started;
+  assert.ok(primaryStarted.includes(10) && !primaryStarted.includes(14), 'primary FLEX goes to the WR by position-first order');
+  assert.ok(variantStarted.includes(14) && !variantStarted.includes(10), 'DB-collation FLEX goes to the TE by name-first order');
+  assert.notEqual(primary.values.regret, variant.values.regret, 'the flipped starter has different actual points, so regret must move');
+  for (const key of Object.keys(primary.values)) {
+    if (key === 'regret') continue;
+    assert.ok(Object.is(primary.values[key], variant.values[key]), `ordering must not reach ${key}`);
+  }
+});
+
+test('the duplicate-order shuffle changes regret through a shared-name-rank tie, and nothing else', () => {
+  const primary = armWeekEvaluator.evaluateArmWeek({ ...sensitivityFixture(), label: 'sens primary' });
+  const shuffled = armWeekEvaluator.evaluateArmWeek({
+    ...sensitivityFixture(), ordering: TEST_ORDERINGS.DUPLICATE_SHUFFLE, label: 'sens shuffle',
+  });
+  // RBs 5, 6 and 7 tie on projection AND share a name rank - exactly the run
+  // production leaves unordered. The primary refines by id (5 starts); the
+  // seed-1 shuffle permutes that run to [7, 5, 6], so 7 starts.
+  const primaryStarted = primary.detail.perRosterDetail[0].started;
+  const shuffledStarted = shuffled.detail.perRosterDetail[0].started;
+  assert.ok(primaryStarted.includes(5) && !primaryStarted.includes(7), 'primary refines the duplicate run by id');
+  assert.ok(shuffledStarted.includes(7) && !shuffledStarted.includes(5), 'the seeded shuffle must actually permute the duplicate run');
+  assert.notEqual(primary.values.regret, shuffled.values.regret);
+  for (const key of Object.keys(primary.values)) {
+    if (key === 'regret') continue;
+    assert.ok(Object.is(primary.values[key], shuffled.values[key]), `ordering must not reach ${key}`);
+  }
+});
+
+test('the force-fill estimand starts a negative projection the deployed policy benches, and only regret moves', () => {
+  const deployed = armWeekEvaluator.evaluateArmWeek({ ...sensitivityFixture(), label: 'sens deployed' });
+  const forceFill = armWeekEvaluator.evaluateArmWeek({
+    ...sensitivityFixture(), estimand: TEST_ESTIMANDS.FORCE_FILL, label: 'sens force-fill',
+  });
+  const deployedStarted = deployed.detail.perRosterDetail[0].started;
+  const forceFillStarted = forceFill.detail.perRosterDetail[0].started;
+  assert.ok(!deployedStarted.includes(15) && !deployedStarted.includes(16), 'the deployed policy leaves the K slot empty rather than starting a negative projection');
+  assert.ok(forceFillStarted.includes(15), 'force-fill starts the least-negative K rather than leaving the slot empty');
+  assert.notEqual(deployed.values.regret, forceFill.values.regret);
+  for (const key of Object.keys(deployed.values)) {
+    if (key === 'regret') continue;
+    assert.ok(Object.is(deployed.values[key], forceFill.values[key]), `the estimand must not reach ${key}`);
+  }
+});
+
+test('an unknown estimand is refused by name', () => {
+  assert.throws(
+    () => armWeekEvaluator.evaluateArmWeek({ ...weekInputs(), estimand: 'production' }),
+    /unknown regret estimand "production".*deployed-policy, force-fill/s
+  );
+});
+
+test('the force-fill estimand governs BOTH sides of the regret: the best lineup also fills a slot over negative actuals', () => {
+  // Mutation QA E3: applying force-fill to only the STARTED side survived the
+  // all-positive-actuals fixture, because both estimands' best lineups then
+  // coincide. Negative K ACTUALS separate them: a deployed-policy "best"
+  // leaves the K slot empty, while prereg 5.3's "legal nine-slot lineup"
+  // redefines legality for the best lineup as much as for the started one
+  // (determination 11).
+  const inputs = sensitivityFixture();
+  const actuals = new Map(inputs.cohortWeek.actualPointsByPlayerId);
+  actuals.set(15, -4);
+  actuals.set(16, -8);
+  inputs.cohortWeek = { ...inputs.cohortWeek, actualPointsByPlayerId: actuals };
+
+  const forceFill = armWeekEvaluator.evaluateArmWeek({ ...inputs, estimand: TEST_ESTIMANDS.FORCE_FILL, label: 'sens ff both sides' });
+  assert.ok(
+    forceFill.detail.perRosterDetail[0].best.includes(15),
+    'the perfectly-informed force-fill lineup starts the least-negative K rather than leaving the slot empty'
+  );
+
+  const deployed = armWeekEvaluator.evaluateArmWeek({ ...inputs, label: 'sens deployed negative-actuals' });
+  const deployedBest = deployed.detail.perRosterDetail[0].best;
+  assert.ok(
+    !deployedBest.includes(15) && !deployedBest.includes(16),
+    'the deployed-policy best leaves the K slot empty over negative actuals - the two estimands genuinely differ on the best side'
+  );
+});

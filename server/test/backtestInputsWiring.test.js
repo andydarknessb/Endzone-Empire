@@ -4,6 +4,7 @@ const fs = require('fs');
 
 const script = require('../scripts/run-backtest-inputs');
 const inputsGeneration = require('../../scripts/backtest/lib/inputsGeneration');
+const inputsSensitivity = require('../../scripts/backtest/lib/inputsSensitivity');
 const naive = require('../../scripts/backtest/lib/naive');
 const { PRIMARY_SCORING_PROFILE } = require('../../scripts/backtest/lib/freezeManifest');
 const model = require('../services/projectionModel');
@@ -37,7 +38,15 @@ test('every flag is required with no default, and unknown tokens are refused', (
     rosters: '/rosters',
     cohort: '/cohort',
     out: '/out/records.json',
+    // The one deliberately OPTIONAL flag (determination 7's interim
+    // checkpoint): omitted means "do not write it", never a defaulted path.
+    recordsOut: null,
   });
+  assert.equal(
+    script.parseArgs([...FIVE_FLAGS, '--records-out', '/out/checkpoint.json']).recordsOut,
+    '/out/checkpoint.json'
+  );
+  assert.throws(() => script.parseArgs([...FIVE_FLAGS, '--records-out']), /--records-out requires a value/);
 
   for (const flag of ['--rehydrated-snapshot', '--rehydrated-sources', '--rosters', '--cohort', '--out']) {
     const without = [];
@@ -88,6 +97,7 @@ function minimalPermutationBlock() {
 test('the records artifact is canonical, environment-free, and refuses to omit the permutation control', () => {
   const records = {
     armWeekMetrics: [{ scoringProfile: 'half_ppr', arm: 'usage-25-off', season: 2025, week: 1, salt: 's1', values: {} }],
+    armWeekMetricsBySensitivity: Object.fromEntries(inputsSensitivity.SENSITIVITY_PASS_KEYS.map((key) => [key, []])),
     subgroupErrorRows: [],
     activationRecords: [],
     preflight: { cohortRosterRows: [], saltSeedRecords: [] },
@@ -474,6 +484,9 @@ test('the outcome-truth conversion is STRICT: alias keys and non-number values a
 test('PATCH G: every record member survives into the serialized artifact by value, under the closed key set', () => {
   const records = {
     armWeekMetrics: [{ scoringProfile: 'half_ppr', arm: 'usage-25-off', season: 2025, week: 1, salt: 's1', values: {} }],
+    armWeekMetricsBySensitivity: Object.fromEntries(inputsSensitivity.SENSITIVITY_PASS_KEYS.map((key) => [
+      key, [{ scoringProfile: 'half_ppr', arm: 'usage-25-off', season: 2025, week: 1, salt: 's1', values: { pass: key } }],
+    ])),
     subgroupErrorRows: [{ cellName: 'usage-40-on', week: 2 }],
     activationRecords: [{ cell: 'usage-40-on', position: 'QB' }],
     preflight: { cohortRosterRows: [{ week: 2 }], saltSeedRecords: [] },
@@ -484,10 +497,11 @@ test('PATCH G: every record member survives into the serialized artifact by valu
 
   assert.deepEqual(
     Object.keys(parsed).sort(),
-    ['activationRecords', 'armWeekMetrics', 'counts', 'permutationControl', 'preflight', 'subgroupErrorRows'],
+    ['activationRecords', 'armWeekMetrics', 'armWeekMetricsBySensitivity', 'counts', 'permutationControl', 'preflight', 'subgroupErrorRows'],
     'a dropped record key would serialize, validate, and read as a checkpoint carrying nothing to assemble'
   );
   assert.deepEqual(parsed.armWeekMetrics, records.armWeekMetrics);
+  assert.deepEqual(parsed.armWeekMetricsBySensitivity, records.armWeekMetricsBySensitivity);
   assert.deepEqual(parsed.subgroupErrorRows, records.subgroupErrorRows);
   assert.deepEqual(parsed.activationRecords, records.activationRecords);
   assert.deepEqual(parsed.preflight, records.preflight);
@@ -496,6 +510,19 @@ test('PATCH G: every record member survives into the serialized artifact by valu
   for (const key of ['armWeekMetrics', 'subgroupErrorRows', 'activationRecords', 'preflight']) {
     const { [key]: _dropped, ...withoutKey } = records;
     assert.throws(() => script.buildArtifact(withoutKey, withBlock), new RegExp(`requires records\\.${key}`));
+  }
+  // The sensitivity re-evaluations are checkpoint members on the same terms:
+  // missing wholesale, or missing one pass, both refused by name.
+  const { armWeekMetricsBySensitivity: _dropped, ...withoutSensitivity } = records;
+  assert.throws(() => script.buildArtifact(withoutSensitivity, withBlock), /requires records\.armWeekMetricsBySensitivity/);
+  for (const key of inputsSensitivity.SENSITIVITY_PASS_KEYS) {
+    const { [key]: _droppedPass, ...partial } = records.armWeekMetricsBySensitivity;
+    const expected = `armWeekMetricsBySensitivity[${JSON.stringify(key)}]`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    assert.throws(
+      () => script.buildArtifact({ ...records, armWeekMetricsBySensitivity: partial }, withBlock),
+      new RegExp(expected),
+      `a checkpoint silently missing the ${key} pass must be refused`
+    );
   }
 });
 
@@ -509,4 +536,78 @@ test('the seed is the pinned parts in the pinned order, as an unsigned 32-bit in
   // salted hash values must not collide, and the part ORDER is load-bearing.
   assert.notEqual(seed, script.seedFor({ hashValue: 'abc124', season: 2025, week: 4, playerId: 11 }));
   assert.notEqual(seed, model.seedFrom(model.MODEL_VERSION, 'abc123', 2025, 11, 4));
+});
+
+// ---------------------------------------------------------------------------
+// Increment 5: the sealed study id, the in-process canaries, the document
+// ---------------------------------------------------------------------------
+
+const path = require('node:path');
+
+test('STUDY_ID is the sealed study id, pinned against the committed artifact directory', () => {
+  assert.equal(script.STUDY_ID, 'pit-sweep-2024-2025');
+  // The sealed texts open with "Study id: `pit-sweep-2024-2025`" and the
+  // Commit-A artifacts live under a directory of the same name - the literal
+  // here must never drift from either.
+  assert.ok(
+    fs.existsSync(path.join(__dirname, '..', '..', 'backtest-artifacts', script.STUDY_ID, 'PREREGISTRATION.md')),
+    'the study id must name the committed artifact directory'
+  );
+});
+
+test('runCanaries passes only when every probe REJECTS; an open or missing route throws', async () => {
+  const blocked = () => Promise.reject(new Error('ENETUNREACH'));
+  const probes = { tcp: blocked, https: blocked, globalPool: blocked, freshPgClient: blocked };
+  assert.equal(await script.runCanaries({ probes }), true);
+
+  // NEGATIVE CONTROL: one probe RESOLVING means something answered - the run
+  // is not offline, and no document may be produced.
+  await assert.rejects(
+    script.runCanaries({ probes: { ...probes, https: () => Promise.resolve('HTTP 200') } }),
+    /canaries REACHED/
+  );
+  // "We did not check" and "it is shut" must never look the same.
+  await assert.rejects(script.runCanaries({ probes: { tcp: blocked } }), /canary probes missing/);
+});
+
+test('canariesPassed has no CLI spelling - an operator cannot assert it', () => {
+  assert.throws(() => script.parseArgs([...FIVE_FLAGS, '--canaries-passed', 'true']), /unknown argument --canaries-passed/);
+});
+
+test('main runs the canaries FIRST: an open route aborts before the snapshot is touched', async () => {
+  const open = Object.fromEntries(['tcp', 'https', 'globalPool', 'freshPgClient'].map((name) => [name, () => Promise.resolve('answered')]));
+  // FIVE_FLAGS points at paths that do not exist; a canary failure must
+  // surface BEFORE any of them is read.
+  await assert.rejects(script.main(FIVE_FLAGS, { probes: open }), /canaries REACHED/);
+});
+
+test('main rejects unknown override keys rather than configuring nothing silently', async () => {
+  await assert.rejects(script.main(FIVE_FLAGS, { bogus: true }), /unknown override key\(s\): bogus/);
+});
+
+test('the complete document serializes canonically and environment-free', () => {
+  const serialized = script.serializeInputsDocument({ studyId: 'pit-sweep-2024-2025', canariesPassed: true });
+  assert.equal(serialized.endsWith('\n'), true);
+  assert.deepEqual(JSON.parse(serialized), { studyId: 'pit-sweep-2024-2025', canariesPassed: true });
+  // The same environment-free line every written artifact holds.
+  assert.throws(
+    () => script.serializeInputsDocument({ note: 'C:\\Users\\someone\\backtest-data\\snapshot' }),
+    /absolute-path-shaped/
+  );
+});
+
+test('the --records-out checkpoint is written BEFORE the sensitivity passes - its whole run-economics rationale (mutation QA R7)', () => {
+  // A source-structure pin, in the style the container contract test uses
+  // for runInputs' canary ordering: main() cannot be executed to this point
+  // without a real snapshot tree, but the ordering of its two effects is
+  // load-bearing (a checkpoint written AFTER the passes protects nothing
+  // from a pass failure) and visible in the source.
+  const source = fs.readFileSync(require.resolve('../scripts/run-backtest-inputs'), 'utf8');
+  const checkpointIndex = source.indexOf('if (args.recordsOut)');
+  const finalDocumentCallIndex = source.indexOf('} = assembleFinalDocument({');
+  assert.ok(checkpointIndex > 0 && finalDocumentCallIndex > 0, 'both steps must exist in main');
+  assert.ok(
+    checkpointIndex < finalDocumentCallIndex,
+    'the determination-7 checkpoint must be on disk before the sensitivity passes that might fail'
+  );
 });

@@ -88,6 +88,16 @@ const { isFiniteNumber } = require('./numbers');
 const { MACRO_POSITIONS } = metrics;
 
 /**
+ * The duplicate-order shuffle's seed, PINNED HERE rather than reached through
+ * `policy.js`'s destructuring defaults - the round-3 doctrine
+ * `run-backtest-sweep.js` states for `ordering`/`rosterSlots`: a value the
+ * caller does not explicitly pin is one refactor away from being silently
+ * supplied by someone else. The seed-1 permutation is what the shuffle
+ * sensitivity's tests pin against.
+ */
+const DUPLICATE_SHUFFLE_SEED = 1;
+
+/**
  * The seven endpoint keys - the SAME frozen array the assembly layer's
  * closed-key check enforces (`sweepEvidence.METRIC_KEYS`), aliased rather
  * than copied so the two can never drift.
@@ -148,11 +158,15 @@ function evaluateArmWeek({
   availabilityFor,
   optimize,
   ordering = ORDERINGS.PRIMARY,
+  estimand = policy.ESTIMANDS.DEPLOYED_POLICY,
   label = 'arm evaluator',
 }) {
   const where = `${label} ${season}w${week}`;
   if (typeof availabilityFor !== 'function') throw new Error(`${where}: availabilityFor must be injected`);
   if (typeof optimize !== 'function') throw new Error(`${where}: optimize must be injected`);
+  if (!Object.values(policy.ESTIMANDS).includes(estimand)) {
+    throw new Error(`${where}: unknown regret estimand ${JSON.stringify(estimand)} - must be one of ${Object.values(policy.ESTIMANDS).join(', ')}`);
+  }
   cohort.assertNotQuarantined(season, { label: where });
   if (Number(rosterWeek.season) !== Number(season) || Number(rosterWeek.week) !== Number(week)) {
     throw new Error(`${where}: rosterWeek is for ${rosterWeek.season}w${rosterWeek.week}, not this week`);
@@ -225,17 +239,30 @@ function evaluateArmWeek({
 
   const cohortByPlayerId = new Map(cohortWeek.members.map((m) => [m.playerId, m]));
 
+  // The regret estimand (prereg 5.2 primary / 5.3 force-fill sensitivity)
+  // selects WHICH sealed lineup function scores this arm-week - both sides of
+  // the regret use the same one, because 5.3's "legal nine-slot lineup" defines
+  // what a legal lineup IS for that estimand, for the best lineup as much as
+  // for the started one (producer-side DETERMINATION 11 - registered in
+  // `inputsSensitivity.js`'s docblock for the B3 deferral batch). Only regret
+  // can move with the estimand (or with the candidate ordering): every other
+  // endpoint is computed from projections and actuals with no lineup in
+  // between.
+  const lineupFor = estimand === policy.ESTIMANDS.FORCE_FILL
+    ? policy.forceFillLineup
+    : policy.deployedPolicyLineup;
+
   const rosterRegrets = [];
   const perRosterDetail = [];
   for (const roster of rosterWeek.rosters) {
     const entries = controlCellEvaluator.rosterEntries({ roster, cohortByPlayerId, label: where });
-    const started = policy.deployedPolicyLineup({
-      entries, projections: projectionsMap, ranks, rosterSlots, availabilityFor, optimize, ordering, label: where,
+    const started = lineupFor({
+      entries, projections: projectionsMap, ranks, rosterSlots, availabilityFor, optimize, ordering, shuffleSeed: DUPLICATE_SHUFFLE_SEED, label: where,
     });
     // The perfectly-informed lineup: the SAME wrapper and optimizer, fed
     // actual points where they would otherwise read a projection (prereg 5.2).
-    const best = policy.deployedPolicyLineup({
-      entries, projections: actualsMap, ranks, rosterSlots, availabilityFor, optimize, ordering, label: where,
+    const best = lineupFor({
+      entries, projections: actualsMap, ranks, rosterSlots, availabilityFor, optimize, ordering, shuffleSeed: DUPLICATE_SHUFFLE_SEED, label: where,
     });
     const regret = policy.regretFor({
       startedPlayerIds: started.started, bestPlayerIds: best.started, actualPoints: actualsMap, label: where,
@@ -316,6 +343,7 @@ function toArmWeekMetricsRecord({ scoringProfile, arm, salt, evaluation, label =
 
 module.exports = {
   VALUE_KEYS,
+  DUPLICATE_SHUFFLE_SEED,
   intervalRows,
   evaluateArmWeek,
   toArmWeekMetricsRecord,
