@@ -8,7 +8,7 @@
  */
 
 const arms = require('./arms');
-const { SALTS } = require('./metrics');
+const { SALTS, MACRO_POSITIONS } = require('./metrics');
 
 function playerId(value, label) {
   if (!Number.isFinite(Number(value))) throw new Error(`${label}: playerId must be finite`);
@@ -33,6 +33,40 @@ function deriveCohortPlayerWeeks(rows, label = 'cohort roster') {
   });
 }
 
+/**
+ * Component (f) subgroup ELIGIBILITY: prereg 4.1's point-accuracy exclusion
+ * (macro position, not on bye) propagated into section 6.3's membership -
+ * the A4 membership ruling, made 2026-08-08 and riding to the B3 spec
+ * revision. A cohort member on bye or outside the six macro positions
+ * contributes no scored endpoint row (`armWeekEvaluator`'s prereg-4.1
+ * exclusion), so it carries no (f) evidence either: its error pair is an
+ * exactly-zero delta that can only dilute `D_w` toward the veto NOT firing.
+ *
+ * THE PERMUTATION DOMAIN IS DELIBERATELY NOT FILTERED (determination 8's
+ * asymmetry, part of the same ruling): the reducer's policy-artifact domain
+ * requires an observation for every rostered player and byes stay rostered,
+ * so byes remain IN section 5's cells while leaving 6.3's subgroup. Baseline
+ * and identity COVERAGE stay total over the whole cohort as well - only the
+ * subgroup's membership narrows.
+ *
+ * `position` and `onBye` are asserted, never coerced or defaulted (QA
+ * finding A1's doctrine): a malformed field silently excluding a member
+ * would shrink the subgroup fail-open, in exactly the direction that
+ * weakens the veto, so it throws by name instead. The cohort artifact
+ * writer emits both fields on every member (`lib/cohort` marks even
+ * non-bye members `onBye: false`), so absence is a defect, not a default.
+ */
+function componentFSubgroupEligible(row, label) {
+  if (!row || typeof row !== 'object') throw new Error(`${label}: subgroup eligibility requires a member/roster row object`);
+  if (typeof row.position !== 'string') {
+    throw new Error(`${label}: subgroup eligibility requires a string position, got ${JSON.stringify(row.position)} - asserted, never coerced`);
+  }
+  if (typeof row.onBye !== 'boolean') {
+    throw new Error(`${label}: subgroup eligibility requires a boolean onBye, got ${JSON.stringify(row.onBye)} - asserted, never coerced`);
+  }
+  return MACRO_POSITIONS.includes(row.position) && row.onBye === false;
+}
+
 function runKey({ season, week, salt }, label) {
   if (!SALTS.includes(salt)) throw new Error(`${label}: salt must be one of the 24 preregistered salts`);
   return `${Number(season)}:${Number(week)}:${salt}`;
@@ -53,6 +87,51 @@ function normalizeProjectionRun(run, label) {
     }
     projections.set(projection.playerId, projection);
   }
+  return { ...run, projections };
+}
+
+/**
+ * The serialization-safe inverse of `normalizeProjectionRun`, kept beside it
+ * so the round-trip contract lives in one module. A production run carries
+ * `projections` as a Map, and `snapshotStore.canonicalJson` serializes any
+ * Map as `{}` SILENTLY - so an identity record written to disk (the
+ * `--records-out` checkpoint, the final `--inputs` document) would carry
+ * `projections: {}` for every run side, and `normalizeProjectionRun` would
+ * reject the document at the reducer's preflight. This converts to the raw
+ * ARRAY form `normalizeProjectionRun` already accepts, ascending by numeric
+ * playerId so document bytes stay deterministic.
+ *
+ * Fails closed rather than repairs: every Map value must be an object whose
+ * own `playerId` equals its Map key (serialization keeps ONE of the two, so
+ * a disagreement is evidence corruption, never a choice), and a bare-number
+ * projection value cannot survive the array form at all - the reducer
+ * requires objects with ids - so it is rejected here, at capture, instead of
+ * voiding the document later.
+ */
+function serializableProjectionRun(run, label) {
+  if (!run || typeof run !== 'object') throw new Error(`${label}: run must be an object`);
+  if (Array.isArray(run.projections)) {
+    for (const [index, projection] of run.projections.entries()) {
+      if (!projection || typeof projection !== 'object' || !Number.isFinite(Number(projection.playerId))) {
+        throw new Error(`${label}: raw projections[${index}] must be an object with a finite playerId`);
+      }
+    }
+    return run;
+  }
+  if (!(run.projections instanceof Map)) {
+    throw new Error(`${label}: projections must be a Map or a raw projections array`);
+  }
+  const projections = [];
+  for (const [id, projection] of run.projections) {
+    if (!projection || typeof projection !== 'object') {
+      throw new Error(`${label}: projection for playerId ${JSON.stringify(id)} must be an object to survive serialization - a bare value has no playerId for the reducer to re-key`);
+    }
+    if (Number(projection.playerId) !== Number(id) || !Number.isFinite(Number(id))) {
+      throw new Error(`${label}: projection.playerId ${JSON.stringify(projection.playerId)} disagrees with its Map key ${JSON.stringify(id)} - serialization keeps one of the two, so they must agree`);
+    }
+    projections.push(projection);
+  }
+  projections.sort((a, b) => Number(a.playerId) - Number(b.playerId));
   return { ...run, projections };
 }
 
@@ -242,6 +321,13 @@ function assertComponentFVetoCoverage({ cohortRosterRows, matchedOffBaselineRows
   const expectedCells = new Set(arms.ALL_CELLS.filter((cell) => cell.homeAway === 'on').map((cell) => cell.name));
   const cohort = deriveCohortPlayerWeeks(cohortRosterRows, `${label}: cohort roster`);
   const cohortKeys = new Set(cohort.map((row) => playerWeekKey(row, label)));
+  // Subgroup ELIGIBILITY rides on the raw roster rows (deriveCohortPlayerWeeks
+  // normalizes them down to bare player-weeks): validated for every row, not
+  // only members - a malformed field on any cohort row is an artifact defect.
+  const eligibleByKey = new Map((cohortRosterRows || []).map((row, index) => [
+    playerWeekKey(row || {}, `${label}: cohort roster[${index}]`),
+    componentFSubgroupEligible(row, `${label}: cohort roster[${index}]`),
+  ]));
   const baselineByCell = new Map();
   for (const row of matchedOffBaselineRows) {
     if (!row || !expectedCells.has(row.cellName) || !Number.isFinite(Number(row.baseline))) throw new Error(`${label}: every matched-off baseline needs an on-cell and finite baseline`);
@@ -269,7 +355,8 @@ function assertComponentFVetoCoverage({ cohortRosterRows, matchedOffBaselineRows
     if (actualCells.has(record.cellName)) throw new Error(`${label}: duplicate cell record ${record.cellName}`);
     actualCells.add(record.cellName);
     if (!expectedCells.has(record.cellName)) throw new Error(`${label}: unexpected non-on cell ${record.cellName}`);
-    const subgroupPlayerWeeks = cohort.filter((row) => baselineByCell.get(`${record.cellName}:${playerWeekKey(row, label)}`) <= 0);
+    const subgroupPlayerWeeks = cohort.filter((row) => baselineByCell.get(`${record.cellName}:${playerWeekKey(row, label)}`) <= 0
+      && eligibleByKey.get(playerWeekKey(row, label)) === true);
     arms.assertVetoRealizationCoverage({
       subgroupPlayerWeeks,
       realizations: record.realizations,
@@ -316,8 +403,10 @@ function runPreflight({ cohortRosterRows, controlUsage25Records, homeAwayStoredR
 
 module.exports = {
   assertRecordCoverage,
+  componentFSubgroupEligible,
   deriveCohortPlayerWeeks,
   normalizeProjectionRun,
+  serializableProjectionRun,
   assertHomeAwayRunPointIdentity,
   assertMapMatchesRawIds,
   assertIdentityCoverage,

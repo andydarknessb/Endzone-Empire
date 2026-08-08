@@ -16,7 +16,11 @@ const arms = require('../../scripts/backtest/lib/arms');
 const BASE_RESOLVED = arms.resolveConstants({ cell: USAGE25, baseConstants: MODEL_CONSTANTS });
 const STORED_RESOLVED = arms.resolveConstantsWithStoredHistory({ cell: USAGE25, baseConstants: MODEL_CONSTANTS });
 
-const cohortRosterRows = [{ season: 2025, week: 2, playerId: 7 }];
+// The bare player-week tuple spreads into realization/baseline rows, which
+// carry no eligibility fields; the roster row itself carries prereg 4.1's
+// facts (the A4 membership ruling) and is validated for them.
+const PLAYER_WEEK = { season: 2025, week: 2, playerId: 7 };
+const cohortRosterRows = [{ ...PLAYER_WEEK, position: 'RB', onBye: false }];
 const projection = () => ({ playerId: 7, median: 12.5, p10: 4, factors: {} });
 const run = () => ({
   projections: new Map([[7, projection()]]),
@@ -44,12 +48,12 @@ function seedRecords() {
 function componentFVetoRecords() {
   return ALL_CELLS.filter((cell) => cell.homeAway === 'on').map((cell) => ({
     cellName: cell.name,
-    realizations: SALTS.map((salt) => ({ ...cohortRosterRows[0], salt, incrementalError: 0.01 })),
+    realizations: SALTS.map((salt) => ({ ...PLAYER_WEEK, salt, incrementalError: 0.01 })),
   }));
 }
 
 function matchedOffBaselineRows() {
-  return ALL_CELLS.filter((cell) => cell.homeAway === 'on').map((cell) => ({ cellName: cell.name, ...cohortRosterRows[0], baseline: -1 }));
+  return ALL_CELLS.filter((cell) => cell.homeAway === 'on').map((cell) => ({ cellName: cell.name, ...PLAYER_WEEK, baseline: -1 }));
 }
 
 test('runPreflight derives both identity gates and exhaustive salt seeds from raw-shaped synthetic records', () => {
@@ -192,4 +196,73 @@ test('section 8.6.1: a mis-built on-stored arm is caught THROUGH THE PREFLIGHT, 
     saltSeedRecords: seedRecords(), matchedOffBaselineRows: matchedOffBaselineRows(),
   });
   assert.equal(clean.identities.homeAwayStored.passed, true);
+});
+
+test('componentFSubgroupEligible: prereg-4.1 eligibility (A4 ruling) - macro/non-bye in, bye and non-macro out, malformed fields throw by name', () => {
+  assert.equal(preflight.componentFSubgroupEligible({ position: 'RB', onBye: false }, 't'), true);
+  assert.equal(preflight.componentFSubgroupEligible({ position: 'RB', onBye: true }, 't'), false);
+  assert.equal(preflight.componentFSubgroupEligible({ position: 'FB', onBye: false }, 't'), false);
+  // Asserted, never coerced: a malformed field silently excluding a member
+  // would shrink the subgroup in exactly the direction that weakens the veto.
+  assert.throws(() => preflight.componentFSubgroupEligible({ onBye: false }, 't'), /string position.*never coerced/);
+  assert.throws(() => preflight.componentFSubgroupEligible({ position: 'RB' }, 't'), /boolean onBye.*never coerced/);
+  assert.throws(() => preflight.componentFSubgroupEligible({ position: 'RB', onBye: 'false' }, 't'), /boolean onBye/);
+  assert.throws(() => preflight.componentFSubgroupEligible(null, 't'), /row object/);
+});
+
+test('assertComponentFVetoCoverage: a bye member with b <= 0 leaves the expected veto domain (A4 ruling), and a realization for it is rejected as unexpected', () => {
+  // Second cohort member: on bye, negative baseline everywhere - in the
+  // cohort (baseline coverage stays TOTAL), out of the subgroup.
+  const byeWeek = { season: 2025, week: 2, playerId: 8 };
+  const roster = [...cohortRosterRows, { ...byeWeek, position: 'RB', onBye: true }];
+  const baselines = ALL_CELLS.filter((cell) => cell.homeAway === 'on').flatMap((cell) => ([
+    { cellName: cell.name, ...PLAYER_WEEK, baseline: -1 },
+    { cellName: cell.name, ...byeWeek, baseline: -1 },
+  ]));
+  // Records covering ONLY the eligible member pass: the bye member is not in
+  // the veto domain, so its absence from the realizations is correct.
+  const eligibleOnly = preflight.assertComponentFVetoCoverage({
+    cohortRosterRows: roster, matchedOffBaselineRows: baselines, records: componentFVetoRecords(),
+  });
+  assert.equal(eligibleOnly.passed, true);
+  // Records that ALSO carry the bye member's realizations fail by exact-set
+  // coverage - an ineligible realization is unexpected, never extra evidence.
+  const withBye = componentFVetoRecords().map((record) => ({
+    ...record,
+    realizations: [...record.realizations, ...SALTS.map((salt) => ({ ...byeWeek, salt, incrementalError: 0.01 }))],
+  }));
+  assert.throws(() => preflight.assertComponentFVetoCoverage({
+    cohortRosterRows: roster, matchedOffBaselineRows: baselines, records: withBye,
+  }), /incomplete player-week x salt coverage|unexpected/);
+});
+
+test('serializableProjectionRun: a Map-carrying run converts to the raw array form normalizeProjectionRun re-Maps, values intact (canonicalJson writes a Map as {})', () => {
+  const mapRun = {
+    projections: new Map([[9, { playerId: 9, median: 11.25, p10: 3 }], [7, { playerId: 7, median: 12.5, p10: 4 }]]),
+    inputCutoff: '2025-09-01T00:00:00.000Z',
+    sourceCoverage: { synthetic: true },
+  };
+  const serializable = preflight.serializableProjectionRun(mapRun, 't');
+  // Ascending playerId, so document bytes stay deterministic.
+  assert.deepEqual(serializable.projections.map((p) => p.playerId), [7, 9]);
+  assert.equal(serializable.inputCutoff, mapRun.inputCutoff);
+  // The round trip through JSON preserves every value - the exact property a
+  // Map-carrying record loses silently (JSON.parse(canonicalJson) would give
+  // projections: {} and the reducer would void the document).
+  const parsed = JSON.parse(JSON.stringify(serializable));
+  const restored = preflight.normalizeProjectionRun(parsed, 't');
+  assert.equal(restored.projections.get(7).median, 12.5);
+  assert.equal(restored.projections.get(9).median, 11.25);
+  // An already-array run passes through unchanged.
+  assert.equal(preflight.serializableProjectionRun(serializable, 't'), serializable);
+  // Fail-closed, never repaired: a Map key disagreeing with its projection's
+  // own playerId is evidence corruption; a bare-number value cannot carry an
+  // id into the array form at all.
+  assert.throws(() => preflight.serializableProjectionRun({
+    projections: new Map([[7, { playerId: 8, median: 1 }]]),
+  }, 't'), /disagrees with its Map key/);
+  assert.throws(() => preflight.serializableProjectionRun({
+    projections: new Map([[7, 12.5]]),
+  }, 't'), /must be an object to survive serialization/);
+  assert.throws(() => preflight.serializableProjectionRun({ projections: {} }, 't'), /Map or a raw projections array/);
 });

@@ -79,7 +79,10 @@ function healthyFVeto(subgroupPlayerWeeks) {
 
 function syntheticPreflight() {
   const cohortRosterRows = COHORT_WEEKS.flatMap((week) => COHORT_PLAYERS.map((playerId) => (
-    { season: 2025, week, playerId }
+    // Roster rows carry prereg 4.1's eligibility facts (the A4 membership
+    // ruling): every synthetic member is a macro-position non-bye, so the
+    // subgroup stays the full cohort and the older expectations hold.
+    { season: 2025, week, playerId, position: 'RB', onBye: false }
   )));
   const rawRun = () => ({
     projections: COHORT_PLAYERS.map((playerId) => ({ playerId, median: 12.5 + playerId, p10: 4, factors: {} })),
@@ -933,7 +936,7 @@ test('a matched-off baseline row OUTSIDE the cohort domain voids the run - extra
   assert.match(report.run.detail, /OUTSIDE the cohort domain/);
 });
 
-test('deriveComponentFOperands pins per-week grouping, 2025 scoping, the b <= 0 boundary, cohort intersection, and mean-vs-max (round-3 SUBSTANTIVE 2, QA follow-up)', () => {
+test('deriveComponentFOperands pins per-week grouping, 2025 scoping, the b <= 0 boundary, cohort intersection, prereg-4.1 eligibility, and mean-vs-max (round-3 SUBSTANTIVE 2, QA follow-up; A4 ruling)', () => {
   // The flagship fixture is uniform (|b| = 1 everywhere), so it cannot
   // distinguish mean from max, per-week grouping from a flat fill, or the
   // season filter from its absence. This heterogeneous row set can - each
@@ -951,11 +954,18 @@ test('deriveComponentFOperands pins per-week grouping, 2025 scoping, the b <= 0 
     { cellName: 'usage-25-on', season: 2025, week: 2, playerId: 7, baseline: -7 },
     // Excluded: outside the cohort domain (the intersection, defense in depth).
     { cellName: 'usage-00-on', season: 2025, week: 9, playerId: 99, baseline: -9 },
+    // Excluded: ON BYE with b <= 0 - only prereg-4.1 eligibility (the A4
+    // ruling) removes it; its exactly-zero error pair must not dilute D_w.
+    { cellName: 'usage-00-on', season: 2025, week: 5, playerId: 7, baseline: -4 },
+    // Excluded: non-macro position with b <= 0, same ruling, other leg.
+    { cellName: 'usage-00-on', season: 2025, week: 6, playerId: 11, baseline: -6 },
   ];
   const cohortRosterRows = [
-    { season: 2025, week: 2, playerId: 7 }, { season: 2025, week: 2, playerId: 8 },
-    { season: 2025, week: 3, playerId: 7 }, { season: 2025, week: 4, playerId: 7 },
-    { season: 2024, week: 2, playerId: 7 }, { season: 2025, week: 9, playerId: 7 },
+    { season: 2025, week: 2, playerId: 7, position: 'RB', onBye: false }, { season: 2025, week: 2, playerId: 8, position: 'WR', onBye: false },
+    { season: 2025, week: 3, playerId: 7, position: 'RB', onBye: false }, { season: 2025, week: 4, playerId: 7, position: 'RB', onBye: false },
+    { season: 2024, week: 2, playerId: 7, position: 'RB', onBye: false }, { season: 2025, week: 9, playerId: 7, position: 'RB', onBye: false },
+    { season: 2025, week: 5, playerId: 7, position: 'RB', onBye: true },
+    { season: 2025, week: 6, playerId: 11, position: 'FB', onBye: false },
   ];
   const derived = runBacktestSweep.deriveComponentFOperands('usage-00-on', { matchedOffBaselineRows, cohortRosterRows });
   assert.deepEqual(derived, {
@@ -1256,20 +1266,20 @@ test('the veto publishes its OWN subgroup size, and section 6.4a\'s arithmetic r
     'section 6.4a mutation test (iv), runnable by a reader on the report alone');
 });
 
-test('a 2024 subgroup player-week widens the VETO domain but not the gate operands, and both published counts reconcile (round-4 SUBSTANTIVE B; season scope rides as SPEC-C)', () => {
-  // The veto stays deliberately UNSCOPED pending SPEC-C's re-anchor ruling -
-  // the wide reading is fail-safe, it can only veto MORE - and the report now
-  // carries the veto's own domain size so 6.4a's arithmetic is checkable even
-  // where the domains differ. A catastrophic 2024 realization vetoes under
-  // today's reading; this test DOCUMENTS that reading (the consequence SPEC-C
-  // must rule on), it does not assert the reading is the sealed one.
+test('a 2024 subgroup player-week widens the VETO domain but not the gate operands, and both published counts reconcile (round-4 SUBSTANTIVE B; SPEC-C RULED both-season)', () => {
+  // SPEC-C was RULED BOTH-SEASON by the user on 2026-08-08 (the B3 deferral
+  // batch): the veto domain is UNSCOPED by season, and this test now ASSERTS
+  // the sealed reading rather than documenting an interim. The report
+  // carries the veto's own domain size so 6.4a's arithmetic is checkable
+  // even where the domains differ (the gate operands stay 2025-scoped,
+  // prereg 9.8).
   // (Precision on this test's teeth: under a quietly 2025-scoped veto it
   // still fails, but via the coverage assertion's throw - 984 realizations
   // against a 40-player-week domain is "unexpected 24" - which fires inside
   // assembleCellClaim before the count assertions below are reached.)
   const inputs = fullPassingInputs();
   // One 2024 cohort player-week, every coverage assertion satisfied:
-  inputs.preflight.cohortRosterRows.push({ season: 2024, week: 2, playerId: 7 });
+  inputs.preflight.cohortRosterRows.push({ season: 2024, week: 2, playerId: 7, position: 'RB', onBye: false });
   const model = require('../services/projectionModel');
   const usage25 = arms.ALL_CELLS.find((cell) => cell.blendWeight === 0.25 && cell.homeAway === 'on');
   const rawRun = () => ({
@@ -1310,7 +1320,7 @@ test('a 2024 subgroup player-week widens the VETO domain but not the gate operan
   const veto = cell.components.f.evidence.veto;
   assert.equal(veto.subgroupPlayerWeekCount, 41, 'the veto domain includes the 2024 player-week');
   assert.equal(veto.realizationCount, metrics.SALTS.length * 41, '24 x 41 = 984, checkable on the report alone');
-  assert.equal(cell.verdict, 'vetoed', "today's unscoped reading: a catastrophic 2024 realization vetoes");
+  assert.equal(cell.verdict, 'vetoed', 'the SEALED both-season reading (SPEC-C ruled 2026-08-08): a catastrophic 2024 realization vetoes');
 });
 
 test('the runner injects ORDERINGS.PRIMARY by VALUE - presence is the guard, identity is this test (round-3 SUBSTANTIVE 4, QA follow-up)', (t) => {

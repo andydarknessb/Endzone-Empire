@@ -626,9 +626,15 @@ function emitBaselineRows({ onCells, matchedOffNameFor, baselineByOffCell, playe
  * player-week x salt. `errorOn`/`errorOff` are `round2(median) - actual` for
  * the on cell and its matched off cell at the SAME salt (sealed section
  * 6.1's own definition - see the withdrawn determination 6 above);
- * membership is `b <= 0` in the matched off cell, which is exactly the rule
- * `inputsAssembly.deriveSubgroupDomain` re-derives from the same baseline
- * rows - so the two layers cannot disagree about who is in the subgroup.
+ * membership is `b <= 0` in the matched off cell AND prereg-4.1 eligibility
+ * (`sweepPreflight.componentFSubgroupEligible` - the A4 membership ruling,
+ * 2026-08-08: a bye or non-macro member has no scored endpoint row, so its
+ * exactly-zero error pair leaves the subgroup instead of diluting D_w), the
+ * exact conjunction `inputsAssembly.deriveSubgroupDomain` re-derives from
+ * the same baseline and roster rows - so the layers cannot disagree about
+ * who is in the subgroup. Baseline COVERAGE stays total over the whole
+ * cohort (`emitBaselineRows` above, risk A), and the permutation domain
+ * keeps its byes (determination 8): only the subgroup narrows.
  *
  * Emitted in ascending-playerId then `SALTS` order. The assembly layer pins
  * the document's own realization order, so this is determinism for its own
@@ -637,10 +643,17 @@ function emitBaselineRows({ onCells, matchedOffNameFor, baselineByOffCell, playe
 function emitSubgroupErrorRows({
   onCells, matchedOffNameFor, baselineByOffCell, mediansByCellSalt, keyOf, cohortWeek, playerIds, season, week, subgroupErrorRows, where,
 }) {
+  const eligibleById = new Map();
+  for (const [index, member] of (cohortWeek.members || []).entries()) {
+    if (!member || member.playerId !== playerIds[index]) {
+      throw new Error(`${where}: cohort member[${index}] does not align with the week's playerIds - subgroup eligibility must be read off the same members the ids came from`);
+    }
+    eligibleById.set(playerIds[index], sweepPreflight.componentFSubgroupEligible(member, `${where}: cohort member[${index}]`));
+  }
   for (const cellMeta of onCells) {
     const offName = matchedOffNameFor(cellMeta);
     const baselines = baselineByOffCell.get(offName);
-    const domain = playerIds.filter((playerId) => baselines.get(playerId) <= 0).sort((a, b) => a - b);
+    const domain = playerIds.filter((playerId) => baselines.get(playerId) <= 0 && eligibleById.get(playerId) === true).sort((a, b) => a - b);
     for (const playerId of domain) {
       const actual = actualFor(cohortWeek, playerId);
       if (!isFiniteNumber(actual)) {
@@ -922,7 +935,21 @@ async function generateSweepInputRecords({
         // must not re-append them (a duplicate player-week is exactly what
         // `deriveCohortPlayerWeeks` rejects).
         if (isPrimary) {
-          for (const playerId of playerIds) cohortRosterRows.push({ season, week, playerId });
+          // Rows carry the two prereg-4.1 eligibility facts alongside the
+          // identity, because section 6.3's subgroup membership (the A4
+          // ruling) is derived from these rows at every later layer - the
+          // assembly, the reducer's operands, and the preflight's veto
+          // coverage - and a row without them fails those layers by name.
+          // Both fields are copied raw off the frozen artifact's member and
+          // validated where membership is decided, never coerced here.
+          for (const [index, member] of (cohortWeek.members || []).entries()) {
+            if (!member || member.playerId !== playerIds[index]) {
+              throw new Error(`${where}: cohort member[${index}] does not align with the week's playerIds - roster rows must carry the same members the ids came from`);
+            }
+            cohortRosterRows.push({
+              season, week, playerId: playerIds[index], position: member.position, onBye: member.onBye,
+            });
+          }
         }
 
         // Per-week buffers, released when the week ends. Medians are kept for
@@ -1086,12 +1113,20 @@ async function generateSweepInputRecords({
               rightRun: twin.run,
               label: `${where} ${salt}: 8.6.1 sides`,
             });
+            // Records are pushed in the SERIALIZATION-SAFE form (projections
+            // as a raw array, `sweepPreflight.serializableProjectionRun`):
+            // a production run carries a Map, and `canonicalJson` writes any
+            // Map as `{}` SILENTLY - so Map-carrying records would reach the
+            // `--records-out` checkpoint and the final document as 1,632
+            // empty run sides the reducer's preflight then voids. The
+            // aliasing guard above ran on the ORIGINAL objects, before this
+            // conversion mints copies.
             controlUsage25Records.push({
               season,
               week,
               salt,
-              leftRun: independentControl.run,
-              rightRun: identityHold.usage25OffRun,
+              leftRun: sweepPreflight.serializableProjectionRun(independentControl.run, `${where} ${salt}: 8.6.0 left`),
+              rightRun: sweepPreflight.serializableProjectionRun(identityHold.usage25OffRun, `${where} ${salt}: 8.6.0 right`),
               leftPlayerIds: playerIds,
               rightPlayerIds: playerIds,
             });
@@ -1104,8 +1139,8 @@ async function generateSweepInputRecords({
               season,
               week,
               salt,
-              leftRun: identityHold.onRun,
-              rightRun: twin.run,
+              leftRun: sweepPreflight.serializableProjectionRun(identityHold.onRun, `${where} ${salt}: 8.6.1 left`),
+              rightRun: sweepPreflight.serializableProjectionRun(twin.run, `${where} ${salt}: 8.6.1 right`),
               leftPlayerIds: playerIds,
               rightPlayerIds: playerIds,
               leftConstants: identityHold.onConstants,

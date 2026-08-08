@@ -111,6 +111,7 @@ const metrics = require('./metrics');
 const arms = require('./arms');
 const sweepEvaluator = require('./sweepEvaluator');
 const sweepEvidence = require('./sweepEvidence');
+const sweepPreflight = require('./sweepPreflight');
 
 const { SALTS, EVALUATED_WEEKS, MACRO_POSITIONS } = metrics;
 const { METRIC_KEYS, PRIMARY_PROFILE, SENSITIVITY_PROFILES } = sweepEvidence;
@@ -350,7 +351,9 @@ function assembleE2(groups, { cellName }) {
 /**
  * The veto domain for one on-cell, derived from the SAME rows and by the SAME
  * membership rule as the reducer's `componentFVetoRecords` (baseline <= 0 in
- * the matched off-cell, intersected with the cohort, NOT season-filtered -
+ * the matched off-cell, intersected with the cohort, AND prereg-4.1 eligible
+ * - `sweepPreflight.componentFSubgroupEligible`, the A4 membership ruling of
+ * 2026-08-08 - NOT season-filtered: SPEC-C ruled both-season the same day;
  * sections 6.3/6.4a; the 2025-only scoping belongs to the GATE operands and
  * qualifying weeks alone, prereg 9.8).
  *
@@ -389,8 +392,17 @@ function deriveSubgroupDomain({ cohortRosterRows, matchedOffBaselineRows, cellNa
     const season = requireFinite(row || {}, 'season', rowLabel);
     const week = requireFinite(row || {}, 'week', rowLabel);
     const playerId = requireFinite(row || {}, 'playerId', rowLabel);
+    // Eligibility is validated for EVERY row before the baseline filter, so
+    // a malformed position/onBye is rejected even on a non-member - the
+    // fail-open-by-coercion posture above applies to these fields too.
+    const eligible = sweepPreflight.componentFSubgroupEligible(row, rowLabel);
     const key = `${season}:${week}:${playerId}`;
     if (!negativeBaselineKeys.has(key)) continue;
+    // Membership = b <= 0 AND prereg-4.1 eligibility (the A4 ruling,
+    // 2026-08-08): a bye or non-macro member carries no scored endpoint row,
+    // so its exactly-zero error pair leaves the subgroup rather than
+    // diluting D_w toward the veto not firing.
+    if (!eligible) continue;
     if (seen.has(key)) {
       throw new Error(`${label}: duplicate cohort player-week (${key}) would double-count a subgroup member in f2's per-week mean - a defect of the records, never a bigger subgroup`);
     }

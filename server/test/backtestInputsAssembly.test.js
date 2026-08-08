@@ -120,7 +120,9 @@ function syntheticActivationRecords() {
 
 function syntheticPreflight() {
   const cohortRosterRows = COHORT_WEEKS.flatMap((week) => COHORT_PLAYERS.map((playerId) => (
-    { season: 2025, week, playerId }
+    // Prereg-4.1 eligibility facts ride on every roster row (the A4
+    // membership ruling); all-eligible keeps the subgroup = full cohort.
+    { season: 2025, week, playerId, position: 'RB', onBye: false }
   )));
   const rawRun = () => ({
     projections: COHORT_PLAYERS.map((playerId) => ({ playerId, median: 12.5 + playerId, p10: 4, factors: {} })),
@@ -548,7 +550,7 @@ test('a subgroup error row naming an off cell or unknown cell is rejected, never
 
 test('a duplicate cohort player-week that lands in the subgroup domain is rejected before it can double-count', () => {
   const broken = universe();
-  broken.preflight.cohortRosterRows.push({ season: 2025, week: 3, playerId: 8 });
+  broken.preflight.cohortRosterRows.push({ season: 2025, week: 3, playerId: 8, position: 'RB', onBye: false });
   assert.throws(() => inputsAssembly.assembleSweepInputs(broken), /duplicate cohort player-week \(2025:3:8\)/);
 });
 
@@ -606,4 +608,29 @@ test('activation weeks sum to the aggregates the claim path recomputes', () => {
   assert.equal(rows.reduce((sum, row) => sum + row.activated, 0), EVALUATED_WEEKS.length);
   const seasonArray = inputs.cells['usage-25-on'].activation.projectionsByPositionBySeason['2024'].TE;
   assert.equal(seasonArray.length, EVALUATED_WEEKS.length);
+});
+
+test('deriveSubgroupDomain: b <= 0 AND prereg-4.1 eligibility (A4 ruling) - a bye or non-macro member with a negative baseline leaves the domain; malformed eligibility fields throw', () => {
+  const cellName = 'usage-25-on';
+  const rows = [
+    { cellName, season: 2025, week: 2, playerId: 7, baseline: -1 },
+    { cellName, season: 2025, week: 2, playerId: 8, baseline: -1 },
+    { cellName, season: 2025, week: 2, playerId: 9, baseline: -1 },
+  ];
+  const roster = [
+    { season: 2025, week: 2, playerId: 7, position: 'RB', onBye: false },
+    { season: 2025, week: 2, playerId: 8, position: 'RB', onBye: true },
+    { season: 2025, week: 2, playerId: 9, position: 'FB', onBye: false },
+  ];
+  const domain = inputsAssembly.deriveSubgroupDomain({
+    cohortRosterRows: roster, matchedOffBaselineRows: rows, cellName,
+  });
+  assert.deepEqual(domain, [{ season: 2025, week: 2, playerId: 7 }],
+    'only the macro-position non-bye member stays in the subgroup');
+  // Eligibility fields are validated on EVERY roster row, member or not -
+  // asserted, never coerced (the fail-open-by-coercion posture).
+  const missingFields = [{ season: 2025, week: 2, playerId: 7 }];
+  assert.throws(() => inputsAssembly.deriveSubgroupDomain({
+    cohortRosterRows: missingFields, matchedOffBaselineRows: rows, cellName,
+  }), /string position.*never coerced/);
 });

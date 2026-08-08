@@ -1293,3 +1293,16 @@ test('section 8.2a rule 3: the pass test is STRICT on RAW operands, never tie-ro
   });
   assert.equal(straddle.status, 'wide-straddle', 'the straddle test keeps the rounded operands');
 });
+
+test('untriggered precedence: an interval that passes the strict raw test AND spans both rounded boundaries is wide-straddle, never passed (8.2 transcription, B3 batch)', () => {
+  // Both descriptions hold at once: upper = 0.14999999999 passes strictly raw
+  // (< 0.15), while rounding lands the interval exactly on [-0.15, 0.15],
+  // satisfying the inclusive straddle. The straddle branch returns first and
+  // hardcodes passes: false - the ranking the B3 spec revision transcribes
+  // into section 8.2's untriggered level.
+  const collision = arms.classifyBootstrapEndpoint({
+    lower: -0.15000000001, upper: 0.14999999999, passingBoundary: 0.15, harmfulBoundary: 0.15, favorableBoundary: -0.15, direction: 'below', evaluable: true,
+  });
+  assert.equal(collision.status, 'wide-straddle', 'wide-straddle outranks passed for an untriggered endpoint');
+  assert.equal(collision.passes, false, 'the raw pass result is discarded, not published alongside the straddle');
+});

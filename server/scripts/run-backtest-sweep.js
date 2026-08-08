@@ -615,8 +615,18 @@ function deriveComponentFOperands(cellName, { matchedOffBaselineRows, cohortRost
   // rows widen the gate operands past the veto domain with the preflight
   // green, which is SUBSTANTIVE 2's divergence by another door.
   const cohortKeys = new Set((cohortRosterRows || []).map((row) => `${Number(row.season)}:${Number(row.week)}:${Number(row.playerId)}`));
+  // Prereg 4.1's exclusion propagates into 6.3's membership (the A4 ruling,
+  // 2026-08-08, riding to the B3 spec revision): a bye or non-macro member
+  // has no scored endpoint row, so its exactly-zero error pair must not
+  // dilute D_w. Eligibility is validated for EVERY cohort row - a malformed
+  // position/onBye is an artifact defect, never a silent non-member.
+  const eligibleByKey = new Map((cohortRosterRows || []).map((row, index) => [
+    `${Number(row.season)}:${Number(row.week)}:${Number(row.playerId)}`,
+    sweepPreflight.componentFSubgroupEligible(row, `deriveComponentFOperands: cohort roster[${index}]`),
+  ]));
   const subgroup = matchedOffBaselineRows.filter((row) => row.cellName === cellName
     && Number(row.season) === 2025 && Number(row.baseline) <= 0
+    && eligibleByKey.get(`${Number(row.season)}:${Number(row.week)}:${Number(row.playerId)}`) === true
     && cohortKeys.has(`${Number(row.season)}:${Number(row.week)}:${Number(row.playerId)}`));
   const byWeek = new Map();
   for (const row of subgroup) {
@@ -655,7 +665,9 @@ function deriveComponentFOperands(cellName, { matchedOffBaselineRows, cohortRost
  * playerId - so the series is reproducible byte-for-byte.
  *
  * 2025 SCOPING is required, not stylistic: the veto domain is deliberately
- * unscoped by season (the SPEC-C interim), while f1's estimand is "the MEDIAN
+ * unscoped by season (SPEC-C, RULED both-season by the user 2026-08-08 -
+ * the interim reading is now the sealed one, riding to the B3 spec
+ * revision's 6.1/6.1a/6.4/6.4a text), while f1's estimand is "the MEDIAN
  * over 2025 season-weeks" (prereg 9.8) and its qualifying weeks are the
  * 2025-only set deriveComponentFOperands computes. The two derivations stay
  * SEPARATE functions for the same reason their docblocks already state: they
@@ -758,7 +770,11 @@ function componentFVetoRecords(cells, { cohortRosterRows, matchedOffBaselineRows
     .filter((cell) => cell.homeAway === 'on')
     .map((cell) => ({
       cellName: cell.name,
-      subgroupPlayerWeeks: cohortRosterRows.filter((row) => matchedOffBaselineRows.some((baseline) => baseline.cellName === cell.name
+      // Membership = b <= 0 AND prereg-4.1 eligibility (the A4 ruling) -
+      // the same conjunction every other derivation applies, so the four
+      // sites cannot disagree about who is in the subgroup.
+      subgroupPlayerWeeks: cohortRosterRows.filter((row, index) => sweepPreflight.componentFSubgroupEligible(row, `componentFVetoRecords: cohort roster[${index}]`)
+        && matchedOffBaselineRows.some((baseline) => baseline.cellName === cell.name
         && Number(baseline.season) === Number(row.season) && Number(baseline.week) === Number(row.week)
         && Number(baseline.playerId) === Number(row.playerId) && Number(baseline.baseline) <= 0)),
       ...cells[cell.name].f.veto,
