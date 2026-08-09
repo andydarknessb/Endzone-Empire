@@ -7,6 +7,7 @@ const runBacktestSweep = require('../scripts/run-backtest-sweep');
 const arms = require('../../scripts/backtest/lib/arms');
 const metrics = require('../../scripts/backtest/lib/metrics');
 const sweepEvidence = require('../../scripts/backtest/lib/sweepEvidence');
+const sweepReport = require('../../scripts/backtest/lib/sweepReport');
 const { canonicalJson } = require('../../scripts/backtest/lib/snapshotStore');
 const model = require('../services/projectionModel');
 
@@ -594,11 +595,13 @@ test('orderingSensitivity detail must be a string or null', () => {
   assert.throws(() => inputsAssembly.assembleSweepInputs(broken), /detail must be a string or null/);
 });
 
-test('decision D6: the mirrored sensitivity-audit pass-key list cannot drift from inputsSensitivity\'s own', () => {
+test('decision D6: the mirrored sensitivity-audit pass-key lists cannot drift from inputsSensitivity\'s own', () => {
   // inputsAssembly cannot import inputsSensitivity (the comparison documents
-  // are assembled THROUGH inputsAssembly), so the pass-key list is mirrored
-  // and this pin is the drift guard.
+  // are assembled THROUGH inputsAssembly), and sweepReport cannot import the
+  // reducer script that requires it - so the pass-key list is mirrored at
+  // each layer and this pin is the drift guard for all of them.
   assert.deepEqual([...inputsAssembly.SENSITIVITY_AUDIT_PASS_KEYS], [...inputsSensitivity.SENSITIVITY_PASS_KEYS]);
+  assert.deepEqual([...sweepReport.SENSITIVITY_AUDIT_PASS_KEYS], [...inputsSensitivity.SENSITIVITY_PASS_KEYS]);
 });
 
 test('decision D6: a sensitivity-audit trail that contradicts its own story is rejected, never assembled', () => {
@@ -628,6 +631,27 @@ test('decision D6: a sensitivity-audit trail that contradicts its own story is r
   const extraPass = universe();
   extraPass.sensitivityAudit.winnersByPass['ordering:bogus'] = null;
   assert.throws(() => inputsAssembly.assembleSweepInputs(extraPass), /winnersByPass: closed shape violation/);
+});
+
+test('decision D6: the producer runs the ORDERING-axis cross-check too (adversarial QA F2)', () => {
+  // universe() carries the placeholder audit (all winners null) and no
+  // contradicted candidate: one ordering winner differing from the null
+  // deployed-policy winner beside orderingDisagreement=false is a laundered
+  // trail and must not assemble.
+  const laundered = universe();
+  laundered.sensitivityAudit.winnersByPass['ordering:db-collation'] = 'usage-40-off';
+  assert.throws(() => inputsAssembly.assembleSweepInputs(laundered), /laundered ordering trail beside a clean boolean/);
+
+  const phantomDisagreement = universe();
+  phantomDisagreement.orderingDisagreement = true;
+  assert.throws(() => inputsAssembly.assembleSweepInputs(phantomDisagreement), /the boolean claims a disagreement the trail does not show/);
+
+  // A contradicted candidate suspends the cross-winner constraint - the
+  // stage bases genuinely diverge there.
+  const contradicted = universe();
+  contradicted.orderingSensitivityByCell['usage-40-off'] = { contradicted: true, detail: 'variant demoted it' };
+  contradicted.sensitivityAudit.winnersByPass['ordering:db-collation'] = 'usage-40-off';
+  assert.doesNotThrow(() => inputsAssembly.assembleSweepInputs(contradicted));
 });
 
 test('saltMean is strict-typeof at its own layer: a quoted number throws instead of concatenating', () => {

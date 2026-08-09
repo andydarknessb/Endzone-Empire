@@ -46,26 +46,33 @@ function git(args, { cwd } = {}) {
 }
 
 /**
- * New-side line numbers of every hunk from `git diff -U0 from to -- doc`.
- * A pure deletion (`+c,0`) has no new-side lines of its own; its change is
- * mapped to line `c` (the new-side line the deleted content preceded, or
- * line 1 when the deletion is at the top), so a deletion-only edit still
- * lands in a section instead of vanishing from the set.
+ * Changed lines of every hunk from `git diff -U0 from to -- doc`, split by
+ * which side of the diff can name their section.  Added/replaced content is
+ * mapped through the TO-side document.  A pure deletion (`+c,0`) has no
+ * new-side lines of its own, and mapping it to the surviving neighbor
+ * attributes the change to the WRONG section - deleting all of section 5
+ * would read as a change to its neighbor while section 5 itself could be
+ * claimed byte-identical (adversarial QA on this slice).  Deleted lines are
+ * therefore mapped through the FROM-side document, where the deleted
+ * section's own heading still exists to claim them.
  */
-function changedNewSideLines(diffText) {
-  const lines = [];
-  const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/gm;
+function changedLineSets(diffText) {
+  const newSide = [];
+  const deletedOldSide = [];
+  const hunk = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm;
   let match;
   while ((match = hunk.exec(diffText)) !== null) {
-    const start = Number(match[1]);
-    const count = match[2] === undefined ? 1 : Number(match[2]);
-    if (count === 0) {
-      lines.push(Math.max(1, start));
+    const oldStart = Number(match[1]);
+    const oldCount = match[2] === undefined ? 1 : Number(match[2]);
+    const newStart = Number(match[3]);
+    const newCount = match[4] === undefined ? 1 : Number(match[4]);
+    if (newCount === 0) {
+      for (let i = 0; i < oldCount; i++) deletedOldSide.push(oldStart + i);
     } else {
-      for (let i = 0; i < count; i++) lines.push(start + i);
+      for (let i = 0; i < newCount; i++) newSide.push(newStart + i);
     }
   }
-  return lines;
+  return { newSide, deletedOldSide };
 }
 
 /**
@@ -83,7 +90,13 @@ function sectionToken(headingLine) {
   return first;
 }
 
-/** Map each changed new-side line number to its section token in the TO-side document. */
+/**
+ * Map each changed line number to its section token in the given document
+ * side.  KNOWN LIMITATION (adversarial QA, latent): a heading-shaped line
+ * inside a fenced code block is treated as a heading; the current spec
+ * carries none, but a future revision fencing a `# comment` would need
+ * fence-awareness added here.
+ */
 function mapLinesToSections(docLines, changedLines) {
   // Precompute the nearest preceding heading for every line, one pass.
   const sectionByLine = new Array(docLines.length + 1);
@@ -103,9 +116,13 @@ function mapLinesToSections(docLines, changedLines) {
 
 function confinementSet({ from, to, doc = DEFAULT_DOC, cwd } = {}) {
   const diffText = git(['diff', '-U0', from, to, '--', doc], { cwd });
-  const changedLines = changedNewSideLines(diffText);
-  const docText = git(['show', `${to}:${doc}`], { cwd });
-  const sections = mapLinesToSections(docText.split('\n'), changedLines);
+  const { newSide, deletedOldSide } = changedLineSets(diffText);
+  const sections = mapLinesToSections(git(['show', `${to}:${doc}`], { cwd }).split('\n'), newSide);
+  if (deletedOldSide.length > 0) {
+    for (const section of mapLinesToSections(git(['show', `${from}:${doc}`], { cwd }).split('\n'), deletedOldSide)) {
+      sections.add(section);
+    }
+  }
   return [...sections].sort();
 }
 
@@ -193,6 +210,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-  DEFAULT_DOC, KNOWN_CASE, changedNewSideLines, sectionToken, mapLinesToSections,
+  DEFAULT_DOC, KNOWN_CASE, changedLineSets, sectionToken, mapLinesToSections,
   confinementSet, compareAgainstClaims, selfValidate, main,
 };

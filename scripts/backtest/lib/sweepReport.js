@@ -136,6 +136,11 @@ const SELECTION_KEYS = Object.freeze(['outcome', 'reasons', 'reason', 'selected'
 const RANKED_CELL_KEYS = Object.freeze(['name', 'blendWeight', 'homeAway']);
 // Decision D6 (ruled 2026-08-08): the estimand audit trail is published.
 const SENSITIVITY_AUDIT_KEYS = Object.freeze(['winnersByPass', 'estimandReconciliation']);
+// The report layer's own copy of the pass-key list (the third mirror -
+// producer and reducer each keep theirs for the same independence reason;
+// requiring either from here would be a cycle). Drift across all three is
+// pinned by test.
+const SENSITIVITY_AUDIT_PASS_KEYS = Object.freeze(['ordering:db-collation', 'ordering:duplicate-shuffle', 'estimand:force-fill']);
 const ESTIMAND_RECONCILIATION_KEYS = Object.freeze(['selection', 'halted', 'reason', 'detail', 'winners']);
 const ESTIMAND_WINNER_KEYS = Object.freeze(['deployedPolicy', 'forceFill']);
 const REPORT_KEYS = Object.freeze(['studyId', 'run', 'permutationControl', 'cells', 'selection', 'sensitivityAudit', 'evidence']);
@@ -373,9 +378,13 @@ function normalizeSensitivityAudit(audit, { label }) {
   if (!audit) return null;
   assertClosedKeys(audit, SENSITIVITY_AUDIT_KEYS, { label });
   const winner = (value) => (typeof value === 'string' ? value : null);
+  // Closed on the pass-key list at THIS layer too: an unknown pass must not
+  // publish, and a missing one normalizes to a typed null rather than
+  // silently vanishing (claims-fidelity QA on this slice).
+  assertClosedKeys(audit.winnersByPass || {}, SENSITIVITY_AUDIT_PASS_KEYS, { label: `${label}.winnersByPass` });
   const winnersByPass = {};
-  for (const key of Object.keys(audit.winnersByPass || {}).sort()) {
-    winnersByPass[key] = winner(audit.winnersByPass[key]);
+  for (const key of [...SENSITIVITY_AUDIT_PASS_KEYS].sort()) {
+    winnersByPass[key] = winner((audit.winnersByPass || {})[key]);
   }
   const reconciliation = audit.estimandReconciliation || {};
   assertClosedKeys(reconciliation, ESTIMAND_RECONCILIATION_KEYS, { label: `${label}.estimandReconciliation` });
@@ -680,6 +689,7 @@ module.exports = {
   COMPONENT_KEYS,
   SELECTION_KEYS,
   RANKED_CELL_KEYS,
+  SENSITIVITY_AUDIT_PASS_KEYS,
   assertFinite,
   assertNoUnstatedUnevaluable,
   assertClosedKeys,

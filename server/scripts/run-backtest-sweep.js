@@ -489,6 +489,40 @@ function validateInputs(inputs, { label = '--inputs' } = {}) {
       }
     }
   }
+  // The ORDERING-axis audit cross-check, symmetric with the halted-axis one
+  // inside validateSensitivityAudit (adversarial QA on this slice found the
+  // asymmetry).  It runs here, after every cell's orderingSensitivity has
+  // been validated, because it reads them.  When NO candidate is
+  // contradicted, the stage-1 and stage-2 bases coincide (the derived flags
+  // equal the placeholder), so the honest derivation forces: every
+  // `ordering:*` winner equals the reconciliation's deployed-policy winner
+  // exactly when `orderingDisagreement` is false, and at least one differs
+  // when it is true.  With a contradicted candidate the bases genuinely
+  // diverge (a stage-1 variant winner may legitimately differ from the
+  // stage-2 deployed-policy winner), so no cross-winner constraint is
+  // checkable and none is imposed.
+  {
+    const candidates = arms.SELECTION_FAMILY.map((cell) => cell.name);
+    const anyContradicted = candidates.some((name) => inputs.cells[name].orderingSensitivity.contradicted === true);
+    if (!anyContradicted) {
+      const deployedPolicy = inputs.sensitivityAudit.estimandReconciliation.winners.deployedPolicy;
+      const orderingKeys = SENSITIVITY_AUDIT_PASS_KEYS.filter((key) => key.startsWith('ordering:'));
+      const disagreeing = orderingKeys.filter((key) => inputs.sensitivityAudit.winnersByPass[key] !== deployedPolicy);
+      if (inputs.orderingDisagreement === false && disagreeing.length > 0) {
+        throw new Error(
+          `${label}.sensitivityAudit: orderingDisagreement=false with no contradicted candidate, but `
+          + `${disagreeing.map((key) => `winnersByPass[${JSON.stringify(key)}]=${JSON.stringify(inputs.sensitivityAudit.winnersByPass[key])}`).join(', ')} `
+          + `disagrees with the deployed-policy winner ${JSON.stringify(deployedPolicy)} - a laundered ordering trail beside a clean boolean`
+        );
+      }
+      if (inputs.orderingDisagreement === true && disagreeing.length === 0) {
+        throw new Error(
+          `${label}.sensitivityAudit: orderingDisagreement=true with no contradicted candidate, but every ordering winner `
+          + `equals the deployed-policy winner ${JSON.stringify(deployedPolicy)} - the boolean claims a disagreement the trail does not show`
+        );
+      }
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

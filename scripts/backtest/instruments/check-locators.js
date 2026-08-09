@@ -20,6 +20,10 @@
  * Bare `:NNN` continuation citations (a line number with no file, riding a
  * previous citation's file) are outside this check's specified form and are
  * not extracted - the spec's own wording is "every `file.js:NNN` citation".
+ * KNOWN LIMITATION: the identifier proximity test is textual, so a citation
+ * whose symbol survives only in a nearby COMMENT still passes - inherent to
+ * a text-window heuristic, and the reason this check assists rather than
+ * replaces the re-anchor reading.
  *
  * Per 10.2a, an instrument is validated against a known answer before being
  * trusted; this module exports its pieces so the test suite can drive it

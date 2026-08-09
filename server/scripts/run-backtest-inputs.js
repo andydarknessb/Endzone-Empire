@@ -728,12 +728,18 @@ function assertRecordsArtifactShape(artifact, { label = 'run-backtest-inputs rec
  * Decision D3: parse and validate a `--records-in` checkpoint.
  *
  * What a resume RE-RUNS from disk, so the checkpoint cannot become a
- * laundering channel: the artifact's own digest; the sealed grid counts; the
- * 8.6.0/8.6.1 identity coverage AND value bit-identity
- * (`sweepPreflight.assertIdentityCoverage` - the reducer's own, never a
- * re-implementation); salt-seed coverage; the embedded outcome-truth key
- * discipline (the laundered-baseline-id class applies to loaded JSON exactly
- * as to Commit-A artifacts).
+ * laundering channel: the artifact's own digest; the 8.6.0/8.6.1 identity
+ * coverage AND value bit-identity (`sweepPreflight.assertIdentityCoverage` -
+ * the reducer's own, never a re-implementation); salt-seed coverage; the
+ * phantom-member cross-check over the embedded cohort (the reducer's own
+ * cross-checks are one-directional and cannot replace it); the embedded
+ * outcome-truth key discipline (the laundered-baseline-id class applies to
+ * loaded JSON exactly as to Commit-A artifacts).  The grid counts are also
+ * re-checked against the sealed constants, but honestly stated they are
+ * SELF-ATTESTED - `counts.generations` is the writer's own tally, not
+ * corroborated against the row payload, so the count check catches a
+ * truncated write, never a consistent forgery (which the digest binds to
+ * the writer instead).
  *
  * What it CANNOT re-run, stated honestly (riding to the revision-35 text):
  * non-aliasing is UNVERIFIABLE from disk - `assertRunsNotAliased` compares
@@ -742,7 +748,9 @@ function assertRecordsArtifactShape(artifact, { label = 'run-backtest-inputs rec
  * enforcement and bound to it by `recordsHash`, never re-proven.  The
  * per-generation guards' operands (the 14,688 scored runs) are not in the
  * artifact; only their derived metrics are - trusted-from-writer,
- * hash-pinned.  Observation canonicality is re-verified by the reducer's own
+ * hash-pinned - and the same holds for WHICH sensitivity configuration
+ * produced each `armWeekMetricsBySensitivity` array: the pass key is the
+ * writer's label, so a swap between passes is undetectable from disk.  Observation canonicality is re-verified by the reducer's own
  * permutation gate when the assembled document is consumed.  Whether a
  * checkpoint from a COMPLETED run may be resumed is a D3 spec detail; the
  * loader validates the artifact, not the operator's reason for resuming.
@@ -789,6 +797,27 @@ function loadRecordsArtifact(serialized, { label = 'run-backtest-inputs --record
   for (const [week, cohortWeek] of Object.entries(content.permutationControl.cohortWeeks)) {
     if (!cohortWeek || typeof cohortWeek !== 'object') throw new Error(`${label}: cohortWeeks[${week}] must be an object`);
     numericOutcomeTruthMap(cohortWeek.actualPointsByPlayerId, `${label} cohortWeeks[${week}]`);
+  }
+  // The same phantom-member cross-check `buildPermutationControlBlock` runs
+  // at generation time (adversarial QA on this slice): the reducer's own
+  // cross-checks are one-directional (rostered subset-of observed/cohort)
+  // and would accept a phantom observation member that participates in every
+  // permutation cell, so a resume that skipped this check would be the one
+  // path on which a doctored roster row could reach the final document.
+  // rosterRows suffices as the checked side for the same reason as at
+  // generation: the capture proved the observations' per-cell ids equal the
+  // rosterRows cells elementwise, and the reducer re-proves it at Gate 4.
+  const memberIdsByWeek = new Map(Object.entries(content.permutationControl.cohortWeeks).map(([week, cohortWeek]) => [
+    Number(week), new Set((cohortWeek.members || []).map((member) => member.playerId)),
+  ]));
+  for (const row of content.permutationControl.rosterRows) {
+    const memberIds = memberIdsByWeek.get(row.week);
+    if (!memberIds || !memberIds.has(row.playerId)) {
+      throw new Error(
+        `${label}: captured roster row ${row.week}:${row.position}:${row.playerId} names a player the embedded `
+        + 'cohort artifact does not carry - the checkpoint\'s capture and embedded artifacts were built from different inputs'
+      );
+    }
   }
   const { permutationControl, studyId: _studyId, ...records } = content;
   return { records, permutationControl };

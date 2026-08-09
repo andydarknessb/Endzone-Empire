@@ -2,8 +2,9 @@
 
 /**
  * Section 10.2a's four instruments, landed at the B3 re-cut per the bar
- * paragraph ("the specifications above are the durable half ... the scripts
- * ride with the other batched guards at B3").
+ * paragraph: "The specifications above are the durable half and are in
+ * force now"; the scripts are "a convenience that rides with the other
+ * batched guards at B3".
  *
  * 10.2a's own meta-requirement governs every test here: an instrument must
  * be VALIDATED AGAINST A KNOWN ANSWER before being trusted - "a second run
@@ -35,16 +36,38 @@ test('confinement: the sealed known case (revision 28 -> 29) returns exactly the
   assert.ok(result.actual.includes('8.6.0'), 'the omission that established the second direction must be reproduced');
 });
 
-test('confinement: hunk parsing covers additions, replacements, and pure deletions - an empty set from a real diff is a broken probe', () => {
+test('confinement: hunk parsing splits new-side lines from pure-deletion old-side lines - an empty set from a real diff is a broken probe', () => {
   const diff = [
     '@@ -10,2 +10,3 @@ context',
     '@@ -30 +31 @@ context',
     '@@ -40,5 +41,0 @@ context',
   ].join('\n');
-  // 10,11,12 (three new lines), 31 (one line), 41 (deletion mapped to the
-  // surviving line, never dropped).
-  assert.deepEqual(confinement.changedNewSideLines(diff), [10, 11, 12, 31, 41]);
-  assert.deepEqual(confinement.changedNewSideLines('not a diff'), []);
+  assert.deepEqual(confinement.changedLineSets(diff), {
+    newSide: [10, 11, 12, 31],
+    deletedOldSide: [40, 41, 42, 43, 44],
+  });
+  assert.deepEqual(confinement.changedLineSets('not a diff'), { newSide: [], deletedOldSide: [] });
+});
+
+test('confinement: a whole-section deletion is attributed to the DELETED section via the FROM side, so it cannot be claimed byte-identical (adversarial QA)', () => {
+  // Mapping deleted lines through the surviving document attributes them to
+  // a neighbor; only the FROM side still carries the deleted heading.
+  const fromDoc = [
+    '# Title',
+    '## 4. Kept',
+    'body four',
+    '## 5. Deleted entirely',
+    'body five',
+    'more five',
+    '## 6. Kept too',
+    'body six',
+  ];
+  const deletedOldSide = [4, 5, 6];
+  const sections = confinement.mapLinesToSections(fromDoc, deletedOldSide);
+  assert.deepEqual([...sections].sort(), ['5']);
+  // The both-direction equality then catches the false claim.
+  const claim = confinement.compareAgainstClaims({ actual: ['4', '5'], claimedChanged: ['4'], claimedIdentical: ['5', '6'] });
+  assert.equal(claim.ok, false);
 });
 
 test('confinement: every heading level maps, including #### subsections and the # title as preamble', () => {
@@ -119,7 +142,9 @@ test('locators: a planted fixture with a known answer - good citations resolve, 
 });
 
 test('locators: run against the real spec it extracts citations and knows the one currently-stale locator (arms.js:882, riding to revision 35)', () => {
-  const result = locators.checkLocators({ repoRoot: process.cwd() });
+  // repoRoot from this file's own location, not the cwd - the suite must
+  // pass regardless of the directory it is launched from.
+  const result = locators.checkLocators({ repoRoot: path.resolve(__dirname, '..', '..') });
   assert.ok(result.total > 50, `the spec cites code constantly; extracting only ${result.total} citations means the extraction is broken`);
   // The step-2 tree moved component-(f) code, so the spec's revision-34
   // locator for `weeksBelowFalsifiabilityFloor` is genuinely stale.  This
@@ -166,6 +191,34 @@ test('packet coverage: ranges expand, specification-section decimals are exclude
   assert.deepEqual(result.missing, []);
   // The out-of-scope citation was never harvested.
   assert.equal(result.cited.includes('1.1'), false);
+});
+
+test('packet coverage: ranges expand on the CITED side too, and annotation numbers inside parentheses never become supply entries (adversarial QA)', () => {
+  // A citation written as a range cites every member.
+  const rangeCited = [
+    '## 5. Scope',
+    'This rests on prereg 9.1-9.3 as a range.',
+    '## 11. Packet',
+    '- **`PREREGISTRATION.md` sections**: 9.1-9.2.',
+    '- **Other**.',
+  ].join('\n');
+  const rangeResult = packet.packetCoverage(rangeCited);
+  assert.ok(rangeResult.cited.includes('9.3'), 'a range-blind citation pattern leaves 9.2-9.7-class members unchecked');
+  assert.deepEqual(rangeResult.missing, ['9.3']);
+
+  // An annotation number guarded by a word OUTSIDE the excluded list must
+  // still not become a phantom supply entry - depth-0 harvesting, not a
+  // word list, is what excludes it.
+  const leak = [
+    '## 5. Scope',
+    'This rests on prereg 4.6 somehow.',
+    '## 11. Packet',
+    '- **`PREREGISTRATION.md` sections**: 9.1-9.7 (kept per 4.6), 16.',
+    '- **Other**.',
+  ].join('\n');
+  const leakResult = packet.packetCoverage(leak);
+  assert.equal(leakResult.supplied.includes('4.6'), false, 'a parenthetical annotation is never a supply entry');
+  assert.deepEqual(leakResult.missing, ['4.6']);
 });
 
 test('packet coverage: a citation with no supply entry is reported, and zero extracted citations reads as broken, not clean', () => {
@@ -216,4 +269,19 @@ test('identifier consistency: every hash-shaped token is checked - a presence te
   assert.deepEqual(artifact.resolvedDigitOnly, ['0762738'], 'the all-digit anchor commit resolves and is verified; the seed is a number and is not flagged');
   assert.deepEqual(artifact.staleRevisions, [34]);
   assert.equal(artifact.ok, false);
+});
+
+test('identifier consistency: uppercase hashes, capital-R status lines, and truncated SHA-256 prefixes (adversarial QA)', () => {
+  // git resolves hex case-insensitively, so an uppercase wrong hash is
+  // exactly as hash-shaped as a lowercase one and must fail the same way.
+  const upper = identifiers.checkArtifact({ name: 'u', text: 'digest is FFFFFF99 (uppercase, wrong)' });
+  assert.ok(upper.unresolvable.includes('ffffff99'), 'a lowercase-only pattern skips the tokens a careless substitution is most likely to mangle');
+  // A stale revision must not hide behind a capital R.
+  assert.deepEqual(identifiers.extractStatusRevisions('**Status: Revision 31.**'), [31]);
+  // A truncated SHA-256 prefix is a digest claim, not a git object - it is
+  // recorded and prefix-checked, never asserted against cat-file, because
+  // artifacts legitimately quote superseded digests when narrating history.
+  const tokens = identifiers.extractTokens('anchored SHA-256 `5EA91A5E...` and prior `16F29146...`');
+  assert.deepEqual(tokens.sha256Prefixes.sort(), ['16F29146', '5EA91A5E']);
+  assert.deepEqual(tokens.gitHashes, []);
 });

@@ -23,6 +23,17 @@
  * legitimately quote SUPERSEDED hashes when narrating history (the preamble
  * itself quotes revision 18's).
  *
+ * SCOPE, stated honestly (claims-fidelity QA on this slice): this scripted
+ * form asserts token RESOLVABILITY and status-line revision equality, and
+ * REPORTS digest/anchor matches.  It does not assert 10.2a's full tuple
+ * equality - deciding WHICH of an artifact's hashes claim to name the
+ * current anchor (as opposed to narrating a superseded one) is a reading of
+ * prose this script does not attempt, so an artifact naming a
+ * wrong-but-existing commit as its anchor passes the scripted form and is
+ * caught by the manual half of the check.  The specification's full tuple
+ * comparison remains in force as the durable half; this script is its
+ * mechanical assistant, not its replacement.
+ *
  * Validated against the known case (10.2a's requirement): run against
  * revision 33 (`37b9f7d`) with an expected revision of 33, it must report
  * the preamble at "31".  A run reporting no mismatch on those bytes is
@@ -64,28 +75,49 @@ function extractTokens(text) {
   const gitHashes = new Set();
   const digitOnlyCandidates = new Set();
   const sha256s = new Set();
+  const sha256Prefixes = new Set();
   for (const match of text.matchAll(/\b[0-9a-fA-F]{64}\b/g)) sha256s.add(match[0]);
-  for (const match of text.matchAll(/\b[0-9a-f]{7,40}\b/g)) {
+  // Case-insensitive: git resolves hex case-insensitively, and these
+  // artifacts genuinely write uppercase identifiers (`5EA91A5E...`), so a
+  // lowercase-only pattern would skip exactly the tokens a careless
+  // substitution is most likely to mangle (adversarial QA on this slice).
+  // A token immediately followed by a truncation marker (`...`/`…`) is a
+  // SHA-256 PREFIX claim, not a git object - asserted against the anchored
+  // document digest when one is available, never against `git cat-file`.
+  for (const match of text.matchAll(/\b[0-9a-fA-F]{7,63}\b/g)) {
     const token = match[0];
-    if (token.length === 64) continue;
     if (!/[0-9]/.test(token)) continue;
-    if (/[a-f]/.test(token)) gitHashes.add(token);
+    const truncated = /^(\.{3}|…)/.test(text.slice(match.index + token.length));
+    if (truncated) {
+      if (/[a-fA-F]/.test(token)) sha256Prefixes.add(token);
+      continue;
+    }
+    if (token.length > 40) continue;
+    if (/[a-fA-F]/.test(token)) gitHashes.add(token.toLowerCase());
     else if (token.length <= 12) digitOnlyCandidates.add(token);
   }
-  return { gitHashes: [...gitHashes], digitOnlyCandidates: [...digitOnlyCandidates], sha256s: [...sha256s] };
+  return {
+    gitHashes: [...gitHashes],
+    digitOnlyCandidates: [...digitOnlyCandidates],
+    sha256s: [...sha256s],
+    sha256Prefixes: [...sha256Prefixes],
+  };
 }
 
-/** Every `Status: revision N` / `revision N` status-line claim. The STATUS line is the asserted one; bare narrative mentions are reported only. */
+/** Every `Status: revision N` status-line claim, case-insensitive on `revision` - a stale number must not hide behind a capital R. */
 function extractStatusRevisions(text) {
   const statuses = [];
-  for (const match of text.matchAll(/Status:\s*revision\s+(\d+)/g)) statuses.push(Number(match[1]));
+  for (const match of text.matchAll(/Status:\s*revision\s+(\d+)/gi)) statuses.push(Number(match[1]));
   return statuses;
 }
 
 function checkArtifact({ name, text, expectRevision, anchoredDocSha256 }) {
-  const { gitHashes, digitOnlyCandidates, sha256s } = extractTokens(text);
+  const { gitHashes, digitOnlyCandidates, sha256s, sha256Prefixes } = extractTokens(text);
   const unresolvable = gitHashes.filter((token) => !gitObjectExists(token));
   const resolvedDigitOnly = digitOnlyCandidates.filter((token) => gitObjectExists(token));
+  const prefixMatches = anchoredDocSha256
+    ? sha256Prefixes.filter((token) => anchoredDocSha256.toUpperCase().startsWith(token.toUpperCase()))
+    : [];
   const statusRevisions = extractStatusRevisions(text);
   const staleRevisions = expectRevision === undefined
     ? []
@@ -102,6 +134,11 @@ function checkArtifact({ name, text, expectRevision, anchoredDocSha256 }) {
     staleRevisions,
     sha256Tokens: sha256s.length,
     sha256Matches,
+    // Prefix claims (`5EA91A5E...`) are reported, with matches against the
+    // anchored digest when one was supplied; not asserted, because artifacts
+    // legitimately quote SUPERSEDED revision digests when narrating history.
+    sha256Prefixes,
+    sha256PrefixMatches: prefixMatches,
     ok: unresolvable.length === 0 && staleRevisions.length === 0,
   };
 }

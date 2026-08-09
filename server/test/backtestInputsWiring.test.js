@@ -92,7 +92,9 @@ function minimalPermutationBlock() {
     observations: [{ season: 2025, week: 2, salt: 's', position: 'QB', playerId: 1, actual: 1, projected: 2 }],
     rosterRows: [{ season: 2025, week: 2, position: 'QB', playerId: 1 }],
     rosterWeeks: { 2: { rosters: [] } },
-    cohortWeeks: { 2: { members: [], actualPointsByPlayerId: { 1: 7.5 } } },
+    // The member matches the roster row: the loader re-runs the
+    // phantom-member cross-check the generation path performs.
+    cohortWeeks: { 2: { members: [{ playerId: 1 }], actualPointsByPlayerId: { 1: 7.5 } } },
     positionRank: { QB: 1 },
     nameRankById: { 1: 1 },
   };
@@ -731,6 +733,20 @@ test('decision D3: the loader refuses a tampered, mistitled, truncated, or misco
   const shortCapture = JSON.parse(d3CheckpointText());
   shortCapture.counts.permutationControl.generations = 407;
   assert.throws(() => script.loadRecordsArtifact(rehash(shortCapture)), /section 5's scope is 408/);
+});
+
+test('decision D3: a phantom permutation roster row is caught on load even under a consistent re-hash (adversarial QA F1)', () => {
+  // The reducer's own cross-checks are one-directional (rostered subset-of
+  // observed/cohort) and would accept a phantom member that participates in
+  // every permutation cell - the exact reason buildPermutationControlBlock
+  // runs this check at generation time. The loader re-runs it, so the
+  // resume path is not the one path a doctored roster row could ride.
+  const phantom = JSON.parse(d3CheckpointText());
+  phantom.permutationControl.rosterRows.push({ season: 2025, week: 2, position: 'QB', playerId: 999 });
+  assert.throws(
+    () => script.loadRecordsArtifact(rehash(phantom)),
+    /names a player the embedded cohort artifact does not carry/
+  );
 });
 
 test('decision D3: a tampered identity-run VALUE is caught on load even under a consistent re-hash - the 8.6.0 guards genuinely re-run from disk', () => {

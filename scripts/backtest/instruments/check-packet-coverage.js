@@ -44,7 +44,25 @@ function sectionToken(headingLine) {
   return headingLine.replace(/^#{1,6}\s+/, '').split(/\s+/)[0].replace(/\.$/, '');
 }
 
-/** Every `prereg N[.M]` citation on lines whose governing spec section has a major in SCOPE_MAJORS. */
+/** Expand a same-major `N.a-N.b` range to its members; throws on anything unexpandable. */
+function expandRange(from, to, where) {
+  const [fromMajor, fromMinor] = from.split('.').map(Number);
+  const [toMajor, toMinor] = to.split('.').map(Number);
+  if (fromMajor !== toMajor || fromMinor === undefined || toMinor === undefined || toMinor < fromMinor) {
+    throw new Error(`check-packet-coverage: unexpandable range ${from}-${to} in ${where}`);
+  }
+  const members = [];
+  for (let minor = fromMinor; minor <= toMinor; minor++) members.push(`${fromMajor}.${minor}`);
+  return members;
+}
+
+/**
+ * Every `prereg N[.M][-N.M']` citation on lines whose governing spec section
+ * has a major in SCOPE_MAJORS.  Ranges expand on the CITED side too - a
+ * citation written `prereg 9.1-9.7` cites all seven members, and a
+ * range-blind pattern would leave 9.2-9.7 unchecked (adversarial QA on this
+ * slice; the same failure mode as 10.2a requirement 1, on the other side).
+ */
 function citationsInScope(docText) {
   const cited = new Set();
   let current = 'preamble';
@@ -52,9 +70,12 @@ function citationsInScope(docText) {
     if (/^#{1,6} /.test(line)) current = sectionToken(line);
     const major = current.split('.')[0].replace(/[^0-9]/g, '');
     if (!SCOPE_MAJORS.includes(major)) continue;
-    const pattern = /prereg\s+(\d+(?:\.\d+)?)/gi;
+    const pattern = /prereg\s+(\d+(?:\.\d+)?)(?:-(\d+(?:\.\d+)?))?/gi;
     let match;
-    while ((match = pattern.exec(line)) !== null) cited.add(match[1]);
+    while ((match = pattern.exec(line)) !== null) {
+      if (match[2]) for (const member of expandRange(match[1], match[2], 'a citation')) cited.add(member);
+      else cited.add(match[1]);
+    }
   }
   return cited;
 }
@@ -77,11 +98,26 @@ function supplySet(docText) {
     bulletLines.push(lines[i]);
   }
   const bullet = bulletLines.join('\n');
+  // Supply ENTRIES sit at parenthesis depth 0 of the bullet; everything
+  // inside parentheses is annotation ("4.1-4.2 (cohort and injury policy)",
+  // "...which section 4.6 extends per rule 1...").  Harvesting by a
+  // guarded-word list alone leaks any annotation number whose preceding word
+  // is not on the list (adversarial QA on this slice), so annotations are
+  // excluded STRUCTURALLY - depth tracking - with the word guard kept as a
+  // second line for depth-0 prose like "per rule 1".
+  let depth = 0;
+  let depthZero = '';
+  for (const ch of bullet) {
+    if (ch === '(') depth += 1;
+    else if (ch === ')') depth = Math.max(0, depth - 1);
+    else depthZero += depth === 0 ? ch : ' ';
+    if (ch === '(' || ch === ')') depthZero += ' ';
+  }
   const supplied = new Set();
   const pattern = /(\d+(?:\.\d+)?)(?:-(\d+(?:\.\d+)?))?/g;
   let match;
-  while ((match = pattern.exec(bullet)) !== null) {
-    const before = bullet.slice(Math.max(0, match.index - 24), match.index);
+  while ((match = pattern.exec(depthZero)) !== null) {
+    const before = depthZero.slice(Math.max(0, match.index - 24), match.index);
     if (/(?:sections?|rule|revision)\s+$/i.test(before)) continue;
     const from = match[1];
     const to = match[2];
@@ -90,12 +126,7 @@ function supplySet(docText) {
       continue;
     }
     // Range expansion (10.2a requirement 1): same-major, minor-stepped.
-    const [fromMajor, fromMinor] = from.split('.').map(Number);
-    const [toMajor, toMinor] = to.split('.').map(Number);
-    if (fromMajor !== toMajor || fromMinor === undefined || toMinor === undefined || toMinor < fromMinor) {
-      throw new Error(`check-packet-coverage: unexpandable range ${from}-${to} in the supply bullet`);
-    }
-    for (let minor = fromMinor; minor <= toMinor; minor++) supplied.add(`${fromMajor}.${minor}`);
+    for (const member of expandRange(from, to, 'the supply bullet')) supplied.add(member);
   }
   return supplied;
 }
@@ -175,6 +206,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-  DEFAULT_DOC, KNOWN_CASE, SCOPE_MAJORS, citationsInScope, supplySet, covered,
+  DEFAULT_DOC, KNOWN_CASE, SCOPE_MAJORS, expandRange, citationsInScope, supplySet, covered,
   packetCoverage, docTextFor, selfValidate, main,
 };

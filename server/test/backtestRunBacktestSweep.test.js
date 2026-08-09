@@ -313,6 +313,28 @@ test('decision D6: validateInputs refuses a document whose audit trail is missin
   assert.throws(() => runBacktestSweep.validateInputs(controlWinner), /must be null or a candidate cell name/);
 });
 
+test('decision D6: the ORDERING-axis cross-check, symmetric with the halted-axis one (adversarial QA F2)', () => {
+  // With no contradicted candidate, orderingDisagreement=false forces every
+  // ordering winner to equal the deployed-policy winner - a laundered
+  // ordering trail beside a clean boolean is a document telling two stories.
+  const laundered = fullPassingInputs();
+  laundered.sensitivityAudit.winnersByPass['ordering:db-collation'] = 'usage-60-on';
+  assert.throws(() => runBacktestSweep.validateInputs(laundered), /a laundered ordering trail beside a clean boolean/);
+
+  // The reverse direction: a claimed disagreement the trail does not show.
+  const phantomDisagreement = fullPassingInputs();
+  phantomDisagreement.orderingDisagreement = true;
+  assert.throws(() => runBacktestSweep.validateInputs(phantomDisagreement), /the boolean claims a disagreement the trail does not show/);
+
+  // With a contradicted candidate the stage-1 and stage-2 bases genuinely
+  // diverge (the generation suite exercises primaryWinner A vs
+  // finalPrimaryWinner B), so no cross-winner constraint applies.
+  const contradicted = fullPassingInputs();
+  contradicted.cells['usage-60-on'].orderingSensitivity = { contradicted: true, detail: 'variant demoted it' };
+  contradicted.sensitivityAudit.winnersByPass['ordering:db-collation'] = 'usage-60-on';
+  assert.doesNotThrow(() => runBacktestSweep.validateInputs(contradicted));
+});
+
 test('validateInputs refuses a missing or extra cell', () => {
   const missing = fullPassingInputs();
   delete missing.cells['usage-40-off'];

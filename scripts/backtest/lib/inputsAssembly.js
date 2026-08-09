@@ -776,8 +776,9 @@ function canonicalizePreflight(preflight, { label = 'preflight' } = {}) {
  * `winnersByPass` has a MIXED basis, and the schema must not flatten that
  * fact: the two `ordering:*` rows are the STAGE-1 placeholder-basis winners
  * (determination 9) while the `estimand:force-fill` row is the STAGE-2
- * post-contradiction winner (determination 10) - one map, because that is
- * exactly the set of winners spec 8.4's two disagreement rules consumed.
+ * post-contradiction winner (determination 10) - one map carrying the
+ * per-pass winners spec 8.4's two disagreement rules consumed, beside the
+ * reconciliation's own deployed-policy/force-fill pair.
  *
  * Fail-closed internal consistency, recomputable from the trail alone:
  * `halted` must equal the winners' actual disagreement, `selection` must be
@@ -887,6 +888,30 @@ function assembleSweepInputs({
     }
   }
 
+  const canonicalSensitivityAudit = canonicalizeSensitivityAudit(sensitivityAudit, { label: 'assembleSweepInputs: sensitivityAudit' });
+  // The ORDERING-axis cross-check, symmetric with the halted-axis one inside
+  // canonicalizeSensitivityAudit (adversarial QA on this slice found the
+  // asymmetry).  When no candidate is contradicted, the stage-1 and stage-2
+  // bases coincide, so the honest derivation forces every `ordering:*`
+  // winner to equal the deployed-policy winner exactly when
+  // `orderingDisagreement` is false - and at least one to differ when it is
+  // true.  With a contradicted candidate the bases genuinely diverge and no
+  // cross-winner constraint is checkable.
+  {
+    const anyContradicted = candidateNames.some((name) => orderingSensitivityByCell[name].contradicted === true);
+    if (!anyContradicted) {
+      const deployedPolicy = canonicalSensitivityAudit.estimandReconciliation.winners.deployedPolicy;
+      const disagreeing = SENSITIVITY_AUDIT_PASS_KEYS.filter((key) => key.startsWith('ordering:'))
+        .filter((key) => canonicalSensitivityAudit.winnersByPass[key] !== deployedPolicy);
+      if (orderingDisagreement === false && disagreeing.length > 0) {
+        throw new Error(`assembleSweepInputs: sensitivityAudit: orderingDisagreement=false with no contradicted candidate, but ${disagreeing.join(', ')} disagrees with the deployed-policy winner ${JSON.stringify(deployedPolicy)} - a laundered ordering trail beside a clean boolean`);
+      }
+      if (orderingDisagreement === true && disagreeing.length === 0) {
+        throw new Error(`assembleSweepInputs: sensitivityAudit: orderingDisagreement=true with no contradicted candidate, but every ordering winner equals the deployed-policy winner ${JSON.stringify(deployedPolicy)} - the boolean claims a disagreement the trail does not show`);
+      }
+    }
+  }
+
   const { activationWeeks, activationInputByCell } = assembleActivation({ activationRecords });
 
   const componentSeriesByCell = {};
@@ -941,7 +966,7 @@ function assembleSweepInputs({
     permutationControl: canonicalizePermutationControl(permutationControl),
     orderingDisagreement,
     deployedPolicyDisagreement,
-    sensitivityAudit: canonicalizeSensitivityAudit(sensitivityAudit, { label: 'assembleSweepInputs: sensitivityAudit' }),
+    sensitivityAudit: canonicalSensitivityAudit,
     cells,
     evidence: assembleEvidence(groups, { componentSeriesByCell, activationWeeks }),
   };
