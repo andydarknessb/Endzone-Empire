@@ -2842,3 +2842,203 @@ against the re-staged set. The reviewed bytes are untouched and the addressee is
 unchanged; whether a fourth delivery attempt proceeds is the study
 owner's call, made on this entry's facts, with the send-step control in
 place.
+
+### CORRECTIVE ENTRY 26 — appended 2026-08-09
+
+**This entry records the outcome of the revision-35 statistical-review
+round: the packet's fourth delivery attempt succeeded under entry 25's
+send-step control, the review returned NO APPROVAL on one substantive
+finding, and revision 36 is anchored in response.** It creates no
+approval row (a round that issues no approval warrants no row, per the
+R1-R5 convention - entry 8 item (2), restated in the specification's
+section 10 review history), pre-fills none, adds no recusal, and records the
+reviewer-rotation decision the study owner made on the response's
+recommendation. **Entries 1-25 are not edited.**
+
+**(1) The delivery that worked.** The fourth attempt was the first to run
+entry 25 item (4)'s send-step check: it verified the staged set against
+the manifest and the addressee against the commission's opening
+immediately before the send, the sending party's attestation was
+recorded, and the three files went as byte-exact attachments to the
+row-7 addressee - whose identity was verified against their own
+revision-34 approval text before sending. On receipt the manifest check
+ran and PASSED, the first verified delivery in four rounds; the reviewer
+then withdrew their own outstanding delivery flag, in their words below.
+The control operated as specified.
+
+**(2) The response, verbatim as supplied by the reviewer** (carried whole
+per entry 24 item (5)'s rule; line wrapping is this ledger's, every word
+the reviewer's):
+
+> Manifest check **passes** — and my two-versus-three flag was wrong.
+> Withdrawing it below. Fixing my sort bug and running confinement.
+>
+> §5.1 was my probe artifact — their caution 5 called it exactly.
+> Confinement verifies set-equal both ways. Running their instruments
+> now, and testing whether the self-validations actually discriminate.
+>
+> Working tree is still at the old anchor — the instrument files don't
+> exist there. Checking out f87f023.
+>
+> `check-locators.js` has **no** `--self-validate` — it errors on the
+> flag and runs ungated. Checking what §10.2a claims, and running my own
+> sweep rather than relying on it.
+>
+> Confinement instrument agrees with the scope document exactly, and
+> excludes §5.1 — confirming my probe artifact. Now the substantive
+> read.
+>
+> §10.2a says the locator run found `arms.js:882` "genuinely stale" —
+> a citation I verified as *correct* at revision 33. That reconciles only
+> if the source tree moved. Checking, because if it did, my
+> carried-forward locator verifications are void.
+>
+> The source tree moved 15,588 lines between anchors while spec sections
+> stayed byte-identical. Testing whether locators inside *unchanged* spec
+> sections went stale — the carry-forward basis doesn't cover that.
+>
+> Possible live finding in §4.4 — whose sole driver this revision was
+> locator re-verification. Reading it.
+>
+> §4.4 is correctly re-verified — my spot-check used a remembered
+> locator, not the r35 text. Correcting course: systematic sweep of every
+> citation into the three *moved* source files, across the whole scope.
+>
+> Two citations resolve to implausible lines — `arms.js:743` → `}`
+> and `:891-892` → `endpoint,`, both in §6.1 where siblings *were*
+> re-verified. Reading them in context.
+>
+> Confirmed a live one. Verifying its extent and why the instrument
+> passed it.
+>
+> **NO APPROVAL** — revision 35, §§3–8, blob
+> `12d51f858a29c5b0c494b8d7d03b061394cb932b` at `f87f023`. No row written
+> or drafted.
+>
+> **Manifest passes.** Both files hash exactly to the manifest once they
+> arrived as attachments. **I withdraw my earlier "two versus three
+> files" claim** — it was wrong. "Two" counts the hashed documents,
+> "three" counts those plus the manifest, and the pre-send attestation
+> says so plainly. I called it too fast.
+>
+> **G-A, SUBSTANTIVE.** §6.1 line 2110 still reads
+> *"`lib/arms.js:891-892` instead computes `roundToTie(…) >
+> roundToTie(…)`"*. At this anchor `arms.js:891-892` is `endpoint,` /
+> `weekDeltas,`; the comparison is at `:934-935`. `arms.js` grew 1,668
+> → 1,757 lines between anchors. Five live sites needed that update —
+> four got it, this one didn't — and two brackets in the document
+> (spec:2044, spec:5136) tell the reader `:891-892` "had drifted" and was
+> re-verified. §6.1's mechanical-correction label rests on the code
+> computing the tie-rounded form, and this is the sentence that
+> establishes it.
+>
+> **Why your instrument passed it, which is the more useful half.**
+> `check-locators.js` reports 76 citations, 0 failures. Its proximity
+> test fires only when a citation is immediately preceded by a
+> *backticked identifier*; at 2110 the citation opens the line and the
+> preceding span is an expression, so only the in-range test applied —
+> 891 ≤ 1757, pass. That's caution 8 from your own list. It also skips
+> bare `` `:NNN` `` citations by design, and it has no `--self-validate`
+> at all (it errors on the flag and runs ungated), so the commission's
+> "each with a known-answer self-validation" and the scope doc's "refuses
+> trust until its self-validation passes" aren't true of the fourth one.
+>
+> **Confinement verifies both ways** — and my first derivation was
+> wrong, adding a spurious §5.1. The new §5.2 moves §5.1's terminator;
+> your caution 5 is what made me look, and your instrument had it right.
+> **A carry-forward gap worth stating:** the source tree moved 15,588
+> lines across 43 files, which can stale a locator inside a spec section
+> that never changed. I tested it — the other cited files are
+> unchanged, and `arms.js:225` and `metrics.js:333` still resolve — so
+> no live defect, but byte-identity alone didn't establish that.
+>
+> **This pass is incomplete and I've said so in the file.** I stopped at
+> G-A. Thirteen of the twenty-two changed regions went unread, including
+> D1, D2, D5, D6, §8.6.6 and most of the transcribed register. Nothing I
+> marked clean covers them.
+>
+> **Recommendation, repeated harder:** send the next round to a different
+> reviewer whatever it contains. I prescribed three repairs at 33,
+> authenticated them at 34, prescribed two more, and am now
+> authenticating those at 35. No link is disqualifying; the chain is.
+
+**(3) Verification.** Every checkable claim in the response was verified
+against the repository before being acted on, and all held. At `f87f023`
+the specification's line 2110 cited `lib/arms.js:891-892` for the
+tie-rounded comparison while `arms.js` is 1,757 lines there, those two
+lines are parameter-list entries, and the cited comparison's sole site
+is `:934-935`; revision 35's sweep had updated four sibling citations -
+the four `:934-935` occurrences in the anchored bytes - and missed this
+one. The locator instrument's 76/0 clean report is explained,
+not excused: its proximity tier engages only when a backticked identifier
+precedes the citation, and this citation opens its line. The instrument
+had NO `--self-validate` and errored on the flag, so the packet's
+statements that all four instruments carry a known-answer self-validation
+- the commission's instruments paragraph and the scope document's
+"refuses trust until its known-answer self-validation passes" - were
+FALSE of the fourth instrument as delivered. That is a packet defect,
+disclosed here; the next packet states instrument status as of revision
+36. The response's `arms.js:743` observation resolved to text the
+specification brackets as historical to its issuing - not a second live
+defect - exactly as the reviewer's own stopping point implied.
+
+**(4) The response taken.** Revision 36 is anchored at `d52b0be`, spec
+blob `0950c6a3a8137a97dd207bddbc421a82a818c0e5`, SHA-256
+`D07B92075817B04D9355DD375B9B18243D5DE507CD504D82C70F503B0E45198C`; the
+instrument rebuild precedes it at `deacfd8`. It changes NO ruling, and
+zero approvals were in force, so nothing lapses. The systematic citation
+sweep the review's method forced - sixty-one qualified citations and
+about one hundred seventy-five bare occurrences, each resolved against
+`f87f023` and judged - found two further stale citations INSIDE sections
+3-8 (section 8.7 rule 5's `:305-308`/`:352-354`, a +7 comment shift with
+no repaired sibling anywhere, the worst of the three) and one
+out-of-scope pair (the preamble/section-0 `:418`/`:289`); all are
+repaired at revision 36 with inline brackets. The revision-34 review's
+deferred O-3 count was re-verified against every anchor from 26 through
+34 and corrected in section 10.2a. The locator instrument now carries the
+claim-expression tier, continuation and bare-citation extraction, and a
+sealed self-validation replaying this round's own escape in both
+directions; its remaining limits are disclosed in its docblock and in
+section 10.2a rather than left to be found. Confinement for
+`f87f023` -> `d52b0be`: set-equal in both directions, exactly {preamble,
+0, 6.1, 8.7, 10, 10.2a}. Locators at the anchor: 79 qualified + 83
+attributed bare citations, zero failures. Identifier-consistency: status
+revision 36, zero stale identifiers (a replay of that command exits
+FAILED on two unresolvable hash-shaped tokens - section 3's worked-example
+fixtures, present at every anchor and expected; the status and staleness
+checks it exists for are clean). Suite 2183/2180/0/3, measured in the
+isolated worktree, where the parked snapshot-manifest test early-returns
+on the absent local `backtest-data/`.
+
+**(5) The incomplete pass, on the record.** The reviewer stopped at G-A
+and says so: thirteen of revision 35's twenty-two changed regions went
+unread, including D1, D2, D5, D6, 8.6.6 and most of the transcribed
+register, and nothing marked clean covers them. No one should read this
+round as a partial endorsement of revision 35's substance; its one
+finding was verified, its coverage was one finding deep. The next review
+reads the full scope cold.
+
+**(6) The rotation.** The response recommends the next round go to a
+different reviewer whatever it contains, on grounds quoted whole above.
+**The study owner ACCEPTED the recommendation 2026-08-09, ruling in the
+words of their selection: "Fresh reviewer" - the next independent
+statistical commission is addressed to a reviewer with no prior contact
+with this study.** No recusal arises or is recorded - the
+reviewer's standing is what their own words state, and the ledger's only
+recusal remains entry 23 item (8)'s. Entry 25 item (3)'s obligation -
+the independent implementation review's commission must cite entry 25's
+exposure disclosure in its conflict question - is unchanged by this
+entry.
+
+**(7) Packet, forward.** The packet figures rot at this entry, per entry
+19 item (6)'s convention - at `0efc1cb` the ledger was 2,844 lines,
+twenty-five corrective entries, ten approval rows, and this entry changes
+those figures at HEAD. Every packet cut to date is SUPERSEDED and none
+may be delivered: the pairs `3973608f…`/`59fd71c3…`,
+`188cb5a7…`/`e0cd968d…`, `3a72ba94…`/`00f15307…` and
+`a1335572…`/`cd936994…` are all addressed to the row-7 reviewer, against
+refs this entry supersedes. The next packet is cut fresh against the ref that includes
+this entry, addressed to the new reviewer, states instrument status as of
+revision 36, and ships only under the send-step control, whose staleness
+gate binds the manifest to the ledger head. Whether and when it is
+delivered is the study owner's call.
