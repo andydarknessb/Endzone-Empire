@@ -213,6 +213,7 @@ remain prohibited pending the final independent implementation review.
 | 8 | `PHASE5_EXECUTION_SPEC.md` | `5EA91A5E23602101E725C5560DAE071BD6A81659AD33E48EC25F64BA6E959F78` | user | 2026-08-06 | S3 structurally non-estimable prospective deviation (section 7): reserve-class rows are excluded at roster construction under the frozen active-only cohort before any injury-status mapping, so prereg 4.2's rule has no row to apply to. **No S3 estimate is published**; exclusion counts may be published as context, never as a substitute S3 result; disclosed as an explicit prospective deviation from prereg 4.2. Unchanged in substance from row 5 | **APPROVED** |
 | 9 | `PHASE5_EXECUTION_SPEC.md` | `5EA91A5E23602101E725C5560DAE071BD6A81659AD33E48EC25F64BA6E959F78` | user | 2026-08-06 | remainder of revision 34, all provisions outside row 8's S3 deviation. **Scope of authorization: Gate 2 IMPLEMENTATION only — does NOT authorize candidate-cell execution**, which remains gated on the fourth approval. Attested after being shown section 10.3's disclosure and the two known-wrong counts recorded at corrective entry 19 item (5); the approver attested with knowledge of both, not in ignorance of them | **APPROVED** |
 | 10 | `PHASE5_EXECUTION_SPEC.md` | `5EA91A5E23602101E725C5560DAE071BD6A81659AD33E48EC25F64BA6E959F78` | independent implementation review | 2026-08-07 | Gate 2 implementation conformance to revision 34, sections 3-8 (lines 1060-3487; spec blob `e339020a3e61bfc32a20a3acd2f1f246f155a8b8` at anchor `81289fa0e980f5b71dbf7c660f036cfa253e44ae`), **reviewed at implementation commit `6e9411b8760525ea56182f47a7733a69ad0dd7c2`** on branch `integration`; reviewer of rounds 3-6, no authorship of any repair in the range. **Bounded as stated by the approver**: by the round-6 reach statement — four standing UNCHECKED items (real `seedFrom` output, section 4.6.2's contrast producers, the Semgrep scanner verdict, the microbenchmark) and the non-existence of the `--inputs` producer, so generation-side requirements are verified only as far as the reducer reaches — and by two open MINOR findings (H: `movingBlockBootstrap`'s unguarded accumulator; I: a mis-attributed diagnostic), neither reachable through the production entry point, which the approver expects closed or answered rather than silently carried. **Does NOT authorize candidate-cell execution**: Gate 4's B3 re-cut carrying the complete Phase 5 implementation and Gate 3's verification of it remain, per specification section 1 | **APPROVED** |
+| 11 | `PHASE5_EXECUTION_SPEC.md` | `DC1E1C413A6CDFCB9072393720020179C0FFD4E483137117B66DC0F25281AE43` | independent statistical review | 2026-08-09 | revision 38, sections 3-8; exact git blob `44fae65bce063e9eff2912e0827b868061bf7a15` at commit `d65bc1086227c76f3a0991cd31c577f2b2c9e96d`. **Reach as stated by the approver**: the reviewer who issued the revision-36 and revision-37 findings continued in the same session from `/home/claude/review-clone-r36/ez`; the eight changed in-scope regions and dependency surface were read anew, with the byte-identical remainder carried from that reviewer's prior two reads. Four MINOR findings F-1 through F-4 are inert and do not prevent approval. **Independence limitation**: the reviewer cannot audit whether other drafting sessions used the same assistant model; model-level novelty remains unresolved and is not represented here as proven | **APPROVED** |
 
 **Row 7's earlier reservation is superseded — see corrective entry 19.** The
 paragraph that follows was written at corrective entry 2, when rows 4-6 were
@@ -4248,3 +4249,417 @@ ledger HEAD containing this corrective entry. Entry 28 remains the verbatim
 record of the revision-37 reviewer response and its N-1 through N-10
 dispositions; this entry is the controlling correction for the owner-item
 mechanism order.
+
+### CORRECTIVE ENTRY 30 — appended 2026-08-09
+
+**This entry records the independent statistical APPROVAL of revision 38**
+and creates approval row 11. Entries 1-29 and rows 1-10 remain
+byte-for-byte untouched. The specification is not edited.
+
+**(1) The approval issued and the exact tuple was verified.** The reviewer
+approved:
+
+```
+scope      revision 38, sections 3-8
+SHA-256   DC1E1C413A6CDFCB9072393720020179C0FFD4E483137117B66DC0F25281AE43
+git blob  44fae65bce063e9eff2912e0827b868061bf7a15
+anchor    d65bc1086227c76f3a0991cd31c577f2b2c9e96d
+```
+
+The blob is identical at the anchor and at the delivery ledger HEAD
+`3817d6871787b3292ddd03aa890bc374009351e3`. The approver did not draft
+a row and closed with: "This decision is returned to the commissioning
+party to record." That is the explicit direction under which row 11 is
+written after approval issued.
+
+**(2) Delivery and review response.** The reviewer reproduced commission
+SHA-256
+`8fb405baf11475c9a2d258662d59cc63cb46e2d980b400cccde6ce6d8f12c2b3`,
+scope SHA-256
+`12e0a8d259090fa2983ce0c60b159062a1afc700415391710df4d579131728dd`,
+the exact three-file set, LF bytes, immutable specification tuple, chain,
+counts, all four instrument results, and remote staleness gate. The
+response is preserved verbatim:
+
+> # Independent statistical review — PHASE5_EXECUTION_SPEC.md revision 38, sections 3–8
+>
+> **Decision: APPROVAL.** Zero BLOCKER, zero SUBSTANTIVE, four MINOR findings —
+> each inert on every ruling, verdict, and evaluability decision.
+>
+> All three revision-37 SUBSTANTIVE findings are repaired. Six of the seven MINOR
+> findings are closed; the seventh is substantially closed with a residual
+> imprecision recorded below. The four MINOR findings I raise do not prevent
+> approval under the severity scheme this commission sets and that I have applied
+> in each prior round.
+>
+> ---
+>
+> ## 0. Threshold matters
+>
+> ### 0a. Addressee, independence, path
+>
+> I am the reviewer who issued the revision-36 and revision-37 findings, same
+> session, both reports in context. Prior exposure is the premise of this round.
+>
+> **The limit disclosed at revisions 36 and 37 stands and is unresolved**: I
+> cannot audit whether the drafting party, or the revisions 33–35 seat, was
+> occupied by the same assistant model in other sessions. No ledger entry records a
+> ruling on it. **It bears more weight now than it did in the prior two rounds,
+> because an approval is issuing.** It remains the study owner's call, and it is
+> the one thing about this review I cannot evidence myself.
+>
+> Work path, disclosed: **`/home/claude/review-clone-r36/ez`** — the same external
+> clone used for revisions 36 and 37, outside any drafting project directory,
+> fetched and checked out at `d65bc10`. No directory-keyed memory index loads here.
+>
+> ### 0b. Receipt and delivery — clean
+>
+> | check | result |
+> | --- | --- |
+> | `REVIEWER-COMMISSION-revision-38.md` | `8fb405baf11475c9a2d258662d59cc63cb46e2d980b400cccde6ce6d8f12c2b3` — **matches** |
+> | `REVIEWER-SCOPE-revision-38.md` | `12e0a8d259090fa2983ce0c60b159062a1afc700415391710df4d579131728dd` — **matches** |
+> | SET | **exactly three files, each name once — clean** |
+> | line endings | LF; zero CR bytes |
+> | superseded | neither matches the revision-37 pair |
+> | staleness gate | `git ls-remote origin refs/heads/integration` → `3817d6871787b3292ddd03aa890bc374009351e3` — **exact** |
+>
+> One methodological note against myself: my first set-check globbed `*38*` and
+> returned four files, because the revision-36 attestation's filename contains the
+> timestamp `133848Z`. That was a probe that could not distinguish the right answer
+> from the wrong one — caution 9's own failure mode, committed by the reviewer who
+> raised it. Re-checked by arrival time: exactly three files arrived in this
+> delivery at 20:15:25; the attestation is the turn-1 artefact, byte-identical and
+> untouched since 13:41:42. **Delivery is clean.**
+>
+> ### 0c. Bytes, chain, counts — all verified
+>
+> ```
+> $ git cat-file blob d65bc10:.../PHASE5_EXECUTION_SPEC.md | sha256sum
+> dc1e1c413a6cdfcb9072393720020179c0ffd4e483137117b66dc0f25281ae43
+> $ git rev-parse d65bc10:.../PHASE5_EXECUTION_SPEC.md   → 44fae65bce063e9eff2912e0827b868061bf7a15
+> $ git rev-parse 3817d68:.../PHASE5_EXECUTION_SPEC.md   → 44fae65bce063e9eff2912e0827b868061bf7a15
+> $ git check-attr text eol -- ...                        → text: set   eol: lf
+> ```
+>
+> Chain `d65bc10` (specification only) → `3e4fe54` (ledger, entry 28) → `3817d68`
+> (ledger, entry 29): touched paths match the commission exactly. Document 5,601
+> lines, 61 headings; section 3 opens at 1233, section 9 at 4306, so scope =
+> 1233–4305 = 3,073 lines. Ledger 3,721 at the anchor, 4,250 at HEAD, ten approval
+> rows at both, entry 29 present. Diff 90 insertions / 41 deletions. **Every count
+> in the packet's front matter is accurate.**
+>
+> ### 0d. Instruments — all four self-validate, all live results reproduce
+>
+> | check | reported | reproduced |
+> | --- | --- | --- |
+> | confinement | exact 10-region set, zero violations | ✓ identical, set-equal both directions |
+> | locators | 89 / 208 / 94 / 92 / 2 / 116; basis 153 / 18 / 10; 0 failures | ✓ identical |
+> | packet coverage | `missing: []` | ✓ |
+> | identifier | `[38]`, no stale, two declared tokens, nonzero exit | ✓ |
+>
+> ---
+>
+> ## 1. Disposition of the revision-37 findings
+>
+> ### N-1 — §6.2 boundary enumeration — **REPAIRED**
+>
+> Both in-scope copies (`:2546–2552`, `:2592–2596`) and the preamble copy (`:217`)
+> now read "**Seven** of section 8.1's eight passing boundaries … are status-model
+> thresholds; none appears in the eight-row component-(f) table above, and section
+> 8.2a governs them. The eighth, `+0.025`, is excluded from that sentence because
+> it is component (f)'s own sealed noninferiority margin, appears in the table, and
+> has no wide-straddle case; section 8.2a does not govern it."
+>
+> Recounted independently: §8.1's passing column carries exactly eight distinct
+> values; seven trace to prereg 9.2–9.7 as status-model boundaries reduced under
+> §8.2a rules 3 and 5; `+0.025` is `delta_F`, sealed at `PREREGISTRATION.md:841`,
+> implemented at `arms.js:759`, exact-only with no wide-straddle case (`:2912`).
+> The row count was also correctly bumped from "seven rows" to "eight rows" to
+> absorb the N-3 addition — the rotting-count hazard was caught this time.
+>
+> **All three predicates now hold.** VERIFIED.
+>
+> ### N-2 — §6.3 / §5.2 bye cross-reference — **REPAIRED**
+>
+> §6.3 (`:2636–2640`) now reads: "byes are OUT here by the substantive A4/D4
+> fail-safe choice and IN there by section 5.2's separately disclosed substantive
+> choice; **neither direction is forced by an invariant that reaches both
+> statistics**." That agrees with §5.2 (`:2085–2087`), and §6.3's
+> self-characterisation matches its own block label (`:2613–2615`, "substantive
+> prospective amendment") and body (`:2622–2624`, "in the fail-safe direction").
+>
+> Single-token sweep of `forced|forces|force|compel|invariant|requires|must` across
+> 1233–4305, plus a bye-token sweep: **no remaining sentence withdraws either bye
+> choice from approval.** VERIFIED.
+>
+> ### N-3 — §6.2 completeness declaration — **REPAIRED**
+>
+> An eighth row names the tie drop and sign count, and the conformity bullet at
+> `:2523–2531` shows the margin is folded into the operand before both comparisons.
+>
+> I re-enumerated every comparison in component (f) from the implementation myself
+> rather than from the table — `exactSignTest` (795–877), `componentFEndpoint`
+> (890–1028), `assertVetoRealizationCoverage` (1029–1082), `evaluateCatastrophicVeto`
+> (1084–1097), `componentF` (1120–1163). Every comparison against a frozen or
+> sealed threshold maps to a row, and every row maps to code:
+>
+> | code | threshold | row |
+> | --- | --- | --- |
+> | `:1086` | `CATASTROPHIC_CAP` 0.20 | 1 |
+> | `:985` | `DELTA_F` 0.025 | 2 |
+> | `:935` | 3.80 | 3 |
+> | `:926` | `FALSIFIABILITY_FLOOR` 0.30 | 4 |
+> | `:834`, `:858` | `alpha/7` | 5 |
+> | `:865` | `DELTA_F` as sign-test margin | 6 |
+> | `:954` | `MIN_F_CLUSTERS` 8, `MIN_F_ROWS` 30 | 7 |
+> | `:815`, `:817` | `0` after shift by signed `DELTA_F` | **8 (new)** |
+>
+> Everything else in those spans is a structural, cardinality, parity, sort or type
+> guard — `:818` (`n === 0`, cardinality of the empty non-tied set), `:833`, `:848`,
+> `:968`, `:983`, `:1066`, `:1092–1093`, `:1137–1138`. I considered `:818` and
+> rejected it: `0` there is a set size, not a frozen threshold, and nothing in the
+> sealed text supplies it. Recording that judgment so it is auditable.
+>
+> The tie set remains the sealed one — `PREREGISTRATION.md:865–868` shifts first
+> (`S_w = D_w - 0.025`) then drops exact zeros on ten-decimal values, and
+> `arms.js:813` rounds the difference, not the operands separately. No
+> `roundToTie(D_w)` vs `roundToTie(delta_F)` form exists anywhere in the path.
+>
+> **The eight-row table is complete.** VERIFIED.
+>
+> ### N-4 … N-10
+>
+> | id | verdict | check |
+> | --- | --- | --- |
+> | **N-4** | CLOSED | `controlCellEvaluator.js:122` is inside `pairwiseRowsByPosition` (`:117–137`); `armWeekEvaluator.js:118` is inside `intervalRows` (`:114–140`); `:227` is the pairwise delegation. §5.2 now distinguishes all three. |
+> | **N-5** | CLOSED | Grammar repaired to one subordinate + one main clause. Every historical claim in the bracket verified at the revision-32, -36 and -37 anchors: the ranges did read `:305-308`/`:352-354`; the shift is exactly +7; `:197` is in `buildPriorGames`; section 9 already carried `:296`. |
+> | **N-6** | CLOSED | `cohort.js:56` is the closed exclusion reason, `:276` the tally, `:353–367` the returned `counts.excluded` map. `rosterGeneration.js` and `rosters.js` carry no exclusion accounting, consistent with the corrected location. |
+> | **N-7** | CLOSED | Checked at the anchors, not from the narrative. Revision 32 (`9a03721`): both items 3 and 4 labelled, closing "Only items 3-4 are amended." Revision 36: item 3 relabelled, item 4's label intact. Revision 37: item 3 restored, item 4's removed, provenance recording only the first half. Revision 38's account matches all three and now records the removal. |
+> | **N-8** | CLOSED | `1 - 0.0071428571 = 0.9928571429` restored; quotation byte-identical to `PREREGISTRATION.md:948–950` modulo the sealed file's line wrap. |
+> | **N-9** | **SUBSTANTIALLY CLOSED** | The paraphrase is gone and the operative words are now verbatim. One residual imprecision — finding **F-1** below. |
+> | **N-10** | CLOSED | `projection.service.js:464` is `for (const playerId of playerIds) {`; `:467` is `projectFromBundle({`. §6.5 now cites both correctly. |
+>
+> ---
+>
+> ## 2. MINOR findings
+>
+> None of these can change a verdict, a cell status, an evaluability decision, or a
+> reader's understanding of any ruling. Each is a single-line edit.
+>
+> ### F-1 — §8.2a rule 2, line 2981: the prereg 10.6 quotation is closer but still not exact
+>
+> **Specification**: `…what keeps "the interval spans both the favorable and
+> harmful margin" (prereg 10.6) commensurate with the test it qualifies.`
+>
+> **Sealed** (`PREREGISTRATION.md:994–995`): "If **a component's** interval spans
+> both the favorable and harmful margin, the claim is INCONCLUSIVE."
+>
+> The operative words are now verbatim — the revision-37 paraphrase "spans both
+> margins" is gone, which was N-9's substance. What remains is the subject:
+> `a component's interval` is rendered as `the interval` inside quotation marks,
+> with no bracket or ellipsis. Rule 3 twenty lines later quotes the same clause
+> with its subject intact. The packet's claim that the quotation "now reads …
+> exactly" is therefore slightly overstated. Inert. **VERIFIED.**
+>
+> ### F-2 — §8.7, line 4036: "Four sealed sections" heads five bullets
+>
+> **Specification**: "**The gap this fills.** Four sealed sections each state a
+> piece of this and none states the whole:" — followed by bullets for **prereg 4.3**,
+> **12.1**, **12.2**, **10.6**, and **16**. Five.
+>
+> All five are load-bearing: 4.3 supplies the inheritance default rules 1–3 and 5
+> use; 16 supplies rule 4's grant. A reviewer auditing the resolution rules against
+> the sealed text is told to find four contributors and must guess which listed
+> section is not one. Stale since at least revision 32; the ten prior findings did
+> not reach it. Same class as M-1. **VERIFIED** (`grep -c '^- \*\*Prereg'` over the
+> block → 5).
+>
+> ### F-3 — §8.6.4, line 3905: the same loop cited at a different line than §6.5 now cites
+>
+> **Specification**: "scan each arm's own raw input `playerIds` array for repeated
+> ids BEFORE `generateProjections`'s **per-player loop** (`projection.service.js:465`,
+> `projections.set(playerId, ...)`) runs."
+>
+> The parenthetical's line and expression agree with each other — `:465` is
+> `projections.set(`. But the construct named is the loop, whose header is `:464`,
+> which is exactly the line §6.5 now cites after the N-10 repair. The document
+> cites one loop at two lines in two sections. Cross-section consistency is this
+> document's stated weakest axis, and this pair was created by two of my own
+> findings pulling in opposite directions (M-9 asked for `:465` for the *call*;
+> N-10 asked for `:464` for the *loop*). **VERIFIED.**
+>
+> ### F-4 — §8.6.5, line 3932: "eleven lines short of the loop" is ten
+>
+> **Specification**: "`:496` is the function signature, **eleven lines short of the
+> loop**".
+>
+> `projection.service.js:496` is `async function loadCachedRows(…)`; the loop is
+> `:506`; `byPlayer.set` is `:507`. 506 − 496 = **ten**. Eleven is the distance to
+> `:507`. The same loop-versus-first-body-statement conflation as F-3, in the
+> passage that narrates the repair of that very locator family. **VERIFIED.**
+>
+> ---
+>
+> ## 3. Recorded, deliberately NOT raised as findings
+>
+> Stated so the boundary of this review is visible rather than implied.
+>
+> - **§6.2's `0` and the eighth row.** The boundary sentence says the seven
+>   status-model boundaries — which include `0` — "appear in none of the eight rows
+>   above", and revision 38's new row 8 begins with `` `0` ``. I checked whether
+>   this is the `+0.025` collision repeating. **It is not.** §8.1's `0` is the
+>   zero-margin passing boundary for components (b), (c), (d), from prereg
+>   9.3/9.4/9.5, consumed by §8.2a's interval reducer. Row 8's `0` is the tie-drop
+>   origin for component (f)'s exact sign test, from prereg 9.8's tie/zero rule,
+>   and its threshold cell is explicitly qualified as "`0` after shifting by the
+>   signed `0.025` margin". Different components, different provenance, different
+>   operands. The sentence is **true**, and believing it leads a reader to nothing
+>   false. A token-level scan of the threshold column does return a hit, so one
+>   qualifier would make the claim checkable mechanically as well as by reading —
+>   worth doing at some later re-anchor, not a defect now.
+> - **`the harmful margin` at §8.1 `:2872`.** Attributed to prereg 10.6; the exact
+>   string "the harmful margin" does not occur, but the term "harmful margin" does
+>   (`PREREGISTRATION.md:995`). This is term-quoting, which is legitimate, and the
+>   substantive claim — that the sealed text never defines a harmful boundary — is
+>   correct. Not a finding.
+> - **`A4/D4` versus `D4`.** §6.3 names the 2026-08-08 ruling "A4/D4"; §5.2 and the
+>   history table name it "D4". Both resolve to the same ruling. Cosmetic.
+> - **Three sealed quotations lowercase a sentence-initial capital** where the
+>   clause is grammatically integrated, and several truncate at a clause boundary
+>   with a terminal period rather than an ellipsis. Standard practice; every
+>   elision removing interior material *is* marked. Not findings.
+>
+> ---
+>
+> ## 4. Carry-forward boundary and its basis
+>
+> **Read anew at revision 38, contiguously through the next peer-or-higher
+> heading**: the eight changed in-scope regions — `4.6`, `5.2`, `6.2`, `6.3`,
+> `6.5`, `7`, `8.2a`, `8.7` — plus the out-of-scope `preamble` and `10`, plus the
+> complete `72d43ac..d65bc10` diff line by line. Confinement confirms this set is
+> exact in both directions, not a subset.
+>
+> **Carried forward** to the byte-identical remainder of sections 3–8: my
+> revision-36 cold read of all 3,020 in-scope lines and my revision-37 re-read of
+> all fifteen regions changed there. That is my own work, and byte-identity was
+> confirmed from the diff rather than from the packet's account of it.
+>
+> **Dependency re-authentication, per the rule my own N-2 established.** Byte
+> identity is not sufficient. The regions whose claims rest on changed text:
+>
+> - **§6.1 depends on §6.2's table.** §6.1 `:2227` cites "the third row of the
+>   table immediately following it". Row 8 was appended at the end, so row 3 is
+>   still `3.80` and §6.1's classification survives on exactly the leg-5 terms
+>   §6.2 `:2488–2490` records. **Holds.**
+> - **§6.3 ↔ §5.2** — the dependency that failed last round. Both changed and now
+>   agree. **Holds.**
+> - **§8.1 ↔ §6.2's boundary paragraph** — §8.1 unchanged; §6.2's reference to it
+>   is now correct in all three copies. **Holds.**
+> - **§4.6 items 1–4** — labels unchanged from revision 37, which I verified
+>   correct against `PREREGISTRATION.md:948–952`; only the quotation and provenance
+>   changed. **Holds.**
+> - **§8.7 rule 5** — bracket grammar only; the profile-contingency ruling and the
+>   `:296` citation are unchanged. **Holds.**
+> - **§7** — mechanism unchanged from revision 37's repair; only the counts
+>   location was corrected. Conclusion unchanged. **Holds.**
+>
+> **Stated plainly:** the unchanged regions rest on my revision-36 and revision-37
+> reads plus this dependency check, not on a fresh line-by-line re-read at revision
+> 38. Across the three rounds I have read every line of sections 3–8 at least once
+> and every changed line at its own revision. That is the basis on which the
+> all-or-none approval issues.
+>
+> **Gate 0 held.** No candidate execution, no `backtest-data/snapshot/` or result
+> access, no sweep, report or Docker execution. Only the four read-only instruments
+> and arithmetic written from scratch.
+>
+> ---
+>
+> ## 5. Clean — stated explicitly
+>
+> - All six revision-36 SUBSTANTIVE findings: repaired and re-confirmed.
+> - All twelve revision-36 MINOR findings: closed and re-confirmed.
+> - All three revision-37 SUBSTANTIVE findings: repaired, each verified against the
+>   sealed text and the implementation rather than against its own description.
+> - §6.2's completeness declaration: **genuinely complete**, verified by enumerating
+>   component (f) from the implementation, not from the table.
+> - The force-family sweep across sections 3–8: clean.
+> - Rulings D1, D2, D4, D5, D6; §8.6.6's five mechanical-completion labels;
+>   §§8.2, 8.2b, 8.3, 8.4, 8.5, 8.6.0, 8.6.1; salt derivation; §4.6.1's
+>   exception-scope note; §6.3's asymmetry; §7's deviation and its conclusion; all
+>   stated inertness computations and counts: clean, on byte-identity plus the
+>   dependency check above.
+> - The ledger's own correction at entry 29 restores the mechanism order §7 states
+>   — injury-status mapping first, cohort exclusion and counting second, downstream
+>   roster construction and scoring last — and §7 matches that order.
+>
+> ---
+>
+> ## 6. Decision
+>
+> **APPROVAL.**
+>
+> > **revision 38, sections 3-8; exact git blob
+> > `44fae65bce063e9eff2912e0827b868061bf7a15` at commit
+> > `d65bc1086227c76f3a0991cd31c577f2b2c9e96d`**
+>
+> SHA-256 `DC1E1C413A6CDFCB9072393720020179C0FFD4E483137117B66DC0F25281AE43`.
+>
+> Per commission section 5 I have **not** drafted or appended a ledger row. This
+> decision is returned to the commissioning party to record.
+>
+> **Why approval and not another round.** The severity scheme has three tiers so
+> that MINOR means what it says. I have applied it consistently: in each prior
+> round I withheld approval naming only the SUBSTANTIVE findings, and the minors
+> rode along. Four cosmetic imprecisions — one quoted article, one "four" that
+> should be "five", two loop-line citations off by one — do not reach that bar, and
+> withholding on them would make the standard unfalsifiable. Nothing I found at
+> this revision can change a verdict, a cell status, an evaluability decision, or
+> the meaning of any ruling.
+>
+> **Two things the study owner should weigh before recording it.**
+>
+> 1. **This approval lapses on any byte change, including a change that fixes F-1
+>    through F-4.** Fixing them costs one re-anchor and a re-issued approval against
+>    the new blob. The choice between recording this approval now and fixing first
+>    is the owner's; I would not object to either, and I will re-authenticate a
+>    fix-only revision cheaply, since the four edits are single lines and the
+>    dependency surface is empty.
+> 2. **The independence limit is unresolved and now matters more.** Whether a fresh
+>    session of a possibly-recurring model satisfies entry 26 item (6)'s "fresh
+>    reviewer" is a question no clone answers and no instrument in this repository
+>    tests. Three rounds of findings do not settle it. If the owner reads the
+>    rotation as requiring model-level novelty, this approval should be discounted
+>    accordingly — and that is a decision available now, before it is recorded,
+>    which is strictly cheaper than after.
+
+**(3) Reach and independence limitation.** The approval's reach is exactly
+the approver's stated carry-forward basis: revision 38's eight changed
+in-scope regions were read anew; the byte-identical remainder carries from
+that same reviewer's revision-36 and revision-37 reads; changed
+dependencies were separately re-authenticated. The reviewer disclosed that
+they cannot audit whether drafting or revisions 33-35 used the same
+assistant model in other sessions. That model-level-novelty question
+remains unresolved and is recorded as a limitation, not silently converted
+into evidence of independence.
+
+**(4) Four open MINOR findings are deliberately not repaired in the
+approved bytes.** F-1 is an incomplete quotation subject in section 8.2a;
+F-2 says four sealed sections before five bullets; F-3 cites the
+`generateProjections` loop at its first body statement `:465` rather than
+its header `:464`; F-4 says eleven lines from `:496` to the `:506` loop
+rather than ten. Each was independently reproduced before recording this
+row. The approver found all four inert on every ruling, verdict, cell
+status, and evaluability decision. Fixing any one would change the approved
+blob and immediately lapse row 11, so no fix is made here.
+
+**(5) Approval and gate state.** **One of four approvals is now in force**
+against revision 38: row 11, independent statistical review. Still
+required against the same approved bytes are the S3 user attestation using
+entry 29's corrected mapping-first mechanism, the user approval of the
+remainder, and the independent implementation review performed strictly
+last against the complete implementation.
+
+**Gate 0 remains active.** This approval and row do not authorize candidate
+execution, frozen snapshot access, Docker sweep execution, report
+generation, or result inspection. None occurred while recording it.
