@@ -141,17 +141,74 @@ test('locators: a planted fixture with a known answer - good citations resolve, 
   assert.equal((byStatus['symbol-missing'] || []).length, 1);
 });
 
-test('locators: run against the real spec every citation resolves (revision 35 repaired the one stale locator)', () => {
+test('locators: the claim-expression tier catches the G-A form - a line-opening citation whose claimed expression is elsewhere', (t) => {
+  const root = plantedRepo(t);
+  // The G-A shape: no preceding backticked identifier, claim follows the
+  // citation, and the claimed expression's identifiers appear nowhere near
+  // the cited line - the citation is in-range but the claim is not there.
+  const stale = '`planted.js:3` instead computes `absentHelper(missingValue) > threshold`.';
+  const staleRun = locators.checkLocators({ repoRoot: root, docText: stale });
+  assert.equal(staleRun.failures.length, 1);
+  assert.equal(staleRun.failures[0].status, 'claim-mismatch');
+  // Same claim cited at the right line passes on the claim-expression basis.
+  const repaired = '`planted.js:2` instead computes `plantedFunction() === 1`.';
+  const repairedRun = locators.checkLocators({ repoRoot: root, docText: repaired });
+  assert.equal(repairedRun.failures.length, 0);
+  assert.equal(repairedRun.results[0].basis, 'claim-expression');
+  // A following span that is itself a citation is a cross-reference, not a
+  // claim - it must NOT engage the tier.
+  const crossRef = 'See `planted.js:5` and then `other.js:12` for the rest.';
+  const crossRun = locators.checkLocators({ repoRoot: root, docText: crossRef });
+  assert.equal(crossRun.results[0].basis, 'range-only');
+});
+
+test('locators: bare `:NNN` citations inherit the in-paragraph file, and historical brackets are exempt', (t) => {
+  const root = plantedRepo(t);
+  const doc = [
+    'The loop in `planted.js:2` runs; `plantedFunction` sits at `:2` too.',
+    '',
+    'A new paragraph breaks inheritance, so `:4` here is unattributed.',
+    'Historical: `planted.js:2` **[locators re-verified at revision 99; `:777` had drifted]** stays quiet.',
+  ].join('\n');
+  const result = locators.checkLocators({ repoRoot: root, docText: doc });
+  // `:2` inherits planted.js and passes on the identifier-window basis;
+  // `:4` is unattributed (paragraph break); `:777` is inside a drift
+  // bracket and never extracted.
+  assert.equal(result.bareTotal, 1);
+  assert.equal(result.bareResults[0].status, 'ok');
+  assert.equal(result.bareUnattributed, 1);
+  assert.equal(result.failures.length, 0);
+});
+
+test('locators: self-validation reproduces the sealed G-A escape in both directions', () => {
+  const validation = locators.selfValidate();
+  assert.equal(validation.staleReported, true, 'the sealed stale citation must be reported');
+  assert.equal(validation.repairedPasses, true, 'the corrected citation must pass');
+  assert.equal(validation.ok, true);
+});
+
+test('locators: run against the real spec - the revision-35 G-A stale locator is the one instrument-visible failure', () => {
   // repoRoot from this file's own location, not the cwd - the suite must
   // pass regardless of the directory it is launched from.
   const result = locators.checkLocators({ repoRoot: path.resolve(__dirname, '..', '..') });
   assert.ok(result.total > 50, `the spec cites code constantly; extracting only ${result.total} citations means the extraction is broken`);
-  // Revision 34's `weeksBelowFalsifiabilityFloor` locator (arms.js:882) was
-  // the one genuinely stale citation this instrument found on its first full
-  // run; revision 35's locator sweep repaired it and every drifted-in-window
-  // sibling.  Full cleanliness is the pinned state from here on - a failure
-  // here means a spec citation rotted against the tree.
-  assert.equal(result.failures.length, 0, `stale spec locators: ${JSON.stringify(result.failures)}`);
+  // The independent review of revision 35 found section 6.1's
+  // `arms.js:891-892` citation stale (the comparison lives at :934-935) -
+  // finding G-A - and this instrument's old proximity tier could not see
+  // it. The claim-expression tier exists because of that escape. The
+  // review round's OTHER two stale citations (section 8.7 rule 5's
+  // `:305-308`/`:352-354`, the +7 comment shift) live in a multi-part
+  // citation's non-head ranges, which carry no testable claim - the
+  // semantic sweep found those, not this instrument, and the docblock
+  // discloses that limit. This test pins the KNOWN STALE STATE and flips
+  // to zero failures when revision 36 repairs the spec text - the same
+  // pinned-defect pattern the arms.js:882 case followed into revision 35.
+  const signatures = result.failures
+    .map((f) => `${f.file}:${f.startLine}-${f.endLine}:${f.status}`)
+    .sort();
+  assert.deepEqual(signatures, [
+    'lib/arms.js:891-892:claim-mismatch',
+  ], `expected exactly the G-A stale locator: ${JSON.stringify(result.failures)}`);
 });
 
 // ---------------------------------------------------------------------------
