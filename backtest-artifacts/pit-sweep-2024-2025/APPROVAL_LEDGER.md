@@ -2465,3 +2465,115 @@ no future row number named, no widening of the approval's scope, and all
 four recorded identifiers resolving against git. These two statements were
 the only substantive misses, and the correction is made in the
 immediately-next entry, per this ledger's own precedent.
+
+---
+
+### CORRECTIVE ENTRY 23 — appended 2026-08-08
+
+**This entry records the revision 34 -> 35 re-anchor - the B3 re-cut's spec
+step - and THE LAPSE OF ALL FOUR APPROVALS (rows 7-10).** It creates no
+approval row and pre-fills none. **Entries 1-22 are not edited.**
+
+**(1) The anchor has moved.**
+
+```
+from   81289fa0e980f5b71dbf7c660f036cfa253e44ae   revision 34
+       blob e339020a3e61bfc32a20a3acd2f1f246f155a8b8
+       SHA-256 5EA91A5E23602101E725C5560DAE071BD6A81659AD33E48EC25F64BA6E959F78
+
+to     f87f023f2fb9e5b9cea3884dcf282f908dfabf53   revision 35
+       blob 12d51f858a29c5b0c494b8d7d03b061394cb932b
+       SHA-256 2272656621E76EE10F5038D29B33E778026906C473ADD7596F9DE8C67C8615F0
+```
+
+**(2) ALL FOUR APPROVALS LAPSE.** Rows 7, 8, 9 and 10 each authenticate
+SHA-256 `5EA91A5E…` (blob `e339020a…`); those bytes are superseded, so all
+four lapse as authorities - the first supersession since revision 18 to lapse
+live approvals, and the first ever to lapse an implementation review. **Per
+the deferral plan recorded at entry 21 item (4): known, accepted, not an
+accident.** Gate 0 is unchanged; zero approvals are in force and nothing is
+authorized.
+
+**(3) What revision 35 is.** The B3 re-cut's spec step, resolving the
+deferral batch: the six user rulings of 2026-08-08 sealed (D1 SPEC-C
+both-season with the veto's own domain arithmetic published at 6.1a/6.4/6.4a;
+D2 SPEC-A implemented as section 8.7 rules 6-7 with nine scope ambiguities
+pinned; D3 the generation-records checkpoint sealed in section 9, including
+the completed-run-resume detail; D4 prereg-4.1 eligibility propagated into
+6.3 with the section-5.2 asymmetry stated; D5 the half-PPR outcome-truth
+disclosure added to 8.7; D6 the estimand audit trail carried into the
+published schema at 8.4/8.5); the producer determinations register
+transcribed at its owning sections (items 1-5 and 7-12; item 6 is
+WITHDRAWN-CONFORMANT, recorded in section 10's table and NOT re-opened
+before any reviewer); the generation-seam wiring obligations sealed as
+section 8.6.6 with the two deliberately-unfixed adversarial notes disclosed;
+the seven inert findings closed (eight edits); sections 1 and 9 re-stated in
+non-rotting form; first-run expectations A, B and D recorded; section 10's
+table row practice restored (a 33 -> 34 record, the overtaken
+implementation-review row's forward clause, and the 34 -> 35 row); the four
+10.2a instruments recorded LANDED with their known-answer validations; and
+every `file.js:NNN` locator re-verified against the tree the revision will
+freeze with. **The preamble's revision-35 paragraph enumerates the exact
+changed-section set; a reviewer must READ those sections, not diff them.**
+
+**(4) The instruments ran BEFORE the anchor, each validated against its
+sealed known answer first.** Confinement: self-validation reproduces the
+28 -> 29 known set including 8.6.0; against the candidate it returns exactly
+the preamble's claimed set, set-equal in both directions, zero violations
+(result recorded in the anchor commit's message). Locators: 76 citations, 0
+failures - the one genuinely stale locator its first full run found
+(`arms.js:882`) is repaired at this revision, and the pinning test now
+asserts full cleanliness. Packet-coverage: 36 cited sections, missing set
+empty. Identifier-consistency: self-validated on revision 33's known case
+(reports the stale "31"); the auxiliary artifacts are stale at the moment of
+this entry, per item (9). A standing two-agent QA round (adversarial +
+claims-fidelity) also ran on the anchor candidate: zero fabrications; every
+confirmed finding was folded in before this anchor; and the one
+review-blocking-class adversarial claim (that the confinement known-answer
+validation was false) was itself REFUTED against 10.2a's sealed validation
+clause, which records the 15-section set the instrument embeds - the
+genuine residue, the 28 -> 29 history row's enumeration omitting sections
+0 and 1, is disclosed in 10.2a's bar paragraph.
+
+**(5) A correction to entry 18's item (3), recorded here because entries are
+never edited.** Entry 18 stated that revision 22 "also wrote the
+parenthetical" whose stale content carried F-A. A wrap-safe search - the
+phrase wraps as "coordinate / removal" across a line break, which is how
+single-line greps missed it - finds the parenthetical at EVERY anchor from
+revision 19 (`9759a64`) onward: it entered with section 8.7's CREATION,
+alongside rule 5's original removal ("Activation carries NO profile axis at
+all", revision 19's own rule 5). Revision 22 reversed the removal and left
+the parenthetical standing - that half of entry 18's account is unchanged;
+the range's start moves back by three revisions. The spec's 8.7 scope-limit
+note carries the corrected dating with the same evidence.
+
+**(6) The re-approval requirements** - stated without hashes and without row
+numbers, per corrective entry 2 rule 1 (counts) and entry 20 item (5) (no future row number is ever named in advance); no row is pre-filled:
+
+- an independent statistical review of sections 3-8;
+- a user attestation of the S3 deviation (unchanged in substance);
+- a user attestation of the remainder;
+- an independent implementation review, strictly last, of the COMPLETE
+  implementation at the intended freeze-candidate head.
+
+**(7) Sequencing, adopted as proposal (i) and flagged for the reviewer.**
+All four rows are appended BEFORE the Gate 4 freeze chain (A' -> M' -> B3)
+is cut, so `POST_B_ALLOWED_PATHS` stays output-only and no post-B3 ledger
+append is needed. The hold's "that implementation has passed Gate 3" is read
+as satisfied by review of the FREEZE-CANDIDATE HEAD - B3's tree differs from
+it only by the regenerated MDE artifact and the freeze manifest, both
+generated outputs - and revision 35's section 1 states that reading rather
+than leaving it silent. If the reviewer rules that the reviewed object must
+be B3 itself, the fallback is naming `APPROVAL_LEDGER.md` on the repaired
+allowlist, disclosed as such and defensible (the ledger is append-only and
+append-purity is auditable by numstat and ordered-subsequence, never
+byte-prefix).
+
+**(8) Packet-delivery terms.** Every packet ships with a SHA-256 manifest of
+its contents. The round-1/2 reviewer remains recused; their branch is
+withheld.
+
+**(9) The auxiliary artifacts are stale at the moment of this entry** and
+are re-pinned immediately after it: the handoff and the memory index. The
+reviewer scope and commission documents ride with the re-approval
+commissioning, untracked by design and transmitted out of band.
