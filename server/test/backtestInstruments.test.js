@@ -141,18 +141,17 @@ test('locators: a planted fixture with a known answer - good citations resolve, 
   assert.equal((byStatus['symbol-missing'] || []).length, 1);
 });
 
-test('locators: run against the real spec it extracts citations and knows the one currently-stale locator (arms.js:882, riding to revision 35)', () => {
+test('locators: run against the real spec every citation resolves (revision 35 repaired the one stale locator)', () => {
   // repoRoot from this file's own location, not the cwd - the suite must
   // pass regardless of the directory it is launched from.
   const result = locators.checkLocators({ repoRoot: path.resolve(__dirname, '..', '..') });
   assert.ok(result.total > 50, `the spec cites code constantly; extracting only ${result.total} citations means the extraction is broken`);
-  // The step-2 tree moved component-(f) code, so the spec's revision-34
-  // locator for `weeksBelowFalsifiabilityFloor` is genuinely stale.  This
-  // pin DOCUMENTS the known defect the revision-35 drafting step must repair
-  // - when it is repaired, update this to assert full cleanliness.
-  const stale = result.failures.filter((failure) => failure.identifier === 'weeksBelowFalsifiabilityFloor');
-  assert.equal(stale.length, 1, `expected exactly the one known stale locator, got ${JSON.stringify(result.failures)}`);
-  assert.equal(result.failures.length, 1);
+  // Revision 34's `weeksBelowFalsifiabilityFloor` locator (arms.js:882) was
+  // the one genuinely stale citation this instrument found on its first full
+  // run; revision 35's locator sweep repaired it and every drifted-in-window
+  // sibling.  Full cleanliness is the pinned state from here on - a failure
+  // here means a spec citation rotted against the tree.
+  assert.equal(result.failures.length, 0, `stale spec locators: ${JSON.stringify(result.failures)}`);
 });
 
 // ---------------------------------------------------------------------------

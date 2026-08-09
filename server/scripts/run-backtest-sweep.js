@@ -723,7 +723,7 @@ function deriveComponentFOperands(cellName, { matchedOffBaselineRows, cohortRost
   // green, which is SUBSTANTIVE 2's divergence by another door.
   const cohortKeys = new Set((cohortRosterRows || []).map((row) => `${Number(row.season)}:${Number(row.week)}:${Number(row.playerId)}`));
   // Prereg 4.1's exclusion propagates into 6.3's membership (the A4 ruling,
-  // 2026-08-08, riding to the B3 spec revision): a bye or non-macro member
+  // 2026-08-08, sealed at spec revision 35, section 6.3): a bye or non-macro member
   // has no scored endpoint row, so its exactly-zero error pair must not
   // dilute D_w. Eligibility is validated for EVERY cohort row - a malformed
   // position/onBye is an artifact defect, never a silent non-member.
@@ -773,8 +773,8 @@ function deriveComponentFOperands(cellName, { matchedOffBaselineRows, cohortRost
  *
  * 2025 SCOPING is required, not stylistic: the veto domain is deliberately
  * unscoped by season (SPEC-C, RULED both-season by the user 2026-08-08 -
- * the interim reading is now the sealed one, riding to the B3 spec
- * revision's 6.1/6.1a/6.4/6.4a text), while f1's estimand is "the MEDIAN
+ * the interim reading is now the sealed one, per spec revision 35's
+ * 6.1a/6.4/6.4a text), while f1's estimand is "the MEDIAN
  * over 2025 season-weeks" (prereg 9.8) and its qualifying weeks are the
  * 2025-only set deriveComponentFOperands computes. The two derivations stay
  * SEPARATE functions for the same reason their docblocks already state: they

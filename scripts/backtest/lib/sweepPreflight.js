@@ -36,8 +36,8 @@ function deriveCohortPlayerWeeks(rows, label = 'cohort roster') {
 /**
  * Component (f) subgroup ELIGIBILITY: prereg 4.1's point-accuracy exclusion
  * (macro position, not on bye) propagated into section 6.3's membership -
- * the A4 membership ruling, made 2026-08-08 and riding to the B3 spec
- * revision. A cohort member on bye or outside the six macro positions
+ * the A4 membership ruling, made 2026-08-08 and SEALED at spec revision 35
+ * (section 6.3). A cohort member on bye or outside the six macro positions
  * contributes no scored endpoint row (`armWeekEvaluator`'s prereg-4.1
  * exclusion), so it carries no (f) evidence either: its error pair is an
  * exactly-zero delta that can only dilute `D_w` toward the veto NOT firing.

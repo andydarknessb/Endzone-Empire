@@ -38,17 +38,18 @@ const SENSITIVITY_SEASONS = Object.freeze(['2025']);
 
 /**
  * Prereg 16's two WEEK-WINDOW families (SPEC-A, decision D2 ruled by the user
- * 2026-08-08: implement; riding to the B3 revision for sealed text).  The
+ * 2026-08-08: implement; SEALED at spec revision 35 as 8.7 rules 6-7).  The
  * weeks-2-17 sensitivity drops Week 18, whose widespread starter rest is a
  * common shock the paired contrasts already cancel; the Week-18 absolute
  * metrics are additionally published on their own - a one-cluster family that
  * lands in section 4.6.4's `degenerate` branch by construction.  Both families
  * are DERIVED from rule 1's already-validated per-week rows, never a second
  * input array, so one number can never carry two different values - section
- * 4.6.1's identity doctrine.  Scope defaults pending the revision-35 text:
- * absolute metrics only, the primary profile only (rule 4's "and nothing
- * else" bars composing these windows with `standard`/`ppr`), both seasons,
- * all seven endpoints over all eight cells, no moving-block companions.
+ * 4.6.1's identity doctrine.  Scope SEALED at revision 35 (spec 8.7 rules
+ * 6-7): absolute metrics only, the primary profile only (rule 4's "and
+ * nothing else" bars composing these windows with `standard`/`ppr`), both
+ * seasons, all seven endpoints over all eight cells, no moving-block
+ * companions, union-then-window composition per spec 4.6.2.
  */
 const WEEK_WINDOWS = Object.freeze([
   Object.freeze({ window: 'weeks-2-17', weeks: Object.freeze(EVALUATED_WEEKS.filter((week) => week !== 18)) }),

@@ -2,7 +2,7 @@
 
 Study id: `pit-sweep-2024-2025` (same study as `PREREGISTRATION.md`).
 
-**Status: revision 34. NO APPROVALS ARE IN FORCE FOR THESE BYTES.**
+**Status: revision 35. NO APPROVALS ARE IN FORCE FOR THESE BYTES.**
 
 **[stale status corrected at revision 29]** This line and the one below read
 "revision 26" from revision 26 through revision 28, while the document was
@@ -54,7 +54,7 @@ and no copy survives (the file was untracked at the time). Revision 13's
 successor blob (`0661eafc95...`, committed as an immutable anchor) was
 submitted for fresh independent statistical review and **REJECTED** on four
 blockers. Revision 14 was that rejection's response; it was itself rejected,
-as was revision 15. **The current revision is 34**, and the full chain is
+as was revision 15. **The current revision is 35**, and the full chain is
 recorded below and in `APPROVAL_LEDGER.md`.
 
 **[status line corrected at revision 34, the FOURTH recorded instance.]** These
@@ -67,6 +67,71 @@ sections 3-8, so no reviewer scoped to the approval range meets it. **Recording
 a hazard class is not an instrument aimed at it**, which is what four
 occurrences under a recorded class demonstrate. Section 10.2a now specifies the
 identifier-consistency check that is.
+
+**[count corrected at revision 35]** The paragraph above says "the FOURTH
+recorded instance", counting stale-status RUNS rather than stale revisions and
+miscounting even so. The published record is FIVE stale revisions - 27, 28, 30,
+32, and 33 - across THREE runs ("26" at revisions 27-28, "29" at revision 30,
+"31" at revisions 32-33; revision 26's own "26" was true when anchored). The
+old paragraph is not rewritten; the correction is appended so the miscount
+stays visible alongside its repair.
+
+**REVISION 35 IS THE B3 RE-CUT'S SPEC STEP: it resolves the deferral batch
+recorded at ledger entry 21 item (4), and it MOVES THE APPROVAL SCOPE.** All
+four approvals in force against revision 34 (ledger rows 7-10, blob
+`e339020a`) lapse at this anchor, per the deferral plan - the first
+supersession since revision 18 to lapse live approvals, and the first ever to
+lapse an implementation review. What changes, by class:
+
+- **The six user rulings of 2026-08-08** (D1-D6, all "accept the
+  recommendation; D1 both-season"): the SPEC-C catastrophic-veto season scope
+  sealed as BOTH-SEASON with the veto's own domain size published
+  (6.1a/6.4/6.4a, substantive); the two prereg-16 week-window families
+  implemented as section 8.7 rules 6-7 with their scope pinned (substantive);
+  the `--records-out`/`--records-in` generation-records checkpoint adopted
+  (section 9, substantive); prereg 4.1's eligibility propagated into 6.3's
+  subgroup membership with the permutation-domain asymmetry stated (6.3 and
+  5.2, substantive); 8.7's cohort disclosure extended to half-PPR-priced
+  outcome truth (substantive); and the estimand audit trail carried into the
+  published document schema (8.4/8.5, substantive).
+- **The producer determinations register transcribed** (sections 4.6, 4.6.2,
+  5.2, 8.3, 8.4, 8.5, 8.6.0; per-item labels inline; determination 6 is
+  WITHDRAWN-CONFORMANT and is recorded in section 10's table only, not
+  re-opened).
+- **The generation-seam wiring obligations sealed** as section 8.6.6
+  (mechanical completions, each forced by an existing sealed requirement).
+- **The seven inert findings closed** (eight edits: this preamble's miscount;
+  8.7's misdated parenthetical; 8.6.1's defined-implies-MET inference struck
+  and re-evidenced; 6.2's list completed with `exactSignTest`'s two
+  `<= alpha` sites and `boundAgrees`,
+  inertness shown; 8.2b's Level-1 enumeration completed with 6.4a's fifth
+  void
+  cause; 8.2's untriggered `wide-straddle`-beats-`passed` precedence stated
+  from extracted reducer behavior; SPEC-A rides as rule 6-7; SPEC-B is the
+  `boundAgrees` row).
+- **Disclosures and narrative repairs**: section 9's no-consumer condition
+  restated as of these bytes (it is now FALSE - the count has consumers);
+  first-run expectations A, B, and D recorded in section 9; the two
+  deliberately-unfixed adversarial notes disclosed in 8.6.6; section 1
+  re-stated in non-rotting form; section 6.1's owed tests recorded MET;
+  locators re-verified against this tree (every drifted citation repaired,
+  brackets inline).
+- **Housekeeping**: section 10's table regains its row practice (a 33 -> 34
+  record, the overtaken implementation-review row's forward clause, and this
+  step's row); section 10.2a's bar paragraph records the four instrument
+  scripts LANDED and known-answer-validated; section 11.3(b) extended to the
+  `--inputs` producer modules and the instruments.
+
+**A reviewer must READ the changed sections, not diff them.** The
+confinement check's mapped set for this step, exactly: the preamble and
+sections 1, 4.4, 4.6 (the intro and all of 4.6.1-4.6.4), 5.2 (new; section
+5's intro and 5.1 are untouched), 6.1, 6.1a, 6.2, 6.3, 6.4, 6.4a, 8.2,
+8.2b, 8.3, 8.4, 8.5, 8.6.0, 8.6.1, 8.6.6 (new), 8.7, 9, 10, 10.2a, 10.3 (one
+locator repair only), and 11.3's list (b). **Byte-identical
+to the revision-34 anchor and safe to diff**: sections 0, 2, 3 (all
+subsections), 4.1-4.3, 4.5, 5's intro and 5.1, 6.5, 7, 8.1, 8.2a, 8.6.2,
+8.6.3, 8.6.4, 8.6.5,
+10.1, 10.2, 11.1, 11.2, and 11.3's list (a).
 
 **Revision 33 answers an independent statistical review that returned NO
 APPROVAL on eight findings, and UNLIKE revisions 30, 31 and 32 it MOVES THE
@@ -442,7 +507,14 @@ recording a satisfied requirement.** Revision 22 introduced it at a single
 site in section 8.6.1; revision 24 applies it at six more. It is adopted by
 this sentence rather than by repetition, because a convention that becomes
 standing by propagation is harder to revisit than one that became standing
-by decision.
+by decision. **[rule added at revision 35, per the accepted round-3
+disposition]** **Definition and export are never evidence of invocation, and
+no status block may cite them as such.** A MET status must cite the evidence
+that the required thing actually RUNS - a call site on the governed path, or
+a test that fails when the invocation is removed - never that a function
+exists and is exported. The worked instance is section 8.6.1's single-leaf
+guard block, whose revision-22 form inferred MET from definition and export
+and is re-evidenced at revision 35 from actual invocation.
 
 **Byte-identity for the 23 to 24 step is available PER REGION, not
 document-wide.** Sections 4.6 and 8.7 are byte-identical to revision 23 and
@@ -915,10 +987,12 @@ Commit B2 `dfd8ae1`), which is the only frame in which the Gate 0 barrier
 means anything: prereg 17 requires candidate sweeps to execute from a
 detached worktree checked out at B, so what matters is what B2's tree
 carries, not what `integration`'s HEAD carries. **One clause is now false at
-HEAD and true at B2, and revision 21 did not say so**: `sweep` mode. At HEAD,
-`backtest-entrypoint.js:274` is
-`const MODES = Object.freeze(['freeze', 'sweep'])` with `runSweep()` at
-`:300-306`, and `server/scripts/run-backtest-sweep.js` exists. **At B2,
+HEAD and true at B2, and revision 21 did not say so**: `sweep` mode. At HEAD
+**[re-verified against this revision's tree at revision 35]**,
+`backtest-entrypoint.js:285` is
+`const MODES = Object.freeze(['freeze', 'sweep', 'inputs'])` with `runSweep()`
+at `:311`, and both `server/scripts/run-backtest-sweep.js` and
+`server/scripts/run-backtest-inputs.js` exist. **At B2,
 `backtest-entrypoint.js` contains exactly ONE occurrence of the string
 `sweep`, at `:58`, and it is the study-id path segment
 `pit-sweep-2024-2025`, not a mode. [corrected at revision 27]** Revisions 21
@@ -947,14 +1021,20 @@ all four approvals are recorded, in `APPROVAL_LEDGER.md`, against the
 SAME approved revision of this document.
 
 **Authorization state as of THE ANCHORED BYTES: NOTHING IS AUTHORIZED.
-[re-stated in non-rotting form at revision 31]** Zero of the four approvals
-are in force against THESE bytes. Revision 18 held three (ledger rows 4-6)
-and Gate 2 implementation proceeded under row 6; every revision since has
-superseded those bytes, so all three lapse and must be re-issued at the hash
-of the current anchor. **Every revision since 18 accumulated no approvals**,
-so no supersession since has lapsed anything - **several drew rounds that
-raised findings and issued no approval, and section 10's table is the
-enumeration.**
+[re-stated in non-rotting form at revision 31; re-drafted at revision 35,
+which the facts changed]** Zero of the four approvals are in force against
+THESE bytes. Revision 18 held three (ledger rows 4-6) and Gate 2
+implementation proceeded under row 6; revision 19 superseded those bytes and
+all three lapsed. **Revision 34 then accumulated ALL FOUR approvals** -
+ledger rows 7-10, each authenticating blob `e339020a`: the independent
+statistical review, the two user attestations, and the independent
+implementation review of the complete implementation. **THESE bytes
+supersede that blob, so all four lapse at this anchor** - the first
+supersession since 18 to lapse live approvals, the first ever to lapse an
+implementation review, and a step taken knowingly under the deferral plan
+recorded at ledger entry 21 item (4), not by accident. Every OTHER revision
+between 18 and 34 accumulated no approvals, and section 10's table is the
+enumeration.
 
 **This paragraph carried four rotting endpoints until revision 31**: it
 opened "as of revision 28" while the document stood at 31, bounded the
@@ -968,13 +1048,28 @@ newer number and an appearance of greater care. A claim about *these bytes*
 is true by construction at every anchor; a claim about a numbered revision
 is true until the next one.
 
-**THIS REVISION awaits all three fresh approvals**: its own independent
-statistical review (sections 3-8, which is where sections 4.6, 6.1, 6.2, and
-8.7 sit) and, if that issues, the two user attestations (the S3 deviation,
-unchanged in substance from revision 18, and the remainder). **Section 10.3
-is required reading before any of the three**: it discloses that the bytes
-approved as rows 4-6 contained an internal contradiction between sections
-6.1 and 6.2 that six subsequent revisions did not catch.
+**THIS REVISION awaits all FOUR fresh approvals**: its own independent
+statistical review (sections 3-8, which is where sections 4.6, 5, 6, and 8
+sit and where this revision's substantive amendments land), the two user
+attestations (the S3 deviation, unchanged in substance from revision 18, and
+the remainder), and the independent implementation review - strictly last, of
+the COMPLETE implementation at the intended freeze-candidate head. **The
+sequencing adopted for the re-cut is stated here rather than left silent: all
+four approval rows are appended BEFORE the Gate 4 freeze chain (A' -> M' ->
+B3) is cut, so `POST_B_ALLOWED_PATHS` stays output-only; and the object the
+implementation review examines is the FREEZE-CANDIDATE HEAD** - the last
+non-output commit - **which this document reads as satisfying the hold's
+"that implementation has passed Gate 3 verification (including the
+independent implementation review)" clause**, since the re-issued review is
+among the four pre-freeze rows and B3's tree differs
+from the reviewed head only by the regenerated MDE artifact and the freeze
+manifest, both
+generated outputs. That reading is flagged to the reviewer; if it is ruled
+insufficient, the fallback is naming `APPROVAL_LEDGER.md` on the repaired
+allowlist, disclosed as such. **Section 10.3 is required reading before any
+of the four**: it discloses that the bytes approved as rows 4-6 contained an
+internal contradiction between sections 6.1 and 6.2 that six subsequent
+revisions did not catch.
 
 **THE SECTIONS 3-8 BOUNDARY IS THIS DOCUMENT'S DOMINANT FAILURE GEOMETRY, and
 it is stated once here rather than instance by instance. [folded at revision
@@ -1003,28 +1098,31 @@ claims, even though section 9 is out of their reach.
 remainder attestation's scope is the approver's decision and this is what
 turns on it. **The fourth row is the warning against assuming scope is the
 whole problem**: both halves sat inside sections 3-8 and four review rounds
-passed over the contradiction anyway. **Further
-Gate 2 implementation work
-is NOT currently authorized** - implementation is paused at the point
-revision 19 described and every revision since restates - and candidate-cell
-execution is separately and additionally gated on the fourth approval (the
-independent implementation review of the resulting Gate 2 code).
+passed over the contradiction anyway. **[re-stated at revision 35]** The
+implementation work this revision's rulings require has LANDED at these
+bytes, test-pinned. It proceeded while rows 7-10 were IN FORCE and under
+the user's explicit 2026-08-08 rulings; the deferral plan of ledger entry
+21 item (4) is what SCHEDULED the pre-freeze code window, and the
+then-in-force approvals are what the work landed under - a plan schedules,
+it does not authorize, and no narrative text supplies an approval.
+**Candidate-cell execution remains barred**, gated
+on all four fresh approvals, Gate 3, and the Gate 4 freeze chain, per the
+hold above.
 
-**The Gate 2 code built under revision 18's row 6 does not conform to the
-current revision.** `sweepEvidence.js` implements neither section 8.7's
-profile axis nor section 4.6's interval method, and revision 22 widened the
-gap further: it must additionally carry a season coordinate (4.6.1), the
-total reducer (4.6.4), rule 4's fixed row set, and rule 5's `half_ppr`
-pinning - which replaces the coordinate-removal revision 21 called for, so
-any work done against that instruction must be revisited. **Revision 24 adds
-exactly one further item**, in the opposite direction from the rest: section
-6.1's required test that `FALSIFIABILITY_FLOOR` is referenced by nothing
-returning a status does not exist, and neither does the mutation test that
-changing `0.30` alone changes no status. Everything else section 6.1 and
-section 4.4 require of the code is already MET, as those sections now record
-directly. That code must be brought into conformance before the fourth
-approval is sought; the fourth approval is single-use and must not be spent
-on an implementation already known to be non-conformant.
+**Implementation conformance, as of THESE bytes. [re-drafted at revision 35;
+the revision-24 account of a non-conformant Gate 2 implementation went false
+as the code was brought into conformance across the subsequent rounds]** The
+implementation at this anchor carries everything this document requires of
+it, and the two items revision 24 recorded as owed - section 6.1's test that
+`FALSIFIABILITY_FLOOR` is referenced by nothing returning a status, and the
+mutation test that changing `0.30` alone changes no status - **now exist and
+are recorded MET in section 6.1's status block, with their locations**. The
+code changes this revision's own rulings require (D1-D6) landed 2026-08-08,
+each pinned by tests, BEFORE this text was anchored - code first, spec
+citations taken against the tree they will freeze with, per the lesson of
+the ten stale locators at revision 24. The independent implementation review
+must be RE-ISSUED against the freeze-candidate head; its lapsed predecessor
+(row 10) is history, not authority.
 
 **No section of THIS document supplies or evidences an approval.**
 `APPROVAL_LEDGER.md` is the sole authoritative record; section 10 below is
@@ -1258,12 +1356,14 @@ sealed text does not support.
    pairwise accuracy over few eligible pairs) can otherwise register as
    non-degenerate purely from floating-point representation noise.
 
-   **Status of that requirement [revision 24]. MET.** `lib/metrics.js:458`
+   **Status of that requirement [revision 24]. MET.** `lib/metrics.js:464`
+   **[locators re-verified at revision 35; `:458` had drifted]**
    is `distinctValues: new Set(Array.from(sorted, (v) => roundToTie(v))).size`,
-   and the comment at `:449-457` cites "PHASE5_EXECUTION_SPEC.md section 4.4
+   and the comment at `:455-463` cites "PHASE5_EXECUTION_SPEC.md section 4.4
    item 1" by name.
 2. **Build the inverted bound's sorted array from the non-tied subset**,
-   fixing `exactSignTest`'s (`lib/arms.js:765`) index/sample mismatch:
+   fixing `exactSignTest`'s (`lib/arms.js:795` **[locator re-verified at
+   revision 35; `:765` had drifted]**) index/sample mismatch:
    the current code computes `n`/`k` from `nonTied` (margin-shifted values
    with exact ties dropped) but builds `sortedDeltas` from the FULL,
    untrimmed `weekDeltas` array and indexes it at `sortedDeltas[j - 1]`
@@ -1272,9 +1372,10 @@ sealed text does not support.
    **Fix**: the sorted array must be built from the SAME non-tied subset of
    (unshifted) deltas that produced `n` and `k`.
 
-   **Status of that requirement [revision 24]. MET.** `lib/arms.js:776-778`
-   builds `nonTiedPairs` and derives both `n` and `k` from it, and the
-   comment at `:789-792` cites "Section 4.4 item 2" by name, stating that the
+   **Status of that requirement [revision 24]. MET.** `lib/arms.js:815-817`
+   **[locators re-verified at revision 35; `:776-778` and `:789-792` had
+   drifted]** builds `nonTiedPairs` and derives both `n` and `k` from it, and
+   the comment at `:828-831` cites "Section 4.4 item 2" by name, stating that the
    sorted array comes from "the SAME non-tied subset (of unshifted x-values)
    that produced `n` and `k` - never the full, untrimmed weekDeltas array."
    **The sentence above beginning "the current code computes" is WITHDRAWN.**
@@ -1381,6 +1482,17 @@ harder to obtain, never easier - which is why it was a minor finding rather
 than a blocking one, and why correcting it does not weaken anything a prior
 approver relied on.
 
+**The per-week value of an ABSOLUTE descriptive row, sealed. [transcribed at
+revision 35 from the producer determinations register, item 1 -
+mechanical completion]** The per-week value entering this section's bootstrap
+for an absolute row is the **arithmetic mean of the 24 salt-specific week
+values, accumulated in `metrics.SALTS` order**. Section 5 pins exactly this
+within-week salt average for the permutation statistic, and section 3.3's
+common-random-number doctrine makes the salts replicates of one week; no
+sealed text states a different estimator for the descriptive absolute
+families, so this fills that silence with the only reading consistent with
+both.
+
 #### 4.6.1 The SEASON coordinate **[substantive prospective amendment]**
 
 Prereg 12.1 is season-UNQUALIFIED - "all 8 cells' absolute metrics and all
@@ -1391,9 +1503,14 @@ first-class safety season carrying component (e1) and four of the thirteen
 which prereg 9.7 evaluates on 2025 and 2024; the coverage row and all four
 scoring-profile rows are 2025-only). **The descriptive families therefore carry a SEASON
 coordinate, and rows are published for BOTH 2024 and 2025, with one
-exception**: section 8.7 rule 4's prereg 16 sensitivity family is 2025-only,
-because prereg 9.7 evaluates all four scoring-profile inequalities on 2025
-alone and rule 4's row set mirrors them. Every other descriptive family
+exception**: section 8.7 rule 4's prereg 16 **SCORING-PROFILE** sensitivity
+family is 2025-only, because prereg 9.7 evaluates all four scoring-profile
+inequalities on 2025 alone and rule 4's row set mirrors them. **[exception
+scope tightened at revision 35]** That exception is rule 4's family ALONE:
+the two prereg-16 WEEK-WINDOW families that section 8.7 rules 6-7 add at
+revision 35 are also prereg-16 families, and they are NOT captured by it -
+their bullets name no season, so they take this section's default and carry
+**both seasons**. Every other descriptive family
 carries both seasons. Publishing 2025
 alone would silently narrow a sealed publication requirement.
 
@@ -1428,6 +1545,48 @@ sets and defeat the comparison the section is for.
 each `(season, scoring profile, endpoint)` - never pooled across families, so
 a sparse week in a `ppr` sensitivity row never drops a week from the primary
 `half_ppr` matrix.
+
+**How the union composes with section 8.7's week-window families. [added at
+revision 35 with rules 6-7]** The two prereg-16 week-window families are
+DERIVED re-analyses of rule 1's rows, so they inherit rule 1's union rather
+than computing a second one: **the all-eight-cells union is taken on the full
+family first, and the window (`weeks-2-17`, `week-18-only`) then intersects
+the surviving set.** The commensurability rationale above reaches its sharpest
+consequence at the one-candidate-week window: **a week 18 that fails the
+union in ANY cell renders the whole `week-18-only` family `unevaluable` for
+that `(season, endpoint)`, across all eight cells.** The per-cell-own-week
+alternative was considered and rejected on this section's own grounds - it
+would publish a side-by-side family over different weeks, which is the defect
+the union exists to prevent.
+
+**The two diagnostic estimands' per-week values, sealed. [transcribed at
+revision 35 from the producer determinations register, item 2 - mechanical
+completion]** `control-naive` IS a contrast (this section says so above), so
+its per-week value is the **salt-paired control-minus-naive delta in prereg
+6.7's form** (`metrics.saltPairedDelta`). `usage-signal` is NOT a contrast
+(this section assigns it the own-weeks rule), so its per-week value is the
+**benchmark arm's own absolute week value, salt-averaged exactly as section
+4.6's absolute rule states**.
+
+**The attribution composites' per-salt evaluation, sealed. [transcribed at
+revision 35 from the register, item 3 - mechanical completion]** The prereg
+12.2 composites are **evaluated per salt and then averaged over the 24 salts
+in `metrics.SALTS` order** - prereg 6.7's pairing discipline extended to the
+four-cell interaction, which is evaluated as the difference of differences
+`((u,on) - (u,off)) - ((0.25,on) - (0.25,off))` per salt. The two-term
+composites reuse `saltPairedDelta` unchanged, so their bytes match the gating
+contrasts' arithmetic exactly - the same one-number-one-value doctrine as the
+season coordinate.
+
+**The benchmark arms are salt-invariant, sealed. [transcribed at revision 35
+from the register, item 4 - mechanical completion]** The two prereg 7.2
+benchmark arms are deterministic functions of prior games, with no simulation
+draw for a seed to vary; each benchmark arm-week is therefore **evaluated
+ONCE and published under all 24 salts**, since the arm-week universe requires
+a complete salt set for every generated arm-week. Component (d)'s salt-paired
+contrast (prereg 6.7) is consequently **a paired delta against a constant
+comparator** - which is what a salt-invariant benchmark means, not a defect
+of the pairing.
 
 **PAIRED DELTAS AND THE PREREG 12.2 ATTRIBUTION COMPOSITES ARE UNAFFECTED.**
 Both are contrasts, so prereg 10.4's contrast-scoped rule already fixes their
@@ -1491,9 +1650,16 @@ resample index must be built AFTER week dropping, and shared" - and
 byte-identical draws with no object needing to be passed around.
 
 This matters because prereg 16 REQUIRES a weeks-2-17 sensitivity, a mandated
-16-cluster family, and prereg 10.4 permits up to two further drops. A single
+16-cluster family **(section 8.7 rule 6 carries its row set as of revision
+35)**, and prereg 10.4 permits up to two further drops. A single
 global index would be unsatisfiable against the sealed text; a per-cluster-
-count index satisfies both bullets exactly.
+count index satisfies both bullets exactly. **[noted at revision 35]** The
+windowed family has NO evaluability floor of its own: prereg 10.4's `n >= 15`
+is component-scoped and descriptive rows never void (section 4.6.4), so its
+surviving count may fall through `estimated` to `degenerate` to `unevaluable`
+with no additional rule, and prereg 10.2's exact-inference trigger remains
+component-only - a descriptive row publishes `distinctValues` but never
+switches method.
 
 #### 4.6.4 The reducer for descriptive rows is TOTAL **[substantive prospective amendment]**
 
@@ -1545,7 +1711,8 @@ week value and `buildBootstrapResamples` throws on `clusterCount <= 0`.
   resamples the same week every draw, so its interval is a zero-width
   artifact; publishing it as a CI would misrepresent a point as an estimate.
   This is the case prereg 16's Week-18-alone requirement produces by
-  construction.
+  construction **(section 8.7 rule 7 carries that family's row set as of
+  revision 35)**.
 - **`estimated`** - two or more surviving clusters, all finite. Compute items
   1-4 above.
 
@@ -1796,6 +1963,48 @@ inverse. (ix) `replicate = 10000` is REFUSED. (x) A pinned
 mapped to its literal expected 32-bit seed, so a change to the preimage
 format, the encoding, the digest slice, or the endianness fails loudly.
 
+### 5.2 The observation domain **[added at revision 35; substantive prospective amendment - transcribed from the producer determinations register, item 8, and sealed with the D4 ruling of 2026-08-08]**
+
+The sealed text does not pin which players form the permutation cells. The
+implementation constrains the choice from three sides - every observation row
+needs a finite `actual` and `projected`; every ROSTERED player needs an
+observation (a measured zero must never stand in for missing evidence); and
+each salt's observation ids must equal the cell's canonical member list
+elementwise. Within those walls, frozen:
+
+**The domain is EVERY COHORT MEMBER WITH A MACRO POSITION AND A RESOLVED
+OUTCOME TRUTH** - a finite `actualPointsByPlayerId` entry, which the outcome
+layer writes only for scored and zero-recorded members.
+
+- **BYE MEMBERS ARE IN.** A bye player stays in the cohort and in rosters,
+  and the reducer requires every rostered player to carry an observation, so
+  excluding byes would fail every week with a rostered bye. The consequence
+  is stated head-on rather than left implicit: **bye players participate in
+  the permutation control's statistics, where prereg 4.1 excludes them from
+  the sweep's own point-accuracy scoring.** Both `T_obs` and every `T_b` are
+  computed from the same rows by the identical code path, so the gate is
+  internally consistent under this reading.
+- **The asymmetry against section 6.3 is DELIBERATE and is confined to the
+  BYE leg.** The D4 ruling propagates prereg 4.1's eligibility into
+  component (f)'s subgroup membership (section 6.3), excluding bye and
+  non-macro members there - the fail-safe direction for a safety gate whose
+  zero-delta diluters weaken it. It does NOT propagate the bye exclusion
+  here, because this domain is forced the other way by the
+  every-rostered-player-needs-an-observation invariant. **Non-macro-position
+  members are excluded in BOTH places** - here as counted exclusions, there
+  by the eligibility predicate - so the two domains differ in exactly one
+  leg, and that leg's direction is forced on each side by its own layer's
+  invariant.
+- **EXCLUSIONS ARE COUNTED, NEVER SILENT.** A member outside the domain (an
+  unresolved outcome, or a position outside the six macro positions) is
+  tallied by reason, per member-WEEK - one member excluded all season
+  contributes 17. A silently-shrunk domain is a fail-open by omission, and
+  the reducer cannot see it, because its coverage assertions bound the
+  domain only from below.
+- **A rostered player outside the domain FAILS THE CAPTURE, by name, with
+  the exclusion reason attached** - never discovered hours later as a
+  cause-free coverage mismatch.
+
 ---
 
 ## 6. Component (f): rounding, subgroup mechanics, veto, and callback
@@ -1818,7 +2027,9 @@ inc  <=  |b| * |e| + 0.01  <=  0.05 * |b| + 0.01
 - **Per-week disclosure threshold, `0.30`** (was `0.50`): **DISCLOSURE
   ONLY - it is NOT an evaluability gate and NOT a comparison operand in any
   decision.** It is used in exactly one place: the per-week count
-  `weeksBelowFalsifiabilityFloor` (`lib/arms.js:882`), which prereg 9.8
+  `weeksBelowFalsifiabilityFloor` (`lib/arms.js:925` **[locator repaired at
+  revision 35; `:882` was stale, the one hard failure of the scripted
+  locator check's first full run]**), which prereg 9.8
   requires published as context for how much of `k` rests on weeks where
   the margin was unattainable. The evaluability gate it was once part of
   has been **replaced entirely by section 6.1a**, which compares a median
@@ -1829,11 +2040,14 @@ inc  <=  |b| * |e| + 0.01  <=  0.05 * |b| + 0.01
 - **Veto-incapable disclosure threshold, `3.80`** (was `4.00`):
   **mechanical rounding correction** - used exclusively inside the
   transparency block's `catastrophicCapCouldFire` disclosure
-  (the comparison at `lib/arms.js:891-892`, against the constant at
-  `:751`), never gating the veto itself (which fires strictly
+  (the comparison at `lib/arms.js:934-935`, against the constant at
+  `:781` **[locators re-verified at revision 35; `:891-892` and `:751` had
+  drifted]**), never gating the veto itself (which fires strictly
   on the directly-measured `inc > 0.20`); cannot change any verdict.
 
-**Required Gate 2 code changes**: `lib/arms.js:743`'s `FALSIFIABILITY_FLOOR
+**Required Gate 2 code changes** **[the locators in this directive are
+historical to its issuing; current sites are in the status block below]**:
+`lib/arms.js:743`'s `FALSIFIABILITY_FLOOR
 = DELTA_F / MAX_EFFECT` -> `(DELTA_F - 0.01) / MAX_EFFECT` (0.30),
 **retained SOLELY as the per-week disclosure constant**; `:751`'s
 `catastrophicCapCouldFire` check -> `Number(maxAbsBaseline) >
@@ -1843,37 +2057,46 @@ median comparison, and `FALSIFIABILITY_FLOOR` must NOT appear anywhere in
 that guard. A test must assert that the constant is referenced by the
 disclosure count and by nothing that returns a status.
 
-**Status of those requirements [revision 24].** Four requirements sit in the
-paragraph above. **Three are MET; the fourth is NOT**, and it is recorded as
-NOT MET rather than left unstated, so a reader can tell a satisfied
-directive from a pending one without reading the code.
+**Status of those requirements [revision 24; locators re-verified and the
+fourth item's status updated at revision 35].** Four requirements sit in the
+paragraph above. **All four are now MET.** The fourth was recorded NOT MET
+from revision 24 until the tests landed; the block below preserves that
+history rather than rewriting it.
 
-- **The `0.30` disclosure constant - MET.** `lib/arms.js:743` is
+- **The `0.30` disclosure constant - MET.** `lib/arms.js:773` is
   `const FALSIFIABILITY_FLOOR = (DELTA_F - 0.01) / MAX_EFFECT; // 0.30`.
-- **The `3.80` disclosure constant - MET.** `lib/arms.js:751` is
+- **The `3.80` disclosure constant - MET.** `lib/arms.js:781` is
   `const CATASTROPHIC_CAP_COULD_FIRE_THRESHOLD = (CATASTROPHIC_CAP - 0.01)
-  / MAX_EFFECT; // 3.80`, consumed by the comparison at `:891-892`. **The
+  / MAX_EFFECT; // 3.80`, consumed by the comparison at `:934-935`. **The
   FORM of that comparison differs from the text above**; section 6.2
   governs it, and the correction is recorded immediately below rather than
   inside this status block.
-- **The evaluability-guard rewrite - MET.** `lib/arms.js:924-938` builds the
+- **The evaluability-guard rewrite - MET.** `lib/arms.js:981-995` builds the
   transformed weekly bounds, takes their median, and returns `unevaluable`
   when `roundToTie(medianWeeklyBound) <= roundToTie(DELTA_F)`. The comment
-  at `:911-912` names it as the falsifiability guard and records that "the
+  at `:966-967` names it as the falsifiability guard and records that "the
   pooled 0.30 quantity remains disclosure-only." `FALSIFIABILITY_FLOOR`
-  occurs in exactly three places in `arms.js` - its definition (`:743`), the
-  disclosure count (`:883`), and the export list (`:1624`) - and in none of
+  occurs in exactly three places in `arms.js` - its definition (`:773`), the
+  disclosure count (`:926`), and the export list (`:1713`) - and in none of
   them inside the guard.
 - **The test asserting the constant is referenced by NOTHING that returns a
-  status - NOT MET.** `backtestArms.test.js:487` asserts the constant's
-  VALUE, carrying the message `'0.30 remains disclosure-only'`; `:577` and
-  `:589` assert the disclosure count's semantics. None of the three tests
-  the negative. **The assertion message states a property the assertion does
-  not check**, which is the shape that makes a missing test read as a
-  present one on a skim. The mutation test required at the end of this
-  section - that changing `0.30` alone changes no status - is the
-  operationalization of the same negative, and it does not exist either.
-  Both remain owed by the Gate 2 implementation round.
+  status - recorded NOT MET at revision 24, MET as of revision 35.** The
+  revision-24 finding stands as history: `backtestArms.test.js`'s value
+  assertion (now at `:514`) carries the message `'0.30 remains
+  disclosure-only'` while checking only the number, and the disclosure-count
+  semantics tests (now `:604` and `:616`) test the count, not the negative -
+  **an assertion message stating a property the assertion does not check.**
+  Both owed tests NOW EXIST, and each is invocation-grade evidence rather
+  than a definition-and-export inference: `backtestArms.test.js:1177`,
+  `'section 6.1: FALSIFIABILITY_FLOOR is referenced by the disclosure count
+  and by nothing that returns a status'`, reads `arms.js`'s own source,
+  asserts the constant occurs at exactly its three sites, and asserts every
+  site sits outside the transformed-bound guard; and `:1219`, `'section 6.1:
+  MUTATION - changing 0.30 alone changes no status, only the disclosure
+  count'`, loads a mutant module with `FALSIFIABILITY_FLOOR = 99`, asserts
+  no endpoint, component, cell, or claim status moves, and asserts the
+  published count DOES move (a mutation that changed nothing at all would be
+  a vacuous harness).
 
 **The comparison FORM is corrected** **[mechanical correction, forced by an
 internal contradiction]**. **Revision 24 classified this as a substantive
@@ -1947,9 +2170,10 @@ first asking what in this document already governed the comparison.** Section
 expected result**; revision 24 said otherwise and that is withdrawn. It
 mandates "the `3.80` disclosure comparison tested at its own boundary," and
 section 6.2 fixes which form that boundary takes, so the expected result was
-determined from revision 18 onward. `backtestArms.test.js:506-518` exercises
+determined from revision 18 onward. `backtestArms.test.js:533-545`
+**[locators re-verified at revision 35]** exercises
 it under the tie-rounded form (`3.8` -> `false`, `3.81` -> `true`), and the
-implementation at `lib/arms.js:891-892` conforms to section 6.2. **The code
+implementation at `lib/arms.js:934-935` conforms to section 6.2. **The code
 was never non-conformant on this point** - the bare directive was.
 
 **How this was misclassified, retained because the misclassification is the
@@ -2089,6 +2313,22 @@ qualifying week count `m`, and the full sorted `bound_w` series, so a
 reader can audit the median against the data rather than taking it on
 trust.
 
+**Season scope, stated explicitly. [added at revision 35, sealing the SPEC-C
+ruling of 2026-08-08]** Everything in THIS section - the qualifying weeks,
+the guard, and the disclosures around it - is **2025-scoped by prereg 9.8's
+own text**, and so are the sign test's `D_w` series and the evaluability
+minimum ("2024 cannot rescue sparse 2025 evidence"). **The catastrophic
+veto's evaluation domain is NOT so scoped**: sections 6.4/6.4a state it as
+`{ subgroup player-weeks } x { the 24 salts }` with **no season qualifier,
+and that unqualified form is the sealed reading** - subgroup membership is
+assigned per `(season, week, blendWeight, playerId)` across BOTH
+preregistered seasons. The two scopes are stated side by side here so
+neither silently narrows the other: the GATES read 2025 evidence; the VETO
+watches every subgroup realization the study generates. The fail-safe
+direction is preserved by construction - a wider veto domain can only veto
+MORE, and section 8.2a rule 6 guarantees a veto can never turn a failure
+into a pass.
+
 **Required mutation tests.** (i) A season whose POOLED mean would have
 cleared the old floor but whose week-level transformed-bound median does
 NOT clear `DELTA_F` must report `unevaluable` - the case the pooled guard
@@ -2136,6 +2376,44 @@ component (f), the complete list of such comparisons, and nothing else:
 | `0.025` (`DELTA_F`) | the falsifiability guard, against the median transformed per-week bound (section 6.1a) | **GATE** |
 | `3.80` | the `catastrophicCapCouldFire` transparency line | disclosure only |
 | `0.30` | `weeksBelowFalsifiabilityFloor`, the per-week count (section 6.1) | **disclosure only** |
+| `alpha/7 = 0.0071428571` | `exactSignTest`'s TWO `<= alpha` sites: the noninferiority decision (`p <= alpha`, `lib/arms.js:858`) and the inverted-bound index search (`binomialUpperTail(n, i) <= alpha`, `:834`, which also drives the no-finite-bound `unevaluable` branch) | **GATE** - bare in code at both sites, shown inert below |
+| `0.025` (`DELTA_F`, as the sign test's margin) | `boundAgrees`, the test-vs-inverted-bound consistency flag | disclosure only - zero production consumers, shown below |
+
+**[list completed at revision 35 - two rows added, each with its inertness
+SHOWN rather than asserted.]** The declaration "and nothing else" was FALSE
+as previously written: two component-(f) frozen-threshold comparisons
+existed in the code and appeared in no row. Neither changes any verdict,
+and the completion records why each bare form conforms rather than
+rewriting the code to normalize comparisons that cannot disagree. **The
+addition changes the list's EXTENT, never `3.80`'s membership, so section
+6.1's classification survives on exactly the terms section 0's leg-5 note
+sets for revision 29's growth of this same section:**
+
+- **Both `<= alpha` comparisons are bare in `exactSignTest`, and
+  bare-versus-normalized is PROVABLY inert over the reachable domain at
+  both sites.** Every operand either site compares against `alpha` is a
+  dyadic rational of the family `sum C(n,j)/2^n` with `n <= 17` (17
+  evaluated weeks is the ceiling on non-tied clusters) - `p` at the
+  decision site, and `binomialUpperTail(n, i)` for `i = 1..n` at the index
+  search - and the closest any member of that family comes to
+  `alpha/7 = 0.05/7` is `6.696e-4` (at `n = 7`, upper tail `1/128`) -
+  seven orders of
+  magnitude above `roundToTie`'s `5e-11` half-step resolution, so ten-decimal
+  normalization of either operand can never flip either comparison for any
+  `(n, i)` this study can produce. The computation is reproducible in three
+  lines from the binomial upper tail. The index-search site is the one with
+  the sharper consequence - no qualifying `i` means the inverted bound is
+  `+infinity` and the endpoint is `unevaluable`, reachable for every
+  `n <= 7` - which is why it is named in the row rather than folded into
+  "the decision" silently.
+- **`boundAgrees` (`lib/arms.js:865`) compares the inverted bound against
+  the margin bare, and it has ZERO production consumers**: the identifier
+  occurs at exactly four CODE sites - the assignment (`:865`), the
+  return-object key (`:874`), and two test assertions
+  (`backtestArms.test.js:390`, `:398`). Nothing published, gated, or
+  disclosed reads it downstream; it exists so a test can pin that the test
+  and its inverted bound never disagree. Recorded here so the completeness
+  declaration is true, not to promote the flag into the contract.
 
 **`0.30` DETERMINES NOTHING.** It is not an operand of any evaluability,
 pass, fail, or veto decision. It appears in exactly one computation - the
@@ -2212,11 +2490,42 @@ own invariant. `D_w` per endpoint per week = the mean of the 24 same-salt
 on-minus-off deltas (same salt on both sides, `saltPairedDelta`,
 `lib/metrics.js:333`).
 
+**Membership additionally requires prereg 4.1 eligibility. [added at
+revision 35, sealing the A4/D4 ruling of 2026-08-08 - substantive
+prospective amendment]** A cohort member **on bye, or whose position is
+outside the six macro positions, is NOT a subgroup member**, whatever its
+baseline sign. Prereg 4.1 excludes exactly these members from every scored
+endpoint, so before this ruling two membership rules diverged silently in
+the direction that WEAKENS the veto's evidence base: a bye player sat
+inside f1's subgroup contributing exactly-zero error deltas that dilute
+`D_w` toward the sign test not firing, while contributing to no scored
+endpoint anywhere else. Propagating 4.1's exclusion removes the divergence
+in the fail-safe direction - zero-delta diluters leave, the gate
+strengthens. Frozen mechanics:
+
+- **The exclusion applies at EVERY membership-derivation site** - the
+  producer's subgroup-error emission and domain derivation, and the
+  reducer's operand and veto-record derivations - through ONE shared
+  predicate (`sweepPreflight.componentFSubgroupEligible`), never through
+  per-site reimplementations that could diverge again.
+- **Eligibility fields are ASSERTED, never coerced**: a cohort row whose
+  `position` or `onBye` is missing or malformed is an artifact defect that
+  throws by name. A malformed field must never read as a silent non-member,
+  because a membership rule that fails open shrinks a safety gate's domain
+  invisibly.
+- **The asymmetry against section 5.2's permutation domain is deliberate
+  and is stated there**: byes are OUT here and IN there, forced on each
+  side by that layer's own invariant, and non-macro members are out of
+  both.
+
 ### 6.4 The catastrophic-cap veto: one component-level check, run first
 
 **One veto check, computed BEFORE either endpoint's evaluability minimum or
 falsifiability guard runs**, over the full Cartesian set of (subgroup
-player-week) x (24 salts) realizations: `inc = |error_on| - |error_off|`,
+player-week) x (24 salts) realizations - **the subgroup player-weeks drawn
+from BOTH preregistered seasons, season-unqualified [scope sealed at
+revision 35 per the SPEC-C ruling of 2026-08-08; see 6.4a]**: `inc =
+|error_on| - |error_off|`,
 `error = projected_median - actual`, `projected_median` salt-specific.
 **Any single realization with (ten-decimal-normalized) `inc > 0.20` vetoes
 the cell immediately**, regardless of whether either endpoint would
@@ -2278,8 +2587,26 @@ Cartesian product
 with **no sampling, no truncation, and no early exit that would leave any
 member unevaluated for reporting purposes**. Membership in
 `{ subgroup player-weeks }` is assigned from the MATCHED OFF-CELL
-(`b <= 0`, prereg 9.8), computed once per `(season, week, blendWeight,
+(`b <= 0`, prereg 9.8, AND prereg-4.1-eligible per section 6.3), computed
+once per `(season, week, blendWeight,
 playerId)` and reused unchanged across all 24 salts (section 6.3).
+
+**The domain is SEASON-UNQUALIFIED, and that is the sealed reading. [sealed
+at revision 35; the SPEC-C decision, ruled by the user 2026-08-08 as Reading
+B, both-season]** The product above carries no season qualifier, and none is
+implied: subgroup player-weeks from BOTH preregistered seasons enter the
+veto's domain, even though the gates and disclosures of sections 6.1/6.1a
+are 2025-scoped by prereg 9.8's own text. The question was genuinely open -
+prereg 9.8 is component (f), whose gates section 6.1 scopes to "the 2025
+subgroup" - and the interim implementation carried the unscoped domain as
+the fail-safe direction; the ruling makes that reading sealed rather than
+provisional. **Because the veto's domain and the 2025-scoped published
+subgroup can therefore differ in size, the published veto block MUST carry
+the veto's OWN domain arithmetic**: its subgroup player-week count, the
+expected realization count (`24 x` that), and the realization count
+actually held - so this section's completeness attestation closes on the
+veto's own numbers and never has to be reconciled against the 2025-scoped
+subgroup row count published beside it.
 
 **Completeness is a REQUIRED RUNTIME ASSERTION, not an assumption.** The
 implementation must verify, before reducing the realizations to a verdict,
@@ -2478,6 +2805,21 @@ that outranks ordinary agreement/disagreement handling; otherwise agreement
 gives `passed`/`threshold-not-established` and disagreement gives
 `threshold-not-established` (never `unevaluable` - both procedures were
 computed).
+
+**Untriggered precedence: `wide-straddle` OUTRANKS `passed`. [stated at
+revision 35, extracted from the reducer's actual behavior rather than
+chosen]** For an untriggered bootstrap endpoint the two descriptions can
+genuinely co-occur, because the pass tests are STRICT on RAW operands while
+the straddle test is INCLUSIVE on ROUNDED operands (section 8.2a rule 3): an
+interval whose raw upper bound sits one ulp inside the passing boundary
+passes strictly raw, while `roundToTie` lands the same interval exactly on
+both boundaries and the inclusive straddle fires. **The collision resolves
+to `wide-straddle`, and the raw pass result is discarded, not published
+alongside it** - the straddle branch is evaluated first and hardcodes the
+non-pass. Reachability and ranking are both pinned by test
+(`backtestArms.test.js:1297`, `'untriggered precedence: ...'`), so this
+paragraph transcribes behavior the suite already enforces; it does not
+introduce a choice.
 
 ### 8.2a The reducer is FORMALLY TOTAL **[MIXED - see the per-rule labels]**
 
@@ -2724,8 +3066,12 @@ removes a VERDICT it should never have had, not the control's data.
 **Run level (Level 1)**: every authoritative run is either **`valid`**
 (every cell above is computed and published) or **`void`** (the
 permutation-control threshold miss, section 5; a canary failure; either of
-the two sealed identity assertions, section 8.6; **or a detected
-salt-collision, section 3.4 item 5**) - `void` is a property of
+the two sealed identity assertions, section 8.6; **a detected
+salt-collision, section 3.4 item 5; or a component-(f) veto-domain
+completeness or eligibility failure - section 6.4a's required runtime
+assertion, surfaced as a void report by name, never as a crash and never as
+a silently smaller domain [enumeration completed at revision 35]**) -
+`void` is a property of
 the WHOLE run,
 preempting the entire cell-level table rather than being one more row in
 it.
@@ -2757,6 +3103,21 @@ in which case `fail` stands (section 8.2's precedence). All unaffected
 component point estimates and CIs are published regardless, for both `on`
 and `off` cells.
 
+**Activation is scored from ONE reference salt, and the invariance is
+CHECKED, not assumed. [transcribed at revision 35 from the producer
+determinations register, item 5 - substantive prospective amendment: the
+published counts turn on it]** Activation is evaluated from the reference
+salt `SALTS[0]`'s projections: `factors.homeAway` is resolved BEFORE the
+seeded simulation (`applyFactor('homeAway', ...)` precedes
+`simulateDistribution`), so activation is salt-invariant by construction,
+and publishing all 24 salts' projections would multiply prereg 11's
+eligible/activated COUNTS by 24 while leaving the rates unchanged - and the
+counts are published, which is what makes this substantive rather than
+presentational. **The invariance is verified at generation time**: every
+salt's `(eligible, activated)` pair is checked against the reference
+salt's, per player, and a divergence throws by name. The counts published
+are the un-multiplied, single-salt counts.
+
 ### 8.4 Ordering and estimand-disagreement sensitivities
 
 **Cell-level (Level 2)**: any cell whose own recorded verdict under the
@@ -2768,6 +3129,80 @@ cells' verdicts are unaffected but the primary and a sensitivity ordering
 disagree about WHICH cell the parsimony order would select, that is its own
 no-proposal cause. Deployed-policy/force-fill disagreement (prereg 5.3,
 "NO SELECTION OCCURS") is selection-level only, with no cell-level analog.
+
+**How the comparison passes are evaluated, sealed. [transcribed at revision
+35 from the producer determinations register, item 9 - mechanical
+completion, with the forcing argument shown in full]** Each sensitivity
+pass assembles a COMPLETE variant document, identical to the primary in
+every raw record and differing only in the arm-week metrics (an
+evaluation-time re-scoring over the SAME generated projections - never a
+regeneration, so section 9's grid arithmetic is untouched), and computes
+that variant's candidate verdicts and parsimony winner through the
+REDUCER'S OWN exported claim assembly - never a re-implementation. Two
+consequences are frozen:
+
+- **The harness legs are NOT re-run per variant** - the canaries, the two
+  identity assertions, the salt-collision guard, and the permutation
+  control all read the `preflight` and `permutationControl` blocks, which
+  are byte-identical across the variant documents, and none of them enters
+  any candidate cell's verdict: each forces run-level `void`, which is
+  variant-invariant. Re-running them would re-derive identical answers from
+  identical bytes.
+- **The comparison verdicts are computed on PLACEHOLDER sensitivity inputs**
+  (`contradicted: false`, both disagreement booleans false). This is forced,
+  not chosen: this section compares each cell's "own recorded verdict under
+  the primary ordering" against the variants', so the verdicts being
+  compared must not already carry the comparison's own output - the
+  alternative feeds the check its own conclusion and is circular.
+
+**The estimand halt is evaluated on the POST-CONTRADICTION basis.
+[transcribed at revision 35 from the register, item 10 - substantive
+prospective amendment: WHEN the halt fires turns on it]** After the ordering
+comparison has produced the per-cell contradiction flags, BOTH estimands'
+claims are recomputed from documents carrying those derived flags (the same
+flags for both - the ordering sensitivities are computed once, over the
+primary estimand, and their cell demotions are estimand-independent), and
+the two estimands "disagree on a winner" exactly when the sealed
+reconciliation halts on THOSE winners - **including when one estimand
+selects a cell and the other selects none**: an estimand under which no
+cell passes has not agreed that any cell is better. The basis is
+load-bearing: an ordering contradiction can demote the placeholder-basis
+winner and shift the final selection to a cell the force-fill estimand
+never endorsed, so a halt evaluated on placeholder-basis winners can read
+`false` while prereg 5.3's "NO SELECTION OCCURS" condition is true of the
+selection the run will actually make. Item 9's circularity argument does
+not apply here - the contradiction flags are fully computed before the halt
+is evaluated, so nothing feeds the comparison its own output.
+
+**The estimand audit trail rides the DOCUMENT and the PUBLISHED REPORT.
+[added at revision 35, sealing the D6 ruling of 2026-08-08 - substantive
+prospective amendment]** The evidence behind this section's two
+selection-level booleans - `winnersByPass` (the parsimony winner under each
+of the three passes) and `estimandReconciliation` (the halt's basis:
+selection, halted, reason, detail, and both estimands' winners) - is a
+REQUIRED document key (`sensitivityAudit`) and a REQUIRED key of the
+published report, rendered in the Markdown beside Selection; **null on a
+void run**, mirroring the cells. A halt that publishes its winners-by-pass
+trail is auditable from the report alone; a console-only trail dies with
+the terminal. Frozen with it:
+
+- **The mixed basis is stated wherever the trail is published**: the two
+  `ordering:*` rows of `winnersByPass` are STAGE-1 placeholder-basis
+  winners (item 9's fixed point), while the estimand row is the STAGE-2
+  post-contradiction winner (item 10). A reader who assumes one basis for
+  all three rows mis-reads the trail, so the basis difference is part of
+  the sealed schema's meaning, not a caption.
+- **Internal consistency is FAIL-CLOSED at producer and reducer alike**:
+  `halted` must equal the winners' disagreement under the sealed halt
+  function; the run's selection must follow the halt; the document's
+  `deployedPolicyDisagreement` must equal the trail's `halted`; and **the
+  ordering axis carries the symmetric cross-check at BOTH layers** - the
+  ordering-disagreement boolean must be consistent with the ordering rows
+  of `winnersByPass` and the per-cell contradiction flags, suspended only
+  while any candidate is contradicted, where the stage bases genuinely
+  diverge.
+- **Comparison documents carry a PLACEHOLDER audit** (item 9's fixed-point
+  terms); the real trail rides only the final document.
 
 ### 8.5 Level 5 - SELECTION
 
@@ -2786,6 +3221,27 @@ fixed cell order) - never of any point estimate or lineup-ordering variant
 - so if the passing SET is unchanged between orderings (section 8.4's
 cell-level check found no verdict flipped), the winner computed from that
 same set is also unchanged by construction. Kept as defense in depth only.
+
+**An estimand's "winner", for the halt of section 8.4, is defined here.
+[transcribed at revision 35 from the producer determinations register, item
+10]** It is **this section's parsimony winner computed over that estimand's
+own passing set** - the full Level-5 procedure under that estimand's
+claims, not a raw best-metric readout - and the reconciliation compares the
+two winners so obtained, on the post-contradiction basis section 8.4
+seals.
+
+**The force-fill estimand governs BOTH sides of its regret. [transcribed at
+revision 35 from the register, item 11 - substantive prospective
+amendment]** Prereg 5.3 defines a "legal nine-slot lineup" ESTIMAND - a
+redefinition of lineup legality under a heading that names it a regret
+estimand - and regret (prereg 5.2/6.1) is best-legal-lineup minus
+started-lineup. Under the force-fill estimand, force-fill legality
+therefore applies to the STARTED lineup and the BEST lineup alike. A
+started-side-only reading would mix legality regimes across the two sides
+of one regret and can make it negative - a deployed-policy "best" may leave
+a slot empty over negative actuals that force-fill's "started" must fill -
+which the solver layer rejects as a defect. The both-sides reading is the
+only one under which the estimand's regret is a regret.
 
 ### 8.6 The TWO sealed identity assertions **[rev12, second assertion restored per rejection finding 3]**
 
@@ -2932,6 +3388,36 @@ deleted silently.
      Map) to `canonicalJson`, and therefore compared `"{}"` against `"{}"`,
      fails this test rather than reporting a vacuous pass.
 
+**Status of the serialization form [revision 35].** The producer takes the
+ALTERNATIVE this section explicitly allows: identity-record run objects are
+converted at capture to the deterministic sorted array form - entries
+ascending by NUMERIC `playerId`, emitted as `[key, value]` pairs - by
+`sweepPreflight.serializableProjectionRun`, the exact inverse of the
+reducer's own run normalization and kept beside it. The conversion is
+fail-closed on key/field disagreement, on canonical-duplicate ids (the Map
+keys `7` and `'7'`), and on bare-number values, and step 1's raw-input
+uniqueness still runs first, exactly as this section requires. **The
+alternative is not optional hygiene here; it is what makes the records
+serializable at all** - `canonicalJson` writes any `Map` as `{}` silently,
+so a producer that carried the Map form into the document would serialize
+every run side empty and the preflight would void the document it had just
+built.
+
+**Both sealed identity assertions ALSO run at generation time. [transcribed
+at revision 35 from the producer determinations register, item 12 -
+mechanical completion; the sealed invocation clause's own rationale is
+served strictly better]** The producer invokes the reducer's own exported
+identity coverage check - never a re-implementation - once per
+`(season, week)`, the moment all 24 salts' operands exist. The sealed
+invocation point above ("BEFORE any candidate cell's metrics are computed,
+and before the permutation control runs") is a PREFLIGHT-block ordering the
+reducer still owns and re-runs in full from the document; at generation
+time a strictly-before ordering is impossible, because the assertions' own
+operands include the week's generated cell runs. What the per-week
+invocation preserves is the clause's stated rationale - failure aborts at
+the first bad week rather than after the full grid has burned its runtime.
+The reducer's full-domain conjunction is unchanged.
+
 #### 8.6.1 Scope: the `homeaway-on-stored` assertion names one pair
 
 Prereg 7.3's `homeaway-on-stored == homeaway-on` names the same two arms
@@ -2955,37 +3441,46 @@ and unrelated to that field: `buildPriorGames` (`projectionFeatures.js:188`;
 revisions 18-28 cited `:177-231`, whose start is a docblock line rather than
 the declaration) attaches a per-row `isHome` orientation tag to a PLAYER's
 PRIOR-SEASON game rows only when `useStoredHistory` (or `crossSeason`) is
-true (`:193, 212, 231`); at the DEFAULT (`false`), those rows simply carry
+true (`:193, 212, 238` **[the third re-verified at revision 35; was
+`:231`]**); at the DEFAULT (`false`), those rows simply carry
 `isHome: null`.
 
 **`isHome` is the ONLY field the flag reaches, and the asymmetry that makes
-that true is deliberate and undefended in code [revision 22].** The flag
-gates two adjacent lines, and only one of them admits it:
+that true is deliberate [revision 22; now defended in code - see the status
+below].** The flag
+gates two adjacent lines, and only one of them admits it **[locators
+repaired at revision 35; the defending comment's landing shifted these
+lines from `:230`/`:231`]**:
 
 ```
-:230   opponent: trusted && (sameSeason || crossSeason)      ? trusted.opponent : null
-:231   isHome:   trusted && (sameSeason || useStoredHistory) ? trusted.isHome   : null
+:237   opponent: trusted && (sameSeason || crossSeason)      ? trusted.opponent : null
+:238   isHome:   trusted && (sameSeason || useStoredHistory) ? trusted.isHome   : null
 ```
 
 `:212` DOES make `resolved` non-null in the forced-variant arm (`teamKey`
 uses `(crossSeason || useStoredHistory)`), so a reader checking only `:212`
-would conclude `opponent` changes too. It does not: `:230` re-gates on
+would conclude `opponent` changes too. It does not: `:237` re-gates on
 `(sameSeason || crossSeason)`, which excludes `useStoredHistory`, so the
 resolved opponent is computed and DISCARDED before `versusOpponent` ever
-sees it. Citing only `:231` - as revisions 11-21 did - leaves the claim
-resting on an argument that does not cover the field most likely to be
+sees it. Citing only the `isHome` line - as revisions 11-21 did - leaves the
+claim resting on an argument that does not cover the field most likely to be
 doubted.
 
-**Why this matters beyond citation hygiene.** There is no comment at `:230`
-recording that the omission of `useStoredHistory` is intentional; the nearby
-comment at `:216-219` covers contradictions, not the asymmetry. The edit that
-falsifies this whole passage is a one-line tidy-up making `:230` symmetric -
+**Why this matters beyond citation hygiene.** The edit that
+falsifies this whole passage is a one-line tidy-up making the `opponent`
+gate symmetric -
 `(sameSeason || crossSeason || useStoredHistory)` - made by someone with no
 signal that the inconsistency is the point, after which the rationale above
-would still READ as valid because it only ever argued from `:231`. A
-defending comment at `:230` is the stronger protection, but it is production
-code on a post-B non-allowed path and therefore batches into Gate 4. **Per the feature builder's own docblock
-(`projectionFeatures.js:512`): "This map is read only behind
+would still READ as valid because it only ever argued from the `isHome`
+line. **Status [revision 35]: the defending comment EXISTS.** Revisions
+22-34 recorded it as the stronger protection while barring it - production
+code on a post-B non-allowed path, batched into Gate 4 - and it landed at
+this re-cut, exactly as batched: `projectionFeatures.js:230-236` now opens
+"DELIBERATE ASYMMETRY - do not symmetrize these two gates (backtest spec
+section 8.6.1)" and states that each flag reaches exactly one field, naming
+the sealed no-op rationale the tidy-up would falsify. **Per the feature builder's own docblock
+(`projectionFeatures.js:518-520` **[locator re-verified at revision 35;
+`:512` had drifted]**): "This map is read only behind
 `homeAway.useStoredHistory`, so today nothing consumes the orientation at
 all."** No current code path - not `recentProduction`, not `opponent`, not
 `versusOpponent`, not the `homeAway` factor itself (which reads
@@ -3021,11 +3516,35 @@ structurally, not just by the numeric comparison downstream. Gate 2 must
 add a dedicated constants builder for this variant, informed by,
 not copied from, the legacy harness's `withHistory` pattern.
 
-**Status of that requirement [revision 22].** It is MET. `arms.js` defines
-`resolveConstantsWithStoredHistory` (the builder) and
-`assertOnlyStoredHistoryLeafDiffers` (the single-leaf guard the preceding
-sentence demands, whose own docblock cites this section by name); both are
-exported. Revisions 13-21 carried a sentence here asserting that
+**Status of that requirement [revision 22; INFERENCE STRUCK and re-evidenced
+at revision 35].** Revision 22 recorded MET on the evidence that `arms.js`
+DEFINES and EXPORTS `resolveConstantsWithStoredHistory` (the builder) and
+`assertOnlyStoredHistoryLeafDiffers` (the single-leaf guard). **That
+inference is struck, not merely reworded, per the accepted round-3
+disposition the preamble now carries as the status-block rule: definition
+and export are never evidence of invocation.** A defined, exported,
+never-called guard satisfies exactly nothing this section requires. The
+status is re-written from INVOCATION evidence against the current code, and
+it is MET on those terms:
+
+- **The builder runs on the governed path**: the generation driver
+  constructs every stored-twin arm's constants through
+  `arms.resolveConstantsWithStoredHistory`
+  (`lib/inputsGeneration.js:995`), and its own docblock records that no
+  caller can hand the twin a cell built any other way.
+- **The single-leaf guard runs on the governed path, against the ACTUAL
+  captured constants**: `sweepPreflight.js:301` invokes
+  `assertOnlyStoredHistoryLeafDiffers` inside the `homeaway-on-stored`
+  identity-coverage preflight, which the reducer runs on every document and
+  the producer additionally runs per `(season, week)` at generation time
+  (section 8.6.0's item-12 transcription). The operands are the constants
+  captured FROM the records, not re-derived - the code comment beside the
+  call records that an earlier re-deriving form was a self-consistency
+  check on two pure functions of one input, and an on-stored arm mis-built
+  with plain `resolveConstants` passed it; the record-operand form is what
+  makes the guard capable of failing.
+
+Revisions 13-21 carried a sentence here asserting that
 `resolveConstants` "does not build this third variant." **That claim went
 false when the CODE changed** - the builder was added by commit `41a8a65`,
 after revision 18 was approved - and it is withdrawn rather than deleted
@@ -3312,6 +3831,76 @@ illustrative example. Both sealed assertions are run-voiding on failure;
 the cache-persistence fidelity checks (section 8.6.3's allowlist) are
 descriptive-only, labeled outside the sweep's critical path.
 
+#### 8.6.6 The generation-seam wiring obligations **[added at revision 35 - mechanical completions, each forced by an existing sealed requirement; transcribed from the producer registers]**
+
+The `--inputs` producer splits into pure modules (injected `generate`, no
+`server/services/**` reach) and thin wiring that supplies the real
+functions. **Five obligations bind the wiring, and each has the same
+dangerous shape: a wiring that violates it produces a document that still
+VALIDATES** - the schema cannot see any of them, which is why they are
+sealed here as interface contracts rather than left as docblock advice.
+None is a new decision; each is the stated consequence of a requirement
+this document or the preregistration already seals, cited per item:
+
+1. **`generate` MUST pass `weatherService: false`, pinned as a literal in
+   the wiring itself, regardless of what arrives from any caller.** Weather
+   off is the exactness precondition for component (f) - `median_on -
+   median_off = b * e` holds only because weather is applied AFTER homeAway
+   in the model - and the pure layer cannot verify the flag survived the
+   seam: weather changes the numbers, not their shape.
+2. **`generate` MUST forward `onPreHomeAwayBaseline` unchanged into
+   `generateProjections`.** The callback is the ONLY source of the
+   pre-homeAway baseline `b` (section 6.5); a wiring that drops it produces
+   zero baseline rows, which the driver rejects by name rather than letting
+   an empty subgroup look like a small one.
+3. **`generate` MUST genuinely generate on EVERY call - no results cache,
+   no memoization keyed on the arguments.** The 8.6.0 control receives
+   arguments identical to the `usage-25 x off` cell's BY DESIGN, so a cache
+   collapses exactly that pair and the 816 independent-regeneration records
+   would compare an object against itself - section 9's forbidden reuse.
+   The driver's `assertRunsNotAliased` rejects every non-cloning cache at
+   generation time, across all three projection shapes with canonicalized
+   keys; **a cache that CLONES its hits is invisible to any reference
+   check by construction**, which is why genuine regeneration is sealed
+   here as an obligation rather than only enforced.
+4. **`generate` MUST return the WHOLE run object, never the bare
+   projections Map.** Section 8.6.0's comparison consumes the explicitly
+   named non-Map run fields (`inputCutoff`, `sourceCoverage`) alongside the
+   projections; a wiring that unwraps the Map (as the MDE's own
+   `projectPoints` correctly does for ITS consumer) silently deletes the
+   fields the assertion is required to compare.
+5. **The benchmark PLAYER prior-game history MUST carry `usage`.** Prereg
+   7.2's
+   `usage-signal` is defined over usage-bearing games; a player history
+   built
+   without usage counts makes the benchmark return `null` for EVERY player
+   - published as a benchmark with no interval rather than surfaced as a
+   wiring failure. The rosters script's own PLAYER prior-games index does
+   NOT
+   carry usage (its consumer never reads it), which is exactly why the
+   wiring builds its own player index rather than reusing that export.
+   **The DEFENSE leg is the stated exception, not a violation**: the wiring
+   DOES reuse the rosters script's defense prior-games index, which carries
+   no usage, and `usage-signal` is `null` for every DEF by construction -
+   no DEF game is usage-bearing, so the null is the estimator's documented
+   correct value there, not the wiring failure this obligation guards
+   against.
+
+**Two adversarial notes, DISCLOSED as deliberately unfixed. [revision 35]**
+The QA round that closed the producer backlog recorded two theoretical
+findings and left both open by decision; they are disclosed here so their
+absence from the fix list reads as chosen, not overlooked. (i) **Surplus
+baseline rows outside the cohort are silently ignored** by the
+membership-derivation intersections - a consistent surplus passes the
+cross-salt size checks; harmless to every published value today, but
+contrary in spirit to the preflight's extra-input rejection posture, and a
+hardening candidate if any review asks for it. (ii) **The bit-identity
+guard's field set matches the reducer's exactly** - projections plus
+`inputCutoff` plus `sourceCoverage`, section 8.6.0's own enumeration - so
+there is no producer/reducer split to exploit; recorded because a FUTURE
+field added to `generateProjections`'s return would need adding to both
+sides or the guard silently narrows.
+
 ### 8.7 The descriptive publication contract: which family carries which scoring profile **[substantive prospective amendment]**
 
 **The gap this fills.** Four sealed sections each state a piece of this and
@@ -3406,6 +3995,73 @@ conflated.
    activation gate reads the `half_ppr` aggregate and must not read
    `standard`.
 
+6. **[added at revision 35 - substantive prospective amendment; the SPEC-A
+   decision, ruled by the user 2026-08-08: IMPLEMENT] The prereg 16
+   WEEKS-2-17 sensitivity family: absolute metrics only, `half_ppr` only,
+   BOTH seasons, all seven endpoints, all eight cells.** Prereg 16 mandates
+   "Weeks 2-17 only, dropping Week 18, whose widespread starter rest is a
+   common shock the paired contrasts already cancel (section 4.1)." Before
+   this rule, that
+   bullet had NO row set anywhere in this document - sections 4.6.3/4.6.4
+   treated it as a mandate while rule 4's declared-fixed row set excluded it,
+   which is the SPEC-A contradiction this rule resolves in the direction
+   prereg 16's plain "published" requires. The row set, with every
+   previously-open scope pinned:
+
+   - **Absolute metrics only.** Prereg 16's own rationale - the common shock
+     "the paired contrasts already cancel" - is the argument: the shock is
+     NOT already cancelled exactly where the metric is absolute, so the
+     sensitivity's information lives there, and re-publishing contrasts
+     whose defect the rationale says does not exist would be rows without a
+     question. (The Week-18 bullet says "Absolute" outright; this family's
+     estimand scope was the genuinely open half and is pinned to match.)
+   - **`half_ppr` only, NON-COMPOSING.** The bullet names no profile, so
+     the family inherits prereg 4.3's primary by this section's canon - and
+     the windows do NOT compose with rule 4: no `standard`/`ppr`
+     week-window rows exist, per rule 4's "and nothing else".
+   - **BOTH seasons** (section 4.6.1's default; the 2025-only exception is
+     rule 4's scoring-profile family alone, as 4.6.1 now states).
+   - **All seven endpoints over all eight cells** - rule 1's parallel. The
+     benchmark arms and the 10.6 diagnostics get NO week-window rows; the
+     family is the eight-cell absolute family, windowed.
+   - **The rows are DERIVED from rule 1's own per-week values** - never a
+     second input array - with section 4.6.2's union computed on the full
+     family first and the window intersecting the surviving set. One number
+     never carries two values (section 4.6.1's identity doctrine), and the
+     document's evidence-input closure is unchanged.
+   - **No moving-block companions** (prereg 10.5 names its own sealed
+     construction and does not reach a derived re-windowing; stated so the
+     absence is chosen, not inferred).
+   - **Interval machinery**: section 4.6's, unchanged - nominally 16
+     clusters, minus any prereg-10.4 drops the union already took, through
+     the per-cluster-count shared index of section 4.6.3, with NO
+     evaluability floor of its own (4.6.3's revision-35 note).
+
+7. **[added at revision 35 - substantive prospective amendment; the other
+   half of the SPEC-A decision] The prereg 16 WEEK-18-ONLY absolute family:
+   the same rows as rule 6, windowed to week 18 alone.** Prereg 16: "Absolute
+   Week 18 metrics are additionally published on their own." Same scope
+   pins as rule 6 - absolute-only (explicit in the bullet), `half_ppr`
+   only and non-composing, both seasons, seven endpoints, eight cells,
+   derived from rule 1's rows, no moving-block companions. A one-cluster
+   family lands in section 4.6.4's `degenerate` branch BY CONSTRUCTION -
+   point published, bounds null, the bootstrap never called - and **a week
+   18 that fails the union in any cell renders the whole family
+   `unevaluable` for that `(season, endpoint)` across all eight cells**
+   (section 4.6.2's composition rule, stated there).
+
+   **Naming, for both window families [the vocabulary ruling].** The
+   unqualified word "sensitivity" in this document's schema and code
+   vocabulary (`evidence.sensitivityWeeks`, the derived `sensitivity` key,
+   the "Scoring-profile sensitivity (prereg 16)" report table) remains RULE
+   4's scoring-profile family ALONE. The window families are named
+   **`week-window`** throughout - window identifiers exactly `weeks-2-17`
+   and `week-18-only`, published under their own derived key and their own
+   report table ("Week-window sensitivity (prereg 16)"), each row carrying
+   its window identifier in the mandatory self-description - so the two
+   prereg-16 vocabularies can never be conflated in an error message or a
+   report row.
+
 **Rule 5 pins rather than removes, and revision 21's contrary reasoning is
 withdrawn. [corrected at revision 22]** Revision 21 removed the profile axis
 from activation and grounded that in activation being "a property of the
@@ -3451,10 +4107,23 @@ denominator is the candidate pool, whose ranking prereg 5.1 pins to
 "re-scored from the pinned raw stats under the pinned half-PPR profile."
 Rule 4 publishes `standard` and `ppr` absolute metrics computed on a
 **half-PPR-selected cohort**, and the report must state that plainly
-alongside those rows.
+alongside those rows. **[disclosure extended at revision 35, sealing the
+risk-C ruling of 2026-08-08 - substantive prospective amendment on the
+published wording]** The same disclosure MUST additionally name the
+OUTCOME-TRUTH pricing: the frozen Commit-A artifacts carry exactly one
+`actualPointsByPlayerId` map, priced half-PPR, and re-pricing would need
+raw stat lines the artifacts do not carry - so **a `standard` or `ppr`
+arm-week's regret is a lineup chosen on that profile's projections,
+MEASURED IN HALF-PPR POINTS**, and every rule-4 row sits on half-PPR-priced
+outcome truth as well as a half-PPR-selected cohort. The report states both
+halves plainly alongside those rows; the behaviour itself is fixed by the
+frozen artifact and is pinned by test either way.
 
-**Interval method. [scoped at revision 22]** Every interval in the families
-of **rules 1-4** is section 4.6's, without exception. **Rule 5's activation
+**Interval method. [scoped at revision 22; extended to the week-window
+families at revision 35]** Every interval in the families
+of **rules 1-4, 6, and 7** is section 4.6's, without exception - for rule
+7 that method's own total reducer publishes the `degenerate` point with no
+interval, which is the method speaking, not an exemption from it. **Rule 5's activation
 rows and aggregates carry NO interval** - prereg 11.2 publishes activation as
 a rate against a fixed threshold with a per-week profile, not as an estimate
 with a CI - **and section 4.6 therefore does not reach them.** Revision 21's
@@ -3469,7 +4138,17 @@ changes no component endpoint, no Level 2/3/4/5 status, no activation
 THRESHOLD or verdict (section 8.3 is untouched; rule 5 PINS its activation
 rows to `half_ppr` and adds no threshold or verdict), and no selection.
 **[corrected at revision 34]** This parenthetical read "except for the
-coordinate removal in rule 5" from revision 22 through revision 33. **Revision
+coordinate removal in rule 5" from revision 22 through revision 33.
+**[dating corrected at revision 35: the parenthetical read that way from
+revision 19 (`9759a64`) through revision 33** - it entered with section
+8.7's CREATION, alongside rule 5's original removal ("Activation carries NO
+profile axis at all", `9759a64`'s own rule 5), and a wrap-safe search of
+every anchor from `9759a64` onward finds it at each; the phrase wraps as
+"coordinate / removal" across a line break, which is how a single-line grep
+missed it and how "from revision 22" survived. Revision 22 REVERSED the
+removal and left the parenthetical standing - that part of the revision-34
+account is unchanged; what moves is the range's start, by three revisions.]
+**Revision
 22 is the revision that reversed the removal**: it corrected rule 5 to pin
 rather than remove, added the sentence "Rule 5 pins rather than removes, and
 revision 21's contrary reasoning is withdrawn", and left the scope limit
@@ -3503,10 +4182,11 @@ be re-scored afterwards into `standard` and `ppr`. It is a GENERATION
 coordinate. Four facts, each checkable in the code:
 
 - `loadFeatureBundle({ season, week, playerIds, rules, ... })`
-  (`projectionFeatures.js:418`) takes `rules` as a build-time parameter.
+  (`projectionFeatures.js:425` **[locators re-verified at revision 35;
+  `:418` and `:289` had drifted]**) takes `rules` as a build-time parameter.
 - Every historical stat line is re-priced through
   `calculateFantasyPoints(row.stats, rules)` at `projectionFeatures.js:197`
-  and `:289`.
+  and `:296`.
 - That module's own docblock (`:20-23`) states the stored `fantasy_points`
   column, default half-PPR, **"is never read as an authoritative value."**
 - The freeze manifest pins each of the three profiles by SHA-256 **of its
@@ -3575,7 +4255,23 @@ grid exactly - 6,528 by either route. A reader who arrives at a different
 figure has erred in one of those two factors, and this identity locates
 which.
 
-**Condition 3 of section 0's category is SHOWN, not asserted.** The figures
+**Condition 3 of section 0's category is SHOWN, not asserted - AND ITS
+SHOWING IS NOW HISTORICAL. [restated at revision 35]** The paragraph below
+was written at revision 27 and was true of every anchor through revision
+34: the figures this section publishes had no consumer anywhere, so
+correcting them could not change any verdict. **At THESE bytes that
+condition is FALSE**: the `--inputs` producer pins `14,688` as a code
+constant (`inputsGeneration.GRID_TOTAL`, "pinned so a plan that drifts from
+the sealed table fails a test rather than a review"), the wiring's grid
+check hard-aborts a run whose counts disagree with it, and the suite pins
+both. That is deliberate hardening, not drift - but it means **a FUTURE
+correction to this section's arithmetic would no longer be verdict-neutral
+and could not take the mechanical-correction label on the strength of the
+showing below**; it would have to reckon with the consumers first. The
+revision-27 demonstration is retained beneath as the historical record of
+the condition AT ADMISSION:
+
+The figures
 this section publishes have no consumer anywhere - no code reads them, and
 nothing in this document computes from them - so correcting them cannot
 change any verdict a cell reaches. Two commands, both reproducible against
@@ -3651,6 +4347,92 @@ rather than the result alone.
 - **Optional three-usage-level diagnostic (section 8.6.1), NOT ADOPTED**:
   would add a further `3 x 24 x 34 = 2,448` on top of whichever total
   above applies.
+- **The permutation control's own generation, recorded [revision 35]:
+  `17 x 24 = 408`** further control-cell generations (2025 only, section
+  5's scope), beyond every total above. The one reuse this section permits
+  - the sweep's independent control arm doubling as the permutation
+  control's artifact - was **NOT taken**, and the non-reuse is stated in
+  the producer's own code exactly as this section requires for the reuse
+  case's mirror image: the 8.6.0 independent control arm and the
+  permutation control's observations are distinct generations, so the
+  `14,688` stands and the reuse-disclosure obligation is not triggered.
+
+**The generation-records checkpoint (`--records-out` / `--records-in`).
+[added at revision 35, sealing determination 7 as decision D3, ruled FOR by
+the user 2026-08-08 - substantive prospective amendment: the interface
+appears nowhere in the sealed text, and adopting it was a real decision]**
+Generation is 14,688 real projection runs plus the permutation control, and
+the first-run expectations below predict the first authoritative run dies at
+ASSEMBLY-side coverage arithmetic; a checkpoint between generation and
+assembly makes that failure cost one assembly pass instead of a full
+regeneration. Frozen terms, on the MDE artifact's model:
+
+- **The checkpoint is an OPERATIONAL artifact, not evidence**: it is
+  environment-free (asserted on the bytes as written AND as read), it is
+  UNCOMMITTED, it never enters the freeze chain, and it is NOT named on the
+  post-B allowlist. Nothing published cites it.
+- **It carries its own identity**: the sealed `studyId` and a
+  `recordsHash` - SHA-256 over its own canonical bytes - so a resume can
+  prove the file is the one a generation run wrote before trusting a byte
+  of it. Writer and loader hold the same shape contract, so a checkpoint
+  the writer would emit and the loader would refuse is a bug caught at
+  write time.
+- **Flag discipline**: `--records-out` is the one OPTIONAL flag (an
+  additional output, never a defaulted one). `--records-in` resumes at
+  assembly and FORBIDS, by name, `--records-out` and every Commit-A input
+  flag beside it - the resume path reads no Commit-A artifacts, and a flag
+  no path reads is a flag that silently does nothing.
+- **What a resume RE-RUNS from disk**: the digest; the identity coverage
+  AND value bit-identity through the reducer's own preflight (section
+  8.6.0's terms); salt-seed coverage; the phantom-member cross-check over
+  the embedded cohort; the outcome-truth key discipline; and the grid
+  counts against this section's constants - **the counts honestly stated as
+  SELF-ATTESTED** (the writer's own tally, catching a truncated write,
+  never a consistent forgery, which the digest binds to the writer
+  instead).
+- **What a resume CANNOT re-run, stated so the limit is sealed rather than
+  discovered**: non-aliasing is UNVERIFIABLE from disk - a JSON round trip
+  mints fresh objects, so the resume's non-aliasing guarantee is INHERITED
+  from the writer's generation-time enforcement and bound to it by
+  `recordsHash`, never re-proven. The per-generation guards' operands (the
+  scored runs themselves) are not in the artifact, and WHICH sensitivity
+  configuration produced each re-evaluated metrics array is the writer's
+  label, hash-bound but not independently checkable from disk.
+- **A checkpoint from a COMPLETED run MAY be resumed. [the D3 detail,
+  settled here]** Assembly is deterministic from the checkpoint's bytes -
+  the same artifact yields the same document - so a completed-run resume
+  can only reproduce what the run already produced, and the loader
+  validates the artifact, never the operator's reason for resuming. A rule
+  against it would be enforcing intent from a file that cannot carry
+  intent.
+
+**First-run expectations, recorded so the first authoritative run's
+failures read as predicted rather than surprising. [added at revision 35;
+disclosures only, no rule changes]**
+
+- **Risk A - baseline coverage is TOTAL, the callback's reach is not.** The
+  preflight requires a matched-off baseline row for EVERY cohort
+  player-week x every on cell, but section 6.5's callback fires only for
+  player-weeks whose projection REACHES the homeAway step; a player absent
+  from the feature bundle short-circuits earlier and produces no `b` at
+  all. Under real data a single such player-week voids the run by coverage
+  arithmetic rather than by evidence. The driver surfaces it at generation
+  time with the count and the first offending coordinates named. Expect
+  this first.
+- **Risk B - the identity arrays are the document's bulk.** Sections
+  8.6.0/8.6.1 are asserted over the full 34-week x 24-salt domain and the
+  reducer re-runs them FROM THE DOCUMENT, so both sides' complete run
+  objects ride in it: 816 records x 2 sides x the week's whole cohort,
+  twice over. That is the approved reducer contract, not a producer choice;
+  its cost is document size and driver peak memory proportional to the
+  grid, disclosed here rather than worked around silently.
+- **Risk D - every permutation-domain member needs a finite projected
+  median under EVERY salt** (section 5.2's domain; the permutation control
+  has no expression for a missing projection at all). The capture THROWS at
+  capture time
+  rather than assembling a document the reducer would reject hours later.
+  Expect it on the first run alongside risk A, for
+  the same underlying players.
 
 ---
 
@@ -3712,6 +4494,9 @@ intact.
 | Revision 29 → 30 | **not a review round** | 2026-08-05 | Revision 29 was anchored at `b7ccf186d3f6688079b42d26634bb028d91f173c` (SHA-256 `693ECFC8…`, blob `8bc45564…`) and accumulated **no approvals**, so nothing lapsed. **NO RULING CHANGED, no classification changed, and SECTIONS 3-8 ARE UNTOUCHED** - the whole revision lands in section 10.2, this table, and the preamble. It adds ONE thing: **the confinement check, specified**. Map every changed line to its nearest preceding heading at ANY level, and compare the resulting set against the set the revision claims, **as a set equality in both directions** - a subset check passes the actual defect, since revision 29's first confinement paragraph missed section 8.6.0 by never claiming it either way. The check is primary because it has no boundary to resolve and therefore none to get wrong; slicing stays secondary, confirming each claimed-identical section. It was validated retrospectively against `0762738..b7ccf186`, where it reproduces the known answer including the 8.6.0 the prose had missed, after a first implementation returned an empty set that a subset check would have accepted. `check-locators.js` stays BARRED until Gate 4's B3 re-cut; the specification is in force now, the script is not. **FORWARD CLAUSE FOR REVISION 29, whose row cannot be edited** (rows are left unedited so the record of what happened stays intact): **section 6.2 grew 27 lines to 74 at revision 29 and must be READ, NOT DIFFED.** "No ruling changed" and "section 6.2 is not byte-identical" are both true, and a reviewer should not have to combine two statements from two rows to reach that. The scope sentence documents a boundary that already held - all four thresholds in its table are component-(f) items, so no comparison entered or left the list |
 | Revision 28 → 29 | **not a review round** | 2026-08-05 | Revision 28 was anchored at `d0d0def` (SHA-256 `e6db125c…`, blob `d962ca8d…`) and accumulated **no approvals**, so nothing lapsed. **NO RULING CHANGED, AND THE MECHANICAL CATEGORY KEEPS ITS SOLE MEMBER.** Section 6.2 gains an explicit **component-(f) scope** and a stated boundary against section 8.2a; this is the reading section 6.1a already used, and it preserves section 6.1's classification because `3.80` is itself a component-(f) comparison and stays inside the universal, which is now checkable rather than open-ended. **Finding 4 STRENGTHENS the mechanical classification rather than threatening it**: the 6,528 is forced by prereg 9.7's sealed gates, so the count is determinate on sealed text alone and no longer depends on rule 4's row set at all - the propagation the commission predicted runs the other way. Sections changed: preamble, 3.2, 6.1, 6.2, 6.5, 8.6.0, 8.6.1, **8.6.3**, 8.6.4, **8.6.5**, 9, 10.2, 10. **Sections 4.6, 8.6.2 and 8.7 are byte-identical to `d0d0def`**, verified by mapping every changed line of the diff to its owning heading rather than by slicing (a slice that truncates identically on both sides reports IDENTICAL without proving it). **The FOURTH hazard class recurred twice at this revision and was caught only by that mapping**: the review's own finding-3 table filed the `loadCachedRows` sites at `:2757`/`:2766` under section **8.6.2**, and this row's first draft repeated it. They are in **8.6.3** (the cache-compatible allowlist), and the third site at `:2914` is in **8.6.5** (cache-persistence QA). **Section 8.6.2 was never touched at this revision.** Both misattributions resolved to real, adjacent, plausible sections, which is precisely why neither the locator probe nor a byte-identity proof can catch the class Section 10.2 records three further hazard classes: the **BARE locator** (10 of 15 in scope were never in the inventory; the probe has never caught one), the **self-referential count that rots** (section 9's "exactly once" and the quotation falsifying it entered in the same revision), and the **status line** (the preamble read "revision 26" across two re-anchors, in bytes a reviewer authenticated, outside the scope where they would have met it) |
 | **Independent implementation review** | **pending, strictly last, after Gate 2 code exists** | | scope, complete: the runtime salt-collision guard and its two-level unit/runtime split (section 3.4); the exact-trigger implementation defects, including the (f) no-finite-bound amendment label (section 4.4); the restored permutation-control definitions and aggregation (section 5); the rounding-boundary mutation tests and ten-decimal boundary normalization (section 6.1-6.2); the callback's per-receiver validation, exactly-once invocation, and exception propagation (section 6.5); the S3 non-estimable disclosure (section 7); the signed-boundary table and the exhaustive endpoint/component/cell/run truth table, including the (f)-unevaluable unification (sections 8.1-8.2); **activation's exact numerator/denominator (available && effect!==0, per-position including DEF, over eligible/non-neutral/known-orientation projections) and its precedence against `fail` (section 8.3)**; the restored cell-level ordering-inconclusive behavior and **Level-5 selection precedence, including the provably-unreachable winner-only branch (sections 8.4-8.5)**; **BOTH sealed identity assertions - the `usage-25 == control` bit-identity assertion (section 8.6.0: the Map-safe per-projection canonical-byte comparison and its named prohibition on passing a `Map` to `canonicalJson`, byte-equality with no allowlist and no tolerance, the explicitly-named non-Map run fields, its full player-week/salt scope, its pre-flight invocation point before the permutation control, its run-void disposition, and its seven mutation tests including the Map-serialization regression) and the `homeaway-on-stored` point-identity assertion** (section 8.6.1: its usage-25-only scope, the corrected `useStoredHistory` mechanism explanation, its single-leaf-difference guard), the complete fresh-vs-fresh allowlist (including `homeGames`/`awayGames`, `availability.activeProbability`, `role.pointsContribution`), the independently-frozen and explicitly-enumerated cache-compatible allowlist, **the ordered field-level comparator semantics with per-side type/finiteness validation running BEFORE any cross-side comparison, and raw-input duplicate detection running BEFORE any Map-building loop on both sides of every comparison**, and the descriptive-only cache-QA disposition (section 8.6) |
+| Revision 33 → 34 | **not a review round; row restored at revision 35** | 2026-08-06 | **This step's record previously lived only in ledger corrective entry 18; the table's row practice resumes here without editing any prior row.** Revision 33 was anchored at `37b9f7d` (SHA-256 `023C4B6A…`, blob `9fe2fb6c…`) and accumulated **no approvals**, so nothing lapsed. An independent statistical review of revision 33 - run from a fresh clone outside the project directory, by a party with no prior involvement - returned **NO APPROVAL** on three findings (one SUBSTANTIVE, two MINOR), all in text revision 33 did not touch. **F-A carried it**: section 8.7's scope limit still reported rule 5's WITHDRAWN coordinate removal. Revision 34's response: net +18 in scope across sections 8.7 (the scope-limit parenthetical), 8.6.5 (the `byPlayer.set` sibling locator `:496` → `:507`), and 8.2 ("no seventh bucket" → "no sixth bucket" against the five-member Level-4 set); outside scope, the preamble's status correction (labeled there "the FOURTH recorded instance" - a count the revision-35 preamble correction re-counts as five stale revisions across three runs) and section 10.2a's identifier-consistency specification. Confinement returned exactly `{preamble, 8.2, 8.6.5, 8.7, 10.2a}`. **Revision 34 then accumulated ALL FOUR approvals - rows 7 (2026-08-06, independent statistical review), 8 and 9 (2026-08-06, the two user attestations), and 10 (2026-08-07, the independent implementation review) - each authenticating blob `e339020a`, SHA-256 `5EA91A5E…`** |
+| **Forward clause for the "Independent implementation review — pending, strictly last" row above, whose row cannot be edited** | **OVERTAKEN: the review ISSUED as ledger row 10** | 2026-08-07 | The pending row above predates the approval and stays as written, per this table's discipline. The review issued 2026-08-07 against revision 34 (blob `e339020a`), recorded as **ledger row 10** with a reach note assigning what sits outside its reviewed bytes to "the B3 re-cut and Gate 3's verification". **Row 10 LAPSES at revision 35's anchor** with rows 7-9, per the deferral plan; the re-issued implementation review runs strictly last, against the freeze-candidate head |
+| Revision 34 → 35 | **not a review round - THE B3 RE-CUT'S SPEC STEP** | 2026-08-08 | Revision 34 was anchored at `81289fa` (SHA-256 `5EA91A5E…`, blob `e339020a`) and accumulated **all four approvals (rows 7-10); ALL FOUR LAPSE at this anchor**, knowingly, per the deferral plan of ledger entry 21 item (4) - the first supersession since 18 to lapse live approvals and the first ever to lapse an implementation review. Revision 35 resolves the deferral batch: the six user rulings of 2026-08-08 (D1 SPEC-C both-season with the veto's own domain arithmetic published; D2 SPEC-A implemented as 8.7 rules 6-7; D3 the records checkpoint sealed in section 9; D4 prereg-4.1 eligibility into 6.3 with the 5.2 asymmetry stated; D5 the outcome-truth pricing disclosure; D6 the estimand audit trail into the published schema), the determinations register transcribed (items 1-5 and 7-12 at their owning sections; **item 6 is WITHDRAWN-CONFORMANT** - the earlier filing misquoted sealed 6.1 text, the code was and is conformant, the number is retained so the register stays dense, and the question is NOT re-opened before any reviewer), the wiring obligations sealed as 8.6.6, the seven inert findings closed, sections 1 and 9 re-stated in non-rotting form, first-run expectations A/B/D recorded, the four 10.2a instruments recorded LANDED, and every locator re-verified against this tree. **The preamble's revision-35 paragraph enumerates the changed-section set; a reviewer must READ those sections.** All four approvals must be re-issued against this revision's anchor; the re-approval terms live in the ledger's corrective entry for this step |
 
 No candidate cell may be computed while any item above remains unresolved.
 
@@ -4287,6 +5072,41 @@ the durable half and are in force now**; the scripts are a convenience that
 rides with the other batched guards at B3. Nothing here licenses landing a
 tracked file.
 
+**[BAR SATISFIED at revision 35 - this IS Gate 4's B3 re-cut, and the four
+scripts LANDED as tracked files at `scripts/backtest/instruments/`
+(2026-08-08), each validated against its sealed known answer BEFORE being
+trusted, per the standing clause above.]** The paragraph above is retained
+as the record of the bar's terms; its condition is now met, and the open
+allowlist violation the scripts ride inside is the one the freeze-chain
+re-cut closes. The validations, recorded:
+
+- **`check-confinement.js`** reproduces the revision 28 -> 29 known answer
+  exactly - the 15-section set THIS section's validation clause records
+  above, INCLUDING the section 8.6.0 the prose had missed. **A discrepancy
+  in the historical record is disclosed while landing it**: section 10's
+  own 28 -> 29 row enumerates only 13 of those sections - it omits 0 and 1,
+  which genuinely changed at that step and which the retrospective run
+  includes. Rows are never edited; the omission is recorded here, and this
+  section's 15-section enumeration is the authoritative known answer.
+- **`check-packet-coverage.js`** returns exactly `{3.3, 5.1, 6.2, 7.1,
+  7.2}` against revision 32 (`9a03721`) and an empty difference against the
+  current bytes.
+- **`check-identifier-consistency.js`** reports the preamble at "31"
+  against an anchor of 33 when run at revision 33 (`37b9f7d`). **Its
+  scripted form is the MECHANICAL ASSISTANT to this section's check, not
+  its replacement**: the full four-element tuple comparison across the
+  out-of-repo artifacts remains the manual half, disclosed in the script's
+  own docblock.
+- **`check-locators.js`** resolves every qualified citation with a
+  30-line identifier window. Its disclosed limits: bare `` `:NNN` ``
+  continuation citations are outside its specified form (the fifth hazard
+  class's probe rule still applies to them), and a symbol surviving only in
+  a nearby comment still passes - it assists the re-anchor reading, never
+  replaces it. **On its first full run it found ONE genuinely stale
+  citation** - section 6.1's `arms.js:882` - which this revision repairs;
+  the drifted-but-in-window citations were repaired by the same manual
+  sweep, and the pinning test now asserts full cleanliness.
+
 ### 10.3 DISCLOSURE: revision 18 was APPROVED carrying an internal contradiction **[added at revision 25]**
 
 **This is stated for the benefit of whoever issues the next approvals, and
@@ -4313,7 +5133,8 @@ review round, including the one that approved revision 18.
 **What it did and did not affect.** No verdict, cell status, run status, or
 selection depends on `catastrophicCapCouldFire` - section 6.1 states it is
 disclosure-only and section 6.2's table classifies it as such. The
-implementation at `lib/arms.js:891-892` follows section 6.2, so **no code
+implementation at `lib/arms.js:934-935` **[locator re-verified at revision
+35; `:891-892` had drifted]** follows section 6.2, so **no code
 was ever non-conformant on this point and no published number changes**. The
 harm was to reviewability: a reader could follow either passage and believe
 the document required something the other forbade.
@@ -4547,6 +5368,20 @@ brought the code into conformance.
   `sweepPreflight.js`, `permutationControl.js`, `sweepEvaluator.js`,
   `sweepInference.js`, `sweepReport.js`, and
   `server/scripts/run-backtest-sweep.js`.
+- **The `--inputs` PRODUCER modules [extended at revision 35 - the packet
+  must reach the code the review is asked to approve]**:
+  `scripts/backtest/lib/inputsAssembly.js`, `inputsGeneration.js`,
+  `inputsPermutationCapture.js`, `inputsSensitivity.js`,
+  `armWeekEvaluator.js`, `policy.js`, `ordering.js`, `naive.js`,
+  `outcomes.js`, and the wiring
+  `server/scripts/run-backtest-inputs.js` (the generation seam, the
+  canary run, the checkpoint writer/loader of section 9, and the
+  generation-seam wiring obligations of section 8.6.6).
+- **The four instrument scripts [extended at revision 35]**:
+  `scripts/backtest/instruments/check-locators.js`,
+  `check-confinement.js`, `check-packet-coverage.js`, and
+  `check-identifier-consistency.js`, with their known-answer validations
+  (section 10.2a's bar paragraph records each).
 - **`scripts/backtest/lib/arms.js`** (all cited functions, including
   `resolveConstantsWithStoredHistory`, which builds the
   `useStoredHistory`-forced variant - **an earlier revision of this packet
@@ -4558,8 +5393,11 @@ brought the code into conformance.
   `weatherEffect`; the `effectiveGames` locators `:1038`, `:1081`, `:1177`
   **[repaired at revision 27; `:1027`, `:1070`, `:1156` were stale]**;
   the `useStoredHistory` default at `:241`; the median-rounding line `:884`),
-  `server/services/projectionFeatures.js` (`:177-231`'s `useStoredHistory`/
-  `crossSeason` gating), `server/services/projection.service.js`
+  `server/services/projectionFeatures.js` (`buildPriorGames` at `:188` and
+  its `useStoredHistory`/`crossSeason` gating through `:238`, incl. the
+  section 8.6.1 defending comment at `:230-236` **[range re-verified at
+  revision 35; `:177-231` was stale]**),
+  `server/services/projection.service.js`
   (`projectFromBundle`, `findRun`, `loadCachedRows`, `upsertRun`,
   `saveProjections`), `scripts/backtest-weekly-projections.js`
   (`withHistory`, DEFINED at `:250`; `:210-234` are CALL SITES **[corrected

@@ -130,7 +130,7 @@ const SEASON_STRINGS = sweepEvidence.SEASONS;
 const ARM_RECORD_KEYS = Object.freeze(['scoringProfile', 'arm', 'season', 'week', 'salt', 'values']);
 const SUBGROUP_ERROR_ROW_KEYS = Object.freeze(['cellName', 'season', 'week', 'playerId', 'salt', 'errorOn', 'errorOff']);
 /**
- * Decision D6 (ruled by the user 2026-08-08, riding to the B3 revision): the
+ * Decision D6 (ruled by the user 2026-08-08; SEALED at spec revision 35, sections 8.4/8.5): the
  * estimand audit trail - `winnersByPass` and `estimandReconciliation` - rides
  * the document so the published report can carry it.  The pass-key list is
  * MIRRORED from `inputsSensitivity.SENSITIVITY_PASS_KEYS`, which cannot be

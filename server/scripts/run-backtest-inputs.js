@@ -62,19 +62,17 @@
  *
  * `--records-out`, OPTIONAL, additionally writes the intermediate
  * generation-records checkpoint (the artifact increments 3-4 wrote as
- * `--out`). Whether that checkpoint should exist AT ALL is producer-side
- * DETERMINATION 7 and rides with the B3 deferral batch - NOT settled here:
- * the flag is optional precisely so both answers remain available. The case
- * for it is run economics - generation is 14,688 real projection runs plus
- * the permutation control, and increment 3's own risk A expects the first
- * authoritative run to die on baseline coverage, so a checkpoint between
- * generation and assembly makes that failure cost one assembly pass instead
- * of a full regeneration. The case against is that an intermediate artifact
- * is an interface appearing nowhere in the sealed spec. Stated honestly
- * (adversarial QA on increment 5): NO resume path consumes the checkpoint
- * yet - there is no `--records-in` - so its economics are aspirational until
- * determination 7 is ruled; today it is evidence for the post-mortem, not a
- * restart point.
+ * `--out`). Whether that checkpoint should exist at all was producer-side
+ * DETERMINATION 7, ruled FOR by the user 2026-08-08 as decision D3 and
+ * SEALED at spec revision 35 (section 9's checkpoint block): the case that
+ * carried was run economics - generation is 14,688 real projection runs
+ * plus the permutation control, and increment 3's own risk A expects the
+ * first authoritative run to die on baseline coverage, so a checkpoint
+ * between generation and assembly makes that failure cost one assembly
+ * pass instead of a full regeneration. `--records-in` (below) is the
+ * resume path that consumes it; the checkpoint stays operational-only -
+ * environment-free, hashed, uncommitted, off the freeze chain and off the
+ * post-B allowlist.
  *
  * THE CANARIES (prereg 17; spec 8.6.0's pinned order puts them FIRST)
  *
@@ -741,7 +739,7 @@ function assertRecordsArtifactShape(artifact, { label = 'run-backtest-inputs rec
  * truncated write, never a consistent forgery (which the digest binds to
  * the writer instead).
  *
- * What it CANNOT re-run, stated honestly (riding to the revision-35 text):
+ * What it CANNOT re-run, stated honestly (sealed at spec revision 35, section 9):
  * non-aliasing is UNVERIFIABLE from disk - `assertRunsNotAliased` compares
  * references and a JSON round trip mints fresh objects, so the resume's
  * non-aliasing guarantee is INHERITED from the writer's generation-time
@@ -751,9 +749,11 @@ function assertRecordsArtifactShape(artifact, { label = 'run-backtest-inputs rec
  * hash-pinned - and the same holds for WHICH sensitivity configuration
  * produced each `armWeekMetricsBySensitivity` array: the pass key is the
  * writer's label, so a swap between passes is undetectable from disk.  Observation canonicality is re-verified by the reducer's own
- * permutation gate when the assembled document is consumed.  Whether a
- * checkpoint from a COMPLETED run may be resumed is a D3 spec detail; the
- * loader validates the artifact, not the operator's reason for resuming.
+ * permutation gate when the assembled document is consumed.  A checkpoint
+ * from a COMPLETED run MAY be resumed (settled at spec revision 35):
+ * assembly is deterministic from the checkpoint's bytes, so such a resume
+ * can only reproduce the same document, and the loader validates the
+ * artifact, not the operator's reason for resuming.
  */
 function loadRecordsArtifact(serialized, { label = 'run-backtest-inputs --records-in' } = {}) {
   if (typeof serialized !== 'string' || serialized.length === 0) {

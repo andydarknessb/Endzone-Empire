@@ -23,7 +23,7 @@
  * `SCORING_PRESETS`) is thin wiring that belongs in `server/scripts/`, next
  * to `run-backtest-mde.js`'s identical arrangement, and RUNNING it stays
  * barred until Gate 4/Gate 3. The injected contract is stated on
- * `generateSweepInputRecords` below; two obligations are worth naming here
+ * `generateSweepInputRecords` below; three obligations are worth naming here
  * because a wiring that gets them wrong produces a document that still
  * validates:
  *
