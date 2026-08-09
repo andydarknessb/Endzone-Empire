@@ -4210,3 +4210,41 @@ approval may be inferred from this corrective entry. The next statistical
 packet must be freshly cut from a ref containing this entry and the
 revision-38 anchor, with its manifest bound to that ledger HEAD. Recipient
 selection and delivery remain the study owner's call.
+
+### CORRECTIVE ENTRY 29 — appended 2026-08-09
+
+**Scope.** This append-only entry corrects one factual ordering sentence in
+corrective entry 28's owner item. Entries 1-28 remain byte-for-byte
+untouched. No specification byte, ruling, classification, finding
+disposition, test result, or approval state changes.
+
+**Correction.** Entry 28 says that a future S3 attestation must use "roster
+construction first, injury-status mapping second, and cohort
+exclusion/counting afterward." That sequence is **false and is withdrawn**.
+The current mechanism established by section 7 is:
+
+1. reserve-class source rows receive injury-status mapping first
+   (`asOfView.js:359-361`, `:433`);
+2. the later cohort flag excludes them and cohort construction records the
+   exclusion (`asOfView.js:442-444`; `cohort.js:56`, `:276`,
+   `:353-367`); and
+3. excluded rows never reach downstream roster construction or scoring.
+
+The historical row-8 rationale remains lapsed and supplies no current
+approval authority. Any future S3 user attestation must bind the
+then-current approved bytes and describe the corrected
+mapping-first, cohort-exclusion-and-counting-second, downstream-roster-last
+mechanism.
+
+**Unchanged state.** Revision 38 remains anchored at
+`d65bc1086227c76f3a0991cd31c577f2b2c9e96d`, specification blob
+`44fae65bce063e9eff2912e0827b868061bf7a15`, SHA-256
+`DC1E1C413A6CDFCB9072393720020179C0FFD4E483137117B66DC0F25281AE43`.
+Zero approvals are in force. Gate 0 remains active, and no candidate,
+frozen-data, Docker-sweep, report, or result operation occurred.
+
+**Forward packet.** Any revision-38 statistical packet must be cut against a
+ledger HEAD containing this corrective entry. Entry 28 remains the verbatim
+record of the revision-37 reviewer response and its N-1 through N-10
+dispositions; this entry is the controlling correction for the owner-item
+mechanism order.
