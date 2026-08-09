@@ -2,7 +2,7 @@
 
 Study id: `pit-sweep-2024-2025` (same study as `PREREGISTRATION.md`).
 
-**Status: revision 37. NO APPROVALS ARE IN FORCE FOR THESE BYTES.**
+**Status: revision 38. NO APPROVALS ARE IN FORCE FOR THESE BYTES.**
 
 **[stale status corrected at revision 29]** This line and the one below read
 "revision 26" from revision 26 through revision 28, while the document was
@@ -54,7 +54,7 @@ and no copy survives (the file was untracked at the time). Revision 13's
 successor blob (`0661eafc95...`, committed as an immutable anchor) was
 submitted for fresh independent statistical review and **REJECTED** on four
 blockers. Revision 14 was that rejection's response; it was itself rejected,
-as was revision 15. **The current revision is 37**, and the full chain is
+as was revision 15. **The current revision is 38**, and the full chain is
 recorded below and in `APPROVAL_LEDGER.md`.
 
 **[status line corrected at revision 34, the FOURTH recorded instance.]** These
@@ -75,6 +75,23 @@ miscounting even so. The published record is FIVE stale revisions - 27, 28, 30,
 "31" at revisions 32-33; revision 26's own "26" was true when anchored). The
 old paragraph is not rewritten; the correction is appended so the miscount
 stays visible alongside its repair.
+
+**REVISION 38 ANSWERS THE REVISION-37 STATISTICAL REVIEW ROUND (NO
+APPROVAL: THREE SUBSTANTIVE FINDINGS AND SEVEN MINOR FINDINGS) AND CHANGES
+NO RULING.** Zero approvals were in force, so nothing lapses. The three
+substantive repairs restore section 6.2's seven-member status-model boundary
+enumeration and state why component (f)'s `+0.025` is excluded; correct
+section 6.3's stale forced-on-both-sides account of section 5.2's bye-domain
+choice; and add the sign test's shifted-zero tie-drop and sign-count
+comparisons to section 6.2's exhaustive table, with their conformity shown.
+The seven minor repairs distinguish the pairwise and interval bye-skip sites;
+repair section 8.7 rule 5's bracket grammar; locate S3 exclusion counts at
+cohort construction; record the actual revision-32-to-37 label provenance in
+section 4.6; restore two sealed quotations verbatim; and correct the section
+6.5 projection loop locator. The same-class sweep also corrects this
+preamble's two boundary/provenance copies. Every change is scaffolding around
+an unchanged ruling. The changed-section set is exactly `{preamble, 4.6, 5.2,
+6.2, 6.3, 6.5, 7, 8.2a, 8.7, 10}`.
 
 **REVISION 37 ANSWERS THE REVISION-36 STATISTICAL REVIEW ROUND (NO
 APPROVAL: SIX SUBSTANTIVE FINDINGS AND TWELVE MINOR FINDINGS) AND CHANGES
@@ -197,12 +214,16 @@ them.**
   revision 29. It was satisfied.** No scope reading admissible at revision 25
   puts `3.80` outside section 6.2's list. What the scope sentence actually
   repaired is a completeness declaration that was FALSE read document-wide,
-  since section 8.1's eight passing boundaries are frozen thresholds absent
-  from the table **[count corrected at revision 37: `+0.025` was omitted].**
+  since seven of section 8.1's eight passing boundaries are status-model
+  thresholds absent from the table. The eighth, `+0.025`, is component (f)'s
+  own margin and appears in the table; it is excluded from that seven-member
+  statement for exactly that reason. **[count repair corrected at revision
+  38: revision 37 added `+0.025` to a predicate it does not satisfy.]**
   **The classification label is unchanged.**
 - **F3: section 4.6 item 3 carried `[substantive prospective amendment]`
-  while its body said the level "is NOT re-opened here."** Revision 33 moved
-  the label to item 4. **[correction corrected at revision 37]** Finding S-4
+  while its body said the level "is NOT re-opened here."** Revision 33 narrowed
+  the approval surface by removing item 3's label while item 4's pre-existing
+  label remained. **[provenance corrected at revision 38]** Finding S-4
   established that the delta-scoped BOUND is item 3's content, while item 4's
   order-statistic sentence is unqualified. Revision 37 restores the label to
   item 3 and records that the revision-33 reversal ran in the unsafe direction.
@@ -1491,8 +1512,9 @@ recomputes "every per-week metric mean," and bullets 2-5 fix the
 surviving-cluster rule, the 100,000 draws, the seed 1499811874, and the
 shared resamples. What the sealed text does not supply is the BOUND for a
 non-delta statistic: bullet 6 phrases the `alpha/7` percentile bounds over
-bootstrap **deltas** only ("the `0.9928571429` empirical quantile of the
-100,000 bootstrap deltas"). Its following order-statistic sentence is
+bootstrap **deltas** only ("the `1 - 0.0071428571 = 0.9928571429` empirical
+quantile of the 100,000 bootstrap deltas"). Its following order-statistic
+sentence is
 unqualified. **This section extends the delta-scoped bound to non-delta
 statistics, and nothing else.**
 
@@ -1529,12 +1551,15 @@ composites, and the prereg 10.6 diagnostics - is:
 bound to a non-delta statistic.** Items 1, 2, and 4 restate prereg 10.1 and
 are not open to a reviewer to resolve differently.
 
-**Why item 3's label changed twice. [revision 33; corrected at revision
-37]** Revision 33 removed item 3's amendment label and put it on item 4.
-That reversal attached the amendment to the unqualified order-statistic
-sentence and closed the delta-scoped bound sentence to review. Revision 37
-restores the label to the clause whose application the sealed text leaves
-open. The revision-33 error ran in the unsafe direction by removing the real
+**Why the two labels changed. [revision 33; corrected at revisions 37-38]**
+At the revision-32 anchor, items 3 and 4 both carried substantive-amendment
+labels and the closing sentence said both were amended. Revision 33 removed
+item 3's label while leaving item 4's pre-existing label in place; it moved
+nothing. Revision 37 restores item 3's label and removes item 4's, recording
+the first half of that history but not the second. The current placement is
+substantively correct: the delta-scoped bound application is open to approval,
+while the unqualified order-statistic sentence is sealed. The revision-33
+error ran in the unsafe direction by removing the real
 choice from the approval surface; no interval or ruling changes here.
 
 **The per-week value of an ABSOLUTE descriptive row, sealed. [transcribed at
@@ -2038,8 +2063,11 @@ layer writes only for scored and zero-recorded members.
   carry an observation. That invariant constrains regret/lineup membership;
   it does not force bye rows into the pairwise macro-average. A third reading
   is implementable and already used elsewhere: retain bye observations, then
-  skip `onBye` rows when constructing pairwise rows
-  (`controlCellEvaluator.js:122`; `armWeekEvaluator.js:118`). This section
+  skip `onBye` rows when constructing point-accuracy rows - pairwise rows at
+  `controlCellEvaluator.js:122`, and interval rows at
+  `armWeekEvaluator.js:118`. The latter evaluator delegates pairwise
+  construction to the control-cell helper at `armWeekEvaluator.js:227`.
+  This section
   instead chooses one shared observation domain for both statistics, so **bye
   players participate in the permutation control's statistics, where prereg
   4.1 excludes them from the sweep's own point-accuracy scoring.** Both
@@ -2447,13 +2475,15 @@ component (f), the complete list of such comparisons, and nothing else:
 | `alpha/7 = 0.0071428571` | `exactSignTest`'s TWO `<= alpha` sites: the noninferiority decision (`p <= alpha`, `lib/arms.js:858`) and the inverted-bound index search (`binomialUpperTail(n, i) <= alpha`, `:834`, which also drives the no-finite-bound `unevaluable` branch) | **GATE** - bare in code at both sites, shown inert below |
 | `0.025` (`DELTA_F`, as the sign test's margin) | `boundAgrees`, the test-vs-inverted-bound consistency flag | disclosure only - zero production consumers, shown below |
 | `8` clusters and `30` subgroup rows (`MIN_F_CLUSTERS`, `MIN_F_ROWS`) | component-(f) evaluability minimum (`lib/arms.js:761-762`, `:954`) | **GATE** - bare integer comparisons, shown inert below |
+| `0` after shifting by the signed `0.025` margin | `exactSignTest`'s tie drop (`shifted !== 0`) and sign count (`shifted < 0`; `lib/arms.js:813`, `:815`, `:817`) | **GATE** - the margin is folded into the operand and normalized before both comparisons, shown conformant below |
 
-**[list extended at revision 35 and completed at revision 37 - three rows
-added across the two steps, each with its inertness SHOWN rather than
-asserted.]** Revision 35 added two comparisons but still left the integer
+**[list extended at revision 35 and completed at revision 38 - four rows
+added across the three steps, each with its inertness or conformity SHOWN
+rather than asserted.]** Revision 35 added two comparisons but still left the integer
 evaluability minimum absent, so its declaration "and nothing else" remained
-FALSE. Revision 37 adds that gate. None of the three additions changes a
-verdict, and the completion records why each bare form conforms rather than
+FALSE. Revision 37 added that gate but still omitted the sign test's two
+shifted-zero comparisons. Revision 38 adds the row that names both. None of
+the four additions changes a verdict, and the completion records why each form conforms rather than
 rewriting the code to normalize comparisons that cannot disagree. **The
 addition changes the list's EXTENT, never `3.80`'s membership, so section
 6.1's classification survives on exactly the terms section 0's leg-5 note
@@ -2490,6 +2520,15 @@ sets for revision 29's growth of this same section:**
   for every reachable operand. Applying the section's normalized form to
   both sides is therefore byte-for-byte decision-equivalent to the bare
   `<` comparisons at `lib/arms.js:954`, including the `unevaluable` return.
+- **The tie drop and sign count compare an already-normalized shifted value
+  against exact zero.** `exactSignTest` first computes
+  `shifted = roundToTie(x - effectiveMargin)` (`lib/arms.js:813`), then uses
+  `shifted !== 0` to define `n` and `shifted < 0` to define `k` (`:815`,
+  `:817`). The signed `DELTA_F` margin is already folded into the left
+  operand; `roundToTie(0) === 0`, so applying this section's both-operands
+  form changes neither comparison. This is exactly prereg 9.8's rule to drop
+  zero after ten-decimal normalization and count the remaining negative
+  signs, not an alternative tie convention.
 
 **`0.30` DETERMINES NOTHING.** It is not an operand of any evaluability,
 pass, fail, or veto decision. It appears in exactly one computation - the
@@ -2504,11 +2543,13 @@ alongside the real gates; that listing was a leftover from the pooled-mean
 design and is corrected here.
 
 **The boundary against section 8.2a. [added at revision 29; count corrected
-at revision 37]** Section 8.1's passing boundaries (`+0.10`, `+0.15`,
-`-0.005`, `-0.01`, `-0.15`, `+0.005`, `+0.025`, `0`) are frozen thresholds,
-and none appears in the table above. That is
-correct and deliberate, not an omission: they are status-model comparisons,
-not component-(f) ones, and section 8.2a governs them. Specifically -
+at revisions 37-38]** Seven of section 8.1's eight passing boundaries
+(`+0.10`, `+0.15`, `-0.005`, `-0.01`, `-0.15`, `+0.005`, `0`) are
+status-model thresholds; none appears in the eight-row component-(f) table
+above, and section 8.2a governs them. The eighth, `+0.025`, is excluded from
+that sentence because it is component (f)'s own sealed noninferiority margin,
+appears in the table, and has no wide-straddle case; section 8.2a does not
+govern it. Specifically -
 
 - **Straddle** (section 8.2a rule 3) applies `roundToTie` to both operands
   and is inclusive on both ends. It reaches the same convention as this
@@ -2548,11 +2589,13 @@ never contested; only the set's EXTENT was**, which is the defect the
 paragraph above records and the one the scope sentence fixes.
 
 **The real defect was a completeness declaration that was FALSE read
-document-wide.** Section 8.1's eight passing boundaries - `+0.10`, `+0.15`,
-`-0.005`, `-0.01`, `-0.15`, `+0.005`, `+0.025`, `0` - are frozen thresholds,
-are compared in section 8.2a, and appear in none of the seven rows above. A
-document-wide reading of "and nothing else" was therefore untrue at its outer
-edge while remaining exactly right about `3.80`. **Stating the scope makes
+document-wide.** Seven of section 8.1's passing boundaries - `+0.10`, `+0.15`,
+`-0.005`, `-0.01`, `-0.15`, `+0.005`, `0` - are status-model thresholds,
+are compared in section 8.2a, and appear in none of the eight rows above.
+The remaining passing boundary, `+0.025`, is component (f)'s own margin and
+appears in that table. A document-wide reading of "and nothing else" was
+therefore untrue at its outer edge while remaining exactly right about
+`3.80`. **Stating the scope makes
 the declaration true rather than making leg 2 satisfiable**, and section 0's
 leg-2 demonstration was correct as written at every revision.
 
@@ -2591,9 +2634,10 @@ strengthens. Frozen mechanics:
   because a membership rule that fails open shrinks a safety gate's domain
   invisibly.
 - **The asymmetry against section 5.2's permutation domain is deliberate
-  and is stated there**: byes are OUT here and IN there, forced on each
-  side by that layer's own invariant, and non-macro members are out of
-  both.
+  and is stated there**: byes are OUT here by the substantive A4/D4
+  fail-safe choice and IN there by section 5.2's separately disclosed
+  substantive choice; neither direction is forced by an invariant that
+  reaches both statistics. Non-macro members are out of both.
 
 ### 6.4 The catastrophic-cap veto: one component-level check, run first
 
@@ -2780,7 +2824,8 @@ HEAD, and line 408 is `roof: game.roof,` at both. The SUBSTANCE was and
 remains correct: `projectFromBundle` declares at `:257` and validates at
 `:266-267` before its `if (!player)` at `:270`, so validation genuinely
 precedes the early return; `generateProjections` validates at `:436-437`
-before the loop at `:467`. What failed was the verification CLAIM, asserted
+before the loop at `:464`; its per-player `projectFromBundle` call begins at
+`:467`. What failed was the verification CLAIM, asserted
 in the same sentence as three locators that had never resolved. Section
 10.2 had recorded the family as outstanding since revision 24, but that
 disclosure sits outside sections 3-8, so a reviewer scoped to the approval
@@ -2804,8 +2849,10 @@ building a complete reserve-inclusive sensitivity cohort/roster/metric
 contract, which would require new roster-construction rules, new frozen
 roster artifacts, and very likely its own preregistration document - a
 scope expansion beyond this addendum's mandate. **The report states
-plainly that S3 was preregistered but is not reported, publishes the
-exclusion counts already tracked at roster construction as context (never
+plainly that S3 was preregistered but is not reported, publishes the cohort
+exclusion counts as context - `status-class-reserve` is a closed exclusion
+reason (`cohort.js:56`), `excluded[view.reason]++` tallies it (`:276`), and
+the builder returns that map under `counts.excluded` (`:353-367`) - never
 as a substitute S3 result), and this is an explicit PROSPECTIVE DEVIATION
 from prereg 4.2's sensitivity requirement, requiring its own user sign-off**.
 The sign-off's AUTHORITY is recorded exclusively in `APPROVAL_LEDGER.md`;
@@ -2931,7 +2978,8 @@ Frozen:
    statistic at `ceil(q * 100000)` clamped to `[1, 100000]`, no
    interpolation). **No separate or wider interval is constructed for
    straddle detection** - reusing the same bounds the pass/fail test uses is
-   what keeps "the interval spans both margins" (prereg 10.6) commensurate
+   what keeps "the interval spans both the favorable and harmful margin"
+   (prereg 10.6) commensurate
    with the test it qualifies.
 3. **[SUBSTANTIVE prospective amendment] Boundary inclusivity, after
    `roundToTie` on BOTH operands.** Prereg 10.6 says only that a claim is
@@ -4067,9 +4115,9 @@ conflated.
    inheritance, not invariance**: `homeAway.effect` derives from
    `homeMean`/`awayMean`, which are means of
    `calculateFantasyPoints(row.stats, rules)` (`projectionFeatures.js:296,
-   :312-315, :359-361` **[citation completed at revision 37: revision 36
-   repaired the second and
-   third ranges read `:305-308` and `:352-354`, stale by the +7 shift of
+   :312-315, :359-361` **[citation completed at revision 37; grammar
+   corrected at revision 38: before revision 36 repaired them, the second
+   and third ranges read `:305-308` and `:352-354`, stale by the +7 shift of
    the revision-35 deliberate-asymmetry comment at `:230-236`; section 9's
    same-family citations already included the correct `:296` call site.
    Revision 36 left `:197`, which belongs to `buildPriorGames` and does not
@@ -4590,6 +4638,7 @@ intact.
 | Revision 34 → 35 | **not a review round - THE B3 RE-CUT'S SPEC STEP** | 2026-08-08 | Revision 34 was anchored at `81289fa` (SHA-256 `5EA91A5E…`, blob `e339020a`) and accumulated **all four approvals (rows 7-10); ALL FOUR LAPSE at this anchor**, knowingly, per the deferral plan of ledger entry 21 item (4) - the first supersession since 18 to lapse live approvals and the first ever to lapse an implementation review. Revision 35 resolves the deferral batch: the six user rulings of 2026-08-08 (D1 SPEC-C both-season with the veto's own domain arithmetic published; D2 SPEC-A implemented as 8.7 rules 6-7; D3 the records checkpoint sealed in section 9; D4 prereg-4.1 eligibility into 6.3 with the 5.2 asymmetry stated; D5 the outcome-truth pricing disclosure; D6 the estimand audit trail into the published schema), the determinations register transcribed (items 1-5 and 7-12 at their owning sections; **item 6 is WITHDRAWN-CONFORMANT** - the earlier filing misquoted sealed 6.1 text, the code was and is conformant, the number is retained so the register stays dense, and the question is NOT re-opened before any reviewer), the wiring obligations sealed as 8.6.6, the seven inert findings closed, sections 1 and 9 re-stated in non-rotting form, first-run expectations A/B/D recorded, the four 10.2a instruments recorded LANDED, and every locator re-verified against this tree. **The preamble's revision-35 paragraph enumerates the changed-section set; a reviewer must READ those sections.** All four approvals must be re-issued against this revision's anchor; the re-approval terms live in the ledger's corrective entry for this step |
 | Revision 35 → 36 | **INDEPENDENT STATISTICAL REVIEW, NO APPROVAL** | 2026-08-09 | Revision 35 was anchored at `f87f023` (SHA-256 `22726566…`, blob `12d51f85…`) and accumulated **no approvals**, so nothing lapses at this step. The commission reached the row-7 reviewer at the FOURTH delivery attempt - the first to arrive as byte-exact attached files under ledger entry 25's send-step control, so the manifest check ran and PASSED for the first time (entries 24 and 25 record the three misdelivered rounds). The review returned **NO APPROVAL on one SUBSTANTIVE finding, G-A**: section 6.1's `lib/arms.js:891-892` citation for the tie-rounded comparison, stale against the anchor's 1,757-line `arms.js` (the comparison at `:934-935`; revision 35's sweep updated four sibling citations and missed this one) - and the locator instrument reported 76/0, its identifier-window tier structurally unable to engage a citation that opens its line. **The pass is incomplete by the reviewer's own statement**: thirteen of the twenty-two changed regions went unread, including D1, D2, D5, D6, 8.6.6 and most of the transcribed register - nothing marked clean covers them. The reviewer withdrew one of their own delivery flags once the manifest verified, and recommended the next round go to a **DIFFERENT reviewer** whatever it contains - the prescribe-then-authenticate chain across revisions 33-35, not any single link; the ledger's corrective entry for this step carries the response verbatim. (The briefing-exposure disclosure of the misdelivered rounds is the ROW-10 reviewer's, recorded at ledger entry 25 - a different party's, standing separately.) **The study owner ACCEPTED the rotation**: the next commission goes to a fresh reviewer with no prior exposure, who reads the full scope cold, the thirteen unread regions included. Revision 36's response: the three in-scope stale locators repaired (6.1's `:891-892`; 8.7 rule 5's `:305-308`/`:352-354`, surfaced by the systematic sweep the review's method forced and the worst of the three, no repaired sibling having existed anywhere); the out-of-scope preamble/section-0 `:418`/`:289` pair; the O-3 status-line count raised at revision 34, deferred, re-verified against every anchor and corrected; and 10.2a's locator paragraph rewritten for the instrument's claim-expression tier, continuation extraction and sealed self-validation - until which the "each with a known-answer self-validation" packet claim was false of the fourth instrument. The confinement result for this step is recorded in its corrective entry |
 | Revision 36 → 37 | **INDEPENDENT STATISTICAL REVIEW, NO APPROVAL** | 2026-08-09 | Revision 36 was anchored at `d52b0be` (SHA-256 `D07B9207…`, blob `0950c6a3…`) and accumulated **no approvals**, so nothing lapses. A fresh reviewer read all 3,020 in-scope lines and returned **NO APPROVAL on six SUBSTANTIVE findings and twelve MINOR findings**. The two hashed documents and manifest matched, but a fourth, unmanifested pre-send attestation also traveled, falsifying the outgoing item's three-attachment attestation; the ledger carries that delivery-control defect and the response whole. Revision 37 changes no ruling: it corrects the six scaffolding defects, closes all twelve minor items, and exposes the locator instrument's full bare-citation denominator. The preamble enumerates the complete changed-section set; the confinement result for this step is recorded in the corrective entry |
+| Revision 37 → 38 | **INDEPENDENT STATISTICAL REVIEW, NO APPROVAL** | 2026-08-09 | Revision 37 was anchored at `72d43ac` (SHA-256 `8F87852A…`, blob `3e352462…`) and accumulated **no approvals**, so nothing lapses. The revision-36 reviewer authenticated all prior repairs but returned **NO APPROVAL on three new SUBSTANTIVE findings and seven new MINOR findings**. Delivery was clean: both document hashes matched, the set was exactly three files, and the staleness gate matched `270dffb`. Revision 38 changes no ruling: it repairs the three completeness/cross-reference regressions, closes all seven minor items, and corrects the same-class preamble copies. The reviewer also identified that historical ledger row 8's lapsed S3 sign-off rationale states the pre-repair mechanism now repudiated by section 7; the corrective ledger entry for this step records that discrepancy, and any re-issued S3 attestation must use the current mechanism rather than inherit row 8's rationale |
 
 No candidate cell may be computed while any item above remains unresolved.
 
