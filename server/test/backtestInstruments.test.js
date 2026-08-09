@@ -203,12 +203,9 @@ test('locators: run against the real spec - the revision-35 G-A stale locator is
   // discloses that limit. This test pins the KNOWN STALE STATE and flips
   // to zero failures when revision 36 repairs the spec text - the same
   // pinned-defect pattern the arms.js:882 case followed into revision 35.
-  const signatures = result.failures
-    .map((f) => `${f.file}:${f.startLine}-${f.endLine}:${f.status}`)
-    .sort();
-  assert.deepEqual(signatures, [
-    'lib/arms.js:891-892:claim-mismatch',
-  ], `expected exactly the G-A stale locator: ${JSON.stringify(result.failures)}`);
+  // Revision 36 repaired all three (plus the out-of-scope preamble and
+  // section-0 pair); full cleanliness is the pinned state from here on.
+  assert.equal(result.failures.length, 0, `stale spec locators: ${JSON.stringify(result.failures)}`);
 });
 
 // ---------------------------------------------------------------------------

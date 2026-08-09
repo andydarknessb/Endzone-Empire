@@ -2,7 +2,7 @@
 
 Study id: `pit-sweep-2024-2025` (same study as `PREREGISTRATION.md`).
 
-**Status: revision 35. NO APPROVALS ARE IN FORCE FOR THESE BYTES.**
+**Status: revision 36. NO APPROVALS ARE IN FORCE FOR THESE BYTES.**
 
 **[stale status corrected at revision 29]** This line and the one below read
 "revision 26" from revision 26 through revision 28, while the document was
@@ -54,7 +54,7 @@ and no copy survives (the file was untracked at the time). Revision 13's
 successor blob (`0661eafc95...`, committed as an immutable anchor) was
 submitted for fresh independent statistical review and **REJECTED** on four
 blockers. Revision 14 was that rejection's response; it was itself rejected,
-as was revision 15. **The current revision is 35**, and the full chain is
+as was revision 15. **The current revision is 36**, and the full chain is
 recorded below and in `APPROVAL_LEDGER.md`.
 
 **[status line corrected at revision 34, the FOURTH recorded instance.]** These
@@ -75,6 +75,33 @@ miscounting even so. The published record is FIVE stale revisions - 27, 28, 30,
 "31" at revisions 32-33; revision 26's own "26" was true when anchored). The
 old paragraph is not rewritten; the correction is appended so the miscount
 stays visible alongside its repair.
+
+**REVISION 36 ANSWERS THE REVISION-35 STATISTICAL REVIEW ROUND (NO
+APPROVAL, finding G-A) AND CHANGES NO RULING.** Zero approvals were in
+force, so nothing lapses. Its whole content: five stale-locator repairs
+with inline brackets (section 6.1's `:891-892` -> `:934-935`, finding G-A
+itself; section 8.7 rule 5's `:305-308`/`:352-354` ->
+`:312-315`/`:359-361`, surfaced by the revision-36 systematic citation
+sweep with no repaired sibling ever having existed; this preamble's and
+section 0's `:418`/`:289` -> `:425`/`:296` pair); the 10.2a status-line
+count corrected (finding O-3 of the revision-34 review, deferred then
+re-verified against every anchor - this preamble's own copy of the count
+was corrected at revision 35 while the 10.2a copy was missed); section
+10.2a's locator-check paragraph rewritten for the instrument's
+claim-expression tier, continuation extraction and sealed self-validation
+- **until revision 36 the fourth instrument had NO known-answer
+self-validation, so the revision-35 narration below, which records the
+four scripts "known-answer-validated", was false of `check-locators.js`
+when written and is left standing with this correction in front of it**;
+section 10's table gains this step's row, which also records the reviewer
+rotation the study owner accepted; and this paragraph. **Every ruling,
+threshold, label and count of revision 35 carries forward unchanged; a
+reviewer reads sections 6.1 and 8.7 at their bracket sites and section 0's,
+and the confinement set for this step is recorded in the corrective
+entry.** The next commission goes to a FRESH reviewer with no prior
+exposure, who reads the full scope cold - thirteen of revision 35's
+twenty-two changed regions were never read by the round this revision
+answers.
 
 **REVISION 35 IS THE B3 RE-CUT'S SPEC STEP: it resolves the deferral batch
 recorded at ledger entry 21 item (4), and it MOVES THE APPROVAL SCOPE.** All
@@ -364,8 +391,11 @@ raised six findings and issued no approval.
 as though scoring profile were a REPORTING coordinate, so that one generation
 could be re-scored afterwards into `standard` and `ppr`. It is a GENERATION
 coordinate: `loadFeatureBundle` takes `rules` as a build-time parameter
-(`projectionFeatures.js:418`), every historical stat line is re-priced
-through it (`:197`, `:289`), the module's own docblock says the stored
+(`projectionFeatures.js:425`), every historical stat line is re-priced
+through it (`:197`, `:296`) **[locators repaired at revision 36: `:418`
+and `:289` had drifted by the +7 comment shift whose section-9 siblings
+revision 35 repaired; these preamble occurrences were missed]**, the
+module's own docblock says the stored
 half-PPR column "is never read as an authoritative value" (`:20-23`), and the
 freeze manifest pins each profile by SHA-256 of its rules bytes and
 re-verifies the pin. **The corrected total is `14,688`, not `8,160`** - an
@@ -780,9 +810,10 @@ conditions, in order:
 
 1. **The derivation rests on a false assumption about the implementation.**
    Section 9 counted as though scoring profile were a REPORTING coordinate
-   applied after generation. `projectionFeatures.js:418` threads `rules`
-   into feature construction and `:197`/`:289` re-price every historical
-   stat line through it, so the profile changes the features and therefore
+   applied after generation. `projectionFeatures.js:425` threads `rules`
+   into feature construction and `:197`/`:296` re-price every historical
+   stat line through it **[locators repaired at revision 36; `:418` and
+   `:289` had drifted]**, so the profile changes the features and therefore
    the projection itself.
 2. **Arithmetic alone determines the corrected number.** Section 8.7 rule 4
    fixes the cell scope at 8, the endpoints at 2, the profiles at 2, and the
@@ -2107,7 +2138,11 @@ is the finding.
 
 The directive above prescribes a BARE comparison,
 `Number(maxAbsBaseline) > (CATASTROPHIC_CAP - 0.01) / MAX_EFFECT`.
-`lib/arms.js:891-892` instead computes
+`lib/arms.js:934-935` **[locator repaired at revision 36: this occurrence
+read `:891-892`, the pre-growth site, after revision 35's sweep updated
+its four sibling citations and missed this one - finding G-A of the
+revision-35 statistical review, the escape that forced the locator
+instrument's claim-expression tier]** instead computes
 `roundToTie(Number(maxAbsBaseline)) > roundToTie(CATASTROPHIC_CAP_COULD_FIRE_THRESHOLD)`,
 which is tie-rounded on BOTH operands. **This document adopts the
 tie-rounded form**, and states its grounds at their real strength rather
@@ -3985,7 +4020,14 @@ conflated.
    inheritance, not invariance**: `homeAway.effect` derives from
    `homeMean`/`awayMean`, which are means of
    `calculateFantasyPoints(row.stats, rules)` (`projectionFeatures.js:197,
-   :305-308, :352-354`), and `effect === 0` - the exact-zero event that
+   :312-315, :359-361` **[locators repaired at revision 36: the second and
+   third ranges read `:305-308` and `:352-354`, stale by the +7 shift of
+   the revision-35 deliberate-asymmetry comment at `:230-236`; section 9's
+   same-family `:418`/`:289` pair was repaired at revision 35 while these
+   two, and the preamble/section-0 pair, were missed - finding S1 of the
+   revision-36 systematic citation sweep, the worst of the three because
+   no repaired sibling of these ranges existed anywhere]**), and
+   `effect === 0` - the exact-zero event that
    defines the activation numerator - holds exactly when
    `homeMean === awayMean`, a condition that does not transfer across
    profiles. Activation is a half-PPR quantity and must be labeled one.
@@ -4497,6 +4539,7 @@ intact.
 | Revision 33 → 34 | **not a review round; row restored at revision 35** | 2026-08-06 | **This step's record previously lived only in ledger corrective entry 18; the table's row practice resumes here without editing any prior row.** Revision 33 was anchored at `37b9f7d` (SHA-256 `023C4B6A…`, blob `9fe2fb6c…`) and accumulated **no approvals**, so nothing lapsed. An independent statistical review of revision 33 - run from a fresh clone outside the project directory, by a party with no prior involvement - returned **NO APPROVAL** on three findings (one SUBSTANTIVE, two MINOR), all in text revision 33 did not touch. **F-A carried it**: section 8.7's scope limit still reported rule 5's WITHDRAWN coordinate removal. Revision 34's response: net +18 in scope across sections 8.7 (the scope-limit parenthetical), 8.6.5 (the `byPlayer.set` sibling locator `:496` → `:507`), and 8.2 ("no seventh bucket" → "no sixth bucket" against the five-member Level-4 set); outside scope, the preamble's status correction (labeled there "the FOURTH recorded instance" - a count the revision-35 preamble correction re-counts as five stale revisions across three runs) and section 10.2a's identifier-consistency specification. Confinement returned exactly `{preamble, 8.2, 8.6.5, 8.7, 10.2a}`. **Revision 34 then accumulated ALL FOUR approvals - rows 7 (2026-08-06, independent statistical review), 8 and 9 (2026-08-06, the two user attestations), and 10 (2026-08-07, the independent implementation review) - each authenticating blob `e339020a`, SHA-256 `5EA91A5E…`** |
 | **Forward clause for the "Independent implementation review — pending, strictly last" row above, whose row cannot be edited** | **OVERTAKEN: the review ISSUED as ledger row 10** | 2026-08-07 | The pending row above predates the approval and stays as written, per this table's discipline. The review issued 2026-08-07 against revision 34 (blob `e339020a`), recorded as **ledger row 10** with a reach note assigning what sits outside its reviewed bytes to "the B3 re-cut and Gate 3's verification". **Row 10 LAPSES at revision 35's anchor** with rows 7-9, per the deferral plan; the re-issued implementation review runs strictly last, against the freeze-candidate head |
 | Revision 34 → 35 | **not a review round - THE B3 RE-CUT'S SPEC STEP** | 2026-08-08 | Revision 34 was anchored at `81289fa` (SHA-256 `5EA91A5E…`, blob `e339020a`) and accumulated **all four approvals (rows 7-10); ALL FOUR LAPSE at this anchor**, knowingly, per the deferral plan of ledger entry 21 item (4) - the first supersession since 18 to lapse live approvals and the first ever to lapse an implementation review. Revision 35 resolves the deferral batch: the six user rulings of 2026-08-08 (D1 SPEC-C both-season with the veto's own domain arithmetic published; D2 SPEC-A implemented as 8.7 rules 6-7; D3 the records checkpoint sealed in section 9; D4 prereg-4.1 eligibility into 6.3 with the 5.2 asymmetry stated; D5 the outcome-truth pricing disclosure; D6 the estimand audit trail into the published schema), the determinations register transcribed (items 1-5 and 7-12 at their owning sections; **item 6 is WITHDRAWN-CONFORMANT** - the earlier filing misquoted sealed 6.1 text, the code was and is conformant, the number is retained so the register stays dense, and the question is NOT re-opened before any reviewer), the wiring obligations sealed as 8.6.6, the seven inert findings closed, sections 1 and 9 re-stated in non-rotting form, first-run expectations A/B/D recorded, the four 10.2a instruments recorded LANDED, and every locator re-verified against this tree. **The preamble's revision-35 paragraph enumerates the changed-section set; a reviewer must READ those sections.** All four approvals must be re-issued against this revision's anchor; the re-approval terms live in the ledger's corrective entry for this step |
+| Revision 35 → 36 | **INDEPENDENT STATISTICAL REVIEW, NO APPROVAL** | 2026-08-09 | Revision 35 was anchored at `f87f023` (SHA-256 `22726566…`, blob `12d51f85…`) and accumulated **no approvals**, so nothing lapses at this step. The commission reached the row-7 reviewer at the FOURTH delivery attempt - the first to arrive as byte-exact attached files under ledger entry 25's send-step control, so the manifest check ran and PASSED for the first time (entries 24 and 25 record the three misdelivered rounds). The review returned **NO APPROVAL on one SUBSTANTIVE finding, G-A**: section 6.1's `lib/arms.js:891-892` citation for the tie-rounded comparison, stale against the anchor's 1,757-line `arms.js` (the comparison at `:934-935`; revision 35's sweep updated four sibling citations and missed this one) - and the locator instrument reported 76/0, its identifier-window tier structurally unable to engage a citation that opens its line. **The pass is incomplete by the reviewer's own statement**: thirteen of the twenty-two changed regions went unread, including D1, D2, D5, D6, 8.6.6 and most of the transcribed register - nothing marked clean covers them. The reviewer withdrew one of their own delivery flags once the manifest verified, and recommended the next round go to a **DIFFERENT reviewer** whatever it contains - the prescribe-then-authenticate chain across revisions 33-35, not any single link; the ledger's corrective entry for this step carries the response verbatim. (The briefing-exposure disclosure of the misdelivered rounds is the ROW-10 reviewer's, recorded at ledger entry 25 - a different party's, standing separately.) **The study owner ACCEPTED the rotation**: the next commission goes to a fresh reviewer with no prior exposure, who reads the full scope cold, the thirteen unread regions included. Revision 36's response: the three in-scope stale locators repaired (6.1's `:891-892`; 8.7 rule 5's `:305-308`/`:352-354`, surfaced by the systematic sweep the review's method forced and the worst of the three, no repaired sibling having existed anywhere); the out-of-scope preamble/section-0 `:418`/`:289` pair; the O-3 status-line count raised at revision 34, deferred, re-verified against every anchor and corrected; and 10.2a's locator paragraph rewritten for the instrument's claim-expression tier, continuation extraction and sealed self-validation - until which the "each with a known-answer self-validation" packet claim was false of the fourth instrument. The confinement result for this step is recorded in its corrective entry |
 
 No candidate cell may be computed while any item above remains unresolved.
 
@@ -5025,10 +5068,19 @@ three requirements above exist because a probe returned a well-formed number
 that was wrong, and neither wrong number looked wrong.
 
 **THE IDENTIFIER-CONSISTENCY CHECK, SPECIFIED. [added at revision 34]** The
-seventh hazard class - the status line - has now fired four times: the preamble
-read "26" from revision 26 through 28, "29" at revision 30, and "31" at
-revisions 32 and 33. **Three of those four occurred after the class was
-recorded in section 10.2**, which is what establishes that recording a class is
+seventh hazard class - the status line - has fired across FIVE stale
+revisions in three episodes **[count corrected at revision 36: this sentence
+read "has now fired four times" from revision 34, a number matching neither
+the episode count nor the stale-revision count, and its enumeration glossed
+that revision 26's reading was CORRECT at revision 26 - a miscount inside
+the passage specifying the check built to catch stale identifiers, the
+recursion this document keeps recording about itself; raised as O-3 by the
+revision-34 statistical review and verified against every anchor before
+this correction]**: the preamble was correct at revision 26, then read "26"
+stale at revisions 27 and 28, "29" stale at revision 30, and "31" stale at
+revisions 32 and 33 - corrected at 29, 31, and 34. **The revision-30
+episode fired INSIDE the revision that recorded the class, and the 32-33
+episode after it**, which is what establishes that recording a class is
 not an instrument aimed at it. No locator resolves, no arithmetic checks, and
 byte-identity is silent because the line does not change.
 
@@ -5097,15 +5149,43 @@ re-cut closes. The validations, recorded:
   its replacement**: the full four-element tuple comparison across the
   out-of-repo artifacts remains the manual half, disclosed in the script's
   own docblock.
-- **`check-locators.js`** resolves every qualified citation with a
-  30-line identifier window. Its disclosed limits: bare `` `:NNN` ``
-  continuation citations are outside its specified form (the fifth hazard
-  class's probe rule still applies to them), and a symbol surviving only in
-  a nearby comment still passes - it assists the re-anchor reading, never
-  replaces it. **On its first full run it found ONE genuinely stale
-  citation** - section 6.1's `arms.js:882` - which this revision repairs;
-  the drifted-but-in-window citations were repaired by the same manual
-  sweep, and the pinning test now asserts full cleanliness.
+- **`check-locators.js`** **[rewritten at revision 36]** resolves every
+  citation through three tiers: in-range; a 30-line identifier window when
+  a backticked identifier precedes the citation; and a CLAIM-EXPRESSION
+  test - when a backticked code expression rides the citation, before or
+  after it, at least one of its identifiers must appear within 2 lines of
+  the cited range ITSELF. The third tier exists because of **finding G-A
+  of the revision-35 statistical review**: section 6.1's `:891-892`
+  citation went stale by 43 lines of `arms.js` growth while every claimed
+  identifier stayed inside the 30-line window, and the citation opened its
+  line so no preceding identifier engaged - the reviewer proved a 76/0
+  clean report can carry a stale citation the old tiers could not see.
+  Bare `` `:NNN` `` continuations and embedded multi-part citations (one
+  file heading several comma-joined ranges - the form finding S1 hid in)
+  are now extracted, with in-paragraph file inheritance, an exemption for
+  quotations inside historical brackets, and demotion of out-of-range
+  bare citations to unattributed; a multi-part citation's non-head ranges
+  carry no testable claim of their own, so an S1-class uniform shift that
+  stays in-range remains visible only to the semantic sweep - the
+  instrument extracts and range-checks those parts, nothing more. It
+  reports per-basis counts - a clean
+  run states how many citations rest on the weakest, in-range-only tier -
+  and it carries `--self-validate`, replaying the sealed G-A escape from
+  `f87f023` in both directions before any live run is trusted; until
+  revision 36 it was the ONE instrument of the four with no known-answer
+  self-validation, while two packet documents claimed all four had one.
+  Remaining disclosed limit: a symbol surviving only in a nearby comment
+  still passes - it assists the re-anchor reading, never replaces it.
+  History: its first full run found `arms.js:882`, repaired at revision
+  35; the revision-36 systematic sweep that confirmed G-A found two
+  same-family siblings in section 8.7 rule 5 (the +7 comment shift) and
+  the out-of-scope preamble/section-0 pair, all repaired at revision 36.
+  **CARRY-FORWARD DISCLOSURE, from the revision-35 review**: the source
+  tree moved 15,588 lines across 43 files between the revision-34 and
+  revision-35 anchors while spec sections stayed byte-identical -
+  byte-identity of a section does NOT carry its locator verifications
+  forward, which is why this check runs against the CURRENT tree at every
+  anchor.
 
 ### 10.3 DISCLOSURE: revision 18 was APPROVED carrying an internal contradiction **[added at revision 25]**
 
