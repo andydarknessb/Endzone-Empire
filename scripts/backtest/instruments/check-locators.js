@@ -332,6 +332,7 @@ function checkLocators({ repoRoot = process.cwd(), docPath, docText } = {}) {
   const bareChecked = bareAttributed.map((citation) => checkCitation(citation, index, fileLineCache));
   const bareResults = bareChecked.filter((result) => result.status !== 'out-of-range');
   const bareDemoted = bareChecked.length - bareResults.length;
+  const bareUnchecked = bareAll.length - bareResults.length;
   const failures = results.concat(bareResults).filter((result) => result.status !== 'ok');
   const basisCounts = {};
   for (const result of results.concat(bareResults)) {
@@ -339,8 +340,14 @@ function checkLocators({ repoRoot = process.cwd(), docPath, docText } = {}) {
   }
   return {
     total: results.length,
+    bareFound: bareAll.length,
+    bareAttributed: bareAttributed.length,
+    bareReported: bareResults.length,
+    bareDemoted,
+    bareUnchecked,
+    // Backward-compatible aliases retained for existing callers.
     bareTotal: bareResults.length,
-    bareUnattributed: bareAll.length - bareAttributed.length + bareDemoted,
+    bareUnattributed: bareUnchecked,
     basisCounts,
     results,
     bareResults,
@@ -404,6 +411,11 @@ function main(argv) {
   }
   console.log(JSON.stringify({
     total: result.total,
+    bareFound: result.bareFound,
+    bareAttributed: result.bareAttributed,
+    bareReported: result.bareReported,
+    bareDemoted: result.bareDemoted,
+    bareUnchecked: result.bareUnchecked,
     bareTotal: result.bareTotal,
     bareUnattributed: result.bareUnattributed,
     basisCounts: result.basisCounts,

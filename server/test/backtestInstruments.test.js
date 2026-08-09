@@ -10,9 +10,9 @@
  * be VALIDATED AGAINST A KNOWN ANSWER before being trusted - "a second run
  * of a broken probe is not a check", and a probe returning a well-formed
  * empty set is broken, not clean.  The three instruments with sealed known
- * cases run them live against git history; the locator check, whose known
- * answer the spec does not pin, is validated against planted fixtures whose
- * answer is known by construction.
+ * cases run them live against git history, including the locator check's
+ * sealed G-A escape in both directions. Planted fixtures cover its other
+ * extraction and classification branches.
  */
 
 const test = require('node:test');
@@ -175,8 +175,30 @@ test('locators: bare `:NNN` citations inherit the in-paragraph file, and histori
   // `:4` is unattributed (paragraph break); `:777` is inside a drift
   // bracket and never extracted.
   assert.equal(result.bareTotal, 1);
+  assert.equal(result.bareFound, 2);
+  assert.equal(result.bareAttributed, 1);
+  assert.equal(result.bareReported, 1);
+  assert.equal(result.bareDemoted, 0);
+  assert.equal(result.bareUnchecked, 1);
   assert.equal(result.bareResults[0].status, 'ok');
   assert.equal(result.bareUnattributed, 1);
+  assert.equal(result.failures.length, 0);
+});
+
+test('locators: the reported denominator distinguishes raw, attributed, demoted, and unchecked bare citations', (t) => {
+  const root = plantedRepo(t);
+  const doc = [
+    'No file antecedent, so `:4` is unattributed.',
+    '',
+    'A valid head `planted.js:2` followed by out-of-range `:999` is attributed, then demoted.',
+  ].join('\n');
+  const result = locators.checkLocators({ repoRoot: root, docText: doc });
+  assert.equal(result.bareFound, 2);
+  assert.equal(result.bareAttributed, 1);
+  assert.equal(result.bareReported, 0);
+  assert.equal(result.bareDemoted, 1);
+  assert.equal(result.bareUnchecked, 2);
+  assert.equal(result.bareUnattributed, 2);
   assert.equal(result.failures.length, 0);
 });
 
