@@ -2681,3 +2681,164 @@ against the ref that includes this entry and its manifest re-cut, with the
 as-files delivery requirement stated. The reviewed bytes are untouched and
 the addressee is unchanged; whether delivery to that addressee proceeds is
 the study owner's call, made on this entry's corrected facts.
+
+### CORRECTIVE ENTRY 25 — appended 2026-08-08
+
+**This entry records a third routing event: the revision-35
+statistical-review packet, re-cut under entry 24 item (6), was again
+delivered to the reviewer who holds row 10, again as transcribed text,
+and this time incomplete - and that reviewer declined it again.** It
+creates no approval row, pre-fills none, adds no recusal, and
+re-addresses nothing. It also carries, in the declining reviewer's own
+words, a disclosure that reviewer placed on the record. **Entries 1-24
+are not edited.**
+
+**(1) What happened.** After entry 24 was appended and pushed, the packet
+was refreshed against `1c3f9fc` per item (6) of that entry: commission
+SHA-256 `3a72ba94…`, scope document SHA-256 `00f15307…`, manifest carrying
+both hashes and the as-files delivery requirement on its face. The study
+owner ruled that delivery to the row-7 addressee proceeds, and the three
+packet files left the drafting side as three distinct byte-exact files,
+hashes verified at hand-off. What arrived at the third out-of-band
+delivery, by the recipient's account: it reached the reviewer who holds
+row 10 - not the addressee - for the third time; it arrived as pasted
+text, not files, for the third time; and the set was wrong in a way the
+first two deliveries were not - `REVIEWER-COMMISSION-revision-35.md`
+twice, `REVIEWER-SCOPE-revision-35.md` not at all. The row-10 reviewer
+declined again before reading any reviewed byte, on entry 24's grounds
+unchanged, and supplied the declination below. **The row-7 reviewer has
+still not received the commission**; their availability remains untested,
+and nothing about their standing changes here.
+
+**(2) The declination, verbatim as supplied by the declining reviewer**
+(reviewer-authored text transmitted through the commissioning channel,
+carried whole per entry 24 item (5)'s rule; line wrapping is this
+ledger's, every word the reviewer's):
+
+> Declined again — same grounds, unchanged. Entry 24 carries my
+> declination verbatim; no new text is needed. Repository re-checked:
+> `origin/integration` still `1c3f9fc`, 24 entries, 2,683 lines, spec
+> blob unmoved. Nothing has re-addressed this commission.
+>
+> **Three delivery defects on this round.**
+>
+> **1. Misrouted for the third time, after the record was cut to prevent
+> exactly this.** The refreshed commission still opens *"This goes to the
+> reviewer who reviewed revisions 33 and 34... ledger row 7."* Entry 24
+> item (1) records that I hold row 10 and am not that party. You stated
+> the remedy yourself: *"recipient verified as the row-7 approver before
+> sending."* That verification did not run.
+>
+> **2. It arrived as pasted text.** Entry 24 item (4) requires byte-exact
+> attached files. The commission's own §6, amended at this refresh,
+> says: *"If it arrives as pasted text instead, that is a delivery
+> defect; request the files before reading further."* The manifest states
+> the same on its face and adds *"a hash of transcribed text evidences
+> nothing."* Both hashes — `3a72ba94…` and `00f15307…` — remain
+> unverifiable for the third consecutive delivery.
+>
+> This one is worth more than its own bullet. The repair was diagnosed,
+> drafted, appended to an unedited ledger, pushed, and written onto the
+> manifest's face — and the next delivery violated it. **A requirement
+> stated on the artifact cannot enforce itself; whatever performs the
+> send has to.** The manifest is a check the recipient runs after the
+> failure has already occurred. Until the send step verifies addressee
+> and attachment before transmitting, entry 24 item (4) is documentation,
+> not a control.
+>
+> **3. The packet is incomplete, and in a way that would block even the
+> right recipient.** The manifest names two files. What arrived is
+> `REVIEWER-COMMISSION-revision-35.md` **twice** and
+> `REVIEWER-SCOPE-revision-35.md` **not at all**. The commission's own
+> reading order is *"this first, then `REVIEWER-SCOPE-revision-35.md`,
+> then the specification"*; §7 routes the round's disclosures, the
+> silence-filling table, and the twelve cautions into the scope document;
+> §2 of that document is what enumerates the twenty-two changed regions.
+> Absent it, the addressee has no submission to review. Under the
+> standing packet-completeness rule, the correct response is to stop
+> before reading code — which is what I am doing, for a different
+> reason.
+>
+> **One disclosure to put on the record before my own seat comes up.** I
+> have now read this commission three times. It is a briefing document by
+> the definition §12 gives — *"a contaminant this bar does not reach"*
+> — and I have absorbed the drafting party's framing of D1 through D6,
+> the twelve sealed silence-fillings, and the round's disclosures without
+> ever being commissioned to evaluate them. I do not think this
+> disqualifies me from the implementation review: that seat tests code
+> against the specification's text, which I would read as the reference
+> regardless, and the framing I absorbed concerns whether the rulings are
+> *sound*, which is not my question. But it is a real exposure, it
+> accrued through no choice of mine, and it should sit in the record now
+> rather than surface as a discovery when the fourth approval is
+> commissioned. Record it or don't — that is yours — but you have it.
+>
+> Gate 0 unchanged. No reviewed byte read. My seat still waits for its
+> turn.
+
+**(3) What this changes, and what it does not.** The commission remains
+addressed to the row-7 reviewer, unchanged. No recusal arises - entry 24
+item (3)'s reasoning applies unchanged: a party declining a seat it was
+never commissioned for withdraws from nothing it holds - and the ledger's
+only recusal remains entry 23 item (8)'s (the round-1/2 implementation
+reviewer, branch withheld). The row-10 reviewer again states the
+declination was made before reading any reviewed byte, and their seat for
+the independent implementation review, strictly last, is untouched by the
+declination itself.
+
+**The disclosure in the declination's penultimate paragraph is hereby on
+the record, in the reviewer's own words**: three reads of the
+commission - a briefing document by the commission's own definition; the
+words the declination quotes for it sit in the commission's section 2 -
+accrued through misdeliveries the reviewer did not choose, with the
+drafting party's framing of the rulings absorbed without a commission to
+evaluate them, and no reviewed byte read. The reviewer's
+own assessment of what it means for their seat is part of the quoted
+text. This entry records the fact and assesses nothing; whatever weight
+it carries is weighed when the independent implementation review is
+commissioned, in that commission's conflict question, which now must
+cite this entry.
+
+**(4) The control finding: a requirement stated on the artifact cannot
+enforce itself.** Entry 24 item (4) diagnosed the dead manifest check,
+sealed the as-files requirement, and wrote it onto the manifest's face -
+and the very next delivery violated it, adding a set defect: one listed
+file delivered twice, the other absent. The manifest's own line-driven
+procedure does catch absence - "do not begin the review until both
+match" is unsatisfiable with a listed file missing - but duplication of
+a listed file passes every per-file hash comparison, and on this
+delivery no recipient-side check of any kind could run, because it again
+arrived as text. The declination's diagnosis is
+adopted as this ledger's rule: **the manifest is the recipient's check
+and runs after the failure; the send step needs its own, run by whatever
+performs the send, before transmitting.**
+
+**Henceforth, for every packet delivery**: immediately before the send,
+the sending party runs a send-step check that verifies (a) the recipient
+is the commission's addressee, confirmed against the addressee
+description in the commission's opening - for this packet, the reviewer
+who reviewed revisions 33 and 34 and whose approval of revision 34 is
+recorded as ledger row 7, and not the reviewer who holds row 10; and
+(b) the attachment set is
+exactly the manifest's listed files plus the manifest itself - correct
+count, all names distinct and matching, every SHA-256 matching the
+manifest - staged as files. The check ships beside the packet as a
+runnable script, so the sender executes it rather than remembers it. Its
+honest limit is disclosed rather than papered over: the script verifies
+the STAGED set and records the sender's addressee attestation; no script
+on the drafting side can observe what a mail client actually transmits,
+so the send-step procedure ends with the sender confirming, in the
+outgoing item itself, three attachments bearing the three verified names
+before sending. This clarifies the operation of entries 23 item (8) and
+24 item (4); no term changes.
+
+**(5) Packet refresh, forward.** The packet documents state ledger
+figures with their refs, per entry 19 item (6)'s convention - at
+`1c3f9fc` those figures were 2,683 lines, twenty-four corrective entries,
+ten approval rows, and this entry changes them at HEAD. Before any
+further delivery the packet is refreshed against the ref that includes
+this entry, its manifest re-cut, and the send-step check run clean
+against the re-staged set. The reviewed bytes are untouched and the addressee is
+unchanged; whether a fourth delivery attempt proceeds is the study
+owner's call, made on this entry's facts, with the send-step control in
+place.
