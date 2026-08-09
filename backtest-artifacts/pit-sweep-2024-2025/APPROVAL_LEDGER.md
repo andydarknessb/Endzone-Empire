@@ -2577,3 +2577,107 @@ withheld.
 are re-pinned immediately after it: the handoff and the memory index. The
 reviewer scope and commission documents ride with the re-approval
 commissioning, untracked by design and transmitted out of band.
+
+### CORRECTIVE ENTRY 24 — appended 2026-08-08
+
+**This entry records a routing event: the revision-35 statistical-review
+packet was delivered to a party it is not addressed to, and that party
+declined it.** It creates no approval row, pre-fills none, adds no recusal,
+and re-addresses nothing. **Entries 1-23 are not edited.**
+
+**(1) What happened.** The revision-35 statistical-review packet (the
+commission and scope documents of 2026-08-08, shipped under entry 23 item
+(8)'s manifest terms) is addressed to the reviewer who holds row 7 - the
+independent statistical review of revision 34. It was delivered out of band
+twice, and by the recipient's account both deliveries reached the reviewer
+who holds row 10 - the independent implementation review - not the
+addressee, and both arrived as transcribed message text rather than files.
+The row-10 reviewer declined the commission before reading any reviewed
+byte and supplied the declination below for this record. **The row-7
+reviewer has not received the commission**; their availability is untested,
+and nothing about their standing changes here.
+
+**(2) The declination, verbatim as supplied by the declining reviewer**
+(reviewer-authored text transmitted through the commissioning channel -
+carried whole because this ledger otherwise holds author-written summaries,
+the limitation the specification's section 11.1 discloses):
+
+> The revision-35 statistical-review commission of 2026-08-08 was delivered
+> to the reviewer who holds row 10 — the independent implementation review
+> of Gate 2, rounds 3-6, appended 2026-08-07 — and not to the reviewer who
+> holds row 7, to whom it is addressed. The row-10 reviewer declined it,
+> before reading any reviewed byte, on two grounds.
+>
+> **(1) Misaddressing, verified against this ledger at `608fcc6`.** The
+> commission addresses "the reviewer who reviewed revisions 33 and 34 and
+> whose approval of revision 34 was recorded 2026-08-06 as ledger row 7."
+> Row 7 records the independent statistical review, dated 2026-08-06; row
+> 10 records the independent implementation review, dated 2026-08-07.
+> Corrective entry 19 items (4), (5) and (8) attribute the F-A
+> prescription, the two known-wrong counts, and the two disclosed probe
+> failures to the row-7 approver. None of those are the row-10 reviewer's.
+> That reviewer has never examined this specification as a statistical
+> reviewer, and never saw revision 33.
+>
+> **(2) A disqualifying independence conflict, distinct from the one the
+> commission disclosed.** Corrective entry 23 item (6) enumerates four
+> re-approvals, of which the statistical review is first and the
+> independent implementation review, strictly last, is fourth; the
+> commission's own sections 1 and 3 hold them apart and assign the fourth
+> to "a separate reviewer." The row-10 reviewer is that separate reviewer.
+> Sealing the rulings and later certifying that the code implements them
+> is a self-check, and no disclosure repairs it.
+>
+> The conflict the commission did pose — authenticating corrections to the
+> 8.7 provenance range and the preamble staleness count — is not this
+> reviewer's to settle, having specified neither.
+>
+> **This declination says nothing about the row-7 reviewer**, who has not
+> received this commission and whose availability is untested.
+
+**(3) What this changes, and what it does not.** The commission remains
+addressed to the row-7 reviewer, unchanged. Entry 23 item (8)'s recusal -
+the round-1/2 implementation reviewer, branch withheld - is unchanged, and
+**no recusal arises from this declination**: a party declining a seat it
+was never commissioned for withdraws from nothing it holds. The row-10
+reviewer states the declination was made before reading any reviewed byte
+and states continued availability for the independent implementation
+review, strictly last, at the intended freeze-candidate head; that seat is
+untouched by this entry. The declining reviewer also re-verified the
+packet's structural claims from a clone at a disclosed path
+(`/home/claude/rev35/repo`, at `608fcc6`) and reports them sound and
+delivery-independent: spec blob `12d51f85…` at `f87f023`, SHA-256
+`2272656621E76EE1…C8615F0`, identical at HEAD; `608fcc6` touching only
+this ledger, append-pure 112/0; ledger 2,467 lines / 22 entries / 10 rows
+at the anchor and 2,579 / 23 / 10 at `608fcc6`; the specification 5,413
+lines. Whoever takes the seat inherits correct bytes.
+
+**(4) The delivery-mechanism defect, and its repair.** Entry 23 item (8)
+requires every packet to ship with a SHA-256 manifest. At both deliveries
+the packet arrived as transcribed text, so `sha256sum` on the files as
+delivered could not run and the manifest check was unperformable - a dead
+check at exactly the step it exists to protect, discovered only because a
+recipient tried to run it. The mechanism binds only when packets ship as
+byte-exact attached files. **Henceforth packet documents are delivered AS
+FILES, and the manifest states that requirement on its face.** This
+clarifies item (8)'s operation; no term changes.
+
+**(5) A near-miss, recorded because the record nearly carried a false
+fact.** Before this entry was written, the commissioning party's
+conversational routing summary - built from a relayed, unattributed
+declination - misidentified the declining party as the row-7 reviewer and
+proposed recording that reviewer's "withdrawal," which would have entered
+a false fact into an unedited ledger and struck a qualified, unasked
+reviewer from consideration. The error was corrected by the declining
+reviewer before drafting, because the entry was held for the declination's
+own text rather than written from the relay. The practice that saved the
+record is stated so it survives: **no entry summarizes a party's position
+without that party's own words.**
+
+**(6) Packet refresh, forward.** The packet documents state ledger figures
+with their refs, per entry 19 item (6)'s convention; this entry changes
+those figures at HEAD. Before any further delivery the packet is refreshed
+against the ref that includes this entry and its manifest re-cut, with the
+as-files delivery requirement stated. The reviewed bytes are untouched and
+the addressee is unchanged; whether delivery to that addressee proceeds is
+the study owner's call, made on this entry's corrected facts.
