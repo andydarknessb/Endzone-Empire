@@ -3042,3 +3042,680 @@ this entry, addressed to the new reviewer, states instrument status as of
 revision 36, and ships only under the send-step control, whose staleness
 gate binds the manifest to the ledger head. Whether and when it is
 delivered is the study owner's call.
+
+### CORRECTIVE ENTRY 27 — appended 2026-08-09
+
+**Scope.** This entry records the fresh independent statistical review of
+`PHASE5_EXECUTION_SPEC.md` revision 36, the resulting **NO APPROVAL**,
+the revision-37 response, and the delivery-set deviation discovered by the
+reviewer. Entries 1-26 remain byte-for-byte untouched. The review produced
+six SUBSTANTIVE findings and twelve enumerated MINOR findings (M-1 through
+M-12). Its opening sentence says "ten MINOR"; its table, cheapest-path
+paragraph, and identifiers enumerate twelve. This entry preserves that
+sentence verbatim below and uses twelve as the operative count. Per the
+commission, a round issuing NO APPROVAL warrants no approval row. Zero of
+four approvals are in force, and nothing lapses.
+
+**(1) Receipt, independence, and delivery control.** The reviewer disclosed
+a fresh clone at `/home/claude/review-clone-r36/ez`, checkout
+`d52b0be7dd93873d208449b4937ca53a87e92c05`, and no prior contact within
+that session. They also disclosed that session-level freshness cannot prove
+model-level novelty. The review proceeded under the commission's explicit
+fresh-environment bar; the study owner retains the interpretation question
+if model-level novelty was intended. The reviewer confirmed the commission
+and scope hashes, name-to-hash pairing, LF bytes, superseded-pair exclusion,
+the `bca7fda` staleness gate, the revision-36 Git blob and SHA-256, the
+commit chain, packet counts, all four self-validations, and the full
+3,020-line approval scope.
+
+The delivered item contained **four files, not the manifest's exactly three**:
+the three packet files plus
+`PRESEND-ATTESTATION-20260809T133848Z.txt`. The attestation itself said
+"Outgoing item visually confirmed: exactly 3 attachments," which the
+delivered item falsified. The reviewer treated this as nonblocking because
+the three required files were each present once and hash-correct, but the
+control output must not ship inside the set it certifies. The revision-36
+packet is therefore SUPERSEDED. Any future send control must keep its
+attestation outside the packet outbox and perform the exact-set check after
+all packet attachments are staged.
+
+**(2) Reviewer response — reproduced verbatim in full.**
+
+> # Independent statistical review — PHASE5_EXECUTION_SPEC.md revision 36, sections 3–8
+>
+> **Decision: NO APPROVAL.** Six SUBSTANTIVE findings, ten MINOR.
+>
+> ---
+>
+> ## 0. Threshold matters
+>
+> ### 0a. The commission's opening question
+>
+> **Confirmed, with one limit I cannot evidence and therefore disclose rather than
+> resolve.**
+>
+> Within this session I have had no prior contact with this study, its documents,
+> or the drafting party's conclusions. The session began with the four packet
+> files; the container held nothing else; no directory-keyed memory index was
+> loaded, because the working directory was never mounted or opened. The clone is
+> fresh, at the path disclosed below.
+>
+> **The limit.** I cannot audit whether the drafting party, or the reviewer seat
+> held across revisions 33–35, was occupied by the same assistant model in other
+> sessions. I retain nothing across sessions, so "fresh" is true of *this session*
+> and is not a claim I can make about *the model*. Ledger entry 26 item (6)
+> records the study owner's selection as "Fresh reviewer"; whether a fresh session
+> of a possibly-recurring model satisfies that intent is the study owner's ruling,
+> not mine to assume away. I proceeded because the bar at commission section 2 is
+> explicitly a constraint on *where the review runs*, which I met and can evidence.
+> If the owner reads the rotation as requiring model-level novelty, discount this
+> round accordingly — that is a decision available to them now, before anything is
+> recorded.
+>
+> ### 0b. Independence bar — path disclosed
+>
+> ```
+> clone      /home/claude/review-clone-r36/ez
+> origin     https://github.com/andydarknessb/Endzone-Empire.git
+> checkout   d52b0be7dd93873d208449b4937ca53a87e92c05
+> ```
+>
+> Outside the project working directory (which this environment never had). All
+> reads and all instrument runs were performed there.
+>
+> ### 0c. Receipt checks
+>
+> | check | result |
+> | --- | --- |
+> | `REVIEWER-COMMISSION-revision-36.md` SHA-256 | `db413f3e890852ba8138605164aa539e00daebb87b8ab3d1e14dca1c03b63797` — **matches** |
+> | `REVIEWER-SCOPE-revision-36.md` SHA-256 | `8bee783f6342699e959e5c2ea46f0a49373e6180f1a1859577e72090a849b88c` — **matches** |
+> | name↔hash pairing | correct (commission→`db41…`, scope→`8bee…`) |
+> | line endings | LF; zero CR bytes in all four files |
+> | superseded-pair check | neither file matches any of the four superseded hash pairs |
+> | delivered as attached files, not pasted text | satisfied |
+> | **SET check** | **deviation — four files received, not three** (see below) |
+> | staleness gate (entry 26 item (7)) | **satisfied**: `git ls-remote origin integration` → `bca7fda4aab8e3e7fda2adec68a3bc9aa99725fa`; origin has not moved past `bca7fda` |
+>
+> **Set deviation, reported because the manifest requires the set be confirmed.**
+> The manifest specifies "exactly three files received, each name once." Four
+> arrived: the three listed, plus `PRESEND-ATTESTATION-20260809T133848Z.txt`, which
+> is not on the manifest and is not hashed by it. The failure mode the set check
+> exists for did **not** occur — neither hashed document is duplicated or absent,
+> and the manifest is present once. But the attestation's own closing line reads
+> "Outgoing item visually confirmed: exactly 3 attachments," which the delivered
+> item falsifies. The entry 25 item (4) control verified a three-item staged set
+> and a fourth item was then added: the control's output shipped inside the thing
+> it certifies. Not blocking; the send-step check should either stage its own
+> output or run after it.
+>
+> Filenames arrived with hyphens stripped (`REVIEWERCOMMISSIONrevision36.md`). That
+> is transport normalisation, not a sender defect, and the hash pairing makes the
+> name check satisfiable by content.
+>
+> ### 0d. Byte verification
+>
+> ```
+> $ git cat-file blob d52b0be:backtest-artifacts/pit-sweep-2024-2025/PHASE5_EXECUTION_SPEC.md | sha256sum
+> d07b92075817b04d9355dd375b9b18243d5de507cd504d82c70f503b0e45198c
+> $ git rev-parse d52b0be:.../PHASE5_EXECUTION_SPEC.md
+> 0950c6a3a8137a97dd207bddbc421a82a818c0e5
+> $ git rev-parse bca7fda:.../PHASE5_EXECUTION_SPEC.md
+> 0950c6a3a8137a97dd207bddbc421a82a818c0e5      # byte-identical at HEAD, as stated
+> $ git check-attr text eol -- .../PHASE5_EXECUTION_SPEC.md
+> text: set    eol: lf
+> ```
+>
+> All match commission section 11. Document is 5,493 lines; section 3 opens at
+> 1189, section 9 at 4209, so the scope is 1189–4208 = 3,020 lines, as stated.
+> Total headings 61.
+>
+> **Chain from `f87f023`** verified commit-by-commit and matches the commission's
+> account exactly, including the disclosure that it is *not* all ledger-only:
+> `608fcc6`, `1c3f9fc`, `0efc1cb` touch only `APPROVAL_LEDGER.md`; `deacfd8`
+> touches `check-locators.js` and `backtestInstruments.test.js`; `d52b0be` touches
+> the specification and a test; `bca7fda` touches only the ledger. Ledger is 2,844
+> lines at the anchor and 3,044 at HEAD, ten approval rows at both, corrective
+> entries through 25 and 26 respectively. **Every count in the packet's own
+> front-matter is accurate.**
+>
+> ### 0e. Instrument runs — all four self-validations pass
+>
+> The revision-35 round's false claim (scope section 0b) is repaired and I confirm
+> it: `check-locators.js --self-validate` now exists and passes
+> (`{"ok":true,"staleReported":true,"repairedPasses":true}`). Live runs reproduce
+> the packet's reported results: confinement six regions / zero violations
+> (`preamble, 0, 6.1, 8.7, 10, 10.2a`), locators `79 + 83, failureCount 0`, packet
+> coverage `missing: []`, identifier consistency `statusRevisions:[36]`,
+> `staleRevisions:[]`, exiting FAILED on exactly the two worked-example fixtures at
+> spec `:1258–1260`, which are indeed inside section 3. **Every instrument claim in
+> the packet checks out.** See finding S-1 for what that does *not* establish.
+>
+> ---
+>
+> ## 1. SUBSTANTIVE findings
+>
+> ### S-1 — §8.7 rule 5, lines 4020–4029: the repaired citation names a call site the claim does not rest on, and the repair's own justification is false
+>
+> **Specification** (`:4020–4029`):
+>
+> > `homeAway.effect` derives from `homeMean`/`awayMean`, which are means of
+> > `calculateFantasyPoints(row.stats, rules)` (`projectionFeatures.js:197,
+> > :312-315, :359-361` **[locators repaired at revision 36: … finding S1 of the
+> > revision-36 systematic citation sweep, the worst of the three because no
+> > repaired sibling of these ranges existed anywhere]**)
+>
+> **The code.** `calculateFantasyPoints` has exactly two call sites in that file:
+>
+> ```
+> $ grep -n 'calculateFantasyPoints' server/services/projectionFeatures.js
+> 197:    const points = calculateFantasyPoints(row.stats, rules);
+> 296:    const points = calculateFantasyPoints(row.stats, rules);
+>
+> line 197 -> enclosing: 188: function buildPriorGames({
+> line 296 -> enclosing: 270: function buildLeagueContext({ rows, rules, defenseGamesByTeam }) {
+> line 312 -> enclosing: 270: function buildLeagueContext({...
+> line 359 -> enclosing: 270: function buildLeagueContext({...
+> ```
+>
+> `:296`'s `points` accumulates into `bucket.homePoints`/`bucket.awayPoints`
+> (`:312–315`) and becomes `homeMean`/`awayMean` (`:359–361`). `:197` is in a
+> different function, `buildPriorGames`, and its `points` never reaches them.
+>
+> **What goes wrong.** The second and third members of the triple were repaired at
+> revision 36; the first was never right and was not repaired. A reader auditing
+> rule 5's profile-contingency argument follows `:197`, finds text matching the
+> quoted expression *verbatim*, and concludes the claim is verified — while the
+> call site the argument actually depends on is never cited in rule 5 at all.
+>
+> **The repair bracket's stated justification is also false.** It claims "no
+> repaired sibling of these ranges existed anywhere." The document cites the
+> correct `(:197, :296)` pair in three other places, including one twenty lines
+> below in the same section:
+>
+> ```
+> $ grep -n ':296' PHASE5_EXECUTION_SPEC.md
+> 86:  section 0's `:418`/`:289` -> `:425`/`:296` pair …
+> 395:  through it (`:197`, `:296`) **[locators repaired at revision 36 …
+> 814:  into feature construction and `:197`/`:296` re-price every historical
+> 4231: and `:296`.
+> ```
+>
+> `:4230–4231` names both call sites for the same expression. Rule 5 names one.
+>
+> **Why the instrument does not catch it.** `check-locators.js` reports
+> `failureCount: 0`. `:197` genuinely contains
+> `calculateFantasyPoints(row.stats, rules)`, so the identifier-window tier
+> matches. This is scope section 10 caution 8 realised exactly: a probe that
+> cannot distinguish the right answer from the wrong one did not become evidence by
+> returning the expected result. It is also the same defect class as G-A, in one of
+> the two in-scope regions revision 36 exists to repair.
+>
+> The substantive ruling survives — `:296` is a `calculateFantasyPoints` call, so
+> `homeMean`/`awayMean` are profile-contingent and activation is a half-PPR
+> quantity. Only the citation and its justification are wrong.
+>
+> **VERIFIED.**
+>
+> ---
+>
+> ### S-2 — §6.2, line 2406: "and nothing else" is still false, at a comparison that gates cell status
+>
+> **Specification** (`:2402–2406`):
+>
+> > **Every comparison … against a frozen threshold applies `roundToTie` … to BOTH
+> > operands before the comparison** … Within component (f), the complete list of
+> > such comparisons, and nothing else:
+>
+> followed by a six-row table, and at `:2418–2422`:
+>
+> > The declaration "and nothing else" was FALSE as previously written: two
+> > component-(f) frozen-threshold comparisons existed in the code and appeared in
+> > no row.
+>
+> **Sealed text** (`PREREGISTRATION.md:886–887`):
+>
+> > **Evaluability minimum**: at least **8 distinct 2025 season-week clusters** with
+> > subgroup rows in both cells, AND at least **30 subgroup rows in total**.
+>
+> **The code** — a third such comparison, in no row:
+>
+> ```
+> $ awk 'NR>=954&&NR<=958{printf "%d: %s\n",NR,$0}' scripts/backtest/lib/arms.js
+> 954:   if (clusters < MIN_F_CLUSTERS || subgroupRows < MIN_F_ROWS) {
+> 955:     return {
+> 957:       status: 'unevaluable',
+> 958:       claimVerdict: 'inconclusive',
+> $ awk 'NR==761||NR==762{...}' scripts/backtest/lib/arms.js
+> 761: const MIN_F_CLUSTERS = 8;
+> 762: const MIN_F_ROWS = 30;
+> $ grep -n '^function' scripts/backtest/lib/arms.js | awk -F: '$1>=880 && $1<=1120'
+> 890:function componentFEndpoint({
+> 1029:function assertVetoRealizationCoverage({
+> ```
+>
+> `:954` is inside `componentFEndpoint` (890–1028), compares two sealed frozen
+> thresholds, and is a **GATE** — it returns `status: 'unevaluable'`,
+> `claimVerdict: 'inconclusive'`. §6.2's only stated carve-out (`:2465–2478`) is for
+> §8.2a status-model comparisons; this is not one.
+>
+> **What goes wrong.** §6.2 directs two incompatible things about `:954`: the
+> unconditional rule says normalise both operands, and the list declared exhaustive
+> says it is not one of the comparisons. Unlike the two rows added at revision 35
+> (both disclosure-only), this one gates a cell status. The declaration is also
+> load-bearing beyond §6.2 — leg 2 of section 0's five-leg test (`:860–864`)
+> licenses §6.1's `[mechanical correction, forced by an internal contradiction]`
+> and turns on this list's completeness.
+>
+> No verdict moves (both operands are integer counts; ten-decimal normalisation
+> cannot flip an integer comparison), so the repair is additive — one row with its
+> inertness shown, exactly as revision 35 did for the `<= alpha` sites.
+>
+> **VERIFIED.**
+>
+> ---
+>
+> ### S-3 — §5.2, lines 2022–2028: the bye leg is labelled "forced" when the producer register this section transcribes left it open, and a third reading is already implemented in the code
+>
+> **Sealed text** (`PREREGISTRATION.md:354–355`):
+>
+> > - **Bye players are excluded from point-accuracy scoring and included in
+> >   rosters**, so the deployed-policy wrapper's bye handling is exercised.
+>
+> **Specification** (`:2022–2028`):
+>
+> > It does NOT propagate the bye exclusion here, because this domain is **forced**
+> > the other way by the every-rostered-player-needs-an-observation invariant. …
+> > so the two domains differ in exactly one leg, and that leg's direction is
+> > **forced** on each side by its own layer's invariant.
+>
+> **The invariant's own error text** (`permutationControl.js:99–103`) shows what it
+> constrains:
+>
+> > `week ${week} roster player ${playerId} has no observation. It would score ZERO
+> > in both the started and the best lineup rather than being absent, which is a
+> > measured zero standing in for missing evidence.`
+>
+> That is a **regret/lineup**-side constraint on domain membership. It says nothing
+> about which rows enter the pairwise macro-average. A third reading satisfies both
+> it and prereg 4.1 — keep byes in the observation domain and in the shuffle cells,
+> skip `onBye` rows when building pairwise rows — and the sweep **already does
+> exactly that** in two other evaluators:
+>
+> ```
+> $ grep -n "onBye" scripts/backtest/lib/controlCellEvaluator.js scripts/backtest/lib/armWeekEvaluator.js
+> controlCellEvaluator.js:122:  if (member.onBye) continue; // excluded from point-accuracy scoring, prereg 4.1
+> armWeekEvaluator.js:118:      if (member.onBye) continue; // excluded from point-accuracy scoring, prereg 4.1
+> ```
+>
+> **The register this section transcribes says the question is open**
+> (`inputsPermutationCapture.js:59–63`):
+>
+> > whether 4.1's exclusion SHOULD propagate into section 5's cells is a spec
+> > question of the same family as the component-(f) membership question the QA
+> > pass filed (A4), and **it rides with this determination rather than being
+> > silently decided by either reading**.
+>
+> **What goes wrong.** The transcription converts an explicitly open question into a
+> forced one. An approver reading "forced" is told there is no choice on the exact
+> leg where the departure from prereg 4.1 bites. Prereg 4.1's exclusion is
+> unqualified; §5.2 narrows it to "the sweep's own" point-accuracy scoring, and
+> pairwise accuracy is a point-accuracy metric and one of prereg 7.3's two
+> co-primary endpoints. The section header does carry
+> `[substantive prospective amendment]` and the consequence is stated head-on at
+> `:2013–2015`, which is why this is SUBSTANTIVE rather than a BLOCKER: what fails
+> is the forcing justification, not the disclosure.
+>
+> **VERIFIED.**
+>
+> ---
+>
+> ### S-4 — §4.6, lines 1466–1470 vs 1488–1504: the amendment label sits on the sealed sentence that needed no extension, and the sentence that did is closed to the reviewer
+>
+> **Sealed text** (`PREREGISTRATION.md:948–952`) — bullet 6, two sentences with
+> *different* scopes:
+>
+> > **Percentile CIs.** The one-sided `1 - alpha/7` upper bound is the
+> > `0.9928571429` empirical quantile of the 100,000 bootstrap **deltas**; the lower
+> > bound is the `0.0071428571` quantile.  ← delta-scoped
+> > Quantiles use the order statistic at index `ceil(q * 100000)` clamped to
+> > `[1, 100000]`, a fixed rule with no interpolation.  ← **not** delta-scoped
+>
+> **Specification**, the gap statement (`:1466–1470`):
+>
+> > What the sealed text does not supply is the **BOUND** for a non-delta statistic:
+> > bullet 6 phrases the percentile rule over bootstrap **deltas** only …
+>
+> **Specification**, the disposition (`:1488–1504`): item 3 — the *bound*, i.e. the
+> delta-scoped sentence — is `**[restates prereg 10.1, not amendable here]**`, and
+> item 4 — the *order statistic*, the sentence carrying no delta scope — is
+> `**[substantive prospective amendment]**`. Closing at `:1503–1504`:
+>
+> > **Only item 4 is amended, and only as to its application.** Items 1-3 restate
+> > prereg 10.1 and are not open to a reviewer to resolve differently.
+>
+> **What goes wrong.** The clause quoted at `:1468–1469` as evidence that the sealed
+> text supplies no bound for a non-delta statistic **is item 3's content**. The
+> document therefore declares a gap at item 3's clause and, twenty-five lines later,
+> declares item 3 sealed and closed to the reviewer, while attaching the amendment
+> label to item 4, whose sealed sentence is already general. A reviewer relying on
+> `:1503–1504` will not review the confidence-level choice for descriptive absolute
+> rows — a choice prereg 12.1 ("with CIs") leaves open and which this section's own
+> gap statement identifies as unsupplied. This runs in the unsafe direction: it
+> removes an item from the approval surface. Impact is bounded because §4.6.4 makes
+> descriptive rows verdict-inert.
+>
+> **VERIFIED.**
+>
+> ---
+>
+> ### S-5 — §7, lines 2753–2757: both halves of the stated mechanism are false about the code
+>
+> **Specification** (`:2753–2757`):
+>
+> > The frozen cohort (prereg 4.1) is active-class only (`ACT`/`INA`, prereg 3.1);
+> > reserve-class rows (`RES`, `RET`, `EXE`, `E01`) are excluded **at roster
+> > construction, before any injury-status mapping happens**, so S3's rule (treat
+> > reserve-class roster status as `IR`, prereg 4.2) **has no row to apply to**.
+>
+> **The code:**
+>
+> ```
+> $ awk 'NR>=430&&NR<=445{...}' scripts/backtest/lib/asOfView.js
+> 433:   const injuryStatus = resolveInjuryStatus({ policy, injuryIndex, rosterEntry: entry, … });
+> 442:     inCohort: isActiveClass(entry) && entry.fantasyPosition !== null,
+> 444:       ? `status-class-${entry.statusClass}`
+> $ awk 'NR>=357&&NR<=361{...}' scripts/backtest/lib/asOfView.js
+> 359:   if (policy === INJURY_POLICIES.S3_RESERVE_AS_IR) {
+> 360:     return isReserveClass(rosterEntry) ? 'IR' : null;
+> ```
+>
+> 1. The exclusion happens at **cohort** construction (`inCohort`, `:442`;
+>    `status-class-reserve`, `cohort.js:56`), not roster construction. Prereg 3.1/4.1
+>    is cohort; prereg 5.1 is roster construction, downstream of it.
+> 2. Injury-status mapping runs **first**, not after: `resolveInjuryStatus` is
+>    called at `:433`, nine lines before `inCohort` is computed at `:442`.
+> 3. Under S3 that call returns `'IR'` for reserve entries (`:359–361`). S3's rule
+>    therefore demonstrably **does** have rows to apply to. What makes S3
+>    non-estimable is that those rows are then excluded from the cohort and never
+>    scored.
+>
+> **What goes wrong.** The conclusion (S3 structurally non-estimable, no estimate
+> published) is unaffected and follows from the cohort filter alone. But §7 is an
+> in-scope section whose deviation carries its own user sign-off (`APPROVAL_LEDGER.md`
+> row 8), and this sentence is the mechanism that sign-off rests on. A reader
+> auditing it against the code finds both particulars false. By the calibration this
+> study already set — G-A was a stale citation that changed no ruling and carried
+> NO APPROVAL — this is SUBSTANTIVE.
+>
+> **VERIFIED.**
+>
+> ---
+>
+> ### S-6 — §4.6 line 1479 vs §8.7 line 4166: §4.6's frozen definition does not reach the families §8.7 says it governs
+>
+> ```
+> $ grep -n "rules 1-4" PHASE5_EXECUTION_SPEC.md
+> 1479:of section 8.7 rules 1-4 - absolute metrics, paired deltas, attribution
+> 4166:of **rules 1-4, 6, and 7** is section 4.6's, without exception - for rule
+> ```
+>
+> Those are the document's only two occurrences of the string, and they disagree.
+> §4.6's **Frozen definition** (`:1478–1480`) scopes itself to "the descriptive
+> families of section 8.7 rules 1-4." §8.7's **Interval method** (`:4164–4166`)
+> states that every interval in the families of "rules 1-4, 6, and 7" is §4.6's
+> "without exception," and rule 6 (`:4077`) says "**Interval machinery**: section
+> 4.6's, unchanged."
+>
+> **What goes wrong.** §4.6's four numbered items are the only statement of interval
+> construction for descriptive families. By §4.6's own scope sentence that
+> construction does not reach the two week-window families added at revision 35, so
+> rules 6–7 cross-reference a section that excludes them. This is the same shape
+> §8.7 records itself as having repaired at revision 22 — "the two sections defined
+> each other's scope circularly and disagreed" (`:4173–4174`) — reintroduced from
+> the opposite side.
+>
+> Mitigating, and the reason this is not a BLOCKER: §4.6.1 (`:1541`), §4.6.2
+> (`:1580–1588`), §4.6.3 (`:1683–1692`) and §4.6.4 (`:1744–1745`) were each updated
+> at revision 35 and name the week-window families explicitly, so intent is
+> recoverable. Only the parent scope sentence — and §4.6.2's exhaustiveness sentence
+> at `:1654–1657`, which inherits it — was missed.
+>
+> *Found independently by two of the three readers on this pass, from
+> single-token sweeps.*
+>
+> **VERIFIED.**
+>
+> ---
+>
+> ## 2. MINOR findings
+>
+> | # | location | finding | status |
+> | --- | --- | --- | --- |
+> | M-1 | §6.2, `:2509–2511` | "appear in none of **the four rows above**" — the table has had **six** data rows since revision 35 added two, said eight lines earlier at `:2417`. Self-referential count that rotted, the hazard §10.2 records. | VERIFIED |
+> | M-2 | §6.2, `:2509–2511` and `:2465–2467` | "§8.1's **seven** passing boundaries" enumerates seven but §8.1's passing column carries **eight** distinct values; `+0.025` ((f) f1/f2, `:2819`) is dropped without a stated reason. Argument survives either way. | VERIFIED |
+> | M-3 | §7, `:2766` | "recorded EXCLUSIVELY in `APPROVAL_LEDGER.md`, **never in this document**" — the sign-off appears verbatim in this document at `:4508`. §10's preamble disclaims that table as void authority, which is the defensible reading, but §7 tells the reader there is nothing here to distrust. | VERIFIED |
+> | M-4 | §6.1a, `:2259–2260` | Inside quotation marks attributed to the seal: "a favorable sign **there is** structurally uninformative"; `PREREGISTRATION.md:918` reads "a favorable sign **is therefore** structurally uninformative". | VERIFIED |
+> | M-5 | §6.1a, `:2355` | Quoted as "prereg 9.8's own text": "2024 **cannot** rescue sparse 2025 evidence"; `PREREGISTRATION.md:890` reads "2024 **can never** rescue sparse 2025 evidence." The quoted form matches the *code's* paraphrase (`arms.js:961`), not the seal. | VERIFIED |
+> | M-6 | §6.1, `:2058–2070` | The per-week disclosure threshold changes a sealed published count from `0.50` to `0.30`. Stated and justified, but carries **no section-0 class label**, while the adjacent `3.80` bullet is labelled "mechanical rounding correction" — itself not one of section 0's four class names. The only classification of the pair sits at `:5301`, inside §11.2, scoped "REVIEW ROUNDS 1-13 ONLY" and outside the approval range. | VERIFIED |
+> | M-7 | §8.1, `:2776–2777` | "each is a sealed margin restated verbatim from **prereg 9.2-9.7**" — the table's last row, (f) `+0.025`, is sealed at prereg **9.8** (`PREREGISTRATION.md:841`), which that range excludes. All other values match. | VERIFIED |
+> | M-8 | §8.6.2, `:3650` | `projectionModel.js:754-786` cited for `availabilityFor` "present as a key in EVERY branch"; the function spans `:754–791` and the `activeProbability: 1` branch is at `:790`, outside the cited range. Also, there is no "computed value" branch — the default is exactly `1`. | VERIFIED |
+> | M-9 | §8.6.4, `:3810` | `projection.service.js:467` cited for `projections.set(playerId, ...)`; `projections.set(` is at `:465` and `:467` is `projectFromBundle({`. Inside the same call expression, so the substance holds; the pairing is off by two. | VERIFIED |
+> | M-10 | §8.5, `:3260–3264` | Register item 10's transcription carries **no** mechanical/substantive classification, while the other five revision-35 register transcriptions in section 8 each carry one. It names and rejects a real alternative ("not a raw best-metric readout"). The label appears to be owed and *mechanical* (prereg 12.3 forecloses the alternative); it is absent, not wrong. | VERIFIED |
+> | M-11 | §4.6.2, `:1595` | "`control-naive` IS a contrast (this section says so **above**)" — the only passage asserting it is at `:1642`, forty-seven lines **below**. Revision 35's insertion placed the claim ahead of its ground. | VERIFIED |
+> | M-12 | §3.2, `:1280–1283` | "Section 3.4's test 4 … is what would have collided with the 64-character literal had both been executed." Test 4 compares the unsalted path against `model.scoringHash(rules)` (`:1305–1307`); the §3.2 vector test asserts equality of two **literals** (`:1256–1263`). Neither reads the other's operand, so no collision occurs at any stand-in width. | VERIFIED |
+>
+> ---
+>
+> ## 3. On the locator instrument — an observation, not a finding against the scope
+>
+> The packet reports the locator run as "79 qualified + 83 attributed bare
+> citations, zero failures." That is accurate. It is also a smaller denominator
+> than it reads as:
+>
+> ```
+> qualified                79
+> bare citations found    196
+> bare attributed          85
+> bare reported            83     (2 demoted)
+> bare never checked      113     = 57.7% of bare citations
+> ```
+>
+> Two mechanisms remove citations from the reportable surface. Bare citations with
+> no reachable qualified antecedent are never attributed and never checked (111).
+> And an attributed bare citation that fails **out-of-range** is reclassified as
+> unattributed rather than failed (`check-locators.js:326–331`) — so that failure
+> class is unreportable by construction for bare citations.
+>
+> I checked both demotions at this anchor and **both are benign**: each is a
+> `:1127` citation whose paragraph shifts from `projection.service.js` (786 lines)
+> to §6.5's `projectionModel.js` (1,208 lines) without re-naming the file, exactly
+> the misattributed inheritance the demotion exists to absorb. Both sit outside the
+> approval scope (`:174`, `:4533`). So no live failure is hidden today, and the
+> design choice is defensible.
+>
+> The point is what finding S-1 demonstrates: `failureCount: 0` was returned over a
+> document containing a citation that names the wrong function, because that
+> citation's line does contain the quoted expression. The instrument is accurate
+> about what it tests. Scope section 10's own caution 8 states the inference
+> problem precisely, and the packet's characterisation of the run does not carry the
+> denominator that would let a reader apply it. Worth a sentence in §10.2a on the
+> next re-anchor; not a finding against sections 3–8.
+>
+> ---
+>
+> ## 4. Categories that are clean
+>
+> Stated explicitly, because silence is not a finding.
+>
+> - **The G-A repair holds.** `arms.js:934–935` contains exactly the tie-rounded
+>   comparison §6.1 attributes to it; the constant is at `:781` as cited. No sibling
+>   drift in §6.1/§6.2: all 17 qualified and 24 bare locators in 2041–2771 were
+>   opened individually and resolve.
+> - **Ruling D1 (§6.1a/6.4/6.4a).** The "code already implemented BOTH seasons"
+>   claim is true — `componentFVetoRecords` filters with no season predicate and
+>   `assertVetoRealizationCoverage` is season-agnostic, while the *gate* operands are
+>   2025-scoped, so the two scopes genuinely differ as the document says. §6.4a's
+>   attestation arithmetic closes: `expectedCount = 24 × subgroupPlayerWeekCount`,
+>   hard error on any missing or unexpected composite key.
+> - **Ruling D6 (§8.4/8.5).** Every claimed fail-closed check exists at **both**
+>   layers — producer `inputsAssembly.js:813–821`, `:900–913`; reducer
+>   `run-backtest-sweep.js:254–268`, `:504–525`. `sensitivityAudit` is a required
+>   document and report key, null on void.
+> - **Ruling D2 (§8.7 rules 6–7).** Both carry explicit substantive labels; each pin
+>   is disclosed as a pin and defensible against sealed prereg 16 and 10.5. Rule 4's
+>   "and nothing else" is profile-scoped, so the half-PPR-only window families sit
+>   outside it rather than violating it. Arithmetic checks: weeks 2–17 = 16 clusters;
+>   week 18 alone = 1 → `degenerate`; seven endpoints; eight cells.
+> - **Ruling D5 (§8.7 rule 4).** Outcome-truth pricing disclosure is factually
+>   sound and pinned by test either way.
+> - **§8.6.6 — all five "mechanical completion" labels hold.** Each was tested
+>   individually. Item 1 is the one that could have failed and does not: weather-off
+>   is explicitly sealed at `PREREGISTRATION.md:810–813`.
+> - **§8.2 / §8.2a / §8.2b / §8.3 / §8.6.0 / §8.6.1.** Every code claim verified
+>   against the reducer, including the untriggered `wide-straddle`-beats-`passed`
+>   precedence, the `SALTS[0]` invariance throw, the five Level-1 void causes, and
+>   the re-evidenced §8.6.1 invocation.
+> - **§3 (salt derivation).** Reclassification to substantive at `:1197–1226` is
+>   correct and its reasoning holds; §5.1's `mulberry32` transcription is
+>   byte-identical to the code; the 24-salt list matches prereg 8.1 element for
+>   element.
+> - **§4.6.1's exception-scope note** — the item the packet flagged — is **sound**.
+> - **§6.3's asymmetry** is sound against prereg 4.1 and symmetric in its labels;
+>   `componentFSubgroupEligible` is one shared predicate used at all four derivation
+>   sites and asserts rather than coerces.
+> - **The inertness computation reproduces exactly**: closest reachable binomial
+>   upper tail `1/128 = 0.0078125` at `n=7`, gap `6.6964e-4`, against `roundToTie`'s
+>   `5e-11` half-step. Seven orders of magnitude.
+> - **All other arithmetic and counts recomputed**, including the thirteen (e2)
+>   inequalities, 34 season-weeks, 816 = 34 × 24, seven §8.6 subsections, five
+>   Level-4 statuses, and the 1,437-line §8 extraction.
+>
+> ---
+>
+> ## 5. Reach of this read
+>
+> **Read in full:** specification lines **1189–4208**, all 3,020 lines, across three
+> independent readers with non-overlapping assignments (3–5: 1189–2040; 6–7:
+> 2041–2771; 8: 2772–4208), each reading contiguously with terminators excluded and
+> extraction line counts printed. Every SUBSTANTIVE finding above was then
+> re-verified by me directly against the cited source, from the clone, with the
+> commands shown.
+>
+> **Also read** for cross-reference: spec preamble and §0 (78–92, 786–1010), §1,
+> §9's opening, §10 (4481–4546), §11.2; `PREREGISTRATION.md` in the sections the
+> rulings rest on (3.1, 3.3, 4.1–4.3, 5.1–5.3, 6.1–6.7, 7.1–7.3, 8.1–8.3, 9.1–9.8,
+> 10.1–10.6, 11, 12.1–12.3, 16); `APPROVAL_LEDGER.md` corrective entries 23–26 and
+> the approval rows.
+>
+> **Code opened at cited lines:** `arms.js`, `metrics.js`, `permutationControl.js`,
+> `inputsPermutationCapture.js`, `outcomes.js`, `controlCellEvaluator.js`,
+> `armWeekEvaluator.js`, `sweepPreflight.js`, `projectionModel.js`,
+> `projectionFeatures.js`, `projection.service.js`, `asOfView.js`, `cohort.js`,
+> `inputsGeneration.js`, `inputsAssembly.js`, `inputsSensitivity.js`,
+> `run-backtest-sweep.js`, `run-backtest-inputs.js`, `run-backtest-rosters.js`,
+> `sweepReport.js`, `snapshotStore.js`, `scoring.service.js`, `numbers.js`, and the
+> named test files.
+>
+> **Patterns swept:** every `file.js:NNN[-MMM]` and bare `` `:NNN` `` locator in
+> 1189–4208, extracted mechanically and each opened; every `prereg N.N` citation in
+> scope compared verbatim against the sealed file; all markdown tables; all
+> `N-M | count` rows; `void|VOID`; `rules 1-4`; `week-window`; `frozen threshold`;
+> and per caution 6, distinctive single tokens rather than phrases throughout — two
+> findings (S-1 and S-6) came only from single-token sweeps.
+>
+> **Not reached.** Sections 0, 1, 2, 9, 10, 10.2a and 11 were read only where an
+> in-scope claim depends on them; I did not audit their own citations, and this
+> report is silent about them except where noted. I did not execute the test suite,
+> so tests are verified to exist with matching names and bodies, not to pass. I did
+> not check §8.7's Commit B SHA-256 values against the freeze manifest. I did not
+> review the implementation for conformance to the rulings — that is the fourth
+> approval, with a separate reviewer.
+>
+> **Gate 0 held throughout.** No candidate cell executed against any freeze state;
+> `backtest-data/snapshot/` and all result artifacts untouched; no sweep output
+> generated; no result inspected. The only execution was the four read-only §10.2a
+> instruments and arithmetic written from scratch in `node -e`.
+>
+> ---
+>
+> ## 6. Decision
+>
+> **NO APPROVAL.**
+>
+> Six SUBSTANTIVE findings prevent it: **S-1** (§8.7 rule 5's repaired citation
+> names the wrong call site, and the repair's justification is false against the
+> document's own three other citations of the correct pair), **S-2** (§6.2's
+> completeness declaration is still false at a gate comparison), **S-3** (§5.2
+> labels "forced" a leg its own producer register left open, with a third reading
+> already implemented in two evaluators), **S-4** (§4.6's amendment label sits on
+> the wrong sealed sentence, closing the genuinely open one to review), **S-5**
+> (§7's stated mechanism is false about the code in both particulars), and **S-6**
+> (§4.6's frozen definition does not reach the families §8.7 says it governs).
+>
+> No ruling I examined is wrong. Every finding is scaffolding — a citation, a
+> completeness declaration, a forcing claim, a label, a scope sentence — which is
+> where this document's findings have historically been, and S-1 is the same defect
+> class, in the same repair, as the finding that ended the previous round.
+>
+> Per commission section 4, a round issuing no approval warrants no row, and I have
+> not drafted one.
+>
+> **Cheapest path to approvable bytes**, offered as fact rather than direction: S-2,
+> S-6, and all twelve MINOR items are additive or one-line scope repairs. S-1 needs
+> `:296` added and the bracket's sibling claim struck. S-3 and S-4 need a label
+> changed, not a ruling changed — S-3 restated as a disclosed choice rather than a
+> forced one, S-4's amendment moved to the bullet sentence that carries the delta
+> scope. Zero of four approvals are in force, so a correcting revision costs one
+> re-anchor and one ledger entry and lapses nothing.
+
+**(3) Finding-by-finding disposition.** All six substantive findings and
+M-1 through M-12 were independently checked against the cited specification,
+sealed preregistration, and implementation. Revision 37 changes no
+statistical ruling:
+
+- S-1 cites the operative `projectionFeatures.js:296` call and removes the
+  false no-sibling justification.
+- S-2 adds the 8-cluster/30-row integer gate to section 6.2's exhaustive
+  frozen-threshold table and proves `roundToTie` inert there.
+- S-3 states the bye-domain leg as a disclosed substantive choice, not a
+  forced consequence, and cites the two existing `onBye` skips.
+- S-4 places the substantive-amendment label on the delta-scoped confidence
+  bound, leaving the already-general order-statistic rule as a restatement.
+- S-5 states the actual sequence: reserve-status mapping occurs first; the
+  active-class cohort filter later makes S3 non-estimable.
+- S-6 extends section 4.6's parent definition and exhaustive sentence to
+  rules 1-4, 6, and 7.
+- M-1 through M-12 are corrected at their cited sites. The same-class
+  spillovers in sections 4.4 and 8.2a are corrected with them.
+
+**(4) Locator denominator disclosure.** The locator instrument now reports
+the bare-citation denominator directly and retains the old names as
+backward-compatible aliases. At revision 37 the live result is:
+`bareFound=201`, `bareAttributed=88`, `bareReported=86`,
+`bareDemoted=2`, `bareUnchecked=115`, with 85 total qualified citations
+and zero failures. Section 10.2a records the revision-36 review denominator
+(`196`, `85`, `83`, `2`, `113`) separately, so the historical observation
+is not rewritten using revision-37 counts.
+
+**(5) Revision-37 anchor and verification.** The specification-only anchor
+is commit `72d43ac` (`docs(backtest): anchor PHASE5_EXECUTION_SPEC revision
+37`). Its specification blob is
+`3e3524626dda7ce5b0e8a4bf50beeaca5b78163a`; SHA-256 is
+`8F87852A45A7339BE258408DC2AD62F68FB7569978F16F3BFBA8C05DACD98A57`;
+the document is 5,552 lines. The supporting instrument commit is
+`66e3a67` (`feat(backtest): expose locator bare-citation denominator`).
+The revision-36-to-37 changed-section set is exactly
+`["10","10.2a","3.2","4.4","4.6","4.6.2","5.2","6.1",
+"6.1a","6.2","7","8.1","8.2a","8.5","8.6.2","8.6.4",
+"8.7","preamble"]`. Final confinement reports that exact set with zero
+violations; packet coverage reports `missing: []`; identifier consistency
+reports `statusRevisions:[37]` and `staleRevisions:[]`. The only
+unresolvable identifier tokens are the two declared worked examples.
+
+**(6) Gate and forward state.** Gate 0 remains active. No candidate cell,
+frozen snapshot, sweep, report, or result was executed or inspected. No
+statistical approval, user attestation, or implementation-conformance
+approval may be inferred from this corrective entry. The next statistical
+packet must be freshly cut from a ref containing this entry and the
+revision-37 anchor, with its manifest bound to that ledger HEAD. Recipient
+selection and delivery remain the study owner's call.
