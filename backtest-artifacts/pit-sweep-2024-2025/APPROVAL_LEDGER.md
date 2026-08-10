@@ -216,6 +216,7 @@ remain prohibited pending the final independent implementation review.
 | 11 | `PHASE5_EXECUTION_SPEC.md` | `DC1E1C413A6CDFCB9072393720020179C0FFD4E483137117B66DC0F25281AE43` | independent statistical review | 2026-08-09 | revision 38, sections 3-8; exact git blob `44fae65bce063e9eff2912e0827b868061bf7a15` at commit `d65bc1086227c76f3a0991cd31c577f2b2c9e96d`. **Reach as stated by the approver**: the reviewer who issued the revision-36 and revision-37 findings continued in the same session from `/home/claude/review-clone-r36/ez`; the eight changed in-scope regions and dependency surface were read anew, with the byte-identical remainder carried from that reviewer's prior two reads. Four MINOR findings F-1 through F-4 are inert and do not prevent approval. **Independence limitation**: the reviewer cannot audit whether other drafting sessions used the same assistant model; model-level novelty remains unresolved and is not represented here as proven | **APPROVED** |
 | 12 | `PHASE5_EXECUTION_SPEC.md` | `DC1E1C413A6CDFCB9072393720020179C0FFD4E483137117B66DC0F25281AE43` | user | 2026-08-09 | S3 structurally non-estimable prospective deviation, section 7: reserve-class source rows receive injury-status mapping first; cohort exclusion and counting occur second; excluded rows never reach downstream roster construction or scoring. **No S3 estimate is published**; disclosed as an explicit prospective deviation from preregistration section 4.2. Exact git blob `44fae65bce063e9eff2912e0827b868061bf7a15` at commit `d65bc1086227c76f3a0991cd31c577f2b2c9e96d` | **APPROVED** |
 | 13 | `PHASE5_EXECUTION_SPEC.md` | `DC1E1C413A6CDFCB9072393720020179C0FFD4E483137117B66DC0F25281AE43` | user | 2026-08-09 | all remaining provisions of revision 38, sections 3-8, outside row 12's S3 deviation; exact git blob `44fae65bce063e9eff2912e0827b868061bf7a15` at commit `d65bc1086227c76f3a0991cd31c577f2b2c9e96d`. **Scope of authorization: implementation work only — does NOT authorize candidate-cell execution** | **APPROVED** |
+| 14 | `PHASE5_EXECUTION_SPEC.md` | `DC1E1C413A6CDFCB9072393720020179C0FFD4E483137117B66DC0F25281AE43` | independent implementation review | 2026-08-10 | Gate 2 implementation conformance to revision 38, sections 3-8; exact git blob `44fae65bce063e9eff2912e0827b868061bf7a15` at anchor `d65bc1086227c76f3a0991cd31c577f2b2c9e96d`, **reviewed at implementation commit `a85f6a67c99d27740018b77a5324c0841ce5a99a`**. N-2 is closed and the reviewer independently reproduced 379 passing synthetic tests. Semgrep run `31410073445` executed and failed; the identified source statements were dispositioned as nonblocking false positives and a suppression gap. **MINOR N-1 remains open**: only a direct handmade call to `sweepReport.buildReport` can produce the visible null; the production path emits and validates veto evidence, so no validated document changes status. Residual observations O-1 and O-2 are unverified non-conformance observations. **Independence limitation**: model-level novelty remains unresolved. **Does NOT authorize candidate-cell execution or lift Gate 0**; Gate 4's replacement freeze sequence and Gate 3 verification remain | **APPROVED** |
 
 **Row 7's earlier reservation is superseded — see corrective entry 19.** The
 paragraph that follows was written at corrective entry 2, when rows 4-6 were
@@ -4723,3 +4724,85 @@ approved specification bytes.
 only. They do not authorize candidate execution, frozen snapshot access,
 Docker sweep execution, report generation, or result inspection. None
 occurred while recording them.
+
+### CORRECTIVE ENTRY 32 — appended 2026-08-10
+
+**This entry records the independent implementation approval against
+revision 38** and creates approval row 14. Entries 1-31 and rows 1-13
+remain byte-for-byte untouched. The specification and approved
+implementation tree are not edited.
+
+**(1) The approval authenticates one exact specification and implementation
+tuple.**
+
+```
+SHA-256              DC1E1C413A6CDFCB9072393720020179C0FFD4E483137117B66DC0F25281AE43
+specification blob   44fae65bce063e9eff2912e0827b868061bf7a15
+specification anchor d65bc1086227c76f3a0991cd31c577f2b2c9e96d
+implementation       a85f6a67c99d27740018b77a5324c0841ce5a99a
+```
+
+The approver is the holder of historical row 10 and the author of the
+2026-08-10 no-approval, re-review, reach-completion, and corrective
+re-review records. The approver wrote no ledger row and directed that the
+approval be recorded with the stated reach.
+
+**(2) The exact verdict was:**
+
+> **APPROVED**: the complete implementation at commit
+> `a85f6a67c99d27740018b77a5324c0841ce5a99a` conforms to revision 38,
+> sections 3-8, exact specification blob
+> `44fae65bce063e9eff2912e0827b868061bf7a15` at anchor
+> `d65bc1086227c76f3a0991cd31c577f2b2c9e96d`.
+
+The approver expressly stated that the approval attaches to those bytes,
+that any implementation change lapses it, and that it does not authorize
+candidate-cell execution or lift Gate 0.
+
+**(3) Corrective reach and reproduced evidence.** The approver
+authenticated the parentless three-file review packet, the specification
+blob and SHA-256, a silent specification diff, and the corrective
+implementation diff from `a6aef0e1f0bbdfbb8b8edf28360463e323597b4e` to
+`a85f6a67c99d27740018b77a5324c0841ce5a99a` as exactly 13 modified files,
+383 insertions, 11 deletions, and one commit. N-2 is closed across the full
+cohort-exclusion chain: roster capture, input production, checkpoint
+round-trip, canonical assembly, reducer validation, JSON publication, and
+Markdown publication. The reviewer personally ran ten fail-closed probes
+and reproduced the 15-file synthetic suite as **379 passed, 0 failed**.
+
+Semgrep run `31410073445` was independently authenticated as an executed
+scan at the approved implementation commit with conclusion `failure`.
+The public log body was unavailable, so its rule, file, and finding counts
+remain packet-derived. The reviewer independently located and adjudicated
+the four reported repo-root `path.join` statements in
+`scripts/backtest/instruments/check-locators.js` as nonblocking false
+positives and an omitted-suppression gap. The recommended pins are not
+added here because any implementation-byte change would lapse this
+approval.
+
+**(4) Open limitation and residual observations.** **MINOR N-1 remains
+open.** A direct handmade `sweepReport.buildReport` call can supply an
+explicitly null veto or omit the evidence container and publish a visible
+null. It cannot publish the false affirmative `catastrophicVeto: false`.
+The production path always emits a veto evidence block and validates it
+before report construction, so the condition is unreachable through that
+path and changes no status on a validated document.
+
+O-1 (DEF fumble pricing) and O-2 (an unpinned dataset fallback) are carried
+as unverified observations for which the reviewer found no governing-text
+conformance requirement. The reviewer also disclosed that their own prior
+review work was carried forward and that model-level novelty cannot be
+audited. Row 14 records that independence limitation; it does not represent
+novelty as proven.
+
+**(5) Approval and gate state.** **Four of four approvals are now in force**
+against revision 38: independent statistical review (row 11), the S3 user
+attestation (row 12), the remainder user approval (row 13), and independent
+implementation review (row 14).
+
+**Gate 0 remains active.** Completion of the four-approval chain does not
+itself authorize candidate execution, frozen snapshot access, Docker sweep
+execution, report generation, or result inspection. Gate 4's replacement
+freeze sequence and Gate 3 verification under specification section 1
+remain required. None of the prohibited operations occurred while
+recording this approval.
