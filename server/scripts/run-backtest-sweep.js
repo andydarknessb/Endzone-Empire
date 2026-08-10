@@ -112,7 +112,7 @@ function parseArgs(argv) {
 const COMPONENT_KEYS = Object.freeze(['a', 'b', 'c', 'd', 'e1']);
 const TOP_LEVEL_KEYS = Object.freeze([
   'studyId', 'canariesPassed', 'preflight', 'permutationControl',
-  'orderingDisagreement', 'deployedPolicyDisagreement', 'sensitivityAudit', 'cells', 'evidence',
+  'orderingDisagreement', 'deployedPolicyDisagreement', 'sensitivityAudit', 'cohortExclusions', 'cells', 'evidence',
 ]);
 // Decision D6 (ruled 2026-08-08): the estimand audit trail is a required
 // document key.  These closed lists are the REDUCER's own - deliberately not
@@ -159,11 +159,51 @@ const F_VETO_INPUT_KEYS = Object.freeze(['realizations']);
 const F_VETO_REALIZATION_KEYS = Object.freeze(['season', 'week', 'playerId', 'salt', 'incrementalError']);
 const CELL_INPUT_KEYS = Object.freeze(['a', 'b', 'c', 'd', 'e1', 'e2', 'f', 'activation', 'orderingSensitivity']);
 const ORDERING_SENSITIVITY_KEYS = Object.freeze(['contradicted', 'detail']);
+const COHORT_EXCLUSION_ROW_KEYS = Object.freeze([
+  'season', 'week', 'members', 'defenses', 'onBye', 'excluded', 'excludedTotal', 'contradictions',
+]);
+const COHORT_EXCLUSION_REASON_KEYS = Object.freeze([
+  'no-roster-row', 'status-class-reserve', 'status-class-off_roster',
+  'no-fantasy-position', 'malformed-gsis-id', 'unmapped-gsis-id',
+  'absent-from-players-table',
+]);
 
 function assertClosedKeys(obj, allowed, label) {
   const extra = Object.keys(obj || {}).filter((k) => !allowed.includes(k));
   if (extra.length > 0) {
     throw new Error(`${label}: unexpected key(s): ${extra.join(', ')}`);
+  }
+}
+
+function validateCohortExclusions(rows, label) {
+  if (!Array.isArray(rows)) throw new Error(`${label}: must be an array with one row per evaluated season-week`);
+  const expected = [2025, 2024].flatMap((season) => metrics.EVALUATED_WEEKS.map((week) => `${season}:${week}`));
+  const seen = new Set();
+  const integer = (value, valueLabel) => {
+    if (!Number.isInteger(value) || value < 0) throw new Error(`${valueLabel}: must be a nonnegative integer`);
+  };
+  for (const [index, row] of rows.entries()) {
+    const rowLabel = `${label}[${index}]`;
+    if (!row || typeof row !== 'object' || Array.isArray(row)) throw new Error(`${rowLabel}: must be an object`);
+    const missing = COHORT_EXCLUSION_ROW_KEYS.filter((key) => !Object.prototype.hasOwnProperty.call(row, key));
+    if (missing.length > 0) throw new Error(`${rowLabel}: missing required key(s): ${missing.join(', ')}`);
+    assertClosedKeys(row, COHORT_EXCLUSION_ROW_KEYS, rowLabel);
+    const coordinate = `${row.season}:${row.week}`;
+    if (!expected.includes(coordinate)) throw new Error(`${rowLabel}: ${coordinate} is outside the evaluated grid`);
+    if (seen.has(coordinate)) throw new Error(`${rowLabel}: duplicate coordinate ${coordinate}`);
+    seen.add(coordinate);
+    if (!row.excluded || typeof row.excluded !== 'object' || Array.isArray(row.excluded)) throw new Error(`${rowLabel}.excluded: must be an object`);
+    const missingReasons = COHORT_EXCLUSION_REASON_KEYS.filter((key) => !Object.prototype.hasOwnProperty.call(row.excluded, key));
+    if (missingReasons.length > 0) throw new Error(`${rowLabel}.excluded: missing required key(s): ${missingReasons.join(', ')}`);
+    assertClosedKeys(row.excluded, COHORT_EXCLUSION_REASON_KEYS, `${rowLabel}.excluded`);
+    for (const reason of COHORT_EXCLUSION_REASON_KEYS) integer(row.excluded[reason], `${rowLabel}.excluded.${reason}`);
+    for (const field of ['members', 'defenses', 'onBye', 'excludedTotal', 'contradictions']) integer(row[field], `${rowLabel}.${field}`);
+    const total = COHORT_EXCLUSION_REASON_KEYS.reduce((sum, reason) => sum + row.excluded[reason], 0);
+    if (row.excludedTotal !== total) throw new Error(`${rowLabel}.excludedTotal does not equal its reason-count sum`);
+  }
+  const missing = expected.filter((coordinate) => !seen.has(coordinate));
+  if (missing.length > 0 || rows.length !== expected.length) {
+    throw new Error(`${label}: requires exactly one row per evaluated season-week; missing [${missing.join(', ')}]`);
   }
 }
 
@@ -295,6 +335,7 @@ function validateInputs(inputs, { label = '--inputs' } = {}) {
   for (const flag of ['canariesPassed', 'orderingDisagreement', 'deployedPolicyDisagreement']) {
     if (typeof inputs[flag] !== 'boolean') throw new Error(`${label}.${flag}: must be a boolean`);
   }
+  validateCohortExclusions(inputs.cohortExclusions, `${label}.cohortExclusions`);
   validateSensitivityAudit(inputs.sensitivityAudit, inputs.deployedPolicyDisagreement, `${label}.sensitivityAudit`);
   if (!inputs.preflight || typeof inputs.preflight !== 'object') {
     throw new Error(`${label}.preflight: must carry raw identity and salt-seed records; operator-supplied pass/fail booleans are prohibited`);
@@ -1090,7 +1131,11 @@ function buildReportFromInputs(inputs, { expectedRosterCount = rosters.TEAM_COUN
   // Decision D6: the validated audit trail rides to publication.  It is
   // selection-level, candidate-claims-derived evidence, so buildReport
   // publishes it null on a void run (prereg 7.3), mirroring `cells`.
-  return sweepReport.buildReport({ studyId: inputs.studyId, sweep: { ...sweep, evidence, sensitivityAudit: inputs.sensitivityAudit } });
+  return sweepReport.buildReport({
+    studyId: inputs.studyId,
+    sweep: { ...sweep, evidence, sensitivityAudit: inputs.sensitivityAudit },
+    cohortExclusions: inputs.cohortExclusions,
+  });
 }
 
 /**
@@ -1162,6 +1207,7 @@ module.exports = {
   TOP_LEVEL_KEYS,
   CELL_INPUT_KEYS,
   PREFLIGHT_KEYS,
+  COHORT_EXCLUSION_REASON_KEYS,
   parseArgs,
   validateInputs,
   componentFVetoRecords,

@@ -64,6 +64,39 @@ const TEAM_WEEK_ROWS = [
 ];
 const GAMES_ROWS = [GAME_W3, GAME_W4];
 
+test('cohortWeekArtifact preserves the section-7 cohort exclusion counts beside outcome counts', () => {
+  const outcome = {
+    season: 2025,
+    week: 2,
+    members: [{ playerId: 1 }],
+    counts: { members: 1, outcomeTally: { scored: 1 } },
+    actualPointsByPlayerId: new Map([[1, 7.5]]),
+  };
+  const cohort = {
+    counts: {
+      members: 1,
+      defenses: 0,
+      onBye: 0,
+      excluded: {
+        'no-roster-row': 0,
+        'status-class-reserve': 3,
+        'status-class-off_roster': 1,
+        'no-fantasy-position': 0,
+        'malformed-gsis-id': 0,
+        'unmapped-gsis-id': 0,
+        'absent-from-players-table': 0,
+      },
+      excludedTotal: 4,
+      contradictions: 0,
+    },
+  };
+
+  const artifact = runRosters.cohortWeekArtifact(outcome, cohort);
+
+  assert.deepEqual(artifact.cohortExclusions, cohort.counts);
+  assert.deepEqual(artifact.counts, outcome.counts);
+});
+
 function outcomeSourceContextFor(season) {
   assert.equal(season, 2025, 'this fixture only carries 2025 rows');
   return { playerWeekRows: [], teamWeekRows: TEAM_WEEK_ROWS, gamesRows: GAMES_ROWS };

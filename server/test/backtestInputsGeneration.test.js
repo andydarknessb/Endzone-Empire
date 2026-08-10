@@ -91,6 +91,22 @@ function makeWeekArtifacts({ season, week }) {
     rosterWeek,
     cohortWeek: {
       season, week, members, actualPointsByPlayerId,
+      cohortExclusions: {
+        members: members.length,
+        defenses: members.filter((member) => member.isDefense).length,
+        onBye: 0,
+        excluded: {
+          'no-roster-row': 0,
+          'status-class-reserve': week,
+          'status-class-off_roster': 0,
+          'no-fantasy-position': 0,
+          'malformed-gsis-id': 0,
+          'unmapped-gsis-id': 0,
+          'absent-from-players-table': 0,
+        },
+        excludedTotal: week,
+        contradictions: 0,
+      },
     },
     positionRank: new Map(MACRO_POSITIONS.map((position, index) => [position, index + 1])),
     nameRankById: new Map(members.map((m) => [m.playerId, m.playerId])),
@@ -293,6 +309,7 @@ function assembleFrom(records) {
     armWeekMetrics: records.armWeekMetrics,
     subgroupErrorRows: records.subgroupErrorRows,
     activationRecords: records.activationRecords,
+    cohortExclusions: records.cohortExclusionRows,
     orderingSensitivityByCell: Object.fromEntries(arms.SELECTION_FAMILY.map((cell) => [cell.name, { contradicted: false, detail: null }])),
     sensitivityAudit: inputsSensitivity.placeholderSensitivityAudit(),
     preflight: records.preflight,
@@ -420,6 +437,7 @@ test('the driver\'s records assemble into a document the approved reducer valida
     armWeekMetrics: records.armWeekMetrics,
     subgroupErrorRows: records.subgroupErrorRows,
     activationRecords: records.activationRecords,
+    cohortExclusions: records.cohortExclusionRows,
     orderingSensitivityByCell: sensitivity.orderingSensitivityByCell,
     sensitivityAudit: {
       winnersByPass: sensitivity.detail.winnersByPass,
@@ -501,6 +519,14 @@ test('the record counts are the grid\'s, and the two never-scored arms are gener
   const expectedSubgroup = ON_CELLS.reduce((sum, c) => sum
     + ALL_IDS.filter((pid) => baselineFor({ blendWeight: c.blendWeight, season: PRIMARY_SEASON, week: 2, playerId: pid }) <= 0).length, 0);
   assert.equal(records.counts.subgroupErrorRows, expectedSubgroup * weeks * 2 * SALTS.length);
+});
+
+test('section-7 cohort exclusion counts survive generation as one row per evaluated season-week', async () => {
+  const records = await fullGrid();
+  assert.equal(records.cohortExclusionRows.length, 2 * EVALUATED_WEEKS.length);
+  const row = records.cohortExclusionRows.find((candidate) => candidate.season === 2025 && candidate.week === 2);
+  assert.equal(row.excluded['status-class-reserve'], 2);
+  assert.equal(row.excludedTotal, 2);
 });
 
 test('the sensitivity profiles carry the 8 cells for 2025 only, and no benchmark', async () => {

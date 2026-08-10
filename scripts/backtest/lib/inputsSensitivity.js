@@ -224,6 +224,7 @@ function assembleComparisonDocument({
     armWeekMetrics,
     subgroupErrorRows: records.subgroupErrorRows,
     activationRecords: records.activationRecords,
+    cohortExclusions: records.cohortExclusionRows,
     orderingSensitivityByCell: orderingSensitivityByCell || placeholderOrderingSensitivityByCell(),
     sensitivityAudit: placeholderSensitivityAudit(),
     preflight: records.preflight,

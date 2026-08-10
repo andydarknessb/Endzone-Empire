@@ -174,6 +174,19 @@ function treatedActivationInput() {
   };
 }
 
+function syntheticCohortExclusions() {
+  const reasons = [
+    'no-roster-row', 'status-class-reserve', 'status-class-off_roster',
+    'no-fantasy-position', 'malformed-gsis-id', 'unmapped-gsis-id',
+    'absent-from-players-table',
+  ];
+  return [2025, 2024].flatMap((season) => metrics.EVALUATED_WEEKS.map((week) => ({
+    season, week, members: 100, defenses: 32, onBye: 6,
+    excluded: Object.fromEntries(reasons.map((reason) => [reason, 0])),
+    excludedTotal: 0, contradictions: 0,
+  })));
+}
+
 /** A full, valid --inputs document: every cell comfortably PASSES every applicable component. */
 function fullPassingInputs({ permutationControl = syntheticPermutationControl() } = {}) {
   const cells = {};
@@ -216,6 +229,7 @@ function fullPassingInputs({ permutationControl = syntheticPermutationControl() 
     orderingDisagreement: false,
     deployedPolicyDisagreement: false,
     sensitivityAudit: passingSensitivityAudit(),
+    cohortExclusions: syntheticCohortExclusions(),
     cells,
     evidence,
   };

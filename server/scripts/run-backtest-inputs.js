@@ -641,7 +641,7 @@ function buildArtifact(records, { permutationControl, permutationCounts } = {}) 
   // (a refactor that stops threading armWeekMetrics, say) would serialize,
   // pass assertEnvironmentFree, and read as a checkpoint while carrying
   // nothing to assemble (mutation-QA finding wir-01/02 on increment 4).
-  for (const key of ['armWeekMetrics', 'subgroupErrorRows', 'activationRecords']) {
+  for (const key of ['armWeekMetrics', 'subgroupErrorRows', 'activationRecords', 'cohortExclusionRows']) {
     if (!Array.isArray(records[key])) throw new Error(`run-backtest-inputs: buildArtifact requires records.${key} as an array`);
   }
   for (const key of ['preflight', 'counts']) {
@@ -668,6 +668,7 @@ function buildArtifact(records, { permutationControl, permutationCounts } = {}) 
     armWeekMetricsBySensitivity: records.armWeekMetricsBySensitivity,
     subgroupErrorRows: records.subgroupErrorRows,
     activationRecords: records.activationRecords,
+    cohortExclusionRows: records.cohortExclusionRows,
     preflight: records.preflight,
     permutationControl,
     counts: { ...records.counts, permutationControl: permutationCounts },
@@ -696,7 +697,7 @@ function assertRecordsArtifactShape(artifact, { label = 'run-backtest-inputs rec
   if (artifact.studyId !== STUDY_ID) {
     throw new Error(`${label}: studyId must be the sealed ${JSON.stringify(STUDY_ID)}, got ${JSON.stringify(artifact.studyId)} - a checkpoint answering to a different study must never assemble this one's document`);
   }
-  for (const key of ['armWeekMetrics', 'subgroupErrorRows', 'activationRecords']) {
+  for (const key of ['armWeekMetrics', 'subgroupErrorRows', 'activationRecords', 'cohortExclusionRows']) {
     if (!Array.isArray(artifact[key])) throw new Error(`${label}: requires ${key} as an array`);
   }
   if (!artifact.armWeekMetricsBySensitivity || typeof artifact.armWeekMetricsBySensitivity !== 'object') {
@@ -883,6 +884,7 @@ function assembleFinalDocument({
     armWeekMetrics: records.armWeekMetrics,
     subgroupErrorRows: records.subgroupErrorRows,
     activationRecords: records.activationRecords,
+    cohortExclusions: records.cohortExclusionRows,
     orderingSensitivityByCell: sensitivity.orderingSensitivityByCell,
     // Decision D6 (ruled 2026-08-08): the DERIVED audit trail rides the final
     // document - never the placeholder the comparison documents carry - so

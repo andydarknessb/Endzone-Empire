@@ -1,9 +1,25 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const sweepReport = require('../../scripts/backtest/lib/sweepReport');
+const rawSweepReport = require('../../scripts/backtest/lib/sweepReport');
 const sweepInference = require('../../scripts/backtest/lib/sweepInference');
 const arms = require('../../scripts/backtest/lib/arms');
+const metrics = require('../../scripts/backtest/lib/metrics');
+
+const COHORT_EXCLUSION_REASONS = Object.freeze([
+  'no-roster-row', 'status-class-reserve', 'status-class-off_roster',
+  'no-fantasy-position', 'malformed-gsis-id', 'unmapped-gsis-id',
+  'absent-from-players-table',
+]);
+const syntheticCohortExclusions = () => [2025, 2024].flatMap((season) => metrics.EVALUATED_WEEKS.map((week) => ({
+  season, week, members: 100, defenses: 32, onBye: 6,
+  excluded: Object.fromEntries(COHORT_EXCLUSION_REASONS.map((reason) => [reason, reason === 'status-class-reserve' ? week : 0])),
+  excludedTotal: week, contradictions: 1,
+})));
+const sweepReport = {
+  ...rawSweepReport,
+  buildReport: (args) => rawSweepReport.buildReport({ ...args, cohortExclusions: syntheticCohortExclusions() }),
+};
 
 const claim = (verdict, componentOverrides = {}) => ({
   cell: null,
@@ -175,6 +191,25 @@ test('buildReport refuses a component carrying a key outside the closed componen
   assert.throws(
     () => sweepReport.buildReport({ studyId: 'pit-sweep-2024-2025', sweep }),
     /unexpected key\(s\).*extraField/
+  );
+});
+
+test('section 7 publishes cohort exclusion counts and the S3 non-result statement on valid and void reports', () => {
+  const validSweep = sweepInference.evaluateSweep({ cellClaims: allCells('fail'), permutationControl: cleanPermutation });
+  const report = sweepReport.buildReport({ studyId: 'pit-sweep-2024-2025', sweep: validSweep });
+  assert.deepEqual(report.cohortExclusions, syntheticCohortExclusions());
+  const markdown = sweepReport.renderMarkdown(report);
+  assert.match(markdown, /S3 was preregistered but is not reported/);
+  assert.match(markdown, /\| 2025 \| 2 \| 100 \| 32 \| 6 \| 2 \| 1 \| 0 \| 2 \|/);
+
+  const voidSweep = sweepInference.evaluateSweep({
+    cellClaims: allCells('pass'), permutationControl: { regretP: 0.5, pairwiseP: 0.0001 },
+  });
+  const voidReport = sweepReport.buildReport({ studyId: 'pit-sweep-2024-2025', sweep: voidSweep });
+  assert.deepEqual(voidReport.cohortExclusions, syntheticCohortExclusions());
+  assert.throws(
+    () => rawSweepReport.buildReport({ studyId: 'pit-sweep-2024-2025', sweep: validSweep }),
+    /cohortExclusions/
   );
 });
 

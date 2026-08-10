@@ -8,12 +8,18 @@ const arms = require('../../scripts/backtest/lib/arms');
 const metrics = require('../../scripts/backtest/lib/metrics');
 const sweepEvidence = require('../../scripts/backtest/lib/sweepEvidence');
 const sweepReport = require('../../scripts/backtest/lib/sweepReport');
+const cohort = require('../../scripts/backtest/lib/cohort');
 const { canonicalJson } = require('../../scripts/backtest/lib/snapshotStore');
 const model = require('../services/projectionModel');
 
 const { SALTS, EVALUATED_WEEKS, MACRO_POSITIONS } = metrics;
 const CELL_NAMES = arms.ALL_CELLS.map((cell) => cell.name);
 const PRIMARY = sweepEvidence.PRIMARY_PROFILE;
+const COHORT_EXCLUSION_REASONS = Object.freeze([
+  'no-roster-row', 'status-class-reserve', 'status-class-off_roster',
+  'no-fantasy-position', 'malformed-gsis-id', 'unmapped-gsis-id',
+  'absent-from-players-table',
+]);
 
 // ---------------------------------------------------------------------------
 // The synthetic generation universe
@@ -187,6 +193,17 @@ function syntheticOrderingSensitivity() {
   return Object.fromEntries(arms.SELECTION_FAMILY.map((cell) => [cell.name, { contradicted: false, detail: null }]));
 }
 
+function syntheticCohortExclusions() {
+  return [2025, 2024].flatMap((season) => EVALUATED_WEEKS.map((week) => {
+    const excluded = Object.fromEntries(COHORT_EXCLUSION_REASONS.map((reason) => [reason, 0]));
+    excluded['status-class-reserve'] = week;
+    return {
+      season, week, members: 100 - week, defenses: 32, onBye: 6,
+      excluded, excludedTotal: week, contradictions: season === 2025 ? 1 : 0,
+    };
+  }));
+}
+
 function universe(overrides = {}) {
   return {
     studyId: 'pit-sweep-2024-2025',
@@ -196,6 +213,7 @@ function universe(overrides = {}) {
     armWeekMetrics: syntheticArmWeekMetrics(),
     subgroupErrorRows: syntheticSubgroupErrorRows(),
     activationRecords: syntheticActivationRecords(),
+    cohortExclusions: syntheticCohortExclusions(),
     orderingSensitivityByCell: syntheticOrderingSensitivity(),
     sensitivityAudit: inputsSensitivity.placeholderSensitivityAudit(),
     preflight: syntheticPreflight(),
@@ -223,6 +241,36 @@ test('assembled document round-trips through the reducer to a valid run with eve
   }
   assert.equal(report.selection.outcome, 'selected');
   assert.ok(report.selection.selected, 'a fully-passing family must select a cell');
+});
+
+test('section-7 cohort exclusion counts are canonicalized and survive into the public inputs document', () => {
+  const shuffled = [...syntheticCohortExclusions()].reverse();
+  const inputs = inputsAssembly.assembleSweepInputs(universe({ cohortExclusions: shuffled }));
+  assert.equal(inputs.cohortExclusions.length, 2 * EVALUATED_WEEKS.length);
+  assert.deepEqual(
+    inputs.cohortExclusions.map(({ season, week }) => `${season}:${week}`),
+    [2025, 2024].flatMap((season) => EVALUATED_WEEKS.map((week) => `${season}:${week}`))
+  );
+  const sample = inputs.cohortExclusions.find((row) => row.season === 2025 && row.week === 2);
+  assert.equal(sample.excluded['status-class-reserve'], 2);
+  assert.equal(sample.excludedTotal, 2);
+});
+
+test('the reducer independently requires and validates the section-7 cohort exclusion disclosure', () => {
+  const inputs = inputsAssembly.assembleSweepInputs(universe());
+  const missing = { ...inputs };
+  delete missing.cohortExclusions;
+  assert.throws(() => runBacktestSweep.validateInputs(missing), /cohortExclusions/);
+
+  const malformed = JSON.parse(JSON.stringify(inputs));
+  malformed.cohortExclusions[0].excludedTotal += 1;
+  assert.throws(() => runBacktestSweep.validateInputs(malformed), /excludedTotal/);
+});
+
+test('section-7 exclusion reason vocabularies cannot drift across builder, producer, reducer, and report', () => {
+  assert.deepEqual(inputsAssembly.COHORT_EXCLUSION_REASON_KEYS, cohort.EXCLUSION_REASONS);
+  assert.deepEqual(runBacktestSweep.COHORT_EXCLUSION_REASON_KEYS, cohort.EXCLUSION_REASONS);
+  assert.deepEqual(sweepReport.COHORT_EXCLUSION_REASON_KEYS, cohort.EXCLUSION_REASONS);
 });
 
 test('assembly is deterministic: two independently built universes produce byte-identical documents', () => {

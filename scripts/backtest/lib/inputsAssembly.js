@@ -151,6 +151,14 @@ const ESTIMAND_WINNER_KEYS = Object.freeze(['deployedPolicy', 'forceFill']);
 const ACTIVATION_RECORD_KEYS = Object.freeze(['cell', 'season', 'week', 'position', 'projections']);
 const PERMUTATION_CONTROL_KEYS = Object.freeze(['observations', 'rosterRows', 'rosterWeeks', 'cohortWeeks', 'positionRank', 'nameRankById']);
 const PREFLIGHT_KEYS = Object.freeze(['cohortRosterRows', 'controlUsage25Records', 'homeAwayStoredRecords', 'saltSeedRecords', 'matchedOffBaselineRows']);
+const COHORT_EXCLUSION_ROW_KEYS = Object.freeze([
+  'season', 'week', 'members', 'defenses', 'onBye', 'excluded', 'excludedTotal', 'contradictions',
+]);
+const COHORT_EXCLUSION_REASON_KEYS = Object.freeze([
+  'no-roster-row', 'status-class-reserve', 'status-class-off_roster',
+  'no-fantasy-position', 'malformed-gsis-id', 'unmapped-gsis-id',
+  'absent-from-players-table',
+]);
 
 /**
  * The thirteen (e2) endpoint-season inequalities (prereg 9.7), each mapped to
@@ -197,6 +205,58 @@ function assertClosedKeys(obj, allowed, label) {
 
 function isFiniteNumber(value) {
   return typeof value === 'number' && Number.isFinite(value);
+}
+
+function assertNonnegativeInteger(value, label) {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${label}: must be a nonnegative integer`);
+  }
+  return value;
+}
+
+/** Canonical section-7 disclosure: one closed count row per evaluated season-week. */
+function canonicalizeCohortExclusions(rows, { label = 'cohortExclusions' } = {}) {
+  if (!Array.isArray(rows)) throw new Error(`${label}: must be an array`);
+  const expectedCoordinates = SEASON_NUMBERS.flatMap((season) => EVALUATED_WEEKS.map((week) => `${season}:${week}`));
+  const byCoordinate = new Map();
+  for (const [index, row] of rows.entries()) {
+    const rowLabel = `${label}[${index}]`;
+    assertClosedKeys(row, COHORT_EXCLUSION_ROW_KEYS, rowLabel);
+    if (!SEASON_NUMBERS.includes(row.season) || !EVALUATED_WEEKS.includes(row.week)) {
+      throw new Error(`${rowLabel}: season/week must be an evaluated coordinate`);
+    }
+    const coordinate = `${row.season}:${row.week}`;
+    if (byCoordinate.has(coordinate)) throw new Error(`${rowLabel}: duplicate coordinate ${coordinate}`);
+    assertClosedKeys(row.excluded, COHORT_EXCLUSION_REASON_KEYS, `${rowLabel}.excluded`);
+    const excluded = Object.fromEntries(COHORT_EXCLUSION_REASON_KEYS.map((reason) => [
+      reason, assertNonnegativeInteger(row.excluded[reason], `${rowLabel}.excluded.${reason}`),
+    ]));
+    const excludedTotal = assertNonnegativeInteger(row.excludedTotal, `${rowLabel}.excludedTotal`);
+    const computedTotal = Object.values(excluded).reduce((sum, count) => sum + count, 0);
+    if (excludedTotal !== computedTotal) {
+      throw new Error(`${rowLabel}.excludedTotal: ${excludedTotal} does not equal the exclusion-reason sum ${computedTotal}`);
+    }
+    const canonical = {
+      season: row.season,
+      week: row.week,
+      members: assertNonnegativeInteger(row.members, `${rowLabel}.members`),
+      defenses: assertNonnegativeInteger(row.defenses, `${rowLabel}.defenses`),
+      onBye: assertNonnegativeInteger(row.onBye, `${rowLabel}.onBye`),
+      excluded,
+      excludedTotal,
+      contradictions: assertNonnegativeInteger(row.contradictions, `${rowLabel}.contradictions`),
+    };
+    if (canonical.defenses > canonical.members || canonical.onBye > canonical.members || canonical.contradictions > canonical.members) {
+      throw new Error(`${rowLabel}: defenses, onBye, and contradictions cannot exceed members`);
+    }
+    byCoordinate.set(coordinate, canonical);
+  }
+  const missing = expectedCoordinates.filter((coordinate) => !byCoordinate.has(coordinate));
+  const extraCount = rows.length - byCoordinate.size;
+  if (missing.length > 0 || extraCount > 0 || rows.length !== expectedCoordinates.length) {
+    throw new Error(`${label}: requires exactly one row for every evaluated season-week; missing [${missing.join(', ')}]`);
+  }
+  return expectedCoordinates.map((coordinate) => byCoordinate.get(coordinate));
 }
 
 // ---------------------------------------------------------------------------
@@ -859,6 +919,7 @@ function assembleSweepInputs({
   armWeekMetrics,
   subgroupErrorRows,
   activationRecords,
+  cohortExclusions,
   orderingSensitivityByCell,
   sensitivityAudit,
   preflight,
@@ -872,6 +933,7 @@ function assembleSweepInputs({
   // domain derivation and lands in the document - two views of one array,
   // never two arrays.
   const canonicalPreflight = canonicalizePreflight(preflight, { label: 'assembleSweepInputs: preflight' });
+  const canonicalCohortExclusions = canonicalizeCohortExclusions(cohortExclusions, { label: 'assembleSweepInputs: cohortExclusions' });
 
   const groups = indexArmWeekMetrics(armWeekMetrics);
 
@@ -982,6 +1044,7 @@ function assembleSweepInputs({
     orderingDisagreement,
     deployedPolicyDisagreement,
     sensitivityAudit: canonicalSensitivityAudit,
+    cohortExclusions: canonicalCohortExclusions,
     cells,
     evidence: assembleEvidence(groups, { componentSeriesByCell, activationWeeks }),
   };
@@ -1003,6 +1066,8 @@ module.exports = {
   canonicalizePermutationControl,
   canonicalizePreflight,
   canonicalizeSensitivityAudit,
+  canonicalizeCohortExclusions,
+  COHORT_EXCLUSION_REASON_KEYS,
   SENSITIVITY_AUDIT_PASS_KEYS,
   SENSITIVITY_AUDIT_BASIS_BY_PASS,
   assembleSweepInputs,

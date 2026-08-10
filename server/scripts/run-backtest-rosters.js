@@ -632,7 +632,10 @@ function makeBuildCandidatesFor({
  * player id STRING - exactly the shape `run-backtest-mde.js` already expects
  * and converts back to a `Map` on read (`Number(id)` on each key).
  */
-function cohortWeekArtifact(outcome) {
+function cohortWeekArtifact(outcome, cohort) {
+  if (!cohort || !cohort.counts || typeof cohort.counts !== 'object') {
+    throw new Error('run-backtest-rosters: cohortWeekArtifact requires the cohort exclusion counts for section 7 publication');
+  }
   const actualPointsByPlayerId = {};
   for (const [playerId, points] of outcome.actualPointsByPlayerId) {
     actualPointsByPlayerId[String(playerId)] = points;
@@ -642,6 +645,10 @@ function cohortWeekArtifact(outcome) {
     week: outcome.week,
     members: outcome.members,
     counts: outcome.counts,
+    cohortExclusions: {
+      ...cohort.counts,
+      excluded: { ...cohort.counts.excluded },
+    },
     actualPointsByPlayerId,
   };
 }
@@ -757,7 +764,7 @@ async function main(argv) {
   for (const { season, week } of rosterGeneration.SEASON_WEEKS) {
     const cohort = buildCohortFor({ season, week });
     const outcome = buildOutcomesFor({ season, week, cohort });
-    const artifact = cohortWeekArtifact(outcome);
+    const artifact = cohortWeekArtifact(outcome, cohort);
     const freezeHash = cohortFreezeHash(artifact);
     // season/week come from the preregistered SEASON_WEEKS constant, not
     // external input.

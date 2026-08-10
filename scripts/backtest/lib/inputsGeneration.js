@@ -911,6 +911,7 @@ async function generateSweepInputRecords({
   const subgroupErrorRows = [];
   const activationRecords = [];
   const cohortRosterRows = [];
+  const cohortExclusionRows = [];
   const controlUsage25Records = [];
   const homeAwayStoredRecords = [];
   const saltSeedRecords = [];
@@ -944,6 +945,7 @@ async function generateSweepInputRecords({
         // must not re-append them (a duplicate player-week is exactly what
         // `deriveCohortPlayerWeeks` rejects).
         if (isPrimary) {
+          cohortExclusionRows.push(cohortExclusionRow(cohortWeek, { season, week, label: where }));
           // Rows carry the two prereg-4.1 eligibility facts alongside the
           // identity, because section 6.3's subgroup membership (the A4
           // ruling) is derived from these rows at every later layer - the
@@ -1273,6 +1275,7 @@ async function generateSweepInputRecords({
     armWeekMetricsBySensitivity,
     subgroupErrorRows,
     activationRecords,
+    cohortExclusionRows,
     preflight: {
       cohortRosterRows,
       controlUsage25Records,
@@ -1288,6 +1291,7 @@ async function generateSweepInputRecords({
       ),
       subgroupErrorRows: subgroupErrorRows.length,
       activationRecords: activationRecords.length,
+      cohortExclusionRows: cohortExclusionRows.length,
       cohortRosterRows: cohortRosterRows.length,
       controlUsage25Records: controlUsage25Records.length,
       homeAwayStoredRecords: homeAwayStoredRecords.length,
@@ -1317,3 +1321,24 @@ module.exports = {
   evaluateSensitivityVariants,
   generateSweepInputRecords,
 };
+
+/** Preserve the cohort builder's section-7 exclusion tally as one season-week publication row. */
+function cohortExclusionRow(cohortWeek, { season, week, label }) {
+  const counts = cohortWeek && cohortWeek.cohortExclusions;
+  if (!counts || typeof counts !== 'object' || Array.isArray(counts)) {
+    throw new Error(`${label}: cohort artifact carries no cohortExclusions object required for section 7 publication`);
+  }
+  if (!counts.excluded || typeof counts.excluded !== 'object' || Array.isArray(counts.excluded)) {
+    throw new Error(`${label}: cohort artifact cohortExclusions.excluded must be an object`);
+  }
+  return {
+    season,
+    week,
+    members: counts.members,
+    defenses: counts.defenses,
+    onBye: counts.onBye,
+    excluded: { ...counts.excluded },
+    excludedTotal: counts.excludedTotal,
+    contradictions: counts.contradictions,
+  };
+}

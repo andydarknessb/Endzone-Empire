@@ -106,6 +106,7 @@ test('the records artifact is canonical, environment-free, and refuses to omit t
     armWeekMetricsBySensitivity: Object.fromEntries(inputsSensitivity.SENSITIVITY_PASS_KEYS.map((key) => [key, []])),
     subgroupErrorRows: [],
     activationRecords: [],
+    cohortExclusionRows: [{ season: 2025, week: 2, excludedTotal: 0 }],
     preflight: { cohortRosterRows: [], controlUsage25Records: [], homeAwayStoredRecords: [], saltSeedRecords: [], matchedOffBaselineRows: [] },
     counts: { generations: 14688 },
   };
@@ -495,6 +496,7 @@ test('PATCH G: every record member survives into the serialized artifact by valu
     ])),
     subgroupErrorRows: [{ cellName: 'usage-40-on', week: 2 }],
     activationRecords: [{ cell: 'usage-40-on', position: 'QB' }],
+    cohortExclusionRows: [{ season: 2025, week: 2, excludedTotal: 4 }],
     preflight: { cohortRosterRows: [{ week: 2 }], controlUsage25Records: [], homeAwayStoredRecords: [], saltSeedRecords: [], matchedOffBaselineRows: [] },
     counts: { generations: 14688 },
   };
@@ -505,7 +507,7 @@ test('PATCH G: every record member survives into the serialized artifact by valu
     Object.keys(parsed).sort(),
     // studyId and recordsHash joined the checkpoint at decision D3: the
     // checkpoint names its sealed study and carries its own digest.
-    ['activationRecords', 'armWeekMetrics', 'armWeekMetricsBySensitivity', 'counts', 'permutationControl', 'preflight', 'recordsHash', 'studyId', 'subgroupErrorRows'],
+    ['activationRecords', 'armWeekMetrics', 'armWeekMetricsBySensitivity', 'cohortExclusionRows', 'counts', 'permutationControl', 'preflight', 'recordsHash', 'studyId', 'subgroupErrorRows'],
     'a dropped record key would serialize, validate, and read as a checkpoint carrying nothing to assemble'
   );
   assert.equal(parsed.studyId, script.STUDY_ID);
@@ -514,10 +516,11 @@ test('PATCH G: every record member survives into the serialized artifact by valu
   assert.deepEqual(parsed.armWeekMetricsBySensitivity, records.armWeekMetricsBySensitivity);
   assert.deepEqual(parsed.subgroupErrorRows, records.subgroupErrorRows);
   assert.deepEqual(parsed.activationRecords, records.activationRecords);
+  assert.deepEqual(parsed.cohortExclusionRows, records.cohortExclusionRows);
   assert.deepEqual(parsed.preflight, records.preflight);
 
   // And buildArtifact itself refuses a records object missing any member.
-  for (const key of ['armWeekMetrics', 'subgroupErrorRows', 'activationRecords', 'preflight']) {
+  for (const key of ['armWeekMetrics', 'subgroupErrorRows', 'activationRecords', 'cohortExclusionRows', 'preflight']) {
     const { [key]: _dropped, ...withoutKey } = records;
     assert.throws(() => script.buildArtifact(withoutKey, withBlock), new RegExp(`requires records\\.${key}`));
   }
@@ -641,6 +644,7 @@ function d3Records() {
     armWeekMetricsBySensitivity: Object.fromEntries(inputsSensitivity.SENSITIVITY_PASS_KEYS.map((key) => [key, []])),
     subgroupErrorRows: [],
     activationRecords: [],
+    cohortExclusionRows: [{ season: 2025, week: 2, excludedTotal: 0 }],
     preflight: {
       cohortRosterRows: [{ ...D3_PLAYER_WEEK, position: 'RB', onBye: false }],
       controlUsage25Records: d3IdentityRecords(),
@@ -690,6 +694,7 @@ test('decision D3: a checkpoint round-trips through loadRecordsArtifact with eve
   assert.deepEqual(loaded.records.armWeekMetricsBySensitivity, original.armWeekMetricsBySensitivity);
   assert.deepEqual(loaded.records.subgroupErrorRows, original.subgroupErrorRows);
   assert.deepEqual(loaded.records.activationRecords, original.activationRecords);
+  assert.deepEqual(loaded.records.cohortExclusionRows, original.cohortExclusionRows);
   // The Hazard-1 regression pinned from the RESUME side: the identity runs'
   // projections survive the round trip with their values, never {}.
   assert.deepEqual(

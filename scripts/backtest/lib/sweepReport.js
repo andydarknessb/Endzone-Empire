@@ -44,6 +44,7 @@
  */
 
 const arms = require('./arms');
+const metrics = require('./metrics');
 const { canonicalJson } = require('./snapshotStore');
 
 const REQUIRED_STATES_WITH_REASON = Object.freeze(['unevaluable', 'wide-straddle', 'vetoed']);
@@ -155,7 +156,56 @@ const SENSITIVITY_AUDIT_BASIS_BY_PASS = Object.freeze({
 });
 const ESTIMAND_RECONCILIATION_KEYS = Object.freeze(['selection', 'halted', 'reason', 'detail', 'winners']);
 const ESTIMAND_WINNER_KEYS = Object.freeze(['deployedPolicy', 'forceFill']);
-const REPORT_KEYS = Object.freeze(['studyId', 'run', 'permutationControl', 'cells', 'selection', 'sensitivityAudit', 'evidence']);
+const COHORT_EXCLUSION_ROW_KEYS = Object.freeze([
+  'season', 'week', 'members', 'defenses', 'onBye', 'excluded', 'excludedTotal', 'contradictions',
+]);
+const COHORT_EXCLUSION_REASON_KEYS = Object.freeze([
+  'no-roster-row', 'status-class-reserve', 'status-class-off_roster',
+  'no-fantasy-position', 'malformed-gsis-id', 'unmapped-gsis-id',
+  'absent-from-players-table',
+]);
+const REPORT_KEYS = Object.freeze(['studyId', 'run', 'permutationControl', 'cohortExclusions', 'cells', 'selection', 'sensitivityAudit', 'evidence']);
+
+function normalizeCohortExclusions(rows, { label }) {
+  if (!Array.isArray(rows)) throw new Error(`${label}: must be an array with one row per evaluated season-week`);
+  const expected = [2025, 2024].flatMap((season) => metrics.EVALUATED_WEEKS.map((week) => `${season}:${week}`));
+  const byCoordinate = new Map();
+  const integer = (value, valueLabel) => {
+    if (!Number.isInteger(value) || value < 0) throw new Error(`${valueLabel}: must be a nonnegative integer`);
+    return value;
+  };
+  for (const [index, row] of rows.entries()) {
+    const rowLabel = `${label}[${index}]`;
+    assertRequiredKeys(row, COHORT_EXCLUSION_ROW_KEYS, { label: rowLabel });
+    assertClosedKeys(row, COHORT_EXCLUSION_ROW_KEYS, { label: rowLabel });
+    const coordinate = `${row.season}:${row.week}`;
+    if (!expected.includes(coordinate)) throw new Error(`${rowLabel}: ${coordinate} is outside the evaluated grid`);
+    if (byCoordinate.has(coordinate)) throw new Error(`${rowLabel}: duplicate coordinate ${coordinate}`);
+    assertRequiredKeys(row.excluded, COHORT_EXCLUSION_REASON_KEYS, { label: `${rowLabel}.excluded` });
+    assertClosedKeys(row.excluded, COHORT_EXCLUSION_REASON_KEYS, { label: `${rowLabel}.excluded` });
+    const excluded = Object.fromEntries(COHORT_EXCLUSION_REASON_KEYS.map((reason) => [
+      reason, integer(row.excluded[reason], `${rowLabel}.excluded.${reason}`),
+    ]));
+    const excludedTotal = integer(row.excludedTotal, `${rowLabel}.excludedTotal`);
+    const computedTotal = Object.values(excluded).reduce((sum, count) => sum + count, 0);
+    if (excludedTotal !== computedTotal) throw new Error(`${rowLabel}.excludedTotal does not equal its reason-count sum`);
+    byCoordinate.set(coordinate, {
+      season: row.season,
+      week: row.week,
+      members: integer(row.members, `${rowLabel}.members`),
+      defenses: integer(row.defenses, `${rowLabel}.defenses`),
+      onBye: integer(row.onBye, `${rowLabel}.onBye`),
+      excluded,
+      excludedTotal,
+      contradictions: integer(row.contradictions, `${rowLabel}.contradictions`),
+    });
+  }
+  const missing = expected.filter((coordinate) => !byCoordinate.has(coordinate));
+  if (missing.length > 0 || rows.length !== expected.length) {
+    throw new Error(`${label}: requires exactly one row per evaluated season-week; missing [${missing.join(', ')}]`);
+  }
+  return expected.map((coordinate) => byCoordinate.get(coordinate));
+}
 
 /** Normalize one bootstrap/exact endpoint's evidence summary to the closed shape. */
 function normalizeEndpointEvidence(endpoint, { label }) {
@@ -444,7 +494,7 @@ function normalizeSensitivityAudit(audit, { label }) {
  * study identifier (`pit-sweep-2024-2025`), threaded through rather than
  * hardcoded so a future study reusing this module does not have to fork it.
  */
-function buildReport({ studyId, sweep, label = 'sweepReport' }) {
+function buildReport({ studyId, sweep, cohortExclusions, label = 'sweepReport' }) {
   if (typeof studyId !== 'string' || studyId.length === 0) {
     throw new Error(`${label}: studyId must be a non-empty string`);
   }
@@ -452,6 +502,7 @@ function buildReport({ studyId, sweep, label = 'sweepReport' }) {
     throw new Error(`${label}: sweep must be an evaluateSweep() result`);
   }
   const { run, permutationControl, cells: cellClaims, selection, evidence } = sweep;
+  const publishedCohortExclusions = normalizeCohortExclusions(cohortExclusions, { label: `${label}.cohortExclusions` });
 
   assertClosedKeys(run || {}, RUN_KEYS, { label: `${label}.run` });
   if (!['valid', 'void'].includes(run && run.status)) {
@@ -483,6 +534,9 @@ function buildReport({ studyId, sweep, label = 'sweepReport' }) {
       detail: permutationControl.detail ?? null,
       failures: Array.isArray(permutationControl.failures) ? [...permutationControl.failures] : [],
     },
+    // Section 7: contextual cohort construction counts are published even on
+    // a void run. They are input diagnostics, never candidate-cell results.
+    cohortExclusions: publishedCohortExclusions,
     cells,
     selection: normalizeSelection(selection, { label: `${label}.selection` }),
     // Decision D6: selection-level, candidate-claims-derived evidence, so a
@@ -673,6 +727,16 @@ function renderMarkdown(report) {
   lines.push(`Void: **${report.permutationControl.void}**`);
   if (report.permutationControl.detail) lines.push('', escapeMd(report.permutationControl.detail));
   lines.push('');
+  lines.push('## S3 prospective deviation');
+  lines.push('');
+  lines.push('S3 was preregistered but is not reported. These cohort exclusion counts are published only as deviation context and are not an S3 result.');
+  lines.push('');
+  lines.push('| season | week | members | defenses | onBye | excludedTotal | contradictions | no-roster-row | status-class-reserve | status-class-off_roster | no-fantasy-position | malformed-gsis-id | unmapped-gsis-id | absent-from-players-table |');
+  lines.push('| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
+  for (const row of report.cohortExclusions) {
+    lines.push(`| ${row.season} | ${row.week} | ${row.members} | ${row.defenses} | ${row.onBye} | ${row.excludedTotal} | ${row.contradictions} | ${COHORT_EXCLUSION_REASON_KEYS.map((reason) => row.excluded[reason]).join(' | ')} |`);
+  }
+  lines.push('');
   lines.push('## Cells');
   lines.push('');
   if (report.cells === null) {
@@ -742,6 +806,7 @@ module.exports = {
   RANKED_CELL_KEYS,
   SENSITIVITY_AUDIT_PASS_KEYS,
   SENSITIVITY_AUDIT_BASIS_BY_PASS,
+  COHORT_EXCLUSION_REASON_KEYS,
   assertFinite,
   assertNoUnstatedUnevaluable,
   assertClosedKeys,
