@@ -105,6 +105,13 @@ function assertClosedKeys(obj, allowed, { label = 'object' } = {}) {
   return true;
 }
 
+/** Require every key in a closed schema when omission would change a gate result. */
+function assertRequiredKeys(obj, required, { label = 'object' } = {}) {
+  const missing = required.filter((key) => !Object.prototype.hasOwnProperty.call(obj || {}, key));
+  if (missing.length > 0) throw new Error(`${label}: missing required key(s) from the closed schema: ${missing.join(', ')}`);
+  return true;
+}
+
 const RUN_KEYS = Object.freeze(['status', 'reasons', 'detail']);
 const PERMUTATION_KEYS = Object.freeze(['void', 'reason', 'detail', 'failures']);
 const CELL_KEYS = Object.freeze([
@@ -203,22 +210,34 @@ function normalizeTransparency(t, { label }) {
 function normalizeVeto(veto, { label }) {
   if (!veto) return null;
   assertClosedKeys(veto, VETO_EVIDENCE_KEYS, { label });
+  assertRequiredKeys(veto, VETO_EVIDENCE_KEYS, { label });
+  for (const key of ['subgroupPlayerWeekCount', 'expectedCount', 'realizationCount']) {
+    if (typeof veto[key] !== 'number' || !Number.isFinite(veto[key])) throw new Error(`${label}.${key}: must be a finite number`);
+  }
+  for (const key of ['complete', 'catastrophicVeto']) {
+    if (typeof veto[key] !== 'boolean') throw new Error(`${label}.${key}: must be a boolean`);
+  }
+  if (veto.reason !== null && typeof veto.reason !== 'string') throw new Error(`${label}.reason: must be a string or null`);
+  if (!Array.isArray(veto.realizations)) throw new Error(`${label}.realizations: must be an array`);
   return {
     // Section 6.4a's attestation is checkable ONLY against the veto's own
     // domain size - the gate operands' subgroupRows is a different set.
-    subgroupPlayerWeekCount: typeof veto.subgroupPlayerWeekCount === 'number' ? veto.subgroupPlayerWeekCount : null,
-    expectedCount: typeof veto.expectedCount === 'number' ? veto.expectedCount : null,
-    realizationCount: typeof veto.realizationCount === 'number' ? veto.realizationCount : null,
-    complete: veto.complete === true,
-    catastrophicVeto: veto.catastrophicVeto === true,
-    reason: typeof veto.reason === 'string' ? veto.reason : null,
-    realizations: Array.isArray(veto.realizations) ? veto.realizations.map((row) => ({ ...row })) : [],
+    subgroupPlayerWeekCount: veto.subgroupPlayerWeekCount,
+    expectedCount: veto.expectedCount,
+    realizationCount: veto.realizationCount,
+    complete: veto.complete,
+    catastrophicVeto: veto.catastrophicVeto,
+    reason: veto.reason,
+    realizations: veto.realizations.map((row) => ({ ...row })),
   };
 }
 
-function normalizeEvidence(evidence, { label }) {
+function normalizeEvidence(evidence, { label, requireVeto = false }) {
   if (!evidence) return null;
   assertClosedKeys(evidence, EVIDENCE_KEYS, { label });
+  if (requireVeto && !Object.prototype.hasOwnProperty.call(evidence, 'veto')) {
+    throw new Error(`${label}: missing required veto evidence`);
+  }
   return {
     endpoints: Array.isArray(evidence.endpoints)
       ? evidence.endpoints.map((e, i) => normalizeEndpointEvidence(e, { label: `${label}.endpoints[${i}]` }))
@@ -231,7 +250,7 @@ function normalizeEvidence(evidence, { label }) {
 }
 
 /** Normalize one component to the closed shape - `reason` is always present, `null` when unused. */
-function normalizeComponent(component, { label }) {
+function normalizeComponent(component, { label, componentKey }) {
   assertClosedKeys(component, COMPONENT_KEYS, { label });
   if (typeof component.status !== 'string' || component.status.length === 0) {
     throw new Error(`${label}: status must be a non-empty string`);
@@ -243,7 +262,7 @@ function normalizeComponent(component, { label }) {
     status: component.status,
     passes: component.passes,
     reason: typeof component.reason === 'string' ? component.reason : null,
-    evidence: normalizeEvidence(component.evidence, { label: `${label}.evidence` }),
+    evidence: normalizeEvidence(component.evidence, { label: `${label}.evidence`, requireVeto: componentKey === 'f' }),
   };
 }
 
@@ -312,7 +331,7 @@ function normalizeCell(cellMeta, claim, { label }) {
   }
   const components = {};
   for (const [key, component] of Object.entries(claim.components || {})) {
-    components[key] = normalizeComponent(component, { label: `${label}.components.${key}` });
+    components[key] = normalizeComponent(component, { label: `${label}.components.${key}`, componentKey: key });
   }
   const normalized = {
     name: cellMeta.name,
@@ -613,8 +632,14 @@ function renderEvidenceTables(evidence) {
   for (const row of evidence.weekWindows) lines.push(`| ${row.season} | ${row.scoringProfile} | ${row.cell} | ${row.window} | ${row.estimand} | ${row.endpoint} | ${displayValue(row.point)} | [${displayValue(row.lower)}, ${displayValue(row.upper)}] | ${selfDescription(row)} |`);
   lines.push('', '### Moving-block sensitivity (prereg 10.5)', '', `| season | profile | cell | endpoint | sensitivity | point | CI | ${SELF_HEADER} |`, `| --- | --- | --- | --- | --- | ---: | --- | ${SELF_RULE} |`);
   for (const row of evidence.movingBlock) lines.push(`| ${row.season} | ${row.scoringProfile} | ${row.cell} | ${row.endpoint} | ${row.sensitivity} | ${displayValue(row.point)} | [${displayValue(row.lower)}, ${displayValue(row.upper)}] | ${selfDescription(row)} |`);
-  lines.push('', '### Attribution composites', '', '| season | profile | cell | endpoint | usage main | home-away main | interaction |', '| --- | --- | --- | --- | ---: | ---: | ---: |');
-  for (const row of evidence.attribution) lines.push(`| ${row.season} | ${row.scoringProfile} | ${row.cell} | ${row.endpoint} | ${displayValue(row.usageMain.point)} | ${displayValue(row.homeAwayMain.point)} | ${displayValue(row.interaction.point)} |`);
+  lines.push('', '### Control diagnostics (prereg 10.6)', '', `| comparator | season | profile | endpoint | point | CI | ${SELF_HEADER} |`, `| --- | --- | --- | --- | ---: | --- | ${SELF_RULE} |`);
+  for (const [comparator, rows] of [['control-naive', evidence.diagnostics.controlNaive], ['usage-signal', evidence.diagnostics.usageSignal]]) {
+    for (const row of rows) lines.push(`| ${comparator} | ${row.season} | ${row.scoringProfile} | ${row.key} | ${displayValue(row.point)} | [${displayValue(row.lower)}, ${displayValue(row.upper)}] | ${selfDescription(row)} |`);
+  }
+  lines.push('', '### Attribution composites (prereg 12.2)', '', `| season | profile | cell | endpoint | composite | point | CI | ${SELF_HEADER} |`, `| --- | --- | --- | --- | --- | ---: | --- | ${SELF_RULE} |`);
+  for (const row of evidence.attribution) for (const [composite, summary] of [['usage main', row.usageMain], ['home-away main', row.homeAwayMain], ['interaction', row.interaction]]) {
+    lines.push(`| ${row.season} | ${row.scoringProfile} | ${row.cell} | ${row.endpoint} | ${composite} | ${displayValue(summary.point)} | [${displayValue(summary.lower)}, ${displayValue(summary.upper)}] | ${selfDescription(summary)} |`);
+  }
   lines.push('', '### Activation aggregates', '', '| season | profile | cell | position | eligible | activated | excluded | rate |', '| --- | --- | --- | --- | ---: | ---: | ---: | ---: |');
   for (const row of evidence.activationAggregates) for (const position of Object.keys(row.positions).sort()) {
     const value = row.positions[position];

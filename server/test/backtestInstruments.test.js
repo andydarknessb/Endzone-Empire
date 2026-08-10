@@ -360,3 +360,18 @@ test('identifier consistency: uppercase hashes, capital-R status lines, and trun
   assert.deepEqual(tokens.sha256Prefixes.sort(), ['16F29146', '5EA91A5E']);
   assert.deepEqual(tokens.gitHashes, []);
 });
+
+test('identifier consistency: sealed non-Git composition tokens remain reported without making the live instrument permanently red', () => {
+  const artifact = identifiers.checkArtifact({
+    name: 'revision-38 fixture',
+    text: [
+      'worked example input 0123456789abcdef0123456789abcdef',
+      'salt pit-01-879c6f8eae4b',
+      '**Status: revision 38.**',
+    ].join('\n'),
+    expectRevision: 38,
+  });
+  assert.deepEqual(artifact.expectedNonGitTokens.sort(), ['0123456789abcdef0123456789abcdef', '879c6f8eae4b']);
+  assert.deepEqual(artifact.unexpectedUnresolvable, []);
+  assert.equal(artifact.ok, true);
+});

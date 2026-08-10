@@ -47,6 +47,10 @@ const fs = require('fs');
 const DEFAULT_DOC = 'backtest-artifacts/pit-sweep-2024-2025/PHASE5_EXECUTION_SPEC.md';
 
 const KNOWN_CASE = Object.freeze({ rev: '37b9f7d', expectRevision: 33, staleValue: 31 });
+const EXPECTED_NON_GIT_TOKENS = Object.freeze([
+  '0123456789abcdef0123456789abcdef',
+  '879c6f8eae4b',
+]);
 
 function git(args) {
   return execFileSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
@@ -114,6 +118,8 @@ function extractStatusRevisions(text) {
 function checkArtifact({ name, text, expectRevision, anchoredDocSha256 }) {
   const { gitHashes, digitOnlyCandidates, sha256s, sha256Prefixes } = extractTokens(text);
   const unresolvable = gitHashes.filter((token) => !gitObjectExists(token));
+  const expectedNonGitTokens = unresolvable.filter((token) => EXPECTED_NON_GIT_TOKENS.includes(token));
+  const unexpectedUnresolvable = unresolvable.filter((token) => !EXPECTED_NON_GIT_TOKENS.includes(token));
   const resolvedDigitOnly = digitOnlyCandidates.filter((token) => gitObjectExists(token));
   const prefixMatches = anchoredDocSha256
     ? sha256Prefixes.filter((token) => anchoredDocSha256.toUpperCase().startsWith(token.toUpperCase()))
@@ -130,6 +136,8 @@ function checkArtifact({ name, text, expectRevision, anchoredDocSha256 }) {
     hashTokens: gitHashes.length + resolvedDigitOnly.length,
     resolvedDigitOnly,
     unresolvable,
+    expectedNonGitTokens,
+    unexpectedUnresolvable,
     statusRevisions,
     staleRevisions,
     sha256Tokens: sha256s.length,
@@ -139,7 +147,7 @@ function checkArtifact({ name, text, expectRevision, anchoredDocSha256 }) {
     // legitimately quote SUPERSEDED revision digests when narrating history.
     sha256Prefixes,
     sha256PrefixMatches: prefixMatches,
-    ok: unresolvable.length === 0 && staleRevisions.length === 0,
+    ok: unexpectedUnresolvable.length === 0 && staleRevisions.length === 0,
   };
 }
 
@@ -205,6 +213,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-  DEFAULT_DOC, KNOWN_CASE, extractTokens, extractStatusRevisions,
+  DEFAULT_DOC, KNOWN_CASE, EXPECTED_NON_GIT_TOKENS, extractTokens, extractStatusRevisions,
   checkArtifact, checkArtifacts, selfValidate, main,
 };

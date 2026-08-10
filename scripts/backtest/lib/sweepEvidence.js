@@ -378,7 +378,7 @@ function deriveMovingBlock(rows) {
     // case list is stated as exhaustive over section 4.6's scope and does not
     // reach prereg 10.5, so a moving-block row keeps its own surviving weeks.
     const contiguous = survivingValues.length === summary.weeks.length;
-    // Section 4.6.5: prereg 10.5 keeps its own sealed construction and its own
+    // Section 4.6.4: prereg 10.5 keeps its own sealed construction and its own
     // bounds.  The primary interval is published on the cell's own row, so this
     // record never duplicates it.
     //

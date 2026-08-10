@@ -217,7 +217,10 @@ async function benchmarkProjectionsFor({ season, week, playerIds }) {
   }]));
   return {
     'naive-recency': build(0.9),
-    'usage-signal': build(1.3),
+    'usage-signal': new Map([...build(1.3)].map(([playerId, projection]) => [
+      playerId,
+      { ...projection, median: playerId >= 15 ? null : projection.median },
+    ])),
   };
 }
 
@@ -1263,6 +1266,22 @@ test('an EMPTY benchmark projections collection is rejected by name, not scored 
       },
     }),
     /projections collection is EMPTY/
+  );
+});
+
+test('usage-signal permits its documented null median for DEF only, while a null human projection still fails closed', async () => {
+  const records = await fullGrid();
+  assert.ok(records.armWeekMetrics.some((row) => row.arm === 'usage-signal'));
+
+  await assert.rejects(
+    runOneWeek({
+      benchmarkProjectionsFor: async (args) => {
+        const benchmarks = await benchmarkProjectionsFor(args);
+        benchmarks['usage-signal'].get(1).median = null;
+        return benchmarks;
+      },
+    }),
+    /usage-signal: playerId 1's projection carries no finite median/
   );
 });
 

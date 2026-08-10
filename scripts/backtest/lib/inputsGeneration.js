@@ -400,13 +400,14 @@ function projectionFor(run, playerId) {
  *     cohort player-week reaches the homeAway step, so a scored collection
  *     missing one is incoherent, not sparse.
  *   - a finite median PER ENTRY (`medianOf`'s own tolerance: an object with
- *     a finite `median`, or a bare finite number). A "shell" run - full
+ *     a finite `median`, or a bare finite number), except for the explicitly
+ *     supplied usage-signal DEF ids. A "shell" run - full
  *     numeric key coverage, substance-free values - otherwise passes both
  *     the emptiness and the coverage checks and is scored as the same
  *     all-empty lineup A2 exists to block, indistinguishable in the
  *     document from the legitimate interval-free benchmark shape.
  */
-function projectionsMapOf(run, label, { playerIds } = {}) {
+function projectionsMapOf(run, label, { playerIds, allowedNullMedianPlayerIds = new Set() } = {}) {
   const map = run && run.projections;
   const asMap = (() => {
     if (map instanceof Map) return map;
@@ -429,7 +430,7 @@ function projectionsMapOf(run, label, { playerIds } = {}) {
   if (playerIds) {
     sweepPreflight.assertMapMatchesRawIds({ run: { projections: asMap }, playerIds, label });
     for (const [playerId, projection] of asMap) {
-      if (medianOf(projection) === null) {
+      if (medianOf(projection) === null && !allowedNullMedianPlayerIds.has(playerId)) {
         throw new Error(
           `${label}: playerId ${playerId}'s projection carries no finite median (${JSON.stringify(projection)}). `
           + 'A projection that reached publication carries a finite round2 median; a substance-free entry would be '
@@ -1194,6 +1195,9 @@ async function generateSweepInputRecords({
           // all 24 salts (determination 4).
           // eslint-disable-next-line no-await-in-loop
           const benchmarks = await benchmarkProjectionsFor({ season, week, playerIds });
+          const usageSignalDefenseIds = new Set((cohortWeek.members || [])
+            .filter((member) => member && member.position === 'DEF' && member.isDefense === true)
+            .map((member) => member.playerId));
           for (const arm of inputsAssembly.BENCHMARK_ARMS) {
             const projections = benchmarks && benchmarks[arm];
             if (!projections) throw new Error(`${where}: benchmarkProjectionsFor returned no ${arm} projections`);
@@ -1202,7 +1206,10 @@ async function generateSweepInputRecords({
               week,
               rosterWeek,
               cohortWeek,
-              projectionsByPlayerId: projectionsMapOf({ projections }, `${where} ${arm}`, { playerIds }),
+              projectionsByPlayerId: projectionsMapOf({ projections }, `${where} ${arm}`, {
+                playerIds,
+                allowedNullMedianPlayerIds: arm === 'usage-signal' ? usageSignalDefenseIds : new Set(),
+              }),
               positionRank,
               nameRankById,
               availabilityFor,

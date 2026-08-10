@@ -178,6 +178,35 @@ test('buildReport refuses a component carrying a key outside the closed componen
   );
 });
 
+test('buildReport fails closed when component-f veto evidence omits a required field', () => {
+  const sweep = sweepInference.evaluateSweep({
+    cellClaims: allCells('fail'),
+    permutationControl: cleanPermutation,
+  });
+  sweep.cells['usage-40-off'].components.f.evidence = {
+    endpoints: [],
+    transparency: [],
+    veto: {
+      subgroupPlayerWeekCount: 1,
+      expectedCount: 24,
+      realizationCount: 24,
+      complete: true,
+      reason: null,
+      realizations: [],
+    },
+  };
+  assert.throws(
+    () => sweepReport.buildReport({ studyId: 'pit-sweep-2024-2025', sweep }),
+    /veto: missing required key\(s\).*catastrophicVeto/
+  );
+
+  delete sweep.cells['usage-40-off'].components.f.evidence.veto;
+  assert.throws(
+    () => sweepReport.buildReport({ studyId: 'pit-sweep-2024-2025', sweep }),
+    /components\.f\.evidence: missing required veto evidence/
+  );
+});
+
 // ---------------------------------------------------------------------------
 // Non-finite rejection
 // ---------------------------------------------------------------------------
@@ -302,6 +331,42 @@ test('renderMarkdown is a pure function of the report - identical input, identic
   const positions = arms.ALL_CELLS.map((c) => markdownA.indexOf(`### ${c.name}`));
   assert.deepEqual(positions, [...positions].sort((a, b) => a - b));
   positions.forEach((p) => assert.ok(p >= 0));
+});
+
+test('renderMarkdown publishes diagnostic and attribution intervals with mandatory self-description', () => {
+  const summary = (overrides = {}) => ({
+    key: 'regret', season: '2025', scoringProfile: 'half_ppr', method: 'cluster-bootstrap-percentile',
+    alpha: 0.05, draws: 100000, seed: 1499811874, clusters: 17, weeks: [], status: 'estimated',
+    point: 1, lower: 0.5, upper: 1.5, distinctValues: 17, reason: null, ...overrides,
+  });
+  const sweep = sweepInference.evaluateSweep({
+    cellClaims: allCells('fail'),
+    permutationControl: cleanPermutation,
+  });
+  sweep.evidence = {
+    cells: [], sensitivity: [], weekWindows: [], movingBlock: [], activationProfiles: [], activationAggregates: [],
+    attribution: [{
+      season: '2025', scoringProfile: 'half_ppr', cell: 'usage-40-on', endpoint: 'regret',
+      usageMain: summary({ point: 0.1, lower: 0.01, upper: 0.2 }),
+      homeAwayMain: summary({ point: 0.2, lower: 0.02, upper: 0.3 }),
+      interaction: summary({ point: 0.3, lower: 0.03, upper: 0.4 }),
+    }],
+    diagnostics: {
+      controlNaive: [summary({ point: 0.4, lower: 0.04, upper: 0.5 })],
+      usageSignal: [summary({ point: 0.6, lower: 0.06, upper: 0.7 })],
+      permutation: {
+        seed: 3237998081, replicates: 10000, regretStatistic: 0, regretPValue: 0.0001,
+        pairwiseStatistic: 1, pairwisePValue: 0.0001,
+      },
+    },
+  };
+  // eslint-disable-next-line testing-library/render-result-naming-convention
+  const markdown = sweepReport.renderMarkdown(sweepReport.buildReport({ studyId: 'pit-sweep-2024-2025', sweep }));
+  assert.match(markdown, /### Control diagnostics \(prereg 10\.6\)/);
+  assert.match(markdown, /\| control-naive \| 2025 \| half_ppr \| regret \| 0\.4 \| \[0\.04, 0\.5\] \| estimated \| 17 \| cluster-bootstrap-percentile \| 100000 \| 1499811874 \| 0\.05 \|/);
+  assert.match(markdown, /\| usage-signal \| 2025 \| half_ppr \| regret \| 0\.6 \| \[0\.06, 0\.7\] \| estimated \| 17 \| cluster-bootstrap-percentile \| 100000 \| 1499811874 \| 0\.05 \|/);
+  assert.match(markdown, /\| 2025 \| half_ppr \| usage-40-on \| regret \| usage main \| 0\.1 \| \[0\.01, 0\.2\] \| estimated \| 17 \| cluster-bootstrap-percentile \| 100000 \| 1499811874 \| 0\.05 \|/);
+  assert.match(markdown, /\| 2025 \| half_ppr \| usage-40-on \| regret \| interaction \| 0\.3 \| \[0\.03, 0\.4\] \| estimated \| 17 \| cluster-bootstrap-percentile \| 100000 \| 1499811874 \| 0\.05 \|/);
 });
 
 test('renderMarkdown reports the void disposition in prose, with no cell sections', () => {
