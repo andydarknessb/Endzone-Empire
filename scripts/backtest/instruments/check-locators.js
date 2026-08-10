@@ -88,7 +88,7 @@ function walkJsFiles(root, out) {
   }
   for (const entry of entries) {
     if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
-    const full = path.join(root, entry.name);
+    const full = path.join(root, entry.name); // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal -- readdir dirent names cannot contain path separators
     if (entry.isDirectory()) walkJsFiles(full, out);
     else if (entry.isFile() && entry.name.endsWith('.js')) out.push(full);
   }
@@ -97,7 +97,7 @@ function walkJsFiles(root, out) {
 
 function indexJsFiles(repoRoot) {
   const files = [];
-  for (const root of SEARCH_ROOTS) walkJsFiles(path.join(repoRoot, root), files);
+  for (const root of SEARCH_ROOTS) walkJsFiles(path.join(repoRoot, root), files); // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal -- SEARCH_ROOTS is a frozen module constant
   // Top-level scripts (`backtest-entrypoint.js`) live beside the roots, not
   // under them; scan the repo root itself non-recursively.
   let rootEntries = [];
@@ -105,7 +105,7 @@ function indexJsFiles(repoRoot) {
     rootEntries = fs.readdirSync(repoRoot, { withFileTypes: true });
   } catch { /* an unreadable root reports every citation unresolved, which is loud enough */ }
   for (const entry of rootEntries) {
-    if (entry.isFile() && entry.name.endsWith('.js')) files.push(path.join(repoRoot, entry.name));
+    if (entry.isFile() && entry.name.endsWith('.js')) files.push(path.join(repoRoot, entry.name)); // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal -- readdir dirent names cannot contain path separators
   }
   const byBasename = new Map();
   for (const file of files) {
@@ -318,7 +318,7 @@ function checkCitation(citation, index, fileLineCache) {
 }
 
 function checkLocators({ repoRoot = process.cwd(), docPath, docText } = {}) {
-  const text = docText !== undefined ? docText : fs.readFileSync(docPath || path.join(repoRoot, DEFAULT_DOC), 'utf8');
+  const text = docText !== undefined ? docText : fs.readFileSync(docPath || path.join(repoRoot, DEFAULT_DOC), 'utf8'); // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal -- DEFAULT_DOC is constant and repoRoot is the operator-selected local root
   const index = indexJsFiles(repoRoot);
   const fileLineCache = new Map();
   const qualified = extractCitations(text);
