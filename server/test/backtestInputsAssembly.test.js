@@ -602,6 +602,8 @@ test('decision D6: the mirrored sensitivity-audit pass-key lists cannot drift fr
   // each layer and this pin is the drift guard for all of them.
   assert.deepEqual([...inputsAssembly.SENSITIVITY_AUDIT_PASS_KEYS], [...inputsSensitivity.SENSITIVITY_PASS_KEYS]);
   assert.deepEqual([...sweepReport.SENSITIVITY_AUDIT_PASS_KEYS], [...inputsSensitivity.SENSITIVITY_PASS_KEYS]);
+  assert.deepEqual(inputsAssembly.SENSITIVITY_AUDIT_BASIS_BY_PASS, inputsSensitivity.SENSITIVITY_BASIS_BY_PASS);
+  assert.deepEqual(sweepReport.SENSITIVITY_AUDIT_BASIS_BY_PASS, inputsSensitivity.SENSITIVITY_BASIS_BY_PASS);
 });
 
 test('decision D6: a sensitivity-audit trail that contradicts its own story is rejected, never assembled', () => {
@@ -631,6 +633,10 @@ test('decision D6: a sensitivity-audit trail that contradicts its own story is r
   const extraPass = universe();
   extraPass.sensitivityAudit.winnersByPass['ordering:bogus'] = null;
   assert.throws(() => inputsAssembly.assembleSweepInputs(extraPass), /winnersByPass: closed shape violation/);
+  // The mixed basis is sealed schema, not optional prose.
+  const wrongBasis = universe();
+  wrongBasis.sensitivityAudit.basisByPass['estimand:force-fill'] = 'stage-1-placeholder-basis';
+  assert.throws(() => inputsAssembly.assembleSweepInputs(wrongBasis), /basisByPass.*estimand:force-fill.*stage-2-post-contradiction/);
 });
 
 test('decision D6: the producer runs the ORDERING-axis cross-check too (adversarial QA F2)', () => {

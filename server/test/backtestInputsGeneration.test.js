@@ -420,6 +420,7 @@ test('the driver\'s records assemble into a document the approved reducer valida
     orderingSensitivityByCell: sensitivity.orderingSensitivityByCell,
     sensitivityAudit: {
       winnersByPass: sensitivity.detail.winnersByPass,
+      basisByPass: sensitivity.detail.basisByPass,
       estimandReconciliation: sensitivity.detail.estimandReconciliation,
     },
     preflight: records.preflight,
@@ -1138,6 +1139,7 @@ test('assembleFinalDocument bakes the DERIVED sensitivity inputs into a reducer-
       winnersByPass: {
         'ordering:db-collation': null, 'ordering:duplicate-shuffle': null, 'estimand:force-fill': null,
       },
+      basisByPass: { ...inputsSensitivity.SENSITIVITY_BASIS_BY_PASS },
       estimandReconciliation: {
         selection: null,
         halted: true,
@@ -1166,6 +1168,7 @@ test('assembleFinalDocument bakes the DERIVED sensitivity inputs into a reducer-
   // Decision D6: the DERIVED audit trail rides the final document, never the
   // placeholder the comparison documents carry.
   assert.deepEqual(document.sensitivityAudit.winnersByPass, derived.detail.winnersByPass);
+  assert.deepEqual(document.sensitivityAudit.basisByPass, derived.detail.basisByPass);
   assert.deepEqual(document.sensitivityAudit.estimandReconciliation, derived.detail.estimandReconciliation);
   assert.equal(document.studyId, runBacktestInputs.STUDY_ID);
   assert.ok(validated >= 1, "the finished document must pass the reducer's own validateInputs before anyone serializes it");

@@ -890,6 +890,7 @@ function assembleFinalDocument({
     // the estimand halt was reconciled.
     sensitivityAudit: {
       winnersByPass: sensitivity.detail.winnersByPass,
+      basisByPass: sensitivity.detail.basisByPass,
       estimandReconciliation: sensitivity.detail.estimandReconciliation,
     },
     preflight: records.preflight,

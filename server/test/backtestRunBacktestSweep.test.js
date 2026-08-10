@@ -235,6 +235,11 @@ function passingSensitivityAudit() {
       'ordering:duplicate-shuffle': 'usage-40-off',
       'estimand:force-fill': 'usage-40-off',
     },
+    basisByPass: {
+      'ordering:db-collation': 'stage-1-placeholder-basis',
+      'ordering:duplicate-shuffle': 'stage-1-placeholder-basis',
+      'estimand:force-fill': 'stage-2-post-contradiction',
+    },
     estimandReconciliation: {
       selection: 'usage-40-off',
       halted: false,
@@ -311,6 +316,10 @@ test('decision D6: validateInputs refuses a document whose audit trail is missin
   const controlWinner = fullPassingInputs();
   controlWinner.sensitivityAudit.winnersByPass['ordering:db-collation'] = 'usage-25-off';
   assert.throws(() => runBacktestSweep.validateInputs(controlWinner), /must be null or a candidate cell name/);
+
+  const wrongBasis = fullPassingInputs();
+  wrongBasis.sensitivityAudit.basisByPass['ordering:db-collation'] = 'stage-2-post-contradiction';
+  assert.throws(() => runBacktestSweep.validateInputs(wrongBasis), /basisByPass.*ordering:db-collation.*stage-1-placeholder-basis/);
 });
 
 test('decision D6: the ORDERING-axis cross-check, symmetric with the halted-axis one (adversarial QA F2)', () => {
@@ -522,6 +531,8 @@ test('main(): a comfortably-passing inputs document produces a VALID run with a 
   assert.match(markdown, /\| 2024 \| half_ppr \| usage-25-off \| absolute \| regret \|/);
   // Section 8.7 rule 4: prereg 16's family carries standard and ppr, 2025 only.
   assert.match(markdown, /### Scoring-profile sensitivity \(prereg 16\)/);
+  assert.match(markdown, /half-PPR-selected cohort and half-PPR-priced outcome truth/);
+  assert.match(markdown, /Each standard or ppr arm-week's regret uses that profile's projected lineup and is measured in half-PPR points/);
   assert.match(markdown, /\| 2025 \| standard \| usage-25-off \| absolute \| regret \|/);
   assert.match(markdown, /\| 2025 \| ppr \| usage-25-off \| absolute \| regret \|/);
   // Decision D2 (2026-08-08): prereg 16's week-window families - weeks-2-17
@@ -544,10 +555,16 @@ test('main(): a comfortably-passing inputs document produces a VALID run with a 
     'ordering:db-collation': 'usage-40-off',
     'ordering:duplicate-shuffle': 'usage-40-off',
   });
+  assert.deepEqual(report.sensitivityAudit.basisByPass, {
+    'estimand:force-fill': 'stage-2-post-contradiction',
+    'ordering:db-collation': 'stage-1-placeholder-basis',
+    'ordering:duplicate-shuffle': 'stage-1-placeholder-basis',
+  });
   assert.equal(report.sensitivityAudit.estimandReconciliation.halted, false);
   assert.equal(report.sensitivityAudit.estimandReconciliation.winners.deployedPolicy, 'usage-40-off');
   assert.match(markdown, /## Sensitivity audit \(spec 8\.4\/8\.5\)/);
-  assert.match(markdown, /- winner estimand:force-fill: usage-40-off/);
+  assert.match(markdown, /- winner estimand:force-fill \(basis: stage-2 post-contradiction\): usage-40-off/);
+  assert.match(markdown, /- winner ordering:db-collation \(basis: stage-1 placeholder-basis\): usage-40-off/);
   assert.match(markdown, /- estimand reconciliation: halted=false, selection=usage-40-off, deployedPolicy=usage-40-off, forceFill=usage-40-off/);
 
   // Independent implementation review finding: the report previously

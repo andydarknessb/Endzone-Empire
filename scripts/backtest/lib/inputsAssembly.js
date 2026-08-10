@@ -131,15 +131,21 @@ const ARM_RECORD_KEYS = Object.freeze(['scoringProfile', 'arm', 'season', 'week'
 const SUBGROUP_ERROR_ROW_KEYS = Object.freeze(['cellName', 'season', 'week', 'playerId', 'salt', 'errorOn', 'errorOff']);
 /**
  * Decision D6 (ruled by the user 2026-08-08; SEALED at spec revision 35, sections 8.4/8.5): the
- * estimand audit trail - `winnersByPass` and `estimandReconciliation` - rides
- * the document so the published report can carry it.  The pass-key list is
+ * estimand audit trail - `winnersByPass`, `basisByPass`, and
+ * `estimandReconciliation` - rides the document so the published report can
+ * carry it.  The pass-key list is
  * MIRRORED from `inputsSensitivity.SENSITIVITY_PASS_KEYS`, which cannot be
  * imported here without a require cycle (inputsSensitivity assembles its
  * comparison documents THROUGH this module); drift between the two lists is
  * pinned by test.
  */
-const SENSITIVITY_AUDIT_KEYS = Object.freeze(['winnersByPass', 'estimandReconciliation']);
+const SENSITIVITY_AUDIT_KEYS = Object.freeze(['winnersByPass', 'basisByPass', 'estimandReconciliation']);
 const SENSITIVITY_AUDIT_PASS_KEYS = Object.freeze(['ordering:db-collation', 'ordering:duplicate-shuffle', 'estimand:force-fill']);
+const SENSITIVITY_AUDIT_BASIS_BY_PASS = Object.freeze({
+  'ordering:db-collation': 'stage-1-placeholder-basis',
+  'ordering:duplicate-shuffle': 'stage-1-placeholder-basis',
+  'estimand:force-fill': 'stage-2-post-contradiction',
+});
 const ESTIMAND_RECONCILIATION_KEYS = Object.freeze(['selection', 'halted', 'reason', 'detail', 'winners']);
 const ESTIMAND_WINNER_KEYS = Object.freeze(['deployedPolicy', 'forceFill']);
 const ACTIVATION_RECORD_KEYS = Object.freeze(['cell', 'season', 'week', 'position', 'projections']);
@@ -799,6 +805,14 @@ function canonicalizeSensitivityAudit(sensitivityAudit, { label }) {
   const winnersByPass = Object.fromEntries(SENSITIVITY_AUDIT_PASS_KEYS.map((key) => [
     key, winner(sensitivityAudit.winnersByPass[key], `${label}.winnersByPass[${JSON.stringify(key)}]`),
   ]));
+  assertClosedKeys(sensitivityAudit.basisByPass, SENSITIVITY_AUDIT_PASS_KEYS, `${label}.basisByPass`);
+  const basisByPass = Object.fromEntries(SENSITIVITY_AUDIT_PASS_KEYS.map((key) => {
+    const expected = SENSITIVITY_AUDIT_BASIS_BY_PASS[key];
+    if (sensitivityAudit.basisByPass[key] !== expected) {
+      throw new Error(`${label}.basisByPass[${JSON.stringify(key)}]: must be ${JSON.stringify(expected)}, got ${JSON.stringify(sensitivityAudit.basisByPass[key])}`);
+    }
+    return [key, expected];
+  }));
   const reconciliation = sensitivityAudit.estimandReconciliation;
   assertClosedKeys(reconciliation, ESTIMAND_RECONCILIATION_KEYS, `${label}.estimandReconciliation`);
   assertClosedKeys(reconciliation.winners, ESTIMAND_WINNER_KEYS, `${label}.estimandReconciliation.winners`);
@@ -821,6 +835,7 @@ function canonicalizeSensitivityAudit(sensitivityAudit, { label }) {
   }
   return {
     winnersByPass,
+    basisByPass,
     estimandReconciliation: {
       selection, halted: reconciliation.halted, reason: reconciliation.reason, detail: reconciliation.detail, winners,
     },
@@ -989,5 +1004,6 @@ module.exports = {
   canonicalizePreflight,
   canonicalizeSensitivityAudit,
   SENSITIVITY_AUDIT_PASS_KEYS,
+  SENSITIVITY_AUDIT_BASIS_BY_PASS,
   assembleSweepInputs,
 };

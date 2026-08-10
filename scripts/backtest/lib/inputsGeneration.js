@@ -204,8 +204,7 @@
  *      Recorded for the B3 batch; nothing about it is worked around
  *      silently.
  *   C. **The sensitivity profiles are scored against the PRIMARY profile's
- *      outcome truth**, and the sealed text (sections 8.7 rule 4 / 9) does
- *      not appear to settle whether they should be. Section 9 makes the
+ *      outcome truth, as revision 38 now resolves explicitly.** Section 9 makes the
  *      profile a generation coordinate on the FEATURE side - "`standard` and
  *      `ppr` cannot be produced by re-scoring a `half_ppr` generation" - but
  *      the OUTCOME side is a frozen Commit-A artifact: `run-backtest-
@@ -216,11 +215,9 @@
  *      has NO other behaviour available to it - re-pricing would need the raw
  *      stat lines, which the artifact does not carry, and regenerating the
  *      artifacts per profile is a Commit-A change - so the choice is
- *      RECORDED here rather than made here. 8.7 rule 4 already requires the
- *      report to disclose that these rows sit on a half-PPR-selected cohort;
- *      whether the same disclosure covers half-PPR-priced OUTCOMES is a B3
- *      deferral-batch question, and the test suite pins the current
- *      behaviour so a future answer changes a test rather than a silence.
+ *      REQUIRED here. Section 8.7 rule 4 requires the report to disclose both
+ *      the half-PPR-selected cohort and the half-PPR-priced outcome truth;
+ *      the test suite pins the behaviour and the published wording.
  *
  * Pure: no database, no filesystem, no clock, no RNG of its own. Given the
  * same artifacts and the same injected generator, the same records - in the

@@ -76,6 +76,11 @@ test('buildReport: end to end, a valid run with a selected cell publishes all 8 
 test('decision D6: buildReport publishes the sensitivity audit trail on a valid run and null on a void run or when absent', () => {
   const audit = {
     winnersByPass: { 'ordering:db-collation': null, 'ordering:duplicate-shuffle': null, 'estimand:force-fill': 'usage-40-off' },
+    basisByPass: {
+      'ordering:db-collation': 'stage-1-placeholder-basis',
+      'ordering:duplicate-shuffle': 'stage-1-placeholder-basis',
+      'estimand:force-fill': 'stage-2-post-contradiction',
+    },
     estimandReconciliation: {
       selection: null, halted: true, reason: 'estimand-disagreement', detail: 'winners disagree',
       winners: { deployedPolicy: null, forceFill: 'usage-40-off' },
@@ -101,7 +106,7 @@ test('decision D6: buildReport publishes the sensitivity audit trail on a valid 
   // eslint-disable-next-line testing-library/render-result-naming-convention
   const rendered = sweepReport.renderMarkdown(report);
   assert.match(rendered, /## Sensitivity audit \(spec 8\.4\/8\.5\)/);
-  assert.match(rendered, /- winner estimand:force-fill: usage-40-off/);
+  assert.match(rendered, /- winner estimand:force-fill \(basis: stage-2 post-contradiction\): usage-40-off/);
   assert.match(rendered, /- estimand reconciliation: halted=true, selection=-, deployedPolicy=-, forceFill=usage-40-off, reason=estimand-disagreement/);
   // A closed-shape violation in the trail is rejected at publication.
   assert.throws(

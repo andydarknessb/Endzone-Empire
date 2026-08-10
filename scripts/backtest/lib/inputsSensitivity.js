@@ -120,6 +120,11 @@ const SENSITIVITY_PASSES = Object.freeze([
   }),
 ]);
 const SENSITIVITY_PASS_KEYS = Object.freeze(SENSITIVITY_PASSES.map((pass) => pass.key));
+const SENSITIVITY_BASIS_BY_PASS = Object.freeze({
+  'ordering:db-collation': 'stage-1-placeholder-basis',
+  'ordering:duplicate-shuffle': 'stage-1-placeholder-basis',
+  'estimand:force-fill': 'stage-2-post-contradiction',
+});
 
 /** The two REQUIRED ordering variants (prereg 5.2) - the passes that feed spec 8.4's cell-level and winner-only checks. */
 const ORDERING_PASSES = Object.freeze(SENSITIVITY_PASSES.filter((pass) => pass.kind === 'ordering'));
@@ -180,6 +185,7 @@ function placeholderOrderingSensitivityByCell() {
 function placeholderSensitivityAudit() {
   return {
     winnersByPass: Object.fromEntries(SENSITIVITY_PASS_KEYS.map((key) => [key, null])),
+    basisByPass: { ...SENSITIVITY_BASIS_BY_PASS },
     estimandReconciliation: {
       selection: null,
       halted: false,
@@ -433,6 +439,7 @@ function deriveSensitivityInputs({
         ...Object.fromEntries(ORDERING_PASSES.map((pass) => [pass.key, orderingResults[pass.key].winner])),
         'estimand:force-fill': finalForceFill.winner,
       },
+      basisByPass: { ...SENSITIVITY_BASIS_BY_PASS },
       estimandReconciliation: estimand.reconciliation,
     },
   };
@@ -441,6 +448,7 @@ function deriveSensitivityInputs({
 module.exports = {
   SENSITIVITY_PASSES,
   SENSITIVITY_PASS_KEYS,
+  SENSITIVITY_BASIS_BY_PASS,
   ORDERING_PASSES,
   IUT_VERDICTS,
   placeholderOrderingSensitivityByCell,

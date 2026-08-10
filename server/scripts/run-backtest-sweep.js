@@ -121,8 +121,13 @@ const TOP_LEVEL_KEYS = Object.freeze([
 // receives neither the variant armWeekMetrics nor the per-pass claims, so it
 // cannot recompute them - same trust class as `preflight`); what the reducer
 // CAN check, it does, in validateInputs.
-const SENSITIVITY_AUDIT_KEYS = Object.freeze(['winnersByPass', 'estimandReconciliation']);
+const SENSITIVITY_AUDIT_KEYS = Object.freeze(['winnersByPass', 'basisByPass', 'estimandReconciliation']);
 const SENSITIVITY_AUDIT_PASS_KEYS = Object.freeze(['ordering:db-collation', 'ordering:duplicate-shuffle', 'estimand:force-fill']);
+const SENSITIVITY_AUDIT_BASIS_BY_PASS = Object.freeze({
+  'ordering:db-collation': 'stage-1-placeholder-basis',
+  'ordering:duplicate-shuffle': 'stage-1-placeholder-basis',
+  'estimand:force-fill': 'stage-2-post-contradiction',
+});
 const ESTIMAND_RECONCILIATION_KEYS = Object.freeze(['selection', 'halted', 'reason', 'detail', 'winners']);
 const ESTIMAND_WINNER_KEYS = Object.freeze(['deployedPolicy', 'forceFill']);
 const PREFLIGHT_KEYS = Object.freeze([
@@ -238,6 +243,13 @@ function validateSensitivityAudit(audit, deployedPolicyDisagreement, label) {
       throw new Error(`${label}.winnersByPass: missing required pass ${JSON.stringify(key)} - a pass with no recorded winner cannot show stability`);
     }
     winner(audit.winnersByPass[key], `${label}.winnersByPass[${JSON.stringify(key)}]`);
+  }
+  assertClosedKeys(audit.basisByPass, SENSITIVITY_AUDIT_PASS_KEYS, `${label}.basisByPass`);
+  for (const key of SENSITIVITY_AUDIT_PASS_KEYS) {
+    const expected = SENSITIVITY_AUDIT_BASIS_BY_PASS[key];
+    if (audit.basisByPass[key] !== expected) {
+      throw new Error(`${label}.basisByPass[${JSON.stringify(key)}]: must be ${JSON.stringify(expected)}, got ${JSON.stringify(audit.basisByPass[key])}`);
+    }
   }
   const reconciliation = audit.estimandReconciliation;
   assertClosedKeys(reconciliation, ESTIMAND_RECONCILIATION_KEYS, `${label}.estimandReconciliation`);

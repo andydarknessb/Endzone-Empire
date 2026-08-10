@@ -135,12 +135,17 @@ const ORDERING_SENSITIVITY_KEYS = Object.freeze(['contradicted', 'detail']);
 const SELECTION_KEYS = Object.freeze(['outcome', 'reasons', 'reason', 'selected', 'ranked']);
 const RANKED_CELL_KEYS = Object.freeze(['name', 'blendWeight', 'homeAway']);
 // Decision D6 (ruled 2026-08-08): the estimand audit trail is published.
-const SENSITIVITY_AUDIT_KEYS = Object.freeze(['winnersByPass', 'estimandReconciliation']);
+const SENSITIVITY_AUDIT_KEYS = Object.freeze(['winnersByPass', 'basisByPass', 'estimandReconciliation']);
 // The report layer's own copy of the pass-key list (the third mirror -
 // producer and reducer each keep theirs for the same independence reason;
 // requiring either from here would be a cycle). Drift across all three is
 // pinned by test.
 const SENSITIVITY_AUDIT_PASS_KEYS = Object.freeze(['ordering:db-collation', 'ordering:duplicate-shuffle', 'estimand:force-fill']);
+const SENSITIVITY_AUDIT_BASIS_BY_PASS = Object.freeze({
+  'ordering:db-collation': 'stage-1-placeholder-basis',
+  'ordering:duplicate-shuffle': 'stage-1-placeholder-basis',
+  'estimand:force-fill': 'stage-2-post-contradiction',
+});
 const ESTIMAND_RECONCILIATION_KEYS = Object.freeze(['selection', 'halted', 'reason', 'detail', 'winners']);
 const ESTIMAND_WINNER_KEYS = Object.freeze(['deployedPolicy', 'forceFill']);
 const REPORT_KEYS = Object.freeze(['studyId', 'run', 'permutationControl', 'cells', 'selection', 'sensitivityAudit', 'evidence']);
@@ -386,11 +391,21 @@ function normalizeSensitivityAudit(audit, { label }) {
   for (const key of [...SENSITIVITY_AUDIT_PASS_KEYS].sort()) {
     winnersByPass[key] = winner((audit.winnersByPass || {})[key]);
   }
+  assertClosedKeys(audit.basisByPass || {}, SENSITIVITY_AUDIT_PASS_KEYS, { label: `${label}.basisByPass` });
+  const basisByPass = {};
+  for (const key of [...SENSITIVITY_AUDIT_PASS_KEYS].sort()) {
+    const expected = SENSITIVITY_AUDIT_BASIS_BY_PASS[key];
+    if ((audit.basisByPass || {})[key] !== expected) {
+      throw new Error(`${label}.basisByPass[${JSON.stringify(key)}]: must be ${JSON.stringify(expected)}, got ${JSON.stringify((audit.basisByPass || {})[key])}`);
+    }
+    basisByPass[key] = expected;
+  }
   const reconciliation = audit.estimandReconciliation || {};
   assertClosedKeys(reconciliation, ESTIMAND_RECONCILIATION_KEYS, { label: `${label}.estimandReconciliation` });
   assertClosedKeys(reconciliation.winners || {}, ESTIMAND_WINNER_KEYS, { label: `${label}.estimandReconciliation.winners` });
   return {
     winnersByPass,
+    basisByPass,
     estimandReconciliation: {
       selection: winner(reconciliation.selection),
       halted: reconciliation.halted === true,
@@ -578,7 +593,15 @@ function renderEvidenceTables(evidence) {
   // Section 8.7 rule 4: prereg 16's sensitivity publication, absolute metrics
   // only, `standard` and `ppr`, 2025 only.  Published as its own table because
   // it is NOT rule 1's family.
-  lines.push('', '### Scoring-profile sensitivity (prereg 16)', '', `| season | profile | cell | estimand | endpoint | point | CI | ${SELF_HEADER} |`, `| --- | --- | --- | --- | --- | ---: | --- | ${SELF_RULE} |`);
+  lines.push(
+    '',
+    '### Scoring-profile sensitivity (prereg 16)',
+    '',
+    "These rows use a half-PPR-selected cohort and half-PPR-priced outcome truth. Each standard or ppr arm-week's regret uses that profile's projected lineup and is measured in half-PPR points.",
+    '',
+    `| season | profile | cell | estimand | endpoint | point | CI | ${SELF_HEADER} |`,
+    `| --- | --- | --- | --- | --- | ---: | --- | ${SELF_RULE} |`
+  );
   for (const row of evidence.sensitivity) lines.push(`| ${row.season} | ${row.scoringProfile} | ${row.cell} | ${row.estimand} | ${row.endpoint} | ${displayValue(row.point)} | [${displayValue(row.lower)}, ${displayValue(row.upper)}] | ${selfDescription(row)} |`);
   // Prereg 16's week-window families (SPEC-A / decision D2, ruled 2026-08-08):
   // the weeks-2-17 re-analysis and the Week-18 absolute rows on their own,
@@ -669,7 +692,10 @@ function renderMarkdown(report) {
   if (report.sensitivityAudit) {
     lines.push('', '## Sensitivity audit (spec 8.4/8.5)', '');
     for (const key of Object.keys(report.sensitivityAudit.winnersByPass).sort()) {
-      lines.push(`- winner ${escapeMd(key)}: ${report.sensitivityAudit.winnersByPass[key] === null ? '-' : escapeMd(report.sensitivityAudit.winnersByPass[key])}`);
+      const basis = report.sensitivityAudit.basisByPass[key] === 'stage-1-placeholder-basis'
+        ? 'stage-1 placeholder-basis'
+        : 'stage-2 post-contradiction';
+      lines.push(`- winner ${escapeMd(key)} (basis: ${escapeMd(basis)}): ${report.sensitivityAudit.winnersByPass[key] === null ? '-' : escapeMd(report.sensitivityAudit.winnersByPass[key])}`);
     }
     const reconciliation = report.sensitivityAudit.estimandReconciliation;
     const show = (value) => (value === null ? '-' : escapeMd(value));
@@ -690,6 +716,7 @@ module.exports = {
   SELECTION_KEYS,
   RANKED_CELL_KEYS,
   SENSITIVITY_AUDIT_PASS_KEYS,
+  SENSITIVITY_AUDIT_BASIS_BY_PASS,
   assertFinite,
   assertNoUnstatedUnevaluable,
   assertClosedKeys,
