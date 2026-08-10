@@ -11,10 +11,10 @@
     "migrate": "knex --knexfile knexfile.js migrate:latest"
   },
   "dependencies": {
-    "@sentry/node": "^10.67.0",
+    "@sentry/node": "^10.69.0",
     "@socket.io/redis-adapter": "^8.3.0",
-    "@supabase/supabase-js": "^2.110.7",
-    "axios": "^1.7.9",
+    "@supabase/supabase-js": "^2.112.0",
+    "axios": "^1.19.0",
     "bcryptjs": "^2.4.3",
     "compression": "^1.8.1",
     "cors": "^2.8.6",
@@ -28,7 +28,7 @@
     "nodemailer": "^9.0.3",
     "pg": "^8.13.1",
     "pino": "^10.3.1",
-    "redis": "^6.1.0",
+    "redis": "^6.2.0",
     "sharp": "^0.35.3",
     "socket.io": "^4.8.1",
     "web-push": "^3.6.7",
