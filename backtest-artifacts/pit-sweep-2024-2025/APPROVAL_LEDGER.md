@@ -214,6 +214,8 @@ remain prohibited pending the final independent implementation review.
 | 9 | `PHASE5_EXECUTION_SPEC.md` | `5EA91A5E23602101E725C5560DAE071BD6A81659AD33E48EC25F64BA6E959F78` | user | 2026-08-06 | remainder of revision 34, all provisions outside row 8's S3 deviation. **Scope of authorization: Gate 2 IMPLEMENTATION only — does NOT authorize candidate-cell execution**, which remains gated on the fourth approval. Attested after being shown section 10.3's disclosure and the two known-wrong counts recorded at corrective entry 19 item (5); the approver attested with knowledge of both, not in ignorance of them | **APPROVED** |
 | 10 | `PHASE5_EXECUTION_SPEC.md` | `5EA91A5E23602101E725C5560DAE071BD6A81659AD33E48EC25F64BA6E959F78` | independent implementation review | 2026-08-07 | Gate 2 implementation conformance to revision 34, sections 3-8 (lines 1060-3487; spec blob `e339020a3e61bfc32a20a3acd2f1f246f155a8b8` at anchor `81289fa0e980f5b71dbf7c660f036cfa253e44ae`), **reviewed at implementation commit `6e9411b8760525ea56182f47a7733a69ad0dd7c2`** on branch `integration`; reviewer of rounds 3-6, no authorship of any repair in the range. **Bounded as stated by the approver**: by the round-6 reach statement — four standing UNCHECKED items (real `seedFrom` output, section 4.6.2's contrast producers, the Semgrep scanner verdict, the microbenchmark) and the non-existence of the `--inputs` producer, so generation-side requirements are verified only as far as the reducer reaches — and by two open MINOR findings (H: `movingBlockBootstrap`'s unguarded accumulator; I: a mis-attributed diagnostic), neither reachable through the production entry point, which the approver expects closed or answered rather than silently carried. **Does NOT authorize candidate-cell execution**: Gate 4's B3 re-cut carrying the complete Phase 5 implementation and Gate 3's verification of it remain, per specification section 1 | **APPROVED** |
 | 11 | `PHASE5_EXECUTION_SPEC.md` | `DC1E1C413A6CDFCB9072393720020179C0FFD4E483137117B66DC0F25281AE43` | independent statistical review | 2026-08-09 | revision 38, sections 3-8; exact git blob `44fae65bce063e9eff2912e0827b868061bf7a15` at commit `d65bc1086227c76f3a0991cd31c577f2b2c9e96d`. **Reach as stated by the approver**: the reviewer who issued the revision-36 and revision-37 findings continued in the same session from `/home/claude/review-clone-r36/ez`; the eight changed in-scope regions and dependency surface were read anew, with the byte-identical remainder carried from that reviewer's prior two reads. Four MINOR findings F-1 through F-4 are inert and do not prevent approval. **Independence limitation**: the reviewer cannot audit whether other drafting sessions used the same assistant model; model-level novelty remains unresolved and is not represented here as proven | **APPROVED** |
+| 12 | `PHASE5_EXECUTION_SPEC.md` | `DC1E1C413A6CDFCB9072393720020179C0FFD4E483137117B66DC0F25281AE43` | user | 2026-08-09 | S3 structurally non-estimable prospective deviation, section 7: reserve-class source rows receive injury-status mapping first; cohort exclusion and counting occur second; excluded rows never reach downstream roster construction or scoring. **No S3 estimate is published**; disclosed as an explicit prospective deviation from preregistration section 4.2. Exact git blob `44fae65bce063e9eff2912e0827b868061bf7a15` at commit `d65bc1086227c76f3a0991cd31c577f2b2c9e96d` | **APPROVED** |
+| 13 | `PHASE5_EXECUTION_SPEC.md` | `DC1E1C413A6CDFCB9072393720020179C0FFD4E483137117B66DC0F25281AE43` | user | 2026-08-09 | all remaining provisions of revision 38, sections 3-8, outside row 12's S3 deviation; exact git blob `44fae65bce063e9eff2912e0827b868061bf7a15` at commit `d65bc1086227c76f3a0991cd31c577f2b2c9e96d`. **Scope of authorization: implementation work only — does NOT authorize candidate-cell execution** | **APPROVED** |
 
 **Row 7's earlier reservation is superseded — see corrective entry 19.** The
 paragraph that follows was written at corrective entry 2, when rows 4-6 were
@@ -4663,3 +4665,61 @@ last against the complete implementation.
 **Gate 0 remains active.** This approval and row do not authorize candidate
 execution, frozen snapshot access, Docker sweep execution, report
 generation, or result inspection. None occurred while recording it.
+
+### CORRECTIVE ENTRY 31 — appended 2026-08-09
+
+**This entry records both user attestations against revision 38** and
+creates approval rows 12 and 13. Entries 1-30 and rows 1-11 remain
+byte-for-byte untouched. The specification is not edited.
+
+**(1) The two exact attestations presented for decision were:**
+
+> I approve treating S3 as structurally non-estimable under the frozen
+> active-only cohort. Reserve-class rows receive injury-status mapping
+> first, cohort exclusion and counting occur second, and excluded rows
+> never reach downstream roster construction or scoring. No S3 estimate is
+> published; this is an explicit prospective deviation from
+> preregistration §4.2.
+
+> I approve all remaining provisions of revision 38, sections 3–8, exact
+> git blob `44fae65bce063e9eff2912e0827b868061bf7a15` at commit
+> `d65bc1086227c76f3a0991cd31c577f2b2c9e96d`, SHA-256
+> `DC1E1C413A6CDFCB9072393720020179C0FFD4E483137117B66DC0F25281AE43`.
+> This authorizes implementation work only and does not authorize
+> candidate-cell execution.
+
+**(2) The user issued both approvals explicitly.** Their complete response
+was: **"I explicitly approve both attestations."** The word "both" binds
+the two immediately preceding, separately stated attestations reproduced
+above; neither row is inferred from silence or from a general instruction.
+
+**(3) The identical approval tuple was verified before recording.**
+
+```
+SHA-256   DC1E1C413A6CDFCB9072393720020179C0FFD4E483137117B66DC0F25281AE43
+git blob  44fae65bce063e9eff2912e0827b868061bf7a15
+anchor    d65bc1086227c76f3a0991cd31c577f2b2c9e96d
+```
+
+Rows 11, 12, and 13 therefore authenticate the same revision-38 bytes.
+Row 12 uses corrective entry 29's current mechanism order and does not
+inherit historical row 8's lapsed rationale.
+
+**(4) Scope disclosures remain visible.** Row 13 approves the remainder
+with the independent statistical review and entry 30 already recorded,
+including the four known inert MINOR findings F-1 through F-4 and the
+reviewer's unresolved model-level-independence limitation. This user
+approval records no finding that the limitation is resolved and does not
+alter row 11's stated reach.
+
+**(5) Approval and gate state.** **Three of four approvals are now in
+force** against revision 38: independent statistical review (row 11),
+the S3 user attestation (row 12), and the remainder user approval (row
+13). The sole remaining approval is the independent implementation review,
+performed strictly last against the complete implementation and the same
+approved specification bytes.
+
+**Gate 0 remains active.** Rows 12 and 13 authorize implementation work
+only. They do not authorize candidate execution, frozen snapshot access,
+Docker sweep execution, report generation, or result inspection. None
+occurred while recording them.
