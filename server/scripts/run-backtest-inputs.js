@@ -853,6 +853,8 @@ function serializeArtifact(artifact) {
 }
 
 function writeRecordsArtifactFile(outPath, artifact) {
+  // outPath is the operator's own CLI argument to this locally-invoked tool.
+  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
   const resolved = path.resolve(String(outPath));
   fs.mkdirSync(path.dirname(resolved), { recursive: true });
   canonicalJsonIo.writeCanonicalJsonFileSync(resolved, artifact, {
