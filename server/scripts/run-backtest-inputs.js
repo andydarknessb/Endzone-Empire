@@ -157,6 +157,7 @@ const { makeSourceReader } = require('../../scripts/backtest/snapshot-checks');
 // subtly different reconstructions.
 const mdeScript = require('./run-backtest-mde');
 const rostersScript = require('./run-backtest-rosters');
+const canonicalJsonIo = require('./lib/canonicalJsonIo');
 // The REDUCER's exported claim assembly, injected into the sensitivity
 // comparison passes, and its validateInputs run over the finished document -
 // so the document this script writes is one the sweep will actually accept,
@@ -677,12 +678,7 @@ function buildArtifact(records, { permutationControl, permutationCounts } = {}) 
   // never drift: a checkpoint buildArtifact would write that
   // loadRecordsArtifact would refuse is a bug caught at write time.
   assertRecordsArtifactShape(artifact, { label: 'run-backtest-inputs: buildArtifact' });
-  return { ...artifact, recordsHash: sha256Hex(canonicalJson(artifact)) };
-}
-
-/** SHA-256 hex over canonical text - the same digest form the freeze-hash verifiers above use. */
-function sha256Hex(text) {
-  return crypto.createHash('sha256').update(text, 'utf8').digest('hex');
+  return { ...artifact, recordsHash: canonicalJsonIo.canonicalJsonSha256(artifact) };
 }
 
 /**
@@ -769,12 +765,18 @@ function loadRecordsArtifact(serialized, { label = 'run-backtest-inputs --record
   } catch (err) {
     throw new Error(`${label}: could not parse the checkpoint: ${err.message}`);
   }
+  return loadRecordsArtifactValue(parsed, { label });
+}
+
+function loadRecordsArtifactValue(parsed, { label = 'run-backtest-inputs --records-in' } = {}) {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error(`${label}: must be an object`);
   const { recordsHash, ...content } = parsed;
   if (typeof recordsHash !== 'string' || recordsHash.length !== 64) {
     throw new Error(`${label}: recordsHash is missing or malformed - a checkpoint without its own digest cannot prove it is the one a generation run wrote`);
   }
-  const recomputed = sha256Hex(canonicalJson(content));
+  const recomputed = canonicalJsonIo.canonicalJsonSha256(content, {
+    assertToken: (token) => assertEnvironmentFreeCanonicalToken(token, 'inputs-generation-records'),
+  });
   if (recomputed !== recordsHash) {
     throw new Error(`${label}: records checkpoint hash mismatch - the file is not the one a generation run wrote (stored ${recordsHash}, recomputed ${recomputed})`);
   }
@@ -824,10 +826,40 @@ function loadRecordsArtifact(serialized, { label = 'run-backtest-inputs --record
   return { records, permutationControl };
 }
 
+async function loadRecordsArtifactFile(filePath, { label = 'run-backtest-inputs --records-in' } = {}) {
+  let parsed;
+  try {
+    parsed = await canonicalJsonIo.readJsonFile(filePath);
+  } catch (err) {
+    throw new Error(`${label}: could not parse the checkpoint: ${err.message}`);
+  }
+  return loadRecordsArtifactValue(parsed, { label });
+}
+
+function assertEnvironmentFreeCanonicalToken(token, label) {
+  // Punctuation, booleans, null, and JSON numbers are intrinsically ASCII and
+  // cannot contain a runtime identity. Strings and object keys arrive as
+  // complete JSON tokens, so checking only them preserves the full-document
+  // invariant without running three regular expressions for every delimiter.
+  if (token.startsWith('"')) mdeScript.assertEnvironmentFree(token, { label });
+}
+
+// Bounded-fixture byte oracle. Production checkpoint output uses the streaming
+// writer below so it never materializes the complete document as one V8 string.
 function serializeArtifact(artifact) {
   const serialized = `${canonicalJson(artifact)}\n`;
   mdeScript.assertEnvironmentFree(serialized, { label: 'inputs-generation-records' });
   return serialized;
+}
+
+function writeRecordsArtifactFile(outPath, artifact) {
+  const resolved = path.resolve(String(outPath));
+  fs.mkdirSync(path.dirname(resolved), { recursive: true });
+  canonicalJsonIo.writeCanonicalJsonFileSync(resolved, artifact, {
+    assertToken: (token) => assertEnvironmentFreeCanonicalToken(token, 'inputs-generation-records'),
+    trailingNewline: true,
+  });
+  return resolved;
 }
 
 /**
@@ -836,6 +868,8 @@ function serializeArtifact(artifact) {
  * absolute path, no timestamp - runtime identity belongs only to freeze
  * Commit B's manifest).
  */
+// Bounded-fixture byte oracle. Production final output uses the streaming
+// writer in writeInputsDocument.
 function serializeInputsDocument(document) {
   const serialized = `${canonicalJson(document)}\n`;
   mdeScript.assertEnvironmentFree(serialized, { label: 'sweep-inputs-document' });
@@ -930,12 +964,14 @@ function assertGridComplete(counts, { label = 'run-backtest-inputs' } = {}) {
  * generation path cannot drift in what they write or how they validate it.
  */
 function writeInputsDocument({ outPath, document, sensitivity, gridGenerations, captureGenerations, source }) {
-  const serialized = serializeInputsDocument(document);
   // outPath is the operator's own CLI argument to this locally-invoked tool.
   // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
-  fs.mkdirSync(path.dirname(path.resolve(String(outPath))), { recursive: true });
-  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
-  fs.writeFileSync(path.resolve(String(outPath)), serialized, 'utf8');
+  const resolvedOutPath = path.resolve(String(outPath));
+  fs.mkdirSync(path.dirname(resolvedOutPath), { recursive: true });
+  canonicalJsonIo.writeCanonicalJsonFileSync(resolvedOutPath, document, {
+    assertToken: (token) => assertEnvironmentFreeCanonicalToken(token, 'sweep-inputs-document'),
+    trailingNewline: true,
+  });
   const contradictedCells = Object.entries(sensitivity.orderingSensitivityByCell)
     .filter(([, value]) => value.contradicted).map(([name]) => name);
   console.log(
@@ -975,8 +1011,7 @@ async function main(argv, { probes, ...unknown } = {}) {
     // args.recordsIn is the operator's own CLI argument to this
     // locally-invoked tool.
     // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
-    const serializedRecords = fs.readFileSync(path.resolve(String(args.recordsIn)), 'utf8');
-    const loaded = loadRecordsArtifact(serializedRecords);
+    const loaded = await loadRecordsArtifactFile(path.resolve(String(args.recordsIn)));
     const assembled = assembleFinalDocument({
       records: loaded.records, permutationControl: loaded.permutationControl, canariesPassed,
     });
@@ -1123,13 +1158,10 @@ async function main(argv, { probes, ...unknown } = {}) {
   // costs one assembly pass rather than a regeneration, which only works if
   // it is on disk before the passes that might fail.
   if (args.recordsOut) {
-    const serializedRecords = serializeArtifact(buildArtifact(records, { permutationControl, permutationCounts: capture.counts }));
-    // args.recordsOut is the operator's own CLI argument to this
-    // locally-invoked tool.
-    // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
-    fs.mkdirSync(path.dirname(path.resolve(String(args.recordsOut))), { recursive: true });
-    // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
-    fs.writeFileSync(path.resolve(String(args.recordsOut)), serializedRecords, 'utf8');
+    writeRecordsArtifactFile(
+      args.recordsOut,
+      buildArtifact(records, { permutationControl, permutationCounts: capture.counts }),
+    );
     console.log(`wrote inputs generation records checkpoint to ${args.recordsOut}`);
   }
 
@@ -1179,7 +1211,9 @@ module.exports = {
   buildArtifact,
   assertRecordsArtifactShape,
   loadRecordsArtifact,
+  loadRecordsArtifactFile,
   serializeArtifact,
+  writeRecordsArtifactFile,
   serializeInputsDocument,
   assembleFinalDocument,
   assertGridComplete,

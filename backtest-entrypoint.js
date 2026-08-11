@@ -283,6 +283,11 @@ function main() {
 // ---------------------------------------------------------------------------
 
 const MODES = Object.freeze(['freeze', 'sweep', 'inputs']);
+// The first authorized candidate execution proved the default ~4 GiB V8 heap
+// cannot retain the approved full-grid records. Pin the reviewed capacity in
+// the image's own orchestration instead of relying on an operator environment
+// variable that would make identical commands behave differently.
+const LARGE_ARTIFACT_HEAP_MB = 12288;
 
 /**
  * Pure: which mode was requested. No `argv` at all is `freeze`, for exact
@@ -312,7 +317,7 @@ function runSweep(argv) {
   run(
     'run-backtest-sweep',
     'node',
-    [path.join(WORKTREE, 'server/scripts/run-backtest-sweep.js'), ...argv]
+    [`--max-old-space-size=${LARGE_ARTIFACT_HEAP_MB}`, path.join(WORKTREE, 'server/scripts/run-backtest-sweep.js'), ...argv]
   );
 }
 
@@ -336,7 +341,7 @@ function runInputs(argv) {
   run(
     'run-backtest-inputs',
     'node',
-    [path.join(WORKTREE, 'server/scripts/run-backtest-inputs.js'), ...argv]
+    [`--max-old-space-size=${LARGE_ARTIFACT_HEAP_MB}`, path.join(WORKTREE, 'server/scripts/run-backtest-inputs.js'), ...argv]
   );
 }
 
@@ -350,6 +355,7 @@ if (require.main === module) {
 module.exports = {
   IMAGE_REF,
   IMAGE_PLATFORM,
+  LARGE_ARTIFACT_HEAP_MB,
   MODES,
   assertDockerfileImageIdentity,
   filesBelow,

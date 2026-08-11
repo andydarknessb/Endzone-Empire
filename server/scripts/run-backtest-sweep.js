@@ -65,6 +65,7 @@ const { availabilityFor } = require('../services/projectionModel');
 const { DEFAULT_ROSTER_SLOTS } = require('../services/lineup.service');
 const rosters = require('../../scripts/backtest/lib/rosters');
 const { ORDERINGS } = require('../../scripts/backtest/lib/ordering');
+const canonicalJsonIo = require('./lib/canonicalJsonIo');
 
 // ---------------------------------------------------------------------------
 // CLI
@@ -1151,7 +1152,7 @@ function buildReportFromInputs(inputs, { expectedRosterCount = rosters.TEAM_COUN
  * docblock there. The require.main block below passes argv only, so nothing
  * outside a test can supply it.
  */
-function main(argv, overrides = {}) {
+async function main(argv, overrides = {}) {
   const args = parseArgs(argv);
 
   // args.inputs is the operator's own CLI argument to this locally-invoked
@@ -1160,7 +1161,7 @@ function main(argv, overrides = {}) {
   const inputsPath = path.resolve(String(args.inputs));
   let inputs;
   try {
-    inputs = JSON.parse(fs.readFileSync(inputsPath, 'utf8'));
+    inputs = await canonicalJsonIo.readJsonFile(inputsPath);
   } catch (err) {
     throw new Error(`run-backtest-sweep: could not read/parse ${inputsPath}: ${err.message}`);
   }
@@ -1195,12 +1196,12 @@ function main(argv, overrides = {}) {
 }
 
 if (require.main === module) {
-  try {
-    process.exit(main(process.argv.slice(2)) || 0);
-  } catch (err) {
-    console.error('FAILED:', err.stack || err.message);
-    process.exit(1);
-  }
+  main(process.argv.slice(2))
+    .then((code) => process.exit(code || 0))
+    .catch((err) => {
+      console.error('FAILED:', err.stack || err.message);
+      process.exit(1);
+    });
 }
 
 module.exports = {

@@ -440,7 +440,7 @@ test('validateInputs refuses a permutationControl field that is missing or non-f
 // End to end: main() as a deterministic disk-to-disk reducer
 // ---------------------------------------------------------------------------
 
-test('main(): an UNEVALUABLE endpoint still publishes its n, k, p, bound, and trigger reasons - evidence is never discarded', (t) => {
+test('main(): an UNEVALUABLE endpoint still publishes its n, k, p, bound, and trigger reasons - evidence is never discarded', async (t) => {
   const dir = tmpDir(t);
   const inputs = fullPassingInputs();
   // Drive usage-40-off's component (a) regret endpoint to unevaluable via
@@ -463,7 +463,7 @@ test('main(): an UNEVALUABLE endpoint still publishes its n, k, p, bound, and tr
   // below proves main() WITHOUT the override injects the pinned 50. Calls that
   // fail before the control (bad file, bad JSON, bad schema) stay bare - an
   // override on a path that never reaches the control is dead configuration.
-  runBacktestSweep.main([
+  await runBacktestSweep.main([
     '--inputs', inputsPath,
     '--out-json', path.join(dir, 'report.json'),
     '--out-markdown', path.join(dir, 'REPORT.md'),
@@ -483,7 +483,7 @@ test('main(): an UNEVALUABLE endpoint still publishes its n, k, p, bound, and tr
   assert.equal(typeof evaluableEndpoint.lower, 'number');
 });
 
-test('main(): an infinite inverted bound is published as a flag, never dropped and never crashing canonical serialization', (t) => {
+test('main(): an infinite inverted bound is published as a flag, never dropped and never crashing canonical serialization', async (t) => {
   const dir = tmpDir(t);
   const inputs = fullPassingInputs();
   // A degenerate, tie-heavy (f) endpoint: 8 raw clusters clears the minimum,
@@ -503,7 +503,7 @@ test('main(): an infinite inverted bound is published as a flag, never dropped a
   }
   const inputsPath = path.join(dir, 'inputs.json');
   fs.writeFileSync(inputsPath, JSON.stringify(inputs));
-  assert.doesNotThrow(() => runBacktestSweep.main([
+  await assert.doesNotReject(() => runBacktestSweep.main([
     '--inputs', inputsPath,
     '--out-json', path.join(dir, 'report.json'),
     '--out-markdown', path.join(dir, 'REPORT.md'),
@@ -514,14 +514,14 @@ test('main(): an infinite inverted bound is published as a flag, never dropped a
   assert.equal(cell.verdict, 'inconclusive', "(f) unevaluable is the named inconclusive exception");
 });
 
-test('main(): a comfortably-passing inputs document produces a VALID run with a SELECTED cell', (t) => {
+test('main(): a comfortably-passing inputs document produces a VALID run with a SELECTED cell', async (t) => {
   const dir = tmpDir(t);
   const inputsPath = path.join(dir, 'inputs.json');
   const outJson = path.join(dir, 'report.json');
   const outMarkdown = path.join(dir, 'REPORT.md');
   fs.writeFileSync(inputsPath, JSON.stringify(fullPassingInputs()));
 
-  const code = runBacktestSweep.main(['--inputs', inputsPath, '--out-json', outJson, '--out-markdown', outMarkdown], { expectedRosterCount: 1 });
+  const code = await runBacktestSweep.main(['--inputs', inputsPath, '--out-json', outJson, '--out-markdown', outMarkdown], { expectedRosterCount: 1 });
   assert.equal(code, 0);
 
   const report = JSON.parse(fs.readFileSync(outJson, 'utf8'));
@@ -602,7 +602,7 @@ test('main(): a comfortably-passing inputs document produces a VALID run with a 
   assert.ok(onCell.activation.bySeason['2024'], 'both seasons published, per prereg 11.2');
 });
 
-test('main(): a permutation-control threshold miss produces a VOID run with no cell-level results', (t) => {
+test('main(): a permutation-control threshold miss produces a VOID run with no cell-level results', async (t) => {
   const dir = tmpDir(t);
   const inputsPath = path.join(dir, 'inputs.json');
   const outJson = path.join(dir, 'report.json');
@@ -611,7 +611,7 @@ test('main(): a permutation-control threshold miss produces a VOID run with no c
     permutationControl: syntheticPermutationControl({ fail: true }),
   })));
 
-  runBacktestSweep.main(['--inputs', inputsPath, '--out-json', outJson, '--out-markdown', outMarkdown], { expectedRosterCount: 1 });
+  await runBacktestSweep.main(['--inputs', inputsPath, '--out-json', outJson, '--out-markdown', outMarkdown], { expectedRosterCount: 1 });
 
   const report = JSON.parse(fs.readFileSync(outJson, 'utf8'));
   assert.equal(report.run.status, 'void');
@@ -627,13 +627,13 @@ test('main(): a permutation-control threshold miss produces a VOID run with no c
   assert.doesNotMatch(markdown, /### Eight-cell metrics/);
 });
 
-test('main(): caller-published permutation evidence is prohibited; the report derives it from the gate', (t) => {
+test('main(): caller-published permutation evidence is prohibited; the report derives it from the gate', async (t) => {
   const dir = tmpDir(t);
   const inputs = fullPassingInputs();
   inputs.evidence.permutation = { seed: 1, replicates: 1 };
   const inputsPath = path.join(dir, 'inputs.json');
   fs.writeFileSync(inputsPath, JSON.stringify(inputs));
-  assert.throws(
+  await assert.rejects(
     () => runBacktestSweep.main([
       '--inputs', inputsPath,
       '--out-json', path.join(dir, 'report.json'),
@@ -643,7 +643,7 @@ test('main(): caller-published permutation evidence is prohibited; the report de
   );
 });
 
-test('main(): raw weekly evidence is cross-checked against claim and activation gate inputs', (t) => {
+test('main(): raw weekly evidence is cross-checked against claim and activation gate inputs', async (t) => {
   const dir = tmpDir(t);
   const claimMismatch = fullPassingInputs();
   // The season predicate is load-bearing: without it this depends on SEASONS[0]
@@ -652,7 +652,7 @@ test('main(): raw weekly evidence is cross-checked against claim and activation 
   claimMismatch.evidence.metricWeeks.find((row) => row.season === '2025' && row.cell === 'usage-40-off' && row.estimand === 'paired-delta' && row.endpoint === 'regret' && row.week === 2).value = 99;
   const claimPath = path.join(dir, 'claim-mismatch.json');
   fs.writeFileSync(claimPath, JSON.stringify(claimMismatch));
-  assert.throws(
+  await assert.rejects(
     () => runBacktestSweep.main(['--inputs', claimPath, '--out-json', path.join(dir, 'claim.json'), '--out-markdown', path.join(dir, 'claim.md')], { expectedRosterCount: 1 }),
     /paired usage-40-off\/2025\/regret\/week-2 does not match component-\(a\) input/
   );
@@ -661,13 +661,13 @@ test('main(): raw weekly evidence is cross-checked against claim and activation 
   activationMismatch.evidence.activationWeeks.find((row) => row.cell === 'usage-25-on' && row.season === '2025' && row.week === 2 && row.position === 'QB').activated = 0;
   const activationPath = path.join(dir, 'activation-mismatch.json');
   fs.writeFileSync(activationPath, JSON.stringify(activationMismatch));
-  assert.throws(
+  await assert.rejects(
     () => runBacktestSweep.main(['--inputs', activationPath, '--out-json', path.join(dir, 'activation.json'), '--out-markdown', path.join(dir, 'activation.md')], { expectedRosterCount: 1 }),
     /aggregate does not match activation gate/
   );
 });
 
-test('main(): each sealed identity gate failing from raw records independently VOIDS the run', (t) => {
+test('main(): each sealed identity gate failing from raw records independently VOIDS the run', async (t) => {
   const cases = [
     ['control projection mutation', (inputs) => { inputs.preflight.controlUsage25Records[0].rightRun.projections[0].median = 12.500000001; }],
     ['stored projection mutation', (inputs) => { inputs.preflight.homeAwayStoredRecords[0].rightRun.projections[0].median = 12.500000001; }],
@@ -680,7 +680,7 @@ test('main(): each sealed identity gate failing from raw records independently V
     mutate(inputs);
     const inputsPath = path.join(dir, 'inputs.json');
     fs.writeFileSync(inputsPath, JSON.stringify(inputs));
-    runBacktestSweep.main([
+    await runBacktestSweep.main([
       '--inputs', inputsPath,
       '--out-json', path.join(dir, 'report.json'),
       '--out-markdown', path.join(dir, 'REPORT.md'),
@@ -692,7 +692,7 @@ test('main(): each sealed identity gate failing from raw records independently V
   }
 });
 
-test('main(): each salt preflight failure independently VOIDS the run from raw seed records', (t) => {
+test('main(): each salt preflight failure independently VOIDS the run from raw seed records', async (t) => {
   const cases = [
     ['collision', (inputs) => { inputs.preflight.saltSeedRecords[0].seedsBySalt[metrics.SALTS[1]] = 0; }],
     ['missing salt', (inputs) => { delete inputs.preflight.saltSeedRecords[0].seedsBySalt[metrics.SALTS[0]]; }],
@@ -704,7 +704,7 @@ test('main(): each salt preflight failure independently VOIDS the run from raw s
     mutate(inputs);
     const inputsPath = path.join(dir, 'inputs.json');
     fs.writeFileSync(inputsPath, JSON.stringify(inputs));
-    runBacktestSweep.main([
+    await runBacktestSweep.main([
       '--inputs', inputsPath,
       '--out-json', path.join(dir, 'report.json'),
       '--out-markdown', path.join(dir, 'REPORT.md'),
@@ -716,7 +716,7 @@ test('main(): each salt preflight failure independently VOIDS the run from raw s
   }
 });
 
-test('main(): each component (f) raw-evidence preflight failure independently VOIDS before reduction', (t) => {
+test('main(): each component (f) raw-evidence preflight failure independently VOIDS before reduction', async (t) => {
   const cases = [
     ['missing composite key', (inputs) => inputs.cells['usage-25-on'].f.veto.realizations.pop()],
     ['duplicate composite key', (inputs) => inputs.cells['usage-25-on'].f.veto.realizations.push({ ...inputs.cells['usage-25-on'].f.veto.realizations[0] })],
@@ -739,7 +739,7 @@ test('main(): each component (f) raw-evidence preflight failure independently VO
     mutate(inputs);
     const inputsPath = path.join(dir, 'inputs.json');
     fs.writeFileSync(inputsPath, JSON.stringify(inputs));
-    runBacktestSweep.main([
+    await runBacktestSweep.main([
       '--inputs', inputsPath,
       '--out-json', path.join(dir, 'report.json'),
       '--out-markdown', path.join(dir, 'REPORT.md'),
@@ -811,35 +811,35 @@ test('validateInputs requires raw preflight records, never operator-supplied ide
   assert.throws(() => runBacktestSweep.validateInputs(extraKey), /unexpected key\(s\).*someExtra/);
 });
 
-test('main(): a missing or unparsable --inputs file fails loudly and actionably', (t) => {
+test('main(): a missing or unparsable --inputs file fails loudly and actionably', async (t) => {
   const dir = tmpDir(t);
   const missingPath = path.join(dir, 'does-not-exist.json');
-  assert.throws(
+  await assert.rejects(
     () => runBacktestSweep.main(['--inputs', missingPath, '--out-json', path.join(dir, 'r.json'), '--out-markdown', path.join(dir, 'r.md')]),
     /could not read\/parse/
   );
 
   const malformedPath = path.join(dir, 'malformed.json');
   fs.writeFileSync(malformedPath, '{ this is not json');
-  assert.throws(
+  await assert.rejects(
     () => runBacktestSweep.main(['--inputs', malformedPath, '--out-json', path.join(dir, 'r2.json'), '--out-markdown', path.join(dir, 'r2.md')]),
     /could not read\/parse/
   );
 });
 
-test('main(): a malformed inputs DOCUMENT (valid JSON, wrong shape) fails with a schema-specific error', (t) => {
+test('main(): a malformed inputs DOCUMENT (valid JSON, wrong shape) fails with a schema-specific error', async (t) => {
   const dir = tmpDir(t);
   const inputsPath = path.join(dir, 'inputs.json');
   const bad = fullPassingInputs();
   delete bad.studyId;
   fs.writeFileSync(inputsPath, JSON.stringify(bad));
-  assert.throws(
+  await assert.rejects(
     () => runBacktestSweep.main(['--inputs', inputsPath, '--out-json', path.join(dir, 'r.json'), '--out-markdown', path.join(dir, 'r.md')]),
     /studyId: must be a non-empty string/
   );
 });
 
-test('main(): (b)/(c) not-applicable is reported as such, and a FAILING (b)/(c) series on a cell where it does not apply cannot fail that cell', (t) => {
+test('main(): (b)/(c) not-applicable is reported as such, and a FAILING (b)/(c) series on a cell where it does not apply cannot fail that cell', async (t) => {
   const dir = tmpDir(t);
   const inputs = fullPassingInputs();
   // usage-40-off: (c) IS applicable (blendWeight != 0.25); make it fail hard.
@@ -849,7 +849,7 @@ test('main(): (b)/(c) not-applicable is reported as such, and a FAILING (b)/(c) 
   };
   const inputsPath = path.join(dir, 'inputs.json');
   fs.writeFileSync(inputsPath, JSON.stringify(inputs));
-  runBacktestSweep.main([
+  await runBacktestSweep.main([
     '--inputs', inputsPath,
     '--out-json', path.join(dir, 'report.json'),
     '--out-markdown', path.join(dir, 'REPORT.md'),
@@ -881,7 +881,7 @@ test('main(): (b)/(c) not-applicable is reported as such, and a FAILING (b)/(c) 
   }
 });
 
-test('main(): a cell-level ordering contradiction forces that cell inconclusive, even though every component otherwise passed (prereg 5.2/16)', (t) => {
+test('main(): a cell-level ordering contradiction forces that cell inconclusive, even though every component otherwise passed (prereg 5.2/16)', async (t) => {
   const dir = tmpDir(t);
   const inputs = fullPassingInputs();
   // usage-40-off would otherwise pass every component (it is the cell
@@ -894,7 +894,7 @@ test('main(): a cell-level ordering contradiction forces that cell inconclusive,
   };
   const inputsPath = path.join(dir, 'inputs.json');
   fs.writeFileSync(inputsPath, JSON.stringify(inputs));
-  runBacktestSweep.main([
+  await runBacktestSweep.main([
     '--inputs', inputsPath,
     '--out-json', path.join(dir, 'report.json'),
     '--out-markdown', path.join(dir, 'REPORT.md'),
@@ -1312,7 +1312,7 @@ test('a component (f) week delta that is null, non-finite, or non-numeric is a M
   }
 });
 
-test('every co-primary and (e2) week delta must be a finite NUMBER - coercible and malformed values are rejected at the boundary, with the key named (round-5 MINOR G)', (t) => {
+test('every co-primary and (e2) week delta must be a finite NUMBER - coercible and malformed values are rejected at the boundary, with the key named (round-5 MINOR G)', async (t) => {
   // Round 5: the container check accepted anything object-shaped. A quoted
   // number ('0.5') survived dropWeeks' coercing presence filter and
   // string-concatenated into bootstrapMean's accumulator - an unlocated
@@ -1369,7 +1369,7 @@ test('every co-primary and (e2) week delta must be a finite NUMBER - coercible a
   }
   const inputsPath = path.join(dir, 'inputs.json');
   fs.writeFileSync(inputsPath, JSON.stringify(dropped));
-  const code = runBacktestSweep.main(['--inputs', inputsPath, '--out-json', path.join(dir, 'r.json'), '--out-markdown', path.join(dir, 'r.md')], { expectedRosterCount: 1 });
+  const code = await runBacktestSweep.main(['--inputs', inputsPath, '--out-json', path.join(dir, 'r.json'), '--out-markdown', path.join(dir, 'r.md')], { expectedRosterCount: 1 });
   assert.equal(code, 0, 'one omitted week still drops cleanly through the full pipeline');
   assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'r.json'), 'utf8')).run.status, 'valid');
 
@@ -1465,14 +1465,14 @@ test('the runner injects ORDERINGS.PRIMARY by VALUE - presence is the guard, ide
 // Reproduction: --verify-against
 // ---------------------------------------------------------------------------
 
-test('main(): --verify-against succeeds when regenerating from the SAME inputs, and fails on a genuine divergence', (t) => {
+test('main(): --verify-against succeeds when regenerating from the SAME inputs, and fails on a genuine divergence', async (t) => {
   const dir = tmpDir(t);
   const inputsPath = path.join(dir, 'inputs.json');
   fs.writeFileSync(inputsPath, JSON.stringify(fullPassingInputs()));
 
   // First generation, the "committed" report.
   const committedJson = path.join(dir, 'committed-report.json');
-  runBacktestSweep.main([
+  await runBacktestSweep.main([
     '--inputs', inputsPath, '--out-json', committedJson, '--out-markdown', path.join(dir, 'committed-REPORT.md'),
   ], { expectedRosterCount: 1 });
 
@@ -1480,7 +1480,7 @@ test('main(): --verify-against succeeds when regenerating from the SAME inputs, 
   // reproduction check this script can actually offer without a Docker/DB
   // harness: same inputs, byte-identical report, every time.
   const regeneratedJson = path.join(dir, 'regenerated-report.json');
-  assert.doesNotThrow(() => runBacktestSweep.main([
+  await assert.doesNotReject(() => runBacktestSweep.main([
     '--inputs', inputsPath,
     '--out-json', regeneratedJson,
     '--out-markdown', path.join(dir, 'regenerated-REPORT.md'),
@@ -1494,7 +1494,7 @@ test('main(): --verify-against succeeds when regenerating from the SAME inputs, 
   fs.writeFileSync(divergentInputsPath, JSON.stringify(fullPassingInputs({
     permutationControl: syntheticPermutationControl({ fail: true }), // now void, a genuinely different report
   })));
-  assert.throws(
+  await assert.rejects(
     () => runBacktestSweep.main([
       '--inputs', divergentInputsPath,
       '--out-json', path.join(dir, 'divergent-report.json'),
@@ -1509,7 +1509,7 @@ test('main(): --verify-against succeeds when regenerating from the SAME inputs, 
 // Section 5's pinned denominator: the seam is test-only, the default is 50
 // ---------------------------------------------------------------------------
 
-test('main() injects section 5\'s pinned 50-roster denominator, unreachable from the CLI and the --inputs document (NEW-B)', (t) => {
+test('main() injects section 5\'s pinned 50-roster denominator, unreachable from the CLI and the --inputs document (NEW-B)', async (t) => {
   // The seam is a test-only options parameter. Three boundaries keep the count
   // out of an operator's hands, each pinned here:
   assert.throws(
@@ -1528,7 +1528,7 @@ test('main() injects section 5\'s pinned 50-roster denominator, unreachable from
   const dir = tmpDir(t);
   const inputsPath = path.join(dir, 'inputs.json');
   fs.writeFileSync(inputsPath, JSON.stringify(fullPassingInputs()));
-  assert.throws(
+  await assert.rejects(
     () => runBacktestSweep.main([
       '--inputs', inputsPath,
       '--out-json', path.join(dir, 'report.json'),

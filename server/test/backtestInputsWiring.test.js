@@ -1,6 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 const script = require('../scripts/run-backtest-inputs');
 const inputsGeneration = require('../../scripts/backtest/lib/inputsGeneration');
@@ -555,8 +557,6 @@ test('the seed is the pinned parts in the pinned order, as an unsigned 32-bit in
 // Increment 5: the sealed study id, the in-process canaries, the document
 // ---------------------------------------------------------------------------
 
-const path = require('node:path');
-
 test('STUDY_ID is the sealed study id, pinned against the committed artifact directory', () => {
   assert.equal(script.STUDY_ID, 'pit-sweep-2024-2025');
   // The sealed texts open with "Study id: `pit-sweep-2024-2025`" and the
@@ -665,6 +665,33 @@ function d3CheckpointText() {
     permutationControl: minimalPermutationBlock(), permutationCounts: { generations: 408 },
   }));
 }
+
+test('decision D3: the checkpoint file writer and incremental reader preserve the canonical artifact bytes', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'backtest-records-checkpoint-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const checkpointPath = path.join(dir, 'records-checkpoint.json');
+  const artifact = script.buildArtifact(d3Records(), {
+    permutationControl: minimalPermutationBlock(), permutationCounts: { generations: 408 },
+  });
+
+  script.writeRecordsArtifactFile(checkpointPath, artifact);
+  const loaded = await script.loadRecordsArtifactFile(checkpointPath);
+
+  assert.equal(fs.readFileSync(checkpointPath, 'utf8'), script.serializeArtifact(artifact));
+  assert.deepEqual(loaded.records.preflight, d3Records().preflight);
+  assert.deepEqual(loaded.permutationControl, minimalPermutationBlock());
+});
+
+test('decision D3: checkpoint hashing does not aggregate arrays through canonicalJson map/join', () => {
+  const records = d3Records();
+  Object.defineProperty(records.armWeekMetrics, 'map', {
+    value() { throw new Error('checkpoint hashing must not call Array.map'); },
+  });
+
+  assert.doesNotThrow(() => script.buildArtifact(records, {
+    permutationControl: minimalPermutationBlock(), permutationCounts: { generations: 408 },
+  }));
+});
 
 test('decision D3: --records-in forbids the generation inputs and --records-out, and still requires --out', () => {
   const parsed = script.parseArgs(['--records-in', '/ckpt.json', '--out', '/out/inputs.json']);
@@ -792,7 +819,7 @@ test('decision D3: the resume branch shares no code path with generation (wiring
   for (const symbol of ['makeGenerate(', 'capturePermutationControlObservations', 'generateSweepInputRecords']) {
     assert.equal(branch.includes(symbol), false, `the resume branch must never call ${symbol} - resumed records skip generation entirely and never masquerade as generate calls`);
   }
-  assert.ok(branch.includes('loadRecordsArtifact('), 'the resume branch loads the checkpoint');
+  assert.ok(branch.includes('loadRecordsArtifactFile('), 'the resume branch incrementally loads the checkpoint file');
   assert.ok(branch.includes('assembleFinalDocument({'), 'the resume branch reuses the one shared assembly');
 });
 

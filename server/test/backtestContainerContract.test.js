@@ -72,8 +72,22 @@ test('inputs mode runs the canaries FIRST, then the producer, forwarding argv un
   const producerIndex = body[1].indexOf('run-backtest-inputs.js');
   assert.ok(canaryIndex >= 0 && producerIndex >= 0, 'runInputs must invoke the canaries and the producer');
   assert.ok(canaryIndex < producerIndex, 'the canaries must run BEFORE the producer (prereg 17 / spec 8.6.0 pinned order)');
-  assert.match(body[1], /run-backtest-inputs\.js'\), \.\.\.argv\]/, 'the producer receives every argument after the mode, unchanged');
+  assert.match(body[1], /run-backtest-inputs\.js'\), \.\.\.argv\]/, 'the producer receives every argument after the mode, unchanged after the pinned heap flag');
   assert.match(source, /else runInputs\(process\.argv\.slice\(3\)\)/, "the require.main dispatch routes 'inputs' to runInputs");
+});
+
+test('large-artifact modes pin the heap capacity the real candidate run required', () => {
+  assert.equal(entrypoint.LARGE_ARTIFACT_HEAP_MB, 12288);
+  const source = fs.readFileSync(path.join(__dirname, '..', '..', 'backtest-entrypoint.js'), 'utf8');
+  for (const functionName of ['runInputs', 'runSweep']) {
+    const body = source.match(new RegExp(`function ${functionName}\\(argv\\) \\{([\\s\\S]*?)\\n\\}`));
+    assert.ok(body, `${functionName} must exist`);
+    assert.match(
+      body[1],
+      /--max-old-space-size=\$\{LARGE_ARTIFACT_HEAP_MB\}/,
+      `${functionName} must apply the reviewed 12 GiB V8 heap without an operator-supplied environment variable`,
+    );
+  }
 });
 
 test('MUTATION TEST: changed, missing, or extra regenerated artifact bytes are refused', (t) => {
