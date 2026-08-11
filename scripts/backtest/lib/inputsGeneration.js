@@ -430,13 +430,11 @@ function projectionsMapOf(run, label, { playerIds, nullBenchmarkArm = null } = {
   if (playerIds) {
     sweepPreflight.assertMapMatchesRawIds({ run: { projections: asMap }, playerIds, label });
     for (const [playerId, projection] of asMap) {
-      if (medianOf(projection) === null
-        && !isCanonicalNoHistoryBenchmarkProjection(projection, { playerId, benchmark: nullBenchmarkArm })) {
+      if (medianOf(projection) === null && !isCanonicalNoHistoryBenchmarkProjection(projection, { playerId, benchmark: nullBenchmarkArm })) {
         throw new Error(
           `${label}: playerId ${playerId}'s projection carries no finite median (${JSON.stringify(projection)}). `
-          + 'A candidate projection must carry a finite round2 median; a benchmark null must carry the exact '
-          + 'canonical no-history shape. A substance-free entry would otherwise be scored as an empty lineup slot '
-          + 'and read as sparse evidence rather than as the broken run it is'
+          + 'A candidate projection needs a finite round2 median; a benchmark null needs the exact canonical no-history '
+          + 'shape. A substance-free entry would be scored as an empty lineup slot and misread as sparse evidence'
         );
       }
     }
@@ -449,31 +447,6 @@ function medianOf(projection) {
   if (projection === null || projection === undefined) return null;
   if (typeof projection !== 'object') return isFiniteNumber(projection) ? Number(projection) : null;
   return isFiniteNumber(projection.median) ? Number(projection.median) : null;
-}
-
-const NO_HISTORY_BENCHMARK_FIELDS = Object.freeze([
-  'activeProbability', 'benchmark', 'confidence', 'factors', 'mean', 'median',
-  'p10', 'p25', 'p75', 'p90', 'playerId', 'sampleSize',
-]);
-
-/** The exact `lib/naive.projectionShape` output for a benchmark with zero eligible prior games. */
-function isCanonicalNoHistoryBenchmarkProjection(projection, { playerId, benchmark }) {
-  if (!benchmark || !projection || typeof projection !== 'object' || Array.isArray(projection)) return false;
-  const keys = Object.keys(projection).sort();
-  if (keys.length !== NO_HISTORY_BENCHMARK_FIELDS.length
-    || keys.some((key, index) => key !== NO_HISTORY_BENCHMARK_FIELDS[index])) return false;
-  return projection.playerId === playerId
-    && projection.benchmark === benchmark
-    && projection.confidence === 'none'
-    && projection.sampleSize === 0
-    && projection.median === null
-    && projection.mean === null
-    && projection.p10 === null
-    && projection.p25 === null
-    && projection.p75 === null
-    && projection.p90 === null
-    && projection.activeProbability === null
-    && projection.factors === null;
 }
 
 /** One week's resolved outcome truth, as a lookup that accepts either artifact shape. */
@@ -1224,6 +1197,9 @@ async function generateSweepInputRecords({
           // all 24 salts (determination 4).
           // eslint-disable-next-line no-await-in-loop
           const benchmarks = await benchmarkProjectionsFor({ season, week, playerIds });
+          // Benchmark nulls are admitted by their complete canonical no-history
+          // shape, independent of player position; every other null still fails.
+          // Exact key-set coverage remains mandatory for every scored arm.
           for (const arm of inputsAssembly.BENCHMARK_ARMS) {
             const projections = benchmarks && benchmarks[arm];
             if (!projections) throw new Error(`${where}: benchmarkProjectionsFor returned no ${arm} projections`);
@@ -1365,4 +1341,29 @@ function cohortExclusionRow(cohortWeek, { season, week, label }) {
     excludedTotal: counts.excludedTotal,
     contradictions: counts.contradictions,
   };
+}
+
+const NO_HISTORY_BENCHMARK_FIELDS = Object.freeze([
+  'activeProbability', 'benchmark', 'confidence', 'factors', 'mean', 'median',
+  'p10', 'p25', 'p75', 'p90', 'playerId', 'sampleSize',
+]);
+
+/** The exact `lib/naive.projectionShape` output for a benchmark with zero eligible prior games. */
+function isCanonicalNoHistoryBenchmarkProjection(projection, { playerId, benchmark }) {
+  if (!benchmark || !projection || typeof projection !== 'object' || Array.isArray(projection)) return false;
+  const keys = Object.keys(projection).sort();
+  if (keys.length !== NO_HISTORY_BENCHMARK_FIELDS.length
+    || keys.some((key, index) => key !== NO_HISTORY_BENCHMARK_FIELDS[index])) return false;
+  return projection.playerId === playerId
+    && projection.benchmark === benchmark
+    && projection.confidence === 'none'
+    && projection.sampleSize === 0
+    && projection.median === null
+    && projection.mean === null
+    && projection.p10 === null
+    && projection.p25 === null
+    && projection.p75 === null
+    && projection.p90 === null
+    && projection.activeProbability === null
+    && projection.factors === null;
 }
