@@ -224,6 +224,23 @@ function seedFor({ hashValue, season, week, playerId }) {
   return hash >>> 0;
 }
 
+function noHistoryBenchmarkProjection({ playerId, benchmark }) {
+  return {
+    playerId,
+    benchmark,
+    median: null,
+    mean: null,
+    p10: null,
+    p25: null,
+    p75: null,
+    p90: null,
+    activeProbability: null,
+    confidence: 'none',
+    sampleSize: 0,
+    factors: null,
+  };
+}
+
 /** The benchmarks (prereg 7.2): no intervals, so coverage/WIS score null with published exclusion counts. */
 async function benchmarkProjectionsFor({ season, week, playerIds }) {
   const build = (scale) => new Map(playerIds.map((playerId) => [playerId, {
@@ -235,7 +252,9 @@ async function benchmarkProjectionsFor({ season, week, playerIds }) {
     'naive-recency': build(0.9),
     'usage-signal': new Map([...build(1.3)].map(([playerId, projection]) => [
       playerId,
-      { ...projection, median: playerId >= 15 ? null : projection.median },
+      playerId >= 15
+        ? noHistoryBenchmarkProjection({ playerId, benchmark: 'usage-signal' })
+        : projection,
     ])),
   };
 }
@@ -1295,10 +1314,24 @@ test('an EMPTY benchmark projections collection is rejected by name, not scored 
   );
 });
 
-test('usage-signal permits its documented null median for DEF only, while a null human projection still fails closed', async () => {
-  const records = await fullGrid();
-  assert.ok(records.armWeekMetrics.some((row) => row.arm === 'usage-signal'));
+test('a canonical no-history benchmark projection is accepted for a human player', async () => {
+  // `runOneWeek` intentionally carries only Week 2. Reaching the named Week-3
+  // artifact failure proves both benchmark arms completed Week 2 evaluation.
+  await assert.rejects(
+    runOneWeek({
+      benchmarkProjectionsFor: async (args) => {
+        const benchmarks = await benchmarkProjectionsFor(args);
+        for (const arm of ['naive-recency', 'usage-signal']) {
+          benchmarks[arm].set(1, noHistoryBenchmarkProjection({ playerId: 1, benchmark: arm }));
+        }
+        return benchmarks;
+      },
+    }),
+    /no roster\/cohort artifacts supplied for 2025:3/
+  );
+});
 
+test('a malformed null benchmark projection still fails closed', async () => {
   await assert.rejects(
     runOneWeek({
       benchmarkProjectionsFor: async (args) => {

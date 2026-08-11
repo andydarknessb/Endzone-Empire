@@ -400,14 +400,14 @@ function projectionFor(run, playerId) {
  *     cohort player-week reaches the homeAway step, so a scored collection
  *     missing one is incoherent, not sparse.
  *   - a finite median PER ENTRY (`medianOf`'s own tolerance: an object with
- *     a finite `median`, or a bare finite number), except for the explicitly
- *     supplied usage-signal DEF ids. A "shell" run - full
- *     numeric key coverage, substance-free values - otherwise passes both
- *     the emptiness and the coverage checks and is scored as the same
- *     all-empty lineup A2 exists to block, indistinguishable in the
- *     document from the legitimate interval-free benchmark shape.
+ *     a finite `median`, or a bare finite number). The sole exception is a
+ *     benchmark's exact canonical no-history shape: prereg 7.2 requires at
+ *     least one prior game, and prereg 6.6 requires the resulting null to be
+ *     excluded and counted. A "shell" run - full numeric key coverage with
+ *     `{}` or a merely-null median - still fails because it cannot satisfy
+ *     that complete shape.
  */
-function projectionsMapOf(run, label, { playerIds, allowedNullMedianPlayerIds = new Set() } = {}) {
+function projectionsMapOf(run, label, { playerIds, nullBenchmarkArm = null } = {}) {
   const map = run && run.projections;
   const asMap = (() => {
     if (map instanceof Map) return map;
@@ -430,11 +430,13 @@ function projectionsMapOf(run, label, { playerIds, allowedNullMedianPlayerIds = 
   if (playerIds) {
     sweepPreflight.assertMapMatchesRawIds({ run: { projections: asMap }, playerIds, label });
     for (const [playerId, projection] of asMap) {
-      if (medianOf(projection) === null && !allowedNullMedianPlayerIds.has(playerId)) {
+      if (medianOf(projection) === null
+        && !isCanonicalNoHistoryBenchmarkProjection(projection, { playerId, benchmark: nullBenchmarkArm })) {
         throw new Error(
           `${label}: playerId ${playerId}'s projection carries no finite median (${JSON.stringify(projection)}). `
-          + 'A projection that reached publication carries a finite round2 median; a substance-free entry would be '
-          + 'scored as an empty lineup slot and read as sparse evidence rather than as the broken run it is'
+          + 'A candidate projection must carry a finite round2 median; a benchmark null must carry the exact '
+          + 'canonical no-history shape. A substance-free entry would otherwise be scored as an empty lineup slot '
+          + 'and read as sparse evidence rather than as the broken run it is'
         );
       }
     }
@@ -447,6 +449,31 @@ function medianOf(projection) {
   if (projection === null || projection === undefined) return null;
   if (typeof projection !== 'object') return isFiniteNumber(projection) ? Number(projection) : null;
   return isFiniteNumber(projection.median) ? Number(projection.median) : null;
+}
+
+const NO_HISTORY_BENCHMARK_FIELDS = Object.freeze([
+  'activeProbability', 'benchmark', 'confidence', 'factors', 'mean', 'median',
+  'p10', 'p25', 'p75', 'p90', 'playerId', 'sampleSize',
+]);
+
+/** The exact `lib/naive.projectionShape` output for a benchmark with zero eligible prior games. */
+function isCanonicalNoHistoryBenchmarkProjection(projection, { playerId, benchmark }) {
+  if (!benchmark || !projection || typeof projection !== 'object' || Array.isArray(projection)) return false;
+  const keys = Object.keys(projection).sort();
+  if (keys.length !== NO_HISTORY_BENCHMARK_FIELDS.length
+    || keys.some((key, index) => key !== NO_HISTORY_BENCHMARK_FIELDS[index])) return false;
+  return projection.playerId === playerId
+    && projection.benchmark === benchmark
+    && projection.confidence === 'none'
+    && projection.sampleSize === 0
+    && projection.median === null
+    && projection.mean === null
+    && projection.p10 === null
+    && projection.p25 === null
+    && projection.p75 === null
+    && projection.p90 === null
+    && projection.activeProbability === null
+    && projection.factors === null;
 }
 
 /** One week's resolved outcome truth, as a lookup that accepts either artifact shape. */
@@ -1197,9 +1224,6 @@ async function generateSweepInputRecords({
           // all 24 salts (determination 4).
           // eslint-disable-next-line no-await-in-loop
           const benchmarks = await benchmarkProjectionsFor({ season, week, playerIds });
-          const usageSignalDefenseIds = new Set((cohortWeek.members || [])
-            .filter((member) => member && member.position === 'DEF' && member.isDefense === true)
-            .map((member) => member.playerId));
           for (const arm of inputsAssembly.BENCHMARK_ARMS) {
             const projections = benchmarks && benchmarks[arm];
             if (!projections) throw new Error(`${where}: benchmarkProjectionsFor returned no ${arm} projections`);
@@ -1210,7 +1234,7 @@ async function generateSweepInputRecords({
               cohortWeek,
               projectionsByPlayerId: projectionsMapOf({ projections }, `${where} ${arm}`, {
                 playerIds,
-                allowedNullMedianPlayerIds: arm === 'usage-signal' ? usageSignalDefenseIds : new Set(),
+                nullBenchmarkArm: arm,
               }),
               positionRank,
               nameRankById,
