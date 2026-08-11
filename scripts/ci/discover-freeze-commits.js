@@ -16,11 +16,16 @@
  * WHY DISCOVERY IS STRUCTURAL, NOT "HEAD"/"HEAD^"
  *
  * Before Commit B exists there is no manifest anywhere naming which pushed
- * commit is A and which is M. The only thing that can name them is their own
- * shape: M is defined as "the newest commit whose changed-path set, against
- * its own first parent, is EXACTLY the one MDE artifact path" - nothing else
- * about M (not its message, not its position relative to HEAD) is load-
- * bearing. `A = parent(M)` follows from that definition, which is why
+ * commit is A and which is M. The ordinary case names them by shape: M is the
+ * newest commit whose changed-path set, against its own first parent, is
+ * EXACTLY the one MDE artifact path. A degenerate but valid regeneration can
+ * produce the exact artifact blob A already carries; Git cannot represent
+ * that as a changed-path commit. That case uses an explicit empty-tree,
+ * single-parent witness whose three reserved trailers bind the artifact path
+ * and the identical parent/commit blob. The reproduction job still regenerates
+ * and byte-compares the artifact; the witness changes discovery only, never
+ * the byte-comparison standard. `A = parent(M)` follows from either definition,
+ * which is why
  * asserting `parent(M) === A` anywhere would check nothing (it's true by
  * construction) - the actual check this file performs on A is independent:
  * does A's OWN changed-path set, against A's OWN first parent, avoid every
@@ -28,9 +33,11 @@
  *
  * WHY "NEWEST" MATTERS
  *
- * If a botched freeze ever produced M1 and then a corrected M2, "newest
- * exact-path match" picks M2 - and `parent(M2)` is the corrected A, not the
- * stale one before it. Excluding `freeze/**` from A's own forbidden-path set
+ * If a botched freeze ever produced M1 and then a corrected M2, newest valid
+ * M discovery picks M2 - and `parent(M2)` is the corrected A, not the stale
+ * one before it. An empty commit that claims any reserved witness trailer but
+ * fails the complete witness contract is a modeled hard error, never skipped
+ * in favor of an older M. Excluding `freeze/**` from A's own forbidden-path set
  * for anything OTHER than exact identity (see FORBIDDEN_PATHS below) is what
  * keeps this self-consistent: a corrected A that still carried leftover
  * freeze output from the botched attempt would trip A's own allowlist and
@@ -41,6 +48,11 @@ const { execFileSync } = require('child_process');
 
 const ARTIFACT_PATH = 'backtest-artifacts/pit-sweep-2024-2025/freeze/mde-artifact.json';
 const MANIFEST_PATH = 'backtest-artifacts/pit-sweep-2024-2025/freeze/FREEZE_MANIFEST.json';
+const MDE_WITNESS_TRAILERS = Object.freeze({
+  kind: 'Backtest-MDE-Witness',
+  path: 'Backtest-MDE-Path',
+  blob: 'Backtest-MDE-Blob',
+});
 const POST_B_ALLOWED_PATHS = new Set([
   'backtest-artifacts/pit-sweep-2024-2025/REPORT.md',
   'backtest-artifacts/pit-sweep-2024-2025/report.json',
@@ -126,6 +138,58 @@ function findNewestExactPathCommit(ref, expectedPath) {
   return null;
 }
 
+function trailerValues(message, name) {
+  const prefix = `${name}:`;
+  return String(message)
+    .split('\n')
+    .filter((line) => line.startsWith(prefix))
+    .map((line) => line.slice(prefix.length).trim());
+}
+
+function isValidByteIdenticalMdeWitness(sha) {
+  if (changedPathsOf(sha).size !== 0) return false;
+  const parents = git(['rev-list', '--parents', '-n', '1', sha]).split(/\s+/);
+  if (parents.length !== 2) return false;
+  const parent = parents[1];
+  const message = git(['show', '-s', '--format=%B', sha]);
+  const kinds = trailerValues(message, MDE_WITNESS_TRAILERS.kind);
+  const paths = trailerValues(message, MDE_WITNESS_TRAILERS.path);
+  const blobs = trailerValues(message, MDE_WITNESS_TRAILERS.blob);
+  if (kinds.length !== 1 || kinds[0] !== 'byte-identical') return false;
+  if (paths.length !== 1 || paths[0] !== ARTIFACT_PATH) return false;
+  if (blobs.length !== 1 || !/^[0-9a-f]{40,64}$/.test(blobs[0])) return false;
+  const commitBlob = gitOrNull(['rev-parse', '--verify', `${sha}:${ARTIFACT_PATH}`]);
+  const parentBlob = gitOrNull(['rev-parse', '--verify', `${parent}:${ARTIFACT_PATH}`]);
+  return commitBlob === blobs[0] && parentBlob === blobs[0];
+}
+
+function claimsByteIdenticalMdeWitness(sha) {
+  const message = git(['show', '-s', '--format=%B', sha]);
+  return Object.values(MDE_WITNESS_TRAILERS)
+    .some((name) => trailerValues(message, name).length > 0);
+}
+
+function findNewestMCommit(ref) {
+  for (const sha of listCommits(ref)) {
+    const changedPaths = changedPathsOf(sha);
+    if (isExactly(changedPaths, ARTIFACT_PATH)) return sha;
+    if (changedPaths.size === 0) {
+      if (isValidByteIdenticalMdeWitness(sha)) return sha;
+      if (claimsByteIdenticalMdeWitness(sha)) {
+        const error = new Error(
+          `Commit ${sha} claims an invalid byte-identical MDE witness: require an empty single-parent commit, `
+          + `exactly one ${MDE_WITNESS_TRAILERS.kind}: byte-identical trailer, exactly one `
+          + `${MDE_WITNESS_TRAILERS.path}: ${ARTIFACT_PATH} trailer, and exactly one `
+          + `${MDE_WITNESS_TRAILERS.blob} trailer matching the artifact blob in both the commit and its parent.`
+        );
+        error.code = 'INVALID_MDE_WITNESS';
+        throw error;
+      }
+    }
+  }
+  return null;
+}
+
 /** Every forbidden-path violation in `pathSet`, human-readable, empty if none. */
 function forbiddenViolationsIn(pathSet) {
   const violations = [];
@@ -141,6 +205,13 @@ function forbiddenViolationsIn(pathSet) {
 function commitsBetween(baseExclusive, refInclusive) {
   const out = git(['log', '--format=%H', `${baseExclusive}..${refInclusive}`]);
   return out ? out.split('\n').filter(Boolean) : [];
+}
+
+function findNewestExactPathCommitAfter(ref, expectedPath, baseExclusive) {
+  for (const sha of commitsBetween(baseExclusive, ref)) {
+    if (isExactly(changedPathsOf(sha), expectedPath)) return sha;
+  }
+  return null;
 }
 
 function postBViolations({ bSha, ref }) {
@@ -162,7 +233,19 @@ function postBViolations({ bSha, ref }) {
  * in CI logs either way. A genuinely unexpected git failure still throws.
  */
 function discover({ ref = 'HEAD' } = {}) {
-  const mSha = findNewestExactPathCommit(ref, ARTIFACT_PATH);
+  let mSha;
+  try {
+    mSha = findNewestMCommit(ref);
+  } catch (err) {
+    if (err.code !== 'INVALID_MDE_WITNESS') throw err;
+    return {
+      ok: false,
+      reason: err.message,
+      commitA: null,
+      commitM: null,
+      commitB: null,
+    };
+  }
   if (!mSha) {
     return {
       ok: false,
@@ -189,7 +272,10 @@ function discover({ ref = 'HEAD' } = {}) {
     };
   }
 
-  const bSha = findNewestExactPathCommit(ref, MANIFEST_PATH);
+  // A historical B from an older freeze remains in the ancestry while a
+  // replacement M is undergoing reproduction. Only a manifest committed
+  // after the newly discovered M can be B for this chain.
+  const bSha = findNewestExactPathCommitAfter(ref, MANIFEST_PATH, mSha);
   let bCheck = null;
   if (bSha) {
     const bParent = git(['rev-parse', '--verify', `${bSha}^`]);
@@ -279,6 +365,7 @@ if (require.main === module) {
 module.exports = {
   ARTIFACT_PATH,
   MANIFEST_PATH,
+  MDE_WITNESS_TRAILERS,
   POST_B_ALLOWED_PATHS,
   FORBIDDEN_IN_A,
   git,
@@ -286,8 +373,12 @@ module.exports = {
   changedPathsOf,
   isExactly,
   findNewestExactPathCommit,
+  isValidByteIdenticalMdeWitness,
+  claimsByteIdenticalMdeWitness,
+  findNewestMCommit,
   forbiddenViolationsIn,
   commitsBetween,
+  findNewestExactPathCommitAfter,
   postBViolations,
   discover,
   main,
