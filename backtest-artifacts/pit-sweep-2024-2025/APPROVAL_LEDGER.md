@@ -221,6 +221,7 @@ remain prohibited pending the final independent implementation review.
 | 16 | `PHASE5_EXECUTION_SPEC.md` | `DC1E1C413A6CDFCB9072393720020179C0FFD4E483137117B66DC0F25281AE43` | independent implementation review | 2026-08-11 | Gate 2 implementation conformance to revision 38, sections 3-8; exact git blob `44fae65bce063e9eff2912e0827b868061bf7a15` at anchor `d65bc1086227c76f3a0991cd31c577f2b2c9e96d`, **reviewed at implementation commit `5518a25a405a2da4200ea3335550a51425caf08e`**. The holder of historical rows 10, 14, and 15 and author of the N-4 rejection verified the one-file `index.json` correction at `1/1`, only `cohortWeeks` changed, all 34 index hashes and non-hash fields agree with the already-verified cohort artifacts, and the committed index is byte-identical to the producer's canonical serialization. N-4 is closed; N-2 stays closed. The reviewer reproduced 143/143 focused tests and authenticated successful Semgrep run `31449210231` and CI run `31449210238`; Backtest run `31449210233` held at discovery and skipped reproduction as expected before M-prime. **MINOR N-1 and MINOR N-3 remain open** with their exact prior reach; O-1 and O-2 remain unverified, unasserted, and unresolved; source-row correctness of the exclusion counts remains unchecked under Gate 0. **Does NOT authorize candidate-cell execution or lift Gate 0**; Gate 4's replacement freeze sequence and Gate 3 verification remain | **APPROVED** |
 | 17 | `PHASE5_EXECUTION_SPEC.md` | `DC1E1C413A6CDFCB9072393720020179C0FFD4E483137117B66DC0F25281AE43` | independent implementation review | 2026-08-11 | Gate 2 implementation conformance to revision 38, sections 3-8; exact git blob `44fae65bce063e9eff2912e0827b868061bf7a15` at anchor `d65bc1086227c76f3a0991cd31c577f2b2c9e96d`, **reviewed at implementation commit `8ef296264a4b40d697a12011837f61f5282964c6`**. The holder of historical rows 10, 14, 15, and 16 independently verified the two-file MDE-witness correction, including the valid empty-tree witness, blob binding, hard failure without fallback for invalid claims, historical-B exclusion, and preservation of `parent(B)=M`, manifest-chain, post-B allowlist, and byte-comparison gates. The reviewer reproduced 14/14 focused tests and authenticated successful Semgrep run `31459064120` and CI run `31459064093`; Backtest run `31459064090` held at discovery and skipped reproduction as expected before the replacement M-prime chain. **MINOR N-1 and MINOR N-3 remain open** with their exact prior reach; O-1 and O-2 remain unverified, unasserted, and unresolved; the control-only freeze run and source-row correctness of the exclusion counts remain independently unchecked. **Does NOT authorize candidate-cell execution or lift Gate 0**; authorizes only the subsequent ledger and Gate-4 replacement freeze steps, with Gate 3 verification still required | **APPROVED** |
 | 18 | `PHASE5_EXECUTION_SPEC.md` | `DC1E1C413A6CDFCB9072393720020179C0FFD4E483137117B66DC0F25281AE43` | independent implementation review | 2026-08-11 | Gate 2 implementation conformance to revision 38, sections 3-8; exact git blob `44fae65bce063e9eff2912e0827b868061bf7a15` at anchor `d65bc1086227c76f3a0991cd31c577f2b2c9e96d`, **reviewed at corrective implementation commit `60a34fdf020258a2951fe7a873a79088890c42c0`**. The holder of historical rows 10 and 14-17 independently verified that canonical no-history benchmark projections are admitted only with the exact closed field set, matching player id and arm, while candidate nulls, malformed shells, extra/missing keys, and empty or mismatched maps fail closed. The reviewer reproduced 110/110 affected tests and a 17-case adversarial harness, verified the specification-bound line-995 locator, and authenticated successful Semgrep run `31511445364` and CI run `31511445318`; Backtest run `31511445370` held at discovery and skipped reproduction as expected before the replacement freeze chain. **MINOR N-1 and MINOR N-3 remain open**; O-1 and O-2 remain unverified, unasserted, and unresolved. Packet-document hashes, first-run failure evidence, GitHub log bodies, source-row exclusion counts, and the all-canonical-null producer-truth residual remain unchecked as bounded by the reviewer. **Does NOT authorize candidate-cell execution or lift Gate 0**; authorizes only the subsequent ledger and Gate-4 replacement freeze steps, with Gate 3 verification still required | **APPROVED** |
+| 19 | `PHASE5_EXECUTION_SPEC.md` | `DC1E1C413A6CDFCB9072393720020179C0FFD4E483137117B66DC0F25281AE43` | independent implementation review | 2026-08-11 | Gate 2 implementation conformance to revision 38, sections 3-8; exact git blob `44fae65bce063e9eff2912e0827b868061bf7a15` at anchor `d65bc1086227c76f3a0991cd31c577f2b2c9e96d`, **reviewed at streaming corrective target `66fd49d61390130c49cc545708efa085a9720d62`**. The holder of historical rows 10 and 14-18 authenticated the parentless three-file packet and exact two-commit corrective reach; reproduced 50/50 focused contracts, 45/45 full reducer tests, and 131/131 adjacent tests; proved canonical byte/hash parity across 4,000 randomized values and targeted edge cases; verified atomic failure cleanup, incremental writer/hash/reader paths, async CLI propagation, the confined 12 GiB heap pin, and the production-only `bfj@9.1.3` dependency graph; and authenticated successful Semgrep run `31544067412` and CI run `31544067460`. Backtest run `31544067420` held at the expected post-B discovery failure and skipped reproduction, so no container ran. **MINOR N-1 and MINOR N-3 remain open**; O-1, O-2, the source-row exclusion-count limitation, and the canonical all-no-history producer-truth residual remain unverified, unasserted, and unresolved. Production-scale completion, the operator's candidate-failure evidence, the report-sized `--verify-against` whole-file read, broader `bfj` correctness, and GitHub log bodies remain unchecked as bounded by the reviewer. **Does NOT authorize candidate-cell execution or lift the execution boundary**; authorizes only this ledger append and the replacement A-prime -> M-prime -> B3 freeze sequence, with Gate 3 verification and fresh candidate authorization still required | **APPROVED** |
 
 **Row 7's earlier reservation is superseded — see corrective entry 19.** The
 paragraph that follows was written at corrective entry 2, when rows 4-6 were
@@ -5160,3 +5161,95 @@ execution, frozen snapshot access, Docker sweep execution, report generation,
 or result inspection. Gate 4's replacement A-prime -> M-prime -> B3 freeze
 sequence and Gate 3 verification under specification section 1 remain
 required. No prohibited operation occurred while recording this approval.
+
+### CORRECTIVE ENTRY 37 - appended 2026-08-11
+
+**This entry records the streaming writer/reader corrective approval against
+revision 38** by creating approval row 19. Entries 1-36 and rows 1-18 remain
+byte-for-byte untouched. The specification and approved implementation tree
+are not edited.
+
+**(1) The approval authenticates one exact specification and implementation
+tuple.**
+
+```
+SHA-256              DC1E1C413A6CDFCB9072393720020179C0FFD4E483137117B66DC0F25281AE43
+specification blob   44fae65bce063e9eff2912e0827b868061bf7a15
+specification anchor d65bc1086227c76f3a0991cd31c577f2b2c9e96d
+implementation       66fd49d61390130c49cc545708efa085a9720d62
+```
+
+The approver is the holder of historical rows 10 and 14-18. The approver
+wrote no ledger row, drafted none, and named no row number.
+
+**(2) The exact verdict was:**
+
+> **APPROVED**: the implementation at commit
+> `66fd49d61390130c49cc545708efa085a9720d62` conforms to revision 38,
+> sections 3-8, exact specification blob
+> `44fae65bce063e9eff2912e0827b868061bf7a15` at anchor
+> `d65bc1086227c76f3a0991cd31c577f2b2c9e96d`.
+
+The approver expressly stated that this approval attaches to implementation
+bytes and authorizes only the append-only ledger action and replacement
+freeze sequence. It does not authorize candidate execution, frozen-snapshot
+access, report generation, or result inspection.
+
+**(3) Corrective lineage and behavior.** From row 18's approved
+implementation through the failed B3 and this approval, the lineage is
+isolated as follows:
+
+```
+877e875d61e211bea29fa847f0d58be620a8012e  APPROVAL_LEDGER.md only
+b83dd812ea71855b4a04d9a9fc807049c5371008  byte-identical MDE witness
+dc714bc21c1155c850c8180f673c92b9db3eabbb  FREEZE_MANIFEST.json only
+38e2f32349fd520031909d1eab78a905044809a9  streaming writer, hash, readers, heap pin, dependency, tests
+66fd49d61390130c49cc545708efa085a9720d62  rule-specific Semgrep annotation only
+```
+
+The corrective writer emits canonical JSON token by token through a bounded
+buffer and hashes the same token sequence. Production checkpoint and final
+input paths no longer build the complete document as one V8 string. The
+checkpoint and reducer readers parse incrementally. Container `inputs` and
+`sweep` modes carry the reviewed 12 GiB heap pin, and `bfj@9.1.3` is the
+direct locked production dependency. Statistical gates, input schema, report
+schema, selection, and rendering are unchanged.
+
+**(4) Verification evidence.** The reviewer authenticated the parentless
+three-file packet, remote target, ancestry, unchanged specification tuple,
+and exact changed-path sets. Differential fuzz over 4,000 deterministic
+values found zero byte mismatches and zero hash mismatches; targeted file,
+atomicity, cleanup, environment-free, malformed-input, and async-exit probes
+passed. The reviewer independently reproduced 50 focused tests, 45 full
+reducer tests, and 131 adjacent tests, all passing, plus zero ESLint errors,
+four successful syntax checks, and a clean high-severity production audit.
+The reviewer authenticated exact-target Semgrep run `31544067412` and CI run
+`31544067460` as successful. Exact-target Backtest run `31544067420` failed
+discovery and skipped reproduction because the correction is post-B non-output
+work; no reproduction container ran.
+
+**(5) Open findings and bounded evidence remain visible.** MINOR N-1 and
+MINOR N-3 remain open with their exact prior reach. O-1, O-2, the source-row
+exclusion-count limitation, and the canonical all-no-history producer-truth
+residual remain unverified, unasserted, and unresolved. The reviewer did not
+authenticate the operator's three candidate-run failures or their evidence
+files. Production-scale completion and heap sufficiency remain unobserved;
+`--verify-against` still reads the much smaller comparison report as one
+string; broader `bfj` correctness and GitHub log bodies remain unchecked.
+The streaming writer is stricter than the old oracle for sparse array holes:
+it rejects them instead of emitting invalid JSON, which the reviewer recorded
+as a safe-direction observation rather than a finding.
+
+**(6) Approval and gate state.** Rows 14-18 remain historical approvals of
+their exact implementation bytes, but each lapsed when those bytes changed.
+Row 19 records the independent implementation corrective approval of current
+exact commit `66fd49d61390130c49cc545708efa085a9720d62`. Together with rows
+11-13, all four required approval roles are in force against revision 38 and
+the current freeze-candidate implementation bytes.
+
+**The execution boundary remains active.** This approval does not authorize
+candidate execution, frozen snapshot access outside the permitted control-only
+freeze container, Docker sweep execution, report generation, or result
+inspection. Gate 4's replacement A-prime -> M-prime -> B3 freeze sequence and
+Gate 3 verification under specification section 1 remain required. No
+prohibited operation occurred while recording this approval.
