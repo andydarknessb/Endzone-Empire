@@ -47,6 +47,7 @@ const DEFAULT_STARTER_SLOT_ORDER = ['QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF'];
 const MIN_WEEK = 1;
 const MAX_WEEK = 18;
 const WEEK_OPTIONS = Array.from({ length: MAX_WEEK }, (_, i) => i + 1);
+const PROJECTION_ENGINE_NAME = 'Endzone Forecast';
 
 /** A slot's configured eligiblePositions, with any group key expanded to its member positions. */
 function slotEligiblePositions(rosterSlots, slotKey) {
@@ -564,7 +565,7 @@ function LineupScreen() {
       : when.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
   })();
   const provenanceText = [
-    advice?.modelVersion && `Model ${advice.modelVersion}`,
+    advice?.modelVersion && `Version ${advice.modelVersion}`,
     generatedAtText && `updated ${generatedAtText}`,
     expertUnavailable && 'expert consensus unavailable',
     weatherUnavailable && 'weather unavailable',
@@ -670,7 +671,7 @@ function LineupScreen() {
           {Array.isArray(advice?.suggestions) && (
             <Paper sx={{ p: 2, mb: 3 }} data-testid="lineup-advice-panel" ref={advicePanelRef}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Typography variant="h6">Start/Sit Suggestions</Typography>
+                <Typography variant="h6">{PROJECTION_ENGINE_NAME}</Typography>
                 <Button size="small" onClick={() => setAdviceExpanded((prev) => !prev)}>
                   {adviceExpanded ? 'Hide' : 'Show'}
                 </Button>
@@ -737,7 +738,7 @@ function LineupScreen() {
                                   "medium confi…", which is worse than a chip
                                   that needs its tooltip to be unambiguous. */}
                               {s.confidence && (
-                                <Tooltip title={`Model confidence in this projection: ${s.confidence}`}>
+                                <Tooltip title={`${PROJECTION_ENGINE_NAME} confidence in this projection: ${s.confidence}`}>
                                   <Chip
                                     data-testid={`suggestion-confidence-${s.slot}`}
                                     label={s.confidence}
