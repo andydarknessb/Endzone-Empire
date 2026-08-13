@@ -92,4 +92,6 @@ backtest-data/sources/*
 # agent context from inside any clone, which defeated the review independence
 # bar (round-2 disclosure). It stays local, like the hand-delivered review
 # documents. docs/agents/* remains tracked - reference-only, never auto-loaded.
+# AGENTS.md is the ONE tracked file that does auto-load, added deliberately and
+# carrying pointers only; it discloses its own terms in its preamble.
 CLAUDE.md
