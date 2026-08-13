@@ -102,8 +102,14 @@ function detailOf(projections, playerId) {
  * projections: Map playerId -> points (number or { points, ... }).
  * defenseByPlayer: Map playerId -> { opponent, opponentPointsAllowed }.
  */
-function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(), rosterSlots = undefined) {
+function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(), rosterSlots = undefined, options = undefined) {
   const slots = rosterSlots && rosterSlots.length > 0 ? rosterSlots : DEFAULT_ROSTER_SLOTS;
+  // What the optimizer RANKS by ('median' shipped, 'mean' measured better -
+  // see MODEL_CONSTANTS.decision). Injectable for tests and sweeps; every
+  // production caller takes the constant.
+  const lineupRanking = (options && options.lineupRanking)
+    || (projectionModel.MODEL_CONSTANTS.decision || {}).lineupRanking
+    || 'median';
   const entries = (lineupEntries || []).map((e) => ({ ...e, locked: Boolean(e.locked) }));
   const isStarter = (e) => e.slot !== BENCH && e.slot !== IR;
   const startingSlots = new Set(entries.filter(isStarter).map((e) => e.slot));
@@ -162,6 +168,20 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
   };
   const effectivePointsFor = new Map(entries.map((e) => [e.playerId, effectivePoints(e.playerId)]));
 
+  // The optimizer's ranking values. At 'median' this IS effectivePointsFor -
+  // the same Map object, so the shipped configuration cannot diverge by even a
+  // rounding step. At 'mean' the rank is the distribution's mean (the
+  // statistic that maximizes an expected total), falling back to the displayed
+  // points for a projection with no distribution, and 0 for a player who
+  // cannot play - the same zero the availability rule gives the display.
+  const rankingPointsFor = lineupRanking !== 'mean' ? effectivePointsFor : new Map(entries.map((e) => {
+    const detail = effectiveProjection(e.playerId);
+    if (detail.unavailable) return [e.playerId, 0];
+    const dist = detail.projection;
+    const mean = dist && Number.isFinite(Number(dist.mean)) ? Number(dist.mean) : null;
+    return [e.playerId, mean != null ? mean : effectivePoints(e.playerId)];
+  }));
+
   // The projected total covers the WHOLE lineup, locked starters included —
   // locking only limits which swaps can still be suggested.
   let projectedTotal = 0;
@@ -173,9 +193,23 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
   const optimal = optimalAssignment({
     rosterSlots: slots,
     candidates,
-    pointsFor: effectivePointsFor,
+    pointsFor: rankingPointsFor,
     pinned,
   });
+
+  // The DISPLAYED optimal total is always median-based points, whatever the
+  // optimizer ranked by: under 'mean' the assignment's own totals are means,
+  // and printing a mean next to per-player medians would be a total that does
+  // not add up on screen. At 'median' the maps are the same object and this
+  // recomputation reproduces optimal.total exactly.
+  let optimalTotal = optimal.total;
+  if (rankingPointsFor !== effectivePointsFor) {
+    let displayTotal = 0;
+    for (const assignment of optimal.assignments) {
+      if (assignment.playerId != null) displayTotal += effectivePoints(assignment.playerId);
+    }
+    optimalTotal = round2(displayTotal);
+  }
 
   const { swaps, fills } = buildSwapSuggestions({
     entries,
@@ -269,7 +303,7 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
 
   return {
     projectedTotal,
-    optimalTotal: optimal.total,
+    optimalTotal,
     suggestions,
     openSlotFills,
     movePlan,

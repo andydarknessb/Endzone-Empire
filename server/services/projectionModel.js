@@ -376,6 +376,33 @@ const MODEL_CONSTANTS = {
     // Interval width relative to the mean, above which confidence is capped.
     wideIntervalRatio: 1.6,
   },
+  // What the LINEUP OPTIMIZER ranks players by. Distinct from what the UI
+  // displays, which stays the median (the distribution's central outcome is
+  // the honest single number to print) - this governs only which lineup the
+  // optimizer recommends.
+  decision: {
+    // 'median' (shipped) or 'mean'.
+    //
+    // The optimizer's objective is the lineup's actual total, and the
+    // statistic that maximizes an EXPECTED total is the mean; weekly fantasy
+    // scoring is right-skewed, so the two differ per player and the median
+    // systematically under-ranks boom players. Measured over the frozen
+    // pit-sweep artifacts (1700 roster-weeks, production optimizer, production
+    // distributions): mean-ranking cuts lineup regret by 1.90 points per
+    // roster-week against median-ranking - 2024 -1.74/wk (t~-1.9) and 2025
+    // -2.06/wk (t~-1.9) independently, and the candidate ordering ran exactly
+    // as theory predicts (mean < mid-blend < median < p75 < p25). For scale:
+    // the entire usage sweep moved regret 0.80, and the preregistered margin
+    // was 0.15.
+    //
+    // SHIPS 'median', the exact behavior production has always had, so this
+    // merges inert and MODEL_VERSION does not move. Two reasons it is not
+    // flipped here: the measurement above is exploratory (34 paired weeks,
+    // reconstructed rosters, no opponent/usage factors in the harness), and
+    // flipping changes which lineup the app recommends - that is the change
+    // that must ride a preregistered confirmation, not a code merge.
+    lineupRanking: 'median',
+  },
 };
 
 // Position groupings for the opponent / positional-baseline factors. DEF
