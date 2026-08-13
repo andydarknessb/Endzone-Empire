@@ -627,6 +627,7 @@ function emptyCoverage() {
     opponent: { status: 'unavailable' },
     homeAway: { status: 'unavailable' },
     injury: { status: 'unavailable' },
+    vegasOdds: { status: 'unavailable' },
   };
 }
 

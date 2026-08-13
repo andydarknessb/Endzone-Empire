@@ -246,6 +246,59 @@ const MODEL_CONSTANTS = {
     // point contribution rather than guessed at with a hardcoded penalty.
     maxEffect: 0,
   },
+  // Market-implied scoring environment, from a sportsbook game total and
+  // spread. The two together imply each team's expected points
+  // (`total/2 - spread/2`), which is the single richest public statement
+  // about how many points a game will produce - priced by people with money
+  // at stake, and available BEFORE kickoff, which is what makes it usable.
+  //
+  // Nothing in this app has ever consumed it: the pit-sweep-2024-2025 study
+  // searched `usage.blendWeight` x `homeAway.enabled` and nothing else, so
+  // the market has never been measured against this engine at all.
+  gameEnvironment: {
+    // How much of a team's scoring-environment deviation reaches ONE player's
+    // fantasy points. A team implied for 10% more points does not give every
+    // pass-catcher 10% more: some of the surplus lands on players a manager
+    // does not roster, some on game script that suppresses volume. 0.5 is a
+    // deliberately conservative placeholder and is NOT a measurement.
+    responsiveness: 0.5,
+    // Below this many implied points the quote is treated as malformed rather
+    // than as a real market view; no NFL team has ever been implied for 6.
+    minImpliedPoints: 6,
+    // SHIPS 0, and 0 is why adding this block does not bump MODEL_VERSION:
+    // `clamp(x, 0)` is 0 for every x, so the factor cannot reach the output
+    // and every projection is bit-identical to the one v3.1 already produced.
+    // Same inert-merge exception the MODEL_VERSION docblock records for the
+    // usage component and versusOpponent.crossSeason, including its other
+    // half: the sweep that raises this is the change that carries the bump.
+    //
+    // The derivation below is live and clamped rather than stubbed out (the
+    // weather pattern), so raising this cap turns on a formula that has been
+    // read and tested, not one written under time pressure on the day.
+    maxEffect: 0,
+  },
+  // Third-party expert-consensus projections, blended at the END of the
+  // factor chain rather than into the baseline. A consensus number is a
+  // COMPLETE projection that already prices matchup, injury and game script,
+  // so blending it into `baseline` and then applying this engine's own
+  // opponent/homeAway factors on top would double-count every adjustment the
+  // experts already made.
+  expertConsensus: {
+    // final = (1 - w) * modelProjection + w * expertPoints, applied ONLY for a
+    // player the feed actually covers.
+    //
+    // SHIPS 0: at this weight `expertPoints` is never read into the number and
+    // every projection is bit-identical to v3.1's. Same inert-merge exception
+    // as `gameEnvironment.maxEffect` above and for the same reason - and the
+    // same obligation, that the sweep selecting a non-zero weight is what
+    // carries the MODEL_VERSION bump.
+    blendWeight: 0,
+    // A consensus point value outside this range is refused as malformed
+    // rather than blended. Feeds do go wrong, and a single 900 would move a
+    // lineup.
+    minPoints: -10,
+    maxPoints: 80,
+  },
   simulation: {
     draws: 400,
     // How far the resampled residuals are stretched about their own median
@@ -737,6 +790,134 @@ function weatherEffect({ forecast = null, roof = null, constants = MODEL_CONSTAN
   };
 }
 
+/**
+ * Pure: market-implied scoring environment for ONE player's game.
+ *
+ * `impliedPoints` is this player's own team's implied total, `opponentImplied`
+ * the other side's, both derived by the caller from a stored quote
+ * (`total / 2 -+ spread / 2`). `slateAverageImplied` is the mean implied total
+ * across every team playing that week, so the comparison is against the week
+ * the player actually played in rather than a hardcoded constant that rots as
+ * the league's scoring rate drifts.
+ *
+ * DEF is inverted deliberately, and it is the whole reason this cannot be a
+ * single team-level multiplier: a shootout is GOOD for the quarterback in it
+ * and BAD for the defense opposite him. A defense is priced off the points it
+ * is expected to CONCEDE, so its factor reads the opponent's implied total and
+ * flips the sign.
+ *
+ * Returns an explicit unavailable payload for a missing or malformed quote —
+ * never a zero that would read as "the market said this game is average".
+ */
+function gameEnvironmentEffect({
+  impliedPoints = null,
+  opponentImplied = null,
+  slateAverageImplied = null,
+  position = null,
+  constants = MODEL_CONSTANTS.gameEnvironment,
+} = {}) {
+  if (!isNum(slateAverageImplied) || Number(slateAverageImplied) < constants.minImpliedPoints) {
+    return NEUTRAL('no slate baseline');
+  }
+  const isDefense = positionGroup(position) === 'DEF';
+  const own = isDefense ? opponentImplied : impliedPoints;
+  if (!isNum(own)) return NEUTRAL('no market quote');
+  if (Number(own) < constants.minImpliedPoints) return NEUTRAL('implausible market quote');
+
+  // Signed deviation from the week's own scoring environment. Inverted for a
+  // defense: a higher opponent implied total is a WORSE outlook, not better.
+  const deviation = Number(own) / Number(slateAverageImplied) - 1;
+  const directed = isDefense ? -deviation : deviation;
+  const raw = constants.responsiveness * directed;
+  return {
+    available: true,
+    effect: clamp(raw, constants.maxEffect),
+    // False whenever the cap has swallowed the derivation, so the UI can show
+    // the market as CONTEXT without implying it moved the number. At
+    // maxEffect 0 this is false for every projection.
+    scored: constants.maxEffect > 0,
+    impliedPoints: isNum(impliedPoints) ? round2(impliedPoints) : null,
+    opponentImplied: isNum(opponentImplied) ? round2(opponentImplied) : null,
+    slateAverageImplied: round2(slateAverageImplied),
+    // The uncapped derivation, reported so a reviewer can see what the cap is
+    // actually suppressing rather than having to recompute it.
+    rawEffect: Math.round(raw * 10000) / 10000,
+  };
+}
+
+/**
+ * Pure: blend a finished model projection toward an expert-consensus number.
+ *
+ * Applied AFTER every factor (see `MODEL_CONSTANTS.expertConsensus`).
+ *
+ * THREE distinct outcomes, and the difference between the first two is the
+ * reason this returns a payload rather than a boolean:
+ *
+ *  - `factor: null` — no provider supplied anything for this player-week. This
+ *    is the shipped default (no approved feed exists), and it is byte-for-byte
+ *    what `factors.expertConsensus` has always been, so installing this code
+ *    changes nothing a caller can observe.
+ *  - `available: false` — a provider RAN and either skipped this player or
+ *    returned a quote outside the plausible range. Materially different from
+ *    the above: one means nobody asked, the other means we asked and got
+ *    nothing usable.
+ *  - `available: true` — a usable quote, `scored` telling the caller whether
+ *    the weight actually let it move the number.
+ */
+function expertConsensusBlend({
+  value,
+  expert = null,
+  constants = MODEL_CONSTANTS.expertConsensus,
+} = {}) {
+  const weight = isNum(constants.blendWeight) ? Number(constants.blendWeight) : 0;
+  if (!isNum(value)) return { value, factor: null };
+  if (expert == null) return { value, factor: null };
+  if (!isNum(expert.points)) {
+    return {
+      value,
+      factor: { available: false, reason: 'no expert coverage', source: expert.source || null },
+    };
+  }
+  const points = Number(expert.points);
+  if (points < constants.minPoints || points > constants.maxPoints) {
+    return {
+      value,
+      factor: {
+        available: false,
+        reason: 'expert quote out of range',
+        source: expert.source || null,
+      },
+    };
+  }
+  if (!(weight > 0)) {
+    // Covered, in range, and deliberately not used. Reported as context so the
+    // UI can show what the experts said while being explicit that the number
+    // on screen is this engine's alone.
+    return {
+      value,
+      factor: {
+        available: true,
+        scored: false,
+        expertPoints: round2(points),
+        blendWeight: 0,
+        source: expert.source || null,
+      },
+    };
+  }
+  const blended = (1 - weight) * Number(value) + weight * points;
+  return {
+    value: blended,
+    factor: {
+      available: true,
+      scored: true,
+      expertPoints: round2(points),
+      blendWeight: weight,
+      source: expert.source || null,
+      pointsContribution: round2(blended - Number(value)),
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Availability
 // ---------------------------------------------------------------------------
@@ -993,6 +1174,11 @@ function projectPlayer({
   versusOpponent = null,
   homeAway = null,
   weather = null,
+  gameEnvironment = null,
+  // `{ points, source }` for THIS player from the expert provider, or null
+  // when the feed does not cover him. Never fabricated: an absent player must
+  // arrive as null, not as a zero.
+  expert = null,
   availability = null,
   hasRoleData = true,
   constants = MODEL_CONSTANTS,
@@ -1043,6 +1229,7 @@ function projectPlayer({
         versusOpponent: null,
         homeAway: null,
         weather: null,
+        gameEnvironment: null,
         availability: availabilityInfo,
         expertConsensus: null,
         dataQuality: { level: 'none', reason: 'no prior games, prior season, or position baseline' },
@@ -1126,6 +1313,23 @@ function projectPlayer({
   }
   applyFactor('homeAway', homeAway);
   applyFactor('weather', weather);
+  // LAST in the chain, and deliberately AFTER the homeAway seam above: the
+  // pre-homeAway baseline `b` that `onPreHomeAwayBaseline` reports is pinned
+  // by PHASE5_EXECUTION_SPEC.md section 6.5 and defines component (f)'s
+  // subgroup membership. Inserting a factor earlier would silently redefine
+  // `b` and invalidate that machinery, so a new factor goes on the end unless
+  // there is a reason strong enough to re-cut the spec.
+  applyFactor('gameEnvironment', gameEnvironment);
+
+  // Expert consensus is not an `applyFactor` multiplier: it replaces part of
+  // the projection rather than scaling it, so it composes as a weighted blend
+  // over the finished value.
+  const expertBlend = expertConsensusBlend({
+    value: running,
+    expert,
+    constants: constants.expertConsensus || MODEL_CONSTANTS.expertConsensus,
+  });
+  running = isNum(expertBlend.value) ? Number(expertBlend.value) : running;
 
   const distribution = simulateDistribution({
     mean: running,
@@ -1150,10 +1354,12 @@ function projectPlayer({
     ? { available: true, pointsContribution: null, note: 'included in recent production' }
     : null;
   factors.availability = availabilityInfo;
-  // There is no approved free expert-consensus feed, so this is reported as
-  // explicitly unavailable rather than quietly omitted — the UI says so out
-  // loud instead of implying experts agreed with us.
-  factors.expertConsensus = null;
+  // Null when no provider is installed at all (the shipped default), an
+  // `available: false` payload when a provider ran and did not cover this
+  // player, and a scored payload only at a non-zero blend weight. The UI must
+  // be able to tell "no expert input" from "expert input that happened to
+  // agree", which is why these are three distinct values and not one.
+  factors.expertConsensus = expertBlend.factor;
   factors.dataQuality = {
     level: confidence.level,
     reasons: confidence.reasons,
@@ -1199,6 +1405,8 @@ module.exports = {
   versusOpponentEffect,
   homeAwayEffect,
   weatherEffect,
+  gameEnvironmentEffect,
+  expertConsensusBlend,
   availabilityFor,
   simulateDistribution,
   probabilityBetter,

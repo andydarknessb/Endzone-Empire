@@ -2,7 +2,15 @@ const pool = require('../modules/pool');
 const model = require('./projectionModel');
 const features = require('./projectionFeatures');
 const { rulesForLeague, SCORING_RULES, calculateFantasyPoints, hasTeamDefenseTiers } = require('./scoring.service');
-const { expertCoverage } = require('./expertProjection.provider');
+const { expertCoverage, getExpertProvider } = require('./expertProjection.provider');
+const {
+  vegasCoverage, getVegasOddsProvider, impliedTeamPoints,
+  // Aliased on import: `projectFromBundle` takes a PARAMETER named
+  // `slateAverageImplied` (the computed value for the week), and letting the
+  // function and the value share a name inside one module is how someone
+  // later calls the wrong one.
+  slateAverageImplied: computeSlateAverageImplied,
+} = require('./vegasOdds.provider');
 
 class ProjectionError extends Error {
   constructor(statusCode, message) {
@@ -256,6 +264,10 @@ function playerResidualsFrom(priorGames) {
  */
 function projectFromBundle({
   playerId, bundle, rules, season, week, hashValue, weatherByGameKey,
+  // Market context, both optional and both defaulting to "nothing was
+  // supplied" rather than to a neutral value: see gameEnvironmentEffect and
+  // expertConsensusBlend for why the difference matters downstream.
+  oddsByGameKey = null, slateAverageImplied = null, expertByPlayerId = null,
   constants = model.MODEL_CONSTANTS,
   // Gate 2 sweep seam (PHASE5_EXECUTION_SPEC.md section 6.5), forwarded
   // unchanged to model.projectPlayer. Validated at the top of the function
@@ -340,6 +352,22 @@ function projectFromBundle({
     constants: constants.weather,
   });
 
+  // Market-implied scoring environment. `isHome` is reused rather than
+  // re-derived so a neutral-site game resolves the same way here as it does
+  // for the home/away factor: the spread is stored home-relative, so reading
+  // the wrong side would invert the whole quote.
+  const quote = targetGame && targetGame.game_key && oddsByGameKey
+    ? oddsByGameKey.get(targetGame.game_key)
+    : null;
+  const implied = quote ? impliedTeamPoints(quote) : { home: null, away: null };
+  const gameEnvironment = model.gameEnvironmentEffect({
+    impliedPoints: isHome === null ? null : (isHome ? implied.home : implied.away),
+    opponentImplied: isHome === null ? null : (isHome ? implied.away : implied.home),
+    slateAverageImplied,
+    position: player.position,
+    constants: constants.gameEnvironment,
+  });
+
   const availability = model.availabilityFor({
     injuryStatus: player.injury_status,
     onBye,
@@ -365,6 +393,10 @@ function projectFromBundle({
     versusOpponent,
     homeAway,
     weather,
+    gameEnvironment,
+    // `null` when no provider ran at all, which is what keeps
+    // factors.expertConsensus byte-identical to what it has always been.
+    expert: expertByPlayerId ? expertByPlayerId.get(playerId) || null : null,
     availability,
     hasRoleData: priorGames.some((g) => g.hasRole),
     onPreHomeAwayBaseline,
@@ -390,6 +422,7 @@ function buildSourceCoverage({ bundle, projections, weatherCoverage }) {
     injury: { status: withInjury > 0 ? 'available' : 'none-designated' },
     weather: weatherCoverage || { status: 'unavailable', reason: 'not requested' },
     expertConsensus: expertCoverage(),
+    vegasOdds: vegasCoverage(),
     leagueScanTruncated: !!bundle.scanTruncated,
   };
 }
@@ -460,12 +493,41 @@ async function generateProjections({
     }
   }
 
+  // Market inputs are optional context on exactly the same terms as weather:
+  // any throw degrades to "no market data" and the request still succeeds.
+  // Both providers ship as no-ops, so at HEAD both loops are empty and every
+  // projection is bit-identical to the one this code produced before.
+  let oddsByGameKey = new Map();
+  let expertByPlayerId = null;
+  try {
+    const oddsProvider = getVegasOddsProvider();
+    if (oddsProvider.available) {
+      oddsByGameKey = await oddsProvider.getWeeklyOdds({ season, week, client });
+    }
+  } catch (err) {
+    console.error('projections: odds lookup failed, continuing without it:', err.message);
+    oddsByGameKey = new Map();
+  }
+  try {
+    const expertProvider = getExpertProvider();
+    if (expertProvider.available) {
+      expertByPlayerId = await expertProvider.getWeeklyProjections({
+        season, week, playerIds, client,
+      });
+    }
+  } catch (err) {
+    console.error('projections: expert lookup failed, continuing without it:', err.message);
+    expertByPlayerId = null;
+  }
+  const slateAverage = computeSlateAverageImplied(oddsByGameKey);
+
   const projections = new Map();
   for (const playerId of playerIds) {
     projections.set(
       playerId,
       projectFromBundle({
         playerId, bundle, rules, season, week, hashValue, weatherByGameKey,
+        oddsByGameKey, slateAverageImplied: slateAverage, expertByPlayerId,
         constants: modelConstants,
         onPreHomeAwayBaseline,
       })
