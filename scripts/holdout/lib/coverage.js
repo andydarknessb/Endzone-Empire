@@ -45,8 +45,12 @@ function armWeekMetrics({ rows, actuals, season, week }) {
     const p75 = num(row.p75); const p90 = num(row.p90);
     const median = num(row.median);
 
-    const has80 = p10 !== null && p90 !== null;
-    const has50 = p25 !== null && p75 !== null;
+    // An INVERTED interval is excluded with the nulls rather than scored: it
+    // cannot come from `simulateDistribution` (quantiles of one ascending
+    // array), so it is tampered or corrupted data, and counting it as an
+    // eligible-but-missed observation would silently deflate coverage.
+    const has80 = p10 !== null && p90 !== null && p10 <= p90;
+    const has50 = p25 !== null && p75 !== null && p25 <= p75;
     if (!has80 && !has50) { excludedNullInterval += 1; continue; }
 
     if (has80) {

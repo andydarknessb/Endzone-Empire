@@ -106,8 +106,16 @@ function loadActuals(actualsPath) {
   const actuals = new Map();
   for (const [key, value] of Object.entries(parsed)) {
     if (!/^\d{4}:\d{1,2}:\d+$/.test(key)) throw new Error(`run-holdout-confirm: malformed actuals key "${key}"`);
-    if (!Number.isFinite(Number(value))) throw new Error(`run-holdout-confirm: non-finite actual for "${key}"`);
-    actuals.set(key, Number(value));
+    // `Number.isFinite(value)` WITHOUT coercion: `Number(null)` is 0 and
+    // `Number('12')` is 12, and either slipping through converts "the actuals
+    // pipeline broke for this player-week" into silent plausible data. The
+    // file is machine-produced (§5), so a non-number JSON value IS the
+    // pipeline breaking. Adversarial review finding: the coercing form
+    // accepted a literal JSON null as a scored zero.
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      throw new Error(`run-holdout-confirm: non-numeric actual for "${key}" (got ${JSON.stringify(value)})`);
+    }
+    actuals.set(key, value);
   }
   if (actuals.size === 0) throw new Error('run-holdout-confirm: the actuals file is empty');
   return actuals;

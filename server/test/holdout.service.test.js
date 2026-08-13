@@ -378,7 +378,7 @@ test('an existing capture is skipped ONLY as an exact, complete match of EVERY a
     'no header insert attempted');
 });
 
-test('a scheduled-only capture (protocol 1 legacy shape) is a loud partial-arm conflict, never appended to', async (t) => {
+test('a scheduled-only capture AT THE CURRENT PROTOCOL is a loud partial-arm conflict, never appended to', async (t) => {
   withReleaseSha(t);
   const seen = mockGenerate(t);
   // The scheduled arm alone, exact and complete - what a pre-arms deployment
@@ -464,6 +464,28 @@ test('an incomplete existing snapshot is NEVER completed with a new projection r
   await assert.rejects(holdout.snapshotWeek(captureArgs(db)), /incomplete \(1\/3 rows\)/);
   assert.equal(seen.length, 0, 'no new projection run was even computed');
   assert.equal(db.committed.players.length, 1, 'nothing appended under the old header');
+});
+
+test('a GENUINE protocol-1 legacy row names the protocol transition, not corruption', async (t) => {
+  withReleaseSha(t);
+  const seen = mockGenerate(t);
+  // What an actual pre-arms capture left behind: protocol_version LITERALLY 1.
+  // Adversarial review finding: the partial-arm test above seeds the CURRENT
+  // protocol, so the transitional case never ran, and the real message was
+  // "provenance mismatch" - which reads as data corruption on call. The
+  // protocol check must fire first and say what actually happened.
+  const snap = { ...seededSnapshot({ scheduleHash: scheduleHashOf(WEEK1) }), protocol_version: 1 };
+  const db = fakeDb(dbArgs({
+    existingSnapshots: [snap],
+    existingPlayers: COHORT.map((r) => ({ snapshot_id: 50, player_id: r.id })),
+  }));
+
+  await assert.rejects(
+    holdout.snapshotWeek(captureArgs(db)),
+    /captured under protocol 1, current is 2 - a pre-arms capture cannot be completed or re-captured/
+  );
+  assert.equal(seen.length, 0, 'no projection run for a poisoned week');
+  assert.equal(db.committed.snapshots.length, 1, 'the legacy snapshot is untouched');
 });
 
 // ---------------------------------------------------------------------------

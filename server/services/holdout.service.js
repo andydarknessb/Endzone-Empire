@@ -536,11 +536,24 @@ async function snapshotWeek({ season, week, profileName, rules, client = pool })
         // EXACTLY the cohort, not "at least": extra rows are as much of an
         // anomaly as missing ones.
         const complete = Number(found.rows) === Number(found.cohort_size);
+        // A protocol mismatch gets its own name BEFORE the generic provenance
+        // check: a protocol-1 row is the expected shape of a pre-arms capture
+        // met by newer code (a rolling deploy, or a week captured before this
+        // code shipped), and reporting it as "provenance mismatch" reads as
+        // data corruption to whoever is on call. Adversarial review finding:
+        // the earlier message did exactly that, and the test masking it had
+        // seeded the CURRENT protocol so the transitional case never ran.
+        if (Number(found.protocol_version) !== HOLDOUT_PROTOCOL_VERSION) {
+          throw new Error(
+            `holdout snapshot conflict for ${season} week ${week} ${profileName} (${arm.kind}): ` +
+            `captured under protocol ${found.protocol_version}, current is ${HOLDOUT_PROTOCOL_VERSION} - ` +
+            'a pre-arms capture cannot be completed or re-captured; the week drops per the symmetric-drop rule'
+          );
+        }
         const matches = found.cohort_hash === cohortHash
           && found.constants_hash === arm.hash
           && found.schedule_hash === schedule.scheduleHash
-          && found.release_sha === releaseSha
-          && Number(found.protocol_version) === HOLDOUT_PROTOCOL_VERSION;
+          && found.release_sha === releaseSha;
         if (!complete || !matches) {
           throw new Error(
             `holdout snapshot conflict for ${season} week ${week} ${profileName} (${arm.kind}): ` +

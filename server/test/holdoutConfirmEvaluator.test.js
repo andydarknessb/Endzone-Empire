@@ -500,7 +500,18 @@ test('the runner validates the actuals file shape', (t) => {
 
   const badValue = path.join(dir, 'bad-value.json');
   fs.writeFileSync(badValue, JSON.stringify({ '2026:1:7': 'twelve' }), 'utf8');
-  assert.throws(() => runner.loadActuals(badValue), /non-finite actual/);
+  assert.throws(() => runner.loadActuals(badValue), /non-numeric actual/);
+
+  // Adversarial review finding: JSON null coerced to a scored 0 through
+  // Number(null). It must throw, and so must a NUMERIC STRING - the file is
+  // machine-produced, so a non-number value IS the pipeline breaking.
+  const nullValue = path.join(dir, 'null-value.json');
+  fs.writeFileSync(nullValue, JSON.stringify({ '2026:1:7': null, '2026:1:8': 8 }), 'utf8');
+  assert.throws(() => runner.loadActuals(nullValue), /non-numeric actual for "2026:1:7" \(got null\)/);
+
+  const stringNumber = path.join(dir, 'string-number.json');
+  fs.writeFileSync(stringNumber, JSON.stringify({ '2026:1:7': '12' }), 'utf8');
+  assert.throws(() => runner.loadActuals(stringNumber), /non-numeric actual/);
 
   const empty = path.join(dir, 'empty.json');
   fs.writeFileSync(empty, JSON.stringify({}), 'utf8');
