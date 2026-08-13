@@ -44,6 +44,28 @@
  * a text heuristic, and the reason this check assists rather than replaces
  * the re-anchor reading.
  *
+ * DRIFT IS REPORTED, NOT FAILED [added 2026-08-13]. A citation whose claim
+ * or identifier is absent from the cited window but PRESENT elsewhere in the
+ * same file is classed `claim-drifted` / `symbol-drifted`: it appears in
+ * `drifts`, never in `failures`, and does not set a non-zero exit.
+ *
+ * The distinction it draws is between a document whose claims are WRONG and a
+ * document whose POINTERS are stale, and only the first is a defect in the
+ * specification. Before this tier existed the check could not tell them
+ * apart, with a consequence nobody chose: because the spec pins line numbers
+ * in production source, no file under SEARCH_ROOTS could grow by a single
+ * line without turning this instrument red. Adding two constants to
+ * `projectionModel.js` shifted five citations at once and produced exactly
+ * that, and the only repairs available were to edit an approved specification
+ * (lapsing every approval attached to its hash) or to abandon the change.
+ * Neither is a proportionate answer to a line number moving by 64.
+ *
+ * The weakening is real and is stated rather than hidden: a citation that
+ * drifts onto a genuinely different construct sharing one identifier now
+ * reports as drift rather than mismatch. The `foundAtLine` field is recorded
+ * for exactly that reason, so a re-anchor reading can check where each
+ * pointer actually landed instead of trusting the class.
+ *
  * Per 10.2a, an instrument is validated against a known answer before being
  * trusted. --self-validate replays the sealed revision-35 G-A escape from
  * git history (spec lines around 2110 at `f87f023` against that commit's
@@ -282,6 +304,7 @@ function checkCitation(citation, index, fileLineCache) {
   // A citation is OK if ANY resolved candidate satisfies it; ambiguity plus
   // universal failure reports the first candidate's reason.
   let firstFailure = null;
+  let firstDrift = null;
   for (const candidate of candidates) {
     if (!fileLineCache.has(candidate)) {
       fileLineCache.set(candidate, fs.readFileSync(candidate, 'utf8').split('\n'));
@@ -296,6 +319,11 @@ function checkCitation(citation, index, fileLineCache) {
       const hi = Math.min(lines.length, citation.endLine + WINDOW);
       const found = lines.slice(lo, hi).some((line) => line.includes(citation.identifier));
       if (!found) {
+        const at = bestMatchLine(lines, [citation.identifier]);
+        if (at !== null) {
+          if (!firstDrift) firstDrift = { ...citation, status: 'symbol-drifted', resolved: candidate, foundAtLine: at, detail: `\`${citation.identifier}\` is not within ${WINDOW} lines of ${candidate}:${citation.startLine}, but IS at :${at} - the requirement points at real code whose line number has moved` };
+          continue;
+        }
         if (!firstFailure) firstFailure = { ...citation, status: 'symbol-missing', detail: `\`${citation.identifier}\` does not appear within ${WINDOW} lines of ${candidate}:${citation.startLine}` };
         continue;
       }
@@ -307,6 +335,17 @@ function checkCitation(citation, index, fileLineCache) {
       const region = lines.slice(lo, hi).join('\n');
       const found = citation.claimExpr.identifiers.some((name) => region.includes(name));
       if (!found) {
+        // The claim is not where the citation says. Two very different
+        // states hide behind that, and conflating them is what made this
+        // check block ordinary engine work: the claim may be SOMEWHERE ELSE
+        // in the same file (a pointer whose target moved) or NOWHERE in it
+        // (a requirement describing code that does not exist). Only the
+        // second is a defect in the document's claims.
+        const at = bestMatchLine(lines, citation.claimExpr.identifiers);
+        if (at !== null) {
+          if (!firstDrift) firstDrift = { ...citation, status: 'claim-drifted', resolved: candidate, foundAtLine: at, detail: `the claimed expression \`${citation.claimExpr.span}\` is not within ${SLACK} lines of ${candidate}:${citation.startLine}-${citation.endLine}, but an identifier of it IS at :${at} - the requirement points at real code whose line number has moved` };
+          continue;
+        }
         if (!firstFailure) firstFailure = { ...citation, status: 'claim-mismatch', detail: `no identifier of the claimed expression \`${citation.claimExpr.span}\` appears within ${SLACK} lines of ${candidate}:${citation.startLine}-${citation.endLine}` };
         continue;
       }
@@ -314,7 +353,43 @@ function checkCitation(citation, index, fileLineCache) {
     }
     return { ...citation, status: 'ok', basis: 'range-only', resolved: candidate };
   }
-  return firstFailure;
+  // A clean resolution beats a drift beats a failure: a citation that
+  // resolves against ANY candidate file is already returned above, so
+  // reaching here means every candidate failed, and a drift is the more
+  // informative of the two remaining answers.
+  return firstDrift || firstFailure;
+}
+
+/**
+ * The 1-based line that best matches `identifiers`, or null if none does.
+ * Used only as the drift fallback, to answer "where did this pointer's target
+ * actually go?".
+ *
+ * BEST match, not first, and the difference is the whole value of the answer.
+ * The membership threshold is one identifier — kept deliberately identical to
+ * the in-window tier, so widening the search does not also widen what counts
+ * as a match — but the first line clearing it is usually a file-header comment
+ * that happens to contain a common word like `median` or `games`. Reporting
+ * that as the target would make `foundAtLine` worse than useless: confidently
+ * wrong. Scoring by how many DISTINCT identifiers of the claim a line carries
+ * puts the real construct first, since a claimed expression's identifiers
+ * co-occur on the line that implements it and almost nowhere else. Ties go to
+ * the earliest line.
+ */
+function bestMatchLine(lines, identifiers) {
+  let bestLine = null;
+  let bestScore = 0;
+  for (let i = 0; i < lines.length; i++) {
+    let score = 0;
+    for (const name of identifiers) {
+      if (lines[i].includes(name)) score++;
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      bestLine = i + 1;
+    }
+  }
+  return bestScore > 0 ? bestLine : null;
 }
 
 function checkLocators({ repoRoot = process.cwd(), docPath, docText } = {}) {
@@ -333,7 +408,14 @@ function checkLocators({ repoRoot = process.cwd(), docPath, docText } = {}) {
   const bareResults = bareChecked.filter((result) => result.status !== 'out-of-range');
   const bareDemoted = bareChecked.length - bareResults.length;
   const bareUnchecked = bareAll.length - bareResults.length;
-  const failures = results.concat(bareResults).filter((result) => result.status !== 'ok');
+  const DRIFT = new Set(['claim-drifted', 'symbol-drifted']);
+  const all = results.concat(bareResults);
+  const failures = all.filter((result) => result.status !== 'ok' && !DRIFT.has(result.status));
+  // Reported, never silent, and deliberately NOT a failure. See the drift
+  // note in the docblock: a citation whose target still exists in the same
+  // file is a stale pointer, and gating on it makes every source file in
+  // SEARCH_ROOTS unable to grow by one line.
+  const drifts = all.filter((result) => DRIFT.has(result.status));
   const basisCounts = {};
   for (const result of results.concat(bareResults)) {
     if (result.status === 'ok') basisCounts[result.basis] = (basisCounts[result.basis] || 0) + 1;
@@ -352,6 +434,7 @@ function checkLocators({ repoRoot = process.cwd(), docPath, docText } = {}) {
     results,
     bareResults,
     failures,
+    drifts,
     ok: failures.length === 0,
   };
 }
@@ -373,7 +456,14 @@ function selfValidate() {
     fs.writeFileSync(materialized, sourceBytes, 'utf8');
     const isTarget = (r) => r.file.endsWith('arms.js') && r.startLine === KNOWN_CASE.staleStart && r.endLine === KNOWN_CASE.staleEnd;
     const staleRun = checkLocators({ repoRoot: tmpRoot, docText: docSlice });
-    const staleReported = staleRun.failures.some((f) => isTarget(f) && f.status === 'claim-mismatch');
+    // The known answer is that the stale citation must be REPORTED, and it
+    // still is. Its class changed from `claim-mismatch` to `claim-drifted`
+    // when the drift tier was added, because G-A is precisely a drift: the
+    // tie-rounded comparison the spec claimed at `:891-892` was alive and
+    // well at `:934-935` in the same file. Both classes are searched so this
+    // replay keeps testing detection rather than a status string.
+    const staleReported = staleRun.failures.concat(staleRun.drifts)
+      .some((f) => isTarget(f) && (f.status === 'claim-mismatch' || f.status === 'claim-drifted'));
     const repairedSlice = docSlice.replace(`${KNOWN_CASE.staleStart}-${KNOWN_CASE.staleEnd}`, KNOWN_CASE.repairedRange);
     const repairedRun = checkLocators({ repoRoot: tmpRoot, docText: repairedSlice });
     const repairedTarget = repairedRun.results.find((r) => r.file.endsWith('arms.js') && `${r.startLine}-${r.endLine}` === KNOWN_CASE.repairedRange);
@@ -421,6 +511,10 @@ function main(argv) {
     basisCounts: result.basisCounts,
     failureCount: result.failures.length,
     failures: result.failures.map(({ file, startLine, endLine, identifier, status, detail, bare }) => ({ file, startLine, endLine, identifier, status, detail, bare: Boolean(bare) })),
+    // Printed on every run, clean or not: a stale pointer that nobody ever
+    // sees is the same as one that was never detected.
+    driftCount: result.drifts.length,
+    drifts: result.drifts.map(({ file, startLine, endLine, identifier, status, detail, foundAtLine, bare }) => ({ file, startLine, endLine, identifier, status, detail, foundAtLine, bare: Boolean(bare) })),
   }, null, 2));
   return result.ok ? 0 : 1;
 }

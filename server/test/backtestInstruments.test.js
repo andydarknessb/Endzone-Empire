@@ -228,6 +228,59 @@ test('locators: run against the real spec - the revision-35 G-A stale locator is
   // Revision 36 repaired all three (plus the out-of-scope preamble and
   // section-0 pair); full cleanliness is the pinned state from here on.
   assert.equal(result.failures.length, 0, `stale spec locators: ${JSON.stringify(result.failures)}`);
+
+  // Drift is a SEPARATE, non-blocking class [added 2026-08-13]. Every drift
+  // here must still resolve to real code in the cited file - that is what
+  // makes it a stale pointer rather than a false claim - so this asserts the
+  // property rather than a count, which would otherwise have to be edited
+  // every time an engine file grows.
+  for (const drift of result.drifts) {
+    assert.ok(
+      drift.status === 'claim-drifted' || drift.status === 'symbol-drifted',
+      `unexpected drift class: ${JSON.stringify(drift)}`
+    );
+    assert.ok(
+      Number.isInteger(drift.foundAtLine) && drift.foundAtLine > 0,
+      `a drift must record where the target actually is: ${JSON.stringify(drift)}`
+    );
+  }
+});
+
+// Its own fixture, not plantedRepo's: demonstrating drift needs the target to
+// sit further from the cited line than SLACK, and planted.js is five lines
+// long with its only symbol on two of them.
+function driftRepo(t) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'check-locators-drift-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, 'scripts', 'lib'), { recursive: true });
+  const lines = Array.from({ length: 30 }, (_, i) => `// filler ${i + 1}`);
+  lines[11] = 'function movedHelper() { return targetValue; }'; // line 12
+  fs.writeFileSync(path.join(root, 'scripts', 'lib', 'drifted.js'), lines.join('\n'), 'utf8');
+  return root;
+}
+
+test('locators: drift is reported but does not fail, while an absent claim still fails', (t) => {
+  const root = driftRepo(t);
+  // Same claim, same file, cited at the WRONG line: `movedHelper` lives at
+  // :12 and the citation points at :26. The pointer is stale; the claim is
+  // true. Reported, and must not fail the run - this is the exact shape a
+  // line insertion above the target produces.
+  const drifted = '`drifted.js:26` instead computes `movedHelper(targetValue)`.';
+  const driftRun = locators.checkLocators({ repoRoot: root, docText: drifted });
+  assert.equal(driftRun.failures.length, 0, 'a moved pointer is not a false claim');
+  assert.equal(driftRun.drifts.length, 1);
+  assert.equal(driftRun.drifts[0].status, 'claim-drifted');
+  assert.equal(driftRun.drifts[0].foundAtLine, 12, 'the drift must say where the target actually is');
+  assert.equal(driftRun.ok, true);
+
+  // A claim that appears NOWHERE in the file is still a hard failure - the
+  // drift tier must not have swallowed the class it was built beside.
+  const absent = '`drifted.js:14` instead computes `absentHelper(missingValue) > threshold`.';
+  const absentRun = locators.checkLocators({ repoRoot: root, docText: absent });
+  assert.equal(absentRun.failures.length, 1);
+  assert.equal(absentRun.failures[0].status, 'claim-mismatch');
+  assert.equal(absentRun.drifts.length, 0);
+  assert.equal(absentRun.ok, false);
 });
 
 // ---------------------------------------------------------------------------
