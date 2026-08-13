@@ -43,11 +43,13 @@ function fakeDb({
   const statements = [];
   let nextId = committed.snapshots.reduce((m, s) => Math.max(m, s.id), 0) + 1;
 
-  const findSnapshot = (pools, season, week, hash, version) => {
+  // Kind-aware since protocol 2: a capture writes one header per arm, and
+  // the unique key includes capture_kind.
+  const findSnapshot = (pools, season, week, hash, version, kind = 'scheduled') => {
     for (const list of pools) {
       const hit = list.find(
         (r) => r.season === season && r.week === week && r.scoring_hash === hash
-          && r.model_version === version && r.capture_kind === 'scheduled'
+          && r.model_version === version && r.capture_kind === kind
       );
       if (hit) return hit;
     }
@@ -88,21 +90,26 @@ function fakeDb({
           return { rows: ids.map((id) => ({ player_id: id })) };
         }
         if (text.includes('"s"."cohort_size"')) {
-          const [season, week, hash, version] = params;
-          const s = findSnapshot([committed.snapshots, tx ? tx.snapshots : []], season, week, hash, version);
-          if (!s) return { rows: [] };
-          const rows = committed.players.concat(tx ? tx.players : [])
-            .filter((p) => p.snapshot_id === s.id).length;
-          return { rows: [{ ...s, rows }] };
+          const [season, week, hash, version, kinds] = params;
+          const wanted = Array.isArray(kinds) ? kinds : ['scheduled'];
+          const rows = [];
+          for (const kind of wanted) {
+            const s = findSnapshot([committed.snapshots, tx ? tx.snapshots : []], season, week, hash, version, kind);
+            if (!s) continue;
+            const count = committed.players.concat(tx ? tx.players : [])
+              .filter((p) => p.snapshot_id === s.id).length;
+            rows.push({ ...s, rows: count });
+          }
+          return { rows };
         }
         if (text.includes('INSERT INTO "projection_snapshots"')) {
           const [season, week, profile, hash, version, cHash, release, cohortHash, cohortSize,
-            scheduleGames, scheduleHash, protocolVersion, captureNotAfter] = params;
+            scheduleGames, scheduleHash, protocolVersion, captureKind, captureNotAfter] = params;
           const capturedAt = clock();
           if (!(capturedAt < new Date(captureNotAfter))) {
             throw new Error('violates check constraint "projection_snapshots_pre_deadline_check"');
           }
-          if (findSnapshot([committed.snapshots, tx ? tx.snapshots : []], season, week, hash, version)) {
+          if (findSnapshot([committed.snapshots, tx ? tx.snapshots : []], season, week, hash, version, captureKind)) {
             throw new Error('duplicate key value violates unique constraint');
           }
           const row = {
@@ -110,7 +117,7 @@ function fakeDb({
             model_version: version, constants_hash: cHash, release_sha: release,
             cohort_hash: cohortHash, cohort_size: cohortSize, schedule_games: scheduleGames,
             schedule_hash: scheduleHash, protocol_version: protocolVersion,
-            capture_kind: 'scheduled', capture_not_after: captureNotAfter,
+            capture_kind: captureKind, capture_not_after: captureNotAfter,
             captured_at: capturedAt, is_late: false,
           };
           (tx ? tx.snapshots : committed.snapshots).push(row);
@@ -253,8 +260,8 @@ test('a successful capture commits header and every child in one transaction', a
   const out = await holdout.snapshotWeek(captureArgs(db));
 
   assert.equal(out.inserted, 3);
-  assert.equal(db.committed.snapshots.length, 1);
-  assert.equal(db.committed.players.length, 3);
+  assert.equal(db.committed.snapshots.length, 3, 'one header per arm: scheduled + the two candidate cells');
+  assert.equal(db.committed.players.length, 9, 'every arm carries the full cohort');
   const texts = db.statements.map((s) => s.text);
   const order = ['BEGIN', 'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ', 'pg_advisory_xact_lock', 'COMMIT']
     .map((needle) => texts.findIndex((s) => s.includes(needle)));
@@ -308,8 +315,8 @@ test('a clean retry after a crashed capture starts from nothing and succeeds', a
   arm = false;
   const out = await holdout.snapshotWeek(captureArgs(db));
   assert.equal(out.inserted, 3, 'the retry captures cleanly — no conflict, no completion of a partial');
-  assert.equal(db.committed.snapshots.length, 1);
-  assert.equal(db.committed.players.length, 3);
+  assert.equal(db.committed.snapshots.length, 3);
+  assert.equal(db.committed.players.length, 9);
 });
 
 // ---------------------------------------------------------------------------
@@ -331,6 +338,17 @@ function seededSnapshot({ cohortHash, scheduleHash, releaseSha, constantsHashVal
   };
 }
 
+/** The complete protocol-2 arm set: scheduled + both candidate cells, ids 50-52. */
+function seededTriple({ scheduleHash }) {
+  const snapshots = holdout.captureArms().map((arm, i) => ({
+    ...seededSnapshot({ scheduleHash, constantsHashValue: arm.hash }),
+    id: 50 + i,
+    capture_kind: arm.kind,
+  }));
+  const players = snapshots.flatMap((snap) => COHORT.map((r) => ({ snapshot_id: snap.id, player_id: r.id })));
+  return { snapshots, players };
+}
+
 function scheduleHashOf(rows) {
   // Derive the hash the service will compute, through its own validator.
   return holdout.validateSchedule({
@@ -339,22 +357,46 @@ function scheduleHashOf(rows) {
   }).scheduleHash;
 }
 
-test('an existing snapshot is skipped ONLY as an exact, complete provenance match', async (t) => {
+test('an existing capture is skipped ONLY as an exact, complete match of EVERY arm', async (t) => {
   withReleaseSha(t);
   const seen = mockGenerate(t);
+  const triple = seededTriple({ scheduleHash: scheduleHashOf(WEEK1) });
+  const db = fakeDb(dbArgs({
+    existingSnapshots: triple.snapshots,
+    existingPlayers: triple.players,
+  }));
+
+  const out = await holdout.snapshotWeek(captureArgs(db));
+  assert.equal(out.skipped, 'already complete');
+  assert.equal(out.snapshotId, 50, 'the scheduled header id is the primary identity');
+  assert.deepEqual(out.armSnapshotIds, {
+    scheduled: 50, 'candidate:bw-20': 51, 'candidate:bw-15': 52,
+  });
+  assert.equal(seen.length, 0, 'no projection run for a skip');
+  assert.equal(db.committed.players.length, 9, 'nothing appended');
+  assert.ok(!db.statements.some((s) => s.text.includes('INSERT INTO "projection_snapshots"')),
+    'no header insert attempted');
+});
+
+test('a scheduled-only capture (protocol 1 legacy shape) is a loud partial-arm conflict, never appended to', async (t) => {
+  withReleaseSha(t);
+  const seen = mockGenerate(t);
+  // The scheduled arm alone, exact and complete - what a pre-arms deployment
+  // would have written. Appending the candidate arms NOW would compute them
+  // on a different day from a different snapshot: mixed provenance.
   const snap = seededSnapshot({ scheduleHash: scheduleHashOf(WEEK1) });
   const db = fakeDb(dbArgs({
     existingSnapshots: [snap],
     existingPlayers: COHORT.map((r) => ({ snapshot_id: 50, player_id: r.id })),
   }));
 
-  const out = await holdout.snapshotWeek(captureArgs(db));
-  assert.equal(out.skipped, 'already complete');
-  assert.equal(out.snapshotId, 50);
-  assert.equal(seen.length, 0, 'no projection run for a skip');
-  assert.equal(db.committed.players.length, 3, 'nothing appended');
-  assert.ok(!db.statements.some((s) => s.text.includes('INSERT INTO "projection_snapshots"')),
-    'no header insert attempted');
+  await assert.rejects(
+    holdout.snapshotWeek(captureArgs(db)),
+    /partial arm set - existing \[scheduled\], missing \[candidate:bw-15, candidate:bw-20\]/
+  );
+  assert.equal(seen.length, 0, 'no projection run was computed for a poisoned week');
+  assert.equal(db.committed.snapshots.length, 1, 'the legacy snapshot is untouched');
+  assert.equal(db.committed.players.length, 3);
 });
 
 test('cohort drift against an existing snapshot fails loudly instead of skipping or appending', async (t) => {
@@ -425,6 +467,101 @@ test('an incomplete existing snapshot is NEVER completed with a new projection r
 });
 
 // ---------------------------------------------------------------------------
+// Candidate arms (holdout-confirm-2026)
+// ---------------------------------------------------------------------------
+
+test('a capture writes the two candidate arms with exactly the preregistered constants', async (t) => {
+  withReleaseSha(t);
+  const seen = mockGenerate(t);
+  const db = fakeDb(dbArgs());
+
+  const out = await holdout.snapshotWeek(captureArgs(db));
+
+  // Fixed arm order, scheduled first, and one compute run per arm.
+  assert.deepEqual(
+    seen.map((args) => args.modelConstants.simulation.smoothingBandwidth),
+    [0, 0.2, 0.15]
+  );
+  assert.deepEqual(
+    seen.map((args) => args.modelConstants.simulation.intervalScale),
+    [1.45, 1, 1]
+  );
+  // The candidate constants differ from production in the two named leaves
+  // and NOTHING else - restoring those two must reproduce production exactly.
+  for (const args of seen.slice(1)) {
+    const restored = JSON.parse(JSON.stringify(args.modelConstants));
+    restored.simulation.smoothingBandwidth = model.MODEL_CONSTANTS.simulation.smoothingBandwidth;
+    restored.simulation.intervalScale = model.MODEL_CONSTANTS.simulation.intervalScale;
+    assert.deepEqual(restored, JSON.parse(JSON.stringify(model.MODEL_CONSTANTS)));
+  }
+
+  // Headers: kinds in order, each fingerprinting its own arm's constants.
+  const kinds = db.committed.snapshots.map((snap) => snap.capture_kind);
+  assert.deepEqual(kinds, ['scheduled', 'candidate:bw-20', 'candidate:bw-15']);
+  for (const arm of holdout.captureArms()) {
+    const header = db.committed.snapshots.find((snap) => snap.capture_kind === arm.kind);
+    assert.equal(header.constants_hash, arm.hash, `${arm.kind} constants_hash`);
+  }
+  assert.equal(
+    db.committed.snapshots.find((snap) => snap.capture_kind === 'scheduled').constants_hash,
+    holdout.constantsHash(),
+    'the scheduled arm fingerprints the production constants'
+  );
+  // All three arm ids come back to the caller; the scheduled id stays primary.
+  assert.equal(out.snapshotId, out.armSnapshotIds.scheduled);
+  assert.equal(Object.keys(out.armSnapshotIds).length, 3);
+});
+
+test('a candidate mean diverging from the scheduled arm aborts the WHOLE capture', async (t) => {
+  withReleaseSha(t);
+  // The kernels touch dispersion only, so a diverged mean proves the arms
+  // did not share a feature snapshot - modeled here by a compute path that
+  // leaks a different mean under candidate constants.
+  t.mock.method(projectionSvc, 'generateProjections', async (args) => {
+    const bump = args.modelConstants.simulation.smoothingBandwidth > 0 ? 0.01 : 0;
+    return {
+      projections: new Map(args.playerIds.map((id) => [id, {
+        mean: id + 0.5 + bump, median: id + 0.25, p10: 1, p25: 2, p75: 8, p90: 9,
+        activeProbability: 1, confidence: 'high', sampleSize: 4, factors: {},
+      }])),
+      inputCutoff: new Date('2077-09-09T11:00:00Z'),
+      sourceCoverage: {},
+    };
+  });
+  const db = fakeDb(dbArgs());
+
+  await assert.rejects(
+    holdout.snapshotWeek(captureArgs(db)),
+    /mean diverged from the scheduled arm .* did not share a feature snapshot/
+  );
+  assert.equal(db.committed.snapshots.length, 0, 'no arm survives - all-or-nothing holds across arms');
+  assert.equal(db.committed.players.length, 0);
+  assert.ok(db.statements.some((stmt) => stmt.text === 'ROLLBACK'));
+});
+
+test('resolveCandidateConstants changes only existing leaves, and every arm hash is distinct', () => {
+  const resolved = holdout.resolveCandidateConstants({ smoothingBandwidth: 0.2, intervalScale: 1.0 });
+  assert.equal(resolved.simulation.smoothingBandwidth, 0.2);
+  assert.equal(resolved.simulation.intervalScale, 1.0);
+  const restored = JSON.parse(JSON.stringify(resolved));
+  restored.simulation.smoothingBandwidth = model.MODEL_CONSTANTS.simulation.smoothingBandwidth;
+  restored.simulation.intervalScale = model.MODEL_CONSTANTS.simulation.intervalScale;
+  assert.deepEqual(restored, JSON.parse(JSON.stringify(model.MODEL_CONSTANTS)));
+
+  // A typo'd override must throw, never append a new key: JSON key order is
+  // the hash's identity, and an appended key would corrupt the provenance.
+  assert.throws(
+    () => holdout.resolveCandidateConstants({ smoothingBandwith: 0.2 }),
+    /not an existing simulation constant/
+  );
+
+  const hashes = holdout.captureArms().map((arm) => arm.hash);
+  assert.equal(new Set(hashes).size, 3, 'three arms, three distinct constants fingerprints');
+  assert.ok(Object.isFrozen(holdout.CANDIDATE_ARMS));
+  assert.ok(holdout.CANDIDATE_ARMS.every((arm) => Object.isFrozen(arm) && Object.isFrozen(arm.overrides)));
+});
+
+// ---------------------------------------------------------------------------
 // The deadline
 // ---------------------------------------------------------------------------
 
@@ -463,12 +600,13 @@ test('a capture that slides past kickoff AFTER the writes is rolled back by the 
   // pre-kickoff clock; ONLY the final pre-commit read is late. This is the
   // one moment where the service-layer recheck is the last line of defense,
   // so this test fails if that recheck is removed.
-  // Clock reads: 1 = window, 2 = header CHECK, 3-5 = child trigger (fires
-  // per row; the cohort has three players), 6 = pre-commit recheck.
+  // Clock reads with three arms: 1 = window, then per arm one header CHECK
+  // and three child-trigger reads (3 players) = 4 x 3 arms = reads 2-13,
+  // and read 14 = the pre-commit recheck - the only late one.
   let calls = 0;
   const clock = () => {
     calls += 1;
-    return calls <= 5 ? new Date('2077-09-10T00:19:59Z') : new Date('2077-09-10T00:20:01Z');
+    return calls <= 13 ? new Date('2077-09-10T00:19:59Z') : new Date('2077-09-10T00:20:01Z');
   };
   const db = fakeDb(dbArgs({ clock }));
 
@@ -672,8 +810,9 @@ test('the capture pipeline never touches the projection cache tables', async (t)
 
   await holdout.snapshotWeek(captureArgs(db));
 
-  assert.equal(seen.length, 1, 'projections come from the COMPUTE path');
-  assert.equal(seen[0].client, db.conns[0], 'through the TRANSACTION connection — one consistent snapshot');
+  assert.equal(seen.length, 3, 'projections come from the COMPUTE path, once per arm');
+  assert.ok(seen.every((args) => args.client === db.conns[0]),
+    'every arm through the SAME transaction connection — one consistent snapshot');
   for (const s of db.statements) {
     assert.ok(
       !s.text.includes('projection_runs') && !s.text.includes('player_week_projections'),
@@ -722,7 +861,7 @@ test('captureDueSnapshots captures every predeclared profile and persists each o
 
   assert.equal(out.failures.length, 0);
   assert.deepEqual(out.captured.map((c) => c.profileName).sort(), ['half_ppr', 'ppr', 'standard']);
-  assert.equal(db.committed.snapshots.length, 3, 'one snapshot per profile');
+  assert.equal(db.committed.snapshots.length, 9, 'three arms per profile');
   assert.equal(new Set(db.committed.snapshots.map((s) => s.scoring_hash)).size, 3);
   assert.equal(db.committed.status.length, 3, 'every attempt outcome is DURABLE, not in-memory');
   assert.ok(db.committed.status.every((r) => r.status === 'captured' && r.attempts === 1));
@@ -1275,7 +1414,7 @@ test('week 18 due selection closes at the reserve deadline despite Sunday observ
   });
   assert.equal(before.failures.length, 0);
   assert.equal(before.captured.length, 3);
-  assert.equal(open.committed.snapshots.length, 3);
+  assert.equal(open.committed.snapshots.length, 9, 'three arms per profile');
 });
 
 test('week 18 reconciliation judges missed and pending at the reserve deadline with stale Sunday rows', async (t) => {

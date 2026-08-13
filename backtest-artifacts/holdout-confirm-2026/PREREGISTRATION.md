@@ -101,12 +101,19 @@ constants (`smoothingBandwidth 0`, `intervalScale 1.45`, ranking `'median'`),
 all three scoring profiles, identified by `constants_hash` and
 `model_version`.
 
-**Candidate B arms** = two additional `capture_kind: 'supplemental'`
-snapshots per (week, profile), computed under the `bw-20` and `bw-15`
+**Candidate B arms** = two additional snapshots per (week, profile), captured
+under `capture_kind` values **`candidate:bw-20`** and **`candidate:bw-15`**
+(distinct kinds, because the ledger's unique key is
+`(season, week, scoring_hash, model_version, capture_kind)` and two arms
+sharing one kind would collide on it), computed under the `bw-20` and `bw-15`
 constants, captured **in the same transaction and from the same REPEATABLE
 READ feature snapshot** as that week's scheduled capture, subject to the same
 `capture_not_after` deadline and the same all-or-nothing rule. Each is
-identified by its own `constants_hash`. The projection seed is
+identified by its own `constants_hash`, and the capture aborts whole if any
+candidate row's `mean` diverges from the scheduled row's (section 9.1,
+enforced at write time). The capture protocol version is **2**: a complete
+capture means all three arms, and a protocol-1 scheduled-only week can never
+skip-match as complete. The projection seed is
 `seedFrom(modelVersion, scoringHash, season, week, playerId)` in every arm -
 identical inputs, identical seed - so a per-player pair of rows differs by
 mechanism alone.
@@ -127,10 +134,15 @@ are, exactly:
 
 ## 3. Prerequisites (code that must exist before Week 1)
 
-1. **Supplemental candidate capture.** The capture tick computes and writes
-   the two Candidate B snapshots alongside the scheduled one, same
-   transaction, per section 2. Constants for the cells are resolved from
-   production `MODEL_CONSTANTS` with exactly the two named leaves changed.
+1. **Candidate-arm capture. BUILT** (`holdout.service.js` `CANDIDATE_ARMS` /
+   `captureArms`, protocol 2): the capture tick computes and writes the two
+   Candidate B snapshots alongside the scheduled one, same transaction, per
+   section 2. Constants for the cells are resolved from production
+   `MODEL_CONSTANTS` with exactly the two named leaves changed, and a
+   resolver guard refuses an override key that does not already exist -
+   JSON key order is the constants hash's identity, and an appended typo'd
+   key would corrupt provenance. Remaining for this item: **deploy** before
+   the 2026 Week 1 capture window opens.
 2. **Evaluation script.** Deterministic, reads only the ledger and the pinned
    actuals of section 5, emits the report and every number in section 8.
    Published with the report.

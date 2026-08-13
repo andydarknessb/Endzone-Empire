@@ -18,6 +18,15 @@
  *   (standard / half_ppr / ppr), fixed here in code. League-specific
  *   captures can be added later as `capture_kind: 'supplemental'` without
  *   touching the scheduled identity space.
+ * - **Candidate arms ride the scheduled capture** (protocol 2, the
+ *   `holdout-confirm-2026` study): each capture transaction also writes the
+ *   preregistered candidate cells (`CANDIDATE_ARMS`) as their own
+ *   `capture_kind` rows, computed in the SAME transaction from the SAME
+ *   REPEATABLE READ snapshot, differing from the scheduled arm only in the
+ *   constant leaves their `constants_hash` fingerprints. A candidate mean
+ *   diverging from the scheduled mean aborts the whole capture: the
+ *   candidate kernels touch dispersion only, so divergence proves the arms
+ *   did not share a snapshot.
  * - **All-or-nothing.** One capture = ONE transaction holding an advisory
  *   lock on the snapshot identity: schedule validation, cohort read,
  *   projection computation, header, and every child row commit together or
@@ -69,8 +78,16 @@ const {
   GAMES_PER_TEAM,
 } = require('./scheduleManifest');
 
-/** Bumped whenever the capture protocol changes shape or meaning. */
-const HOLDOUT_PROTOCOL_VERSION = 1;
+/**
+ * Bumped whenever the capture protocol changes shape or meaning.
+ *
+ * 2: a complete capture is now THREE arms - the scheduled snapshot plus the
+ *    two `holdout-confirm-2026` candidate cells - committed in one
+ *    transaction from one feature snapshot. A protocol-1 week (scheduled
+ *    arm only) must never skip-match as "already complete" under this
+ *    meaning, which the per-header protocol check enforces.
+ */
+const HOLDOUT_PROTOCOL_VERSION = 2;
 
 /** Capture opens this long before a week's first kickoff. */
 const CAPTURE_WINDOW_HOURS = 24;
@@ -149,13 +166,74 @@ const HOLDOUT_SCORING_PROFILES = Object.freeze(
 const sha256 = (text) => crypto.createHash('sha256').update(text).digest('hex');
 
 /**
- * MODEL_CONSTANTS fingerprint. JSON.stringify is deterministic for a given
+ * Constants fingerprint. JSON.stringify is deterministic for a given
  * build (object-literal key order), which is exactly the scope a constants
  * hash needs: two builds that serialize differently ARE different constants
- * provenance until proven otherwise.
+ * provenance until proven otherwise. Defaults to production's constants;
+ * candidate arms pass their own resolved object.
  */
-function constantsHash() {
-  return sha256(JSON.stringify(model.MODEL_CONSTANTS));
+function constantsHash(constants = model.MODEL_CONSTANTS) {
+  return sha256(JSON.stringify(constants));
+}
+
+/**
+ * The candidate arms of `holdout-confirm-2026` (see
+ * backtest-artifacts/holdout-confirm-2026/PREREGISTRATION.md, sections 1-2).
+ * Each names its `capture_kind` - the ledger's unique key is
+ * (season, week, scoring_hash, model_version, capture_kind), so DISTINCT
+ * kinds are what give two same-model arms distinct identities without
+ * touching the scheduled identity space - and the exact constant leaves it
+ * changes from production's MODEL_CONSTANTS.
+ *
+ * Frozen: the study is sealed against these values, and a runtime mutation
+ * would silently capture an arm the preregistration never named.
+ */
+const CANDIDATE_ARMS = Object.freeze([
+  Object.freeze({
+    kind: 'candidate:bw-20',
+    overrides: Object.freeze({ smoothingBandwidth: 0.2, intervalScale: 1.0 }),
+  }),
+  Object.freeze({
+    kind: 'candidate:bw-15',
+    overrides: Object.freeze({ smoothingBandwidth: 0.15, intervalScale: 1.0 }),
+  }),
+]);
+
+/**
+ * A candidate cell's full constants: production's MODEL_CONSTANTS with
+ * EXACTLY the named `simulation` leaves changed and nothing else.
+ *
+ * Every override key must already exist on the production object. That is a
+ * correctness rule, not pedantry: JSON key order is insertion order, the
+ * constants hash is JSON.stringify, and ASSIGNING an existing key preserves
+ * order while ADDING one appends it - so a typo'd override key would produce
+ * an object whose hash differs from production's for a structural reason on
+ * top of the value change, and the provenance record would be lying about
+ * what the arm varied.
+ */
+function resolveCandidateConstants(overrides) {
+  const resolved = JSON.parse(JSON.stringify(model.MODEL_CONSTANTS));
+  for (const [key, value] of Object.entries(overrides)) {
+    if (!(key in resolved.simulation)) {
+      throw new Error(`candidate arm override "${key}" is not an existing simulation constant`);
+    }
+    resolved.simulation[key] = value;
+  }
+  return resolved;
+}
+
+/**
+ * Every arm one capture transaction writes, in fixed order, scheduled first.
+ * Resolved fresh per call so a test that mocks MODEL_CONSTANTS sees its mock.
+ */
+function captureArms() {
+  return [
+    { kind: 'scheduled', constants: model.MODEL_CONSTANTS, hash: constantsHash() },
+    ...CANDIDATE_ARMS.map((arm) => {
+      const constants = resolveCandidateConstants(arm.overrides);
+      return { kind: arm.kind, constants, hash: constantsHash(constants) };
+    }),
+  ];
 }
 
 /**
@@ -424,33 +502,52 @@ async function snapshotWeek({ season, week, profileName, rules, client = pool })
     }
     const cohortHash = sha256(cohort.map((r) => r.id).join(','));
 
-    // Conflict handling under the identity lock: an existing snapshot is
-    // honored ONLY as an exact, complete provenance match. Anything else is
-    // an anomaly the ledger must not paper over - completing it with a NEW
-    // projection run would put rows from two different computations under
-    // one header.
+    // Every arm this transaction writes, fixed order, scheduled first. The
+    // candidate arms belong to holdout-confirm-2026 (see PREREGISTRATION.md
+    // there): same cohort, same schedule, same deadline, same transaction -
+    // they differ from the scheduled arm ONLY in the two simulation leaves
+    // their constants_hash fingerprints.
+    const arms = captureArms();
+
+    // Conflict handling under the identity lock: an existing capture is
+    // honored ONLY as an exact, complete provenance match across EVERY arm.
+    // Anything else is an anomaly the ledger must not paper over - completing
+    // any part of it with a NEW projection run would put rows from two
+    // different computations under one week's evidence.
     const existing = await conn.query(
-      `SELECT "s"."id", "s"."cohort_size", "s"."cohort_hash", "s"."constants_hash",
-              "s"."schedule_hash", "s"."release_sha", "s"."protocol_version",
-              COUNT("p"."id")::int AS "rows"
+      `SELECT "s"."id", "s"."capture_kind", "s"."cohort_size", "s"."cohort_hash",
+              "s"."constants_hash", "s"."schedule_hash", "s"."release_sha",
+              "s"."protocol_version", COUNT("p"."id")::int AS "rows"
        FROM "projection_snapshots" "s"
        LEFT JOIN "projection_snapshot_players" "p" ON "p"."snapshot_id" = "s"."id"
        WHERE "s"."season" = $1 AND "s"."week" = $2 AND "s"."scoring_hash" = $3
-         AND "s"."model_version" = $4 AND "s"."capture_kind" = 'scheduled'
+         AND "s"."model_version" = $4 AND "s"."capture_kind" = ANY($5::text[])
        GROUP BY "s"."id"`,
-      [season, week, scoringHash, modelVersion]
+      [season, week, scoringHash, modelVersion, arms.map((a) => a.kind)]
     );
-    const found = existing.rows[0];
-    if (found) {
-      // EXACTLY the cohort, not "at least": extra rows are as much of an
-      // anomaly as missing ones.
-      const complete = Number(found.rows) === Number(found.cohort_size);
-      const matches = found.cohort_hash === cohortHash
-        && found.constants_hash === constantsHash()
-        && found.schedule_hash === schedule.scheduleHash
-        && found.release_sha === releaseSha
-        && Number(found.protocol_version) === HOLDOUT_PROTOCOL_VERSION;
-      if (complete && matches) {
+    if (existing.rows.length > 0) {
+      const foundByKind = new Map(existing.rows.map((r) => [r.capture_kind, r]));
+      // Validate every arm that exists BEFORE judging completeness of the
+      // set, so a corrupted arm reports its own defect rather than hiding
+      // behind "some arms are missing".
+      for (const arm of arms) {
+        const found = foundByKind.get(arm.kind);
+        if (!found) continue;
+        // EXACTLY the cohort, not "at least": extra rows are as much of an
+        // anomaly as missing ones.
+        const complete = Number(found.rows) === Number(found.cohort_size);
+        const matches = found.cohort_hash === cohortHash
+          && found.constants_hash === arm.hash
+          && found.schedule_hash === schedule.scheduleHash
+          && found.release_sha === releaseSha
+          && Number(found.protocol_version) === HOLDOUT_PROTOCOL_VERSION;
+        if (!complete || !matches) {
+          throw new Error(
+            `holdout snapshot conflict for ${season} week ${week} ${profileName} (${arm.kind}): ` +
+            (complete ? 'provenance mismatch' : `incomplete (${found.rows}/${found.cohort_size} rows)`) +
+            ' - refusing to touch an existing snapshot'
+          );
+        }
         // Trust nothing about the child rows either: their actual player-id
         // digest must reproduce the header's cohort hash before the skip is
         // honored as "this exact snapshot already exists".
@@ -462,18 +559,30 @@ async function snapshotWeek({ season, week, profileName, rules, client = pool })
         const childDigest = sha256(childIds.rows.map((r) => r.player_id).join(','));
         if (childDigest !== found.cohort_hash) {
           throw new Error(
-            `holdout snapshot conflict for ${season} week ${week} ${profileName}: ` +
+            `holdout snapshot conflict for ${season} week ${week} ${profileName} (${arm.kind}): ` +
             'child rows do not reproduce the header cohort digest - refusing to touch an existing snapshot'
           );
         }
-        await conn.query('ROLLBACK');
-        return { season, week, profileName, snapshotId: found.id, skipped: 'already complete' };
       }
-      throw new Error(
-        `holdout snapshot conflict for ${season} week ${week} ${profileName}: ` +
-        (complete ? 'provenance mismatch' : `incomplete (${found.rows}/${found.cohort_size} rows)`) +
-        ' - refusing to touch an existing snapshot'
-      );
+      const missing = arms.filter((a) => !foundByKind.has(a.kind)).map((a) => a.kind);
+      if (missing.length > 0) {
+        // Some arms exist and check out; others were never written. Appending
+        // the missing ones NOW would come from a different computation on a
+        // different day - mixed provenance under one week. The week is
+        // lost for capture; the evaluation's symmetric-drop rule handles it.
+        throw new Error(
+          `holdout snapshot conflict for ${season} week ${week} ${profileName}: ` +
+          `partial arm set - existing [${[...foundByKind.keys()].sort().join(', ')}], ` +
+          `missing [${missing.sort().join(', ')}] - refusing to append arms to an existing capture`
+        );
+      }
+      await conn.query('ROLLBACK');
+      return {
+        season, week, profileName,
+        snapshotId: foundByKind.get('scheduled').id,
+        armSnapshotIds: Object.fromEntries(arms.map((a) => [a.kind, foundByKind.get(a.kind).id])),
+        skipped: 'already complete',
+      };
     }
 
     const playerIds = cohort.map((r) => r.id);
@@ -483,61 +592,94 @@ async function snapshotWeek({ season, week, profileName, rules, client = pool })
     // context, cannot move a point), its provider makes network calls, and
     // its snapshot store reads through the global pool - all three violate
     // the one-transaction, one-snapshot contract this capture certifies.
-    const run = await projection.generateProjections({
-      season, week, rules, playerIds, hashValue: scoringHash, client: conn,
-      weatherService: false,
-    });
+    //
+    // One run per arm, every run inside THIS transaction, so all three read
+    // the identical REPEATABLE READ snapshot; only modelConstants varies.
+    const runsByKind = new Map();
+    for (const arm of arms) {
+      runsByKind.set(arm.kind, await projection.generateProjections({
+        season, week, rules, playerIds, hashValue: scoringHash, client: conn,
+        weatherService: false, modelConstants: arm.constants,
+      }));
+    }
 
-    const header = await conn.query(
-      `INSERT INTO "projection_snapshots"
-         ("season", "week", "scoring_profile", "scoring_hash", "model_version",
-          "constants_hash", "release_sha", "cohort_hash", "cohort_size",
-          "schedule_games", "schedule_hash", "protocol_version", "capture_kind",
-          "capture_not_after", "input_cutoff", "source_coverage")
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'scheduled', $13, $14, $15::jsonb)
-       RETURNING "id"`,
-      [
-        season, week, profileName, scoringHash, modelVersion,
-        constantsHash(), releaseSha, cohortHash, cohort.length,
-        schedule.scheduleGames, schedule.scheduleHash, HOLDOUT_PROTOCOL_VERSION,
-        cutoff, run.inputCutoff || null, JSON.stringify(run.sourceCoverage || {}),
-      ]
-    );
-    const snapshotId = header.rows[0].id;
+    // The prereg's mean bit-equality assertion (holdout-confirm-2026 §9.1),
+    // enforced where the rows are BORN rather than discovered at evaluation:
+    // the candidate kernels touch dispersion only, so a diverging mean means
+    // the arms did not compute from one snapshot, and the capture must die
+    // here rather than write a week the study will void anyway.
+    const controlRun = runsByKind.get('scheduled');
+    for (const arm of arms) {
+      if (arm.kind === 'scheduled') continue;
+      const candidateRun = runsByKind.get(arm.kind);
+      for (const playerId of playerIds) {
+        const controlMean = (controlRun.projections.get(playerId) || {}).mean ?? null;
+        const candidateMean = (candidateRun.projections.get(playerId) || {}).mean ?? null;
+        if (controlMean !== candidateMean) {
+          throw new Error(
+            `capture for ${season} week ${week} ${profileName}: arm ${arm.kind} mean diverged from ` +
+            `the scheduled arm for player ${playerId} (${candidateMean} vs ${controlMean}) - ` +
+            'the arms did not share a feature snapshot; rolling back'
+          );
+        }
+      }
+    }
 
-    for (let offset = 0; offset < cohort.length; offset += CHUNK) {
-      const chunk = cohort.slice(offset, offset + CHUNK);
-      const placeholders = [];
-      const params = [];
-      chunk.forEach((playerRow, i) => {
-        const p = run.projections.get(playerRow.id) || {};
-        const game = schedule.byTeam.get(normalizeTeamKey(playerRow.nfl_team)) || null;
-        const base = i * CHILD_COLS;
-        placeholders.push(
-          `(${Array.from({ length: CHILD_COLS }, (_, c) =>
-            `$${base + c + 1}${c === 11 ? '::jsonb' : ''}`).join(', ')})`
-        );
-        params.push(
-          snapshotId, playerRow.id,
-          p.mean ?? null, p.median ?? null, p.p10 ?? null, p.p25 ?? null,
-          p.p75 ?? null, p.p90 ?? null, p.activeProbability ?? null,
-          p.confidence ?? null, p.sampleSize || 0, JSON.stringify(p.factors || {}),
-          playerRow.position ?? null, playerRow.nfl_team ?? null, playerRow.injury_status ?? null,
-          game ? game.opponent : null,
-          // Orientation from the MANIFEST (the authority), not the row: the
-          // 2026 sync never populated home_away.
-          game ? (schedule.orientationByTeam.get(normalizeTeamKey(playerRow.nfl_team)) ?? null) : null,
-          game ? game.kickoff_at : null
-        );
-      });
-      await conn.query(
-        `INSERT INTO "projection_snapshot_players"
-           ("snapshot_id", "player_id", "mean", "median", "p10", "p25", "p75", "p90",
-            "active_probability", "confidence", "sample_size", "factors",
-            "position", "nfl_team", "injury_status", "opponent", "home_away", "game_kickoff_at")
-         VALUES ${placeholders.join(', ')}`,
-        params
+    const armSnapshotIds = {};
+    for (const arm of arms) {
+      const run = runsByKind.get(arm.kind);
+      const header = await conn.query(
+        `INSERT INTO "projection_snapshots"
+           ("season", "week", "scoring_profile", "scoring_hash", "model_version",
+            "constants_hash", "release_sha", "cohort_hash", "cohort_size",
+            "schedule_games", "schedule_hash", "protocol_version", "capture_kind",
+            "capture_not_after", "input_cutoff", "source_coverage")
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::jsonb)
+         RETURNING "id"`,
+        [
+          season, week, profileName, scoringHash, modelVersion,
+          arm.hash, releaseSha, cohortHash, cohort.length,
+          schedule.scheduleGames, schedule.scheduleHash, HOLDOUT_PROTOCOL_VERSION,
+          arm.kind, cutoff, run.inputCutoff || null, JSON.stringify(run.sourceCoverage || {}),
+        ]
       );
+      const snapshotId = header.rows[0].id;
+      armSnapshotIds[arm.kind] = snapshotId;
+
+      for (let offset = 0; offset < cohort.length; offset += CHUNK) {
+        const chunk = cohort.slice(offset, offset + CHUNK);
+        const placeholders = [];
+        const params = [];
+        chunk.forEach((playerRow, i) => {
+          const p = run.projections.get(playerRow.id) || {};
+          const game = schedule.byTeam.get(normalizeTeamKey(playerRow.nfl_team)) || null;
+          const base = i * CHILD_COLS;
+          placeholders.push(
+            `(${Array.from({ length: CHILD_COLS }, (_, c) =>
+              `$${base + c + 1}${c === 11 ? '::jsonb' : ''}`).join(', ')})`
+          );
+          params.push(
+            snapshotId, playerRow.id,
+            p.mean ?? null, p.median ?? null, p.p10 ?? null, p.p25 ?? null,
+            p.p75 ?? null, p.p90 ?? null, p.activeProbability ?? null,
+            p.confidence ?? null, p.sampleSize || 0, JSON.stringify(p.factors || {}),
+            playerRow.position ?? null, playerRow.nfl_team ?? null, playerRow.injury_status ?? null,
+            game ? game.opponent : null,
+            // Orientation from the MANIFEST (the authority), not the row: the
+            // 2026 sync never populated home_away.
+            game ? (schedule.orientationByTeam.get(normalizeTeamKey(playerRow.nfl_team)) ?? null) : null,
+            game ? game.kickoff_at : null
+          );
+        });
+        await conn.query(
+          `INSERT INTO "projection_snapshot_players"
+             ("snapshot_id", "player_id", "mean", "median", "p10", "p25", "p75", "p90",
+              "active_probability", "confidence", "sample_size", "factors",
+              "position", "nfl_team", "injury_status", "opponent", "home_away", "game_kickoff_at")
+           VALUES ${placeholders.join(', ')}`,
+          params
+        );
+      }
     }
 
     // The deadline, rechecked at the last possible moment: computation took
@@ -551,7 +693,13 @@ async function snapshotWeek({ season, week, profileName, rules, client = pool })
     }
 
     await conn.query('COMMIT');
-    return { season, week, profileName, snapshotId, cohortSize: cohort.length, inserted: cohort.length };
+    return {
+      season, week, profileName,
+      snapshotId: armSnapshotIds.scheduled,
+      armSnapshotIds,
+      cohortSize: cohort.length,
+      inserted: cohort.length,
+    };
   } catch (err) {
     try { await conn.query('ROLLBACK'); } catch (rollbackErr) { /* connection already aborted */ }
     throw err;
@@ -820,7 +968,10 @@ module.exports = {
   GAMES_PER_TEAM,
   HOLDOUT_POSITIONS,
   HOLDOUT_SCORING_PROFILES,
+  CANDIDATE_ARMS,
   constantsHash,
+  resolveCandidateConstants,
+  captureArms,
   registerSeasonManifest,
   manifestGamesForWeek,
   captureNotAfterFor,
