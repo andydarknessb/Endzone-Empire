@@ -320,6 +320,54 @@ const MODEL_CONSTANTS = {
     // usable; the position-level pooled dispersion is used instead.
     minPlayerResiduals: 3,
     minPooledResiduals: 8,
+    // SMOOTHED BOOTSTRAP. Width of the Gaussian kernel each resampled residual
+    // is jittered by, as a FRACTION of the shrunk inter-decile spread below.
+    //
+    // The defect it addresses, measured over the 34 frozen pit-sweep cohort
+    // weeks (14,250 player-weeks) with this file's own functions: p10-p90
+    // coverage 0.647 against a 0.80 target, and monotone in how many residuals
+    // the player has - 0.477 at 3-4 residuals, 0.637 at 5-7, 0.682 at 8-11,
+    // 0.696 at 12+. A bootstrap of three points CANNOT express a 10th
+    // percentile: every draw is one of three numbers, so the band is bounded
+    // by their own min and max and the outcome routinely falls outside the
+    // SUPPORT. That is a support defect, not a scale defect, and the
+    // measurement says so twice over:
+    //   - raising `intervalScale` alone saturates. At 2.5 (width 23.56,
+    //     nearly double) coverage still only reaches 0.738, while the 50%
+    //     band overshoots to 0.594 and K/DEF reach 0.94. No multiplier
+    //     reaches outside a support.
+    //   - mixing the position pool in as a second component fixes the tails
+    //     and breaks the middle: 0.833 at p10-p90 but 0.342 at p25-p75,
+    //     because a two-component mixture's central quantiles are dominated
+    //     by the narrow component.
+    // Jittering widens the support continuously, in one component, so both
+    // intervals move together. At bandwidth 0.20 with intervalScale 1.0 the
+    // same measurement gives 0.814 / 0.531 against the 0.80 / 0.50 targets,
+    // at intervals 21% NARROWER than shipped, and flattens the by-residual
+    // spread from 0.477-0.927 to 0.737-0.897.
+    //
+    // The smoothing is deliberately SCALE-AGNOSTIC about the point estimate:
+    // the re-centring pins the draw median to `mean + median(residuals)` at
+    // every intervalScale, including exactly 1 where the bit-compatibility
+    // shortcut leaves `origin` as the bare mean. Pinning to `origin` instead
+    // would move the point estimate by the median residual at that one value
+    // and nowhere else - a discontinuity in a constant this sweep varies.
+    //
+    // SHIPS 0, and 0 is why this does not bump MODEL_VERSION: at zero no
+    // jitter is drawn, the re-centring below is skipped, the PRNG is consumed
+    // exactly as before and every projection is bit-identical to v3.1's. Same
+    // inert-merge exception as the usage component at weight 0.
+    //
+    // The numbers above come from a harness that omits the opponent, usage and
+    // homeAway factors (they need a database), so it measures 0.647 where the
+    // published sweep measures 0.745. They are a STARTING POINT for a proper
+    // sweep, not a selection - the same mistake that put 1.45 here, calibrated
+    // on a different population from the one it now serves.
+    smoothingBandwidth: 0,
+    // Evidence weight of the position pool when shrinking a player's own
+    // spread toward it, in pseudo-observations - the same idiom as
+    // `priorSeasonPseudoGames`. Read ONLY when smoothingBandwidth > 0.
+    smoothingPseudoResiduals: 8,
   },
   confidence: {
     // Effective sample size (recency-weighted games) thresholds.
@@ -975,6 +1023,52 @@ function availabilityFor({ injuryStatus = null, onBye = false, locked = false, l
 // Distribution
 // ---------------------------------------------------------------------------
 
+/** Pure: inter-decile spread of an ASCENDING-sorted pool. The robust width the smoothing is scaled by. */
+function interDecileSpread(sorted) {
+  return Number(quantile(sorted, 0.9)) - Number(quantile(sorted, 0.1));
+}
+
+/**
+ * Pure: the smoothing kernel's bandwidth IN POINTS, or 0 when smoothing is off.
+ *
+ * The bandwidth is a fraction of the player's own spread SHRUNK toward the
+ * position pool's, in pseudo-observations - so a player with three residuals,
+ * whose own spread is badly biased small, is smoothed by something close to
+ * his position's real dispersion, while a well-sampled player is smoothed by
+ * his own. Returns 0 whenever smoothing is disabled or there is no usable
+ * spread to scale, which is what keeps the shipped configuration bit-identical.
+ */
+function smoothingBandwidthFor({ own, pooled, residuals, constants }) {
+  const bw = isNum(constants.smoothingBandwidth) ? Number(constants.smoothingBandwidth) : 0;
+  if (!(bw > 0) || !residuals || residuals.length === 0) return 0;
+  const pseudo = isNum(constants.smoothingPseudoResiduals)
+    ? Number(constants.smoothingPseudoResiduals)
+    : 0;
+  // `residuals` is the SELECTED pool and is already sorted; the pooled array
+  // is sorted here only when it is actually consulted.
+  const ownSpread = interDecileSpread(residuals);
+  const usablePooled = pooled && pooled.length >= constants.minPooledResiduals
+    ? pooled.slice().sort((a, b) => a - b)
+    : null;
+  if (!usablePooled || !(pseudo > 0)) {
+    return ownSpread > 0 ? bw * ownSpread : 0;
+  }
+  const pooledSpread = interDecileSpread(usablePooled);
+  // `own.length`, not `residuals.length`: when the player's own pool was too
+  // small to be SELECTED, his evidence is what he actually has, not the size
+  // of the pool he borrowed.
+  const n = own.length;
+  const shrunk = (n * ownSpread + pseudo * pooledSpread) / (n + pseudo);
+  return shrunk > 0 ? bw * shrunk : 0;
+}
+
+/** Pure: one standard normal from a uniform generator, Box-Muller. Consumes two uniforms. */
+function standardNormal(rand) {
+  const u = Math.max(rand(), Number.MIN_VALUE);
+  const v = rand();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+
 /**
  * Pure + deterministic: bootstrap a weekly point distribution by resampling
  * residuals around the projected mean.
@@ -1054,12 +1148,37 @@ function simulateDistribution({
   // without an intervalScale gets exactly the sequence it always got.
   const center = scale === 1 ? 0 : Number(quantile(residuals, 0.5));
   const origin = scale === 1 ? Number(mean) : Number(mean) + center;
+  // Kernel bandwidth in POINTS, or 0 for the unsmoothed bootstrap. Derived
+  // before the loop so the per-draw path stays a multiply-add.
+  const bandwidth = smoothingBandwidthFor({ own, pooled, residuals, constants });
   const draws = [];
   for (let i = 0; i < constants.draws; i++) {
     const residual = residuals[Math.floor(rand() * residuals.length) % residuals.length];
-    draws.push(origin + scale * (residual - center));
+    const jitter = bandwidth > 0 ? bandwidth * standardNormal(rand) : 0;
+    draws.push(origin + scale * (residual - center) + jitter);
   }
   draws.sort((a, b) => a - b);
+  if (bandwidth > 0) {
+    // A symmetric kernel does NOT leave a skewed draw set's median alone: it
+    // pulls it toward the mean, measured at +0.18 points before this
+    // correction. Widening the band must not move the point estimate, so the
+    // draws are translated back until the median sits exactly where the
+    // unsmoothed mechanism puts it. A translation changes no interval WIDTH,
+    // only position, so the calibration above is unaffected by it.
+    //
+    // The target is `mean + median(residuals)`, NOT `origin`. They agree at
+    // every scale except exactly 1, where the bit-compatibility shortcut above
+    // leaves `origin` as the bare mean - correct there only because the
+    // unsmoothed draws are `mean + residual` and carry the median residual
+    // themselves. Pinning to `origin` would therefore have moved the point
+    // estimate by the median residual at scale 1 and nowhere else, inventing a
+    // discontinuity in a constant a calibration sweep is expected to vary.
+    const pinTarget = Number(mean) + Number(quantile(residuals, 0.5));
+    const drift = Number(quantile(draws, 0.5)) - pinTarget;
+    if (drift !== 0) {
+      for (let i = 0; i < draws.length; i++) draws[i] -= drift;
+    }
+  }
   return {
     mean: round2(mean),
     median: round2(quantile(draws, 0.5)),
@@ -1405,6 +1524,9 @@ module.exports = {
   versusOpponentEffect,
   homeAwayEffect,
   weatherEffect,
+  interDecileSpread,
+  smoothingBandwidthFor,
+  standardNormal,
   gameEnvironmentEffect,
   expertConsensusBlend,
   availabilityFor,
