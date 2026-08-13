@@ -172,8 +172,16 @@ the study; it never relaxes it.
   Week-1 projections exist (prior-season history is in the database) and are
   what users actually saw.
 - Week 18 is INCLUDED with the pit-sweep's own reasoning: rest-week
-  distortion hits every arm identically and cancels in paired deltas; a
-  weeks-1-17 sensitivity is published, non-selecting.
+  distortion hits every arm identically and cancels in paired deltas. **The
+  weeks-1-17 sensitivity is produced by the evaluator itself** from the
+  primary run's own weekly series with week 18 removed - nothing is
+  re-simulated, no config override is involved, and it is skipped with the
+  reason stated when week 18 did not survive. [plumbing named after
+  adversarial review: an earlier draft promised the sensitivity but gave the
+  runner no way to produce it without branding the run unsealed.]
+- **Provenance majorities (section 9.4's drift rule) are computed within
+  the evaluated window only**, over week-ordered entries - an out-of-window
+  week can never vote on which in-window weeks drop.
 - A week missing ANY arm drops for EVERY arm, symmetrically, and is counted
   in the report.
 - **Evaluability minimum: 14 surviving weeks.** Below 14, every claim is
@@ -233,9 +241,14 @@ rules verbatim except where named:
   Replicate r of week W drafts in the order given by a Fisher-Yates
   permutation under `mulberry32(seedFrom(375445932, season, W, r))`, with
   production's `seedFrom` / `mulberry32`.
-- A position that cannot fill its quota with rankable players **fails the
-  evaluation loudly** - a cohort that thin is a structural anomaly for
-  `DEVIATIONS.md`, never a pool silently reshaped.
+- A position that cannot fill its quota with rankable players **voids
+  Candidate A loudly, and Candidate A alone** - the anomaly is named in the
+  report for `DEVIATIONS.md` adjudication, and Candidate B's verdict is
+  untouched, because section 1 promises the claims flip independently and a
+  thin cohort week is an estimand problem for the regret claim alone. The
+  pool is never silently reshaped. [scope named after adversarial review:
+  an earlier draft let this anomaly abort the whole evaluation, Candidate B
+  included.]
 - Lineup selection per arm: production `optimalAssignment` under
   `DEFAULT_ROSTER_SLOTS` over the arm's ranking values (section 2).
   Hindsight optimum: the same optimizer over actual points.
@@ -273,36 +286,64 @@ Family-wise one-sided **alpha = 0.05 per candidate claim** (the two claims
 are separate families; each flips a disjoint constant set and section 1
 establishes mechanism-level independence).
 
+### 8.0 Test alphas versus family alphas [amended after adversarial review]
+
+Adversarial statistical simulation of section 10's raw percentile bootstrap
+at n = 14-18 measured it **anticonservative**: per-component realized levels
+of **1.4-2.3x nominal** on realistic coverage-contrast populations and
+**~1.1-1.3x** on the regret-delta shape (6,000 simulated seasons per
+configuration, true null on the boundary). An earlier draft tested each
+component at its family alpha on Berger's IUT theorem; the theorem is
+correct and dependence-free, but its hypothesis - that every component test
+is level-alpha - is false for this bootstrap at this n. The remedy is the
+pit-sweep's conservatism divisor restored WITH a measured reason:
+
+- **Candidate A tests at alpha 0.025** (family claim 0.05, divisor 2):
+  at the measured ~1.1-1.3x inflation the realized level is ~0.03,
+  inside the family alpha with margin.
+- **Candidate B components test at alpha 0.025/3 = 1/120** (per-cell claim
+  0.025, divisor 3): at the measured 1.4-2.3x inflation the realized
+  per-component level is ~0.012-0.019, and the worst simulated
+  configuration (~2.8x, strongly left-skewed) lands at ~0.024 - at or
+  under the per-cell claim.
+
 ### 8.1 Candidate A - one component
 
 - Endpoint: mean over surviving weeks of the paired regret delta.
-- **Pass iff the upper one-sided 95% bound (section 10) on the weekly mean
-  delta lies strictly below 0.** Margin 0 - superiority, not noninferiority.
-- **Power, stated honestly:** at the observed effect (-1.9, weekly SD ~4.1)
-  and n = 17, power is roughly **0.55-0.60**. This study can miss a real
-  effect of the observed size almost half the time. A miss therefore reads
-  INCONCLUSIVE, not refuted (section 11), and the candidate may re-run as a
-  new study on the next season's ledger. The margin is still 0 because a
-  flip must be justified by this season's own evidence, not by the
-  exploratory result it is checking.
+- **Pass iff the upper one-sided bound at test alpha 0.025 (sections 8.0,
+  10) on the weekly mean delta lies strictly below 0.** Margin 0 -
+  superiority, not noninferiority.
+- **Power, stated honestly [corrected after adversarial review]:** the
+  earlier draft quoted 0.55-0.60 from a t/z approximation of a test this
+  study does not run, computed on contaminated inputs. Simulating the
+  ACTUAL sealed bootstrap gate on the exploratory 34-week delta shape gives
+  power ~0.65 at alpha 0.05. Six of those 34 weeks were structurally zero -
+  the reconstruction harness had no prior-week evidence in weeks 2-4, so
+  mean and median ranked identically - a condition section 4 says cannot
+  recur on the production ledger; on the 28 informative weeks the effect is
+  **-2.31 (SD 4.40)**, not -1.9/4.1. At the tightened 0.025 test alpha a
+  z-approximation on the informative-week effect gives power roughly
+  **0.6**. A miss reads INCONCLUSIVE, not refuted (section 11), and the
+  candidate may re-run as a new study on the next season's ledger. The
+  margin is still 0 because a flip must be justified by this season's own
+  evidence, not by the exploratory result it is checking.
 
 ### 8.2 Candidate B - two cells, three components
 
 Two cells share alpha by Bonferroni: **per-cell alpha = 0.025**. Within a
-cell the claim is an intersection-union test; per Berger's IUT theorem each
-component is tested at the CELL's alpha with no further division (a
-deliberate, stated departure from the pit-sweep's alpha/7 divisor style: the
-IUT is level-alpha when every component is level-alpha, and the divisor there
-was a conservatism choice, not a requirement).
+cell the claim is an intersection-union test whose components each run at
+**alpha 0.025/3** (section 8.0's divisor - the earlier Berger no-divisor
+argument is withdrawn there, with the measurement that falsified its
+premise).
 
 A cell passes iff ALL of:
 
-1. **cov80 improvement**: lower one-sided 97.5% bound on the weekly mean of
-   `T80(w)` strictly above 0.
-2. **cov50 improvement**: lower one-sided 97.5% bound on the weekly mean of
-   `T50(w)` strictly above 0.
-3. **WIS no-harm**: upper one-sided 97.5% bound on the weekly mean paired
-   WIS delta (cand - ctrl) strictly below **+0.05**.
+1. **cov80 improvement**: lower one-sided bound at component alpha 1/120 on
+   the weekly mean of `T80(w)` strictly above 0.
+2. **cov50 improvement**: lower one-sided bound at component alpha 1/120 on
+   the weekly mean of `T50(w)` strictly above 0.
+3. **WIS no-harm**: upper one-sided bound at component alpha 1/120 on the
+   weekly mean paired WIS delta (cand - ctrl) strictly below **+0.05**.
 
 Plus two hard point-estimate bands, non-statistical by design (a candidate
 whose realized coverage sits outside the advertised band has failed the
@@ -311,9 +352,17 @@ product claim whatever the bootstrap says):
 - season cov80 point estimate in **[0.75, 0.85]**;
 - season cov50 point estimate in **[0.45, 0.55]**.
 
+**"Season point estimate" is the mean over surviving weeks of the weekly
+coverage** - the week is the analysis unit (section 7), so weeks weigh
+equally whatever their eligible-row counts. Named because the pooled-rows
+reading is also defensible and differs when bye weeks move the denominators.
+
 **Selection among passing cells is by the fixed order (`bw-20`, `bw-15`)**:
 the first passer in that order is selected; nothing about the data reorders
-it. If both fail or the claim voids, no calibration flip occurs.
+it. If both fail or the claim voids, no calibration flip occurs - and a
+section 9 void is CANDIDATE-WIDE: a void on either cell selects nothing,
+because a capture that lost snapshot isolation in one arm was one
+transaction, and the sibling arm has no better provenance.
 
 ### 8.3 What flips
 
@@ -323,6 +372,12 @@ it. If both fail or the claim voids, no calibration flip occurs.
 - Any flip ships as **`free_baseline_v3.2`** with the MODEL_VERSION bump;
   both flips together are still one bump. No pass, no bump, and the inert
   constants stay at their shipped values.
+- **Release-level error rate, stated plainly:** the two claims are separate
+  0.05 families (disjoint constant sets, section 1's mechanism
+  independence), so the probability that v3.2 ships carrying at least one
+  false flip is bounded near **0.10**, not 0.05. That is a deliberate
+  design choice, not an oversight, and this sentence is where a reader
+  learns it.
 
 ---
 
@@ -359,7 +414,11 @@ void is "the run cannot speak", never a pass or a fail.
   within a draw, never across draws.
 - **Exactly 100,000 draws. Bootstrap seed 2579717975**
   (`sha256("endzone-empire/holdout-confirm-2026/bootstrap-seed")[:8]` as u32).
-- Identical resamples reused for every arm, endpoint and component.
+- Identical resamples reused for every arm, endpoint and component. **One
+  named exception**: a component whose weekly series is shorter than the
+  survivor set (a null weekly metric dropped symmetrically - possible only
+  when a whole arm-week has no eligible rows) takes its own matrix, built at
+  the same seed for its own length, and the drop counts are published.
 - Percentile bounds; the one-sided q bound is the order statistic at index
   `ceil(q * 100000)` clamped to `[1, 100000]`, no interpolation.
 - Exact fallback: if fewer than 12 clusters survive, or fewer than 100
@@ -367,6 +426,14 @@ void is "the run cannot speak", never a pass or a fail.
   exact one-sided sign test at the same alpha (pit-sweep §9.8 mechanics),
   and the report says so. (Below 14 weeks section 4 has already made the
   claim unevaluable; the 12 threshold only guards a sensitivity rerun.)
+  **The fallback changes the estimand, and that is disclosed rather than
+  hidden**: the sign test bounds the MEDIAN of weekly deltas where the
+  bootstrap bounds the MEAN. A heavy-tailed effect carried by magnitude in
+  a minority of weeks - which the exploratory regret deltas are, 17 of 28
+  informative weeks favorable - can pass one and fail the other. Accepted,
+  because the trigger only fires when the bootstrap is untrustworthy
+  anyway, and a claim that survives only under the mean of a heavy tail at
+  degenerate n is not one this study wants to ship on.
 
 ---
 

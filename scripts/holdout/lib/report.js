@@ -46,13 +46,17 @@ function renderReport(result) {
   lines.push(`Verdict: **${a.verdict.toUpperCase()}**`);
   for (const v of a.voids) lines.push(`- VOID: ${v}`);
   lines.push('');
-  lines.push('| component | method | evidence | outcome |');
-  lines.push('| --- | --- | --- | --- |');
-  lines.push(renderComponent(a.component));
-  lines.push('');
-  lines.push(`Permutation floor: p = ${round(a.permutationFloor.p, 6)} over ${a.permutationFloor.permutations} `
-    + `shuffles against threshold ${a.permutationFloor.threshold}; control mean regret ${round(a.controlMeanRegret, 3)}.`);
-  lines.push('');
+  if (a.component) {
+    lines.push('| component | method | evidence | outcome |');
+    lines.push('| --- | --- | --- | --- |');
+    lines.push(renderComponent(a.component));
+    lines.push('');
+  }
+  if (a.permutationFloor) {
+    lines.push(`Permutation floor: p = ${round(a.permutationFloor.p, 6)} over ${a.permutationFloor.permutations} `
+      + `shuffles against threshold ${a.permutationFloor.threshold}; control mean regret ${round(a.controlMeanRegret, 3)}.`);
+    lines.push('');
+  }
   lines.push('| week | control regret | candidate regret | delta |');
   lines.push('| ---: | ---: | ---: | ---: |');
   for (const w of a.weekly) {
@@ -62,7 +66,12 @@ function renderReport(result) {
 
   lines.push('## Candidate B - interval calibration');
   lines.push('');
-  lines.push(`Selected cell: **${result.candidateB.selected || 'none'}** (fixed order, first passer).`);
+  lines.push(`Verdict: **${result.candidateB.verdict.toUpperCase()}**`);
+  for (const v of result.candidateB.voids) {
+    lines.push(`- VOID (candidate-wide, per prereg section 9 - no cell can be selected): ${v}`);
+  }
+  lines.push('');
+  lines.push(`Selected cell: **${result.candidateB.selected || 'none'}** (fixed order, first passer; a section-9 void selects nothing).`);
   lines.push('');
   for (const cell of result.candidateB.cells) {
     lines.push(`### ${cell.cellKind}`);
@@ -88,6 +97,24 @@ function renderReport(result) {
     }
     lines.push('');
   }
+
+  const sens = result.sensitivityWeeks1to17;
+  lines.push('## Weeks 1-17 sensitivity (non-selecting)');
+  lines.push('');
+  if (!sens) lines.push('Not computed.');
+  else if (sens.skipped) lines.push(sens.skipped);
+  else {
+    lines.push('Published per prereg sections 4 and 11; gates NOTHING.');
+    lines.push('');
+    lines.push('| component | method | evidence | outcome |');
+    lines.push('| --- | --- | --- | --- |');
+    if (sens.candidateA) lines.push(renderComponent(sens.candidateA));
+    for (const cell of sens.cells) {
+      for (const c of cell.components) lines.push(renderComponent(c));
+      lines.push(`| ${cell.cellKind} points | point estimate | cov80 ${round(cell.cov80Point)}, cov50 ${round(cell.cov50Point)} | - |`);
+    }
+  }
+  lines.push('');
 
   lines.push('## What flips');
   lines.push('');

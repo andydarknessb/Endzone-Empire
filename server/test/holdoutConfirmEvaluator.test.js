@@ -266,7 +266,7 @@ test('medianShift aggregates signed and absolute sums by row', () => {
 
 const SEASON = 2026;
 const PRIOR = 2025;
-const WEEKS = Array.from({ length: 16 }, (_, i) => i + 1);
+const WEEKS = Array.from({ length: 18 }, (_, i) => i + 1);
 
 /**
  * A synthetic season built so the sealed machinery must reach known verdicts:
@@ -340,7 +340,7 @@ test('the constructed season reaches the constructed verdicts end to end', () =>
   });
 
   assert.equal(result.evaluable, true);
-  assert.equal(result.weeks.surviving, 16);
+  assert.equal(result.weeks.surviving, 18);
   assert.deepEqual([...result.config.overriddenKeys].sort(),
     ['draws', 'permutationFloorP', 'permutations'],
     'every test override is disclosed; minWeeks matches the sealed value and is not');
@@ -359,7 +359,17 @@ test('the constructed season reaches the constructed verdicts end to end', () =>
   assert.ok(Math.abs(band80.value - 0.8) < 1e-9, 'constructed to cover at exactly 0.80');
   assert.equal(bw15.verdict, 'fail');
   assert.equal(bw15.bands.find((b) => b.label === 'cov80-point-band').passes, false);
+  assert.equal(result.candidateB.verdict, 'pass');
+  assert.deepEqual(result.candidateB.voids, []);
   assert.equal(result.candidateB.selected, 'candidate:bw-20');
+
+  // The weeks-1-17 sensitivity: computed (week 18 survived), non-selecting,
+  // built from the primary's own weekly series at n = 17.
+  const sens = result.sensitivityWeeks1to17;
+  assert.equal(sens.nonSelecting, true);
+  assert.equal(sens.candidateA.n, 17);
+  assert.equal(sens.cells.length, 2);
+  assert.ok(Math.abs(sens.cells[0].cov80Point - 0.8) < 1e-9, 'bw-20 covers 0.80 in the sub-window too');
 
   assert.deepEqual(result.flips, {
     lineupRanking: 'mean', calibration: 'candidate:bw-20', modelVersionBump: true,
@@ -383,13 +393,15 @@ test('the constructed season reaches the constructed verdicts end to end', () =>
 
 test('integrity defects drop weeks symmetrically, and too few survivors is UNEVALUABLE', () => {
   const { weeks, actuals } = syntheticSeason();
-  // Wound three weeks three different ways.
+  // Wound five weeks five different ways: 18 - 5 = 13 < minWeeks 14.
   weeks[2].arms['candidate:bw-15'] = undefined;                       // missing arm
   weeks[5].arms.scheduled = { ...weeks[5].arms.scheduled, isLate: true };
   weeks[8].arms['candidate:bw-20'] = {
     ...weeks[8].arms['candidate:bw-20'],
     rows: weeks[8].arms['candidate:bw-20'].rows.slice(1),             // incomplete
   };
+  weeks[11].arms.scheduled = { ...weeks[11].arms.scheduled, cohortHash: 'not-the-digest' };
+  weeks[13].arms.scheduled = { ...weeks[13].arms.scheduled, capturedAt: 'not a timestamp' }; // NaN fails CLOSED
   const result = evaluator.evaluate({
     season: SEASON, priorSeason: PRIOR, weeks, actuals, config: FAST,
   });
@@ -398,7 +410,9 @@ test('integrity defects drop weeks symmetrically, and too few survivors is UNEVA
   assert.match(result.reason, /UNEVALUABLE/);
   assert.equal(result.candidateA, null);
   const droppedWeeks = result.weeks.dropped.map((d) => d.week).sort((a, b) => a - b);
-  assert.deepEqual(droppedWeeks, [3, 6, 9]);
+  assert.deepEqual(droppedWeeks, [3, 6, 9, 12, 14]);
+  assert.ok(result.weeks.dropped.some((d) => /unparseable capture timestamps/.test(d.reason)),
+    'a corrupted timestamp fails closed with its own named reason');
   assert.match(renderReport(result), /## UNEVALUABLE/);
 });
 
@@ -408,11 +422,15 @@ test('a mid-season constants change drops the drifted weeks as its own named rea
   const result = evaluator.evaluate({
     season: SEASON, priorSeason: PRIOR, weeks, actuals, config: FAST,
   });
-  assert.equal(result.weeks.surviving, 15);
+  assert.equal(result.weeks.surviving, 17);
   assert.match(result.weeks.dropped[0].reason, /constants drift/);
 });
 
-test('a candidate mean mismatch voids that cell and only that cell', () => {
+test('a candidate mean mismatch voids CANDIDATE B WHOLE - the sibling cell is never promoted', () => {
+  // Adversarial review BLOCKER: the earlier cell-scoped void let a passing
+  // sibling ship. Prereg section 9 names the void scope as Candidate B, and
+  // the reasoning is physical: a mean divergence means that arm's capture
+  // lost snapshot isolation, and the sibling came from the SAME transaction.
   const { weeks, actuals } = syntheticSeason();
   const rows = weeks[3].arms['candidate:bw-20'].rows;
   weeks[3].arms['candidate:bw-20'] = {
@@ -422,12 +440,39 @@ test('a candidate mean mismatch voids that cell and only that cell', () => {
   const result = evaluator.evaluate({
     season: SEASON, priorSeason: PRIOR, weeks, actuals, config: FAST,
   });
+  assert.equal(result.candidateB.verdict, 'void');
+  assert.match(result.candidateB.voids[0], /candidate:bw-20: mean bit-equality violated on 1 of/);
+  assert.equal(result.candidateB.selected, null, 'a section-9 void selects NOTHING, whatever the sibling did');
+  assert.equal(result.flips.calibration, null, 'and nothing flips');
   const [bw20, bw15] = result.candidateB.cells;
   assert.equal(bw20.verdict, 'void');
-  assert.match(bw20.voids[0], /mean bit-equality violated on 1 of/);
-  assert.equal(bw15.verdict, 'fail', 'the sibling cell still evaluates on its own merits');
-  assert.equal(result.candidateB.selected, null, 'a voided cell can never be selected');
+  assert.ok(['pass', 'fail'].includes(bw15.verdict), 'the sibling still REPORTS its own diagnostics');
   assert.equal(result.candidateA.verdict, 'pass', 'Candidate A is untouched by a Candidate B void');
+  assert.match(renderReport(result), /VOID \(candidate-wide, per prereg section 9/);
+});
+
+test('a roster anomaly voids Candidate A alone - Candidate B keeps its verdict', () => {
+  // Adversarial review SUBSTANTIVE: the quota-shortfall throw previously
+  // escaped evaluate() whole, discarding Candidate B. Section 1 promises the
+  // claims flip independently.
+  const { weeks, actuals } = syntheticSeason();
+  // Starve the ranking: remove every QB's prior-season game so week 1 has
+  // zero rankable QBs against a quota of 20.
+  for (let id = 1; id <= 160; id++) {
+    const row = weeks[0].arms.scheduled.rows.find((r) => r.playerId === id);
+    if (row && row.position === 'QB') actuals.delete(`${PRIOR}:18:${id}`);
+  }
+  const result = evaluator.evaluate({
+    season: SEASON, priorSeason: PRIOR, weeks, actuals, config: FAST,
+  });
+  assert.equal(result.candidateA.verdict, 'void');
+  assert.match(result.candidateA.voids[0], /position QB has 0 rankable players against a quota of 20/);
+  assert.match(result.candidateA.voids[0], /DEVIATIONS\.md/);
+  assert.equal(result.candidateB.verdict, 'pass', 'Candidate B evaluates on its own merits');
+  assert.equal(result.candidateB.selected, 'candidate:bw-20');
+  assert.deepEqual(result.flips, {
+    lineupRanking: null, calibration: 'candidate:bw-20', modelVersionBump: true,
+  });
 });
 
 test('a systematic median shift voids the cell through the sealed bound', () => {
@@ -444,6 +489,8 @@ test('a systematic median shift voids the cell through the sealed bound', () => 
   const bw20 = result.candidateB.cells[0];
   assert.equal(bw20.verdict, 'void');
   assert.ok(bw20.voids.some((v) => /signed mean median shift 0\.1000/.test(v)));
+  assert.equal(result.candidateB.verdict, 'void', 'the void is candidate-wide');
+  assert.equal(result.candidateB.selected, null);
 });
 
 test('the sealed config is the preregistration, verbatim', () => {
@@ -454,7 +501,9 @@ test('the sealed config is the preregistration, verbatim', () => {
   assert.equal(evaluator.SEALED.permutations, 10000);
   assert.equal(evaluator.SEALED.permutationFloorP, 0.001);
   assert.equal(evaluator.SEALED.alphaA, 0.05);
+  assert.equal(evaluator.SEALED.alphaATest, 0.025, 'the test alpha carries the measured-anticonservatism divisor');
   assert.equal(evaluator.SEALED.cellAlpha, 0.025);
+  assert.equal(evaluator.SEALED.componentAlpha, 0.025 / 3, 'components at cellAlpha/3, the restored conservatism divisor');
   assert.equal(evaluator.SEALED.wisMargin, 0.05);
   assert.deepEqual([...evaluator.SEALED.cov80Band], [0.75, 0.85]);
   assert.deepEqual([...evaluator.SEALED.cov50Band], [0.45, 0.55]);

@@ -30,8 +30,18 @@ const SEALED = Object.freeze({
   rosterSeed: 375445932,
   permutations: 10000,
   permutationFloorP: 0.001,
+  // Family levels (the CLAIMS' alphas) and the tighter TEST alphas the
+  // bounds actually run at. Adversarial statistical review measured §10's
+  // raw percentile bootstrap ANTICONSERVATIVE at n = 14-18: per-component
+  // levels of 1.4-2.3x nominal on realistic coverage-contrast populations,
+  // ~1.1-1.3x on the regret-delta shape. The divisors are the pit-sweep's
+  // conservatism restored with a measured reason - the earlier Berger
+  // no-divisor argument was correct as a theorem and false in its premise,
+  // because the components were never level-alpha to begin with.
   alphaA: 0.05,
+  alphaATest: 0.025,
   cellAlpha: 0.025,
+  componentAlpha: 0.025 / 3,
   wisMargin: 0.05,
   cov80Target: 0.8,
   cov50Target: 0.5,
@@ -50,7 +60,15 @@ const sha256 = (text) => crypto.createHash('sha256').update(text).digest('hex');
 function armDefect(arm, kind) {
   if (!arm) return `${kind}: missing`;
   if (arm.isLate) return `${kind}: captured late`;
-  if (new Date(arm.capturedAt) >= new Date(arm.captureNotAfter)) return `${kind}: captured_at at or past capture_not_after`;
+  // Unparseable timestamps FAIL CLOSED: NaN compares false against
+  // everything, so without this check a corrupted capturedAt would read as
+  // "not late" (adversarial review finding).
+  const capturedAt = new Date(arm.capturedAt);
+  const notAfter = new Date(arm.captureNotAfter);
+  if (Number.isNaN(capturedAt.getTime()) || Number.isNaN(notAfter.getTime())) {
+    return `${kind}: unparseable capture timestamps`;
+  }
+  if (capturedAt >= notAfter) return `${kind}: captured_at at or past capture_not_after`;
   if (arm.rows.length !== Number(arm.cohortSize)) {
     return `${kind}: ${arm.rows.length} rows against cohort_size ${arm.cohortSize}`;
   }
@@ -85,11 +103,18 @@ function majorityValue(weeks, kind, field) {
  */
 function survivingWeeks({ weeks, config }) {
   const kinds = [CONTROL_KIND, ...CELL_KINDS];
+  // Window-filter and week-sort BEFORE the majority is computed, for two
+  // reasons found adversarially: an out-of-window week must never vote on
+  // which in-window weeks drop, and majorityValue's documented earliest-week
+  // tie-break is only true of a week-ordered array.
+  const inWindow = weeks
+    .filter((entry) => entry.week >= config.firstWeek && entry.week <= config.lastWeek)
+    .sort((a, b) => a.week - b.week);
   const majority = {};
   for (const kind of kinds) {
     majority[kind] = {
-      constantsHash: majorityValue(weeks, kind, 'constantsHash'),
-      modelVersion: majorityValue(weeks, kind, 'modelVersion'),
+      constantsHash: majorityValue(inWindow, kind, 'constantsHash'),
+      modelVersion: majorityValue(inWindow, kind, 'modelVersion'),
     };
   }
   const survivors = [];
@@ -195,7 +220,7 @@ function evaluateCell({ cellKind, survivors, actuals, season, resamples, config 
       : inference.buildResamples({ n: s.values.length, draws: config.draws, seed: config.bootstrapSeed });
     return inference.decideComponent({
       label, weeklyValues: s.values, resamples: matrix,
-      alpha: config.cellAlpha, boundary, side,
+      alpha: config.componentAlpha, boundary, side,
       exactTriggerClusters: config.exactTriggerClusters,
     });
   };
@@ -276,7 +301,7 @@ function evaluateDecisionRule({ survivors, actuals, season, priorSeason, resampl
 
   const component = inference.decideComponent({
     label: 'regret-superiority', weeklyValues: deltas, resamples,
-    alpha: config.alphaA, boundary: 0, side: 'upper',
+    alpha: config.alphaATest, boundary: 0, side: 'upper',
     exactTriggerClusters: config.exactTriggerClusters,
   });
   return {
@@ -317,7 +342,8 @@ function evaluate({ season, priorSeason, weeks, actuals, config: overrides }) {
       evaluable: false,
       reason: `${survivors.length} surviving weeks against a minimum of ${config.minWeeks} - every claim is UNEVALUABLE and nothing flips`,
       candidateA: null,
-      candidateB: { cells: [], selected: null },
+      candidateB: { verdict: null, voids: [], cells: [], selected: null },
+      sensitivityWeeks1to17: null,
     };
   }
 
@@ -328,16 +354,53 @@ function evaluate({ season, priorSeason, weeks, actuals, config: overrides }) {
   const cells = CELL_KINDS.map((cellKind) => evaluateCell({
     cellKind, survivors, actuals, season, resamples, config,
   }));
-  // §8.2: fixed selection order among passers; nothing about the data reorders it.
-  const selected = (cells.find((c) => c.verdict === 'pass') || { cellKind: null }).cellKind;
+  // §9's void scope is CANDIDATE B, not the cell. A §9.1/§9.2 void on ANY
+  // cell voids the whole candidate and nothing is selected: a mean
+  // divergence means that arm's capture lost snapshot isolation, and the
+  // sibling arm came from the SAME transaction, so there is no basis to
+  // trust it either. Adversarial review finding (BLOCKER): the earlier
+  // cell-scoped void quietly promoted the surviving cell to a ship - the
+  // one event that means "this run cannot speak" was selecting the
+  // fallback. Cells keep their own diagnostics for the report; selection
+  // and verdict are candidate-level.
+  const candidateBVoids = cells.flatMap((c) => c.voids.map((v) => `${c.cellKind}: ${v}`));
+  const selected = candidateBVoids.length > 0
+    ? null
+    // §8.2: fixed selection order among passers; nothing about the data reorders it.
+    : (cells.find((c) => c.verdict === 'pass') || { cellKind: null }).cellKind;
+  const candidateB = {
+    verdict: candidateBVoids.length > 0 ? 'void' : selected ? 'pass' : 'fail',
+    voids: candidateBVoids,
+    cells,
+    selected,
+  };
 
-  const candidateA = evaluateDecisionRule({ survivors, actuals, season, priorSeason, resamples, config });
+  // Candidate A is ISOLATED: a roster-construction anomaly (§6's fail-loud
+  // quota rule) voids Candidate A with the anomaly named, and touches
+  // nothing in Candidate B - §1 promises the claims flip independently, and
+  // a thin cohort week is an estimand problem for the regret claim alone.
+  // Adversarial review finding (SUBSTANTIVE): the throw previously escaped
+  // evaluate() whole, discarding Candidate B's already-computed verdicts.
+  let candidateA;
+  try {
+    candidateA = evaluateDecisionRule({ survivors, actuals, season, priorSeason, resamples, config });
+  } catch (err) {
+    candidateA = {
+      verdict: 'void',
+      voids: [`evaluation anomaly: ${err.message} - for DEVIATIONS.md adjudication`],
+      component: null,
+      weekly: [],
+      controlMeanRegret: null,
+      permutationFloor: null,
+    };
+  }
 
   return {
     ...base,
     evaluable: true,
     candidateA,
-    candidateB: { cells, selected },
+    candidateB,
+    sensitivityWeeks1to17: weeks1to17Sensitivity({ survivors, candidateA, cells, config }),
     flips: {
       lineupRanking: candidateA.verdict === 'pass' ? 'mean' : null,
       calibration: selected,
@@ -346,10 +409,65 @@ function evaluate({ season, priorSeason, weeks, actuals, config: overrides }) {
   };
 }
 
+/**
+ * The §4/§11 weeks-1-17 sensitivity, published and NON-SELECTING: the same
+ * contrasts recomputed from the PRIMARY run's own weekly series with week 18
+ * removed. Nothing is re-simulated - rosters, regret and coverage numbers
+ * are the primary's - so this can never disagree with the primary about a
+ * week's value, only about the aggregate with week 18 excluded. Each series
+ * takes its own resample matrix at the same seed (the §10 exception for
+ * shortened series). Skipped, with the reason stated, when week 18 did not
+ * survive - the primary already IS a weeks-1-17 analysis then.
+ */
+function weeks1to17Sensitivity({ survivors, candidateA, cells, config }) {
+  if (!survivors.some((entry) => entry.week === 18)) {
+    return { skipped: 'week 18 did not survive; the primary run already covers weeks 1-17 only' };
+  }
+  const decide = (label, values, side, boundary, alpha) => inference.decideComponent({
+    label,
+    weeklyValues: values,
+    resamples: inference.buildResamples({ n: values.length, draws: config.draws, seed: config.bootstrapSeed }),
+    alpha,
+    boundary,
+    side,
+    exactTriggerClusters: config.exactTriggerClusters,
+  });
+  const meanOf = (values) => (values.length ? values.reduce((a, b) => a + b, 0) / values.length : null);
+
+  const result = { nonSelecting: true, candidateA: null, cells: [] };
+  if (candidateA.verdict !== 'void') {
+    const deltas = candidateA.weekly.filter((w) => w.week <= 17).map((w) => w.delta);
+    result.candidateA = deltas.length > 0
+      ? decide('regret-superiority (weeks 1-17)', deltas, 'upper', 0, config.alphaATest)
+      : null;
+  }
+  for (const cell of cells) {
+    const weekly = cell.weekly.filter((w) => w.week <= 17);
+    const series = (pick) => weekly.map(pick).filter((v) => v !== null);
+    const t80 = series((w) => (w.ctrl.cov80 === null || w.cell.cov80 === null ? null
+      : Math.abs(w.ctrl.cov80 - config.cov80Target) - Math.abs(w.cell.cov80 - config.cov80Target)));
+    const t50 = series((w) => (w.ctrl.cov50 === null || w.cell.cov50 === null ? null
+      : Math.abs(w.ctrl.cov50 - config.cov50Target) - Math.abs(w.cell.cov50 - config.cov50Target)));
+    const wisDelta = series((w) => (w.ctrl.wis === null || w.cell.wis === null ? null : w.cell.wis - w.ctrl.wis));
+    result.cells.push({
+      cellKind: cell.cellKind,
+      components: [
+        decide('cov80-distance-improvement (weeks 1-17)', t80, 'lower', 0, config.componentAlpha),
+        decide('cov50-distance-improvement (weeks 1-17)', t50, 'lower', 0, config.componentAlpha),
+        decide('wis-no-harm (weeks 1-17)', wisDelta, 'upper', config.wisMargin, config.componentAlpha),
+      ],
+      cov80Point: meanOf(weekly.map((w) => w.cell.cov80).filter((v) => v !== null)),
+      cov50Point: meanOf(weekly.map((w) => w.cell.cov50).filter((v) => v !== null)),
+    });
+  }
+  return result;
+}
+
 module.exports = {
   SEALED,
   CONTROL_KIND,
   CELL_KINDS,
+  weeks1to17Sensitivity,
   armDefect,
   survivingWeeks,
   meanEquality,
