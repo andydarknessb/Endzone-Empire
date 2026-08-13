@@ -143,11 +143,17 @@ are, exactly:
    JSON key order is the constants hash's identity, and an appended typo'd
    key would corrupt provenance. Remaining for this item: **deploy** before
    the 2026 Week 1 capture window opens.
-2. **Evaluation script.** Deterministic, reads only the ledger and the pinned
-   actuals of section 5, emits the report and every number in section 8.
+2. **Evaluation script. BUILT** (`scripts/holdout/lib/evaluate.js` and its
+   modules; runner `server/scripts/run-holdout-confirm.js`): deterministic,
+   reads only the ledger and the pinned actuals of section 5, emits the
+   report and every number in section 8. The sealed values live in ONE
+   frozen object (`SEALED`); the evaluator accepts overrides for tests only
+   and the report brands any overridden run "NOT THE SEALED STUDY".
    Published with the report.
-3. **Roster generator pointed at the ledger cohort** (section 6), reusing
-   `rosterGeneration.js`'s rules with this study's seed.
+3. **Roster generator pointed at the ledger cohort. BUILT**, folded into
+   item 2 (`scripts/holdout/lib/rosters.js`): pit-sweep §5.1's quotas, caps
+   and snake draft against the scheduled arm's cohort rows, under this
+   study's seed and the tie-break named in section 6.
 
 Items 2-3 may land during the season (they read, never write). Item 1 gates
 evidence: **a week is evaluable only if all three snapshots (control + two
@@ -216,7 +222,20 @@ rules verbatim except where named:
   league-scored points, weight `0.5^(weeksAgo/8)`, two-season window
   (2025 finals + 2026 weeks < W, re-scored under half_ppr from the pinned
   actuals and the already-pinned 2025 sources), at least one prior game.
+  A 2025 week-w game is `W + 26 - w` weeks stale in 2026 week W
+  (production's `seasonWeekSpan`).
+- **Ranking ties break by ascending playerId** - a deliberate, named
+  simplification of pit-sweep §5.1's collation-artifact tie-break, whose
+  name orderings the ledger does not carry. Ranking values are floats of
+  re-scored actuals, so exact ties are rare and the rule is a totalizer,
+  not a chooser.
 - Roster seed: **375445932** (`sha256("endzone-empire/holdout-confirm-2026/roster-seed")[:8]` as u32).
+  Replicate r of week W drafts in the order given by a Fisher-Yates
+  permutation under `mulberry32(seedFrom(375445932, season, W, r))`, with
+  production's `seedFrom` / `mulberry32`.
+- A position that cannot fill its quota with rankable players **fails the
+  evaluation loudly** - a cohort that thin is a structural anomaly for
+  `DEVIATIONS.md`, never a pool silently reshaped.
 - Lineup selection per arm: production `optimalAssignment` under
   `DEFAULT_ROSTER_SLOTS` over the arm's ranking values (section 2).
   Hindsight optimum: the same optimizer over actual points.
