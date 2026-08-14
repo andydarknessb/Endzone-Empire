@@ -1,12 +1,12 @@
 # PREREGISTRATION - Prospective Holdout Confirmation, 2026 (free_baseline_v3.2 candidates)
 
 Study id: `holdout-confirm-2026`
-Status: **DRAFT - NOT SEALED.** This document seals when its final bytes are
-committed and their SHA-256 is recorded in `APPROVAL.md` beside the approver's
-attestation, and it must seal **before the first 2026 REG kickoff**. A
-preregistration sealed after any evaluated outcome exists is not a
-preregistration. After sealing, any edit voids the study id; a successor runs
-as `holdout-confirm-2026-r2` with its own document.
+Status: **SEALED 2026-08-14.** The final bytes of this document are committed
+and their blob SHA-256 is recorded in `APPROVAL.md` in this directory beside
+the approver's attestation. Sealed before the first 2026 REG kickoff and
+before any evaluated outcome exists. From here, any edit voids the study id -
+a successor runs as `holdout-confirm-2026-r2` with its own document - and
+deviations go to `DEVIATIONS.md`, append-only, per section 12.
 
 Written BEFORE any 2026 outcome exists. The only empirical inputs are the
 2024/2025 exploratory measurements cited inline, which are what the margins
