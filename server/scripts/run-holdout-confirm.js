@@ -33,6 +33,9 @@ const evaluator = require('../../scripts/holdout/lib/evaluate');
 const { renderReport } = require('../../scripts/holdout/lib/report');
 const { SCORING_PRESETS } = require('../services/scoring.service');
 const model = require('../services/projectionModel');
+const rootSafety = require('../../scripts/backtest/lib/rootSafety');
+
+const REPO_ROOT = path.resolve(__dirname, '..', '..');
 
 function parseArgs(argv) {
   const args = {};
@@ -121,8 +124,83 @@ function loadActuals(actualsPath) {
   return actuals;
 }
 
+/**
+ * The ONE place this file turns `--out` into paths on disk.
+ *
+ * Unlike the frozen registry literals the rest of this tooling joins, `--out`
+ * is genuine operator input, so the safety property cannot be argued from the
+ * value's provenance - it has to be PROVEN here. The argument is refused
+ * outright if it is UNC-form, then canonicalized through `rootSafety` (which
+ * resolves symlinks, junctions and Windows on-disk casing, and tolerates a
+ * directory that does not exist yet) and required to land inside this
+ * repository. Only then is it joined with the two report basenames, which are
+ * literals in this module and cannot contribute a separator or a traversal
+ * segment.
+ *
+ * Confining the output to the repository is deliberate, and matches the
+ * docblock at the top of this file: these reports ARE study artifacts and
+ * belong beside the preregistration they answer, which is also why the
+ * January runbook commits them. Do not relax this to "wherever the operator
+ * points" without revisiting that runbook.
+ *
+ * Called before any database read, so a bad `--out` fails in the first
+ * millisecond rather than after a full ledger extraction and evaluation.
+ */
+function resolveOutputPaths(outDir) {
+  // `--out ''` (an unset shell variable interpolated into the flag) reaches
+  // here: `parseArgs` only rejects `undefined`. Before this guard it resolved
+  // to the repository root and dropped REPORT.md there silently, where the
+  // pre-existing `fs.mkdirSync('')` had failed loudly with ENOENT. Turning a
+  // loud failure into a quiet write is the opposite of this function's job,
+  // and it contradicts the "Required arguments, no defaults" rule above.
+  if (typeof outDir !== 'string' || outDir.trim() === '') {
+    throw new Error('run-holdout-confirm: --out must be a non-empty path');
+  }
+  rootSafety.assertNotUncFormPath(outDir, 'run-holdout-confirm: --out');
+  // Resolving is the FIRST half of the containment proof, not a use: the value
+  // is compared against the repository root immediately below and is refused
+  // before it reaches any filesystem call. Same shape, and same annotation, as
+  // `rootSafety.canonicalizeForCompare`, which this line feeds.
+  //
+  // Anchored to REPO_ROOT, not to `process.cwd()`. A relative `--out` names a
+  // location in the repository - that is what the runbook's
+  // `backtest-artifacts/holdout-confirm-2026` means, and it has to mean the
+  // same directory whether the operator runs from the repo root, from
+  // `server/`, or from anywhere else. An absolute `--out` is unaffected:
+  // `path.resolve` ignores the base for it.
+  //
+  // The suppression below must stay on the line DIRECTLY above the call:
+  // Semgrep honours `nosemgrep` only on the finding's own line or the one
+  // immediately preceding it, so an explanatory comment inserted between the
+  // two silently un-suppresses the rule.
+  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
+  const resolved = path.resolve(REPO_ROOT, outDir);
+  const rootCmp = rootSafety.normalizeForCompare(rootSafety.canonicalizeForCompare(REPO_ROOT));
+  const outCmp = rootSafety.normalizeForCompare(rootSafety.canonicalizeForCompare(resolved));
+  // The repository ROOT itself is not a legal target: these are study
+  // artifacts and belong in a study directory, never loose at the top of the
+  // working tree. `isContainedIn` returns false on equality, so requiring it
+  // alone is exactly the rule wanted - no equality escape hatch.
+  if (!rootSafety.isContainedIn(rootCmp, outCmp)) {
+    throw new Error(
+      `run-holdout-confirm: --out (${outDir}) resolves to ${resolved}, which is not a directory `
+      + 'inside this repository - the report is a study artifact and is written beside the '
+      + 'preregistration it answers, never to an arbitrary location and never loose at the '
+      + 'repository root'
+    );
+  }
+  return {
+    dir: resolved,
+    // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
+    reportJson: path.join(resolved, 'report.json'),
+    // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
+    reportMd: path.join(resolved, 'REPORT.md'),
+  };
+}
+
 async function main(argv) {
   const args = parseArgs(argv);
+  const out = resolveOutputPaths(args.outDir);
   const weeks = await loadWeeks({ season: args.season, profile: args.profile, client: pool });
   const actuals = loadActuals(args.actualsPath);
 
@@ -136,9 +214,9 @@ async function main(argv) {
   result.profile = args.profile;
   result.primaryProfile = args.profile === 'half_ppr';
 
-  fs.mkdirSync(args.outDir, { recursive: true });
-  fs.writeFileSync(path.join(args.outDir, 'report.json'), `${JSON.stringify(result, null, 2)}\n`, 'utf8');
-  fs.writeFileSync(path.join(args.outDir, 'REPORT.md'), `${renderReport(result)}\n`, 'utf8');
+  fs.mkdirSync(out.dir, { recursive: true });
+  fs.writeFileSync(out.reportJson, `${JSON.stringify(result, null, 2)}\n`, 'utf8');
+  fs.writeFileSync(out.reportMd, `${renderReport(result)}\n`, 'utf8');
   console.log(`holdout-confirm: ${result.weeks.surviving}/${result.weeks.provided} weeks surviving; `
     + (result.evaluable
       ? `A=${result.candidateA.verdict}, B selected=${result.candidateB.selected || 'none'}`
@@ -155,4 +233,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { parseArgs, loadWeeks, loadActuals, main };
+module.exports = { parseArgs, resolveOutputPaths, loadWeeks, loadActuals, main };

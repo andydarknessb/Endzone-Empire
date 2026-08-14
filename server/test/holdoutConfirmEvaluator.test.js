@@ -531,6 +531,65 @@ test('the runner refuses missing or unknown arguments', () => {
   });
 });
 
+test('the runner confines --out to the repository and refuses UNC form', () => {
+  const path = require('path');
+  const repoRoot = path.resolve(__dirname, '..', '..');
+
+  // The legitimate case: the study directory the January runbook actually uses.
+  const ok = runner.resolveOutputPaths('backtest-artifacts/holdout-confirm-2026');
+  assert.equal(ok.reportJson, path.join(repoRoot, 'backtest-artifacts', 'holdout-confirm-2026', 'report.json'));
+  assert.equal(ok.reportMd, path.join(repoRoot, 'backtest-artifacts', 'holdout-confirm-2026', 'REPORT.md'));
+
+  // A traversal segment that still lands inside the repo is allowed: the rule
+  // is containment, not syntax. `path.resolve` has already collapsed it, so
+  // nothing traversal-shaped survives into the join.
+  assert.equal(
+    runner.resolveOutputPaths('backtest-artifacts/../scripts/holdout').dir,
+    path.join(repoRoot, 'scripts', 'holdout')
+  );
+
+  // Escaping the repository is the case the Semgrep finding was about.
+  assert.throws(
+    () => runner.resolveOutputPaths(path.join('..', '..', '..', '..', 'Windows', 'Temp')),
+    /--out .* is not a directory inside this repository/s
+  );
+  assert.throws(
+    () => runner.resolveOutputPaths(process.platform === 'win32' ? 'C:\\Windows\\Temp' : '/etc'),
+    /--out .* is not a directory inside this repository/s
+  );
+
+  // THE DISCRIMINATING CASE. A SIBLING directory whose name merely EXTENDS the
+  // repository's own is the one input that separates `rootSafety.isContainedIn`
+  // from a naive `child.startsWith(parent)` prefix test - startsWith accepts it,
+  // containment refuses it. Without this assertion every other refusal above is
+  // satisfied by the broken prefix check too, so the test would pass against the
+  // exact defect the guard exists to prevent. rootSafety's own docblock calls the
+  // prefix bug "the exact class of bug a third-party review reproduced".
+  assert.throws(
+    () => runner.resolveOutputPaths(path.join('..', `${path.basename(repoRoot)}-evil`)),
+    /--out .* is not a directory inside this repository/s
+  );
+
+  // The repository root itself is not a study directory.
+  assert.throws(() => runner.resolveOutputPaths('.'), /is not a directory inside this repository/s);
+
+  // An empty --out (an unset shell variable) must fail loudly, not resolve to
+  // the repository root and quietly drop the report at the top of the tree.
+  assert.throws(() => runner.resolveOutputPaths(''), /--out must be a non-empty path/);
+  assert.throws(() => runner.resolveOutputPaths('   '), /--out must be a non-empty path/);
+  assert.throws(() => runner.resolveOutputPaths(undefined), /--out must be a non-empty path/);
+
+  // UNC form is refused BEFORE canonicalization, so it never reaches realpath.
+  assert.throws(
+    () => runner.resolveOutputPaths('\\\\evil-host\\share\\out'),
+    /UNC-form path/
+  );
+  assert.throws(
+    () => runner.resolveOutputPaths('//evil-host/share/out'),
+    /UNC-form path/
+  );
+});
+
 test('the runner validates the actuals file shape', (t) => {
   const fs = require('fs');
   const os = require('os');
