@@ -8,9 +8,11 @@ name: Holdout uptime
 # reconciliation itself cannot run. /api/health/worker returns 503 when a
 # worker is stale (the true precursor of a missed capture) or carries any
 # worker error (a whole-worker signal, not capture-specific). Both probes
-# also assert the JSON payload, not just the status code: the 2026-07
-# DNS incident parked api.endzoneempire.gg on an IP whose page answers
-# 200, and a monitor that trusts status codes would have called it healthy.
+# also assert the JSON payload, not just the status code: the 2026-07 DNS
+# investigation left an unexplained authoritative-layer response on the api
+# domain (HANDOFF-dns-netlify-cutover.md - the parking-IP theory itself is
+# marked "do not re-chase"), and a monitor that trusts status codes alone
+# cannot distinguish the real API from whatever such an anomaly serves.
 #
 # The alert channel is GitHub's failure-notification email for scheduled
 # workflows (delivered per GitHub's attribution rules - the account that
@@ -24,6 +26,19 @@ name: Holdout uptime
 # pre-disable warning email has been observed but is not documented). The
 # season's no-edit corridor (Oct 7 - Dec 9) is 63 days - one docs commit
 # in that span keeps this alive.
+#
+# Dead-man's-switch: every green run pings a Sentry Crons monitor
+# (holdout-uptime, hourly schedule, 25-minute miss margin - a single
+# dropped run pages about 25 minutes after its slot; a rare false page is
+# the accepted price, because a wider margin would let Sentry's
+# forward-moving miss pointer absorb whole missed runs silently). Sentry
+# alerts when the check-ins STOP, which covers every silence this workflow
+# cannot report: auto-disable, dropped schedules, an Actions outage, or the
+# repo's Actions being turned off. A detected OUTAGE pings ?status=error
+# instead, so a Sentry "missed" always means the watchdog itself died. The
+# monitor's config lives in scripts/setup-sentry-cron-monitor.sh - the
+# hourly pings can never (re)configure it. If the heartbeat cannot be sent
+# at all, the run goes red so the GitHub email covers Sentry's own outage.
 
 on:
   schedule:
@@ -46,9 +61,15 @@ concurrency:
 jobs:
   probe:
     runs-on: ubuntu-latest
+    # A dedicated environment: the only secret here is the Sentry ping URL,
+    # and hourly runs must not pollute the production deployment history or
+    # inherit the deploy secrets' blast radius.
+    environment: monitoring
     timeout-minutes: 10
     steps:
       - name: Probe holdout and worker health
+        env:
+          SENTRY_CRON_PING_URL: ${{ secrets.SENTRY_CRON_PING_URL }}
         run: |
           if [ "${{ inputs.force_fail }}" = "true" ]; then
             echo "::error::forced failure to prove the alert channel - this is not an outage"
@@ -64,7 +85,9 @@ jobs:
                 echo "$name: 200 OK, payload healthy"
                 return 0
               fi
-              echo "$name attempt $attempt of 4: HTTP ${code:-error}"
+              reason="HTTP ${code:-error}"
+              [ "$code" = "200" ] && reason="HTTP 200 but the payload assertion failed"
+              echo "$name attempt $attempt of 4: $reason"
               # Surface the failing obligations first - the raw body is ~8KB
               # of mostly-healthy rows and a blind truncation hides the one
               # line that matters.
@@ -81,4 +104,23 @@ jobs:
           fail=0
           check holdout "https://api.endzoneempire.gg/api/health/holdout" '.ok == true' || fail=1
           check worker "https://api.endzoneempire.gg/api/health/worker" '.ok == true and any(.workers[]; .name == "jobs")' || fail=1
-          exit "$fail"
+          if [ "$fail" -ne 0 ]; then
+            # Tell Sentry this is a DETECTED outage, best-effort: a later
+            # "missed check-in" then unambiguously means the watchdog died.
+            [ -n "$SENTRY_CRON_PING_URL" ] && curl --silent --max-time 20 "${SENTRY_CRON_PING_URL}?status=error" >/dev/null 2>&1 || true
+            exit 1
+          fi
+          if [ -z "$SENTRY_CRON_PING_URL" ]; then
+            echo "::error::SENTRY_CRON_PING_URL secret is missing - the dead-man's-switch is unarmed"
+            exit 1
+          fi
+          for attempt in 1 2 3; do
+            if curl --fail --silent --show-error --max-time 20 "${SENTRY_CRON_PING_URL}?status=ok" >/dev/null; then
+              echo "dead-man's-switch heartbeat sent"
+              exit 0
+            fi
+            echo "heartbeat attempt $attempt of 3 failed"
+            [ "$attempt" -lt 3 ] && sleep 15
+          done
+          echo "::error::health checks passed but the Sentry heartbeat could not be sent - see attempts above"
+          exit 1
