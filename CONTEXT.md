@@ -231,8 +231,10 @@ one week. Deliberately kept separate from both of the above.
 
 **Factor**:
 One named adjustment a weekly projection applies (usage blend, opponent,
-head-to-head, home/away), each shrunk toward no effect and capped. Factors are
-what the explanation exposes to the manager.
+head-to-head), each shrunk toward no effect and capped. Factors are what the
+explanation exposes to the manager. Another factor, home/away, is built but
+permanently gated off and never applies: its activation was abandoned without
+evidence (ADR 0001).
 _Avoid_: feature, weight, signal
 
 **Model version**:

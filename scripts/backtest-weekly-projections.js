@@ -66,14 +66,15 @@
  *
  * The homeaway-on* arms sweep MODEL_CONSTANTS.homeAway.enabled, which ships
  * false because the factor's +-5% adjustment has never been measured against
- * anything: no production nfl_games row has ever carried orientation, so the
- * factor has returned neutral for every projection the engine has produced.
- * These arms are how that gets measured, and one of them winning is what would
- * justify turning the gate on - which, per the inert-merge exception in
- * projectionModel's MODEL_VERSION docblock, is the change that carries the bump
- * to free_baseline_v3.2. Until orientation data exists for the season being
- * replayed they score identically to `default`, for the same reason the
- * stored-history arms do.
+ * anything. These arms were how that was supposed to get measured, and one of
+ * them winning was what would have justified turning the gate on - which, per
+ * the inert-merge exception in projectionModel's MODEL_VERSION docblock, was
+ * the change that would have carried the bump to free_baseline_v3.2. That question is
+ * now closed without an answer: activation is abandoned with no further work
+ * (see docs/adr/0001-abandon-homeaway-activation.md), so these arms remain
+ * runnable but no result of theirs feeds any decision. Until orientation data
+ * exists for the season being replayed they score identically to `default`,
+ * for the same reason the stored-history arms do.
  *
  * The xseason-* / stored-homeaway arms sweep the two flags that let the feature
  * builders read the per-week `gameTeam`/`gameOpponent` keys the nflverse
@@ -150,8 +151,9 @@
  * the preregistration's cohort-and-outcome design (sections 4-5) exists to
  * eliminate. `scripts/backtest/` reconstructs each historical week from
  * pinned, frozen, per-week sources instead, and is what every accuracy-
- * roadmap claim (the homeAway activation question in particular) is
- * measured against, per the sealed preregistration's authority. Anyone
+ * roadmap claim is measured against, per the sealed preregistration's
+ * authority (the homeAway activation question was one such claim before it
+ * was abandoned - see docs/adr/0001-abandon-homeaway-activation.md). Anyone
  * reproducing or extending a roadmap finding should start there, not here.
  */
 require('dotenv').config();
@@ -219,11 +221,9 @@ const CONFIGURATIONS = {
   'xseason-both': (MODEL) => withHistory(MODEL, { crossSeason: true }, { useStoredHistory: true }),
   // The home/away factor's scoring gate (MODEL_CONSTANTS.homeAway.enabled),
   // which ships false because the ±5% adjustment has never been measured
-  // against anything: no production nfl_games row has ever carried
-  // orientation. These are the arms that measure it, and one of them winning
-  // is what would justify turning the gate on — which, per the inert-merge
-  // exception, is the change that carries the MODEL_VERSION bump to
-  // free_baseline_v3.2.
+  // against anything. These arms were built to measure it; that question is
+  // now closed without an answer — activation is abandoned per
+  // docs/adr/0001-abandon-homeaway-activation.md, and the gate stays false.
   //
   // `stored-homeaway` above is inert on its own while the gate is off: it
   // decides which PRIOR-SEASON rows carry an orientation, and none of them
