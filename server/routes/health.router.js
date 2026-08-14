@@ -73,7 +73,7 @@ async function holdoutStatus() {
 async function workerStatus() {
   try {
     const result = await pool.query(
-      `SELECT "worker_name", "last_seen_at", "last_error"
+      `SELECT "worker_name", "last_seen_at", "last_error", "release_sha"
        FROM "worker_heartbeats" ORDER BY "worker_name"`
     );
     const now = Date.now();
@@ -81,6 +81,7 @@ async function workerStatus() {
       name: row.worker_name,
       lastSeenAt: row.last_seen_at,
       lastError: row.last_error,
+      release: row.release_sha,
       stale: now - new Date(row.last_seen_at).getTime() > WORKER_STALE_MS,
     }));
     return {
