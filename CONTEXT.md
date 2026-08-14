@@ -1,0 +1,378 @@
+# Endzone Empire
+
+A private-league fantasy football app: friends create a league, run a live snake
+draft, manage rosters, and play weekly head-to-head matchups scored from real
+NFL statistics. Two things sit alongside the game itself and carry their own
+vocabulary: the projection engine that advises managers, and the evaluation
+apparatus that decides whether that engine is allowed to change.
+
+## Language
+
+### League and membership
+
+**League**:
+A private season-long competition a group of friends plays in. It owns its own
+scoring rules, roster shape, schedule and playoff structure.
+_Avoid_: pool, group, room
+
+**Manager**:
+A person playing in a league. The human, as opposed to the entity they control.
+_Avoid_: owner, member, user (one user account can manage teams in many leagues)
+
+**Team**:
+One manager's entry in one league: the roster they control and the entity that
+appears in standings, matchups and trophies. A manager in three leagues has
+three teams.
+_Avoid_: franchise, squad, roster (the roster is what a team holds, not the team)
+
+**Commissioner**:
+A manager authorized to administer a league, either its creator or someone the
+creator has granted the role. A few powers stay with the creator alone.
+_Avoid_: admin, owner, moderator
+
+**League phase**:
+Where a league sits in its lifecycle: pre-draft, drafting, in-season, playoffs,
+complete. Derived from the league's draft and season state, never a field of
+its own.
+_Avoid_: status, stage, state
+
+**Best ball**:
+A league mode in which nobody sets a lineup: each week the best legal lineup a
+team could have started is the one that scores.
+_Avoid_: auto-lineup
+
+### The NFL layer
+
+**Player**:
+A real NFL athlete. Team defenses are carried as players too, so this word
+covers both.
+_Avoid_: athlete, asset
+
+**DEF**:
+A team's defense and special teams, rostered and started as a single player.
+_Avoid_: D/ST, defense (ambiguous against both the scoring category and IDP)
+
+**IDP**:
+Individual defensive players (DL, LB, DB) rostered as themselves rather than
+rolled up into a DEF.
+_Avoid_: defensive player
+
+**Slate**:
+Every NFL game in one week.
+_Avoid_: schedule (the schedule is the whole season), games list
+
+**Kickoff**:
+The scheduled start of an NFL game. It is the clock every time-sensitive rule
+keys off: lineup locks, pick'em locks and holdout capture deadlines.
+_Avoid_: game time, start time
+
+**Bye week**:
+A week in which an NFL team does not play, so none of its players can score.
+Derived from the season schedule rather than supplied.
+
+### Draft
+
+**Draft**:
+The live event in which teams claim players in turn, in snake order.
+
+**On the clock**:
+The team whose turn it is to pick, and the timer bounding that turn.
+_Avoid_: current picker
+
+**Autopick**:
+The single act of the server making a team's pick when its clock expires: the
+first eligible player from that team's queue, otherwise the best available.
+_Avoid_: autodraft (that is the standing mode, not the act)
+
+**Autodraft**:
+A standing mode a team can be placed in so that every remaining pick is made by
+autopick immediately, without waiting out the clock.
+_Avoid_: autopick
+
+**Queue**:
+A team's private ordered list of the players it wants next. Feeds autopick.
+_Avoid_: watchlist, wishlist
+
+**Keeper**:
+A player a team carries over from the prior season into the new draft, at the
+cost of a draft pick.
+
+**ADP**:
+Average draft position: where the wider fantasy market drafts a player. A market
+reference, deliberately distinct from this app's own ranking of him.
+_Avoid_: rank, position rank
+
+**Draft grade**:
+A letter grade assessing a team's completed draft.
+
+**Draft Sim**:
+A solo practice draft against CPU opponents. It never touches a real league.
+_Avoid_: mock draft
+
+### Roster and lineup
+
+**Roster**:
+Every player a team holds, starters and bench and IR together.
+_Avoid_: lineup
+
+**Lineup**:
+The subset of a roster a team starts in one week, one player per starting slot.
+_Avoid_: roster, starting roster
+
+**Slot**:
+A named place on the lineup card with its own eligibility rule (QB, RB, WR, TE,
+FLEX, K, DEF, plus BENCH and IR). Configurable per league. A position is a
+property of a player; a slot is a place in a lineup.
+_Avoid_: position
+
+**Lineup lock**:
+The moment a player can no longer be moved into or out of a lineup, namely his
+own game's kickoff. Locks are per player, not per week.
+_Avoid_: roster lock
+
+**Roster lock**:
+A commissioner freeze on one team's roster moves, or on the whole league's.
+Unrelated to lineup locks.
+_Avoid_: lineup lock
+
+**Free agent**:
+An unrostered player who can be added immediately, once waivers have cleared
+on him.
+
+**Waiver claim**:
+A request for an unrostered player, resolved in a batch rather than
+first-come-first-served.
+
+**FAAB**:
+Free agent acquisition budget: a fixed season-long budget teams bid from to win
+waiver claims. Highest bid wins.
+_Avoid_: blind bidding, auction
+
+**Waiver priority**:
+The reverse-standings order that settles claims in non-FAAB leagues and breaks
+ties in FAAB ones. Lower is better.
+
+**Trade**:
+A swap of players between two teams, optionally subject to a review window in
+which uninvolved managers can vote to veto.
+
+### Scoring and the week
+
+**Matchup**:
+One week's head-to-head pairing of two teams in a league.
+_Avoid_: game (a game is an NFL game), fixture
+
+**Scoring rules**:
+The full set of per-stat point values a league scores by.
+_Avoid_: settings, scoring system
+
+**Scoring preset**:
+A named starting point for scoring rules that differ only in what a reception is
+worth: standard, half PPR, PPR. A league may then customize away from it, so a
+preset is a seed and not a description of what a league actually scores. Never
+present it as a league's format; describe the live reception value instead.
+_Avoid_: scoring format, format
+
+**Scoring profile**:
+One of those same three presets used as a fixed identity when one set of players
+must be scored several ways at once, as in holdout capture and the backtest. A
+profile is never a particular league's rules.
+_Avoid_: preset
+
+**Advance week**:
+The commissioner action that closes out the current week: finalizes scores,
+settles standings, awards trophies and opens the next week.
+
+**Trophy**:
+An automatic award written when a week or a season finalizes, such as weekly
+high score, champion, longest win streak, biggest comeback or best draft grade.
+Awarding is idempotent by design.
+
+**Recap**:
+A generated narrative summary of one league week.
+
+**Pick'em**:
+A side game in which every manager picks the winner of every NFL game on the
+week's slate. Independent of rosters and matchups; each pick locks at its own
+game's kickoff.
+
+### The projection engine
+
+**Projection**:
+A model's estimate of the fantasy points one player will score in one week. Two
+distinct producers exist and their numbers are not interchangeable, so this word
+alone is never precise enough.
+_Avoid_: prediction, forecast
+
+**Pool projection**:
+The older, league-agnostic estimate computed for the whole player pool at once
+under default scoring. It backs trades, waivers, public rankings and the Monte
+Carlo simulator.
+_Avoid_: projection, unqualified
+
+**Weekly projection**:
+The current engine's estimate for a named set of players under a specific
+league's scoring: recency-weighted production shrunk toward prior-season and
+positional baselines, adjusted by capped factors, carrying an interval and a
+per-factor explanation.
+_Avoid_: projection, unqualified
+
+**Rest of season**:
+A third projection horizon covering a player's remaining schedule rather than
+one week. Deliberately kept separate from both of the above.
+
+**Factor**:
+One named adjustment a weekly projection applies (usage blend, opponent,
+head-to-head, home/away), each shrunk toward no effect and capped. Factors are
+what the explanation exposes to the manager.
+_Avoid_: feature, weight, signal
+
+**Model version**:
+The identity of the engine's behaviour. Any change to its constants is a new
+version, because numbers from two versions are not comparable.
+_Avoid_: release, build
+
+**Interval**:
+The band around a projection expressing how uncertain it is.
+_Avoid_: confidence, margin, error bar
+
+**Start/sit advice**:
+The engine's recommendation about which rostered players to start, including an
+explicit "too close to call" answer when two players' distributions overlap
+enough that no honest edge exists.
+_Avoid_: optimal lineup
+
+**Optimizer**:
+The assignment routine that fills every starting slot to maximize projected
+points. It will leave a slot empty rather than start a negative projection.
+
+### Evaluation
+
+The engine may not change on a hunch, so the vocabulary for proving a change is
+warranted is first-class here.
+
+**Holdout ledger**:
+The append-only record of what the engine projected before kickoff, captured on
+a schedule and physically incapable of being rewritten once outcomes exist. The
+one evaluation that cannot be argued with.
+_Avoid_: archive, history
+
+**Capture**:
+One all-or-nothing write to the holdout ledger, covering one week, one scoring
+profile, one model version and every player in the cohort. Partial captures do
+not exist, and a late one is labelled as such and is thereby not holdout.
+_Avoid_: snapshot
+
+**Capture window**:
+The bounded span before kickoff in which a capture counts as holdout. A capture
+outside it is late, and thereby not holdout.
+_Avoid_: deadline
+
+**Protocol**:
+The versioned rules a capture is taken under. Weeks captured under different
+protocols are never comparable, and a week captured under the wrong protocol is
+permanently lost, not repairable.
+_Avoid_: version, unqualified
+
+**Cohort**:
+The exact, fingerprinted set of players an evaluation covers, fixed before any
+outcome is known. Never "whoever happened to be requested".
+_Avoid_: sample, population
+
+**Outcome truth**:
+What a player actually scored, reconciled across pinned sources by a rule fixed
+in advance. Absence from every source means zero, not missing.
+_Avoid_: actuals, results
+
+**Candidate**:
+A specific proposed engine change a study exists to judge, named before any
+evidence is seen. A candidate failing its gate is a result, not a mistake.
+_Avoid_: experiment, proposal
+
+**Backtest**:
+The retrospective study asking whether a candidate engine change would have done
+better, run against frozen inputs rather than against today's database. Twelve
+arms: seven cells and the control (four usage blend weights crossed with
+home/away off and on) plus two benchmarks are scored and reach the report; two
+identity-assertion arms are generated and never scored.
+_Avoid_: replay, simulation
+
+**Snapshot**:
+In the backtest, the frozen copy of every external input the study may read,
+pinned by digest so that a rerun cannot drift.
+_Avoid_: using this word for a holdout capture
+
+**Arm**:
+One configuration a study generates projections for. Which arms exist, which
+are scored and which may be selected is fixed by the study's own
+preregistration.
+_Avoid_: variant, treatment, branch
+
+**Identity-assertion arm**:
+One of the two generated-but-never-scored arms: a stored-history twin of a
+cell, and a control generated independently of the cell that occupies the same
+coordinate. Each exists so that an equality the study depends on is checked
+against a separately produced run rather than assumed. Reusing a scored cell's
+own output as the comparison would prove nothing.
+_Avoid_: arm, unqualified
+
+**Sensitivity**:
+A non-selecting analysis published beside a candidate to show how its result
+moves under a defensible alternative rule. Some sensitivities are arms of their
+own; others re-read existing arms' data under a different window or pooling.
+It can never select and never veto.
+_Avoid_: arm, unqualified (call it a sensitivity arm only when it is one)
+
+**Cell**:
+One arm from the family of candidate configurations under study. Use this word
+when membership in that family is the point, and "arm" when it is not.
+
+**Control**:
+The arm reproducing exactly what production ships today. Every contrast is
+against it, and it is never itself selectable.
+_Avoid_: baseline
+
+**Benchmark**:
+A trivial estimator that no arm may lose to. Benchmarks answer a question
+arm-versus-arm contrasts cannot ("is the engine beating nothing at all?") and
+are never selectable.
+_Avoid_: baseline, control
+
+**Survivor**:
+A week captured cleanly and excluded by no rule, so it enters evaluation. The
+evaluability floor is the minimum survivor count, fixed in the preregistration,
+beneath which the study cannot speak.
+
+**Regret**:
+The points a lineup left on the bench: what an arm actually started against what
+a perfectly informed manager would have started. The study's primary measure,
+because it scores the decision rather than the number.
+_Avoid_: error, loss
+
+**Preregistration**:
+The written document fixing every rule (metrics, thresholds, exclusions,
+tie-breaks) before any number is seen. A rule absent from it cannot be applied
+afterwards.
+_Avoid_: spec, plan, design doc
+
+**Seal**:
+The act that makes a preregistration binding: its final bytes committed and
+attested by hash. After the seal a rule can be followed or the study withdrawn,
+never amended.
+_Avoid_: freeze (a freeze pins code and inputs; a seal binds rules), lock
+
+**Gate**:
+A named checkpoint the evaluation must clear before the next stage may run.
+Gates are sequential, and clearing an earlier one twice never substitutes for a
+later one.
+_Avoid_: phase, milestone, stage
+
+**Freeze**:
+Pinning the study's code, container image and inputs by digest so that a
+stranger can rerun it and get the same bytes back.
+_Avoid_: release, tag
+
+**Parsimony**:
+The preregistered tie-break that chooses among passing cells by how little each
+one changes, never by how well it scored.
+_Avoid_: ranking, best
