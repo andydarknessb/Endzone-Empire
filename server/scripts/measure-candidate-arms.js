@@ -567,6 +567,7 @@ module.exports = {
   armProjections,
   meanOf,
   dispersedCount,
+  freezeRollup,
   verifyCohortFreezeHash,
   verifyRosterFreezeHash,
   main,
