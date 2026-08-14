@@ -212,25 +212,31 @@ const MODEL_CONSTANTS = {
     shrinkPseudoGames: 120,
     maxEffect: 0.05,
     // Whether this factor may SCORE at all, which is not a tuning knob but a
-    // safety catch on a coefficient that has never been measured. No
-    // production `nfl_games` row has ever carried orientation — 0 of 544 in
-    // each of 2024, 2025 and 2026 — so `homeAwayEffect` has returned neutral
-    // for every projection this engine has ever produced, and the ±5% below is
-    // a default nobody has backtested against anything. Filling that column is
-    // a data repair, and a data repair must not double as the activation of an
-    // unvalidated adjustment: the thresholds above are met within about two
-    // weeks of real rows, at which point every lineup recommendation would
-    // start moving on an unmeasured number.
+    // safety catch on a coefficient that has never been measured. Only 2026's
+    // `nfl_games` rows carry orientation (repaired 2026-07-29; 2024 and 2025
+    // remain 0 of 544 each), and the one study positioned to measure the
+    // factor (pit-sweep-2024-2025, revision 38) produced zero evidence about
+    // it either way — its activation accounting read a `knownOrientation`
+    // field nothing populates — so the ±5% below is still a default nobody
+    // has backtested against anything. Orientation data must not double as
+    // the activation of an unvalidated adjustment: the thresholds above are
+    // met within about two weeks of real rows, at which point every lineup
+    // recommendation would start moving on an unmeasured number.
     //
-    // SHIPS FALSE, and false is why adding it does not bump MODEL_VERSION. The
-    // check sits BELOW the unknown-orientation check in `homeAwayEffect`, so on
-    // today's all-null rows the factor returns the identical 'home/away
-    // unknown' payload it has always returned and every projection is
-    // bit-identical to the one v3.1 already produced. Same inert-merge
-    // exception the MODEL_VERSION docblock records for the usage component and
-    // the two stored-history gates, including its other half: the sweep that
-    // turns this on is the change that has to carry the bump, and that bump is
-    // free_baseline_v3.2.
+    // SHIPS FALSE, and false is why adding it did not bump MODEL_VERSION. The
+    // check sits BELOW the unknown-orientation check in `homeAwayEffect`, so
+    // rows without orientation return the identical 'home/away unknown'
+    // payload they always have, oriented rows return 'home/away gated off'
+    // with the same zero contribution, and every projected number is identical
+    // to the one v3.1 produces. Same inert-merge exception the MODEL_VERSION
+    // docblock records for the usage component and the two stored-history
+    // gates.
+    //
+    // ACTIVATION IS ABANDONED (2026-08-14): closed with no further work, not
+    // rejected on evidence — none exists. See
+    // docs/adr/0001-abandon-homeaway-activation.md. This gate stays false
+    // permanently; only a new preregistered study may propose flipping it, and
+    // whatever change such a study selects carries its own MODEL_VERSION bump.
     enabled: false,
     // Whether a PRIOR-SEASON game's orientation (and the opponent it is
     // resolved with) may be read from the stored per-week `gameTeam` key rather
@@ -810,8 +816,11 @@ function homeAwayEffect({ isHome = null, sample = null, constants = MODEL_CONSTA
   // constants object assembled without the key cannot activate the adjustment
   // by omission. Deliberately BELOW the unknown-orientation check, because a
   // row with no orientation must keep reporting exactly that — the gate's
-  // reason string is reachable only once orientation data exists, which is the
-  // property that makes this change bit-identical on today's production rows.
+  // reason string is reachable only where orientation data exists (2026 rows
+  // since the 2026-07-29 repair; 2024/2025 remain null), which is what kept
+  // the gate's introduction bit-identical on the all-null rows it shipped
+  // against. Either exit contributes zero, so projected numbers are identical
+  // regardless of which reason a row reports.
   if (!constants || constants.enabled !== true) return NEUTRAL('home/away gated off');
   if (!sample) return NEUTRAL('no positional home/away sample');
   const { homeMean, homeGames, awayMean, awayGames } = sample;
