@@ -841,15 +841,42 @@ async function captureDueSnapshots({ now = new Date(), client = pool } = {}) {
  * amount of stale or shifted stored kickoffs can move.
  *
  * Per obligation: `captured` (an immutable, NON-LATE, child-complete,
- * NONEMPTY snapshot exists for the obligation's stored `scoring_profile` -
- * a late, hollow, or empty one does not count, and matching is by the
- * PROFILE NAME the header recorded, never by recomputing today's scoring
- * hash, so a later change to a preset's rules cannot orphan history), else
- * `missed` (deadline passed - permanently uncapturable, retained for the
- * whole season), else `failed` (durable status says the last attempt
- * failed, window still open), else `schedule-invalid`, else `pending`
- * (window open), else `scheduled` (future). `ok` only when every
- * obligation is captured, pending, or scheduled.
+ * NONEMPTY snapshot exists for the obligation's stored `scoring_profile`
+ * FOR EVERY REQUIRED ARM at the CURRENT protocol version - a late, hollow,
+ * or empty one does not count, and matching is by the PROFILE NAME the
+ * header recorded, never by recomputing today's scoring hash, so a later
+ * change to a preset's rules cannot orphan history), else `missed`
+ * (deadline passed - permanently uncapturable, retained for the whole
+ * season), else `protocol-conflict` (a capture exists but under a different
+ * protocol version - permanently unrecoverable, window still open), else
+ * `failed` (durable status says the last attempt failed, window still open),
+ * else `incomplete-arms` (some REQUIRED arms landed and some did not, window
+ * still open - an aborting transaction, not a pending one), else
+ * `schedule-invalid`, else `pending` (window open), else `scheduled` (future).
+ * `ok` only when every obligation is captured, pending, or scheduled -
+ * `protocol-conflict` and `incomplete-arms` are deliberately NOT ok.
+ *
+ * WHY `protocol-conflict` IS ITS OWN STATE AND ALERTS EARLY. A week written by
+ * pre-deployment code is not an unstarted obligation: the ledger is append-only
+ * and `snapshotWeek` refuses to complete or re-capture a pre-arms week, so it
+ * is already lost. An earlier revision of this check merely stopped counting
+ * such a week as `captured`, which left it falling through to `pending` - and
+ * `pending` is `ok`. That reported HTTP 200 for the whole window in which a
+ * redeploy could still have saved the following weeks, and only turned `missed`
+ * once nothing could be done. The alert has to fire while action is still
+ * possible or it is not an alert. `foreignProtocols` names the versions seen.
+ *
+ * ARM AND PROTOCOL COMPLETENESS. Preregistration section 4 names this
+ * surface as the study's operational guard, so it has to be able to fail.
+ * A capture is complete only when the scheduled arm AND every
+ * `CANDIDATE_ARMS` kind are present at `HOLDOUT_PROTOCOL_VERSION`. Before
+ * this, the query filtered to `capture_kind = 'scheduled'` and ignored
+ * `protocol_version` entirely, so it reported `captured`, `ok: true` and
+ * HTTP 200 for precisely the two failures that matter: a week written by
+ * pre-deployment protocol-1 code, which carries no candidate arms and can
+ * never be re-captured, and a week whose protocol conflict throws on every
+ * five-minute tick. `missingArms` names what is absent so the condition is
+ * diagnosable without a database session.
  *
  * The public output carries NO stored failure message: durable status
  * messages can embed raw database errors, and this result feeds a public
@@ -869,10 +896,19 @@ async function captureDueSnapshots({ now = new Date(), client = pool } = {}) {
 async function reconcileObligations({ now = new Date(), client = pool } = {}) {
   const windowEnd = new Date(now.getTime() + CAPTURE_WINDOW_HOURS * 3600 * 1000);
   const seasons = [...SEASON_MANIFESTS.keys()];
+  // Every arm is selected, not just `scheduled`, and the protocol version comes
+  // back with it. Under protocol 2 an obligation is satisfied only by a
+  // COMPLETE capture - the scheduled arm plus every candidate arm, all at the
+  // current protocol version - because a week missing an arm cannot serve the
+  // study, and a protocol-1 week has no candidate arms at all. Filtering to
+  // `scheduled` and ignoring `protocol_version`, as this query previously did,
+  // reported `captured` for exactly the two failures that matter: a week
+  // written by pre-deployment protocol-1 code, and a week whose protocol
+  // conflict throws on every tick.
   const snapshots = await client.query(
-    `SELECT "s"."season", "s"."week", "s"."scoring_profile"
+    `SELECT "s"."season", "s"."week", "s"."scoring_profile", "s"."capture_kind", "s"."protocol_version"
      FROM "projection_snapshots" "s"
-     WHERE "s"."season" = ANY($1::int[]) AND "s"."capture_kind" = 'scheduled'
+     WHERE "s"."season" = ANY($1::int[])
        AND "s"."is_late" = false
        AND "s"."cohort_size" > 0
        AND "s"."cohort_size" = (
@@ -893,9 +929,30 @@ async function reconcileObligations({ now = new Date(), client = pool } = {}) {
     [seasons]
   );
 
-  const snapshotKeys = new Set(
-    snapshots.rows.map((r) => `${r.season}:${r.week}:${r.scoring_profile}`)
-  );
+  // key -> the set of capture kinds present AT THE CURRENT PROTOCOL VERSION.
+  // A row at any other protocol version is deliberately not counted: it is
+  // evidence the week was written by different code, which is the condition
+  // this surface exists to make visible.
+  const armsByKey = new Map();
+  // Rows at ANY OTHER protocol version, tracked separately. A capture written by
+  // pre-deployment code is not "not yet captured": the ledger is append-only and
+  // `snapshotWeek` refuses to complete or re-capture a pre-arms week, so it is
+  // permanently unrecoverable. Treating it as an unstarted obligation would
+  // report ok:true for the entire window in which someone could still act, and
+  // flip to `missed` only once nothing can be done.
+  const foreignProtocolByKey = new Map();
+  for (const r of snapshots.rows) {
+    const key = `${r.season}:${r.week}:${r.scoring_profile}`;
+    if (Number(r.protocol_version) !== HOLDOUT_PROTOCOL_VERSION) {
+      if (!foreignProtocolByKey.has(key)) foreignProtocolByKey.set(key, new Set());
+      foreignProtocolByKey.get(key).add(Number(r.protocol_version));
+      continue;
+    }
+    if (!armsByKey.has(key)) armsByKey.set(key, new Set());
+    armsByKey.get(key).add(r.capture_kind);
+  }
+  /** Every arm a complete capture must carry, under the current protocol. */
+  const REQUIRED_ARMS = ['scheduled', ...CANDIDATE_ARMS.map((a) => a.kind)];
   const statusByKey = new Map(
     statuses.rows.map((r) => [`${r.season}:${r.week}:${r.scoring_profile}`, r])
   );
@@ -944,11 +1001,33 @@ async function reconcileObligations({ now = new Date(), client = pool } = {}) {
       const cutoff = effectiveCutoff(deadline, observedFirstKickoff);
 
       for (const profile of HOLDOUT_SCORING_PROFILES) {
-        const statusRow = statusByKey.get(`${season}:${week}:${profile.name}`) || null;
+        const key = `${season}:${week}:${profile.name}`;
+        const statusRow = statusByKey.get(key) || null;
+        const armsPresent = armsByKey.get(key) || new Set();
+        const missingArms = REQUIRED_ARMS.filter((kind) => !armsPresent.has(kind));
+        const complete = missingArms.length === 0;
+        const foreignProtocols = [...(foreignProtocolByKey.get(key) || [])].sort();
         let state;
-        if (snapshotKeys.has(`${season}:${week}:${profile.name}`)) state = 'captured';
+        if (complete) state = 'captured';
         else if (!cutoff || cutoff <= now) state = 'missed';
+        // A capture exists but under the wrong protocol. This is permanently
+        // unrecoverable and must alert NOW, while the window is still open and
+        // someone could redeploy - not silently sit at `pending` (which is `ok`)
+        // until the deadline turns it into `missed`.
+        else if (foreignProtocols.length > 0) state = 'protocol-conflict';
         else if (statusRow && statusRow.status === 'failed') state = 'failed';
+        // Some REQUIRED arms landed but not all, and the window is still open.
+        // This is NOT `pending`: a partial capture inside an open window means
+        // the transaction is aborting rather than not yet due, and it is
+        // reported under its own name so it cannot be read as "not fired yet".
+        //
+        // Membership is tested against REQUIRED_ARMS, never against "any row
+        // present". `supplemental` is a sanctioned capture kind (this module's
+        // docblock, and the migration's own `scheduled | supplemental`), and a
+        // future arm could be added under a name this list does not carry.
+        // Counting either as partial progress would turn a healthy future week
+        // red - months before its deadline - and take the health route to 503.
+        else if (REQUIRED_ARMS.some((kind) => armsPresent.has(kind))) state = 'incomplete-arms';
         else if (scheduleIssues) state = 'schedule-invalid';
         else if (cutoff <= windowEnd) state = 'pending';
         else state = 'scheduled';
@@ -960,6 +1039,11 @@ async function reconcileObligations({ now = new Date(), client = pool } = {}) {
           captureNotAfter: cutoff,
           scheduleIssues,
           attempts: statusRow ? statusRow.attempts : 0,
+          // Named arms, so a partial or wrong-protocol capture is diagnosable
+          // from the health surface without a database session.
+          missingArms: complete ? undefined : missingArms,
+          protocolVersion: HOLDOUT_PROTOCOL_VERSION,
+          foreignProtocols: foreignProtocols.length ? foreignProtocols : undefined,
         });
       }
     }

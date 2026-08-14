@@ -961,6 +961,18 @@ function dbRowsForSeason(season = FIXTURE_SEASON, mutate = (rows) => rows, fixtu
  * MANIFEST, so nothing has to have RUN for a debt to show. Records which
  * relations were probed, and can make any of them unreadable.
  */
+/**
+ * Every snapshot row a COMPLETE protocol-2 capture writes for one
+ * season-week-profile: the scheduled arm plus each sealed candidate arm, at the
+ * current protocol version. Built from `CANDIDATE_ARMS` rather than restated, so
+ * adding or removing an arm cannot leave this fixture silently stale.
+ */
+function completeCapture(season, week, scoring_profile) {
+  return ['scheduled', ...holdout.CANDIDATE_ARMS.map((a) => a.kind)].map((capture_kind) => ({
+    season, week, scoring_profile, capture_kind, protocol_version: holdout.HOLDOUT_PROTOCOL_VERSION,
+  }));
+}
+
 function reconcileFake({ scheduleRows = [], snapshots = [], statuses = [], failSnapshots = false, failStatus = false }) {
   const probed = [];
   return {
@@ -1013,8 +1025,10 @@ test('reconciliation distinguishes captured, failed, and pending states - and ne
   const now = new Date('2077-09-09T12:00:00Z'); // window open, pre-deadline
   const client = reconcileFake({
     scheduleRows: dbRowsForSeason(),
-    // Satisfaction is by the STORED profile name, never today's scoring hash.
-    snapshots: [{ season: FIXTURE_SEASON, week: 1, scoring_profile: 'half_ppr' }],
+    // Satisfaction is by the STORED profile name, never today's scoring hash -
+    // and, under protocol 2, only a COMPLETE capture satisfies: the scheduled
+    // arm plus every candidate arm, all at the current protocol version.
+    snapshots: completeCapture(FIXTURE_SEASON, 1, 'half_ppr'),
     statuses: [
       { season: FIXTURE_SEASON, week: 1, scoring_profile: 'ppr', status: 'failed', message: 'connect failed at 10.0.0.7:5432', attempts: 2 },
     ],
@@ -1030,6 +1044,96 @@ test('reconciliation distinguishes captured, failed, and pending states - and ne
   assert.equal(week1.get('ppr').attempts, 2);
   assert.equal(week1.get('standard').state, 'pending', 'window open, deadline not yet passed');
   assert.equal(out.ok, false, 'a failed obligation is alertable');
+});
+
+test('a protocol-1 capture does NOT satisfy a protocol-2 obligation', async (t) => {
+  withOnlyFixtureManifest(t);
+  // The exact shape production writes when the worker was never redeployed:
+  // a scheduled arm, complete and on time, under the OLD protocol. It can never
+  // be re-captured, so reporting it as satisfied would hide a permanent loss.
+  const client = reconcileFake({
+    scheduleRows: dbRowsForSeason(),
+    snapshots: [{
+      season: FIXTURE_SEASON, week: 1, scoring_profile: 'half_ppr',
+      capture_kind: 'scheduled', protocol_version: 1,
+    }],
+  });
+  const out = await holdout.reconcileObligations({ now: new Date('2077-09-09T12:00:00Z'), client });
+  const week1 = out.obligations.find((o) => o.week === 1 && o.profile === 'half_ppr');
+  assert.notEqual(week1.state, 'captured', 'a protocol-1 week carries no candidate arms and cannot serve the study');
+  // It must ALERT, not merely fail to count. An earlier revision of this check
+  // left such a week at `pending`, which is `ok` - reporting HTTP 200 for the
+  // entire window in which a redeploy could still have saved the season, and
+  // turning `missed` only once nothing could be done.
+  assert.equal(week1.state, 'protocol-conflict', 'a lost week must alert while action is still possible');
+  assert.deepEqual(week1.foreignProtocols, [1], 'the observed protocol version is named');
+  assert.equal(out.ok, false, 'a permanently lost week is never ok');
+});
+
+test('a partial capture reports incomplete-arms and names what is missing', async (t) => {
+  withOnlyFixtureManifest(t);
+  // The scheduled arm landed and the candidate arms did not: what an aborting
+  // capture transaction leaves behind. Inside an open window this must NOT read
+  // as `pending`, which would say "not fired yet" about a capture that fired
+  // and failed.
+  const client = reconcileFake({
+    scheduleRows: dbRowsForSeason(),
+    snapshots: completeCapture(FIXTURE_SEASON, 1, 'half_ppr')
+      .filter((r) => r.capture_kind === 'scheduled'),
+  });
+  const out = await holdout.reconcileObligations({ now: new Date('2077-09-09T12:00:00Z'), client });
+  const week1 = out.obligations.find((o) => o.week === 1 && o.profile === 'half_ppr');
+  assert.equal(week1.state, 'incomplete-arms');
+  assert.deepEqual(week1.missingArms, holdout.CANDIDATE_ARMS.map((a) => a.kind));
+  assert.equal(out.ok, false, 'an incomplete capture is alertable, not ok');
+});
+
+test('a supplemental row on a future week does not turn it red', async (t) => {
+  withOnlyFixtureManifest(t);
+  // `supplemental` is a sanctioned capture kind (this module's docblock and the
+  // ledger migration's own `scheduled | supplemental`). Counting any row at all
+  // as partial progress would report `incomplete-arms` - and take the health
+  // route to 503 - on a week whose deadline is months away and whose scheduled
+  // capture has not been attempted yet.
+  const client = reconcileFake({
+    scheduleRows: dbRowsForSeason(),
+    snapshots: [{
+      season: FIXTURE_SEASON, week: 12, scoring_profile: 'ppr',
+      capture_kind: 'supplemental', protocol_version: holdout.HOLDOUT_PROTOCOL_VERSION,
+    }],
+  });
+  const out = await holdout.reconcileObligations({ now: new Date('2077-08-13T00:00:00Z'), client });
+  const wk12 = out.obligations.find((o) => o.week === 12 && o.profile === 'ppr');
+  assert.notEqual(wk12.state, 'incomplete-arms', 'a supplemental row is not partial progress');
+  assert.equal(wk12.state, 'scheduled', 'the window has not opened yet');
+  assert.equal(out.ok, true, 'a healthy future season stays ok');
+
+  // An unplanned kind - a future arm rename, say - behaves the same way.
+  const client2 = reconcileFake({
+    scheduleRows: dbRowsForSeason(),
+    snapshots: [{
+      season: FIXTURE_SEASON, week: 12, scoring_profile: 'ppr',
+      capture_kind: 'candidate:bw-25', protocol_version: holdout.HOLDOUT_PROTOCOL_VERSION,
+    }],
+  });
+  const out2 = await holdout.reconcileObligations({ now: new Date('2077-08-13T00:00:00Z'), client: client2 });
+  assert.equal(out2.obligations.find((o) => o.week === 12 && o.profile === 'ppr').state, 'scheduled');
+  assert.equal(out2.ok, true);
+});
+
+test('a complete capture is ok and names no missing arms', async (t) => {
+  withOnlyFixtureManifest(t);
+  const snapshots = [];
+  for (let week = 1; week <= holdout.SEASON_WEEKS; week++) {
+    for (const profile of holdout.HOLDOUT_SCORING_PROFILES) {
+      snapshots.push(...completeCapture(FIXTURE_SEASON, week, profile.name));
+    }
+  }
+  const client = reconcileFake({ scheduleRows: dbRowsForSeason(), snapshots });
+  const out = await holdout.reconcileObligations({ now: new Date('2077-09-09T12:00:00Z'), client });
+  assert.ok(out.obligations.every((o) => o.state === 'captured'), 'every arm present at the current protocol');
+  assert.ok(out.obligations.every((o) => o.missingArms === undefined));
+  assert.equal(out.ok, true);
 });
 
 test('a game moved between weeks and an entirely absent week both surface as schedule-invalid', async (t) => {
