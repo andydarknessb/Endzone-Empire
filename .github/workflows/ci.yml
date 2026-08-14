@@ -25,6 +25,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run lint:colors
+      # The holdout-confirm-2026 study captures against these constants; an
+      # unintended change (even a key-order change) silently drops captured
+      # weeks. Deliberate changes update the pin in the same commit.
+      - run: node scripts/ci/check-model-constants.js
       - run: npm test -- --runInBand
         env:
           CI: "true"
