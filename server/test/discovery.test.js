@@ -20,6 +20,9 @@ test('validateCreateOptions: defaults everything when nothing is given', () => {
     scoringPreset: null,
     scoringRules: null,
     draftDate: null,
+    pickemOnly: false,
+    pickemEnabled: false,
+    pickemMode: 'straight',
   });
 });
 
@@ -75,6 +78,59 @@ test('validateCreateOptions: rejects a past draftDate', () => {
 test('validateCreateOptions: rejects an unparseable draftDate', () => {
   const { error } = validateCreateOptions({ draftDate: 'not-a-date' });
   assert.match(error, /draftDate must be a valid ISO date string/);
+});
+
+// leagueType matrix: absent and 'fantasy' derive no pick'em, 'both' keeps the
+// fantasy side with pick'em on, 'pickem' is pick'em-only (and pick'em on).
+for (const [given, pickemOnly, pickemEnabled] of [
+  [undefined, false, false],
+  ['fantasy', false, false],
+  ['both', false, true],
+  ['pickem', true, true],
+]) {
+  test(`validateCreateOptions: leagueType ${given === undefined ? 'absent' : `'${given}'`} derives pickemOnly=${pickemOnly}, pickemEnabled=${pickemEnabled}`, () => {
+    const { value, error } = validateCreateOptions(given === undefined ? {} : { leagueType: given });
+    assert.equal(error, undefined);
+    assert.equal(value.pickemOnly, pickemOnly);
+    assert.equal(value.pickemEnabled, pickemEnabled);
+  });
+}
+
+test('validateCreateOptions: rejects an unknown leagueType', () => {
+  const { error } = validateCreateOptions({ leagueType: 'dynasty' });
+  assert.match(error, /leagueType must be one of fantasy, pickem, both/);
+});
+
+test('validateCreateOptions: rejects fantasy-only fields for a pick\'em league, naming the field', () => {
+  const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  assert.match(validateCreateOptions({ leagueType: 'pickem', bestBall: true }).error, /bestBall/);
+  assert.match(validateCreateOptions({ leagueType: 'pickem', bestBall: false }).error, /bestBall/);
+  assert.match(validateCreateOptions({ leagueType: 'pickem', scoringPreset: 'ppr' }).error, /scoringPreset/);
+  assert.match(validateCreateOptions({ leagueType: 'pickem', draftDate: future }).error, /draftDate/);
+});
+
+test('validateCreateOptions: null scoringPreset/draftDate stay acceptable for a pick\'em league', () => {
+  const { value, error } = validateCreateOptions({
+    leagueType: 'pickem', scoringPreset: null, draftDate: null,
+  });
+  assert.equal(error, undefined);
+  assert.equal(value.pickemOnly, true);
+});
+
+test('validateCreateOptions: fantasy-only fields stay valid alongside leagueType \'both\'', () => {
+  const { value, error } = validateCreateOptions({ leagueType: 'both', bestBall: true, scoringPreset: 'ppr' });
+  assert.equal(error, undefined);
+  assert.equal(value.bestBall, true);
+  assert.equal(value.scoringPreset, 'ppr');
+  assert.equal(value.pickemEnabled, true);
+});
+
+test('validateCreateOptions: pickemMode is validated against the pick\'em modes', () => {
+  assert.equal(validateCreateOptions({ leagueType: 'pickem', pickemMode: 'confidence' }).value.pickemMode, 'confidence');
+  assert.equal(validateCreateOptions({ leagueType: 'both', pickemMode: 'straight' }).value.pickemMode, 'straight');
+  assert.equal(validateCreateOptions({ leagueType: 'pickem' }).value.pickemMode, 'straight'); // default
+  assert.match(validateCreateOptions({ leagueType: 'pickem', pickemMode: 'chaos' }).error, /pickemMode must be one of/);
+  assert.match(validateCreateOptions({ pickemMode: 5 }).error, /pickemMode must be one of/);
 });
 
 // ---------------------------------------------------------------------------

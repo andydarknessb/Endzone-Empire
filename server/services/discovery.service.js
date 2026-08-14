@@ -6,6 +6,7 @@
 const pool = require('../modules/pool');
 const { notify } = require('./activity.service');
 const { SCORING_PRESETS } = require('./scoring.service');
+const { MODES: PICKEM_MODES } = require('./pickem.service');
 const { commissionerPredicate } = require('./leagueRole.service');
 
 class DiscoveryError extends Error {
@@ -17,12 +18,45 @@ class DiscoveryError extends Error {
 
 const VALID_SCORING_PRESETS = Object.keys(SCORING_PRESETS); // ['standard', 'half_ppr', 'ppr']
 const VALID_DISCOVER_SORTS = ['newest', 'draft_date', 'open_slots'];
+const VALID_LEAGUE_TYPES = ['fantasy', 'pickem', 'both'];
 
 /**
  * Pure: validate & normalize the optional format fields on league create.
  * Returns { value } with every field defaulted, or { error } (400-worthy).
+ *
+ * `leagueType` defaults to 'fantasy' so existing callers are unaffected. The
+ * returned value carries the derived flags the create handler acts on:
+ * `pickemOnly` (type 'pickem': the league has no fantasy side), and
+ * `pickemEnabled` (type 'pickem' or 'both': write the pickem_settings row at
+ * creation). Flat wire fields rather than a sub-object, so no invalid
+ * combination is representable on the wire.
  */
-function validateCreateOptions({ isPublic, joinApproval, bestBall, scoringPreset, draftDate } = {}) {
+function validateCreateOptions({
+  isPublic, joinApproval, bestBall, scoringPreset, draftDate, leagueType, pickemMode,
+} = {}) {
+  if (leagueType !== undefined && !VALID_LEAGUE_TYPES.includes(leagueType)) {
+    return { error: `leagueType must be one of ${VALID_LEAGUE_TYPES.join(', ')}` };
+  }
+  const type = leagueType === undefined ? 'fantasy' : leagueType;
+  if (pickemMode !== undefined && pickemMode !== null && !PICKEM_MODES.includes(pickemMode)) {
+    return { error: `pickemMode must be one of: ${PICKEM_MODES.join(', ')}` };
+  }
+  // A pick'em league has no draft, rosters or fantasy scoring, so the
+  // fantasy-only fields are rejected outright rather than silently dropped:
+  // a payload carrying one signals a stale or confused client, and each
+  // field's presence test matches the one its validator below uses.
+  if (type === 'pickem') {
+    if (bestBall !== undefined) {
+      return { error: 'bestBall is not allowed when leagueType is pickem' };
+    }
+    if (scoringPreset !== undefined && scoringPreset !== null) {
+      return { error: 'scoringPreset is not allowed when leagueType is pickem' };
+    }
+    if (draftDate !== undefined && draftDate !== null) {
+      return { error: 'draftDate is not allowed when leagueType is pickem' };
+    }
+  }
+
   const value = {
     isPublic: false,
     joinApproval: false,
@@ -30,6 +64,9 @@ function validateCreateOptions({ isPublic, joinApproval, bestBall, scoringPreset
     scoringPreset: null,
     scoringRules: null,
     draftDate: null,
+    pickemOnly: type === 'pickem',
+    pickemEnabled: type !== 'fantasy',
+    pickemMode: pickemMode == null ? 'straight' : pickemMode,
   };
 
   if (isPublic !== undefined) {
@@ -299,6 +336,7 @@ module.exports = {
   DiscoveryError,
   VALID_SCORING_PRESETS,
   VALID_DISCOVER_SORTS,
+  VALID_LEAGUE_TYPES,
   validateCreateOptions,
   buildDiscoverQuery,
   discoverLeagues,
