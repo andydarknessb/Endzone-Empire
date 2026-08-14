@@ -5253,3 +5253,214 @@ freeze container, Docker sweep execution, report generation, or result
 inspection. Gate 4's replacement A-prime -> M-prime -> B3 freeze sequence and
 Gate 3 verification under specification section 1 remain required. No
 prohibited operation occurred while recording this approval.
+
+### CORRECTIVE ENTRY 38 - appended 2026-08-13
+
+**This entry closes the revision-38 record.** It records the replacement freeze
+sequence, the first published candidate result, the independent results review,
+a recommendation on post-study freeze discovery, and - stated plainly rather
+than resolved - the two authorizations this ledger never received. Entries 1-37
+and rows 1-19 remain byte-for-byte untouched. This append is 211/0 by numstat
+and strict byte-prefix clean over the prior 310,216 bytes; it creates no row, so
+no mid-file table insert breaks the prefix. The specification and the approved
+implementation tree are not edited.
+
+**This entry creates NO approval row.** A round that issues no approval warrants
+no row, per the R1-R5 convention - entry 8 item (2), restated in the
+specification's section 10 review history. That convention is stated for review
+rounds; it is extended here, deliberately and for the first time, to a run, a
+result, a results review of published bytes, and a recommendation, none of which
+is an approval.
+
+**(1) The replacement freeze sequence executed, and is machine-verified.**
+
+```
+A-prime  28cf65e2096c444da5accf896bce9f7b1990ee06  docs(backtest): record streaming corrective approval
+M-prime  26741905b8ad5d2e6ed20230c24f49d3e89cd4b1  data(backtest): attest byte-identical control-only MDE
+B3       9eeccf75b1ef4ff9d5bf40fa39dd7d3bd0b0270e  data(backtest): recut revision 38 freeze manifest
+results  48c2512137eb3dcc0478474021fe152468c1e470  data(backtest): publish revision 38 candidate results
+```
+
+`scripts/ci/discover-freeze-commits.js 48c2512137eb3dcc0478474021fe152468c1e470`
+returns `ok: true`, `chainOk: true`, `outputOnlyCommits: 1`, with `recordedA` and
+`recordedM` matching the chain above. The same script at B3 itself returns
+`ok: true` with `outputOnlyCommits: 0`. The results commit changed exactly two
+paths, `REPORT.md` (+1550) and `report.json` (+1), which are exactly the two
+members of `POST_B_ALLOWED_PATHS`.
+
+It is the only commit on any ref that has ever touched either path, so this is
+the only PUBLISHED candidate result. **Git can evidence first publication, not
+first execution**: entry 36 records an earlier authorized invocation at prior B3
+that "failed closed before writing `inputs.json`, a records checkpoint, or any
+report", and the results review's UNCHECKED-6 records a failed first
+dependency-volume attempt at this freeze that produced no candidate output. Both
+are operator-attested and neither is publicly evidenced.
+
+**(2) The published result.** `report.json` records
+`selection = {"outcome":"no-proposal","ranked":null,"reason":null,"reasons":["none passed"],"selected":null}`
+with `run.status = "valid"`. All seven candidate cells fail. Nothing displaces
+the shipped `free_baseline_v3.1`. No veto fired.
+
+**(3) Half the factorial produced no evidence.** Every `homeAway=on` arm reports
+`eligible=0, activated=0`, with the entire denominator in `excludedIneligible`,
+in both seasons and all six positions. The entire denominator falls out at
+`isEligibleForActivation` (`scripts/backtest/lib/arms.js:633-637`). The published
+bytes do not say which of that predicate's three tests excluded each row; the
+source does - no non-test code in this tree ever assigns `knownOrientation`, so
+the field was never populated. **The four `-on` cells' `fail` verdicts therefore
+carry ZERO evidence about homeAway**, and the v3.2 activation question this study
+was expected to inform remains unanswered.
+
+The reviewer recorded a residual that is not resolved here: every `on` cell
+nonetheless differs numerically from its `off` twin at the same `blendWeight` in
+all seven absolute metrics, both seasons and all seventeen weekly values (their
+O-2). They filed the reconciliation as UNCHECKED-3, not adjudicable from the
+packet, since distinguishing the intended path from a pipeline defect requires
+the uncommitted `inputs.json`. This item is a limitation of the run, not a
+finding of the run, and the residual remains open.
+
+**(4) An independent results review returned, out of band.** Verdict
+`RESULTS VERIFIED`, 2026-08-12, signed "Claude (Anthropic `claude-opus-5`),
+independent statistical results reviewer", recorded at
+`REVIEW-RESULTS-VERIFIED-revision-38.md`, 31,839 bytes, SHA-256
+`15e32a4bb574687b1218ec21f883ccf0dba8e701e445014ab37d430186f72b06`. The reviewer
+independently reproduced parentlessness, both blob hashes, the A/M/B chain commit
+by commit, all three workflow conclusions, canonical JSON rendering, 63/63
+focused contracts, and re-derived all seven fails and the no-proposal outcome.
+
+**Its scope is narrow and is recorded as the reviewer bounded it: the review
+authenticates the PUBLISHED BYTES ONLY.** It does not approve a candidate and is
+not reproduction. The reviewer disclosed the limitation they could not cure:
+every commit in the packet, the results and the chain is authored by the same
+party who commissioned the review, and "my independence extends only to the
+analysis; it does not cure single-party control of the evidence chain."
+
+On **D-1** (a false sensitivity-audit prose sentence when both winners are null;
+structured fields correct, no verdict, selection or statistic depends on it) the
+reviewer's disposition, in their words, is *"Recommended for correction in a
+future revision; it does not defeat authentication of these bytes."* No repair
+has been made. Whether to repair it - which would change verified bytes and force
+republication and re-review - is undecided and is the owner's. D-1 remains open.
+
+**(5) TWO AUTHORIZATIONS THIS LEDGER NEVER RECEIVED, recorded as gaps rather
+than cured.**
+
+*Gate 3 for B3 is ASSERTED BUT NOT EVIDENCED.* It was commissioned as branch
+`review-packet-rev38-gate3-streaming-corrective-reverification` at
+`f6a7e4a960fa87f5d41d91794f65c71ea22d0bcf`. No returned verdict has been found
+in any ref or on disk. Reviews in this study are transacted out of band by
+design - entries 25 and 26 carry reviewer responses received out of band
+verbatim, entries 36 and 37 record out-of-band verdicts with no in-git artifact,
+and entry 23 item (9) records the outbound commission and scope documents as
+untracked by design - so absence from git is NEVER evidence of absence. This is
+recorded as **UNDETERMINED**, not as a finding that Gate 3 did not occur.
+
+*The execution authorization has no row.* Entry 37's closing paragraph opens
+"The execution boundary remains active", and three commits later - M-prime, B3,
+then the results commit - the run had occurred and its results were published.
+No ledger entry records the authorization that lifted it.
+
+The specification states the hold as three conjuncts
+(`PHASE5_EXECUTION_SPEC.md:1090-1096`, restated `:1183-1185`). Conjunct 3 is met
+and checkable by inspection: rows 11, 12, 13 and 19 all cite spec SHA-256
+`DC1E1C41…` and blob `44fae65b…`, the same approved revision. Conjunct 1 is a
+conformance judgement, not a machine check - no script in this repository
+evaluates whether B3 "carries the complete Phase 5 implementation"; the
+supporting evidence is that B3's tree differs from row 19's reviewed anchor
+`66fd49d6` only in `APPROVAL_LEDGER.md` and `freeze/FREEZE_MANIFEST.json`, and
+row 19's own scope is Gate 2 conformance, narrower than conjunct 1's wording.
+Conjunct 2 is the Gate 3 question above. Execution authority in this study has
+always come from the owner out of band, and entry 36 already calls an earlier
+invocation "authorized" with no row. **This entry does not retroactively supply
+either authorization. It records that the ledger cannot evidence them.**
+
+**(6) The large artifacts are preserved, so disposal is no longer destructive.**
+Two large uncommitted artifacts existed in one location only: `inputs.json`,
+which the commission classifies as the reducer input, and
+`records-checkpoint.json`, which it classifies as an operational checkpoint and
+expressly **not evidence**. Preservation changes neither standing. Two
+byte-identical copies now sit on separate physical drives,
+`E:\endzone-b3-rev38-evidence\` and
+`C:\Users\Cory\.claude\projects\C--Users-Cory-Endzone-Empire\rev38-results\`,
+each holding the signed verdict, both artifacts gzipped, `README.md`,
+`ARTIFACT-MANIFEST.txt` and `EXPECTED-SHA256-from-commission.txt`. Both were
+hashed, compressed, decompressed and re-hashed; both round-trips reproduced the
+original digest, and both originals match the commission's recorded values
+`492ecf6a34fa11a00b87cf99a0fcc9714e47a5e8a28e96f5652e035707ab226f` and
+`5a108f516b573fd7de75c678660bdf6afdfaca8d72d0c3b952ba85059f04581b`. The full
+reference digests live at
+`c5720e8:RESULTS-REVIEW-COMMISSION-revision-38.md:229-232`; the verdict file
+truncates them to eight hex characters and must not be used as the reference.
+
+**(7) POST-STUDY FREEZE DISCOVERY - RECOMMENDATION AND ITS BASIS.**
+
+Successor work has resumed on branch `claude/accuracy-roadmap-status-5r5gzb`,
+twelve commits after B3 as of `f0205db82a43a76f74ef4b34c84c5d08023f215e`,
+touching paths outside `POST_B_ALLOWED_PATHS`. `discover-freeze-commits.js`
+evaluated at any ref containing that work returns `ok: false`, enumerating each
+offending commit-and-path pair, and the `discover` job of
+`.github/workflows/backtest-reproduction.yml` exits non-zero. Reverting does not
+clear it: the violating commits remain in `bSha..ref`.
+
+**The recommendation is that this check be treated as retired, and that the
+study's own evidence is unaffected.** Per entry 24 item (5) - "no entry
+summarizes a party's position without that party's own words" - the owner's own
+words on this are not on the record, so the standing of this ruling is the same
+as Gate 3's above, **UNDETERMINED**, and the reasoning below is the drafter's.
+
+- `POST_B_ALLOWED_PATHS` exists to prove the frozen chain reproduces. It has
+  already done that at `48c2512`, and it continues to do so there: discovery is
+  a property of the ref evaluated, and at the study's own terminal commit it
+  still returns `ok: true`. The freeze chain is not broken, and cannot be broken
+  by later COMMITS on other refs, because the commit set reachable from
+  `48c2512` is fixed. Two things outside that set can still change the answer,
+  and both are named here rather than left implicit: an amendment to
+  `discover-freeze-commits.js`'s own constants, since the script is read from
+  the checkout rather than from the evaluated ref - a further reason the
+  constant stays unamended - and loss of the commit objects themselves, which
+  today sit on `origin/integration`,
+  `origin/claude/accuracy-roadmap-status-5r5gzb` and
+  `origin/rename/endzone-forecast`.
+- The alternatives were considered and declined. Re-anchoring a new freeze chain
+  would pay a ceremony to protect a proof already rendered. Amending the
+  constant would contradict anchored specification text at
+  `PHASE5_EXECUTION_SPEC.md:1087`, which pins its exact membership, and the
+  amending commit would itself trigger the workflow it amends, since
+  `discover-freeze-commits.js` is one of that workflow's own path filters.
+- **The recommendation is operational and scoped to CI signal only.** It changes
+  no approval, lifts no gate, alters no sealed byte, and makes no statement about
+  any future study; a future study needing a freeze chain cuts its own. The cost
+  is recorded rather than left implicit: with this check red on every successor
+  ref, it can no longer signal a real later break in the frozen chain, and that
+  is accepted. `integration` carries no branch protection, so the failure blocks
+  nothing.
+
+**(8) Open findings carried forward, unresolved.** MINOR N-1 and MINOR N-3
+remain open with their exact prior reach. O-1 (DEF fumble pricing), O-2 (an
+unpinned dataset fallback), the source-row exclusion-count limitation and the
+canonical all-no-history producer-truth residual remain unverified, unasserted
+and unresolved.
+
+From the results review, in addition to D-1 and per its own verdict paragraph:
+**D-2** (the operator-attested lockfile digest is corroborated by no committed
+artifact), and the reviewer's **O-1 through O-5**, **L-1 through L-6** and
+**UNCHECKED-1 through UNCHECKED-6** are disclosed there and not cured by that
+verdict. These share label letters with the ledger's own O-1/O-2 but are a
+distinct series; read them against the verdict file, not against this entry.
+
+Whether the owner ever ruled on row 11's model-level-novelty independence
+limitation is not recorded anywhere and remains **UNDETERMINED**.
+
+`no-proposal` is a result, not a next step. The one successor tracked in this
+repository is `backtest-artifacts/holdout-confirm-2026/PREREGISTRATION.md`
+(free_baseline_v3.2 candidates), **DRAFT - NOT SEALED**, which by its own terms
+must seal before the first 2026 REG kickoff. Whether and when it seals is the
+owner's, and is not decided here.
+
+**(9) What this entry does not do.** It creates no approval row, approves no
+candidate, lifts no gate, and supplies no authorization the ledger lacks. It does
+not assert that Gate 3 occurred, and it does not assert that it did not. It does
+not certify reproduction: the green "Backtest reproduction" workflow regenerates
+the control-only MDE and byte-compares the manifest, and never reruns the sweep,
+so nothing in this study is independently reproducible from committed bytes
+alone. No prohibited operation occurred while recording this entry.
