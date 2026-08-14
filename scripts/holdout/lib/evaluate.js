@@ -269,7 +269,7 @@ function evaluateDecisionRule({ survivors, actuals, season, priorSeason, resampl
     scheduledRowsByWeek.set(entry.week, entry.arms[CONTROL_KIND].rows);
   }
 
-  const weeklyControl = []; const weeklyCandidate = [];
+  const weeklyControl = []; const weeklyCandidate = []; const weeklyPooled = [];
   for (const entry of survivors) {
     const rows = scheduledRowsByWeek.get(entry.week);
     const weekRosters = rostersByWeek.get(entry.week);
@@ -285,6 +285,30 @@ function evaluateDecisionRule({ survivors, actuals, season, priorSeason, resampl
       rosters: weekRosters, rankingFor: regret.armRankingMap(rows, 'mean'),
       actuals, season, week: entry.week, ideals,
     }));
+    // The §8.1 pooled-residual SENSITIVITY, non-selecting: `mean` plus a
+    // position-constant offset, ranked over the SAME control snapshot and the
+    // same rosters. The offset is estimated from a candidate cell's rows
+    // because only a `bandwidth > 0` arm pins `median - mean` to the residual
+    // median (see `regret.pooledOffsetsByPosition`). Nothing here reads a
+    // candidate's own regret, and no gate reads this series.
+    // The guard is on the OFFSETS, not on the arm's presence. No surviving week
+    // can lack the candidate arm - `armDefect` drops the week for every arm on a
+    // missing arm or a row-count mismatch - so an arm-presence check is
+    // unreachable. What IS reachable is an arm present whose rows carry no
+    // usable median/mean/position: `armDefect` never inspects those, so such a
+    // week survives, `pooledOffsetsByPosition` returns an EMPTY map, and
+    // `pooledRankingMap` then falls back to the control ranking for every
+    // player - publishing the control series under the sensitivity's name.
+    // Nulling is the honest outcome.
+    const offsetSource = entry.arms[CELL_KINDS[0]];
+    const offsets = offsetSource ? regret.pooledOffsetsByPosition(offsetSource.rows) : null;
+    weeklyPooled.push(offsets && offsets.size > 0
+      ? regret.weekRegret({
+        rosters: weekRosters,
+        rankingFor: regret.pooledRankingMap(rows, offsets),
+        actuals, season, week: entry.week, ideals,
+      })
+      : null);
   }
   const deltas = weeklyCandidate.map((v, i) => v - weeklyControl[i]);
   const controlMean = weeklyControl.reduce((a, b) => a + b, 0) / (weeklyControl.length || 1);
@@ -309,8 +333,24 @@ function evaluateDecisionRule({ survivors, actuals, season, priorSeason, resampl
     voids, component,
     weekly: weeks.map((week, i) => ({
       week, control: weeklyControl[i], candidate: weeklyCandidate[i], delta: deltas[i],
+      pooled: weeklyPooled[i],
     })),
     controlMeanRegret: controlMean,
+    // NON-SELECTING (§8.1). Published so -1.90 can be decomposed into skew
+    // correction versus per-player estimation noise; read by no gate, and its
+    // absence or presence changes no verdict.
+    //
+    // `null` when any surviving week yielded NO position offsets - which is the
+    // reachable degradation, not a missing arm. A week whose candidate arm is
+    // absent is dropped upstream by `armDefect`, so it never reaches here; this
+    // comment previously named that unreachable branch as the rule and
+    // contradicted the block comment 40 lines above.
+    pooledSensitivity: weeklyPooled.some((v) => v === null) ? null : {
+      meanRegret: weeklyPooled.reduce((a, b) => a + b, 0) / (weeklyPooled.length || 1),
+      meanDeltaVsControl: weeklyPooled.reduce((a, b, i) => a + (b - weeklyControl[i]), 0) / (weeklyPooled.length || 1),
+      meanDeltaVsCandidate: weeklyPooled.reduce((a, b, i) => a + (b - weeklyCandidate[i]), 0) / (weeklyPooled.length || 1),
+      selecting: false,
+    },
     permutationFloor: { p: floor.p, permutations: floor.permutations, threshold: config.permutationFloorP },
   };
 }

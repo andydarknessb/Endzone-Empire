@@ -518,6 +518,75 @@ test('the sealed config is the preregistration, verbatim', () => {
 // Runner argument and input validation
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// The pooled-residual sensitivity arm (§8.1, non-selecting)
+// ---------------------------------------------------------------------------
+
+test('pooled offsets are the per-position median of (median - mean), from candidate rows', () => {
+  const offsets = regret.pooledOffsetsByPosition([
+    { playerId: 1, position: 'WR', mean: 10, median: 10.5 },
+    { playerId: 2, position: 'WR', mean: 8, median: 8.9 },
+    { playerId: 3, position: 'WR', mean: 6, median: 6.1 },
+    { playerId: 4, position: 'QB', mean: 20, median: 19.2 },
+    { playerId: 5, position: 'TE', mean: 5, median: null },   // unusable, ignored
+    { playerId: 6, mean: 5, median: 6 },                       // no position, ignored
+  ]);
+  assert.equal(offsets.get('WR'), 0.5, 'median of [0.1, 0.5, 0.9]');
+  assert.ok(Math.abs(offsets.get('QB') - -0.8) < 1e-9);
+  assert.equal(offsets.has('TE'), false, 'a position with no usable row gets no offset');
+  assert.equal(offsets.size, 2);
+  // Even count averages the two central values.
+  const even = regret.pooledOffsetsByPosition([
+    { playerId: 1, position: 'RB', mean: 1, median: 2 },
+    { playerId: 2, position: 'RB', mean: 1, median: 3 },
+  ]);
+  assert.equal(even.get('RB'), 1.5);
+});
+
+test('the pooled arm ranks on mean + position offset, and keeps the control fallbacks', () => {
+  const offsets = new Map([['WR', 0.5]]);
+  const map = regret.pooledRankingMap([
+    { playerId: 1, position: 'WR', mean: 10, median: 12, activeProbability: 1 },
+    { playerId: 2, position: 'WR', mean: 8, median: 6, activeProbability: 0 },
+    { playerId: 3, position: 'TE', mean: 5, median: 7, activeProbability: 1 },
+    { playerId: 4, position: 'WR', mean: null, median: 9, activeProbability: 1 },
+  ], offsets);
+  assert.equal(map.get(1), 10.5, 'mean + the position offset, NOT the control median 12');
+  assert.equal(map.get(2), 0, 'an unavailable player ranks 0, exactly as every other arm');
+  assert.equal(map.get(3), 7, 'no offset for the position falls back to the control ranking, not to 0');
+  assert.equal(map.get(4), 9, 'no usable mean falls back to the control ranking, not to 0');
+});
+
+test('the pooled arm discriminates per-player noise from a systematic skew', () => {
+  // Both fixtures share the SAME means, so any ranking difference comes purely
+  // from the offset. This is the property the arm exists for.
+  const means = [12, 11, 10, 9, 8];
+  const ids = [1, 2, 3, 4, 5];
+
+  // Case 1: the control's median offset is pure per-player NOISE that reorders
+  // the field. The pooled arm applies one constant, so it preserves the mean
+  // ordering exactly as Candidate A does.
+  const noisy = ids.map((playerId, i) => ({
+    playerId, position: 'WR', mean: means[i], median: means[i] + (i % 2 ? 3 : -3), activeProbability: 1,
+  }));
+  const candidateRowsNoisy = ids.map((playerId, i) => ({ playerId, position: 'WR', mean: means[i], median: means[i] }));
+  const pooledNoisy = regret.pooledRankingMap(noisy, regret.pooledOffsetsByPosition(candidateRowsNoisy));
+  const orderOf = (map) => [...map].sort((a, b) => b[1] - a[1]).map(([id]) => id);
+  assert.deepEqual(orderOf(pooledNoisy), ids, 'a constant offset cannot reorder the mean ranking');
+  assert.notDeepEqual(orderOf(new Map(noisy.map((r) => [r.playerId, regret.rankingValue(r, 'median')]))), ids,
+    'while the control ordering IS reordered by the noise');
+
+  // Case 2: a genuine systematic skew, identical for every player. The pooled
+  // arm reproduces the control ordering, because the offset is the real signal.
+  const skewed = ids.map((playerId, i) => ({
+    playerId, position: 'WR', mean: means[i], median: means[i] + 1.5, activeProbability: 1,
+  }));
+  const candidateRowsSkew = ids.map((playerId, i) => ({ playerId, position: 'WR', mean: means[i], median: means[i] + 1.5 }));
+  const pooledSkew = regret.pooledRankingMap(skewed, regret.pooledOffsetsByPosition(candidateRowsSkew));
+  assert.deepEqual(orderOf(pooledSkew), orderOf(new Map(skewed.map((r) => [r.playerId, regret.rankingValue(r, 'median')]))));
+  for (const id of ids) assert.ok(Math.abs(pooledSkew.get(id) - (means[ids.indexOf(id)] + 1.5)) < 1e-9);
+});
+
 test('the runner refuses missing or unknown arguments', () => {
   assert.throws(() => runner.parseArgs(['--season', '2026']), /--prior-season is required/);
   assert.throws(() => runner.parseArgs(['--bogus', 'x']), /unknown argument --bogus/);

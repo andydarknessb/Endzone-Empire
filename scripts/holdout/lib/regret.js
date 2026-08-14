@@ -36,6 +36,75 @@ function rankingValue(row, arm) {
   return value ?? 0;
 }
 
+/**
+ * The pooled position offset per position, estimated from a CANDIDATE cell's
+ * rows: for each position, the median over that position's rows of
+ * (`median` - `mean`).
+ *
+ * WHY THE CANDIDATE ROWS AND NEVER THE CONTROL'S. `simulateDistribution` pins
+ * `median = mean + median(residuals)` ONLY inside its `bandwidth > 0` branch.
+ * The control arm ships `smoothingBandwidth: 0`, so its median is a
+ * seed-dependent empirical quantile of a 400-draw bootstrap. Measured directly
+ * over 30 players given an identical mean and an identical residual pool,
+ * (`median` - `mean`) spans [-1.400, +1.780] on the control arm and is a single
+ * constant on a candidate arm. Inverting an offset out of control rows would
+ * recover that seed noise, not the pooled constant - which is precisely the
+ * quantity this arm exists to separate from the effect.
+ *
+ * This is an ESTIMATOR of the model's pooled position pool, not a recovery of
+ * it. Exact recovery needs `factors.dataQuality.residualSource` to identify the
+ * rows that fell back to the pooled pool, and the evaluator does not select the
+ * `factors` payload. The median over the position is used because it is
+ * unambiguous, computable from columns already read, and robust to the mix of
+ * own-residual and pooled-residual players in a position.
+ */
+function pooledOffsetsByPosition(candidateRows) {
+  const byPosition = new Map();
+  for (const row of candidateRows || []) {
+    if (row == null || row.position == null) continue;
+    const median = num(row.median);
+    const mean = num(row.mean);
+    if (median === null || mean === null) continue;
+    if (!byPosition.has(row.position)) byPosition.set(row.position, []);
+    byPosition.get(row.position).push(median - mean);
+  }
+  const offsets = new Map();
+  for (const [position, values] of byPosition) {
+    values.sort((a, b) => a - b);
+    const mid = Math.floor(values.length / 2);
+    offsets.set(position, values.length % 2 ? values[mid] : (values[mid - 1] + values[mid]) / 2);
+  }
+  return offsets;
+}
+
+/**
+ * playerId -> ranking value under the NON-SELECTING pooled-residual sensitivity
+ * arm: `mean` plus that player's position offset.
+ *
+ * Three points on one line, which is the whole purpose: the control ranks on
+ * `mean + median(own residuals)` (a per-player offset, noisy where a player has
+ * few residuals), Candidate A ranks on `mean` (no offset), and this arm ranks on
+ * `mean + delta_position` (the offset denoised to a position constant). If
+ * Candidate A's effect is the removal of per-player estimation noise, this arm
+ * lands near Candidate A; if it is a genuine skew correction, it lands near the
+ * control. Nothing selects on it.
+ *
+ * Availability and null rules are `rankingValue`'s, unchanged: an unavailable
+ * player ranks 0, and a player with no usable `mean` falls back to the same
+ * `median ?? 0` the control would use rather than being pushed to zero by a
+ * missing offset.
+ */
+function pooledRankingMap(controlRows, offsets) {
+  return new Map((controlRows || []).map((row) => {
+    if (row == null) return [row && row.playerId, 0];
+    if (num(row.activeProbability) === 0) return [row.playerId, 0];
+    const mean = num(row.mean);
+    const offset = row.position == null ? undefined : offsets.get(row.position);
+    if (mean === null || offset === undefined) return [row.playerId, rankingValue(row, 'median')];
+    return [row.playerId, mean + offset];
+  }));
+}
+
 /** Actual points for a player-week: pinned actuals, absent -> 0 (§5). */
 function actualPoints(actuals, season, week, playerId) {
   const pts = actuals.get(`${season}:${week}:${playerId}`);
@@ -150,5 +219,7 @@ module.exports = {
   weekIdeals,
   weekRegret,
   armRankingMap,
+  pooledOffsetsByPosition,
+  pooledRankingMap,
   permutationFloor,
 };
