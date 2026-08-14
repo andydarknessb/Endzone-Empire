@@ -11,6 +11,15 @@ on:
         required: true
         type: boolean
         default: false
+      deploy_worker:
+        # The holdout capture runs on the worker, and the worker has no
+        # auto-deploy: a green readyz proves nothing about which code the
+        # worker runs. This deploys it and then verifies its live commit
+        # against the dispatched one via the Render API.
+        description: Also deploy the background worker and verify its release SHA
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -42,6 +51,28 @@ jobs:
             sleep 10
           done
           exit 1
+      - name: Trigger production worker deploy
+        if: ${{ inputs.deploy_worker }}
+        env:
+          API_URL: ${{ vars.PRODUCTION_API_URL }}
+          RENDER_WORKER_HOOK: ${{ secrets.RENDER_WORKER_DEPLOY_HOOK }}
+        run: |
+          test -n "$RENDER_WORKER_HOOK"
+          # The worker's heartbeat writes a column the WEB service's
+          # preDeployCommand migration creates, so the worker may deploy only
+          # after the web is live AT THIS COMMIT - readyz being green alone
+          # proves nothing, the old instance also answers 200.
+          for attempt in $(seq 1 60); do
+            release=$(curl --fail --silent "$API_URL/api/health/readyz" 2>/dev/null | jq -r '.release' 2>/dev/null || echo unknown)
+            if [ "$release" = "$GITHUB_SHA" ]; then
+              curl --fail --silent --show-error --request POST "$RENDER_WORKER_HOOK"
+              exit 0
+            fi
+            echo "attempt $attempt: web release=$release (want $GITHUB_SHA before the worker deploys)"
+            sleep 10
+          done
+          echo "web never reached the dispatched commit; worker deploy NOT triggered"
+          exit 1
       - name: Trigger production client build
         env:
           NETLIFY_HOOK: ${{ secrets.NETLIFY_PRODUCTION_BUILD_HOOK }}
@@ -60,4 +91,30 @@ jobs:
             fi
             sleep 10
           done
+          exit 1
+      - name: Verify worker release SHA via the Render API
+        if: ${{ inputs.deploy_worker }}
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_WORKER_SERVICE_ID: ${{ vars.RENDER_WORKER_SERVICE_ID }}
+        run: |
+          test -n "$RENDER_API_KEY"
+          test -n "$RENDER_WORKER_SERVICE_ID"
+          for attempt in $(seq 1 60); do
+            # Tolerate transient API failures: a failed poll is one attempt
+            # spent, not the verdict.
+            latest=$(curl --fail --silent \
+              --header "Authorization: Bearer $RENDER_API_KEY" \
+              "https://api.render.com/v1/services/$RENDER_WORKER_SERVICE_ID/deploys?limit=1" \
+              2>/dev/null || echo '[]')
+            status=$(echo "$latest" | jq -r '.[0].deploy.status' 2>/dev/null || echo unknown)
+            sha=$(echo "$latest" | jq -r '.[0].deploy.commit.id' 2>/dev/null || echo unknown)
+            if [ "$status" = "live" ] && [ "$sha" = "$GITHUB_SHA" ]; then
+              echo "worker live at $sha"
+              exit 0
+            fi
+            echo "attempt $attempt: worker deploy status=$status sha=$sha (want live at $GITHUB_SHA)"
+            sleep 10
+          done
+          echo "worker never reached live at the dispatched commit"
           exit 1
