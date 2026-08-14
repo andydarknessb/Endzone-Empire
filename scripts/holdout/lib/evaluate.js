@@ -195,16 +195,17 @@ function evaluateCell({ cellKind, survivors, actuals, season, resamples, config 
 
   // Component series over weeks where both sides have the metric; a week
   // missing either side drops from that component symmetrically and is
-  // counted. (With a ~550-player cohort a null weekly metric means an empty
-  // eligibility set - a structural event the counts must surface.)
+  // counted. (A null weekly metric means no row was eligible for THAT
+  // metric on some arm - §10's correction: the week's row set need not be
+  // empty - a structural event the counts must surface.)
   const series = (pick) => {
-    const values = []; let droppedWeeks = 0;
+    const values = []; const missingWeeks = [];
     for (const w of weekly) {
       const value = pick(w);
-      if (value === null) droppedWeeks += 1;
+      if (value === null) missingWeeks.push(w.week);
       else values.push(value);
     }
-    return { values, droppedWeeks };
+    return { values, missingWeeks, droppedWeeks: missingWeeks.length };
   };
   const t80 = series((w) => (w.ctrl.cov80 === null || w.cell.cov80 === null ? null
     : Math.abs(w.ctrl.cov80 - config.cov80Target) - Math.abs(w.cell.cov80 - config.cov80Target)));
@@ -212,9 +213,34 @@ function evaluateCell({ cellKind, survivors, actuals, season, resamples, config 
     : Math.abs(w.ctrl.cov50 - config.cov50Target) - Math.abs(w.cell.cov50 - config.cov50Target)));
   const wisDelta = series((w) => (w.ctrl.wis === null || w.cell.wis === null ? null : w.cell.wis - w.ctrl.wis));
 
+  // §9.5 [added pre-seal]: the component series and the survivor set are ONE
+  // week set. §10 records that a drop moves the affected component's n and,
+  // below the 12-cluster threshold, hands it the exact sign test. §9.4
+  // cannot see this (ledger integrity never reads row content), so a defect
+  // confined to the CONTROL arm's stored intervals could otherwise select
+  // the test that scores the candidate. Any gap voids the candidate -
+  // asymmetric single-band nulls and symmetric all-band nulls alike. The
+  // components below still compute as report diagnostics, never as a
+  // verdict; an EMPTY series publishes an explicit empty-series diagnostic
+  // (see boundFor) rather than crashing the run out of its own report.
+  const seriesGaps = [['t80', t80], ['t50', t50], ['wis', wisDelta]]
+    .filter(([, s]) => s.missingWeeks.length > 0)
+    .map(([label, s]) => `${label}: week${s.missingWeeks.length > 1 ? 's' : ''} ${s.missingWeeks.join(', ')}`);
+  if (seriesGaps.length > 0) {
+    voids.push(`component series shorter than the survivor set (${seriesGaps.join('; ')}) - a null weekly metric is a defective ledger, per section 9 item 5`);
+  }
+
   // The §10 contract wants one resample matrix per survivor count; component
   // series can be shorter than the survivor set only via null-metric drops.
   const boundFor = (label, s, side, boundary) => {
+    // An EMPTY series has nothing to resample or sign-test, and §9.5 has
+    // already voided the candidate (every week is a gap). Publishing an
+    // explicit no-evidence diagnostic keeps the promise that the report is
+    // written either way - a throw here would kill the whole run, Candidate
+    // A's verdict included, before a single byte of report exists.
+    if (s.values.length === 0) {
+      return { label, method: 'empty-series', passes: false, n: 0, boundary, side };
+    }
     const matrix = s.values.length === survivors.length
       ? resamples
       : inference.buildResamples({ n: s.values.length, draws: config.draws, seed: config.bootstrapSeed });
@@ -463,15 +489,19 @@ function weeks1to17Sensitivity({ survivors, candidateA, cells, config }) {
   if (!survivors.some((entry) => entry.week === 18)) {
     return { skipped: 'week 18 did not survive; the primary run already covers weeks 1-17 only' };
   }
-  const decide = (label, values, side, boundary, alpha) => inference.decideComponent({
-    label,
-    weeklyValues: values,
-    resamples: inference.buildResamples({ n: values.length, draws: config.draws, seed: config.bootstrapSeed }),
-    alpha,
-    boundary,
-    side,
-    exactTriggerClusters: config.exactTriggerClusters,
-  });
+  // The same empty-series guard as evaluateCell's boundFor: a sensitivity
+  // must never be able to crash a run whose primary series computed fine.
+  const decide = (label, values, side, boundary, alpha) => (values.length === 0
+    ? { label, method: 'empty-series', passes: false, n: 0, boundary, side }
+    : inference.decideComponent({
+      label,
+      weeklyValues: values,
+      resamples: inference.buildResamples({ n: values.length, draws: config.draws, seed: config.bootstrapSeed }),
+      alpha,
+      boundary,
+      side,
+      exactTriggerClusters: config.exactTriggerClusters,
+    }));
   const meanOf = (values) => (values.length ? values.reduce((a, b) => a + b, 0) / values.length : null);
 
   const result = { nonSelecting: true, candidateA: null, cells: [] };

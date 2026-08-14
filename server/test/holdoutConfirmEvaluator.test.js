@@ -493,6 +493,90 @@ test('a systematic median shift voids the cell through the sealed bound', () => 
   assert.equal(result.candidateB.selected, null);
 });
 
+test('a single band nulled on the CONTROL arm voids Candidate B - the section-10 defect signature cannot reach a verdict (section 9.5)', () => {
+  const { weeks, actuals } = syntheticSeason();
+  // Null ONLY the 80% band on the control arm of one week: cov80 and WIS go
+  // null for that arm-week while cov50 still scores the full row set, so the
+  // t80 and wis series lose a week the t50 series keeps - the asymmetry that
+  // previously moved a component's n and could switch the test scoring it.
+  weeks[4].arms.scheduled = {
+    ...weeks[4].arms.scheduled,
+    rows: weeks[4].arms.scheduled.rows.map((r) => ({ ...r, p10: null, p90: null })),
+  };
+  const result = evaluator.evaluate({
+    season: SEASON, priorSeason: PRIOR, weeks, actuals, config: FAST,
+  });
+  assert.equal(result.weeks.surviving, 18, 'section 9.4 never reads row content, so the week survives');
+  assert.equal(result.candidateB.verdict, 'void');
+  const itemFiveVoids = result.candidateB.voids.filter((v) => /section 9 item 5/.test(v));
+  assert.ok(itemFiveVoids.length > 0, 'the item-5 void is present whatever else co-occurs');
+  assert.match(itemFiveVoids[0], /t80: week 5/);
+  assert.match(itemFiveVoids[0], /wis: week 5/);
+  assert.equal(result.candidateB.selected, null, 'nothing ships off a shortened series');
+  assert.equal(result.flips.calibration, null);
+  const [bw20] = result.candidateB.cells;
+  assert.equal(bw20.verdict, 'void');
+  assert.deepEqual(bw20.seriesDrops, { t80: 1, t50: 0, wis: 1 },
+    'the published drop counts carry the asymmetry');
+  assert.equal(result.candidateA.verdict, 'pass',
+    'Candidate A ranks on median/mean, not intervals, and is untouched');
+  assert.match(renderReport(result), /Component series drops/);
+});
+
+test('symmetric all-band nulls void too - week survival cannot be steered by row content at all (section 9.5)', () => {
+  const { weeks, actuals } = syntheticSeason();
+  // Null BOTH bands on the control arm of one week: every component drops
+  // the week together, so there is no cross-component asymmetry - and it
+  // still voids, because the rule measures against the SURVIVOR set, not
+  // against the sibling components. (Eleven such weeks would otherwise walk
+  // every component below the 12-cluster threshold into the exact sign test
+  // on a chosen week subset.)
+  weeks[9].arms.scheduled = {
+    ...weeks[9].arms.scheduled,
+    rows: weeks[9].arms.scheduled.rows.map((r) => ({
+      ...r, p10: null, p25: null, p75: null, p90: null,
+    })),
+  };
+  const result = evaluator.evaluate({
+    season: SEASON, priorSeason: PRIOR, weeks, actuals, config: FAST,
+  });
+  assert.equal(result.weeks.surviving, 18);
+  assert.equal(result.candidateB.verdict, 'void');
+  assert.ok(result.candidateB.voids.some((v) => /section 9 item 5/.test(v) && /week 10/.test(v)));
+  assert.equal(result.candidateB.selected, null);
+  assert.deepEqual(result.candidateB.cells[0].seriesDrops, { t80: 1, t50: 1, wis: 1 });
+});
+
+test('a whole-season band outage voids and still publishes - the evaluator never throws the run away (section 9.5)', () => {
+  const { weeks, actuals } = syntheticSeason();
+  // The section-9.5 defect class at its limit: the control arm's 80% band
+  // nulled in EVERY week. t80 and wis are then EMPTY series - nothing to
+  // resample, nothing to sign-test - and the report must still be written,
+  // with the void recorded and Candidate A's independent verdict intact.
+  for (const entry of weeks) {
+    entry.arms.scheduled = {
+      ...entry.arms.scheduled,
+      rows: entry.arms.scheduled.rows.map((r) => ({ ...r, p10: null, p90: null })),
+    };
+  }
+  const result = evaluator.evaluate({
+    season: SEASON, priorSeason: PRIOR, weeks, actuals, config: FAST,
+  });
+  assert.equal(result.weeks.surviving, 18);
+  assert.equal(result.candidateB.verdict, 'void');
+  assert.equal(result.candidateB.selected, null);
+  const [bw20] = result.candidateB.cells;
+  assert.deepEqual(bw20.seriesDrops, { t80: 18, t50: 0, wis: 18 });
+  assert.equal(bw20.components.find((c) => c.label === 'cov80-distance-improvement').method,
+    'empty-series', 'an empty series is an explicit diagnostic, not a crash');
+  assert.equal(bw20.components.find((c) => c.label === 'cov80-distance-improvement').passes, false);
+  assert.equal(result.candidateA.verdict, 'pass',
+    'Candidate A flips independently even of a season-wide Candidate B catastrophe');
+  const view = renderReport(result);
+  assert.match(view, /empty series/);
+  assert.match(view, /no surviving week carries this metric/);
+});
+
 test('the sealed config is the preregistration, verbatim', () => {
   assert.equal(evaluator.SEALED.draws, 100000);
   assert.equal(evaluator.SEALED.bootstrapSeed, 2579717975);

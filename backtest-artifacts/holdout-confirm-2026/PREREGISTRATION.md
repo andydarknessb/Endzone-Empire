@@ -594,6 +594,27 @@ void is "the run cannot speak", never a pass or a fail.
    within the evaluated window only, over week-ordered entries, with ties
    breaking to the earliest week's value.
 
+5. **Component-series completeness (voids Candidate B) [added pre-seal].**
+   Section 8.2's three component series and the survivor set are ONE week
+   set: every component of every cell must carry every surviving week. A
+   null weekly metric means no row was eligible for THAT metric on some arm
+   - section 10's correction stands: the week's row set need not be empty,
+   and a single band can be absent while the other scores the full set -
+   and with a ~550-player cohort it is a structural event either way, never
+   weather. Section 10 records the consequence: a drop moves the affected
+   component's effective n, and below 12 clusters it hands that component
+   the exact sign test, whose attainable p at small n differs from the
+   bootstrap's. A defect confined to the CONTROL arm's stored intervals
+   could otherwise select the test that scores the candidate, and item 4
+   cannot see it, because ledger integrity never reads row content. So the
+   rule is zero-tolerance and symmetric on purpose: ANY week missing from
+   ANY component's series - asymmetric single-band nulls and symmetric
+   all-band nulls alike - voids Candidate B, and the run cannot speak. The
+   per-component drop counts are published in `report.json` and rendered in
+   `REPORT.md` either way; a component left with no weeks at all publishes
+   an explicit empty-series diagnostic in place of a bound, never a crash
+   and never a fabricated number.
+
 ---
 
 ## 10. CI contract
@@ -620,7 +641,15 @@ void is "the run cannot speak", never a pass or a fail.
   series drops on EITHER arm's null, a defect confined to the CONTROL arm can
   shorten a component's series and change the test it runs.** The per-component
   drop counts are published for exactly this reason and must be read before any
-  cell is treated as passing. Section 9's void conditions do not cover this.
+  cell is treated as passing. **[Amended pre-seal]** Section 9 item 5 now voids
+  Candidate B on exactly this event: a shortened cell series is still computed
+  and published as a diagnostic (an empty one as an explicit empty-series
+  marker), but it can no longer reach a verdict. The
+  n-driven exact fallback below is therefore unreachable for a verdict-bearing
+  cell component (section 4's floor keeps survivors at 14 or more, and item 5
+  voids any component running shorter than the survivors); the degeneracy
+  trigger - fewer than 100 distinct resampled values - remains reachable and
+  unchanged.
 - Percentile bounds; the one-sided q bound is the order statistic at index
   `ceil(q * 100000)` clamped to `[1, 100000]`, no interpolation.
 - Exact fallback: if fewer than 12 clusters survive, or fewer than 100

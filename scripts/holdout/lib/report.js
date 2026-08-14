@@ -9,6 +9,9 @@
 const round = (v, places = 4) => (v === null || v === undefined ? '-' : Number(v).toFixed(places));
 
 function renderComponent(c) {
+  if (c.method === 'empty-series') {
+    return `| ${c.label} | empty series | no surviving week carries this metric (section 9 item 5 void) | FAIL |`;
+  }
   if (c.method === 'exact-sign-test') {
     return `| ${c.label} | exact sign test (${c.triggerReason}) | n=${c.exact.n} favorable=${c.exact.favorable} p=${round(c.exact.p, 6)} vs boundary ${c.boundary} | ${c.passes ? 'PASS' : 'FAIL'} |`;
   }
@@ -82,6 +85,9 @@ function renderReport(result) {
     lines.push(`Mean bit-equality: ${cell.meanEquality.mismatches} mismatches over ${cell.meanEquality.checked} rows. `
       + `Median shift: signed mean ${round(cell.medianShift.signedMean)} (|abs| ${round(cell.medianShift.absMean)}) `
       + `over ${cell.medianShift.rows} rows, bound +/-${result.config.medianShiftBound}.`);
+    lines.push('');
+    lines.push(`Component series drops (surviving weeks missing from each component's series; any nonzero voids per section 9 item 5): `
+      + `t80 ${cell.seriesDrops.t80}, t50 ${cell.seriesDrops.t50}, wis ${cell.seriesDrops.wis}.`);
     lines.push('');
     lines.push('| component | method | evidence | outcome |');
     lines.push('| --- | --- | --- | --- |');
