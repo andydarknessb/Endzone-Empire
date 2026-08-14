@@ -1,0 +1,84 @@
+name: Holdout uptime
+
+# External watchdog for the holdout-confirm-2026 capture apparatus.
+#
+# /api/health/holdout returns 503 when any capture obligation is NOT in
+# {captured, pending, scheduled} - that covers missed, failed,
+# protocol-conflict, incomplete-arms and schedule-invalid - and when
+# reconciliation itself cannot run. /api/health/worker returns 503 when a
+# worker is stale (the true precursor of a missed capture) or carries any
+# worker error (a whole-worker signal, not capture-specific). Both probes
+# also assert the JSON payload, not just the status code: the 2026-07
+# DNS incident parked api.endzoneempire.gg on an IP whose page answers
+# 200, and a monitor that trusts status codes would have called it healthy.
+#
+# The alert channel is GitHub's failure-notification email for scheduled
+# workflows (delivered per GitHub's attribution rules - the account that
+# created the workflow or last changed its cron; keep Actions email
+# notifications on). Prove the channel once by dispatching this workflow
+# with force_fail=true and confirming the email arrives.
+#
+# The URL is hardcoded on purpose: a monitor should have no moving parts,
+# and the domain is pinned in render.yaml. GitHub disables scheduled
+# workflows on public repos after 60 days without repository activity (a
+# pre-disable warning email has been observed but is not documented). The
+# season's no-edit corridor (Oct 7 - Dec 9) is 63 days - one docs commit
+# in that span keeps this alive.
+
+on:
+  schedule:
+    - cron: '23 * * * *'
+  workflow_dispatch:
+    inputs:
+      force_fail:
+        description: Fail on purpose to prove the alert email arrives
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: holdout-uptime
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Probe holdout and worker health
+        run: |
+          if [ "${{ inputs.force_fail }}" = "true" ]; then
+            echo "::error::forced failure to prove the alert channel - this is not an outage"
+            exit 1
+          fi
+          check() {
+            name="$1"; url="$2"; assert="$3"
+            for attempt in $(seq 1 4); do
+              body=$(curl --silent --show-error --max-time 20 --write-out '\n%{http_code}' "$url" 2>&1)
+              code=$(echo "$body" | tail -n 1)
+              payload=$(echo "$body" | head -n -1)
+              if [ "$code" = "200" ] && echo "$payload" | jq -e "$assert" >/dev/null 2>&1; then
+                echo "$name: 200 OK, payload healthy"
+                return 0
+              fi
+              echo "$name attempt $attempt of 4: HTTP ${code:-error}"
+              # Surface the failing obligations first - the raw body is ~8KB
+              # of mostly-healthy rows and a blind truncation hides the one
+              # line that matters.
+              echo "$payload" | jq -c '[.obligations[]? | select(.state | IN("captured","pending","scheduled") | not)] | if length > 0 then {unhealthyObligations: .} else empty end' 2>/dev/null || true
+              echo "$payload" | head -c 2000
+              echo
+              # Retries filter deploy restarts and network blips; a missed
+              # obligation is persistent state and will still be failing.
+              [ "$attempt" -lt 4 ] && sleep 30
+            done
+            echo "::error::$name unhealthy after 4 attempts over ~2 minutes - see bodies above"
+            return 1
+          }
+          fail=0
+          check holdout "https://api.endzoneempire.gg/api/health/holdout" '.ok == true' || fail=1
+          check worker "https://api.endzoneempire.gg/api/health/worker" '.ok == true and any(.workers[]; .name == "jobs")' || fail=1
+          exit "$fail"
