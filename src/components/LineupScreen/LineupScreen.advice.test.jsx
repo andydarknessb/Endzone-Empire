@@ -207,8 +207,9 @@ test('the panel says out loud that expert consensus and weather are unavailable'
   renderScreen();
   await screen.findByText('Justin Jefferson');
 
+  expect(screen.getByRole('heading', { name: 'Endzone Forecast' })).toBeInTheDocument();
   const provenance = screen.getByTestId('lineup-advice-provenance');
-  expect(provenance).toHaveTextContent('Model free_baseline_v2');
+  expect(provenance).toHaveTextContent('Version free_baseline_v2');
   expect(provenance).toHaveTextContent('expert consensus unavailable');
   expect(provenance).toHaveTextContent('weather unavailable');
 });

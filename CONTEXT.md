@@ -198,6 +198,14 @@ game's kickoff.
 
 ### The projection engine
 
+**Endzone Forecast**:
+The name the product gives its projection engine: what managers see on the
+advice surfaces. Naming is presentation only - the model version identity
+underneath does not change when the name does, and the two are never
+interchangeable in evaluation contexts.
+_Avoid_: the model (in user-facing copy), Start/Sit Suggestions (superseded
+heading)
+
 **Projection**:
 A model's estimate of the fantasy points one player will score in one week. Two
 distinct producers exist and their numbers are not interchangeable, so this word
