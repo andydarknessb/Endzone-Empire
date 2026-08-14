@@ -808,12 +808,13 @@ test('capture of a season with no manifest refuses before touching the database'
 // ---------------------------------------------------------------------------
 
 test('capture refuses to run without a release SHA', async (t) => {
-  const prevRender = process.env.RENDER_GIT_COMMIT;
-  const prevApp = process.env.APP_RELEASE;
+  // Destructured because eslint's testing-library plugin misreads a plain
+  // assignment from anything render-shaped as a component render.
+  const { RENDER_GIT_COMMIT: prevSha, APP_RELEASE: prevApp } = process.env;
   delete process.env.RENDER_GIT_COMMIT;
   delete process.env.APP_RELEASE;
   t.after(() => {
-    if (prevRender !== undefined) process.env.RENDER_GIT_COMMIT = prevRender;
+    if (prevSha !== undefined) process.env.RENDER_GIT_COMMIT = prevSha;
     if (prevApp !== undefined) process.env.APP_RELEASE = prevApp;
   });
   const db = fakeDb(dbArgs());
