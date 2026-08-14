@@ -52,10 +52,47 @@ number stays the median.
 
 Exploratory evidence (frozen pit-sweep artifacts, 1700 roster-weeks,
 production optimizer and distributions): regret 25.915 -> 24.016, a paired
-delta of **-1.90 points per roster-week**, direction consistent in both
-seasons independently (2024 -1.74/wk, 2025 -2.06/wk, each t ~ -1.9), and the
-candidate ordering ran exactly as theory predicts (mean < mid-blend < median
-< p75 < p25).
+delta of **-1.90 points per roster-week**, direction negative in both seasons
+independently (2024 -1.74/wk, 2025 -2.06/wk), with the candidate ordering
+observed as mean < mid-blend < median < p75 < p25.
+
+**Provenance of those figures, and what a rebuild reproduces [added
+pre-seal].** The harness that produced them was ephemeral and no longer
+exists; `25.915` and `24.016` appear in no committed artifact and are not
+recomputable as stated. A rebuilt harness
+(`server/scripts/measure-candidate-arms.js`) drives the same frozen artifacts
+through the same production optimizer and is validated by reproducing the
+sealed `freeze/mde-artifact.json` control-regret series exactly, all 17 weeks
+of 2025, mean 28.22376470588235. It measures:
+
+| | control | candidate | delta |
+| --- | ---: | ---: | ---: |
+| all 34 weeks | 27.042 | 24.953 | **-2.089** |
+| excluding 1 inert week | | | -2.152 |
+| 2024 | 25.861 | 24.620 | -1.241 |
+| 2025 | 28.224 | 25.286 | -2.937 |
+
+**The direction and sign reproduce; the LEVELS do not, for a reason the sealed
+study itself demonstrates. The candidate ORDERING is not rebuilt at all** -
+`measure-candidate-arms.js` carries exactly two arms, `median` and `mean`, and
+computes no mid-blend, p75 or p25 arm - **so the five-term ordering above stands
+on the lost exploratory harness alone, under the same label as 25.915/24.016.**
+
+For the identical cell (2025, `usage-25-off`, half_ppr) the pit-sweep publishes BOTH
+a single-realization control regret (28.2238, `freeze/mde-artifact.json`) and
+a realization-averaged one (27.1876, `report.json`), differing by 1.036 - the
+same order as the gap here. Absolute levels are therefore realization-
+dependent and are not the evidence; the paired delta is.
+
+**The per-season split is NOT evidence of agreement between seasons.** The two
+harnesses disagree on the split by more than the split itself: the exploratory
+one reports 2024 -1.74 / 2025 -2.06, the rebuild 2024 -1.241 / 2025 -2.937. No
+reseeding sweep was run - `measure-candidate-arms.js` takes no seed or salt
+input - so the spread across draw realizations is NOT quantified here. Both
+measurements agree that the delta is negative in both seasons, and that is the
+whole of what the per-season figures support. The candidate arm is separately
+known to be invariant to the draw seed - `projection.mean` is the pre-simulation
+point estimate - so whatever that spread is, it is entirely the control arm's.
 
 ### Candidate B - interval calibration (smoothed bootstrap)
 
@@ -71,8 +108,9 @@ Exploratory evidence (same artifacts, production `simulateDistribution`,
 no opponent/usage/homeAway factors in the harness): p10-p90 coverage
 0.647 -> 0.814 against a 0.80 target, p25-p75 0.453 -> 0.531 against 0.50,
 at intervals 21% narrower. **The transfer risk is the reason this study
-exists**: with the full factor chain the shipped model measures 0.745/0.692
-(published pit-sweep), not 0.647, so the bandwidth fit on the harness
+exists**: with the full factor chain the shipped model measures cov80 0.7469 (2025) and
+0.6922 (2024) - the published pit-sweep figures for the SHIPPED cell
+`usage-25-off`, both cov80 - not 0.647, so the bandwidth fit on the harness
 population may overshoot on the production one. `bw-15` exists for exactly
 that case and for no other reason.
 
@@ -327,6 +365,94 @@ pit-sweep's conservatism divisor restored WITH a measured reason:
   candidate may re-run as a new study on the next season's ledger. The
   margin is still 0 because a flip must be justified by this season's own
   evidence, not by the exploratory result it is checking.
+- **Power at the sealed FLOOR, stated because the floor is what section 4
+  guarantees [added pre-seal].** The 0.6 above is the full-window case,
+  n = 18. Section 4 sets an evaluability minimum of **14** surviving weeks,
+  and at n = 14 the same z-approximation on the same effect gives power
+  **0.50**. Every lost week moves the study along that range, so the
+  missing-week budget is a power budget and not only an evaluability one:
+  18 -> 0.60, 17 -> 0.58, 14 -> 0.50.
+- **Pooled-residual sensitivity, NON-SELECTING [added pre-seal].** Published
+  beside the claim, read by no gate, and its presence or absence changes no
+  verdict. A third ranking of the SAME control snapshot over the SAME rosters:
+  `mean` plus a per-position constant offset, against the control's `mean +
+  median(own residuals)` and Candidate A's bare `mean`. The offset is the
+  per-position median of (`median` - `mean`) taken from the `bw-20` rows, NOT
+  the control's, because only a `smoothingBandwidth > 0` arm pins
+  `median - mean` to the residual median; on the control arm that quantity is a
+  seed-dependent bootstrap quantile, measured spanning 3.18 points across
+  players given an identical mean and an identical residual pool.
+
+  **Why it is here.** Section 1 attributes Candidate A's effect to skew, and the
+  exploratory ordering does not fit that story: p75 lands FURTHER from the
+  optimum than the median, in the opposite direction, and a uniform skew shift
+  preserves the ranking ORDER, though not necessarily the chosen lineup -
+  `optimalAssignment` scores an empty slot at exactly 0
+  (`server/services/lineupOptimizer.js`), so it is not translation-invariant and
+  a constant shift can move a marginal player across that threshold. The
+  competing mechanism is per-player estimation NOISE - `minPlayerResiduals` is
+  3, so a modal player's median is the median of a handful of own residuals.
+  These two predict different things in principle. **What this arm can actually
+  observe is much narrower, and is recorded here rather than discovered
+  afterwards.** Within a position `mean + delta_position` is a strictly
+  increasing map of `mean`, so it reproduces Candidate A's ordering at every
+  single-position slot; under `DEFAULT_ROSTER_SLOTS` its only channels of
+  difference are the single FLEX slot and the empty-slot threshold above.
+  Measured pre-seal over the FULL frozen 2024-25 corpus through this study's own
+  `regret.weekRegret` and the real optimizer, the pooled series equals Candidate
+  A's in **33 of 34 weeks** to six decimal places, with no starter moving at any
+  slot - on 2025 week 17, for instance, all 567 ranking values change and not one
+  lineup does. The single exception is **2025 week 8**, where pooled regret is
+  24.058 against Candidate A's 24.958, a difference of **-0.900**, with 5 of 50
+  rosters changing a starter and every change at the FLEX slot. Mean
+  pooled-minus-Candidate-A over the season is **-0.026**, against
+  control-minus-Candidate-A of **2.089** - the same contrast the section 1 table
+  publishes as `-2.089`, from `server/scripts/measure-candidate-arms.js`.
+
+  **Provenance limit, in the same terms section 1 uses [added pre-seal].** These
+  pooled figures come from a harness that is NOT committed: no script in this
+  repository computes them, because `measure-candidate-arms.js` carries only the
+  `median` and `mean` arms. They are on the same footing as 25.915/24.016 and
+  are recorded as such. An independent reconstruction disagreed at 2025 week 14
+  (Candidate-A regret 18.784 against the committed harness's 18.584), which is
+  what moved the season contrast between 2.083 and 2.089; the committed
+  harness's value is the one quoted here. Everything else in this bullet
+  reproduced under both reconstructions.
+
+  **So this arm resolves rarely, and only through the channels named above** -
+  the one observed difference is a FLEX reshuffle, which is one of the two, and
+  no week was decided by the empty-slot threshold. A null result is the usual
+  result and confirms little; a non-zero one is informative and does occur. It is
+  published because it costs nothing at evaluation and because the FLEX channel
+  is real. Whether an arm that resolves in roughly one week in thirty-four is
+  worth sealing is the owner's call.
+
+  **Two honest limits.** It is an ESTIMATOR of the model's pooled position pool
+  rather than a recovery of it: exact recovery needs
+  `factors.dataQuality.residualSource` to identify which rows fell back to that
+  pool, and the evaluator does not read the `factors` payload. And it depends on
+  a candidate arm being captured - **if Candidate B is withdrawn, this
+  sensitivity goes with it**, because there is then no `bandwidth > 0` arm to
+  estimate the offset from. A week whose candidate arm is MISSING is dropped
+  upstream by section 4's arm-defect rule and never reaches this arm at all.
+  What this arm nulls is the reachable case: a surviving week whose candidate
+  cell yields no position offsets whatsoever - no row carrying a usable
+  position, median and mean together - rather than silently falling back to the
+  control ranking for every player and publishing the control series under this
+  arm's name. The published aggregate is null if any surviving week is null.
+- **A basis discrepancy is recorded rather than resolved [added pre-seal].**
+  The effect (-2.31) and SD (4.40) above come from a 28-informative-week
+  subset produced by an exploratory harness that no longer exists. A
+  rebuilt harness (`server/scripts/measure-candidate-arms.js`), validated by
+  reproducing the sealed `freeze/mde-artifact.json` control series exactly,
+  finds only ONE structurally inert week rather than six, and measures the
+  same effect at **-2.09 (SD 3.29)** over all 34 weeks or **-2.22 (SD 3.36)**
+  excluding the two zero-delta weeks. Under the latter pair power is HIGHER, not
+  lower: 0.70 at n = 14, 0.78 at n = 17 and 0.80 at n = 18; under the former,
+  0.66, 0.75 and 0.77. The two harnesses may differ
+  in prior-week evidence rather than one being wrong, and the exploratory one
+  cannot be re-run to adjudicate it. **The figures stated above are the
+  conservative pair and are the ones this study is powered against.**
 
 ### 8.2 Candidate B - two cells, three components
 
@@ -356,6 +482,49 @@ product claim whatever the bootstrap says):
 coverage** - the week is the analysis unit (section 7), so weeks weigh
 equally whatever their eligible-row counts. Named because the pooled-rows
 reading is also defensible and differs when bye weeks move the denominators.
+
+**Power, and a measured passability finding [added pre-seal].** No power was
+stated for this claim. It is measured here on the frozen pit-sweep artifacts by
+`server/scripts/measure-candidate-b.js`, which generates control and BOTH cells
+at their sealed resolved constants through the full production factor chain,
+scores them with this study's own `scripts/holdout/lib/coverage.js`, and bounds
+them with its own `inference.js` at the sealed 100,000 draws, seed 2579717975
+and component alpha 1/120. On 33 surviving weeks of 34:
+
+| | cov80 point | cov50 point | C1 cov80 | C2 cov50 | C3 WIS |
+| --- | ---: | ---: | --- | --- | --- |
+| control | 0.7194 | **0.4788** | | | |
+| `bw-20` | 0.7604 | 0.4582 | PASS (+0.0190) | **FAIL (-0.0236)** | PASS |
+| `bw-15` | 0.7179 out of band | 0.4123 out of band | FAIL | FAIL | PASS |
+
+**Both cells FAIL, and C2 fails on the SIGN of the effect rather than on its
+precision.** Measured through the full factor chain over the same 33 surviving
+weeks, the control's cov50 is 0.4788 - already 0.0212 BELOW the 0.50 target - and
+the fitted bandwidth moves it further out, to 0.4582, distance 0.0418, roughly
+twice as far. C2 is a strict-improvement test with margin 0, and on this
+realization the kernel moves cov50 in the harmful direction. It is not that the
+improvement is too small to resolve; it is that the improvement is negative.
+This is section 1's own transfer caveat, confirmed in kind: the 0.647 cov80 the
+bandwidth was fitted against came from a harness carrying no opponent, usage or
+homeAway factors, and against the shipped chain the same kernel that helps cov80
+(C1 passes comfortably) hurts cov50.
+
+**Scope, stated plainly.** This is one draw realization on the RECONSTRUCTED
+corpus, not the 2026 production ledger, and it is not a result of this study. It
+bears on the gate's passability, not on the 2026 outcome. What it establishes is
+that C2's power depends on the kernel moving cov50 TOWARD 0.50, and on this
+realization it moves it away. **The published pit-sweep cannot speak to cov50 at
+all** - its only coverage metric is the [p10, p90] band
+(`scripts/backtest/lib/metrics.js`) - so the only cov50 evidence here is this
+measurement's own control figure of 0.4788. What the pit-sweep does corroborate
+is the HARNESS: control cov80 reproduces per season against the SHIPPED cell
+(`usage-25-off`, which is what `blendWeight 0.25` and `homeAway false` select),
+2024 0.6922 against the published 0.6922 and 2025 0.7450 against the published
+0.7469. The 2025 reproduction is looser than the 2024 one, 0.002 against 3e-5,
+and is stated as such rather than rounded past.
+**Whether Candidate B seals as drafted, seals with C2 restated as a
+no-harm rather than an improvement component, or is withdrawn to a later study,
+is the owner's decision and is not decided here.**
 
 **Selection among passing cells is by the fixed order (`bw-20`, `bw-15`)**:
 the first passer in that order is selected; nothing about the data reorders
@@ -400,10 +569,30 @@ void is "the run cannot speak", never a pass or a fail.
    assignment on regret at plus-one Monte Carlo `p <= 0.001`
    (permutation seed **3479054401**). A pipeline that cannot distinguish the
    real control from a shuffle cannot measure a 1.9-point delta.
-4. **Ledger integrity (voids the week):** any evaluated snapshot whose
-   child-row digest fails to reproduce its `cohort_hash`, or whose
-   `constants_hash` does not match its arm's resolved constants, drops that
-   week for every arm.
+4. **Ledger integrity (voids the week) [corrected pre-seal: an earlier draft
+   described a check the evaluator does not implement].** A week drops for
+   EVERY arm when any of the following holds for any arm:
+   - the arm is missing, `is_late`, carries unparseable capture timestamps,
+     or has `captured_at` at or past `capture_not_after`;
+   - its child-row count disagrees with the header `cohort_size`, or its
+     child-row digest fails to reproduce the header `cohort_hash`;
+   - its `constants_hash` differs from **that arm's SEASON MAJORITY** across
+     the evaluated window, or its `model_version` does so;
+   - the arms disagree on `cohort_hash`, which means they were not one
+     feature snapshot.
+
+   **The majority rule is deliberate and is what the evaluator implements**
+   (`scripts/holdout/lib/evaluate.js`): the evaluator must not compare a sealed run.s
+   stored hash against the constants resolved at evaluation time - that would
+   make a prospective verdict depend on whatever is checked out when the
+   evaluator runs rather than on the ledger - and the earlier "resolved
+   constants" wording described a check that does not exist. The consequence is stated rather than left
+   implicit: a `constants_hash` that is wrong for **every** week in the window
+   is its own majority and passes this assertion silently. What the rule
+   detects is DRIFT within a season - a mid-season constants deploy - which is
+   the failure this study is actually exposed to. Majorities are computed
+   within the evaluated window only, over week-ordered entries, with ties
+   breaking to the earliest week's value.
 
 ---
 
@@ -416,9 +605,22 @@ void is "the run cannot speak", never a pass or a fail.
   (`sha256("endzone-empire/holdout-confirm-2026/bootstrap-seed")[:8]` as u32).
 - Identical resamples reused for every arm, endpoint and component. **One
   named exception**: a component whose weekly series is shorter than the
-  survivor set (a null weekly metric dropped symmetrically - possible only
-  when a whole arm-week has no eligible rows) takes its own matrix, built at
-  the same seed for its own length, and the drop counts are published.
+  survivor set takes its own matrix, built at the same seed for its own
+  length, and the drop counts are published.
+
+  **[Corrected pre-seal.] The drops are NOT symmetric across components, and a
+  null metric does NOT imply an empty eligibility set.** `armWeekMetrics`
+  evaluates the 80% and 50% bands independently, so a week can return a null
+  `cov80` while scoring `cov50` over its full row set; the evaluator builds one
+  series PER COMPONENT, so a week can leave `t80` and remain in `t50`. Two
+  consequences are recorded rather than left to be discovered: a component's
+  effective n can fall below the others', and if it falls under the 12-cluster
+  exact-fallback threshold that component switches to the sign test, whose
+  attainable p at small n differs from the bootstrap's. **Because a component's
+  series drops on EITHER arm's null, a defect confined to the CONTROL arm can
+  shorten a component's series and change the test it runs.** The per-component
+  drop counts are published for exactly this reason and must be read before any
+  cell is treated as passing. Section 9's void conditions do not cover this.
 - Percentile bounds; the one-sided q bound is the order statistic at index
   `ceil(q * 100000)` clamped to `[1, 100000]`, no interpolation.
 - Exact fallback: if fewer than 12 clusters survive, or fewer than 100
