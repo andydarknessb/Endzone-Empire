@@ -5464,3 +5464,46 @@ not certify reproduction: the green "Backtest reproduction" workflow regenerates
 the control-only MDE and byte-compares the manifest, and never reruns the sweep,
 so nothing in this study is independently reproducible from committed bytes
 alone. No prohibited operation occurred while recording this entry.
+
+### CORRECTIVE ENTRY 39 - appended 2026-08-14
+
+**This entry converts entry 38 item (7) from a recommendation of UNDETERMINED
+standing into a ruling, by carrying the owner's own words.** Entries 1-38 and
+rows 1-19 remain byte-for-byte untouched; **entry 38 is not edited** - it
+remains the accurate record of what could and could not be ruled at its
+drafting. This append is 43/0 by numstat and strict byte-prefix clean over
+the prior 323,564 bytes; it creates no row, and the specification and the
+approved implementation tree are not edited. Like entry 38 itself, this
+append lands on a successor branch whose commits sit outside
+`POST_B_ALLOWED_PATHS` - which is exactly the condition the ruling below
+addresses, and which that ruling makes non-breaking for the study's own
+evidence at `48c2512`.
+
+Entry 24 item (5) holds that no entry summarizes a party's position without
+that party's own words, and it is why item (7) could not rule at drafting
+time: the drafter's reasoning was on the record and the owner's assent was
+not. It now is. The owner supplied the sentence in the 2026-08-14 working
+session in which this entry was commissioned, and it is quoted byte-for-byte
+as a single unwrapped line:
+
+> I rule that discover-freeze-commits.js is retired as a CI signal for refs after 48c2512; the frozen chain's proof at that commit stands, and no successor commit can break it.
+
+The two inline names appear without code formatting because the owner wrote
+them without it.
+
+**Scope, unchanged from the recommendation this adopts.** The ruling is
+operational and CI-scoped exactly as entry 38 item (7) bounded it: it changes
+no approval, lifts no gate, alters no sealed byte, and makes no statement
+about any future study; a future study needing a freeze chain cuts its own.
+The recorded costs stand and are accepted: the `discover` job can no longer
+signal a real later break in the frozen chain, and the two named residual
+risks - an amendment to `discover-freeze-commits.js`'s own constants, and loss
+of the commit objects from their three named refs - remain the live ones.
+
+**This entry creates NO approval row**, per the R1-R5 convention as entry 38
+extended it, extended here once more and deliberately to a ruling: a ruling
+on a CI signal is not an approval. The Gate 3 standing, the
+execution-authorization gap, D-1, D-2, the row-11 model-level-novelty
+question, and every other open finding entry 38 carries in items (5) and (8)
+or anywhere else remain exactly as entry 38 left them. This entry rules on
+item (7) alone, and no prohibited operation occurred while recording it.
