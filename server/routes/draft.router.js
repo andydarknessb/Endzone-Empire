@@ -8,6 +8,7 @@ const { teamForPick } = require('../services/draftOrder.service');
 const { draftPlayer, DraftError, nextPickClockSeconds } = require('../services/draft.service');
 const { validateKeepers, undoTargets } = require('../services/draftValidation.service');
 const { isLeagueCommissioner, commissionerPredicate } = require('../services/leagueRole.service');
+const { requireFantasyLeague } = require('../services/leagueType');
 
 const router = express.Router();
 
@@ -56,6 +57,10 @@ router.get('/board/:token', async (req, res) => {
 });
 
 router.use(requireAuth);
+// A pick'em-only league has no draft: every write under /league/:id (order,
+// pause, autodraft, clock, undo, reset, ready, keepers, offline picks, share
+// token) fails closed with 409 PICKEM_ONLY_LEAGUE; reads pass untouched.
+router.use('/league/:id', requireFantasyLeague());
 
 // GET /api/draft/queue?leagueId=N — the caller's pre-draft queue, in order
 router.get('/queue', async (req, res) => {
@@ -80,8 +85,9 @@ router.get('/queue', async (req, res) => {
 });
 
 // PUT /api/draft/queue — replace the caller's queue with an ordered list
-// { leagueId, playerIds: [best, next, ...] }
-router.put('/queue', async (req, res) => {
+// { leagueId, playerIds: [best, next, ...] }. The league id travels in the
+// body, so the /league/:id blanket mount above cannot see it: guard here.
+router.put('/queue', requireFantasyLeague({ param: 'leagueId', from: 'body' }), async (req, res) => {
   const { leagueId, playerIds } = req.body || {};
   if (!Number.isInteger(leagueId)) {
     return res.status(400).json({ error: 'leagueId (integer) is required' });
@@ -697,6 +703,7 @@ router.get('/mine', async (req, res) => {
               (SELECT COUNT(*)::int FROM "teams" WHERE "teams"."league_id" = "leagues"."id") AS "team_count"
        FROM "leagues"
        WHERE ${commissionerPredicate(1)}
+         AND "pickem_only" = false
          AND "draft_status" IN ('active', 'pending')
        ORDER BY ("draft_status" = 'active') DESC, "draft_date" NULLS LAST`,
       [req.user.id]

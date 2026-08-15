@@ -25,6 +25,7 @@ const {
   grantCoCommissioner,
   revokeCoCommissioner,
 } = require('../services/leagueRole.service');
+const { assertFantasyLeague, PICKEM_ONLY_CODE } = require('../services/leagueType');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -573,12 +574,12 @@ router.put('/:id', async (req, res) => {
   let transactionClient = null;
   let transactionOpen = false;
   let db = pool;
-  const rejectUpdate = async (status, error) => {
+  const rejectUpdate = async (status, error, extra = {}) => {
     if (transactionOpen) {
       await transactionClient.query('ROLLBACK');
       transactionOpen = false;
     }
-    return res.status(status).json({ error });
+    return res.status(status).json({ error, ...extra });
   };
   try {
     if (ownerLockedSettingsProvided) {
@@ -603,6 +604,22 @@ router.put('/:id', async (req, res) => {
     const frozenRequested = Object.entries(preDraftOnly)
       .filter(([, v]) => v !== undefined)
       .map(([k]) => k);
+    // A pick'em-only league has none of the fantasy machinery these settings
+    // configure, so they are refused outright (name and size limits stay
+    // editable). The set is every pre-draft key except the size limits plus
+    // the fantasy settings that otherwise stay editable all season. The raw
+    // scoring keys are listed instead of the derived effectiveRules so the
+    // refusal names what the caller actually sent.
+    const { minTeams: _sizeMin, maxTeams: _sizeMax, ...preDraftFantasy } = preDraftOnly;
+    const fantasyOnlyRequested = Object.entries({
+      ...preDraftFantasy,
+      scoringRules,
+      scoringPreset,
+      waiverType, waiverPeriodHours, faabBudget,
+      tradeDeadlineWeek, tradeReviewHours, tradeVetoVotes,
+    })
+      .filter(([, v]) => v !== undefined)
+      .map(([k]) => k);
     // roster_limit is derived from starters+bench+IR — recomputed below
     // whenever any of those three actually change.
     const rosterCompositionChanged = rosterSlots !== undefined || benchSlots !== undefined || irSlots !== undefined;
@@ -614,7 +631,10 @@ router.put('/:id', async (req, res) => {
     const schedulingNonAuction = draftDateProvided && Boolean(draftDateValue) && draftType === undefined;
     let derivedRosterLimit = null;
     let pendingStatusVerified = false;
-    if (frozenRequested.length > 0) {
+    // The status read is also the league-type read: any fantasy-only field
+    // forces it so a pick'em-only league can be refused, even for keys (like
+    // waiverType) that are never draft-frozen.
+    if (frozenRequested.length > 0 || fantasyOnlyRequested.length > 0) {
       const statusResult = await db.query(
         `SELECT "draft_status", "draft_type", "min_teams", "max_teams", "draft_date",
                 "roster_slots", "bench_slots", "ir_slots", "position_caps", "roster_limit",
@@ -632,7 +652,14 @@ router.put('/:id', async (req, res) => {
         const starters = effectiveSlots.reduce((sum, s) => sum + s.count, 0);
         derivedRosterLimit = starters + effectiveBench + effectiveIr;
       }
-      if (current && current.draft_status !== 'pending') {
+      if (current && current.pickem_only && fantasyOnlyRequested.length > 0) {
+        return await rejectUpdate(
+          409,
+          `these settings do not apply to a pick'em league: ${fantasyOnlyRequested.join(', ')}`,
+          { code: PICKEM_ONLY_CODE }
+        );
+      }
+      if (current && frozenRequested.length > 0 && current.draft_status !== 'pending') {
         return await rejectUpdate(409, `these settings are locked once the draft starts: ${frozenRequested.join(', ')}`);
       }
       if (current && draftDateValue && (draftType ?? current.draft_type) === 'auction') {
@@ -805,7 +832,7 @@ router.put('/:id', async (req, res) => {
           return await rejectUpdate(409, 'this league was converted to a salary-cap auction; auction drafts cannot be scheduled');
         }
       }
-      if (pendingStatusVerified) {
+      if (pendingStatusVerified && frozenRequested.length > 0) {
         return await rejectUpdate(409, `these settings are locked once the draft starts: ${frozenRequested.join(', ')}`);
       }
       return await rejectUpdate(403, 'league not found or you are not the commissioner');
@@ -856,12 +883,21 @@ router.post('/:id/start-draft', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
   try {
+    // A pick'em-only league has no draft; refuse before touching the draft
+    // machinery (startDraft re-checks under its row lock for the socket and
+    // scheduler entry points).
+    await assertFantasyLeague(pool, leagueId);
     const { startDraft } = require('../services/draftStart.service');
     await startDraft({ leagueId, userId: req.user.id });
     const result = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
     res.json(result.rows[0]);
   } catch (error) {
-    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({
+        error: error.message,
+        ...(error.code ? { code: error.code } : {}),
+      });
+    }
     console.error('Error starting draft', error);
     res.status(500).json({ error: 'failed to start draft' });
   }

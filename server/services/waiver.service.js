@@ -1,4 +1,5 @@
 const pool = require('../modules/pool');
+const { assertFantasyLeagueRow } = require('./leagueType');
 const { logTransaction, notify } = require('./activity.service');
 
 class WaiverError extends Error {
@@ -76,6 +77,7 @@ async function submitClaim({ leagueId, userId, playerId, dropPlayerId, bid = 0 }
     const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
     const league = leagueResult.rows[0];
     if (!league) throw new WaiverError(404, 'league not found');
+    assertFantasyLeagueRow(league); // no waivers in a pick'em-only league
     if (league.transactions_locked) {
       throw new WaiverError(409, 'transactions are locked by the commissioner');
     }

@@ -1,6 +1,7 @@
 const pool = require('../modules/pool');
 const { logTransaction, notify, notifyLeague } = require('./activity.service');
 const { isLeagueCommissioner } = require('./leagueRole.service');
+const { assertFantasyLeagueRow } = require('./leagueType');
 
 class TradeError extends Error {
   constructor(statusCode, message) {
@@ -27,7 +28,12 @@ async function loadTrade(client, tradeId, { forUpdate = true } = {}) {
   return { trade, league: leagueResult.rows[0], items: itemsResult.rows, teams };
 }
 
+/**
+ * The trade-window gate every offer and answer runs through: no trades at all
+ * in a pick'em-only league, and none past the deadline.
+ */
 function assertBeforeDeadline(league) {
+  assertFantasyLeagueRow(league);
   if (league.trade_deadline_week != null && league.current_week > league.trade_deadline_week) {
     throw new TradeError(409, `the trade deadline (week ${league.trade_deadline_week}) has passed`);
   }
