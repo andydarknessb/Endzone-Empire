@@ -43,6 +43,25 @@ export function capForType(type) {
 }
 
 /**
+ * Re-cap a team-count field value when the league type changes. A number is
+ * pulled under `cap` and rounded down to a whole count (the fantasy Select
+ * only holds integers); anything that is not a number yet (an empty field
+ * mid-edit) is left exactly as it is rather than silently rewritten.
+ */
+export function clampTeamCount(value, cap) {
+  if (value === '' || value == null) return value;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return value;
+  return Math.min(Math.trunc(n), cap);
+}
+
+/** True when a team-count field holds a whole number inside [MIN_TEAMS, cap]. */
+export function isValidTeamCount(value, cap) {
+  const n = Number(value);
+  return value !== '' && value != null && Number.isInteger(n) && n >= MIN_TEAMS && n <= cap;
+}
+
+/**
  * The type-dependent part of a POST /api/league body. Always names the type;
  * carries the pick'em mode only when the type includes pick'em; and never
  * carries bestBall / scoringPreset / draftDate for a pick'em-only league,

@@ -251,7 +251,7 @@ function LeagueDiscovery() {
                     </Typography>
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                       {league.pickemOnly
-                        ? `Pick winners every week · no draft${slotsOpen > 0 ? ' · join any time' : ''}`
+                        ? 'Pick winners every week · no draft'
                         : league.draftDate
                           ? `Draft: ${new Date(league.draftDate).toLocaleString()}`
                           : 'Draft date not set'}

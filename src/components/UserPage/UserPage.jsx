@@ -17,7 +17,8 @@ import LeagueTypeFields from '../common/LeagueTypeFields';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import { deriveLeaguePhase, LEAGUE_PHASE } from '../../lib/leaguePhase';
 import {
-  LEAGUE_TYPE, MIN_TEAMS, capForType, includesFantasy, isPickemOnlyType, leagueTypePayload,
+  LEAGUE_TYPE, MIN_TEAMS, capForType, clampTeamCount, includesFantasy, isPickemOnlyType, isValidTeamCount,
+  leagueTypePayload,
 } from '../../lib/leagueType';
 
 // Lazy: PublicHighlights imports the strategy-article registry (full JSX
@@ -166,15 +167,13 @@ function UserPage() {
   // become a 30-team fantasy league.
   const handleLeagueTypeChange = (nextType) => {
     setLeagueType(nextType);
-    setNumTeams((current) => Math.min(Number(current) || MIN_TEAMS, capForType(nextType)));
+    setNumTeams((current) => clampTeamCount(current, capForType(nextType)));
   };
 
   // The fantasy Select can only hold 2..20, but the pick'em number field is
   // free text and this dialog is not a <form>, so native min/max never run:
   // gate Create on the count instead of letting the server 400 it.
-  const teamCount = Number(numTeams);
-  const teamCountValid =
-    Number.isInteger(teamCount) && teamCount >= MIN_TEAMS && teamCount <= capForType(leagueType);
+  const teamCountValid = isValidTeamCount(numTeams, capForType(leagueType));
 
   const handleCreateLeague = async () => {
     setError(null);

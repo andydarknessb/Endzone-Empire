@@ -363,3 +363,28 @@ test("switching back from pick'em keeps min teams inside the re-capped max", asy
     })
   );
 });
+
+test('an empty or out-of-range team count blocks Create League with a visible reason instead of a silent submit', async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+  await screen.findByText(/you aren't in any leagues yet/i);
+  await openNewLeague();
+
+  await userEvent.type(screen.getByLabelText(/League name/), 'Office Pool');
+  await userEvent.click(screen.getByRole('radio', { name: /NFL pick'em league/ }));
+  await userEvent.click(screen.getByRole('button', { name: /advanced settings/i }));
+  const maxTeams = screen.getByLabelText('Max teams');
+  await userEvent.clear(maxTeams);
+  // Switching type must not quietly invent a count for an empty field.
+  await userEvent.click(screen.getByRole('radio', { name: /^Both/ }));
+  expect(screen.getByLabelText('Max teams')).toHaveValue(null);
+  expect(screen.getByRole('button', { name: 'Create League' })).toBeDisabled();
+  expect(screen.getByText(/team limits/i, { selector: 'p, span' })).toBeInTheDocument();
+
+  await userEvent.type(screen.getByLabelText('Max teams'), '60');
+  expect(screen.getByRole('button', { name: 'Create League' })).toBeDisabled();
+  await userEvent.clear(screen.getByLabelText('Max teams'));
+  await userEvent.type(screen.getByLabelText('Max teams'), '12');
+  expect(screen.getByRole('button', { name: 'Create League' })).toBeEnabled();
+  expect(apiClient.post).not.toHaveBeenCalled();
+});

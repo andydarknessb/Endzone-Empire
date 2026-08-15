@@ -204,7 +204,7 @@ test("a pick'em-only league is labelled Pick'em and shows no scoring preset or d
   expect(within(pool).queryByText('Standard')).not.toBeInTheDocument();
   expect(within(pool).queryByText(/Draft/)).not.toBeInTheDocument();
   expect(within(pool).getByText(/12\/50 teams · 38 slots open/)).toBeInTheDocument();
-  expect(within(pool).getByText(/no draft · join any time/i)).toBeInTheDocument();
+  expect(within(pool).getByText('Pick winners every week · no draft')).toBeInTheDocument();
 
   const fantasy = screen.getByText('Sunday Ballers').closest('.MuiCard-root');
   expect(within(fantasy).queryByText("Pick'em")).not.toBeInTheDocument();
@@ -212,7 +212,7 @@ test("a pick'em-only league is labelled Pick'em and shows no scoring preset or d
   expect(within(fantasy).getByText(/^Draft: /)).toBeInTheDocument();
 });
 
-test("a full pick'em-only league does not claim joins are open", async () => {
+test("a full pick'em-only league reads the same as an open one (the slot count carries the availability)", async () => {
   apiClient.get.mockResolvedValue({
     data: [league({ id: 5, name: 'Office Pool', pickemOnly: true, scoringPreset: null, draftDate: null, maxTeams: 12, teamCount: 12 })],
   });
@@ -221,5 +221,5 @@ test("a full pick'em-only league does not claim joins are open", async () => {
   const pool = (await screen.findByText('Office Pool')).closest('.MuiCard-root');
   expect(within(pool).getByText(/12\/12 teams · 0 slots open/)).toBeInTheDocument();
   expect(within(pool).getByText('Pick winners every week · no draft')).toBeInTheDocument();
-  expect(within(pool).queryByText(/join any time/i)).not.toBeInTheDocument();
+  expect(within(pool).queryByText(/join any time|joins stay open/i)).not.toBeInTheDocument();
 });

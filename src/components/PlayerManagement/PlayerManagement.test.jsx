@@ -248,3 +248,20 @@ test("pick'em-only leagues are left out of the league selector because they have
   expect(await screen.findByRole('option', { name: 'Sunday Ballers' })).toBeInTheDocument();
   expect(screen.queryByRole('option', { name: 'Office Pool' })).not.toBeInTheDocument();
 });
+
+test("a manager with no fantasy league can still browse players but is told why nothing can be added", async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/league') {
+      return Promise.resolve({ data: [{ id: 5, name: 'Office Pool', pickem_only: true, draft_status: 'pending' }] });
+    }
+    if (url === '/api/players') return Promise.resolve({ data: { players: [player()], totalPages: 1 } });
+    return Promise.reject(new Error(`unexpected GET ${url}`));
+  });
+
+  renderWithProviders(<PlayerManagement />);
+
+  expect(await screen.findByText('Patrick Mahomes')).toBeInTheDocument();
+  expect(await screen.findByText(/not in a fantasy league yet/i)).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Go to Leagues' })).toHaveAttribute('href', '/league');
+  expect(apiClient.get).not.toHaveBeenCalledWith(expect.stringContaining('/api/team/roster'));
+});

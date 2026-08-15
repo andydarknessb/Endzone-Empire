@@ -26,7 +26,10 @@ export default function PickemRulesView({ league }) {
     return () => { active = false; };
   }, [league.id, reload]);
 
+  // RuleRow renders its value nowrap, so the value stays a word and the full
+  // rule sentence goes in the detail line.
   const mode = PICKEM_MODE_OPTIONS.find((option) => option.value === settings?.mode);
+  const modeName = mode ? mode.label.split(':')[0] : settings?.mode;
 
   return (
     <Stack spacing={4}>
@@ -44,8 +47,8 @@ export default function PickemRulesView({ league }) {
         ) : (
           <RuleRow
             label="Scoring mode"
-            value={mode ? mode.label : settings.mode}
-            detail="The mode can only change before the season's first pick."
+            value={modeName}
+            detail={`${mode ? mode.label + '. ' : ''}The mode can only change before the season's first pick.`}
           />
         )}
         <RuleRow

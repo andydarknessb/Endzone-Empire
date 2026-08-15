@@ -1,5 +1,8 @@
 import React from 'react';
-import { act, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { Provider } from 'react-redux';
+import configureMockStore from 'redux-mock-store';
+import { MemoryRouter } from 'react-router-dom';
 import userEventLibrary from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
@@ -741,9 +744,9 @@ test("a pick'em-only league gets only General Settings and a Season tab, with no
   // Transactions (adds, drops, waivers, trades) do not exist here.
   expect(screen.queryByRole('checkbox', { name: 'Lock Transactions' })).not.toBeInTheDocument();
   // Membership stays editable all season, up to the pick'em cap.
-  expect(screen.getByText('Team limits')).toBeInTheDocument();
+  expect(screen.getByText('Team limit')).toBeInTheDocument();
   expect(screen.getByLabelText('Max teams')).toHaveAttribute('max', '50');
-  expect(screen.getByLabelText('Min teams')).toHaveAttribute('max', '50');
+  expect(screen.queryByLabelText('Min teams')).not.toBeInTheDocument();
   expect(screen.getByText('Remove a team')).toBeInTheDocument();
 });
 
@@ -770,4 +773,50 @@ test('a fantasy league keeps the General Settings rollover and shows no Season t
   renderTools({ standingsLeague: { season_status: 'complete', current_week: 17 } });
   expect(screen.queryByRole('tab', { name: 'Season' })).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Start New Season' })).toBeInTheDocument();
+});
+
+// Hash-only navigation between two leagues keeps LeagueDashboard (and this
+// component) mounted, so a fantasy tab left selected must not carry over into
+// a pick'em-only league. Rendered without renderWithProviders so the rerender
+// keeps the same tree shape and the component instance (and its tab state).
+const StableShell = ({ children }) => (
+  <Provider store={configureMockStore([])({ user: {}, errors: { loginMessage: '', registrationMessage: '' } })}>
+    <MemoryRouter>
+      <SnackbarProvider>{children}</SnackbarProvider>
+    </MemoryRouter>
+  </Provider>
+);
+
+test("a fantasy tab left selected does not survive a switch to a pick'em-only league (hash-only navigation keeps the component mounted)", async () => {
+  const { rerender } = render(
+    <StableShell>
+      <CommissionerTools leagueId={1} league={league()} teams={teams} user={user} standingsLeague={{ season_status: 'regular', current_week: 3 }} onRefresh={jest.fn()} />
+    </StableShell>
+  );
+  await userEvent.click(screen.getByRole('tab', { name: 'Scoring Settings' }));
+  expect(screen.getByRole('button', { name: 'Save Scoring Settings' })).toBeInTheDocument();
+
+  rerender(
+    <StableShell>
+      <CommissionerTools leagueId={2} league={pickemLeague({ id: 2 })} teams={teams} user={user} standingsLeague={null} onRefresh={jest.fn()} />
+    </StableShell>
+  );
+
+  expect(screen.getByRole('tab', { name: 'General Settings' })).toHaveAttribute('aria-selected', 'true');
+  expect(screen.queryByRole('button', { name: 'Save Scoring Settings' })).not.toBeInTheDocument();
+  expect(screen.getByText('Remove a team')).toBeInTheDocument(); // the General panel body is showing
+  expect(screen.queryByRole('tab', { name: 'Scoring Settings' })).not.toBeInTheDocument();
+});
+
+test("a pick'em-only league edits only its max teams (min gates nothing without a draft)", async () => {
+  apiClient.put.mockResolvedValue({ data: {} });
+  renderTools({ league: pickemLeague({ min_teams: 2, max_teams: 20 }), standingsLeague: null });
+
+  expect(screen.queryByLabelText('Min teams')).not.toBeInTheDocument();
+  const max = screen.getByLabelText('Max teams');
+  await userEvent.clear(max);
+  await userEvent.type(max, '12');
+  await userEvent.click(screen.getByRole('button', { name: 'Save Limits' }));
+
+  await waitFor(() => expect(apiClient.put).toHaveBeenCalledWith('/api/league/1', { maxTeams: 12 }));
 });

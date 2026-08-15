@@ -3,11 +3,16 @@ import apiClient, {
   setToken,
   clearToken,
 } from '../../api/apiClient';
+import { clearLeagueCache } from '../../hooks/useLeague';
 
 // worker Saga: fired on "LOGIN" actions
 export function* loginUser(action) {
   try {
     yield put({ type: 'CLEAR_LOGIN_ERROR' });
+
+    // The shared in-memory league cache holds viewer-scoped rows
+    // (is_commissioner, invite_code): a session change must drop it too.
+    clearLeagueCache();
 
     const response = yield apiClient.post('/api/auth/login', action.payload);
 
@@ -36,6 +41,7 @@ export function* loginUser(action) {
 // server-side so the token family can't be replayed later
 export function* logoutUser() {
   clearToken();
+  clearLeagueCache();
   // Drop offline-cached league data so a different user on this device
   // can't see the previous account's cached responses.
   if (typeof caches !== 'undefined') {

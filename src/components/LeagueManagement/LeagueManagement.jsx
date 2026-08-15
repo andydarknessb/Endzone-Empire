@@ -14,7 +14,8 @@ import LeagueCard from '../common/LeagueCard';
 import LeagueTypeFields from '../common/LeagueTypeFields';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import {
-  LEAGUE_TYPE, MIN_TEAMS, capForType, includesFantasy, isPickemOnlyType, leagueTypePayload,
+  LEAGUE_TYPE, MIN_TEAMS, capForType, clampTeamCount, includesFantasy, isPickemOnlyType, isValidTeamCount,
+  leagueTypePayload,
 } from '../../lib/leagueType';
 import './LeagueManagement.css';
 
@@ -79,11 +80,21 @@ function LeagueManagement() {
   // pick'em, so it is pulled under the new max too rather than surfacing later
   // as a server "minTeams must be ... between 2 and maxTeams" rejection.
   const handleLeagueTypeChange = (nextType) => {
-    const cappedMax = Math.min(Number(maxTeams) || MIN_TEAMS, capForType(nextType));
+    const cappedMax = clampTeamCount(maxTeams, capForType(nextType));
     setLeagueType(nextType);
     setMaxTeams(cappedMax);
-    setMinTeams((current) => Math.min(Number(current) || MIN_TEAMS, cappedMax));
+    if (isValidTeamCount(cappedMax, capForType(nextType))) {
+      setMinTeams((current) => clampTeamCount(current, cappedMax));
+    }
   };
+
+  // Max/Min teams live inside a collapsed-by-default Accordion, so native form
+  // validation would block submit on a control the user cannot see: gate the
+  // button here and say why. Min only applies when the type has a draft.
+  const teamCap = capForType(leagueType);
+  const maxTeamsValid = isValidTeamCount(maxTeams, teamCap);
+  const minTeamsValid = !includesFantasy(leagueType) || (maxTeamsValid && isValidTeamCount(minTeams, Number(maxTeams)));
+  const teamLimitsValid = maxTeamsValid && minTeamsValid;
 
   const fetchLeagues = async () => {
     try {
@@ -254,6 +265,8 @@ function LeagueManagement() {
                   </Typography>
                   <TextField label="Min teams (draft won't start below this)" size="small" type="number"
                     inputProps={{ min: MIN_TEAMS, max: capForType(leagueType) }}
+                    error={!minTeamsValid}
+                    helperText={minTeamsValid ? undefined : `${MIN_TEAMS} up to the max teams`}
                     value={minTeams} onChange={(e) => setMinTeams(e.target.value)} />
                     </>
                   ) : (
@@ -264,7 +277,8 @@ function LeagueManagement() {
                   )}
                   <TextField label="Max teams" size="small" type="number"
                     inputProps={{ min: MIN_TEAMS, max: capForType(leagueType) }}
-                    helperText={isPickemOnlyType(leagueType) ? `${MIN_TEAMS} to ${capForType(leagueType)} managers` : undefined}
+                    error={!maxTeamsValid}
+                    helperText={isPickemOnlyType(leagueType) || !maxTeamsValid ? `${MIN_TEAMS} to ${capForType(leagueType)} ${isPickemOnlyType(leagueType) ? 'managers' : 'teams'}` : undefined}
                     value={maxTeams} onChange={(e) => setMaxTeams(e.target.value)} />
 
                   <FormControlLabel
@@ -310,7 +324,12 @@ function LeagueManagement() {
               </AccordionDetails>
             </Accordion>
 
-            <Button type="submit" variant="contained">Create League</Button>
+            <Button type="submit" variant="contained" disabled={!teamLimitsValid}>Create League</Button>
+            {!teamLimitsValid && (
+              <Typography variant="caption" color="error">
+                Check the team limits under Advanced Settings.
+              </Typography>
+            )}
           </Stack>
         </Paper>
           ) : (

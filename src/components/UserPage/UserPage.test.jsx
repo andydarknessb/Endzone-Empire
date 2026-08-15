@@ -491,3 +491,24 @@ test("the pick'em team count must be a whole number from 2 to 50 before Create i
   expect(screen.getByRole('button', { name: 'Create' })).toBeEnabled();
   expect(apiClient.post).not.toHaveBeenCalled();
 });
+
+test("a fractional pick'em count is rounded down, not carried into the fantasy team Select", async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+  apiClient.post.mockResolvedValue({ data: { id: 2 } });
+  renderWithProviders(<UserPage />, { state: baseState });
+  await waitFor(() => expect(getCallsTo('/api/league')).toBe(1));
+
+  await userEvent.click(heroButton('Create League'));
+  await userEvent.type(screen.getByLabelText('League Name'), 'Odd Pool');
+  await userEvent.click(screen.getByRole('radio', { name: /NFL pick'em league/ }));
+  const teams = screen.getByLabelText('Teams');
+  await userEvent.clear(teams);
+  await userEvent.type(teams, '12.5');
+  await userEvent.click(screen.getByRole('radio', { name: /Fantasy football league/ }));
+
+  expect(screen.getByRole('button', { name: 'Create' })).toBeEnabled();
+  await userEvent.click(screen.getByRole('button', { name: 'Create' }));
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/league', expect.objectContaining({ maxTeams: 12, leagueType: 'fantasy' }))
+  );
+});

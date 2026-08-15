@@ -974,7 +974,7 @@ test("a pick'em-only commissioner sees neither Start Draft nor Advance Week, and
 
   expect(screen.queryByRole('button', { name: 'Start Draft' })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Advance Week' })).not.toBeInTheDocument();
-  expect(screen.getByText('Season Complete')).toBeInTheDocument();
+  expect(screen.getByText('Complete')).toBeInTheDocument(); // same phase wording as LeagueCard
   // The CTA stops asking for picks once the season is over.
   expect(screen.getByRole('link', { name: 'View picks' })).toHaveAttribute('href', '/league/1/pickem');
   expect(screen.queryByRole('link', { name: 'Make your picks' })).not.toBeInTheDocument();

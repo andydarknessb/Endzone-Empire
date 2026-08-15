@@ -51,18 +51,12 @@ import PickemStandings from '../LeaguePickem/PickemStandings';
 import Countdown from '../Countdown/Countdown';
 import CommissionerTools from './CommissionerTools';
 import AbbreviationTooltip from '../common/AbbreviationTooltip';
-import { deriveLeaguePhase, LEAGUE_PHASE } from '../../lib/leaguePhase';
+import { deriveLeaguePhase, LEAGUE_PHASE, LEAGUE_PHASE_META } from '../../lib/leaguePhase';
 
 const SEASON_STATUS_CHIP = {
   regular: { label: 'Regular Season', color: 'default' },
   playoffs: { label: 'Playoffs', color: 'warning' },
   complete: { label: 'Season Complete', color: 'success' },
-};
-// A pick'em-only league has no playoffs, so its 'regular' status is simply the
-// season being under way.
-const PICKEM_SEASON_STATUS_CHIP = {
-  ...SEASON_STATUS_CHIP,
-  regular: { label: 'In season', color: 'default' },
 };
 
 // League navigation, grouped by intent so the dashboard reads as sections
@@ -282,15 +276,15 @@ function LeagueDashboard() {
             ? ['lineup', 'game-center']
             : ['lineup', 'game-center', 'waivers']
   );
-  const seasonStatusChip = (status) => {
-    const chips = pickemOnly ? PICKEM_SEASON_STATUS_CHIP : SEASON_STATUS_CHIP;
-    return (
-      <Chip
-        label={(chips[status] || {}).label || status}
-        color={(chips[status] || {}).color || 'default'}
-      />
-    );
-  };
+  const seasonStatusChip = (status) => (
+    <Chip
+      label={(SEASON_STATUS_CHIP[status] || {}).label || status}
+      color={(SEASON_STATUS_CHIP[status] || {}).color || 'default'}
+    />
+  );
+  // A pick'em-only league has no playoffs: its status IS its phase (in season
+  // or complete), worded and coloured the same way LeagueCard words it.
+  const phaseMeta = LEAGUE_PHASE_META[leaguePhase];
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
@@ -310,7 +304,7 @@ function LeagueDashboard() {
             <Chip label={`Teams: ${teams.length}/${league.max_teams}`} />
             <Chip label="Pick'em" color="secondary" />
             {league.current_week != null && <Chip label={`Week ${league.current_week}`} />}
-            {league.season_status && seasonStatusChip(league.season_status)}
+            {phaseMeta && <Chip label={phaseMeta.label} color={phaseMeta.color} />}
           </>
         ) : (
           <>

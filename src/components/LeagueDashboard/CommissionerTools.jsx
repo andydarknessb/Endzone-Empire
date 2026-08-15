@@ -284,10 +284,12 @@ function GeneralSettingsPanel({ leagueId, league, teams, user, isOwner, standing
 
   const handleSaveLimits = async () => {
     try {
-      await apiClient.put(`/api/league/${leagueId}`, {
-        minTeams: Number(sizeMin),
-        maxTeams: Number(sizeMax),
-      });
+      // A pick'em-only league has no draft for a minimum to gate, so only the
+      // cap is edited there (the create dialogs omit min the same way).
+      const limits = league.pickem_only
+        ? { maxTeams: Number(sizeMax) }
+        : { minTeams: Number(sizeMin), maxTeams: Number(sizeMax) };
+      await apiClient.put(`/api/league/${leagueId}`, limits);
       notify('Team limits updated');
       onRefresh();
     } catch (err) {
@@ -369,13 +371,15 @@ function GeneralSettingsPanel({ leagueId, league, teams, user, isOwner, standing
       {league.draft_status === 'pending' && (
         <Box>
           <Typography variant="subtitle2" sx={{ mb: 1 }}>
-            {pickemOnly ? 'Team limits' : 'Team limits (editable until the draft starts)'}
+            {pickemOnly ? 'Team limit' : 'Team limits (editable until the draft starts)'}
           </Typography>
           <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-            <TextField
-              label="Min teams" type="number" size="small" inputProps={{ min: MIN_TEAMS, max: maxTeamsCap }}
-              value={sizeMin} onChange={(e) => setSizeMin(e.target.value)} sx={{ width: 130 }}
-            />
+            {!pickemOnly && (
+              <TextField
+                label="Min teams" type="number" size="small" inputProps={{ min: MIN_TEAMS, max: maxTeamsCap }}
+                value={sizeMin} onChange={(e) => setSizeMin(e.target.value)} sx={{ width: 130 }}
+              />
+            )}
             <TextField
               label="Max teams" type="number" size="small" inputProps={{ min: MIN_TEAMS, max: maxTeamsCap }}
               value={sizeMax} onChange={(e) => setSizeMax(e.target.value)} sx={{ width: 130 }}
@@ -1521,12 +1525,21 @@ function PickemSeasonPanel({ leagueId, league, onRefresh, notify }) {
   );
 }
 
+const FANTASY_TABS = ['general', 'roster', 'scoring', 'playoffs', 'waivers', 'overrides'];
+const PICKEM_TABS = ['general', 'season'];
+
 function CommissionerTools({ leagueId, league, teams, user, isOwner = true, standingsLeague, onRefresh }) {
   const notify = useSnackbar();
-  const [tab, setTab] = useState('general');
+  const [selectedTab, setTab] = useState('general');
   // A pick'em-only league has no roster, scoring, schedule, waiver or matchup
-  // settings to expose: only General plus its own Season tab.
+  // settings to expose: only General plus its own Season tab. The active tab
+  // is derived from the league's own tab set rather than trusted from state:
+  // a hash-only hop between two leagues keeps this component mounted, and a
+  // fantasy tab left selected must not render its panel inside a pick'em
+  // league (or 'season' inside a fantasy one).
   const pickemOnly = !!league.pickem_only;
+  const tabs = pickemOnly ? PICKEM_TABS : FANTASY_TABS;
+  const tab = tabs.includes(selectedTab) ? selectedTab : 'general';
 
   return (
     <Paper sx={{ mt: 3 }}>

@@ -2,6 +2,8 @@ import { put } from 'redux-saga/effects';
 import MockAdapter from 'axios-mock-adapter';
 import loginSaga, { loginUser, logoutUser } from './login.saga';
 import apiClient, { getToken, clearToken } from '../../api/apiClient';
+import { renderHook, waitFor } from '@testing-library/react';
+import { primeLeagueCache, useLeague, clearLeagueCache } from '../../hooks/useLeague';
 
 // The saga worker yields the raw apiClient.post(...)/get(...) promise
 // (not a redux-saga `call()` effect), so stepping the generator with
@@ -17,6 +19,7 @@ beforeEach(() => {
 afterEach(() => {
   mock.restore();
   clearToken();
+  clearLeagueCache();
 });
 
 describe('loginSaga (watcher)', () => {
@@ -105,4 +108,34 @@ describe('logoutUser (worker)', () => {
 
 test('apiClient is the real module (sanity check for the tests above)', () => {
   expect(typeof apiClient.post).toBe('function');
+});
+
+// The shared useLeague cache holds viewer-scoped rows (is_commissioner,
+// invite_code): a session change must drop it, or the next account in the same
+// tab could pass a client-side commissioner gate on the previous account's row.
+describe('session changes drop the shared league cache', () => {
+  test('logging out clears it', async () => {
+    mock.onGet('/api/league/1').reply(200, { league: { id: 1, name: 'Fresh row' }, teams: [] });
+    primeLeagueCache(1, { id: 1, name: 'Previous account row', is_commissioner: true });
+
+    const gen = logoutUser();
+    gen.next(); // clearToken + cache drops happen synchronously before the first yield
+
+    const { result } = renderHook(() => useLeague(1));
+    expect(result.current.league).toBeNull();
+    await waitFor(() => expect(result.current.league).toEqual({ id: 1, name: 'Fresh row' }));
+  });
+
+  test('logging in clears it', async () => {
+    mock.onGet('/api/league/1').reply(200, { league: { id: 1, name: 'Fresh row' }, teams: [] });
+    primeLeagueCache(1, { id: 1, name: 'Previous account row', is_commissioner: true });
+
+    const gen = loginUser({ payload: { username: 'b', password: 'x' } });
+    gen.next(); // CLEAR_LOGIN_ERROR
+    gen.next(); // the login request; the cache drop precedes it
+
+    const { result } = renderHook(() => useLeague(1));
+    expect(result.current.league).toBeNull();
+    await waitFor(() => expect(result.current.league).toEqual({ id: 1, name: 'Fresh row' }));
+  });
 });
