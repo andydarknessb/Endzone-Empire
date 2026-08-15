@@ -90,3 +90,379 @@ test('syncAndScoreLiveWeeks still scores when the stat sync fetched nothing', as
   }
   assert.deepEqual(scoredFor, { leagueId: 42, plays: [] });
 });
+
+// ---- pick'em-only season lifecycle -------------------------------------------
+
+/**
+ * SQL-substring dispatch over pool.query, recording every statement so a test
+ * can assert what the job wrote (and did not write).
+ */
+function mockPoolQuery(t, handlers) {
+  const calls = [];
+  t.mock.method(pool, 'query', async (sql, params) => {
+    const text = String(sql).replace(/\s+/g, ' ').trim();
+    calls.push({ text, params });
+    for (const [pattern, handler] of handlers) {
+      if (pattern.test(text)) return handler(text, params);
+    }
+    throw new Error(`unexpected query: ${text}`);
+  });
+  return calls;
+}
+
+// Weeks 1..5 of a season: each week's last kickoff is Monday night, 00:15Z Tue.
+const kickoffRows = (weeks) =>
+  Array.from({ length: weeks }, (_, i) => {
+    const mnf = new Date(Date.UTC(2026, 8, 15, 0, 15) + i * 7 * 24 * 60 * 60 * 1000);
+    return [
+      { week: i + 1, kickoff_at: new Date(mnf.getTime() - 32 * 60 * 60 * 1000).toISOString() },
+      { week: i + 1, kickoff_at: mnf.toISOString() },
+    ];
+  }).flat();
+
+test('runPickemWeekSync moves only the league whose week is stale, reading the schedule once per season', async (t) => {
+  const leagues = [
+    { id: 1, current_season: 2026, current_week: 3 }, // stale: week 3 closed on Monday night
+    { id: 2, current_season: 2026, current_week: 4 }, // already right
+  ];
+  const calls = mockPoolQuery(t, [
+    [/FROM "leagues"/, () => ({ rows: leagues })],
+    [/FROM "nfl_games"/, () => ({ rows: kickoffRows(5) })],
+    // Honour the compare-and-swap: the row only moves when the statement
+    // names the week and season it currently has.
+    [/^UPDATE "leagues" SET "current_week"/, (text, params) => {
+      const league = leagues.find((l) => l.id === params[1]);
+      const matches = league && league.current_week === params[2] && league.current_season === params[3];
+      return { rows: matches ? [{ id: params[1] }] : [] };
+    }],
+  ]);
+
+  // Tuesday noon after week 3's Monday-night game.
+  const changes = await scheduler.runPickemWeekSync({ now: new Date('2026-09-29T16:00:00Z') });
+
+  assert.deepEqual(changes, [{ leagueId: 1, from: 3, to: 4 }]);
+  const updates = calls.filter((c) => /^UPDATE "leagues"/.test(c.text));
+  assert.equal(updates.length, 1);
+  assert.deepEqual(updates[0].params, [4, 1, 3, 2026]);
+  // Idempotent by predicate: the write names the week and season it expects
+  // to replace, and only ever touches pick'em-only leagues still in season.
+  assert.match(updates[0].text, /"pickem_only" = true/);
+  assert.match(updates[0].text, /"season_status" <> 'complete'/);
+  assert.match(updates[0].text, /"current_week" = \$3/);
+  assert.match(updates[0].text, /"current_season" = \$4/);
+  assert.equal(calls.filter((c) => /FROM "nfl_games"/.test(c.text)).length, 1, 'bounds fetched once per season');
+});
+
+test('runPickemWeekSync moves a league with no picks out of a finished season once a newer schedule is on file', async (t) => {
+  // The Jan-May residue: a league created into the finished 2026 season sits
+  // at week 18 with every game locked, so it can never pick, never complete
+  // and never roll over. When 2027 loads it must follow the calendar. A
+  // league that DID pick in 2026 is left for completion (and stays put).
+  const leagues = [
+    { id: 1, current_season: 2026, current_week: 18 }, // zero picks: move on
+    { id: 2, current_season: 2026, current_week: 18 }, // has picks: not ours to move
+  ];
+  const calls = mockPoolQuery(t, [
+    [/FROM "leagues"/, () => ({ rows: leagues })],
+    [/SELECT MAX\("season"\)/, () => ({ rows: [{ season: 2027 }] })],
+    [/SELECT DISTINCT "week", "kickoff_at" FROM "nfl_games"/, (text, params) => ({
+      rows: params[0] === 2026
+        ? kickoffRows(18)
+        : kickoffRows(18).map((r) => ({ week: r.week, kickoff_at: r.kickoff_at.replace('2026', '2027') })),
+    })],
+    [/SELECT 1 FROM "pickem_picks"/, (text, params) => ({ rows: params[0] === 2 ? [{ '?column?': 1 }] : [] })],
+    [/^UPDATE "leagues" SET "current_season"/, (text, params) => ({ rows: [{ id: params[2] }] })],
+    [/^UPDATE "leagues" SET "current_week"/, () => { throw new Error('a plain week write must not happen here'); }],
+  ]);
+
+  const changes = await scheduler.runPickemWeekSync({ now: new Date('2027-06-01T12:00:00Z') });
+
+  assert.deepEqual(changes, [{ leagueId: 1, from: 18, to: 1, fromSeason: 2026, toSeason: 2027 }]);
+  const moves = calls.filter((c) => /^UPDATE "leagues" SET "current_season"/.test(c.text));
+  assert.equal(moves.length, 1);
+  assert.deepEqual(moves[0].params, [2027, 1, 1, 2026, 18]);
+  assert.match(moves[0].text, /"pickem_only" = true/);
+  assert.match(moves[0].text, /"season_status" <> 'complete'/);
+});
+
+/**
+ * A tiny stateful stand-in for the tables season completion touches: the
+ * leagues row flips to complete on UPDATE, and the trophies insert honors the
+ * (league, season, week, team, type) unique key the way ON CONFLICT DO
+ * NOTHING does (no row returned on a repeat).
+ */
+function pickemSeasonWorld(t, { league, teams, picks, live, games }) {
+  const state = {
+    league: { ...league },
+    trophies: [],
+    notifications: [],
+    statusUpdates: 0,
+  };
+  const trophyKeys = new Set();
+  const nflGames = games || [
+    { week: 18, nfl_team: 'BUF', opponent: 'MIA', kickoff_at: '2027-01-10T18:00:00.000Z' },
+    { week: 18, nfl_team: 'MIA', opponent: 'BUF', kickoff_at: '2027-01-10T18:00:00.000Z' },
+    { week: 18, nfl_team: 'DAL', opponent: 'WAS', kickoff_at: '2027-01-10T21:25:00.000Z' },
+    { week: 18, nfl_team: 'WAS', opponent: 'DAL', kickoff_at: '2027-01-10T21:25:00.000Z' },
+  ];
+  const handlers = [
+    [/^BEGIN$/, () => ({ rows: [] })],
+    [/^COMMIT$/, () => ({ rows: [] })],
+    [/^ROLLBACK$/, () => ({ rows: [] })],
+    [/FROM "leagues" WHERE "pickem_only" = true AND "season_status" <> 'complete'/, () =>
+      ({ rows: state.league.season_status === 'complete' ? [] : [state.league] })],
+    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [state.league] })],
+    [/SELECT DISTINCT "week", "kickoff_at" FROM "nfl_games"/, () => ({
+      rows: nflGames.map((g) => ({ week: g.week, kickoff_at: g.kickoff_at })),
+    })],
+    [/FROM "nfl_games"/, () => ({ rows: nflGames })],
+    [/FROM "live_game_states"/, () => ({ rows: live })],
+    [/FROM "private"\."game_recaps"/, () => ({ rows: [] })],
+    [/SELECT 1 FROM "pickem_picks"/, () => ({ rows: picks.length > 0 ? [{ '?column?': 1 }] : [] })],
+    [/FROM "pickem_settings"/, () => ({ rows: [{ enabled: true, mode: 'straight' }] })],
+    [/FROM "teams" JOIN "users"/, () => ({
+      rows: teams.filter((team) => team.owner_id != null).map((team) => ({
+        user_id: team.owner_id, username: team.username, team_name: team.name,
+        avatar_url: null, avatar_static_url: null,
+      })),
+    })],
+    [/FROM "pickem_picks" WHERE "league_id" = \$1 AND "season" = \$2$/, () => ({ rows: picks })],
+    [/^UPDATE "leagues" SET "season_status" = 'complete'/, () => {
+      state.league = { ...state.league, season_status: 'complete' };
+      state.statusUpdates += 1;
+      return { rows: [{ id: state.league.id }] };
+    }],
+    [/SELECT "id", "owner_id" FROM "teams" WHERE "league_id"/, () => ({
+      rows: teams.filter((team) => team.owner_id != null).map((team) => ({ id: team.id, owner_id: team.owner_id })),
+    })],
+    [/INSERT INTO "trophies"/, (text, params) => {
+      const key = params.slice(0, 5).join(':');
+      if (trophyKeys.has(key)) return { rows: [] };
+      trophyKeys.add(key);
+      state.trophies.push({
+        leagueId: params[0], teamId: params[1], season: params[2], week: params[3],
+        type: params[4], label: params[5], data: JSON.parse(params[6]),
+      });
+      return { rows: [{ id: state.trophies.length }] };
+    }],
+    [/SELECT DISTINCT "owner_id" FROM "teams"/, () => ({
+      rows: teams.filter((team) => team.owner_id != null).map((team) => ({ owner_id: team.owner_id })),
+    })],
+    [/SELECT "owner_id" FROM "teams" WHERE "id" = \$1/, (text, params) => ({
+      rows: teams.filter((team) => team.id === params[0]).map((team) => ({ owner_id: team.owner_id })),
+    })],
+    [/INSERT INTO "notifications"/, (text, params) => {
+      state.notifications.push({ userId: params[0], type: params[2], message: params[3] });
+      return { rows: [] };
+    }],
+  ];
+  state.calls = [];
+  const dispatch = (via) => async (sql, params) => {
+    const text = String(sql).replace(/\s+/g, ' ').trim();
+    state.calls.push({ via, text, params });
+    for (const [pattern, handler] of handlers) {
+      if (pattern.test(text)) return handler(text, params);
+    }
+    throw new Error(`unexpected query: ${text}`);
+  };
+  // Pool reads and transaction-client statements are tagged separately so a
+  // test can see the transaction boundary, not just the statements.
+  t.mock.method(pool, 'query', dispatch('pool'));
+  t.mock.method(pool, 'connect', async () => ({ query: dispatch('client'), release: () => {} }));
+  return state;
+}
+
+const FINALS = [
+  { week: 18, tank01_game_id: 'a', home_team: 'BUF', away_team: 'MIA', game_status: 'final', current_score_home: 24, current_score_away: 17, quarter: null, time_remaining: null },
+  { week: 18, tank01_game_id: 'b', home_team: 'DAL', away_team: 'WAS', game_status: 'final', current_score_home: 10, current_score_away: 27, quarter: null, time_remaining: null },
+];
+
+test('runPickemSeasonCompletion run twice completes the season and writes the champion trophy once', async (t) => {
+  const world = pickemSeasonWorld(t, {
+    league: { id: 1, name: 'Office Pool', current_season: 2026, current_week: 18, season_status: 'regular', created_at: '2026-08-01T00:00:00.000Z' },
+    teams: [
+      { id: 10, owner_id: 100, username: 'alice', name: 'Sunday Ballers' },
+      { id: 11, owner_id: 101, username: 'bob', name: 'Bob Squad' },
+    ],
+    picks: [
+      { user_id: 100, week: 18, team_pair: 'BUF|MIA', picked_team: 'BUF', confidence: null },
+      { user_id: 100, week: 18, team_pair: 'DAL|WAS', picked_team: 'WAS', confidence: null },
+      { user_id: 101, week: 18, team_pair: 'BUF|MIA', picked_team: 'BUF', confidence: null },
+      { user_id: 101, week: 18, team_pair: 'DAL|WAS', picked_team: 'DAL', confidence: null },
+    ],
+    live: FINALS,
+  });
+  const now = new Date('2027-01-11T06:00:00Z');
+
+  const first = await scheduler.runPickemSeasonCompletion({ now });
+  const second = await scheduler.runPickemSeasonCompletion({ now });
+
+  assert.equal(first.length, 1);
+  assert.equal(first[0].leagueId, 1);
+  assert.deepEqual(first[0].champions.map((c) => c.userId), [100]);
+  assert.deepEqual(second, [], 'a completed league is not a candidate again');
+  assert.equal(world.statusUpdates, 1);
+  assert.equal(world.league.season_status, 'complete');
+  assert.deepEqual(world.trophies, [{
+    leagueId: 1, teamId: 10, season: 2026, week: 0, type: 'pickem_champion',
+    label: "2026 Pick'em Champion", data: { points: 2, correct: 2, mode: 'straight' },
+  }]);
+  const leagueWide = world.notifications.filter((n) => n.type === 'season');
+  assert.deepEqual(leagueWide.map((n) => n.userId).sort(), [100, 101]);
+  assert.equal(leagueWide[0].message, "The pick'em season is over. Sunday Ballers wins with 2 points.");
+  // The trophy owner is told post-commit, best-effort, exactly once.
+  assert.deepEqual(
+    world.notifications.filter((n) => n.type === 'trophy'),
+    [{ userId: 100, type: 'trophy', message: "Trophy earned: 2026 Pick'em Champion" }]
+  );
+
+  // Transaction boundary: everything from BEGIN to COMMIT rides the checked-out
+  // client, the season slate (whose recap probe swallows a missing-table
+  // error, which would poison an open transaction) is read on the pool
+  // BEFORE the transaction, and the owner notification comes after it.
+  const clientCalls = world.calls.filter((c) => c.via === 'client').map((c) => c.text);
+  assert.equal(clientCalls[0], 'BEGIN');
+  assert.equal(clientCalls[clientCalls.length - 1], 'COMMIT');
+  assert.ok(!clientCalls.some((text) => /game_recaps|FROM "nfl_games"|FROM "live_game_states"/.test(text)));
+  assert.ok(clientCalls.some((text) => /^UPDATE "leagues" SET "season_status" = 'complete'/.test(text)));
+  assert.ok(clientCalls.some((text) => /INSERT INTO "trophies"/.test(text)));
+  const trophyNotice = world.calls.find((c) => /INSERT INTO "notifications"/.test(c.text) && c.params[2] === 'trophy');
+  assert.equal(trophyNotice.via, 'pool');
+  const commitAt = world.calls.findIndex((c) => c.text === 'COMMIT');
+  assert.ok(world.calls.indexOf(trophyNotice) > commitAt, 'owner notification is post-commit');
+});
+
+test('co-champions each get a Co-Champion trophy; a winner with no teams row is skipped, not thrown on', async (t) => {
+  const world = pickemSeasonWorld(t, {
+    league: { id: 1, name: 'Office Pool', current_season: 2026, current_week: 18, season_status: 'regular', created_at: '2026-08-01T00:00:00.000Z' },
+    teams: [
+      { id: 10, owner_id: 100, username: 'alice', name: 'Sunday Ballers' },
+      { id: 11, owner_id: 101, username: 'bob', name: 'Bob Squad' },
+      { id: 12, owner_id: 102, username: 'cara', name: 'Cara Crew' },
+    ],
+    picks: [
+      // alice and bob both go 2-0; cara goes 1-1.
+      { user_id: 100, week: 18, team_pair: 'BUF|MIA', picked_team: 'BUF', confidence: null },
+      { user_id: 100, week: 18, team_pair: 'DAL|WAS', picked_team: 'WAS', confidence: null },
+      { user_id: 101, week: 18, team_pair: 'BUF|MIA', picked_team: 'BUF', confidence: null },
+      { user_id: 101, week: 18, team_pair: 'DAL|WAS', picked_team: 'WAS', confidence: null },
+      { user_id: 102, week: 18, team_pair: 'BUF|MIA', picked_team: 'BUF', confidence: null },
+      { user_id: 102, week: 18, team_pair: 'DAL|WAS', picked_team: 'DAL', confidence: null },
+    ],
+    live: FINALS,
+  });
+  // Bob's teams row is gone by the time trophies are mapped (a removed member
+  // whose picks survived): the members query still lists him via the world's
+  // teams list, but the trophy mapping does not.
+  const originalConnect = pool.connect;
+  t.mock.method(pool, 'connect', async () => {
+    const client = await originalConnect();
+    return {
+      release: client.release,
+      query: async (sql, params) => {
+        const text = String(sql).replace(/\s+/g, ' ').trim();
+        if (/SELECT "id", "owner_id" FROM "teams" WHERE "league_id"/.test(text)) {
+          return { rows: [{ id: 10, owner_id: 100 }, { id: 12, owner_id: 102 }] };
+        }
+        return client.query(sql, params);
+      },
+    };
+  });
+
+  const completed = await scheduler.runPickemSeasonCompletion({ now: new Date('2027-01-11T06:00:00Z') });
+
+  assert.deepEqual(completed[0].champions.map((c) => c.userId), [100, 101]);
+  assert.deepEqual(world.trophies, [{
+    leagueId: 1, teamId: 10, season: 2026, week: 0, type: 'pickem_champion',
+    label: "2026 Pick'em Co-Champion", data: { points: 2, correct: 2, mode: 'straight' },
+  }]);
+  assert.equal(world.league.season_status, 'complete', 'the missing trophy did not abort completion');
+  const leagueWide = world.notifications.filter((n) => n.type === 'season');
+  assert.equal(leagueWide[0].message, "The pick'em season is over. Sunday Ballers and Bob Squad share the title with 2 points.");
+});
+
+test('zombie guard: a league with no picks this season, or created after week 18 kicked off, never completes', async (t) => {
+  const noPicks = pickemSeasonWorld(t, {
+    league: { id: 1, name: 'Ghost Pool', current_season: 2026, current_week: 18, season_status: 'regular', created_at: '2026-08-01T00:00:00.000Z' },
+    teams: [{ id: 10, owner_id: 100, username: 'alice', name: 'Sunday Ballers' }],
+    picks: [],
+    live: FINALS,
+  });
+  assert.deepEqual(await scheduler.runPickemSeasonCompletion({ now: new Date('2027-01-11T06:00:00Z') }), []);
+  assert.equal(noPicks.league.season_status, 'regular');
+  assert.equal(noPicks.trophies.length, 0);
+  assert.ok(noPicks.calls.some((c) => c.text === 'ROLLBACK'), 'the guard is checked under the row lock');
+
+  const lateCreate = pickemSeasonWorld(t, {
+    // Created in the dead window between week 18 and the next schedule sync:
+    // seeded to the finished season at week 18 with picks somehow present.
+    league: { id: 2, name: 'Late Pool', current_season: 2026, current_week: 18, season_status: 'regular', created_at: '2027-02-01T00:00:00.000Z' },
+    teams: [{ id: 20, owner_id: 200, username: 'zed', name: 'Zed Heads' }],
+    picks: [{ user_id: 200, week: 18, team_pair: 'BUF|MIA', picked_team: 'BUF', confidence: null }],
+    live: FINALS,
+  });
+  assert.deepEqual(await scheduler.runPickemSeasonCompletion({ now: new Date('2027-03-01T06:00:00Z') }), []);
+  assert.equal(lateCreate.league.season_status, 'regular');
+  assert.ok(!lateCreate.calls.some((c) => c.text === 'BEGIN'), 'skipped without opening a transaction');
+});
+
+test('the tick syncs pick\'em-only weeks right before the pick\'em reminders, and completes seasons right after', () => {
+  // Same source-order pin as holdout.service.test.js uses for the deadline
+  // duties: reminders must read the freshly synced week in the SAME tick.
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
+  const body = source.slice(source.indexOf('async function tickUnlocked'));
+  const at = (needle) => {
+    const i = body.indexOf(needle);
+    assert.ok(i !== -1, `tickUnlocked does not call ${needle}`);
+    return i;
+  };
+  const weekSync = at('runPickemWeekSync()');
+  const reminders = at('sendPickemReminders()');
+  const completion = at('runPickemSeasonCompletion()');
+  const trades = at('processDueTrades()');
+  assert.ok(weekSync < reminders, 'week sync before reminders');
+  assert.ok(reminders < completion, 'completion right after reminders');
+  assert.ok(completion < trades, 'both pick\'em duties before the fantasy work that follows');
+});
+
+test('runPickemSeasonCompletion does not read the season slate before week 18 has kicked off', async (t) => {
+  // Every 5 minutes, all season: the cheap week-bounds query decides whether
+  // completion is even possible; the three-query season slate is only pulled
+  // once week 18's last kickoff has passed.
+  const world = pickemSeasonWorld(t, {
+    league: { id: 1, name: 'Office Pool', current_season: 2026, current_week: 8, season_status: 'regular', created_at: '2026-08-01T00:00:00.000Z' },
+    teams: [{ id: 10, owner_id: 100, username: 'alice', name: 'Sunday Ballers' }],
+    picks: [{ user_id: 100, week: 1, team_pair: 'BUF|MIA', picked_team: 'BUF', confidence: null }],
+    live: [],
+  });
+  assert.deepEqual(await scheduler.runPickemSeasonCompletion({ now: new Date('2026-10-15T12:00:00Z') }), []);
+  assert.equal(world.calls.filter((c) => /SELECT DISTINCT "week", "kickoff_at" FROM "nfl_games"/.test(c.text)).length, 1);
+  assert.equal(world.calls.filter((c) => /fn_normalize_nfl_team|FROM "live_game_states"|game_recaps/.test(c.text)).length, 0);
+  assert.equal(world.calls.filter((c) => c.text === 'BEGIN').length, 0);
+});
+
+test('a season with no week-18 rows on file is held (and warned about), never completed on week 17', async (t) => {
+  // Tank01 drops TBD-time week-18 games until the nflverse re-sync fills
+  // them. Completing on week 17 would crown a champion before week 18 is
+  // played, so the league waits for the rows; the warning every tick is the
+  // operator's cue.
+  const warnings = [];
+  t.mock.method(console, 'warn', (...args) => { warnings.push(args.join(' ')); });
+  const world = pickemSeasonWorld(t, {
+    league: { id: 1, name: 'Office Pool', current_season: 2026, current_week: 18, season_status: 'regular', created_at: '2026-08-01T00:00:00.000Z' },
+    teams: [{ id: 10, owner_id: 100, username: 'alice', name: 'Sunday Ballers' }],
+    picks: [{ user_id: 100, week: 17, team_pair: 'BUF|MIA', picked_team: 'BUF', confidence: null }],
+    live: [],
+    games: [
+      { week: 17, nfl_team: 'BUF', opponent: 'MIA', kickoff_at: '2027-01-03T18:00:00.000Z' },
+      { week: 17, nfl_team: 'MIA', opponent: 'BUF', kickoff_at: '2027-01-03T18:00:00.000Z' },
+    ],
+  });
+  assert.deepEqual(await scheduler.runPickemSeasonCompletion({ now: new Date('2027-03-01T12:00:00Z') }), []);
+  assert.equal(world.league.season_status, 'regular');
+  assert.equal(world.calls.filter((c) => c.text === 'BEGIN').length, 0);
+  assert.equal(world.calls.filter((c) => /fn_normalize_nfl_team|game_recaps/.test(c.text)).length, 0, 'gate closed: no slate read');
+  assert.ok(warnings.some((w) => /week 18 has no games on file/.test(w)));
+});

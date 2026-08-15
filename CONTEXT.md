@@ -198,6 +198,8 @@ settles standings, awards trophies and opens the next week.
 **Trophy**:
 An automatic award written when a week or a season finalizes, such as weekly
 high score, champion, longest win streak, biggest comeback or best draft grade.
+A pick'em league's season award is the pick'em champion, and a tie makes
+co-champions: it is the one trophy written to more than one team at once.
 Awarding is idempotent by design.
 
 **Recap**:
