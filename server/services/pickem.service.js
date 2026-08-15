@@ -713,10 +713,15 @@ async function upsertPicks({ leagueId, userId, season, week, picks, now = new Da
   }
 }
 
-/** Compute-on-read season standings — a handful of small queries, no cache. */
-async function getStandings({ leagueId, season }) {
-  const settings = await getSettings(leagueId);
-  const members = await pool.query(
+/**
+ * Compute-on-read season standings — a handful of small queries, no cache.
+ * `db` may be a checked-out client (the pick'em season lifecycle computes the
+ * final standings inside its completion transaction), and `games` lets a
+ * caller that already holds the season slate skip re-deriving it.
+ */
+async function getStandings({ leagueId, season, db = pool, games = null }) {
+  const settings = await getSettings(leagueId, db);
+  const members = await db.query(
     `SELECT "teams"."owner_id" AS "user_id", "users"."username",
             "teams"."name" AS "team_name",
             "teams"."avatar_url", "teams"."avatar_static_url"
@@ -726,12 +731,12 @@ async function getStandings({ leagueId, season }) {
       ORDER BY "users"."username"`,
     [leagueId]
   );
-  const stored = await pool.query(
+  const stored = await db.query(
     `SELECT "user_id", "week", "team_pair", "picked_team", "confidence"
        FROM "pickem_picks" WHERE "league_id" = $1 AND "season" = $2`,
     [leagueId, season]
   );
-  const games = await getSeasonSlate({ season });
+  const slate = games || (await getSeasonSlate({ season, db }));
 
   const standings = computePickemStandings({
     members: members.rows.map((row) => ({
@@ -741,7 +746,7 @@ async function getStandings({ leagueId, season }) {
       avatarUrl: row.avatar_url,
       avatarStaticUrl: row.avatar_static_url,
     })),
-    games,
+    games: slate,
     picks: stored.rows.map((row) => ({
       userId: row.user_id,
       week: Number(row.week),

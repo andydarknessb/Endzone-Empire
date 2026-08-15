@@ -233,10 +233,17 @@ async function awardWeeklyTrophies({ leagueId, season, week }) {
     client.release();
   }
 
-  // Notifications AFTER the commit, each best-effort: a notify failure must
-  // never roll back an award — awardWeeklyTrophies runs once per week, so a
-  // rolled-back trophy would be lost for good.
-  for (const trophyAwarded of awarded) {
+  await notifyAwardedOwners({ leagueId, awarded });
+  return awarded;
+}
+
+/**
+ * Notifications AFTER the commit, each best-effort: a notify failure must
+ * never roll back an award — the awarding passes run once per week or once
+ * per season, so a rolled-back trophy would be lost for good.
+ */
+async function notifyAwardedOwners({ leagueId, awarded }) {
+  for (const trophyAwarded of awarded || []) {
     try {
       await notifyOwner(pool, {
         leagueId,
@@ -247,7 +254,63 @@ async function awardWeeklyTrophies({ leagueId, season, week }) {
       console.error('trophy notification failed (%s):', trophyAwarded.type, err.message);
     }
   }
+}
+
+/**
+ * Pick'em champion(s) for a pick'em-only league, written on the caller's
+ * transaction client as the season completes. Deliberately multi-recipient:
+ * a tie on (points, correct) makes co-champions, and the trophies unique key
+ * includes team_id for exactly this, so there is no singular-champion DELETE
+ * here (contrast rolloverSeason's fantasy champion). Idempotent through
+ * award()'s ON CONFLICT DO NOTHING. A winner with no teams row in the league
+ * is skipped rather than thrown on: a missing trophy must never abort season
+ * completion. Owner notifications are the caller's, post-commit
+ * (notifyAwardedOwners).
+ *
+ * @param {object} input
+ * @param {object} input.client    transaction client
+ * @param {number} input.leagueId
+ * @param {number} input.season
+ * @param {Array}  input.champions pickemChampions rows: `[{ userId, points, correct }]`
+ * @param {string} input.mode      the league's pick'em scoring mode
+ * @returns {Array} `[{ type, teamId, label }]` newly awarded
+ */
+async function awardPickemChampions({ client, leagueId, season, champions, mode }) {
+  const winners = champions || [];
+  if (winners.length === 0) return [];
+  const teams = await client.query(
+    `SELECT "id", "owner_id" FROM "teams" WHERE "league_id" = $1`,
+    [leagueId]
+  );
+  const teamByOwner = new Map(teams.rows.map((team) => [team.owner_id, team.id]));
+  const label = `${season} Pick'em ${winners.length > 1 ? 'Co-Champion' : 'Champion'}`;
+  const awarded = [];
+  for (const winner of winners) {
+    const teamId = teamByOwner.get(winner.userId);
+    if (!teamId) continue;
+    const newlyAwarded = await award(client, {
+      leagueId, teamId, season, week: 0,
+      type: 'pickem_champion', label,
+      data: { points: winner.points, correct: winner.correct, mode },
+    });
+    if (newlyAwarded) awarded.push({ type: 'pickem_champion', teamId, label });
+  }
   return awarded;
+}
+
+/**
+ * The team ids season completion crowned as pick'em champion(s), in award
+ * order. Empty when nothing was crowned (no picks resolved, or the winner
+ * had no teams row). Pool or client.
+ */
+async function getPickemChampionTeamIds({ db = pool, leagueId, season }) {
+  const result = await db.query(
+    `SELECT "team_id" FROM "trophies"
+     WHERE "league_id" = $1 AND "season" = $2 AND "week" = 0 AND "type" = 'pickem_champion'
+     ORDER BY "id"`,
+    [leagueId, season]
+  );
+  return result.rows.map((row) => row.team_id);
 }
 
 /** All trophies a team has earned, newest first. */
@@ -282,6 +345,9 @@ module.exports = {
   longestWinStreak,
   comebackTeam,
   awardWeeklyTrophies,
+  awardPickemChampions,
+  notifyAwardedOwners,
+  getPickemChampionTeamIds,
   getTeamTrophies,
   getLeagueTrophies,
 };

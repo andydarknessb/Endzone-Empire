@@ -97,11 +97,24 @@ async function tickUnlocked() {
     } catch (err) {
       console.error('lineup reminders failed:', err.message);
     }
+    // Pick'em-only leagues follow the NFL calendar: point them at the right
+    // week BEFORE the reminders read current_week, and complete any whose
+    // week-18 slate has finalized right after.
+    try {
+      await runPickemWeekSync();
+    } catch (err) {
+      console.error("pick'em week sync failed:", err.message);
+    }
     try {
       const digest = require('../services/digest.service');
       await digest.sendPickemReminders(); // same pre-kickoff window, Pick'em leagues only
     } catch (err) {
       console.error("pick'em reminders failed:", err.message);
+    }
+    try {
+      await runPickemSeasonCompletion();
+    } catch (err) {
+      console.error("pick'em season completion failed:", err.message);
     }
     const trades = await processDueTrades();
     if (trades.length > 0) console.log(`scheduler: settled ${trades.length} trade(s)`);
@@ -283,6 +296,46 @@ async function runNflverseFinalization() {
   }
 }
 
+/**
+ * Pick'em-only leagues follow the NFL calendar (they have no matchups, so the
+ * commissioner advance-week action can never run for them). Point each one at
+ * the week it should be on; runs right BEFORE the pick'em reminders so the
+ * reminders read the fresh week in the same tick.
+ */
+async function runPickemWeekSync({ now = new Date() } = {}) {
+  const pickemSeason = require('../services/pickemSeason.service');
+  const changes = await pickemSeason.syncPickemOnlyWeeks({ now });
+  if (changes.length > 0) {
+    console.log(
+      `scheduler: pick'em week sync moved ${changes.length} league(s): ` +
+      changes.map((c) => (
+        c.toSeason
+          ? `${c.leagueId} ${c.fromSeason} w${c.from}->${c.toSeason} w${c.to}`
+          : `${c.leagueId} w${c.from}->w${c.to}`
+      )).join(', ')
+    );
+  }
+  return changes;
+}
+
+/**
+ * Complete any pick'em-only league whose week-18 slate has finalized: freeze
+ * standings (season_status = complete), award the pick'em champion trophy or
+ * co-champion trophies, and tell the league. Idempotent: a completed league
+ * is no longer a candidate, and the trophy write is ON CONFLICT DO NOTHING.
+ */
+async function runPickemSeasonCompletion({ now = new Date() } = {}) {
+  const pickemSeason = require('../services/pickemSeason.service');
+  const completed = await pickemSeason.completePickemSeasons({ now });
+  if (completed.length > 0) {
+    console.log(
+      `scheduler: completed the pick'em season for ${completed.length} league(s): ` +
+      completed.map((c) => `${c.leagueId} (${c.season}, ${c.champions.length} champion(s))`).join(', ')
+    );
+  }
+  return completed;
+}
+
 // "Your matchup is close" alerts: at most one per matchup per week (in-process
 // set — a restart may re-alert once, acceptable for best-effort nudges).
 const closeAlertedMatchups = new Set();
@@ -374,6 +427,8 @@ module.exports = {
   syncAndScoreLiveWeeks,
   syncEveryTicks,
   runHoldoutSnapshots,
+  runPickemWeekSync,
+  runPickemSeasonCompletion,
   INTERVAL_MS,
   DRAFT_CLOCK_MS,
   SYNC_EVERY_TICKS,

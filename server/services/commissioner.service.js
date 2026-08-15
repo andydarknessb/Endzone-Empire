@@ -10,6 +10,10 @@ const { placeOnWaivers } = require('./waiver.service');
 const { assertManualCorrectionWindow } = require('./correction.service');
 const { deleteAvatarObjects } = require('./avatar.service');
 const { commissionerPredicate } = require('./leagueRole.service');
+const { isPickemOnly } = require('./leagueType');
+const { getStandings: getPickemStandings, getSeasonSlate } = require('./pickem.service');
+const { pickemChampions } = require('./pickemSeason.service');
+const { getPickemChampionTeamIds } = require('./trophy.service');
 
 class CommissionerError extends Error {
   constructor(statusCode, message) {
@@ -236,41 +240,94 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
     if (league.season_status !== 'complete') {
       throw new CommissionerError(409, 'the season must be complete before rolling over');
     }
+    const pickemOnly = isPickemOnly(league);
+    if (pickemOnly && keepers.length > 0) {
+      // ADR 0002: roster-shaped writes against a pick'em-only league fail
+      // closed. There is no roster to keep anything from.
+      throw new CommissionerError(409, "this is a pick'em league; it has no rosters or keepers");
+    }
 
     const teamsResult = await client.query(
       `SELECT "id", "name", "owner_id" FROM "teams" WHERE "league_id" = $1`,
       [leagueId]
     );
-    const matchupsResult = await client.query(
-      `SELECT * FROM "matchups" WHERE "league_id" = $1 AND "season" = $2`,
-      [leagueId, league.current_season]
-    );
-    const standings = computeStandings(teamsResult.rows, matchupsResult.rows);
-    const rostersResult = await client.query(
-      `SELECT "team_players"."team_id", "team_players"."player_id",
-              "players"."name" AS "player_name", "players"."position",
-              "players"."nfl_team"
-       FROM "team_players"
-       JOIN "players" ON "players"."id" = "team_players"."player_id"
-       WHERE "team_players"."league_id" = $1
-       ORDER BY "team_players"."team_id", "team_players"."player_id"`,
-      [leagueId]
-    );
 
-    // Champion: winner of the last final, non-consolation playoff game
-    const playoffFinals = matchupsResult.rows
-      .filter((m) => m.is_playoff && !m.is_consolation && m.final)
-      .sort((a, b) => b.week - a.week);
-    const decider = playoffFinals[0];
-    const championTeamId = decider
-      ? (Number(decider.home_score) >= Number(decider.away_score)
-        ? decider.home_team_id
-        : decider.away_team_id)
-      : (standings[0] ? standings[0].teamId : null);
-    const championUserId =
-      teamsResult.rows.find((team) => team.id === championTeamId)?.owner_id || null;
+    let standings;
+    let rosters;
+    let championTeamId;
+    let championUserId;
+    if (pickemOnly) {
+      // A pick'em-only league has no matchups or rosters: the season record
+      // is the pick'em standings, the champion is whoever season completion
+      // crowned (the pickem_champion trophy rows, first of the co-champions
+      // on a tie), and those rows are the awards. Reading the empty matchup
+      // table here would have crowned standings[0] of an all-zero table, an
+      // arbitrary team. The declared champion is read back rather than
+      // recomputed: a recap landing after completion must not make history
+      // name a different winner than the trophy and the notification did.
+      // The season's games are read on the pool, not this client: the recap
+      // probe inside getSeasonSlate swallows a missing-table error, which
+      // inside an open transaction would poison every statement after it.
+      const seasonGames = await getSeasonSlate({ season: league.current_season });
+      const final = await getPickemStandings({
+        leagueId, season: league.current_season, db: client, games: seasonGames,
+      });
+      const teamByOwner = new Map(teamsResult.rows.map((team) => [team.owner_id, team]));
+      standings = final.standings.map((row) => {
+        const team = teamByOwner.get(row.userId);
+        return { ...row, teamId: team ? team.id : null, name: team ? team.name : row.teamName };
+      });
+      rosters = [];
+      const declared = await getPickemChampionTeamIds({
+        db: client, leagueId, season: league.current_season,
+      });
+      if (declared.length > 0) {
+        championTeamId = declared[0];
+        championUserId =
+          teamsResult.rows.find((team) => team.id === championTeamId)?.owner_id || null;
+      } else {
+        // Nothing was crowned (no picks resolved, or the winner had no teams
+        // row): the best answer left is the leader as the table stands.
+        const champion = pickemChampions(final.standings)[0] || null;
+        championUserId = champion ? champion.userId : null;
+        championTeamId = teamByOwner.get(championUserId)?.id || null;
+      }
+    } else {
+      const matchupsResult = await client.query(
+        `SELECT * FROM "matchups" WHERE "league_id" = $1 AND "season" = $2`,
+        [leagueId, league.current_season]
+      );
+      standings = computeStandings(teamsResult.rows, matchupsResult.rows);
+      const rostersResult = await client.query(
+        `SELECT "team_players"."team_id", "team_players"."player_id",
+                "players"."name" AS "player_name", "players"."position",
+                "players"."nfl_team"
+         FROM "team_players"
+         JOIN "players" ON "players"."id" = "team_players"."player_id"
+         WHERE "team_players"."league_id" = $1
+         ORDER BY "team_players"."team_id", "team_players"."player_id"`,
+        [leagueId]
+      );
+      rosters = rostersResult.rows;
 
-    if (championTeamId) {
+      // Champion: winner of the last final, non-consolation playoff game
+      const playoffFinals = matchupsResult.rows
+        .filter((m) => m.is_playoff && !m.is_consolation && m.final)
+        .sort((a, b) => b.week - a.week);
+      const decider = playoffFinals[0];
+      championTeamId = decider
+        ? (Number(decider.home_score) >= Number(decider.away_score)
+          ? decider.home_team_id
+          : decider.away_team_id)
+        : (standings[0] ? standings[0].teamId : null);
+      championUserId =
+        teamsResult.rows.find((team) => team.id === championTeamId)?.owner_id || null;
+    }
+
+    // The fantasy champion trophy is singular; pick'em champions are
+    // multi-recipient rows already written by season completion, so they are
+    // left exactly as they are.
+    if (championTeamId && !pickemOnly) {
       // The weekly trophy index is team-aware so both closest-game teams can
       // share a type. Champion remains singular, so replace any stale winner
       // explicitly before inserting the authoritative season result.
@@ -310,47 +367,50 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
         championTeamId,
         championUserId,
         JSON.stringify(standings),
-        JSON.stringify(rostersResult.rows),
+        JSON.stringify(rosters),
         JSON.stringify(awardsResult.rows),
       ]
     );
 
-    // Roster wipe with keeper exceptions
+    // Roster wipe with keeper exceptions, plus the rest of the fantasy reset.
+    // A pick'em-only league has none of it (ADR 0002: no roster-shaped writes).
     const keeperPairs = [];
-    for (const k of keepers) {
-      if (!Number.isInteger(k.teamId) || !Array.isArray(k.playerIds)) {
-        throw new CommissionerError(400, 'keepers must be [{ teamId, playerIds }]');
+    if (!pickemOnly) {
+      for (const k of keepers) {
+        if (!Number.isInteger(k.teamId) || !Array.isArray(k.playerIds)) {
+          throw new CommissionerError(400, 'keepers must be [{ teamId, playerIds }]');
+        }
+        for (const pid of k.playerIds) keeperPairs.push([k.teamId, pid]);
       }
-      for (const pid of k.playerIds) keeperPairs.push([k.teamId, pid]);
-    }
-    if (keeperPairs.length > 0) {
-      await client.query(
-        `DELETE FROM "team_players"
-         WHERE "league_id" = $1 AND ("team_id", "player_id") NOT IN
-           (${keeperPairs.map((_, i) => `($${i * 2 + 2}, $${i * 2 + 3})`).join(', ')})`,
-        [leagueId, ...keeperPairs.flat()]
-      );
-    } else {
-      await client.query(`DELETE FROM "team_players" WHERE "league_id" = $1`, [leagueId]);
-    }
+      if (keeperPairs.length > 0) {
+        await client.query(
+          `DELETE FROM "team_players"
+           WHERE "league_id" = $1 AND ("team_id", "player_id") NOT IN
+             (${keeperPairs.map((_, i) => `(${i * 2 + 2}, ${i * 2 + 3})`).join(', ')})`,
+          [leagueId, ...keeperPairs.flat()]
+        );
+      } else {
+        await client.query(`DELETE FROM "team_players" WHERE "league_id" = $1`, [leagueId]);
+      }
 
-    await client.query(`DELETE FROM "draft_picks" WHERE "league_id" = $1`, [leagueId]);
-    await client.query(`DELETE FROM "waiver_players" WHERE "league_id" = $1`, [leagueId]);
-    await client.query(
-      `UPDATE "waiver_claims" SET "status" = 'cancelled', "updated_at" = now()
-       WHERE "league_id" = $1 AND "status" = 'pending'`,
-      [leagueId]
-    );
-    await client.query(
-      `UPDATE "trades" SET "status" = 'cancelled', "updated_at" = now()
-       WHERE "league_id" = $1 AND "status" IN ('pending', 'accepted')`,
-      [leagueId]
-    );
-    await client.query(
-      `UPDATE "teams" SET "faab_remaining" = $1, "updated_at" = now()
-       WHERE "league_id" = $2`,
-      [league.faab_budget, leagueId]
-    );
+      await client.query(`DELETE FROM "draft_picks" WHERE "league_id" = $1`, [leagueId]);
+      await client.query(`DELETE FROM "waiver_players" WHERE "league_id" = $1`, [leagueId]);
+      await client.query(
+        `UPDATE "waiver_claims" SET "status" = 'cancelled', "updated_at" = now()
+         WHERE "league_id" = $1 AND "status" = 'pending'`,
+        [leagueId]
+      );
+      await client.query(
+        `UPDATE "trades" SET "status" = 'cancelled', "updated_at" = now()
+         WHERE "league_id" = $1 AND "status" IN ('pending', 'accepted')`,
+        [leagueId]
+      );
+      await client.query(
+        `UPDATE "teams" SET "faab_remaining" = $1, "updated_at" = now()
+         WHERE "league_id" = $2`,
+        [league.faab_budget, leagueId]
+      );
+    }
     const newSeason = league.current_season + 1;
     await client.query(
       `UPDATE "leagues"
@@ -370,7 +430,9 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
     await notifyLeague(client, {
       leagueId,
       type: 'season',
-      message: `A new season has begun! ${keeperPairs.length > 0 ? 'Keepers are locked in and ' : ''}the draft is open to be scheduled.`,
+      message: pickemOnly
+        ? "A new season has begun! Pick'em opens with the new NFL schedule."
+        : `A new season has begun! ${keeperPairs.length > 0 ? 'Keepers are locked in and ' : ''}the draft is open to be scheduled.`,
     });
     await client.query('COMMIT');
     return { leagueId, archivedSeason: league.current_season, newSeason, championTeamId, championUserId };

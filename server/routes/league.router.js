@@ -17,7 +17,7 @@ const {
   createSizeError,
   editSizeError,
 } = require('../services/leagueSize');
-const { REG_SEASON_WEEKS } = require('../services/pickem.service');
+const { resolveNflSeasonPointer } = require('../services/pickemSeason.service');
 const {
   commissionerPredicate,
   isLeagueCommissioner,
@@ -102,31 +102,13 @@ router.post('/', async (req, res) => {
       // advance-week action (which requires matchups and can never run here).
       // Seed season/week from the schedule so a league created in NFL week 7
       // starts at week 7, and one created in a later year does not inherit
-      // the stale current_season column default. Newest season on file, first
-      // week whose last kickoff is still open, with a 6h grace so a week in
-      // play still counts as open; every week closed means week 18; an empty
-      // schedule table keeps the column defaults. The pick'em season
-      // lifecycle job that advances these leagues week to week must derive
-      // weeks the same way, or a league's week would jump at its first tick.
-      const seedResult = await client.query(
-        `WITH "season_weeks" AS (
-           SELECT "season", "week", MAX("kickoff_at") AS "last_kickoff"
-             FROM "nfl_games"
-            WHERE "opponent" IS NOT NULL AND "kickoff_at" IS NOT NULL
-              AND "week" BETWEEN 1 AND $1
-            GROUP BY "season", "week"
-         )
-         SELECT "season",
-                COALESCE(
-                  MIN("week") FILTER (WHERE "last_kickoff" + interval '6 hours' > now()),
-                  $1
-                )::int AS "week"
-           FROM "season_weeks"
-          WHERE "season" = (SELECT MAX("season") FROM "season_weeks")
-          GROUP BY "season"`,
-        [REG_SEASON_WEEKS]
-      );
-      const seed = seedResult.rows[0];
+      // the stale current_season column default. The derivation is SHARED
+      // with the pick'em season lifecycle job (pickemSeason.service:
+      // newest season on file, smallest week still open under the rollover
+      // grace, every week closed means week 18), so a league's week cannot
+      // jump at its first tick. An empty schedule table keeps the column
+      // defaults.
+      const seed = await resolveNflSeasonPointer({ db: client });
       if (seed) {
         const seededResult = await client.query(
           `UPDATE "leagues" SET "current_season" = $1, "current_week" = $2

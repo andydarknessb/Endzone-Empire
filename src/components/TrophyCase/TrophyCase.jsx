@@ -13,6 +13,7 @@ import apiClient from '../../api/apiClient';
 
 export const TROPHY_EMOJI = {
   champion: '🏆',
+  pickem_champion: '🏆',
   weekly_high: '🔥',
   top_scorer: '🔥',
   closest_game: '🤝',
