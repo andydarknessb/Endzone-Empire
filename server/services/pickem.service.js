@@ -489,7 +489,7 @@ const UPSERT_PICKS_SQL = `
 /** The league row Pick'em needs, or 404. Accepts a pool or a checked-out client. */
 async function loadLeague(db, leagueId) {
   const result = await db.query(
-    `SELECT "id", "name", "current_season", "current_week" FROM "leagues" WHERE "id" = $1`,
+    `SELECT "id", "name", "current_season", "current_week", "pickem_only" FROM "leagues" WHERE "id" = $1`,
     [leagueId]
   );
   const league = result.rows[0];
@@ -512,10 +512,12 @@ async function getSettings(leagueId, db = pool) {
 }
 
 /**
- * Commissioner write. Enabling/disabling is always allowed; changing the
- * SCORING MODE once the current season has picks is not — every stored
- * confidence would be reinterpreted (or discarded) retroactively, so that
- * request is refused with 409 PICKEM_MODE_LOCKED.
+ * Commissioner write. Enabling/disabling is allowed in a fantasy league, but a
+ * pick'em-only league always has pick'em on: turning it off would leave the
+ * league with no game at all, so that is refused with 409 PICKEM_ONLY_LEAGUE.
+ * Changing the SCORING MODE once the current season has picks is refused for
+ * every league type — every stored confidence would be reinterpreted (or
+ * discarded) retroactively — with 409 PICKEM_MODE_LOCKED.
  */
 async function putSettings({ leagueId, enabled, mode }) {
   if (mode !== undefined && !MODES.includes(mode)) {
@@ -525,6 +527,13 @@ async function putSettings({ leagueId, enabled, mode }) {
   try {
     await client.query('BEGIN');
     const league = await loadLeague(client, leagueId);
+    if (league.pickem_only && enabled === false) {
+      throw new PickemError(
+        409,
+        'PICKEM_ONLY_LEAGUE',
+        "this is a pick'em league; Pick'em is its only game and cannot be turned off"
+      );
+    }
     const current = await getSettings(leagueId, client);
     const nextMode = mode === undefined ? current.mode : mode;
     const nextEnabled = enabled === undefined ? current.enabled : Boolean(enabled);

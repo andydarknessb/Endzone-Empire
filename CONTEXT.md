@@ -19,7 +19,9 @@ _Avoid_: pool, group, room
 **League type**:
 The create-time, immutable choice of what a league plays: fantasy football,
 NFL pick'em, or both. "Both" is a fantasy league with pick'em enabled from the
-start, not a third structure; a pick'em league can never grow a fantasy side.
+start, not a third structure; a pick'em league can never grow a fantasy side,
+and it always has pick'em on: it is the league's only game, so the commissioner
+cannot turn it off (only change how it scores).
 _Avoid_: league kind, mode, format
 
 **Manager**:

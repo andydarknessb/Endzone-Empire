@@ -55,7 +55,8 @@ async function processScheduledDrafts({ now = new Date() } = {}) {
             "pick_time_seconds", "draft_reminder_stage", "draft_autostart_failed",
             (SELECT COUNT(*)::int FROM "teams" WHERE "teams"."league_id" = "leagues"."id") AS "team_count"
      FROM "leagues"
-     WHERE "draft_status" = 'pending' AND "draft_date" IS NOT NULL`
+     WHERE "draft_status" = 'pending' AND "draft_date" IS NOT NULL
+       AND "pickem_only" = false`
   );
 
   const actions = [];

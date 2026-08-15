@@ -1,4 +1,5 @@
 const pool = require('../modules/pool');
+const { isPickemOnly, PICKEM_ONLY_MESSAGE } = require('./leagueType');
 const { computeByeWeeks } = require('./bye.service');
 
 class LineupError extends Error {
@@ -289,6 +290,10 @@ async function setLineup({ leagueId, userId, week, moves }) {
   try {
     await client.query('BEGIN');
     const { league, team } = await loadLeagueAndTeam(client, { leagueId, userId, forUpdate: true });
+    // No lineups in a pick'em-only league. Message-only like the best-ball
+    // refusal below: team.router renders coded errors as { error: code }, which
+    // the lineup screen would toast verbatim.
+    if (isPickemOnly(league)) throw new LineupError(409, PICKEM_ONLY_MESSAGE);
     if (league.best_ball) {
       throw new LineupError(409, 'best-ball leagues set lineups automatically, so there is nothing to manage');
     }

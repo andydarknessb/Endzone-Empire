@@ -1,9 +1,16 @@
 const express = require('express');
 const { requireAuth } = require('../modules/auth');
 const commissioner = require('../services/commissioner.service');
+const { requireFantasyLeague } = require('../services/leagueType');
 
 const router = express.Router();
 router.use(requireAuth);
+
+// A pick'em-only league has no lineups, matchups, waivers or FAAB, so the six
+// fantasy mutations below carry an explicit guard (409 PICKEM_ONLY_LEAGUE).
+// No blanket mount here: rollover, remove member and avatar moderation apply
+// to every league type and stay open.
+const fantasyOnly = requireFantasyLeague();
 
 function intOrNull(value) {
   return /^\d+$/.test(String(value)) ? Number(value) : null;
@@ -35,7 +42,7 @@ router.delete('/league/:id/teams/:teamId', async (req, res) => {
 
 // PUT /api/commissioner/league/:id/teams/:teamId/lineup — force-set a lineup
 // { week?, moves: [{ playerId, slot }] }
-router.put('/league/:id/teams/:teamId/lineup', async (req, res) => {
+router.put('/league/:id/teams/:teamId/lineup', fantasyOnly, async (req, res) => {
   const leagueId = intOrNull(req.params.id);
   const teamId = intOrNull(req.params.teamId);
   if (!leagueId || !teamId) {
@@ -54,7 +61,7 @@ router.put('/league/:id/teams/:teamId/lineup', async (req, res) => {
 
 // PUT /api/commissioner/league/:id/matchups/:matchupId — adjust scores
 // { homeScore, awayScore }
-router.put('/league/:id/matchups/:matchupId', async (req, res) => {
+router.put('/league/:id/matchups/:matchupId', fantasyOnly, async (req, res) => {
   const leagueId = intOrNull(req.params.id);
   const matchupId = intOrNull(req.params.matchupId);
   if (!leagueId || !matchupId) {
@@ -79,7 +86,7 @@ router.put('/league/:id/matchups/:matchupId', async (req, res) => {
 });
 
 // PUT /api/commissioner/league/:id/transactions-lock — { locked: true|false }
-router.put('/league/:id/transactions-lock', async (req, res) => {
+router.put('/league/:id/transactions-lock', fantasyOnly, async (req, res) => {
   const leagueId = intOrNull(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
   const { locked } = req.body || {};
@@ -110,7 +117,7 @@ router.post('/league/:id/rollover', async (req, res) => {
 });
 
 // PUT /api/commissioner/league/:id/teams/:teamId/lock — { locked: true|false }
-router.put('/league/:id/teams/:teamId/lock', async (req, res) => {
+router.put('/league/:id/teams/:teamId/lock', fantasyOnly, async (req, res) => {
   const leagueId = intOrNull(req.params.id);
   const teamId = intOrNull(req.params.teamId);
   if (!leagueId || !teamId) {
@@ -128,7 +135,7 @@ router.put('/league/:id/teams/:teamId/lock', async (req, res) => {
 });
 
 // PUT /api/commissioner/league/:id/teams/:teamId/faab — { faabRemaining }
-router.put('/league/:id/teams/:teamId/faab', async (req, res) => {
+router.put('/league/:id/teams/:teamId/faab', fantasyOnly, async (req, res) => {
   const leagueId = intOrNull(req.params.id);
   const teamId = intOrNull(req.params.teamId);
   if (!leagueId || !teamId) {
@@ -146,7 +153,7 @@ router.put('/league/:id/teams/:teamId/faab', async (req, res) => {
 });
 
 // POST /api/commissioner/league/:id/force-transaction — { teamId, action: 'add'|'drop', playerId }
-router.post('/league/:id/force-transaction', async (req, res) => {
+router.post('/league/:id/force-transaction', fantasyOnly, async (req, res) => {
   const leagueId = intOrNull(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
   const { teamId, action, playerId } = req.body || {};

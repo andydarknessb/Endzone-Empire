@@ -12,9 +12,14 @@ const nflverseSync = require('../services/nflverseSync.service');
 const commissioner = require('../services/commissioner.service');
 const montecarlo = require('../services/montecarlo.service');
 const { isLeagueCommissioner, commissionerPredicate } = require('../services/leagueRole.service');
+const { requireFantasyLeague } = require('../services/leagueType');
 
 const router = express.Router();
 router.use(requireAuth);
+// A pick'em-only league has no matchups or fantasy scoring: every write under
+// /league/:id (matchups, score, correct-week, power-rankings, schedule,
+// advance-week) fails closed with 409 PICKEM_ONLY_LEAGUE; reads pass untouched.
+router.use('/league/:id', requireFantasyLeague());
 
 // The commissioner or one of their co-commissioners. Responds 403 and returns
 // false when the caller is neither, so callers can `if (!(await ...)) return;`.

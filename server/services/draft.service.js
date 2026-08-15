@@ -4,6 +4,7 @@ const { logTransaction } = require('./activity.service');
 const { teamForPick, nextOpenPickNumber } = require('./draftOrder.service');
 const { POSITION_GROUPS } = require('./lineup.service');
 const { isLeagueCommissioner } = require('./leagueRole.service');
+const { assertFantasyLeagueRow } = require('./leagueType');
 
 class DraftError extends Error {
   constructor(statusCode, message) {
@@ -93,6 +94,9 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommiss
     );
     const league = leagueResult.rows[0];
     if (!league) throw new DraftError(404, 'league not found');
+    // A pick'em-only league has no draft and no rosters; say so rather than
+    // "draft has not started" (its draft_status is 'pending' forever).
+    assertFantasyLeagueRow(league);
     if (league.draft_status === 'pending') {
       throw new DraftError(409, 'draft has not started for this league');
     }

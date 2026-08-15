@@ -40,6 +40,9 @@ roster-shaped.
   every existing membership gate, standings identity, digest and
   co-commissioner path works there unmodified.
 - Future features must keep treating a teams row as the membership fact, not
-  as evidence a roster exists. Roster-shaped reads against a pick'em-only
-  league's teams rows are bugs, and the guard layer (PR 2) is what blocks
-  them, not the schema.
+  as evidence a roster exists. Roster-shaped writes against a pick'em-only
+  league are bugs, and the server guard layer (PR 2) fails them closed, not
+  the schema; roster-shaped reads are left to pass unmodified (they may answer
+  with roster-shaped defaults, such as an all-zero standings table) so a stale
+  client sees data rather than an error banner, and the client gating (PR 4)
+  stops issuing them.
