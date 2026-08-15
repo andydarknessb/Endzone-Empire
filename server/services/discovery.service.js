@@ -38,8 +38,17 @@ function validateCreateOptions({
     return { error: `leagueType must be one of ${VALID_LEAGUE_TYPES.join(', ')}` };
   }
   const type = leagueType === undefined ? 'fantasy' : leagueType;
-  if (pickemMode !== undefined && pickemMode !== null && !PICKEM_MODES.includes(pickemMode)) {
-    return { error: `pickemMode must be one of: ${PICKEM_MODES.join(', ')}` };
+  if (pickemMode !== undefined && pickemMode !== null) {
+    if (!PICKEM_MODES.includes(pickemMode)) {
+      return { error: `pickemMode must be one of: ${PICKEM_MODES.join(', ')}` };
+    }
+    // Rejected rather than silently discarded, same as the fantasy-only
+    // fields below: accepting a mode that no pickem_settings row will ever
+    // record would tell the caller confidence pick'em is configured when
+    // pick'em is off entirely.
+    if (type === 'fantasy') {
+      return { error: 'pickemMode is not allowed when leagueType is fantasy' };
+    }
   }
   // A pick'em league has no draft, rosters or fantasy scoring, so the
   // fantasy-only fields are rejected outright rather than silently dropped:

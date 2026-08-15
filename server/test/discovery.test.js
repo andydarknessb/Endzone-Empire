@@ -133,6 +133,12 @@ test('validateCreateOptions: pickemMode is validated against the pick\'em modes'
   assert.match(validateCreateOptions({ pickemMode: 5 }).error, /pickemMode must be one of/);
 });
 
+test('validateCreateOptions: pickemMode is rejected, not dropped, when the type has no pick\'em side', () => {
+  assert.match(validateCreateOptions({ leagueType: 'fantasy', pickemMode: 'confidence' }).error, /pickemMode/);
+  assert.match(validateCreateOptions({ pickemMode: 'confidence' }).error, /pickemMode/); // absent type defaults to fantasy
+  assert.equal(validateCreateOptions({ leagueType: 'fantasy', pickemMode: null }).error, undefined); // null = absent
+});
+
 // ---------------------------------------------------------------------------
 // buildDiscoverQuery
 // ---------------------------------------------------------------------------

@@ -1440,7 +1440,14 @@ function buildPlayerSummary({
 async function syncPlayerSeasonStats({ currentSeason, positions } = {}) {
   let cutoff = Number(currentSeason);
   if (!Number.isInteger(cutoff)) {
-    const r = await pool.query(`SELECT MAX("current_season") AS s FROM "leagues"`);
+    // Pick'em-only leagues are excluded from the derived cutoff: their
+    // current_season is seeded from the NFL schedule at creation and can
+    // reach the next season before any fantasy league rolls over, which
+    // would widen "strictly before" into a season whose offense/K rollups
+    // are still Sleeper-sourced (the clobber the WARNING above forbids).
+    const r = await pool.query(
+      `SELECT MAX("current_season") AS s FROM "leagues" WHERE "pickem_only" = false`
+    );
     cutoff = r.rows[0] && r.rows[0].s != null ? Number(r.rows[0].s) : 2026;
   }
 
