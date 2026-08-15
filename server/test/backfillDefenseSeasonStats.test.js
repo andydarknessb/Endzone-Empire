@@ -144,6 +144,26 @@ test('syncPlayerSeasonStats scopes to the given positions and sums weekly points
   assert.equal(points, 44); // 22 + 22, NOT the 21 the aggregate would score
 });
 
+test('the derived season cutoff ignores pick\'em-only leagues', async (t) => {
+  const queries = [];
+  t.mock.method(pool, 'query', async (sql, params) => {
+    const text = String(sql);
+    queries.push({ text, params });
+    if (text.includes('MAX("current_season")')) return { rows: [{ s: 2026 }] };
+    return { rows: [] };
+  });
+
+  await syncPlayerSeasonStats({});
+  const cutoff = queries.find((q) => q.text.includes('MAX("current_season")'));
+  assert.ok(cutoff, 'expected a derived-cutoff query when no currentSeason is given');
+  // A pick'em-only league's current_season is seeded from the NFL schedule
+  // and can reach the next season before any fantasy league rolls over; it
+  // must never widen the backfill cutoff.
+  assert.match(cutoff.text, /"pickem_only" = false/);
+  const weekly = queries.find((q) => q.text.includes('FROM "player_stats"'));
+  assert.deepEqual(weekly.params, [2026]);
+});
+
 test('syncPlayerSeasonStats without positions stays unscoped (no players join)', async (t) => {
   const queries = [];
   t.mock.method(pool, 'query', async (sql, params) => {

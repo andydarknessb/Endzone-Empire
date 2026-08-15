@@ -11,18 +11,27 @@ apparatus that decides whether that engine is allowed to change.
 ### League and membership
 
 **League**:
-A private season-long competition a group of friends plays in. It owns its own
-scoring rules, roster shape, schedule and playoff structure.
+A private season-long competition a group of friends plays in. When its type
+includes fantasy football it owns its own scoring rules, roster shape, schedule
+and playoff structure; a pick'em league owns none of those.
 _Avoid_: pool, group, room
+
+**League type**:
+The create-time, immutable choice of what a league plays: fantasy football,
+NFL pick'em, or both. "Both" is a fantasy league with pick'em enabled from the
+start, not a third structure; a pick'em league can never grow a fantasy side.
+_Avoid_: league kind, mode, format
 
 **Manager**:
 A person playing in a league. The human, as opposed to the entity they control.
 _Avoid_: owner, member, user (one user account can manage teams in many leagues)
 
 **Team**:
-One manager's entry in one league: the roster they control and the entity that
-appears in standings, matchups and trophies. A manager in three leagues has
-three teams.
+One manager's entry and identity in one league: the entity that appears in
+standings, matchups and trophies. It controls a roster only in a fantasy
+league; in a pick'em league it is a name and an avatar, nothing more. Teams
+rows ARE league membership app-wide, so every league type creates one per
+manager. A manager in three leagues has three teams.
 _Avoid_: franchise, squad, roster (the roster is what a team holds, not the team)
 
 **Commissioner**:
@@ -33,7 +42,8 @@ _Avoid_: admin, owner, moderator
 **League phase**:
 Where a league sits in its lifecycle: pre-draft, drafting, in-season, playoffs,
 complete. Derived from the league's draft and season state, never a field of
-its own.
+its own. A pick'em-only league has no draft and needs its own derivation: it
+is never pre-draft or drafting, only in-season then complete.
 _Avoid_: status, stage, state
 
 **Best ball**:
@@ -192,9 +202,10 @@ Awarding is idempotent by design.
 A generated narrative summary of one league week.
 
 **Pick'em**:
-A side game in which every manager picks the winner of every NFL game on the
-week's slate. Independent of rosters and matchups; each pick locks at its own
-game's kickoff.
+The pick-the-winners game: every manager picks the winner of every NFL game on
+the week's slate. A side game in a fantasy league, or the whole game in a
+pick'em league. Independent of rosters and matchups; each pick locks at its
+own game's kickoff.
 
 ### The projection engine
 

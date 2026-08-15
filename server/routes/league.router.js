@@ -17,6 +17,7 @@ const {
   createSizeError,
   editSizeError,
 } = require('../services/leagueSize');
+const { REG_SEASON_WEEKS } = require('../services/pickem.service');
 const {
   commissionerPredicate,
   isLeagueCommissioner,
@@ -37,18 +38,24 @@ router.post('/', async (req, res) => {
   const {
     name, maxTeams, minTeams, teamName,
     isPublic, joinApproval, bestBall, scoringPreset, draftDate,
+    leagueType, pickemMode,
   } = req.body || {};
   if (!name || typeof name !== 'string') {
     return res.status(400).json({ error: 'league name is required' });
   }
-  const teams = maxTeams === undefined ? 10 : Number(maxTeams);
-  // Default the floor to a sensible 8, but never above the league's own cap.
-  const minimum = resolveMinTeams(minTeams, teams);
-  const sizeError = createSizeError({ minTeams: minimum, maxTeams: teams });
-  if (sizeError) return res.status(400).json({ error: sizeError });
-  const optionsResult = validateCreateOptions({ isPublic, joinApproval, bestBall, scoringPreset, draftDate });
+  // Format options first: the size checks below need to know whether this is
+  // a pick'em-only league, whose member cap is looser than the fantasy one.
+  const optionsResult = validateCreateOptions({
+    isPublic, joinApproval, bestBall, scoringPreset, draftDate, leagueType, pickemMode,
+  });
   if (optionsResult.error) return res.status(400).json({ error: optionsResult.error });
   const options = optionsResult.value;
+  const teams = maxTeams === undefined ? 10 : Number(maxTeams);
+  // Default the floor to a sensible 8 (2 for pick'em-only), but never above
+  // the league's own cap.
+  const minimum = resolveMinTeams(minTeams, teams, { pickemOnly: options.pickemOnly });
+  const sizeError = createSizeError({ minTeams: minimum, maxTeams: teams, pickemOnly: options.pickemOnly });
+  if (sizeError) return res.status(400).json({ error: sizeError });
 
   // roster_limit/roster_slots/bench_slots/ir_slots are left to their column
   // defaults here (a standard 9-starter/5-bench/1-IR roster, summing to the
@@ -61,22 +68,73 @@ router.post('/', async (req, res) => {
     const leagueResult = await client.query(
       `INSERT INTO "leagues" (
          "name", "owner_id", "invite_code", "max_teams", "min_teams",
-         "is_public", "join_approval", "best_ball", "scoring_preset", "scoring_rules", "draft_date"
+         "is_public", "join_approval", "best_ball", "scoring_preset", "scoring_rules", "draft_date",
+         "pickem_only"
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
       [
         name, req.user.id, inviteCode, teams, minimum,
         options.isPublic, options.joinApproval, options.bestBall,
         options.scoringPreset, options.scoringRules ? JSON.stringify(options.scoringRules) : null,
-        options.draftDate,
+        options.draftDate, options.pickemOnly,
       ]
     );
-    const league = leagueResult.rows[0];
+    let league = leagueResult.rows[0];
     await client.query(
       `INSERT INTO "teams" ("league_id", "owner_id", "name", "draft_position")
        VALUES ($1, $2, $3, 1)`,
       [league.id, req.user.id, teamName || `${req.user.username}'s Team`]
     );
+    if (options.pickemEnabled) {
+      // Direct insert on the SAME client, not pickem.putSettings: that helper
+      // opens its own pool connection and transaction, which would escape
+      // this rollback and could leave settings for a league that was never
+      // created.
+      await client.query(
+        `INSERT INTO "pickem_settings" ("league_id", "enabled", "mode")
+         VALUES ($1, true, $2)`,
+        [league.id, options.pickemMode]
+      );
+    }
+    if (options.pickemOnly) {
+      // A pick'em-only league follows the NFL calendar, not the commissioner
+      // advance-week action (which requires matchups and can never run here).
+      // Seed season/week from the schedule so a league created in NFL week 7
+      // starts at week 7, and one created in a later year does not inherit
+      // the stale current_season column default. Newest season on file, first
+      // week whose last kickoff is still open, with a 6h grace so a week in
+      // play still counts as open; every week closed means week 18; an empty
+      // schedule table keeps the column defaults. The pick'em season
+      // lifecycle job that advances these leagues week to week must derive
+      // weeks the same way, or a league's week would jump at its first tick.
+      const seedResult = await client.query(
+        `WITH "season_weeks" AS (
+           SELECT "season", "week", MAX("kickoff_at") AS "last_kickoff"
+             FROM "nfl_games"
+            WHERE "opponent" IS NOT NULL AND "kickoff_at" IS NOT NULL
+              AND "week" BETWEEN 1 AND $1
+            GROUP BY "season", "week"
+         )
+         SELECT "season",
+                COALESCE(
+                  MIN("week") FILTER (WHERE "last_kickoff" + interval '6 hours' > now()),
+                  $1
+                )::int AS "week"
+           FROM "season_weeks"
+          WHERE "season" = (SELECT MAX("season") FROM "season_weeks")
+          GROUP BY "season"`,
+        [REG_SEASON_WEEKS]
+      );
+      const seed = seedResult.rows[0];
+      if (seed) {
+        const seededResult = await client.query(
+          `UPDATE "leagues" SET "current_season" = $1, "current_week" = $2
+           WHERE "id" = $3 RETURNING *`,
+          [seed.season, seed.week, league.id]
+        );
+        league = seededResult.rows[0];
+      }
+    }
     await client.query('COMMIT');
     res.status(201).json(league);
   } catch (error) {
@@ -560,7 +618,7 @@ router.put('/:id', async (req, res) => {
       const statusResult = await db.query(
         `SELECT "draft_status", "draft_type", "min_teams", "max_teams", "draft_date",
                 "roster_slots", "bench_slots", "ir_slots", "position_caps", "roster_limit",
-                "keepers_enabled", "keeper_count",
+                "keepers_enabled", "keeper_count", "pickem_only",
                 (SELECT COUNT(*)::int FROM "teams" WHERE "teams"."league_id" = "leagues"."id") AS "team_count"
          FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)}${ownerLockedSettingsProvided ? ' FOR UPDATE' : ''}`,
         [leagueId, req.user.id]
@@ -589,6 +647,7 @@ router.put('/:id', async (req, res) => {
           currentMin: current.min_teams,
           currentMax: current.max_teams,
           teamCount: current.team_count,
+          pickemOnly: current.pickem_only,
         });
         if (sizeError) return await rejectUpdate(400, sizeError);
       }
