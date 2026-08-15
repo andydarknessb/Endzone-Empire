@@ -30,6 +30,7 @@ function LeagueCard({ league, isOwner = false, onDelete, compact = false }) {
         {league.team_count != null && (
           <Chip size="small" variant="outlined" label={`${league.team_count}/${league.max_teams || '-'} teams`} />
         )}
+        {league.pickem_only && <Chip size="small" color="secondary" label="Pick'em" />}
         {league.scoring_preset && (
           <Chip size="small" variant="outlined" label={league.scoring_preset.replace('_', ' ').toUpperCase()} />
         )}
@@ -61,8 +62,14 @@ function LeagueCard({ league, isOwner = false, onDelete, compact = false }) {
           </Stack>
           <CardActions sx={{ px: 2, pb: 2, pt: 0, flexWrap: 'wrap', gap: 1 }}>
             <Button component={Link} to={`/league/${league.id}`} variant="contained">Dashboard</Button>
-            <Button component={Link} to={`/league/${league.id}/draft`} variant="outlined">Draft Room</Button>
-            <Button component={Link} to={`/league/${league.id}/game-center`} variant="outlined">Game Center</Button>
+            {league.pickem_only ? (
+              <Button component={Link} to={`/league/${league.id}/pickem`} variant="outlined">Pick&apos;em</Button>
+            ) : (
+              <>
+                <Button component={Link} to={`/league/${league.id}/draft`} variant="outlined">Draft Room</Button>
+                <Button component={Link} to={`/league/${league.id}/game-center`} variant="outlined">Game Center</Button>
+              </>
+            )}
           </CardActions>
         </>
       )}

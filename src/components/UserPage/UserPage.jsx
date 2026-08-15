@@ -13,8 +13,12 @@ import SportsFootballIcon from '@mui/icons-material/SportsFootball';
 import apiClient from '../../api/apiClient';
 import Countdown from '../Countdown/Countdown';
 import LeagueCard from '../common/LeagueCard';
+import LeagueTypeFields from '../common/LeagueTypeFields';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import { deriveLeaguePhase, LEAGUE_PHASE } from '../../lib/leaguePhase';
+import {
+  LEAGUE_TYPE, MIN_TEAMS, capForType, includesFantasy, isPickemOnlyType, leagueTypePayload,
+} from '../../lib/leagueType';
 
 // Lazy: PublicHighlights imports the strategy-article registry (full JSX
 // bodies), which must not ride in the initial main bundle. See the note in
@@ -45,6 +49,14 @@ function nextUpFor(leagues, activityItems) {
     return { eyebrow: 'Next up', title: `Draft day for ${scheduled.name}`, action: 'Draft Room', to: `/league/${scheduled.id}/draft`, draftDate: scheduled.draft_date };
   }
 
+  // A pick'em-only league is in season from day one and has no lineup to set:
+  // its next step is always this week's picks.
+  const picking = leagues.find((league) => league.pickem_only && deriveLeaguePhase(league) === LEAGUE_PHASE.IN_SEASON);
+  if (picking) {
+    const week = picking.current_week ? `week ${picking.current_week} ` : '';
+    return { eyebrow: 'Action needed', title: `Make your ${week}picks for ${picking.name}.`, action: 'Make picks', to: `/league/${picking.id}/pickem` };
+  }
+
   const active = leagues.find((league) => [LEAGUE_PHASE.IN_SEASON, LEAGUE_PHASE.PLAYOFFS].includes(deriveLeaguePhase(league)));
   if (active) {
     const week = active.current_week ? `Week ${active.current_week} ` : '';
@@ -68,6 +80,11 @@ function UserPage() {
   const [leagueName, setLeagueName] = useState('');
   const [teamName, setTeamName] = useState('');
   const [numTeams, setNumTeams] = useState(2);
+
+  // League type is always sent; the pick'em mode only when the type includes
+  // pick'em (see leagueTypePayload).
+  const [leagueType, setLeagueType] = useState(LEAGUE_TYPE.FANTASY);
+  const [pickemMode, setPickemMode] = useState('straight');
 
   // New league-creation options — all optional, sent only when the user
   // actually sets them (see handleCreateLeague).
@@ -145,25 +162,42 @@ function UserPage() {
     setOpenCreateDialog(false);
   };
 
+  // Switching type re-caps the team count: a 30-manager pick'em pool cannot
+  // become a 30-team fantasy league.
+  const handleLeagueTypeChange = (nextType) => {
+    setLeagueType(nextType);
+    setNumTeams((current) => Math.min(Number(current) || MIN_TEAMS, capForType(nextType)));
+  };
+
+  // The fantasy Select can only hold 2..20, but the pick'em number field is
+  // free text and this dialog is not a <form>, so native min/max never run:
+  // gate Create on the count instead of letting the server 400 it.
+  const teamCount = Number(numTeams);
+  const teamCountValid =
+    Number.isInteger(teamCount) && teamCount >= MIN_TEAMS && teamCount <= capForType(leagueType);
+
   const handleCreateLeague = async () => {
     setError(null);
     try {
+      // maxTeams is always explicit: the server's default is the fantasy 10
+      // for every type, so a pick'em pool must never rely on it.
       const payload = {
         name: leagueName,
         teamName: teamName || undefined,
-        maxTeams: numTeams,
+        maxTeams: Number(numTeams),
+        ...leagueTypePayload({ leagueType, pickemMode, bestBall, scoringPreset, draftDate }),
       };
       if (isPublic) payload.isPublic = true;
       if (isPublic && joinApproval) payload.joinApproval = true;
-      if (bestBall) payload.bestBall = true;
-      if (scoringPreset) payload.scoringPreset = scoringPreset;
-      if (draftDate) payload.draftDate = new Date(draftDate).toISOString();
 
       await apiClient.post('/api/league', payload);
       setNotice('League created!');
       notify('League created!');
       setLeagueName('');
       setTeamName('');
+      setNumTeams(2);
+      setLeagueType(LEAGUE_TYPE.FANTASY);
+      setPickemMode('straight');
       setIsPublic(false);
       setJoinApproval(false);
       setBestBall(false);
@@ -457,6 +491,31 @@ function UserPage() {
           <DialogContent>
             <TextField className="dialogTextField" autoFocus margin="dense" label="League Name" fullWidth value={leagueName} onChange={(event) => setLeagueName(event.target.value)} />
             <TextField className="dialogTextField" margin="dense" label="Team Name" fullWidth value={teamName} onChange={(event) => setTeamName(event.target.value)} />
+
+            <LeagueTypeFields
+              leagueType={leagueType}
+              onLeagueTypeChange={handleLeagueTypeChange}
+              pickemMode={pickemMode}
+              onPickemModeChange={setPickemMode}
+            />
+
+            {isPickemOnlyType(leagueType) ? (
+              // A pick'em pool takes up to 50 managers; a 49-item Select is
+              // unusable, so the cap is entered as a number instead.
+              <TextField
+                className="dialogTextField"
+                margin="dense"
+                label="Teams"
+                type="number"
+                fullWidth
+                inputProps={{ min: MIN_TEAMS, max: capForType(leagueType) }}
+                error={!teamCountValid}
+                helperText={`${MIN_TEAMS} to ${capForType(leagueType)} managers`}
+                value={numTeams}
+                onChange={(event) => setNumTeams(event.target.value)}
+              />
+            ) : (
+              <>
             <InputLabel id="numTeams-label"></InputLabel>
             <div style={{display: 'flex', alignItems: 'center', marginTop: '1em'}}>
             <Typography variant="body1" style={{marginRight: '1em', color: 'var(--text-primary)', fontWeight: 'bold', fontSize: '1.2em'}}>Teams:</Typography>
@@ -471,6 +530,8 @@ function UserPage() {
               ))}
           </Select>
         </div>
+              </>
+            )}
 
             <FormControlLabel
               control={
@@ -493,6 +554,10 @@ function UserPage() {
                 label="Require commissioner approval to join"
               />
             )}
+            {/* Fantasy-only settings: a pick'em league has no lineups, scoring
+                rules or draft, and the server rejects these fields for it. */}
+            {includesFantasy(leagueType) && (
+              <>
             <FormControlLabel
               control={
                 <Switch
@@ -536,12 +601,14 @@ function UserPage() {
               value={draftDate}
               onChange={(event) => setDraftDate(event.target.value)}
             />
+              </>
+            )}
             </DialogContent>
             <DialogActions>
             <Button onClick={handleCloseCreateDialog} color="primary">
              Cancel
             </Button>
-            <Button onClick={handleCreateLeague} color="primary" disabled={!leagueName.trim()}>
+            <Button onClick={handleCreateLeague} color="primary" disabled={!leagueName.trim() || !teamCountValid}>
              Create
             </Button>
             </DialogActions>

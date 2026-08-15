@@ -9,6 +9,7 @@ import ScoringRulesView from './ScoringRulesView';
 import RosterRulesView from './RosterRulesView';
 import WaiverTradeRulesView from './WaiverTradeRulesView';
 import PlayoffRulesView from './PlayoffRulesView';
+import PickemRulesView from './PickemRulesView';
 
 const TAB_ITEMS = [
   ['scoring', 'Scoring'],
@@ -42,7 +43,14 @@ export default function LeagueRules() {
   const [defaultsError, setDefaultsError] = useState(null);
   const [defaultsReload, setDefaultsReload] = useState(0);
 
+  // The scoring defaults wait for the league row: a pick'em-only league has no
+  // scoring rules, so the request is skipped rather than made and ignored.
+  // (The dashboard primes the useLeague cache, so the row is normally already
+  // in hand when this page mounts and nothing is serialized.)
+  const pickemOnly = !!league?.pickem_only;
+  const leagueKnown = !!league;
   useEffect(() => {
+    if (!leagueKnown || pickemOnly) return undefined;
     let active = true;
     setDefaultsError(null);
     apiClient
@@ -50,7 +58,7 @@ export default function LeagueRules() {
       .then((res) => { if (active) setDefaults(res.data.defaults); })
       .catch((requestError) => { if (active) setDefaultsError(errorMessage(requestError)); });
     return () => { active = false; };
-  }, [defaultsReload]);
+  }, [defaultsReload, leagueKnown, pickemOnly]);
 
   if (loading && !league) {
     return (
@@ -74,8 +82,13 @@ export default function LeagueRules() {
   }
   if (!league) return null;
 
+  // A pick'em-only league has no scoring rules, roster, waivers or playoffs:
+  // its whole rulebook is one page. The route stays (the nav tile and any
+  // bookmark still resolve) but never shows an empty fantasy rulebook.
   let content;
-  if (tab === 'scoring') {
+  if (pickemOnly) {
+    content = <PickemRulesView league={league} />;
+  } else if (tab === 'scoring') {
     if (defaultsError) {
       content = (
         <Alert
@@ -112,21 +125,27 @@ export default function LeagueRules() {
         </Alert>
       )}
       <Paper sx={{ p: { xs: 1.5, sm: 2.5 } }}>
-        <Tabs
-          aria-label="League rules sections"
-          value={tab}
-          onChange={(event, value) => setTab(value)}
-          selectionFollowsFocus
-          variant="scrollable"
-          scrollButtons="auto"
-          allowScrollButtonsMobile
-          sx={{ borderBottom: '1px solid', borderColor: 'divider', mb: 3 }}
-        >
-          {TAB_ITEMS.map(([value, label]) => (
-            <Tab key={value} value={value} label={label} id={tabId(value)} aria-controls={panelId(value)} />
-          ))}
-        </Tabs>
-        <Box role="tabpanel" id={panelId(tab)} aria-labelledby={tabId(tab)}>{content}</Box>
+        {pickemOnly ? (
+          content
+        ) : (
+          <>
+            <Tabs
+              aria-label="League rules sections"
+              value={tab}
+              onChange={(event, value) => setTab(value)}
+              selectionFollowsFocus
+              variant="scrollable"
+              scrollButtons="auto"
+              allowScrollButtonsMobile
+              sx={{ borderBottom: '1px solid', borderColor: 'divider', mb: 3 }}
+            >
+              {TAB_ITEMS.map(([value, label]) => (
+                <Tab key={value} value={value} label={label} id={tabId(value)} aria-controls={panelId(value)} />
+              ))}
+            </Tabs>
+            <Box role="tabpanel" id={panelId(tab)} aria-labelledby={tabId(tab)}>{content}</Box>
+          </>
+        )}
       </Paper>
     </Container>
   );

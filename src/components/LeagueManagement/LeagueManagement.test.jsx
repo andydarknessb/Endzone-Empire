@@ -97,6 +97,7 @@ test('creating a league posts the form data and shows the returned invite code',
       name: 'Monday Mayhem',
       maxTeams: 10,
       minTeams: 8,
+      leagueType: 'fantasy',
     })
   );
   expect(await screen.findByText(/Invite code: abc123/)).toBeInTheDocument();
@@ -159,6 +160,7 @@ test('creating a league only sends the new optional fields the user actually set
       name: 'Plain League',
       maxTeams: 10,
       minTeams: 8,
+      leagueType: 'fantasy',
     })
   );
 });
@@ -186,6 +188,7 @@ test('creating a public, approval-required, best-ball, PPR league with a draft d
       name: 'Full Featured League',
       maxTeams: 10,
       minTeams: 8,
+      leagueType: 'fantasy',
       isPublic: true,
       joinApproval: true,
       bestBall: true,
@@ -256,4 +259,107 @@ test('renders Dashboard/Draft Room/Matchups links pointing at the correct league
   expect(screen.getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/league/42');
   expect(screen.getByRole('link', { name: 'Draft Room' })).toHaveAttribute('href', '/league/42/draft');
   expect(screen.getByRole('link', { name: 'Game Center' })).toHaveAttribute('href', '/league/42/game-center');
+});
+
+// --- League type at creation ---
+
+test("creating an NFL pick'em league hides the fantasy fields and sends leagueType, pickemMode and an explicit maxTeams only", async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+  apiClient.post.mockResolvedValue({ data: { invite_code: 'pool99' } });
+
+  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+  await screen.findByText(/you aren't in any leagues yet/i);
+  await openNewLeague();
+
+  expect(screen.getByRole('radio', { name: /Fantasy football league/ })).toBeChecked();
+  await userEvent.type(screen.getByLabelText(/League name/), 'Office Pool');
+  // Fantasy-only state set BEFORE the switch must not leak into the payload.
+  await userEvent.type(screen.getByLabelText('Draft date'), '2026-09-04T13:00');
+  await userEvent.click(screen.getByRole('radio', { name: /NFL pick'em league/ }));
+
+  expect(screen.queryByLabelText('Scoring')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('Draft date')).not.toBeInTheDocument();
+  expect(screen.getByRole('radio', { name: /Straight up/ })).toBeChecked();
+
+  await userEvent.click(screen.getByRole('button', { name: /advanced settings/i }));
+  expect(screen.queryByLabelText(/Min teams/)).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('Best ball mode')).not.toBeInTheDocument();
+  const maxTeams = screen.getByLabelText('Max teams');
+  expect(maxTeams).toHaveAttribute('max', '50');
+  await userEvent.clear(maxTeams);
+  await userEvent.type(maxTeams, '40');
+
+  await userEvent.click(screen.getByRole('button', { name: 'Create League' }));
+
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/league', {
+      name: 'Office Pool',
+      maxTeams: 40,
+      leagueType: 'pickem',
+      pickemMode: 'straight',
+    })
+  );
+  expect(await screen.findByText(/Invite code: pool99/)).toBeInTheDocument();
+});
+
+test("choosing Both keeps the fantasy fields, caps teams at 20, and sends the chosen confidence mode", async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+  apiClient.post.mockResolvedValue({ data: { invite_code: 'abc123' } });
+
+  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+  await screen.findByText(/you aren't in any leagues yet/i);
+  await openNewLeague();
+
+  await userEvent.type(screen.getByLabelText(/League name/), 'Everything League');
+  await userEvent.click(screen.getByRole('radio', { name: /^Both/ }));
+  await userEvent.click(screen.getByRole('radio', { name: /Confidence/ }));
+  expect(screen.getByLabelText('Scoring')).toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: /advanced settings/i }));
+  expect(screen.getByLabelText(/Min teams/)).toBeInTheDocument();
+  expect(screen.getByLabelText('Max teams')).toHaveAttribute('max', '20');
+  await userEvent.click(screen.getByLabelText('Best ball mode'));
+
+  await userEvent.click(screen.getByRole('button', { name: 'Create League' }));
+
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/league', {
+      name: 'Everything League',
+      maxTeams: 10,
+      minTeams: 8,
+      leagueType: 'both',
+      pickemMode: 'confidence',
+      bestBall: true,
+    })
+  );
+});
+
+test("switching back from pick'em keeps min teams inside the re-capped max", async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+  apiClient.post.mockResolvedValue({ data: { invite_code: 'abc123' } });
+
+  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+  await screen.findByText(/you aren't in any leagues yet/i);
+  await openNewLeague();
+
+  await userEvent.type(screen.getByLabelText(/League name/), 'Small League');
+  await userEvent.click(screen.getByRole('radio', { name: /NFL pick'em league/ }));
+  await userEvent.click(screen.getByRole('button', { name: /advanced settings/i }));
+  const maxTeams = screen.getByLabelText('Max teams');
+  await userEvent.clear(maxTeams);
+  await userEvent.type(maxTeams, '3');
+  // Min teams was hidden while the type was pick'em; the switch back must not
+  // leave the (still hidden until now) default of 8 above the max of 3.
+  await userEvent.click(screen.getByRole('radio', { name: /^Both/ }));
+  expect(screen.getByLabelText(/Min teams/)).toHaveValue(3);
+  await userEvent.click(screen.getByRole('button', { name: 'Create League' }));
+
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/league', {
+      name: 'Small League',
+      maxTeams: 3,
+      minTeams: 3,
+      leagueType: 'both',
+      pickemMode: 'straight',
+    })
+  );
 });

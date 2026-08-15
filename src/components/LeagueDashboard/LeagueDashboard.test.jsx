@@ -6,6 +6,8 @@ import apiClient from '../../api/apiClient';
 import { createDraftSocket } from '../../api/socket';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 import LeagueDashboard from './LeagueDashboard';
+import FantasyOnly from '../common/FantasyOnly';
+import { clearLeagueCache } from '../../hooks/useLeague';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
@@ -884,4 +886,121 @@ test('Start New Season appears only when the season is complete and POSTs the ro
     expect(apiClient.post).toHaveBeenCalledWith('/api/commissioner/league/1/rollover', {})
   );
   expect(await screen.findByText('New season started!')).toBeInTheDocument();
+});
+
+// --- Pick'em-only leagues ---
+
+const pickemLeagueResponse = (overrides = {}) =>
+  leagueResponse({
+    pickem_only: true,
+    draft_status: 'pending',
+    season_status: 'regular',
+    current_week: 6,
+    current_season: 2026,
+    max_teams: 50,
+    ...overrides,
+  });
+
+const pickemStandingsResponse = () => ({
+  data: {
+    season: 2026,
+    mode: 'straight',
+    standings: [
+      { userId: 1, username: 'alice', teamName: "Alice's Team", rank: 1, points: 41, correct: 41, incorrect: 12, pushes: 0, pending: 0, weekly: {} },
+    ],
+  },
+});
+
+test("a pick'em-only league renders no fantasy tiles, offers Make your picks, and never requests fantasy standings", async () => {
+  mockGetByUrl({
+    '/api/league/1': pickemLeagueResponse(),
+    '/api/user': userResponse(),
+    '/api/pickem/league/1/standings?season=2026': pickemStandingsResponse(),
+  });
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  // Nav trim: only the surfaces a pick'em league actually has.
+  expect(screen.queryByRole('link', { name: 'Draft Room' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'Set Lineup' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'Game Center' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'Waivers' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'Trades' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'Power Rankings' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'Draft Settings' })).not.toBeInTheDocument();
+  expect(screen.queryByText('Moves')).not.toBeInTheDocument(); // an emptied group is skipped
+  expect(screen.getByRole('link', { name: "Pick'em" })).toHaveAttribute('href', '/league/1/pickem');
+  expect(within(screen.getByRole('link', { name: "Pick'em" })).getByText('Recommended')).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Activity' })).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'History' })).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'League Rules' })).toBeInTheDocument();
+
+  // Pick'em-first body: the CTA above the self-fetching pick'em standings.
+  expect(screen.getByRole('link', { name: 'Make your picks' })).toHaveAttribute('href', '/league/1/pickem');
+  expect(await screen.findByText('one point per correct pick', { exact: false })).toBeInTheDocument();
+  expect(screen.queryByText('W-L-T')).not.toBeInTheDocument();
+  expect(apiClient.get).not.toHaveBeenCalledWith('/api/scoring/league/1/standings');
+  expect(apiClient.get).not.toHaveBeenCalledWith(expect.stringMatching(/\/(recap|draft-grades)$/));
+});
+
+test("a pick'em-only league's chips describe the pool, not a draft", async () => {
+  mockGetByUrl({
+    '/api/league/1': pickemLeagueResponse(),
+    '/api/user': userResponse(),
+    '/api/pickem/league/1/standings?season=2026': pickemStandingsResponse(),
+  });
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  expect(screen.getByText('Teams: 1/50')).toBeInTheDocument();
+  expect(screen.getByText("Pick'em", { selector: '.MuiChip-label' })).toBeInTheDocument();
+  expect(screen.getByText('Week 6')).toBeInTheDocument();
+  // No playoffs in a pick'em league, so 'regular' reads as plain in-season.
+  expect(screen.getByText('In season')).toBeInTheDocument();
+  expect(screen.queryByText('Regular Season')).not.toBeInTheDocument();
+  expect(screen.queryByText('pending')).not.toBeInTheDocument();
+  expect(screen.queryByText(/Roster Limit/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Min to start/)).not.toBeInTheDocument();
+});
+
+test("a pick'em-only commissioner sees neither Start Draft nor Advance Week, and the season flips to complete on its own", async () => {
+  mockGetByUrl({
+    '/api/league/1': pickemLeagueResponse({ season_status: 'complete', min_teams: 2 }),
+    '/api/user': userResponse(),
+    '/api/pickem/league/1/standings?season=2026': pickemStandingsResponse(),
+  });
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  expect(screen.queryByRole('button', { name: 'Start Draft' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Advance Week' })).not.toBeInTheDocument();
+  expect(screen.getByText('Season Complete')).toBeInTheDocument();
+  // The CTA stops asking for picks once the season is over.
+  expect(screen.getByRole('link', { name: 'View picks' })).toHaveAttribute('href', '/league/1/pickem');
+  expect(screen.queryByRole('link', { name: 'Make your picks' })).not.toBeInTheDocument();
+});
+
+// --- useLeague cache priming ---
+
+test('the dashboard primes the shared league cache, so a fantasy page reached from it needs no second league request', async () => {
+  clearLeagueCache();
+  mockGetByUrl({
+    '/api/league/1': leagueResponse(),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
+  const { unmount } = renderDashboard();
+  await screen.findByText('Sunday Ballers');
+  unmount();
+
+  apiClient.get.mockClear();
+  renderWithProviders(
+    <FantasyOnly>
+      <div>Draft Room body</div>
+    </FantasyOnly>,
+    { path: '/league/:leagueId/draft', route: '/league/1/draft' }
+  );
+  expect(screen.getByText('Draft Room body')).toBeInTheDocument();
+  expect(apiClient.get).not.toHaveBeenCalledWith('/api/league/1');
+  clearLeagueCache();
 });

@@ -1,6 +1,6 @@
 import { renderHook, act, waitFor } from '@testing-library/react';
 import apiClient from '../api/apiClient';
-import { useLeague, clearLeagueCache } from './useLeague';
+import { useLeague, clearLeagueCache, primeLeagueCache } from './useLeague';
 
 jest.mock('../api/apiClient', () => ({
   __esModule: true,
@@ -144,4 +144,24 @@ test('surfaces the server error message and clears loading on a failed fetch', a
   await waitFor(() => expect(result.current.loading).toBe(false));
   expect(result.current.error).toBe('league not found');
   expect(result.current.league).toBeNull();
+});
+
+test('primeLeagueCache(leagueId, league) lets a later mount skip the request entirely', () => {
+  primeLeagueCache(7, { id: 7, name: 'Office Pool', pickem_only: true });
+
+  const { result } = renderHook(() => useLeague(7));
+
+  expect(result.current.loading).toBe(false);
+  expect(result.current.league).toEqual({ id: 7, name: 'Office Pool', pickem_only: true });
+  expect(apiClient.get).not.toHaveBeenCalled();
+});
+
+test('primeLeagueCache ignores an empty row so a bad prime cannot poison the cache', async () => {
+  primeLeagueCache(7, null);
+  apiClient.get.mockResolvedValue(leagueResponse({ id: 7 }));
+
+  const { result } = renderHook(() => useLeague(7));
+  await waitFor(() => expect(result.current.loading).toBe(false));
+
+  expect(apiClient.get).toHaveBeenCalledWith('/api/league/7');
 });

@@ -216,6 +216,7 @@ export default function LeaguePickem() {
             saving={savingSettings}
             error={settingsSaveError}
             onSave={handleSaveSettings}
+            lockedOn={Boolean(league && league.pickem_only)}
           />
         ) : (
           <Paper sx={{ p: 3 }}>
@@ -274,6 +275,7 @@ export default function LeaguePickem() {
               error={settingsSaveError}
               onSave={handleSaveSettings}
               embedded
+              lockedOn={Boolean(league && league.pickem_only)}
             />
           </AccordionDetails>
         </Accordion>

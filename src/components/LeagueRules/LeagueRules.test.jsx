@@ -184,3 +184,37 @@ describe('LeagueRules', () => {
     await waitFor(() => expect(screen.getByText('8 total roster spots')).toBeInTheDocument());
   });
 });
+
+// --- Pick'em-only leagues ---
+
+test("a pick'em-only league renders the pick'em rulebook instead of the four fantasy tabs", async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/scoring/rules') {
+      return Promise.resolve({ data: { defaults: SCORING_DEFAULTS, presets: {} } });
+    }
+    if (url === '/api/pickem/league/7/settings') {
+      return Promise.resolve({ data: { enabled: true, mode: 'confidence', isCommissioner: false } });
+    }
+    if (url.startsWith('/api/league/')) {
+      return Promise.resolve({ data: { league: league({ pickem_only: true, name: 'Office Pool' }), teams: [] } });
+    }
+    return Promise.resolve({ data: {} });
+  });
+  clearLeagueCache();
+  renderPage();
+
+  expect(await screen.findByRole('heading', { name: 'League Rules' })).toBeInTheDocument();
+  expect(screen.queryByRole('tab', { name: 'Scoring' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('tab', { name: 'Roster' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('tab', { name: 'Waivers & Trades' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('tab', { name: 'Playoffs & Season' })).not.toBeInTheDocument();
+
+  // The mode in force comes from the league's pick'em settings.
+  expect(await screen.findByText(/Confidence: rank every game/)).toBeInTheDocument();
+  expect(screen.getByText(/lock at kickoff/i)).toBeInTheDocument();
+  expect(screen.getByText(/tied game credits nobody/i)).toBeInTheDocument();
+  expect(screen.getByText(/cumulative/i)).toBeInTheDocument();
+  expect(screen.getByText(/most correct picks/i)).toBeInTheDocument();
+  // A pick'em league has no scoring rules to fetch defaults for.
+  expect(apiClient.get).not.toHaveBeenCalledWith('/api/scoring/rules');
+});

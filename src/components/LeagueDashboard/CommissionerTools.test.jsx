@@ -724,3 +724,50 @@ test('an already-promoted member drops out of the candidate list', () => {
 
   expect(screen.getByRole('combobox', { name: 'Add a co-commissioner' })).toHaveAttribute('aria-disabled', 'true');
 });
+
+// --- Pick'em-only leagues ---
+
+const pickemLeague = (overrides = {}) =>
+  league({ pickem_only: true, draft_status: 'pending', season_status: 'regular', min_teams: 2, max_teams: 50, ...overrides });
+
+test("a pick'em-only league gets only General Settings and a Season tab, with no fantasy controls", () => {
+  renderTools({ league: pickemLeague(), standingsLeague: null });
+
+  expect(screen.getByRole('tab', { name: 'General Settings' })).toHaveAttribute('aria-selected', 'true');
+  expect(screen.getByRole('tab', { name: 'Season' })).toBeInTheDocument();
+  for (const name of ['Roster Settings', 'Scoring Settings', 'Playoffs & Schedule', 'Waivers & Trades', 'System Overrides']) {
+    expect(screen.queryByRole('tab', { name })).not.toBeInTheDocument();
+  }
+  // Transactions (adds, drops, waivers, trades) do not exist here.
+  expect(screen.queryByRole('checkbox', { name: 'Lock Transactions' })).not.toBeInTheDocument();
+  // Membership stays editable all season, up to the pick'em cap.
+  expect(screen.getByText('Team limits')).toBeInTheDocument();
+  expect(screen.getByLabelText('Max teams')).toHaveAttribute('max', '50');
+  expect(screen.getByLabelText('Min teams')).toHaveAttribute('max', '50');
+  expect(screen.getByText('Remove a team')).toBeInTheDocument();
+});
+
+test("the pick'em Season tab explains the automatic season and offers rollover only once it is complete", async () => {
+  const { unmount } = renderTools({ league: pickemLeague(), standingsLeague: null });
+  await userEvent.click(screen.getByRole('tab', { name: 'Season' }));
+  expect(screen.getByText(/weeks follow the NFL calendar/i)).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Start New Season' })).not.toBeInTheDocument();
+  unmount();
+
+  const onRefresh = jest.fn();
+  apiClient.post.mockResolvedValue({ data: {} });
+  renderTools({ league: pickemLeague({ season_status: 'complete' }), standingsLeague: null, onRefresh });
+  await userEvent.click(screen.getByRole('tab', { name: 'Season' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Start New Season' }));
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/commissioner/league/1/rollover', {})
+  );
+  expect(await screen.findByText('New season started!')).toBeInTheDocument();
+  expect(onRefresh).toHaveBeenCalled();
+});
+
+test('a fantasy league keeps the General Settings rollover and shows no Season tab', () => {
+  renderTools({ standingsLeague: { season_status: 'complete', current_week: 17 } });
+  expect(screen.queryByRole('tab', { name: 'Season' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Start New Season' })).toBeInTheDocument();
+});

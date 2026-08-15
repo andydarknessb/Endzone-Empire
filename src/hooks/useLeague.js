@@ -30,6 +30,17 @@ function isFresh(entry) {
   return !!(entry && entry.fetchedAt != null && Date.now() - entry.fetchedAt < CACHE_TTL_MS);
 }
 
+/**
+ * Seeds the shared cache with a league row already in hand (the dashboard
+ * fetches GET /api/league/:id itself), so the subpages reached from it, and
+ * the FantasyOnly route guard in front of them, mount without a second
+ * request. An empty row is ignored rather than cached.
+ */
+export function primeLeagueCache(leagueId, league) {
+  if (leagueId == null || !league) return;
+  cache.set(keyFor(leagueId), { data: league, promise: null, fetchedAt: Date.now() });
+}
+
 /** Clears the shared league cache for one league, or every league when called with no id. */
 export function clearLeagueCache(leagueId) {
   if (leagueId == null) {

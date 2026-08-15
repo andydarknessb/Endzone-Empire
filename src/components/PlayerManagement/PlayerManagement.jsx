@@ -93,8 +93,11 @@ function PlayerManagement() {
     (async () => {
       try {
         const response = await apiClient.get('/api/league');
-        setLeagues(response.data);
-        if (response.data.length > 0) setSelectedLeague(response.data[0].id);
+        // A pick'em-only league has no roster to add players to, so it never
+        // appears in this selector.
+        const rosterLeagues = response.data.filter((league) => !league.pickem_only);
+        setLeagues(rosterLeagues);
+        if (rosterLeagues.length > 0) setSelectedLeague(rosterLeagues[0].id);
       } catch (err) {
         report(err);
       }

@@ -206,3 +206,23 @@ test('buildDiscoverQuery: userId is always the first param (used for alreadyMemb
   const { params } = buildDiscoverQuery({ userId: 99, search: 'x', scoring: 'ppr', openSlots: true, sort: 'open_slots' });
   assert.equal(params[0], 99);
 });
+
+// ---------------------------------------------------------------------------
+// discoverLeagues
+// ---------------------------------------------------------------------------
+
+test("discoverLeagues: projects the league type so Discover can label a pick'em-only league", async (t) => {
+  const pool = require('../modules/pool');
+  const { discoverLeagues } = require('../services/discovery.service');
+  let sql;
+  t.mock.method(pool, 'query', async (text) => {
+    sql = text;
+    return { rows: [{ id: 5, name: 'Office Pool', maxTeams: 50, teamCount: 3, pickemOnly: true }] };
+  });
+
+  const rows = await discoverLeagues({ userId: 1 });
+
+  assert.match(sql, /"leagues"\."pickem_only" AS "pickemOnly"/);
+  assert.equal(rows[0].pickemOnly, true);
+  assert.equal(rows[0].openSlots, true);
+});
