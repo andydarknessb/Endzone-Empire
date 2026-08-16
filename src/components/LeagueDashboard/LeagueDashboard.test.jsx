@@ -138,6 +138,7 @@ const mockGetByUrl = (overrides = {}) => {
 
 afterEach(() => {
   jest.clearAllMocks();
+  clearPickemStandingsCache();
 });
 
 test('shows a layout-shaped skeleton before data arrives', () => {

@@ -4,6 +4,7 @@ import apiClient, {
   clearToken,
 } from '../../api/apiClient';
 import { clearLeagueCache } from '../../hooks/useLeague';
+import { clearPickemStandingsCache } from '../../hooks/usePickemStandings';
 
 // worker Saga: fired on "LOGIN" actions
 export function* loginUser(action) {
@@ -11,8 +12,10 @@ export function* loginUser(action) {
     yield put({ type: 'CLEAR_LOGIN_ERROR' });
 
     // The shared in-memory league cache holds viewer-scoped rows
-    // (is_commissioner, invite_code): a session change must drop it too.
+    // (is_commissioner, invite_code): a session change must drop it too,
+    // along with every other module-level cache the app keeps.
     clearLeagueCache();
+    clearPickemStandingsCache();
 
     const response = yield apiClient.post('/api/auth/login', action.payload);
 
@@ -42,6 +45,7 @@ export function* loginUser(action) {
 export function* logoutUser() {
   clearToken();
   clearLeagueCache();
+  clearPickemStandingsCache();
   // Drop offline-cached league data so a different user on this device
   // can't see the previous account's cached responses.
   if (typeof caches !== 'undefined') {

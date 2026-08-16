@@ -89,6 +89,7 @@ export function useLeague(leagueId) {
     const entry = cache.get(key);
     if (isFresh(entry)) {
       setLeague(entry.data);
+      setError(null);
       setLoading(false);
       return;
     }

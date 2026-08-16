@@ -18,13 +18,17 @@ const cache = new Map();
 // started under is still current. The mount that asked still gets its answer.
 const generations = new Map();
 const generationOf = (key) => generations.get(key) || 0;
+// Mounted hooks, so an invalidation reaches a table that is on screen (the
+// Standings tab while the commissioner changes the mode above it) instead of
+// only the next mount.
+const listeners = new Set();
 
 function keyFor(leagueId, season) {
   return `${leagueId}|${season == null ? '' : season}`;
 }
 
 function urlFor(leagueId, season) {
-  return `/api/pickem/league/${leagueId}/standings${season ? `?season=${season}` : ''}`;
+  return `/api/pickem/league/${leagueId}/standings${season == null ? '' : `?season=${season}`}`;
 }
 
 function fetchStandings(key, leagueId, season) {
@@ -49,19 +53,21 @@ function isFresh(entry) {
  * called with no id. A picks save calls this so the Standings tab reflects
  * the new picks immediately instead of after the TTL.
  */
+function drop(key) {
+  cache.delete(key);
+  generations.set(key, generationOf(key) + 1);
+}
+
 export function clearPickemStandingsCache(leagueId) {
-  const drop = (key) => {
-    cache.delete(key);
-    generations.set(key, generationOf(key) + 1);
-  };
   if (leagueId == null) {
     for (const key of Array.from(cache.keys())) drop(key);
-    return;
+  } else {
+    const prefix = `${leagueId}|`;
+    for (const key of Array.from(cache.keys())) {
+      if (key.startsWith(prefix)) drop(key);
+    }
   }
-  const prefix = `${leagueId}|`;
-  for (const key of Array.from(cache.keys())) {
-    if (key.startsWith(prefix)) drop(key);
-  }
+  listeners.forEach((listener) => listener(leagueId));
 }
 
 /**
@@ -78,19 +84,31 @@ export function usePickemStandings(leagueId, season) {
   const [error, setError] = useState(null);
   const keyRef = useRef(key);
   keyRef.current = key;
+  // Each load supersedes the one before it: a slower, older response (e.g. the
+  // fetch that was in flight when a save invalidated the cache) must not land
+  // over the newer one in this mount's state.
+  const requestSeq = useRef(0);
 
   const load = useCallback(() => {
     if (key == null) return Promise.resolve();
     const requestKey = key;
-    const stillCurrent = () => keyRef.current === requestKey;
+    const seq = requestSeq.current + 1;
+    requestSeq.current = seq;
+    const stillCurrent = () => keyRef.current === requestKey && requestSeq.current === seq;
     setLoading(true);
     setError(null);
     const existing = cache.get(key);
     const promise = existing?.promise || fetchStandings(key, leagueId, season);
+    // data/error and loading settle in the same tick so a consumer sees one
+    // render per outcome, not a trailing loading flip.
     return promise
-      .then((next) => { if (stillCurrent()) setData(next); })
-      .catch((err) => { if (stillCurrent()) setError(err.response?.data?.error || err.message || 'Request failed'); })
-      .finally(() => { if (stillCurrent()) setLoading(false); });
+      .then((next) => { if (stillCurrent()) { setData(next); setLoading(false); } })
+      .catch((err) => {
+        if (stillCurrent()) {
+          setError(err?.response?.data?.error || err?.message || 'Request failed');
+          setLoading(false);
+        }
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
@@ -99,6 +117,7 @@ export function usePickemStandings(leagueId, season) {
     const entry = cache.get(key);
     if (isFresh(entry)) {
       setData(entry.data);
+      setError(null);
       setLoading(false);
       return;
     }
@@ -108,9 +127,20 @@ export function usePickemStandings(leagueId, season) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
+  // Reload (keeping the current table on screen) when this league's entries
+  // are invalidated while mounted.
+  useEffect(() => {
+    if (key == null) return undefined;
+    const listener = (clearedLeagueId) => {
+      if (clearedLeagueId == null || String(clearedLeagueId) === String(leagueId)) load();
+    };
+    listeners.add(listener);
+    return () => { listeners.delete(listener); };
+  }, [key, leagueId, load]);
+
   const refetch = useCallback(() => {
     if (key == null) return Promise.resolve();
-    cache.delete(key);
+    drop(key);
     return load();
   }, [key, load]);
 

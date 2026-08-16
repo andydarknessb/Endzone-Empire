@@ -405,3 +405,38 @@ test('saving picks invalidates the cached standings so the Standings tab reflect
   await screen.findByRole('table');
   await waitFor(() => expect(standingsCalls()).toHaveLength(2));
 });
+
+test('a deep link straight to the Standings tab requests once, with the league season, before the week view resolves', async () => {
+  let resolveWeek;
+  apiClient.get.mockImplementation((url) => {
+    if (url.startsWith(`/api/pickem/league/${LEAGUE_ID}/settings`)) return Promise.resolve({ data: { enabled: true, mode: 'straight', isCommissioner: false } });
+    if (url.startsWith(`/api/pickem/league/${LEAGUE_ID}/week/`)) return new Promise((resolve) => { resolveWeek = resolve; });
+    if (url.startsWith(`/api/pickem/league/${LEAGUE_ID}/standings`)) return Promise.resolve({ data: { season: 2026, mode: 'straight', standings: [] } });
+    if (url.startsWith('/api/league/')) return Promise.resolve({ data: { league: league(), teams: [] } });
+    return Promise.reject(new Error(`unexpected GET ${url}`));
+  });
+  renderWithProviders(<LeaguePickem />, { route: `/league/${LEAGUE_ID}/pickem?tab=standings`, path: '/league/:leagueId/pickem' });
+
+  await screen.findByText(/2026 season/);
+  expect(standingsCalls()).toEqual([`/api/pickem/league/${LEAGUE_ID}/standings?season=2026`]);
+  expect(typeof resolveWeek).toBe('function'); // the week view was still pending; no season-less first pass happened
+});
+
+test("a scoring-mode change invalidates the cached standings (the caption names the mode)", async () => {
+  const user = userEvent.setup();
+  mockRequests({ settings: { enabled: true, mode: 'straight', isCommissioner: true } });
+  apiClient.put.mockResolvedValue({ data: { enabled: true, mode: 'confidence', isCommissioner: true } });
+  renderPage();
+
+  await screen.findByRole('button', { name: 'BUF' });
+  await user.click(screen.getByRole('tab', { name: 'Standings' }));
+  await screen.findByRole('table');
+  expect(standingsCalls()).toHaveLength(1);
+
+  await user.click(screen.getByRole('button', { name: /Commissioner settings/i }));
+  await user.click(await screen.findByRole('radio', { name: /Confidence/ }));
+  await user.click(screen.getByRole('button', { name: /Save scoring mode/i }));
+  await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
+
+  await waitFor(() => expect(standingsCalls()).toHaveLength(2));
+});

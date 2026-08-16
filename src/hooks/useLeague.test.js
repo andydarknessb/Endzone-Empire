@@ -198,3 +198,15 @@ test('a response for a league the hook has already left never lands as the curre
   expect(result.current.league?.id).toBe(1);
   expect(result.current.loading).toBe(false);
 });
+
+test('a stale error from one league does not survive a switch to a fresh cached league', async () => {
+  primeLeagueCache(2, { id: 2, name: 'Cached League' });
+  apiClient.get.mockRejectedValue({ response: { data: { error: 'league unavailable' } } });
+  const { result, rerender } = renderHook(({ id }) => useLeague(id), { initialProps: { id: 1 } });
+  await waitFor(() => expect(result.current.error).toBe('league unavailable'));
+
+  rerender({ id: 2 });
+
+  expect(result.current.error).toBeNull();
+  expect(result.current.league).toEqual({ id: 2, name: 'Cached League' });
+});

@@ -16,6 +16,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  jest.restoreAllMocks(); // the TTL test spies on Date.now; never let a failure there leak it
   jest.clearAllMocks();
 });
 
@@ -151,20 +152,69 @@ test('switching leagues stops serving the previous league while the new one load
   expect(result.current.loading).toBe(true);
 });
 
-test('a response that was in flight when the cache was cleared does not repopulate it (a save mid-fetch stays fresh)', async () => {
+test('a response that was in flight when the cache was cleared neither repopulates it nor lands over the newer one', async () => {
   let resolveFirst;
-  apiClient.get.mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve; }));
+  let resolveSecond;
+  apiClient.get
+    .mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve; }))
+    .mockReturnValueOnce(new Promise((resolve) => { resolveSecond = resolve; }));
   const { result, unmount } = renderHook(() => usePickemStandings(7, 2026));
   expect(apiClient.get).toHaveBeenCalledTimes(1);
 
-  clearPickemStandingsCache(7); // e.g. savePicks resolved while the standings request was still out
+  // e.g. savePicks resolved while the first standings request was still out:
+  // the mounted hook reloads (request 2) and the pre-save response must lose.
+  act(() => { clearPickemStandingsCache(7); });
+  expect(apiClient.get).toHaveBeenCalledTimes(2);
+  await act(async () => { resolveSecond(standingsResponse({ standings: [{ userId: 1, username: 'alice', points: 4 }] })); });
+  expect(result.current.data.standings[0].points).toBe(4);
   await act(async () => { resolveFirst(standingsResponse({ standings: [{ userId: 1, username: 'alice', points: 3 }] })); });
-  expect(result.current.data.standings[0].points).toBe(3); // the mount that asked still gets its answer
+  expect(result.current.data.standings[0].points).toBe(4); // the older response did not land
   unmount();
 
-  apiClient.get.mockResolvedValue(standingsResponse({ standings: [{ userId: 1, username: 'alice', points: 4 }] }));
   const { result: nextResult } = renderHook(() => usePickemStandings(7, 2026));
-  await waitFor(() => expect(nextResult.current.loading).toBe(false));
-  expect(apiClient.get).toHaveBeenCalledTimes(2); // the pre-clear response was not cached as fresh
+  expect(nextResult.current.loading).toBe(false); // the cache holds the post-clear response, fresh
   expect(nextResult.current.data.standings[0].points).toBe(4);
+  expect(apiClient.get).toHaveBeenCalledTimes(2);
+});
+
+test('a stale error from one entry does not survive a switch to a fresh cached entry', async () => {
+  apiClient.get.mockImplementation((url) =>
+    url.includes('/league/7/') ? Promise.reject({ response: { data: { error: 'database is down' } } }) : Promise.resolve(standingsResponse())
+  );
+  const { result: warmResult, unmount } = renderHook(() => usePickemStandings(8, 2026));
+  await waitFor(() => expect(warmResult.current.loading).toBe(false));
+  unmount();
+
+  const { result, rerender } = renderHook(({ id }) => usePickemStandings(id, 2026), { initialProps: { id: 7 } });
+  await waitFor(() => expect(result.current.error).toBe('database is down'));
+
+  rerender({ id: 8 });
+
+  expect(result.current.error).toBeNull();
+  expect(result.current.data.season).toBe(2026);
+});
+
+test('a falsy season that is not null keys and requests the same way (no split entries)', async () => {
+  apiClient.get.mockResolvedValue(standingsResponse());
+  const { result } = renderHook(() => usePickemStandings(7, 0));
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  expect(apiClient.get).toHaveBeenCalledWith('/api/pickem/league/7/standings?season=0');
+});
+
+test('a mounted hook reloads when its league is invalidated, keeping the old table until the new one lands', async () => {
+  apiClient.get.mockResolvedValue(standingsResponse({ mode: 'straight' }));
+  const { result } = renderHook(() => usePickemStandings(7, 2026));
+  await waitFor(() => expect(result.current.loading).toBe(false));
+
+  let resolveNext;
+  apiClient.get.mockReturnValueOnce(new Promise((resolve) => { resolveNext = resolve; }));
+  act(() => { clearPickemStandingsCache(7); });
+  expect(apiClient.get).toHaveBeenCalledTimes(2);
+  expect(result.current.data.mode).toBe('straight'); // stale-while-revalidate
+  await act(async () => { resolveNext(standingsResponse({ mode: 'confidence' })); });
+  expect(result.current.data.mode).toBe('confidence');
+
+  // Another league's invalidation is not this hook's business.
+  act(() => { clearPickemStandingsCache(8); });
+  expect(apiClient.get).toHaveBeenCalledTimes(2);
 });
