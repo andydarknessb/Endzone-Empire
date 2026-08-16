@@ -27,6 +27,7 @@ import {
 } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2';
 import apiClient from '../../api/apiClient';
+import { LEAGUE_TYPE } from '../../lib/leagueType';
 
 const SCORING_LABEL = {
   standard: 'Standard',
@@ -45,6 +46,20 @@ function LeagueDiscovery() {
   const [scoring, setScoring] = useState('');
   const [openSlotsOnly, setOpenSlotsOnly] = useState(false);
   const [sort, setSort] = useState('newest');
+  // Type filter over the stored flag: '' (all), LEAGUE_TYPE.FANTASY (has a
+  // fantasy side, which includes a fantasy league that also plays pick'em) or
+  // LEAGUE_TYPE.PICKEM (pick'em-only pools). A pool has no scoring preset and
+  // no draft, so choosing it retires the Scoring filter and the Draft date
+  // sort (they could never match / order it).
+  const [typeFilter, setTypeFilter] = useState('');
+  const pickemOnlyFilter = typeFilter === LEAGUE_TYPE.PICKEM;
+  const handleTypeFilterChange = (next) => {
+    setTypeFilter(next);
+    if (next === LEAGUE_TYPE.PICKEM) {
+      if (scoring) setScoring('');
+      if (sort === 'draft_date') setSort('newest');
+    }
+  };
 
   // Tracks join-request outcomes made during this visit; falls back to the
   // server-provided myRequestStatus for leagues the user already requested
@@ -59,6 +74,7 @@ function LeagueDiscovery() {
     const params = new URLSearchParams();
     if (search.trim()) params.set('search', search.trim());
     if (scoring) params.set('scoring', scoring);
+    if (typeFilter) params.set('type', typeFilter);
     if (openSlotsOnly) params.set('openSlots', 'true');
     if (sort) params.set('sort', sort);
     const qs = params.toString();
@@ -82,7 +98,7 @@ function LeagueDiscovery() {
     fetchLeagues();
     // Search is submit-driven; the remaining filters refresh immediately.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scoring, openSlotsOnly, sort]);
+  }, [scoring, typeFilter, openSlotsOnly, sort]);
 
   const handleSearchSubmit = (event) => {
     event.preventDefault();
@@ -123,7 +139,7 @@ function LeagueDiscovery() {
 
   // "Filters active" drives the empty state: only blame the filters when the
   // user has actually narrowed the search. Sort is ordering, not a filter.
-  const hasActiveFilters = search.trim() !== '' || scoring !== '' || openSlotsOnly;
+  const hasActiveFilters = search.trim() !== '' || scoring !== '' || typeFilter !== '' || openSlotsOnly;
 
   if (loading && leagues.length === 0) {
     return (
@@ -157,20 +173,37 @@ function LeagueDiscovery() {
           />
 
           <FormControl size="small" sx={{ minWidth: 160 }}>
-            <InputLabel id="discover-scoring-label">Scoring</InputLabel>
+            <InputLabel id="discover-type-label">League type</InputLabel>
             <Select
-              labelId="discover-scoring-label"
-              id="discover-scoring-select"
-              label="Scoring"
-              value={scoring}
-              onChange={(e) => setScoring(e.target.value)}
+              labelId="discover-type-label"
+              id="discover-type-select"
+              label="League type"
+              value={typeFilter}
+              onChange={(e) => handleTypeFilterChange(e.target.value)}
             >
               <MenuItem value="">All</MenuItem>
-              <MenuItem value="standard">Standard</MenuItem>
-              <MenuItem value="half_ppr">Half PPR</MenuItem>
-              <MenuItem value="ppr">PPR</MenuItem>
+              <MenuItem value={LEAGUE_TYPE.FANTASY}>Fantasy football</MenuItem>
+              <MenuItem value={LEAGUE_TYPE.PICKEM}>Pick&apos;em only</MenuItem>
             </Select>
           </FormControl>
+
+          {!pickemOnlyFilter && (
+            <FormControl size="small" sx={{ minWidth: 160 }}>
+              <InputLabel id="discover-scoring-label">Scoring</InputLabel>
+              <Select
+                labelId="discover-scoring-label"
+                id="discover-scoring-select"
+                label="Scoring"
+                value={scoring}
+                onChange={(e) => setScoring(e.target.value)}
+              >
+                <MenuItem value="">All</MenuItem>
+                <MenuItem value="standard">Standard</MenuItem>
+                <MenuItem value="half_ppr">Half PPR</MenuItem>
+                <MenuItem value="ppr">PPR</MenuItem>
+              </Select>
+            </FormControl>
+          )}
 
           <FormControlLabel
             control={
@@ -192,7 +225,7 @@ function LeagueDiscovery() {
               onChange={(e) => setSort(e.target.value)}
             >
               <MenuItem value="newest">Newest</MenuItem>
-              <MenuItem value="draft_date">Draft date</MenuItem>
+              {!pickemOnlyFilter && <MenuItem value="draft_date">Draft date</MenuItem>}
               <MenuItem value="open_slots">Open slots</MenuItem>
             </Select>
           </FormControl>
@@ -242,7 +275,10 @@ function LeagueDiscovery() {
                       {league.pickemOnly ? (
                         <Chip size="small" label="Pick'em" color="secondary" />
                       ) : (
-                        <Chip size="small" label={SCORING_LABEL[league.scoringPreset] || league.scoringPreset || 'Standard'} />
+                        <>
+                          <Chip size="small" label={SCORING_LABEL[league.scoringPreset] || league.scoringPreset || 'Standard'} />
+                          {league.pickemEnabled && <Chip size="small" label="Pick'em" color="secondary" variant="outlined" />}
+                        </>
                       )}
                       {league.bestBall && <Chip size="small" label="Best Ball" color="secondary" />}
                     </Stack>
@@ -288,6 +324,7 @@ function LeagueDiscovery() {
             margin="dense"
             label="Team name"
             fullWidth
+            helperText={joinTarget?.pickemOnly ? "Your name in the pick'em standings." : undefined}
             value={teamName}
             onChange={(e) => setTeamName(e.target.value)}
           />

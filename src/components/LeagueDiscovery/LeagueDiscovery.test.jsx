@@ -223,3 +223,113 @@ test("a full pick'em-only league reads the same as an open one (the slot count c
   expect(within(pool).getByText('Pick winners every week · no draft')).toBeInTheDocument();
   expect(within(pool).queryByText(/join any time|joins stay open/i)).not.toBeInTheDocument();
 });
+
+// --- League type filter ---
+
+test("choosing League type = Pick'em refetches with type=pickem, hides Scoring and the Draft date sort", async () => {
+  apiClient.get.mockResolvedValue({ data: [league({ id: 5, name: 'Office Pool', pickemOnly: true, scoringPreset: null, draftDate: null })] });
+  renderScreen();
+  await screen.findByText('Office Pool');
+  expect(screen.getByLabelText('Scoring')).toBeInTheDocument();
+
+  await userEvent.click(screen.getByLabelText('League type'));
+  await userEvent.click(await screen.findByRole('option', { name: "Pick'em only" }));
+
+  await waitFor(() =>
+    expect(apiClient.get).toHaveBeenLastCalledWith('/api/league/discover?type=pickem&sort=newest')
+  );
+  expect(screen.queryByLabelText('Scoring')).not.toBeInTheDocument();
+  await userEvent.click(screen.getByLabelText('Sort by'));
+  expect(screen.queryByRole('option', { name: 'Draft date' })).not.toBeInTheDocument();
+  expect(screen.getByRole('option', { name: 'Newest' })).toBeInTheDocument();
+  await userEvent.keyboard('{Escape}');
+  // The pool row still renders its chip.
+  const card = screen.getByText('Office Pool').closest('.MuiCard-root');
+  expect(within(card).getByText("Pick'em")).toBeInTheDocument();
+});
+
+test("choosing League type = Fantasy refetches with type=fantasy and keeps Scoring", async () => {
+  apiClient.get.mockResolvedValue({ data: [league()] });
+  renderScreen();
+  await screen.findByText('Sunday Ballers');
+
+  await userEvent.click(screen.getByLabelText('League type'));
+  await userEvent.click(await screen.findByRole('option', { name: 'Fantasy football' }));
+
+  await waitFor(() =>
+    expect(apiClient.get).toHaveBeenLastCalledWith('/api/league/discover?type=fantasy&sort=newest')
+  );
+  expect(screen.getByLabelText('Scoring')).toBeInTheDocument();
+});
+
+test("switching to Pick'em drops a Scoring filter and a Draft date sort that cannot apply", async () => {
+  apiClient.get.mockResolvedValue({ data: [league()] });
+  renderScreen();
+  await screen.findByText('Sunday Ballers');
+
+  await userEvent.click(screen.getByLabelText('Scoring'));
+  await userEvent.click(await screen.findByRole('option', { name: 'PPR' }));
+  await userEvent.click(screen.getByLabelText('Sort by'));
+  await userEvent.click(await screen.findByRole('option', { name: 'Draft date' }));
+  await waitFor(() =>
+    expect(apiClient.get).toHaveBeenLastCalledWith('/api/league/discover?scoring=ppr&sort=draft_date')
+  );
+
+  await userEvent.click(screen.getByLabelText('League type'));
+  await userEvent.click(await screen.findByRole('option', { name: "Pick'em only" }));
+
+  await waitFor(() =>
+    expect(apiClient.get).toHaveBeenLastCalledWith('/api/league/discover?type=pickem&sort=newest')
+  );
+});
+
+test('a league-type filter counts as an active filter for the empty state', async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+  renderScreen();
+  await screen.findByText(/No public leagues yet/);
+
+  await userEvent.click(screen.getByLabelText('League type'));
+  await userEvent.click(await screen.findByRole('option', { name: "Pick'em only" }));
+
+  expect(await screen.findByText(/No leagues match your filters/)).toBeInTheDocument();
+});
+
+test("the join dialog for a pick'em-only league explains what the team name is", async () => {
+  apiClient.get.mockResolvedValue({ data: [league({ id: 5, name: 'Office Pool', pickemOnly: true, scoringPreset: null, draftDate: null })] });
+  renderScreen();
+  await screen.findByText('Office Pool');
+
+  await userEvent.click(screen.getByRole('button', { name: 'Join' }));
+  expect(await screen.findByLabelText('Team name')).toBeInTheDocument();
+  expect(screen.getByText("Your name in the pick'em standings.")).toBeInTheDocument();
+});
+
+test("a fantasy league that also plays pick'em shows both its scoring chip and a Pick'em chip, and lists under Fantasy football", async () => {
+  apiClient.get.mockResolvedValue({ data: [league({ id: 6, name: 'Both League', pickemOnly: false, pickemEnabled: true, scoringPreset: 'ppr' })] });
+  renderScreen();
+  const card = (await screen.findByText('Both League')).closest('.MuiCard-root');
+  expect(within(card).getByText('PPR')).toBeInTheDocument();
+  expect(within(card).getByText("Pick'em")).toBeInTheDocument();
+  expect(within(card).getByText(/^Draft: /)).toBeInTheDocument();
+
+  await userEvent.click(screen.getByLabelText('League type'));
+  await userEvent.click(await screen.findByRole('option', { name: 'Fantasy football' }));
+  await waitFor(() =>
+    expect(apiClient.get).toHaveBeenLastCalledWith('/api/league/discover?type=fantasy&sort=newest')
+  );
+});
+
+test('type and scoring compose in the query string in a fixed order', async () => {
+  apiClient.get.mockResolvedValue({ data: [league()] });
+  renderScreen();
+  await screen.findByText('Sunday Ballers');
+
+  await userEvent.click(screen.getByLabelText('League type'));
+  await userEvent.click(await screen.findByRole('option', { name: 'Fantasy football' }));
+  await userEvent.click(screen.getByLabelText('Scoring'));
+  await userEvent.click(await screen.findByRole('option', { name: 'PPR' }));
+
+  await waitFor(() =>
+    expect(apiClient.get).toHaveBeenLastCalledWith('/api/league/discover?scoring=ppr&type=fantasy&sort=newest')
+  );
+});
