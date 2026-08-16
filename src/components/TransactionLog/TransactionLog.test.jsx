@@ -1,9 +1,11 @@
 import React from 'react';
-import { screen, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
+import { useNavigate } from 'react-router-dom';
 import TransactionLog from './TransactionLog';
+import { clearLeagueCache } from '../../hooks/useLeague';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
@@ -20,9 +22,12 @@ const renderScreen = (leagueId = 1) =>
     route: `/league/${leagueId}/activity`,
   });
 
-const mockTransactions = (data) => {
+// The page waits for the league row (useLeague) before it shows the filter
+// bar; the default fixture is a fantasy league.
+const mockTransactions = (data, league = { id: 1, name: 'Sunday Ballers', pickem_only: false }) => {
   apiClient.get.mockImplementation((url) => {
     if (url.includes('/transactions')) return Promise.resolve({ data });
+    if (/\/api\/league\/\d+$/.test(url)) return Promise.resolve({ data: { league, teams: [] } });
     return new Promise(() => {}); // player quick-view summary calls: never resolve
   });
 };
@@ -40,6 +45,9 @@ const txn = (overrides = {}) => ({
 
 beforeEach(() => {
   jest.spyOn(Date, 'now').mockReturnValue(NOW);
+  // useLeague's module cache would otherwise carry one test's league row
+  // (permanently fresh under the pinned Date.now) into the next.
+  clearLeagueCache();
 });
 
 afterEach(() => {
@@ -269,4 +277,111 @@ test('clicking a player name opens the shared PlayerQuickView dialog', async () 
   await userEvent.click(screen.getByRole('button', { name: 'Justin Jefferson' }));
 
   expect(await screen.findByTestId('quickview-skeleton')).toBeInTheDocument();
+});
+
+// --- Pick'em-only leagues ---
+
+const pickemLeague = { id: 1, name: 'Office Pool', pickem_only: true };
+
+test("a pick'em-only league gets no Adds/Drops/Waivers/Trades toggles and an honest empty state", async () => {
+  mockTransactions([], pickemLeague);
+  renderScreen();
+
+  expect(await screen.findByText('The league is quiet. Commissioner actions will appear here.')).toBeInTheDocument();
+  expect(screen.queryByText(/Recent transactions, trades/)).not.toBeInTheDocument();
+  const group = screen.getByRole('group', { name: 'Filter by transaction type' });
+  expect(within(group).getByRole('button', { name: 'All' })).toBeInTheDocument();
+  expect(within(group).getByRole('button', { name: 'Commissioner' })).toBeInTheDocument();
+  for (const name of ['Adds', 'Drops', 'Waivers', 'Trades']) {
+    expect(within(group).queryByRole('button', { name })).not.toBeInTheDocument();
+  }
+  // The Team filter still applies (commissioner actions name a team).
+  expect(screen.getByLabelText('Team')).toBeInTheDocument();
+});
+
+test("a pick'em-only league still lists commissioner actions and the Team filter narrows them", async () => {
+  mockTransactions([
+    txn({ id: 1, type: 'commissioner', team_name: "Bob's Team", player_name: null, detail: { action: 'remove_team_avatar' } }),
+    txn({ id: 2, type: 'commissioner', team_name: "Alice's Team", player_name: null, detail: { action: 'grant_co_commissioner' } }),
+  ], pickemLeague);
+  renderScreen();
+
+  expect(await screen.findByTestId('txn-1')).toHaveTextContent("Bob's Team commissioner action");
+  expect(screen.getByTestId('txn-2')).toBeInTheDocument();
+  await userEvent.click(screen.getByLabelText('Team'));
+  await userEvent.click(await screen.findByRole('option', { name: "Bob's Team" }));
+  expect(screen.getByTestId('txn-1')).toBeInTheDocument();
+  expect(screen.queryByTestId('txn-2')).not.toBeInTheDocument();
+});
+
+test('a fantasy league keeps every type toggle and the fantasy empty state', async () => {
+  mockTransactions([]);
+  renderScreen();
+
+  expect(
+    await screen.findByText('The league is quiet. Recent transactions, trades, and commissioner actions will appear here.')
+  ).toBeInTheDocument();
+  const group = screen.getByRole('group', { name: 'Filter by transaction type' });
+  for (const name of ['All', 'Adds', 'Drops', 'Waivers', 'Trades', 'Commissioner']) {
+    expect(within(group).getByRole('button', { name })).toBeInTheDocument();
+  }
+});
+
+test("the filter bar waits for the league row, so a pick'em league never flashes the roster-move toggles", async () => {
+  let resolveLeague;
+  apiClient.get.mockImplementation((url) => {
+    if (url.includes('/transactions')) return Promise.resolve({ data: [] });
+    if (/\/api\/league\/\d+$/.test(url)) return new Promise((resolve) => { resolveLeague = resolve; });
+    return new Promise(() => {});
+  });
+  renderScreen();
+
+  // Transactions are back but the row is not: still the skeleton, no toggles.
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/1/transactions'));
+  expect(screen.getByTestId('page-skeleton')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Adds' })).not.toBeInTheDocument();
+
+  await act(async () => { resolveLeague({ data: { league: pickemLeague, teams: [] } }); });
+
+  expect(await screen.findByText('The league is quiet. Commissioner actions will appear here.')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Adds' })).not.toBeInTheDocument();
+});
+
+// A hash edit from one league's Activity to another keeps this element
+// mounted (same route, new param): filters, rows and the league row must all
+// start over for the new league.
+function SwitchLeagueButton() {
+  const navigate = useNavigate();
+  return <button type="button" onClick={() => navigate('/league/2/activity')}>go to league 2</button>;
+}
+
+test('switching leagues in place resets the filters and re-shapes the page for the new league', async () => {
+  const leagues = {
+    1: { id: 1, name: 'Sunday Ballers', pickem_only: false },
+    2: { id: 2, name: 'Office Pool', pickem_only: true },
+  };
+  apiClient.get.mockImplementation((url) => {
+    const m = url.match(/\/api\/league\/(\d+)(\/transactions)?$/);
+    if (m && m[2]) return Promise.resolve({ data: m[1] === '1' ? [txn({ id: 1, type: 'add' })] : [] });
+    if (m) return Promise.resolve({ data: { league: leagues[m[1]], teams: [] } });
+    return new Promise(() => {});
+  });
+  renderWithProviders(
+    <>
+      <TransactionLog />
+      <SwitchLeagueButton />
+    </>,
+    { path: '/league/:leagueId/activity', route: '/league/1/activity' }
+  );
+  await screen.findByTestId('txn-1');
+  await userEvent.click(screen.getByRole('button', { name: 'Adds' }));
+  expect(screen.getByRole('button', { name: 'Adds' })).toHaveAttribute('aria-pressed', 'true');
+
+  await userEvent.click(screen.getByRole('button', { name: 'go to league 2' }));
+
+  expect(await screen.findByText('The league is quiet. Commissioner actions will appear here.')).toBeInTheDocument();
+  expect(screen.queryByTestId('txn-1')).not.toBeInTheDocument(); // league 1's rows are gone
+  expect(screen.queryByRole('button', { name: 'Adds' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
+  expect(apiClient.get).toHaveBeenCalledWith('/api/league/2/transactions');
 });
