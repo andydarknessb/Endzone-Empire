@@ -1,6 +1,6 @@
 import { renderHook, act, waitFor } from '@testing-library/react';
 import apiClient from '../api/apiClient';
-import { useLeague, clearLeagueCache } from './useLeague';
+import { useLeague, clearLeagueCache, primeLeagueCache } from './useLeague';
 
 jest.mock('../api/apiClient', () => ({
   __esModule: true,
@@ -144,4 +144,57 @@ test('surfaces the server error message and clears loading on a failed fetch', a
   await waitFor(() => expect(result.current.loading).toBe(false));
   expect(result.current.error).toBe('league not found');
   expect(result.current.league).toBeNull();
+});
+
+test('primeLeagueCache(leagueId, league) lets a later mount skip the request entirely', () => {
+  primeLeagueCache(7, { id: 7, name: 'Office Pool', pickem_only: true });
+
+  const { result } = renderHook(() => useLeague(7));
+
+  expect(result.current.loading).toBe(false);
+  expect(result.current.league).toEqual({ id: 7, name: 'Office Pool', pickem_only: true });
+  expect(apiClient.get).not.toHaveBeenCalled();
+});
+
+test('primeLeagueCache ignores an empty row so a bad prime cannot poison the cache', async () => {
+  primeLeagueCache(7, null);
+  apiClient.get.mockResolvedValue(leagueResponse({ id: 7 }));
+
+  const { result } = renderHook(() => useLeague(7));
+  await waitFor(() => expect(result.current.loading).toBe(false));
+
+  expect(apiClient.get).toHaveBeenCalledWith('/api/league/7');
+});
+
+test('switching leagueId stops serving the previous league while the new one loads', async () => {
+  apiClient.get.mockImplementation((url) =>
+    url.endsWith('/1') ? Promise.resolve(leagueResponse({ id: 1 })) : new Promise(() => {})
+  );
+  const { result, rerender } = renderHook(({ id }) => useLeague(id), { initialProps: { id: 1 } });
+  await waitFor(() => expect(result.current.league?.id).toBe(1));
+
+  rerender({ id: 2 });
+
+  expect(result.current.league).toBeNull();
+  expect(result.current.loading).toBe(true);
+});
+
+test('a response for a league the hook has already left never lands as the current league', async () => {
+  let resolveTwo;
+  apiClient.get.mockImplementation((url) => {
+    if (url.endsWith('/1')) return Promise.resolve(leagueResponse({ id: 1 }));
+    return new Promise((resolve) => { resolveTwo = resolve; });
+  });
+  const { result, rerender } = renderHook(({ id }) => useLeague(id), { initialProps: { id: 1 } });
+  await waitFor(() => expect(result.current.league?.id).toBe(1));
+
+  rerender({ id: 2 }); // league 2 request in flight
+  rerender({ id: 1 }); // back to 1: fresh cache, no new request
+  expect(result.current.league?.id).toBe(1);
+  expect(result.current.loading).toBe(false);
+
+  await act(async () => { resolveTwo(leagueResponse({ id: 2, name: 'Late arrival' })); });
+
+  expect(result.current.league?.id).toBe(1);
+  expect(result.current.loading).toBe(false);
 });

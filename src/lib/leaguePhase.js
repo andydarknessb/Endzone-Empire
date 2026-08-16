@@ -8,6 +8,12 @@ export const LEAGUE_PHASE = Object.freeze({
 
 export function deriveLeaguePhase(league) {
   if (!league) return null;
+  // A pick'em-only league has no draft: it is in season from creation until
+  // the season completes, whatever draft_status says. A league kind is not a
+  // position in time, so it maps onto the existing phases rather than a new one.
+  if (league.pickem_only) {
+    return league.season_status === 'complete' ? LEAGUE_PHASE.COMPLETE : LEAGUE_PHASE.IN_SEASON;
+  }
   if (league.draft_status === 'pending') return LEAGUE_PHASE.PRE_DRAFT;
   if (league.draft_status === 'active') return LEAGUE_PHASE.DRAFTING;
   if (league.season_status === 'playoffs') return LEAGUE_PHASE.PLAYOFFS;
@@ -24,6 +30,9 @@ export const LEAGUE_PHASE_META = Object.freeze({
 });
 
 export function rosterActionForPhase(league) {
+  if (league && league.pickem_only) {
+    return { label: 'No rosters', disabled: true, helper: "This is a pick'em league. There are no rosters." };
+  }
   const phase = deriveLeaguePhase(league);
   if (phase === LEAGUE_PHASE.PRE_DRAFT) {
     return { label: 'Draft not started', disabled: true, helper: 'Players are added through the Draft Room.' };

@@ -155,6 +155,7 @@ async function discoverLeagues({ userId, search, scoring, openSlots, sort }) {
        COUNT(DISTINCT "teams"."id")::int AS "teamCount",
        "leagues"."scoring_preset" AS "scoringPreset",
        "leagues"."best_ball" AS "bestBall",
+       "leagues"."pickem_only" AS "pickemOnly",
        "leagues"."join_approval" AS "joinApproval",
        "leagues"."draft_date" AS "draftDate",
        "leagues"."created_at" AS "createdAt",

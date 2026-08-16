@@ -6,6 +6,7 @@ import App from './App';
 import apiClient from '../../api/apiClient';
 import publicApiClient from '../../api/publicApiClient';
 import { createDraftSocket } from '../../api/socket';
+import { clearLeagueCache } from '../../hooks/useLeague';
 
 // App's routes mount real page components (LeagueManagement, UserPage,
 // DraftBoard, ...); every one of them fetches via apiClient (and DraftBoard
@@ -388,4 +389,34 @@ test('always renders the Nav and Footer around the routed page', async () => {
 test('dispatches FETCH_USER on mount', () => {
   const { store } = renderApp('#/about', { user: loggedOut });
   expect(store.getActions()).toContainEqual({ type: 'FETCH_USER' });
+});
+
+// A pick'em-only league has no fantasy surfaces: the routes below stay
+// registered (bookmarks and hand-typed URLs must resolve) but render the
+// FantasyOnly explanation instead of the page. League 77 is used so the
+// useLeague module cache never leaks a pick'em verdict into the tests above.
+test.each([
+  ['draft', 'Draft Board'],
+  ['lineup', 'Set Lineup'],
+  ['waivers', 'Waiver Wire'],
+  ['trades', 'Trade Center'],
+  ['draft-settings', 'Draft Settings'],
+  ['power-rankings', 'Power Rankings'],
+  ['game-center', 'Game Center'],
+  ['matchups/9', 'Matchup'],
+])('"/league/:leagueId/%s" renders the FantasyOnly panel for a pick\'em-only league', async (path) => {
+  clearLeagueCache();
+  renderApp(`#/league/77/${path}`, { user: loggedIn }, () => {
+    apiClient.get.mockImplementation((url) => {
+      if (url === '/api/league/77') {
+        return Promise.resolve({ data: { league: { id: 77, name: 'Office Pool', pickem_only: true }, teams: [] } });
+      }
+      return Promise.resolve({ data: [] });
+    });
+  });
+  expect(
+    await screen.findByText("This is a pick'em league. Drafts, rosters, and matchups are not part of it.")
+  ).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: /Office Pool/ })).toHaveAttribute('href', '#/league/77');
+  clearLeagueCache();
 });

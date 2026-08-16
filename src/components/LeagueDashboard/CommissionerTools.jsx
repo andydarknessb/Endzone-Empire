@@ -46,6 +46,7 @@ import {
   perYardHelper,
   buildInitialRules,
 } from '../../lib/leagueRulesFormat';
+import { FANTASY_MAX_TEAMS, MIN_TEAMS, PICKEM_MAX_TEAMS } from '../../lib/leagueType';
 
 const PLAYOFF_TEAM_OPTIONS = [4, 6, 8];
 const PLAYOFF_START_WEEK_OPTIONS = [14, 15, 16, 17, 18];
@@ -283,10 +284,12 @@ function GeneralSettingsPanel({ leagueId, league, teams, user, isOwner, standing
 
   const handleSaveLimits = async () => {
     try {
-      await apiClient.put(`/api/league/${leagueId}`, {
-        minTeams: Number(sizeMin),
-        maxTeams: Number(sizeMax),
-      });
+      // A pick'em-only league has no draft for a minimum to gate, so only the
+      // cap is edited there (the create dialogs omit min the same way).
+      const limits = league.pickem_only
+        ? { maxTeams: Number(sizeMax) }
+        : { minTeams: Number(sizeMin), maxTeams: Number(sizeMax) };
+      await apiClient.put(`/api/league/${leagueId}`, limits);
       notify('Team limits updated');
       onRefresh();
     } catch (err) {
@@ -327,18 +330,25 @@ function GeneralSettingsPanel({ leagueId, league, teams, user, isOwner, standing
   };
 
   const removableTeams = teams.filter((team) => team.owner !== user.username);
+  // A pick'em-only league has no adds, drops, waivers or trades to lock, no
+  // draft to freeze team limits behind, and its rollover lives on its own
+  // Season tab (there is no fantasy standings row to key it off).
+  const pickemOnly = !!league.pickem_only;
+  const maxTeamsCap = pickemOnly ? PICKEM_MAX_TEAMS : FANTASY_MAX_TEAMS;
 
   return (
     <Stack spacing={3}>
-      <Box>
-        <FormControlLabel
-          control={<Switch checked={!!league.transactions_locked} onChange={handleToggleTransactionsLock} />}
-          label="Lock Transactions"
-        />
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4.5 }}>
-          Applies immediately. Freezes adds, drops, waiver claims, and trades for the entire league.
-        </Typography>
-      </Box>
+      {!pickemOnly && (
+        <Box>
+          <FormControlLabel
+            control={<Switch checked={!!league.transactions_locked} onChange={handleToggleTransactionsLock} />}
+            label="Lock Transactions"
+          />
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4.5 }}>
+            Applies immediately. Freezes adds, drops, waiver claims, and trades for the entire league.
+          </Typography>
+        </Box>
+      )}
 
       {isOwner && (
         <CoCommissionerCard
@@ -350,7 +360,7 @@ function GeneralSettingsPanel({ leagueId, league, teams, user, isOwner, standing
         />
       )}
 
-      {standingsLeague && standingsLeague.season_status === 'complete' && (
+      {!pickemOnly && standingsLeague && standingsLeague.season_status === 'complete' && (
         <Box>
           <Button variant="contained" color="secondary" onClick={handleRollover}>
             Start New Season
@@ -361,15 +371,17 @@ function GeneralSettingsPanel({ leagueId, league, teams, user, isOwner, standing
       {league.draft_status === 'pending' && (
         <Box>
           <Typography variant="subtitle2" sx={{ mb: 1 }}>
-            Team limits (editable until the draft starts)
+            {pickemOnly ? 'Team limit' : 'Team limits (editable until the draft starts)'}
           </Typography>
           <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+            {!pickemOnly && (
+              <TextField
+                label="Min teams" type="number" size="small" inputProps={{ min: MIN_TEAMS, max: maxTeamsCap }}
+                value={sizeMin} onChange={(e) => setSizeMin(e.target.value)} sx={{ width: 130 }}
+              />
+            )}
             <TextField
-              label="Min teams" type="number" size="small" inputProps={{ min: 2, max: 20 }}
-              value={sizeMin} onChange={(e) => setSizeMin(e.target.value)} sx={{ width: 130 }}
-            />
-            <TextField
-              label="Max teams" type="number" size="small" inputProps={{ min: 2, max: 20 }}
+              label="Max teams" type="number" size="small" inputProps={{ min: MIN_TEAMS, max: maxTeamsCap }}
               value={sizeMax} onChange={(e) => setSizeMax(e.target.value)} sx={{ width: 130 }}
             />
             <Button variant="outlined" size="small" onClick={handleSaveLimits}>Save Limits</Button>
@@ -407,8 +419,10 @@ function GeneralSettingsPanel({ leagueId, league, teams, user, isOwner, standing
         <DialogTitle>Remove {removeTarget?.name}?</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            This permanently removes the team, its roster, and its matchup history from the
-            league. The owner will be notified. This can&apos;t be undone.
+            {pickemOnly
+              ? 'This permanently removes the manager from the league; their picks no longer count in the standings. '
+              : 'This permanently removes the team, its roster, and its matchup history from the league. '}
+            The owner will be notified. This can&apos;t be undone.
           </DialogContentText>
         </DialogContent>
         <DialogActions>
@@ -1463,9 +1477,69 @@ function SystemOverridesPanel({ leagueId, teams, notify, onRefresh }) {
   );
 }
 
+// The pick'em-only Season tab. The season runs itself (weeks follow the NFL
+// calendar, completion after week 18 finalizes, champion awarded on
+// completion), so the one commissioner action here is starting the next one.
+function PickemSeasonPanel({ leagueId, league, onRefresh, notify }) {
+  const report = fail(notify);
+  const complete = league.season_status === 'complete';
+
+  const handleRollover = async () => {
+    try {
+      await apiClient.post(`/api/commissioner/league/${leagueId}/rollover`, {});
+      notify('New season started!');
+      onRefresh();
+    } catch (err) {
+      report(err);
+    }
+  };
+
+  return (
+    <Stack spacing={2}>
+      <Box>
+        <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+          {league.current_season ? `${league.current_season} season` : 'Season'}
+          {league.current_week != null && !complete ? ` · week ${league.current_week}` : ''}
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          A pick&apos;em season runs on its own: weeks follow the NFL calendar, the season is
+          complete once week 18&apos;s games are final, and the pick&apos;em champion is awarded
+          then. There is no week to advance.
+        </Typography>
+      </Box>
+      {complete ? (
+        <Box>
+          <Button variant="contained" color="secondary" onClick={handleRollover}>
+            Start New Season
+          </Button>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+            Archives this season&apos;s standings to League History and opens next season&apos;s picks.
+          </Typography>
+        </Box>
+      ) : (
+        <Typography variant="body2" color="text.secondary">
+          Rollover to next season becomes available once this season is complete.
+        </Typography>
+      )}
+    </Stack>
+  );
+}
+
+const FANTASY_TABS = ['general', 'roster', 'scoring', 'playoffs', 'waivers', 'overrides'];
+const PICKEM_TABS = ['general', 'season'];
+
 function CommissionerTools({ leagueId, league, teams, user, isOwner = true, standingsLeague, onRefresh }) {
   const notify = useSnackbar();
-  const [tab, setTab] = useState('general');
+  const [selectedTab, setTab] = useState('general');
+  // A pick'em-only league has no roster, scoring, schedule, waiver or matchup
+  // settings to expose: only General plus its own Season tab. The active tab
+  // is derived from the league's own tab set rather than trusted from state:
+  // a hash-only hop between two leagues keeps this component mounted, and a
+  // fantasy tab left selected must not render its panel inside a pick'em
+  // league (or 'season' inside a fantasy one).
+  const pickemOnly = !!league.pickem_only;
+  const tabs = pickemOnly ? PICKEM_TABS : FANTASY_TABS;
+  const tab = tabs.includes(selectedTab) ? selectedTab : 'general';
 
   return (
     <Paper sx={{ mt: 3 }}>
@@ -1480,11 +1554,17 @@ function CommissionerTools({ leagueId, league, teams, user, isOwner = true, stan
         sx={{ px: 2, mt: 1, borderBottom: 1, borderColor: 'divider' }}
       >
         <Tab label="General Settings" value="general" />
-        <Tab label="Roster Settings" value="roster" />
-        <Tab label="Scoring Settings" value="scoring" />
-        <Tab label="Playoffs & Schedule" value="playoffs" />
-        <Tab label="Waivers & Trades" value="waivers" />
-        <Tab label="System Overrides" value="overrides" />
+        {pickemOnly ? (
+          <Tab label="Season" value="season" />
+        ) : (
+          [
+            <Tab key="roster" label="Roster Settings" value="roster" />,
+            <Tab key="scoring" label="Scoring Settings" value="scoring" />,
+            <Tab key="playoffs" label="Playoffs & Schedule" value="playoffs" />,
+            <Tab key="waivers" label="Waivers & Trades" value="waivers" />,
+            <Tab key="overrides" label="System Overrides" value="overrides" />,
+          ]
+        )}
       </Tabs>
       <Box sx={{ p: 2 }}>
         {tab === 'general' && (
@@ -1492,6 +1572,9 @@ function CommissionerTools({ leagueId, league, teams, user, isOwner = true, stan
             leagueId={leagueId} league={league} teams={teams} user={user} isOwner={isOwner}
             standingsLeague={standingsLeague} onRefresh={onRefresh} notify={notify}
           />
+        )}
+        {tab === 'season' && pickemOnly && (
+          <PickemSeasonPanel leagueId={leagueId} league={league} onRefresh={onRefresh} notify={notify} />
         )}
         {tab === 'roster' && (
           <RosterSettingsPanel leagueId={leagueId} league={league} onRefresh={onRefresh} notify={notify} />

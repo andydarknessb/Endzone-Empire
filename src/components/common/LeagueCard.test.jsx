@@ -37,3 +37,19 @@ test('requires confirmation before deleting a league', async () => {
   await userEvent.click(screen.getByRole('button', { name: 'Delete League' }));
   expect(onDelete).toHaveBeenCalledWith(7);
 });
+
+test("a pick'em-only league is labelled as such and offers Pick'em in place of the fantasy shortcuts", () => {
+  const pickem = { ...league, pickem_only: true, draft_status: 'pending', season_status: 'regular' };
+  const { unmount } = renderWithProviders(<LeagueCard league={pickem} compact />);
+  expect(screen.getByText("Pick'em")).toBeInTheDocument();
+  // No draft, so the phase reads as in season from day one.
+  expect(screen.getByText('In season')).toBeInTheDocument();
+  expect(screen.queryByText('Pre-draft')).not.toBeInTheDocument();
+
+  unmount();
+  renderWithProviders(<LeagueCard league={pickem} />);
+  expect(screen.getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/league/7');
+  expect(screen.getByRole('link', { name: "Pick'em" })).toHaveAttribute('href', '/league/7/pickem');
+  expect(screen.queryByRole('link', { name: 'Draft Room' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'Game Center' })).not.toBeInTheDocument();
+});

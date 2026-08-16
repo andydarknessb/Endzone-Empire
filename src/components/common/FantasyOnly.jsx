@@ -1,0 +1,53 @@
+import React from 'react';
+import { Link as RouterLink, useParams } from 'react-router-dom';
+import { Box, Button, CircularProgress, Container, Paper, Typography } from '@mui/material';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import { useLeague } from '../../hooks/useLeague';
+
+/**
+ * Route guard for the fantasy-only surfaces (draft, lineup, matchups, waivers,
+ * trades, power rankings, draft settings). A pick'em-only league has none of
+ * them, so a bookmarked or hand-typed URL gets a short explanation and a way
+ * back instead of an empty fantasy page firing roster-shaped requests.
+ *
+ * Reads the league through useLeague. The dashboard primes that cache with the
+ * row it already fetched, so the usual hop (dashboard -> fantasy page) mounts
+ * the page synchronously; the wrapped pages that call useLeague themselves
+ * share the same entry. Only a cold entry (deep link, expired cache) costs a
+ * request. The verdict waits for the row rather than rendering the page
+ * optimistically; if the row cannot be loaded at all the page renders and
+ * reports the failure itself, the same way it would without this wrapper.
+ */
+export default function FantasyOnly({ children }) {
+  const { leagueId } = useParams();
+  const { league, loading } = useLeague(leagueId);
+
+  if (!league && loading) {
+    return (
+      <Box role="status" aria-label="Loading league" sx={{ py: 8, textAlign: 'center' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  if (!league || !league.pickem_only) return children;
+
+  return (
+    <Container maxWidth="sm" sx={{ py: 6 }}>
+      <Paper sx={{ p: { xs: 3, sm: 4 }, textAlign: 'center' }}>
+        <Typography variant="h5" sx={{ mb: 1 }}>Not part of this league</Typography>
+        <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
+          This is a pick&apos;em league. Drafts, rosters, and matchups are not part of it.
+        </Typography>
+        <Button
+          component={RouterLink}
+          to={`/league/${leagueId}`}
+          variant="contained"
+          startIcon={<ArrowBackIcon />}
+        >
+          Back to {league.name || 'the league'}
+        </Button>
+      </Paper>
+    </Container>
+  );
+}

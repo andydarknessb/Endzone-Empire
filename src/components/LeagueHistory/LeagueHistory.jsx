@@ -87,10 +87,16 @@ function PodiumCard({ place }) {
   );
 }
 
+// A pick'em-only league archives its pick'em table (points, correct picks)
+// rather than a W-L record; the rows themselves say which shape they are.
+const isPickemStandings = (standings) =>
+  standings.length > 0 && standings.every((row) => row.wins === undefined && row.points !== undefined);
+
 function SeasonPanel({ season, defaultExpanded }) {
   const standings = Array.isArray(season.standings) ? season.standings : [];
   const trophies = Array.isArray(season.trophies) ? season.trophies : [];
   const draftGrades = Array.isArray(season.draftGrades) ? season.draftGrades : null;
+  const pickem = isPickemStandings(standings);
   const championStanding = season.champion
     ? standings.find((team) => team.teamId === season.champion.teamId)
     : null;
@@ -145,7 +151,9 @@ function SeasonPanel({ season, defaultExpanded }) {
               </Typography>
               {championStanding && (
                 <Typography variant="body2" color="text.secondary">
-                  {`${championStanding.wins}-${championStanding.losses} record`}
+                  {pickem
+                    ? `${championStanding.points} points · ${championStanding.correct} correct`
+                    : `${championStanding.wins}-${championStanding.losses} record`}
                 </Typography>
               )}
             </Box>
@@ -161,8 +169,18 @@ function SeasonPanel({ season, defaultExpanded }) {
               <TableRow>
                 <TableCell>Rank</TableCell>
                 <TableCell>Team</TableCell>
-                <TableCell align="right">W-L</TableCell>
-                <TableCell align="right"><AbbreviationTooltip term="PF" /></TableCell>
+                {pickem ? (
+                  <>
+                    <TableCell align="right">Points</TableCell>
+                    <TableCell align="right">Correct</TableCell>
+                    <TableCell align="right">Pushes</TableCell>
+                  </>
+                ) : (
+                  <>
+                    <TableCell align="right">W-L</TableCell>
+                    <TableCell align="right"><AbbreviationTooltip term="PF" /></TableCell>
+                  </>
+                )}
               </TableRow>
             </TableHead>
             <TableBody>
@@ -182,8 +200,18 @@ function SeasonPanel({ season, defaultExpanded }) {
                       {team.rank}
                     </TableCell>
                     <TableCell>{team.name}</TableCell>
-                    <TableCell align="right">{`${team.wins}-${team.losses}`}</TableCell>
-                    <TableCell align="right">{team.pf}</TableCell>
+                    {pickem ? (
+                      <>
+                        <TableCell align="right">{team.points}</TableCell>
+                        <TableCell align="right">{team.correct}</TableCell>
+                        <TableCell align="right">{team.pushes ?? 0}</TableCell>
+                      </>
+                    ) : (
+                      <>
+                        <TableCell align="right">{`${team.wins}-${team.losses}`}</TableCell>
+                        <TableCell align="right">{team.pf}</TableCell>
+                      </>
+                    )}
                   </TableRow>
                 );
               })}

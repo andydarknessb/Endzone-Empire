@@ -201,6 +201,7 @@ test('creating a league posts the form data, shows a notice, and refetches leagu
       name: 'Monday Mayhem',
       teamName: "Alice's Squad",
       maxTeams: 2,
+      leagueType: 'fantasy',
     })
   );
   expect(await screen.findByText('League created!')).toBeInTheDocument();
@@ -225,6 +226,7 @@ test('the approval toggle only appears once Public league is on, and only the fi
       name: 'Plain League',
       teamName: undefined,
       maxTeams: 2,
+      leagueType: 'fantasy',
     })
   );
 });
@@ -252,6 +254,7 @@ test('creating a public, approval-required, best-ball, half-PPR league with a dr
       name: 'Full League',
       teamName: undefined,
       maxTeams: 2,
+      leagueType: 'fantasy',
       isPublic: true,
       joinApproval: true,
       bestBall: true,
@@ -363,4 +366,149 @@ test('surfaces the public-layer highlights section (lazy) for logged-in users', 
   expect(await screen.findByRole('link', { name: '#1 Top Back' })).toBeInTheDocument();
   expect(screen.getByRole('link', { name: 'Waiver Wire' })).toHaveAttribute('href', '/waiver-wire');
   expect(screen.getByRole('link', { name: 'All strategy articles' })).toHaveAttribute('href', '/strategy');
+});
+
+// --- League type at creation ---
+
+test("the create dialog defaults to a fantasy league and always names the type in the payload", async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+  apiClient.post.mockResolvedValue({ data: { id: 2 } });
+
+  renderWithProviders(<UserPage />, { state: baseState });
+  await waitFor(() => expect(getCallsTo('/api/league')).toBe(1));
+
+  await userEvent.click(heroButton('Create League'));
+  expect(screen.getByRole('radio', { name: /Fantasy football league/ })).toBeChecked();
+  expect(screen.getByText('Draft, rosters, lineups, and weekly matchups.')).toBeInTheDocument();
+  expect(screen.getByText('Pick winners every week. No draft and no rosters.')).toBeInTheDocument();
+  expect(screen.getByText('A full fantasy league with pick\'em turned on from day one.')).toBeInTheDocument();
+  // The mode picker only applies once the type includes pick'em.
+  expect(screen.queryByRole('radio', { name: /Straight up/ })).not.toBeInTheDocument();
+});
+
+test("creating an NFL pick'em league sends leagueType, pickemMode and an explicit maxTeams, and none of the fantasy fields", async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+  apiClient.post.mockResolvedValue({ data: { id: 2 } });
+
+  renderWithProviders(<UserPage />, { state: baseState });
+  await waitFor(() => expect(getCallsTo('/api/league')).toBe(1));
+
+  await userEvent.click(heroButton('Create League'));
+  await userEvent.type(screen.getByLabelText('League Name'), 'Office Pool');
+  // Fantasy-only state set BEFORE the switch must not leak into the payload.
+  await userEvent.click(screen.getByLabelText('Best ball mode'));
+  await userEvent.type(screen.getByLabelText('Draft date'), '2026-09-04T13:00');
+
+  await userEvent.click(screen.getByRole('radio', { name: /NFL pick'em league/ }));
+  expect(screen.queryByLabelText('Best ball mode')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('Scoring')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('Draft date')).not.toBeInTheDocument();
+  expect(screen.getByRole('radio', { name: /Straight up/ })).toBeChecked();
+
+  // A pick'em pool takes up to 50 managers, entered as a number.
+  const teams = screen.getByLabelText('Teams');
+  expect(teams).toHaveAttribute('type', 'number');
+  expect(teams).toHaveAttribute('max', '50');
+  await userEvent.clear(teams);
+  await userEvent.type(teams, '30');
+
+  await userEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/league', {
+      name: 'Office Pool',
+      teamName: undefined,
+      maxTeams: 30,
+      leagueType: 'pickem',
+      pickemMode: 'straight',
+    })
+  );
+  expect(await screen.findByText('League created!')).toBeInTheDocument();
+
+  // Post-create reset: the next dialog starts from a fantasy league again.
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  await userEvent.click(heroButton('Create League'));
+  expect(screen.getByRole('radio', { name: /Fantasy football league/ })).toBeChecked();
+  expect(screen.getByLabelText('Scoring')).toBeInTheDocument();
+});
+
+test("choosing Both sends leagueType 'both' with the chosen confidence mode and keeps the fantasy fields", async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+  apiClient.post.mockResolvedValue({ data: { id: 2 } });
+
+  renderWithProviders(<UserPage />, { state: baseState });
+  await waitFor(() => expect(getCallsTo('/api/league')).toBe(1));
+
+  await userEvent.click(heroButton('Create League'));
+  await userEvent.type(screen.getByLabelText('League Name'), 'Everything League');
+  await userEvent.click(screen.getByRole('radio', { name: /^Both/ }));
+  await userEvent.click(screen.getByRole('radio', { name: /Confidence/ }));
+  await userEvent.click(screen.getByLabelText('Best ball mode'));
+  expect(screen.getByLabelText('Scoring')).toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/league', {
+      name: 'Everything League',
+      teamName: undefined,
+      maxTeams: 2,
+      leagueType: 'both',
+      pickemMode: 'confidence',
+      bestBall: true,
+    })
+  );
+});
+
+test("Next up hero sends a pick'em-only manager to make this week's picks", async () => {
+  mockDashboard({
+    leagues: [league({ id: 4, name: 'Office Pool', pickem_only: true, draft_status: 'pending', season_status: 'regular', current_week: 7 })],
+  });
+  renderWithProviders(<UserPage />, { state: baseState });
+
+  expect(await screen.findByRole('link', { name: 'Make picks' })).toHaveAttribute('href', '/league/4/pickem');
+  expect(screen.getByText('Make your week 7 picks for Office Pool.')).toBeInTheDocument();
+});
+
+test("the pick'em team count must be a whole number from 2 to 50 before Create is enabled", async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+  renderWithProviders(<UserPage />, { state: baseState });
+  await waitFor(() => expect(getCallsTo('/api/league')).toBe(1));
+
+  await userEvent.click(heroButton('Create League'));
+  await userEvent.type(screen.getByLabelText('League Name'), 'Office Pool');
+  await userEvent.click(screen.getByRole('radio', { name: /NFL pick'em league/ }));
+  const teams = screen.getByLabelText('Teams');
+
+  await userEvent.clear(teams);
+  expect(screen.getByRole('button', { name: 'Create' })).toBeDisabled();
+  await userEvent.type(teams, '99');
+  expect(screen.getByRole('button', { name: 'Create' })).toBeDisabled();
+  await userEvent.clear(teams);
+  await userEvent.type(teams, '2.5');
+  expect(screen.getByRole('button', { name: 'Create' })).toBeDisabled();
+  await userEvent.clear(teams);
+  await userEvent.type(teams, '30');
+  expect(screen.getByRole('button', { name: 'Create' })).toBeEnabled();
+  expect(apiClient.post).not.toHaveBeenCalled();
+});
+
+test("a fractional pick'em count is rounded down, not carried into the fantasy team Select", async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+  apiClient.post.mockResolvedValue({ data: { id: 2 } });
+  renderWithProviders(<UserPage />, { state: baseState });
+  await waitFor(() => expect(getCallsTo('/api/league')).toBe(1));
+
+  await userEvent.click(heroButton('Create League'));
+  await userEvent.type(screen.getByLabelText('League Name'), 'Odd Pool');
+  await userEvent.click(screen.getByRole('radio', { name: /NFL pick'em league/ }));
+  const teams = screen.getByLabelText('Teams');
+  await userEvent.clear(teams);
+  await userEvent.type(teams, '12.5');
+  await userEvent.click(screen.getByRole('radio', { name: /Fantasy football league/ }));
+
+  expect(screen.getByRole('button', { name: 'Create' })).toBeEnabled();
+  await userEvent.click(screen.getByRole('button', { name: 'Create' }));
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/league', expect.objectContaining({ maxTeams: 12, leagueType: 'fantasy' }))
+  );
 });

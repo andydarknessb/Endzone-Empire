@@ -235,15 +235,26 @@ function LeagueDiscovery() {
                 <Card variant="outlined" sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                   <CardContent sx={{ flexGrow: 1 }}>
                     <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>{league.name}</Typography>
+                    {/* A pick'em-only league has no scoring preset and no draft:
+                        the type chip is what tells a joiner what they are
+                        signing up for. */}
                     <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
-                      <Chip size="small" label={SCORING_LABEL[league.scoringPreset] || league.scoringPreset || 'Standard'} />
+                      {league.pickemOnly ? (
+                        <Chip size="small" label="Pick'em" color="secondary" />
+                      ) : (
+                        <Chip size="small" label={SCORING_LABEL[league.scoringPreset] || league.scoringPreset || 'Standard'} />
+                      )}
                       {league.bestBall && <Chip size="small" label="Best Ball" color="secondary" />}
                     </Stack>
                     <Typography variant="body2" color="text.secondary">
                       {league.teamCount}/{league.maxTeams} teams · {slotsOpen} slot{slotsOpen === 1 ? '' : 's'} open
                     </Typography>
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                      {league.draftDate ? `Draft: ${new Date(league.draftDate).toLocaleString()}` : 'Draft date not set'}
+                      {league.pickemOnly
+                        ? 'Pick winners every week · no draft'
+                        : league.draftDate
+                          ? `Draft: ${new Date(league.draftDate).toLocaleString()}`
+                          : 'Draft date not set'}
                     </Typography>
                   </CardContent>
                   <CardActions sx={{ px: 2, pb: 2 }}>

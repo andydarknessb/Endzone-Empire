@@ -223,3 +223,45 @@ test('shows an error alert when the player fetch fails', async () => {
 
   expect(await screen.findByText('players down')).toBeInTheDocument();
 });
+
+test("pick'em-only leagues are left out of the league selector because they have no roster to add to", async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/league') {
+      return Promise.resolve({
+        data: [
+          { id: 5, name: 'Office Pool', pickem_only: true, draft_status: 'pending' },
+          { id: 1, name: 'Sunday Ballers', draft_status: 'complete', season_status: 'regular' },
+        ],
+      });
+    }
+    if (url === '/api/players') return Promise.resolve({ data: { players: [player()], totalPages: 1 } });
+    if (String(url).startsWith('/api/team/roster')) return Promise.resolve({ data: [] });
+    return Promise.reject(new Error(`unexpected GET ${url}`));
+  });
+
+  renderWithProviders(<PlayerManagement />);
+
+  await screen.findByText('Patrick Mahomes');
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/team/roster?leagueId=1'));
+  expect(apiClient.get).not.toHaveBeenCalledWith('/api/team/roster?leagueId=5');
+  await userEvent.click(screen.getByRole('combobox', { name: 'League' }));
+  expect(await screen.findByRole('option', { name: 'Sunday Ballers' })).toBeInTheDocument();
+  expect(screen.queryByRole('option', { name: 'Office Pool' })).not.toBeInTheDocument();
+});
+
+test("a manager with no fantasy league can still browse players but is told why nothing can be added", async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/league') {
+      return Promise.resolve({ data: [{ id: 5, name: 'Office Pool', pickem_only: true, draft_status: 'pending' }] });
+    }
+    if (url === '/api/players') return Promise.resolve({ data: { players: [player()], totalPages: 1 } });
+    return Promise.reject(new Error(`unexpected GET ${url}`));
+  });
+
+  renderWithProviders(<PlayerManagement />);
+
+  expect(await screen.findByText('Patrick Mahomes')).toBeInTheDocument();
+  expect(await screen.findByText(/not in a fantasy league yet/i)).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Go to Leagues' })).toHaveAttribute('href', '/league');
+  expect(apiClient.get).not.toHaveBeenCalledWith(expect.stringContaining('/api/team/roster'));
+});

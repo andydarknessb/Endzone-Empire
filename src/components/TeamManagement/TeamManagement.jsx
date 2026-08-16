@@ -135,9 +135,12 @@ function TeamManagement() {
   const fetchLeagues = async () => {
     try {
       const response = await apiClient.get('/api/league');
-      setLeagues(response.data);
-      if (response.data.length > 0) {
-        setSelectedLeague(response.data[0].id);
+      // A pick'em-only league has no roster to manage, so it never appears
+      // in this selector.
+      const rosterLeagues = response.data.filter((league) => !league.pickem_only);
+      setLeagues(rosterLeagues);
+      if (rosterLeagues.length > 0) {
+        setSelectedLeague(rosterLeagues[0].id);
         // Keep the skeleton up: fetchRoster (via the selectedLeague effect)
         // resolves the loading state.
       } else {
@@ -258,7 +261,7 @@ function TeamManagement() {
             {leagues.length === 0 ? (
               <>
                 <Typography color="text.secondary">
-                  You&apos;re not in a league yet. Create or join one to start building your team.
+                  You&apos;re not in a fantasy league yet. Create or join one to start building your team.
                 </Typography>
                 <Button component={RouterLink} to="/league" variant="contained">
                   Go to Leagues

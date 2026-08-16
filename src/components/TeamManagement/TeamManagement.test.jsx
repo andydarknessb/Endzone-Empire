@@ -61,7 +61,7 @@ test('shows skeleton rows (not the empty state) while data is loading', () => {
 
   expect(screen.getAllByTestId('roster-skeleton').length).toBeGreaterThan(0);
   expect(screen.queryByText(/No players rostered yet/)).not.toBeInTheDocument();
-  expect(screen.queryByText(/not in a league yet/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/not in a fantasy league yet/i)).not.toBeInTheDocument();
 });
 
 test('shows a compact summary skeleton while standings load', async () => {
@@ -279,7 +279,7 @@ test('preserves the no-league empty state', async () => {
 
   renderWithProviders(<TeamManagement />);
 
-  expect(await screen.findByText(/not in a league yet/i)).toBeInTheDocument();
+  expect(await screen.findByText(/not in a fantasy league yet/i)).toBeInTheDocument();
   expect(screen.getByRole('link', { name: 'Go to Leagues' })).toHaveAttribute('href', '/league');
 });
 
@@ -362,4 +362,42 @@ test('shows an error alert when the roster fetch fails', async () => {
   renderWithProviders(<TeamManagement />);
 
   expect(await screen.findByText('roster unavailable')).toBeInTheDocument();
+});
+
+test("pick'em-only leagues are left out of the league selector because they have no roster to manage", async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/league') {
+      return Promise.resolve({
+        data: [
+          { id: 5, name: 'Office Pool', pickem_only: true, draft_status: 'pending' },
+          makeLeague({ id: 1, name: 'Sunday Ballers' }),
+        ],
+      });
+    }
+    if (String(url).startsWith('/api/scoring/')) return Promise.resolve(standingsResponse([makeStanding()]));
+    return Promise.resolve({ data: [] });
+  });
+
+  renderWithProviders(<TeamManagement />);
+
+  // The first FANTASY league is auto-selected, not the pick'em pool listed first.
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/team/roster?leagueId=1'));
+  expect(apiClient.get).not.toHaveBeenCalledWith('/api/team/roster?leagueId=5');
+  await userEvent.click(screen.getByRole('combobox', { name: 'League' }));
+  expect(await screen.findByRole('option', { name: 'Sunday Ballers' })).toBeInTheDocument();
+  expect(screen.queryByRole('option', { name: 'Office Pool' })).not.toBeInTheDocument();
+});
+
+test("a manager whose only league is pick'em-only sees the no-roster empty state", async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/league') {
+      return Promise.resolve({ data: [{ id: 5, name: 'Office Pool', pickem_only: true, draft_status: 'pending' }] });
+    }
+    return Promise.resolve({ data: [] });
+  });
+
+  renderWithProviders(<TeamManagement />);
+
+  expect(await screen.findByText(/not in a fantasy league yet/i)).toBeInTheDocument();
+  expect(apiClient.get).not.toHaveBeenCalledWith(expect.stringContaining('/api/team/roster'));
 });

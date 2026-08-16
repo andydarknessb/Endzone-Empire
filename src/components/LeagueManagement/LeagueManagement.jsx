@@ -11,7 +11,12 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import apiClient from '../../api/apiClient';
 import DraftCentralCard from '../DraftCentral/DraftCentralCard';
 import LeagueCard from '../common/LeagueCard';
+import LeagueTypeFields from '../common/LeagueTypeFields';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
+import {
+  LEAGUE_TYPE, MIN_TEAMS, capForType, clampTeamCount, includesFantasy, isPickemOnlyType, isValidTeamCount,
+  leagueTypePayload,
+} from '../../lib/leagueType';
 import './LeagueManagement.css';
 
 function LeagueManagement() {
@@ -49,6 +54,11 @@ function LeagueManagement() {
     return () => clearTimeout(handle);
   }, [activeTab, newLeagueOpen, searchParams]);
 
+  // League type is always sent; the pick'em mode only when the type includes
+  // pick'em (see leagueTypePayload).
+  const [leagueType, setLeagueType] = useState(LEAGUE_TYPE.FANTASY);
+  const [pickemMode, setPickemMode] = useState('straight');
+
   // New league-creation options — all optional, sent only when the user
   // actually sets them (see createLeague).
   const [isPublic, setIsPublic] = useState(false);
@@ -65,6 +75,27 @@ function LeagueManagement() {
 
   const report = (err) => setError(err.response?.data?.error || err.message);
 
+  // Switching type re-caps the team count: a 40-manager pick'em pool cannot
+  // become a 40-team fantasy league. Min teams is hidden while the type is
+  // pick'em, so it is pulled under the new max too rather than surfacing later
+  // as a server "minTeams must be ... between 2 and maxTeams" rejection.
+  const handleLeagueTypeChange = (nextType) => {
+    const cappedMax = clampTeamCount(maxTeams, capForType(nextType));
+    setLeagueType(nextType);
+    setMaxTeams(cappedMax);
+    if (isValidTeamCount(cappedMax, capForType(nextType))) {
+      setMinTeams((current) => clampTeamCount(current, cappedMax));
+    }
+  };
+
+  // Max/Min teams live inside a collapsed-by-default Accordion, so native form
+  // validation would block submit on a control the user cannot see: gate the
+  // button here and say why. Min only applies when the type has a draft.
+  const teamCap = capForType(leagueType);
+  const maxTeamsValid = isValidTeamCount(maxTeams, teamCap);
+  const minTeamsValid = !includesFantasy(leagueType) || (maxTeamsValid && isValidTeamCount(minTeams, Number(maxTeams)));
+  const teamLimitsValid = maxTeamsValid && minTeamsValid;
+
   const fetchLeagues = async () => {
     try {
       const response = await apiClient.get('/api/league');
@@ -78,21 +109,27 @@ function LeagueManagement() {
     event.preventDefault();
     setError(null);
     try {
+      // maxTeams is always explicit: the server's default is the fantasy 10
+      // for every type, so a pick'em pool must never rely on it. A pick'em
+      // league has no draft to gate on, so it sends no minTeams (the server
+      // defaults it to the floor).
       const payload = {
         name: leagueName,
         maxTeams: Number(maxTeams),
-        minTeams: Number(minTeams),
       };
+      if (includesFantasy(leagueType)) payload.minTeams = Number(minTeams);
+      Object.assign(payload, leagueTypePayload({ leagueType, pickemMode, bestBall, scoringPreset, draftDate }));
       if (isPublic) payload.isPublic = true;
       if (isPublic && joinApproval) payload.joinApproval = true;
-      if (bestBall) payload.bestBall = true;
-      if (scoringPreset) payload.scoringPreset = scoringPreset;
-      if (draftDate) payload.draftDate = new Date(draftDate).toISOString();
 
       const response = await apiClient.post('/api/league', payload);
       setNotice(`League created! Invite code: ${response.data.invite_code}`);
       notify('League created!');
       setLeagueName('');
+      setMaxTeams(10);
+      setMinTeams(8);
+      setLeagueType(LEAGUE_TYPE.FANTASY);
+      setPickemMode('straight');
       setIsPublic(false);
       setJoinApproval(false);
       setBestBall(false);
@@ -174,6 +211,17 @@ function LeagueManagement() {
             <TextField label="League name" size="small" required
               value={leagueName} onChange={(e) => setLeagueName(e.target.value)} />
 
+            <LeagueTypeFields
+              leagueType={leagueType}
+              onLeagueTypeChange={handleLeagueTypeChange}
+              pickemMode={pickemMode}
+              onPickemModeChange={setPickemMode}
+            />
+
+            {/* Fantasy-only settings: a pick'em league has no scoring rules or
+                draft, and the server rejects these fields for it. */}
+            {includesFantasy(leagueType) && (
+              <>
             <FormControl size="small">
               <InputLabel id="scoring-preset-label">Scoring</InputLabel>
               <Select
@@ -200,6 +248,8 @@ function LeagueManagement() {
               value={draftDate}
               onChange={(e) => setDraftDate(e.target.value)}
             />
+              </>
+            )}
 
             <Accordion sx={{ bgcolor: 'background.paper' }}>
               <AccordionSummary expandIcon={<ExpandMoreIcon />}>
@@ -207,15 +257,28 @@ function LeagueManagement() {
               </AccordionSummary>
               <AccordionDetails>
                 <Stack spacing={2}>
+                  {includesFantasy(leagueType) ? (
+                    <>
                   <Typography variant="caption" color="text.secondary">
                     Roster size (starting slots, bench, and IR) is configured after creating the
                     league, via Commissioner Tools → Roster Settings.
                   </Typography>
                   <TextField label="Min teams (draft won't start below this)" size="small" type="number"
-                    inputProps={{ min: 2, max: 20 }}
+                    inputProps={{ min: MIN_TEAMS, max: capForType(leagueType) }}
+                    error={!minTeamsValid}
+                    helperText={minTeamsValid ? undefined : `${MIN_TEAMS} up to the max teams`}
                     value={minTeams} onChange={(e) => setMinTeams(e.target.value)} />
+                    </>
+                  ) : (
+                  <Typography variant="caption" color="text.secondary">
+                    A pick&apos;em league has no draft to wait for: managers can join all season,
+                    up to the cap below.
+                  </Typography>
+                  )}
                   <TextField label="Max teams" size="small" type="number"
-                    inputProps={{ min: 2, max: 20 }}
+                    inputProps={{ min: MIN_TEAMS, max: capForType(leagueType) }}
+                    error={!maxTeamsValid}
+                    helperText={isPickemOnlyType(leagueType) || !maxTeamsValid ? `${MIN_TEAMS} to ${capForType(leagueType)} ${isPickemOnlyType(leagueType) ? 'managers' : 'teams'}` : undefined}
                     value={maxTeams} onChange={(e) => setMaxTeams(e.target.value)} />
 
                   <FormControlLabel
@@ -239,6 +302,8 @@ function LeagueManagement() {
                       label="Require commissioner approval to join"
                     />
                   )}
+                  {includesFantasy(leagueType) && (
+                    <>
                   <FormControlLabel
                     control={
                       <Switch
@@ -253,11 +318,18 @@ function LeagueManagement() {
                       Best ball: an optimal lineup is set automatically each week, with no manual lineup edits.
                     </Typography>
                   )}
+                    </>
+                  )}
                 </Stack>
               </AccordionDetails>
             </Accordion>
 
-            <Button type="submit" variant="contained">Create League</Button>
+            <Button type="submit" variant="contained" disabled={!teamLimitsValid}>Create League</Button>
+            {!teamLimitsValid && (
+              <Typography variant="caption" color="error">
+                Check the team limits under Advanced Settings.
+              </Typography>
+            )}
           </Stack>
         </Paper>
           ) : (

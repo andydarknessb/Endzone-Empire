@@ -40,16 +40,18 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
 import apiClient from '../../api/apiClient';
 import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../lib/teamProfileEvents';
+import { primeLeagueCache } from '../../hooks/useLeague';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import TeamAvatar from '../common/TeamAvatar';
 import ChatPanel from '../ChatPanel/ChatPanel';
 import RecapCard from '../RecapCard/RecapCard';
 import TrophyCase from '../TrophyCase/TrophyCase';
 import DraftGradesCard from '../DraftGradesCard/DraftGradesCard';
+import PickemStandings from '../LeaguePickem/PickemStandings';
 import Countdown from '../Countdown/Countdown';
 import CommissionerTools from './CommissionerTools';
 import AbbreviationTooltip from '../common/AbbreviationTooltip';
-import { deriveLeaguePhase, LEAGUE_PHASE } from '../../lib/leaguePhase';
+import { deriveLeaguePhase, LEAGUE_PHASE, LEAGUE_PHASE_META } from '../../lib/leaguePhase';
 
 const SEASON_STATUS_CHIP = {
   regular: { label: 'Regular Season', color: 'default' },
@@ -60,32 +62,34 @@ const SEASON_STATUS_CHIP = {
 // League navigation, grouped by intent so the dashboard reads as sections
 // rather than a flat wall of buttons. `weight` drives the card's visual
 // emphasis: 'primary' cards (the most common day-to-day actions) get a
-// tinted, filled treatment; 'default' cards stay outlined.
+// tinted, filled treatment; 'default' cards stay outlined. `fantasyOnly`
+// links have no surface in a pick'em-only league (no draft, rosters or
+// matchups) and are trimmed there; a group with nothing left is skipped.
 const NAV_GROUPS = [
   {
     label: 'Play',
     links: [
-      { label: 'Draft Room', slug: 'draft', icon: GroupsIcon },
-      { label: 'Set Lineup', slug: 'lineup', icon: AssignmentIcon },
-      { label: 'Game Center', slug: 'game-center', icon: LiveTvIcon },
+      { label: 'Draft Room', slug: 'draft', icon: GroupsIcon, fantasyOnly: true },
+      { label: 'Set Lineup', slug: 'lineup', icon: AssignmentIcon, fantasyOnly: true },
+      { label: 'Game Center', slug: 'game-center', icon: LiveTvIcon, fantasyOnly: true },
       { label: "Pick'em", slug: 'pickem', icon: FactCheckIcon },
     ],
   },
   {
     label: 'Moves',
     links: [
-      { label: 'Waivers', slug: 'waivers', icon: SwapHorizIcon },
-      { label: 'Trades', slug: 'trades', icon: CompareArrowsIcon },
+      { label: 'Waivers', slug: 'waivers', icon: SwapHorizIcon, fantasyOnly: true },
+      { label: 'Trades', slug: 'trades', icon: CompareArrowsIcon, fantasyOnly: true },
     ],
   },
   {
     label: 'League',
     links: [
       { label: 'Activity', slug: 'activity', icon: TimelineIcon },
-      { label: 'Power Rankings', slug: 'power-rankings', icon: TrendingUpIcon },
+      { label: 'Power Rankings', slug: 'power-rankings', icon: TrendingUpIcon, fantasyOnly: true },
       { label: 'History', slug: 'history', icon: EmojiEventsIcon },
       { label: 'League Rules', slug: 'rules', icon: MenuBookIcon },
-      { label: 'Draft Settings', slug: 'draft-settings', icon: SettingsIcon, commissionerOnly: true },
+      { label: 'Draft Settings', slug: 'draft-settings', icon: SettingsIcon, commissionerOnly: true, fantasyOnly: true },
     ],
   },
 ];
@@ -140,9 +144,23 @@ function LeagueDashboard() {
       const leagueRes = await apiClient.get(`/api/league/${leagueId}`);
       setLeague(leagueRes.data.league);
       setTeams(leagueRes.data.teams);
+      // Every subpage (and the FantasyOnly guard in front of the fantasy
+      // ones) reads the same row through useLeague: hand it over so the hop
+      // from here costs no second request.
+      primeLeagueCache(leagueId, leagueRes.data.league);
 
       const userRes = await apiClient.get('/api/user');
       setUser(userRes.data);
+
+      // A pick'em-only league has no matchups: the fantasy standings would
+      // come back as an all-zero table (and its failure would set the page
+      // error banner), so it is never requested; the pick'em standings
+      // component below fetches its own.
+      if (leagueRes.data.league?.pickem_only) {
+        setStandings([]);
+        setStandingsLeague(null);
+        return;
+      }
 
       try {
         const standingsRes = await apiClient.get(`/api/scoring/league/${leagueId}/standings`);
@@ -242,19 +260,31 @@ function LeagueDashboard() {
   // absent in older data â€” treat that as no gate).
   const belowMin = league.min_teams != null && teams.length < league.min_teams;
   const auctionUnsupported = league.draft_type === 'auction';
+  const pickemOnly = !!league.pickem_only;
   const leaguePhase = deriveLeaguePhase({
     ...league,
     season_status: standingsLeague?.season_status || league.season_status,
   });
   const primarySlugs = new Set(
-    leaguePhase === LEAGUE_PHASE.PRE_DRAFT || leaguePhase === LEAGUE_PHASE.DRAFTING
-      ? ['draft']
-      : leaguePhase === LEAGUE_PHASE.COMPLETE
-        ? ['history']
-        : leaguePhase === LEAGUE_PHASE.PLAYOFFS
-          ? ['lineup', 'game-center']
-          : ['lineup', 'game-center', 'waivers']
+    pickemOnly
+      ? ['pickem']
+      : leaguePhase === LEAGUE_PHASE.PRE_DRAFT || leaguePhase === LEAGUE_PHASE.DRAFTING
+        ? ['draft']
+        : leaguePhase === LEAGUE_PHASE.COMPLETE
+          ? ['history']
+          : leaguePhase === LEAGUE_PHASE.PLAYOFFS
+            ? ['lineup', 'game-center']
+            : ['lineup', 'game-center', 'waivers']
   );
+  const seasonStatusChip = (status) => (
+    <Chip
+      label={(SEASON_STATUS_CHIP[status] || {}).label || status}
+      color={(SEASON_STATUS_CHIP[status] || {}).color || 'default'}
+    />
+  );
+  // A pick'em-only league has no playoffs: its status IS its phase (in season
+  // or complete), worded and coloured the same way LeagueCard words it.
+  const phaseMeta = LEAGUE_PHASE_META[leaguePhase];
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
@@ -263,10 +293,21 @@ function LeagueDashboard() {
           {error}
         </Alert>
       )}
-      <RecapCard leagueId={leagueId} />
+      {/* Recaps and draft grades are matchup- and draft-derived; a pick'em
+          league never has either, so the two requests are skipped outright. */}
+      {!pickemOnly && <RecapCard leagueId={leagueId} />}
 
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
         <Typography variant="h4">{league.name}</Typography>
+        {pickemOnly ? (
+          <>
+            <Chip label={`Teams: ${teams.length}/${league.max_teams}`} />
+            <Chip label="Pick'em" color="secondary" />
+            {league.current_week != null && <Chip label={`Week ${league.current_week}`} />}
+            {phaseMeta && <Chip label={phaseMeta.label} color={phaseMeta.color} />}
+          </>
+        ) : (
+          <>
         <Chip
           label={league.draft_status}
           color={
@@ -289,18 +330,14 @@ function LeagueDashboard() {
         {league.draft_status === 'complete' && standingsLeague && (
           <>
             <Chip label={`Week ${standingsLeague.current_week}`} />
-            <Chip
-              label={
-                (SEASON_STATUS_CHIP[standingsLeague.season_status] || {}).label ||
-                standingsLeague.season_status
-              }
-              color={(SEASON_STATUS_CHIP[standingsLeague.season_status] || {}).color || 'default'}
-            />
+            {seasonStatusChip(standingsLeague.season_status)}
+          </>
+        )}
           </>
         )}
       </Box>
 
-      {league.draft_status === 'pending' && league.draft_date && (
+      {!pickemOnly && league.draft_status === 'pending' && league.draft_date && (
         <Box sx={{ mb: 3 }}>
           <Countdown variant="full" date={league.draft_date} />
         </Box>
@@ -322,6 +359,60 @@ function LeagueDashboard() {
         </Paper>
       )}
 
+      {pickemOnly ? (
+        <>
+          <Paper
+            sx={{
+              p: { xs: 2, sm: 3 },
+              mb: 3,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 2,
+              flexWrap: 'wrap',
+              bgcolor: 'primary.main',
+              color: 'primary.contrastText',
+            }}
+          >
+            {league.season_status === 'complete' ? (
+              <Box>
+                <Typography variant="h6" sx={{ color: 'inherit' }}>
+                  The pick&apos;em season is over
+                </Typography>
+                <Typography variant="body2" sx={{ color: 'inherit', opacity: 0.9 }}>
+                  Standings are final. Next season opens when the commissioner starts it.
+                </Typography>
+              </Box>
+            ) : (
+              <Box>
+                <Typography variant="h6" sx={{ color: 'inherit' }}>
+                  {league.current_week != null ? `Week ${league.current_week} picks` : 'Weekly picks'}
+                </Typography>
+                <Typography variant="body2" sx={{ color: 'inherit', opacity: 0.9 }}>
+                  Pick the winner of every game before it kicks off.
+                </Typography>
+              </Box>
+            )}
+            <Button
+              component={Link}
+              to={`/league/${leagueId}/pickem`}
+              variant="contained"
+              color="secondary"
+              size="large"
+            >
+              {league.season_status === 'complete' ? 'View picks' : 'Make your picks'}
+            </Button>
+          </Paper>
+
+          <Typography variant="h6" sx={{ mb: 2 }}>
+            Standings
+          </Typography>
+          <Box sx={{ mb: 3 }}>
+            <PickemStandings leagueId={leagueId} season={league.current_season} />
+          </Box>
+        </>
+      ) : (
+        <>
       <Typography variant="h6" sx={{ mb: 2 }}>
         Standings
       </Typography>
@@ -382,18 +473,24 @@ function LeagueDashboard() {
           </TableBody>
         </Table>
       </TableContainer>
+        </>
+      )}
 
       <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap', alignItems: 'flex-start' }}>
         <Box sx={{ flex: '1 1 300px' }}>
           <TrophyCase leagueId={leagueId} />
         </Box>
-        <Box sx={{ flex: '1 1 300px' }}>
-          <DraftGradesCard leagueId={leagueId} />
-        </Box>
+        {!pickemOnly && (
+          <Box sx={{ flex: '1 1 300px' }}>
+            <DraftGradesCard leagueId={leagueId} />
+          </Box>
+        )}
       </Box>
 
-      {/* Contextual actions: only shown when they apply */}
-      {((isCommissioner && league.draft_status === 'pending') ||
+      {/* Contextual actions: only shown when they apply. A pick'em-only
+          league has no draft to start and its week follows the NFL calendar
+          on its own, so neither action exists there. */}
+      {!pickemOnly && ((isCommissioner && league.draft_status === 'pending') ||
         (isCommissioner &&
           league.draft_status === 'complete' &&
           standingsLeague &&
@@ -447,7 +544,12 @@ function LeagueDashboard() {
       {/* Grouped league navigation, as rich cards rather than a wall of
           identical outlined buttons. */}
       <Box sx={{ mb: 3 }}>
-        {NAV_GROUPS.map((group) => (
+        {NAV_GROUPS.map((group) => ({
+          ...group,
+          links: group.links.filter(
+            (l) => (!l.commissionerOnly || isCommissioner) && (!l.fantasyOnly || !pickemOnly)
+          ),
+        })).filter((group) => group.links.length > 0).map((group) => (
           <Box key={group.label} sx={{ mb: 2 }}>
             <Typography
               variant="overline"
@@ -456,7 +558,7 @@ function LeagueDashboard() {
               {group.label}
             </Typography>
             <Grid container spacing={1.5}>
-              {group.links.filter((l) => !l.commissionerOnly || isCommissioner).map((l) => {
+              {group.links.map((l) => {
                 const Icon = l.icon;
                 const primary = primarySlugs.has(l.slug);
                 return (

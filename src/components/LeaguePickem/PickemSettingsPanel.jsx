@@ -14,6 +14,13 @@ import {
   Typography,
 } from '@mui/material';
 
+// The two scoring modes, worded once and shared with the create dialogs' mode
+// picker so a league reads the same rule at creation and in its settings.
+export const PICKEM_MODE_OPTIONS = Object.freeze([
+  { value: 'straight', label: 'Straight up: 1 point per correct pick' },
+  { value: 'confidence', label: 'Confidence: rank every game, earn the rank you assigned' },
+]);
+
 /**
  * Commissioner controls. The scoring mode is a one-way door for the season:
  * once anyone has made a pick, the server returns 409 PICKEM_MODE_LOCKED
@@ -24,8 +31,11 @@ import {
  * `embedded` drops the Paper shell and heading for use inside the page's
  * collapsible "Commissioner settings" accordion; standalone (the disabled-state
  * CTA) keeps them.
+ *
+ * `lockedOn` is the pick'em-only league: pick'em is the league's only game, so
+ * the enable switch is replaced by a static line and only the mode is editable.
  */
-export default function PickemSettingsPanel({ settings, saving, error, onSave, embedded = false }) {
+export default function PickemSettingsPanel({ settings, saving, error, onSave, embedded = false, lockedOn = false }) {
   const [mode, setMode] = useState(settings.mode);
 
   // Another commissioner (or another tab) may have changed the mode since this
@@ -41,23 +51,28 @@ export default function PickemSettingsPanel({ settings, saving, error, onSave, e
     <Shell sx={shellSx}>
       {!embedded && <Typography variant="h6" sx={{ mb: 0.5 }}>Commissioner settings</Typography>}
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Pick&apos;em is a side game for the whole league: everyone picks the winner of
-        every NFL game, picks lock at kickoff, and a tied game credits nobody.
+        {lockedOn
+          ? 'Everyone picks the winner of every NFL game, picks lock at kickoff, and a tied game credits nobody.'
+          : "Pick'em is a side game for the whole league: everyone picks the winner of every NFL game, picks lock at kickoff, and a tied game credits nobody."}
       </Typography>
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
       <Stack spacing={2}>
-        <FormControlLabel
-          control={
-            <Switch
-              checked={Boolean(settings.enabled)}
-              disabled={saving}
-              onChange={(event) => onSave({ enabled: event.target.checked })}
-            />
-          }
-          label="Enable Pick'em for this league"
-        />
+        {lockedOn ? (
+          <Typography variant="body2">Pick&apos;em is always on in this league.</Typography>
+        ) : (
+          <FormControlLabel
+            control={
+              <Switch
+                checked={Boolean(settings.enabled)}
+                disabled={saving}
+                onChange={(event) => onSave({ enabled: event.target.checked })}
+              />
+            }
+            label="Enable Pick'em for this league"
+          />
+        )}
 
         <FormControl>
           <FormLabel id="pickem-mode-label">Scoring</FormLabel>
@@ -66,16 +81,14 @@ export default function PickemSettingsPanel({ settings, saving, error, onSave, e
             value={mode}
             onChange={(event) => setMode(event.target.value)}
           >
-            <FormControlLabel
-              value="straight"
-              control={<Radio />}
-              label="Straight up: 1 point per correct pick"
-            />
-            <FormControlLabel
-              value="confidence"
-              control={<Radio />}
-              label="Confidence: rank every game, earn the rank you assigned"
-            />
+            {PICKEM_MODE_OPTIONS.map((option) => (
+              <FormControlLabel
+                key={option.value}
+                value={option.value}
+                control={<Radio />}
+                label={option.label}
+              />
+            ))}
           </RadioGroup>
         </FormControl>
 

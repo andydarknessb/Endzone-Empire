@@ -187,3 +187,41 @@ test('shows an error alert when the history fetch fails', async () => {
 
   expect(await screen.findByText('history unavailable')).toBeInTheDocument();
 });
+
+test("a pick'em season's standings render points and correct picks instead of a W-L record", async () => {
+  apiClient.get.mockResolvedValue({
+    data: {
+      seasons: [
+        {
+          season: 2026,
+          champion: { teamId: 1, name: 'Sunday Ballers' },
+          // The shape rolloverSeason archives for a pick'em-only league.
+          standings: [
+            { userId: 11, username: 'alice', teamName: 'Sunday Ballers', teamId: 1, name: 'Sunday Ballers', rank: 1, points: 171, correct: 120, pushes: 2, weekly: {} },
+            { userId: 12, username: 'bob', teamName: "Bob's Team", teamId: 2, name: "Bob's Team", rank: 2, points: 160, correct: 115, pushes: 2, weekly: {} },
+          ],
+          trophies: [
+            { id: 1, type: 'pickem_champion', label: "2026 Pick'em Champion", team_name: 'Sunday Ballers' },
+          ],
+          draftGrades: null,
+        },
+      ],
+    },
+  });
+
+  renderHistory();
+
+  const panel = await screen.findByTestId('season-panel-2026');
+  const table = within(panel).getByRole('table');
+  expect(within(table).getByText('Points')).toBeInTheDocument();
+  expect(within(table).getByText('Correct')).toBeInTheDocument();
+  expect(within(table).queryByText('W-L')).not.toBeInTheDocument();
+  expect(within(table).getByText('171')).toBeInTheDocument();
+  expect(within(table).getByText('160')).toBeInTheDocument();
+  expect(within(table).getByText('120')).toBeInTheDocument();
+  expect(panel).not.toHaveTextContent('undefined');
+
+  const banner = within(panel).getByTestId('champion-banner-2026');
+  expect(banner).toHaveTextContent('171 points');
+  expect(banner).not.toHaveTextContent('record');
+});

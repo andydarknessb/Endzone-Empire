@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper,
   Button, Pagination, Alert, Typography, Select, MenuItem, FormControl, InputLabel,
@@ -47,6 +47,7 @@ const sortLabelSx = {
 
 function PlayerManagement() {
   const [leagues, setLeagues] = useState([]);
+  const [leaguesLoaded, setLeaguesLoaded] = useState(false);
   const [selectedLeague, setSelectedLeague] = useState('');
   const [players, setPlayers] = useState([]);
   const [totalPages, setTotalPages] = useState(1);
@@ -93,8 +94,12 @@ function PlayerManagement() {
     (async () => {
       try {
         const response = await apiClient.get('/api/league');
-        setLeagues(response.data);
-        if (response.data.length > 0) setSelectedLeague(response.data[0].id);
+        // A pick'em-only league has no roster to add players to, so it never
+        // appears in this selector.
+        const rosterLeagues = response.data.filter((league) => !league.pickem_only);
+        setLeagues(rosterLeagues);
+        setLeaguesLoaded(true);
+        if (rosterLeagues.length > 0) setSelectedLeague(rosterLeagues[0].id);
       } catch (err) {
         report(err);
       }
@@ -215,6 +220,17 @@ function PlayerManagement() {
   return (
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flexDirection: 'column' }}>
       {error && <Alert severity="error" onClose={() => setError(null)} sx={{ m: 1 }}>{error}</Alert>}
+      {/* Players stay browsable without a fantasy league (a pick'em-only
+          member has none), but there is no roster to add them to. */}
+      {leaguesLoaded && leagues.length === 0 && (
+        <Alert
+          severity="info"
+          sx={{ m: 1 }}
+          action={<Button component={RouterLink} to="/league" color="inherit" size="small">Go to Leagues</Button>}
+        >
+          You&apos;re not in a fantasy league yet, so players can be browsed but not added to a roster.
+        </Alert>
+      )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 10, flexWrap: 'wrap' }}>
         <TextField
           size="small"

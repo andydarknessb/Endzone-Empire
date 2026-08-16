@@ -331,3 +331,26 @@ test("the week selector marks the league's current week", async () => {
   await user.click(screen.getByRole('combobox', { name: /Week/i }));
   expect(await screen.findByRole('option', { name: 'Week 3 · current' })).toBeInTheDocument();
 });
+
+test("in a pick'em-only league the commissioner cannot turn Pick'em off, only change how it scores", async () => {
+  const user = userEvent.setup();
+  apiClient.get.mockImplementation((url) => {
+    if (url.startsWith(`/api/pickem/league/${LEAGUE_ID}/settings`)) {
+      return Promise.resolve({ data: { enabled: true, mode: 'straight', isCommissioner: true } });
+    }
+    if (url.startsWith(`/api/pickem/league/${LEAGUE_ID}/week/`)) {
+      return Promise.resolve({ data: weekView() });
+    }
+    if (url.startsWith('/api/league/')) {
+      return Promise.resolve({ data: { league: league({ pickem_only: true }), teams: [] } });
+    }
+    return Promise.reject(new Error(`unexpected GET ${url}`));
+  });
+  renderPage();
+
+  await user.click(await screen.findByRole('button', { name: /Commissioner settings/i }));
+  expect(await screen.findByText("Pick'em is always on in this league.")).toBeInTheDocument();
+  expect(screen.queryByRole('checkbox', { name: /Enable Pick'em for this league/i })).not.toBeInTheDocument();
+  expect(screen.getByRole('radio', { name: /Straight up/ })).toBeChecked();
+  expect(screen.getByRole('radio', { name: /Confidence/ })).toBeInTheDocument();
+});
