@@ -4,6 +4,7 @@ const {
   VALID_SCORING_PRESETS,
   validateCreateOptions,
   buildDiscoverQuery,
+  VALID_DISCOVER_TYPES,
 } = require('../services/discovery.service');
 
 // ---------------------------------------------------------------------------
@@ -225,4 +226,91 @@ test("discoverLeagues: projects the league type so Discover can label a pick'em-
   assert.match(sql, /"leagues"\."pickem_only" AS "pickemOnly"/);
   assert.equal(rows[0].pickemOnly, true);
   assert.equal(rows[0].openSlots, true);
+});
+
+// ---------------------------------------------------------------------------
+// buildDiscoverQuery: league type
+// ---------------------------------------------------------------------------
+
+test("buildDiscoverQuery: type 'pickem' filters pickem_only = true with the value only in params", () => {
+  const { whereClause, params } = buildDiscoverQuery({ userId: 1, type: 'pickem' });
+  assert.match(whereClause, /"leagues"\."pickem_only" = \$2$/);
+  assert.deepEqual(params, [1, true]);
+});
+
+test("buildDiscoverQuery: type 'fantasy' filters pickem_only = false", () => {
+  const { whereClause, params } = buildDiscoverQuery({ userId: 1, type: 'fantasy' });
+  assert.match(whereClause, /"leagues"\."pickem_only" = \$2$/);
+  assert.deepEqual(params, [1, false]);
+});
+
+test('buildDiscoverQuery: no type means no pickem_only fragment (both kinds listed)', () => {
+  const { whereClause, params } = buildDiscoverQuery({ userId: 1, search: 'x' });
+  assert.equal(whereClause.includes('pickem_only'), false);
+  assert.deepEqual(params, [1, '%x%']);
+});
+
+test('buildDiscoverQuery: type composes with search and scoring, placeholders stay in order', () => {
+  const { whereClause, params } = buildDiscoverQuery({ userId: 7, search: 'Empire', scoring: 'ppr', type: 'fantasy' });
+  assert.match(whereClause, /"leagues"\."name" ILIKE \$2 AND "leagues"\."scoring_preset" = \$3 AND "leagues"\."pickem_only" = \$4$/);
+  assert.deepEqual(params, [7, '%Empire%', 'ppr', false]);
+});
+
+test('VALID_DISCOVER_TYPES is fantasy and pickem', () => {
+  assert.deepEqual(VALID_DISCOVER_TYPES, ['fantasy', 'pickem']);
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/league/discover: the type query param at the route seam
+// ---------------------------------------------------------------------------
+
+test('GET /discover: type is validated (400 on an unknown value) and passed to the query as pickem_only', async (t) => {
+  const express = require('express');
+  const request = require('supertest');
+  const pool = require('../modules/pool');
+  const { signToken } = require('../modules/auth');
+  const previousSecret = process.env.JWT_SECRET;
+  process.env.JWT_SECRET = 'discover-type-route-test-secret';
+  t.after(() => { if (previousSecret === undefined) delete process.env.JWT_SECRET; else process.env.JWT_SECRET = previousSecret; });
+
+  const seen = [];
+  t.mock.method(pool, 'query', async (sql, params) => { seen.push({ sql, params }); return { rows: [] }; });
+  const app = express();
+  app.use(express.json());
+  app.use('/api/league', require('../routes/league.router'));
+  const auth = `Bearer ${signToken({ id: 9, username: 'u9' })}`;
+
+  const bad = await request(app).get('/api/league/discover?type=bogus').set('Authorization', auth);
+  assert.equal(bad.status, 400);
+  assert.match(bad.body.error, /type must be one of fantasy, pickem/);
+  assert.equal(seen.length, 0);
+
+  const ok = await request(app).get('/api/league/discover?type=pickem&sort=newest').set('Authorization', auth);
+  assert.equal(ok.status, 200);
+  const call = seen.find((c) => /FROM "leagues"/.test(c.sql));
+  assert.ok(call, 'discover query ran');
+  assert.match(call.sql, /"leagues"\."pickem_only" = \$2/);
+  assert.deepEqual(call.params, [9, true]);
+});
+
+test('buildDiscoverQuery: an unvalidated type value adds no fragment (fails closed, not open)', () => {
+  for (const bad of ['bogus', 'both', 'FANTASY', ['pickem']]) {
+    const { whereClause, params } = buildDiscoverQuery({ userId: 1, type: bad });
+    assert.equal(whereClause.includes('pickem_only'), false, `type=${JSON.stringify(bad)} must not filter`);
+    assert.deepEqual(params, [1]);
+  }
+});
+
+test("discoverLeagues: projects pickemEnabled so a fantasy league with pick'em on can be labelled", async (t) => {
+  const pool = require('../modules/pool');
+  const { discoverLeagues } = require('../services/discovery.service');
+  let sql;
+  t.mock.method(pool, 'query', async (text) => {
+    sql = text;
+    return { rows: [{ id: 5, name: 'Both League', maxTeams: 10, teamCount: 3, pickemOnly: false, pickemEnabled: true }] };
+  });
+  const rows = await discoverLeagues({ userId: 1 });
+  assert.match(sql, /"pickem_settings"/);
+  assert.match(sql, /AS "pickemEnabled"/);
+  assert.equal(rows[0].pickemEnabled, true);
 });

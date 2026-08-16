@@ -18,6 +18,9 @@ class DiscoveryError extends Error {
 
 const VALID_SCORING_PRESETS = Object.keys(SCORING_PRESETS); // ['standard', 'half_ppr', 'ppr']
 const VALID_DISCOVER_SORTS = ['newest', 'draft_date', 'open_slots'];
+// League type filter for the browser: a pick'em-only league has no scoring
+// preset, so the scoring filter can never find one; this is how it is found.
+const VALID_DISCOVER_TYPES = ['fantasy', 'pickem'];
 const VALID_LEAGUE_TYPES = ['fantasy', 'pickem', 'both'];
 
 /**
@@ -112,7 +115,7 @@ function validateCreateOptions({
  * array — the fragments themselves are built only from fixed, code-chosen
  * strings, so nothing here string-interpolates request input into SQL.
  */
-function buildDiscoverQuery({ userId, search, scoring, openSlots, sort } = {}) {
+function buildDiscoverQuery({ userId, search, scoring, openSlots, sort, type } = {}) {
   const params = [userId];
   const where = [`"leagues"."is_public" = true`, `"leagues"."draft_status" = 'pending'`];
 
@@ -123,6 +126,15 @@ function buildDiscoverQuery({ userId, search, scoring, openSlots, sort } = {}) {
   if (scoring) {
     params.push(scoring);
     where.push(`"leagues"."scoring_preset" = $${params.length}`);
+  }
+  // 'pickem' = pick'em-only pools; 'fantasy' = leagues with a fantasy side,
+  // which includes a fantasy league that also plays pick'em ("both": that is
+  // pickem_only=false plus an enabled pickem_settings row, see the pickemEnabled
+  // projection). Anything unvalidated adds no fragment rather than silently
+  // meaning "fantasy".
+  if (VALID_DISCOVER_TYPES.includes(type)) {
+    params.push(type === 'pickem');
+    where.push(`"leagues"."pickem_only" = $${params.length}`);
   }
 
   const havingClause = openSlots ? `COUNT(DISTINCT "teams"."id") < "leagues"."max_teams"` : null;
@@ -143,9 +155,9 @@ function buildDiscoverQuery({ userId, search, scoring, openSlots, sort } = {}) {
 }
 
 /** Run the discover query for a caller, applying validated filters. */
-async function discoverLeagues({ userId, search, scoring, openSlots, sort }) {
+async function discoverLeagues({ userId, search, scoring, openSlots, sort, type }) {
   const { whereClause, havingClause, orderByClause, params } = buildDiscoverQuery({
-    userId, search, scoring, openSlots, sort,
+    userId, search, scoring, openSlots, sort, type,
   });
   const result = await pool.query(
     `SELECT
@@ -156,6 +168,7 @@ async function discoverLeagues({ userId, search, scoring, openSlots, sort }) {
        "leagues"."scoring_preset" AS "scoringPreset",
        "leagues"."best_ball" AS "bestBall",
        "leagues"."pickem_only" AS "pickemOnly",
+       COALESCE(BOOL_OR("pickem_settings"."enabled"), false) AS "pickemEnabled",
        "leagues"."join_approval" AS "joinApproval",
        "leagues"."draft_date" AS "draftDate",
        "leagues"."created_at" AS "createdAt",
@@ -163,6 +176,7 @@ async function discoverLeagues({ userId, search, scoring, openSlots, sort }) {
        MAX(CASE WHEN "join_requests"."user_id" = $1 THEN "join_requests"."status" END) AS "myRequestStatus"
      FROM "leagues"
      LEFT JOIN "teams" ON "teams"."league_id" = "leagues"."id"
+     LEFT JOIN "pickem_settings" ON "pickem_settings"."league_id" = "leagues"."id"
      LEFT JOIN "join_requests" ON "join_requests"."league_id" = "leagues"."id"
        AND "join_requests"."user_id" = $1
      WHERE ${whereClause}
@@ -346,6 +360,7 @@ module.exports = {
   DiscoveryError,
   VALID_SCORING_PRESETS,
   VALID_DISCOVER_SORTS,
+  VALID_DISCOVER_TYPES,
   VALID_LEAGUE_TYPES,
   validateCreateOptions,
   buildDiscoverQuery,

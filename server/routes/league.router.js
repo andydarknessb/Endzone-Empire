@@ -8,6 +8,7 @@ const {
   VALID_DISCOVER_SORTS,
   validateCreateOptions,
   discoverLeagues,
+  VALID_DISCOVER_TYPES,
   joinPublicLeague,
   listJoinRequests,
   decideJoinRequest,
@@ -232,9 +233,15 @@ router.post('/:id/join-requests/:requestId/decide', async (req, res) => {
 
 // GET /api/league/discover — public league browser (must precede GET /:id)
 router.get('/discover', async (req, res) => {
-  const { search, scoring, openSlots, sort } = req.query;
+  const { search, scoring, openSlots, sort, type } = req.query;
   if (scoring !== undefined && !VALID_SCORING_PRESETS.includes(scoring)) {
     return res.status(400).json({ error: `scoring must be one of ${VALID_SCORING_PRESETS.join(', ')}` });
+  }
+  // type + scoring is allowed to combine into an always-empty result (a
+  // pick'em-only league has no preset): a filter is a query, not a command,
+  // and the client never sends that pair anyway.
+  if (type !== undefined && !VALID_DISCOVER_TYPES.includes(type)) {
+    return res.status(400).json({ error: `type must be one of ${VALID_DISCOVER_TYPES.join(', ')}` });
   }
   if (sort !== undefined && !VALID_DISCOVER_SORTS.includes(sort)) {
     return res.status(400).json({ error: `sort must be one of ${VALID_DISCOVER_SORTS.join(', ')}` });
@@ -246,6 +253,7 @@ router.get('/discover', async (req, res) => {
       scoring,
       openSlots: openSlots === 'true',
       sort,
+      type,
     });
     res.json(rows);
   } catch (error) {
