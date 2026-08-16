@@ -1,6 +1,7 @@
 import { put, takeLatest } from 'redux-saga/effects';
 import apiClient, { setToken } from '../../api/apiClient';
 import { clearLeagueCache } from '../../hooks/useLeague';
+import { clearPickemStandingsCache } from '../../hooks/usePickemStandings';
 
 // worker Saga: fired on "REGISTER" actions
 export function* registerUser(action) {
@@ -15,6 +16,7 @@ export function* registerUser(action) {
     // the offline api cache and the shared in-memory league cache so the new
     // user is never served the previous account's rows.
     clearLeagueCache();
+    clearPickemStandingsCache();
     if (typeof caches !== 'undefined') {
       caches.delete('api-cache-v1').catch(() => {});
     }

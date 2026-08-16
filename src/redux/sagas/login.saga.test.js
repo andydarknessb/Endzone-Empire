@@ -4,6 +4,13 @@ import loginSaga, { loginUser, logoutUser } from './login.saga';
 import apiClient, { getToken, clearToken } from '../../api/apiClient';
 import { renderHook, waitFor } from '@testing-library/react';
 import { primeLeagueCache, useLeague, clearLeagueCache } from '../../hooks/useLeague';
+import { usePickemStandings, clearPickemStandingsCache } from '../../hooks/usePickemStandings';
+
+// Warm the standings cache the way a page visit would (the hook has no prime).
+const primePickemStandingsForTest = () => {
+  clearPickemStandingsCache();
+  mock.onGet('/api/pickem/league/1/standings').reply(200, { season: 2026, mode: 'straight', standings: [{ userId: 1 }] });
+};
 
 // The saga worker yields the raw apiClient.post(...)/get(...) promise
 // (not a redux-saga `call()` effect), so stepping the generator with
@@ -138,4 +145,19 @@ describe('session changes drop the shared league cache', () => {
     expect(result.current.league).toBeNull();
     await waitFor(() => expect(result.current.league).toEqual({ id: 1, name: 'Fresh row' }));
   });
+});
+
+test('logging out and logging in also drop the shared pick\'em standings cache', async () => {
+  mock.onGet('/api/pickem/league/1/standings').reply(200, { season: 2026, mode: 'straight', standings: [] });
+  primePickemStandingsForTest();
+  logoutUser().next();
+  const { result } = renderHook(() => usePickemStandings(1));
+  expect(result.current.data).toBeNull();
+  await waitFor(() => expect(result.current.loading).toBe(false));
+
+  primePickemStandingsForTest();
+  const gen = loginUser({ payload: { username: 'b', password: 'x' } });
+  gen.next(); gen.next();
+  const { result: afterLogin } = renderHook(() => usePickemStandings(1));
+  expect(afterLogin.current.data).toBeNull();
 });

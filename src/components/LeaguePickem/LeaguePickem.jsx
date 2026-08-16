@@ -30,6 +30,7 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import apiClient from '../../api/apiClient';
 import { useLeague } from '../../hooks/useLeague';
+import { clearPickemStandingsCache } from '../../hooks/usePickemStandings';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import usePickemWeek from './usePickemWeek';
 import PickemWeekBoard from './PickemWeekBoard';
@@ -140,6 +141,9 @@ export default function LeaguePickem() {
     try {
       const res = await apiClient.put(`/api/pickem/league/${leagueId}/settings`, patch);
       setSettings(res.data);
+      // The standings body names the mode in force: a mode change must not
+      // leave a cached table captioned with the old one.
+      clearPickemStandingsCache(leagueId);
     } catch (requestError) {
       setSettingsSaveError(errorMessage(requestError));
     } finally {
@@ -233,7 +237,15 @@ export default function LeaguePickem() {
 
   let content;
   if (tab === 'standings') {
-    content = <PickemStandings leagueId={leagueId} season={data && data.season} week={week} />;
+    // The league row already names the season, so the standings never need a
+    // season-less first request while the week view is still loading.
+    content = (
+      <PickemStandings
+        leagueId={leagueId}
+        season={(league && league.current_season) || (data && data.season)}
+        week={week}
+      />
+    );
   } else if (error) {
     content = (
       <Alert

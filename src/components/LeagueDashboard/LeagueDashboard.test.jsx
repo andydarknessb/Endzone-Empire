@@ -8,6 +8,8 @@ import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 import LeagueDashboard from './LeagueDashboard';
 import FantasyOnly from '../common/FantasyOnly';
 import { clearLeagueCache } from '../../hooks/useLeague';
+import { clearPickemStandingsCache } from '../../hooks/usePickemStandings';
+import PickemStandings from '../LeaguePickem/PickemStandings';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
@@ -136,6 +138,7 @@ const mockGetByUrl = (overrides = {}) => {
 
 afterEach(() => {
   jest.clearAllMocks();
+  clearPickemStandingsCache();
 });
 
 test('shows a layout-shaped skeleton before data arrives', () => {
@@ -1003,4 +1006,26 @@ test('the dashboard primes the shared league cache, so a fantasy page reached fr
   expect(screen.getByText('Draft Room body')).toBeInTheDocument();
   expect(apiClient.get).not.toHaveBeenCalledWith('/api/league/1');
   clearLeagueCache();
+});
+
+// --- pick'em standings cache (#35) ---
+
+test("the pick'em dashboard's standings are shared with the Pick'em page: a second mount within the TTL makes no request", async () => {
+  clearPickemStandingsCache();
+  mockGetByUrl({
+    '/api/league/1': pickemLeagueResponse(),
+    '/api/user': userResponse(),
+    '/api/pickem/league/1/standings?season=2026': pickemStandingsResponse(),
+  });
+  const { unmount } = renderDashboard();
+  await screen.findByText('Sunday Ballers');
+  await screen.findByText('one point per correct pick', { exact: false });
+  const standingsCalls = () => apiClient.get.mock.calls.filter(([url]) => url.includes('/api/pickem/league/1/standings')).length;
+  expect(standingsCalls()).toBe(1);
+  unmount();
+
+  renderWithProviders(<PickemStandings leagueId={1} season={2026} />);
+  expect(await screen.findByText('one point per correct pick', { exact: false })).toBeInTheDocument();
+  expect(standingsCalls()).toBe(1);
+  clearPickemStandingsCache();
 });
