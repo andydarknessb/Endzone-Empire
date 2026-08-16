@@ -18,6 +18,13 @@ const API_ALLOWLIST = [
   /^\/api\/scoring\/league\/\d+\/standings$/,
   /^\/api\/scoring\/league\/\d+\/power-rankings$/,
   /^\/api\/scoring\/league\/\d+\/recap$/,
+  // Pick'em reads (a pick'em-only league's whole game). The settings and week
+  // rows are viewer-scoped like /api/team/roster above; login and logout
+  // already drop this cache. Writes (PUT settings, PUT week/:n/picks) are
+  // not GETs and never reach this list.
+  /^\/api\/pickem\/league\/\d+\/settings$/,
+  /^\/api\/pickem\/league\/\d+\/standings$/,
+  /^\/api\/pickem\/league\/\d+\/week\/\d+$/,
 ];
 
 function isAllowlistedApiGet(url) {

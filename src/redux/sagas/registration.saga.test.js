@@ -2,6 +2,8 @@ import { put } from 'redux-saga/effects';
 import MockAdapter from 'axios-mock-adapter';
 import registrationSaga, { registerUser } from './registration.saga';
 import apiClient, { getToken, clearToken } from '../../api/apiClient';
+import { renderHook } from '@testing-library/react';
+import { primeLeagueCache, useLeague, clearLeagueCache } from '../../hooks/useLeague';
 
 // See login.saga.test.js for why this is required: the worker yields a raw
 // apiClient.post(...) promise, which is genuinely invoked when the
@@ -57,5 +59,27 @@ describe('registerUser (worker) — failure path', () => {
 
     expect(result.value).toEqual(put({ type: 'REGISTRATION_FAILED' }));
     expect(gen.next().done).toBe(true);
+  });
+});
+
+// A new account created on this device is a session change like a login: both
+// the service worker's api cache and the shared useLeague cache must drop, or
+// the new user can be served the previous account's rows.
+describe('registerUser drops the previous session caches', () => {
+  afterEach(() => { clearToken(); clearLeagueCache(); delete global.caches; });
+
+  test('a successful registration clears api-cache-v1 and the shared league cache', () => {
+    const deleted = [];
+    global.caches = { delete: (name) => { deleted.push(name); return Promise.resolve(true); } };
+    primeLeagueCache(1, { id: 1, name: 'Previous account row', is_commissioner: true });
+
+    const gen = registerUser({ type: 'REGISTER', payload: { username: 'bob', email: 'bob@test.local', password: 'pw123456' } });
+    gen.next(); // CLEAR_REGISTRATION_ERROR
+    gen.next(); // the register request
+    gen.next({ data: { token: 'jwt-new', user: { id: 9, username: 'bob' } } }); // token stored, caches dropped, SET_USER
+
+    expect(deleted).toEqual(['api-cache-v1']);
+    const { result } = renderHook(() => useLeague(1));
+    expect(result.current.league).toBeNull();
   });
 });
