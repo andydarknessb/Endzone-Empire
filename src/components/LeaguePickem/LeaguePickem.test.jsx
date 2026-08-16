@@ -3,6 +3,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import { clearLeagueCache } from '../../hooks/useLeague';
+import { clearPickemStandingsCache } from '../../hooks/usePickemStandings';
 import LeaguePickem from './LeaguePickem';
 
 jest.mock('../../api/apiClient', () => ({
@@ -107,6 +108,7 @@ const renderPage = () =>
 beforeEach(() => {
   jest.clearAllMocks();
   clearLeagueCache();
+  clearPickemStandingsCache();
 });
 
 test('a member sees an explanation when the commissioner has not enabled Pick\'em', async () => {
@@ -353,4 +355,53 @@ test("in a pick'em-only league the commissioner cannot turn Pick'em off, only ch
   expect(screen.queryByRole('checkbox', { name: /Enable Pick'em for this league/i })).not.toBeInTheDocument();
   expect(screen.getByRole('radio', { name: /Straight up/ })).toBeChecked();
   expect(screen.getByRole('radio', { name: /Confidence/ })).toBeInTheDocument();
+});
+
+// --- Standings caching (#35) ---
+
+const standingsCalls = () =>
+  apiClient.get.mock.calls.map(([url]) => url).filter((u) => u.includes(`/api/pickem/league/${LEAGUE_ID}/standings`));
+
+test('the Standings tab requests the standings once, for the league season, never a season-less first pass', async () => {
+  const user = userEvent.setup();
+  mockRequests();
+  renderPage();
+
+  await screen.findByRole('button', { name: 'BUF' });
+  await user.click(screen.getByRole('tab', { name: 'Standings' }));
+  await screen.findByRole('table');
+
+  expect(standingsCalls()).toEqual([`/api/pickem/league/${LEAGUE_ID}/standings?season=2026`]);
+  // Back to Picks and to Standings again: still served from the shared cache.
+  await user.click(screen.getByRole('tab', { name: 'Picks' }));
+  await screen.findByRole('button', { name: 'BUF' });
+  await user.click(screen.getByRole('tab', { name: 'Standings' }));
+  await screen.findByRole('table');
+  expect(standingsCalls()).toHaveLength(1);
+});
+
+test('saving picks invalidates the cached standings so the Standings tab reflects them', async () => {
+  const user = userEvent.setup();
+  mockRequests();
+  // The server answers the re-load after a save with the saved pick, which is
+  // what clears the board's dirty state (and its leave-tab guard).
+  apiClient.put.mockImplementation(async () => {
+    mockRequests({ view: weekView({ myPicks: [{ gameKey: 'BUF|MIA', pickedTeam: 'BUF', confidence: null }] }) });
+    return { data: { saved: 1, myPicks: [{ gameKey: 'BUF|MIA', pickedTeam: 'BUF', confidence: null }] } };
+  });
+  renderPage();
+
+  await screen.findByRole('button', { name: 'BUF' });
+  await user.click(screen.getByRole('tab', { name: 'Standings' }));
+  await screen.findByRole('table');
+  expect(standingsCalls()).toHaveLength(1);
+
+  await user.click(screen.getByRole('tab', { name: 'Picks' }));
+  await user.click(await screen.findByRole('button', { name: 'BUF' }));
+  await user.click(screen.getAllByRole('button', { name: /Save picks/i })[0]);
+  await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
+
+  await user.click(screen.getByRole('tab', { name: 'Standings' }));
+  await screen.findByRole('table');
+  await waitFor(() => expect(standingsCalls()).toHaveLength(2));
 });

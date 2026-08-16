@@ -233,7 +233,15 @@ export default function LeaguePickem() {
 
   let content;
   if (tab === 'standings') {
-    content = <PickemStandings leagueId={leagueId} season={data && data.season} week={week} />;
+    // The league row already names the season, so the standings never need a
+    // season-less first request while the week view is still loading.
+    content = (
+      <PickemStandings
+        leagueId={leagueId}
+        season={(league && league.current_season) || (data && data.season)}
+        week={week}
+      />
+    );
   } else if (error) {
     content = (
       <Alert

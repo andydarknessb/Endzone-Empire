@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import {
   Alert,
   Box,
@@ -14,40 +14,26 @@ import {
   TableRow,
   Typography,
 } from '@mui/material';
-import apiClient from '../../api/apiClient';
 import TeamAvatar from '../common/TeamAvatar';
-
-const errorMessage = (error) =>
-  error?.response?.data?.error || error?.message || 'Request failed';
+import { usePickemStandings } from '../../hooks/usePickemStandings';
 
 /**
  * Season Pick'em leaderboard, computed on read by the server. Same table
  * treatment as the league dashboard's standings so the two read as one thing.
  * When the page passes the currently-selected `week`, a per-week points column
- * sits beside the season total.
+ * sits beside the season total. The rows come through the shared
+ * usePickemStandings cache, so the dashboard and the Pick'em page one click
+ * later cost the server one computation, not two.
  */
 export default function PickemStandings({ leagueId, season, week }) {
-  const [data, setData] = useState(null);
-  const [error, setError] = useState(null);
-  const [reload, setReload] = useState(0);
-
-  useEffect(() => {
-    let active = true;
-    setError(null);
-    const query = season ? `?season=${season}` : '';
-    apiClient
-      .get(`/api/pickem/league/${leagueId}/standings${query}`)
-      .then((res) => { if (active) setData(res.data); })
-      .catch((requestError) => { if (active) setError(errorMessage(requestError)); });
-    return () => { active = false; };
-  }, [leagueId, season, reload]);
+  const { data, error, refetch } = usePickemStandings(leagueId, season);
 
   if (error) {
     return (
       <Alert
         severity="error"
         action={
-          <Button color="inherit" size="small" onClick={() => setReload((n) => n + 1)}>
+          <Button color="inherit" size="small" onClick={refetch}>
             Retry standings
           </Button>
         }

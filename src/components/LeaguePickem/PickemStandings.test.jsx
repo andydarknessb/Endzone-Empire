@@ -9,6 +9,7 @@ jest.mock('../../api/apiClient', () => ({
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn() },
 }));
 import apiClient from '../../api/apiClient';
+import { clearPickemStandingsCache } from '../../hooks/usePickemStandings';
 
 const STANDINGS = {
   season: 2026,
@@ -19,7 +20,7 @@ const STANDINGS = {
   ],
 };
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => { jest.clearAllMocks(); clearPickemStandingsCache(); });
 
 test('renders the leaderboard in the order the server returned', async () => {
   apiClient.get.mockResolvedValue({ data: STANDINGS });

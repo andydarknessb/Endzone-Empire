@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import apiClient from '../../api/apiClient';
+import { clearPickemStandingsCache } from '../../hooks/usePickemStandings';
 
 const message = (error) =>
   error?.response?.data?.error || error?.message || 'Request failed';
@@ -52,6 +53,9 @@ export default function usePickemWeek(leagueId, week, { enabled = true } = {}) {
       setSaveError(null);
       try {
         await apiClient.put(`/api/pickem/league/${leagueId}/week/${week}/picks`, { picks });
+        // Saved picks change the standings' made/pending counts: drop the
+        // shared cache so the Standings tab reflects them right away.
+        clearPickemStandingsCache(leagueId);
         await load();
         return { ok: true };
       } catch (requestError) {
