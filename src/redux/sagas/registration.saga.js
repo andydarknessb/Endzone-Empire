@@ -1,7 +1,6 @@
 import { put, takeLatest } from 'redux-saga/effects';
 import apiClient, { setToken } from '../../api/apiClient';
-import { clearLeagueCache } from '../../hooks/useLeague';
-import { clearPickemStandingsCache } from '../../hooks/usePickemStandings';
+import { dropSessionCaches } from '../../sessionCaches';
 
 // worker Saga: fired on "REGISTER" actions
 export function* registerUser(action) {
@@ -13,13 +12,9 @@ export function* registerUser(action) {
     setToken(response.data.token);
 
     // A new account on this device is a session change like a login: drop
-    // the offline api cache and the shared in-memory league cache so the new
-    // user is never served the previous account's rows.
-    clearLeagueCache();
-    clearPickemStandingsCache();
-    if (typeof caches !== 'undefined') {
-      caches.delete('api-cache-v1').catch(() => {});
-    }
+    // every session cache so the new user is never served the previous
+    // account's rows.
+    dropSessionCaches();
 
     yield put({ type: 'SET_USER', payload: response.data.user });
     yield put({ type: 'SET_TO_LOGIN_MODE' });

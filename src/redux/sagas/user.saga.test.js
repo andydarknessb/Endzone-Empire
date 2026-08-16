@@ -1,6 +1,8 @@
 import { put } from 'redux-saga/effects';
 import MockAdapter from 'axios-mock-adapter';
 import userSaga, { fetchUser } from './user.saga';
+import { renderHook } from '@testing-library/react';
+import { primeLeagueCache, useLeague } from '../../hooks/useLeague';
 import apiClient, { setToken, getToken, clearToken } from '../../api/apiClient';
 
 // See login.saga.test.js for why this is required: the worker yields a raw
@@ -68,4 +70,20 @@ describe('fetchUser (worker)', () => {
     expect(getToken()).toBe('a-real-token');
     expect(result.done).toBe(true);
   });
+});
+
+test('a 401 on FETCH_USER (expired or invalid token) also drops the session caches', () => {
+  const deleted = [];
+  global.caches = { delete: (name) => { deleted.push(name); return Promise.resolve(true); } };
+  primeLeagueCache(1, { id: 1, name: 'Previous session row' });
+
+  const gen = fetchUser();
+  gen.next(); // apiClient.get('/api/user')
+  const step = gen.throw({ response: { status: 401 } });
+
+  expect(step.value).toEqual(put({ type: 'UNSET_USER' }));
+  expect(deleted).toEqual(['api-cache-v1']);
+  const { result } = renderHook(() => useLeague(1));
+  expect(result.current.league).toBeNull();
+  delete global.caches;
 });

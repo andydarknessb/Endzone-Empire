@@ -31,6 +31,25 @@ function isAllowlistedApiGet(url) {
   return API_ALLOWLIST.some((re) => re.test(url.pathname));
 }
 
+// The API may live on its own origin (production: api.endzoneempire.gg while
+// this worker is served from endzoneempire.gg). A worker cannot read the
+// build's REACT_APP_* values, so the page registers it with `?api=<origin>`
+// (src/serviceWorkerRegistration.js) and the /api/ GETs on that origin are
+// treated as ours: fetched as the page would (CORS mode, Authorization header
+// intact) and cached the same way. A same-origin proxy (dev, deploy previews)
+// needs nothing. A missing or malformed value means same-origin only.
+const API_ORIGINS = new Set([self.location.origin]);
+try {
+  const configuredApiOrigin = new URL(self.location.href).searchParams.get('api');
+  if (configuredApiOrigin) API_ORIGINS.add(new URL(configuredApiOrigin).origin);
+} catch (err) {
+  // same-origin only
+}
+
+function isApiRequest(url) {
+  return url.pathname.startsWith('/api/') && API_ORIGINS.has(url.origin);
+}
+
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches
@@ -66,7 +85,17 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
 
-  // Cross-origin requests: let the browser handle them normally.
+  // API GETs, on this origin or the configured API origin: only the allowlist
+  // is served network-first with a cache fallback; every other API GET is left
+  // to the browser.
+  if (isApiRequest(url)) {
+    if (isAllowlistedApiGet(url)) {
+      event.respondWith(networkFirstApi(request));
+    }
+    return;
+  }
+
+  // Any other cross-origin request: let the browser handle it normally.
   if (url.origin !== self.location.origin) {
     return;
   }
@@ -74,14 +103,6 @@ self.addEventListener('fetch', (event) => {
   // socket.io long-polling: every poll has a unique cache-busting query
   // string, so caching these would never hit and only grow the cache forever.
   if (url.pathname.startsWith('/socket.io/')) {
-    return;
-  }
-
-  if (url.pathname.startsWith('/api/')) {
-    if (isAllowlistedApiGet(url)) {
-      event.respondWith(networkFirstApi(request));
-    }
-    // Non-allowlisted /api/ GETs: do nothing, let the browser fetch normally.
     return;
   }
 
@@ -93,6 +114,12 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(cacheFirstStatic(request));
 });
 
+// The API answers with `Cache-Control: private, no-store`; that governs the
+// HTTP cache, not this Cache API store, which is exactly the point: these
+// reads are kept for the offline fallback on this device only, and the app
+// drops the store on every session change (login, logout, registration,
+// expiry: src/sessionCaches.js). Matching ignores Vary so the CORS response's
+// `Vary: Origin` never hides the entry from the same page.
 async function networkFirstApi(request) {
   const cache = await caches.open(API_CACHE_NAME);
   try {
@@ -102,7 +129,7 @@ async function networkFirstApi(request) {
     }
     return response;
   } catch (err) {
-    const cached = await cache.match(request);
+    const cached = await cache.match(request, { ignoreVary: true });
     if (cached) return cached;
     throw err;
   }
