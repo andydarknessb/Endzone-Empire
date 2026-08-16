@@ -33,6 +33,7 @@ import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import RuleIcon from '@mui/icons-material/Rule';
 import apiClient from '../../api/apiClient';
+import { useLeague } from '../../hooks/useLeague';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
@@ -62,12 +63,15 @@ const TYPE_ICON_META = {
   stat_correction: { Icon: RuleIcon, color: 'error' },
 };
 
+// Adds, drops, waivers and trades are roster moves: a pick'em-only league
+// has no roster, so those toggles are trimmed there and only the types that
+// can occur remain (`fantasyOnly`).
 const FILTER_OPTIONS = [
   { value: 'all', label: 'All' },
-  { value: 'add', label: 'Adds' },
-  { value: 'drop', label: 'Drops' },
-  { value: 'waiver', label: 'Waivers' },
-  { value: 'trade', label: 'Trades' },
+  { value: 'add', label: 'Adds', fantasyOnly: true },
+  { value: 'drop', label: 'Drops', fantasyOnly: true },
+  { value: 'waiver', label: 'Waivers', fantasyOnly: true },
+  { value: 'trade', label: 'Trades', fantasyOnly: true },
   { value: 'commissioner', label: 'Commissioner' },
 ];
 
@@ -209,15 +213,31 @@ function ActivityFeedItem({ txn, onOpenPlayer, isLast }) {
 
 function TransactionLog() {
   const { leagueId } = useParams();
+  // Shared league row (the dashboard primes this cache, so the usual hop
+  // costs no request). The page waits for it before showing the filter bar,
+  // as FantasyOnly does, so a pick'em league never flashes the roster-move
+  // toggles; if the row cannot be loaded at all the page keeps its fantasy
+  // shape, which is also what an older cached row without the flag gets.
+  const { league, loading: leagueLoading } = useLeague(leagueId);
+  const pickemOnly = !!league?.pickem_only;
+  const filterOptions = FILTER_OPTIONS.filter((opt) => !opt.fantasyOnly || !pickemOnly);
   const [transactions, setTransactions] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [typeFilter, setTypeFilter] = useState('all');
+  const [selectedType, setSelectedType] = useState('all');
+  // A toggle picked before the league row resolved as pick'em would vanish
+  // while still filtering; the effective filter is always a visible option.
+  const typeFilter = filterOptions.some((opt) => opt.value === selectedType) ? selectedType : 'all';
   const [teamFilter, setTeamFilter] = useState('all');
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [quickViewId, setQuickViewId] = useState(null);
 
   useEffect(() => {
+    // Filters and rows are per league: an in-place league switch (hash edit
+    // between two leagues keeps this element mounted) starts clean.
+    setTransactions(null);
+    setSelectedType('all');
+    setTeamFilter('all');
     fetchTransactions();
     // fetchTransactions closes over leagueId, which is the explicit trigger.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -240,7 +260,7 @@ function TransactionLog() {
     }
   };
 
-  if (loading && !transactions) {
+  if ((loading && !transactions) || (!league && leagueLoading)) {
     return (
       <Container maxWidth="md" sx={{ py: 4 }} data-testid="page-skeleton">
         <Skeleton variant="text" width={220} height={48} sx={{ mb: 3 }} />
@@ -306,13 +326,13 @@ function TransactionLog() {
               <ToggleButtonGroup
                 value={typeFilter}
                 exclusive
-                onChange={(e, value) => value && setTypeFilter(value)}
+                onChange={(e, value) => value && setSelectedType(value)}
                 size="small"
                 color="primary"
                 aria-label="Filter by transaction type"
                 sx={{ flexWrap: { xs: 'nowrap', sm: 'wrap' } }}
               >
-                {FILTER_OPTIONS.map((opt) => (
+                {filterOptions.map((opt) => (
                   <ToggleButton key={opt.value} value={opt.value} sx={{ whiteSpace: 'nowrap' }}>
                     {opt.label}
                   </ToggleButton>
@@ -348,9 +368,13 @@ function TransactionLog() {
                 sx={{ py: 8, minHeight: 240 }}
               >
                 <HistoryOutlinedIcon sx={{ fontSize: 64, color: 'text.disabled' }} />
+                {/* The pick'em copy promises only what can appear today: pick'em
+                    season events get a transactions row only if #31's proposal 2
+                    is ruled in, and the copy widens with it. */}
                 <Typography sx={{ color: 'text.secondary', textAlign: 'center', maxWidth: 380 }}>
-                  The league is quiet. Recent transactions, trades, and commissioner actions will
-                  appear here.
+                  {pickemOnly
+                    ? 'The league is quiet. Commissioner actions will appear here.'
+                    : 'The league is quiet. Recent transactions, trades, and commissioner actions will appear here.'}
                 </Typography>
               </Stack>
             ) : (
