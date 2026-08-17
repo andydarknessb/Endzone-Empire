@@ -36,6 +36,15 @@ rows ARE league membership app-wide, so every league type creates one per
 manager. A manager in three leagues has three teams.
 _Avoid_: franchise, squad, roster (the roster is what a team holds, not the team)
 
+**Membership**:
+A manager's standing in one league: they are a member exactly when they hold a
+team there, and the team is the only record of it. Membership is what every
+league-scoped read and write is gated on. It underlies the commissioner role
+(a commissioner is always a member, and losing the team loses the role), and
+the league's creator always has it.
+_Avoid_: access, participation, "having a roster" (a member of a pick'em-only
+league holds none)
+
 **Commissioner**:
 A manager authorized to administer a league, either its creator or someone the
 creator has granted the role. A few powers stay with the creator alone.

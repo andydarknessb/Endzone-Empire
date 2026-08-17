@@ -3,6 +3,7 @@ const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
 const { materializeLineup } = require('../services/lineup.service');
 const { dedupeGameIds } = require('../services/matchupGames.service');
+const { isMember } = require('../services/leagueRole.service');
 
 // Isolated on purpose: this only maps a fantasy matchup to the real NFL
 // games it spans (view_matchup_nfl_games) for the frontend to mount
@@ -36,11 +37,9 @@ router.get('/:matchupId/real-games', async (req, res) => {
     const matchup = matchupResult.rows[0];
     if (!matchup) return res.status(404).json({ error: 'matchup not found' });
 
-    const membership = await client.query(
-      `SELECT 1 FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
-      [matchup.league_id, req.user.id]
-    );
-    if (!membership.rows[0]) return res.status(403).json({ error: 'not a member of this league' });
+    if (!(await isMember(client, matchup.league_id, req.user.id))) {
+      return res.status(403).json({ error: 'not a member of this league' });
+    }
 
     // view_matchup_nfl_games joins through lineup_entries, which is only
     // materialized lazily on first read (services/lineup.service.js) — for

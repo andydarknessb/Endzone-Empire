@@ -1,7 +1,7 @@
 const express = require('express');
 const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
-const { isLeagueCommissioner } = require('../services/leagueRole.service');
+const { isLeagueCommissioner, requireMember } = require('../services/leagueRole.service');
 const pickem = require('../services/pickem.service');
 
 /**
@@ -23,19 +23,6 @@ function intParam(value) {
   return /^\d+$/.test(String(value)) ? Number(value) : null;
 }
 
-/** Shared member gate — same predicate as league.router.js's `requireMember`. */
-async function requireMember(req, res, leagueId) {
-  const membership = await pool.query(
-    `SELECT 1 FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
-    [leagueId, req.user.id]
-  );
-  if (!membership.rows[0]) {
-    res.status(403).json({ error: 'not a member of this league' });
-    return false;
-  }
-  return true;
-}
-
 function fail(res, error, fallback) {
   if (error && error.statusCode) {
     return res.status(error.statusCode).json({
@@ -53,7 +40,7 @@ router.get('/league/:leagueId/settings', async (req, res) => {
   const leagueId = intParam(req.params.leagueId);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
   try {
-    if (!(await requireMember(req, res, leagueId))) return;
+    await requireMember(pool, { leagueId, userId: req.user.id });
     const [settings, isCommissioner] = await Promise.all([
       pickem.getSettings(leagueId),
       isLeagueCommissioner(pool, leagueId, req.user.id),
@@ -73,7 +60,7 @@ router.put('/league/:leagueId/settings', async (req, res) => {
     return res.status(400).json({ error: 'enabled must be a boolean' });
   }
   try {
-    if (!(await requireMember(req, res, leagueId))) return;
+    await requireMember(pool, { leagueId, userId: req.user.id });
     if (!(await isLeagueCommissioner(pool, leagueId, req.user.id))) {
       return res.status(403).json({ error: "only the commissioner can change Pick'em settings" });
     }
@@ -94,7 +81,7 @@ router.get('/league/:leagueId/week/:week', async (req, res) => {
     return res.status(400).json({ error: `week must be between 1 and ${REG_SEASON_WEEKS}` });
   }
   try {
-    if (!(await requireMember(req, res, leagueId))) return;
+    await requireMember(pool, { leagueId, userId: req.user.id });
     const settings = await pickem.getSettings(leagueId);
     if (!settings.enabled) {
       return res.status(403).json({
@@ -127,7 +114,7 @@ router.put('/league/:leagueId/week/:week/picks', async (req, res) => {
   const picks = req.body && req.body.picks;
   if (!Array.isArray(picks)) return res.status(400).json({ error: 'picks must be an array' });
   try {
-    if (!(await requireMember(req, res, leagueId))) return;
+    await requireMember(pool, { leagueId, userId: req.user.id });
     const league = await pickem.loadLeague(pool, leagueId);
     const result = await pickem.upsertPicks({
       leagueId,
@@ -151,7 +138,7 @@ router.get('/league/:leagueId/standings', async (req, res) => {
     return res.status(400).json({ error: 'season must be a positive integer' });
   }
   try {
-    if (!(await requireMember(req, res, leagueId))) return;
+    await requireMember(pool, { leagueId, userId: req.user.id });
     const league = await pickem.loadLeague(pool, leagueId);
     const season = requestedSeason || league.current_season;
     res.json(await pickem.getStandings({ leagueId, season }));

@@ -4,6 +4,7 @@ const { setIo } = require('./io');
 const { requireSocketAuth } = require('./auth');
 const { draftPlayer, DraftError } = require('../services/draft.service');
 const { teamForPick } = require('../services/draftOrder.service');
+const { isMember } = require('../services/leagueRole.service');
 const { getCorsOptions } = require('./clientOrigins');
 const { createAdapter } = require('@socket.io/redis-adapter');
 const { createRedisSubscriber, getRedisClient } = require('./redis');
@@ -37,11 +38,7 @@ function attachDraftSocket(httpServer) {
         return ack && ack({ error: 'leagueId (integer) required' });
       }
       try {
-        const membership = await pool.query(
-          `SELECT 1 FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
-          [leagueId, socket.user.id]
-        );
-        if (!membership.rows[0]) {
+        if (!(await isMember(pool, leagueId, socket.user.id))) {
           return ack && ack({ error: 'you are not in this league' });
         }
         socket.join(`league:${leagueId}`);
@@ -57,11 +54,7 @@ function attachDraftSocket(httpServer) {
         return ack && ack({ error: 'leagueId (integer) required' });
       }
       try {
-        const membership = await pool.query(
-          `SELECT 1 FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
-          [leagueId, socket.user.id]
-        );
-        if (!membership.rows[0]) {
+        if (!(await isMember(pool, leagueId, socket.user.id))) {
           return ack && ack({ error: 'you are not in this league' });
         }
         socket.join(`league:${leagueId}`);

@@ -2,16 +2,30 @@ const pool = require('../modules/pool');
 const { logTransaction, notify } = require('./activity.service');
 
 /**
- * League roles.
+ * League roles — the one module answering "who is this manager to this
+ * league". The roles form an ordered set, member < commissioner < owner:
  *
- * "Commissioner" means the league owner (`leagues.owner_id`) OR anyone the
- * owner has granted a row in `league_commissioners`. Every commissioner-gated
- * action should authorize through this module — either `isLeagueCommissioner`
- * or `commissionerPredicate` — so adding a co-commissioner grants powers
- * everywhere at once instead of one endpoint at a time.
+ * - "Member" means the manager holds a Team in the league (`teams` row with
+ *   their `owner_id`, ADR 0002); the Team is the only record of membership.
+ *   Every league-scoped read and write is gated on it and should authorize
+ *   through this module: `isMember` when a yes/no is enough (the caller keeps
+ *   its own refusal), or `requireMember` when the caller wants the Team row
+ *   or the standard refusal. `requireMember` refuses by throwing the coded
+ *   403 ("not a member of this league"), so call it only where the surrounding
+ *   catch renders `error.statusCode`; a route that maps every error to 500
+ *   should use `isMember`.
+ * - "Commissioner" means the league owner (`leagues.owner_id`) OR anyone the
+ *   owner has granted a row in `league_commissioners`. Every commissioner-gated
+ *   action should authorize through `isLeagueCommissioner` or
+ *   `commissionerPredicate`, so adding a co-commissioner grants powers
+ *   everywhere at once instead of one endpoint at a time.
+ * - "Owner" is the creator alone. Two things stay owner-only and must keep
+ *   checking `owner_id` directly: deleting the league, and granting/revoking
+ *   co-commissioners.
  *
- * Two things stay owner-only and must keep checking `owner_id` directly:
- * deleting the league, and granting/revoking co-commissioners.
+ * Invariant: a commissioner is always a member. Removing a Team already
+ * revokes any co-commissioner grant, and the creator's Team cannot be removed.
+ * The next role-shaped question belongs here, not in a new predicate.
  */
 
 class LeagueRoleError extends Error {
@@ -51,6 +65,33 @@ async function isLeagueOwner(db, leagueId, userId) {
     [leagueId, userId]
   );
   return !!result.rows[0];
+}
+
+const NOT_A_MEMBER = 'not a member of this league';
+
+/** Accepts a pool or a checked-out client. True when the user holds a Team in the league. */
+async function isMember(db, leagueId, userId) {
+  if (!leagueId || !userId) return false;
+  const result = await db.query(
+    `SELECT 1 FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
+    [leagueId, userId]
+  );
+  return !!result.rows[0];
+}
+
+/**
+ * The member's Team row, or the standard 403 refusal. `forUpdate` locks the
+ * Team row for callers about to mutate it (mirrors `requireOwner`).
+ */
+async function requireMember(db, { leagueId, userId, forUpdate = false }) {
+  if (!leagueId || !userId) throw new LeagueRoleError(403, NOT_A_MEMBER);
+  const result = await db.query(
+    `SELECT * FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2${forUpdate ? ' FOR UPDATE' : ''}`,
+    [leagueId, userId]
+  );
+  const team = result.rows[0];
+  if (!team) throw new LeagueRoleError(403, NOT_A_MEMBER);
+  return team;
 }
 
 /** The co-commissioners of a league, oldest grant first. */
@@ -174,7 +215,9 @@ module.exports = {
   commissionerPredicate,
   isLeagueCommissioner,
   isLeagueOwner,
+  isMember,
   listCoCommissioners,
+  requireMember,
   requireOwner,
   grantCoCommissioner,
   revokeCoCommissioner,
