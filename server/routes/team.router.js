@@ -8,6 +8,7 @@ const { getLineup, setLineup } = require('../services/lineup.service');
 const { startSitAdvice, weekHindsight, seasonHindsight } = require('../services/decision.service');
 const { uploadTeamAvatar, removeTeamAvatar, MAX_UPLOAD_BYTES } = require('../services/avatar.service');
 const { computeByeWeeks } = require('../services/bye.service');
+const { requireMember } = require('../services/leagueRole.service');
 const projectionService = require('../services/projection.service');
 
 const router = express.Router();
@@ -244,11 +245,7 @@ router.get('/hindsight', async (req, res) => {
     return res.status(400).json({ error: 'week must be a positive integer' });
   }
   try {
-    const membership = await pool.query(
-      `SELECT 1 FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
-      [Number(leagueId), req.user.id]
-    );
-    if (!membership.rows[0]) return res.status(403).json({ error: 'not a member of this league' });
+    await requireMember(pool, { leagueId: Number(leagueId), userId: req.user.id });
 
     const result = week === undefined
       ? await seasonHindsight({ leagueId: Number(leagueId), teamId: Number(teamId), season: Number(season) })

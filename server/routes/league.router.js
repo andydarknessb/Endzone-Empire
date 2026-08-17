@@ -22,6 +22,7 @@ const { resolveNflSeasonPointer } = require('../services/pickemSeason.service');
 const {
   commissionerPredicate,
   isLeagueCommissioner,
+  isMember,
   listCoCommissioners,
   grantCoCommissioner,
   revokeCoCommissioner,
@@ -300,11 +301,9 @@ router.get('/:id', async (req, res) => {
     const league = leagueResult.rows[0];
     if (!league) return res.status(404).json({ error: 'league not found' });
 
-    const membership = await pool.query(
-      `SELECT 1 FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
-      [leagueId, req.user.id]
-    );
-    if (!membership.rows[0]) return res.status(403).json({ error: 'not a member of this league' });
+    if (!(await isMember(pool, leagueId, req.user.id))) {
+      return res.status(403).json({ error: 'not a member of this league' });
+    }
 
     const teamsResult = await pool.query(
       `SELECT "teams"."id", "teams"."name", "teams"."draft_position",
@@ -950,11 +949,9 @@ router.get('/:id/rosters', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
   try {
-    const membership = await pool.query(
-      `SELECT 1 FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
-      [leagueId, req.user.id]
-    );
-    if (!membership.rows[0]) return res.status(403).json({ error: 'not a member of this league' });
+    if (!(await isMember(pool, leagueId, req.user.id))) {
+      return res.status(403).json({ error: 'not a member of this league' });
+    }
 
     const leagueRow = await pool.query(
       `SELECT "current_season", "current_week", "regular_season_weeks" FROM "leagues" WHERE "id" = $1`,
@@ -1020,11 +1017,9 @@ router.get('/:id/transactions', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
   try {
-    const membership = await pool.query(
-      `SELECT 1 FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
-      [leagueId, req.user.id]
-    );
-    if (!membership.rows[0]) return res.status(403).json({ error: 'not a member of this league' });
+    if (!(await isMember(pool, leagueId, req.user.id))) {
+      return res.status(403).json({ error: 'not a member of this league' });
+    }
 
     const result = await pool.query(
       `SELECT "transactions".*, "teams"."name" AS "team_name",
@@ -1089,11 +1084,9 @@ router.get('/:id/chat', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
   try {
-    const membership = await pool.query(
-      `SELECT 1 FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
-      [leagueId, req.user.id]
-    );
-    if (!membership.rows[0]) return res.status(403).json({ error: 'not a member of this league' });
+    if (!(await isMember(pool, leagueId, req.user.id))) {
+      return res.status(403).json({ error: 'not a member of this league' });
+    }
     const result = await pool.query(
       `SELECT * FROM (
          SELECT "chat_messages"."id", "chat_messages"."message", "chat_messages"."created_at",
@@ -1125,11 +1118,9 @@ router.get('/:id/chat/unread', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
   try {
-    const membership = await pool.query(
-      `SELECT 1 FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
-      [leagueId, req.user.id]
-    );
-    if (!membership.rows[0]) return res.status(403).json({ error: 'not a member of this league' });
+    if (!(await isMember(pool, leagueId, req.user.id))) {
+      return res.status(403).json({ error: 'not a member of this league' });
+    }
     const result = await pool.query(
       `SELECT COUNT(*)::int AS "unread"
        FROM "chat_messages"
@@ -1159,11 +1150,9 @@ router.post('/:id/chat/read', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
   try {
-    const membership = await pool.query(
-      `SELECT 1 FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
-      [leagueId, req.user.id]
-    );
-    if (!membership.rows[0]) return res.status(403).json({ error: 'not a member of this league' });
+    if (!(await isMember(pool, leagueId, req.user.id))) {
+      return res.status(403).json({ error: 'not a member of this league' });
+    }
     await pool.query(
       `INSERT INTO "chat_reads" ("league_id", "user_id", "last_read_at")
        VALUES ($1, $2, now())
@@ -1187,11 +1176,9 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
   }
   const client = await pool.connect();
   try {
-    const membership = await client.query(
-      `SELECT 1 FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
-      [leagueId, req.user.id]
-    );
-    if (!membership.rows[0]) return res.status(403).json({ error: 'not a member of this league' });
+    if (!(await isMember(client, leagueId, req.user.id))) {
+      return res.status(403).json({ error: 'not a member of this league' });
+    }
 
     const matchupResult = await client.query(
       `SELECT "matchups".*,
@@ -1339,19 +1326,6 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
   }
 });
 
-/** Shared member gate for the engagement read endpoints below. */
-async function requireMember(req, res, leagueId) {
-  const membership = await pool.query(
-    `SELECT 1 FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
-    [leagueId, req.user.id]
-  );
-  if (!membership.rows[0]) {
-    res.status(403).json({ error: 'not a member of this league' });
-    return false;
-  }
-  return true;
-}
-
 // GET /api/league/:id/trophies?season= — the league's trophy case
 router.get('/:id/trophies', async (req, res) => {
   const leagueId = intParam(req.params.id);
@@ -1361,7 +1335,9 @@ router.get('/:id/trophies', async (req, res) => {
     return res.status(400).json({ error: 'season must be a positive integer' });
   }
   try {
-    if (!(await requireMember(req, res, leagueId))) return;
+    if (!(await isMember(pool, leagueId, req.user.id))) {
+      return res.status(403).json({ error: 'not a member of this league' });
+    }
     const trophies = require('../services/trophy.service');
     res.json(await trophies.getLeagueTrophies({ leagueId, season }));
   } catch (error) {
@@ -1375,7 +1351,9 @@ router.get('/:id/draft-grades', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
   try {
-    if (!(await requireMember(req, res, leagueId))) return;
+    if (!(await isMember(pool, leagueId, req.user.id))) {
+      return res.status(403).json({ error: 'not a member of this league' });
+    }
     const draftgrade = require('../services/draftgrade.service');
     const grades = await draftgrade.getOrComputeDraftGrades({ leagueId });
     if (!grades) return res.status(404).json({ error: 'draft grades not available yet' });
@@ -1392,7 +1370,9 @@ router.get('/:id/history', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
   try {
-    if (!(await requireMember(req, res, leagueId))) return;
+    if (!(await isMember(pool, leagueId, req.user.id))) {
+      return res.status(403).json({ error: 'not a member of this league' });
+    }
     const historyResult = await pool.query(
       `SELECT "league_history"."season", "league_history"."standings",
               "league_history"."champion_team_id", "teams"."name" AS "champion_name",

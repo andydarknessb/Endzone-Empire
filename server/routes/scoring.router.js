@@ -11,7 +11,12 @@ const correction = require('../services/correction.service');
 const nflverseSync = require('../services/nflverseSync.service');
 const commissioner = require('../services/commissioner.service');
 const montecarlo = require('../services/montecarlo.service');
-const { isLeagueCommissioner, commissionerPredicate } = require('../services/leagueRole.service');
+const {
+  isLeagueCommissioner,
+  commissionerPredicate,
+  isMember,
+  requireMember,
+} = require('../services/leagueRole.service');
 const { requireFantasyLeague } = require('../services/leagueType');
 
 const router = express.Router();
@@ -307,11 +312,7 @@ router.get('/league/:id/standings', async (req, res) => {
   }
   const leagueId = Number(req.params.id);
   try {
-    const membership = await pool.query(
-      `SELECT 1 FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
-      [leagueId, req.user.id]
-    );
-    if (!membership.rows[0]) return res.status(403).json({ error: 'not a member of this league' });
+    await requireMember(pool, { leagueId, userId: req.user.id });
     const leagueResult = await pool.query(
       `SELECT "playoff_teams", "regular_season_weeks", "season_status", "current_week"
        FROM "leagues" WHERE "id" = $1`,
@@ -339,11 +340,7 @@ router.get('/league/:id/power-rankings', async (req, res) => {
   }
   const leagueId = Number(req.params.id);
   try {
-    const membership = await pool.query(
-      `SELECT "id" FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
-      [leagueId, req.user.id]
-    );
-    if (!membership.rows[0]) return res.status(403).json({ error: 'not a member of this league' });
+    const viewerTeam = await requireMember(pool, { leagueId, userId: req.user.id });
     const latest = await montecarlo.getLatestPowerRankings({ leagueId });
     if (!latest) return res.status(404).json({ error: 'no power rankings computed yet' });
     // Avatars are overlaid from the live teams table rather than baked into
@@ -360,8 +357,9 @@ router.get('/league/:id/power-rankings', async (req, res) => {
       avatarUrl: avatarsByTeam.get(r.teamId)?.avatar_url ?? null,
       avatarStaticUrl: avatarsByTeam.get(r.teamId)?.avatar_static_url ?? null,
     }));
-    res.json({ ...latest, rankings, viewerTeamId: membership.rows[0].id });
+    res.json({ ...latest, rankings, viewerTeamId: viewerTeam.id });
   } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     console.error('Power rankings fetch failed:', error);
     res.status(500).json({ error: 'failed to fetch power rankings' });
   }
@@ -374,11 +372,9 @@ router.get('/league/:id/recap', async (req, res) => {
   }
   const leagueId = Number(req.params.id);
   try {
-    const membership = await pool.query(
-      `SELECT 1 FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
-      [leagueId, req.user.id]
-    );
-    if (!membership.rows[0]) return res.status(403).json({ error: 'not a member of this league' });
+    if (!(await isMember(pool, leagueId, req.user.id))) {
+      return res.status(403).json({ error: 'not a member of this league' });
+    }
     const recap = require('../services/recap.service');
     const latest = await recap.getLatestRecap({ leagueId });
     if (!latest) return res.status(404).json({ error: 'no recap generated yet' });

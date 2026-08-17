@@ -7,7 +7,7 @@ const pool = require('../modules/pool');
 const { notify } = require('./activity.service');
 const { SCORING_PRESETS } = require('./scoring.service');
 const { MODES: PICKEM_MODES } = require('./pickem.service');
-const { commissionerPredicate } = require('./leagueRole.service');
+const { commissionerPredicate, isMember } = require('./leagueRole.service');
 
 class DiscoveryError extends Error {
   constructor(statusCode, message) {
@@ -207,11 +207,9 @@ async function joinPublicLeague({ leagueId, userId, username, teamName }) {
     if (!league.is_public) throw new DiscoveryError(403, 'this league is not open for public join');
     if (league.draft_status !== 'pending') throw new DiscoveryError(409, 'league draft already started');
 
-    const membership = await client.query(
-      `SELECT 1 FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
-      [leagueId, userId]
-    );
-    if (membership.rows[0]) throw new DiscoveryError(409, 'you already have a team in this league');
+    if (await isMember(client, leagueId, userId)) {
+      throw new DiscoveryError(409, 'you already have a team in this league');
+    }
 
     const countResult = await client.query(`SELECT COUNT(*)::int AS n FROM "teams" WHERE "league_id" = $1`, [leagueId]);
     const teamCount = countResult.rows[0].n;
