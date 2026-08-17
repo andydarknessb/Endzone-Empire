@@ -633,7 +633,6 @@ test('draft: PUT /queue passes through for a fantasy league', async (t) => {
   mockPool(t, {
     pickemOnly: false,
     overrides: [
-      [/SELECT "id" FROM "teams" WHERE "league_id" = \$1 AND "owner_id" = \$2/, () => ({ rows: [{ id: 41 }] })],
       [/DELETE FROM "draft_queue"/, () => ({ rows: [] })],
       [/INSERT INTO "draft_queue"/, () => ({ rows: [] })],
     ],

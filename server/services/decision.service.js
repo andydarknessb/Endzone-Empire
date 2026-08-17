@@ -4,6 +4,7 @@ const pool = require('../modules/pool');
 // require time and cannot be mocked afterwards.
 const projectionService = require('./projection.service');
 const lineupService = require('./lineup.service');
+const { requireMember } = require('./leagueRole.service');
 const {
   getWeekProjections,
   toLegacyProjectionMap,
@@ -845,12 +846,7 @@ async function waiverSuggestions({ leagueId, userId, season, week }) {
   const leagueResult = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
   const league = leagueResult.rows[0];
   if (!league) throw new DecisionError(404, 'league not found');
-  const teamResult = await pool.query(
-    `SELECT "id" FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
-    [leagueId, userId]
-  );
-  const team = teamResult.rows[0];
-  if (!team) throw new DecisionError(403, 'you do not have a team in this league');
+  const team = await requireMember(pool, { leagueId, userId });
 
   const effectiveSeason = season || league.current_season;
   const effectiveWeek = week || league.current_week;

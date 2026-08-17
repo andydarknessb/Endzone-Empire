@@ -1,6 +1,6 @@
 const pool = require('../modules/pool');
 const { logTransaction, notify, notifyLeague } = require('./activity.service');
-const { isLeagueCommissioner } = require('./leagueRole.service');
+const { isLeagueCommissioner, requireMember } = require('./leagueRole.service');
 const { assertFantasyLeagueRow } = require('./leagueType');
 
 class TradeError extends Error {
@@ -62,12 +62,7 @@ async function proposeTrade({ leagueId, userId, receivingTeamId, playerIds, coun
     }
     assertBeforeDeadline(league);
 
-    const myTeamResult = await client.query(
-      `SELECT * FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
-      [leagueId, userId]
-    );
-    const myTeam = myTeamResult.rows[0];
-    if (!myTeam) throw new TradeError(403, 'you do not have a team in this league');
+    const myTeam = await requireMember(client, { leagueId, userId });
     if (myTeam.locked) throw new TradeError(409, 'your team is locked by the commissioner');
     if (myTeam.id === receivingTeamId) throw new TradeError(400, 'cannot trade with yourself');
 
@@ -276,12 +271,7 @@ async function vetoTrade({ tradeId, userId }) {
     if (trade.status !== 'accepted') throw new TradeError(409, 'trade is not in league review');
     if (league.trade_veto_votes < 1) throw new TradeError(409, 'vetoes are disabled in this league');
 
-    const voterResult = await client.query(
-      `SELECT * FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
-      [league.id, userId]
-    );
-    const voter = voterResult.rows[0];
-    if (!voter) throw new TradeError(403, 'you do not have a team in this league');
+    const voter = await requireMember(client, { leagueId: league.id, userId });
     if (voter.id === trade.proposing_team_id || voter.id === trade.receiving_team_id) {
       throw new TradeError(403, 'teams in the trade cannot vote on it');
     }

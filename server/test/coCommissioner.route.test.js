@@ -26,6 +26,7 @@ const OWNER_ID = 7;
  */
 function withMockClient(t, overrides = []) {
   const calls = [];
+  calls.params = [];
   const defaults = [
     [/^BEGIN$/, () => ({ rows: [] })],
     [/^COMMIT$/, () => ({ rows: [] })],
@@ -34,7 +35,8 @@ function withMockClient(t, overrides = []) {
     [/FROM "teams" JOIN "users"/, () => ({ rows: [{ id: 11, username: 'alice' }] })],
     [/^INSERT INTO "league_commissioners"/, () => ({ rows: [{ user_id: 42 }] })],
     [/^DELETE FROM "league_commissioners"/, () => ({ rows: [{ user_id: 42 }] })],
-    [/^SELECT "id" FROM "teams"/, () => ({ rows: [{ id: 11 }] })],
+    // The revoked member's Team, looked up through the roles module's requireMember.
+    [/^SELECT \* FROM "teams" WHERE "league_id" = \$1 AND "owner_id" = \$2/, () => ({ rows: [{ id: 11, owner_id: 42 }] })],
     [/FROM "league_commissioners" JOIN "users"/, () => ({ rows: [{ user_id: 42, username: 'alice' }] })],
     [/^INSERT INTO "transactions"/, () => ({ rows: [] })],
     [/^INSERT INTO "notifications"/, () => ({ rows: [] })],
@@ -44,6 +46,7 @@ function withMockClient(t, overrides = []) {
     query: async (sql, params) => {
       const text = String(sql).replace(/\s+/g, ' ').trim();
       calls.push(text);
+      calls.params.push(params);
       for (const [pattern, handler] of handlers) {
         if (pattern.test(text)) return handler(text, params);
       }
@@ -85,6 +88,10 @@ test('the owner can revoke a co-commissioner', async (t) => {
   assert.equal(response.status, 200);
   assert.ok(calls.some((sql) => /^DELETE FROM "league_commissioners"/.test(sql)));
   assert.ok(calls.includes('COMMIT'));
+  // The activity log names the revoked member's Team, resolved by the roles module.
+  const logged = calls.findIndex((sql) => /^INSERT INTO "transactions"/.test(sql));
+  assert.ok(logged >= 0, 'a transaction row was logged');
+  assert.ok(calls.params[logged].includes(11), `logged params carry team id 11: ${JSON.stringify(calls.params[logged])}`);
 });
 
 test('a co-commissioner cannot promote anyone — that stays with the owner', async (t) => {

@@ -183,13 +183,13 @@ async function revokeCoCommissioner({ leagueId, userId, targetUserId }) {
     );
     if (!removed.rows[0]) throw new LeagueRoleError(404, 'that user is not a co-commissioner');
 
-    const team = await client.query(
-      `SELECT "id" FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
-      [leagueId, targetUserId]
-    );
+    // A co-commissioner is always a member (header invariant; removing a Team
+    // deletes the grant in the same transaction, see commissioner.service),
+    // so the revoked user's Team is there to name in the log.
+    const team = await requireMember(client, { leagueId, userId: targetUserId });
     await logTransaction(client, {
       leagueId,
-      teamId: team.rows[0]?.id ?? null,
+      teamId: team.id,
       type: 'commissioner',
       detail: { action: 'revoke_co_commissioner', userId: targetUserId },
     });

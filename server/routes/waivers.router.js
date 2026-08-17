@@ -3,7 +3,7 @@ const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
 const waivers = require('../services/waiver.service');
 const { waiverSuggestions } = require('../services/decision.service');
-const { isLeagueCommissioner } = require('../services/leagueRole.service');
+const { isLeagueCommissioner, requireMember } = require('../services/leagueRole.service');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -17,13 +17,7 @@ router.get('/', async (req, res) => {
   const leagueId = intOrNull(req.query.leagueId);
   if (!leagueId) return res.status(400).json({ error: 'leagueId query param (integer) is required' });
   try {
-    const teamResult = await pool.query(
-      `SELECT "id", "waiver_priority", "faab_remaining" FROM "teams"
-       WHERE "league_id" = $1 AND "owner_id" = $2`,
-      [leagueId, req.user.id]
-    );
-    if (!teamResult.rows[0]) return res.status(403).json({ error: 'not a member of this league' });
-    const team = teamResult.rows[0];
+    const team = await requireMember(pool, { leagueId, userId: req.user.id });
 
     const leagueResult = await pool.query(
       `SELECT "waiver_type", "waiver_period_hours", "faab_budget", "waivers_clear_at"
@@ -56,6 +50,7 @@ router.get('/', async (req, res) => {
       myClaims: claimsResult.rows,
     });
   } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     console.error('Error fetching waivers', error);
     res.status(500).json({ error: 'failed to fetch waivers' });
   }

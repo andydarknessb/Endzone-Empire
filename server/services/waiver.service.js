@@ -1,5 +1,6 @@
 const pool = require('../modules/pool');
 const { assertFantasyLeagueRow } = require('./leagueType');
+const { requireMember } = require('./leagueRole.service');
 const { logTransaction, notify } = require('./activity.service');
 
 class WaiverError extends Error {
@@ -82,12 +83,7 @@ async function submitClaim({ leagueId, userId, playerId, dropPlayerId, bid = 0 }
       throw new WaiverError(409, 'transactions are locked by the commissioner');
     }
 
-    const teamResult = await client.query(
-      `SELECT * FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
-      [leagueId, userId]
-    );
-    const team = teamResult.rows[0];
-    if (!team) throw new WaiverError(403, 'you do not have a team in this league');
+    const team = await requireMember(client, { leagueId, userId });
     if (team.locked) throw new WaiverError(409, 'your team is locked by the commissioner');
 
     if (league.waiver_type === 'faab') {
