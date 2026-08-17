@@ -1,5 +1,6 @@
 const pool = require('../modules/pool');
 const { isPickemOnly, PICKEM_ONLY_MESSAGE } = require('./leagueType');
+const { requireMember } = require('./leagueRole.service');
 const { computeByeWeeks } = require('./bye.service');
 
 class LineupError extends Error {
@@ -183,12 +184,7 @@ async function loadLeagueAndTeam(client, { leagueId, userId, forUpdate = false }
   );
   const league = leagueResult.rows[0];
   if (!league) throw new LineupError(404, 'league not found');
-  const teamResult = await client.query(
-    `SELECT * FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2${forUpdate ? ' FOR UPDATE' : ''}`,
-    [leagueId, userId]
-  );
-  const team = teamResult.rows[0];
-  if (!team) throw new LineupError(403, 'you do not have a team in this league');
+  const team = await requireMember(client, { leagueId, userId, forUpdate });
   return { league, team };
 }
 

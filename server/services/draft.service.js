@@ -3,7 +3,7 @@ const { placeOnWaivers, isOnWaivers } = require('./waiver.service');
 const { logTransaction } = require('./activity.service');
 const { teamForPick, nextOpenPickNumber } = require('./draftOrder.service');
 const { POSITION_GROUPS } = require('./lineup.service');
-const { isLeagueCommissioner } = require('./leagueRole.service');
+const { isLeagueCommissioner, requireMember } = require('./leagueRole.service');
 const { assertFantasyLeagueRow } = require('./leagueType');
 
 class DraftError extends Error {
@@ -121,7 +121,7 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommiss
       if (!myTeam) throw new DraftError(409, 'no team is currently on the clock');
     } else {
       myTeam = teams.find((t) => t.owner_id === userId);
-      if (!myTeam) throw new DraftError(403, 'you do not have a team in this league');
+      if (!myTeam) throw new DraftError(403, 'not a member of this league');
       // A commissioner-locked team can't add players (draft picks flow through
       // this same function once draft_status === 'active'/'complete'); the
       // commissioner's own force-add tool bypasses this via a separate path.
@@ -285,12 +285,7 @@ async function dropPlayer({ leagueId, userId, playerId }) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const teamResult = await client.query(
-      `SELECT "id", "locked" FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2 FOR UPDATE`,
-      [leagueId, userId]
-    );
-    const team = teamResult.rows[0];
-    if (!team) throw new DraftError(403, 'you do not have a team in this league');
+    const team = await requireMember(client, { leagueId, userId, forUpdate: true });
     if (team.locked) throw new DraftError(409, 'your team is locked by the commissioner');
 
     const deleted = await client.query(
@@ -348,12 +343,7 @@ async function undoDrop({ leagueId, userId, playerId }) {
     const league = leagueResult.rows[0];
     if (!league) throw new DraftError(404, 'league not found');
 
-    const teamResult = await client.query(
-      `SELECT "id" FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
-      [leagueId, userId]
-    );
-    const team = teamResult.rows[0];
-    if (!team) throw new DraftError(403, 'you do not have a team in this league');
+    const team = await requireMember(client, { leagueId, userId });
 
     const holdResult = await client.query(
       `SELECT 1 FROM "waiver_players"

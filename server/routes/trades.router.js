@@ -3,6 +3,7 @@ const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
 const trades = require('../services/trade.service');
 const { analyzeTrade } = require('../services/decision.service');
+const { requireMember } = require('../services/leagueRole.service');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -16,12 +17,7 @@ router.get('/', async (req, res) => {
   const leagueId = intOrNull(req.query.leagueId);
   if (!leagueId) return res.status(400).json({ error: 'leagueId query param (integer) is required' });
   try {
-    const teamResult = await pool.query(
-      `SELECT "id" FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
-      [leagueId, req.user.id]
-    );
-    if (!teamResult.rows[0]) return res.status(403).json({ error: 'not a member of this league' });
-    const myTeamId = teamResult.rows[0].id;
+    const myTeamId = (await requireMember(pool, { leagueId, userId: req.user.id })).id;
 
     const tradesResult = await pool.query(
       `SELECT "trades".*,
@@ -60,6 +56,7 @@ router.get('/', async (req, res) => {
       })),
     });
   } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     console.error('Error fetching trades', error);
     res.status(500).json({ error: 'failed to fetch trades' });
   }
@@ -98,15 +95,11 @@ router.post('/analyze', async (req, res) => {
     return res.status(400).json({ error: 'requestedPlayerIds must be an array of integers' });
   }
   try {
-    const teamResult = await pool.query(
-      `SELECT "id" FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
-      [leagueId, req.user.id]
-    );
-    if (!teamResult.rows[0]) return res.status(403).json({ error: 'you do not have a team in this league' });
+    const myTeam = await requireMember(pool, { leagueId, userId: req.user.id });
 
     const analysis = await analyzeTrade({
       leagueId,
-      proposingTeamId: teamResult.rows[0].id,
+      proposingTeamId: myTeam.id,
       receivingTeamId,
       offeredPlayerIds,
       requestedPlayerIds,

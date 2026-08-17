@@ -7,21 +7,13 @@ const { getDraftState } = require('../modules/draftSocket');
 const { teamForPick } = require('../services/draftOrder.service');
 const { draftPlayer, DraftError, nextPickClockSeconds } = require('../services/draft.service');
 const { validateKeepers, undoTargets } = require('../services/draftValidation.service');
-const { isLeagueCommissioner, commissionerPredicate } = require('../services/leagueRole.service');
+const { isLeagueCommissioner, commissionerPredicate, requireMember } = require('../services/leagueRole.service');
 const { requireFantasyLeague } = require('../services/leagueType');
 
 const router = express.Router();
 
 function intOrNull(value) {
   return /^\d+$/.test(String(value)) ? Number(value) : null;
-}
-
-async function myTeam(leagueId, userId) {
-  const result = await pool.query(
-    `SELECT * FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2`,
-    [leagueId, userId]
-  );
-  return result.rows[0] || null;
 }
 
 // GET /api/draft/board/:token — PUBLIC presenter-mode board (no auth). Must
@@ -67,8 +59,7 @@ router.get('/queue', async (req, res) => {
   const leagueId = intOrNull(req.query.leagueId);
   if (!leagueId) return res.status(400).json({ error: 'leagueId query param (integer) is required' });
   try {
-    const team = await myTeam(leagueId, req.user.id);
-    if (!team) return res.status(403).json({ error: 'you do not have a team in this league' });
+    const team = await requireMember(pool, { leagueId, userId: req.user.id });
     const result = await pool.query(
       `SELECT "players"."id", "players"."name", "players"."position", "players"."nfl_team",
               "draft_queue"."rank"
@@ -79,6 +70,7 @@ router.get('/queue', async (req, res) => {
     );
     res.json(result.rows);
   } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     console.error('Error fetching draft queue', error);
     res.status(500).json({ error: 'failed to fetch draft queue' });
   }
@@ -99,15 +91,7 @@ router.put('/queue', requireFantasyLeague({ param: 'leagueId', from: 'body' }), 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const teamResult = await client.query(
-      `SELECT "id" FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2 FOR UPDATE`,
-      [leagueId, req.user.id]
-    );
-    const team = teamResult.rows[0];
-    if (!team) {
-      await client.query('ROLLBACK');
-      return res.status(403).json({ error: 'you do not have a team in this league' });
-    }
+    const team = await requireMember(client, { leagueId, userId: req.user.id, forUpdate: true });
     await client.query(`DELETE FROM "draft_queue" WHERE "team_id" = $1`, [team.id]);
     for (let i = 0; i < playerIds.length; i++) {
       await client.query(
@@ -120,6 +104,7 @@ router.put('/queue', requireFantasyLeague({ param: 'leagueId', from: 'body' }), 
     res.json({ leagueId, teamId: team.id, queued: playerIds.length });
   } catch (error) {
     await client.query('ROLLBACK');
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     if (error.code === '23503') {
       return res.status(400).json({ error: 'unknown player in queue' });
     }
@@ -492,7 +477,7 @@ router.post('/league/:id/ready', async (req, res) => {
       [ready, leagueId, req.user.id]
     );
     if (!result.rows[0]) {
-      return res.status(403).json({ error: 'you do not have a team in this league, or the draft is not pending' });
+      return res.status(403).json({ error: 'not a member of this league, or the draft is not pending' });
     }
     const io = getIo();
     if (io) io.to(`league:${leagueId}`).emit('draft:state', await getDraftState(leagueId));
@@ -508,8 +493,7 @@ router.get('/league/:id/keepers', async (req, res) => {
   const leagueId = intOrNull(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
   try {
-    const team = await myTeam(leagueId, req.user.id);
-    if (!team) return res.status(403).json({ error: 'you do not have a team in this league' });
+    await requireMember(pool, { leagueId, userId: req.user.id });
     const result = await pool.query(
       `SELECT "keepers"."team_id", "keepers"."player_id", "keepers"."draft_round",
               "players"."name", "players"."position", "players"."nfl_team"
@@ -520,6 +504,7 @@ router.get('/league/:id/keepers', async (req, res) => {
     );
     res.json(result.rows);
   } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     console.error('Error fetching keepers', error);
     res.status(500).json({ error: 'failed to fetch keepers' });
   }
