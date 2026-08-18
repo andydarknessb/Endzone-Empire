@@ -137,7 +137,7 @@ function ArticlePage() {
             </Stack>
             <Typography variant="h2" component="h1" sx={{ fontWeight: 800, mb: 1.5 }}>{title}</Typography>
             <Typography variant="body2" sx={{ color: 'text.secondary', mb: 3 }}>
-              Endzone Empire · {formatDate(date)} · {readMinutes} min read
+              {article.author ? `${article.author} · ` : 'Endzone Empire · '}{formatDate(date)} · {readMinutes} min read
             </Typography>
             <Prose sx={{ '& h2': { scrollMarginTop: 92 } }}>
               <Body />
