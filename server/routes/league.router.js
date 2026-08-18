@@ -15,7 +15,9 @@ const {
   listJoinRequests,
   decideJoinRequest,
 } = require('../services/discovery.service');
-const { joinability, joinRefusalMessage } = require('../services/leaguePhase');
+const {
+  joinability, joinRefusalMessage, frozenSettingKeys, settingsUnfrozenWhereSql, DRAFT_FROZEN_SETTING_KEYS,
+} = require('../services/leaguePhase');
 const {
   resolveMinTeams,
   createSizeError,
@@ -613,10 +615,12 @@ router.put('/:id', async (req, res) => {
       await transactionClient.query('BEGIN');
       transactionOpen = true;
     }
-    // Game-integrity settings freeze once the draft starts; administrative
-    // ones (name, waivers, trades) stay editable all season.
+    // Game-integrity settings freeze once the draft starts (League phase owns
+    // WHEN, see leaguePhase.frozenSettingKeys); administrative ones (name,
+    // waivers, trades) stay editable all season. The request values of the
+    // draft-frozen keys, keyed by wire name (DRAFT_FROZEN_SETTING_KEYS).
     const draftOrderOverridesProvided = draftOrderOverrides !== undefined;
-    const preDraftOnly = {
+    const draftFrozenSettings = {
       rosterSlots, positionCaps, benchSlots, dpEnabled, irSlots,
       scoringRules: effectiveRules, regularSeasonWeeks, playoffTeams,
       playoffConsolation, pickTimeSeconds, minTeams, maxTeams, autodraftDelaySeconds,
@@ -626,16 +630,16 @@ router.put('/:id', async (req, res) => {
       auctionSettings: auctionSettingsProvided ? auctionSettings : undefined,
       keeperLockAt: keeperLockAtProvided ? keeperLockAt : undefined,
     };
-    const frozenRequested = Object.entries(preDraftOnly)
-      .filter(([, v]) => v !== undefined)
-      .map(([k]) => k);
+    // The draft-frozen keys this request touches. Whether they are locked
+    // RIGHT NOW is a phase question answered once the row is read.
+    const frozenRequested = DRAFT_FROZEN_SETTING_KEYS.filter((key) => draftFrozenSettings[key] !== undefined);
     // A pick'em-only league has none of the fantasy machinery these settings
     // configure, so they are refused outright (name and size limits stay
     // editable). The set is every pre-draft key except the size limits plus
     // the fantasy settings that otherwise stay editable all season. The raw
     // scoring keys are listed instead of the derived effectiveRules so the
     // refusal names what the caller actually sent.
-    const { minTeams: _sizeMin, maxTeams: _sizeMax, ...preDraftFantasy } = preDraftOnly;
+    const { minTeams: _sizeMin, maxTeams: _sizeMax, ...preDraftFantasy } = draftFrozenSettings;
     const fantasyOnlyRequested = Object.entries({
       ...preDraftFantasy,
       scoringRules,
@@ -684,8 +688,12 @@ router.put('/:id', async (req, res) => {
           { code: PICKEM_ONLY_CODE }
         );
       }
-      if (current && frozenRequested.length > 0 && current.draft_status !== 'pending') {
-        return await rejectUpdate(409, `these settings are locked once the draft starts: ${frozenRequested.join(', ')}`);
+      if (current && frozenRequested.length > 0) {
+        const frozenNow = new Set(frozenSettingKeys(current));
+        const lockedRequested = frozenRequested.filter((key) => frozenNow.has(key));
+        if (lockedRequested.length > 0) {
+          return await rejectUpdate(409, `these settings are locked once the draft starts: ${lockedRequested.join(', ')}`);
+        }
       }
       if (current && draftDateValue && (draftType ?? current.draft_type) === 'auction') {
         return await rejectUpdate(400, 'salary-cap auction drafts cannot be scheduled until live auction support is available');
@@ -802,7 +810,7 @@ router.put('/:id', async (req, res) => {
            "keeper_lock_at" = CASE WHEN $35::boolean THEN $36::timestamptz ELSE "keeper_lock_at" END,
            "updated_at" = now()
        WHERE "id" = $17 AND ${commissionerPredicate(18)}
-         ${frozenRequested.length > 0 ? `AND "draft_status" = 'pending'` : ''}
+         ${frozenRequested.length > 0 ? `AND ${settingsUnfrozenWhereSql()}` : ''}
          ${schedulingNonAuction ? `AND "draft_type" <> 'auction'` : ''}
        RETURNING *`,
       [

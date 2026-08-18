@@ -1,6 +1,7 @@
 const pool = require('../modules/pool');
 const { computeStandings } = require('./season.service');
 const { notify } = require('./activity.service');
+const { LEAGUE_PHASE, deriveLeaguePhase } = require('./leaguePhase');
 
 /**
  * Trophies: automatic awards written after weekly scoring (and, once the
@@ -102,7 +103,7 @@ async function awardWeeklyTrophies({ leagueId, season, week }) {
       }
     }
 
-    if (league.season_status === 'complete') {
+    if (deriveLeaguePhase(league) === LEAGUE_PHASE.COMPLETE) {
       const all = await client.query(
         `SELECT * FROM "matchups" WHERE "league_id" = $1 AND "season" = $2`,
         [leagueId, season]

@@ -9,6 +9,7 @@ const {
   joinableWhereSql,
   fantasySeasonLiveWhereSql,
   frozenSettingKeys,
+  settingsUnfrozenWhereSql,
   DRAFT_FROZEN_SETTING_KEYS,
 } = require('../services/leaguePhase');
 
@@ -102,6 +103,26 @@ test('fantasySeasonLiveWhereSql: fantasy league whose draft is complete and seas
 test('the SQL fragments are code literals: an alias with a quote or dot is refused', () => {
   assert.throws(() => joinableWhereSql('x"; DROP TABLE'), /alias/);
   assert.throws(() => fantasySeasonLiveWhereSql('a.b'), /alias/);
+  assert.throws(() => settingsUnfrozenWhereSql('a b'), /alias/);
+});
+
+test('settingsUnfrozenWhereSql: no key is draft-frozen for a pick\'em-only league or a fantasy league still pre-draft', () => {
+  assert.equal(
+    settingsUnfrozenWhereSql('leagues'),
+    `("leagues"."pickem_only" = true OR "leagues"."draft_status" = 'pending')`
+  );
+  assert.equal(settingsUnfrozenWhereSql(), `("pickem_only" = true OR "draft_status" = 'pending')`);
+});
+
+test('settingsUnfrozenWhereSql agrees with frozenSettingKeys on every fixture row', () => {
+  // Evaluate the fragment the way Postgres would over each fixture row and
+  // compare with the pure rule, so the SQL twin cannot drift from it.
+  const rows = fixture.cases.map((c) => c.league).filter(Boolean);
+  assert.ok(rows.length > 0);
+  for (const row of rows) {
+    const unfrozenBySql = row.pickem_only === true || row.draft_status === 'pending';
+    assert.equal(unfrozenBySql, frozenSettingKeys(row).length === 0, JSON.stringify(row));
+  }
 });
 
 /* ------------------------------------------------------------------ *

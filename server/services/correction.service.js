@@ -1,6 +1,7 @@
 const pool = require('../modules/pool');
 const scoring = require('./scoring.service');
 const { logTransaction, notify, notifyLeague } = require('./activity.service');
+const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
 
 /**
  * Stat corrections: the NFL routinely adjusts box scores on Tuesday/Wednesday
@@ -229,7 +230,7 @@ async function resyncPriorWeeks({ source = 'nflverse' } = {}) {
   }
   const leaguesResult = await pool.query(
     `SELECT "id", "current_season", "current_week" FROM "leagues"
-     WHERE "draft_status" = 'complete' AND "season_status" != 'complete' AND "current_week" > 1`
+     WHERE ${fantasySeasonLiveWhereSql()} AND "current_week" > 1`
   );
   const weeks = new Map(); // 'season:week' -> { season, week, leagueIds }
   for (const league of leaguesResult.rows) {

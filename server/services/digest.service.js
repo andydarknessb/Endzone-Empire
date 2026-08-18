@@ -2,6 +2,7 @@ const pool = require('../modules/pool');
 const { deliverEmail } = require('./account.service');
 const { notify } = require('./activity.service');
 const { usersWanting } = require('./prefs.service');
+const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
 
 /**
  * Email/notification digests: pre-lockout lineup reminders, waiver-results
@@ -163,7 +164,7 @@ const remindedTeamWeeks = new Set();
 async function sendLineupReminders() {
   const leagues = await pool.query(
     `SELECT * FROM "leagues"
-     WHERE "draft_status" = 'complete' AND "season_status" != 'complete' AND "best_ball" = false`
+     WHERE ${fantasySeasonLiveWhereSql()} AND "best_ball" = false`
   );
   let remindersSent = 0;
 
@@ -271,6 +272,9 @@ const pickemRemindedUserWeeks = new Set();
 async function sendPickemReminders() {
   let leagues;
   try {
+    // A pick'em job, not a fantasy weekly job: it selects every pick'em-enabled
+    // league (fantasy-with-pick'em and pick'em-only alike) whose season is
+    // still going, so the fantasy "season live" phase fragment does not apply.
     leagues = await pool.query(
       `SELECT "leagues"."id", "leagues"."name",
               "leagues"."current_season" AS "season", "leagues"."current_week" AS "week"

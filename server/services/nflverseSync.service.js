@@ -2,6 +2,7 @@ const axios = require('axios');
 const pool = require('../modules/pool');
 const scoring = require('./scoring.service');
 const correction = require('./correction.service');
+const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
 
 /**
  * Two nflverse-backed jobs share this service:
@@ -249,7 +250,7 @@ async function applyNflverseWeek({ season, week, defRows, crosswalk, rescoreLeag
     return { season, week, playersUpdated, leaguesRescored: 0 };
   }
 
-  const leaguesResult = await pool.query(`SELECT "id" FROM "leagues" WHERE "draft_status" = 'complete'`);
+  const leaguesResult = await pool.query(`SELECT "id" FROM "leagues" WHERE ${fantasySeasonLiveWhereSql()}`);
   let leaguesRescored = 0;
   for (const league of leaguesResult.rows) {
     try {
@@ -749,7 +750,7 @@ async function correctWeekFromNflverse({
   if (!rescoreLeagues) return { ...applied, leaguesRescored: 0, corrected: [] };
 
   const leaguesResult = await pool.query(
-    `SELECT "id" FROM "leagues" WHERE "draft_status" = 'complete'`
+    `SELECT "id" FROM "leagues" WHERE ${fantasySeasonLiveWhereSql()}`
   );
   const corrected = [];
   for (const league of leaguesResult.rows) {
@@ -783,7 +784,7 @@ function isNflverseFinalizationDay(date = new Date()) {
 async function finalizePriorWeeks() {
   const leaguesResult = await pool.query(
     `SELECT "id", "current_season", "current_week" FROM "leagues"
-     WHERE "draft_status" = 'complete' AND "season_status" != 'complete' AND "current_week" > 1`
+     WHERE ${fantasySeasonLiveWhereSql()} AND "current_week" > 1`
   );
   const weeks = new Map();
   for (const league of leaguesResult.rows) {
