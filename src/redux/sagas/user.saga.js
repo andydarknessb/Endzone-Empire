@@ -1,5 +1,6 @@
 import { put, takeLatest } from 'redux-saga/effects';
 import apiClient, { clearToken } from '../../api/apiClient';
+import { dropSessionCaches } from '../../sessionCaches';
 
 // worker Saga: fired on "FETCH_USER" actions
 export function* fetchUser() {
@@ -9,8 +10,10 @@ export function* fetchUser() {
     yield put({ type: 'SET_USER', payload: response.data });
   } catch (error) {
     if (error.response && error.response.status === 401) {
-      // Token expired or invalid — clear it so the app returns to logged-out state
+      // Token expired or invalid — clear it so the app returns to logged-out
+      // state, and drop the session caches with it (a session change).
       clearToken();
+      dropSessionCaches();
       yield put({ type: 'UNSET_USER' });
     } else {
       console.log('User get request failed', error);

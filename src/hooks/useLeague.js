@@ -11,19 +11,31 @@ const CACHE_TTL_MS = 60000;
 // each firing their own; once it resolves, `data`/`fetchedAt` serve
 // same-league mounts within CACHE_TTL_MS without a network round-trip.
 const cache = new Map();
+// Bumped by clearLeagueCache: a response that was already in flight when the
+// cache was cleared (a logout or a new login mid-fetch) must not repopulate
+// it as fresh, so a fetch only stores its result if the generation it started
+// under is still current. The mount that asked still gets its answer.
+const generations = new Map();
+const generationOf = (key) => generations.get(key) || 0;
 
 function keyFor(leagueId) {
   return String(leagueId);
 }
 
 function fetchLeague(key, leagueId) {
+  const generation = generationOf(key);
   const promise = apiClient.get(`/api/league/${leagueId}`).then((res) => res.data.league);
   cache.set(key, { data: cache.get(key)?.data, promise, fetchedAt: null });
   promise.then(
-    (data) => cache.set(key, { data, promise: null, fetchedAt: Date.now() }),
-    () => cache.delete(key)
+    (data) => { if (generationOf(key) === generation) cache.set(key, { data, promise: null, fetchedAt: Date.now() }); },
+    () => { if (generationOf(key) === generation) cache.delete(key); }
   );
   return promise;
+}
+
+function drop(key) {
+  cache.delete(key);
+  generations.set(key, generationOf(key) + 1);
 }
 
 function isFresh(entry) {
@@ -44,9 +56,9 @@ export function primeLeagueCache(leagueId, league) {
 /** Clears the shared league cache for one league, or every league when called with no id. */
 export function clearLeagueCache(leagueId) {
   if (leagueId == null) {
-    cache.clear();
+    for (const key of Array.from(cache.keys())) drop(key);
   } else {
-    cache.delete(keyFor(leagueId));
+    drop(keyFor(leagueId));
   }
 }
 

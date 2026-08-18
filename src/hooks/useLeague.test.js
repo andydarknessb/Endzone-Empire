@@ -210,3 +210,21 @@ test('a stale error from one league does not survive a switch to a fresh cached 
   expect(result.current.error).toBeNull();
   expect(result.current.league).toEqual({ id: 2, name: 'Cached League' });
 });
+
+test('a response that was in flight when the cache was cleared does not repopulate it (a session change mid-fetch)', async () => {
+  let resolveFirst;
+  apiClient.get.mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve; }));
+  const { result, unmount } = renderHook(() => useLeague(1));
+  expect(apiClient.get).toHaveBeenCalledTimes(1);
+
+  clearLeagueCache(); // logout / new login while the request was still out
+  await act(async () => { resolveFirst(leagueResponse({ name: 'Previous session row' })); });
+  expect(result.current.league.name).toBe('Previous session row'); // that mount still gets its answer
+  unmount();
+
+  apiClient.get.mockResolvedValue(leagueResponse({ name: 'Fresh row' }));
+  const { result: nextResult } = renderHook(() => useLeague(1));
+  await waitFor(() => expect(nextResult.current.loading).toBe(false));
+  expect(apiClient.get).toHaveBeenCalledTimes(2); // the pre-clear response was not cached as fresh
+  expect(nextResult.current.league.name).toBe('Fresh row');
+});
