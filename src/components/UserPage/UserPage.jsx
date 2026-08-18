@@ -270,7 +270,7 @@ function UserPage() {
               </Typography>
               <Typography variant="body1" color="text.secondary" sx={{ mb: 3, maxWidth: 460 }}>
                 Your command center for every league you manage: drafts, matchups,
-                waivers, and trades, all in one place.
+                waivers, trades, and weekly picks, all in one place.
               </Typography>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
                 <Button variant="contained" size="large" onClick={handleOpenCreateDialog}>

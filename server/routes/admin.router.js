@@ -21,8 +21,11 @@ router.get('/overview', async (req, res) => {
          FROM "users"`
       ),
       pool.query(
-        `SELECT "draft_status", "season_status", COUNT(*)::int AS "count"
-         FROM "leagues" GROUP BY "draft_status", "season_status"
+        // Grouped by league type too: a pick'em-only league has no draft and
+        // stays draft-pending forever, so without the type it inflates the
+        // "pending draft" bucket with nothing to tell it apart.
+        `SELECT "draft_status", "season_status", "pickem_only", COUNT(*)::int AS "count"
+         FROM "leagues" GROUP BY "draft_status", "season_status", "pickem_only"
          ORDER BY "count" DESC`
       ),
       pool.query(
