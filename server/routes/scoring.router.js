@@ -352,12 +352,12 @@ router.get('/league/:id/power-rankings', async (req, res) => {
       [leagueId]
     );
     const avatarsByTeam = new Map(avatarsResult.rows.map((t) => [t.id, t]));
-    const rankings = latest.rankings.map((r) => ({
+    const rankings = latest.data.rankings.map((r) => ({
       ...r,
       avatarUrl: avatarsByTeam.get(r.teamId)?.avatar_url ?? null,
       avatarStaticUrl: avatarsByTeam.get(r.teamId)?.avatar_static_url ?? null,
     }));
-    res.json({ ...latest, rankings, viewerTeamId: viewerTeam.id });
+    res.json({ ...latest, data: { ...latest.data, rankings }, viewerTeamId: viewerTeam.id });
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     console.error('Power rankings fetch failed:', error);
