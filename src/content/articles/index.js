@@ -14,6 +14,7 @@ import waiverPriorityVsFaab from './waiver-priority-vs-faab';
 import readingTradeValue from './reading-trade-value';
 import streamingDefenseAndKicker from './streaming-defense-and-kicker';
 import playoffPrep from './playoff-prep';
+import preseasonWeek1Recap from './preseason-week-1-recap';
 
 // Newest first.
 const ARTICLES = [
@@ -22,9 +23,10 @@ const ARTICLES = [
   readingTradeValue,
   streamingDefenseAndKicker,
   playoffPrep,
+  preseasonWeek1Recap,
 ].sort((a, b) => new Date(b.date) - new Date(a.date));
 
-const META_KEYS = ['slug', 'title', 'category', 'excerpt', 'readMinutes', 'date'];
+const META_KEYS = ['slug', 'title', 'category', 'excerpt', 'readMinutes', 'date', 'author'];
 
 /** Metadata-only view (no Body) for cards and listings. */
 function toMeta(article) {

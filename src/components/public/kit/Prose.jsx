@@ -33,6 +33,10 @@ function Prose({ children, sx }) {
           color: 'text.secondary',
           fontStyle: 'italic',
         },
+        '& table': { width: '100%', borderCollapse: 'collapse', my: 3, fontSize: '0.95rem' },
+        '& thead th': { textAlign: 'left', fontWeight: 700, py: 1, px: 1.5, borderBottom: '2px solid', borderColor: 'divider', whiteSpace: 'nowrap' },
+        '& td': { py: 0.75, px: 1.5, borderBottom: '1px solid', borderColor: 'divider' },
+        '& tbody tr:hover': { bgcolor: 'action.hover' },
         ...sx,
       }}
     >
@@ -63,5 +67,11 @@ export const UL = ({ children }) => <ul>{children}</ul>;
 export const OL = ({ children }) => <ol>{children}</ol>;
 export const LI = ({ children }) => <li>{children}</li>;
 export const Quote = ({ children }) => <blockquote>{children}</blockquote>;
+export const Table = ({ children, ...props }) => <table {...props}>{children}</table>;
+export const THead = ({ children }) => <thead>{children}</thead>;
+export const TBody = ({ children }) => <tbody>{children}</tbody>;
+export const TR = ({ children }) => <tr>{children}</tr>;
+export const TH = ({ children, ...props }) => <th {...props}>{children}</th>;
+export const TD = ({ children, ...props }) => <td {...props}>{children}</td>;
 
 export default Prose;
