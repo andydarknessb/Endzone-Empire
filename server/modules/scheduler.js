@@ -4,6 +4,7 @@ const { processDueTrades } = require('../services/trade.service');
 const { processExpiredPickClocks } = require('../services/autopick.service');
 const { processScheduledDrafts } = require('../services/draftSchedule.service');
 const { withAdvisoryLock } = require('./advisoryLock');
+const { fantasySeasonLiveWhereSql } = require('../services/leaguePhase');
 
 /**
  * In-process job runner for time-based league mechanics (waiver clearing,
@@ -175,7 +176,7 @@ async function syncAndScoreLiveWeeks() {
   const scoring = require('../services/scoring.service');
   const leaguesResult = await pool.query(
     `SELECT "id", "current_season", "current_week" FROM "leagues"
-     WHERE "season_status" != 'complete' AND "draft_status" = 'complete'`
+     WHERE ${fantasySeasonLiveWhereSql()}`
   );
   if (leaguesResult.rows.length === 0) return false;
 

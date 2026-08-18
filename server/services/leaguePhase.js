@@ -7,11 +7,11 @@
  * (src/lib/leaguePhase.fixture.json), so the two cannot drift silently.
  *
  * Phase answers league-level questions only: may a team join (`joinability`),
- * may these settings still change (`frozenSettingKeys`), is the season live
- * (`fantasySeasonLiveWhereSql`). The draft's own turn-by-turn state is DRAFT
- * STATUS, not phase: the draft engine, season engine, pick'em-season engine
- * and rollover write those columns and keep reading them raw. Every other
- * reader asks here.
+ * may these settings still change (`frozenSettingKeys` and its SQL twin
+ * `settingsUnfrozenWhereSql`), is the season live (`fantasySeasonLiveWhereSql`).
+ * The draft's own turn-by-turn state is DRAFT STATUS, not phase: the draft
+ * engine, season engine, pick'em-season engine and rollover write those
+ * columns and keep reading them raw. Every other reader asks here.
  *
  * A pick'em-only league has no draft: it is in-season from creation until
  * its season completes, whatever draft_status says, and it is joinable for
@@ -142,6 +142,19 @@ function frozenSettingKeys(league) {
   return deriveLeaguePhase(league) === LEAGUE_PHASE.PRE_DRAFT ? [] : [...DRAFT_FROZEN_SETTING_KEYS];
 }
 
+/**
+ * WHERE fragment: the SQL twin of `frozenSettingKeys(row).length === 0`,
+ * i.e. no setting is draft-frozen for this row (a pick'em-only league, or a
+ * fantasy league still pre-draft). The settings UPDATE splices it as its
+ * race guard so a draft that starts between the status read and the write
+ * zeroes the update instead of slipping a frozen edit through.
+ */
+function settingsUnfrozenWhereSql(alias) {
+  const pickemOnly = column(alias, 'pickem_only');
+  const draftStatus = column(alias, 'draft_status');
+  return `(${pickemOnly} = true OR ${draftStatus} = 'pending')`;
+}
+
 module.exports = {
   LEAGUE_PHASE,
   JOIN_REFUSAL_REASON,
@@ -153,4 +166,5 @@ module.exports = {
   joinableWhereSql,
   fantasySeasonLiveWhereSql,
   frozenSettingKeys,
+  settingsUnfrozenWhereSql,
 };

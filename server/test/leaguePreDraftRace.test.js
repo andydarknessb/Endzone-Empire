@@ -5,6 +5,7 @@ const request = require('supertest');
 const pool = require('../modules/pool');
 const { signToken } = require('../modules/auth');
 const leagueRouter = require('../routes/league.router');
+const { settingsUnfrozenWhereSql } = require('../services/leaguePhase');
 
 const previousSecret = process.env.JWT_SECRET;
 process.env.JWT_SECRET = 'league-predraft-race-test-secret';
@@ -46,7 +47,9 @@ test('pre-draft settings reject a draft that starts between status check and upd
 
   assert.equal(response.status, 409);
   assert.match(response.body.error, /locked once the draft starts/);
-  assert.match(updateQuery, /AND "draft_status" = 'pending'/);
+  // The UPDATE is guarded on the phase module's freeze rule (still pre-draft
+  // for a fantasy league), so the draft that started in between zeroes it.
+  assert.ok(updateQuery.includes(`AND ${settingsUnfrozenWhereSql()}`), updateQuery);
 });
 
 test('administrative-only updates remain available after draft start', async (t) => {
@@ -67,5 +70,5 @@ test('administrative-only updates remain available after draft start', async (t)
     .send({ name: 'Renamed League' });
 
   assert.equal(response.status, 200);
-  assert.doesNotMatch(updateQuery, /AND "draft_status" = 'pending'/);
+  assert.ok(!updateQuery.includes(settingsUnfrozenWhereSql()), updateQuery);
 });

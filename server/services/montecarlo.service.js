@@ -2,6 +2,8 @@ const pool = require('../modules/pool');
 const { computeStandings, pairBySeed } = require('./season.service');
 const { parseLineupSettings, optimalLineup } = require('./lineup.service');
 const { getWeekProjections } = require('./projection.service');
+const { LEAGUE_PHASE, deriveLeaguePhase } = require('./leaguePhase');
+const { isPickemOnly } = require('./leagueType');
 
 /**
  * Monte Carlo playoff odds + power rankings.
@@ -221,7 +223,13 @@ function powerRankings(standings, models, odds) {
 async function computeLeagueOdds({ leagueId, runs = DEFAULT_RUNS, seed }) {
   const leagueResult = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
   const league = leagueResult.rows[0];
-  if (!league || league.draft_status !== 'complete') return null;
+  // League type first (a pick'em-only league has no rosters or matchups to
+  // model; the scoring router already refuses it, this is defense in depth),
+  // then League phase: only once the draft is over, since pre-draft there is
+  // nothing to model and mid-draft rosters are partial.
+  if (!league || isPickemOnly(league)) return null;
+  const phase = deriveLeaguePhase(league);
+  if (phase === LEAGUE_PHASE.PRE_DRAFT || phase === LEAGUE_PHASE.DRAFTING) return null;
   const { current_season: season, current_week: week } = league;
 
   const teamsResult = await pool.query(
@@ -274,7 +282,7 @@ async function computeLeagueOdds({ leagueId, runs = DEFAULT_RUNS, seed }) {
   const standings = computeStandings(teams, matchupsResult.rows);
   const effectiveSeed = seed != null ? seed : leagueId * 1000 + week; // stable within a week
   let odds;
-  if (league.season_status === 'playoffs') {
+  if (phase === LEAGUE_PHASE.PLAYOFFS) {
     // The regular season is decided: playoff odds are historical fact, and
     // title odds come from continuing the REAL bracket — alive teams only,
     // this round's pending pairings fixed, later rounds re-seeded.
