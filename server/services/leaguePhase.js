@@ -1,0 +1,156 @@
+/**
+ * League phase: where a league sits in its lifecycle (pre-draft, drafting,
+ * in-season, playoffs, complete), derived from the raw leagues columns
+ * (draft_status, season_status, pickem_only) and never stored. This is the
+ * server twin of src/lib/leaguePhase.js: the derivation is identical on both
+ * sides and both test suites run the shared fixture beside the client module
+ * (src/lib/leaguePhase.fixture.json), so the two cannot drift silently.
+ *
+ * Phase answers league-level questions only: may a team join (`joinability`),
+ * may these settings still change (`frozenSettingKeys`), is the season live
+ * (`fantasySeasonLiveWhereSql`). The draft's own turn-by-turn state is DRAFT
+ * STATUS, not phase: the draft engine, season engine, pick'em-season engine
+ * and rollover write those columns and keep reading them raw. Every other
+ * reader asks here.
+ *
+ * A pick'em-only league has no draft: it is in-season from creation until
+ * its season completes, whatever draft_status says, and it is joinable for
+ * exactly that span (a rollover puts it back to regular, so it is joinable
+ * again). A league with a fantasy side is joinable only while pre-draft.
+ */
+
+const LEAGUE_PHASE = Object.freeze({
+  PRE_DRAFT: 'pre-draft',
+  DRAFTING: 'drafting',
+  IN_SEASON: 'in-season',
+  PLAYOFFS: 'playoffs',
+  COMPLETE: 'complete',
+});
+
+/** Why a league refuses a new team. Cross-side contract, mirrored in the fixture. */
+const JOIN_REFUSAL_REASON = Object.freeze({
+  DRAFT_STARTED: 'draft-started',
+  SEASON_COMPLETE: 'season-complete',
+});
+
+/** The manager-readable message for each refusal reason (409 bodies). */
+const JOIN_REFUSAL_MESSAGES = Object.freeze({
+  [JOIN_REFUSAL_REASON.DRAFT_STARTED]: 'league draft already started',
+  [JOIN_REFUSAL_REASON.SEASON_COMPLETE]: 'league season is complete',
+});
+
+/** Pure: the phase for a leagues row. Null for a missing row. Same rule as the client. */
+function deriveLeaguePhase(league) {
+  if (!league) return null;
+  if (league.pickem_only) {
+    return league.season_status === 'complete' ? LEAGUE_PHASE.COMPLETE : LEAGUE_PHASE.IN_SEASON;
+  }
+  if (league.draft_status === 'pending') return LEAGUE_PHASE.PRE_DRAFT;
+  if (league.draft_status === 'active') return LEAGUE_PHASE.DRAFTING;
+  if (league.season_status === 'playoffs') return LEAGUE_PHASE.PLAYOFFS;
+  if (league.season_status === 'complete') return LEAGUE_PHASE.COMPLETE;
+  return LEAGUE_PHASE.IN_SEASON;
+}
+
+/**
+ * Pure: will this league accept a new team right now?
+ * `{ joinable: true }` or `{ joinable: false, reason }`. Per-manager gates
+ * (already a member, league full, approval required, not public) are layered
+ * on top by the caller. A missing row fails closed with no reason.
+ */
+function joinability(league) {
+  if (!league) return { joinable: false, reason: null };
+  const phase = deriveLeaguePhase(league);
+  if (league.pickem_only) {
+    return phase === LEAGUE_PHASE.COMPLETE
+      ? { joinable: false, reason: JOIN_REFUSAL_REASON.SEASON_COMPLETE }
+      : { joinable: true };
+  }
+  return phase === LEAGUE_PHASE.PRE_DRAFT
+    ? { joinable: true }
+    : { joinable: false, reason: JOIN_REFUSAL_REASON.DRAFT_STARTED };
+}
+
+/** Message for a refusal answer; the draft-started text is the historic one. */
+function joinRefusalMessage(reason) {
+  return JOIN_REFUSAL_MESSAGES[reason] || 'league is not accepting new teams';
+}
+
+/* ------------------------------------------------------------------ *
+ * SQL fragments. Code literals only: the alias is a table alias chosen *
+ * by the caller, never request input, and it is validated as an       *
+ * identifier so the fragment can be spliced where discovery already   *
+ * splices code-literal fragments.                                     *
+ * ------------------------------------------------------------------ */
+
+function column(alias, name) {
+  if (alias === undefined || alias === null || alias === '') return `"${name}"`;
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(String(alias))) {
+    throw new Error(`leaguePhase: table alias must be a bare identifier, got ${JSON.stringify(alias)}`);
+  }
+  return `"${alias}"."${name}"`;
+}
+
+/** WHERE fragment: the same rule as `joinability`, for the Discover query. */
+function joinableWhereSql(alias) {
+  const pickemOnly = column(alias, 'pickem_only');
+  const draftStatus = column(alias, 'draft_status');
+  const seasonStatus = column(alias, 'season_status');
+  return `((${pickemOnly} = false AND ${draftStatus} = 'pending')` +
+    ` OR (${pickemOnly} = true AND ${seasonStatus} <> 'complete'))`;
+}
+
+/**
+ * WHERE fragment: a fantasy league whose season is live (draft complete,
+ * season not complete). The eligibility rule for the weekly jobs; pick'em-only
+ * leagues are excluded, as they always were.
+ */
+function fantasySeasonLiveWhereSql(alias) {
+  const pickemOnly = column(alias, 'pickem_only');
+  const draftStatus = column(alias, 'draft_status');
+  const seasonStatus = column(alias, 'season_status');
+  return `(${pickemOnly} = false AND ${draftStatus} = 'complete' AND ${seasonStatus} <> 'complete')`;
+}
+
+/* ------------------------------------------------------------------ *
+ * Settings freeze                                                     *
+ * ------------------------------------------------------------------ */
+
+/**
+ * The game-integrity settings (wire keys of PUT /api/league/:id) that lock
+ * once the draft starts. Administrative settings (name, waivers, trades)
+ * stay editable all season and are not listed. Phase owns WHEN these lock;
+ * the league-type service owns WHAT EXISTS for a pick'em-only league.
+ */
+const DRAFT_FROZEN_SETTING_KEYS = Object.freeze([
+  'rosterSlots', 'positionCaps', 'benchSlots', 'dpEnabled', 'irSlots',
+  'scoringRules', 'regularSeasonWeeks', 'playoffTeams',
+  'playoffConsolation', 'pickTimeSeconds', 'minTeams', 'maxTeams', 'autodraftDelaySeconds',
+  'draftDate', 'draftType', 'draftRotation', 'keepersEnabled', 'keeperCount',
+  'draftOrderOverrides', 'auctionSettings', 'keeperLockAt',
+]);
+
+/**
+ * Pure: the setting keys frozen for this league right now. The full list
+ * once a fantasy league is past pre-draft; empty pre-draft; empty for a
+ * pick'em-only league (it has no draft, so nothing is draft-frozen). A
+ * missing row fails closed: nothing could be verified pre-draft.
+ */
+function frozenSettingKeys(league) {
+  if (!league) return [...DRAFT_FROZEN_SETTING_KEYS];
+  if (league.pickem_only) return [];
+  return deriveLeaguePhase(league) === LEAGUE_PHASE.PRE_DRAFT ? [] : [...DRAFT_FROZEN_SETTING_KEYS];
+}
+
+module.exports = {
+  LEAGUE_PHASE,
+  JOIN_REFUSAL_REASON,
+  JOIN_REFUSAL_MESSAGES,
+  DRAFT_FROZEN_SETTING_KEYS,
+  deriveLeaguePhase,
+  joinability,
+  joinRefusalMessage,
+  joinableWhereSql,
+  fantasySeasonLiveWhereSql,
+  frozenSettingKeys,
+};

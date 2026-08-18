@@ -52,10 +52,32 @@ _Avoid_: admin, owner, moderator
 
 **League phase**:
 Where a league sits in its lifecycle: pre-draft, drafting, in-season, playoffs,
-complete. Derived from the league's draft and season state, never a field of
-its own. A pick'em-only league has no draft and needs its own derivation: it
-is never pre-draft or drafting, only in-season then complete.
-_Avoid_: status, stage, state
+complete. Derived from the league's draft status and season state, never a
+field of its own, and it answers league-level questions only: whether a team
+may join, whether settings may still change, whether the season is live. The
+draft's own turn-by-turn state is draft status, not phase. A pick'em-only
+league has no draft and needs its own derivation: it is in-season from the
+moment it is created, then complete, and never pre-draft or drafting.
+_Avoid_: league status, stage, state
+
+**Draft status**:
+Where a draft sits in its own lifecycle: pending (not yet started), active
+(picks are being made), complete. Owned and driven by the draft itself, and
+read directly by the draft room and the draft engine. It is one input to
+league phase, never a substitute for it: "may this pick be made" is a draft
+question, "may a team join" is a phase question. A pick'em-only league has no
+draft, so its draft status carries no meaning and is never read.
+_Avoid_: draft phase, league status
+
+**Joinable**:
+A league that will accept a new team right now. A league with a fantasy side is
+joinable only while pre-draft; a pick'em-only league is joinable from creation
+until its season completes, and again once it rolls into a new season. Derived
+from league phase, never stored, and it comes with a reason when it is false
+(the draft has started, the season is complete) so the answer can be shown.
+Whether one particular manager may join (already a member, league full,
+approval required, not public) is a separate question layered on top.
+_Avoid_: open (ambiguous with a public league or open slots), recruiting
 
 **Best ball**:
 A league mode in which nobody sets a lineup: each week the best legal lineup a
