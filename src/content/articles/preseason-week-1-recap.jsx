@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box } from '@mui/material';
 import {
-  Lead, P, H2, H3, UL, LI, Quote,
+  Lead, P, H2, H3, Quote,
   Table, THead, TBody, TR, TH, TD,
 } from '../../components/public/kit/Prose';
 
