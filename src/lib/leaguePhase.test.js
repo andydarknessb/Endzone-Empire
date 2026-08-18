@@ -1,4 +1,13 @@
 import { deriveLeaguePhase, LEAGUE_PHASE, rosterActionForPhase } from './leaguePhase';
+import fixture from './leaguePhase.fixture.json';
+
+// The phase contract fixture is shared with the server phase test
+// (server/test/leaguePhase.test.js loads this same file), so the two
+// derivations cannot drift silently. Joinability lands on the client in the
+// follow-on ticket; until then this side asserts phase for every case.
+test.each(fixture.cases.map((c) => [c.name, c]))('fixture: %s', (_name, c) => {
+  expect(deriveLeaguePhase(c.league)).toBe(c.phase);
+});
 
 test.each([
   [{ draft_status: 'pending' }, LEAGUE_PHASE.PRE_DRAFT],
