@@ -251,7 +251,7 @@ test('buildDiscoverQuery: no type means no pickem_only type filter (both kinds l
   const { whereClause, params } = buildDiscoverQuery({ userId: 1, search: 'x' });
   // The joinable rule reads pickem_only too; what must be absent is the
   // parameterised type filter.
-  assert.doesNotMatch(whereClause, /"pickem_only" = $/);
+  assert.doesNotMatch(whereClause, /"pickem_only" = \$\d/);
   assert.deepEqual(params, [1, '%x%']);
 });
 
@@ -301,7 +301,7 @@ test('GET /discover: type is validated (400 on an unknown value) and passed to t
 test('buildDiscoverQuery: an unvalidated type value adds no fragment (fails closed, not open)', () => {
   for (const bad of ['bogus', 'both', 'FANTASY', ['pickem']]) {
     const { whereClause, params } = buildDiscoverQuery({ userId: 1, type: bad });
-    assert.doesNotMatch(whereClause, /"pickem_only" = $/, `type=${JSON.stringify(bad)} must not filter`);
+    assert.doesNotMatch(whereClause, /"pickem_only" = \$\d/, `type=${JSON.stringify(bad)} must not filter`);
     assert.deepEqual(params, [1]);
   }
 });

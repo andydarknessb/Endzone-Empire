@@ -417,7 +417,6 @@ async function decideJoinRequest({ leagueId, ownerId, requestId, approve }) {
 
 module.exports = {
   DiscoveryError,
-  assertJoinable,
   VALID_SCORING_PRESETS,
   VALID_DISCOVER_SORTS,
   VALID_DISCOVER_TYPES,
