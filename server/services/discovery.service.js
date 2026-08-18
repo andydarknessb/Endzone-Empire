@@ -22,7 +22,10 @@ class DiscoveryError extends Error {
  * Refuse a league that will not accept a new team right now (see the League
  * phase module): 409 with a message chosen from the reason, and the reason
  * itself on the error so the route can ship it. Per-manager gates (member,
- * full, approval) stay with each caller.
+ * full, approval) stay with each caller. The discriminator is `reason`, not
+ * the `code` other services use: it is the same string the invite preview
+ * ships as `joinReason`, and `code` on errors in this file already means a
+ * pg SQLSTATE (the 23505 checks below).
  */
 function assertJoinable(league) {
   const answer = joinability(league);
