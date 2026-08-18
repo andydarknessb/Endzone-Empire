@@ -6,6 +6,7 @@ const {
   buildDiscoverQuery,
   VALID_DISCOVER_TYPES,
 } = require('../services/discovery.service');
+const { joinableWhereSql } = require('../services/leaguePhase');
 
 // ---------------------------------------------------------------------------
 // validateCreateOptions
@@ -146,7 +147,9 @@ test('validateCreateOptions: pickemMode is rejected, not dropped, when the type 
 
 test('buildDiscoverQuery: base case has no search/scoring/openSlots filters', () => {
   const { whereClause, havingClause, orderByClause, params } = buildDiscoverQuery({ userId: 42 });
-  assert.equal(whereClause, `"leagues"."is_public" = true AND "leagues"."draft_status" = 'pending'`);
+  // Public, and joinable (the League phase rule: fantasy while pre-draft,
+  // pick'em-only until the season completes); see leagueJoinability.test.js.
+  assert.equal(whereClause, `"leagues"."is_public" = true AND ${joinableWhereSql('leagues')}`);
   assert.equal(havingClause, null);
   assert.equal(orderByClause, `"leagues"."created_at" DESC`);
   assert.deepEqual(params, [42]);
@@ -244,9 +247,11 @@ test("buildDiscoverQuery: type 'fantasy' filters pickem_only = false", () => {
   assert.deepEqual(params, [1, false]);
 });
 
-test('buildDiscoverQuery: no type means no pickem_only fragment (both kinds listed)', () => {
+test('buildDiscoverQuery: no type means no pickem_only type filter (both kinds listed)', () => {
   const { whereClause, params } = buildDiscoverQuery({ userId: 1, search: 'x' });
-  assert.equal(whereClause.includes('pickem_only'), false);
+  // The joinable rule reads pickem_only too; what must be absent is the
+  // parameterised type filter.
+  assert.doesNotMatch(whereClause, /"pickem_only" = $/);
   assert.deepEqual(params, [1, '%x%']);
 });
 
@@ -296,7 +301,7 @@ test('GET /discover: type is validated (400 on an unknown value) and passed to t
 test('buildDiscoverQuery: an unvalidated type value adds no fragment (fails closed, not open)', () => {
   for (const bad of ['bogus', 'both', 'FANTASY', ['pickem']]) {
     const { whereClause, params } = buildDiscoverQuery({ userId: 1, type: bad });
-    assert.equal(whereClause.includes('pickem_only'), false, `type=${JSON.stringify(bad)} must not filter`);
+    assert.doesNotMatch(whereClause, /"pickem_only" = $/, `type=${JSON.stringify(bad)} must not filter`);
     assert.deepEqual(params, [1]);
   }
 });

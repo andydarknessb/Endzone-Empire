@@ -8,11 +8,26 @@ const { notify } = require('./activity.service');
 const { SCORING_PRESETS } = require('./scoring.service');
 const { MODES: PICKEM_MODES } = require('./pickem.service');
 const { commissionerPredicate, isMember } = require('./leagueRole.service');
+const { joinability, joinableWhereSql, joinRefusalMessage } = require('./leaguePhase');
 
 class DiscoveryError extends Error {
-  constructor(statusCode, message) {
+  constructor(statusCode, message, { reason } = {}) {
     super(message);
     this.statusCode = statusCode;
+    if (reason) this.reason = reason;
+  }
+}
+
+/**
+ * Refuse a league that will not accept a new team right now (see the League
+ * phase module): 409 with a message chosen from the reason, and the reason
+ * itself on the error so the route can ship it. Per-manager gates (member,
+ * full, approval) stay with each caller.
+ */
+function assertJoinable(league) {
+  const answer = joinability(league);
+  if (!answer.joinable) {
+    throw new DiscoveryError(409, joinRefusalMessage(answer.reason), { reason: answer.reason });
   }
 }
 
@@ -117,7 +132,10 @@ function validateCreateOptions({
  */
 function buildDiscoverQuery({ userId, search, scoring, openSlots, sort, type } = {}) {
   const params = [userId];
-  const where = [`"leagues"."is_public" = true`, `"leagues"."draft_status" = 'pending'`];
+  // Only leagues that will accept a team are listed (a fantasy league while
+  // pre-draft, a pick'em-only league until its season completes); the rest
+  // are hidden rather than shown disabled.
+  const where = [`"leagues"."is_public" = true`, joinableWhereSql('leagues')];
 
   if (search) {
     params.push(`%${search}%`);
@@ -205,9 +223,12 @@ async function discoverLeagues({ userId, search, scoring, openSlots, sort, type 
 
 /**
  * What an invite link reveals before joining: the Discover card for the
- * league behind `code`, plus who runs it, whether it is public, and its draft
- * status (a join is refused once the draft has started). Null when no league
- * has that code. Never returns the code itself.
+ * league behind `code`, plus who runs it, whether it is public, and whether
+ * it will accept a team (`joinable`, with `joinReason` naming why not:
+ * 'draft-started' | 'season-complete'). `draftStatus` is still shipped for
+ * the client's current invite warning (expand step; the client ticket drops
+ * the read, then the field). Null when no league has that code. Never returns
+ * the code itself, and never a computed phase or the raw season status.
  */
 async function previewLeagueByInviteCode({ code, userId }) {
   const rows = await selectLeagueCards({
@@ -216,9 +237,16 @@ async function previewLeagueByInviteCode({ code, userId }) {
     extraColumns: `,
        "leagues"."is_public" AS "isPublic",
        "leagues"."draft_status" AS "draftStatus",
+       "leagues"."season_status" AS "seasonStatus",
        (SELECT "users"."username" FROM "users" WHERE "users"."id" = "leagues"."owner_id") AS "ownerUsername"`,
   });
-  return rows[0] || null;
+  const row = rows[0];
+  if (!row) return null;
+  const { seasonStatus, ...preview } = row;
+  const answer = joinability({
+    pickem_only: row.pickemOnly, draft_status: row.draftStatus, season_status: seasonStatus,
+  });
+  return { ...preview, joinable: answer.joinable, joinReason: answer.joinable ? null : answer.reason };
 }
 
 /**
@@ -235,7 +263,7 @@ async function joinPublicLeague({ leagueId, userId, username, teamName }) {
     const league = leagueResult.rows[0];
     if (!league) throw new DiscoveryError(404, 'league not found');
     if (!league.is_public) throw new DiscoveryError(403, 'this league is not open for public join');
-    if (league.draft_status !== 'pending') throw new DiscoveryError(409, 'league draft already started');
+    assertJoinable(league);
 
     if (await isMember(client, leagueId, userId)) {
       throw new DiscoveryError(409, 'you already have a team in this league');
@@ -352,7 +380,10 @@ async function decideJoinRequest({ leagueId, ownerId, requestId, approve }) {
       return { status: 'denied' };
     }
 
-    if (league.draft_status !== 'pending') throw new DiscoveryError(409, 'league draft already started');
+    // Decided against the league as it is now, not as it was when the
+    // request was filed: a pending request cannot slip a team into a league
+    // that has since stopped being joinable.
+    assertJoinable(league);
     const countResult = await client.query(`SELECT COUNT(*)::int AS n FROM "teams" WHERE "league_id" = $1`, [leagueId]);
     const teamCount = countResult.rows[0].n;
     if (teamCount >= league.max_teams) throw new DiscoveryError(409, 'league is full');
@@ -386,6 +417,7 @@ async function decideJoinRequest({ leagueId, ownerId, requestId, approve }) {
 
 module.exports = {
   DiscoveryError,
+  assertJoinable,
   VALID_SCORING_PRESETS,
   VALID_DISCOVER_SORTS,
   VALID_DISCOVER_TYPES,

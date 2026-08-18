@@ -15,6 +15,7 @@ const {
   listJoinRequests,
   decideJoinRequest,
 } = require('../services/discovery.service');
+const { joinability, joinRefusalMessage } = require('../services/leaguePhase');
 const {
   resolveMinTeams,
   createSizeError,
@@ -36,6 +37,15 @@ router.use(requireAuth);
 
 function intParam(value) {
   return /^\d+$/.test(String(value)) ? Number(value) : null;
+}
+
+/**
+ * Body for a service error: the message, plus the joinability reason
+ * ('draft-started' | 'season-complete') when the refusal has one, so a
+ * client can choose its copy from the reason rather than the message text.
+ */
+function serviceErrorBody(error) {
+  return error.reason ? { error: error.message, reason: error.reason } : { error: error.message };
 }
 
 // POST /api/league — create a private league (plus the owner's team) atomically
@@ -150,9 +160,12 @@ router.post('/join', async (req, res) => {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'no league with that invite code' });
     }
-    if (league.draft_status !== 'pending') {
+    // A fantasy league accepts a team only while pre-draft; a pick'em-only
+    // league until its season completes (see the League phase module).
+    const answer = joinability(league);
+    if (!answer.joinable) {
       await client.query('ROLLBACK');
-      return res.status(409).json({ error: 'league draft already started' });
+      return res.status(409).json({ error: joinRefusalMessage(answer.reason), reason: answer.reason });
     }
     const countResult = await client.query(
       `SELECT COUNT(*)::int AS n FROM "teams" WHERE "league_id" = $1`,
@@ -195,7 +208,7 @@ router.post('/:id/join-public', async (req, res) => {
     if (result.pending) return res.status(202).json({ status: 'pending' });
     res.status(201).json({ league: result.league, team: result.team });
   } catch (error) {
-    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    if (error.statusCode) return res.status(error.statusCode).json(serviceErrorBody(error));
     console.error('Error joining public league', error);
     res.status(500).json({ error: 'failed to join league' });
   }
@@ -228,7 +241,7 @@ router.post('/:id/join-requests/:requestId/decide', async (req, res) => {
     const result = await decideJoinRequest({ leagueId, ownerId: req.user.id, requestId, approve });
     res.status(200).json(result);
   } catch (error) {
-    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    if (error.statusCode) return res.status(error.statusCode).json(serviceErrorBody(error));
     console.error('Error deciding join request', error);
     res.status(500).json({ error: 'failed to decide join request' });
   }
