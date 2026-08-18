@@ -174,7 +174,10 @@ test('standings table renders W-L-T, PF, PA, and a streak chip (no redundant pla
   renderDashboard();
   await screen.findByText('Sunday Ballers');
 
-  expect(screen.getByText('2-1-0')).toBeInTheDocument();
+  // A record must never wrap at its hyphens (0-0-0 stacked three-high on a
+  // phone): header and cell both pin to one line.
+  expect(screen.getByText('2-1-0')).toHaveStyle({ whiteSpace: 'nowrap' });
+  expect(screen.getByText('W-L-T')).toHaveStyle({ whiteSpace: 'nowrap' });
   expect(screen.getByText('312.5')).toBeInTheDocument();
   expect(screen.getByText('280.1')).toBeInTheDocument();
   expect(screen.getByText('W2')).toBeInTheDocument();
