@@ -12,6 +12,7 @@ import apiClient from '../../api/apiClient';
 import DraftCentralCard from '../DraftCentral/DraftCentralCard';
 import LeagueCard from '../common/LeagueCard';
 import LeagueTypeFields from '../common/LeagueTypeFields';
+import LeagueTypeChips from '../common/LeagueTypeChips';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import {
   LEAGUE_TYPE, MIN_TEAMS, capForType, clampTeamCount, includesFantasy, isPickemOnlyType, isValidTeamCount,
@@ -33,6 +34,11 @@ function LeagueManagement() {
   const [newLeagueOpen, setNewLeagueOpen] = useState(false);
   const [searchParams] = useSearchParams();
   const joinButtonRef = useRef(null);
+  // What the invite code in the field points at, fetched read-only so the
+  // joiner sees the league's name and type before committing. `null` while
+  // the field holds nothing plausible or the lookup found nothing; a failed
+  // preview never blocks the Join button.
+  const [preview, setPreview] = useState(null);
 
   // Deep-link support: /#/league/join?code=XYZ pre-fills the invite field,
   // switches to the Join tab, and focuses the Join button so a shared link is
@@ -45,6 +51,28 @@ function LeagueManagement() {
       setNewLeagueOpen(true);
     }
   }, [searchParams]);
+
+  const trimmedInviteCode = inviteCode.trim();
+  useEffect(() => {
+    if (trimmedInviteCode.length < 6) {
+      setPreview(null);
+      return undefined;
+    }
+    let cancelled = false;
+    const handle = setTimeout(async () => {
+      try {
+        const response = await apiClient.get(`/api/league/preview?code=${encodeURIComponent(trimmedInviteCode)}`);
+        const league = response.data && response.data.id ? response.data : null;
+        if (!cancelled) setPreview(league ? { ...league, code: trimmedInviteCode } : null);
+      } catch {
+        if (!cancelled) setPreview(null);
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [trimmedInviteCode]);
 
   // The Join button only exists in the DOM once the Join tab is active, so
   // the focus has to wait for that switch to actually render before firing.
@@ -337,6 +365,25 @@ function LeagueManagement() {
           <Stack spacing={2}>
             <TextField label="Invite code" size="small" required
               value={inviteCode} onChange={(e) => setInviteCode(e.target.value)} />
+            {preview && preview.code === trimmedInviteCode && (
+              <Paper variant="outlined" sx={{ p: 1.5 }} data-testid="invite-preview">
+                <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{preview.name}</Typography>
+                <LeagueTypeChips league={preview} sx={{ my: 1 }} />
+                <Typography variant="body2" color="text.secondary">
+                  {preview.teamCount}/{preview.maxTeams} teams · run by {preview.ownerUsername}
+                </Typography>
+                {preview.alreadyMember && (
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                    You are already a member of this league.
+                  </Typography>
+                )}
+                {preview.draftStatus && preview.draftStatus !== 'pending' && (
+                  <Typography variant="body2" color="warning.main" sx={{ mt: 0.5 }}>
+                    The draft has already started · joining is closed.
+                  </Typography>
+                )}
+              </Paper>
+            )}
             <Button ref={joinButtonRef} type="submit" variant="contained">Join League</Button>
           </Stack>
         </Paper>

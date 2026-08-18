@@ -14,7 +14,6 @@ import {
   FormControlLabel,
   Alert,
   Box,
-  Chip,
   Skeleton,
   Card,
   CardContent,
@@ -28,12 +27,7 @@ import {
 import Grid from '@mui/material/Unstable_Grid2';
 import apiClient from '../../api/apiClient';
 import { LEAGUE_TYPE } from '../../lib/leagueType';
-
-const SCORING_LABEL = {
-  standard: 'Standard',
-  half_ppr: 'Half PPR',
-  ppr: 'PPR',
-};
+import LeagueTypeChips from '../common/LeagueTypeChips';
 
 function LeagueDiscovery() {
   const navigate = useNavigate();
@@ -268,20 +262,10 @@ function LeagueDiscovery() {
                 <Card variant="outlined" sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                   <CardContent sx={{ flexGrow: 1 }}>
                     <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>{league.name}</Typography>
-                    {/* A pick'em-only league has no scoring preset and no draft:
-                        the type chip is what tells a joiner what they are
-                        signing up for. */}
-                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
-                      {league.pickemOnly ? (
-                        <Chip size="small" label="Pick'em" color="secondary" />
-                      ) : (
-                        <>
-                          <Chip size="small" label={SCORING_LABEL[league.scoringPreset] || league.scoringPreset || 'Standard'} />
-                          {league.pickemEnabled && <Chip size="small" label="Pick'em" color="secondary" variant="outlined" />}
-                        </>
-                      )}
-                      {league.bestBall && <Chip size="small" label="Best Ball" color="secondary" />}
-                    </Stack>
+                    {/* The type chips are shared with the invite-code preview
+                        (common/LeagueTypeChips) so a joiner reads the same
+                        thing on either path. */}
+                    <LeagueTypeChips league={league} sx={{ mb: 2 }} />
                     <Typography variant="body2" color="text.secondary">
                       {league.teamCount}/{league.maxTeams} teams · {slotsOpen} slot{slotsOpen === 1 ? '' : 's'} open
                     </Typography>

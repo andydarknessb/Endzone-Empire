@@ -154,11 +154,15 @@ function buildDiscoverQuery({ userId, search, scoring, openSlots, sort, type } =
   };
 }
 
-/** Run the discover query for a caller, applying validated filters. */
-async function discoverLeagues({ userId, search, scoring, openSlots, sort, type }) {
-  const { whereClause, havingClause, orderByClause, params } = buildDiscoverQuery({
-    userId, search, scoring, openSlots, sort, type,
-  });
+/**
+ * The Discover card projection: one row per league as the client renders it
+ * (type chips, n/max teams, the caller's standing). $1 is always the caller's
+ * user id; `extraColumns` lets a caller widen the shape without a second copy
+ * of the joins. Every clause argument is spliced into the SQL verbatim, so
+ * callers pass only code-literal fragments (as buildDiscoverQuery does) and
+ * route every request value through `params`.
+ */
+async function selectLeagueCards({ whereClause, havingClause = '', orderByClause = '"leagues"."id"', params, extraColumns = '' }) {
   const result = await pool.query(
     `SELECT
        "leagues"."id",
@@ -173,7 +177,7 @@ async function discoverLeagues({ userId, search, scoring, openSlots, sort, type 
        "leagues"."draft_date" AS "draftDate",
        "leagues"."created_at" AS "createdAt",
        BOOL_OR("teams"."owner_id" = $1) AS "alreadyMember",
-       MAX(CASE WHEN "join_requests"."user_id" = $1 THEN "join_requests"."status" END) AS "myRequestStatus"
+       MAX(CASE WHEN "join_requests"."user_id" = $1 THEN "join_requests"."status" END) AS "myRequestStatus"${extraColumns}
      FROM "leagues"
      LEFT JOIN "teams" ON "teams"."league_id" = "leagues"."id"
      LEFT JOIN "pickem_settings" ON "pickem_settings"."league_id" = "leagues"."id"
@@ -189,6 +193,32 @@ async function discoverLeagues({ userId, search, scoring, openSlots, sort, type 
     ...row,
     openSlots: row.teamCount < row.maxTeams,
   }));
+}
+
+/** Run the discover query for a caller, applying validated filters. */
+async function discoverLeagues({ userId, search, scoring, openSlots, sort, type }) {
+  const { whereClause, havingClause, orderByClause, params } = buildDiscoverQuery({
+    userId, search, scoring, openSlots, sort, type,
+  });
+  return selectLeagueCards({ whereClause, havingClause, orderByClause, params });
+}
+
+/**
+ * What an invite link reveals before joining: the Discover card for the
+ * league behind `code`, plus who runs it, whether it is public, and its draft
+ * status (a join is refused once the draft has started). Null when no league
+ * has that code. Never returns the code itself.
+ */
+async function previewLeagueByInviteCode({ code, userId }) {
+  const rows = await selectLeagueCards({
+    whereClause: '"leagues"."invite_code" = $2',
+    params: [userId, code],
+    extraColumns: `,
+       "leagues"."is_public" AS "isPublic",
+       "leagues"."draft_status" AS "draftStatus",
+       (SELECT "users"."username" FROM "users" WHERE "users"."id" = "leagues"."owner_id") AS "ownerUsername"`,
+  });
+  return rows[0] || null;
 }
 
 /**
@@ -363,6 +393,7 @@ module.exports = {
   validateCreateOptions,
   buildDiscoverQuery,
   discoverLeagues,
+  previewLeagueByInviteCode,
   joinPublicLeague,
   listJoinRequests,
   decideJoinRequest,

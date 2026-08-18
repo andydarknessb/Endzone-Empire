@@ -388,3 +388,103 @@ test('an empty or out-of-range team count blocks Create League with a visible re
   expect(screen.getByRole('button', { name: 'Create League' })).toBeEnabled();
   expect(apiClient.post).not.toHaveBeenCalled();
 });
+
+const previewFor = (overrides = {}) => ({
+  id: 7, name: "Office Pick'em", maxTeams: 12, teamCount: 3, scoringPreset: null, bestBall: false,
+  pickemOnly: true, pickemEnabled: true, joinApproval: false, draftDate: null, alreadyMember: false,
+  myRequestStatus: null, isPublic: false, ownerUsername: 'alice', draftStatus: 'pending', openSlots: true,
+  ...overrides,
+});
+
+/** The list call answers with `leagues`; the preview call with `preview` (a value) or rejects (an Error). */
+const mockGets = ({ leagues = [], preview }) => {
+  apiClient.get.mockImplementation((url) => {
+    if (url.startsWith('/api/league/preview')) {
+      return preview instanceof Error ? Promise.reject(preview) : Promise.resolve({ data: preview });
+    }
+    return Promise.resolve({ data: leagues });
+  });
+};
+
+test("an invite deep link previews the league before joining: name, league type and seats", async () => {
+  mockGets({ preview: previewFor() });
+
+  renderWithProviders(<LeagueManagement />, {
+    state: { user: { id: 1 } },
+    path: '/league/join',
+    route: '/league/join?code=e402e816',
+  });
+
+  expect(await screen.findByText("Office Pick'em")).toBeInTheDocument();
+  expect(screen.getByText("Pick'em")).toBeInTheDocument();
+  expect(screen.getByText(/3\/12 teams/)).toBeInTheDocument();
+  expect(screen.getByText(/run by alice/i)).toBeInTheDocument();
+  expect(apiClient.get).toHaveBeenCalledWith('/api/league/preview?code=e402e816');
+  expect(screen.getByRole('button', { name: 'Join League' })).toBeEnabled();
+});
+
+test('a failed preview (unknown code) shows no card and leaves Join usable', async () => {
+  const notFound = Object.assign(new Error('Request failed with status code 404'), {
+    response: { status: 404, data: { error: 'no league with that invite code' } },
+  });
+  mockGets({ preview: notFound });
+  apiClient.post.mockResolvedValue({});
+
+  renderWithProviders(<LeagueManagement />, {
+    state: { user: { id: 1 } },
+    path: '/league/join',
+    route: '/league/join?code=deadbeef',
+  });
+
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/preview?code=deadbeef'));
+  expect(screen.queryByTestId('invite-preview')).not.toBeInTheDocument();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: 'Join League' }));
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/league/join', { inviteCode: 'deadbeef' })
+  );
+});
+
+test('typing a code previews it once it is long enough', async () => {
+  mockGets({ preview: previewFor({ name: 'Sunday Ballers', pickemOnly: false, pickemEnabled: false, scoringPreset: 'ppr' }) });
+
+  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+  await screen.findByText(/you aren't in any leagues yet/i);
+  await openNewLeague();
+  await userEvent.click(screen.getByRole('tab', { name: 'Join League' }));
+  await userEvent.type(screen.getByLabelText(/Invite code/), 'abc12');
+  expect(apiClient.get).not.toHaveBeenCalledWith(expect.stringContaining('/api/league/preview'));
+
+  await userEvent.type(screen.getByLabelText(/Invite code/), '3');
+  expect(await screen.findByText('Sunday Ballers')).toBeInTheDocument();
+  expect(screen.getByText('PPR')).toBeInTheDocument();
+  expect(apiClient.get).toHaveBeenCalledWith('/api/league/preview?code=abc123');
+});
+
+test('a preview answer that is not a league (an empty body) renders no card', async () => {
+  mockGets({ preview: [] });
+
+  renderWithProviders(<LeagueManagement />, {
+    state: { user: { id: 1 } },
+    path: '/league/join',
+    route: '/league/join?code=abc1234',
+  });
+
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/preview?code=abc1234'));
+  // Let the debounce and the resolved fetch settle before asserting absence.
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(screen.queryByTestId('invite-preview')).not.toBeInTheDocument();
+});
+
+test('a league whose draft has started previews with a closed-joining note', async () => {
+  mockGets({ preview: previewFor({ name: 'Late Joiners', pickemOnly: false, pickemEnabled: false, scoringPreset: 'standard', draftStatus: 'active' }) });
+
+  renderWithProviders(<LeagueManagement />, {
+    state: { user: { id: 1 } },
+    path: '/league/join',
+    route: '/league/join?code=e402e816',
+  });
+
+  expect(await screen.findByText('Late Joiners')).toBeInTheDocument();
+  expect(screen.getByText(/the draft has already started/i)).toBeInTheDocument();
+});

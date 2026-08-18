@@ -2,12 +2,14 @@ const express = require('express');
 const crypto = require('crypto');
 const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
+const { createRateLimiter } = require('../modules/rateLimit');
 const projectionService = require('../services/projection.service');
 const {
   VALID_SCORING_PRESETS,
   VALID_DISCOVER_SORTS,
   validateCreateOptions,
   discoverLeagues,
+  previewLeagueByInviteCode,
   VALID_DISCOVER_TYPES,
   joinPublicLeague,
   listJoinRequests,
@@ -260,6 +262,27 @@ router.get('/discover', async (req, res) => {
   } catch (error) {
     console.error('Error discovering leagues', error);
     res.status(500).json({ error: 'failed to discover leagues' });
+  }
+});
+
+// Invite codes are 8 hex chars and POST /join has no limiter of its own, so
+// a cheap read-only lookup must not make them enumerable: 30 previews per
+// caller per 10 minutes covers hand-typing several codes (the client previews
+// each plausible prefix as you type) while making a sweep pointless.
+const previewRateLimiter = createRateLimiter({ windowMs: 10 * 60 * 1000, max: 30 });
+
+// GET /api/league/preview?code= — what an invite link reveals before joining.
+// Registered ahead of /:id so the path is not read as a league id.
+router.get('/preview', previewRateLimiter, async (req, res) => {
+  const code = typeof req.query.code === 'string' ? req.query.code.trim() : '';
+  if (!code) return res.status(400).json({ error: 'code query param is required' });
+  try {
+    const preview = await previewLeagueByInviteCode({ code, userId: req.user.id });
+    if (!preview) return res.status(404).json({ error: 'no league with that invite code' });
+    res.json(preview);
+  } catch (error) {
+    console.error('Error previewing league', error);
+    res.status(500).json({ error: 'failed to preview league' });
   }
 });
 
