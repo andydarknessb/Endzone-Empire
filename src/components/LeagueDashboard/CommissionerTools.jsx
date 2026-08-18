@@ -337,8 +337,9 @@ function GeneralSettingsPanel({ leagueId, league, teams, user, isOwner, onRefres
   // panel here edits, refetched after each action.
   const pickemOnly = !!league.pickem_only;
   const seasonComplete = deriveLeaguePhase(league) === LEAGUE_PHASE.COMPLETE;
-  // Team limits are draft-frozen keys: editable exactly while the server
-  // would accept them (pre-draft, or always for a pick'em-only league).
+  // Team limits are draft-frozen keys, so they are offered exactly while the
+  // phase module's freeze rule says they are open (pre-draft, or always for a
+  // pick'em-only league): the same rule the server's frozenSettingKeys states.
   const limitsEditable = !draftSettingsFrozen(league);
   const maxTeamsCap = pickemOnly ? PICKEM_MAX_TEAMS : FANTASY_MAX_TEAMS;
 

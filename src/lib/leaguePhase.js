@@ -88,6 +88,16 @@ export function draftSettingsFrozen(league) {
   return frozenSettingKeys(league).length > 0;
 }
 
+/**
+ * True while the season is being played (in season or playoffs): the week
+ * can advance, matchups can score live. False pre-draft, drafting and once
+ * the season completes. The client twin of the server's season-live rule.
+ */
+export function isSeasonLive(league) {
+  const phase = deriveLeaguePhase(league);
+  return phase === LEAGUE_PHASE.IN_SEASON || phase === LEAGUE_PHASE.PLAYOFFS;
+}
+
 export const LEAGUE_PHASE_META = Object.freeze({
   [LEAGUE_PHASE.PRE_DRAFT]: { label: 'Pre-draft', color: 'default' },
   [LEAGUE_PHASE.DRAFTING]: { label: 'Draft live', color: 'warning' },

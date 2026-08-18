@@ -51,7 +51,7 @@ import PickemStandings from '../LeaguePickem/PickemStandings';
 import Countdown from '../Countdown/Countdown';
 import CommissionerTools from './CommissionerTools';
 import AbbreviationTooltip from '../common/AbbreviationTooltip';
-import { deriveLeaguePhase, LEAGUE_PHASE, LEAGUE_PHASE_META } from '../../lib/leaguePhase';
+import { deriveLeaguePhase, isSeasonLive, LEAGUE_PHASE, LEAGUE_PHASE_META } from '../../lib/leaguePhase';
 
 // The fantasy header's season chip, worded by phase once the draft is done.
 // (A pick'em-only header uses LEAGUE_PHASE_META instead: it has no playoffs.)
@@ -270,9 +270,9 @@ function LeagueDashboard() {
   const preDraft = leaguePhase === LEAGUE_PHASE.PRE_DRAFT;
   const seasonComplete = leaguePhase === LEAGUE_PHASE.COMPLETE;
   // The season is being played (in season or playoffs): the week can advance.
-  const seasonLive = leaguePhase === LEAGUE_PHASE.IN_SEASON || leaguePhase === LEAGUE_PHASE.PLAYOFFS;
+  const seasonLive = isSeasonLive(league);
   // Draft done: the header shows the week and the season chip, complete included.
-  const seasonUnderway = seasonLive || seasonComplete;
+  const draftDone = seasonLive || seasonComplete;
   const primarySlugs = new Set(
     pickemOnly
       ? ['pickem']
@@ -324,7 +324,7 @@ function LeagueDashboard() {
           <Chip variant="outlined" label={`Min to start: ${league.min_teams}`} />
         )}
         {league.best_ball && <Chip label="Best Ball" color="secondary" />}
-        {seasonUnderway && (
+        {draftDone && (
           <>
             {league.current_week != null && <Chip label={`Week ${league.current_week}`} />}
             {seasonPhaseChip && <Chip label={seasonPhaseChip.label} color={seasonPhaseChip.color} />}

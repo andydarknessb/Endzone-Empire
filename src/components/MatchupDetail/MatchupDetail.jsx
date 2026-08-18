@@ -18,7 +18,7 @@ import { useLeague } from '../../hooks/useLeague';
 import useFantasyMatchupGames from '../../hooks/useFantasyMatchupGames';
 import { classifyPlays } from '../../lib/scoringEvents';
 import { matchupWinProbability } from '../../lib/winProbability';
-import { deriveLeaguePhase, LEAGUE_PHASE } from '../../lib/leaguePhase';
+import { isSeasonLive } from '../../lib/leaguePhase';
 import TecmoCutscene from './TecmoCutscene';
 import RetroScoreboard from './RetroScoreboard';
 import RetroField from './RetroField';
@@ -307,13 +307,11 @@ function MatchupDetail() {
   const isCurrentSeason = Number(matchup?.season) === Number(league?.current_season);
   const isCurrentWeek = Number(matchup?.week) === Number(league?.current_week);
   const hasRecordedScore = homeScore !== 0 || awayScore !== 0;
-  // Live scoring only while the season is being played: in season or in the
-  // playoffs, never pre-draft, drafting or after the season completes.
-  const leaguePhase = deriveLeaguePhase(league);
-  const seasonLive = leaguePhase === LEAGUE_PHASE.IN_SEASON || leaguePhase === LEAGUE_PHASE.PLAYOFFS;
+  // Live scoring only while the season is being played (in season or in the
+  // playoffs), never pre-draft, drafting or after the season completes.
   const showLive = !!matchup
     && !matchup.final
-    && seasonLive
+    && isSeasonLive(league)
     && isCurrentSeason
     && isCurrentWeek
     && (receivedLiveScore || hasRecordedScore);

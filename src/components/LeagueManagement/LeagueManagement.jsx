@@ -387,9 +387,9 @@ function LeagueManagement() {
                     You are already a member of this league.
                   </Typography>
                 )}
-                {preview.joinReason && (
+                {JOIN_CLOSED_COPY[preview.joinReason] && (
                   <Typography variant="body2" color="warning.main" sx={{ mt: 0.5 }}>
-                    {JOIN_CLOSED_COPY[preview.joinReason] || 'This league is not accepting new teams · joining is closed.'}
+                    {JOIN_CLOSED_COPY[preview.joinReason]}
                   </Typography>
                 )}
               </Paper>

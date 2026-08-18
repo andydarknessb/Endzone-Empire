@@ -1,6 +1,7 @@
 import {
   deriveLeaguePhase,
   frozenSettingKeys,
+  isSeasonLive,
   joinability,
   JOIN_REFUSAL_REASON,
   LEAGUE_PHASE,
@@ -59,6 +60,17 @@ test("rosterActionForPhase is disabled for a pick'em-only league because it has 
     disabled: true,
     helper: "This is a pick'em league. There are no rosters.",
   });
+});
+
+test('isSeasonLive is true only in season and in the playoffs (the week can advance, matchups score live)', () => {
+  expect(isSeasonLive({ draft_status: 'pending' })).toBe(false);
+  expect(isSeasonLive({ draft_status: 'active' })).toBe(false);
+  expect(isSeasonLive({ draft_status: 'complete', season_status: 'regular' })).toBe(true);
+  expect(isSeasonLive({ draft_status: 'complete', season_status: 'playoffs' })).toBe(true);
+  expect(isSeasonLive({ draft_status: 'complete', season_status: 'complete' })).toBe(false);
+  expect(isSeasonLive({ pickem_only: true, draft_status: 'pending', season_status: 'regular' })).toBe(true);
+  expect(isSeasonLive({ pickem_only: true, draft_status: 'pending', season_status: 'complete' })).toBe(false);
+  expect(isSeasonLive(null)).toBe(false);
 });
 
 // The settings freeze: the commissioner-tools panels grey out exactly the
