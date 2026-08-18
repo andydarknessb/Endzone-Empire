@@ -47,7 +47,7 @@ function TeamSummary({ league, summary }) {
     return <Skeleton data-testid="team-summary-skeleton" variant="text" width={220} sx={{ mt: 0.5 }} />;
   }
 
-  const isPreDraft = league.draft_status === 'pending';
+  const isPreDraft = deriveLeaguePhase(league) === LEAGUE_PHASE.PRE_DRAFT;
   const isFaab = league.waiver_type === 'faab';
   const row = summary.row;
   const gamesPlayed = row ? row.wins + row.losses + row.ties : 0;

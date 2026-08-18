@@ -392,7 +392,7 @@ test('an empty or out-of-range team count blocks Create League with a visible re
 const previewFor = (overrides = {}) => ({
   id: 7, name: "Office Pick'em", maxTeams: 12, teamCount: 3, scoringPreset: null, bestBall: false,
   pickemOnly: true, pickemEnabled: true, joinApproval: false, draftDate: null, alreadyMember: false,
-  myRequestStatus: null, isPublic: false, ownerUsername: 'alice', draftStatus: 'pending', openSlots: true,
+  myRequestStatus: null, isPublic: false, ownerUsername: 'alice', openSlots: true, joinable: true, joinReason: null,
   ...overrides,
 });
 
@@ -476,8 +476,10 @@ test('a preview answer that is not a league (an empty body) renders no card', as
   expect(screen.queryByTestId('invite-preview')).not.toBeInTheDocument();
 });
 
+// The closed-joining note is keyed on the preview's joinReason (the server's
+// joinability answer), never on a draft status: a pick'em-only pool has no draft.
 test('a league whose draft has started previews with a closed-joining note', async () => {
-  mockGets({ preview: previewFor({ name: 'Late Joiners', pickemOnly: false, pickemEnabled: false, scoringPreset: 'standard', draftStatus: 'active' }) });
+  mockGets({ preview: previewFor({ name: 'Late Joiners', pickemOnly: false, pickemEnabled: false, scoringPreset: 'standard', joinable: false, joinReason: 'draft-started' }) });
 
   renderWithProviders(<LeagueManagement />, {
     state: { user: { id: 1 } },
@@ -487,4 +489,31 @@ test('a league whose draft has started previews with a closed-joining note', asy
 
   expect(await screen.findByText('Late Joiners')).toBeInTheDocument();
   expect(screen.getByText(/the draft has already started/i)).toBeInTheDocument();
+});
+
+test("a completed pick'em-only pool previews with a season-complete note, not a draft one", async () => {
+  mockGets({ preview: previewFor({ name: 'Last Year\'s Pool', joinable: false, joinReason: 'season-complete' }) });
+
+  renderWithProviders(<LeagueManagement />, {
+    state: { user: { id: 1 } },
+    path: '/league/join',
+    route: '/league/join?code=e402e816',
+  });
+
+  expect(await screen.findByText("Last Year's Pool")).toBeInTheDocument();
+  expect(screen.getByText(/the season is complete/i)).toBeInTheDocument();
+  expect(screen.queryByText(/draft/i)).not.toBeInTheDocument();
+});
+
+test('a joinable preview carries no closed-joining note', async () => {
+  mockGets({ preview: previewFor({ joinable: true, joinReason: null }) });
+
+  renderWithProviders(<LeagueManagement />, {
+    state: { user: { id: 1 } },
+    path: '/league/join',
+    route: '/league/join?code=e402e816',
+  });
+
+  expect(await screen.findByText("Office Pick'em")).toBeInTheDocument();
+  expect(screen.queryByText(/joining is closed/i)).not.toBeInTheDocument();
 });

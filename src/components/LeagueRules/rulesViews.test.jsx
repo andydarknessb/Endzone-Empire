@@ -147,4 +147,14 @@ describe('PlayoffRulesView', () => {
     expect(screen.getByText('Enabled')).toBeInTheDocument();
     expect(screen.getByText('2')).toBeInTheDocument();
   });
+
+  it('words the Current phase row by League phase, not the raw season status', () => {
+    const { rerender } = render(<PlayoffRulesView league={{ draft_status: 'pending', season_status: 'regular' }} />);
+    expect(screen.getByText('Current phase')).toBeInTheDocument();
+    expect(screen.getByText('Pre-draft')).toBeInTheDocument();
+    rerender(<PlayoffRulesView league={{ draft_status: 'complete', season_status: 'playoffs' }} />);
+    expect(screen.getByText('Playoffs')).toBeInTheDocument();
+    rerender(<PlayoffRulesView league={{ draft_status: 'complete', season_status: 'complete' }} />);
+    expect(screen.getByText('Complete')).toBeInTheDocument();
+  });
 });

@@ -53,11 +53,17 @@ import CommissionerTools from './CommissionerTools';
 import AbbreviationTooltip from '../common/AbbreviationTooltip';
 import { deriveLeaguePhase, LEAGUE_PHASE, LEAGUE_PHASE_META } from '../../lib/leaguePhase';
 
-const SEASON_STATUS_CHIP = {
-  regular: { label: 'Regular Season', color: 'default' },
-  playoffs: { label: 'Playoffs', color: 'warning' },
-  complete: { label: 'Season Complete', color: 'success' },
+// The fantasy header's season chip, worded by phase once the draft is done.
+// (A pick'em-only header uses LEAGUE_PHASE_META instead: it has no playoffs.)
+const SEASON_PHASE_CHIP = {
+  [LEAGUE_PHASE.IN_SEASON]: { label: 'Regular Season', color: 'default' },
+  [LEAGUE_PHASE.PLAYOFFS]: { label: 'Playoffs', color: 'warning' },
+  [LEAGUE_PHASE.COMPLETE]: { label: 'Season Complete', color: 'success' },
 };
+
+// The draft-status chip shows the draft's own state, raw: that is Draft
+// status, not League phase, and the label is the column value itself.
+const DRAFT_STATUS_CHIP_COLOR = { pending: 'default', active: 'warning', complete: 'success' };
 
 // League navigation, grouped by intent so the dashboard reads as sections
 // rather than a flat wall of buttons. `weight` drives the card's visual
@@ -112,7 +118,6 @@ function LeagueDashboard() {
   const [league, setLeague] = useState(null);
   const [teams, setTeams] = useState([]);
   const [standings, setStandings] = useState([]);
-  const [standingsLeague, setStandingsLeague] = useState(null);
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -158,20 +163,20 @@ function LeagueDashboard() {
       // component below fetches its own.
       if (leagueRes.data.league?.pickem_only) {
         setStandings([]);
-        setStandingsLeague(null);
         return;
       }
 
+      // Only the standings rows are read from this response. Phase, the
+      // week and the season chips all come from the league row above: both
+      // travel the same fetch chain, so a second copy could only disagree.
       try {
         const standingsRes = await apiClient.get(`/api/scoring/league/${leagueId}/standings`);
         const standingsData = Array.isArray(standingsRes.data?.standings)
           ? standingsRes.data.standings
           : [];
         setStandings(standingsData);
-        setStandingsLeague(standingsRes.data?.league || null);
       } catch (standingsErr) {
         setStandings([]);
-        setStandingsLeague(null);
         setError(standingsErr.response?.data?.error || standingsErr.message);
       }
     } catch (err) {
@@ -261,10 +266,13 @@ function LeagueDashboard() {
   const belowMin = league.min_teams != null && teams.length < league.min_teams;
   const auctionUnsupported = league.draft_type === 'auction';
   const pickemOnly = !!league.pickem_only;
-  const leaguePhase = deriveLeaguePhase({
-    ...league,
-    season_status: standingsLeague?.season_status || league.season_status,
-  });
+  const leaguePhase = deriveLeaguePhase(league);
+  const preDraft = leaguePhase === LEAGUE_PHASE.PRE_DRAFT;
+  const seasonComplete = leaguePhase === LEAGUE_PHASE.COMPLETE;
+  // The season is being played (in season or playoffs): the week can advance.
+  const seasonLive = leaguePhase === LEAGUE_PHASE.IN_SEASON || leaguePhase === LEAGUE_PHASE.PLAYOFFS;
+  // Draft done: the header shows the week and the season chip, complete included.
+  const seasonUnderway = seasonLive || seasonComplete;
   const primarySlugs = new Set(
     pickemOnly
       ? ['pickem']
@@ -276,12 +284,7 @@ function LeagueDashboard() {
             ? ['lineup', 'game-center']
             : ['lineup', 'game-center', 'waivers']
   );
-  const seasonStatusChip = (status) => (
-    <Chip
-      label={(SEASON_STATUS_CHIP[status] || {}).label || status}
-      color={(SEASON_STATUS_CHIP[status] || {}).color || 'default'}
-    />
-  );
+  const seasonPhaseChip = SEASON_PHASE_CHIP[leaguePhase];
   // A pick'em-only league has no playoffs: its status IS its phase (in season
   // or complete), worded and coloured the same way LeagueCard words it.
   const phaseMeta = LEAGUE_PHASE_META[leaguePhase];
@@ -310,34 +313,28 @@ function LeagueDashboard() {
           <>
         <Chip
           label={league.draft_status}
-          color={
-            league.draft_status === 'complete'
-              ? 'success'
-              : league.draft_status === 'active'
-              ? 'warning'
-              : 'default'
-          }
+          color={DRAFT_STATUS_CHIP_COLOR[league.draft_status] || 'default'}
         />
         <Chip label={`Roster Limit: ${league.roster_limit}`} />
         <Chip
           label={`Teams: ${teams.length}/${league.max_teams}`}
           color={belowMin ? 'warning' : 'default'}
         />
-        {league.draft_status === 'pending' && league.min_teams != null && (
+        {preDraft && league.min_teams != null && (
           <Chip variant="outlined" label={`Min to start: ${league.min_teams}`} />
         )}
         {league.best_ball && <Chip label="Best Ball" color="secondary" />}
-        {league.draft_status === 'complete' && standingsLeague && (
+        {seasonUnderway && (
           <>
-            <Chip label={`Week ${standingsLeague.current_week}`} />
-            {seasonStatusChip(standingsLeague.season_status)}
+            {league.current_week != null && <Chip label={`Week ${league.current_week}`} />}
+            {seasonPhaseChip && <Chip label={seasonPhaseChip.label} color={seasonPhaseChip.color} />}
           </>
         )}
           </>
         )}
       </Box>
 
-      {!pickemOnly && league.draft_status === 'pending' && league.draft_date && (
+      {!pickemOnly && preDraft && league.draft_date && (
         <Box sx={{ mb: 3 }}>
           <Countdown variant="full" date={league.draft_date} />
         </Box>
@@ -374,7 +371,7 @@ function LeagueDashboard() {
               color: 'primary.contrastText',
             }}
           >
-            {league.season_status === 'complete' ? (
+            {seasonComplete ? (
               <Box>
                 <Typography variant="h6" sx={{ color: 'inherit' }}>
                   The pick&apos;em season is over
@@ -400,7 +397,7 @@ function LeagueDashboard() {
               color="secondary"
               size="large"
             >
-              {league.season_status === 'complete' ? 'View picks' : 'Make your picks'}
+              {seasonComplete ? 'View picks' : 'Make your picks'}
             </Button>
           </Paper>
 
@@ -490,13 +487,9 @@ function LeagueDashboard() {
       {/* Contextual actions: only shown when they apply. A pick'em-only
           league has no draft to start and its week follows the NFL calendar
           on its own, so neither action exists there. */}
-      {!pickemOnly && ((isCommissioner && league.draft_status === 'pending') ||
-        (isCommissioner &&
-          league.draft_status === 'complete' &&
-          standingsLeague &&
-          standingsLeague.season_status !== 'complete')) && (
+      {!pickemOnly && isCommissioner && (preDraft || seasonLive) && (
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 3 }}>
-          {isCommissioner && league.draft_status === 'pending' && (
+          {preDraft && (
             <Box>
               <Tooltip
                 title={
@@ -530,14 +523,11 @@ function LeagueDashboard() {
               )}
             </Box>
           )}
-          {isCommissioner &&
-            league.draft_status === 'complete' &&
-            standingsLeague &&
-            standingsLeague.season_status !== 'complete' && (
-              <Button variant="contained" color="secondary" onClick={handleAdvanceWeek}>
-                Advance Week
-              </Button>
-            )}
+          {seasonLive && (
+            <Button variant="contained" color="secondary" onClick={handleAdvanceWeek}>
+              Advance Week
+            </Button>
+          )}
         </Box>
       )}
 
@@ -607,7 +597,6 @@ function LeagueDashboard() {
           teams={teams}
           user={user}
           isOwner={isOwner}
-          standingsLeague={standingsLeague}
           onRefresh={fetchLeagueAndUser}
         />
       )}

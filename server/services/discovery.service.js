@@ -228,10 +228,10 @@ async function discoverLeagues({ userId, search, scoring, openSlots, sort, type 
  * What an invite link reveals before joining: the Discover card for the
  * league behind `code`, plus who runs it, whether it is public, and whether
  * it will accept a team (`joinable`, with `joinReason` naming why not:
- * 'draft-started' | 'season-complete'). `draftStatus` is still shipped for
- * the client's current invite warning (expand step; the client ticket drops
- * the read, then the field). Null when no league has that code. Never returns
- * the code itself, and never a computed phase or the raw season status.
+ * 'draft-started' | 'season-complete'). Null when no league has that code.
+ * Never returns the code itself, and never a computed phase or the raw draft
+ * and season statuses: those are the joinability answer's inputs, read here
+ * and dropped (the client keys its warning on `joinReason` alone).
  */
 async function previewLeagueByInviteCode({ code, userId }) {
   const rows = await selectLeagueCards({
@@ -245,9 +245,9 @@ async function previewLeagueByInviteCode({ code, userId }) {
   });
   const row = rows[0];
   if (!row) return null;
-  const { seasonStatus, ...preview } = row;
+  const { draftStatus, seasonStatus, ...preview } = row;
   const answer = joinability({
-    pickem_only: row.pickemOnly, draft_status: row.draftStatus, season_status: seasonStatus,
+    pickem_only: row.pickemOnly, draft_status: draftStatus, season_status: seasonStatus,
   });
   return { ...preview, joinable: answer.joinable, joinReason: answer.joinable ? null : answer.reason };
 }
