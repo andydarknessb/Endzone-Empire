@@ -75,7 +75,6 @@ const renderTools = (props = {}) =>
         league={league()}
         teams={teams}
         user={user}
-        standingsLeague={{ season_status: 'regular', current_week: 3 }}
         onRefresh={jest.fn()}
         {...props}
       />
@@ -734,7 +733,7 @@ const pickemLeague = (overrides = {}) =>
   league({ pickem_only: true, draft_status: 'pending', season_status: 'regular', min_teams: 2, max_teams: 50, ...overrides });
 
 test("a pick'em-only league gets only General Settings and a Season tab, with no fantasy controls", () => {
-  renderTools({ league: pickemLeague(), standingsLeague: null });
+  renderTools({ league: pickemLeague() });
 
   expect(screen.getByRole('tab', { name: 'General Settings' })).toHaveAttribute('aria-selected', 'true');
   expect(screen.getByRole('tab', { name: 'Season' })).toBeInTheDocument();
@@ -751,7 +750,7 @@ test("a pick'em-only league gets only General Settings and a Season tab, with no
 });
 
 test("the pick'em Season tab explains the automatic season and offers rollover only once it is complete", async () => {
-  const { unmount } = renderTools({ league: pickemLeague(), standingsLeague: null });
+  const { unmount } = renderTools({ league: pickemLeague() });
   await userEvent.click(screen.getByRole('tab', { name: 'Season' }));
   expect(screen.getByText(/weeks follow the NFL calendar/i)).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Start New Season' })).not.toBeInTheDocument();
@@ -759,7 +758,7 @@ test("the pick'em Season tab explains the automatic season and offers rollover o
 
   const onRefresh = jest.fn();
   apiClient.post.mockResolvedValue({ data: {} });
-  renderTools({ league: pickemLeague({ season_status: 'complete' }), standingsLeague: null, onRefresh });
+  renderTools({ league: pickemLeague({ season_status: 'complete' }), onRefresh });
   await userEvent.click(screen.getByRole('tab', { name: 'Season' }));
   await userEvent.click(screen.getByRole('button', { name: 'Start New Season' }));
   await waitFor(() =>
@@ -770,7 +769,8 @@ test("the pick'em Season tab explains the automatic season and offers rollover o
 });
 
 test('a fantasy league keeps the General Settings rollover and shows no Season tab', () => {
-  renderTools({ standingsLeague: { season_status: 'complete', current_week: 17 } });
+  // Season completion is read from the league row (phase), not a standings row.
+  renderTools({ league: league({ draft_status: 'complete', season_status: 'complete', current_week: 17 }) });
   expect(screen.queryByRole('tab', { name: 'Season' })).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Start New Season' })).toBeInTheDocument();
 });
@@ -790,7 +790,7 @@ const StableShell = ({ children }) => (
 test("a fantasy tab left selected does not survive a switch to a pick'em-only league (hash-only navigation keeps the component mounted)", async () => {
   const { rerender } = render(
     <StableShell>
-      <CommissionerTools leagueId={1} league={league()} teams={teams} user={user} standingsLeague={{ season_status: 'regular', current_week: 3 }} onRefresh={jest.fn()} />
+      <CommissionerTools leagueId={1} league={league()} teams={teams} user={user} onRefresh={jest.fn()} />
     </StableShell>
   );
   await userEvent.click(screen.getByRole('tab', { name: 'Scoring Settings' }));
@@ -798,7 +798,7 @@ test("a fantasy tab left selected does not survive a switch to a pick'em-only le
 
   rerender(
     <StableShell>
-      <CommissionerTools leagueId={2} league={pickemLeague({ id: 2 })} teams={teams} user={user} standingsLeague={null} onRefresh={jest.fn()} />
+      <CommissionerTools leagueId={2} league={pickemLeague({ id: 2 })} teams={teams} user={user} onRefresh={jest.fn()} />
     </StableShell>
   );
 
@@ -810,7 +810,7 @@ test("a fantasy tab left selected does not survive a switch to a pick'em-only le
 
 test("a pick'em-only league edits only its max teams (min gates nothing without a draft)", async () => {
   apiClient.put.mockResolvedValue({ data: {} });
-  renderTools({ league: pickemLeague({ min_teams: 2, max_teams: 20 }), standingsLeague: null });
+  renderTools({ league: pickemLeague({ min_teams: 2, max_teams: 20 }) });
 
   expect(screen.queryByLabelText('Min teams')).not.toBeInTheDocument();
   const max = screen.getByLabelText('Max teams');
@@ -819,4 +819,34 @@ test("a pick'em-only league edits only its max teams (min gates nothing without 
   await userEvent.click(screen.getByRole('button', { name: 'Save Limits' }));
 
   await waitFor(() => expect(apiClient.put).toHaveBeenCalledWith('/api/league/1', { maxTeams: 12 }));
+});
+
+// --- Settings freeze keys on League phase (#57) ---
+// The greyed-out state follows the same past-pre-draft rule the server's
+// frozenSettingKeys enforces, so the UI never offers an edit the server
+// refuses for phase reasons: frozen for the whole fantasy season (including
+// after it completes), never for a pick'em-only league (it has no draft).
+
+test('the freeze holds all season for a fantasy league: roster, scoring, playoff structure and team limits stay locked once the season is complete', async () => {
+  mockScoringRules();
+  renderTools({ league: league({ draft_status: 'complete', season_status: 'complete', current_week: 17 }) });
+
+  expect(screen.queryByLabelText('Min teams')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Save Limits' })).not.toBeInTheDocument();
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Roster Settings' }));
+  expect(screen.getByRole('button', { name: 'Save Roster Settings' })).toBeDisabled();
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Scoring Settings' }));
+  expect(await screen.findByRole('button', { name: 'Save Scoring Settings' })).toBeDisabled();
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Playoffs & Schedule' }));
+  expect(screen.getByRole('button', { name: 'Save Playoff Settings' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Save Trade Deadline' })).toBeEnabled();
+});
+
+test("a pick'em-only league's team limit stays editable whatever its draft or season status (nothing is draft-frozen without a draft)", () => {
+  renderTools({ league: pickemLeague({ draft_status: 'complete', season_status: 'complete', max_teams: 20 }) });
+  expect(screen.getByLabelText('Max teams')).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Save Limits' })).toBeEnabled();
 });

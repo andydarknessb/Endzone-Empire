@@ -37,14 +37,14 @@ function makeApp() {
 const app = makeApp();
 
 // A pick'em-only league run by alice with 3 of 12 members, mid-season; the caller is not one of them.
-// seasonStatus is what the lookup reads to answer joinability; it is never shipped.
+// draftStatus and seasonStatus are what the lookup reads to answer joinability; neither is shipped.
 const PICKEM_ROW = {
   id: 7, name: 'Office Pick\'em', maxTeams: 12, teamCount: 3, scoringPreset: null, bestBall: false,
   pickemOnly: true, pickemEnabled: true, joinApproval: false, draftDate: null, createdAt: '2026-08-01T00:00:00.000Z',
   alreadyMember: false, myRequestStatus: null, isPublic: false, ownerUsername: 'alice', draftStatus: 'pending',
   seasonStatus: 'regular',
 };
-const { seasonStatus: _seasonStatus, ...PICKEM_PREVIEW } = PICKEM_ROW;
+const { draftStatus: _draftStatus, seasonStatus: _seasonStatus, ...PICKEM_PREVIEW } = PICKEM_ROW;
 
 /** The pool answers the invite-code lookup with `row` (or nothing), recording the params it saw. */
 function fakeDb(t, { row = PICKEM_ROW } = {}) {
@@ -62,9 +62,11 @@ test('a valid invite code previews the league in the Discover card shape, withou
   const calls = fakeDb(t);
   const res = await request(app).get('/api/league/preview?code=e402e816').set('Authorization', authed());
   assert.equal(res.status, 200, JSON.stringify(res.body));
-  // Joinability rides along (an in-season pick'em-only pool accepts teams); draftStatus
-  // is kept for the client's current invite warning (expand step, see #55).
+  // Joinability rides along (an in-season pick'em-only pool accepts teams). The raw
+  // draft and season statuses are inputs to that answer, never fields (#57 contract step).
   assert.deepEqual(res.body, { ...PICKEM_PREVIEW, openSlots: true, joinable: true, joinReason: null });
+  assert.equal('draftStatus' in res.body, false, 'draftStatus was dropped from the preview');
+  assert.equal('seasonStatus' in res.body, false);
   // Looked up by the code the caller sent, scoped to the caller for alreadyMember,
   // and the projection never selects the code back out.
   assert.equal(calls.length, 1);

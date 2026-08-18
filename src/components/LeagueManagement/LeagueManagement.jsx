@@ -18,7 +18,17 @@ import {
   LEAGUE_TYPE, MIN_TEAMS, capForType, clampTeamCount, includesFantasy, isPickemOnlyType, isValidTeamCount,
   leagueTypePayload,
 } from '../../lib/leagueType';
+import { JOIN_REFUSAL_REASON } from '../../lib/leaguePhase';
 import './LeagueManagement.css';
+
+// The invite preview's closed-joining note, keyed on the server's joinability
+// reason (the same strings the phase module names): a league with a fantasy
+// side closes when its draft starts, a pick'em-only pool when its season is
+// complete. Never worded from a draft status: a pick'em pool has no draft.
+const JOIN_CLOSED_COPY = {
+  [JOIN_REFUSAL_REASON.DRAFT_STARTED]: 'The draft has already started · joining is closed.',
+  [JOIN_REFUSAL_REASON.SEASON_COMPLETE]: 'The season is complete · joining is closed.',
+};
 
 function LeagueManagement() {
   const user = useSelector((store) => store.user);
@@ -377,9 +387,9 @@ function LeagueManagement() {
                     You are already a member of this league.
                   </Typography>
                 )}
-                {preview.draftStatus && preview.draftStatus !== 'pending' && (
+                {JOIN_CLOSED_COPY[preview.joinReason] && (
                   <Typography variant="body2" color="warning.main" sx={{ mt: 0.5 }}>
-                    The draft has already started · joining is closed.
+                    {JOIN_CLOSED_COPY[preview.joinReason]}
                   </Typography>
                 )}
               </Paper>

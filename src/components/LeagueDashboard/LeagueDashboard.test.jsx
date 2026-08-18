@@ -207,9 +207,9 @@ test('marks the phase-appropriate nav actions as Recommended', async () => {
 
   // In-season league: weekly-management actions are recommended, the draft is not.
   mockGetByUrl({
-    '/api/league/1': leagueResponse({ draft_status: 'complete' }),
+    '/api/league/1': leagueResponse({ draft_status: 'complete', season_status: 'regular' }),
     '/api/user': userResponse(),
-    '/standings': standingsResponse({ league: { season_status: 'regular' } }),
+    '/standings': standingsResponse(),
   });
   renderDashboard();
   await screen.findByText('Sunday Ballers');
@@ -402,11 +402,13 @@ test('links to the Draft Room, Matchups, and Set Lineup pages for this league', 
   );
 });
 
-test('week and season-status chips render when draft is complete', async () => {
+// Phase, the week and the season chip come from the league row alone; the
+// standings response contributes only its rows (#57 removed the splice).
+test('week and season-status chips render from the league row once the draft is complete', async () => {
   mockGetByUrl({
-    '/api/league/1': leagueResponse({ draft_status: 'complete' }),
+    '/api/league/1': leagueResponse({ draft_status: 'complete', season_status: 'playoffs', current_week: 12 }),
     '/api/user': userResponse(),
-    '/standings': standingsResponse({ league: { season_status: 'playoffs', current_week: 12 } }),
+    '/standings': standingsResponse({ league: { season_status: 'regular', current_week: 3 } }),
   });
 
   renderDashboard();
@@ -418,7 +420,7 @@ test('week and season-status chips render when draft is complete', async () => {
 
 test('Advance Week is visible for the owner when draft is complete and season is not complete, posts, and refetches on click', async () => {
   mockGetByUrl({
-    '/api/league/1': leagueResponse({ draft_status: 'complete', owner_id: 1 }),
+    '/api/league/1': leagueResponse({ draft_status: 'complete', season_status: 'regular', current_week: 3, owner_id: 1 }),
     '/api/user': userResponse(),
     '/standings': standingsResponse({ league: { season_status: 'regular', current_week: 3 } }),
   });
@@ -440,7 +442,7 @@ test('Advance Week is visible for the owner when draft is complete and season is
 
 test('Advance Week is absent for non-owners', async () => {
   mockGetByUrl({
-    '/api/league/1': leagueResponse({ draft_status: 'complete', owner_id: 99 }),
+    '/api/league/1': leagueResponse({ draft_status: 'complete', season_status: 'regular', current_week: 3, owner_id: 99 }),
     '/api/user': userResponse(),
     '/standings': standingsResponse({ league: { season_status: 'regular', current_week: 3 } }),
   });
@@ -466,15 +468,33 @@ test('Advance Week is absent when draft_status is pending', async () => {
 
 test('Advance Week is absent once the season is complete', async () => {
   mockGetByUrl({
-    '/api/league/1': leagueResponse({ draft_status: 'complete', owner_id: 1 }),
+    '/api/league/1': leagueResponse({ draft_status: 'complete', season_status: 'complete', current_week: 14, owner_id: 1 }),
     '/api/user': userResponse(),
-    '/standings': standingsResponse({ league: { season_status: 'complete', current_week: 14 } }),
+    '/standings': standingsResponse({ league: { season_status: 'regular', current_week: 3 } }),
   });
 
   renderDashboard();
   await screen.findByText('Sunday Ballers');
 
   expect(screen.queryByRole('button', { name: 'Advance Week' })).not.toBeInTheDocument();
+});
+
+test('the standings response no longer overrides the league row: phase reads the row alone (#57 dead splice removed)', async () => {
+  // A standings row claiming the season is complete must not flip the header
+  // chip or hide Advance Week when the league row says regular season.
+  mockGetByUrl({
+    '/api/league/1': leagueResponse({ draft_status: 'complete', season_status: 'regular', current_week: 5, owner_id: 1 }),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse({ league: { season_status: 'complete', current_week: 17 } }),
+  });
+
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  expect(screen.getByText('Week 5')).toBeInTheDocument();
+  expect(screen.getByText('Regular Season')).toBeInTheDocument();
+  expect(screen.queryByText('Season Complete')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Advance Week' })).toBeInTheDocument();
 });
 
 // --- Commissioner tools ---
@@ -875,9 +895,9 @@ test('hides the Recap, Trophy Case, and Draft Grades cards when their endpoints 
 
 test('Start New Season appears only when the season is complete and POSTs the rollover', async () => {
   mockGetByUrl({
-    '/api/league/1': leagueResponse({ draft_status: 'complete' }),
+    '/api/league/1': leagueResponse({ draft_status: 'complete', season_status: 'complete', current_week: 17 }),
     '/api/user': userResponse(),
-    '/standings': standingsResponse({ league: { season_status: 'complete' } }),
+    '/standings': standingsResponse({ league: { season_status: 'regular', current_week: 3 } }),
   });
   apiClient.post.mockResolvedValue({});
   renderDashboardWithToasts();

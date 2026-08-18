@@ -1,3 +1,14 @@
+// League phase: where a league sits in its lifecycle, derived from the raw
+// leagues columns (draft_status, season_status, pickem_only) and never
+// stored. This is the client twin of server/services/leaguePhase.js: the
+// derivation, the joinability answer and the settings freeze are identical on
+// both sides, and both test suites run the shared fixture beside this file
+// (leaguePhase.fixture.json) plus a parity test, so the two cannot drift.
+//
+// Phase answers league-level questions only. The draft's own turn-by-turn
+// state is DRAFT STATUS, not phase: the draft-room tree and the Draft Central
+// card read draft_status raw. Every other league-level screen asks here.
+
 export const LEAGUE_PHASE = Object.freeze({
   PRE_DRAFT: 'pre-draft',
   DRAFTING: 'drafting',
@@ -19,6 +30,72 @@ export function deriveLeaguePhase(league) {
   if (league.season_status === 'playoffs') return LEAGUE_PHASE.PLAYOFFS;
   if (league.season_status === 'complete') return LEAGUE_PHASE.COMPLETE;
   return LEAGUE_PHASE.IN_SEASON;
+}
+
+/** Why a league refuses a new team. Cross-side contract, mirrored in the fixture. */
+export const JOIN_REFUSAL_REASON = Object.freeze({
+  DRAFT_STARTED: 'draft-started',
+  SEASON_COMPLETE: 'season-complete',
+});
+
+/**
+ * Will this league accept a new team right now?
+ * `{ joinable: true }` or `{ joinable: false, reason }`. Per-manager gates
+ * (already a member, league full, approval required, not public) are layered
+ * on top by the caller. A missing row fails closed with no reason.
+ */
+export function joinability(league) {
+  if (!league) return { joinable: false, reason: null };
+  const phase = deriveLeaguePhase(league);
+  if (league.pickem_only) {
+    return phase === LEAGUE_PHASE.COMPLETE
+      ? { joinable: false, reason: JOIN_REFUSAL_REASON.SEASON_COMPLETE }
+      : { joinable: true };
+  }
+  return phase === LEAGUE_PHASE.PRE_DRAFT
+    ? { joinable: true }
+    : { joinable: false, reason: JOIN_REFUSAL_REASON.DRAFT_STARTED };
+}
+
+/**
+ * The game-integrity settings (wire keys of PUT /api/league/:id) that lock
+ * once the draft starts; the same list the server refuses. Administrative
+ * settings (name, waivers, trades, trade deadline) stay editable all season.
+ */
+export const DRAFT_FROZEN_SETTING_KEYS = Object.freeze([
+  'rosterSlots', 'positionCaps', 'benchSlots', 'dpEnabled', 'irSlots',
+  'scoringRules', 'regularSeasonWeeks', 'playoffTeams',
+  'playoffConsolation', 'pickTimeSeconds', 'minTeams', 'maxTeams', 'autodraftDelaySeconds',
+  'draftDate', 'draftType', 'draftRotation', 'keepersEnabled', 'keeperCount',
+  'draftOrderOverrides', 'auctionSettings', 'keeperLockAt',
+]);
+
+/**
+ * The setting keys frozen for this league right now: the full list once a
+ * fantasy league is past pre-draft, empty pre-draft, empty for a pick'em-only
+ * league (no draft, so nothing is draft-frozen). A missing row fails closed.
+ * The commissioner-tools panels key their greyed-out state on this so the UI
+ * never offers an edit the server refuses for phase reasons.
+ */
+export function frozenSettingKeys(league) {
+  if (!league) return [...DRAFT_FROZEN_SETTING_KEYS];
+  if (league.pickem_only) return [];
+  return deriveLeaguePhase(league) === LEAGUE_PHASE.PRE_DRAFT ? [] : [...DRAFT_FROZEN_SETTING_KEYS];
+}
+
+/** True when the draft-frozen settings are locked for this league. */
+export function draftSettingsFrozen(league) {
+  return frozenSettingKeys(league).length > 0;
+}
+
+/**
+ * True while the season is being played (in season or playoffs): the week
+ * can advance, matchups can score live. False pre-draft, drafting and once
+ * the season completes. The client twin of the server's season-live rule.
+ */
+export function isSeasonLive(league) {
+  const phase = deriveLeaguePhase(league);
+  return phase === LEAGUE_PHASE.IN_SEASON || phase === LEAGUE_PHASE.PLAYOFFS;
 }
 
 export const LEAGUE_PHASE_META = Object.freeze({

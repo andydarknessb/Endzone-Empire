@@ -47,6 +47,7 @@ import {
   buildInitialRules,
 } from '../../lib/leagueRulesFormat';
 import { FANTASY_MAX_TEAMS, MIN_TEAMS, PICKEM_MAX_TEAMS } from '../../lib/leagueType';
+import { deriveLeaguePhase, draftSettingsFrozen, LEAGUE_PHASE } from '../../lib/leaguePhase';
 
 const PLAYOFF_TEAM_OPTIONS = [4, 6, 8];
 const PLAYOFF_START_WEEK_OPTIONS = [14, 15, 16, 17, 18];
@@ -254,7 +255,7 @@ function CoCommissionerCard({ leagueId, league, teams, onRefresh, notify }) {
   );
 }
 
-function GeneralSettingsPanel({ leagueId, league, teams, user, isOwner, standingsLeague, onRefresh, notify }) {
+function GeneralSettingsPanel({ leagueId, league, teams, user, isOwner, onRefresh, notify }) {
   const [sizeMin, setSizeMin] = useState(league.min_teams ?? '');
   const [sizeMax, setSizeMax] = useState(league.max_teams ?? '');
   const [removeTarget, setRemoveTarget] = useState(null);
@@ -332,8 +333,14 @@ function GeneralSettingsPanel({ leagueId, league, teams, user, isOwner, standing
   const removableTeams = teams.filter((team) => team.owner !== user.username);
   // A pick'em-only league has no adds, drops, waivers or trades to lock, no
   // draft to freeze team limits behind, and its rollover lives on its own
-  // Season tab (there is no fantasy standings row to key it off).
+  // Season tab. Phase comes from the league row alone: the same row every
+  // panel here edits, refetched after each action.
   const pickemOnly = !!league.pickem_only;
+  const seasonComplete = deriveLeaguePhase(league) === LEAGUE_PHASE.COMPLETE;
+  // Team limits are draft-frozen keys, so they are offered exactly while the
+  // phase module's freeze rule says they are open (pre-draft, or always for a
+  // pick'em-only league): the same rule the server's frozenSettingKeys states.
+  const limitsEditable = !draftSettingsFrozen(league);
   const maxTeamsCap = pickemOnly ? PICKEM_MAX_TEAMS : FANTASY_MAX_TEAMS;
 
   return (
@@ -360,7 +367,7 @@ function GeneralSettingsPanel({ leagueId, league, teams, user, isOwner, standing
         />
       )}
 
-      {!pickemOnly && standingsLeague && standingsLeague.season_status === 'complete' && (
+      {!pickemOnly && seasonComplete && (
         <Box>
           <Button variant="contained" color="secondary" onClick={handleRollover}>
             Start New Season
@@ -368,7 +375,7 @@ function GeneralSettingsPanel({ leagueId, league, teams, user, isOwner, standing
         </Box>
       )}
 
-      {league.draft_status === 'pending' && (
+      {limitsEditable && (
         <Box>
           <Typography variant="subtitle2" sx={{ mb: 1 }}>
             {pickemOnly ? 'Team limit' : 'Team limits (editable until the draft starts)'}
@@ -506,7 +513,7 @@ function RosterSettingsPanel({ leagueId, league, onRefresh, notify }) {
   const [dpEnabled, setDpEnabled] = useState(!!league.dp_enabled);
   const report = fail(notify);
 
-  const frozen = league.draft_status !== 'pending';
+  const frozen = draftSettingsFrozen(league);
 
   const starters = slots.reduce((sum, s) => sum + (Number(s.count) || 0), 0);
   const dpStarters = slots
@@ -705,7 +712,7 @@ function ScoringSettingsPanel({ leagueId, league, onRefresh, notify }) {
   // Two-step reset guard: first click arms, second click actually resets.
   const [confirmReset, setConfirmReset] = useState(false);
   const report = fail(notify);
-  const frozen = league.draft_status !== 'pending';
+  const frozen = draftSettingsFrozen(league);
 
   useEffect(() => {
     let active = true;
@@ -933,7 +940,7 @@ function PlayoffSchedulePanel({ leagueId, league, onRefresh, notify }) {
   const [tradeDeadlineWeek, setTradeDeadlineWeek] = useState(league.trade_deadline_week ?? '');
   const report = fail(notify);
 
-  const frozen = league.draft_status !== 'pending';
+  const frozen = draftSettingsFrozen(league);
 
   const handleSaveStructure = async () => {
     try {
@@ -1482,7 +1489,7 @@ function SystemOverridesPanel({ leagueId, teams, notify, onRefresh }) {
 // completion), so the one commissioner action here is starting the next one.
 function PickemSeasonPanel({ leagueId, league, onRefresh, notify }) {
   const report = fail(notify);
-  const complete = league.season_status === 'complete';
+  const complete = deriveLeaguePhase(league) === LEAGUE_PHASE.COMPLETE;
 
   const handleRollover = async () => {
     try {
@@ -1528,7 +1535,7 @@ function PickemSeasonPanel({ leagueId, league, onRefresh, notify }) {
 const FANTASY_TABS = ['general', 'roster', 'scoring', 'playoffs', 'waivers', 'overrides'];
 const PICKEM_TABS = ['general', 'season'];
 
-function CommissionerTools({ leagueId, league, teams, user, isOwner = true, standingsLeague, onRefresh }) {
+function CommissionerTools({ leagueId, league, teams, user, isOwner = true, onRefresh }) {
   const notify = useSnackbar();
   const [selectedTab, setTab] = useState('general');
   // A pick'em-only league has no roster, scoring, schedule, waiver or matchup
@@ -1570,7 +1577,7 @@ function CommissionerTools({ leagueId, league, teams, user, isOwner = true, stan
         {tab === 'general' && (
           <GeneralSettingsPanel
             leagueId={leagueId} league={league} teams={teams} user={user} isOwner={isOwner}
-            standingsLeague={standingsLeague} onRefresh={onRefresh} notify={notify}
+            onRefresh={onRefresh} notify={notify}
           />
         )}
         {tab === 'season' && pickemOnly && (
