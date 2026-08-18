@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
@@ -294,4 +294,25 @@ test('sync health still renders on an older payload with no quota block', async 
   expect(await screen.findByTestId('sync-health-card')).toBeInTheDocument();
   expect(screen.queryByTestId('quota-usage')).not.toBeInTheDocument();
   expect(screen.queryByTestId('clock-source-chip')).not.toBeInTheDocument();
+});
+
+test("the leagues table names each row's league type, so pick'em-only leagues stand apart from fantasy leagues waiting on a draft", async () => {
+  apiClient.get.mockResolvedValue({ data: overviewResponse({
+    leagues: [
+      { draft_status: 'completed', season_status: 'in_progress', pickem_only: false, count: 4 },
+      { draft_status: 'pending', season_status: 'not_started', pickem_only: true, count: 3 },
+      { draft_status: 'pending', season_status: 'not_started', pickem_only: false, count: 2 },
+    ],
+  }) });
+  renderScreen();
+
+  const panel = within(await screen.findByTestId('leagues-panel'));
+  expect(panel.getByRole('columnheader', { name: 'League Type' })).toBeInTheDocument();
+  const rows = panel.getAllByRole('row').slice(1); // drop the header row
+  expect(rows).toHaveLength(3);
+  expect(within(rows[0]).getByText('Fantasy')).toBeInTheDocument();
+  expect(within(rows[1]).getByText("Pick'em")).toBeInTheDocument();
+  expect(within(rows[1]).getByText('3')).toBeInTheDocument();
+  expect(within(rows[2]).getByText('Fantasy')).toBeInTheDocument();
+  expect(within(rows[2]).getByText('2')).toBeInTheDocument();
 });

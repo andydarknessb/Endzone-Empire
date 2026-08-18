@@ -55,6 +55,14 @@ test('renders the title and a welcome message with the username', async () => {
   expect(screen.getByText('Welcome, alice!')).toBeInTheDocument();
 });
 
+test("the hero names weekly picks alongside the fantasy features, so a pick'em-only manager is not promised rosters", async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+  renderWithProviders(<UserPage />, { state: baseState });
+
+  const hero = within(screen.getByTestId('dashboard-hero'));
+  expect(hero.getByText(/drafts, matchups, waivers, trades, and weekly picks, all in one place./)).toBeInTheDocument();
+});
+
 test("fetches and renders the user's leagues on mount", async () => {
   apiClient.get.mockResolvedValue({ data: [league()] });
   renderWithProviders(<UserPage />, { state: baseState });

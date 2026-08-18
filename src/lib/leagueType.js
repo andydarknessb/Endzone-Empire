@@ -27,6 +27,11 @@ export const LEAGUE_TYPE_OPTIONS = Object.freeze([
   },
 ]);
 
+// The two-way label for a stored league row, which only carries pickem_only
+// (a "both" league is a fantasy league with pick'em on): the words the type
+// chips use, for tables and lists that show one league type per row.
+export const shortLeagueTypeLabel = ({ pickem_only: pickemOnly } = {}) => (pickemOnly ? "Pick'em" : 'Fantasy');
+
 // Mirrors server/services/leagueSize.js: fantasy leagues are capped by the
 // head-to-head schedule, a pick'em pool has no schedule to balance.
 export const FANTASY_MAX_TEAMS = 20;
