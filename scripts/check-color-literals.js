@@ -26,6 +26,7 @@ const ALLOWLIST = [
   'src/components/MatchupDetail/TecmoCutscene.css', // retro CRT scanline/gradient FX (not themeable)
   'src/components/MatchupDetail/TecmoCutscene.jsx', // fixed pixel-art sprite palette (data encoding)
   'src/components/MatchupDetail/TecmoSprite.jsx', // fixed pixel-art sprite palette (data encoding)
+  'src/content/articles/', // inline SVG illustrations in article hero banners (not themeable)
 ];
 
 // Test files legitimately assert on color values.
