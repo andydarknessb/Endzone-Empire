@@ -177,7 +177,7 @@ function SeasonPanel({ season, defaultExpanded }) {
                   </>
                 ) : (
                   <>
-                    <TableCell align="right">W-L</TableCell>
+                    <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>W-L</TableCell>
                     <TableCell align="right"><AbbreviationTooltip term="PF" /></TableCell>
                   </>
                 )}
@@ -208,7 +208,7 @@ function SeasonPanel({ season, defaultExpanded }) {
                       </>
                     ) : (
                       <>
-                        <TableCell align="right">{`${team.wins}-${team.losses}`}</TableCell>
+                        <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{`${team.wins}-${team.losses}`}</TableCell>
                         <TableCell align="right">{team.pf}</TableCell>
                       </>
                     )}
@@ -429,7 +429,7 @@ function LeagueHistory() {
                 <TableRow>
                   <TableCell>Rank</TableCell>
                   <TableCell>Team</TableCell>
-                  <TableCell align="right">W-L-T</TableCell>
+                  <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>W-L-T</TableCell>
                   <TableCell align="right">Total Points</TableCell>
                 </TableRow>
               </TableHead>

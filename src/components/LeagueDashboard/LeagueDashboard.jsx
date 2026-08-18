@@ -430,7 +430,9 @@ function LeagueDashboard() {
               <TableCell>Rank</TableCell>
               <TableCell>Team</TableCell>
               <TableCell>Owner</TableCell>
-              <TableCell align="right">W-L-T</TableCell>
+              {/* A record like 0-0-0 breaks at every hyphen once the table is
+                  squeezed on a phone: keep the header and the records on one line. */}
+              <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>W-L-T</TableCell>
               <TableCell align="right"><AbbreviationTooltip term="PF" /></TableCell>
               <TableCell align="right"><AbbreviationTooltip term="PA" /></TableCell>
               <TableCell align="right">Streak</TableCell>
@@ -454,7 +456,7 @@ function LeagueDashboard() {
                     </Box>
                   </TableCell>
                   <TableCell>{team.owner}</TableCell>
-                  <TableCell align="right">{`${team.wins}-${team.losses}-${team.ties}`}</TableCell>
+                  <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{`${team.wins}-${team.losses}-${team.ties}`}</TableCell>
                   <TableCell align="right">{team.pf}</TableCell>
                   <TableCell align="right">{team.pa}</TableCell>
                   <TableCell align="right">
