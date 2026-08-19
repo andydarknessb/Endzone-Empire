@@ -93,6 +93,8 @@ function ArticleToc({ articleRef, slug, bodyVersion }) {
 
 // Mounts with the body once its Suspense boundary resolves, so the effect
 // runs after the prose is in the DOM (and the TOC can read its headings).
+// Keyed by slug at the call site so an in-app hop to another article
+// remounts it and fires again for that article's body.
 function BodyRendered({ onRendered }) {
   useEffect(() => {
     onRendered();
@@ -172,7 +174,7 @@ function ArticlePage() {
                 )}
               >
                 <Body />
-                <BodyRendered onRendered={handleBodyRendered} />
+                <BodyRendered key={slug} onRendered={handleBodyRendered} />
               </Suspense>
             </Prose>
           </Box>
