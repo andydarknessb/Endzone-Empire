@@ -63,15 +63,64 @@ test.each([
   expect(onSaveLeague).not.toHaveBeenCalled();
 });
 
+test('blocks a custom keeper lock in the past and allows a future one (#67, mirrors the server rule)', () => {
+  const onSaveLeague = jest.fn();
+  renderPanel(onSaveLeague);
+  fireEvent.click(screen.getByLabelText('Custom'));
+  const lockField = screen.getByLabelText('Keeper lock date and time');
+
+  fireEvent.change(lockField, { target: { value: '2020-01-01T12:00' } });
+  expect(screen.getByText('Keeper lock must be in the future')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Save keeper settings' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Save keeper settings' }));
+  expect(onSaveLeague).not.toHaveBeenCalled();
+
+  const future = new Date(Date.now() + 24 * 3600 * 1000);
+  const local = new Date(future.getTime() - future.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  fireEvent.change(lockField, { target: { value: local } });
+  expect(screen.queryByText('Keeper lock must be in the future')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Save keeper settings' }));
+  expect(onSaveLeague).toHaveBeenCalledWith({
+    keepersEnabled: true,
+    keeperCount: 1,
+    keeperLockAt: new Date(local).toISOString(),
+  }, 'Keeper settings saved');
+});
+
 test.each(['0', '4'])('accepts keeper count boundary %s', (value) => {
   const onSaveLeague = renderPanel();
   fireEvent.change(screen.getByLabelText('Keepers per team'), { target: { value } });
   fireEvent.click(screen.getByRole('button', { name: 'Save keeper settings' }));
 
+  // keeperLockAt is omitted: the lock was not touched (tri-state leave-as-is).
   expect(onSaveLeague).toHaveBeenCalledWith({
     keepersEnabled: true,
     keeperCount: Number(value),
-    keeperLockAt: null,
+  }, 'Keeper settings saved');
+});
+
+test('a stored lock that has since passed does not block a count-only edit: the unchanged lock is omitted (#67)', () => {
+  const onSaveLeague = jest.fn();
+  render(
+    <KeeperPanel
+      league={{ keepers_enabled: true, keeper_count: 1, keeper_lock_at: '2020-01-01T12:00:00.000Z', roster_limit: 4 }}
+      teams={[]}
+      keepers={[]}
+      keeperCandidates={[]}
+      frozen={false}
+      onSaveLeague={onSaveLeague}
+      onSaveKeepers={jest.fn()}
+      saving={false}
+      onSettingsDirtyChange={jest.fn()}
+      onAssignmentsDirtyChange={jest.fn()}
+    />
+  );
+  expect(screen.queryByText('Keeper lock must be in the future')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Keepers per team'), { target: { value: '2' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save keeper settings' }));
+  expect(onSaveLeague).toHaveBeenCalledWith({
+    keepersEnabled: true,
+    keeperCount: 2,
   }, 'Keeper settings saved');
 });
 

@@ -132,7 +132,9 @@ function scoringRulesRule(scoringRules) {
     Object.entries(custom).every(([key, value]) => {
       if (!(key in category)) return false;
       if (Array.isArray(category[key])) return isValidTierArray(value);
-      return Number.isFinite(Number(value)) && Math.abs(Number(value)) <= 50;
+      // A rate must BE a number (#69): coercion accepted true/null/''/[5] and
+      // stored the raw value, so the JSON did not match what the 400 promises.
+      return typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= 50;
     });
   const valid = scoringRules && typeof scoringRules === 'object' && !Array.isArray(scoringRules) &&
     Object.entries(scoringRules).every(
@@ -169,7 +171,7 @@ const enumRule = (values, message) => (v) => (values.includes(v) ? null : messag
  *                is generated from here; see #71 Out of Scope)
  *   validate     (value) -> error string | null, run only when the key is
  *                present in the body (value !== undefined). Rows without one
- *                are not shape-checked here: name (#66), and the size limits,
+ *                are not shape-checked here: the size limits,
  *                which are checked against the live team count by the write
  *                path (leagueSize.editSizeError).
  *   fantasyOnly  refused outright for a pick'em-only league (default true;
@@ -219,9 +221,19 @@ const SETTINGS = Object.freeze([
     validate: (v) => (Number.isInteger(v) && v >= 0 ? null : 'keeperCount must be a non-negative integer'),
   },
   { key: 'auctionSettings', column: 'auction_settings', validate: (v) => (v === null ? null : validateAuctionSettings(v)) },
-  { key: 'keeperLockAt', column: 'keeper_lock_at', validate: dateRule('keeperLockAt', { mustBeFuture: false }) },
+  // Future like draftDate (#67): a past lock would lock keepers the moment it
+  // is saved, which is never what a commissioner meant. null still clears.
+  { key: 'keeperLockAt', column: 'keeper_lock_at', validate: dateRule('keeperLockAt', { mustBeFuture: true }) },
+  // Validated like POST / plus the column's varchar(120) cap (#66): before
+  // this row existed, '' / 0 / false were silent no-ops via the write path's
+  // COALESCE and 12345 or {} went straight to node-pg.
+  {
+    key: 'name', column: 'name', fantasyOnly: false,
+    validate: (v) => (typeof v === 'string' && v.trim().length > 0 && v.length <= 120
+      ? null
+      : 'name must be a non-empty string of at most 120 characters'),
+  },
   // Not shape-checked here (see the table above).
-  { key: 'name', column: 'name', fantasyOnly: false },
   { key: 'minTeams', column: 'min_teams', fantasyOnly: false, size: true },
   { key: 'maxTeams', column: 'max_teams', fantasyOnly: false, size: true },
 ].map((row) => Object.freeze({
