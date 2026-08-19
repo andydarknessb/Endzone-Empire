@@ -360,6 +360,79 @@ test('draftOrderOverrides plus a custom-nomination auctionSettings read the team
   assert.equal(teamReads.length, 1);
 });
 
+test('disabling dpEnabled while DP-only roster slots exist is refused, naming both fields (#70 item 3)', async () => {
+  const db = fakeDb({
+    status: statusRow({
+      dp_enabled: true,
+      roster_slots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }, { key: 'IDP FLEX', count: 2, eligiblePositions: ['DL', 'LB', 'DB'] }],
+    }),
+  });
+  const error = await refusal(db, { dpEnabled: false });
+  assert.equal(error.statusCode, 400);
+  assert.equal(error.message, 'rosterSlots include defensive-player-only slots but dpEnabled is off; enable dpEnabled or remove those slots (one request may change both)');
+  assert.equal(db.texts().some((t) => t.startsWith('UPDATE')), false);
+});
+
+test('adding DP-only slots while dpEnabled is off is refused the same way (#70 item 3, the mirror direction)', async () => {
+  const db = fakeDb({ status: statusRow({ dp_enabled: false }) });
+  const error = await refusal(db, {
+    rosterSlots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }, { key: 'DL', count: 1, eligiblePositions: ['DL'] }],
+  });
+  assert.equal(error.statusCode, 400);
+  assert.match(error.message, /enable dpEnabled or remove those slots/);
+});
+
+test('the consistent combinations pass: disable with no DP slots, enable with DP slots, both changed in one request (#70 item 3)', async () => {
+  const offNoSlots = fakeDb({ status: statusRow({ dp_enabled: true }) });
+  assert.deepEqual(await run(offNoSlots, { dpEnabled: false }), UPDATED_ROW);
+
+  const onWithSlots = fakeDb({ status: statusRow({ dp_enabled: false }) });
+  assert.deepEqual(await run(onWithSlots, {
+    dpEnabled: true,
+    rosterSlots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }, { key: 'DL', count: 1, eligiblePositions: ['DL'] }],
+  }), UPDATED_ROW);
+
+  const swapBoth = fakeDb({
+    status: statusRow({
+      dp_enabled: true,
+      roster_slots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }, { key: 'DL', count: 1, eligiblePositions: ['DL'] }],
+    }),
+  });
+  assert.deepEqual(await run(swapBoth, {
+    dpEnabled: false,
+    rosterSlots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }],
+  }), UPDATED_ROW);
+});
+
+test('a mixed-eligibility slot (offense + IDP) does not require dpEnabled; only DP-ONLY slots do (#70 item 3)', async () => {
+  const db = fakeDb({
+    status: statusRow({
+      dp_enabled: true,
+      roster_slots: [{ key: 'SUPERFLEX', count: 1, eligiblePositions: ['QB', 'LB'] }],
+    }),
+  });
+  assert.deepEqual(await run(db, { dpEnabled: false }), UPDATED_ROW);
+});
+
+test('an unrelated edit on a legacy inconsistent league (dp off, DP slots stored) is NOT policed (#70 item 3)', async () => {
+  const db = fakeDb({
+    status: statusRow({
+      dp_enabled: false,
+      roster_slots: [{ key: 'DL', count: 1, eligiblePositions: ['DL'] }],
+    }),
+  });
+  assert.deepEqual(await run(db, { waiverType: 'faab' }), UPDATED_ROW);
+});
+
+test('the reminder/autostart reset is change-gated: the SQL resets only when the stored date IS DISTINCT FROM the new one (#70 item 6)', async () => {
+  const db = fakeDb();
+  const future = new Date(Date.now() + 86_400_000).toISOString();
+  await run(db, { draftDate: future });
+  const update = db.calls.find((c) => c.text.startsWith('UPDATE "leagues"')).text;
+  assert.match(update, /"draft_reminder_stage" = CASE WHEN \(\$22 AND "draft_date" IS DISTINCT FROM \$23::timestamptz\) OR \$27::text = \x27auction\x27 THEN 0 ELSE "draft_reminder_stage" END/);
+  assert.match(update, /"draft_autostart_failed" = CASE WHEN \(\$22 AND "draft_date" IS DISTINCT FROM \$23::timestamptz\) OR \$27::text = \x27auction\x27 THEN false ELSE "draft_autostart_failed" END/);
+});
+
 test('the auction conversion race: zero rows + a re-read saying auction is the distinct 409, ahead of the frozen message', async () => {
   const future = new Date(Date.now() + 86_400_000).toISOString();
   const db = fakeDb({ updateRows: [], recheckRows: [{ draft_type: 'auction' }] });

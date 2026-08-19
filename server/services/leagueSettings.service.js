@@ -512,7 +512,7 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
       const statusResult = await client.query(
         `SELECT "draft_status", "draft_type", "min_teams", "max_teams", "draft_date",
                 "roster_slots", "bench_slots", "ir_slots", "position_caps", "roster_limit",
-                "keepers_enabled", "keeper_count", "pickem_only", "season_status",
+                "keepers_enabled", "keeper_count", "pickem_only", "season_status", "dp_enabled",
                 (SELECT COUNT(*)::int FROM "teams" WHERE "teams"."league_id" = "leagues"."id") AS "team_count"
          FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)}${rowLockSettingsProvided ? ' FOR UPDATE' : ''}`,
         [leagueId, userId]
@@ -607,6 +607,26 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
           await client.query(`DELETE FROM "keepers" WHERE "league_id" = $1`, [leagueId]);
         }
       }
+      // DP-only slots and dpEnabled must stay consistent (#70 item 3): a
+      // slot only defensive players can fill is dead weight in a league
+      // that does not score them (the idp scoring category is gated on
+      // dp_enabled). Refuse rather than auto-clear: silently dropping slots
+      // would mutate roster shape (and the derived roster_limit) the
+      // commissioner never asked to change. Checked only when the request
+      // touches either field, so a legacy inconsistent row can still edit
+      // everything else.
+      if (current && (dpEnabled !== undefined || rosterSlots !== undefined)) {
+        const effectiveDp = dpEnabled !== undefined ? dpEnabled : current.dp_enabled;
+        const dpSlots = rosterSlots !== undefined ? rosterSlots : current.roster_slots;
+        const hasDpOnlySlot = Array.isArray(dpSlots) && dpSlots.some(
+          (slot) => Array.isArray(slot.eligiblePositions)
+            && slot.eligiblePositions.length > 0
+            && slot.eligiblePositions.every((position) => DP_GROUP_KEYS.includes(position))
+        );
+        if (!effectiveDp && hasDpOnlySlot) {
+          return await rejectUpdate(400, 'rosterSlots include defensive-player-only slots but dpEnabled is off; enable dpEnabled or remove those slots (one request may change both)');
+        }
+      }
       // Any change to caps or roster shape must keep every slot fillable:
       // re-run the same Hall's-condition check the draft settings UI warns with.
       if (current && (positionCaps !== undefined || rosterCompositionChanged)) {
@@ -655,9 +675,12 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
              ELSE "draft_date"
            END,
            -- Rescheduling resets the reminder/auto-start bookkeeping so the
-           -- new time gets a fresh set of reminders.
-           "draft_reminder_stage" = CASE WHEN $22 OR $27::text = 'auction' THEN 0 ELSE "draft_reminder_stage" END,
-           "draft_autostart_failed" = CASE WHEN $22 OR $27::text = 'auction' THEN false ELSE "draft_autostart_failed" END,
+           -- new time gets a fresh set of reminders. Change-gated like the
+           -- notification (#70 item 6): re-posting the identical date must not
+           -- rewind the stage and re-send reminders. IS DISTINCT FROM reads the
+           -- stored date, so clearing an already-clear date is a no-op too.
+           "draft_reminder_stage" = CASE WHEN ($22 AND "draft_date" IS DISTINCT FROM $23::timestamptz) OR $27::text = 'auction' THEN 0 ELSE "draft_reminder_stage" END,
+           "draft_autostart_failed" = CASE WHEN ($22 AND "draft_date" IS DISTINCT FROM $23::timestamptz) OR $27::text = 'auction' THEN false ELSE "draft_autostart_failed" END,
            -- draft_type/draft_rotation are Postgres enums; the $27 = 'auction'
            -- comparisons above type the parameter as text, so COALESCE needs an
            -- explicit cast or Postgres rejects text vs enum (the bug that broke
