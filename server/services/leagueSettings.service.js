@@ -417,16 +417,18 @@ class LeagueSettingsError extends Error {
 
 /**
  * The state half of PUT /api/league/:id: read the league's status (FOR
- * UPDATE when the patch carries keeper or auction settings), run the eight
- * post-read guards, clear keepers when the plan says so, write the UPDATE
- * with its two spliced WHERE guards, disambiguate a zero-row result, COMMIT,
- * and only then notify the league of a (re)scheduled draft.
+ * UPDATE when the patch carries keeper or auction settings), run the
+ * post-read guards (the keeper plan included), clear keepers when the plan
+ * says so, write the UPDATE with its two spliced WHERE guards, disambiguate
+ * a zero-row result, COMMIT, and only then notify the league of a
+ * (re)scheduled draft.
  *
  * `db` is the pool (duck-typed `query` + `connect`). Transaction rule: when
  * patch.rowLockSettingsProvided, `connect()` a client, BEGIN, and run every
  * statement on it; otherwise every statement runs on `db` directly and there
  * is no BEGIN/COMMIT at all. Either way the statements are the same text in
- * the same order, so a fake pool observes one sequence per patch.
+ * the same order (the status read gains FOR UPDATE on the transaction path,
+ * nothing else differs), so a fake pool observes one sequence per patch.
  *
  * Thrown-error contract: refuses by throwing LeagueSettingsError (after
  * ROLLBACK when a transaction is open); any other error ROLLBACKs the same
