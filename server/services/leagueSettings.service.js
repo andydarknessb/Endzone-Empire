@@ -718,7 +718,17 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
     }
     throw error;
   } finally {
-    if (transactionClient) transactionClient.release();
+    // The result (or the refusal) is already decided by here; a failing
+    // release must not replace it. The handler used to release after it had
+    // sent the response, so a throw here surfaced only as an unhandled
+    // rejection; now the service runs first, so swallow and log instead.
+    if (transactionClient) {
+      try {
+        transactionClient.release();
+      } catch (releaseError) {
+        console.error('Failed to release the league settings client', releaseError);
+      }
+    }
   }
 }
 

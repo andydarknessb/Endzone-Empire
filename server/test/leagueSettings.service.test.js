@@ -43,6 +43,7 @@ function fakeDb({
 } = {}) {
   const calls = [];
   let released = 0;
+  let connected = 0;
   const answer = async (via, sql, params) => {
     const text = String(sql).replace(/\s+/g, ' ').trim();
     calls.push({ via, text, params });
@@ -61,10 +62,11 @@ function fakeDb({
   };
   const db = {
     query: (sql, params) => answer('pool', sql, params),
-    connect: async () => client,
+    connect: async () => { connected += 1; return client; },
     calls,
     client,
     released: () => released,
+    connected: () => connected,
     texts: () => calls.map((c) => c.text),
     firstWord: () => calls.map((c) => c.text.split(' ')[0]),
   };
@@ -117,7 +119,7 @@ test('keeper conflict: 409 naming the team, ROLLBACK, no UPDATE, client released
   const db = fakeDb({ status: statusRow({ keeper_count: 2 }), assignmentCounts: [{ team_id: 11, count: 2 }] });
   const error = await refusal(db, { keeperCount: 1 });
   assert.equal(error.statusCode, 409);
-  assert.match(error.message, /team 11 has 2/);
+  assert.equal(error.message, 'keeperCount cannot be set to 1: team 11 has 2 existing keeper assignment(s); remove assignments first or disable keepers');
   assert.equal(error.code, undefined);
   assert.deepEqual(db.firstWord(), ['BEGIN', 'SELECT', 'SELECT', 'ROLLBACK']);
   assert.equal(db.released(), 1);
@@ -148,6 +150,7 @@ test('frozen pre-check: an active-draft league 409s naming only the locked (draf
   assert.deepEqual(db.firstWord(), ['SELECT']);
   assert.equal(db.calls[0].via, 'pool');
   assert.doesNotMatch(db.calls[0].text, /FOR UPDATE/);
+  assert.equal(db.connected(), 0, 'no client is connected on the non-transaction path');
   assert.equal(db.released(), 0);
 });
 
@@ -189,6 +192,7 @@ test('403 fallthrough: a name-only patch skips the status read; zero rows from t
   assert.equal(db.calls[0].params[0], 'Renamed');
   assert.equal(db.calls[0].params[16], LEAGUE_ID);
   assert.equal(db.calls[0].params[17], USER_ID);
+  assert.equal(db.connected(), 0);
   assert.equal(db.released(), 0);
 });
 
@@ -199,6 +203,18 @@ test('a name-only patch on a commissioner league resolves with the row and never
   assert.deepEqual(db.firstWord(), ['UPDATE']);
 });
 
+test('the UPDATE parameters: roster_limit is derived from the merged roster shape (starters + bench + IR), an empty name is null, absent keys are null', async () => {
+  const db = fakeDb({ status: statusRow({ roster_slots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }, { key: 'RB', count: 2, eligiblePositions: ['RB'] }], bench_slots: 4, ir_slots: 1 }) });
+  await run(db, { name: '', benchSlots: 6, positionCaps: { QB: 3, RB: 5 } });
+  const update = db.calls.find((c) => c.text.startsWith('UPDATE "leagues"'));
+  assert.equal(update.params.length, 37);
+  assert.equal(update.params[0], null, 'an empty name coerces to null (COALESCE keeps the current name)');
+  assert.equal(update.params[1], 3 + 6 + 1, 'starters from the row (1 + 2) + the new bench + the row IR');
+  assert.equal(update.params[3], JSON.stringify({ QB: 3, RB: 5 }));
+  assert.equal(update.params[24], 6);
+  assert.equal(update.params[2], null, 'rosterSlots was not sent');
+  assert.equal(update.params[36], false, 'tradeDeadlineWeek was not sent');
+});
 test('notification: fired once, after COMMIT, on the pool argument (not the client), with the scheduled verb and date', async (t) => {
   const db = fakeDb({ status: statusRow({ draft_date: null }) });
   const future = new Date(Date.now() + 86_400_000).toISOString();
@@ -265,6 +281,24 @@ test('an unexpected database error on the transaction path ROLLBACKs, releases, 
   assert.equal(db.released(), 1);
 });
 
+test('a throwing client.release() does not replace a committed result: the row is returned and the failure is logged', async (t) => {
+  const db = fakeDb({ assignmentCounts: [{ team_id: 11, count: 1 }] });
+  db.client.release = () => { throw new Error('Release called on client which has already been released to the pool.'); };
+  const logged = t.mock.method(console, 'error', () => {});
+  const row = await run(db, { keeperCount: 3 });
+  assert.deepEqual(row, UPDATED_ROW);
+  assert.equal(db.firstWord().at(-1), 'COMMIT');
+  assert.ok(logged.mock.calls.some((c) => c.arguments[0] === 'Failed to release the league settings client'));
+});
+
+test('a throwing client.release() does not replace a refusal either: the 409 still surfaces as a LeagueSettingsError', async (t) => {
+  const db = fakeDb({ status: statusRow({ keeper_count: 2 }), assignmentCounts: [{ team_id: 11, count: 2 }] });
+  db.client.release = () => { throw new Error('release failed'); };
+  t.mock.method(console, 'error', () => {});
+  const error = await refusal(db, { keeperCount: 1 });
+  assert.equal(error.statusCode, 409);
+  assert.equal(db.firstWord().at(-1), 'ROLLBACK');
+});
 test('the auction conversion race: zero rows + a re-read saying auction is the distinct 409, ahead of the frozen message', async () => {
   const future = new Date(Date.now() + 86_400_000).toISOString();
   const db = fakeDb({ updateRows: [], recheckRows: [{ draft_type: 'auction' }] });
