@@ -24,15 +24,14 @@ describe('nflTeamColors lookup', () => {
   });
 
   test('every team defines helmet/jersey/pants/accent as valid hex', () => {
-    for (const [abbr, kit] of Object.entries(NFL_TEAM_COLORS)) {
+    for (const kit of Object.values(NFL_TEAM_COLORS)) {
       for (const role of ['helmet', 'jersey', 'pants', 'accent']) {
         expect(kit[role]).toMatch(HEX);
       }
-      // spot-check the documented example
-      if (abbr === 'MIN') {
-        expect(kit).toMatchObject({ jersey: '#4f2683', accent: '#ffc62f' });
-      }
     }
+    // spot-check the documented example (outside the loop: a conditional
+    // expect can silently never run - jest/no-conditional-expect)
+    expect(NFL_TEAM_COLORS.MIN).toMatchObject({ jersey: '#4f2683', accent: '#ffc62f' });
   });
 
   test('getTeamKit falls back to a neutral kit for unknown abbreviations', () => {
