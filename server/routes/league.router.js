@@ -393,7 +393,7 @@ router.put('/:id', async (req, res) => {
   // the transaction trigger's rename (ownerLockedSettingsProvided became
   // rowLockSettingsProvided).
   const parsed = parseSettingsPatch(req.body);
-  if (parsed.error) return res.status(400).json({ error: parsed.error });
+  if (parsed.error !== undefined) return res.status(400).json({ error: parsed.error });
   const {
     name, rosterSlots, positionCaps, benchSlots, dpEnabled, irSlots,
     waiverType, waiverPeriodHours, faabBudget,

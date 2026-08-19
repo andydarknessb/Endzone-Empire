@@ -180,6 +180,10 @@ const REJECTIONS = [
   [{ keeperCount: 1.5 }, 'keeperCount must be a non-negative integer'],
   [{ auctionSettings: 'big' }, 'auctionSettings must be an object'],
   [{ auctionSettings: { budget: 0 } }, 'budget must be a whole number between 1 and 10000'],
+  [{ auctionSettings: { budget: 200, nominationSeconds: 5 } }, 'nomination timer must be between 10 and 300 seconds'],
+  [{ auctionSettings: { budget: 200, nominationSeconds: 30, bidSeconds: 61 } }, 'bid timer must be between 5 and 60 seconds'],
+  [{ auctionSettings: { budget: 200, nominationSeconds: 30, bidSeconds: 10, nominationOrder: 'alphabetical' } }, 'nominationOrder must be "random" or "custom"'],
+  [{ auctionSettings: { budget: 200, nominationSeconds: 30, bidSeconds: 10, nominationOrder: 'custom' } }, 'nominationCustomOrder is required when nominationOrder is "custom"'],
   [{ keeperLockAt: 'someday' }, 'keeperLockAt must be a valid date or null'],
 ];
 
@@ -207,6 +211,20 @@ test('the first failing key in validation order wins, exactly as the inline chec
   // waiverType precedes scoringPreset, which precedes draftType.
   assert.equal(parseSettingsPatch({ draftType: 'x', scoringPreset: 'x', waiverType: 'x' }).error, "waiverType must be 'priority' or 'faab'");
   assert.equal(parseSettingsPatch({ draftType: 'x', scoringPreset: 'x' }).error, 'scoringPreset must be one of standard, half_ppr, ppr');
+});
+
+test('a JSON body carrying a "__proto__" key is inert, as it was for the handler destructure', () => {
+  // JSON.parse makes "__proto__" an own data property; the snapshot must not
+  // turn it back into a prototype and read settings through it.
+  const poisoned = JSON.parse('{"__proto__":{"name":"pwned","keeperCount":2,"keepersEnabled":true,"benchSlots":99}}');
+  const { value, error } = parseSettingsPatch(poisoned);
+  assert.equal(error, undefined);
+  assert.equal(value.name, undefined);
+  assert.equal(value.keeperCount, undefined);
+  assert.equal(value.rowLockSettingsProvided, false);
+  assert.deepEqual(value.frozenRequested, []);
+  assert.deepEqual(value.fantasyOnlyRequested, []);
+  assert.equal(Object.getPrototypeOf(value), Object.prototype);
 });
 
 test('absent keys are not validated, and an empty, missing or non-object body is a valid empty patch', () => {
@@ -327,10 +345,16 @@ test('tri-state dates: absent leaves, null clears, a string is normalized to ISO
   assert.equal(set.keeperLockAtValue, new Date(PAST).toISOString()); // no future check on keeperLockAt (#67)
 });
 
-test('tri-state objects: provided flags for draftOrderOverrides and auctionSettings follow presence, null included', () => {
+test('tri-state objects: provided flags for draftOrderOverrides, auctionSettings and tradeDeadlineWeek follow presence, null included', () => {
   const absent = parseSettingsPatch({}).value;
   assert.equal(absent.draftOrderOverridesProvided, false);
   assert.equal(absent.auctionSettingsProvided, false);
+  assert.equal(absent.tradeDeadlineWeekProvided, false);
+  // The trade deadline's write is tri-state (#65): null is a deliberate clear.
+  const deadlineCleared = parseSettingsPatch({ tradeDeadlineWeek: null }).value;
+  assert.equal(deadlineCleared.tradeDeadlineWeekProvided, true);
+  assert.equal(deadlineCleared.tradeDeadlineWeek, null);
+  assert.equal(parseSettingsPatch({ tradeDeadlineWeek: 11 }).value.tradeDeadlineWeekProvided, true);
   const cleared = parseSettingsPatch({ draftOrderOverrides: null, auctionSettings: null }).value;
   assert.equal(cleared.draftOrderOverridesProvided, true);
   assert.equal(cleared.auctionSettingsProvided, true);

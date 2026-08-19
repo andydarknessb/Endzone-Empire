@@ -296,8 +296,12 @@ const FANTASY_ONLY_SETTING_KEYS = Object.freeze([
 function parseSettingsPatch(body) {
   // One read per key, like the handler's single destructure used to be: a
   // body is a plain JSON object, but snapshotting keeps that a fact rather
-  // than an assumption. A non-object body is an empty patch.
-  const input = Object.assign({}, body);
+  // than an assumption. Spread, not Object.assign: spread defines own data
+  // properties, so a JSON body carrying a "__proto__" key stays inert (as it
+  // was for the destructure), whereas Object.assign would invoke the setter
+  // and re-point the snapshot's prototype at attacker-supplied settings. A
+  // non-object body is an empty patch.
+  const input = { ...body };
   // roster_limit is derived (starters + bench + IR), not settable directly.
   if (input.rosterLimit !== undefined) {
     return {
