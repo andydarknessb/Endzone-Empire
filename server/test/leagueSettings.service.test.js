@@ -299,6 +299,19 @@ test('a throwing client.release() does not replace a refusal either: the 409 sti
   assert.equal(error.statusCode, 409);
   assert.equal(db.firstWord().at(-1), 'ROLLBACK');
 });
+test('a refusal whose ROLLBACK throws still surfaces the intended 4xx, not a 500 (#68)', async (t) => {
+  const db = fakeDb({ status: statusRow({ keeper_count: 2 }), assignmentCounts: [{ team_id: 11, count: 2 }] });
+  const originalQuery = db.client.query;
+  db.client.query = (sql, params) => {
+    if (String(sql) === 'ROLLBACK') { db.calls.push({ via: 'client', text: 'ROLLBACK' }); return Promise.reject(new Error('connection terminated')); }
+    return originalQuery(sql, params);
+  };
+  t.mock.method(console, 'error', () => {});
+  const error = await refusal(db, { keeperCount: 1 });
+  assert.equal(error.statusCode, 409, 'the keeper conflict 409 survives the failed ROLLBACK');
+  assert.equal(db.firstWord().filter((w) => w === 'ROLLBACK').length, 1, 'no second ROLLBACK from the outer catch');
+  assert.equal(db.released(), 1);
+});
 test('the auction conversion race: zero rows + a re-read saying auction is the distinct 409, ahead of the frozen message', async () => {
   const future = new Date(Date.now() + 86_400_000).toISOString();
   const db = fakeDb({ updateRows: [], recheckRows: [{ draft_type: 'auction' }] });

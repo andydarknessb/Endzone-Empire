@@ -460,8 +460,14 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
   let client = db;
   const rejectUpdate = async (status, error, extra = {}) => {
     if (transactionOpen) {
-      await transactionClient.query('ROLLBACK');
+      // Guarded like the unexpected-error path below (#68): if the ROLLBACK
+      // itself fails (connection dropped mid-transaction), the refusal the
+      // caller earned must still reach them, not turn into a 500. The
+      // connection's death rolls the transaction back anyway.
       transactionOpen = false;
+      await transactionClient.query('ROLLBACK').catch((rollbackError) => {
+        console.error('Failed to roll back a refused league settings update', rollbackError);
+      });
     }
     throw new LeagueSettingsError(status, error, extra);
   };
