@@ -16,7 +16,7 @@ const {
   decideJoinRequest,
 } = require('../services/discovery.service');
 const {
-  joinability, joinRefusalMessage, frozenSettingKeys, settingsUnfrozenWhereSql, DRAFT_FROZEN_SETTING_KEYS,
+  joinability, joinRefusalMessage, frozenSettingKeys, settingsUnfrozenWhereSql,
 } = require('../services/leaguePhase');
 const {
   resolveMinTeams,
@@ -379,14 +379,19 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// PUT /api/league/:id — owner updates name / roster limit / lineup config (before draft)
+// PUT /api/league/:id — a commissioner updates league settings. Shape rules
+// live in leagueSettings.service.js; draft-frozen settings refuse once the
+// draft starts (League phase), fantasy-only ones refuse for a pick'em-only
+// league (league type), administrative ones stay editable all season.
 router.put('/:id', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
   // Shape validation and the derived request facts live in the settings
   // module (leagueSettings.service.js, spec #71); the state read, the guards
   // and the write stay here until #73 moves them too. The destructure keeps
-  // the handler's own names so nothing below had to change.
+  // the handler's own names, so the state half below is untouched apart from
+  // the transaction trigger's rename (ownerLockedSettingsProvided became
+  // rowLockSettingsProvided).
   const parsed = parseSettingsPatch(req.body);
   if (parsed.error) return res.status(400).json({ error: parsed.error });
   const {

@@ -147,7 +147,8 @@ Derived from the season schedule rather than supplied.
 ### Draft
 
 **Draft**:
-The live event in which teams claim players in turn, in snake order.
+The live event in which teams claim players, under the league's draft type
+and draft rotation.
 
 **Draft type**:
 How a league's draft is conducted, chosen before it starts: snake (teams pick

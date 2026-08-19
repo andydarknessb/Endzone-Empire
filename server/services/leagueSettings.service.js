@@ -12,7 +12,8 @@
  * in leaguePhase.DRAFT_FROZEN_SETTING_KEYS (that list is the cross-side
  * contract with the client twin and is never restated here); it is
  * fantasy-only when its registry row says so (FANTASY_ONLY_SETTING_KEYS is
- * derived from the registry and owned here).
+ * the fantasy-only rows in the order the refusal names them, and is owned
+ * here). Both invariants are checked once, when this module loads.
  *
  * Interface (spec #71):
  *   parseSettingsPatch(body) -> { value } | { error }     (pure, this file, PR 1)
@@ -102,7 +103,7 @@ function rosterSlotsRule(rosterSlots) {
 // points/yards allowed), a well-formed tier array. Unknown categories/keys
 // are rejected here rather than silently dropped, since this is the point
 // a commissioner finds out about a typo; rulesForLeague()'s silent-drop
-// behaviour is the defense-in-depth fallback for anything that slips past.
+// behavior is the defense-in-depth fallback for anything that slips past.
 function scoringRulesRule(scoringRules) {
   const validCategory = (category, custom) =>
     custom && typeof custom === 'object' && !Array.isArray(custom) &&
@@ -210,29 +211,45 @@ const SETTINGS = Object.freeze([
 
 const SETTING_BY_KEY = Object.freeze(Object.fromEntries(SETTINGS.map((row) => [row.key, row])));
 
-/** Every wire key the registry knows, in validation order. */
-const SETTING_KEYS = Object.freeze(SETTINGS.map((row) => row.key));
+// Load-time invariant: the phase contract and the registry name the same
+// draft-frozen keys. A key in one and not the other is a programming error,
+// so fail loudly here rather than mis-classify a request later.
+for (const key of DRAFT_FROZEN_SETTING_KEYS) {
+  if (!SETTING_BY_KEY[key]) {
+    throw new Error(`leagueSettings: leaguePhase.DRAFT_FROZEN_SETTING_KEYS names "${key}" but the settings registry has no row for it`);
+  }
+}
 
 /**
- * The fantasy-only administrative settings: editable all season, refused for
- * a pick'em-only league. Stated in the order the refusal names them (after
- * the draft-frozen ones), which is not their validation order; the registry
- * rows are the fact of record and a test pins this list to them.
+ * The fantasy-only keys outside DRAFT_FROZEN_SETTING_KEYS, in the order the
+ * refusal names them (after the draft-frozen ones): the administrative
+ * fantasy settings (waivers, trades) plus scoringPreset, which is not itself
+ * a draft-frozen key but materializes the frozen scoringRules, so a
+ * post-draft preset save is still refused. This list is an ORDER, stated
+ * because refusal order is not validation order; the registry rows are the
+ * fact of record, and the invariant below holds the two together.
  */
-const ADMIN_FANTASY_SETTING_KEYS = Object.freeze([
+const FANTASY_ONLY_NOT_FROZEN_KEYS = Object.freeze([
   'scoringPreset', 'waiverType', 'waiverPeriodHours', 'faabBudget',
   'tradeDeadlineWeek', 'tradeReviewHours', 'tradeVetoVotes',
 ]);
+{
+  const fromRows = SETTINGS.filter((row) => row.fantasyOnly && !row.draftFrozen).map((row) => row.key);
+  const listed = [...FANTASY_ONLY_NOT_FROZEN_KEYS];
+  if (fromRows.length !== listed.length || fromRows.some((key) => !listed.includes(key))) {
+    throw new Error(`leagueSettings: FANTASY_ONLY_NOT_FROZEN_KEYS (${listed.join(', ')}) must name exactly the registry rows that are fantasy-only and not draft-frozen (${fromRows.join(', ')})`);
+  }
+}
 
 /**
  * The settings a pick'em-only league refuses outright, in the order the 409
- * names them: every draft-frozen key except the size limits, then the
- * fantasy administrative keys. Owned here (league type owns only whether the
- * league is pick'em-only).
+ * names them: the fantasy-only draft-frozen keys (every draft-frozen key but
+ * the size limits), then the fantasy-only keys that are not draft-frozen.
+ * Owned here; league type owns only whether the league is pick'em-only.
  */
 const FANTASY_ONLY_SETTING_KEYS = Object.freeze([
-  ...DRAFT_FROZEN_SETTING_KEYS.filter((key) => !SETTING_BY_KEY[key].size),
-  ...ADMIN_FANTASY_SETTING_KEYS,
+  ...DRAFT_FROZEN_SETTING_KEYS.filter((key) => SETTING_BY_KEY[key].fantasyOnly),
+  ...FANTASY_ONLY_NOT_FROZEN_KEYS,
 ]);
 
 /* ------------------------------------------------------------------ *
@@ -245,12 +262,15 @@ const FANTASY_ONLY_SETTING_KEYS = Object.freeze([
  * has always sent for the first offending key; `{ value }` carries the
  * normalized patch under the handler's own names:
  *
- *   - every wire key as sent (undefined when absent), except that draftDate
- *     and keeperLockAt arrive as `<key>Provided` + `<key>Value` (ISO string
- *     or null), tradeDeadlineWeek also carries tradeDeadlineWeekProvided (its
- *     write is tri-state, #65), and minTeams / maxTeams arrive as newMin /
- *     newMax (Number or null; bounds are the write path's job, via
- *     leagueSize.editSizeError, because they depend on the live team count);
+ *   - every wire key as sent (undefined when absent), except: draftDate and
+ *     keeperLockAt arrive as `<key>Provided` + `<key>Value` (ISO string or
+ *     null); draftOrderOverrides and auctionSettings arrive as sent plus a
+ *     `<key>Provided` flag (null is a deliberate clear); tradeDeadlineWeek
+ *     arrives as sent plus tradeDeadlineWeekProvided (its write is tri-state,
+ *     #65); minTeams / maxTeams arrive as newMin / newMax (Number or null;
+ *     bounds are the write path's job, via leagueSize.editSizeError, because
+ *     they depend on the live team count); and scoringPreset / scoringRules
+ *     are not passed raw at all, only as the pair below;
  *   - effectiveRules / effectivePreset: a preset is a prefilled full rule
  *     set and explicit scoringRules win; custom rules mark the league
  *     'custom', a preset stores its own name;
@@ -263,14 +283,21 @@ const FANTASY_ONLY_SETTING_KEYS = Object.freeze([
  *     (scoringPreset, not the derived rules);
  *   - the provided flags and the write path's switches: rosterCompositionChanged
  *     (roster_limit is derived from starters + bench + IR and recomputed when
- *     any of those change), schedulingNonAuction (a non-null draft date written
- *     without an explicit type relies on the type staying non-auction, so the
- *     UPDATE re-checks it), keeperSettingsProvided, auctionSettingsProvided and
+ *     any of those change), schedulingNonAuction (writing a non-null draft
+ *     date without also setting the type relies on the current type staying
+ *     non-auction; the status read can go stale if a concurrent request
+ *     converts the league to auction, so the UPDATE re-checks the type
+ *     atomically. An explicit draftType wins outright, and draftType ===
+ *     'auction' clears the date, so neither needs the guard),
+ *     keeperSettingsProvided, auctionSettingsProvided and
  *     rowLockSettingsProvided (keeper or auction settings present: the write
  *     path reads the row FOR UPDATE inside a transaction).
  */
 function parseSettingsPatch(body) {
-  const input = body || {};
+  // One read per key, like the handler's single destructure used to be: a
+  // body is a plain JSON object, but snapshotting keeps that a fact rather
+  // than an assumption. A non-object body is an empty patch.
+  const input = Object.assign({}, body);
   // roster_limit is derived (starters + bench + IR), not settable directly.
   if (input.rosterLimit !== undefined) {
     return {
@@ -346,8 +373,7 @@ function parseSettingsPatch(body) {
 
 module.exports = {
   SETTINGS,
-  SETTING_KEYS,
-  ADMIN_FANTASY_SETTING_KEYS,
+  FANTASY_ONLY_NOT_FROZEN_KEYS,
   FANTASY_ONLY_SETTING_KEYS,
   DP_GROUP_KEYS,
   parseSettingsPatch,

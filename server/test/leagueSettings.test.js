@@ -2,8 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
   SETTINGS,
-  SETTING_KEYS,
-  ADMIN_FANTASY_SETTING_KEYS,
+  FANTASY_ONLY_NOT_FROZEN_KEYS,
   FANTASY_ONLY_SETTING_KEYS,
   DP_GROUP_KEYS,
   parseSettingsPatch,
@@ -29,28 +28,55 @@ const QB = { key: 'QB', count: 1, eligiblePositions: ['QB'] };
  * Registry shape                                                      *
  * ------------------------------------------------------------------ */
 
-test('the registry knows exactly the 29 settable wire keys (rosterLimit is rejected, not a setting)', () => {
-  assert.deepEqual([...SETTING_KEYS].sort(), [
-    'auctionSettings', 'autodraftDelaySeconds', 'benchSlots', 'dpEnabled', 'draftDate', 'draftOrderOverrides',
-    'draftRotation', 'draftType', 'faabBudget', 'irSlots', 'keeperCount', 'keeperLockAt', 'keepersEnabled',
-    'maxTeams', 'minTeams', 'name', 'pickTimeSeconds', 'playoffConsolation', 'playoffTeams', 'positionCaps',
-    'regularSeasonWeeks', 'rosterSlots', 'scoringPreset', 'scoringRules', 'tradeDeadlineWeek', 'tradeReviewHours',
-    'tradeVetoVotes', 'waiverPeriodHours', 'waiverType',
-  ]);
-  assert.equal(SETTING_KEYS.length, 29);
-  assert.equal(new Set(SETTING_KEYS).size, 29);
-  for (const row of SETTINGS) {
-    assert.ok(Object.isFrozen(row), `${row.key} row is frozen`);
-    assert.equal(typeof row.column, 'string', `${row.key} names its column`);
-  }
+// The handler's validation order on main (the first failing key's message is
+// the 400), followed by the three keys it never shape-checked. The registry
+// walks this order, so it is the contract multi-invalid bodies depend on.
+const VALIDATION_ORDER = [
+  'draftDate', 'rosterSlots', 'positionCaps', 'benchSlots', 'dpEnabled', 'irSlots',
+  'waiverType', 'waiverPeriodHours', 'faabBudget', 'tradeDeadlineWeek', 'tradeReviewHours', 'tradeVetoVotes',
+  'scoringPreset', 'scoringRules', 'regularSeasonWeeks', 'playoffTeams', 'playoffConsolation',
+  'pickTimeSeconds', 'autodraftDelaySeconds', 'draftType', 'draftRotation', 'draftOrderOverrides',
+  'keepersEnabled', 'keeperCount', 'auctionSettings', 'keeperLockAt',
+  'name', 'minTeams', 'maxTeams',
+];
+
+// Wire key -> leagues column, as the UPDATE in league.router.js writes them.
+const COLUMNS = {
+  draftDate: 'draft_date', rosterSlots: 'roster_slots', positionCaps: 'position_caps', benchSlots: 'bench_slots',
+  dpEnabled: 'dp_enabled', irSlots: 'ir_slots', waiverType: 'waiver_type', waiverPeriodHours: 'waiver_period_hours',
+  faabBudget: 'faab_budget', tradeDeadlineWeek: 'trade_deadline_week', tradeReviewHours: 'trade_review_hours',
+  tradeVetoVotes: 'trade_veto_votes', scoringPreset: 'scoring_preset', scoringRules: 'scoring_rules',
+  regularSeasonWeeks: 'regular_season_weeks', playoffTeams: 'playoff_teams', playoffConsolation: 'playoff_consolation',
+  pickTimeSeconds: 'pick_time_seconds', autodraftDelaySeconds: 'autodraft_delay_seconds', draftType: 'draft_type',
+  draftRotation: 'draft_rotation', draftOrderOverrides: 'draft_order_overrides', keepersEnabled: 'keepers_enabled',
+  keeperCount: 'keeper_count', auctionSettings: 'auction_settings', keeperLockAt: 'keeper_lock_at',
+  name: 'name', minTeams: 'min_teams', maxTeams: 'max_teams',
+};
+
+test('the registry holds the 29 settable wire keys in the handler\'s validation order, each naming its column', () => {
+  assert.deepEqual(SETTINGS.map((row) => row.key), VALIDATION_ORDER);
+  assert.equal(new Set(VALIDATION_ORDER).size, 29);
+  assert.deepEqual(Object.fromEntries(SETTINGS.map((row) => [row.key, row.column])), COLUMNS);
+  for (const row of SETTINGS) assert.ok(Object.isFrozen(row), `${row.key} row is frozen`);
+  // Every validated row is exercised by the rejection table below.
+  const validated = SETTINGS.filter((row) => row.validate).map((row) => row.key);
+  const exercised = new Set(REJECTIONS.flatMap(([body]) => Object.keys(body)));
+  for (const key of validated) assert.ok(exercised.has(key), `${key} has a rejection case`);
 });
 
-test('draftFrozen is membership in leaguePhase.DRAFT_FROZEN_SETTING_KEYS, both directions', () => {
-  const frozenRows = SETTINGS.filter((row) => row.draftFrozen).map((row) => row.key);
-  assert.deepEqual([...frozenRows].sort(), [...DRAFT_FROZEN_SETTING_KEYS].sort());
-  for (const key of DRAFT_FROZEN_SETTING_KEYS) {
-    assert.ok(SETTINGS.some((row) => row.key === key), `${key} has a registry row`);
-  }
+test('draftFrozen is membership in leaguePhase.DRAFT_FROZEN_SETTING_KEYS (the module refuses to load on a mismatch)', () => {
+  // The registry derives draftFrozen from the phase contract, so one
+  // direction holds by construction; the other (a frozen key with no row)
+  // is a load-time invariant in the module. Pin the resulting set against the
+  // literal the phase module ships, so a change on either side is visible here.
+  const frozenRows = SETTINGS.filter((row) => row.draftFrozen).map((row) => row.key).sort();
+  assert.deepEqual(frozenRows, [
+    'auctionSettings', 'autodraftDelaySeconds', 'benchSlots', 'dpEnabled', 'draftDate', 'draftOrderOverrides',
+    'draftRotation', 'draftType', 'irSlots', 'keeperCount', 'keeperLockAt', 'keepersEnabled', 'maxTeams', 'minTeams',
+    'pickTimeSeconds', 'playoffConsolation', 'playoffTeams', 'positionCaps', 'regularSeasonWeeks', 'rosterSlots',
+    'scoringRules',
+  ]);
+  assert.deepEqual(frozenRows, [...DRAFT_FROZEN_SETTING_KEYS].sort());
 });
 
 test('only name and the size limits are not fantasy-only; the size limits are draft-frozen', () => {
@@ -78,16 +104,22 @@ test('FANTASY_ONLY_SETTING_KEYS is the current 26-key refusal list, in refusal o
   assert.ok(Object.isFrozen(FANTASY_ONLY_SETTING_KEYS));
 });
 
-test('the ordered admin-fantasy list names exactly the registry rows that are fantasy-only and not draft-frozen', () => {
+test('the ordered not-frozen list names exactly the registry rows that are fantasy-only and not draft-frozen', () => {
+  assert.deepEqual([...FANTASY_ONLY_NOT_FROZEN_KEYS], [
+    'scoringPreset', 'waiverType', 'waiverPeriodHours', 'faabBudget', 'tradeDeadlineWeek', 'tradeReviewHours', 'tradeVetoVotes',
+  ]);
   const fromRows = SETTINGS.filter((row) => row.fantasyOnly && !row.draftFrozen).map((row) => row.key).sort();
-  assert.deepEqual([...ADMIN_FANTASY_SETTING_KEYS].sort(), fromRows);
+  assert.deepEqual([...FANTASY_ONLY_NOT_FROZEN_KEYS].sort(), fromRows);
   // And the fantasy-only list is exactly the fantasy-only rows (as a set).
   const fantasyRows = SETTINGS.filter((row) => row.fantasyOnly).map((row) => row.key).sort();
   assert.deepEqual([...FANTASY_ONLY_SETTING_KEYS].sort(), fantasyRows);
 });
 
 test('DP_GROUP_KEYS is read from lineup.service POSITION_GROUPS; the slot validator names draftValidation.POSITION_KEYS', () => {
+  // The literal main's handler carried; the module reads it from the group map instead.
+  assert.deepEqual([...DP_GROUP_KEYS], ['DL', 'LB', 'DB']);
   assert.deepEqual([...DP_GROUP_KEYS], Object.keys(POSITION_GROUPS));
+  assert.ok(Object.isFrozen(POSITION_KEYS));
   // The unknown-position message lists the canonical keys, so the validator
   // and draftValidation.POSITION_KEYS cannot drift apart.
   const { error } = parseSettingsPatch({ rosterSlots: [{ key: 'X', count: 1, eligiblePositions: ['ZZ'] }] });
@@ -158,6 +190,15 @@ for (const [body, message] of REJECTIONS) {
 }
 
 test('the first failing key in validation order wins, exactly as the inline checks did', () => {
+  // Every adjacent pair of validated keys, both invalid: the earlier one's
+  // message is the 400. Invalid values come from the rejection table itself.
+  const invalidFor = Object.fromEntries(REJECTIONS.map(([body, message]) => [Object.keys(body)[0], { value: Object.values(body)[0], message }]));
+  const validated = VALIDATION_ORDER.filter((key) => invalidFor[key] && key !== 'rosterLimit');
+  for (let i = 0; i + 1 < validated.length; i++) {
+    const first = validated[i]; const second = validated[i + 1];
+    const body = { [second]: invalidFor[second].value, [first]: invalidFor[first].value };
+    assert.equal(parseSettingsPatch(body).error, invalidFor[first].message, `${first} is checked before ${second}`);
+  }
   // draftDate is checked before rosterSlots; both invalid -> draftDate's message.
   assert.equal(parseSettingsPatch({ rosterSlots: [], draftDate: 'nope' }).error, 'draftDate must be a valid date or null');
   // rosterLimit is rejected before anything else is looked at.
@@ -168,8 +209,8 @@ test('the first failing key in validation order wins, exactly as the inline chec
   assert.equal(parseSettingsPatch({ draftType: 'x', scoringPreset: 'x' }).error, 'scoringPreset must be one of standard, half_ppr, ppr');
 });
 
-test('absent keys are not validated, and an empty or missing body is a valid empty patch', () => {
-  for (const body of [{}, undefined, null]) {
+test('absent keys are not validated, and an empty, missing or non-object body is a valid empty patch', () => {
+  for (const body of [{}, undefined, null, [], [1, 2], 'a string', 42, true]) {
     const { value, error } = parseSettingsPatch(body);
     assert.equal(error, undefined);
     assert.equal(value.name, undefined);
@@ -241,8 +282,28 @@ test('a full fantasy body lists frozen keys in DRAFT_FROZEN order and fantasy-on
   };
   const { value, error } = parseSettingsPatch(body);
   assert.equal(error, undefined);
-  assert.deepEqual(value.frozenRequested, [...DRAFT_FROZEN_SETTING_KEYS]);
-  assert.deepEqual(value.fantasyOnlyRequested, [...FANTASY_ONLY_SETTING_KEYS]);
+  // Literal expectations (main's order), not the exports the lists are filtered from.
+  assert.deepEqual(value.frozenRequested, [
+    'rosterSlots', 'positionCaps', 'benchSlots', 'dpEnabled', 'irSlots',
+    'scoringRules', 'regularSeasonWeeks', 'playoffTeams',
+    'playoffConsolation', 'pickTimeSeconds', 'minTeams', 'maxTeams', 'autodraftDelaySeconds',
+    'draftDate', 'draftType', 'draftRotation', 'keepersEnabled', 'keeperCount',
+    'draftOrderOverrides', 'auctionSettings', 'keeperLockAt',
+  ]);
+  assert.deepEqual(value.fantasyOnlyRequested, [
+    'rosterSlots', 'positionCaps', 'benchSlots', 'dpEnabled', 'irSlots',
+    'scoringRules', 'regularSeasonWeeks', 'playoffTeams',
+    'playoffConsolation', 'pickTimeSeconds', 'autodraftDelaySeconds',
+    'draftDate', 'draftType', 'draftRotation', 'keepersEnabled', 'keeperCount',
+    'draftOrderOverrides', 'auctionSettings', 'keeperLockAt',
+    'scoringPreset', 'waiverType', 'waiverPeriodHours', 'faabBudget',
+    'tradeDeadlineWeek', 'tradeReviewHours', 'tradeVetoVotes',
+  ]);
+  // A partial body keeps relative order too (waiverType before tradeVetoVotes,
+  // scoringPreset before both, draft-frozen keys before all of them).
+  const partial = parseSettingsPatch({ tradeVetoVotes: 1, waiverType: 'faab', scoringPreset: 'ppr', keeperLockAt: null, benchSlots: 2 }).value;
+  assert.deepEqual(partial.fantasyOnlyRequested, ['benchSlots', 'keeperLockAt', 'scoringPreset', 'waiverType', 'tradeVetoVotes']);
+  assert.deepEqual(partial.frozenRequested, ['benchSlots', 'scoringRules', 'keeperLockAt']);
 });
 
 test('tri-state dates: absent leaves, null clears, a string is normalized to ISO', () => {
@@ -291,6 +352,25 @@ test('the write path switches: roster composition, non-auction scheduling guard,
   assert.equal(parseSettingsPatch({ keeperCount: 2 }).value.rowLockSettingsProvided, true);
   assert.equal(parseSettingsPatch({ auctionSettings: null }).value.rowLockSettingsProvided, true);
   assert.equal(parseSettingsPatch({ draftDate: FUTURE, name: 'x', maxTeams: 10 }).value.rowLockSettingsProvided, false);
+});
+
+test('every pass-through setting reaches value unchanged, and the body is read once', () => {
+  const body = {
+    name: 'Ballers', rosterSlots: [QB], positionCaps: { QB: 2 }, benchSlots: 6, dpEnabled: true, irSlots: 2,
+    waiverType: 'faab', waiverPeriodHours: 48, faabBudget: 200, tradeDeadlineWeek: 10, tradeReviewHours: 12,
+    tradeVetoVotes: 3, regularSeasonWeeks: 13, playoffTeams: 6, playoffConsolation: true, pickTimeSeconds: 90,
+    autodraftDelaySeconds: 15, draftType: 'offline', draftRotation: 'linear', draftOrderOverrides: { 1: [2, 1] },
+    auctionSettings: { budget: 200, nominationSeconds: 30, bidSeconds: 10, nominationOrder: 'random' },
+    keepersEnabled: true, keeperCount: 2,
+  };
+  const { value, error } = parseSettingsPatch(body);
+  assert.equal(error, undefined);
+  for (const key of Object.keys(body)) assert.deepEqual(value[key], body[key], `${key} passes through`);
+  // Snapshot semantics: a getter is read once, as the handler's destructure read it once.
+  let reads = 0;
+  const tricky = { get benchSlots() { reads++; return reads === 1 ? 5 : 'boom'; } };
+  assert.equal(parseSettingsPatch(tricky).value.benchSlots, 5);
+  assert.equal(reads, 1);
 });
 
 test('a valid roster body passes through untouched (space in a slot name, group eligibility)', () => {

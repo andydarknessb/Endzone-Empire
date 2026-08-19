@@ -6,14 +6,15 @@ const {
   nextOpenPickNumber,
 } = require('./draftOrder.service');
 
-// The canonical position keys a roster slot's eligiblePositions may name
-// (offense literals + the three IDP group keys); the settings module
-// (leagueSettings.service.js, rosterSlotsError) validates against this same
-// export. A roster slot's eligiblePositions already lives at this granularity — group keys
-// like 'DL' are NOT expanded to member positions (DE/DT/NT) here, because
-// position_caps are enforced at the same group granularity in
-// draft.service.js's draftPlayer (see the POSITION_GROUPS fix there).
-const POSITION_KEYS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF', 'DL', 'LB', 'DB'];
+// The canonical position keys a roster slot's eligiblePositions (and a
+// position cap) may name: offense literals + the three IDP group keys. The
+// settings module (leagueSettings.service.js) validates roster slots and
+// position caps against this same export. A slot's eligiblePositions already
+// lives at this granularity: group keys like 'DL' are NOT expanded to member
+// positions (DE/DT/NT) here, because position_caps are enforced at the same
+// group granularity in draft.service.js's draftPlayer (see the POSITION_GROUPS
+// fix there).
+const POSITION_KEYS = Object.freeze(['QB', 'RB', 'WR', 'TE', 'K', 'DEF', 'DL', 'LB', 'DB']);
 
 /**
  * Pure: can every starting slot + bench + IR possibly be filled given
