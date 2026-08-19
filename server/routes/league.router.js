@@ -498,6 +498,8 @@ router.put('/:id', async (req, res) => {
   if (tradeDeadlineWeek !== undefined && tradeDeadlineWeek !== null && !intInRange(tradeDeadlineWeek, 1, 18)) {
     return res.status(400).json({ error: 'tradeDeadlineWeek must be an integer between 1 and 18 (or null)' });
   }
+  // Tri-state: absent leaves the deadline, null clears it (#65).
+  const tradeDeadlineWeekProvided = tradeDeadlineWeek !== undefined;
   if (tradeReviewHours !== undefined && !intInRange(tradeReviewHours, 0, 168)) {
     return res.status(400).json({ error: 'tradeReviewHours must be an integer between 0 and 168' });
   }
@@ -776,7 +778,11 @@ router.put('/:id', async (req, res) => {
            "waiver_type" = COALESCE($6, "waiver_type"),
            "waiver_period_hours" = COALESCE($7, "waiver_period_hours"),
            "faab_budget" = COALESCE($8, "faab_budget"),
-           "trade_deadline_week" = COALESCE($9, "trade_deadline_week"),
+           -- Tri-state like draft_order_overrides / auction_settings / keeper_lock_at
+           -- below: absent leaves it, null clears it (null = no deadline), a week
+           -- sets it. COALESCE could not tell null from absent (#65). $37 is the
+           -- "was it sent" flag appended to the parameter list; $9 stays the value.
+           "trade_deadline_week" = CASE WHEN $37::boolean THEN $9::integer ELSE "trade_deadline_week" END,
            "trade_review_hours" = COALESCE($10, "trade_review_hours"),
            "trade_veto_votes" = COALESCE($11, "trade_veto_votes"),
            "scoring_rules" = COALESCE($12, "scoring_rules"),
@@ -850,6 +856,7 @@ router.put('/:id', async (req, res) => {
         auctionSettingsProvided ? (auctionSettings === null ? null : JSON.stringify(auctionSettings)) : null,
         keeperLockAtProvided,
         keeperLockAtProvided ? keeperLockAtValue : null,
+        tradeDeadlineWeekProvided,
       ]
     );
     if (!result.rows[0]) {

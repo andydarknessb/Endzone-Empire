@@ -401,6 +401,21 @@ test('Save Trade Deadline sends the selected week', async () => {
   expect(await screen.findByText('Trade deadline saved')).toBeInTheDocument();
 });
 
+test('Save Trade Deadline sends null when the commissioner picks No deadline (the clear path, #65)', async () => {
+  apiClient.put.mockResolvedValue({});
+  renderTools({ league: league({ trade_deadline_week: 11 }) });
+  await userEvent.click(screen.getByRole('tab', { name: 'Playoffs & Schedule' }));
+
+  await userEvent.click(screen.getByLabelText('Trade Deadline'));
+  await userEvent.click(await screen.findByRole('option', { name: 'No deadline' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Save Trade Deadline' }));
+
+  await waitFor(() =>
+    expect(apiClient.put).toHaveBeenCalledWith('/api/league/1', { tradeDeadlineWeek: null })
+  );
+  expect(await screen.findByText('Trade deadline saved')).toBeInTheDocument();
+});
+
 // --- Waivers & Trades ---
 
 test('Save Waiver Rules maps the Trade Review radio choice to review-hours/veto-votes', async () => {
