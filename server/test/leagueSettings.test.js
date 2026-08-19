@@ -185,6 +185,17 @@ const REJECTIONS = [
   [{ auctionSettings: { budget: 200, nominationSeconds: 30, bidSeconds: 10, nominationOrder: 'alphabetical' } }, 'nominationOrder must be "random" or "custom"'],
   [{ auctionSettings: { budget: 200, nominationSeconds: 30, bidSeconds: 10, nominationOrder: 'custom' } }, 'nominationCustomOrder is required when nominationOrder is "custom"'],
   [{ keeperLockAt: 'someday' }, 'keeperLockAt must be a valid date or null'],
+  [{ keeperLockAt: PAST }, 'keeperLockAt must be in the future or null'], // #67
+  // #66: '' / 0 / false used to be silent no-ops via COALESCE; 12345 went to node-pg raw.
+  [{ name: 12345 }, 'name must be a non-empty string of at most 120 characters'],
+  [{ name: '' }, 'name must be a non-empty string of at most 120 characters'],
+  [{ name: '   ' }, 'name must be a non-empty string of at most 120 characters'],
+  [{ name: 'x'.repeat(121) }, 'name must be a non-empty string of at most 120 characters'], // leagues.name is varchar(120)
+  // #69: a rate must BE a number; these all coerced (1, 0, 0, 5) and stored raw.
+  [{ scoringRules: { passing: { yards: true } } }, 'scoringRules must be a nested { category: { statKey: number|tierArray } } object matching the known scoring schema (rates |value| <= 50; tiers well-formed and non-overlapping)'],
+  [{ scoringRules: { passing: { yards: null } } }, 'scoringRules must be a nested { category: { statKey: number|tierArray } } object matching the known scoring schema (rates |value| <= 50; tiers well-formed and non-overlapping)'],
+  [{ scoringRules: { passing: { yards: '' } } }, 'scoringRules must be a nested { category: { statKey: number|tierArray } } object matching the known scoring schema (rates |value| <= 50; tiers well-formed and non-overlapping)'],
+  [{ scoringRules: { passing: { yards: [5] } } }, 'scoringRules must be a nested { category: { statKey: number|tierArray } } object matching the known scoring schema (rates |value| <= 50; tiers well-formed and non-overlapping)'],
 ];
 
 for (const [body, message] of REJECTIONS) {
@@ -340,9 +351,9 @@ test('tri-state dates: absent leaves, null clears, a string is normalized to ISO
   assert.deepEqual(cleared.frozenRequested, ['draftDate', 'keeperLockAt']);
   assert.deepEqual(cleared.fantasyOnlyRequested, ['draftDate', 'keeperLockAt']);
 
-  const set = parseSettingsPatch({ draftDate: FUTURE, keeperLockAt: PAST }).value;
+  const set = parseSettingsPatch({ draftDate: FUTURE, keeperLockAt: FUTURE }).value;
   assert.equal(set.draftDateValue, new Date(FUTURE).toISOString());
-  assert.equal(set.keeperLockAtValue, new Date(PAST).toISOString()); // no future check on keeperLockAt (#67)
+  assert.equal(set.keeperLockAtValue, new Date(FUTURE).toISOString()); // future-checked like draftDate since #67
 });
 
 test('tri-state objects: provided flags for draftOrderOverrides, auctionSettings and tradeDeadlineWeek follow presence, null included', () => {

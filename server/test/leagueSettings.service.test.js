@@ -203,12 +203,14 @@ test('a name-only patch on a commissioner league resolves with the row and never
   assert.deepEqual(db.firstWord(), ['UPDATE']);
 });
 
-test('the UPDATE parameters: roster_limit is derived from the merged roster shape (starters + bench + IR), an empty name is null, absent keys are null', async () => {
+test('the UPDATE parameters: roster_limit is derived from the merged roster shape (starters + bench + IR), absent keys are null', async () => {
   const db = fakeDb({ status: statusRow({ roster_slots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }, { key: 'RB', count: 2, eligiblePositions: ['RB'] }], bench_slots: 4, ir_slots: 1 }) });
-  await run(db, { name: '', benchSlots: 6, positionCaps: { QB: 3, RB: 5 } });
+  await run(db, { name: 'Renamed', benchSlots: 6, positionCaps: { QB: 3, RB: 5 } });
   const update = db.calls.find((c) => c.text.startsWith('UPDATE "leagues"'));
   assert.equal(update.params.length, 37);
-  assert.equal(update.params[0], null, 'an empty name coerces to null (COALESCE keeps the current name)');
+  // An empty name is a parse-time 400 since #66, so the write path's || null
+  // coercion is unreachable for a provided name; a valid one passes through.
+  assert.equal(update.params[0], 'Renamed');
   assert.equal(update.params[1], 3 + 6 + 1, 'starters from the row (1 + 2) + the new bench + the row IR');
   assert.equal(update.params[3], JSON.stringify({ QB: 3, RB: 5 }));
   assert.equal(update.params[24], 6);
