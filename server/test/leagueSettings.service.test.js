@@ -314,6 +314,52 @@ test('a refusal whose ROLLBACK throws still surfaces the intended 4xx, not a 500
   assert.equal(db.firstWord().filter((w) => w === 'ROLLBACK').length, 1, 'no second ROLLBACK from the outer catch');
   assert.equal(db.released(), 1);
 });
+test('a post-draft bare-preset save is refused naming scoringPreset, what was sent, not the materialized scoringRules (#70)', async () => {
+  const db = fakeDb({ status: statusRow({ draft_status: 'active' }) });
+  const error = await refusal(db, { scoringPreset: 'ppr' });
+  assert.equal(error.statusCode, 409);
+  assert.equal(error.message, 'these settings are locked once the draft starts: scoringPreset');
+});
+
+test('the race-loser 409 names keys as sent too, matching the pre-check (#70)', async () => {
+  const db = fakeDb({ updateRows: [] });
+  const error = await refusal(db, { scoringPreset: 'ppr', playoffTeams: 4 });
+  assert.equal(error.statusCode, 409);
+  assert.equal(error.message, 'these settings are locked once the draft starts: scoringPreset, playoffTeams');
+});
+
+test('the status read includes season_status, the column deriveLeaguePhase declares it reads (#70)', async () => {
+  const db = fakeDb();
+  await run(db, { playoffTeams: 4 });
+  assert.match(db.calls[0].text, /"season_status"/);
+});
+
+test('a null stored roster_limit falls back to the limit the current shape derives (#70)', async () => {
+  const db = fakeDb({
+    status: statusRow({
+      roster_limit: null,
+      roster_slots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }, { key: 'RB', count: 2, eligiblePositions: ['RB'] }],
+      bench_slots: 3, ir_slots: 1,
+    }),
+  });
+  const error = await refusal(db, { keeperCount: 50 });
+  assert.equal(error.statusCode, 400);
+  assert.equal(error.message, 'keeperCount cannot exceed the roster limit (7)', 'starters 3 + bench 3 + IR 1, not null');
+});
+
+test('draftOrderOverrides plus a custom-nomination auctionSettings read the teams once, not twice (#70)', async () => {
+  const db = fakeDb({ teams: [{ id: 11 }, { id: 12 }] });
+  await run(db, {
+    draftOrderOverrides: { 1: [11, 12] },
+    auctionSettings: {
+      budget: 200, nominationSeconds: 30, bidSeconds: 15,
+      nominationOrder: 'custom', nominationCustomOrder: [12, 11],
+    },
+  });
+  const teamReads = db.texts().filter((t) => t.startsWith('SELECT "id" FROM "teams"'));
+  assert.equal(teamReads.length, 1);
+});
+
 test('the auction conversion race: zero rows + a re-read saying auction is the distinct 409, ahead of the frozen message', async () => {
   const future = new Date(Date.now() + 86_400_000).toISOString();
   const db = fakeDb({ updateRows: [], recheckRows: [{ draft_type: 'auction' }] });

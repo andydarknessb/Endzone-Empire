@@ -163,6 +163,9 @@ const REJECTIONS = [
   [{ tradeReviewHours: 1.5 }, 'tradeReviewHours must be an integer between 0 and 168'],
   [{ tradeVetoVotes: 21 }, 'tradeVetoVotes must be an integer between 0 and 20'],
   [{ scoringPreset: 'full' }, 'scoringPreset must be one of standard, half_ppr, ppr'],
+  // #70: prototype-chain names found Object / Object.prototype and passed.
+  [{ scoringPreset: 'constructor' }, 'scoringPreset must be one of standard, half_ppr, ppr'],
+  [{ scoringPreset: '__proto__' }, 'scoringPreset must be one of standard, half_ppr, ppr'],
   [{ scoringRules: { passing: { touchdowns: 51 } } }, 'scoringRules must be a nested { category: { statKey: number|tierArray } } object matching the known scoring schema (rates |value| <= 50; tiers well-formed and non-overlapping)'],
   [{ scoringRules: { nope: {} } }, 'scoringRules must be a nested { category: { statKey: number|tierArray } } object matching the known scoring schema (rates |value| <= 50; tiers well-formed and non-overlapping)'],
   [{ scoringRules: [] }, 'scoringRules must be a nested { category: { statKey: number|tierArray } } object matching the known scoring schema (rates |value| <= 50; tiers well-formed and non-overlapping)'],
@@ -278,6 +281,24 @@ test('a preset materializes rules: it counts as touching the frozen scoringRules
   assert.deepEqual(value.fantasyOnlyRequested, ['scoringPreset']);
   assert.deepEqual(value.effectiveRules, SCORING_PRESETS.ppr);
   assert.equal(value.effectivePreset, 'ppr');
+});
+
+test('the frozen refusal names what the caller sent: a bare preset reads scoringPreset, explicit rules read scoringRules (#70)', () => {
+  const preset = parseSettingsPatch({ scoringPreset: 'ppr' }).value;
+  assert.deepEqual(preset.frozenRequested, ['scoringRules']);
+  assert.deepEqual(preset.frozenRequestedNames, ['scoringPreset']);
+
+  const rules = parseSettingsPatch({ scoringRules: { passing: { yards: 0.05 } } }).value;
+  assert.deepEqual(rules.frozenRequestedNames, ['scoringRules']);
+
+  // Explicit rules win over a preset, so the name follows the winner.
+  const both = parseSettingsPatch({ scoringPreset: 'ppr', scoringRules: { passing: { yards: 0.05 } } }).value;
+  assert.deepEqual(both.frozenRequestedNames, ['scoringRules']);
+
+  // Aligned index-for-index with frozenRequested for every other key.
+  const mixed = parseSettingsPatch({ playoffTeams: 4, scoringPreset: 'ppr', benchSlots: 5 }).value;
+  assert.equal(mixed.frozenRequestedNames.length, mixed.frozenRequested.length);
+  assert.deepEqual(mixed.frozenRequestedNames, mixed.frozenRequested.map((k) => (k === 'scoringRules' ? 'scoringPreset' : k)));
 });
 
 test('explicit scoringRules win over a preset and mark the league custom', () => {

@@ -199,7 +199,13 @@ const SETTINGS = Object.freeze([
   { key: 'tradeVetoVotes', column: 'trade_veto_votes', validate: rangeRule(0, 20, 'tradeVetoVotes must be an integer between 0 and 20') },
   {
     key: 'scoringPreset', column: 'scoring_preset',
-    validate: (v) => (SCORING_PRESETS[v] ? null : `scoringPreset must be one of ${Object.keys(SCORING_PRESETS).join(', ')}`),
+    // hasOwnProperty, not a truthy lookup (#70): 'constructor' / '__proto__'
+    // found Object / Object.prototype on the prototype chain, so the name was
+    // stored and rendered while JSON.stringify of the "rules" (a function)
+    // quietly kept the old ones via COALESCE.
+    validate: (v) => (Object.prototype.hasOwnProperty.call(SCORING_PRESETS, v)
+      ? null
+      : `scoringPreset must be one of ${Object.keys(SCORING_PRESETS).join(', ')}`),
   },
   { key: 'scoringRules', column: 'scoring_rules', validate: scoringRulesRule },
   { key: 'regularSeasonWeeks', column: 'regular_season_weeks', validate: rangeRule(1, 17, 'regularSeasonWeeks must be an integer between 1 and 17') },
@@ -378,6 +384,13 @@ function parseSettingsPatch(body) {
 
   const requested = (key) => (key === 'scoringRules' ? effectiveRules !== undefined : input[key] !== undefined);
   const frozenRequested = DRAFT_FROZEN_SETTING_KEYS.filter(requested);
+  // The frozen refusal names what the caller SENT (#70): a preset materializes
+  // rules into the frozen scoringRules request, but the message should say
+  // scoringPreset when that is what arrived. Aligned index-for-index with
+  // frozenRequested; the SQL guard and the phase rule keep using the keys.
+  const frozenRequestedNames = frozenRequested.map(
+    (key) => (key === 'scoringRules' && scoringRules === undefined ? 'scoringPreset' : key)
+  );
   const fantasyOnlyRequested = FANTASY_ONLY_SETTING_KEYS.filter((key) => input[key] !== undefined);
 
   const keeperSettingsProvided = keepersEnabled !== undefined || keeperCount !== undefined;
@@ -398,7 +411,7 @@ function parseSettingsPatch(body) {
       tradeDeadlineWeekProvided: tradeDeadlineWeek !== undefined,
       newMin, newMax,
       effectiveRules, effectivePreset,
-      frozenRequested, fantasyOnlyRequested,
+      frozenRequested, frozenRequestedNames, fantasyOnlyRequested,
       rosterCompositionChanged: rosterSlots !== undefined || benchSlots !== undefined || irSlots !== undefined,
       schedulingNonAuction: draftDateProvided && Boolean(draftDateValue) && draftType === undefined,
       keeperSettingsProvided,
@@ -464,7 +477,7 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
     draftOrderOverridesProvided, auctionSettingsProvided, keeperSettingsProvided,
     rowLockSettingsProvided,
     newMin, newMax, effectiveRules, effectivePreset,
-    frozenRequested, fantasyOnlyRequested, rosterCompositionChanged, schedulingNonAuction,
+    frozenRequested, frozenRequestedNames, fantasyOnlyRequested, rosterCompositionChanged, schedulingNonAuction,
   } = patch;
   let previousDraftDate = null;
   let transactionClient = null;
@@ -499,7 +512,7 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
       const statusResult = await client.query(
         `SELECT "draft_status", "draft_type", "min_teams", "max_teams", "draft_date",
                 "roster_slots", "bench_slots", "ir_slots", "position_caps", "roster_limit",
-                "keepers_enabled", "keeper_count", "pickem_only",
+                "keepers_enabled", "keeper_count", "pickem_only", "season_status",
                 (SELECT COUNT(*)::int FROM "teams" WHERE "teams"."league_id" = "leagues"."id") AS "team_count"
          FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)}${rowLockSettingsProvided ? ' FOR UPDATE' : ''}`,
         [leagueId, userId]
@@ -522,7 +535,10 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
       }
       if (current && frozenRequested.length > 0) {
         const frozenNow = new Set(frozenSettingKeys(current));
-        const lockedRequested = frozenRequested.filter((key) => frozenNow.has(key));
+        // Named as sent AND actually locked (#70): the as-sent name comes from
+        // frozenRequestedNames (scoringPreset, not the materialized
+        // scoringRules), the locked filter from the phase rule.
+        const lockedRequested = frozenRequestedNames.filter((name, i) => frozenNow.has(frozenRequested[i]));
         if (lockedRequested.length > 0) {
           return await rejectUpdate(409, `these settings are locked once the draft starts: ${lockedRequested.join(', ')}`);
         }
@@ -543,18 +559,31 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
         });
         if (sizeError) return await rejectUpdate(400, sizeError);
       }
-      const effectiveRosterLimit = derivedRosterLimit !== null ? derivedRosterLimit : (current ? current.roster_limit : null);
+      // roster_limit can be null on old rows (#70); fall back to the limit the
+      // current shape derives, so keeperCount never compares against null and
+      // validateOrderOverrides never receives null as maxRounds.
+      const currentShapeLimit = current
+        ? (Array.isArray(current.roster_slots) ? current.roster_slots.reduce((sum, s) => sum + s.count, 0) : 0)
+          + (current.bench_slots ?? 0) + (current.ir_slots ?? 0)
+        : null;
+      const effectiveRosterLimit = derivedRosterLimit ?? current?.roster_limit ?? currentShapeLimit;
+      // Both order guards need the team ids; read them once (#70), even when
+      // draftOrderOverrides and a custom-nomination auctionSettings arrive
+      // together (two identical SELECTs before).
+      let cachedTeamIds = null;
+      const readTeamIds = async () => {
+        if (cachedTeamIds === null) {
+          const teamsResult = await client.query(`SELECT "id" FROM "teams" WHERE "league_id" = $1`, [leagueId]);
+          cachedTeamIds = teamsResult.rows.map((team) => team.id);
+        }
+        return cachedTeamIds;
+      };
       if (current && draftOrderOverridesProvided) {
-        const teamsResult = await client.query(`SELECT "id" FROM "teams" WHERE "league_id" = $1`, [leagueId]);
-        const overridesError = validateOrderOverrides(
-          draftOrderOverrides, teamsResult.rows.map((t) => t.id), effectiveRosterLimit
-        );
+        const overridesError = validateOrderOverrides(draftOrderOverrides, await readTeamIds(), effectiveRosterLimit);
         if (overridesError) return await rejectUpdate(400, overridesError);
       }
       if (current && auctionSettingsProvided && auctionSettings?.nominationOrder === 'custom') {
-        const teamsResult = await client.query(`SELECT "id" FROM "teams" WHERE "league_id" = $1`, [leagueId]);
-        const teamIds = teamsResult.rows.map((team) => team.id);
-        if (!isPermutationOf(auctionSettings.nominationCustomOrder, teamIds)) {
+        if (!isPermutationOf(auctionSettings.nominationCustomOrder, await readTeamIds())) {
           return await rejectUpdate(400, 'nominationCustomOrder must list every current team exactly once');
         }
       }
@@ -699,7 +728,10 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
         }
       }
       if (pendingStatusVerified && frozenRequested.length > 0) {
-        return await rejectUpdate(409, `these settings are locked once the draft starts: ${frozenRequested.join(', ')}`);
+        // The freeze guard zeroed the UPDATE, so the league is past pre-draft
+        // NOW and every requested frozen key is locked; name them as sent,
+        // the same way the pre-check does (#70).
+        return await rejectUpdate(409, `these settings are locked once the draft starts: ${frozenRequestedNames.join(', ')}`);
       }
       return await rejectUpdate(403, 'league not found or you are not the commissioner');
     }
