@@ -16,17 +16,39 @@
  * here). Both invariants are checked once, when this module loads.
  *
  * Interface (spec #71):
- *   parseSettingsPatch(body) -> { value } | { error }     (pure, this file, PR 1)
- *   updateLeagueSettings(db, { leagueId, userId, patch }) (PR 2, #73)
+ *   parseSettingsPatch(body) -> { value } | { error }            (pure)
+ *   updateLeagueSettings(db, { leagueId, userId, patch }) -> row  (the write)
+ *   LeagueSettingsError { statusCode, message, code? }            (its refusal)
  *
  * parseSettingsPatch reproduces the route handler's shape validation
  * byte-for-byte and in the same order (the first failing key's message wins),
  * then derives the request facts the write path needs. It never throws on bad
  * input; it answers { error } for a 400 and { value } otherwise.
+ *
+ * updateLeagueSettings takes that { value } as `patch` and owns the state
+ * half: the status read, the post-read guards, the keeper clear, the UPDATE
+ * and the after-commit notification. Transaction rule: it connect()s a client
+ * and runs BEGIN only when the patch carries keeper or auction settings
+ * (patch.rowLockSettingsProvided, the FOR UPDATE read); otherwise every
+ * statement runs on the pool directly with no transaction. Thrown-error
+ * contract: it refuses by throwing LeagueSettingsError (statusCode, message,
+ * and code only for the pick'em refusal) after rolling back, so call it only
+ * where the surrounding catch renders `error.statusCode`, the same rule
+ * leagueRole.requireMember states; anything else propagates after the same
+ * rollback and release.
  */
 
-const { DRAFT_FROZEN_SETTING_KEYS } = require('./leaguePhase');
-const { POSITION_KEYS, validateAuctionSettings } = require('./draftValidation.service');
+const { DRAFT_FROZEN_SETTING_KEYS, frozenSettingKeys, settingsUnfrozenWhereSql } = require('./leaguePhase');
+const {
+  POSITION_KEYS, validateAuctionSettings, keeperSettingsPlan, positionCapsFeasible,
+} = require('./draftValidation.service');
+const { validateOrderOverrides, isPermutationOf } = require('./draftOrder.service');
+const { commissionerPredicate } = require('./leagueRole.service');
+const { editSizeError } = require('./leagueSize');
+const { PICKEM_ONLY_CODE } = require('./leagueType');
+// Held as the module, not a destructured function: the notification is
+// looked up at call time so a test can mock activity.service's export.
+const activityService = require('./activity.service');
 const { POSITION_GROUPS } = require('./lineup.service');
 const { SCORING_PRESETS, SCORING_RULES, isValidTierArray } = require('./scoring.service');
 
@@ -375,10 +397,347 @@ function parseSettingsPatch(body) {
   };
 }
 
+/* ------------------------------------------------------------------ *
+ * updateLeagueSettings                                                *
+ * ------------------------------------------------------------------ */
+
+/**
+ * A refusal from updateLeagueSettings: `statusCode` is the HTTP status the
+ * adapter renders, `message` the body's `error`, and `code` is set only for
+ * the pick'em refusal (PICKEM_ONLY_CODE, the client's signal to redirect).
+ */
+class LeagueSettingsError extends Error {
+  constructor(statusCode, message, extra = {}) {
+    super(message);
+    this.name = 'LeagueSettingsError';
+    this.statusCode = statusCode;
+    Object.assign(this, extra);
+  }
+}
+
+/**
+ * The state half of PUT /api/league/:id: read the league's status (FOR
+ * UPDATE when the patch carries keeper or auction settings), run the
+ * post-read guards (the keeper plan included), clear keepers when the plan
+ * says so, write the UPDATE with its two spliced WHERE guards, disambiguate
+ * a zero-row result, COMMIT, and only then notify the league of a
+ * (re)scheduled draft.
+ *
+ * `db` is the pool (duck-typed `query` + `connect`). Transaction rule: when
+ * patch.rowLockSettingsProvided, `connect()` a client, BEGIN, and run every
+ * statement on it; otherwise every statement runs on `db` directly and there
+ * is no BEGIN/COMMIT at all. Either way the statements are the same text in
+ * the same order (the status read gains FOR UPDATE on the transaction path,
+ * nothing else differs), so a fake pool observes one sequence per patch.
+ *
+ * Thrown-error contract: refuses by throwing LeagueSettingsError (after
+ * ROLLBACK when a transaction is open); any other error ROLLBACKs the same
+ * way and propagates as-is. Call it only where the surrounding catch renders
+ * `error.statusCode` (the rule leagueRole.requireMember states); a caller
+ * that maps every error to 500 would turn a 409 into a 500.
+ *
+ * Resolves with the updated `leagues` row (RETURNING *).
+ */
+async function updateLeagueSettings(db, { leagueId, userId, patch }) {
+  const {
+    name, rosterSlots, positionCaps, benchSlots, dpEnabled, irSlots,
+    waiverType, waiverPeriodHours, faabBudget,
+    tradeDeadlineWeek, tradeReviewHours, tradeVetoVotes,
+    regularSeasonWeeks, playoffTeams, playoffConsolation,
+    pickTimeSeconds, autodraftDelaySeconds,
+    draftType, draftRotation, draftOrderOverrides, auctionSettings,
+    keepersEnabled, keeperCount,
+    tradeDeadlineWeekProvided,
+    draftDateProvided, draftDateValue, keeperLockAtProvided, keeperLockAtValue,
+    draftOrderOverridesProvided, auctionSettingsProvided, keeperSettingsProvided,
+    rowLockSettingsProvided,
+    newMin, newMax, effectiveRules, effectivePreset,
+    frozenRequested, fantasyOnlyRequested, rosterCompositionChanged, schedulingNonAuction,
+  } = patch;
+  let previousDraftDate = null;
+  let transactionClient = null;
+  let transactionOpen = false;
+  let client = db;
+  const rejectUpdate = async (status, error, extra = {}) => {
+    if (transactionOpen) {
+      await transactionClient.query('ROLLBACK');
+      transactionOpen = false;
+    }
+    throw new LeagueSettingsError(status, error, extra);
+  };
+  try {
+    if (rowLockSettingsProvided) {
+      transactionClient = await db.connect();
+      client = transactionClient;
+      await transactionClient.query('BEGIN');
+      transactionOpen = true;
+    }
+    let derivedRosterLimit = null;
+    let pendingStatusVerified = false;
+    // The status read is also the league-type read: any fantasy-only field
+    // forces it so a pick'em-only league can be refused, even for keys (like
+    // waiverType) that are never draft-frozen.
+    if (frozenRequested.length > 0 || fantasyOnlyRequested.length > 0) {
+      const statusResult = await client.query(
+        `SELECT "draft_status", "draft_type", "min_teams", "max_teams", "draft_date",
+                "roster_slots", "bench_slots", "ir_slots", "position_caps", "roster_limit",
+                "keepers_enabled", "keeper_count", "pickem_only",
+                (SELECT COUNT(*)::int FROM "teams" WHERE "teams"."league_id" = "leagues"."id") AS "team_count"
+         FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)}${rowLockSettingsProvided ? ' FOR UPDATE' : ''}`,
+        [leagueId, userId]
+      );
+      const current = statusResult.rows[0];
+      previousDraftDate = current ? current.draft_date : null;
+      if (current && rosterCompositionChanged) {
+        const effectiveSlots = rosterSlots !== undefined ? rosterSlots : current.roster_slots;
+        const effectiveBench = benchSlots !== undefined ? benchSlots : current.bench_slots;
+        const effectiveIr = irSlots !== undefined ? irSlots : current.ir_slots;
+        const starters = effectiveSlots.reduce((sum, s) => sum + s.count, 0);
+        derivedRosterLimit = starters + effectiveBench + effectiveIr;
+      }
+      if (current && current.pickem_only && fantasyOnlyRequested.length > 0) {
+        return await rejectUpdate(
+          409,
+          `these settings do not apply to a pick'em league: ${fantasyOnlyRequested.join(', ')}`,
+          { code: PICKEM_ONLY_CODE }
+        );
+      }
+      if (current && frozenRequested.length > 0) {
+        const frozenNow = new Set(frozenSettingKeys(current));
+        const lockedRequested = frozenRequested.filter((key) => frozenNow.has(key));
+        if (lockedRequested.length > 0) {
+          return await rejectUpdate(409, `these settings are locked once the draft starts: ${lockedRequested.join(', ')}`);
+        }
+      }
+      if (current && draftDateValue && (draftType ?? current.draft_type) === 'auction') {
+        return await rejectUpdate(400, 'salary-cap auction drafts cannot be scheduled until live auction support is available');
+      }
+      pendingStatusVerified = Boolean(current);
+      // Size-limit invariants: valid bounds, min <= max, and the cap can't drop
+      // below the teams already in the league.
+      if (current && (newMin !== null || newMax !== null)) {
+        const sizeError = editSizeError({
+          newMin, newMax,
+          currentMin: current.min_teams,
+          currentMax: current.max_teams,
+          teamCount: current.team_count,
+          pickemOnly: current.pickem_only,
+        });
+        if (sizeError) return await rejectUpdate(400, sizeError);
+      }
+      const effectiveRosterLimit = derivedRosterLimit !== null ? derivedRosterLimit : (current ? current.roster_limit : null);
+      if (current && draftOrderOverridesProvided) {
+        const teamsResult = await client.query(`SELECT "id" FROM "teams" WHERE "league_id" = $1`, [leagueId]);
+        const overridesError = validateOrderOverrides(
+          draftOrderOverrides, teamsResult.rows.map((t) => t.id), effectiveRosterLimit
+        );
+        if (overridesError) return await rejectUpdate(400, overridesError);
+      }
+      if (current && auctionSettingsProvided && auctionSettings?.nominationOrder === 'custom') {
+        const teamsResult = await client.query(`SELECT "id" FROM "teams" WHERE "league_id" = $1`, [leagueId]);
+        const teamIds = teamsResult.rows.map((team) => team.id);
+        if (!isPermutationOf(auctionSettings.nominationCustomOrder, teamIds)) {
+          return await rejectUpdate(400, 'nominationCustomOrder must list every current team exactly once');
+        }
+      }
+      if (current && keeperCount !== undefined && keeperCount > effectiveRosterLimit) {
+        return await rejectUpdate(400, `keeperCount cannot exceed the roster limit (${effectiveRosterLimit})`);
+      }
+      if (current && keeperSettingsProvided) {
+        const assignmentResult = await client.query(
+          `SELECT "team_id", COUNT(*)::int AS "count" FROM "keepers" WHERE "league_id" = $1 GROUP BY "team_id"`,
+          [leagueId]
+        );
+        const keeperPlan = keeperSettingsPlan({
+          currentEnabled: current.keepers_enabled,
+          currentCount: current.keeper_count,
+          keepersEnabled,
+          keeperCount,
+          assignmentCounts: assignmentResult.rows,
+        });
+        if (keeperPlan.error) return await rejectUpdate(409, keeperPlan.error);
+        if (keeperPlan.clearAssignments) {
+          await client.query(`DELETE FROM "keepers" WHERE "league_id" = $1`, [leagueId]);
+        }
+      }
+      // Any change to caps or roster shape must keep every slot fillable:
+      // re-run the same Hall's-condition check the draft settings UI warns with.
+      if (current && (positionCaps !== undefined || rosterCompositionChanged)) {
+        const feasibility = positionCapsFeasible({
+          rosterSlots: rosterSlots !== undefined ? rosterSlots : current.roster_slots,
+          benchSlots: benchSlots !== undefined ? benchSlots : current.bench_slots,
+          irSlots: irSlots !== undefined ? irSlots : current.ir_slots,
+          positionCaps: positionCaps !== undefined ? positionCaps : current.position_caps,
+        });
+        if (!feasibility.feasible) {
+          return await rejectUpdate(400, feasibility.errors.join('; '));
+        }
+      }
+    }
+    const result = await client.query(
+      `UPDATE "leagues"
+       SET "name" = COALESCE($1, "name"),
+           "roster_limit" = COALESCE($2, "roster_limit"),
+           "roster_slots" = COALESCE($3, "roster_slots"),
+           "position_caps" = COALESCE($4, "position_caps"),
+           "ir_slots" = COALESCE($5, "ir_slots"),
+           "bench_slots" = COALESCE($25, "bench_slots"),
+           "dp_enabled" = COALESCE($26, "dp_enabled"),
+           "waiver_type" = COALESCE($6, "waiver_type"),
+           "waiver_period_hours" = COALESCE($7, "waiver_period_hours"),
+           "faab_budget" = COALESCE($8, "faab_budget"),
+           -- Tri-state like draft_order_overrides / auction_settings / keeper_lock_at
+           -- below: absent leaves it, null clears it (null = no deadline), a week
+           -- sets it. COALESCE could not tell null from absent (#65). $37 is the
+           -- "was it sent" flag appended to the parameter list; $9 stays the value.
+           "trade_deadline_week" = CASE WHEN $37::boolean THEN $9::integer ELSE "trade_deadline_week" END,
+           "trade_review_hours" = COALESCE($10, "trade_review_hours"),
+           "trade_veto_votes" = COALESCE($11, "trade_veto_votes"),
+           "scoring_rules" = COALESCE($12, "scoring_rules"),
+           "regular_season_weeks" = COALESCE($13, "regular_season_weeks"),
+           "playoff_teams" = COALESCE($14, "playoff_teams"),
+           "playoff_consolation" = COALESCE($15, "playoff_consolation"),
+           "pick_time_seconds" = COALESCE($16, "pick_time_seconds"),
+           "scoring_preset" = COALESCE($19, "scoring_preset"),
+           "min_teams" = COALESCE($20, "min_teams"),
+           "max_teams" = COALESCE($21, "max_teams"),
+           "autodraft_delay_seconds" = COALESCE($24, "autodraft_delay_seconds"),
+           "draft_date" = CASE
+             WHEN $27::text = 'auction' THEN NULL
+             WHEN $22 THEN $23
+             ELSE "draft_date"
+           END,
+           -- Rescheduling resets the reminder/auto-start bookkeeping so the
+           -- new time gets a fresh set of reminders.
+           "draft_reminder_stage" = CASE WHEN $22 OR $27::text = 'auction' THEN 0 ELSE "draft_reminder_stage" END,
+           "draft_autostart_failed" = CASE WHEN $22 OR $27::text = 'auction' THEN false ELSE "draft_autostart_failed" END,
+           -- draft_type/draft_rotation are Postgres enums; the $27 = 'auction'
+           -- comparisons above type the parameter as text, so COALESCE needs an
+           -- explicit cast or Postgres rejects text vs enum (the bug that broke
+           -- every league update after the enum migration landed).
+           "draft_type" = COALESCE($27::draft_type, "draft_type"),
+           "draft_rotation" = COALESCE($28::draft_rotation_type, "draft_rotation"),
+           "keepers_enabled" = COALESCE($29, "keepers_enabled"),
+           "keeper_count" = COALESCE($30, "keeper_count"),
+           "draft_order_overrides" = CASE WHEN $31::boolean THEN $32::jsonb ELSE "draft_order_overrides" END,
+           "auction_settings" = CASE WHEN $33::boolean THEN $34::jsonb ELSE "auction_settings" END,
+           "keeper_lock_at" = CASE WHEN $35::boolean THEN $36::timestamptz ELSE "keeper_lock_at" END,
+           "updated_at" = now()
+       WHERE "id" = $17 AND ${commissionerPredicate(18)}
+         ${frozenRequested.length > 0 ? `AND ${settingsUnfrozenWhereSql()}` : ''}
+         ${schedulingNonAuction ? `AND "draft_type" <> 'auction'` : ''}
+       RETURNING *`,
+      [
+        name || null,
+        derivedRosterLimit,
+        rosterSlots === undefined ? null : JSON.stringify(rosterSlots),
+        positionCaps === undefined ? null : JSON.stringify(positionCaps),
+        irSlots === undefined ? null : irSlots,
+        waiverType === undefined ? null : waiverType,
+        waiverPeriodHours === undefined ? null : waiverPeriodHours,
+        faabBudget === undefined ? null : faabBudget,
+        tradeDeadlineWeek === undefined ? null : tradeDeadlineWeek,
+        tradeReviewHours === undefined ? null : tradeReviewHours,
+        tradeVetoVotes === undefined ? null : tradeVetoVotes,
+        effectiveRules === undefined ? null : JSON.stringify(effectiveRules),
+        regularSeasonWeeks === undefined ? null : regularSeasonWeeks,
+        playoffTeams === undefined ? null : playoffTeams,
+        playoffConsolation === undefined ? null : playoffConsolation,
+        pickTimeSeconds === undefined ? null : pickTimeSeconds,
+        leagueId,
+        userId,
+        effectivePreset === undefined ? null : effectivePreset,
+        newMin,
+        newMax,
+        draftDateProvided,
+        draftDateValue,
+        autodraftDelaySeconds === undefined ? null : autodraftDelaySeconds,
+        benchSlots === undefined ? null : benchSlots,
+        dpEnabled === undefined ? null : dpEnabled,
+        draftType === undefined ? null : draftType,
+        draftRotation === undefined ? null : draftRotation,
+        keepersEnabled === undefined ? null : keepersEnabled,
+        keeperCount === undefined ? null : keeperCount,
+        draftOrderOverridesProvided,
+        draftOrderOverridesProvided ? (draftOrderOverrides === null ? null : JSON.stringify(draftOrderOverrides)) : null,
+        auctionSettingsProvided,
+        auctionSettingsProvided ? (auctionSettings === null ? null : JSON.stringify(auctionSettings)) : null,
+        keeperLockAtProvided,
+        keeperLockAtProvided ? keeperLockAtValue : null,
+        tradeDeadlineWeekProvided,
+      ]
+    );
+    if (!result.rows[0]) {
+      // The scheduling guard can also zero out the update when the league was
+      // converted to auction between our SELECT and UPDATE. Re-read the current
+      // type to report the auction conflict distinctly from a draft that started.
+      if (schedulingNonAuction && pendingStatusVerified) {
+        const recheck = await client.query(
+          `SELECT "draft_type" FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)}`,
+          [leagueId, userId]
+        );
+        if (recheck.rows[0]?.draft_type === 'auction') {
+          return await rejectUpdate(409, 'this league was converted to a salary-cap auction; auction drafts cannot be scheduled');
+        }
+      }
+      if (pendingStatusVerified && frozenRequested.length > 0) {
+        return await rejectUpdate(409, `these settings are locked once the draft starts: ${frozenRequested.join(', ')}`);
+      }
+      return await rejectUpdate(403, 'league not found or you are not the commissioner');
+    }
+    const changed = draftDateProvided &&
+      String(previousDraftDate ? new Date(previousDraftDate).toISOString() : null) !== String(draftDateValue);
+    if (transactionOpen) {
+      await transactionClient.query('COMMIT');
+      transactionOpen = false;
+    }
+    // The settings update is the source of truth. Activity delivery happens
+    // after commit, on the pool (never the released client), and is
+    // best-effort so a notification outage cannot turn a persisted schedule
+    // into an HTTP 500 response.
+    if (changed && draftDateValue) {
+      const verb = previousDraftDate ? 'rescheduled' : 'scheduled';
+      try {
+        void activityService.notifyLeague(db, {
+          leagueId,
+          type: 'draft_scheduled',
+          message: `${result.rows[0].name}'s draft has been ${verb}.`,
+          data: { url: `/#/league/${leagueId}`, draftDate: draftDateValue },
+        }).catch((notificationError) => {
+          console.error('Failed to send draft schedule notification', notificationError);
+        });
+      } catch (notificationError) {
+        console.error('Failed to send draft schedule notification', notificationError);
+      }
+    }
+    return result.rows[0];
+  } catch (error) {
+    if (transactionOpen) {
+      await transactionClient.query('ROLLBACK').catch(() => {});
+      transactionOpen = false;
+    }
+    throw error;
+  } finally {
+    // The result (or the refusal) is already decided by here; a failing
+    // release must not replace it. The handler used to release after it had
+    // sent the response, so a throw here surfaced only as an unhandled
+    // rejection; now the service runs first, so swallow and log instead.
+    if (transactionClient) {
+      try {
+        transactionClient.release();
+      } catch (releaseError) {
+        console.error('Failed to release the league settings client', releaseError);
+      }
+    }
+  }
+}
+
 module.exports = {
   SETTINGS,
   FANTASY_ONLY_NOT_FROZEN_KEYS,
   FANTASY_ONLY_SETTING_KEYS,
   DP_GROUP_KEYS,
   parseSettingsPatch,
+  updateLeagueSettings,
+  LeagueSettingsError,
 };
