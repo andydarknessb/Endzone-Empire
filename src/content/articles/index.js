@@ -65,7 +65,12 @@ export function getArticle(slug) {
   const meta = ARTICLES.find((a) => a.slug === slug);
   if (!meta) return null;
   const loader = BODY_LOADERS[slug];
-  return { ...meta, loadBody: () => loader().then((mod) => mod.default) };
+  return {
+    ...meta,
+    loadBody: () => (loader
+      ? loader().then((mod) => mod.default)
+      : Promise.reject(new Error(`content/articles: no body loader registered for "${slug}" (add it to BODY_LOADERS)`))),
+  };
 }
 
 /** First `n` articles as metadata (for the landing teaser + featured slots). */

@@ -14,7 +14,6 @@ const sagaMiddleware = createSagaMiddleware();
 // it unused in the initial bundle.
 const middlewareList = [sagaMiddleware];
 if (process.env.NODE_ENV === 'development') {
-  // eslint-disable-next-line global-require
   middlewareList.push(require('redux-logger').default);
 }
 

@@ -64,15 +64,20 @@ function ReadingProgress({ articleRef }) {
   );
 }
 
-// `bodyVersion` bumps when the lazily loaded body commits, so the headings
-// are read from the prose that is actually on the page, not the skeleton.
-function ArticleToc({ articleRef, slug, bodyVersion }) {
+// `renderedSlug` is the article whose lazily loaded body is on the page; the
+// headings are read only once it matches `slug`, so during a hop the TOC
+// empties instead of listing the previous article's (about-to-vanish) ids.
+function ArticleToc({ articleRef, slug, renderedSlug }) {
   const [headings, setHeadings] = useState([]);
 
   useEffect(() => {
+    if (renderedSlug !== slug) {
+      setHeadings([]);
+      return;
+    }
     const nodes = articleRef.current ? [...articleRef.current.querySelectorAll('h2[id]')] : [];
     setHeadings(nodes.map((node) => ({ id: node.id, title: node.textContent })));
-  }, [articleRef, slug, bodyVersion]);
+  }, [articleRef, slug, renderedSlug]);
 
   if (headings.length < 2) return null;
   return (
@@ -114,8 +119,8 @@ function ArticlePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [slug],
   );
-  const [bodyVersion, setBodyVersion] = useState(0);
-  const handleBodyRendered = useCallback(() => setBodyVersion((v) => v + 1), []);
+  const [renderedSlug, setRenderedSlug] = useState(null);
+  const handleBodyRendered = useCallback(() => setRenderedSlug(slug), [slug]);
 
   if (!article) {
     return (
@@ -151,7 +156,7 @@ function ArticlePage() {
 
       <Grid container spacing={4} alignItems="flex-start">
         <Grid xs={12} md={3} sx={{ order: { xs: 2, md: 1 } }}>
-          <ArticleToc articleRef={articleRef} slug={slug} bodyVersion={bodyVersion} />
+          <ArticleToc articleRef={articleRef} slug={slug} renderedSlug={renderedSlug} />
         </Grid>
         <Grid xs={12} md={9} sx={{ order: { xs: 1, md: 2 } }}>
           <Box component="article" ref={articleRef} sx={{ maxWidth: 720 }}>

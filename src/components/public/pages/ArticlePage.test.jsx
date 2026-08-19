@@ -64,7 +64,10 @@ test('navigating to a related article loads its body and rebuilds the table of c
   await user.click(screen.getByRole('link', { name: /Winning the Waiver Wire/ }));
 
   expect(await screen.findByRole('heading', { name: 'Priority (rolling waivers)' })).toBeInTheDocument();
-  const toc = await screen.findByRole('navigation', { name: 'Table of contents' });
-  await waitFor(() => expect(toc).toHaveTextContent('FAAB (free-agent budget)'));
-  expect(toc).not.toHaveTextContent('How to build tiers');
+  // The nav is re-queried inside waitFor: it empties (unmounts) while the new
+  // body loads and comes back built from the new article's headings.
+  await waitFor(() => {
+    expect(screen.getByRole('navigation', { name: 'Table of contents' })).toHaveTextContent('FAAB (free-agent budget)');
+  });
+  expect(screen.getByRole('navigation', { name: 'Table of contents' })).not.toHaveTextContent('How to build tiers');
 });

@@ -3,9 +3,7 @@ const path = require('path');
 const zlib = require('zlib');
 
 const directory = path.join(__dirname, '..', 'build', 'static', 'js');
-// 250 KiB gzip of initial JavaScript. Netlify builds of the same commit vary
-// by tens of bytes, so keep real headroom under this line (see #63, which
-// trimmed main.js from 250 to ~230 after the guard failed three deploys).
+// 250 KiB gzip of initial JavaScript; keep real headroom under it (see #63).
 const budgetKb = Number(process.env.INITIAL_JS_BUDGET_KB || 250);
 
 if (!fs.existsSync(directory)) {
