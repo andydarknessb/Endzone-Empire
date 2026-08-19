@@ -6,9 +6,10 @@ const {
   nextOpenPickNumber,
 } = require('./draftOrder.service');
 
-// Mirrors the canonical position keys validated in league.router.js's
-// validRosterSlots (offense literals + the three IDP group keys). A roster
-// slot's eligiblePositions already lives at this granularity — group keys
+// The canonical position keys a roster slot's eligiblePositions may name
+// (offense literals + the three IDP group keys); the settings module
+// (leagueSettings.service.js, rosterSlotsError) validates against this same
+// export. A roster slot's eligiblePositions already lives at this granularity — group keys
 // like 'DL' are NOT expanded to member positions (DE/DT/NT) here, because
 // position_caps are enforced at the same group granularity in
 // draft.service.js's draftPlayer (see the POSITION_GROUPS fix there).
