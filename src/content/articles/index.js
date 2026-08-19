@@ -20,6 +20,7 @@ import readingTradeValue from './reading-trade-value.meta';
 import streamingDefenseAndKicker from './streaming-defense-and-kicker.meta';
 import playoffPrep from './playoff-prep.meta';
 import preseasonWeek1Recap from './preseason-week-1-recap.meta';
+import rookieDraftRoundGuide from './rookie-draft-round-guide.meta';
 
 // One loader per article, keyed by slug. Literal import() calls so the
 // bundler can split one chunk per body.
@@ -30,6 +31,7 @@ const BODY_LOADERS = {
   'streaming-defense-and-kicker': () => import('./streaming-defense-and-kicker'),
   'playoff-prep': () => import('./playoff-prep'),
   'preseason-week-1-recap': () => import('./preseason-week-1-recap'),
+  'rookie-draft-round-guide': () => import('./rookie-draft-round-guide'),
 };
 
 // Newest first.
@@ -40,6 +42,7 @@ const ARTICLES = [
   streamingDefenseAndKicker,
   playoffPrep,
   preseasonWeek1Recap,
+  rookieDraftRoundGuide,
 ].sort((a, b) => new Date(b.date) - new Date(a.date));
 
 const META_KEYS = ['slug', 'title', 'category', 'excerpt', 'readMinutes', 'date', 'author'];
