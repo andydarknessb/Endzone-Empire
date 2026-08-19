@@ -338,7 +338,7 @@ test('saving keeper settings preserves and continues guarding unsaved assignment
   await waitFor(() => expect(apiClient.put).toHaveBeenCalledWith('/api/league/1', {
     keepersEnabled: true,
     keeperCount: 2,
-    keeperLockAt: null,
+    // keeperLockAt omitted: untouched lock, tri-state leave-as-is (#67)
   }));
   await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Save keeper settings?' })).not.toBeInTheDocument());
   expect(keeperLoads).toBe(1);

@@ -165,7 +165,16 @@ export default function KeeperPanel({ league, teams, keepers, keeperCandidates, 
     && lockAt !== localKeeperLock(league.keeper_lock_at)
     ? 'Keeper lock must be in the future' : null;
   const saveSettings = async () => {
-    const result = await onSaveLeague({ keepersEnabled: enabled, keeperCount: Number(count), keeperLockAt: lockMode === 'custom' && lockAt ? new Date(lockAt).toISOString() : null }, 'Keeper settings saved');
+    const nextLock = lockMode === 'custom' && lockAt ? new Date(lockAt).toISOString() : null;
+    const storedLock = league.keeper_lock_at ? new Date(league.keeper_lock_at).toISOString() : null;
+    // Tri-state: absent leaves the lock as-is. An unchanged lock is omitted
+    // so a stored lock that has since passed cannot 400 an innocent
+    // keeper-count edit under the server's future rule (#67).
+    const result = await onSaveLeague({
+      keepersEnabled: enabled,
+      keeperCount: Number(count),
+      ...(nextLock !== storedLock ? { keeperLockAt: nextLock } : {}),
+    }, 'Keeper settings saved');
     if (result?.success !== false) setConfirmSettingsSave(false);
   };
   const requestSettingsSave = () => {
