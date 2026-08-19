@@ -22,11 +22,25 @@ describe('articles content module', () => {
     expect(dates).toEqual([...dates].sort((a, b) => b - a));
   });
 
-  it('returns the full article (with a Body component) by slug', () => {
+  // Bodies are the bulk of the content and only one is ever read at a time,
+  // so the module hands out metadata eagerly and the Body behind an async
+  // loader: a listing (landing band, UserPage highlights, strategy index)
+  // costs no article prose in the initial bundle.
+  it('returns the article metadata plus an async body loader by slug, never an eager Body', async () => {
     const slug = listArticles()[0].slug;
     const article = getArticle(slug);
     expect(article).not.toBeNull();
-    expect(typeof article.Body).toBe('function');
+    expect(article.Body).toBeUndefined();
+    expect(typeof article.loadBody).toBe('function');
+    const Body = await article.loadBody();
+    expect(typeof Body).toBe('function');
+  });
+
+  it('every article body loads and is a component', async () => {
+    for (const meta of listArticles()) {
+      const Body = await getArticle(meta.slug).loadBody();
+      expect(typeof Body).toBe('function');
+    }
   });
 
   it('returns null for an unknown slug', () => {

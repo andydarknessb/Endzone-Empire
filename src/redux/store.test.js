@@ -30,15 +30,43 @@ describe('redux store', () => {
     expect(typeof store.subscribe).toBe('function');
   });
 
-  test('builds successfully under NODE_ENV=development (redux-logger middleware branch)', () => {
+  // redux-logger is a development aid; production must not even LOAD the
+  // module (a static import ships it in the initial bundle unused, ~10 KiB
+  // minified). The test watches the module registry rather than the console.
+
+  test('under NODE_ENV=development the store loads redux-logger and still builds', () => {
     process.env.NODE_ENV = 'development';
     jest.resetModules();
-    expect(() => require('./store').default).not.toThrow();
+    jest.doMock('redux-logger', () => {
+      global.__reduxLoggerLoads = (global.__reduxLoggerLoads || 0) + 1;
+      return jest.requireActual('redux-logger');
+    });
+    const before = global.__reduxLoggerLoads || 0;
+    const store = require('./store').default;
+    // Dispatch runs through the logger middleware (quietly), proving it is wired.
+    const log = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const group = jest.spyOn(console, 'group').mockImplementation(() => {});
+    const groupEnd = jest.spyOn(console, 'groupEnd').mockImplementation(() => {});
+    try {
+      store.dispatch({ type: 'SET_USER', payload: { id: 3, username: 'carol' } });
+    } finally {
+      log.mockRestore(); group.mockRestore(); groupEnd.mockRestore();
+    }
+    expect(store.getState().user).toEqual({ id: 3, username: 'carol' });
+    expect(global.__reduxLoggerLoads || 0).toBe(before + 1);
   });
 
-  test('builds successfully under NODE_ENV=production (no redux-logger)', () => {
+  test('under NODE_ENV=production the store never loads redux-logger', () => {
     process.env.NODE_ENV = 'production';
     jest.resetModules();
-    expect(() => require('./store').default).not.toThrow();
+    jest.doMock('redux-logger', () => {
+      global.__reduxLoggerLoads = (global.__reduxLoggerLoads || 0) + 1;
+      return jest.requireActual('redux-logger');
+    });
+    const before = global.__reduxLoggerLoads || 0;
+    const store = require('./store').default;
+    store.dispatch({ type: 'SET_USER', payload: { id: 2, username: 'bob' } });
+    expect(store.getState().user).toEqual({ id: 2, username: 'bob' });
+    expect(global.__reduxLoggerLoads || 0).toBe(before);
   });
 });
