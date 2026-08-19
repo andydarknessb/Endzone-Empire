@@ -1,20 +1,36 @@
 /**
  * Strategy-article content module.
  *
- * Articles are typed JSX (one file per article, frontmatter as plain fields +
- * a Body component built from the Prose primitives) — deliberately NOT MDX,
- * which CRA can't load without ejecting. Everything is accessed ONLY through
- * the functions below, so a future DB-backed CMS can replace this one file
- * without touching any page.
+ * Articles are typed JSX (two files per article: `<slug>.meta.js` holds the
+ * frontmatter as plain fields, `<slug>.jsx` the Body component built from the
+ * Prose primitives) — deliberately NOT MDX, which CRA can't load without
+ * ejecting. Everything is accessed ONLY through the functions below, so a
+ * future DB-backed CMS can replace this one file without touching any page.
  *
- * Article shape: { slug, title, category, excerpt, readMinutes, date, Body }.
+ * Only the frontmatter is imported here. Bodies are the bulk of the content
+ * and one is read at a time, so `getArticle` hands out `loadBody()`, a dynamic
+ * import, and a listing (landing band, UserPage highlights, strategy index)
+ * puts no article prose in the initial bundle.
+ *
+ * Article shape: { slug, title, category, excerpt, readMinutes, date, author?, loadBody }.
  */
-import draftByTiers from './draft-by-tiers';
-import waiverPriorityVsFaab from './waiver-priority-vs-faab';
-import readingTradeValue from './reading-trade-value';
-import streamingDefenseAndKicker from './streaming-defense-and-kicker';
-import playoffPrep from './playoff-prep';
-import preseasonWeek1Recap from './preseason-week-1-recap';
+import draftByTiers from './draft-by-tiers.meta';
+import waiverPriorityVsFaab from './waiver-priority-vs-faab.meta';
+import readingTradeValue from './reading-trade-value.meta';
+import streamingDefenseAndKicker from './streaming-defense-and-kicker.meta';
+import playoffPrep from './playoff-prep.meta';
+import preseasonWeek1Recap from './preseason-week-1-recap.meta';
+
+// One loader per article, keyed by slug. Literal import() calls so the
+// bundler can split one chunk per body.
+const BODY_LOADERS = {
+  'draft-by-tiers': () => import('./draft-by-tiers'),
+  'waiver-priority-vs-faab': () => import('./waiver-priority-vs-faab'),
+  'reading-trade-value': () => import('./reading-trade-value'),
+  'streaming-defense-and-kicker': () => import('./streaming-defense-and-kicker'),
+  'playoff-prep': () => import('./playoff-prep'),
+  'preseason-week-1-recap': () => import('./preseason-week-1-recap'),
+};
 
 // Newest first.
 const ARTICLES = [
@@ -40,9 +56,16 @@ export function listArticles() {
   return ARTICLES.map(toMeta);
 }
 
-/** The full article (incl. Body component) for a slug, or null. */
+/**
+ * The article for a slug, or null: its metadata plus `loadBody()`, which
+ * resolves to the Body component (a dynamic import; call it when the prose
+ * is about to be shown, typically through React.lazy).
+ */
 export function getArticle(slug) {
-  return ARTICLES.find((a) => a.slug === slug) || null;
+  const meta = ARTICLES.find((a) => a.slug === slug);
+  if (!meta) return null;
+  const loader = BODY_LOADERS[slug];
+  return { ...meta, loadBody: () => loader().then((mod) => mod.default) };
 }
 
 /** First `n` articles as metadata (for the landing teaser + featured slots). */

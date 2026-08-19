@@ -10,6 +10,16 @@ jest.mock('../../api/apiClient', () => ({
   default: { get: jest.fn() },
 }));
 
+// The quick view is a heavy dialog that only matters once a result is
+// picked, so the search must not pull it into the initial load: this records
+// when the module is first evaluated (a lazily imported module evaluates on
+// first import(), an eager one while this test file is still importing).
+jest.mock('../PlayerQuickView/PlayerQuickView', () => {
+  global.__quickViewEvaluations = (global.__quickViewEvaluations || 0) + 1;
+  return jest.requireActual('../PlayerQuickView/PlayerQuickView');
+});
+const quickViewEvaluations = () => global.__quickViewEvaluations || 0;
+
 const JJ = { id: 7, name: 'Justin Jefferson', position: 'WR', nfl_team: 'MIN' };
 
 beforeEach(() => {
@@ -25,8 +35,9 @@ beforeEach(() => {
 
 afterEach(() => jest.clearAllMocks());
 
-test('searches players and opens the quick-view on select', async () => {
+test('searches players and opens the quick-view on select, loading the quick view only then', async () => {
   renderWithProviders(<GlobalPlayerSearch />);
+  expect(quickViewEvaluations()).toBe(0);
 
   await userEvent.type(screen.getByLabelText('Search players'), 'jeff');
   const option = await screen.findByText('Justin Jefferson');
@@ -38,8 +49,9 @@ test('searches players and opens the quick-view on select', async () => {
     '/api/players',
     expect.objectContaining({ params: expect.objectContaining({ search: 'jeff' }) })
   );
-  // The quick-view dialog opens.
+  // The quick-view dialog opens, and only now has its module been loaded.
   expect(await screen.findByRole('dialog')).toBeInTheDocument();
+  expect(quickViewEvaluations()).toBe(1);
 });
 
 test('"/" focuses the search when the shortcut is enabled', async () => {

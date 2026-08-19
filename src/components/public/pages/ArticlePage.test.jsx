@@ -34,6 +34,9 @@ test('article renders breadcrumb, generated table of contents, progress, and rel
   expect(screen.getByRole('heading', { name: 'Draft by Tiers, Not by Rank' })).toBeInTheDocument();
   expect(within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', { name: 'Strategy' })).toHaveAttribute('href', '/strategy');
   expect(screen.getByRole('progressbar', { name: 'Article reading progress' })).toBeInTheDocument();
+  // The body is loaded on demand (it is not in the initial bundle); the prose
+  // arrives, and the table of contents is built from it once it has.
+  expect(await screen.findByRole('heading', { name: 'How to build tiers' })).toBeInTheDocument();
   const toc = await screen.findByRole('navigation', { name: 'Table of contents' });
   expect(toc).toHaveTextContent('How to build tiers');
   expect(toc).toHaveTextContent('Using tiers live');

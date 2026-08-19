@@ -1,8 +1,13 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { lazy, Suspense, useState, useEffect, useRef } from 'react';
 import { Autocomplete, TextField, Box, CircularProgress } from '@mui/material';
 import apiClient from '../../api/apiClient';
-import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
 import PositionChip from '../PlayerQuickView/PositionChip';
+
+// The quick view is a heavy dialog (player summary, stats, projections) that
+// only matters once a result is picked; this search sits in the always-mounted
+// AppBar, so the dialog is fetched on first open rather than shipped in the
+// initial bundle.
+const PlayerQuickView = lazy(() => import('../PlayerQuickView/PlayerQuickView'));
 
 // Don't hijack "/" while the user is typing somewhere.
 function isTypingTarget(el) {
@@ -22,6 +27,9 @@ function GlobalPlayerSearch({ inDrawer = false, enableShortcut = false }) {
   const [options, setOptions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [quickViewId, setQuickViewId] = useState(null);
+  // Once the dialog has been opened it stays mounted (closed) like any MUI
+  // Dialog, so its close transition still plays; only the first open fetches it.
+  const [quickViewMounted, setQuickViewMounted] = useState(false);
   const inputRef = useRef(null);
 
   useEffect(() => {
@@ -80,6 +88,7 @@ function GlobalPlayerSearch({ inDrawer = false, enableShortcut = false }) {
         clearOnBlur
         onChange={(e, value) => {
           if (value) {
+            setQuickViewMounted(true);
             setQuickViewId(value.id);
             setInput('');
           }
@@ -132,11 +141,15 @@ function GlobalPlayerSearch({ inDrawer = false, enableShortcut = false }) {
         )}
         sx={{ width: inDrawer ? '100%' : { xs: 160, md: 240 } }}
       />
-      <PlayerQuickView
-        open={quickViewId != null}
-        onClose={() => setQuickViewId(null)}
-        playerId={quickViewId}
-      />
+      {quickViewMounted && (
+        <Suspense fallback={null}>
+          <PlayerQuickView
+            open={quickViewId != null}
+            onClose={() => setQuickViewId(null)}
+            playerId={quickViewId}
+          />
+        </Suspense>
+      )}
     </>
   );
 }

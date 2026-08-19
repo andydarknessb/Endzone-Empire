@@ -1,8 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link as RouterLink, useParams } from 'react-router-dom';
 import {
   Box, Breadcrumbs, Card, CardContent, Chip, Divider, LinearProgress, Link,
-  Stack, Typography,
+  Skeleton, Stack, Typography,
 } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2';
 import PublicLayout from '../PublicLayout';
@@ -64,13 +64,15 @@ function ReadingProgress({ articleRef }) {
   );
 }
 
-function ArticleToc({ articleRef, slug }) {
+// `bodyVersion` bumps when the lazily loaded body commits, so the headings
+// are read from the prose that is actually on the page, not the skeleton.
+function ArticleToc({ articleRef, slug, bodyVersion }) {
   const [headings, setHeadings] = useState([]);
 
   useEffect(() => {
     const nodes = articleRef.current ? [...articleRef.current.querySelectorAll('h2[id]')] : [];
     setHeadings(nodes.map((node) => ({ id: node.id, title: node.textContent })));
-  }, [articleRef, slug]);
+  }, [articleRef, slug, bodyVersion]);
 
   if (headings.length < 2) return null;
   return (
@@ -89,10 +91,29 @@ function ArticleToc({ articleRef, slug }) {
   );
 }
 
+// Mounts with the body once its Suspense boundary resolves, so the effect
+// runs after the prose is in the DOM (and the TOC can read its headings).
+function BodyRendered({ onRendered }) {
+  useEffect(() => {
+    onRendered();
+  }, [onRendered]);
+  return null;
+}
+
 function ArticlePage() {
   const { slug } = useParams();
   const articleRef = useRef(null);
   const article = getArticle(slug);
+  // The body is not in the initial bundle: it is fetched when this page
+  // renders it (one chunk per article, see content/articles/index.js).
+  const Body = useMemo(
+    () => (article ? lazy(() => article.loadBody().then((component) => ({ default: component }))) : null),
+    // A new slug is a new article; loadBody is stable per article.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [slug],
+  );
+  const [bodyVersion, setBodyVersion] = useState(0);
+  const handleBodyRendered = useCallback(() => setBodyVersion((v) => v + 1), []);
 
   if (!article) {
     return (
@@ -108,7 +129,7 @@ function ArticlePage() {
     );
   }
 
-  const { title, category, date, readMinutes, Body } = article;
+  const { title, category, date, readMinutes } = article;
   const related = relatedArticles(slug, 3);
 
   return (
@@ -128,7 +149,7 @@ function ArticlePage() {
 
       <Grid container spacing={4} alignItems="flex-start">
         <Grid xs={12} md={3} sx={{ order: { xs: 2, md: 1 } }}>
-          <ArticleToc articleRef={articleRef} slug={slug} />
+          <ArticleToc articleRef={articleRef} slug={slug} bodyVersion={bodyVersion} />
         </Grid>
         <Grid xs={12} md={9} sx={{ order: { xs: 1, md: 2 } }}>
           <Box component="article" ref={articleRef} sx={{ maxWidth: 720 }}>
@@ -140,7 +161,19 @@ function ArticlePage() {
               {article.author ? `${article.author} · ` : 'Endzone Empire · '}{formatDate(date)} · {readMinutes} min read
             </Typography>
             <Prose sx={{ '& h2': { scrollMarginTop: 92 } }}>
-              <Body />
+              <Suspense
+                fallback={(
+                  <Box aria-busy="true" aria-label="Loading article">
+                    <Skeleton variant="text" width="90%" height={28} />
+                    <Skeleton variant="text" width="100%" />
+                    <Skeleton variant="text" width="95%" />
+                    <Skeleton variant="text" width="60%" />
+                  </Box>
+                )}
+              >
+                <Body />
+                <BodyRendered onRendered={handleBodyRendered} />
+              </Suspense>
             </Prose>
           </Box>
         </Grid>
