@@ -120,7 +120,8 @@ function fantasySeasonLiveWhereSql(alias) {
  * The game-integrity settings (wire keys of PUT /api/league/:id) that lock
  * once the draft starts. Administrative settings (name, waivers, trades)
  * stay editable all season and are not listed. Phase owns WHEN these lock;
- * the league-type service owns WHAT EXISTS for a pick'em-only league.
+ * the settings module (leagueSettings.service.js) owns which class each
+ * setting is in, including which ones a pick'em-only league refuses.
  */
 const DRAFT_FROZEN_SETTING_KEYS = Object.freeze([
   'rosterSlots', 'positionCaps', 'benchSlots', 'dpEnabled', 'irSlots',

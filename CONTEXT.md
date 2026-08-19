@@ -79,6 +79,37 @@ Whether one particular manager may join (already a member, league full,
 approval required, not public) is a separate question layered on top.
 _Avoid_: open (ambiguous with a public league or open slots), recruiting
 
+**League settings**:
+What a commissioner can edit about a league: its name, size limits,
+roster shape, scoring rules, season and playoff structure, waiver and trade
+rules, and draft setup. Each setting answers two independent questions: when it
+may still change (draft-frozen or administrative) and whether it exists at all
+in a pick'em-only league (fantasy-only or not). Managers read the same thing on
+the League Rules page, which is a presentation name, not a second concept.
+_Avoid_: configuration, options, preferences, rules (unqualified; "League
+Rules" names the page)
+
+**Draft-frozen setting**:
+A league setting that can no longer change once the draft starts, because the
+draft was run under it: roster shape, scoring rules, season and playoff
+structure, size limits and every draft setup setting. League phase owns when
+the freeze applies, so a pick'em-only league, which has no draft, never freezes
+anything. Managers see the refusal as "locked once the draft starts". Unrelated
+to the evaluation apparatus's freeze.
+_Avoid_: locked setting (lock already names lineup, roster and keeper locks),
+frozen (unqualified, in evaluation contexts)
+
+**Administrative setting**:
+A league setting that stays editable all season because nothing already played
+depends on it: the league's name, its waiver rules and its trade rules.
+_Avoid_: soft setting, mutable setting
+
+**Fantasy-only setting**:
+A league setting that configures machinery a pick'em-only league does not have,
+so such a league refuses it outright rather than storing it: every setting
+except the name and the size limits.
+_Avoid_: roster setting (narrower), fantasy setting
+
 **Best ball**:
 A league mode in which nobody sets a lineup: each week the best legal lineup a
 team could have started is the one that scores.
@@ -116,7 +147,28 @@ Derived from the season schedule rather than supplied.
 ### Draft
 
 **Draft**:
-The live event in which teams claim players in turn, in snake order.
+The live event in which teams claim players, under the league's draft type
+and draft rotation.
+
+**Draft type**:
+How a league's draft is conducted, chosen before it starts: snake (teams pick
+in turn on a clock), auction (teams bid from a salary cap), autopick (every
+pick is made by autopick at once, no clock) or offline (the commissioner
+records picks made elsewhere, no clock). A draft-frozen setting.
+_Avoid_: draft format, draft mode
+
+**Draft rotation**:
+The order in which turns come around in a snake, autopick or offline draft:
+snake (the order reverses every round) or linear (the same order every round).
+An auction has no rotation. A draft-frozen setting.
+_Avoid_: order format, draft order (that is which team holds which slot)
+
+**Auction draft**:
+The draft type in which teams bid salary-cap dollars for each nominated player
+instead of picking in turn. Its settings can be saved, but a live auction
+cannot yet be scheduled or started.
+_Avoid_: salary-cap draft (fine in copy, not as the term), FAAB (that is a
+waiver rule, not a draft)
 
 **On the clock**:
 The team whose turn it is to pick, and the timer bounding that turn.
@@ -189,7 +241,8 @@ first-come-first-served.
 **FAAB**:
 Free agent acquisition budget: a fixed season-long budget teams bid from to win
 waiver claims. Highest bid wins.
-_Avoid_: blind bidding, auction
+_Avoid_: blind bidding, auction (an auction is a draft type; FAAB is a waiver
+rule)
 
 **Waiver priority**:
 The reverse-standings order that settles claims in non-FAAB leagues and breaks
@@ -425,7 +478,8 @@ _Avoid_: phase, milestone, stage
 
 **Freeze**:
 Pinning the study's code, container image and inputs by digest so that a
-stranger can rerun it and get the same bytes back.
+stranger can rerun it and get the same bytes back. Unrelated to a draft-frozen
+league setting.
 _Avoid_: release, tag
 
 **Parsimony**:

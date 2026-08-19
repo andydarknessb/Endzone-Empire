@@ -16,7 +16,7 @@ const {
   decideJoinRequest,
 } = require('../services/discovery.service');
 const {
-  joinability, joinRefusalMessage, frozenSettingKeys, settingsUnfrozenWhereSql, DRAFT_FROZEN_SETTING_KEYS,
+  joinability, joinRefusalMessage, frozenSettingKeys, settingsUnfrozenWhereSql,
 } = require('../services/leaguePhase');
 const {
   resolveMinTeams,
@@ -33,6 +33,7 @@ const {
   revokeCoCommissioner,
 } = require('../services/leagueRole.service');
 const { assertFantasyLeague, PICKEM_ONLY_CODE } = require('../services/leagueType');
+const { parseSettingsPatch } = require('../services/leagueSettings.service');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -378,228 +379,37 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// PUT /api/league/:id — owner updates name / roster limit / lineup config (before draft)
+// PUT /api/league/:id — a commissioner updates league settings. Shape rules
+// live in leagueSettings.service.js; draft-frozen settings refuse once the
+// draft starts (League phase), fantasy-only ones refuse for a pick'em-only
+// league (league type), administrative ones stay editable all season.
 router.put('/:id', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
+  // Shape validation and the derived request facts live in the settings
+  // module (leagueSettings.service.js, spec #71); the state read, the guards
+  // and the write stay here until #73 moves them too. The destructure keeps
+  // the handler's own names, so the state half below is untouched apart from
+  // the transaction trigger's rename (ownerLockedSettingsProvided became
+  // rowLockSettingsProvided).
+  const parsed = parseSettingsPatch(req.body);
+  if (parsed.error !== undefined) return res.status(400).json({ error: parsed.error });
   const {
-    name, rosterLimit, rosterSlots, positionCaps, benchSlots, dpEnabled, irSlots,
+    name, rosterSlots, positionCaps, benchSlots, dpEnabled, irSlots,
     waiverType, waiverPeriodHours, faabBudget,
     tradeDeadlineWeek, tradeReviewHours, tradeVetoVotes,
-    scoringPreset, scoringRules, regularSeasonWeeks, playoffTeams, playoffConsolation,
-    pickTimeSeconds, minTeams, maxTeams, draftDate, autodraftDelaySeconds,
+    regularSeasonWeeks, playoffTeams, playoffConsolation,
+    pickTimeSeconds, autodraftDelaySeconds,
     draftType, draftRotation, draftOrderOverrides, auctionSettings,
-    keepersEnabled, keeperCount, keeperLockAt,
-  } = req.body || {};
-  // roster_limit is derived (starters + bench + IR) — see below — not settable directly.
-  if (rosterLimit !== undefined) {
-    return res.status(400).json({
-      error: 'rosterLimit is computed automatically from rosterSlots + benchSlots + irSlots and cannot be set directly',
-    });
-  }
-  // draftDate: undefined = leave as-is, null = clear, string = (re)schedule.
-  const draftDateProvided = draftDate !== undefined;
-  let draftDateValue = null;
-  if (draftDateProvided && draftDate !== null) {
-    const parsed = new Date(draftDate);
-    if (Number.isNaN(parsed.getTime())) {
-      return res.status(400).json({ error: 'draftDate must be a valid date or null' });
-    }
-    if (parsed.getTime() <= Date.now()) {
-      return res.status(400).json({ error: 'draftDate must be in the future or null' });
-    }
-    draftDateValue = parsed.toISOString();
-  }
-  // Validated against the league's current teams/limits inside the handler
-  // (see editSizeError below), since it needs the live team count.
-  const newMax = maxTeams === undefined ? null : Number(maxTeams);
-  const newMin = minTeams === undefined ? null : Number(minTeams);
-  const validSlotMap = (map, allowedKeys) =>
-    map && typeof map === 'object' && !Array.isArray(map) &&
-    Object.entries(map).every(
-      ([key, count]) => allowedKeys.includes(key) && Number.isInteger(count) && count >= 0 && count <= 10
-    );
-  // Group keys (DL/LB/DB) are allowed alongside literal positions so a slot's
-  // eligiblePositions can target a defensive group (see lineup.service.js's
-  // POSITION_GROUPS) as well as a single offensive position.
-  const positionKeys = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF', 'DL', 'LB', 'DB'];
-  const DP_GROUP_KEYS = ['DL', 'LB', 'DB'];
-  // Slot names allow spaces/hyphens/slashes after the first character (so
-  // "IDP FLEX" or "W/R/T" work); BENCH and IR are reserved by the lineup
-  // engine (lineup.service.js treats them as always-eligible pseudo-slots).
-  const SLOT_KEY_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9_ /-]{0,19}$/;
-  const RESERVED_SLOT_KEYS = ['BENCH', 'IR'];
-  // Returns a specific human-readable problem, or null when valid — the old
-  // single catch-all message made every mistake look like a position typo.
-  const rosterSlotsError = (arr) => {
-    if (!Array.isArray(arr) || arr.length === 0) return 'rosterSlots must be a non-empty array of slots';
-    if (arr.length > 20) return 'rosterSlots cannot have more than 20 slot rows';
-    for (let i = 0; i < arr.length; i++) {
-      const s = arr[i];
-      const label = s && typeof s.key === 'string' && s.key.trim() ? `slot "${s.key}"` : `slot ${i + 1}`;
-      if (!s || typeof s !== 'object') return `${label} must be an object`;
-      if (typeof s.key !== 'string' || !SLOT_KEY_PATTERN.test(s.key)) {
-        return `${label}: name must be 1-20 characters using letters, numbers, spaces, hyphens, slashes, or underscores (it cannot start with a space)`;
-      }
-      if (RESERVED_SLOT_KEYS.includes(s.key.trim().toUpperCase())) {
-        return `${label}: "${s.key}" is reserved for the bench/IR system`;
-      }
-      if (!Number.isInteger(s.count) || s.count < 0 || s.count > 10) {
-        return `${label}: count must be a whole number between 0 and 10`;
-      }
-      if (!Array.isArray(s.eligiblePositions) || s.eligiblePositions.length === 0) {
-        return `${label}: pick at least one eligible position`;
-      }
-      const bad = s.eligiblePositions.find((p) => !positionKeys.includes(p));
-      if (bad !== undefined) return `${label}: unknown position "${bad}" (allowed: ${positionKeys.join('/')})`;
-    }
-    if (new Set(arr.map((s) => s.key)).size !== arr.length) {
-      return 'slot names must be unique; for two of the same slot, raise that slot\'s count instead';
-    }
-    return null;
-  };
-  if (rosterSlots !== undefined) {
-    const slotsError = rosterSlotsError(rosterSlots);
-    if (slotsError) {
-      return res.status(400).json({ error: slotsError });
-    }
-    // A "DP-type" slot is one whose eligibility is entirely within the IDP
-    // groups — cap their combined starting count at 3 (base + up to 2 more).
-    const dpSlotTotal = rosterSlots
-      .filter((s) => s.eligiblePositions.every((p) => DP_GROUP_KEYS.includes(p)))
-      .reduce((sum, s) => sum + s.count, 0);
-    if (dpSlotTotal > 3) {
-      return res.status(400).json({ error: 'combined DP-eligible starting slots cannot exceed 3 (base + up to 2 additional)' });
-    }
-  }
-  if (positionCaps !== undefined && !validSlotMap(positionCaps, positionKeys)) {
-    return res.status(400).json({ error: `positionCaps must map ${positionKeys.join('/')} to integers 0-10` });
-  }
-  // Cap of 8 matches the NFL.com range (their default is 6-7 bench spots).
-  if (benchSlots !== undefined && (!Number.isInteger(benchSlots) || benchSlots < 0 || benchSlots > 8)) {
-    return res.status(400).json({ error: 'benchSlots must be an integer between 0 and 8' });
-  }
-  if (dpEnabled !== undefined && typeof dpEnabled !== 'boolean') {
-    return res.status(400).json({ error: 'dpEnabled must be a boolean' });
-  }
-  if (irSlots !== undefined && (!Number.isInteger(irSlots) || irSlots < 0 || irSlots > 5)) {
-    return res.status(400).json({ error: 'irSlots must be an integer between 0 and 5' });
-  }
-  if (waiverType !== undefined && !['priority', 'faab'].includes(waiverType)) {
-    return res.status(400).json({ error: "waiverType must be 'priority' or 'faab'" });
-  }
-  const intInRange = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
-  if (waiverPeriodHours !== undefined && !intInRange(waiverPeriodHours, 0, 168)) {
-    return res.status(400).json({ error: 'waiverPeriodHours must be an integer between 0 and 168' });
-  }
-  if (faabBudget !== undefined && !intInRange(faabBudget, 0, 1000)) {
-    return res.status(400).json({ error: 'faabBudget must be an integer between 0 and 1000' });
-  }
-  if (tradeDeadlineWeek !== undefined && tradeDeadlineWeek !== null && !intInRange(tradeDeadlineWeek, 1, 18)) {
-    return res.status(400).json({ error: 'tradeDeadlineWeek must be an integer between 1 and 18 (or null)' });
-  }
-  // Tri-state: absent leaves the deadline, null clears it (#65).
-  const tradeDeadlineWeekProvided = tradeDeadlineWeek !== undefined;
-  if (tradeReviewHours !== undefined && !intInRange(tradeReviewHours, 0, 168)) {
-    return res.status(400).json({ error: 'tradeReviewHours must be an integer between 0 and 168' });
-  }
-  if (tradeVetoVotes !== undefined && !intInRange(tradeVetoVotes, 0, 20)) {
-    return res.status(400).json({ error: 'tradeVetoVotes must be an integer between 0 and 20' });
-  }
-  const { SCORING_PRESETS, SCORING_RULES, isValidTierArray } = require('../services/scoring.service');
-  if (scoringPreset !== undefined && !SCORING_PRESETS[scoringPreset]) {
-    return res.status(400).json({ error: `scoringPreset must be one of ${Object.keys(SCORING_PRESETS).join(', ')}` });
-  }
-  // scoringRules is a nested { category: { statKey: number | tierArray } }
-  // shape mirroring SCORING_RULES (see scoring.service.js). Every category
-  // and leaf key must already exist in the defaults; a leaf is either a
-  // finite bounded number (plain rate) or, for a tiered stat (FG distance,
-  // points/yards allowed), a well-formed tier array. Unknown categories/keys
-  // are rejected here rather than silently dropped, since this is the point
-  // a commissioner finds out about a typo — rulesForLeague()'s silent-drop
-  // behavior is the defense-in-depth fallback for anything that slips past.
-  if (scoringRules !== undefined) {
-    const validCategory = (category, custom) =>
-      custom && typeof custom === 'object' && !Array.isArray(custom) &&
-      Object.entries(custom).every(([key, value]) => {
-        if (!(key in category)) return false;
-        if (Array.isArray(category[key])) return isValidTierArray(value);
-        return Number.isFinite(Number(value)) && Math.abs(Number(value)) <= 50;
-      });
-    const valid = scoringRules && typeof scoringRules === 'object' && !Array.isArray(scoringRules) &&
-      Object.entries(scoringRules).every(
-        ([cat, custom]) => cat in SCORING_RULES && validCategory(SCORING_RULES[cat], custom)
-      );
-    if (!valid) {
-      return res.status(400).json({
-        error: 'scoringRules must be a nested { category: { statKey: number|tierArray } } object matching the known scoring schema (rates |value| <= 50; tiers well-formed and non-overlapping)',
-      });
-    }
-  }
-  if (regularSeasonWeeks !== undefined && !intInRange(regularSeasonWeeks, 1, 17)) {
-    return res.status(400).json({ error: 'regularSeasonWeeks must be an integer between 1 and 17' });
-  }
-  if (playoffTeams !== undefined && !intInRange(playoffTeams, 2, 8)) {
-    return res.status(400).json({ error: 'playoffTeams must be an integer between 2 and 8' });
-  }
-  if (playoffConsolation !== undefined && typeof playoffConsolation !== 'boolean') {
-    return res.status(400).json({ error: 'playoffConsolation must be a boolean' });
-  }
-  if (pickTimeSeconds !== undefined && !intInRange(pickTimeSeconds, 0, 3600)) {
-    return res.status(400).json({ error: 'pickTimeSeconds must be an integer between 0 and 3600 (0 = untimed)' });
-  }
-  if (autodraftDelaySeconds !== undefined && !intInRange(autodraftDelaySeconds, 1, 60)) {
-    return res.status(400).json({ error: 'autodraftDelaySeconds must be an integer between 1 and 60' });
-  }
-  const VALID_DRAFT_TYPES = ['snake', 'auction', 'autopick', 'offline'];
-  const VALID_DRAFT_ROTATIONS = ['snake', 'linear'];
-  if (draftType !== undefined && !VALID_DRAFT_TYPES.includes(draftType)) {
-    return res.status(400).json({ error: `draftType must be one of ${VALID_DRAFT_TYPES.join(', ')}` });
-  }
-  if (draftRotation !== undefined && !VALID_DRAFT_ROTATIONS.includes(draftRotation)) {
-    return res.status(400).json({ error: `draftRotation must be one of ${VALID_DRAFT_ROTATIONS.join(', ')}` });
-  }
-  if (draftOrderOverrides !== undefined && draftOrderOverrides !== null &&
-      (typeof draftOrderOverrides !== 'object' || Array.isArray(draftOrderOverrides))) {
-    return res.status(400).json({ error: 'draftOrderOverrides must be an object keyed by round number, or null' });
-  }
-  if (keepersEnabled !== undefined && typeof keepersEnabled !== 'boolean') {
-    return res.status(400).json({ error: 'keepersEnabled must be a boolean' });
-  }
-  if (keeperCount !== undefined && (!Number.isInteger(keeperCount) || keeperCount < 0)) {
-    return res.status(400).json({ error: 'keeperCount must be a non-negative integer' });
-  }
-  if (auctionSettings !== undefined && auctionSettings !== null) {
-    const { validateAuctionSettings } = require('../services/draftValidation.service');
-    const auctionError = validateAuctionSettings(auctionSettings);
-    if (auctionError) return res.status(400).json({ error: auctionError });
-  }
-  const keeperLockAtProvided = keeperLockAt !== undefined;
-  let keeperLockAtValue = null;
-  if (keeperLockAtProvided && keeperLockAt !== null) {
-    const parsed = new Date(keeperLockAt);
-    if (Number.isNaN(parsed.getTime())) {
-      return res.status(400).json({ error: 'keeperLockAt must be a valid date or null' });
-    }
-    keeperLockAtValue = parsed.toISOString();
-  }
-  // A preset is just a prefilled full rule set; explicit scoringRules win
-  const effectiveRules = scoringRules !== undefined
-    ? scoringRules
-    : scoringPreset !== undefined
-      ? SCORING_PRESETS[scoringPreset]
-      : undefined;
-  // Keep the display/filter label in step with the actual rules: custom
-  // rules mark the league 'custom', a preset stores its own name.
-  const effectivePreset = scoringRules !== undefined
-    ? 'custom'
-    : scoringPreset !== undefined
-      ? scoringPreset
-      : undefined;
+    keepersEnabled, keeperCount,
+    tradeDeadlineWeekProvided,
+    draftDateProvided, draftDateValue, keeperLockAtProvided, keeperLockAtValue,
+    draftOrderOverridesProvided, auctionSettingsProvided, keeperSettingsProvided,
+    rowLockSettingsProvided,
+    newMin, newMax, effectiveRules, effectivePreset,
+    frozenRequested, fantasyOnlyRequested, rosterCompositionChanged, schedulingNonAuction,
+  } = parsed.value;
   let previousDraftDate = null;
-  const keeperSettingsProvided = keepersEnabled !== undefined || keeperCount !== undefined;
-  const auctionSettingsProvided = auctionSettings !== undefined;
-  const ownerLockedSettingsProvided = keeperSettingsProvided || auctionSettingsProvided;
   let transactionClient = null;
   let transactionOpen = false;
   let db = pool;
@@ -611,55 +421,12 @@ router.put('/:id', async (req, res) => {
     return res.status(status).json({ error, ...extra });
   };
   try {
-    if (ownerLockedSettingsProvided) {
+    if (rowLockSettingsProvided) {
       transactionClient = await pool.connect();
       db = transactionClient;
       await transactionClient.query('BEGIN');
       transactionOpen = true;
     }
-    // Game-integrity settings freeze once the draft starts (League phase owns
-    // WHEN, see leaguePhase.frozenSettingKeys); administrative ones (name,
-    // waivers, trades) stay editable all season. The request values of the
-    // draft-frozen keys, keyed by wire name (DRAFT_FROZEN_SETTING_KEYS).
-    const draftOrderOverridesProvided = draftOrderOverrides !== undefined;
-    const draftFrozenSettings = {
-      rosterSlots, positionCaps, benchSlots, dpEnabled, irSlots,
-      scoringRules: effectiveRules, regularSeasonWeeks, playoffTeams,
-      playoffConsolation, pickTimeSeconds, minTeams, maxTeams, autodraftDelaySeconds,
-      draftDate: draftDateProvided ? draftDate : undefined,
-      draftType, draftRotation, keepersEnabled, keeperCount,
-      draftOrderOverrides: draftOrderOverridesProvided ? draftOrderOverrides : undefined,
-      auctionSettings: auctionSettingsProvided ? auctionSettings : undefined,
-      keeperLockAt: keeperLockAtProvided ? keeperLockAt : undefined,
-    };
-    // The draft-frozen keys this request touches. Whether they are locked
-    // RIGHT NOW is a phase question answered once the row is read.
-    const frozenRequested = DRAFT_FROZEN_SETTING_KEYS.filter((key) => draftFrozenSettings[key] !== undefined);
-    // A pick'em-only league has none of the fantasy machinery these settings
-    // configure, so they are refused outright (name and size limits stay
-    // editable). The set is every pre-draft key except the size limits plus
-    // the fantasy settings that otherwise stay editable all season. The raw
-    // scoring keys are listed instead of the derived effectiveRules so the
-    // refusal names what the caller actually sent.
-    const { minTeams: _sizeMin, maxTeams: _sizeMax, ...preDraftFantasy } = draftFrozenSettings;
-    const fantasyOnlyRequested = Object.entries({
-      ...preDraftFantasy,
-      scoringRules,
-      scoringPreset,
-      waiverType, waiverPeriodHours, faabBudget,
-      tradeDeadlineWeek, tradeReviewHours, tradeVetoVotes,
-    })
-      .filter(([, v]) => v !== undefined)
-      .map(([k]) => k);
-    // roster_limit is derived from starters+bench+IR — recomputed below
-    // whenever any of those three actually change.
-    const rosterCompositionChanged = rosterSlots !== undefined || benchSlots !== undefined || irSlots !== undefined;
-    // Writing a non-null draft_date without also setting the type ourselves relies
-    // on the current type staying non-auction. The earlier SELECT can go stale if a
-    // concurrent request converts the league to auction, so the UPDATE re-checks the
-    // type atomically. (An explicit draftType wins outright, and draftType==='auction'
-    // clears the date, so neither needs the guard.)
-    const schedulingNonAuction = draftDateProvided && Boolean(draftDateValue) && draftType === undefined;
     let derivedRosterLimit = null;
     let pendingStatusVerified = false;
     // The status read is also the league-type read: any fantasy-only field
@@ -671,7 +438,7 @@ router.put('/:id', async (req, res) => {
                 "roster_slots", "bench_slots", "ir_slots", "position_caps", "roster_limit",
                 "keepers_enabled", "keeper_count", "pickem_only",
                 (SELECT COUNT(*)::int FROM "teams" WHERE "teams"."league_id" = "leagues"."id") AS "team_count"
-         FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)}${ownerLockedSettingsProvided ? ' FOR UPDATE' : ''}`,
+         FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)}${rowLockSettingsProvided ? ' FOR UPDATE' : ''}`,
         [leagueId, req.user.id]
       );
       const current = statusResult.rows[0];
