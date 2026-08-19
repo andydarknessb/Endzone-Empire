@@ -69,7 +69,11 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      # No --with-deps: that flag runs apt-get as root for Chromium's system
+      # libraries, and the runner's apt mirror has stalled that step for hours
+      # (runs 32166695949, 32278921366, 32294353227). ubuntu-latest already
+      # ships Chromium and its libraries, so only the browser download is needed.
+      - run: npx playwright install chromium
         timeout-minutes: 10
       - run: npm run test:security
         env:
