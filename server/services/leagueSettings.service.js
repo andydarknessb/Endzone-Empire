@@ -1,5 +1,5 @@
 /**
- * League settings: the commissioner-editable configuration of a league (its
+ * League settings: what a commissioner can edit about a league (its
  * name, size limits, roster shape, scoring rules, season and playoff
  * structure, waiver and trade rules, and draft setup), as written by
  * PUT /api/league/:id. See CONTEXT.md: League settings, Draft-frozen setting,

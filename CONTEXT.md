@@ -80,7 +80,7 @@ approval required, not public) is a separate question layered on top.
 _Avoid_: open (ambiguous with a public league or open slots), recruiting
 
 **League settings**:
-The commissioner-editable configuration of a league: its name, size limits,
+What a commissioner can edit about a league: its name, size limits,
 roster shape, scoring rules, season and playoff structure, waiver and trade
 rules, and draft setup. Each setting answers two independent questions: when it
 may still change (draft-frozen or administrative) and whether it exists at all
