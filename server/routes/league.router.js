@@ -15,14 +15,8 @@ const {
   listJoinRequests,
   decideJoinRequest,
 } = require('../services/discovery.service');
-const {
-  joinability, joinRefusalMessage, frozenSettingKeys, settingsUnfrozenWhereSql,
-} = require('../services/leaguePhase');
-const {
-  resolveMinTeams,
-  createSizeError,
-  editSizeError,
-} = require('../services/leagueSize');
+const { joinability, joinRefusalMessage } = require('../services/leaguePhase');
+const { resolveMinTeams, createSizeError } = require('../services/leagueSize');
 const { resolveNflSeasonPointer } = require('../services/pickemSeason.service');
 const {
   commissionerPredicate,
@@ -32,8 +26,8 @@ const {
   grantCoCommissioner,
   revokeCoCommissioner,
 } = require('../services/leagueRole.service');
-const { assertFantasyLeague, PICKEM_ONLY_CODE } = require('../services/leagueType');
-const { parseSettingsPatch } = require('../services/leagueSettings.service');
+const { assertFantasyLeague } = require('../services/leagueType');
+const { parseSettingsPatch, updateLeagueSettings, LeagueSettingsError } = require('../services/leagueSettings.service');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -386,299 +380,20 @@ router.get('/:id', async (req, res) => {
 router.put('/:id', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
-  // Shape validation and the derived request facts live in the settings
-  // module (leagueSettings.service.js, spec #71); the state read, the guards
-  // and the write stay here until #73 moves them too. The destructure keeps
-  // the handler's own names, so the state half below is untouched apart from
-  // the transaction trigger's rename (ownerLockedSettingsProvided became
-  // rowLockSettingsProvided).
+  // Shape validation, the status read, the guards, the write and the
+  // after-commit notification all live in the settings module
+  // (leagueSettings.service.js, spec #71); this handler only adapts HTTP.
   const parsed = parseSettingsPatch(req.body);
   if (parsed.error !== undefined) return res.status(400).json({ error: parsed.error });
-  const {
-    name, rosterSlots, positionCaps, benchSlots, dpEnabled, irSlots,
-    waiverType, waiverPeriodHours, faabBudget,
-    tradeDeadlineWeek, tradeReviewHours, tradeVetoVotes,
-    regularSeasonWeeks, playoffTeams, playoffConsolation,
-    pickTimeSeconds, autodraftDelaySeconds,
-    draftType, draftRotation, draftOrderOverrides, auctionSettings,
-    keepersEnabled, keeperCount,
-    tradeDeadlineWeekProvided,
-    draftDateProvided, draftDateValue, keeperLockAtProvided, keeperLockAtValue,
-    draftOrderOverridesProvided, auctionSettingsProvided, keeperSettingsProvided,
-    rowLockSettingsProvided,
-    newMin, newMax, effectiveRules, effectivePreset,
-    frozenRequested, fantasyOnlyRequested, rosterCompositionChanged, schedulingNonAuction,
-  } = parsed.value;
-  let previousDraftDate = null;
-  let transactionClient = null;
-  let transactionOpen = false;
-  let db = pool;
-  const rejectUpdate = async (status, error, extra = {}) => {
-    if (transactionOpen) {
-      await transactionClient.query('ROLLBACK');
-      transactionOpen = false;
-    }
-    return res.status(status).json({ error, ...extra });
-  };
   try {
-    if (rowLockSettingsProvided) {
-      transactionClient = await pool.connect();
-      db = transactionClient;
-      await transactionClient.query('BEGIN');
-      transactionOpen = true;
-    }
-    let derivedRosterLimit = null;
-    let pendingStatusVerified = false;
-    // The status read is also the league-type read: any fantasy-only field
-    // forces it so a pick'em-only league can be refused, even for keys (like
-    // waiverType) that are never draft-frozen.
-    if (frozenRequested.length > 0 || fantasyOnlyRequested.length > 0) {
-      const statusResult = await db.query(
-        `SELECT "draft_status", "draft_type", "min_teams", "max_teams", "draft_date",
-                "roster_slots", "bench_slots", "ir_slots", "position_caps", "roster_limit",
-                "keepers_enabled", "keeper_count", "pickem_only",
-                (SELECT COUNT(*)::int FROM "teams" WHERE "teams"."league_id" = "leagues"."id") AS "team_count"
-         FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)}${rowLockSettingsProvided ? ' FOR UPDATE' : ''}`,
-        [leagueId, req.user.id]
-      );
-      const current = statusResult.rows[0];
-      previousDraftDate = current ? current.draft_date : null;
-      if (current && rosterCompositionChanged) {
-        const effectiveSlots = rosterSlots !== undefined ? rosterSlots : current.roster_slots;
-        const effectiveBench = benchSlots !== undefined ? benchSlots : current.bench_slots;
-        const effectiveIr = irSlots !== undefined ? irSlots : current.ir_slots;
-        const starters = effectiveSlots.reduce((sum, s) => sum + s.count, 0);
-        derivedRosterLimit = starters + effectiveBench + effectiveIr;
-      }
-      if (current && current.pickem_only && fantasyOnlyRequested.length > 0) {
-        return await rejectUpdate(
-          409,
-          `these settings do not apply to a pick'em league: ${fantasyOnlyRequested.join(', ')}`,
-          { code: PICKEM_ONLY_CODE }
-        );
-      }
-      if (current && frozenRequested.length > 0) {
-        const frozenNow = new Set(frozenSettingKeys(current));
-        const lockedRequested = frozenRequested.filter((key) => frozenNow.has(key));
-        if (lockedRequested.length > 0) {
-          return await rejectUpdate(409, `these settings are locked once the draft starts: ${lockedRequested.join(', ')}`);
-        }
-      }
-      if (current && draftDateValue && (draftType ?? current.draft_type) === 'auction') {
-        return await rejectUpdate(400, 'salary-cap auction drafts cannot be scheduled until live auction support is available');
-      }
-      pendingStatusVerified = Boolean(current);
-      // Size-limit invariants: valid bounds, min ≤ max, and the cap can't drop
-      // below the teams already in the league.
-      if (current && (newMin !== null || newMax !== null)) {
-        const sizeError = editSizeError({
-          newMin, newMax,
-          currentMin: current.min_teams,
-          currentMax: current.max_teams,
-          teamCount: current.team_count,
-          pickemOnly: current.pickem_only,
-        });
-        if (sizeError) return await rejectUpdate(400, sizeError);
-      }
-      const effectiveRosterLimit = derivedRosterLimit !== null ? derivedRosterLimit : (current ? current.roster_limit : null);
-      if (current && draftOrderOverridesProvided) {
-        const { validateOrderOverrides } = require('../services/draftOrder.service');
-        const teamsResult = await db.query(`SELECT "id" FROM "teams" WHERE "league_id" = $1`, [leagueId]);
-        const overridesError = validateOrderOverrides(
-          draftOrderOverrides, teamsResult.rows.map((t) => t.id), effectiveRosterLimit
-        );
-        if (overridesError) return await rejectUpdate(400, overridesError);
-      }
-      if (current && auctionSettingsProvided && auctionSettings?.nominationOrder === 'custom') {
-        const teamsResult = await db.query(`SELECT "id" FROM "teams" WHERE "league_id" = $1`, [leagueId]);
-        const { isPermutationOf } = require('../services/draftOrder.service');
-        const teamIds = teamsResult.rows.map((team) => team.id);
-        if (!isPermutationOf(auctionSettings.nominationCustomOrder, teamIds)) {
-          return await rejectUpdate(400, 'nominationCustomOrder must list every current team exactly once');
-        }
-      }
-      if (current && keeperCount !== undefined && keeperCount > effectiveRosterLimit) {
-        return await rejectUpdate(400, `keeperCount cannot exceed the roster limit (${effectiveRosterLimit})`);
-      }
-      if (current && keeperSettingsProvided) {
-        const assignmentResult = await db.query(
-          `SELECT "team_id", COUNT(*)::int AS "count" FROM "keepers" WHERE "league_id" = $1 GROUP BY "team_id"`,
-          [leagueId]
-        );
-        const { keeperSettingsPlan } = require('../services/draftValidation.service');
-        const keeperPlan = keeperSettingsPlan({
-          currentEnabled: current.keepers_enabled,
-          currentCount: current.keeper_count,
-          keepersEnabled,
-          keeperCount,
-          assignmentCounts: assignmentResult.rows,
-        });
-        if (keeperPlan.error) return await rejectUpdate(409, keeperPlan.error);
-        if (keeperPlan.clearAssignments) {
-          await db.query(`DELETE FROM "keepers" WHERE "league_id" = $1`, [leagueId]);
-        }
-      }
-      // Any change to caps or roster shape must keep every slot fillable —
-      // re-run the same Hall's-condition check the draft settings UI warns with.
-      if (current && (positionCaps !== undefined || rosterCompositionChanged)) {
-        const { positionCapsFeasible } = require('../services/draftValidation.service');
-        const feasibility = positionCapsFeasible({
-          rosterSlots: rosterSlots !== undefined ? rosterSlots : current.roster_slots,
-          benchSlots: benchSlots !== undefined ? benchSlots : current.bench_slots,
-          irSlots: irSlots !== undefined ? irSlots : current.ir_slots,
-          positionCaps: positionCaps !== undefined ? positionCaps : current.position_caps,
-        });
-        if (!feasibility.feasible) {
-          return await rejectUpdate(400, feasibility.errors.join('; '));
-        }
-      }
-    }
-    const result = await db.query(
-      `UPDATE "leagues"
-       SET "name" = COALESCE($1, "name"),
-           "roster_limit" = COALESCE($2, "roster_limit"),
-           "roster_slots" = COALESCE($3, "roster_slots"),
-           "position_caps" = COALESCE($4, "position_caps"),
-           "ir_slots" = COALESCE($5, "ir_slots"),
-           "bench_slots" = COALESCE($25, "bench_slots"),
-           "dp_enabled" = COALESCE($26, "dp_enabled"),
-           "waiver_type" = COALESCE($6, "waiver_type"),
-           "waiver_period_hours" = COALESCE($7, "waiver_period_hours"),
-           "faab_budget" = COALESCE($8, "faab_budget"),
-           -- Tri-state like draft_order_overrides / auction_settings / keeper_lock_at
-           -- below: absent leaves it, null clears it (null = no deadline), a week
-           -- sets it. COALESCE could not tell null from absent (#65). $37 is the
-           -- "was it sent" flag appended to the parameter list; $9 stays the value.
-           "trade_deadline_week" = CASE WHEN $37::boolean THEN $9::integer ELSE "trade_deadline_week" END,
-           "trade_review_hours" = COALESCE($10, "trade_review_hours"),
-           "trade_veto_votes" = COALESCE($11, "trade_veto_votes"),
-           "scoring_rules" = COALESCE($12, "scoring_rules"),
-           "regular_season_weeks" = COALESCE($13, "regular_season_weeks"),
-           "playoff_teams" = COALESCE($14, "playoff_teams"),
-           "playoff_consolation" = COALESCE($15, "playoff_consolation"),
-           "pick_time_seconds" = COALESCE($16, "pick_time_seconds"),
-           "scoring_preset" = COALESCE($19, "scoring_preset"),
-           "min_teams" = COALESCE($20, "min_teams"),
-           "max_teams" = COALESCE($21, "max_teams"),
-           "autodraft_delay_seconds" = COALESCE($24, "autodraft_delay_seconds"),
-           "draft_date" = CASE
-             WHEN $27::text = 'auction' THEN NULL
-             WHEN $22 THEN $23
-             ELSE "draft_date"
-           END,
-           -- Rescheduling resets the reminder/auto-start bookkeeping so the
-           -- new time gets a fresh set of reminders.
-           "draft_reminder_stage" = CASE WHEN $22 OR $27::text = 'auction' THEN 0 ELSE "draft_reminder_stage" END,
-           "draft_autostart_failed" = CASE WHEN $22 OR $27::text = 'auction' THEN false ELSE "draft_autostart_failed" END,
-           -- draft_type/draft_rotation are Postgres enums; the $27 = 'auction'
-           -- comparisons above type the parameter as text, so COALESCE needs an
-           -- explicit cast or Postgres rejects text vs enum (the bug that broke
-           -- every league update after the enum migration landed).
-           "draft_type" = COALESCE($27::draft_type, "draft_type"),
-           "draft_rotation" = COALESCE($28::draft_rotation_type, "draft_rotation"),
-           "keepers_enabled" = COALESCE($29, "keepers_enabled"),
-           "keeper_count" = COALESCE($30, "keeper_count"),
-           "draft_order_overrides" = CASE WHEN $31::boolean THEN $32::jsonb ELSE "draft_order_overrides" END,
-           "auction_settings" = CASE WHEN $33::boolean THEN $34::jsonb ELSE "auction_settings" END,
-           "keeper_lock_at" = CASE WHEN $35::boolean THEN $36::timestamptz ELSE "keeper_lock_at" END,
-           "updated_at" = now()
-       WHERE "id" = $17 AND ${commissionerPredicate(18)}
-         ${frozenRequested.length > 0 ? `AND ${settingsUnfrozenWhereSql()}` : ''}
-         ${schedulingNonAuction ? `AND "draft_type" <> 'auction'` : ''}
-       RETURNING *`,
-      [
-        name || null,
-        derivedRosterLimit,
-        rosterSlots === undefined ? null : JSON.stringify(rosterSlots),
-        positionCaps === undefined ? null : JSON.stringify(positionCaps),
-        irSlots === undefined ? null : irSlots,
-        waiverType === undefined ? null : waiverType,
-        waiverPeriodHours === undefined ? null : waiverPeriodHours,
-        faabBudget === undefined ? null : faabBudget,
-        tradeDeadlineWeek === undefined ? null : tradeDeadlineWeek,
-        tradeReviewHours === undefined ? null : tradeReviewHours,
-        tradeVetoVotes === undefined ? null : tradeVetoVotes,
-        effectiveRules === undefined ? null : JSON.stringify(effectiveRules),
-        regularSeasonWeeks === undefined ? null : regularSeasonWeeks,
-        playoffTeams === undefined ? null : playoffTeams,
-        playoffConsolation === undefined ? null : playoffConsolation,
-        pickTimeSeconds === undefined ? null : pickTimeSeconds,
-        leagueId,
-        req.user.id,
-        effectivePreset === undefined ? null : effectivePreset,
-        newMin,
-        newMax,
-        draftDateProvided,
-        draftDateValue,
-        autodraftDelaySeconds === undefined ? null : autodraftDelaySeconds,
-        benchSlots === undefined ? null : benchSlots,
-        dpEnabled === undefined ? null : dpEnabled,
-        draftType === undefined ? null : draftType,
-        draftRotation === undefined ? null : draftRotation,
-        keepersEnabled === undefined ? null : keepersEnabled,
-        keeperCount === undefined ? null : keeperCount,
-        draftOrderOverridesProvided,
-        draftOrderOverridesProvided ? (draftOrderOverrides === null ? null : JSON.stringify(draftOrderOverrides)) : null,
-        auctionSettingsProvided,
-        auctionSettingsProvided ? (auctionSettings === null ? null : JSON.stringify(auctionSettings)) : null,
-        keeperLockAtProvided,
-        keeperLockAtProvided ? keeperLockAtValue : null,
-        tradeDeadlineWeekProvided,
-      ]
-    );
-    if (!result.rows[0]) {
-      // The scheduling guard can also zero out the update when the league was
-      // converted to auction between our SELECT and UPDATE. Re-read the current
-      // type to report the auction conflict distinctly from a draft that started.
-      if (schedulingNonAuction && pendingStatusVerified) {
-        const recheck = await db.query(
-          `SELECT "draft_type" FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)}`,
-          [leagueId, req.user.id]
-        );
-        if (recheck.rows[0]?.draft_type === 'auction') {
-          return await rejectUpdate(409, 'this league was converted to a salary-cap auction; auction drafts cannot be scheduled');
-        }
-      }
-      if (pendingStatusVerified && frozenRequested.length > 0) {
-        return await rejectUpdate(409, `these settings are locked once the draft starts: ${frozenRequested.join(', ')}`);
-      }
-      return await rejectUpdate(403, 'league not found or you are not the commissioner');
-    }
-    const changed = draftDateProvided &&
-      String(previousDraftDate ? new Date(previousDraftDate).toISOString() : null) !== String(draftDateValue);
-    if (transactionOpen) {
-      await transactionClient.query('COMMIT');
-      transactionOpen = false;
-    }
-    // The settings update is the source of truth. Activity delivery happens
-    // after commit and is best-effort so a notification outage cannot turn a
-    // persisted schedule into an HTTP 500 response.
-    if (changed && draftDateValue) {
-      const { notifyLeague } = require('../services/activity.service');
-      const verb = previousDraftDate ? 'rescheduled' : 'scheduled';
-      try {
-        void notifyLeague(pool, {
-          leagueId,
-          type: 'draft_scheduled',
-          message: `${result.rows[0].name}'s draft has been ${verb}.`,
-          data: { url: `/#/league/${leagueId}`, draftDate: draftDateValue },
-        }).catch((notificationError) => {
-          console.error('Failed to send draft schedule notification', notificationError);
-        });
-      } catch (notificationError) {
-        console.error('Failed to send draft schedule notification', notificationError);
-      }
-    }
-    res.json(result.rows[0]);
+    const row = await updateLeagueSettings(pool, { leagueId, userId: req.user.id, patch: parsed.value });
+    res.json(row);
   } catch (error) {
-    if (transactionOpen) {
-      await transactionClient.query('ROLLBACK').catch(() => {});
-      transactionOpen = false;
+    if (error instanceof LeagueSettingsError) {
+      return res.status(error.statusCode).json({ error: error.message, ...(error.code ? { code: error.code } : {}) });
     }
     console.error('Error updating league', error);
     res.status(500).json({ error: 'failed to update league' });
-  } finally {
-    if (transactionClient) transactionClient.release();
   }
 });
 
