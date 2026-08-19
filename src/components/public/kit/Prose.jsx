@@ -1,5 +1,6 @@
 import React from 'react';
 import { Box } from '@mui/material';
+import { Link as RouterLink } from 'react-router-dom';
 
 /**
  * Reading-column typography for article bodies. Wraps freeform content and
@@ -8,7 +9,7 @@ import { Box } from '@mui/material';
  * tokens so it reads well in both light and dark.
  *
  * Articles compose their body from the primitives below (P, H2, H3, UL, OL, LI,
- * Quote, Lead) so no article file hard-codes styling.
+ * Quote, Lead, Link) so no article file hard-codes styling or routing.
  */
 function Prose({ children, sx }) {
   return (
@@ -67,7 +68,29 @@ export const UL = ({ children }) => <ul>{children}</ul>;
 export const OL = ({ children }) => <ol>{children}</ol>;
 export const LI = ({ children }) => <li>{children}</li>;
 export const Quote = ({ children }) => <blockquote>{children}</blockquote>;
-export const Table = ({ children, ...props }) => <table {...props}>{children}</table>;
+
+// An absolute URL (scheme-qualified or protocol-relative) leaves the app; a
+// path stays in it.
+const isExternal = (to) => /^([a-z][a-z0-9+.-]*:|\/\/)/i.test(String(to));
+
+/**
+ * The only link an article body should use. Internal paths route through the
+ * client router, so an in-app hop keeps the app shell instead of full-page
+ * reloading; absolute URLs become a plain anchor that opens away from the app
+ * with the rel guard already applied, so no article file has to remember it.
+ */
+export const Link = ({ to, children, ...props }) => (isExternal(to)
+  ? <a href={to} target="_blank" rel="noopener noreferrer" {...props}>{children}</a>
+  : <RouterLink to={to} {...props}>{children}</RouterLink>);
+
+// A wide table must scroll inside its own box. Without this a six-column
+// cheat sheet is wider than a phone viewport and pushes the whole PAGE
+// sideways, which breaks every other section too, not just the table.
+export const Table = ({ children, ...props }) => (
+  <Box sx={{ overflowX: 'auto', maxWidth: '100%' }}>
+    <table {...props}>{children}</table>
+  </Box>
+);
 export const THead = ({ children }) => <thead>{children}</thead>;
 export const TBody = ({ children }) => <tbody>{children}</tbody>;
 export const TR = ({ children }) => <tr>{children}</tr>;

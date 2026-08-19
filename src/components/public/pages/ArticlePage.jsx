@@ -13,8 +13,18 @@ import SectionHeading from '../kit/SectionHeading';
 import { EmptyState } from '../kit/DataState';
 import { getArticle, relatedArticles } from '../../../content/articles';
 
+// Frontmatter carries a date-only string, which Date parses as UTC midnight;
+// formatting that anywhere west of UTC renders the PREVIOUS day, so every
+// byline read a day early. Pin it to local midnight so the byline shows the
+// date the article is actually stamped with.
+export function articleDate(date) {
+  const isDateOnly = typeof date === 'string' && date.length === 10 && date.indexOf('T') === -1;
+  const local = isDateOnly ? date + 'T00:00:00' : date;
+  return new Date(local);
+}
+
 function formatDate(date) {
-  const parsed = new Date(date);
+  const parsed = articleDate(date);
   return Number.isNaN(parsed.getTime())
     ? date
     : parsed.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });

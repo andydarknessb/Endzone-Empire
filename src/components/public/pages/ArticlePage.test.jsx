@@ -4,7 +4,18 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { HelmetProvider } from 'react-helmet-async';
 import AppThemeProvider from '../../../theme/AppThemeProvider';
-import ArticlePage from './ArticlePage';
+import ArticlePage, { articleDate } from './ArticlePage';
+
+// A date-only ISO string parses as UTC midnight, so in any timezone west of
+// UTC toLocaleDateString renders the PREVIOUS day: every byline was a day
+// early. Asserting the local calendar parts holds in every timezone, which a
+// formatted-string assertion would not (it passes either way under TZ=UTC).
+test('an article date keeps its calendar day in every timezone', () => {
+  const parsed = articleDate('2026-08-19');
+  expect(parsed.getFullYear()).toBe(2026);
+  expect(parsed.getMonth()).toBe(7); // August
+  expect(parsed.getDate()).toBe(19);
+});
 
 beforeEach(() => {
   window.matchMedia = jest.fn().mockImplementation((query) => ({
@@ -70,4 +81,19 @@ test('navigating to a related article loads its body and rebuilds the table of c
     expect(screen.getByRole('navigation', { name: 'Table of contents' })).toHaveTextContent('FAAB (free-agent budget)');
   });
   expect(screen.getByRole('navigation', { name: 'Table of contents' })).not.toHaveTextContent('How to build tiers');
+});
+
+// The fallback matters as much as the happy path: formatDate returns the raw
+// input when parsing fails, so a malformed frontmatter date shows the string
+// rather than "Invalid Date" in a published byline.
+test('article date handles malformed, empty and full-timestamp input', () => {
+  expect(Number.isNaN(articleDate('2026-13-45').getTime())).toBe(true);
+  expect(Number.isNaN(articleDate('').getTime())).toBe(true);
+  expect(Number.isNaN(articleDate(undefined).getTime())).toBe(true);
+
+  // A full ISO timestamp already carries its own zone and must pass through
+  // untouched rather than having a second T00:00:00 appended.
+  const stamped = articleDate('2026-08-19T12:00:00Z');
+  expect(Number.isNaN(stamped.getTime())).toBe(false);
+  expect(stamped.toISOString()).toBe('2026-08-19T12:00:00.000Z');
 });

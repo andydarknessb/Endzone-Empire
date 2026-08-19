@@ -664,7 +664,24 @@ test('GET /sitemap.xml serves static, player, and recap public URLs', async (t) 
   assert.equal(res.headers['cache-control'], 'public, max-age=300, s-maxage=3600');
   assert.match(res.text, /https:\/\/endzoneempire\.gg\/rankings/);
   assert.match(res.text, /https:\/\/endzoneempire\.gg\/draft-simulator/);
-  assert.match(res.text, /https:\/\/endzoneempire\.gg\/strategy\/draft-by-tiers/);
+  // Every strategy slug, not just one. The list is duplicated from the client
+  // content module (see #75 for deriving it), and asserting only the first entry
+  // is how /strategy/preseason-week-1-recap shipped on 2026-08-18 and stayed out
+  // of the sitemap unnoticed. A missing slug is now a red test, not an SEO hole.
+  for (const slug of [
+    'draft-by-tiers',
+    'waiver-priority-vs-faab',
+    'reading-trade-value',
+    'streaming-defense-and-kicker',
+    'playoff-prep',
+    'preseason-week-1-recap',
+    'rookie-draft-round-guide',
+  ]) {
+    assert.ok(
+      res.text.includes(`<loc>https://endzoneempire.gg/strategy/${slug}</loc>`),
+      `sitemap is missing /strategy/${slug}`
+    );
+  }
   assert.match(res.text, /https:\/\/endzoneempire\.gg\/players\/42/);
   assert.match(res.text, /https:\/\/endzoneempire\.gg\/recaps\/20260112_KC%40BUF/);
   assert.match(res.text, /<lastmod>2026-01-12T23:00:00\.000Z<\/lastmod>/);

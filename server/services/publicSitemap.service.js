@@ -19,6 +19,8 @@ const STATIC_PUBLIC_PATHS = [
   '/strategy/reading-trade-value',
   '/strategy/streaming-defense-and-kicker',
   '/strategy/playoff-prep',
+  '/strategy/preseason-week-1-recap',
+  '/strategy/rookie-draft-round-guide',
   '/recaps',
 ];
 
