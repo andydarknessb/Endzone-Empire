@@ -94,6 +94,12 @@ function createDatabaseFixture() {
         state.slots.set(values[4], values[0]);
         return { rowCount: 1, rows: [] };
       }
+      if (sql.includes('UPDATE "lineup_entries" SET "ir_attested" = false')
+          && sql.includes('"week" > $3')) {
+        // Manager moves clear copied-forward attestations. This lock-focused
+        // fixture has no future lineup rows, so the real update affects none.
+        return { rowCount: 0, rows: [] };
+      }
       if (sql.includes('DELETE FROM "team_players"')) {
         const playerId = values[1];
         if (!state.rostered.delete(playerId)) return { rowCount: 0, rows: [] };
