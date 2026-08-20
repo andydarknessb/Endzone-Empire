@@ -65,6 +65,7 @@ function register(t, side, entries) {
 
 // Returns the shared both-sides log (see the block comment above): client
 // calls are in here too — filter by `via` before positional/length asserts.
+// If mockClient ran first, this call's overrides land after its defaults.
 function mockPool(t, overrides = []) {
   return register(t, 'pool', [
     ...overrides,
@@ -83,6 +84,7 @@ function mockPool(t, overrides = []) {
 
 // Returns the shared both-sides log (see the block comment above): pool
 // calls are in here too — filter by `via` before positional/length asserts.
+// If mockPool ran first, this call's overrides land after its defaults.
 function mockClient(t, overrides = []) {
   return register(t, 'client', [
     ...overrides,
