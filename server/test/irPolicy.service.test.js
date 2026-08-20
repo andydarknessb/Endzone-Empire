@@ -39,6 +39,7 @@ test('every eligible-to-ineligible edge flags each affected manager once', async
       assert.deepEqual(params, [[21, 22, 23, 24, 25, 26, 27]]);
       assert.match(text, /SELECT MAX\("latest"\."week"\)/);
       assert.match(text, /"latest"\."week" <= "leagues"\."current_week"/);
+      assert.doesNotMatch(text, /"latest"\."player_id"/);
       return {
         rows: transitions.map((transition, index) => ({
           player_id: transition.playerId,

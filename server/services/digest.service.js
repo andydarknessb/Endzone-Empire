@@ -188,7 +188,7 @@ async function sendLineupReminders() {
     );
     if (!upcoming.rows[0]) continue;
 
-    const { parseLineupSettings } = require('./lineup.service');
+    const { materializeLineup, parseLineupSettings } = require('./lineup.service');
     const { rosterSlots } = parseLineupSettings(league);
 
     const teams = await pool.query(
@@ -205,17 +205,29 @@ async function sendLineupReminders() {
       const key = `${team.id}:${season}:${week}`;
       if (remindedTeamWeeks.has(key) || !wanted.has(team.owner_id)) continue;
 
-      const entriesResult = await pool.query(
-        `SELECT "lineup_entries"."slot", "players"."name", "players"."injury_status",
-                ("nfl_games"."nfl_team" IS NULL) AS "on_bye"
-         FROM "lineup_entries"
-         JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
-         LEFT JOIN "nfl_games" ON "nfl_games"."season" = $2 AND "nfl_games"."week" = $3
-           AND "nfl_games"."nfl_team" = "players"."nfl_team"
-         WHERE "lineup_entries"."team_id" = $1 AND "lineup_entries"."season" = $2
-           AND "lineup_entries"."week" = $3`,
-        [team.id, season, week]
-      );
+      const lineupClient = await pool.connect();
+      let entriesResult;
+      try {
+        await lineupClient.query('BEGIN');
+        await materializeLineup(lineupClient, { leagueId, teamId: team.id, season, week });
+        entriesResult = await lineupClient.query(
+          `SELECT "lineup_entries"."slot", "players"."name", "players"."injury_status",
+                  ("nfl_games"."nfl_team" IS NULL) AS "on_bye"
+           FROM "lineup_entries"
+           JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
+           LEFT JOIN "nfl_games" ON "nfl_games"."season" = $2 AND "nfl_games"."week" = $3
+             AND "nfl_games"."nfl_team" = "players"."nfl_team"
+           WHERE "lineup_entries"."team_id" = $1 AND "lineup_entries"."season" = $2
+             AND "lineup_entries"."week" = $3`,
+          [team.id, season, week]
+        );
+        await lineupClient.query('COMMIT');
+      } catch (error) {
+        await lineupClient.query('ROLLBACK');
+        throw error;
+      } finally {
+        lineupClient.release();
+      }
       const entries = entriesResult.rows.map((r) => ({
         slot: r.slot,
         name: r.name,

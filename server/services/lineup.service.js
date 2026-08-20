@@ -282,7 +282,8 @@ async function getLineup({ leagueId, userId, week }) {
 /**
  * Apply one or more slot moves atomically. The team row is locked so
  * concurrent edits serialize; the FINAL lineup is validated against the
- * league's slot counts, and any move touching a locked player is rejected.
+ * league's slot counts. Moves touching a locked player are rejected except
+ * when the move takes that player out of IR to resolve an invalid stash.
  */
 async function setLineup({ leagueId, userId, week, moves }) {
   if (!Array.isArray(moves) || moves.length === 0) {
@@ -333,8 +334,8 @@ async function setLineup({ leagueId, userId, week, moves }) {
       const entry = byPlayer.get(move.playerId);
       if (!entry) throw new LineupError(404, `player ${move.playerId} is not on your roster`);
       if (entry.slot === move.slot) continue;
-      const resolvesStaleIrStash = entry.slot === IR && move.slot === BENCH;
-      if (!resolvesStaleIrStash && locked.has(entry.nfl_team)) {
+      const leavesIrSlot = entry.slot === IR;
+      if (!leavesIrSlot && locked.has(entry.nfl_team)) {
         throw new LineupError(409, 'that player is locked; his game has started', 'LINEUP_LOCKED');
       }
       entry.slot = move.slot;

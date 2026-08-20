@@ -39,7 +39,6 @@ async function flagRecoveredIrStashes(client, transitions) {
         AND "lineup_entries"."week" = (
           SELECT MAX("latest"."week") FROM "lineup_entries" AS "latest"
            WHERE "latest"."team_id" = "lineup_entries"."team_id"
-             AND "latest"."player_id" = "lineup_entries"."player_id"
              AND "latest"."season" = "lineup_entries"."season"
              AND "latest"."week" <= "leagues"."current_week"
         )
