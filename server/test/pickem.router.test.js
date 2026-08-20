@@ -2,7 +2,7 @@ const { after, test } = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
 const request = require('supertest');
-const pool = require('../modules/pool');
+const { createFakePool } = require('./helpers/fakePool');
 const { signToken } = require('../modules/auth');
 const pickemRouter = require('../routes/pickem.router');
 
@@ -40,13 +40,25 @@ const WEEK_ONE_SCHEDULE = nflGameRows(1, [
 ]);
 
 /**
- * SQL-substring dispatch over the shared pool. `overrides` are matched before
- * the defaults, so a test can change one statement's answer without restating
- * the rest.
+ * One shared fake per test, both halves writing a single via-tagged call log:
+ * mockPool registers answers for the pool side of the seam, mockClient for
+ * the checked-out-client side. `overrides` are matched before the defaults,
+ * so a test can change one statement's answer without restating the rest.
  */
+const fakes = new WeakMap();
+function register(t, side, entries) {
+  if (!fakes.has(t)) {
+    const handlers = [];
+    fakes.set(t, { handlers, fake: createFakePool(handlers).install(t) });
+  }
+  const { handlers, fake } = fakes.get(t);
+  handlers.push(...entries.map(([pattern, handler]) => [pattern, handler, side]));
+  return fake.calls;
+}
+
 function mockPool(t, overrides = []) {
-  const calls = [];
-  const defaults = [
+  return register(t, 'pool', [
+    ...overrides,
     [/FROM "teams" WHERE "league_id"/, () => ({ rows: [{ '?column?': 1 }] })],
     [/SELECT 1 FROM "leagues"/, () => ({ rows: [] })], // not a commissioner
     [/SELECT "id", "name", "current_season"/, () =>
@@ -57,25 +69,12 @@ function mockPool(t, overrides = []) {
     [/FROM "pickem_picks"/, () => ({ rows: [] })],
     [/FROM "teams"\s+JOIN "users"/, () => ({ rows: [] })],
     [/game_recaps/, () => ({ rows: [] })],
-  ];
-  const handlers = [...overrides, ...defaults];
-  t.mock.method(pool, 'query', async (sql, params) => {
-    const text = String(sql).replace(/\s+/g, ' ').trim();
-    calls.push({ text, params });
-    for (const [pattern, handler] of handlers) {
-      if (pattern.test(text)) return handler(text, params);
-    }
-    throw new Error(`unexpected query: ${text}`);
-  });
-  return calls;
+  ]);
 }
 
 function mockClient(t, overrides = []) {
-  const calls = [];
-  const defaults = [
-    [/^BEGIN$/, () => ({ rows: [] })],
-    [/^COMMIT$/, () => ({ rows: [] })],
-    [/^ROLLBACK$/, () => ({ rows: [] })],
+  return register(t, 'client', [
+    ...overrides,
     [/FROM "pickem_settings"/, () => ({ rows: [{ enabled: true, mode: 'straight' }] })],
     [/SELECT "id", "name", "current_season"/, () =>
       ({ rows: [{ id: 3, name: 'Ballers', current_season: 2026, current_week: 1 }] })],
@@ -86,20 +85,7 @@ function mockClient(t, overrides = []) {
     [/INSERT INTO "pickem_picks"/, () => ({ rows: [] })],
     [/INSERT INTO "pickem_settings"/, () => ({ rows: [] })],
     [/INSERT INTO "transactions"/, () => ({ rows: [] })],
-  ];
-  const handlers = [...overrides, ...defaults];
-  t.mock.method(pool, 'connect', async () => ({
-    query: async (sql, params) => {
-      const text = String(sql).replace(/\s+/g, ' ').trim();
-      calls.push({ text, params });
-      for (const [pattern, handler] of handlers) {
-        if (pattern.test(text)) return handler(text, params);
-      }
-      throw new Error(`unexpected query: ${text}`);
-    },
-    release: () => {},
-  }));
-  return calls;
+  ]);
 }
 
 /* ------------------------------------------------------------------ *
