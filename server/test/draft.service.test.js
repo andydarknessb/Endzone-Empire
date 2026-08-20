@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { teamIndexForPick, draftPlayer } = require('../services/draft.service');
+const { teamIndexForPick, draftPlayer, undoDrop } = require('../services/draft.service');
 const seasonService = require('../services/season.service');
 const { createFakePool, select, insert, update } = require('./helpers/fakePool');
 
@@ -212,5 +212,24 @@ test('draftPlayer free agency: an eligible IR stash grants the extra spot', asyn
 
   assert.equal(result.player.id, 500);
   assert.equal(fake.matching(/^INSERT INTO "team_players"/).length, 1);
+  fake.assertClean();
+});
+
+test('undoDrop: consults roster capacity, not the static roster limit', async (t) => {
+  const fake = createFakePool([
+    [select('leagues'), (text) => {
+      assert.match(text, /"ir_slots"/);
+      return { rows: [{ roster_limit: 3, ir_slots: 1, position_caps: {} }] };
+    }],
+    [select('teams'), () => ({ rows: [{ id: 11, owner_id: 7, locked: false }] })],
+    [select('waiver_players'), () => ({ rows: [{ 1: 1 }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 2 }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, () => ({ rows: [{ n: 0 }] })],
+  ]).install(t);
+
+  await assert.rejects(
+    undoDrop({ leagueId: 1, userId: 7, playerId: 500 }),
+    { statusCode: 409, message: 'roster capacity of 2 reached' }
+  );
   fake.assertClean();
 });

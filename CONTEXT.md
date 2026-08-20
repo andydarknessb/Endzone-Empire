@@ -144,6 +144,17 @@ _Avoid_: game time, start time
 A week in which an NFL team does not play, so none of its players can score.
 Derived from the season schedule rather than supplied.
 
+**Injury designation**:
+What the injury feed says about a real player's availability: questionable,
+doubtful, out, or injured reserve — or nothing, which means healthy. A fact
+about the NFL world, written only by the feed sync, never by anything a
+manager does in the app. Distinct from the IR slot, which is a place in a
+lineup; a player can carry the injured-reserve designation while never
+occupying an IR slot, and vice versa is exactly what enforcement exists to
+prevent.
+_Avoid_: injury status (the column name, not the concept), IR (unqualified —
+ambiguous with the slot)
+
 ### Draft
 
 **Draft**:
@@ -219,6 +230,29 @@ A named place on the lineup card with its own eligibility rule (QB, RB, WR, TE,
 FLEX, K, DEF, plus BENCH and IR). Configurable per league. A position is a
 property of a player; a slot is a place in a lineup.
 _Avoid_: position
+
+**Draft roster size**:
+The number of roster spots a league drafts for: its starters plus its bench.
+IR slots are not drafted, so this is also the draft's round count and the
+bound a keeper's round must fit inside.
+_Avoid_: roster limit (the IR-inclusive total), roster size (unqualified)
+
+**Roster capacity**:
+How many players a team may hold right now: its draft roster size, plus one
+for each IR-eligible player currently stashed in an IR slot, up to the
+league's IR slot count. Capacity is earned by the act of stashing and lost
+when the stash empties or its occupant stops being IR-eligible - it is never
+a standing entitlement. A commissioner may attest a player IR-eligible when
+the feed is wrong, and that attested stash grants capacity like any other.
+_Avoid_: roster limit, effective limit
+
+**IR-eligible**:
+A player whose current injury designation (out or injured reserve) qualifies
+him to occupy an IR slot. Eligibility is a live property of the player, not a
+grant to the team: it is checked when a manager places him on IR, and losing
+it while stashed is what flags the roster for resolution.
+_Avoid_: injured (too broad — questionable and doubtful players are injured
+but not IR-eligible), stashable
 
 **Lineup lock**:
 The moment a player can no longer be moved into or out of a lineup, namely his

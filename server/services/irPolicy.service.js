@@ -1,6 +1,29 @@
-const { draftRosterSize } = require('./rosterShape');
+const { draftRosterSize, irSlotCount } = require('./rosterShape');
 
 const IR_ELIGIBLE_DESIGNATIONS = new Set(['O', 'IR']);
+
+/**
+ * The current IR stashes, shared by the enforcement scan and the capacity
+ * count so the two can never drift: each (team, player)'s latest lineup entry
+ * at or before the league's current week, still rostered, sitting in the IR
+ * slot. Callers append their own scoping predicates and select list.
+ */
+const FROM_CURRENT_IR_STASHES = `
+       FROM "lineup_entries"
+       JOIN "teams" ON "teams"."id" = "lineup_entries"."team_id"
+       JOIN "leagues" ON "leagues"."id" = "teams"."league_id"
+       JOIN "team_players" ON "team_players"."team_id" = "teams"."id"
+         AND "team_players"."player_id" = "lineup_entries"."player_id"
+       JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
+      WHERE "lineup_entries"."season" = "leagues"."current_season"
+        AND "lineup_entries"."week" = (
+          SELECT MAX("latest"."week") FROM "lineup_entries" AS "latest"
+           WHERE "latest"."team_id" = "lineup_entries"."team_id"
+             AND "latest"."player_id" = "lineup_entries"."player_id"
+             AND "latest"."season" = "lineup_entries"."season"
+             AND "latest"."week" <= "leagues"."current_week"
+        )
+        AND "lineup_entries"."slot" = 'IR'`;
 const INJURY_DESIGNATION_NAMES = {
   Q: 'questionable',
   D: 'doubtful',
@@ -33,27 +56,12 @@ function injuryDesignationName(injuryDesignation) {
  */
 async function rosterCapacity(client, { league, teamId, excludePlayerIds = [] }) {
   const base = draftRosterSize(league);
-  const irSlots = Math.max(0, Math.trunc(Number(league.ir_slots ?? league.irSlots)) || 0);
+  const irSlots = irSlotCount(league);
   if (irSlots === 0) return base;
 
   const stash = await client.query(
-    `SELECT COUNT(*)::int AS n
-       FROM "lineup_entries"
-       JOIN "teams" ON "teams"."id" = "lineup_entries"."team_id"
-       JOIN "leagues" ON "leagues"."id" = "teams"."league_id"
-       JOIN "team_players" ON "team_players"."team_id" = "teams"."id"
-         AND "team_players"."player_id" = "lineup_entries"."player_id"
-       JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
-      WHERE "lineup_entries"."team_id" = $1
-        AND "lineup_entries"."season" = "leagues"."current_season"
-        AND "lineup_entries"."week" = (
-          SELECT MAX("latest"."week") FROM "lineup_entries" AS "latest"
-           WHERE "latest"."team_id" = "lineup_entries"."team_id"
-             AND "latest"."player_id" = "lineup_entries"."player_id"
-             AND "latest"."season" = "lineup_entries"."season"
-             AND "latest"."week" <= "leagues"."current_week"
-        )
-        AND "lineup_entries"."slot" = 'IR'
+    `SELECT COUNT(*)::int AS n${FROM_CURRENT_IR_STASHES}
+        AND "lineup_entries"."team_id" = $1
         AND "players"."injury_status" = ANY($2::text[])
         AND NOT ("lineup_entries"."player_id" = ANY($3::int[]))`,
     [teamId, [...IR_ELIGIBLE_DESIGNATIONS], excludePlayerIds]
@@ -74,23 +82,8 @@ async function flagRecoveredIrStashes(client, transitions) {
   const stashes = await client.query(
     `SELECT "lineup_entries"."player_id", "players"."name" AS "player_name",
             "players"."injury_status", "teams"."id" AS "team_id",
-            "teams"."owner_id", "teams"."league_id"
-       FROM "lineup_entries"
-       JOIN "teams" ON "teams"."id" = "lineup_entries"."team_id"
-       JOIN "leagues" ON "leagues"."id" = "teams"."league_id"
-       JOIN "team_players" ON "team_players"."team_id" = "teams"."id"
-         AND "team_players"."player_id" = "lineup_entries"."player_id"
-       JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
-      WHERE "lineup_entries"."player_id" = ANY($1::int[])
-        AND "lineup_entries"."season" = "leagues"."current_season"
-        AND "lineup_entries"."week" = (
-          SELECT MAX("latest"."week") FROM "lineup_entries" AS "latest"
-           WHERE "latest"."team_id" = "lineup_entries"."team_id"
-             AND "latest"."player_id" = "lineup_entries"."player_id"
-             AND "latest"."season" = "lineup_entries"."season"
-             AND "latest"."week" <= "leagues"."current_week"
-        )
-        AND "lineup_entries"."slot" = 'IR'`,
+            "teams"."owner_id", "teams"."league_id"${FROM_CURRENT_IR_STASHES}
+        AND "lineup_entries"."player_id" = ANY($1::int[])`,
     [transitionedPlayerIds]
   );
 
