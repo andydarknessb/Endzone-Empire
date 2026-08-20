@@ -259,7 +259,10 @@ but not IR-eligible), stashable
 
 **Lineup lock**:
 The moment a player can no longer be moved into or out of a lineup, namely his
-own game's kickoff. Locks are per player, not per week.
+own game's kickoff. In a standard lineup, a manager may still move a
+non-IR-eligible player from IR to BENCH to resolve the stash. That exception
+does not apply in best ball, where BENCH participates in scoring; every other
+move remains locked. Locks are per player, not per week.
 _Avoid_: roster lock
 
 **Roster lock**:

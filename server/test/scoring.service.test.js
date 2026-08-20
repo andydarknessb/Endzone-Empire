@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { createFakePool, select, update } = require('./helpers/fakePool');
 const {
   calculateFantasyPoints,
   tank01Body,
@@ -11,8 +12,46 @@ const {
   missingTeamDefenses,
   normalizeTank01Game,
   detectScoringEvents,
+  scoreMatchups,
   SCORING_RULES,
 } = require('../services/scoring.service');
+
+test('scoreMatchups excludes IR occupants from the best-ball candidate pool', async (t) => {
+  const fake = createFakePool([
+    [select('leagues'), () => ({ rows: [{
+      id: 5,
+      best_ball: true,
+      roster_slots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }],
+      scoring_rules: null,
+    }] })],
+    [select('matchups'), () => ({ rows: [{
+      id: 90,
+      home_team_id: 10,
+      away_team_id: 20,
+      final: true,
+    }] })],
+    [/^SELECT "lineup_entries"\."player_id"/, (text, params) => ({
+      rows: params[0] === 10
+        ? [
+            { player_id: 1, position: 'QB', slot: 'IR', stats: { passingYards: 300, passingTDs: 2 } },
+            { player_id: 2, position: 'QB', slot: 'BENCH', stats: { passingYards: 100 } },
+          ]
+        : [{ player_id: 3, position: 'QB', slot: 'BENCH', stats: { passingYards: 50 } }],
+    })],
+    [update('matchups'), () => ({ rows: [] })],
+  ]).install(t);
+
+  const result = await scoreMatchups({ leagueId: 5, season: 2026, week: 8 });
+
+  assert.deepEqual(result.scored, [{
+    matchupId: 90,
+    homeTeamId: 10,
+    awayTeamId: 20,
+    homeScore: 4,
+    awayScore: 2,
+  }]);
+  fake.assertClean();
+});
 
 test('SCORING_RULES is defined', () => {
   assert(SCORING_RULES);
