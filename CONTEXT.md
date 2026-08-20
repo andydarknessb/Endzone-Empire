@@ -244,6 +244,9 @@ league's IR slot count. Capacity is earned by the act of stashing and lost
 when the stash empties or its occupant stops being IR-eligible - it is never
 a standing entitlement. A commissioner may attest a player IR-eligible when
 the feed is wrong, and that attested stash grants capacity like any other.
+A player a team acquires - by waiver, trade, commissioner add or free agency -
+always arrives on the bench and earns nothing; only undoing a drop returns a
+player to the stash it interrupted.
 _Avoid_: roster limit, effective limit
 
 **IR-eligible**:

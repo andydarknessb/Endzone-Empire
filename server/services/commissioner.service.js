@@ -11,6 +11,7 @@ const { assertManualCorrectionWindow } = require('./correction.service');
 const { deleteAvatarObjects } = require('./avatar.service');
 const { commissionerPredicate } = require('./leagueRole.service');
 const { rosterCapacity } = require('./irPolicy.service');
+const { benchAcquiredPlayer } = require('./lineup.service');
 const { isPickemOnly } = require('./leagueType');
 const { getStandings: getPickemStandings, getSeasonSlate } = require('./pickem.service');
 const { pickemChampions } = require('./pickemSeason.service');
@@ -542,11 +543,7 @@ async function forceTransaction({ leagueId, userId, teamId, action, playerId }) 
       );
       // The override bypasses locks and holds, but roster capacity still
       // binds: a forced add gets no more room than any other add site (#97).
-      const capacity = await rosterCapacity(client, {
-        league,
-        teamId,
-        restoredPlayerIds: [playerId],
-      });
+      const capacity = await rosterCapacity(client, { league, teamId });
       if (rosterCountResult.rows[0].n >= capacity) {
         throw new CommissionerError(409, `roster capacity of ${capacity} reached`);
       }
@@ -561,6 +558,8 @@ async function forceTransaction({ leagueId, userId, teamId, action, playerId }) 
         }
         throw error;
       }
+      // A forced add is still an add: bench, never back into a stash (#94).
+      await benchAcquiredPlayer(client, { league, teamId, playerId });
       await client.query(
         `DELETE FROM "waiver_players" WHERE "league_id" = $1 AND "player_id" = $2`,
         [leagueId, playerId]

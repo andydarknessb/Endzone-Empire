@@ -10,6 +10,7 @@ const {
   annotateLineupEntries,
   getLineup,
   setLineup,
+  benchAcquiredPlayer,
   DEFAULT_ROSTER_SLOTS,
 } = require('../services/lineup.service');
 
@@ -496,4 +497,40 @@ test('parseLineupSettings: accepts jsonb objects and JSON strings', () => {
   });
   assert.deepEqual(asString.rosterSlots, customSlots);
   assert.deepEqual(asString.positionCaps, { RB: 4 });
+});
+
+// --- acquisitions land on the bench (#94 user story 13) ---------------------
+// A dropped player's lineup rows survive the drop, so a re-add would otherwise
+// sit straight back in his old IR stash (same week) or have it revived by the
+// copy-forward (later week). Every acquisition site calls this after its
+// roster insert; undoDrop alone does not, because an undo restores the stash.
+
+test('benchAcquiredPlayer plants a current-week bench row and sweeps later pre-materialized weeks', async () => {
+  const fake = createFakePool([
+    [/^INSERT INTO "lineup_entries"/, () => ({ rows: [] })],
+    [/^UPDATE "lineup_entries"/, () => ({ rows: [], rowCount: 1 })],
+  ]);
+  const client = await fake.connect();
+
+  await benchAcquiredPlayer(client, {
+    league: { id: 5, current_season: 2026, current_week: 9 },
+    teamId: 10,
+    playerId: 21,
+  });
+  client.release();
+
+  const [plant] = fake.matching(/^INSERT INTO "lineup_entries"/);
+  assert.deepEqual(plant.params, [5, 10, 21, 2026, 9]);
+  // Upsert: a surviving same-week row (his old stash) is reset, a missing one
+  // is created so the next week's copy-forward starts from BENCH, not IR.
+  assert.match(plant.text, /VALUES \(\$1, \$2, \$3, \$4, \$5, 'BENCH'\)/);
+  assert.match(plant.text, /ON CONFLICT \("team_id", "season", "week", "player_id"\) DO UPDATE SET "slot" = 'BENCH'/);
+
+  const [sweep] = fake.matching(/^UPDATE "lineup_entries"/);
+  assert.deepEqual(sweep.params, [10, 21, 2026, 9]);
+  assert.match(sweep.text, /SET "slot" = 'BENCH'/);
+  // Later weeks only: earlier weeks are history and stay as they were played.
+  assert.match(sweep.text, /"week" > \$4/);
+  assert.equal(fake.calls.length, 2);
+  fake.assertClean();
 });

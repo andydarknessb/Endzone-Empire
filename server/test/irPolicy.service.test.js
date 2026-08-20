@@ -197,7 +197,7 @@ test('rosterCapacity: excluded players (leaving in this transaction) grant nothi
   fake.assertClean();
 });
 
-test('rosterCapacity: a restored player counts only through a current-week stash', async () => {
+test('rosterCapacity: a restored player counts through the stash the undo will land him in', async () => {
   let seen;
   const fake = capacityPool({ stashed: 1, onQuery: (text, params) => { seen = { text, params }; } });
   const client = await fake.connect();
@@ -212,9 +212,27 @@ test('rosterCapacity: a restored player counts only through a current-week stash
   assert.equal(capacity, 16);
   assert.deepEqual(seen.params[3], [21]);
   // The still-rostered requirement is relaxed for the restored player, but
-  // only for a current-week entry - an older surviving stash grants nothing
-  // (cross-week materialization would land him on the bench).
-  assert.match(seen.text, /"team_players"\."player_id" IS NOT NULL OR \("lineup_entries"\."player_id" = ANY\(\$4::int\[\]\) AND "lineup_entries"\."week" = "leagues"\."current_week"\)/);
+  // only for the entry the undo really returns him to: his current-week row
+  // (it survived the drop, so he sits straight back in it) or his row in the
+  // team's latest earlier week (materializeLineup's copy-forward source, so
+  // the stash is revived on the week's first touch). Anything older grants
+  // nothing - the copy-forward has no row for him and benches him.
+  assert.match(seen.text, /"team_players"\."player_id" IS NOT NULL OR \("lineup_entries"\."player_id" = ANY\(\$4::int\[\]\) AND \("lineup_entries"\."week" = "leagues"\."current_week" OR "lineup_entries"\."week" = \( SELECT MAX\("source"\."week"\) FROM "lineup_entries" AS "source" WHERE "source"\."team_id" = "lineup_entries"\."team_id" AND "source"\."season" = "lineup_entries"\."season" AND "source"\."week" < "leagues"\."current_week" \)\)\)/);
+  fake.assertClean();
+});
+
+test('rosterCapacity: with no restored player the still-rostered join is not relaxed at all', async () => {
+  let seen;
+  const fake = capacityPool({ stashed: 0, onQuery: (text, params) => { seen = { text, params }; } });
+  const client = await fake.connect();
+
+  await rosterCapacity(client, { league: { roster_limit: 16, ir_slots: 1 }, teamId: 31 });
+  client.release();
+
+  // An acquired player (waiver, trade, commissioner add, free agency) lands on
+  // the bench, so the add sites pass no restored ids and the stash count stays
+  // strictly "still on the roster".
+  assert.deepEqual(seen.params[3], []);
   fake.assertClean();
 });
 

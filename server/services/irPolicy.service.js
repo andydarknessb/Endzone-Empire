@@ -9,13 +9,17 @@ const IR_ELIGIBLE_DESIGNATIONS = new Set(['O', 'IR']);
  * slot. Callers append their own scoping predicates and select list.
  *
  * `restoredPlaceholder` (a `$n` naming an int[] param) relaxes the
- * still-rostered join for players being added back in the same transaction —
- * but only for a CURRENT-week entry, because that is the one case where the
- * add really does return the player to his slot (the entry survives the drop
- * and materialization leaves same-week rows alone). An older surviving IR
- * entry proves nothing: cross-week materialization copies slots from the
- * team's latest week, where a long-gone player has no row, so he lands on
- * the bench and his stale entry must not grant capacity.
+ * still-rostered join for a player an undo is putting back in the same
+ * transaction, but only through the entry the undo really returns him to —
+ * the one `lineup.service`'s materialization will show him in:
+ *   - his current-week row: it survived the drop and materialization leaves
+ *     existing rows alone, so he sits straight back in it;
+ *   - his row in the team's latest earlier week: that week is the
+ *     copy-forward source for a not-yet-touched current week (and for any
+ *     player missing from an already-touched one), so the stash is revived.
+ * Anything older grants nothing: the copy-forward has no row for him there
+ * and benches him. Every other acquisition benches the player explicitly
+ * (`benchAcquiredPlayer`), so it passes no restored ids at all.
  */
 const fromCurrentIrStashes = (restoredPlaceholder = null) => `
        FROM "lineup_entries"
@@ -26,7 +30,13 @@ const fromCurrentIrStashes = (restoredPlaceholder = null) => `
        JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
       WHERE ("team_players"."player_id" IS NOT NULL${restoredPlaceholder ? `
          OR ("lineup_entries"."player_id" = ANY(${restoredPlaceholder}::int[])
-             AND "lineup_entries"."week" = "leagues"."current_week")` : ''})
+             AND ("lineup_entries"."week" = "leagues"."current_week"
+                  OR "lineup_entries"."week" = (
+                    SELECT MAX("source"."week") FROM "lineup_entries" AS "source"
+                     WHERE "source"."team_id" = "lineup_entries"."team_id"
+                       AND "source"."season" = "lineup_entries"."season"
+                       AND "source"."week" < "leagues"."current_week"
+                  )))` : ''})
         AND "lineup_entries"."season" = "leagues"."current_season"
         AND "lineup_entries"."week" = (
           SELECT MAX("latest"."week") FROM "lineup_entries" AS "latest"
@@ -62,10 +72,12 @@ function injuryDesignationName(injuryDesignation) {
  * `excludePlayerIds` names players leaving the roster in the same
  * transaction (a waiver drop, an outgoing trade piece): their stashes grant
  * nothing, since the move that needs the capacity also empties them.
- * `restoredPlayerIds` names players the transaction is adding: a current-week
- * stash of theirs counts even though they are not on the roster yet, because
- * the add puts them straight back into it — without this, undoing the drop
- * of a stashed player on a full roster would be wrongly rejected.
+ * `restoredPlayerIds` names a player an undo is putting back: the stash the
+ * undo returns him to (see `fromCurrentIrStashes`) counts even though he is
+ * not on the roster yet — without this, undoing the drop of a stashed player
+ * on a full roster would be wrongly rejected. Only `undoDrop` passes it; a
+ * waiver, trade, commissioner or free-agent add benches the player instead,
+ * so his old stash rows grant nothing to the add.
  *
  * `league` must carry `roster_limit` and `ir_slots`; season and week come
  * from the team's league row inside the query, like the enforcement scan.
