@@ -164,31 +164,32 @@ async function materializeLineup(client, { leagueId, teamId, season, week }) {
 }
 
 /**
- * Land an acquired player on the bench (#94, user story 13): a player gained
- * by waiver, trade, commissioner add or free agency never arrives in the IR
- * slot, so the placement gate cannot be bypassed. Lineup rows outlive a drop,
- * so without this a same-week re-add would sit straight back in his old stash
- * and `materializeLineup`'s copy-forward would revive it on a later week's
- * first touch. Upserts a current-week BENCH row (resetting a surviving stash,
- * or planting the row the next copy-forward will read) and benches any
- * pre-materialized later week; earlier weeks are history and stay as played.
+ * An acquired player never arrives in the IR slot (#94, user story 13): a
+ * player gained by draft pick, waiver, trade, commissioner add or free agency
+ * cannot bypass the placement gate. Lineup rows outlive a drop, so without
+ * this a re-add would sit straight back in his old stash (his surviving
+ * current-week row) or have it revived by `materializeLineup`'s copy-forward
+ * on a later week's first touch.
  *
- * `undoDrop` deliberately does not call this: an undo restores the stash it
+ * Two steps, in this order. First the current week is materialized, so it is
+ * a complete week (never a lone row the next copy-forward would read as its
+ * source and bench the whole roster by) and the player has a row in it.
+ * Then every IR row of his from the current week on is moved to the bench.
+ * Only IR rows: a surviving starter row from a week he actually played stays
+ * as played, with its points. Earlier weeks are history and stay as they were.
+ *
+ * `undoDrop` calls this only when the stash it would restore is no longer
+ * valid (`undoRestoresStash`); otherwise an undo restores the stash it
  * interrupted, which is what `rosterCapacity`'s `restoredPlayerIds` credits.
- * Must run inside the caller's transaction, after the roster insert.
+ * Must run inside the caller's transaction, after the roster write.
  */
 async function benchAcquiredPlayer(client, { league, teamId, playerId }) {
   const { id: leagueId, current_season: season, current_week: week } = league;
+  await materializeLineup(client, { leagueId, teamId, season, week });
   await client.query(
-    `INSERT INTO "lineup_entries" ("league_id", "team_id", "player_id", "season", "week", "slot")
-     VALUES ($1, $2, $3, $4, $5, 'BENCH')
-     ON CONFLICT ("team_id", "season", "week", "player_id") DO UPDATE SET "slot" = 'BENCH', "updated_at" = now()`,
-    [leagueId, teamId, playerId, season, week]
-  );
-  await client.query(
-    `UPDATE "lineup_entries" SET "slot" = 'BENCH', "updated_at" = now()
-     WHERE "team_id" = $1 AND "player_id" = $2 AND "season" = $3 AND "week" > $4 AND "slot" <> 'BENCH'`,
-    [teamId, playerId, season, week]
+    `UPDATE "lineup_entries" SET "slot" = $5, "updated_at" = now()
+     WHERE "team_id" = $1 AND "player_id" = $2 AND "season" = $3 AND "week" >= $4 AND "slot" = $6`,
+    [teamId, playerId, season, week, BENCH, IR]
   );
 }
 

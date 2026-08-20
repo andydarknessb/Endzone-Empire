@@ -11,7 +11,8 @@ const { assertManualCorrectionWindow } = require('./correction.service');
 const { deleteAvatarObjects } = require('./avatar.service');
 const { commissionerPredicate } = require('./leagueRole.service');
 const { rosterCapacity } = require('./irPolicy.service');
-const { benchAcquiredPlayer } = require('./lineup.service');
+// Module object, not destructured: the seam tests mock benchAcquiredPlayer.
+const lineupService = require('./lineup.service');
 const { isPickemOnly } = require('./leagueType');
 const { getStandings: getPickemStandings, getSeasonSlate } = require('./pickem.service');
 const { pickemChampions } = require('./pickemSeason.service');
@@ -559,7 +560,7 @@ async function forceTransaction({ leagueId, userId, teamId, action, playerId }) 
         throw error;
       }
       // A forced add is still an add: bench, never back into a stash (#94).
-      await benchAcquiredPlayer(client, { league, teamId, playerId });
+      await lineupService.benchAcquiredPlayer(client, { league, teamId, playerId });
       await client.query(
         `DELETE FROM "waiver_players" WHERE "league_id" = $1 AND "player_id" = $2`,
         [leagueId, playerId]

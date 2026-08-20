@@ -3,7 +3,8 @@ const { assertFantasyLeagueRow } = require('./leagueType');
 const { requireMember } = require('./leagueRole.service');
 const { logTransaction, notify } = require('./activity.service');
 const { rosterCapacity } = require('./irPolicy.service');
-const { benchAcquiredPlayer } = require('./lineup.service');
+// Module object, not destructured: the seam tests mock benchAcquiredPlayer.
+const lineupService = require('./lineup.service');
 
 class WaiverError extends Error {
   constructor(statusCode, message) {
@@ -241,7 +242,7 @@ async function processWaivers({ leagueId }) {
           [leagueId, team.id, playerId]
         );
         // A won claim lands on the bench, never back in an old stash (#94).
-        await benchAcquiredPlayer(client, { league, teamId: team.id, playerId });
+        await lineupService.benchAcquiredPlayer(client, { league, teamId: team.id, playerId });
         if (league.waiver_type === 'faab' && claim.bid > 0) {
           await client.query(
             `UPDATE "teams" SET "faab_remaining" = "faab_remaining" - $1, "updated_at" = now() WHERE "id" = $2`,
