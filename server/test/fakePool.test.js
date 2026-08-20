@@ -111,6 +111,22 @@ test('verb/table matcher constructors key on statement shape, not formatting', a
   await assert.rejects(() => fake.query('SELECT 1 FROM "teams_archive"'), /unexpected query/);
 });
 
+test('select(table) binds to the statement\'s first FROM: a later FROM "table" is a no-match', async () => {
+  const fake = createFakePool([[select('users'), () => ({ rows: [{ matched: true }] })]]);
+  // "users" appears only in a subquery; the statement reads from "teams".
+  await assert.rejects(
+    () => fake.query('SELECT * FROM "teams" WHERE "owner_id" IN (SELECT "id" FROM "users")'),
+    /unexpected query/
+  );
+  // A join tail mentioning "users" after the first FROM is a no-match too.
+  await assert.rejects(
+    () => fake.query('SELECT 1 FROM "teams" JOIN "users" ON "users"."id" = "teams"."owner_id"'),
+    /unexpected query/
+  );
+  // The plain first-FROM case still matches.
+  assert.equal((await fake.query('SELECT "id" FROM "users" WHERE "id" = $1')).rows[0].matched, true);
+});
+
 test('a matcher entry may constrain which side of the seam it answers', async () => {
   const fake = createFakePool([
     [/FROM "leagues"/, () => ({ rows: [{ side: 'client' }] }), 'client'],

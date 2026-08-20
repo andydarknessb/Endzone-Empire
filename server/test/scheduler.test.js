@@ -1,6 +1,5 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const pool = require('../modules/pool');
 const { createFakePool } = require('./helpers/fakePool');
 const push = require('../services/push.service');
 const prefs = require('../services/prefs.service');
@@ -237,6 +236,9 @@ function pickemSeasonWorld(t, { league, teams, picks, live, games }) {
   // The fake tags pool reads and transaction-client statements separately so
   // a test can see the transaction boundary, not just the statements.
   state.calls = createFakePool(handlers).install(t).calls;
+  // The live handler table, for per-test overrides: unshift, not push —
+  // entries are tried in order, so a pushed override loses to the defaults.
+  state.handlers = handlers;
   return state;
 }
 
@@ -322,20 +324,11 @@ test('co-champions each get a Co-Champion trophy; a winner with no teams row is 
   // Bob's teams row is gone by the time trophies are mapped (a removed member
   // whose picks survived): the members query still lists him via the world's
   // teams list, but the trophy mapping does not.
-  const originalConnect = pool.connect;
-  t.mock.method(pool, 'connect', async () => {
-    const client = await originalConnect();
-    return {
-      release: client.release,
-      query: async (sql, params) => {
-        const text = String(sql).replace(/\s+/g, ' ').trim();
-        if (/SELECT "id", "owner_id" FROM "teams" WHERE "league_id"/.test(text)) {
-          return { rows: [{ id: 10, owner_id: 100 }, { id: 12, owner_id: 102 }] };
-        }
-        return client.query(sql, params);
-      },
-    };
-  });
+  world.handlers.unshift([
+    /SELECT "id", "owner_id" FROM "teams" WHERE "league_id"/,
+    () => ({ rows: [{ id: 10, owner_id: 100 }, { id: 12, owner_id: 102 }] }),
+    'client',
+  ]);
 
   const completed = await scheduler.runPickemSeasonCompletion({ now: new Date('2027-01-11T06:00:00Z') });
 
