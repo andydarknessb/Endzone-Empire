@@ -44,6 +44,13 @@ const WEEK_ONE_SCHEDULE = nflGameRows(1, [
  * mockPool registers answers for the pool side of the seam, mockClient for
  * the checked-out-client side. `overrides` are matched before the defaults,
  * so a test can change one statement's answer without restating the rest.
+ *
+ * Both accessors return the SAME array: the one log, holding both sides'
+ * statements interleaved in execution order. Filter by `via` before asserting
+ * on position or length, or the other side's calls are counted too. Handler
+ * ordering across accessors: entries are appended per call, so a later
+ * accessor call's overrides land AFTER an earlier call's defaults — an
+ * earlier same-side default that matches the statement wins over them.
  */
 const fakes = new WeakMap();
 function register(t, side, entries) {
@@ -56,6 +63,9 @@ function register(t, side, entries) {
   return fake.calls;
 }
 
+// Returns the shared both-sides log (see the block comment above): client
+// calls are in here too — filter by `via` before positional/length asserts.
+// If mockClient ran first, this call's overrides land after its defaults.
 function mockPool(t, overrides = []) {
   return register(t, 'pool', [
     ...overrides,
@@ -72,6 +82,9 @@ function mockPool(t, overrides = []) {
   ]);
 }
 
+// Returns the shared both-sides log (see the block comment above): pool
+// calls are in here too — filter by `via` before positional/length asserts.
+// If mockPool ran first, this call's overrides land after its defaults.
 function mockClient(t, overrides = []) {
   return register(t, 'client', [
     ...overrides,

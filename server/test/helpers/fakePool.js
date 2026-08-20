@@ -18,8 +18,9 @@
  *   // the top-level fake has no release() and no transaction state of its own)
  *
  * Entries are tried in order (put overrides before defaults, a catch-all
- * last); an unmatched query throws. BEGIN/COMMIT/ROLLBACK are auto-answered
- * on a checked-out client and enforced (COMMIT/ROLLBACK without BEGIN and a
+ * last); an unmatched query throws — with one exception: an unmatched
+ * BEGIN/COMMIT/ROLLBACK on a checked-out client auto-answers `{ rows: [] }`.
+ * Transactions are enforced either way (COMMIT/ROLLBACK without BEGIN and a
  * double release throw; `assertClean()` proves every client was released and
  * no transaction was left open). Every statement lands in `calls` as
  * `{ via: 'pool'|'client', text, params }`. The handlers array is live, so a
@@ -100,7 +101,7 @@ function createFakePool(handlers = []) {
 // identifier), so reformatting a query does not break the match. Anchored to
 // the statement's leading verb: a CTE (`WITH ... SELECT`) or a table that is
 // not the statement's first FROM needs a raw regex instead.
-const select = (table) => new RegExp(`^SELECT .* FROM "${table}"`);
+const select = (table) => new RegExp(`^SELECT (?:(?! FROM ).)* FROM "${table}"`);
 const insert = (table) => new RegExp(`^INSERT INTO "${table}"`);
 const update = (table) => new RegExp(`^UPDATE "${table}"`);
 const remove = (table) => new RegExp(`^DELETE FROM "${table}"`);
