@@ -258,7 +258,7 @@ export function assignRosterSlots({
     unfilledStarters[groupAt.get(slotIndex)].count += 1;
   });
 
-  const capacity = instances.length + benchInstances + irInstances;
+  const configuredSlotCount = instances.length + benchInstances + irInstances;
   return {
     rows,
     byPickNumber,
@@ -272,13 +272,13 @@ export function assignRosterSlots({
       benchOpen: benchInstances - benchFilled,
       irInstances,
       irFilled,
-      // How many of those spots a DRAFT can fill. An undraftable IR slot is
-      // roster capacity but not a round (#96), so it is excluded here.
+      // How many of those configured spots a draft can fill. An undraftable
+      // IR slot is not a round (#96), so it is excluded here.
       draftable: instances.length + benchInstances + (irDraftable ? irInstances : 0),
-      capacity,
+      configuredSlotCount,
       assignedCount: players.length,
       overflowCount: overflowIndex,
-      rosterFull: capacity > 0 && players.length >= capacity,
+      rosterFull: configuredSlotCount > 0 && players.length >= configuredSlotCount,
     },
   };
 }
