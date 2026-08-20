@@ -4,9 +4,9 @@ const IR_ELIGIBLE_DESIGNATIONS = new Set(['O', 'IR']);
 
 /**
  * The current IR stashes, shared by the enforcement scan and the capacity
- * count so the two can never drift: each (team, player)'s latest lineup entry
- * at or before the league's current week, still rostered, sitting in the IR
- * slot. Callers append their own scoping predicates and select list.
+ * count so the two can never drift: each team's latest lineup snapshot at or
+ * before the league's current week, still rostered, sitting in the IR slot.
+ * Callers append their own scoping predicates and select list.
  *
  * `restoredPlaceholder` (a `$n` naming an int[] param) relaxes the
  * still-rostered join for a player an undo is putting back in the same
@@ -28,23 +28,28 @@ const fromCurrentIrStashes = (restoredPlaceholder = null) => `
        LEFT JOIN "team_players" ON "team_players"."team_id" = "teams"."id"
          AND "team_players"."player_id" = "lineup_entries"."player_id"
        JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
-      WHERE ("team_players"."player_id" IS NOT NULL${restoredPlaceholder ? `
+      WHERE (("team_players"."player_id" IS NOT NULL
+              AND "lineup_entries"."week" = (
+                SELECT MAX("latest"."week") FROM "lineup_entries" AS "latest"
+                 WHERE "latest"."team_id" = "lineup_entries"."team_id"
+                   AND "latest"."season" = "lineup_entries"."season"
+                   AND "latest"."week" <= "leagues"."current_week"
+              ))${restoredPlaceholder ? `
          OR ("lineup_entries"."player_id" = ANY(${restoredPlaceholder}::int[])
-             AND ("lineup_entries"."week" = "leagues"."current_week"
-                  OR "lineup_entries"."week" = (
-                    SELECT MAX("source"."week") FROM "lineup_entries" AS "source"
-                     WHERE "source"."team_id" = "lineup_entries"."team_id"
-                       AND "source"."season" = "lineup_entries"."season"
-                       AND "source"."week" < "leagues"."current_week"
-                  )))` : ''})
+             AND "lineup_entries"."week" = (
+               SELECT MAX("restore"."week") FROM "lineup_entries" AS "restore"
+                WHERE "restore"."team_id" = "lineup_entries"."team_id"
+                  AND "restore"."player_id" = "lineup_entries"."player_id"
+                  AND "restore"."season" = "lineup_entries"."season"
+                  AND ("restore"."week" = "leagues"."current_week"
+                       OR "restore"."week" = (
+                         SELECT MAX("source"."week") FROM "lineup_entries" AS "source"
+                          WHERE "source"."team_id" = "lineup_entries"."team_id"
+                            AND "source"."season" = "lineup_entries"."season"
+                            AND "source"."week" < "leagues"."current_week"
+                       ))
+             ))` : ''})
         AND "lineup_entries"."season" = "leagues"."current_season"
-        AND "lineup_entries"."week" = (
-          SELECT MAX("latest"."week") FROM "lineup_entries" AS "latest"
-           WHERE "latest"."team_id" = "lineup_entries"."team_id"
-             AND "latest"."player_id" = "lineup_entries"."player_id"
-             AND "latest"."season" = "lineup_entries"."season"
-             AND "latest"."week" <= "leagues"."current_week"
-        )
         AND "lineup_entries"."slot" = 'IR'`;
 const INJURY_DESIGNATION_NAMES = {
   Q: 'questionable',

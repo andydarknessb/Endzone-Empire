@@ -41,6 +41,7 @@ test('every eligible-to-ineligible edge flags each affected manager once', async
       assert.deepEqual(params, [[21, 22, 23, 24, 25, 26, 27]]);
       assert.match(text, /SELECT MAX\("latest"\."week"\)/);
       assert.match(text, /"latest"\."week" <= "leagues"\."current_week"/);
+      assert.doesNotMatch(text, /"latest"\."player_id"/);
       return {
         rows: transitions.map((transition, index) => ({
           player_id: transition.playerId,
@@ -218,7 +219,11 @@ test('rosterCapacity: a restored player counts through the stash the undo will l
   // team's latest earlier week (materializeLineup's copy-forward source, so
   // the stash is revived on the week's first touch). Anything older grants
   // nothing - the copy-forward has no row for him and benches him.
-  assert.match(seen.text, /"team_players"\."player_id" IS NOT NULL OR \("lineup_entries"\."player_id" = ANY\(\$4::int\[\]\) AND \("lineup_entries"\."week" = "leagues"\."current_week" OR "lineup_entries"\."week" = \( SELECT MAX\("source"\."week"\) FROM "lineup_entries" AS "source" WHERE "source"\."team_id" = "lineup_entries"\."team_id" AND "source"\."season" = "lineup_entries"\."season" AND "source"\."week" < "leagues"\."current_week" \)\)\)/);
+  assert.match(seen.text, /"team_players"\."player_id" IS NOT NULL AND "lineup_entries"\."week" = \( SELECT MAX\("latest"\."week"\)/);
+  assert.doesNotMatch(seen.text, /"latest"\."player_id"/);
+  assert.match(seen.text, /"lineup_entries"\."player_id" = ANY\(\$4::int\[\]\) AND "lineup_entries"\."week" = \( SELECT MAX\("restore"\."week"\)/);
+  assert.match(seen.text, /"restore"\."player_id" = "lineup_entries"\."player_id"/);
+  assert.match(seen.text, /"restore"\."week" = "leagues"\."current_week" OR "restore"\."week" = \( SELECT MAX\("source"\."week"\)/);
   fake.assertClean();
 });
 
@@ -298,7 +303,8 @@ test('undoRestoresStash asks whether the entry the undo lands in is a valid stas
     // Same definition of "the stash the undo returns him to" as the capacity
     // count: the restored placeholder relaxes the still-rostered join, and the
     // occupant must be IR-eligible for the stash to be worth restoring.
-    assert.match(seen.text, /"lineup_entries"\."player_id" = ANY\(\$2::int\[\]\) AND \("lineup_entries"\."week" = "leagues"\."current_week" OR/);
+    assert.match(seen.text, /"lineup_entries"\."player_id" = ANY\(\$2::int\[\]\) AND "lineup_entries"\."week" = \( SELECT MAX\("restore"\."week"\)/);
+    assert.match(seen.text, /"restore"\."week" = "leagues"\."current_week" OR "restore"\."week" = \( SELECT MAX\("source"\."week"\)/);
     assert.match(seen.text, /"players"\."injury_status" = ANY\(\$3::text\[\]\)/);
     assert.match(seen.text, /"lineup_entries"\."slot" = 'IR'/);
     assert.match(seen.text, /LIMIT 1$/);
