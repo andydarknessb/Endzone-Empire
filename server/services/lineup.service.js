@@ -14,6 +14,7 @@ class LineupError extends Error {
 
 const BENCH = 'BENCH';
 const IR = 'IR';
+const BEST_BALL_MANAGED_SLOTS = new Set([BENCH, IR]);
 
 // Group keys usable in a slot's eligiblePositions alongside literal position
 // codes (e.g. a "DP" slot's eligiblePositions might be ['DL','LB','DB']) —
@@ -292,9 +293,6 @@ async function setLineup({ leagueId, userId, week, moves }) {
     // refusal below: team.router renders coded errors as { error: code }, which
     // the lineup screen would toast verbatim.
     if (isPickemOnly(league)) throw new LineupError(409, PICKEM_ONLY_MESSAGE);
-    if (league.best_ball) {
-      throw new LineupError(409, 'best-ball leagues set lineups automatically, so there is nothing to manage');
-    }
     const season = league.current_season;
     const targetWeek = week || league.current_week;
     if (targetWeek < league.current_week) {
@@ -324,7 +322,12 @@ async function setLineup({ leagueId, userId, week, moves }) {
       const entry = byPlayer.get(move.playerId);
       if (!entry) throw new LineupError(404, `player ${move.playerId} is not on your roster`);
       if (entry.slot === move.slot) continue;
-      const resolvesStaleIrStash = entry.slot === IR
+      if (league.best_ball
+          && (!BEST_BALL_MANAGED_SLOTS.has(entry.slot) || !BEST_BALL_MANAGED_SLOTS.has(move.slot))) {
+        throw new LineupError(409, 'best-ball managers may move players only between BENCH and IR');
+      }
+      const resolvesStaleIrStash = !league.best_ball
+        && entry.slot === IR
         && move.slot === BENCH
         && !isIrEligible(entry.injury_status);
       if (!resolvesStaleIrStash && locked.has(entry.nfl_team)) {
@@ -345,8 +348,11 @@ async function setLineup({ leagueId, userId, week, moves }) {
     }
 
     const settings = parseLineupSettings(league);
+    const entriesToValidate = league.best_ball
+      ? Array.from(byPlayer.values()).filter((entry) => entry.slot === IR)
+      : Array.from(byPlayer.values());
     const errors = validateLineup(
-      Array.from(byPlayer.values()).map((e) => ({ playerId: e.player_id, position: e.position, slot: e.slot })),
+      entriesToValidate.map((e) => ({ playerId: e.player_id, position: e.position, slot: e.slot })),
       settings
     );
     if (errors.length > 0) throw new LineupError(400, errors.join('; '));

@@ -689,10 +689,17 @@ test('the summary header shows projected/optimal totals and the (+gain) button e
 
 // --- Best ball ---
 
-test('best ball: hides the suggestions panel, skips the advice fetch, shows the info alert, and disables row clicks', async () => {
-  setupGet({ league: { id: 1, best_ball: true } });
+test('best ball: keeps starters automatic while allowing an eligible bench player to move to IR', async () => {
+  const entries = lineupResponse().entries.map((entry) => (
+    entry.id === 4 ? { ...entry, injury_status: 'O' } : entry
+  ));
+  setupGet({
+    league: { id: 1, best_ball: true },
+    lineup: lineupResponse({ entries }),
+  });
+  apiClient.put.mockResolvedValue({});
 
-  renderScreen();
+  renderScreenWithToasts();
   await screen.findByText('Patrick Mahomes');
 
   expect(screen.getByTestId('best-ball-alert')).toHaveTextContent(
@@ -703,9 +710,85 @@ test('best ball: hides the suggestions panel, skips the advice fetch, shows the 
     false
   );
 
-  expect(screen.getByTestId('slot-row-BENCH-4')).toHaveAttribute('aria-disabled', 'true');
+  expect(screen.getByTestId('slot-row-BENCH-4')).not.toHaveAttribute('aria-disabled', 'true');
+  expect(screen.getByTestId('slot-row-IR-0')).not.toHaveAttribute('aria-disabled', 'true');
   expect(screen.getByTestId('slot-row-WR-0')).toHaveAttribute('aria-disabled', 'true');
+
+  await userEvent.click(screen.getByTestId('slot-row-BENCH-4'));
+  await userEvent.click(screen.getByTestId('slot-row-IR-0'));
+
+  await waitFor(() => expect(apiClient.put).toHaveBeenCalledWith('/api/team/lineup', {
+    leagueId: 1,
+    week: 3,
+    moves: [{ playerId: 4, slot: 'IR' }],
+  }));
+});
+
+test('best ball: renders the full bench pool and lets an unlocked IR occupant return to BENCH', async () => {
+  const benchEntries = lineupResponse().entries.map((entry) => ({
+    ...entry,
+    slot: 'BENCH',
+    locked: false,
+  }));
+  const irEntry = recoveredStashEntry({ injury_status: 'O', locked: false });
+  setupGet({
+    league: { id: 1, best_ball: true },
+    lineup: lineupResponse({
+      benchSlots: 1,
+      entries: [...benchEntries, irEntry],
+    }),
+  });
+  apiClient.put.mockResolvedValue({});
+
+  renderScreenWithToasts();
+  await screen.findByText('Recovered Receiver');
+
+  expect(screen.getByTestId('slot-row-BENCH-4')).toBeInTheDocument();
+  await userEvent.click(screen.getByTestId('slot-row-IR-0'));
+  await userEvent.click(screen.getByTestId('slot-row-BENCH-empty-4'));
+
+  await waitFor(() => expect(apiClient.put).toHaveBeenCalledWith('/api/team/lineup', {
+    leagueId: 1,
+    week: 3,
+    moves: [{ playerId: 5, slot: 'BENCH' }],
+  }));
+});
+
+test('best ball: a recovered stash remains locked after kickoff', async () => {
+  setupGet({
+    league: { id: 1, best_ball: true },
+    lineup: lineupResponse({
+      entries: [...lineupResponse().entries, recoveredStashEntry()],
+    }),
+  });
+
+  renderScreenWithToasts();
+  await screen.findByText('Recovered Receiver');
+
+  await userEvent.click(screen.getByTestId('slot-row-IR-0'));
+
+  expect(await screen.findByText("Locked players can't be moved")).toBeInTheDocument();
+  expect(screen.queryByTestId('lineup-move-strip')).not.toBeInTheDocument();
   expect(apiClient.put).not.toHaveBeenCalled();
+});
+
+test('best ball: quick-pick offers only unlocked players from the opposite managed slot', async () => {
+  setupGet({
+    league: { id: 1, best_ball: true },
+    lineup: lineupResponse({
+      entries: [...lineupResponse().entries, recoveredStashEntry()],
+    }),
+  });
+
+  renderScreen();
+  await screen.findByText('Recovered Receiver');
+
+  await userEvent.click(screen.getByTestId('slot-row-BENCH-empty-1'));
+  const menu = await screen.findByRole('menu');
+
+  expect(within(menu).getByText('No eligible players available')).toBeInTheDocument();
+  expect(within(menu).queryByText(/Recovered Receiver/)).not.toBeInTheDocument();
+  expect(within(menu).queryByText(/Patrick Mahomes/)).not.toBeInTheDocument();
 });
 
 test('a non-best-ball league still shows the suggestions panel and no info alert', async () => {

@@ -105,7 +105,12 @@ test('getLineup batches completed-season projections and preserves weekly null s
   fake.assertClean();
 });
 
-function installSetLineupWorld(t, injuryDesignation, { slot = 'BENCH', extraEntries = [], lockedTeams = [] } = {}) {
+function installSetLineupWorld(t, injuryDesignation, {
+  slot = 'BENCH',
+  extraEntries = [],
+  lockedTeams = [],
+  leagueOverrides = {},
+} = {}) {
   const entries = [{
     player_id: 1,
     name: 'Test Runner',
@@ -123,6 +128,7 @@ function installSetLineupWorld(t, injuryDesignation, { slot = 'BENCH', extraEntr
         roster_slots: DEFAULT_ROSTER_SLOTS,
         bench_slots: 5,
         ir_slots: 1,
+        ...leagueOverrides,
       }],
     })],
     [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
@@ -162,6 +168,75 @@ test('setLineup accepts placing an IR-eligible player in an available IR slot', 
   });
 
   assert.equal(result.updated, 1);
+  fake.assertClean();
+});
+
+test('setLineup lets a best-ball manager move an IR-eligible bench player to IR', async (t) => {
+  const fake = installSetLineupWorld(t, 'O', {
+    leagueOverrides: { best_ball: true },
+  });
+
+  const result = await setLineup({
+    leagueId: 5,
+    userId: 7,
+    week: 8,
+    moves: [{ playerId: 1, slot: 'IR' }],
+  });
+
+  assert.equal(result.updated, 1);
+  fake.assertClean();
+});
+
+test('setLineup keeps starting slots automatic in best-ball leagues', async (t) => {
+  const fake = installSetLineupWorld(t, null, {
+    leagueOverrides: { best_ball: true },
+  });
+
+  await assert.rejects(
+    setLineup({ leagueId: 5, userId: 7, week: 8, moves: [{ playerId: 1, slot: 'RB' }] }),
+    (error) => error.statusCode === 409 && /only between BENCH and IR/.test(error.message)
+  );
+
+  fake.assertClean();
+});
+
+test('setLineup does not cap the best-ball player pool at the bench slot count', async (t) => {
+  const extraEntries = Array.from({ length: 6 }, (_, index) => ({
+    player_id: index + 2,
+    name: `Best Ball Player ${index + 2}`,
+    position: 'RB',
+    nfl_team: `TEAM-${index + 2}`,
+    injury_status: null,
+    slot: 'BENCH',
+  }));
+  const fake = installSetLineupWorld(t, 'IR', {
+    extraEntries,
+    leagueOverrides: { best_ball: true },
+  });
+
+  const result = await setLineup({
+    leagueId: 5,
+    userId: 7,
+    week: 8,
+    moves: [{ playerId: 1, slot: 'IR' }],
+  });
+
+  assert.equal(result.updated, 1);
+  fake.assertClean();
+});
+
+test('setLineup keeps a recovered best-ball stash locked after kickoff', async (t) => {
+  const fake = installSetLineupWorld(t, 'Q', {
+    slot: 'IR',
+    lockedTeams: ['MIN'],
+    leagueOverrides: { best_ball: true },
+  });
+
+  await assert.rejects(
+    setLineup({ leagueId: 5, userId: 7, week: 8, moves: [{ playerId: 1, slot: 'BENCH' }] }),
+    { statusCode: 409, code: 'LINEUP_LOCKED' }
+  );
+
   fake.assertClean();
 });
 

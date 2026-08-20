@@ -213,6 +213,57 @@ test('sendLineupReminders ignores a dropped player left in lineup history', asyn
   fake.assertClean();
 });
 
+test('sendLineupReminders sends best-ball teams only the unresolved IR warning', async (t) => {
+  const bestBallLeague = {
+    id: 503,
+    current_season: 2026,
+    current_week: 9,
+    best_ball: true,
+    roster_slots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }],
+    bench_slots: 5,
+    ir_slots: 1,
+  };
+  const fake = createFakePool([
+    [/^SELECT \* FROM "leagues"/, (text) => ({
+      rows: text.includes('"best_ball" = false') ? [] : [bestBallLeague],
+    })],
+    [/^SELECT 1 FROM "nfl_games"/, () => ({ rows: [{ exists: 1 }] })],
+    [/^SELECT "teams"\."id"/, () => ({ rows: [{
+      id: 603,
+      name: 'Best Ball Recovery',
+      owner_id: 703,
+      email: 'best-ball@example.test',
+    }] })],
+    [/^SELECT "user_id", "prefs" FROM "notification_prefs"/, () => ({ rows: [] })],
+    [/^SELECT "team_players"\."player_id"/, () => ({
+      rows: [{ player_id: 803, position: 'QB' }],
+    })],
+    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({
+      rows: [{ player_id: 803 }],
+    })],
+    [/^SELECT "lineup_entries"\."slot"/, () => ({ rows: [{
+      slot: 'IR',
+      name: 'Recovered Best Ball Player',
+      injury_status: 'Q',
+      on_bye: false,
+    }] })],
+    [insert('notifications'), () => ({ rows: [] })],
+  ]).install(t);
+  const pushes = [];
+  t.mock.method(push, 'sendPushToUsers', async (userIds, payload) => {
+    pushes.push({ userIds, payload });
+    return { sent: 1 };
+  });
+
+  const result = await sendLineupReminders();
+
+  assert.deepEqual(result, { remindersSent: 1 });
+  assert.deepEqual(pushes.map(({ payload }) => payload.body), [
+    'Lineup check for week 9: Recovered Best Ball Player (IR) is no longer IR-eligible (questionable)',
+  ]);
+  fake.assertClean();
+});
+
 // --- prefs -------------------------------------------------------------------
 
 test('mergePrefs fills defaults and respects stored overrides', () => {

@@ -173,7 +173,7 @@ const remindedTeamWeeks = new Set();
 async function sendLineupReminders() {
   const leagues = await pool.query(
     `SELECT * FROM "leagues"
-     WHERE ${fantasySeasonLiveWhereSql()} AND "best_ball" = false`
+     WHERE ${fantasySeasonLiveWhereSql()}`
   );
   let remindersSent = 0;
 
@@ -236,7 +236,9 @@ async function sendLineupReminders() {
         onBye: r.on_bye,
         injury_status: r.injury_status,
       }));
-      const problems = lineupProblems(entries, rosterSlots);
+      const problems = league.best_ball
+        ? lineupProblems(entries.filter((entry) => entry.slot === 'IR'), [])
+        : lineupProblems(entries, rosterSlots);
       if (problems.length === 0) {
         remindedTeamWeeks.add(key); // lineup is fine — don't re-check this week
         continue;
