@@ -431,6 +431,11 @@ function LineupScreen() {
                 </Typography>
               </Box>
               <InjuryBadge status={entry.injury_status} />
+              {slotType === 'IR' && entry.ir_attested && (
+                <Tooltip title="Attested by the commissioner: this stash stays valid even though the injury feed disagrees. Any slot move you make on him ends the attestation.">
+                  <Chip label="ATTESTED" size="small" color="success" variant="outlined" />
+                </Tooltip>
+              )}
               {entry.onBye && (
                 <Chip
                   label={`BYE Wk ${lineup?.week ?? ''}`.trim()}

@@ -58,9 +58,9 @@ test('annotateLineupEntries does not treat an incomplete schedule gap as a bye',
 
 test('getLineup batches completed-season projections and preserves weekly null semantics', async (t) => {
   const entries = [
-    { id: 1, name: 'Projected Player', position: 'RB', nfl_team: null, injury_status: null, slot: 'RB' },
-    { id: 2, name: 'Small Sample', position: 'WR', nfl_team: null, injury_status: null, slot: 'WR' },
-    { id: 3, name: 'No History', position: 'TE', nfl_team: null, injury_status: null, slot: 'TE' },
+    { id: 1, name: 'Projected Player', position: 'RB', nfl_team: null, injury_status: null, slot: 'RB', ir_attested: false },
+    { id: 2, name: 'Small Sample', position: 'WR', nfl_team: null, injury_status: null, slot: 'WR', ir_attested: false },
+    { id: 3, name: 'No History', position: 'TE', nfl_team: null, injury_status: 'Q', slot: 'IR', ir_attested: true },
   ];
   const seasonQueries = [];
   const fake = createFakePool([
@@ -102,6 +102,10 @@ test('getLineup batches completed-season projections and preserves weekly null s
   assert.equal(lineup.entries[0].projected_points, 16);
   assert.equal(lineup.entries[1].projected_points, null);
   assert.equal(lineup.entries[2].projected_points, null);
+  // The attestation rides along so the client can tell an attested stash
+  // from an invalid one (#100).
+  assert.equal(lineup.entries[0].ir_attested, false);
+  assert.equal(lineup.entries[2].ir_attested, true);
   fake.assertClean();
 });
 

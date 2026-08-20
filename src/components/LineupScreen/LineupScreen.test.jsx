@@ -315,6 +315,56 @@ test('renders BYE and LOCKED chips for flagged entries', async () => {
   expect(within(screen.getByTestId('slot-row-RB-0')).getByText('LOCKED')).toBeInTheDocument();
 });
 
+test('an attested stash wears the ATTESTED chip on its IR row; an eligible stash does not', async () => {
+  apiClient.get.mockResolvedValue({
+    data: lineupResponse({
+      entries: [
+        {
+          id: 61,
+          name: 'Attested Runner',
+          position: 'RB',
+          nfl_team: 'Minnesota Vikings',
+          slot: 'IR',
+          injury_status: null,
+          ir_attested: true,
+          locked: false,
+          onBye: false,
+        },
+      ],
+    }),
+  });
+
+  renderScreen();
+  await screen.findByText('Attested Runner');
+
+  expect(within(screen.getByTestId('slot-row-IR-0')).getByText('ATTESTED')).toBeInTheDocument();
+});
+
+test('a normally eligible stash renders without the ATTESTED chip', async () => {
+  apiClient.get.mockResolvedValue({
+    data: lineupResponse({
+      entries: [
+        {
+          id: 62,
+          name: 'Eligible Runner',
+          position: 'RB',
+          nfl_team: 'Minnesota Vikings',
+          slot: 'IR',
+          injury_status: 'O',
+          ir_attested: false,
+          locked: false,
+          onBye: false,
+        },
+      ],
+    }),
+  });
+
+  renderScreen();
+  await screen.findByText('Eligible Runner');
+
+  expect(within(screen.getByTestId('slot-row-IR-0')).queryByText('ATTESTED')).not.toBeInTheDocument();
+});
+
 test('clicking bench player then empty eligible slot applies the move optimistically, PUTs one move, and does not refetch', async () => {
   apiClient.get.mockResolvedValue({ data: lineupResponse() });
   apiClient.put.mockResolvedValue({});

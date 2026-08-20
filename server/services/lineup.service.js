@@ -218,7 +218,7 @@ async function getLineup({ leagueId, userId, week }) {
 
     const entriesResult = await client.query(
       `SELECT "players"."id", "players"."name", "players"."position", "players"."nfl_team",
-              "players"."injury_status", "lineup_entries"."slot"
+              "players"."injury_status", "lineup_entries"."slot", "lineup_entries"."ir_attested"
        FROM "lineup_entries"
        JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
          AND "team_players"."player_id" = "lineup_entries"."player_id"
