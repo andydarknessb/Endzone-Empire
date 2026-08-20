@@ -1656,10 +1656,11 @@ async function scoreMatchups({ leagueId, season, week, plays = [] }) {
         : `JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
            AND "team_players"."player_id" = "lineup_entries"."player_id"`;
       if (league.best_ball) {
-        // Best ball: every rostered player counts as a candidate; the score
-        // is the best legal lineup regardless of the slots stored.
+        // Best ball: every active rostered player counts as a candidate; IR
+        // occupants remain stashed and do not participate in scoring.
         const r = await client.query(
-          `SELECT "lineup_entries"."player_id", "players"."position", "player_stats"."stats"
+          `SELECT "lineup_entries"."player_id", "lineup_entries"."slot",
+                  "players"."position", "player_stats"."stats"
            FROM "lineup_entries"
            ${currentRosterJoin}
            JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
@@ -1669,9 +1670,10 @@ async function scoreMatchups({ leagueId, season, week, plays = [] }) {
              AND "lineup_entries"."week" = $3`,
           [teamId, season, week]
         );
-        const candidates = r.rows.map((row) => ({ playerId: row.player_id, position: row.position }));
+        const candidateRows = r.rows.filter((row) => row.slot !== 'IR');
+        const candidates = candidateRows.map((row) => ({ playerId: row.player_id, position: row.position }));
         const pointsFor = new Map(
-          r.rows.map((row) => [row.player_id, calculateFantasyPoints(row.stats, rules)])
+          candidateRows.map((row) => [row.player_id, calculateFantasyPoints(row.stats, rules)])
         );
         const { rosterSlots } = parseLineupSettings(league);
         return optimalLineup(candidates, rosterSlots, pointsFor).total;

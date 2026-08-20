@@ -96,6 +96,18 @@ const lineupResponse = (overrides = {}) => ({
   ...overrides,
 });
 
+const recoveredStashEntry = (overrides = {}) => ({
+  id: 5,
+  name: 'Recovered Receiver',
+  position: 'WR',
+  nfl_team: 'Minnesota Vikings',
+  injury_status: 'Q',
+  slot: 'IR',
+  locked: true,
+  onBye: false,
+  ...overrides,
+});
+
 // URL-keyed mock covering the GETs LineupScreen now issues per week: the
 // lineup itself, start/sit advice, the season-long hindsight tally, and a
 // one-time league fetch (used only for the best_ball flag — see the
@@ -301,8 +313,10 @@ test('renders starters grouped by slot, bench section, and empty slot rows', asy
     within(screen.getByTestId('lineup-bench')).getByText('Davante Adams')
   ).toBeInTheDocument();
 
-  // Empty starter rows: WR(2) + TE(1) + FLEX(1) + K(1) + DEF(1) = 6, plus IR(1) = 7.
-  expect(screen.getAllByText('Empty')).toHaveLength(7);
+  // Empty starter rows: WR(2) + TE(1) + FLEX(1) + K(1) + DEF(1) = 6,
+  // plus IR(1) and the four unoccupied configured bench spots.
+  expect(screen.getAllByText('Empty')).toHaveLength(11);
+  expect(within(screen.getByTestId('lineup-bench')).getAllByText('Empty')).toHaveLength(4);
 });
 
 test('renders BYE and LOCKED chips for flagged entries', async () => {
@@ -472,6 +486,44 @@ test("clicking a locked player shows a warning toast and does not call put", asy
   expect(apiClient.put).not.toHaveBeenCalled();
 });
 
+test('a locked recovered stash cannot move into a starting slot after kickoff', async () => {
+  apiClient.get.mockResolvedValue({
+    data: lineupResponse({ entries: [...lineupResponse().entries, recoveredStashEntry()] }),
+  });
+
+  renderScreenWithToasts();
+  await screen.findByText('Recovered Receiver');
+
+  await userEvent.click(screen.getByTestId('slot-row-IR-0'));
+  expect(screen.getByText('Moving Recovered Receiver: tap a highlighted slot')).toBeInTheDocument();
+  expect(screen.getByTestId('slot-row-WR-0')).toHaveAttribute('aria-disabled', 'true');
+  expect(apiClient.put).not.toHaveBeenCalled();
+});
+
+test('a locked IR-eligible stash remains unavailable after kickoff', async () => {
+  apiClient.get.mockResolvedValue({
+    data: lineupResponse({
+      benchSlots: 2,
+      entries: [
+        ...lineupResponse().entries,
+        recoveredStashEntry({ name: 'Still Out Receiver', injury_status: 'O' }),
+      ],
+    }),
+  });
+
+  renderScreenWithToasts();
+  await screen.findByText('Still Out Receiver');
+
+  await userEvent.click(screen.getByTestId('slot-row-IR-0'));
+  expect(await screen.findByText("Locked players can't be moved")).toBeInTheDocument();
+  expect(screen.queryByTestId('lineup-move-strip')).not.toBeInTheDocument();
+
+  await userEvent.click(screen.getByTestId('slot-row-BENCH-empty-1'));
+  const menu = await screen.findByRole('menu');
+  expect(within(menu).queryByText(/Still Out Receiver/)).not.toBeInTheDocument();
+  expect(apiClient.put).not.toHaveBeenCalled();
+});
+
 test('a failed PUT rolls the optimistic move back and shows an error toast', async () => {
   apiClient.get.mockResolvedValue({ data: lineupResponse() });
   apiClient.put.mockRejectedValue({
@@ -522,6 +574,31 @@ test('clicking an empty slot with no selection opens a quick-pick menu; choosing
     })
   );
   expect(await screen.findByText('Lineup saved')).toBeInTheDocument();
+});
+
+test('an empty bench row lets a locked recovered stash activate after a drop', async () => {
+  apiClient.get.mockResolvedValue({
+    data: lineupResponse({
+      benchSlots: 2,
+      entries: [...lineupResponse().entries, recoveredStashEntry()],
+    }),
+  });
+  apiClient.put.mockResolvedValue({});
+
+  renderScreenWithToasts();
+  await screen.findByText('Recovered Receiver');
+
+  await userEvent.click(screen.getByTestId('slot-row-BENCH-empty-1'));
+  const menu = await screen.findByRole('menu');
+  await userEvent.click(within(menu).getByText(/Recovered Receiver/));
+
+  await waitFor(() =>
+    expect(apiClient.put).toHaveBeenCalledWith('/api/team/lineup', {
+      leagueId: 1,
+      week: 3,
+      moves: [{ playerId: 5, slot: 'BENCH' }],
+    })
+  );
 });
 
 test('clicking an empty slot with no eligible players shows a disabled "no eligible players" item', async () => {
@@ -612,10 +689,17 @@ test('the summary header shows projected/optimal totals and the (+gain) button e
 
 // --- Best ball ---
 
-test('best ball: hides the suggestions panel, skips the advice fetch, shows the info alert, and disables row clicks', async () => {
-  setupGet({ league: { id: 1, best_ball: true } });
+test('best ball: keeps starters automatic while allowing an eligible bench player to move to IR', async () => {
+  const entries = lineupResponse().entries.map((entry) => (
+    entry.id === 4 ? { ...entry, injury_status: 'O' } : entry
+  ));
+  setupGet({
+    league: { id: 1, best_ball: true },
+    lineup: lineupResponse({ entries }),
+  });
+  apiClient.put.mockResolvedValue({});
 
-  renderScreen();
+  renderScreenWithToasts();
   await screen.findByText('Patrick Mahomes');
 
   expect(screen.getByTestId('best-ball-alert')).toHaveTextContent(
@@ -626,9 +710,85 @@ test('best ball: hides the suggestions panel, skips the advice fetch, shows the 
     false
   );
 
-  expect(screen.getByTestId('slot-row-BENCH-4')).toHaveAttribute('aria-disabled', 'true');
+  expect(screen.getByTestId('slot-row-BENCH-4')).not.toHaveAttribute('aria-disabled', 'true');
+  expect(screen.getByTestId('slot-row-IR-0')).not.toHaveAttribute('aria-disabled', 'true');
   expect(screen.getByTestId('slot-row-WR-0')).toHaveAttribute('aria-disabled', 'true');
+
+  await userEvent.click(screen.getByTestId('slot-row-BENCH-4'));
+  await userEvent.click(screen.getByTestId('slot-row-IR-0'));
+
+  await waitFor(() => expect(apiClient.put).toHaveBeenCalledWith('/api/team/lineup', {
+    leagueId: 1,
+    week: 3,
+    moves: [{ playerId: 4, slot: 'IR' }],
+  }));
+});
+
+test('best ball: renders the full bench pool and lets an unlocked IR occupant return to BENCH', async () => {
+  const benchEntries = lineupResponse().entries.map((entry) => ({
+    ...entry,
+    slot: 'BENCH',
+    locked: false,
+  }));
+  const irEntry = recoveredStashEntry({ injury_status: 'O', locked: false });
+  setupGet({
+    league: { id: 1, best_ball: true },
+    lineup: lineupResponse({
+      benchSlots: 1,
+      entries: [...benchEntries, irEntry],
+    }),
+  });
+  apiClient.put.mockResolvedValue({});
+
+  renderScreenWithToasts();
+  await screen.findByText('Recovered Receiver');
+
+  expect(screen.getByTestId('slot-row-BENCH-4')).toBeInTheDocument();
+  await userEvent.click(screen.getByTestId('slot-row-IR-0'));
+  await userEvent.click(screen.getByTestId('slot-row-BENCH-empty-4'));
+
+  await waitFor(() => expect(apiClient.put).toHaveBeenCalledWith('/api/team/lineup', {
+    leagueId: 1,
+    week: 3,
+    moves: [{ playerId: 5, slot: 'BENCH' }],
+  }));
+});
+
+test('best ball: a recovered stash remains locked after kickoff', async () => {
+  setupGet({
+    league: { id: 1, best_ball: true },
+    lineup: lineupResponse({
+      entries: [...lineupResponse().entries, recoveredStashEntry()],
+    }),
+  });
+
+  renderScreenWithToasts();
+  await screen.findByText('Recovered Receiver');
+
+  await userEvent.click(screen.getByTestId('slot-row-IR-0'));
+
+  expect(await screen.findByText("Locked players can't be moved")).toBeInTheDocument();
+  expect(screen.queryByTestId('lineup-move-strip')).not.toBeInTheDocument();
   expect(apiClient.put).not.toHaveBeenCalled();
+});
+
+test('best ball: quick-pick offers only unlocked players from the opposite managed slot', async () => {
+  setupGet({
+    league: { id: 1, best_ball: true },
+    lineup: lineupResponse({
+      entries: [...lineupResponse().entries, recoveredStashEntry()],
+    }),
+  });
+
+  renderScreen();
+  await screen.findByText('Recovered Receiver');
+
+  await userEvent.click(screen.getByTestId('slot-row-BENCH-empty-1'));
+  const menu = await screen.findByRole('menu');
+
+  expect(within(menu).getByText('No eligible players available')).toBeInTheDocument();
+  expect(within(menu).queryByText(/Recovered Receiver/)).not.toBeInTheDocument();
+  expect(within(menu).queryByText(/Patrick Mahomes/)).not.toBeInTheDocument();
 });
 
 test('a non-best-ball league still shows the suggestions panel and no info alert', async () => {
