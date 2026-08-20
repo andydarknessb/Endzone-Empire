@@ -219,14 +219,17 @@ test('setLineup keeps the lineup lock for a player outside IR', async (t) => {
   fake.assertClean();
 });
 
-test('setLineup keeps the lineup lock when moving from IR into a starting slot', async (t) => {
+test('setLineup lets a locked player resolve a stale stash into a legal starting slot', async (t) => {
   const fake = installSetLineupWorld(t, 'Q', { slot: 'IR', lockedTeams: ['MIN'] });
 
-  await assert.rejects(
-    setLineup({ leagueId: 5, userId: 7, week: 8, moves: [{ playerId: 1, slot: 'RB' }] }),
-    { statusCode: 409, code: 'LINEUP_LOCKED' }
-  );
+  const result = await setLineup({
+    leagueId: 5,
+    userId: 7,
+    week: 8,
+    moves: [{ playerId: 1, slot: 'RB' }],
+  });
 
+  assert.equal(result.updated, 1);
   fake.assertClean();
 });
 
