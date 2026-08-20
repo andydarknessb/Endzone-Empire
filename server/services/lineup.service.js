@@ -2,7 +2,7 @@ const pool = require('../modules/pool');
 const { isPickemOnly, PICKEM_ONLY_MESSAGE } = require('./leagueType');
 const { requireMember } = require('./leagueRole.service');
 const { computeByeWeeks } = require('./bye.service');
-const { isIrEligible } = require('./irPolicy.service');
+const { injuryDesignationName, isIrEligible } = require('./irPolicy.service');
 
 class LineupError extends Error {
   constructor(statusCode, message, code = null) {
@@ -14,17 +14,6 @@ class LineupError extends Error {
 
 const BENCH = 'BENCH';
 const IR = 'IR';
-
-const INJURY_DESIGNATION_NAMES = {
-  Q: 'questionable',
-  D: 'doubtful',
-  O: 'out',
-  IR: 'injured reserve',
-};
-
-function injuryDesignationName(injuryDesignation) {
-  return INJURY_DESIGNATION_NAMES[injuryDesignation] || injuryDesignation || 'healthy';
-}
 
 // Group keys usable in a slot's eligiblePositions alongside literal position
 // codes (e.g. a "DP" slot's eligiblePositions might be ['DL','LB','DB']) —

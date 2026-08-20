@@ -222,7 +222,9 @@ _Avoid_: position
 
 **Lineup lock**:
 The moment a player can no longer be moved into or out of a lineup, namely his
-own game's kickoff. Locks are per player, not per week.
+own game's kickoff. A manager may still move a non-IR-eligible player out of
+the IR slot to resolve the stash; every other move remains locked. Locks are
+per player, not per week.
 _Avoid_: roster lock
 
 **Roster lock**:
