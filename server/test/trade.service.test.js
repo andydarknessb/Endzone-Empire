@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool, select, insert, update } = require('./helpers/fakePool');
 const { TradeError, executeTrade } = require('../services/trade.service');
+const lineupService = require('../services/lineup.service');
 
 // --- roster capacity at the trade site (#97) --------------------------------
 // Thin: proves executeTrade consults the IR policy module's roster capacity
@@ -29,8 +30,6 @@ function tradeWorld({ counts, stashes, stashQueries }) {
       return { rows: [{ n: stashes.get(params[0]) }] };
     }],
     [update('team_players'), () => ({ rows: [], rowCount: 1 })],
-    [insert('lineup_entries'), () => ({ rows: [] })],
-    [update('lineup_entries'), () => ({ rows: [], rowCount: 0 })],
     [update('trades'), () => ({ rows: [], rowCount: 1 })],
     [select('players'), () => ({ rows: [{ id: 21, name: 'Test Runner' }] })],
     [insert('transactions'), () => ({ rows: [] })],
@@ -69,10 +68,14 @@ test('executeTrade: a full receiving team with no stash rejects at the draft ros
   fake.assertClean();
 });
 
-test('executeTrade: an eligible IR stash on the receiving team grants the extra spot', async () => {
+test('executeTrade: an eligible IR stash on the receiving team grants the extra spot', async (t) => {
   const fake = tradeWorld({
     counts: new Map([[41, 14], [42, 14]]),
     stashes: new Map([[41, 0], [42, 1]]),
+  });
+  const benched = [];
+  t.mock.method(lineupService, 'benchAcquiredPlayer', async (client, args) => {
+    benched.push({ ...args, afterRosterWrite: fake.matching(/^UPDATE "team_players"/).length > 0 });
   });
   const client = await fake.connect();
 
@@ -83,7 +86,6 @@ test('executeTrade: an eligible IR stash on the receiving team grants the extra 
   assert.equal(fake.matching(/^UPDATE "trades" SET "status" = 'executed'/).length, 1);
   // The acquired player lands on the receiving team's bench (user story 13),
   // never in a stash his old lineup rows there might still describe.
-  const benched = fake.matching(/^INSERT INTO "lineup_entries"/);
-  assert.deepEqual(benched.map((call) => call.params), [[1, 42, 21, 2026, 6]]);
+  assert.deepEqual(benched, [{ league, teamId: 42, playerId: 21, afterRosterWrite: true }]);
   fake.assertClean();
 });

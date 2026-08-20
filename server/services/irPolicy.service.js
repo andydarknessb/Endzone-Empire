@@ -111,6 +111,28 @@ async function rosterCapacity(client, { league, teamId, excludePlayerIds = [], r
   return base + Math.min(irSlots, stash.rows[0].n);
 }
 
+/**
+ * Would undoing this player's drop return him to a valid stash? True when the
+ * entry an undo lands him in (see `fromCurrentIrStashes`) is an IR slot held
+ * by an IR-eligible player, or one the commissioner attested (#100) - the
+ * same validity the capacity count speaks. `undoDrop` benches him otherwise:
+ * a stash that stopped being valid while he was off the roster must not be
+ * restored past the placement gate, and the enforcement scan (which only
+ * sees rostered players) would never have flagged it. Ask before the roster
+ * insert, while the still-rostered join is the relaxed one.
+ */
+async function undoRestoresStash(client, { teamId, playerId }) {
+  const stash = await client.query(
+    `SELECT 1${fromCurrentIrStashes('$2')}
+        AND "lineup_entries"."team_id" = $1
+        AND "lineup_entries"."player_id" = ANY($2::int[])
+        AND ("players"."injury_status" = ANY($3::text[]) OR "lineup_entries"."ir_attested")
+      LIMIT 1`,
+    [teamId, [playerId], [...IR_ELIGIBLE_DESIGNATIONS]]
+  );
+  return stash.rows.length > 0;
+}
+
 async function flagRecoveredIrStashes(client, transitions) {
   const transitionedPlayerIds = [...new Set(
     transitions
@@ -178,4 +200,5 @@ module.exports = {
   isValidStash,
   rosterCapacity,
   sendIrFlagPushes,
+  undoRestoresStash,
 };

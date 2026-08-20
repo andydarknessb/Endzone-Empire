@@ -2,11 +2,14 @@ const pool = require('../modules/pool');
 const { placeOnWaivers, isOnWaivers } = require('./waiver.service');
 const { logTransaction } = require('./activity.service');
 const { teamForPick, nextOpenPickNumber } = require('./draftOrder.service');
-const { POSITION_GROUPS, benchAcquiredPlayer } = require('./lineup.service');
+// Module object, not destructured: the seam tests mock benchAcquiredPlayer.
+const lineupService = require('./lineup.service');
 const { isLeagueCommissioner, requireMember } = require('./leagueRole.service');
 const { assertFantasyLeagueRow } = require('./leagueType');
 const { draftRosterSize } = require('./rosterShape');
-const { rosterCapacity } = require('./irPolicy.service');
+const { rosterCapacity, undoRestoresStash } = require('./irPolicy.service');
+
+const { POSITION_GROUPS } = lineupService;
 
 class DraftError extends Error {
   constructor(statusCode, message) {
@@ -147,7 +150,7 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommiss
     // Roster capacity, not the static roster limit: draft picks and post-draft
     // free-agent adds both land here, and an eligible IR stash grants a spot
     // beyond the draft roster size (#97). The added player himself earns no
-    // restored credit - a free-agent add benches him (undoDrop is the restore).
+    // restored credit - an add benches him (undoDrop is the one restore).
     const capacity = await rosterCapacity(client, { league, teamId: myTeam.id });
     if (rosterCountResult.rows[0].n >= capacity) {
       throw new DraftError(409, `roster capacity of ${capacity} reached`);
@@ -255,11 +258,13 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommiss
       [leagueId, myTeam.id, playerId]
     );
 
-    // Free-agent pickups land on the bench - never back in an old stash
-    // (#94, user story 13) - and go in the league transaction log. Draft
-    // picks do neither: no lineup rows exist before the season.
+    // Every add lands on the bench, never back in an old stash (#94, user
+    // story 13) - draft picks included, since the lineup screen has no draft
+    // guard and a mid-draft drop leaves rows behind like any other.
+    await lineupService.benchAcquiredPlayer(client, { league, teamId: myTeam.id, playerId });
+
+    // Free-agent pickups go in the league transaction log (draft picks don't)
     if (league.draft_status === 'complete') {
-      await benchAcquiredPlayer(client, { league, teamId: myTeam.id, playerId });
       await logTransaction(client, {
         leagueId,
         teamId: myTeam.id,
@@ -349,7 +354,8 @@ async function undoDrop({ leagueId, userId, playerId }) {
     await client.query('BEGIN');
 
     const leagueResult = await client.query(
-      `SELECT "roster_limit", "ir_slots", "position_caps" FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
+      `SELECT "id", "roster_limit", "ir_slots", "position_caps", "current_season", "current_week"
+         FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
       [leagueId]
     );
     const league = leagueResult.rows[0];
@@ -371,7 +377,9 @@ async function undoDrop({ leagueId, userId, playerId }) {
       [team.id]
     );
     // restoredPlayerIds makes the undo really an undo: the dropped player's
-    // surviving current-week stash still grants its spot on the way back in.
+    // surviving stash still grants its spot on the way back in - but only
+    // while it is still a valid stash. If it stopped being one while he was
+    // off the roster, the undo benches him instead of restoring it ungated.
     const capacity = await rosterCapacity(client, {
       league,
       teamId: team.id,
@@ -380,6 +388,7 @@ async function undoDrop({ leagueId, userId, playerId }) {
     if (rosterCountResult.rows[0].n >= capacity) {
       throw new DraftError(409, `roster capacity of ${capacity} reached`);
     }
+    const restoresStash = await undoRestoresStash(client, { teamId: team.id, playerId });
 
     const playerResult = await client.query(
       `SELECT "id", "name", "position" FROM "players" WHERE "id" = $1`,
@@ -401,6 +410,9 @@ async function undoDrop({ leagueId, userId, playerId }) {
       `INSERT INTO "team_players" ("league_id", "team_id", "player_id") VALUES ($1, $2, $3)`,
       [leagueId, team.id, playerId]
     );
+    if (!restoresStash) {
+      await lineupService.benchAcquiredPlayer(client, { league, teamId: team.id, playerId });
+    }
     await logTransaction(client, {
       leagueId,
       teamId: team.id,

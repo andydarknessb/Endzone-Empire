@@ -9,6 +9,7 @@ const {
   isValidStash,
   rosterCapacity,
   sendIrFlagPushes,
+  undoRestoresStash,
 } = require('../services/irPolicy.service');
 
 test('IR eligibility follows the qualifying injury designations', () => {
@@ -242,7 +243,7 @@ test('rosterCapacity: a restored player counts through the stash the undo will l
   fake.assertClean();
 });
 
-test('rosterCapacity: with no restored player the still-rostered join is not relaxed at all', async () => {
+test('rosterCapacity: with no restored player the relaxation arm is bound to an empty list', async () => {
   let seen;
   const fake = capacityPool({ stashed: 0, onQuery: (text, params) => { seen = { text, params }; } });
   const client = await fake.connect();
@@ -250,9 +251,10 @@ test('rosterCapacity: with no restored player the still-rostered join is not rel
   await rosterCapacity(client, { league: { roster_limit: 16, ir_slots: 1 }, teamId: 31 });
   client.release();
 
-  // An acquired player (waiver, trade, commissioner add, free agency) lands on
-  // the bench, so the add sites pass no restored ids and the stash count stays
-  // strictly "still on the roster".
+  // The arm is always in the SQL; what makes it inert is the empty int[] it
+  // is bound to (`= ANY('{}')` is false), so the stash count stays strictly
+  // "still on the roster" for every add site that passes no restored ids.
+  assert.match(seen.text, /"lineup_entries"\."player_id" = ANY\(\$4::int\[\]\)/);
   assert.deepEqual(seen.params[3], []);
   fake.assertClean();
 });
@@ -294,4 +296,34 @@ test('IR flag push reaches only managers who keep irAlerts enabled', async (t) =
       url: '/#/league/51/lineup',
     },
   }]);
+});
+
+// --- undo restores only a still-valid stash ----------------------------------
+
+test('undoRestoresStash asks whether the entry the undo lands in is a valid stash', async () => {
+  for (const [rows, expected] of [[[{ 1: 1 }], true], [[], false]]) {
+    let seen;
+    const fake = createFakePool([
+      [select('lineup_entries'), (text, params) => {
+        seen = { text, params };
+        return { rows };
+      }],
+    ]);
+    const client = await fake.connect();
+
+    const restores = await undoRestoresStash(client, { teamId: 31, playerId: 21 });
+    client.release();
+
+    assert.equal(restores, expected);
+    assert.deepEqual(seen.params, [31, [21], ['O', 'IR']]);
+    // Same definition of "the stash the undo returns him to" as the capacity
+    // count: the restored placeholder relaxes the still-rostered join, and the
+    // occupant must be IR-eligible for the stash to be worth restoring.
+    assert.match(seen.text, /"lineup_entries"\."player_id" = ANY\(\$2::int\[\]\) AND \("lineup_entries"\."week" = "leagues"\."current_week" OR/);
+    // An attested stash (#100) is as valid to return to as an eligible one.
+    assert.match(seen.text, /\("players"\."injury_status" = ANY\(\$3::text\[\]\) OR "lineup_entries"\."ir_attested"\)/);
+    assert.match(seen.text, /"lineup_entries"\."slot" = 'IR'/);
+    assert.match(seen.text, /LIMIT 1$/);
+    fake.assertClean();
+  }
 });

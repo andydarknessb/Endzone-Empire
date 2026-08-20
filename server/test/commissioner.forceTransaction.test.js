@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool, insert, remove, select, update } = require('./helpers/fakePool');
 const { forceTransaction } = require('../services/commissioner.service');
+const lineupService = require('../services/lineup.service');
 
 // --- roster capacity at the commissioner add site (#97) ---------------------
 // Thin: proves the forced add consults the IR policy module's roster
@@ -25,8 +26,6 @@ function forceAddWorld({ rostered, stashed, stashQueries }) {
       return { rows: [{ n: stashed }] };
     }],
     [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
-    [insert('lineup_entries'), () => ({ rows: [] })],
-    [update('lineup_entries'), () => ({ rows: [], rowCount: 0 })],
     [remove('waiver_players'), () => ({ rows: [] })],
     [update('waiver_claims'), () => ({ rows: [] })],
     [insert('transactions'), () => ({ rows: [] })],
@@ -47,6 +46,10 @@ test('forceTransaction add: a full team with no stash is rejected at the draft r
 test('forceTransaction add: an eligible IR stash grants the extra spot', async (t) => {
   const stashQueries = [];
   const fake = forceAddWorld({ rostered: 14, stashed: 1, stashQueries }).install(t);
+  const benched = [];
+  t.mock.method(lineupService, 'benchAcquiredPlayer', async (client, args) => {
+    benched.push({ ...args, afterRosterWrite: fake.matching(/^INSERT INTO "team_players"/).length > 0 });
+  });
 
   const result = await forceTransaction({
     leagueId: 1, userId: 100, teamId: 31, action: 'add', playerId: 500,
@@ -57,7 +60,6 @@ test('forceTransaction add: an eligible IR stash grants the extra spot', async (
   // The added player earns no restored credit and lands on the bench (user
   // story 13): a forced add is still an add, never a way back into a stash.
   assert.deepEqual(stashQueries[0][3], []);
-  const benched = fake.matching(/^INSERT INTO "lineup_entries"/);
-  assert.deepEqual(benched.map((call) => call.params), [[1, 31, 500, 2026, 4]]);
+  assert.deepEqual(benched, [{ league, teamId: 31, playerId: 500, afterRosterWrite: true }]);
   fake.assertClean();
 });

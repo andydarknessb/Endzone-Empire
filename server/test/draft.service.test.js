@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { teamIndexForPick, draftPlayer, undoDrop } = require('../services/draft.service');
 const seasonService = require('../services/season.service');
+const lineupService = require('../services/lineup.service');
 const { createFakePool, select, insert, update } = require('./helpers/fakePool');
 
 test('teamIndexForPick: 4 teams, round 1 (picks 0-3)', () => {
@@ -130,6 +131,7 @@ function completionPool({ league, picksMade }) {
 
 test('draftPlayer: the draft completes at teams x draft roster size, not x roster_limit', async (t) => {
   const fake = completionPool({ league: completionLeague, picksMade: 4 }).install(t);
+  recordBenching(t, fake);
   t.mock.method(seasonService, 'generateRegularSeason', async () => ({}));
 
   const result = await draftPlayer({ leagueId: 1, userId: 7, playerId: 500 });
@@ -145,20 +147,22 @@ test('draftPlayer: one pick short of the draft roster size keeps the draft activ
   // Pick 3 of 4: team 12 is on the clock (0-based current_pick 2).
   const league = { ...completionLeague, current_pick: 2 };
   const fake = completionPool({ league, picksMade: 3 }).install(t);
+  const benched = recordBenching(t, fake);
 
   const result = await draftPlayer({ leagueId: 1, userId: 8, playerId: 500 });
 
   assert.equal(result.draftComplete, false);
   const leagueUpdate = fake.matching(/^UPDATE "leagues" SET "current_pick"/)[0];
   assert.equal(leagueUpdate.params[1], 'active');
-  // A draft pick writes no lineup rows: there is no stash to reset before the
-  // season, so the bench-on-acquisition step is a post-draft concern only.
-  assert.equal(fake.matching(/"lineup_entries"/).filter((c) => !/^SELECT/.test(c.text)).length, 0);
+  // A draft pick benches too: the lineup screen has no draft guard, so a
+  // mid-draft drop can leave a stash row behind like any other drop.
+  assert.deepEqual(benched, [{ league, teamId: 12, playerId: 500, afterRosterWrite: true }]);
   fake.assertClean();
 });
 
 test('draftPlayer: a zero-IR league still drafts every roster_limit round', async (t) => {
   const league = { ...completionLeague, ir_slots: 0 };
+  t.mock.method(lineupService, 'benchAcquiredPlayer', async () => {});
   // 2 teams x 3 rounds = 6 picks. The 4th pick ends a 1-IR league but not this one.
   const midDraft = completionPool({ league, picksMade: 4 }).install(t);
   assert.equal((await draftPlayer({ leagueId: 1, userId: 7, playerId: 500 })).draftComplete, false);
@@ -197,10 +201,17 @@ function freeAgencyPool({ rostered, stashed, stashQueries }) {
     }],
     [select('waiver_players'), () => ({ rows: [] })],
     [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
-    [insert('lineup_entries'), () => ({ rows: [] })],
-    [update('lineup_entries'), () => ({ rows: [], rowCount: 0 })],
     [insert('transactions'), () => ({ rows: [] })],
   ]);
+}
+
+/** Mock the bench step and record each call with whether the roster write preceded it. */
+function recordBenching(t, fake) {
+  const benched = [];
+  t.mock.method(lineupService, 'benchAcquiredPlayer', async (client, args) => {
+    benched.push({ ...args, afterRosterWrite: fake.matching(/^INSERT INTO "team_players"/).length > 0 });
+  });
+  return benched;
 }
 
 test('draftPlayer free agency: a full team with no stash is rejected at the draft roster size', async (t) => {
@@ -218,6 +229,7 @@ test('draftPlayer free agency: a full team with no stash is rejected at the draf
 test('draftPlayer free agency: an eligible IR stash grants the extra spot', async (t) => {
   const stashQueries = [];
   const fake = freeAgencyPool({ rostered: 2, stashed: 1, stashQueries }).install(t);
+  const benched = recordBenching(t, fake);
 
   const result = await draftPlayer({ leagueId: 1, userId: 7, playerId: 500 });
 
@@ -226,8 +238,7 @@ test('draftPlayer free agency: an eligible IR stash grants the extra spot', asyn
   // A free-agent add earns no restored credit and lands on the bench (user
   // story 13), even when the player's old stash rows on this team survive.
   assert.deepEqual(stashQueries[0][3], []);
-  const benched = fake.matching(/^INSERT INTO "lineup_entries"/);
-  assert.deepEqual(benched.map((call) => call.params), [[1, 11, 500, 2026, 3]]);
+  assert.deepEqual(benched, [{ league: freeAgencyLeague, teamId: 11, playerId: 500, afterRosterWrite: true }]);
   fake.assertClean();
 });
 
@@ -250,29 +261,57 @@ test('undoDrop: consults roster capacity, not the static roster limit', async (t
   fake.assertClean();
 });
 
-test('undoDrop: the dropped player\'s own surviving stash still grants its spot on the way back in', async (t) => {
-  // Draft roster size 2, ir_slots 1, roster legally 3 with player 500 stashed;
-  // he was dropped (roster now 2) and his current-week IR entry survives. The
-  // undo restores that exact state, so it must pass at capacity 3.
-  let stashParams;
-  const fake = createFakePool([
-    [select('leagues'), () => ({ rows: [{ roster_limit: 3, ir_slots: 1, position_caps: {} }] })],
+const undoLeague = {
+  id: 1, roster_limit: 3, ir_slots: 1, position_caps: {}, current_season: 2026, current_week: 4,
+};
+
+/** An undo world: `stashed` answers the capacity count, `restorable` the valid-stash probe. */
+function undoWorld({ rostered = 2, stashed, restorable, onStashQuery }) {
+  return createFakePool([
+    [select('leagues'), () => ({ rows: [undoLeague] })],
     [select('teams'), () => ({ rows: [{ id: 11, owner_id: 7, locked: false }] })],
     [/^SELECT 1 FROM "waiver_players"/, () => ({ rows: [{ 1: 1 }] })],
-    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 2 }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: rostered }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, (text, params) => {
-      stashParams = params;
-      return { rows: [{ n: 1 }] };
+      if (onStashQuery) onStashQuery(params);
+      return { rows: [{ n: stashed }] };
     }],
+    [/^SELECT 1 FROM "lineup_entries"/, () => ({ rows: restorable ? [{ 1: 1 }] : [] })],
     [select('players'), () => ({ rows: [{ id: 500, name: 'Stash Returner', position: 'RB' }] })],
     [/^DELETE FROM "waiver_players"/, () => ({ rows: [] })],
     [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
     [insert('transactions'), () => ({ rows: [] })],
-  ]).install(t);
+  ]);
+}
+
+test('undoDrop: the dropped player\'s own surviving stash still grants its spot on the way back in', async (t) => {
+  // Draft roster size 2, ir_slots 1, roster legally 3 with player 500 stashed;
+  // he was dropped (roster now 2) and his IR entry survives. The undo
+  // restores that exact state, so it must pass at capacity 3 - and, the
+  // stash still being valid, it is restored rather than benched.
+  let stashParams;
+  const fake = undoWorld({ stashed: 1, restorable: true, onStashQuery: (params) => { stashParams = params; } }).install(t);
+  const benched = recordBenching(t, fake);
 
   const result = await undoDrop({ leagueId: 1, userId: 7, playerId: 500 });
 
   assert.equal(result.player.id, 500);
   assert.deepEqual(stashParams[3], [500]);
+  assert.deepEqual(benched, []);
+  fake.assertClean();
+});
+
+test('undoDrop: a stash that stopped being valid while he was off the roster is benched, not restored', async (t) => {
+  // Player 500 recovered after the drop: his IR row still exists but grants
+  // nothing (stashed 0) and is not a valid stash to return to. With 2 rostered
+  // at draft roster size 2 the undo is out of capacity; with room (1 rostered)
+  // it lands him on the bench rather than restoring an ungated stash.
+  const fake = undoWorld({ rostered: 1, stashed: 0, restorable: false }).install(t);
+  const benched = recordBenching(t, fake);
+
+  const result = await undoDrop({ leagueId: 1, userId: 7, playerId: 500 });
+
+  assert.equal(result.player.id, 500);
+  assert.deepEqual(benched, [{ league: undoLeague, teamId: 11, playerId: 500, afterRosterWrite: true }]);
   fake.assertClean();
 });
