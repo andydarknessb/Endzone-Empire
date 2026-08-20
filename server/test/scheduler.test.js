@@ -51,6 +51,57 @@ test('syncEveryTicks falls back to the default when quota state is unavailable',
   assert.equal(await scheduler.syncEveryTicks(), scheduler.SYNC_EVERY_TICKS);
 });
 
+test('runDailyInjurySync runs once per local day and retries a failed day', async (t) => {
+  const scoring = require('../services/scoring.service');
+  const previousKey = process.env.RAPID_API_KEY;
+  const previousHost = process.env.RAPID_API_HOST;
+  process.env.RAPID_API_KEY = 'test-key';
+  process.env.RAPID_API_HOST = 'test-host';
+  t.after(() => {
+    if (previousKey === undefined) delete process.env.RAPID_API_KEY;
+    else process.env.RAPID_API_KEY = previousKey;
+    if (previousHost === undefined) delete process.env.RAPID_API_HOST;
+    else process.env.RAPID_API_HOST = previousHost;
+  });
+  let calls = 0;
+  let fail = false;
+  t.mock.method(scoring, 'syncInjuries', async () => {
+    calls += 1;
+    if (fail) throw new Error('Tank01 unavailable');
+    return { playersUpdated: 10, irFlags: 1 };
+  });
+
+  const firstDay = new Date('2026-08-20T12:00:00-05:00');
+  assert.deepEqual(await scheduler.runDailyInjurySync({ now: firstDay }), {
+    playersUpdated: 10,
+    irFlags: 1,
+  });
+  assert.equal(await scheduler.runDailyInjurySync({ now: firstDay }), null);
+
+  fail = true;
+  const nextDay = new Date('2026-08-21T12:00:00-05:00');
+  await assert.rejects(scheduler.runDailyInjurySync({ now: nextDay }), /Tank01 unavailable/);
+  fail = false;
+  assert.deepEqual(await scheduler.runDailyInjurySync({ now: nextDay }), {
+    playersUpdated: 10,
+    irFlags: 1,
+  });
+  assert.equal(await scheduler.runDailyInjurySync({ now: nextDay }), null);
+  assert.equal(calls, 3);
+});
+
+test('tickUnlocked registers the daily injury sync duty', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
+  const tickBody = source.slice(
+    source.indexOf('async function tickUnlocked'),
+    source.indexOf('async function runRetention')
+  );
+
+  assert.match(tickBody, /await runDailyInjurySync\(\);/);
+});
+
 // ---- scoring is decoupled from syncing -------------------------------------
 
 test('syncAndScoreLiveWeeks still scores when the stat sync fetched nothing', async (t) => {

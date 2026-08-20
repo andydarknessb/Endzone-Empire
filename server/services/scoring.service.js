@@ -1027,10 +1027,12 @@ function normalizeInjuryStatus(raw) {
 /**
  * Injury sync: Tank01's player list carries each player's current injury
  * designation, so one getNFLPlayerList call refreshes everyone. Players with
- * no current designation are cleared back to healthy.
+ * no current designation are cleared back to healthy. Player-row locks make
+ * overlapping manual/scheduled syncs observe transitions exactly once; IR
+ * flag rows commit with the designation updates before best-effort push.
  */
-async function syncInjuries() {
-  const response = await tank01Get('/getNFLPlayerList');
+async function syncInjuries({ api = tank01Get } = {}) {
+  const response = await api('/getNFLPlayerList');
   const entries = tank01Body(response.data) || [];
   if (!Array.isArray(entries)) {
     const err = new Error('unexpected getNFLPlayerList response shape');
@@ -1047,24 +1049,48 @@ async function syncInjuries() {
     });
   }
 
-  const playersResult = await pool.query(
-    `SELECT "id", "external_id" FROM "players" WHERE "external_id" IS NOT NULL`
-  );
+  const client = await pool.connect();
+  let irFlags;
   let updated = 0;
-  for (const player of playersResult.rows) {
-    const injury = injuryByExternal.get(String(player.external_id));
-    if (!injury) continue; // not in the feed — leave untouched
-    try {
-      await pool.query(
+  try {
+    await client.query('BEGIN');
+    const playersResult = await client.query(
+      `SELECT "id", "external_id", "injury_status"
+         FROM "players" WHERE "external_id" IS NOT NULL
+         FOR UPDATE`
+    );
+    const transitions = [];
+    for (const player of playersResult.rows) {
+      const injury = injuryByExternal.get(String(player.external_id));
+      if (!injury) continue; // not in the feed — leave untouched
+      await client.query(
         `UPDATE "players" SET "injury_status" = $1, "injury_detail" = $2 WHERE "id" = $3`,
         [injury.status, injury.detail, player.id]
       );
+      transitions.push({
+        playerId: player.id,
+        previousDesignation: player.injury_status,
+        currentDesignation: injury.status,
+      });
       updated += 1;
-    } catch (err) {
-      console.error('Injury sync failed for player %s:', player.id, err.message);
     }
+    const { flagRecoveredIrStashes } = require('./irPolicy.service');
+    irFlags = await flagRecoveredIrStashes(client, transitions);
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
   }
-  return { playersUpdated: updated };
+
+  try {
+    const { sendIrFlagPushes } = require('./irPolicy.service');
+    await sendIrFlagPushes(irFlags);
+  } catch (error) {
+    console.error('IR flag push failed:', error.message);
+  }
+  return { playersUpdated: updated, irFlags: irFlags.length };
 }
 
 /**

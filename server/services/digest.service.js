@@ -3,6 +3,7 @@ const { deliverEmail } = require('./account.service');
 const { notify } = require('./activity.service');
 const { usersWanting } = require('./prefs.service');
 const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
+const { injuryDesignationName, isIrEligible } = require('./irPolicy.service');
 
 /**
  * Email/notification digests: pre-lockout lineup reminders, waiver-results
@@ -18,8 +19,9 @@ function appOrigin() {
 
 /**
  * Pure: problems in a lineup that should trigger a pre-lockout reminder.
- * entries: [{ slot, name, onBye, injury_status }] (starters only get flagged;
- * BENCH/IR are ignored). rosterSlots: [{key,count,...}] to detect unfilled slots.
+ * entries: [{ slot, name, onBye, injury_status }] (starter availability and
+ * unresolved IR stashes are flagged; BENCH is ignored). rosterSlots:
+ * [{key,count,...}] detects unfilled slots.
  * Returns human-readable problem strings (empty = lineup looks fine).
  */
 function lineupProblems(entries, rosterSlots = []) {
@@ -39,6 +41,13 @@ function lineupProblems(entries, rosterSlots = []) {
     if (s.onBye) problems.push(`${s.name} (${s.slot}) is on bye`);
     else if (s.injury_status === 'O' || s.injury_status === 'IR') {
       problems.push(`${s.name} (${s.slot}) is ${s.injury_status === 'O' ? 'Out' : 'on IR'}`);
+    }
+  }
+  for (const stash of entries.filter((entry) => entry.slot === 'IR')) {
+    if (!isIrEligible(stash.injury_status)) {
+      problems.push(
+        `${stash.name} (IR) is no longer IR-eligible (${injuryDesignationName(stash.injury_status)})`
+      );
     }
   }
   return problems;
@@ -159,7 +168,7 @@ const remindedTeamWeeks = new Set();
 /**
  * Pre-lockout lineup reminders: when a league's current week has an NFL game
  * kicking off within the next 2 hours, warn owners whose lineups have empty
- * starting slots or starters who are Out/IR/on bye.
+ * starting slots, starters who are Out/IR/on bye, or unresolved IR stashes.
  */
 async function sendLineupReminders() {
   const leagues = await pool.query(

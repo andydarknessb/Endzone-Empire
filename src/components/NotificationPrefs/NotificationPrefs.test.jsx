@@ -42,6 +42,7 @@ const withPushKey = (key, prefs = defaultPrefs) => (url) => {
 
 const defaultPrefs = {
   lineupReminder: true,
+  irAlerts: false,
   waiverResults: false,
   weeklyRecap: true,
   tradeOffers: false,
@@ -53,6 +54,7 @@ test('loads preferences on mount and renders a labeled switch for each', async (
   renderWithProviders(<NotificationPrefs />);
 
   expect(await screen.findByLabelText('Lineup reminders')).toBeChecked();
+  expect(screen.getByLabelText('IR eligibility alerts')).not.toBeChecked();
   expect(screen.getByLabelText('Waiver results')).not.toBeChecked();
   expect(screen.getByLabelText('Weekly recap')).toBeChecked();
   expect(screen.getByLabelText('Trade offers')).not.toBeChecked();
