@@ -1,13 +1,14 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const pool = require('../modules/pool');
+const { createFakePool } = require('./helpers/fakePool');
 const push = require('../services/push.service');
 const prefs = require('../services/prefs.service');
 const { alertCloseMatchups } = require('../modules/scheduler');
 
 test('close-matchup push targets Game Center instead of the retired Matchups route', async (t) => {
   let sent;
-  t.mock.method(pool, 'query', async () => ({ rows: [{ owner_id: 11 }, { owner_id: 22 }] }));
+  createFakePool([[/./, () => ({ rows: [{ owner_id: 11 }, { owner_id: 22 }] })]]).install(t);
   t.mock.method(prefs, 'usersWanting', async (ownerIds, key) => {
     assert.deepEqual(ownerIds, [11, 22]);
     assert.equal(key, 'closeMatchups');
@@ -58,14 +59,11 @@ test('syncAndScoreLiveWeeks still scores when the stat sync fetched nothing', as
   // DB-only, so it must still run — finals ingested via the recap path get
   // scored promptly this way.
   const scoring = require('../services/scoring.service');
-  t.mock.method(pool, 'query', async (sql) => {
-    const text = String(sql);
-    if (text.includes('FROM "leagues"')) {
-      return { rows: [{ id: 42, current_season: 2026, current_week: 3 }] };
-    }
-    if (text.includes('FROM "nfl_games"')) return { rows: [{ '?column?': 1 }] };
-    return { rows: [] };
-  });
+  createFakePool([
+    [/FROM "leagues"/, () => ({ rows: [{ id: 42, current_season: 2026, current_week: 3 }] })],
+    [/FROM "nfl_games"/, () => ({ rows: [{ '?column?': 1 }] })],
+    [/./, () => ({ rows: [] })],
+  ]).install(t);
   t.mock.method(scoring, 'syncWeekStats', async () => {
     throw new Error('quota exhausted');
   });
@@ -93,23 +91,6 @@ test('syncAndScoreLiveWeeks still scores when the stat sync fetched nothing', as
 
 // ---- pick'em-only season lifecycle -------------------------------------------
 
-/**
- * SQL-substring dispatch over pool.query, recording every statement so a test
- * can assert what the job wrote (and did not write).
- */
-function mockPoolQuery(t, handlers) {
-  const calls = [];
-  t.mock.method(pool, 'query', async (sql, params) => {
-    const text = String(sql).replace(/\s+/g, ' ').trim();
-    calls.push({ text, params });
-    for (const [pattern, handler] of handlers) {
-      if (pattern.test(text)) return handler(text, params);
-    }
-    throw new Error(`unexpected query: ${text}`);
-  });
-  return calls;
-}
-
 // Weeks 1..5 of a season: each week's last kickoff is Monday night, 00:15Z Tue.
 const kickoffRows = (weeks) =>
   Array.from({ length: weeks }, (_, i) => {
@@ -125,7 +106,7 @@ test('runPickemWeekSync moves only the league whose week is stale, reading the s
     { id: 1, current_season: 2026, current_week: 3 }, // stale: week 3 closed on Monday night
     { id: 2, current_season: 2026, current_week: 4 }, // already right
   ];
-  const calls = mockPoolQuery(t, [
+  const { calls } = createFakePool([
     [/FROM "leagues"/, () => ({ rows: leagues })],
     [/FROM "nfl_games"/, () => ({ rows: kickoffRows(5) })],
     // Honour the compare-and-swap: the row only moves when the statement
@@ -135,7 +116,7 @@ test('runPickemWeekSync moves only the league whose week is stale, reading the s
       const matches = league && league.current_week === params[2] && league.current_season === params[3];
       return { rows: matches ? [{ id: params[1] }] : [] };
     }],
-  ]);
+  ]).install(t);
 
   // Tuesday noon after week 3's Monday-night game.
   const changes = await scheduler.runPickemWeekSync({ now: new Date('2026-09-29T16:00:00Z') });
@@ -162,7 +143,7 @@ test('runPickemWeekSync moves a league with no picks out of a finished season on
     { id: 1, current_season: 2026, current_week: 18 }, // zero picks: move on
     { id: 2, current_season: 2026, current_week: 18 }, // has picks: not ours to move
   ];
-  const calls = mockPoolQuery(t, [
+  const { calls } = createFakePool([
     [/FROM "leagues"/, () => ({ rows: leagues })],
     [/SELECT MAX\("season"\)/, () => ({ rows: [{ season: 2027 }] })],
     [/SELECT DISTINCT "week", "kickoff_at" FROM "nfl_games"/, (text, params) => ({
@@ -173,7 +154,7 @@ test('runPickemWeekSync moves a league with no picks out of a finished season on
     [/SELECT 1 FROM "pickem_picks"/, (text, params) => ({ rows: params[0] === 2 ? [{ '?column?': 1 }] : [] })],
     [/^UPDATE "leagues" SET "current_season"/, (text, params) => ({ rows: [{ id: params[2] }] })],
     [/^UPDATE "leagues" SET "current_week"/, () => { throw new Error('a plain week write must not happen here'); }],
-  ]);
+  ]).install(t);
 
   const changes = await scheduler.runPickemWeekSync({ now: new Date('2027-06-01T12:00:00Z') });
 
@@ -206,9 +187,6 @@ function pickemSeasonWorld(t, { league, teams, picks, live, games }) {
     { week: 18, nfl_team: 'WAS', opponent: 'DAL', kickoff_at: '2027-01-10T21:25:00.000Z' },
   ];
   const handlers = [
-    [/^BEGIN$/, () => ({ rows: [] })],
-    [/^COMMIT$/, () => ({ rows: [] })],
-    [/^ROLLBACK$/, () => ({ rows: [] })],
     [/FROM "leagues" WHERE "pickem_only" = true AND "season_status" <> 'complete'/, () =>
       ({ rows: state.league.season_status === 'complete' ? [] : [state.league] })],
     [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [state.league] })],
@@ -256,19 +234,9 @@ function pickemSeasonWorld(t, { league, teams, picks, live, games }) {
       return { rows: [] };
     }],
   ];
-  state.calls = [];
-  const dispatch = (via) => async (sql, params) => {
-    const text = String(sql).replace(/\s+/g, ' ').trim();
-    state.calls.push({ via, text, params });
-    for (const [pattern, handler] of handlers) {
-      if (pattern.test(text)) return handler(text, params);
-    }
-    throw new Error(`unexpected query: ${text}`);
-  };
-  // Pool reads and transaction-client statements are tagged separately so a
-  // test can see the transaction boundary, not just the statements.
-  t.mock.method(pool, 'query', dispatch('pool'));
-  t.mock.method(pool, 'connect', async () => ({ query: dispatch('client'), release: () => {} }));
+  // The fake tags pool reads and transaction-client statements separately so
+  // a test can see the transaction boundary, not just the statements.
+  state.calls = createFakePool(handlers).install(t).calls;
   return state;
 }
 
