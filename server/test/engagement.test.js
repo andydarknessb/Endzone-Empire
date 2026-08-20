@@ -98,6 +98,20 @@ test('lineupProblems: questionable players do not trigger, clean lineup is empty
   assert.deepEqual(problems, []);
 });
 
+test('lineupProblems resurfaces an unresolved ineligible IR stash before kickoff', () => {
+  const problems = lineupProblems(
+    [
+      entry('QB', 'Healthy QB'),
+      entry('IR', 'Test Runner', { injury_status: 'Q' }),
+    ],
+    slots({ QB: 1 })
+  );
+
+  assert.deepEqual(problems, [
+    'Test Runner (IR) is no longer IR-eligible (questionable)',
+  ]);
+});
+
 // --- prefs -------------------------------------------------------------------
 
 test('mergePrefs fills defaults and respects stored overrides', () => {
@@ -114,4 +128,10 @@ test('validatePrefs rejects unknown keys, non-booleans, and non-objects', () => 
   assert.equal(validatePrefs({ weeklyRecap: 'nope' }).length, 1);
   assert.equal(validatePrefs(null).length, 1);
   assert.equal(validatePrefs([true]).length, 1);
+});
+
+test('irAlerts is an opt-out preference that defaults on', () => {
+  assert.equal(mergePrefs(undefined).irAlerts, true);
+  assert.equal(mergePrefs({ irAlerts: false }).irAlerts, false);
+  assert.deepEqual(validatePrefs({ irAlerts: false }), []);
 });

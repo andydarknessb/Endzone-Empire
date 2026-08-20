@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { byeWeekFromPlayedWeeks, REG_SEASON_WEEKS } = require('../services/bye.service');
+const { dropPlayer } = require('../services/draft.service');
 const { createFakePool } = require('./helpers/fakePool');
 const {
   slotEligible,
@@ -104,15 +105,15 @@ test('getLineup batches completed-season projections and preserves weekly null s
   fake.assertClean();
 });
 
-function installSetLineupWorld(t, injuryDesignation) {
+function installSetLineupWorld(t, injuryDesignation, { slot = 'BENCH', extraEntries = [], lockedTeams = [] } = {}) {
   const entries = [{
     player_id: 1,
     name: 'Test Runner',
     position: 'RB',
     nfl_team: 'MIN',
     injury_status: injuryDesignation,
-    slot: 'BENCH',
-  }];
+    slot,
+  }, ...extraEntries];
   return createFakePool([
     [/^SELECT \* FROM "leagues"/, () => ({
       rows: [{
@@ -128,9 +129,13 @@ function installSetLineupWorld(t, injuryDesignation) {
     [/^SELECT "team_players"\."player_id"/, () => ({
       rows: entries.map(({ player_id, position }) => ({ player_id, position })),
     })],
-    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({ rows: [{ player_id: 1 }] })],
+    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({
+      rows: entries.map(({ player_id }) => ({ player_id })),
+    })],
     [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: entries.map((entry) => ({ ...entry })) })],
-    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({
+      rows: lockedTeams.map((nfl_team) => ({ nfl_team })),
+    })],
     [/^UPDATE "lineup_entries"/, () => ({ rows: [] })],
   ]).install(t);
 }
@@ -157,6 +162,199 @@ test('setLineup accepts placing an IR-eligible player in an available IR slot', 
   });
 
   assert.equal(result.updated, 1);
+  fake.assertClean();
+});
+
+test('setLineup rejects a save that leaves a non-IR-eligible player stashed', async (t) => {
+  const fake = installSetLineupWorld(t, 'Q', {
+    slot: 'IR',
+    extraEntries: [{
+      player_id: 2,
+      name: 'Other Quarterback',
+      position: 'QB',
+      nfl_team: 'KC',
+      injury_status: null,
+      slot: 'BENCH',
+    }],
+  });
+
+  await assert.rejects(
+    setLineup({ leagueId: 5, userId: 7, week: 8, moves: [{ playerId: 2, slot: 'QB' }] }),
+    (error) => error.statusCode === 400
+      && /Test Runner/.test(error.message)
+      && /current injury designation: questionable/.test(error.message)
+  );
+
+  fake.assertClean();
+});
+
+test('setLineup lets a locked player resolve a stale stash by moving from IR to the bench', async (t) => {
+  const fake = installSetLineupWorld(t, 'Q', { slot: 'IR', lockedTeams: ['MIN'] });
+
+  const result = await setLineup({
+    leagueId: 5,
+    userId: 7,
+    week: 8,
+    moves: [{ playerId: 1, slot: 'BENCH' }],
+  });
+
+  assert.equal(result.updated, 1);
+  fake.assertClean();
+});
+
+test('setLineup keeps the lineup lock for a player outside IR', async (t) => {
+  const fake = installSetLineupWorld(t, null, { lockedTeams: ['MIN'] });
+
+  await assert.rejects(
+    setLineup({ leagueId: 5, userId: 7, week: 8, moves: [{ playerId: 1, slot: 'RB' }] }),
+    { statusCode: 409, code: 'LINEUP_LOCKED' }
+  );
+
+  fake.assertClean();
+});
+
+test('setLineup keeps the lineup lock when moving from IR into a starting slot', async (t) => {
+  const fake = installSetLineupWorld(t, 'Q', { slot: 'IR', lockedTeams: ['MIN'] });
+
+  await assert.rejects(
+    setLineup({ leagueId: 5, userId: 7, week: 8, moves: [{ playerId: 1, slot: 'RB' }] }),
+    { statusCode: 409, code: 'LINEUP_LOCKED' }
+  );
+
+  fake.assertClean();
+});
+
+test('setLineup derives a stale stash after weekly slot carry-forward', async (t) => {
+  const entries = [
+    {
+      player_id: 1,
+      name: 'Recovered Runner',
+      position: 'RB',
+      nfl_team: 'MIN',
+      injury_status: 'Q',
+      previousSlot: 'IR',
+    },
+    {
+      player_id: 2,
+      name: 'Other Quarterback',
+      position: 'QB',
+      nfl_team: 'KC',
+      injury_status: null,
+      previousSlot: 'BENCH',
+    },
+  ];
+  const currentSlots = new Map();
+  const fake = createFakePool([
+    [/^SELECT \* FROM "leagues"/, () => ({
+      rows: [{
+        id: 5,
+        current_season: 2026,
+        current_week: 9,
+        roster_slots: DEFAULT_ROSTER_SLOTS,
+        bench_slots: 5,
+        ir_slots: 1,
+      }],
+    })],
+    [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
+    [/^SELECT "team_players"\."player_id"/, () => ({
+      rows: entries.map(({ player_id, position }) => ({ player_id, position })),
+    })],
+    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({ rows: [] })],
+    [/^SELECT "player_id", "slot" FROM "lineup_entries"/, () => ({
+      rows: entries.map(({ player_id, previousSlot }) => ({ player_id, slot: previousSlot })),
+    })],
+    [/^INSERT INTO "lineup_entries"/, (text, params) => {
+      currentSlots.set(params[2], params[5]);
+      return { rows: [] };
+    }],
+    [/^SELECT "lineup_entries"\."player_id"/, () => ({
+      rows: entries.map(({ previousSlot, ...entry }) => ({
+        ...entry,
+        slot: currentSlots.get(entry.player_id),
+      })),
+    })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
+    [/^UPDATE "lineup_entries"/, () => ({ rows: [] })],
+  ]).install(t);
+
+  await assert.rejects(
+    setLineup({ leagueId: 5, userId: 7, week: 9, moves: [{ playerId: 2, slot: 'QB' }] }),
+    (error) => error.statusCode === 400
+      && /Recovered Runner/.test(error.message)
+      && /current injury designation: questionable/.test(error.message)
+  );
+
+  fake.assertClean();
+});
+
+test('a full roster resolves by dropping a bench player before activating the stale stash', async (t) => {
+  const entries = [
+    {
+      player_id: 1,
+      name: 'Recovered Runner',
+      position: 'RB',
+      nfl_team: 'MIN',
+      injury_status: 'Q',
+      slot: 'IR',
+    },
+    {
+      player_id: 2,
+      name: 'Bench Receiver',
+      position: 'WR',
+      nfl_team: 'KC',
+      injury_status: null,
+      slot: 'BENCH',
+    },
+  ];
+  const rosteredPlayerIds = new Set(entries.map(({ player_id }) => player_id));
+  const fake = createFakePool([
+    [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10, locked: false }] })],
+    [/^DELETE FROM "team_players"/, (text, params) => {
+      const deleted = rosteredPlayerIds.delete(params[1]);
+      return { rows: deleted ? [{ id: 99 }] : [], rowCount: deleted ? 1 : 0 };
+    }],
+    [/^SELECT "waiver_period_hours" FROM "leagues"/, () => ({
+      rows: [{ waiver_period_hours: 24 }],
+    })],
+    [/^INSERT INTO "waiver_players"/, () => ({ rows: [] })],
+    [/^INSERT INTO "transactions"/, () => ({ rows: [] })],
+    [/^SELECT \* FROM "leagues"/, () => ({
+      rows: [{
+        id: 5,
+        current_season: 2026,
+        current_week: 8,
+        roster_slots: [],
+        bench_slots: 1,
+        ir_slots: 1,
+      }],
+    })],
+    [/^SELECT "team_players"\."player_id"/, () => ({
+      rows: entries
+        .filter(({ player_id }) => rosteredPlayerIds.has(player_id))
+        .map(({ player_id, position }) => ({ player_id, position })),
+    })],
+    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({
+      rows: entries.map(({ player_id }) => ({ player_id })),
+    })],
+    [/^SELECT "lineup_entries"\."player_id"/, () => ({
+      rows: entries
+        .filter(({ player_id }) => rosteredPlayerIds.has(player_id))
+        .map((entry) => ({ ...entry })),
+    })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [{ nfl_team: 'MIN' }] })],
+    [/^UPDATE "lineup_entries"/, () => ({ rows: [] })],
+  ]).install(t);
+
+  const drop = await dropPlayer({ leagueId: 5, userId: 7, playerId: 2 });
+  const activation = await setLineup({
+    leagueId: 5,
+    userId: 7,
+    week: 8,
+    moves: [{ playerId: 1, slot: 'BENCH' }],
+  });
+
+  assert.equal(drop.playerId, 2);
+  assert.equal(activation.updated, 1);
   fake.assertClean();
 });
 

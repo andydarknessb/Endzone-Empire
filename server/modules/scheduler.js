@@ -50,6 +50,9 @@ let lastCorrectionDay = null;
 // in-process, idempotent, repeat-safe pattern as the stat-correction pass.
 let lastNflverseDay = null;
 let lastRetentionDay = null;
+// Tank01 injury refresh uses the same successful-run day stamp: failures retry
+// next tick, while an ineligible designation already committed cannot re-flag.
+let lastInjurySyncDay = null;
 
 async function tickUnlocked() {
   if (running) return; // don't overlap slow runs
@@ -72,6 +75,11 @@ async function tickUnlocked() {
       await runNflverseFinalization();
     } catch (err) {
       console.error('nflverse finalization failed (will retry next tick):', err.message);
+    }
+    try {
+      await runDailyInjurySync();
+    } catch (err) {
+      console.error('daily injury sync failed (will retry next tick):', err.message);
     }
     try {
       await runHoldoutSnapshots();
@@ -152,6 +160,16 @@ async function runRetention() {
   if (Object.values(counts).some((count) => count > 0)) {
     console.log('scheduler: retention cleanup completed', counts);
   }
+}
+
+async function runDailyInjurySync({ now = new Date() } = {}) {
+  if (!process.env.RAPID_API_KEY || !process.env.RAPID_API_HOST) return null;
+  const today = now.toLocaleDateString('en-CA');
+  if (lastInjurySyncDay === today) return null;
+  const scoring = require('../services/scoring.service');
+  const result = await scoring.syncInjuries();
+  lastInjurySyncDay = today;
+  return result;
 }
 
 async function tick() {
@@ -427,6 +445,7 @@ module.exports = {
   getSchedulerStatus,
   syncAndScoreLiveWeeks,
   syncEveryTicks,
+  runDailyInjurySync,
   runHoldoutSnapshots,
   runPickemWeekSync,
   runPickemSeasonCompletion,

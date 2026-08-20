@@ -5,6 +5,7 @@ import { urlBase64ToUint8Array } from '../../utils/push';
 
 const PREF_FIELDS = [
   { key: 'lineupReminder', label: 'Lineup reminders' },
+  { key: 'irAlerts', label: 'IR eligibility alerts' },
   { key: 'waiverResults', label: 'Waiver results' },
   { key: 'weeklyRecap', label: 'Weekly recap' },
   { key: 'tradeOffers', label: 'Trade offers' },
