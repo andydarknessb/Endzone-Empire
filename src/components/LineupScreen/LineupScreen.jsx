@@ -68,10 +68,14 @@ function isEligibleForSlot(position, slot, rosterSlots, injuryDesignation) {
   return slotEligiblePositions(rosterSlots, slot).includes(position);
 }
 
+function isValidIrStash(entry) {
+  return Boolean(entry?.valid_stash);
+}
+
 function canResolveLockedIrStash(entry, targetSlot) {
   return entry?.locked
     && entry.slot === 'IR'
-    && !IR_ELIGIBLE_DESIGNATIONS.has(entry.injury_status)
+    && !isValidIrStash(entry)
     && targetSlot === 'BENCH';
 }
 
@@ -532,12 +536,15 @@ function LineupScreen() {
     : [];
 
   const benchEntries = bySlot.BENCH || [];
+  const needsZeroBenchRecoveryTarget = !bestBall
+    && lineup?.benchSlots === 0
+    && (bySlot.IR || []).some((entry) => canResolveLockedIrStash(entry, 'BENCH'));
   const benchRowCount = bestBall
     ? Math.max(
         lineup?.benchSlots || 0,
         benchEntries.length + ((bySlot.IR || []).length > 0 ? 1 : 0)
       )
-    : lineup?.benchSlots || 0;
+    : Math.max(lineup?.benchSlots || 0, needsZeroBenchRecoveryTarget ? 1 : 0);
   const benchRows = lineup
     ? Array.from({ length: benchRowCount }, (_, i) => {
         const entry = benchEntries[i] || null;

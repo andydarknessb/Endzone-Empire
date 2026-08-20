@@ -103,6 +103,7 @@ const recoveredStashEntry = (overrides = {}) => ({
   nfl_team: 'Minnesota Vikings',
   injury_status: 'Q',
   slot: 'IR',
+  valid_stash: false,
   locked: true,
   onBye: false,
   ...overrides,
@@ -341,6 +342,7 @@ test('an attested stash wears the ATTESTED chip on its IR row; an eligible stash
           slot: 'IR',
           injury_status: null,
           ir_attested: true,
+          valid_stash: true,
           locked: false,
           onBye: false,
         },
@@ -366,6 +368,7 @@ test('a normally eligible stash renders without the ATTESTED chip', async () => 
           slot: 'IR',
           injury_status: 'O',
           ir_attested: false,
+          valid_stash: true,
           locked: false,
           onBye: false,
         },
@@ -556,7 +559,7 @@ test('a locked IR-eligible stash remains unavailable after kickoff', async () =>
       benchSlots: 2,
       entries: [
         ...lineupResponse().entries,
-        recoveredStashEntry({ name: 'Still Out Receiver', injury_status: 'O' }),
+        recoveredStashEntry({ name: 'Still Out Receiver', injury_status: 'O', valid_stash: true }),
       ],
     }),
   });
@@ -571,6 +574,30 @@ test('a locked IR-eligible stash remains unavailable after kickoff', async () =>
   await userEvent.click(screen.getByTestId('slot-row-BENCH-empty-1'));
   const menu = await screen.findByRole('menu');
   expect(within(menu).queryByText(/Still Out Receiver/)).not.toBeInTheDocument();
+  expect(apiClient.put).not.toHaveBeenCalled();
+});
+
+test('a locked attested stash remains unavailable after kickoff', async () => {
+  apiClient.get.mockResolvedValue({
+    data: lineupResponse({
+      benchSlots: 2,
+      entries: [
+        ...lineupResponse().entries,
+        recoveredStashEntry({ name: 'Attested Receiver', ir_attested: true, valid_stash: true }),
+      ],
+    }),
+  });
+
+  renderScreenWithToasts();
+  await screen.findByText('Attested Receiver');
+
+  await userEvent.click(screen.getByTestId('slot-row-IR-0'));
+  expect(await screen.findByText("Locked players can't be moved")).toBeInTheDocument();
+  expect(screen.queryByTestId('lineup-move-strip')).not.toBeInTheDocument();
+
+  await userEvent.click(screen.getByTestId('slot-row-BENCH-empty-1'));
+  const menu = await screen.findByRole('menu');
+  expect(within(menu).queryByText(/Attested Receiver/)).not.toBeInTheDocument();
   expect(apiClient.put).not.toHaveBeenCalled();
 });
 
@@ -639,6 +666,34 @@ test('an empty bench row lets a locked recovered stash activate after a drop', a
   await screen.findByText('Recovered Receiver');
 
   await userEvent.click(screen.getByTestId('slot-row-BENCH-empty-1'));
+  const menu = await screen.findByRole('menu');
+  await userEvent.click(within(menu).getByText(/Recovered Receiver/));
+
+  await waitFor(() =>
+    expect(apiClient.put).toHaveBeenCalledWith('/api/team/lineup', {
+      leagueId: 1,
+      week: 3,
+      moves: [{ playerId: 5, slot: 'BENCH' }],
+    })
+  );
+});
+
+test('a zero-bench league exposes a corrective target for a locked stale stash', async () => {
+  apiClient.get.mockResolvedValue({
+    data: lineupResponse({
+      benchSlots: 0,
+      entries: [
+        ...lineupResponse().entries.filter((entry) => entry.slot !== 'BENCH'),
+        recoveredStashEntry(),
+      ],
+    }),
+  });
+  apiClient.put.mockResolvedValue({});
+
+  renderScreenWithToasts();
+  await screen.findByText('Recovered Receiver');
+
+  await userEvent.click(screen.getByTestId('slot-row-BENCH-empty-0'));
   const menu = await screen.findByRole('menu');
   await userEvent.click(within(menu).getByText(/Recovered Receiver/));
 
@@ -780,7 +835,7 @@ test('best ball: renders the full bench pool and lets an unlocked IR occupant re
     slot: 'BENCH',
     locked: false,
   }));
-  const irEntry = recoveredStashEntry({ injury_status: 'O', locked: false });
+  const irEntry = recoveredStashEntry({ injury_status: 'O', valid_stash: true, locked: false });
   setupGet({
     league: { id: 1, best_ball: true },
     lineup: lineupResponse({

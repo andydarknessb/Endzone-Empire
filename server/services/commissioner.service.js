@@ -4,6 +4,7 @@ const {
   materializeLineup,
   parseLineupSettings,
   validateLineup,
+  entriesForLineupValidation,
 } = require('./lineup.service');
 const { computeStandings } = require('./season.service');
 const { placeOnWaivers } = require('./waiver.service');
@@ -143,8 +144,9 @@ async function forceSetLineup({ leagueId, userId, teamId, week, moves }) {
       entry.ir_attested = irAttested;
       changed.push(entry);
     }
+    const entriesToValidate = entriesForLineupValidation(byPlayer.values(), league);
     const errors = validateLineup(
-      Array.from(byPlayer.values()).map((e) => ({ playerId: e.player_id, position: e.position, slot: e.slot })),
+      entriesToValidate.map((e) => ({ playerId: e.player_id, position: e.position, slot: e.slot })),
       parseLineupSettings(league)
     );
     if (errors.length > 0) throw new CommissionerError(400, errors.join('; '));

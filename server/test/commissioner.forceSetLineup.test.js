@@ -13,7 +13,7 @@ const DEFAULT_ROSTER_SLOTS = [
   { key: 'RB', count: 1, eligiblePositions: ['RB'] },
 ];
 
-function forceSetWorld(t, { entries }) {
+function forceSetWorld(t, { entries, leagueOverrides = {} }) {
   const updates = [];
   const fake = createFakePool([
     [/FROM "leagues" WHERE "id" = \$1/, () => ({
@@ -25,6 +25,7 @@ function forceSetWorld(t, { entries }) {
         roster_slots: DEFAULT_ROSTER_SLOTS,
         bench_slots: 5,
         ir_slots: 1,
+        ...leagueOverrides,
       }],
     })],
     [select('teams'), () => ({ rows: [{ id: 10, league_id: 5 }] })],
@@ -58,6 +59,27 @@ test('force-set placing a non-IR-eligible player into IR succeeds and persists t
 
   assert.equal(result.updated, 1);
   assert.match(updates[0].text, /"ir_attested" = \$2/);
+  assert.equal(updates[0].params[0], 'IR');
+  assert.equal(updates[0].params[1], true);
+  fake.assertClean();
+});
+
+test('force-set can attest a player from the full best-ball bench pool', async (t) => {
+  const { fake, updates } = forceSetWorld(t, {
+    leagueOverrides: { best_ball: true, bench_slots: 1 },
+    entries: [
+      { player_id: 1, slot: 'BENCH', ir_attested: false, position: 'RB', injury_status: null },
+      { player_id: 2, slot: 'BENCH', ir_attested: false, position: 'RB', injury_status: null },
+      { player_id: 3, slot: 'BENCH', ir_attested: false, position: 'RB', injury_status: null },
+    ],
+  });
+
+  const result = await forceSetLineup({
+    leagueId: 5, userId: 100, teamId: 10, week: 8,
+    moves: [{ playerId: 1, slot: 'IR' }],
+  });
+
+  assert.equal(result.updated, 1);
   assert.equal(updates[0].params[0], 'IR');
   assert.equal(updates[0].params[1], true);
   fake.assertClean();

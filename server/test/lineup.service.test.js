@@ -107,6 +107,8 @@ test('getLineup batches completed-season projections and preserves weekly null s
   // from an invalid one (#100).
   assert.equal(lineup.entries[0].ir_attested, false);
   assert.equal(lineup.entries[2].ir_attested, true);
+  assert.equal(lineup.entries[0].valid_stash, false);
+  assert.equal(lineup.entries[2].valid_stash, true);
   fake.assertClean();
 });
 
@@ -284,8 +286,73 @@ test('setLineup lets a locked player resolve a stale stash by moving from IR to 
   fake.assertClean();
 });
 
+test('setLineup lets a locked stale stash leave IR when the league has no bench slots', async (t) => {
+  const fake = installSetLineupWorld(t, 'Q', {
+    slot: 'IR',
+    lockedTeams: ['MIN'],
+    leagueOverrides: { bench_slots: 0 },
+  });
+
+  const result = await setLineup({
+    leagueId: 5,
+    userId: 7,
+    week: 8,
+    moves: [{ playerId: 1, slot: 'BENCH' }],
+  });
+
+  assert.equal(result.updated, 1);
+  fake.assertClean();
+});
+
+test('setLineup cannot launder zero-bench recovery into an ordinary bench slot', async (t) => {
+  const fake = installSetLineupWorld(t, 'Q', {
+    slot: 'IR',
+    leagueOverrides: { bench_slots: 0 },
+    extraEntries: [{
+      player_id: 2,
+      name: 'Starting Runner',
+      position: 'RB',
+      nfl_team: 'KC',
+      injury_status: null,
+      slot: 'RB',
+      ir_attested: false,
+    }],
+  });
+
+  await assert.rejects(
+    setLineup({
+      leagueId: 5,
+      userId: 7,
+      week: 8,
+      moves: [
+        { playerId: 1, slot: 'BENCH' },
+        { playerId: 1, slot: 'RB' },
+        { playerId: 2, slot: 'BENCH' },
+      ],
+    }),
+    (error) => error.statusCode === 400 && /too many players at BENCH \(1\/0\)/.test(error.message)
+  );
+
+  fake.assertClean();
+});
+
 test('setLineup keeps the lock for an IR-eligible player stashed in IR', async (t) => {
   const fake = installSetLineupWorld(t, 'O', { slot: 'IR', lockedTeams: ['MIN'] });
+
+  await assert.rejects(
+    setLineup({ leagueId: 5, userId: 7, week: 8, moves: [{ playerId: 1, slot: 'BENCH' }] }),
+    { statusCode: 409, code: 'LINEUP_LOCKED' }
+  );
+
+  fake.assertClean();
+});
+
+test('setLineup keeps the lock for an attested stash after kickoff', async (t) => {
+  const fake = installSetLineupWorld(t, 'Q', {
+    slot: 'IR',
+    lockedTeams: ['MIN'],
+    irAttested: true,
+  });
 
   await assert.rejects(
     setLineup({ leagueId: 5, userId: 7, week: 8, moves: [{ playerId: 1, slot: 'BENCH' }] }),

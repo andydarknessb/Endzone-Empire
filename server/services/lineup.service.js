@@ -2,7 +2,7 @@ const pool = require('../modules/pool');
 const { isPickemOnly, PICKEM_ONLY_MESSAGE } = require('./leagueType');
 const { requireMember } = require('./leagueRole.service');
 const { computeByeWeeks } = require('./bye.service');
-const { injuryDesignationName, isIrEligible, isValidStash } = require('./irPolicy.service');
+const { injuryDesignationName, isValidStash } = require('./irPolicy.service');
 
 class LineupError extends Error {
   constructor(statusCode, message, code = null) {
@@ -108,6 +108,13 @@ function validateLineup(entries, { rosterSlots = DEFAULT_ROSTER_SLOTS, benchSlot
   return errors;
 }
 
+function entriesForLineupValidation(entries, league) {
+  const lineupEntries = Array.from(entries);
+  return league.best_ball
+    ? lineupEntries.filter((entry) => entry.slot === IR)
+    : lineupEntries;
+}
+
 /**
  * Ensure every player currently on the team's roster has a lineup_entries row
  * for (season, week). First touch of a week copies slots forward from the
@@ -209,6 +216,7 @@ function annotateLineupEntries(entries, { locked, byeByTeam, selectedWeek }) {
       bye_week: byeWeek,
       locked: locked.has(row.nfl_team),
       onBye: byeWeek === selectedWeek,
+      valid_stash: row.slot === IR && isValidStash(row),
     };
   });
 }
@@ -353,6 +361,7 @@ async function setLineup({ leagueId, userId, week, moves }) {
 
     const locked = await lockedNflTeams(client, { season, week: targetWeek });
     const changed = [];
+    let resolvesLockedZeroBenchStash = false;
     for (const move of moves) {
       const entry = byPlayer.get(move.playerId);
       if (!entry) throw new LineupError(404, `player ${move.playerId} is not on your roster`);
@@ -364,7 +373,10 @@ async function setLineup({ leagueId, userId, week, moves }) {
       const resolvesStaleIrStash = !league.best_ball
         && entry.slot === IR
         && move.slot === BENCH
-        && !isIrEligible(entry.injury_status);
+        && !isValidStash(entry);
+      resolvesLockedZeroBenchStash ||= resolvesStaleIrStash
+        && locked.has(entry.nfl_team)
+        && league.bench_slots === 0;
       if (!resolvesStaleIrStash && locked.has(entry.nfl_team)) {
         throw new LineupError(409, 'that player is locked; his game has started', 'LINEUP_LOCKED');
       }
@@ -388,12 +400,13 @@ async function setLineup({ leagueId, userId, week, moves }) {
     }
 
     const settings = parseLineupSettings(league);
-    const entriesToValidate = league.best_ball
-      ? Array.from(byPlayer.values()).filter((entry) => entry.slot === IR)
-      : Array.from(byPlayer.values());
+    const validationSettings = resolvesLockedZeroBenchStash
+      ? { ...settings, benchSlots: 1 }
+      : settings;
+    const entriesToValidate = entriesForLineupValidation(byPlayer.values(), league);
     const errors = validateLineup(
       entriesToValidate.map((e) => ({ playerId: e.player_id, position: e.position, slot: e.slot })),
-      settings
+      validationSettings
     );
     if (errors.length > 0) throw new LineupError(400, errors.join('; '));
 
@@ -469,6 +482,7 @@ module.exports = {
   slotEligible,
   parseLineupSettings,
   validateLineup,
+  entriesForLineupValidation,
   materializeLineup,
   benchAcquiredPlayer,
   lockedNflTeams,
