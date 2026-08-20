@@ -49,6 +49,7 @@ const MAX_WEEK = 18;
 const WEEK_OPTIONS = Array.from({ length: MAX_WEEK }, (_, i) => i + 1);
 const PROJECTION_ENGINE_NAME = 'Endzone Forecast';
 const IR_ELIGIBLE_DESIGNATIONS = new Set(['O', 'IR']);
+const BEST_BALL_MANAGED_SLOTS = new Set(['BENCH', 'IR']);
 
 /** A slot's configured eligiblePositions, with any group key expanded to its member positions. */
 function slotEligiblePositions(rosterSlots, slotKey) {
@@ -65,6 +66,13 @@ function isEligibleForSlot(position, slot, rosterSlots, injuryDesignation) {
   if (slot === 'BENCH') return true;
   if (slot === 'IR') return IR_ELIGIBLE_DESIGNATIONS.has(injuryDesignation);
   return slotEligiblePositions(rosterSlots, slot).includes(position);
+}
+
+function canResolveLockedIrStash(entry, targetSlot) {
+  return entry?.locked
+    && entry.slot === 'IR'
+    && !IR_ELIGIBLE_DESIGNATIONS.has(entry.injury_status)
+    && targetSlot === 'BENCH';
 }
 
 // --- start/sit projection presentation -------------------------------------
@@ -163,6 +171,7 @@ function factorChipsFor(side) {
 // must be eligible for each other's slot. A locked occupant can never be a
 // target regardless of position.
 function isEligibleTarget(selectedEntry, targetEntry, slotType, rosterSlots) {
+  if (selectedEntry.locked && !canResolveLockedIrStash(selectedEntry, slotType)) return false;
   if (!targetEntry) {
     return isEligibleForSlot(
       selectedEntry.position,
@@ -346,9 +355,9 @@ function LineupScreen() {
   };
 
   const handleRowClick = (entry, slotType, event) => {
-    if (bestBall) return; // best ball lineups are set automatically — no manual moves
+    if (bestBall && !BEST_BALL_MANAGED_SLOTS.has(slotType)) return;
 
-    if (entry && entry.locked) {
+    if (entry && entry.locked && (bestBall || !canResolveLockedIrStash(entry, 'BENCH'))) {
       notify("Locked players can't be moved", { severity: 'warning' });
       setSelectedEntry(null);
       return;
@@ -396,7 +405,8 @@ function LineupScreen() {
     const isSelected = !!(entry && selectedEntry && selectedEntry.id === entry.id);
     const showEligibility = !!selectedEntry && !isSelected;
     const eligible = showEligibility && isEligibleTarget(selectedEntry, entry, slotType, lineup?.rosterSlots);
-    const disabled = bestBall || (showEligibility && !eligible);
+    const disabled = (bestBall && !BEST_BALL_MANAGED_SLOTS.has(slotType))
+      || (showEligibility && !eligible);
     const isEmpty = !entry;
     return (
       <ListItemButton
@@ -521,15 +531,25 @@ function LineupScreen() {
       )
     : [];
 
-  const benchRows = (bySlot.BENCH || []).map((entry) =>
-    renderRow({
-      key: `BENCH-${entry.id}`,
-      testId: `slot-row-BENCH-${entry.id}`,
-      slotLabel: 'BENCH',
-      slotType: 'BENCH',
-      entry,
-    })
-  );
+  const benchEntries = bySlot.BENCH || [];
+  const benchRowCount = bestBall
+    ? Math.max(
+        lineup?.benchSlots || 0,
+        benchEntries.length + ((bySlot.IR || []).length > 0 ? 1 : 0)
+      )
+    : lineup?.benchSlots || 0;
+  const benchRows = lineup
+    ? Array.from({ length: benchRowCount }, (_, i) => {
+        const entry = benchEntries[i] || null;
+        return renderRow({
+          key: entry ? `BENCH-${entry.id}` : `BENCH-empty-${i}`,
+          testId: entry ? `slot-row-BENCH-${entry.id}` : `slot-row-BENCH-empty-${i}`,
+          slotLabel: 'BENCH',
+          slotType: 'BENCH',
+          entry,
+        });
+      })
+    : [];
 
   // Lineup guardrails: a persistent warning (never a block — moves auto-save)
   // when a starting slot is empty or a starter is on this week's bye.
@@ -567,12 +587,18 @@ function LineupScreen() {
   // (TeamManagement) already renders a Bye column awaiting the same data.
 
   const quickPickEligible = quickPick
-    ? entries.filter((e) => !e.locked && isEligibleForSlot(
-      e.position,
-      quickPick.slotType,
-      lineup?.rosterSlots,
-      e.injury_status
-    ))
+    ? entries.filter((e) => {
+      const bestBallSourceAllowed = !bestBall
+        || (BEST_BALL_MANAGED_SLOTS.has(e.slot) && e.slot !== quickPick.slotType);
+      const lockAllowsMove = !e.locked
+        || (!bestBall && canResolveLockedIrStash(e, quickPick.slotType));
+      return bestBallSourceAllowed && lockAllowsMove && isEligibleForSlot(
+        e.position,
+        quickPick.slotType,
+        lineup?.rosterSlots,
+        e.injury_status
+      );
+    })
     : [];
 
   const currentWeekValue = lineup ? selectedWeek ?? lineup.week : null;
