@@ -2,6 +2,7 @@ const pool = require('../modules/pool');
 const { logTransaction, notify, notifyLeague } = require('./activity.service');
 const { isLeagueCommissioner, requireMember } = require('./leagueRole.service');
 const { assertFantasyLeagueRow } = require('./leagueType');
+const { rosterCapacity } = require('./irPolicy.service');
 
 class TradeError extends Error {
   constructor(statusCode, message) {
@@ -374,8 +375,18 @@ async function executeTrade(client, { trade, league, items, teams, byCommissione
       `SELECT COUNT(*)::int AS n FROM "team_players" WHERE "team_id" = $1`,
       [teamId]
     );
-    if (count.rows[0].n + change > league.roster_limit) {
-      throw new TradeError(409, `trade would put ${teams.get(teamId).name} over the roster limit`);
+    // Roster capacity, not the static roster limit (#97). Outgoing players
+    // are excluded from the stash count: trading away your stashed player
+    // takes his granted spot with him.
+    const capacity = await rosterCapacity(client, {
+      league,
+      teamId,
+      excludePlayerIds: items
+        .filter((item) => item.from_team_id === teamId)
+        .map((item) => item.player_id),
+    });
+    if (count.rows[0].n + change > capacity) {
+      throw new TradeError(409, `trade would put ${teams.get(teamId).name} over its roster capacity of ${capacity}`);
     }
   }
   for (const item of items) {

@@ -10,6 +10,7 @@ const { placeOnWaivers } = require('./waiver.service');
 const { assertManualCorrectionWindow } = require('./correction.service');
 const { deleteAvatarObjects } = require('./avatar.service');
 const { commissionerPredicate } = require('./leagueRole.service');
+const { rosterCapacity } = require('./irPolicy.service');
 const { isPickemOnly } = require('./leagueType');
 const { getStandings: getPickemStandings, getSeasonSlate } = require('./pickem.service');
 const { pickemChampions } = require('./pickemSeason.service');
@@ -539,8 +540,11 @@ async function forceTransaction({ leagueId, userId, teamId, action, playerId }) 
         `SELECT COUNT(*)::int AS n FROM "team_players" WHERE "team_id" = $1`,
         [teamId]
       );
-      if (rosterCountResult.rows[0].n >= league.roster_limit) {
-        throw new CommissionerError(409, `roster limit of ${league.roster_limit} reached`);
+      // The override bypasses locks and holds, but roster capacity still
+      // binds: a forced add gets no more room than any other add site (#97).
+      const capacity = await rosterCapacity(client, { league, teamId });
+      if (rosterCountResult.rows[0].n >= capacity) {
+        throw new CommissionerError(409, `roster capacity of ${capacity} reached`);
       }
       try {
         await client.query(

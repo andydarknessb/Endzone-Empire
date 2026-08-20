@@ -1,11 +1,12 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createFakePool, insert } = require('./helpers/fakePool');
+const { createFakePool, insert, select } = require('./helpers/fakePool');
 const prefs = require('../services/prefs.service');
 const push = require('../services/push.service');
 const {
   flagRecoveredIrStashes,
   isIrEligible,
+  rosterCapacity,
   sendIrFlagPushes,
 } = require('../services/irPolicy.service');
 
@@ -98,6 +99,101 @@ test('transitions that do not leave IR eligibility produce no scan or repeat not
   client.release();
 
   assert.equal(fake.calls.length, 0);
+  fake.assertClean();
+});
+
+// --- roster capacity --------------------------------------------------------
+
+/** A stash-count world: answers the eligible-IR-stash count with `stashed`. */
+function capacityPool({ stashed, onQuery } = {}) {
+  return createFakePool([
+    [select('lineup_entries'), (text, params) => {
+      if (onQuery) onQuery(text, params);
+      return { rows: [{ n: stashed }] };
+    }],
+  ]);
+}
+
+test('rosterCapacity: an empty stash leaves capacity at the draft roster size', async () => {
+  const fake = capacityPool({ stashed: 0 });
+  const client = await fake.connect();
+
+  const capacity = await rosterCapacity(client, {
+    league: { roster_limit: 16, ir_slots: 2 },
+    teamId: 31,
+  });
+  client.release();
+
+  assert.equal(capacity, 14);
+  fake.assertClean();
+});
+
+test('rosterCapacity: each eligible stash grants one spot, and only eligible occupants count', async () => {
+  let seen;
+  const fake = capacityPool({ stashed: 1, onQuery: (text, params) => { seen = { text, params }; } });
+  const client = await fake.connect();
+
+  const capacity = await rosterCapacity(client, {
+    league: { roster_limit: 16, ir_slots: 2 },
+    teamId: 31,
+  });
+  client.release();
+
+  assert.equal(capacity, 15);
+  // The count is scoped to this team's current-week IR slots and filtered to
+  // the qualifying designations, so an ineligible occupant grants nothing.
+  assert.deepEqual(seen.params, [31, ['O', 'IR'], []]);
+  assert.match(seen.text, /"lineup_entries"\."slot" = 'IR'/);
+  assert.match(seen.text, /"players"\."injury_status" = ANY\(\$2::text\[\]\)/);
+  assert.match(seen.text, /SELECT MAX\("latest"\."week"\)/);
+  assert.match(seen.text, /"latest"\."week" <= "leagues"\."current_week"/);
+  assert.match(seen.text, /JOIN "team_players"/);
+  fake.assertClean();
+});
+
+test('rosterCapacity: stash grants cap at the league IR slot count', async () => {
+  const fake = capacityPool({ stashed: 5 });
+  const client = await fake.connect();
+
+  const capacity = await rosterCapacity(client, {
+    league: { roster_limit: 16, ir_slots: 2 },
+    teamId: 31,
+  });
+  client.release();
+
+  assert.equal(capacity, 14 + 2);
+  fake.assertClean();
+});
+
+test('rosterCapacity: a zero-IR league never queries the stash', async () => {
+  const fake = createFakePool();
+  const client = await fake.connect();
+
+  const capacity = await rosterCapacity(client, {
+    league: { roster_limit: 15, ir_slots: 0 },
+    teamId: 31,
+  });
+  client.release();
+
+  assert.equal(capacity, 15);
+  assert.equal(fake.calls.length, 0);
+  fake.assertClean();
+});
+
+test('rosterCapacity: excluded players (leaving in this transaction) grant nothing', async () => {
+  let seen;
+  const fake = capacityPool({ stashed: 0, onQuery: (text, params) => { seen = { text, params }; } });
+  const client = await fake.connect();
+
+  await rosterCapacity(client, {
+    league: { roster_limit: 16, ir_slots: 1 },
+    teamId: 31,
+    excludePlayerIds: [21, 22],
+  });
+  client.release();
+
+  assert.deepEqual(seen.params[2], [21, 22]);
+  assert.match(seen.text, /NOT \("lineup_entries"\."player_id" = ANY\(\$3::int\[\]\)\)/);
   fake.assertClean();
 });
 

@@ -1,3 +1,5 @@
+const { draftRosterSize } = require('./rosterShape');
+
 const IR_ELIGIBLE_DESIGNATIONS = new Set(['O', 'IR']);
 const INJURY_DESIGNATION_NAMES = {
   Q: 'questionable',
@@ -12,6 +14,51 @@ function isIrEligible(injuryDesignation) {
 
 function injuryDesignationName(injuryDesignation) {
   return INJURY_DESIGNATION_NAMES[injuryDesignation] || injuryDesignation || 'healthy';
+}
+
+/**
+ * A team's **roster capacity**: how many players it may hold right now.
+ * Draft roster size plus one per IR-eligible player currently stashed in an
+ * IR slot, capped at the league's IR slot count. Only eligible occupants
+ * grant capacity, so a stash whose occupant recovered leaves the team over
+ * capacity — a derived condition that blocks adds until resolved, never a
+ * stored flag.
+ *
+ * `excludePlayerIds` names players leaving the roster in the same
+ * transaction (a waiver drop, an outgoing trade piece): their stashes grant
+ * nothing, since the move that needs the capacity also empties them.
+ *
+ * `league` must carry `roster_limit` and `ir_slots`; season and week come
+ * from the team's league row inside the query, like the enforcement scan.
+ */
+async function rosterCapacity(client, { league, teamId, excludePlayerIds = [] }) {
+  const base = draftRosterSize(league);
+  const irSlots = Math.max(0, Math.trunc(Number(league.ir_slots ?? league.irSlots)) || 0);
+  if (irSlots === 0) return base;
+
+  const stash = await client.query(
+    `SELECT COUNT(*)::int AS n
+       FROM "lineup_entries"
+       JOIN "teams" ON "teams"."id" = "lineup_entries"."team_id"
+       JOIN "leagues" ON "leagues"."id" = "teams"."league_id"
+       JOIN "team_players" ON "team_players"."team_id" = "teams"."id"
+         AND "team_players"."player_id" = "lineup_entries"."player_id"
+       JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
+      WHERE "lineup_entries"."team_id" = $1
+        AND "lineup_entries"."season" = "leagues"."current_season"
+        AND "lineup_entries"."week" = (
+          SELECT MAX("latest"."week") FROM "lineup_entries" AS "latest"
+           WHERE "latest"."team_id" = "lineup_entries"."team_id"
+             AND "latest"."player_id" = "lineup_entries"."player_id"
+             AND "latest"."season" = "lineup_entries"."season"
+             AND "latest"."week" <= "leagues"."current_week"
+        )
+        AND "lineup_entries"."slot" = 'IR'
+        AND "players"."injury_status" = ANY($2::text[])
+        AND NOT ("lineup_entries"."player_id" = ANY($3::int[]))`,
+    [teamId, [...IR_ELIGIBLE_DESIGNATIONS], excludePlayerIds]
+  );
+  return base + Math.min(irSlots, stash.rows[0].n);
 }
 
 async function flagRecoveredIrStashes(client, transitions) {
@@ -92,5 +139,6 @@ module.exports = {
   flagRecoveredIrStashes,
   injuryDesignationName,
   isIrEligible,
+  rosterCapacity,
   sendIrFlagPushes,
 };

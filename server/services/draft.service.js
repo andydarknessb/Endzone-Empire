@@ -6,6 +6,7 @@ const { POSITION_GROUPS } = require('./lineup.service');
 const { isLeagueCommissioner, requireMember } = require('./leagueRole.service');
 const { assertFantasyLeagueRow } = require('./leagueType');
 const { draftRosterSize } = require('./rosterShape');
+const { rosterCapacity } = require('./irPolicy.service');
 
 class DraftError extends Error {
   constructor(statusCode, message) {
@@ -143,8 +144,12 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommiss
       `SELECT COUNT(*)::int AS n FROM "team_players" WHERE "team_id" = $1`,
       [myTeam.id]
     );
-    if (rosterCountResult.rows[0].n >= league.roster_limit) {
-      throw new DraftError(409, `roster limit of ${league.roster_limit} reached`);
+    // Roster capacity, not the static roster limit: draft picks and post-draft
+    // free-agent adds both land here, and an eligible IR stash grants a spot
+    // beyond the draft roster size (#97).
+    const capacity = await rosterCapacity(client, { league, teamId: myTeam.id });
+    if (rosterCountResult.rows[0].n >= capacity) {
+      throw new DraftError(409, `roster capacity of ${capacity} reached`);
     }
 
     await assertPositionCapNotReached(client, { teamId: myTeam.id, positionCaps: league.position_caps, position });
@@ -340,7 +345,7 @@ async function undoDrop({ leagueId, userId, playerId }) {
     await client.query('BEGIN');
 
     const leagueResult = await client.query(
-      `SELECT "roster_limit", "position_caps" FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
+      `SELECT "roster_limit", "ir_slots", "position_caps" FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
       [leagueId]
     );
     const league = leagueResult.rows[0];
@@ -361,8 +366,9 @@ async function undoDrop({ leagueId, userId, playerId }) {
       `SELECT COUNT(*)::int AS n FROM "team_players" WHERE "team_id" = $1`,
       [team.id]
     );
-    if (rosterCountResult.rows[0].n >= league.roster_limit) {
-      throw new DraftError(409, `roster limit of ${league.roster_limit} reached`);
+    const capacity = await rosterCapacity(client, { league, teamId: team.id });
+    if (rosterCountResult.rows[0].n >= capacity) {
+      throw new DraftError(409, `roster capacity of ${capacity} reached`);
     }
 
     const playerResult = await client.query(

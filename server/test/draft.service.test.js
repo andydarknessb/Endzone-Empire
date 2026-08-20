@@ -118,6 +118,7 @@ function completionPool({ league, picksMade }) {
     ] })],
     [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB' }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 1 }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, () => ({ rows: [{ n: 0 }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "draft_picks"/, () => ({ rows: [{ n: picksMade }] })],
     [/^SELECT "pick_number" FROM "draft_picks"/, () => ({ rows: [] })],
     [insert('draft_picks'), () => ({ rows: [], rowCount: 1 })],
@@ -163,5 +164,53 @@ test('draftPlayer: a zero-IR league still drafts every roster_limit round', asyn
   const fake = completionPool({ league, picksMade: 6 }).install(t);
   t.mock.method(seasonService, 'generateRegularSeason', async () => ({}));
   assert.equal((await draftPlayer({ leagueId: 1, userId: 7, playerId: 500 })).draftComplete, true);
+  fake.assertClean();
+});
+
+// --- roster capacity at the free-agent add site (#97) -----------------------
+// Thin: proves the post-draft add consults the IR policy module's roster
+// capacity rather than the static roster limit. The capacity formula itself
+// is tested at the module seam (irPolicy.service.test.js).
+
+const freeAgencyLeague = {
+  ...completionLeague,
+  draft_status: 'complete',
+  waivers_clear_at: null,
+};
+
+function freeAgencyPool({ rostered, stashed }) {
+  return createFakePool([
+    [select('leagues'), () => ({ rows: [freeAgencyLeague] })],
+    [select('teams'), () => ({ rows: [
+      { id: 11, owner_id: 7, draft_position: 1, autodraft: false, locked: false },
+    ] })],
+    [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB' }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: rostered }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, () => ({ rows: [{ n: stashed }] })],
+    [select('waiver_players'), () => ({ rows: [] })],
+    [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
+    [insert('transactions'), () => ({ rows: [] })],
+  ]);
+}
+
+test('draftPlayer free agency: a full team with no stash is rejected at the draft roster size', async (t) => {
+  // roster_limit 3, ir_slots 1: draft roster size 2, and an empty stash
+  // grants nothing beyond it.
+  const fake = freeAgencyPool({ rostered: 2, stashed: 0 }).install(t);
+
+  await assert.rejects(
+    draftPlayer({ leagueId: 1, userId: 7, playerId: 500 }),
+    { statusCode: 409, message: 'roster capacity of 2 reached' }
+  );
+  fake.assertClean();
+});
+
+test('draftPlayer free agency: an eligible IR stash grants the extra spot', async (t) => {
+  const fake = freeAgencyPool({ rostered: 2, stashed: 1 }).install(t);
+
+  const result = await draftPlayer({ leagueId: 1, userId: 7, playerId: 500 });
+
+  assert.equal(result.player.id, 500);
+  assert.equal(fake.matching(/^INSERT INTO "team_players"/).length, 1);
   fake.assertClean();
 });
