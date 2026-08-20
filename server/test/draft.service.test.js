@@ -151,6 +151,9 @@ test('draftPlayer: one pick short of the draft roster size keeps the draft activ
   assert.equal(result.draftComplete, false);
   const leagueUpdate = fake.matching(/^UPDATE "leagues" SET "current_pick"/)[0];
   assert.equal(leagueUpdate.params[1], 'active');
+  // A draft pick writes no lineup rows: there is no stash to reset before the
+  // season, so the bench-on-acquisition step is a post-draft concern only.
+  assert.equal(fake.matching(/"lineup_entries"/).filter((c) => !/^SELECT/.test(c.text)).length, 0);
   fake.assertClean();
 });
 
@@ -176,9 +179,11 @@ const freeAgencyLeague = {
   ...completionLeague,
   draft_status: 'complete',
   waivers_clear_at: null,
+  current_season: 2026,
+  current_week: 3,
 };
 
-function freeAgencyPool({ rostered, stashed }) {
+function freeAgencyPool({ rostered, stashed, stashQueries }) {
   return createFakePool([
     [select('leagues'), () => ({ rows: [freeAgencyLeague] })],
     [select('teams'), () => ({ rows: [
@@ -186,9 +191,14 @@ function freeAgencyPool({ rostered, stashed }) {
     ] })],
     [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB' }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: rostered }] })],
-    [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, () => ({ rows: [{ n: stashed }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, (text, params) => {
+      if (stashQueries) stashQueries.push(params);
+      return { rows: [{ n: stashed }] };
+    }],
     [select('waiver_players'), () => ({ rows: [] })],
     [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
+    [insert('lineup_entries'), () => ({ rows: [] })],
+    [update('lineup_entries'), () => ({ rows: [], rowCount: 0 })],
     [insert('transactions'), () => ({ rows: [] })],
   ]);
 }
@@ -206,12 +216,18 @@ test('draftPlayer free agency: a full team with no stash is rejected at the draf
 });
 
 test('draftPlayer free agency: an eligible IR stash grants the extra spot', async (t) => {
-  const fake = freeAgencyPool({ rostered: 2, stashed: 1 }).install(t);
+  const stashQueries = [];
+  const fake = freeAgencyPool({ rostered: 2, stashed: 1, stashQueries }).install(t);
 
   const result = await draftPlayer({ leagueId: 1, userId: 7, playerId: 500 });
 
   assert.equal(result.player.id, 500);
   assert.equal(fake.matching(/^INSERT INTO "team_players"/).length, 1);
+  // A free-agent add earns no restored credit and lands on the bench (user
+  // story 13), even when the player's old stash rows on this team survive.
+  assert.deepEqual(stashQueries[0][3], []);
+  const benched = fake.matching(/^INSERT INTO "lineup_entries"/);
+  assert.deepEqual(benched.map((call) => call.params), [[1, 11, 500, 2026, 3]]);
   fake.assertClean();
 });
 

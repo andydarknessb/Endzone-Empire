@@ -166,6 +166,39 @@ async function materializeLineup(client, { leagueId, teamId, season, week }) {
 }
 
 /**
+ * Land an acquired player on the bench (#94, user story 13): a player gained
+ * by waiver, trade, commissioner add or free agency never arrives in the IR
+ * slot, so the placement gate cannot be bypassed. Lineup rows outlive a drop,
+ * so without this a same-week re-add would sit straight back in his old stash
+ * and `materializeLineup`'s copy-forward would revive it on a later week's
+ * first touch. Upserts a current-week BENCH row (resetting a surviving stash,
+ * or planting the row the next copy-forward will read) and benches any
+ * pre-materialized later week; earlier weeks are history and stay as played.
+ *
+ * Benching also ends any standing attestation (#100) on those rows: an
+ * acquisition is not the undo that restores one.
+ *
+ * `undoDrop` deliberately does not call this: an undo restores the stash it
+ * interrupted, which is what `rosterCapacity`'s `restoredPlayerIds` credits.
+ * Must run inside the caller's transaction, after the roster insert.
+ */
+async function benchAcquiredPlayer(client, { league, teamId, playerId }) {
+  const { id: leagueId, current_season: season, current_week: week } = league;
+  await client.query(
+    `INSERT INTO "lineup_entries" ("league_id", "team_id", "player_id", "season", "week", "slot")
+     VALUES ($1, $2, $3, $4, $5, 'BENCH')
+     ON CONFLICT ("team_id", "season", "week", "player_id") DO UPDATE SET "slot" = 'BENCH', "ir_attested" = false, "updated_at" = now()`,
+    [leagueId, teamId, playerId, season, week]
+  );
+  await client.query(
+    `UPDATE "lineup_entries" SET "slot" = 'BENCH', "ir_attested" = false, "updated_at" = now()
+     WHERE "team_id" = $1 AND "player_id" = $2 AND "season" = $3 AND "week" > $4
+       AND ("slot" <> 'BENCH' OR "ir_attested")`,
+    [teamId, playerId, season, week]
+  );
+}
+
+/**
  * The set of NFL team names whose game for (season, week) has kicked off —
  * players on those teams are locked. Empty schedule means nothing is locked.
  */
@@ -439,6 +472,7 @@ module.exports = {
   parseLineupSettings,
   validateLineup,
   materializeLineup,
+  benchAcquiredPlayer,
   lockedNflTeams,
   annotateLineupEntries,
   getLineup,

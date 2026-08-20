@@ -10,6 +10,7 @@ const {
   annotateLineupEntries,
   getLineup,
   setLineup,
+  benchAcquiredPlayer,
   DEFAULT_ROSTER_SLOTS,
 } = require('../services/lineup.service');
 
@@ -637,5 +638,44 @@ test('a manager move also clears the attestation from already-materialized later
   assert.match(sweep.text, /"week" > \$3/);
   assert.match(sweep.text, /AND "ir_attested"/);
   assert.deepEqual(sweep.params, [10, 2026, 8, [1]]);
+  fake.assertClean();
+});
+
+// --- acquisitions land on the bench (#94 user story 13) ---------------------
+// A dropped player's lineup rows survive the drop, so a re-add would otherwise
+// sit straight back in his old IR stash (same week) or have it revived by the
+// copy-forward (later week). Every acquisition site calls this after its
+// roster insert; undoDrop alone does not, because an undo restores the stash.
+
+test('benchAcquiredPlayer plants a current-week bench row and sweeps later pre-materialized weeks', async () => {
+  const fake = createFakePool([
+    [/^INSERT INTO "lineup_entries"/, () => ({ rows: [] })],
+    [/^UPDATE "lineup_entries"/, () => ({ rows: [], rowCount: 1 })],
+  ]);
+  const client = await fake.connect();
+
+  await benchAcquiredPlayer(client, {
+    league: { id: 5, current_season: 2026, current_week: 9 },
+    teamId: 10,
+    playerId: 21,
+  });
+  client.release();
+
+  const [plant] = fake.matching(/^INSERT INTO "lineup_entries"/);
+  assert.deepEqual(plant.params, [5, 10, 21, 2026, 9]);
+  // Upsert: a surviving same-week row (his old stash) is reset, a missing one
+  // is created so the next week's copy-forward starts from BENCH, not IR.
+  assert.match(plant.text, /VALUES \(\$1, \$2, \$3, \$4, \$5, 'BENCH'\)/);
+  assert.match(plant.text, /ON CONFLICT \("team_id", "season", "week", "player_id"\) DO UPDATE SET "slot" = 'BENCH', "ir_attested" = false/);
+
+  const [sweep] = fake.matching(/^UPDATE "lineup_entries"/);
+  assert.deepEqual(sweep.params, [10, 21, 2026, 9]);
+  // Benching also ends any standing attestation (#100): only an undone drop
+  // restores one, and this is not an undo.
+  assert.match(sweep.text, /SET "slot" = 'BENCH', "ir_attested" = false/);
+  // Later weeks only: earlier weeks are history and stay as they were played.
+  assert.match(sweep.text, /"week" > \$4/);
+  assert.match(sweep.text, /\("slot" <> 'BENCH' OR "ir_attested"\)/);
+  assert.equal(fake.calls.length, 2);
   fake.assertClean();
 });
