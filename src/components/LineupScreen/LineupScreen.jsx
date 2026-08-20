@@ -67,6 +67,13 @@ function isEligibleForSlot(position, slot, rosterSlots, injuryDesignation) {
   return slotEligiblePositions(rosterSlots, slot).includes(position);
 }
 
+function canResolveLockedIrStash(entry, targetSlot) {
+  return entry?.locked
+    && entry.slot === 'IR'
+    && !IR_ELIGIBLE_DESIGNATIONS.has(entry.injury_status)
+    && targetSlot === 'BENCH';
+}
+
 // --- start/sit projection presentation -------------------------------------
 //
 // Everything below renders ONLY what the server actually sent. A factor the
@@ -163,6 +170,7 @@ function factorChipsFor(side) {
 // must be eligible for each other's slot. A locked occupant can never be a
 // target regardless of position.
 function isEligibleTarget(selectedEntry, targetEntry, slotType, rosterSlots) {
+  if (selectedEntry.locked && !canResolveLockedIrStash(selectedEntry, slotType)) return false;
   if (!targetEntry) {
     return isEligibleForSlot(
       selectedEntry.position,
@@ -348,7 +356,7 @@ function LineupScreen() {
   const handleRowClick = (entry, slotType, event) => {
     if (bestBall) return; // best ball lineups are set automatically — no manual moves
 
-    if (entry && entry.locked && entry.slot !== 'IR') {
+    if (entry && entry.locked && !canResolveLockedIrStash(entry, 'BENCH')) {
       notify("Locked players can't be moved", { severity: 'warning' });
       setSelectedEntry(null);
       return;
@@ -565,7 +573,7 @@ function LineupScreen() {
   // (TeamManagement) already renders a Bye column awaiting the same data.
 
   const quickPickEligible = quickPick
-    ? entries.filter((e) => (!e.locked || e.slot === 'IR') && isEligibleForSlot(
+    ? entries.filter((e) => (!e.locked || canResolveLockedIrStash(e, quickPick.slotType)) && isEligibleForSlot(
       e.position,
       quickPick.slotType,
       lineup?.rosterSlots,

@@ -96,7 +96,7 @@ const lineupResponse = (overrides = {}) => ({
   ...overrides,
 });
 
-const recoveredStashEntry = () => ({
+const recoveredStashEntry = (overrides = {}) => ({
   id: 5,
   name: 'Recovered Receiver',
   position: 'WR',
@@ -105,6 +105,7 @@ const recoveredStashEntry = () => ({
   slot: 'IR',
   locked: true,
   onBye: false,
+  ...overrides,
 });
 
 // URL-keyed mock covering the GETs LineupScreen now issues per week: the
@@ -485,26 +486,42 @@ test("clicking a locked player shows a warning toast and does not call put", asy
   expect(apiClient.put).not.toHaveBeenCalled();
 });
 
-test('a locked IR occupant can move out after kickoff', async () => {
+test('a locked recovered stash cannot move into a starting slot after kickoff', async () => {
   apiClient.get.mockResolvedValue({
     data: lineupResponse({ entries: [...lineupResponse().entries, recoveredStashEntry()] }),
   });
-  apiClient.put.mockResolvedValue({});
 
   renderScreenWithToasts();
   await screen.findByText('Recovered Receiver');
 
   await userEvent.click(screen.getByTestId('slot-row-IR-0'));
   expect(screen.getByText('Moving Recovered Receiver: tap a highlighted slot')).toBeInTheDocument();
-  await userEvent.click(screen.getByTestId('slot-row-WR-0'));
+  expect(screen.getByTestId('slot-row-WR-0')).toHaveAttribute('aria-disabled', 'true');
+  expect(apiClient.put).not.toHaveBeenCalled();
+});
 
-  await waitFor(() =>
-    expect(apiClient.put).toHaveBeenCalledWith('/api/team/lineup', {
-      leagueId: 1,
-      week: 3,
-      moves: [{ playerId: 5, slot: 'WR' }],
-    })
-  );
+test('a locked IR-eligible stash remains unavailable after kickoff', async () => {
+  apiClient.get.mockResolvedValue({
+    data: lineupResponse({
+      benchSlots: 2,
+      entries: [
+        ...lineupResponse().entries,
+        recoveredStashEntry({ name: 'Still Out Receiver', injury_status: 'O' }),
+      ],
+    }),
+  });
+
+  renderScreenWithToasts();
+  await screen.findByText('Still Out Receiver');
+
+  await userEvent.click(screen.getByTestId('slot-row-IR-0'));
+  expect(await screen.findByText("Locked players can't be moved")).toBeInTheDocument();
+  expect(screen.queryByTestId('lineup-move-strip')).not.toBeInTheDocument();
+
+  await userEvent.click(screen.getByTestId('slot-row-BENCH-empty-1'));
+  const menu = await screen.findByRole('menu');
+  expect(within(menu).queryByText(/Still Out Receiver/)).not.toBeInTheDocument();
+  expect(apiClient.put).not.toHaveBeenCalled();
 });
 
 test('a failed PUT rolls the optimistic move back and shows an error toast', async () => {

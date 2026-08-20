@@ -324,8 +324,10 @@ async function setLineup({ leagueId, userId, week, moves }) {
       const entry = byPlayer.get(move.playerId);
       if (!entry) throw new LineupError(404, `player ${move.playerId} is not on your roster`);
       if (entry.slot === move.slot) continue;
-      const leavesIrSlot = entry.slot === IR;
-      if (!leavesIrSlot && locked.has(entry.nfl_team)) {
+      const resolvesStaleIrStash = entry.slot === IR
+        && move.slot === BENCH
+        && !isIrEligible(entry.injury_status);
+      if (!resolvesStaleIrStash && locked.has(entry.nfl_team)) {
         throw new LineupError(409, 'that player is locked; his game has started', 'LINEUP_LOCKED');
       }
       entry.slot = move.slot;
