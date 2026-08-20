@@ -2,10 +2,10 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 import DraftOrderPanel from './DraftOrderPanel';
 
-function renderPanel(teams) {
+function renderPanel(teams, league = {}) {
   render(
     <DraftOrderPanel
-      league={{ draft_order_overrides: null, draft_rotation: 'snake', roster_limit: 4 }}
+      league={{ draft_order_overrides: null, draft_rotation: 'snake', roster_limit: 4, ...league }}
       teams={teams}
       frozen={false}
       onSave={jest.fn()}
@@ -36,4 +36,14 @@ test('enables draft order actions once there are at least 2 teams', () => {
   expect(screen.queryByText('Add at least 2 teams to set a draft order.')).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Randomize order' })).toBeEnabled();
   expect(screen.getByRole('button', { name: 'Save order' })).toBeEnabled();
+});
+
+test('offers every round in the draft roster size, including round 19', () => {
+  renderPanel([
+    { id: 1, name: 'Team One', draft_position: 1 },
+    { id: 2, name: 'Team Two', draft_position: 2 },
+  ], { roster_limit: 20, ir_slots: 1 });
+
+  expect(screen.getByText('Round 19')).toBeInTheDocument();
+  expect(screen.queryByText('Round 20')).not.toBeInTheDocument();
 });

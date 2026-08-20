@@ -1,9 +1,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { createFakePool, insert } = require('./helpers/fakePool');
 const { longestWinStreak, comebackTeam } = require('../services/trophy.service');
 const { gradeTeams } = require('../services/draftgrade.service');
-const { lineupProblems } = require('../services/digest.service');
+const { lineupProblems, sendLineupReminders } = require('../services/digest.service');
 const { mergePrefs, validatePrefs, DEFAULT_PREFS } = require('../services/prefs.service');
+const push = require('../services/push.service');
 
 // --- trophy: longestWinStreak -----------------------------------------------
 
@@ -122,6 +124,65 @@ test('lineupProblems never resurfaces a commissioner-attested stash (#100)', () 
   );
 
   assert.deepEqual(problems, []);
+});
+
+test('sendLineupReminders carries forward an unresolved IR stash before checking it', async (t) => {
+  let materialized = false;
+  const fake = createFakePool([
+    [/^SELECT \* FROM "leagues"/, () => ({ rows: [{
+      id: 501,
+      current_season: 2026,
+      current_week: 9,
+      best_ball: false,
+      roster_slots: [],
+      bench_slots: 1,
+      ir_slots: 1,
+    }] })],
+    [/^SELECT 1 FROM "nfl_games"/, () => ({ rows: [{ exists: 1 }] })],
+    [/^SELECT "teams"\."id"/, () => ({ rows: [{
+      id: 601,
+      name: 'Carry Forward',
+      owner_id: 701,
+      email: 'manager@example.test',
+    }] })],
+    [/^SELECT "user_id", "prefs" FROM "notification_prefs"/, () => ({ rows: [] })],
+    [/^SELECT "team_players"\."player_id"/, () => ({
+      rows: [{ player_id: 801, position: 'RB' }],
+    })],
+    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({ rows: [] })],
+    [/^SELECT "player_id", "slot", "ir_attested" FROM "lineup_entries"/, () => ({
+      rows: [{ player_id: 801, slot: 'IR', ir_attested: false }],
+    })],
+    [insert('lineup_entries'), (text, params) => {
+      assert.equal(params[5], 'IR');
+      assert.equal(params[6], false);
+      materialized = true;
+      return { rows: [] };
+    }],
+    [/^SELECT "lineup_entries"\."slot"/, () => ({
+      rows: materialized ? [{
+        slot: 'IR',
+        name: 'Recovered Runner',
+        injury_status: 'Q',
+        ir_attested: false,
+        on_bye: false,
+      }] : [],
+    })],
+    [insert('notifications'), () => ({ rows: [] })],
+  ]).install(t);
+  const pushes = [];
+  t.mock.method(push, 'sendPushToUsers', async (userIds, payload) => {
+    pushes.push({ userIds, payload });
+    return { sent: 1 };
+  });
+
+  const result = await sendLineupReminders();
+
+  assert.deepEqual(result, { remindersSent: 1 });
+  assert.equal(materialized, true);
+  assert.deepEqual(pushes[0].userIds, [701]);
+  assert.match(pushes[0].payload.body, /Recovered Runner \(IR\) is no longer IR-eligible \(questionable\)/);
+  fake.assertClean();
 });
 
 // --- prefs -------------------------------------------------------------------
