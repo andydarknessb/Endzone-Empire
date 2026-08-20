@@ -448,8 +448,8 @@ test('selecting a player highlights eligible slots and disables ineligible ones 
   expect(screen.getByTestId('slot-row-RB-1')).toHaveAttribute('aria-disabled', 'true');
   // Christian McCaffrey is locked, so also disabled as a target.
   expect(screen.getByTestId('slot-row-RB-0')).toHaveAttribute('aria-disabled', 'true');
-  // The empty IR slot accepts any position — eligible target, not disabled.
-  expect(screen.getByTestId('slot-row-IR-0')).not.toHaveAttribute('aria-disabled', 'true');
+  // Mahomes is healthy, so the empty IR slot is not an eligible target.
+  expect(screen.getByTestId('slot-row-IR-0')).toHaveAttribute('aria-disabled', 'true');
 
   expect(screen.queryByText("That player can't go in that slot")).not.toBeInTheDocument();
   expect(apiClient.put).not.toHaveBeenCalled();

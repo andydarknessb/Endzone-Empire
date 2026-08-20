@@ -2,6 +2,7 @@ const pool = require('../modules/pool');
 const { isPickemOnly, PICKEM_ONLY_MESSAGE } = require('./leagueType');
 const { requireMember } = require('./leagueRole.service');
 const { computeByeWeeks } = require('./bye.service');
+const { isIrEligible } = require('./irPolicy.service');
 
 class LineupError extends Error {
   constructor(statusCode, message, code = null) {
@@ -13,6 +14,17 @@ class LineupError extends Error {
 
 const BENCH = 'BENCH';
 const IR = 'IR';
+
+const INJURY_DESIGNATION_NAMES = {
+  Q: 'questionable',
+  D: 'doubtful',
+  O: 'out',
+  IR: 'injured reserve',
+};
+
+function injuryDesignationName(injuryDesignation) {
+  return INJURY_DESIGNATION_NAMES[injuryDesignation] || injuryDesignation || 'healthy';
+}
 
 // Group keys usable in a slot's eligiblePositions alongside literal position
 // codes (e.g. a "DP" slot's eligiblePositions might be ['DL','LB','DB']) —
@@ -303,7 +315,8 @@ async function setLineup({ leagueId, userId, week, moves }) {
 
     const entriesResult = await client.query(
       `SELECT "lineup_entries"."player_id", "lineup_entries"."slot",
-              "players"."position", "players"."nfl_team"
+              "players"."name", "players"."position", "players"."nfl_team",
+              "players"."injury_status"
        FROM "lineup_entries"
        JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
          AND "team_players"."player_id" = "lineup_entries"."player_id"
@@ -322,6 +335,12 @@ async function setLineup({ leagueId, userId, week, moves }) {
       if (entry.slot === move.slot) continue;
       if (locked.has(entry.nfl_team)) {
         throw new LineupError(409, 'that player is locked; his game has started', 'LINEUP_LOCKED');
+      }
+      if (move.slot === IR && !isIrEligible(entry.injury_status)) {
+        throw new LineupError(
+          400,
+          `${entry.name} cannot be placed in IR; current injury designation: ${injuryDesignationName(entry.injury_status)}`
+        );
       }
       entry.slot = move.slot;
       changed.push(entry);
