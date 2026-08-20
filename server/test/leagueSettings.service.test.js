@@ -388,6 +388,7 @@ test('a draft order override past the last drafted round is refused', async () =
   assert.equal(error.statusCode, 400);
   assert.match(error.message, /must be 1-19/);
 });
+
 test('draftOrderOverrides plus a custom-nomination auctionSettings read the teams once, not twice (#70)', async () => {
   const db = fakeDb({ teams: [{ id: 11 }, { id: 12 }] });
   await run(db, {

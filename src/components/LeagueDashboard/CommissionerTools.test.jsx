@@ -114,7 +114,7 @@ test('Roster Settings renders configured slots and separates drafted spots from 
 
   expect(screen.getAllByLabelText('Slot Name')).toHaveLength(2);
   // 1 QB + 1 FLEX starters + 5 bench = 7 drafted spots; the IR slot is not one.
-  expect(screen.getByText(/Roster spots:/)).toHaveTextContent('Roster spots: 7 (2 starters + 5 bench) + up to 1 IR');
+  expect(screen.getByText(/roster spots \+ up to/)).toHaveTextContent('7 roster spots + up to 1 IR (2 starters + 5 bench)');
 });
 
 test('Roster Settings reads exactly as before for a league with no IR slot', async () => {
@@ -122,7 +122,7 @@ test('Roster Settings reads exactly as before for a league with no IR slot', asy
   await userEvent.click(screen.getByRole('tab', { name: 'Roster Settings' }));
 
   expect(screen.getByText(/Total roster size:/)).toHaveTextContent('Total roster size: 7 (2 starters + 5 bench + 0 IR)');
-  expect(screen.queryByText(/Roster spots:/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/roster spots \+ up to/)).not.toBeInTheDocument();
 });
 
 test('Roster Settings is frozen once the draft has started', async () => {

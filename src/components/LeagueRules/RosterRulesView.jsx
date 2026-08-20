@@ -3,7 +3,6 @@ import {
   Alert, Box, Chip, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography,
 } from '@mui/material';
 import { ROSTER_POSITION_OPTIONS } from '../../lib/leagueRulesFormat';
-import { draftRosterSize } from '../../lib/rosterShape';
 
 export default function RosterRulesView({ league }) {
   const slots = league.roster_slots || [];
@@ -13,7 +12,7 @@ export default function RosterRulesView({ league }) {
   const totalRosterSize = starters + benchSlots + irSlots;
   // The drafted spots are starters + bench; the IR slot costs no draft round
   // (#96). A league with no IR slot reads exactly as it did before.
-  const draftSpots = draftRosterSize({ roster_limit: totalRosterSize, ir_slots: irSlots });
+  const draftSpots = starters + benchSlots;
   const caps = league.position_caps || {};
   const cappedPositions = ROSTER_POSITION_OPTIONS.filter((p) => caps[p] !== undefined && caps[p] !== null);
 

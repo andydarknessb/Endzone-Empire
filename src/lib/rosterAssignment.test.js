@@ -337,6 +337,8 @@ describe('bench, IR and overflow', () => {
       irInstances: 1, irFilled: 1,
       capacity: 20, assignedCount: 20, overflowCount: 0, rosterFull: true,
     });
+    // The IR slot is a spot this draft fills, so it counts as draftable.
+    expect(result.summary).toMatchObject({ capacity: 20, draftable: 20 });
     // The tail of the draft is what reaches IR.
     expect(result.rows.find((r) => r.section === 'ir').player.pickNumber).toBe(20);
   });

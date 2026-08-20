@@ -7,13 +7,13 @@
 const intOr0 = (value) => (Number.isFinite(Number(value)) ? Math.trunc(Number(value)) : 0);
 
 /**
- * Pure: a league's **draft roster size** — its starters plus its bench.
+ * Pure: a league's **draft roster size**, its starters plus its bench.
  *
- * IR slots are not drafted (CONTEXT.md, "Draft roster size"), so this is the
- * draft's round count, the bound a keeper's round must fit inside, and the
- * bound the keeper count must fit inside. The stored `roster_limit` column
- * keeps its existing IR-inclusive meaning and its existing server-side
- * derivation (starters + bench + IR); this subtracts the IR slots back off.
+ * IR slots are not drafted, so this is the draft's round count, the bound a
+ * keeper's round must fit inside, and the bound the keeper count must fit
+ * inside. The stored `roster_limit` column keeps its existing IR-inclusive
+ * meaning and its existing server-side derivation (starters + bench + IR);
+ * this subtracts the IR slots back off.
  *
  * Accepts either a league row (`roster_limit` / `ir_slots`) or already-read
  * camelCase values. `roster_limit` can be null on legacy rows (#70) and

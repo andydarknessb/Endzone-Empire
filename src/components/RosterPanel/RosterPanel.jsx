@@ -55,12 +55,18 @@ function capacityNote(rounds, summary, irDraftable) {
   if (rounds == null || !Number.isFinite(Number(rounds))) return null;
   if (draftable === 0 || Number(rounds) === draftable) return null;
   const n = Number(rounds);
-  const shape = irDraftable
+  // With no IR slots at all there is nothing the draft skips, so the league
+  // reads exactly what it read before (#96).
+  const irCounts = irDraftable || irInstances === 0;
+  const shape = irCounts
     ? `${starterInstances} starters, ${benchInstances} bench, ${irInstances} IR`
     : `${starterInstances} starters, ${benchInstances} bench`;
   if (n > draftable) {
     const extra = n - draftable;
-    return `This draft runs ${n} rounds but only ${draftable} of your spots are drafted `
+    const lead = irCounts
+      ? `This draft runs ${n} rounds but your roster holds ${draftable} players `
+      : `This draft runs ${n} rounds but only ${draftable} of your spots are drafted `;
+    return lead
       + `(${shape}). `
       + `The last ${extra === 1 ? 'pick has' : `${extra} picks have`} nowhere to go.`;
   }

@@ -48,7 +48,6 @@ import {
 } from '../../lib/leagueRulesFormat';
 import { FANTASY_MAX_TEAMS, MIN_TEAMS, PICKEM_MAX_TEAMS } from '../../lib/leagueType';
 import { deriveLeaguePhase, draftSettingsFrozen, LEAGUE_PHASE } from '../../lib/leaguePhase';
-import { draftRosterSize } from '../../lib/rosterShape';
 
 const PLAYOFF_TEAM_OPTIONS = [4, 6, 8];
 const PLAYOFF_START_WEEK_OPTIONS = [14, 15, 16, 17, 18];
@@ -523,7 +522,7 @@ function RosterSettingsPanel({ leagueId, league, onRefresh, notify }) {
   const totalRosterSize = starters + (Number(benchSlots) || 0) + (Number(irSlots) || 0);
   // Only starters + bench are drafted; the IR slot costs no draft round (#96).
   const irCount = Number(irSlots) || 0;
-  const draftSpots = draftRosterSize({ roster_limit: totalRosterSize, ir_slots: irCount });
+  const draftSpots = starters + (Number(benchSlots) || 0);
 
   const updateSlot = (id, patch) => setSlots((prev) => prev.map((s) => (s._id === id ? { ...s, ...patch } : s)));
   const removeSlot = (id) => setSlots((prev) => prev.filter((s) => s._id !== id));
@@ -691,7 +690,7 @@ function RosterSettingsPanel({ leagueId, league, onRefresh, notify }) {
         <Typography variant="body2" color="text.secondary">
           {irCount > 0 ? (
             <>
-              Roster spots: <strong>{draftSpots}</strong> ({starters} starters + {Number(benchSlots) || 0} bench) + up to {irCount} IR
+              <strong>{draftSpots}</strong> roster spots + up to {irCount} IR ({starters} starters + {Number(benchSlots) || 0} bench)
             </>
           ) : (
             <>

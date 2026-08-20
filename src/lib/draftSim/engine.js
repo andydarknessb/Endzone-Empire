@@ -269,6 +269,6 @@ export function toBoardShape(state) {
     teams: state.teams.map((team) => ({ id: team.id, name: team.name, draft_position: team.slot })),
     picks,
     onTheClock: onClock ? { id: onClock.id, name: onClock.name } : null,
-    rosterLimit: state.rounds,
+    draftRounds: state.rounds,
   };
 }
