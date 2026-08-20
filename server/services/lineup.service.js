@@ -2,7 +2,7 @@ const pool = require('../modules/pool');
 const { isPickemOnly, PICKEM_ONLY_MESSAGE } = require('./leagueType');
 const { requireMember } = require('./leagueRole.service');
 const { computeByeWeeks } = require('./bye.service');
-const { isIrEligible, isValidStash } = require('./irPolicy.service');
+const { isValidStash } = require('./irPolicy.service');
 
 class LineupError extends Error {
   constructor(statusCode, message, code = null) {
@@ -341,6 +341,11 @@ async function setLineup({ leagueId, userId, week, moves }) {
         throw new LineupError(409, 'that player is locked; his game has started', 'LINEUP_LOCKED');
       }
       entry.slot = move.slot;
+      // A manager-initiated move ends any commissioner attestation on this
+      // player right here (#100), so the save rule below judges the
+      // post-move stash by the normal gate - moving an attested player out
+      // and back within one save cannot relaunder the override.
+      entry.ir_attested = false;
       changed.push(entry);
     }
 
@@ -362,13 +367,23 @@ async function setLineup({ leagueId, userId, week, moves }) {
     if (errors.length > 0) throw new LineupError(400, errors.join('; '));
 
     for (const entry of changed) {
-      // A manager-initiated slot move ends any commissioner attestation on
-      // this player (#100): the override never outlives its reason, and the
-      // next placement is governed by the normal eligibility gate.
       await client.query(
         `UPDATE "lineup_entries" SET "slot" = $1, "ir_attested" = false, "updated_at" = now()
          WHERE "team_id" = $2 AND "season" = $3 AND "week" = $4 AND "player_id" = $5`,
         [entry.slot, team.id, season, targetWeek, entry.player_id]
+      );
+    }
+    // The attestation must not outlive the manager's move in weeks that were
+    // materialized ahead of time (#100): the weekly copy-forward would have
+    // planted the attested stash there already, and nothing later rewrites
+    // it. Earlier weeks keep their history.
+    const movedPlayerIds = [...new Set(changed.map((entry) => entry.player_id))];
+    if (movedPlayerIds.length > 0) {
+      await client.query(
+        `UPDATE "lineup_entries" SET "ir_attested" = false, "updated_at" = now()
+         WHERE "team_id" = $1 AND "season" = $2 AND "week" > $3
+           AND "player_id" = ANY($4::int[]) AND "ir_attested"`,
+        [team.id, season, targetWeek, movedPlayerIds]
       );
     }
     await client.query('COMMIT');

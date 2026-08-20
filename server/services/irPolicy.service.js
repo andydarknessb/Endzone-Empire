@@ -75,7 +75,11 @@ function injuryDesignationName(injuryDesignation) {
  * `restoredPlayerIds` names players the transaction is adding: a current-week
  * stash of theirs counts even though they are not on the roster yet, because
  * the add puts them straight back into it — without this, undoing the drop
- * of a stashed player on a full roster would be wrongly rejected.
+ * of a stashed player on a full roster would be wrongly rejected. An
+ * attested stash rides this branch too, deliberately: dropping and
+ * re-adding the attested player within the week restores the commissioner's
+ * standing override the same way the undo restores an eligible one (a drop
+ * is not the manager slot move that ends an attestation).
  *
  * `league` must carry `roster_limit` and `ir_slots`; season and week come
  * from the team's league row inside the query, like the enforcement scan.

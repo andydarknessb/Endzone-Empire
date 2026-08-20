@@ -166,7 +166,6 @@ test('rosterCapacity: each eligible stash grants one spot, and only eligible occ
   assert.deepEqual(seen.params, [31, ['O', 'IR'], [], []]);
   assert.match(seen.text, /\("players"\."injury_status" = ANY\(\$2::text\[\]\) OR "lineup_entries"\."ir_attested"\)/);
   assert.match(seen.text, /"lineup_entries"\."slot" = 'IR'/);
-  assert.match(seen.text, /"players"\."injury_status" = ANY\(\$2::text\[\]\)/);
   assert.match(seen.text, /SELECT MAX\("latest"\."week"\)/);
   assert.match(seen.text, /"latest"\."week" <= "leagues"\."current_week"/);
   assert.match(seen.text, /JOIN "team_players"/);

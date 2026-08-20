@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createFakePool, insert } = require('./helpers/fakePool');
+const { createFakePool, insert, select, update } = require('./helpers/fakePool');
 const { forceSetLineup } = require('../services/commissioner.service');
 
 // --- commissioner IR attestation (#100), thin at the force-set seam ---------
@@ -27,7 +27,7 @@ function forceSetWorld(t, { entries }) {
         ir_slots: 1,
       }],
     })],
-    [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10, league_id: 5 }] })],
+    [select('teams'), () => ({ rows: [{ id: 10, league_id: 5 }] })],
     [/^SELECT "team_players"\."player_id"/, () => ({
       rows: entries.map(({ player_id, position }) => ({ player_id, position })),
     })],
@@ -35,7 +35,7 @@ function forceSetWorld(t, { entries }) {
       rows: entries.map(({ player_id }) => ({ player_id })),
     })],
     [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: entries.map((entry) => ({ ...entry })) })],
-    [/^UPDATE "lineup_entries"/, (text, params) => {
+    [update('lineup_entries'), (text, params) => {
       updates.push({ text, params });
       return { rows: [] };
     }],

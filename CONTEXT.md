@@ -254,6 +254,16 @@ it while stashed is what flags the roster for resolution.
 _Avoid_: injured (too broad — questionable and doubtful players are injured
 but not IR-eligible), stashable
 
+**Attested stash**:
+An IR stash the commissioner has vouched for because the injury feed is
+wrong about its occupant, recorded on the lineup entry by the force-set
+path. A stash is **valid** when its occupant is IR-eligible or the entry is
+attested; a valid stash grants capacity, is never flagged or nagged, and
+carries forward across weeks. The attestation ends the moment the manager
+makes any slot move on that player - from that week forward, never
+retroactively - after which the normal eligibility gate governs.
+_Avoid_: forced stash, override flag
+
 **Lineup lock**:
 The moment a player can no longer be moved into or out of a lineup, namely his
 own game's kickoff. Locks are per player, not per week.

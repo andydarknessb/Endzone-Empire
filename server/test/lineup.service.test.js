@@ -603,3 +603,35 @@ test('weekly materialization carries the attestation forward with the slot', asy
   assert.deepEqual(materialized.get(2), { slot: 'BENCH', ir_attested: false });
   fake.assertClean();
 });
+
+test('setLineup cannot relaunder an attestation by moving the player out and back in one save', async (t) => {
+  // The gate judges the post-move stash: the manager's own move ends the
+  // attestation first, so re-stashing the still-ineligible player in the
+  // same save hits the normal eligibility gate.
+  const fake = installSetLineupWorld(t, 'Q', { slot: 'IR', irAttested: true });
+
+  await assert.rejects(
+    setLineup({
+      leagueId: 5, userId: 7, week: 8,
+      moves: [{ playerId: 1, slot: 'BENCH' }, { playerId: 1, slot: 'IR' }],
+    }),
+    (error) => error.statusCode === 400
+      && /current injury designation: questionable/.test(error.message)
+  );
+
+  fake.assertClean();
+});
+
+test('a manager move also clears the attestation from already-materialized later weeks', async (t) => {
+  const fake = installSetLineupWorld(t, 'Q', { slot: 'IR', irAttested: true });
+
+  await setLineup({ leagueId: 5, userId: 7, week: 8, moves: [{ playerId: 1, slot: 'BENCH' }] });
+
+  const updates = fake.matching(/^UPDATE "lineup_entries"/);
+  assert.equal(updates.length, 2);
+  const sweep = updates[1];
+  assert.match(sweep.text, /"week" > \$3/);
+  assert.match(sweep.text, /AND "ir_attested"/);
+  assert.deepEqual(sweep.params, [10, 2026, 8, [1]]);
+  fake.assertClean();
+});
