@@ -384,6 +384,9 @@ async function executeTrade(client, { trade, league, items, teams, byCommissione
       excludePlayerIds: items
         .filter((item) => item.from_team_id === teamId)
         .map((item) => item.player_id),
+      restoredPlayerIds: items
+        .filter((item) => item.to_team_id === teamId)
+        .map((item) => item.player_id),
     });
     if (count.rows[0].n + change > capacity) {
       throw new TradeError(409, `trade would put ${teams.get(teamId).name} over its roster capacity of ${capacity}`);

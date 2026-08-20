@@ -233,3 +233,30 @@ test('undoDrop: consults roster capacity, not the static roster limit', async (t
   );
   fake.assertClean();
 });
+
+test('undoDrop: the dropped player\'s own surviving stash still grants its spot on the way back in', async (t) => {
+  // Draft roster size 2, ir_slots 1, roster legally 3 with player 500 stashed;
+  // he was dropped (roster now 2) and his current-week IR entry survives. The
+  // undo restores that exact state, so it must pass at capacity 3.
+  let stashParams;
+  const fake = createFakePool([
+    [select('leagues'), () => ({ rows: [{ roster_limit: 3, ir_slots: 1, position_caps: {} }] })],
+    [select('teams'), () => ({ rows: [{ id: 11, owner_id: 7, locked: false }] })],
+    [/^SELECT 1 FROM "waiver_players"/, () => ({ rows: [{ 1: 1 }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 2 }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, (text, params) => {
+      stashParams = params;
+      return { rows: [{ n: 1 }] };
+    }],
+    [select('players'), () => ({ rows: [{ id: 500, name: 'Stash Returner', position: 'RB' }] })],
+    [/^DELETE FROM "waiver_players"/, () => ({ rows: [] })],
+    [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
+    [insert('transactions'), () => ({ rows: [] })],
+  ]).install(t);
+
+  const result = await undoDrop({ leagueId: 1, userId: 7, playerId: 500 });
+
+  assert.equal(result.player.id, 500);
+  assert.deepEqual(stashParams[3], [500]);
+  fake.assertClean();
+});

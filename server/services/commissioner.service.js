@@ -542,7 +542,11 @@ async function forceTransaction({ leagueId, userId, teamId, action, playerId }) 
       );
       // The override bypasses locks and holds, but roster capacity still
       // binds: a forced add gets no more room than any other add site (#97).
-      const capacity = await rosterCapacity(client, { league, teamId });
+      const capacity = await rosterCapacity(client, {
+        league,
+        teamId,
+        restoredPlayerIds: [playerId],
+      });
       if (rosterCountResult.rows[0].n >= capacity) {
         throw new CommissionerError(409, `roster capacity of ${capacity} reached`);
       }

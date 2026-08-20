@@ -346,6 +346,7 @@ async function claimFailureReason(client, { league, team, claim }) {
     league,
     teamId: team.id,
     excludePlayerIds: dropValid ? [claim.drop_player_id] : [],
+    restoredPlayerIds: [claim.player_id],
   });
   if (effective >= capacity) return `roster capacity of ${capacity} reached`;
   return null;

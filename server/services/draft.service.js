@@ -147,7 +147,11 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommiss
     // Roster capacity, not the static roster limit: draft picks and post-draft
     // free-agent adds both land here, and an eligible IR stash grants a spot
     // beyond the draft roster size (#97).
-    const capacity = await rosterCapacity(client, { league, teamId: myTeam.id });
+    const capacity = await rosterCapacity(client, {
+      league,
+      teamId: myTeam.id,
+      restoredPlayerIds: [playerId],
+    });
     if (rosterCountResult.rows[0].n >= capacity) {
       throw new DraftError(409, `roster capacity of ${capacity} reached`);
     }
@@ -366,7 +370,13 @@ async function undoDrop({ leagueId, userId, playerId }) {
       `SELECT COUNT(*)::int AS n FROM "team_players" WHERE "team_id" = $1`,
       [team.id]
     );
-    const capacity = await rosterCapacity(client, { league, teamId: team.id });
+    // restoredPlayerIds makes the undo really an undo: the dropped player's
+    // surviving current-week stash still grants its spot on the way back in.
+    const capacity = await rosterCapacity(client, {
+      league,
+      teamId: team.id,
+      restoredPlayerIds: [playerId],
+    });
     if (rosterCountResult.rows[0].n >= capacity) {
       throw new DraftError(409, `roster capacity of ${capacity} reached`);
     }

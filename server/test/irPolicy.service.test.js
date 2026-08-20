@@ -142,7 +142,7 @@ test('rosterCapacity: each eligible stash grants one spot, and only eligible occ
   assert.equal(capacity, 15);
   // The count is scoped to this team's current-week IR slots and filtered to
   // the qualifying designations, so an ineligible occupant grants nothing.
-  assert.deepEqual(seen.params, [31, ['O', 'IR'], []]);
+  assert.deepEqual(seen.params, [31, ['O', 'IR'], [], []]);
   assert.match(seen.text, /"lineup_entries"\."slot" = 'IR'/);
   assert.match(seen.text, /"players"\."injury_status" = ANY\(\$2::text\[\]\)/);
   assert.match(seen.text, /SELECT MAX\("latest"\."week"\)/);
@@ -194,6 +194,27 @@ test('rosterCapacity: excluded players (leaving in this transaction) grant nothi
 
   assert.deepEqual(seen.params[2], [21, 22]);
   assert.match(seen.text, /NOT \("lineup_entries"\."player_id" = ANY\(\$3::int\[\]\)\)/);
+  fake.assertClean();
+});
+
+test('rosterCapacity: a restored player counts only through a current-week stash', async () => {
+  let seen;
+  const fake = capacityPool({ stashed: 1, onQuery: (text, params) => { seen = { text, params }; } });
+  const client = await fake.connect();
+
+  const capacity = await rosterCapacity(client, {
+    league: { roster_limit: 16, ir_slots: 1 },
+    teamId: 31,
+    restoredPlayerIds: [21],
+  });
+  client.release();
+
+  assert.equal(capacity, 16);
+  assert.deepEqual(seen.params[3], [21]);
+  // The still-rostered requirement is relaxed for the restored player, but
+  // only for a current-week entry - an older surviving stash grants nothing
+  // (cross-week materialization would land him on the bench).
+  assert.match(seen.text, /"team_players"\."player_id" IS NOT NULL OR \("lineup_entries"\."player_id" = ANY\(\$4::int\[\]\) AND "lineup_entries"\."week" = "leagues"\."current_week"\)/);
   fake.assertClean();
 });
 

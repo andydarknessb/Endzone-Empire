@@ -7,15 +7,27 @@ const IR_ELIGIBLE_DESIGNATIONS = new Set(['O', 'IR']);
  * count so the two can never drift: each (team, player)'s latest lineup entry
  * at or before the league's current week, still rostered, sitting in the IR
  * slot. Callers append their own scoping predicates and select list.
+ *
+ * `restoredPlaceholder` (a `$n` naming an int[] param) relaxes the
+ * still-rostered join for players being added back in the same transaction —
+ * but only for a CURRENT-week entry, because that is the one case where the
+ * add really does return the player to his slot (the entry survives the drop
+ * and materialization leaves same-week rows alone). An older surviving IR
+ * entry proves nothing: cross-week materialization copies slots from the
+ * team's latest week, where a long-gone player has no row, so he lands on
+ * the bench and his stale entry must not grant capacity.
  */
-const FROM_CURRENT_IR_STASHES = `
+const fromCurrentIrStashes = (restoredPlaceholder = null) => `
        FROM "lineup_entries"
        JOIN "teams" ON "teams"."id" = "lineup_entries"."team_id"
        JOIN "leagues" ON "leagues"."id" = "teams"."league_id"
-       JOIN "team_players" ON "team_players"."team_id" = "teams"."id"
+       LEFT JOIN "team_players" ON "team_players"."team_id" = "teams"."id"
          AND "team_players"."player_id" = "lineup_entries"."player_id"
        JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
-      WHERE "lineup_entries"."season" = "leagues"."current_season"
+      WHERE ("team_players"."player_id" IS NOT NULL${restoredPlaceholder ? `
+         OR ("lineup_entries"."player_id" = ANY(${restoredPlaceholder}::int[])
+             AND "lineup_entries"."week" = "leagues"."current_week")` : ''})
+        AND "lineup_entries"."season" = "leagues"."current_season"
         AND "lineup_entries"."week" = (
           SELECT MAX("latest"."week") FROM "lineup_entries" AS "latest"
            WHERE "latest"."team_id" = "lineup_entries"."team_id"
@@ -50,21 +62,25 @@ function injuryDesignationName(injuryDesignation) {
  * `excludePlayerIds` names players leaving the roster in the same
  * transaction (a waiver drop, an outgoing trade piece): their stashes grant
  * nothing, since the move that needs the capacity also empties them.
+ * `restoredPlayerIds` names players the transaction is adding: a current-week
+ * stash of theirs counts even though they are not on the roster yet, because
+ * the add puts them straight back into it — without this, undoing the drop
+ * of a stashed player on a full roster would be wrongly rejected.
  *
  * `league` must carry `roster_limit` and `ir_slots`; season and week come
  * from the team's league row inside the query, like the enforcement scan.
  */
-async function rosterCapacity(client, { league, teamId, excludePlayerIds = [] }) {
+async function rosterCapacity(client, { league, teamId, excludePlayerIds = [], restoredPlayerIds = [] }) {
   const base = draftRosterSize(league);
   const irSlots = irSlotCount(league);
   if (irSlots === 0) return base;
 
   const stash = await client.query(
-    `SELECT COUNT(*)::int AS n${FROM_CURRENT_IR_STASHES}
+    `SELECT COUNT(*)::int AS n${fromCurrentIrStashes('$4')}
         AND "lineup_entries"."team_id" = $1
         AND "players"."injury_status" = ANY($2::text[])
         AND NOT ("lineup_entries"."player_id" = ANY($3::int[]))`,
-    [teamId, [...IR_ELIGIBLE_DESIGNATIONS], excludePlayerIds]
+    [teamId, [...IR_ELIGIBLE_DESIGNATIONS], excludePlayerIds, restoredPlayerIds]
   );
   return base + Math.min(irSlots, stash.rows[0].n);
 }
@@ -82,7 +98,7 @@ async function flagRecoveredIrStashes(client, transitions) {
   const stashes = await client.query(
     `SELECT "lineup_entries"."player_id", "players"."name" AS "player_name",
             "players"."injury_status", "teams"."id" AS "team_id",
-            "teams"."owner_id", "teams"."league_id"${FROM_CURRENT_IR_STASHES}
+            "teams"."owner_id", "teams"."league_id"${fromCurrentIrStashes()}
         AND "lineup_entries"."player_id" = ANY($1::int[])`,
     [transitionedPlayerIds]
   );
