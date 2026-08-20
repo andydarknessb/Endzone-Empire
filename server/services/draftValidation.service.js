@@ -1,4 +1,5 @@
 const { nextPickClockSeconds } = require('./draft.service');
+const { draftRosterSize } = require('./rosterShape');
 const {
   teamForPick,
   validateOrderOverrides,
@@ -113,7 +114,7 @@ function validateAuctionSettings(settings) {
  * have no rosters yet), otherwise the kept player must already be on that
  * team. Returns an array of error strings (empty when valid).
  */
-function validateKeepers(keepers, { teams = [], rosterByTeam = new Map(), keeperCount = 0, rosterLimit }) {
+function validateKeepers(keepers, { teams = [], rosterByTeam = new Map(), keeperCount = 0, draftRosterSize: rounds = 0 }) {
   if (!Array.isArray(keepers)) return ['keepers must be an array'];
   const errors = [];
   const teamIds = new Set(teams.map((t) => t.id));
@@ -130,8 +131,8 @@ function validateKeepers(keepers, { teams = [], rosterByTeam = new Map(), keeper
       errors.push(`keeper for team ${k.teamId} is missing a player`);
       continue;
     }
-    if (!Number.isInteger(k.round) || k.round < 1 || k.round > rosterLimit) {
-      errors.push(`keeper round must be between 1 and ${rosterLimit}`);
+    if (!Number.isInteger(k.round) || k.round < 1 || k.round > rounds) {
+      errors.push(`keeper round must be between 1 and ${rounds} (the league's draft roster size)`);
       continue;
     }
     if (seenPlayers.has(k.playerId)) {
@@ -222,10 +223,12 @@ function startPlan(league, teams, keepers = []) {
   }
 
   const teamIds = teams.map((t) => t.id);
-  const totalPicks = teams.length * league.roster_limit;
+  // Rounds are the draft roster size: the IR slot is never drafted (#96).
+  const rounds = draftRosterSize(league);
+  const totalPicks = teams.length * rounds;
   const rotationOpts = { rotation: league.draft_rotation, overrides: league.draft_order_overrides };
 
-  const overridesError = validateOrderOverrides(league.draft_order_overrides, teamIds, league.roster_limit);
+  const overridesError = validateOrderOverrides(league.draft_order_overrides, teamIds, rounds);
   if (overridesError) {
     return { error: { status: 409, message: `draft order overrides are stale: ${overridesError}` } };
   }
@@ -239,7 +242,7 @@ function startPlan(league, teams, keepers = []) {
   const keeperErrors = validateKeepers(normalizedKeepers, {
     teams,
     keeperCount: league.keeper_count,
-    rosterLimit: league.roster_limit,
+    draftRosterSize: rounds,
   });
   if (keeperErrors.length > 0) {
     return { error: { status: 409, message: `keepers are stale: ${keeperErrors.join('; ')}` } };

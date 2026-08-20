@@ -108,13 +108,21 @@ test('calls out immediate general-setting effects and destructive team removal',
 
 // --- Roster Settings ---
 
-test('Roster Settings renders configured slots and computes the total roster size', async () => {
+test('Roster Settings renders configured slots and separates drafted spots from IR', async () => {
   renderTools();
   await userEvent.click(screen.getByRole('tab', { name: 'Roster Settings' }));
 
   expect(screen.getAllByLabelText('Slot Name')).toHaveLength(2);
-  // 1 QB + 1 FLEX starters + 5 bench + 1 IR = 8
-  expect(screen.getByText(/Total roster size:/)).toHaveTextContent('Total roster size: 8 (2 starters + 5 bench + 1 IR)');
+  // 1 QB + 1 FLEX starters + 5 bench = 7 drafted spots; the IR slot is not one.
+  expect(screen.getByText(/Roster spots:/)).toHaveTextContent('Roster spots: 7 (2 starters + 5 bench) + up to 1 IR');
+});
+
+test('Roster Settings reads exactly as before for a league with no IR slot', async () => {
+  renderTools({ league: league({ ir_slots: 0 }) });
+  await userEvent.click(screen.getByRole('tab', { name: 'Roster Settings' }));
+
+  expect(screen.getByText(/Total roster size:/)).toHaveTextContent('Total roster size: 7 (2 starters + 5 bench + 0 IR)');
+  expect(screen.queryByText(/Roster spots:/)).not.toBeInTheDocument();
 });
 
 test('Roster Settings is frozen once the draft has started', async () => {

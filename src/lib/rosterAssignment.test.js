@@ -349,6 +349,9 @@ describe('bench, IR and overflow', () => {
     const ir = result.rows.find((r) => r.section === 'ir');
     expect(ir.player).toBeNull();
     expect(ir.draftable).toBe(false);
+    // The undrafted IR slot is roster capacity but not a round (#96).
+    expect(result.summary.capacity).toBe(20);
+    expect(result.summary.draftable).toBe(19);
     // The pick IR would have taken is surfaced as overflow, never dropped.
     expect(result.summary).toMatchObject({ irFilled: 0, overflowCount: 1 });
   });

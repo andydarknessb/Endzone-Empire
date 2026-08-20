@@ -125,7 +125,7 @@ describe('LeagueRules', () => {
     await screen.findByRole('region', { name: 'Passing' });
 
     await act(async () => { await userEvent.click(screen.getByRole('tab', { name: 'Roster' })); });
-    expect(screen.getByText('8 total roster spots')).toBeInTheDocument();
+    expect(screen.getByText('7 roster spots + up to 1 IR')).toBeInTheDocument();
     expect(screen.getByText('FLEX')).toBeInTheDocument();
 
     await act(async () => { await userEvent.click(screen.getByRole('tab', { name: 'Waivers & Trades' })); });
@@ -181,7 +181,7 @@ describe('LeagueRules', () => {
     expect(await screen.findByText(/Unable to load scoring rules: offline/)).toBeInTheDocument();
 
     await act(async () => { await userEvent.click(screen.getByRole('tab', { name: 'Roster' })); });
-    await waitFor(() => expect(screen.getByText('8 total roster spots')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('7 roster spots + up to 1 IR')).toBeInTheDocument());
   });
 });
 

@@ -38,3 +38,15 @@ test('shows live, scheduled, and unscheduled commissioner drafts with progress a
   expect(screen.getByText('37 / 150 picks')).toBeInTheDocument();
   expect(screen.getByRole('link', { name: 'Open live draft' })).toHaveAttribute('href', '/league/1/draft');
 });
+
+test('draft progress counts the drafted rounds only, not the IR slot', async () => {
+  apiClient.get.mockResolvedValue({
+    data: [
+      { id: 1, name: 'Live League', draft_status: 'active', roster_limit: 15, ir_slots: 1, team_count: 10, picks_made: 37 },
+    ],
+  });
+  renderWithProviders(<DraftCentralCard />);
+
+  // 10 teams x (15 - 1) drafted rounds.
+  expect(await screen.findByText('37 / 140 picks')).toBeInTheDocument();
+});

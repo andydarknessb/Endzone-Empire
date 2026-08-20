@@ -120,7 +120,7 @@ describe('the rounds-vs-capacity note', () => {
     // never rewritten when bench_slots got clamped.
     renderPanel({ rounds: 25 });
     expect(screen.getByText(
-      'This draft runs 25 rounds but your roster holds 15 players '
+      'This draft runs 25 rounds but only 15 of your spots are drafted '
       + '(9 starters, 6 bench, 0 IR). The last 10 picks have nowhere to go.'
     )).toBeInTheDocument();
   });

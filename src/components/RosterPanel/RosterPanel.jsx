@@ -44,21 +44,27 @@ function accessibleName(row, emptyLabel) {
 }
 
 /**
- * Rounds against roster spots. Silent truncation would be the worst outcome
- * here, so a mismatch is stated rather than hidden or thrown.
+ * Rounds against the spots a draft can actually fill. Silent truncation would
+ * be the worst outcome here, so a mismatch is stated rather than hidden or
+ * thrown. Measured against summary.draftable, NOT total roster capacity: a
+ * league with an undraftable IR slot deliberately runs one round short of its
+ * roster limit, and that is not a shortfall to warn about (#96).
  */
-function capacityNote(rounds, summary) {
-  const { capacity, starterInstances, benchInstances, irInstances } = summary;
+function capacityNote(rounds, summary, irDraftable) {
+  const { draftable, starterInstances, benchInstances, irInstances } = summary;
   if (rounds == null || !Number.isFinite(Number(rounds))) return null;
-  if (capacity === 0 || Number(rounds) === capacity) return null;
+  if (draftable === 0 || Number(rounds) === draftable) return null;
   const n = Number(rounds);
-  if (n > capacity) {
-    const extra = n - capacity;
-    return `This draft runs ${n} rounds but your roster holds ${capacity} players `
-      + `(${starterInstances} starters, ${benchInstances} bench, ${irInstances} IR). `
+  const shape = irDraftable
+    ? `${starterInstances} starters, ${benchInstances} bench, ${irInstances} IR`
+    : `${starterInstances} starters, ${benchInstances} bench`;
+  if (n > draftable) {
+    const extra = n - draftable;
+    return `This draft runs ${n} rounds but only ${draftable} of your spots are drafted `
+      + `(${shape}). `
       + `The last ${extra === 1 ? 'pick has' : `${extra} picks have`} nowhere to go.`;
   }
-  return `This draft runs ${n} rounds, ${capacity - n} short of your ${capacity} roster `
+  return `This draft runs ${n} rounds, ${draftable - n} short of your ${draftable} roster `
     + "spots. You'll finish with open spots to fill from waivers.";
 }
 
@@ -150,14 +156,14 @@ function RosterPanel({
     [picks, rosterSlots, benchCount, irCount, irDraftable]
   );
 
-  const note = capacityNote(rounds, assignment.summary);
-  const { capacity } = assignment.summary;
+  const note = capacityNote(rounds, assignment.summary, irDraftable);
+  const { draftable } = assignment.summary;
   useEffect(() => {
     if (note && process.env.NODE_ENV === 'development') {
       // eslint-disable-next-line no-console
-      console.warn(`[RosterPanel] ${rounds} rounds against ${capacity} roster spots.`);
+      console.warn(`[RosterPanel] ${rounds} rounds against ${draftable} draftable spots.`);
     }
-  }, [note, rounds, capacity]);
+  }, [note, rounds, draftable]);
 
   if (!Array.isArray(rosterSlots) || rosterSlots.length === 0) return null;
 

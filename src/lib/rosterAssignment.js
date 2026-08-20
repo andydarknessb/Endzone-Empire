@@ -130,9 +130,10 @@ const toInt = (value) => {
  * @param {Array}  args.rosterSlots  [{ key, label, count, eligiblePositions }]
  * @param {number} args.benchCount
  * @param {number} args.irCount
- * @param {boolean} args.irDraftable IR spots count toward roster_limit and so are
- *                                   filled by the tail of a full draft. Pass false
- *                                   for a draft that must not put picks there.
+ * @param {boolean} args.irDraftable Whether the tail of a full draft fills the IR
+ *                                   spots. False for every real league draft since
+ *                                   #96 (the IR slot costs no round); true only for
+ *                                   callers modelling a draft that fills it.
  */
 export function assignRosterSlots({
   picks = [],
@@ -271,7 +272,9 @@ export function assignRosterSlots({
       benchOpen: benchInstances - benchFilled,
       irInstances,
       irFilled,
-      draftable: instances.length + benchInstances,
+      // How many of those spots a DRAFT can fill. An undraftable IR slot is
+      // roster capacity but not a round (#96), so it is excluded here.
+      draftable: instances.length + benchInstances + (irDraftable ? irInstances : 0),
       capacity,
       assignedCount: players.length,
       overflowCount: overflowIndex,

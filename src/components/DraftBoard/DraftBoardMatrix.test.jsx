@@ -8,7 +8,7 @@ test('marks a pre-filled keeper pick on the draft matrix', () => {
       teams={[{ id: 1, name: 'Team A', draft_position: 1 }]}
       picks={[{ pick_number: 1, player_id: 10, team_id: 1, name: 'Josh Allen', position: 'QB', is_keeper: true }]}
       onTheClock={null}
-      rosterLimit={2}
+      draftRounds={2}
       onOpenQuickView={jest.fn()}
     />
   );
@@ -23,7 +23,7 @@ test('renders picks without interactive player controls in read-only mode', () =
       teams={[{ id: 1, name: 'Team A', draft_position: 1 }]}
       picks={[{ pick_number: 1, player_id: 10, team_id: 1, name: 'Josh Allen', position: 'QB' }]}
       onTheClock={null}
-      rosterLimit={1}
+      draftRounds={1}
       readOnly
     />
   );

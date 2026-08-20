@@ -287,3 +287,24 @@ describe('zero/one-team empty states', () => {
     expect(screen.getByRole('button', { name: 'Add keeper' })).toBeDisabled();
   });
 });
+
+// The keeper form mirrors the server bound: the IR slot is not a round (#96).
+test('bounds the keeper count by the draft roster size, not the IR-inclusive roster limit', () => {
+  render(
+    <KeeperPanel
+      league={{ keepers_enabled: true, keeper_count: 1, keeper_lock_at: null, roster_limit: 4, ir_slots: 1 }}
+      teams={[]}
+      keepers={[]}
+      keeperCandidates={[]}
+      frozen={false}
+      onSaveLeague={jest.fn()}
+      onSaveKeepers={jest.fn()}
+      saving={false}
+      onSettingsDirtyChange={jest.fn()}
+      onAssignmentsDirtyChange={jest.fn()}
+    />
+  );
+  fireEvent.change(screen.getByLabelText('Keepers per team'), { target: { value: '4' } });
+
+  expect(screen.getByText('Keepers per team must be between 0 and 3.')).toBeInTheDocument();
+});
