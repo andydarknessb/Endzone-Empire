@@ -643,35 +643,104 @@ test('a manager move also clears the attestation from already-materialized later
 // copy-forward (later week). Every acquisition site calls this after its
 // roster insert; undoDrop alone does not, because an undo restores the stash.
 
-test('benchAcquiredPlayer plants a current-week bench row and sweeps later pre-materialized weeks', async () => {
+/**
+ * A lineup world for benchAcquiredPlayer: `roster` is what team_players holds
+ * now, `currentSlots` the current week's existing rows, `previousSlots` the
+ * copy-forward source week. Tracks the current week's slots through the
+ * materialize inserts and the bench update so a test can read its end state.
+ */
+function acquisitionWorld({ roster, currentSlots, previousSlots }) {
+  const slots = new Map(currentSlots);
   const fake = createFakePool([
-    [/^INSERT INTO "lineup_entries"/, () => ({ rows: [] })],
-    [/^UPDATE "lineup_entries"/, () => ({ rows: [], rowCount: 1 })],
+    [/^SELECT "team_players"\."player_id"/, () => ({ rows: roster })],
+    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({
+      rows: [...slots.keys()].map((player_id) => ({ player_id })),
+    })],
+    [/^SELECT "player_id", "slot"/, () => ({
+      rows: [...previousSlots].map(([player_id, slot]) => ({ player_id, slot })),
+    })],
+    [/^INSERT INTO "lineup_entries"/, (text, params) => {
+      if (!slots.has(params[2])) slots.set(params[2], params[5]);
+      return { rows: [] };
+    }],
+    [/^UPDATE "lineup_entries"/, (text, params) => {
+      // The update names the slot it moves from: only that slot is touched.
+      const hit = slots.get(params[1]) === params[5];
+      if (hit) slots.set(params[1], params[4]);
+      return { rows: [], rowCount: hit ? 1 : 0 };
+    }],
   ]);
-  const client = await fake.connect();
+  return { fake, slots };
+}
 
-  await benchAcquiredPlayer(client, {
-    league: { id: 5, current_season: 2026, current_week: 9 },
-    teamId: 10,
-    playerId: 21,
+const acquire = (fake, playerId) => benchAcquiredPlayer(fake, {
+  league: { id: 5, current_season: 2026, current_week: 9 },
+  teamId: 10,
+  playerId,
+});
+
+test('benchAcquiredPlayer moves the acquired player out of a surviving stash, current week onward', async () => {
+  // Player 21 was dropped and re-acquired within week 9: his IR row survived.
+  const { fake, slots } = acquisitionWorld({
+    roster: [{ player_id: 1, position: 'QB' }, { player_id: 21, position: 'RB' }],
+    currentSlots: [[1, 'QB'], [21, 'IR']],
+    previousSlots: [],
   });
+  const client = await fake.connect();
+  await acquire(client, 21);
   client.release();
 
-  const [plant] = fake.matching(/^INSERT INTO "lineup_entries"/);
-  assert.deepEqual(plant.params, [5, 10, 21, 2026, 9]);
-  // Upsert: a surviving same-week row (his old stash) is reset, a missing one
-  // is created so the next week's copy-forward starts from BENCH, not IR.
-  assert.match(plant.text, /VALUES \(\$1, \$2, \$3, \$4, \$5, 'BENCH'\)/);
-  assert.match(plant.text, /ON CONFLICT \("team_id", "season", "week", "player_id"\) DO UPDATE SET "slot" = 'BENCH', "ir_attested" = false/);
-
-  const [sweep] = fake.matching(/^UPDATE "lineup_entries"/);
-  assert.deepEqual(sweep.params, [10, 21, 2026, 9]);
+  assert.deepEqual([...slots], [[1, 'QB'], [21, 'BENCH']]);
+  const [bench] = fake.matching(/^UPDATE "lineup_entries"/);
+  assert.deepEqual(bench.params, [10, 21, 2026, 9, 'BENCH', 'IR']);
   // Benching also ends any standing attestation (#100): only an undone drop
   // restores one, and this is not an undo.
-  assert.match(sweep.text, /SET "slot" = 'BENCH', "ir_attested" = false/);
-  // Later weeks only: earlier weeks are history and stay as they were played.
-  assert.match(sweep.text, /"week" > \$4/);
-  assert.match(sweep.text, /\("slot" <> 'BENCH' OR "ir_attested"\)/);
-  assert.equal(fake.calls.length, 2);
+  assert.match(bench.text, /SET "slot" = \$5, "ir_attested" = false/);
+  // Current week and any pre-materialized later week; earlier weeks are
+  // history and stay as they were played.
+  assert.match(bench.text, /"week" >= \$4 AND "slot" = \$6/);
+  assert.equal(fake.matching(/^INSERT INTO "lineup_entries"/).length, 0, 'week was complete');
+  fake.assertClean();
+});
+
+test('benchAcquiredPlayer materializes an untouched week first, so no lone row can poison the next copy-forward', async () => {
+  // Nobody has opened week 9 yet. Materializing first carries every slot
+  // into week 9 - including the stale IR of the re-acquired player 21, which
+  // is then reset - so week 10's copy-forward reads a complete week 9.
+  const { fake, slots } = acquisitionWorld({
+    roster: [
+      { player_id: 1, position: 'QB' },
+      { player_id: 2, position: 'RB' },
+      { player_id: 21, position: 'RB' },
+    ],
+    currentSlots: [],
+    previousSlots: [[1, 'QB'], [2, 'IR'], [21, 'IR']],
+  });
+  const client = await fake.connect();
+  await acquire(client, 21);
+  client.release();
+
+  assert.deepEqual([...slots].sort(), [[1, 'QB'], [2, 'IR'], [21, 'BENCH']]);
+  const inserts = fake.calls.filter((c) => /^INSERT INTO "lineup_entries"/.test(c.text));
+  const bench = fake.calls.findIndex((c) => /^UPDATE "lineup_entries"/.test(c.text));
+  assert.equal(inserts.length, 3, 'the whole roster is materialized');
+  assert.ok(bench > fake.calls.indexOf(inserts[2]), 'and only then is the stash reset');
+  fake.assertClean();
+});
+
+test('benchAcquiredPlayer leaves a surviving starter row as played', async () => {
+  // Week 9 is finished but not yet advanced; player 21 started at RB, scored,
+  // was dropped and re-acquired. Only a stash is reset - his RB row (and its
+  // points) stays, since the lock would forbid putting him back.
+  const { fake, slots } = acquisitionWorld({
+    roster: [{ player_id: 21, position: 'RB' }],
+    currentSlots: [[21, 'RB']],
+    previousSlots: [],
+  });
+  const client = await fake.connect();
+  await acquire(client, 21);
+  client.release();
+
+  assert.deepEqual([...slots], [[21, 'RB']]);
   fake.assertClean();
 });

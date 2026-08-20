@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { claimFailureReason, orderClaims, processWaivers } = require('../services/waiver.service');
 const { createFakePool, select, insert, update, remove } = require('./helpers/fakePool');
+const lineupService = require('../services/lineup.service');
 
 const claim = (id, teamId, bid = 0, createdAt = '2026-07-11T00:00:00Z') => ({
   id,
@@ -169,21 +170,20 @@ test('processWaivers: the winning claim benches the acquired player', async (t) 
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 10 }] })],
     [select('lineup_entries'), () => ({ rows: [{ n: 0 }] })],
     [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
-    [insert('lineup_entries'), () => ({ rows: [] })],
-    [update('lineup_entries'), () => ({ rows: [], rowCount: 0 })],
     [update('teams'), () => ({ rows: [], rowCount: 1 })],
     [update('waiver_claims'), () => ({ rows: [], rowCount: 1 })],
     [insert('transactions'), () => ({ rows: [] })],
     [insert('notifications'), () => ({ rows: [] })],
     [remove('waiver_players'), () => ({ rows: [] })],
   ]).install(t);
+  const benched = [];
+  t.mock.method(lineupService, 'benchAcquiredPlayer', async (client, args) => {
+    benched.push({ ...args, afterRosterWrite: fake.matching(/^INSERT INTO "team_players"/).length > 0 });
+  });
 
   const result = await processWaivers({ leagueId: 1 });
 
   assert.deepEqual(result.results, [{ claimId: 9, playerId: 500, status: 'won', teamId: 31 }]);
-  const rosterInsert = fake.calls.findIndex((c) => /^INSERT INTO "team_players"/.test(c.text));
-  const benchPlant = fake.calls.findIndex((c) => /^INSERT INTO "lineup_entries"/.test(c.text));
-  assert.ok(rosterInsert >= 0 && benchPlant > rosterInsert, 'benched after the roster insert');
-  assert.deepEqual(fake.calls[benchPlant].params, [1, 31, 500, 2026, 6]);
+  assert.deepEqual(benched, [{ league, teamId: 31, playerId: 500, afterRosterWrite: true }]);
   fake.assertClean();
 });
