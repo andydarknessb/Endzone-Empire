@@ -52,6 +52,7 @@ import Countdown from '../Countdown/Countdown';
 import CommissionerTools from './CommissionerTools';
 import AbbreviationTooltip from '../common/AbbreviationTooltip';
 import { deriveLeaguePhase, isSeasonLive, LEAGUE_PHASE, LEAGUE_PHASE_META } from '../../lib/leaguePhase';
+import draftRosterSize from '../../lib/rosterShape';
 
 // The fantasy header's season chip, worded by phase once the draft is done.
 // (A pick'em-only header uses LEAGUE_PHASE_META instead: it has no playoffs.)
@@ -264,6 +265,11 @@ function LeagueDashboard() {
   // Below the configured minimum, the draft can't start yet (min_teams may be
   // absent in older data â€” treat that as no gate).
   const belowMin = league.min_teams != null && teams.length < league.min_teams;
+  // Roster copy follows the drafted reality (#96/#97): the stored roster_limit
+  // is IR-inclusive, but only draft roster size spots are drafted and the add
+  // sites enforce roster capacity, so one combined total would advertise a
+  // number no user-facing rule uses. Same pattern as RosterRulesView.
+  const irSlots = Number(league.ir_slots) || 0;
   const auctionUnsupported = league.draft_type === 'auction';
   const pickemOnly = !!league.pickem_only;
   const leaguePhase = deriveLeaguePhase(league);
@@ -315,7 +321,11 @@ function LeagueDashboard() {
           label={league.draft_status}
           color={DRAFT_STATUS_CHIP_COLOR[league.draft_status] || 'default'}
         />
-        <Chip label={`Roster Limit: ${league.roster_limit}`} />
+        <Chip
+          label={irSlots > 0
+            ? `${draftRosterSize(league)} roster spots + up to ${irSlots} IR`
+            : `${league.roster_limit} total roster spots`}
+        />
         <Chip
           label={`Teams: ${teams.length}/${league.max_teams}`}
           color={belowMin ? 'warning' : 'default'}

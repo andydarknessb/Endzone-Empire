@@ -59,6 +59,7 @@ const leagueResponse = (overrides = {}) => ({
       draft_status: 'pending',
       owner_id: 1,
       roster_limit: 15,
+      ir_slots: 2,
       max_teams: 10,
       invite_code: 'abc123',
       ...overrides,
@@ -158,10 +159,23 @@ test('renders league name, status chips, and the standings table', async () => {
 
   expect(await screen.findByText('Sunday Ballers')).toBeInTheDocument();
   expect(screen.getByText('pending')).toBeInTheDocument();
-  expect(screen.getByText('Roster Limit: 15')).toBeInTheDocument();
+  // roster_limit 15 is IR-inclusive; the chip reads the drafted reality (#96).
+  expect(screen.getByText('13 roster spots + up to 2 IR')).toBeInTheDocument();
   expect(screen.getByText('Teams: 1/10')).toBeInTheDocument();
   expect(screen.getByText("Alice's Team")).toBeInTheDocument();
   expect(screen.getByText('alice')).toBeInTheDocument();
+});
+
+test('a zero-IR league keeps the one combined roster total', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse({ ir_slots: 0 }),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
+
+  renderDashboard();
+
+  expect(await screen.findByText('15 total roster spots')).toBeInTheDocument();
 });
 
 test('standings table renders W-L-T, PF, PA, and a streak chip (no redundant playoff-seed pill)', async () => {
@@ -985,7 +999,7 @@ test("a pick'em-only league's chips describe the pool, not a draft", async () =>
   expect(screen.getByText('In season')).toBeInTheDocument();
   expect(screen.queryByText('Regular Season')).not.toBeInTheDocument();
   expect(screen.queryByText('pending')).not.toBeInTheDocument();
-  expect(screen.queryByText(/Roster Limit/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/roster spots/)).not.toBeInTheDocument();
   expect(screen.queryByText(/Min to start/)).not.toBeInTheDocument();
 });
 
