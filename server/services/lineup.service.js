@@ -2,7 +2,7 @@ const pool = require('../modules/pool');
 const { isPickemOnly, PICKEM_ONLY_MESSAGE } = require('./leagueType');
 const { requireMember } = require('./leagueRole.service');
 const { computeByeWeeks } = require('./bye.service');
-const { isIrEligible } = require('./irPolicy.service');
+const { isIrEligible, isValidStash } = require('./irPolicy.service');
 
 class LineupError extends Error {
   constructor(statusCode, message, code = null) {
@@ -142,23 +142,25 @@ async function materializeLineup(client, { leagueId, teamId, season, week }) {
   const missing = rosterResult.rows.filter((r) => !have.has(r.player_id));
   if (missing.length === 0) return;
 
-  // Copy-forward source: the team's latest earlier week this season (if any)
+  // Copy-forward source: the team's latest earlier week this season (if any).
+  // The commissioner attestation travels with the slot (#100), so an
+  // attested stash stays attested across weeks until the manager moves him.
   const prevResult = await client.query(
-    `SELECT "player_id", "slot" FROM "lineup_entries"
+    `SELECT "player_id", "slot", "ir_attested" FROM "lineup_entries"
      WHERE "team_id" = $1 AND "season" = $2
        AND "week" = (SELECT MAX("week") FROM "lineup_entries"
                      WHERE "team_id" = $1 AND "season" = $2 AND "week" < $3)`,
     [teamId, season, week]
   );
-  const prevSlots = new Map(prevResult.rows.map((r) => [r.player_id, r.slot]));
+  const prevEntries = new Map(prevResult.rows.map((r) => [r.player_id, r]));
 
   for (const row of missing) {
-    const slot = prevSlots.get(row.player_id) || BENCH;
+    const prev = prevEntries.get(row.player_id);
     await client.query(
-      `INSERT INTO "lineup_entries" ("league_id", "team_id", "player_id", "season", "week", "slot")
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO "lineup_entries" ("league_id", "team_id", "player_id", "season", "week", "slot", "ir_attested")
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT ("team_id", "season", "week", "player_id") DO NOTHING`,
-      [leagueId, teamId, row.player_id, season, week, slot]
+      [leagueId, teamId, row.player_id, season, week, prev?.slot || BENCH, Boolean(prev?.ir_attested)]
     );
   }
 }
@@ -315,6 +317,7 @@ async function setLineup({ leagueId, userId, week, moves }) {
 
     const entriesResult = await client.query(
       `SELECT "lineup_entries"."player_id", "lineup_entries"."slot",
+              "lineup_entries"."ir_attested",
               "players"."name", "players"."position", "players"."nfl_team",
               "players"."injury_status"
        FROM "lineup_entries"
@@ -342,7 +345,7 @@ async function setLineup({ leagueId, userId, week, moves }) {
     }
 
     const invalidStash = Array.from(byPlayer.values()).find(
-      (entry) => entry.slot === IR && !isIrEligible(entry.injury_status)
+      (entry) => entry.slot === IR && !isValidStash(entry)
     );
     if (invalidStash) {
       throw new LineupError(
@@ -359,8 +362,11 @@ async function setLineup({ leagueId, userId, week, moves }) {
     if (errors.length > 0) throw new LineupError(400, errors.join('; '));
 
     for (const entry of changed) {
+      // A manager-initiated slot move ends any commissioner attestation on
+      // this player (#100): the override never outlives its reason, and the
+      // next placement is governed by the normal eligibility gate.
       await client.query(
-        `UPDATE "lineup_entries" SET "slot" = $1, "updated_at" = now()
+        `UPDATE "lineup_entries" SET "slot" = $1, "ir_attested" = false, "updated_at" = now()
          WHERE "team_id" = $2 AND "season" = $3 AND "week" = $4 AND "player_id" = $5`,
         [entry.slot, team.id, season, targetWeek, entry.player_id]
       );

@@ -47,6 +47,16 @@ function isIrEligible(injuryDesignation) {
   return IR_ELIGIBLE_DESIGNATIONS.has(injuryDesignation);
 }
 
+/**
+ * May this lineup entry legitimately sit in the IR slot? Eligibility is the
+ * player's live injury designation; a commissioner attestation (#100) stands
+ * in for it when the feed is wrong. Callers pass the entry row itself
+ * (`injury_status` joined from players, `ir_attested` from lineup_entries).
+ */
+function isValidStash(entry) {
+  return isIrEligible(entry.injury_status) || Boolean(entry.ir_attested);
+}
+
 function injuryDesignationName(injuryDesignation) {
   return INJURY_DESIGNATION_NAMES[injuryDesignation] || injuryDesignation || 'healthy';
 }
@@ -54,10 +64,10 @@ function injuryDesignationName(injuryDesignation) {
 /**
  * A team's **roster capacity**: how many players it may hold right now.
  * Draft roster size plus one per IR-eligible player currently stashed in an
- * IR slot, capped at the league's IR slot count. Only eligible occupants
- * grant capacity, so a stash whose occupant recovered leaves the team over
- * capacity — a derived condition that blocks adds until resolved, never a
- * stored flag.
+ * IR slot, capped at the league's IR slot count. Only eligible (or
+ * commissioner-attested, #100) occupants grant capacity, so a stash whose
+ * occupant recovered leaves the team over capacity — a derived condition
+ * that blocks adds until resolved, never a stored flag.
  *
  * `excludePlayerIds` names players leaving the roster in the same
  * transaction (a waiver drop, an outgoing trade piece): their stashes grant
@@ -78,7 +88,7 @@ async function rosterCapacity(client, { league, teamId, excludePlayerIds = [], r
   const stash = await client.query(
     `SELECT COUNT(*)::int AS n${fromCurrentIrStashes('$4')}
         AND "lineup_entries"."team_id" = $1
-        AND "players"."injury_status" = ANY($2::text[])
+        AND ("players"."injury_status" = ANY($2::text[]) OR "lineup_entries"."ir_attested")
         AND NOT ("lineup_entries"."player_id" = ANY($3::int[]))`,
     [teamId, [...IR_ELIGIBLE_DESIGNATIONS], excludePlayerIds, restoredPlayerIds]
   );
@@ -99,7 +109,8 @@ async function flagRecoveredIrStashes(client, transitions) {
     `SELECT "lineup_entries"."player_id", "players"."name" AS "player_name",
             "players"."injury_status", "teams"."id" AS "team_id",
             "teams"."owner_id", "teams"."league_id"${fromCurrentIrStashes()}
-        AND "lineup_entries"."player_id" = ANY($1::int[])`,
+        AND "lineup_entries"."player_id" = ANY($1::int[])
+        AND NOT "lineup_entries"."ir_attested"`,
     [transitionedPlayerIds]
   );
 
@@ -148,6 +159,7 @@ module.exports = {
   flagRecoveredIrStashes,
   injuryDesignationName,
   isIrEligible,
+  isValidStash,
   rosterCapacity,
   sendIrFlagPushes,
 };

@@ -6,6 +6,7 @@ const push = require('../services/push.service');
 const {
   flagRecoveredIrStashes,
   isIrEligible,
+  isValidStash,
   rosterCapacity,
   sendIrFlagPushes,
 } = require('../services/irPolicy.service');
@@ -40,6 +41,8 @@ test('every eligible-to-ineligible edge flags each affected manager once', async
       assert.deepEqual(params, [[21, 22, 23, 24, 25, 26, 27]]);
       assert.match(text, /SELECT MAX\("latest"\."week"\)/);
       assert.match(text, /"latest"\."week" <= "leagues"\."current_week"/);
+      // An attested stash is never scanned, flagged, or notified (#100).
+      assert.match(text, /NOT "lineup_entries"\."ir_attested"/);
       return {
         rows: transitions.map((transition, index) => ({
           player_id: transition.playerId,
@@ -102,6 +105,23 @@ test('transitions that do not leave IR eligibility produce no scan or repeat not
   fake.assertClean();
 });
 
+test('a stash is valid when its occupant is IR-eligible or commissioner-attested', () => {
+  const cases = [
+    [{ injury_status: 'O', ir_attested: false }, true],
+    [{ injury_status: 'IR', ir_attested: false }, true],
+    [{ injury_status: 'Q', ir_attested: false }, false],
+    [{ injury_status: null, ir_attested: false }, false],
+    [{ injury_status: 'Q', ir_attested: true }, true],
+    [{ injury_status: null, ir_attested: true }, true],
+    // eligible AND attested: still simply valid
+    [{ injury_status: 'O', ir_attested: true }, true],
+  ];
+
+  for (const [entry, expected] of cases) {
+    assert.equal(isValidStash(entry), expected, JSON.stringify(entry));
+  }
+});
+
 // --- roster capacity --------------------------------------------------------
 
 /** A stash-count world: answers the eligible-IR-stash count with `stashed`. */
@@ -141,8 +161,10 @@ test('rosterCapacity: each eligible stash grants one spot, and only eligible occ
 
   assert.equal(capacity, 15);
   // The count is scoped to this team's current-week IR slots and filtered to
-  // the qualifying designations, so an ineligible occupant grants nothing.
+  // the qualifying designations, so an ineligible occupant grants nothing -
+  // unless the commissioner attested the stash, which grants like eligible.
   assert.deepEqual(seen.params, [31, ['O', 'IR'], [], []]);
+  assert.match(seen.text, /\("players"\."injury_status" = ANY\(\$2::text\[\]\) OR "lineup_entries"\."ir_attested"\)/);
   assert.match(seen.text, /"lineup_entries"\."slot" = 'IR'/);
   assert.match(seen.text, /"players"\."injury_status" = ANY\(\$2::text\[\]\)/);
   assert.match(seen.text, /SELECT MAX\("latest"\."week"\)/);

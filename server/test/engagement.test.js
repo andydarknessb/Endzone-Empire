@@ -112,6 +112,18 @@ test('lineupProblems resurfaces an unresolved ineligible IR stash before kickoff
   ]);
 });
 
+test('lineupProblems never resurfaces a commissioner-attested stash (#100)', () => {
+  const problems = lineupProblems(
+    [
+      entry('QB', 'Healthy QB'),
+      entry('IR', 'Attested Runner', { injury_status: 'Q', ir_attested: true }),
+    ],
+    slots({ QB: 1 })
+  );
+
+  assert.deepEqual(problems, []);
+});
+
 // --- prefs -------------------------------------------------------------------
 
 test('mergePrefs fills defaults and respects stored overrides', () => {

@@ -3,7 +3,7 @@ const { deliverEmail } = require('./account.service');
 const { notify } = require('./activity.service');
 const { usersWanting } = require('./prefs.service');
 const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
-const { injuryDesignationName, isIrEligible } = require('./irPolicy.service');
+const { injuryDesignationName, isValidStash } = require('./irPolicy.service');
 
 /**
  * Email/notification digests: pre-lockout lineup reminders, waiver-results
@@ -19,8 +19,9 @@ function appOrigin() {
 
 /**
  * Pure: problems in a lineup that should trigger a pre-lockout reminder.
- * entries: [{ slot, name, onBye, injury_status }] (starter availability and
- * unresolved IR stashes are flagged; BENCH is ignored). rosterSlots:
+ * entries: [{ slot, name, onBye, injury_status, ir_attested }] (starter
+ * availability and unresolved IR stashes are flagged; BENCH is ignored and a
+ * commissioner-attested stash never nags). rosterSlots:
  * [{key,count,...}] detects unfilled slots.
  * Returns human-readable problem strings (empty = lineup looks fine).
  */
@@ -44,7 +45,8 @@ function lineupProblems(entries, rosterSlots = []) {
     }
   }
   for (const stash of entries.filter((entry) => entry.slot === 'IR')) {
-    if (!isIrEligible(stash.injury_status)) {
+    // A commissioner-attested stash is valid by fiat (#100) - never nagged.
+    if (!isValidStash(stash)) {
       problems.push(
         `${stash.name} (IR) is no longer IR-eligible (${injuryDesignationName(stash.injury_status)})`
       );
@@ -206,7 +208,8 @@ async function sendLineupReminders() {
       if (remindedTeamWeeks.has(key) || !wanted.has(team.owner_id)) continue;
 
       const entriesResult = await pool.query(
-        `SELECT "lineup_entries"."slot", "players"."name", "players"."injury_status",
+        `SELECT "lineup_entries"."slot", "lineup_entries"."ir_attested",
+                "players"."name", "players"."injury_status",
                 ("nfl_games"."nfl_team" IS NULL) AS "on_bye"
          FROM "lineup_entries"
          JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
@@ -221,6 +224,7 @@ async function sendLineupReminders() {
         name: r.name,
         onBye: r.on_bye,
         injury_status: r.injury_status,
+        ir_attested: r.ir_attested,
       }));
       const problems = lineupProblems(entries, rosterSlots);
       if (problems.length === 0) {

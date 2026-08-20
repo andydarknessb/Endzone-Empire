@@ -10,7 +10,7 @@ const { placeOnWaivers } = require('./waiver.service');
 const { assertManualCorrectionWindow } = require('./correction.service');
 const { deleteAvatarObjects } = require('./avatar.service');
 const { commissionerPredicate } = require('./leagueRole.service');
-const { rosterCapacity } = require('./irPolicy.service');
+const { isIrEligible, rosterCapacity } = require('./irPolicy.service');
 const { isPickemOnly } = require('./leagueType');
 const { getStandings: getPickemStandings, getSeasonSlate } = require('./pickem.service');
 const { pickemChampions } = require('./pickemSeason.service');
@@ -113,7 +113,9 @@ async function forceSetLineup({ leagueId, userId, teamId, week, moves }) {
 
     await materializeLineup(client, { leagueId, teamId, season, week: targetWeek });
     const entriesResult = await client.query(
-      `SELECT "lineup_entries"."player_id", "lineup_entries"."slot", "players"."position"
+      `SELECT "lineup_entries"."player_id", "lineup_entries"."slot",
+              "lineup_entries"."ir_attested",
+              "players"."position", "players"."injury_status"
        FROM "lineup_entries"
        JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
        JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
@@ -129,6 +131,10 @@ async function forceSetLineup({ leagueId, userId, teamId, week, moves }) {
       if (!entry) throw new CommissionerError(404, `player ${move.playerId} is not on that roster`);
       if (entry.slot === move.slot) continue;
       entry.slot = move.slot;
+      // The force path is the attestation's one writer (#100): stashing a
+      // player the feed calls ineligible attests him; an eligible stash needs
+      // none, and any forced move elsewhere ends whatever attestation stood.
+      entry.ir_attested = move.slot === 'IR' && !isIrEligible(entry.injury_status);
       changed.push(entry);
     }
     const errors = validateLineup(
@@ -138,9 +144,9 @@ async function forceSetLineup({ leagueId, userId, teamId, week, moves }) {
     if (errors.length > 0) throw new CommissionerError(400, errors.join('; '));
     for (const entry of changed) {
       await client.query(
-        `UPDATE "lineup_entries" SET "slot" = $1, "updated_at" = now()
-         WHERE "team_id" = $2 AND "season" = $3 AND "week" = $4 AND "player_id" = $5`,
-        [entry.slot, teamId, season, targetWeek, entry.player_id]
+        `UPDATE "lineup_entries" SET "slot" = $1, "ir_attested" = $2, "updated_at" = now()
+         WHERE "team_id" = $3 AND "season" = $4 AND "week" = $5 AND "player_id" = $6`,
+        [entry.slot, entry.ir_attested, teamId, season, targetWeek, entry.player_id]
       );
     }
     await logTransaction(client, {
