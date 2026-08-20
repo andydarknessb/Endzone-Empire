@@ -3,6 +3,7 @@ const { logTransaction, notify, notifyLeague } = require('./activity.service');
 const { isLeagueCommissioner, requireMember } = require('./leagueRole.service');
 const { assertFantasyLeagueRow } = require('./leagueType');
 const { rosterCapacity } = require('./irPolicy.service');
+const { benchAcquiredPlayer } = require('./lineup.service');
 
 class TradeError extends Error {
   constructor(statusCode, message) {
@@ -377,15 +378,13 @@ async function executeTrade(client, { trade, league, items, teams, byCommissione
     );
     // Roster capacity, not the static roster limit (#97). Outgoing players
     // are excluded from the stash count: trading away your stashed player
-    // takes his granted spot with him.
+    // takes his granted spot with him. Incoming players earn nothing: they
+    // land on the bench, whatever old lineup rows of theirs survive here.
     const capacity = await rosterCapacity(client, {
       league,
       teamId,
       excludePlayerIds: items
         .filter((item) => item.from_team_id === teamId)
-        .map((item) => item.player_id),
-      restoredPlayerIds: items
-        .filter((item) => item.to_team_id === teamId)
         .map((item) => item.player_id),
     });
     if (count.rows[0].n + change > capacity) {
@@ -398,6 +397,8 @@ async function executeTrade(client, { trade, league, items, teams, byCommissione
        WHERE "team_id" = $2 AND "player_id" = $3`,
       [item.to_team_id, item.from_team_id, item.player_id]
     );
+    // Acquired by trade: bench, never directly into IR (#94, user story 13).
+    await benchAcquiredPlayer(client, { league, teamId: item.to_team_id, playerId: item.player_id });
   }
   await client.query(
     `UPDATE "trades" SET "status" = 'executed', "updated_at" = now() WHERE "id" = $1`,

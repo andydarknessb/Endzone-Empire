@@ -2,7 +2,7 @@ const pool = require('../modules/pool');
 const { placeOnWaivers, isOnWaivers } = require('./waiver.service');
 const { logTransaction } = require('./activity.service');
 const { teamForPick, nextOpenPickNumber } = require('./draftOrder.service');
-const { POSITION_GROUPS } = require('./lineup.service');
+const { POSITION_GROUPS, benchAcquiredPlayer } = require('./lineup.service');
 const { isLeagueCommissioner, requireMember } = require('./leagueRole.service');
 const { assertFantasyLeagueRow } = require('./leagueType');
 const { draftRosterSize } = require('./rosterShape');
@@ -146,12 +146,9 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommiss
     );
     // Roster capacity, not the static roster limit: draft picks and post-draft
     // free-agent adds both land here, and an eligible IR stash grants a spot
-    // beyond the draft roster size (#97).
-    const capacity = await rosterCapacity(client, {
-      league,
-      teamId: myTeam.id,
-      restoredPlayerIds: [playerId],
-    });
+    // beyond the draft roster size (#97). The added player himself earns no
+    // restored credit - a free-agent add benches him (undoDrop is the restore).
+    const capacity = await rosterCapacity(client, { league, teamId: myTeam.id });
     if (rosterCountResult.rows[0].n >= capacity) {
       throw new DraftError(409, `roster capacity of ${capacity} reached`);
     }
@@ -258,8 +255,11 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommiss
       [leagueId, myTeam.id, playerId]
     );
 
-    // Free-agent pickups go in the league transaction log (draft picks don't)
+    // Free-agent pickups land on the bench - never back in an old stash
+    // (#94, user story 13) - and go in the league transaction log. Draft
+    // picks do neither: no lineup rows exist before the season.
     if (league.draft_status === 'complete') {
+      await benchAcquiredPlayer(client, { league, teamId: myTeam.id, playerId });
       await logTransaction(client, {
         leagueId,
         teamId: myTeam.id,
