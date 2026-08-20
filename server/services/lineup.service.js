@@ -323,7 +323,8 @@ async function setLineup({ leagueId, userId, week, moves }) {
          AND "team_players"."player_id" = "lineup_entries"."player_id"
        JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
        WHERE "lineup_entries"."team_id" = $1 AND "lineup_entries"."season" = $2
-         AND "lineup_entries"."week" = $3`,
+         AND "lineup_entries"."week" = $3
+       FOR SHARE OF "players"`,
       [team.id, season, targetWeek]
     );
     const byPlayer = new Map(entriesResult.rows.map((r) => [r.player_id, r]));

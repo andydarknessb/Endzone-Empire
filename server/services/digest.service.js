@@ -214,6 +214,8 @@ async function sendLineupReminders() {
           `SELECT "lineup_entries"."slot", "players"."name", "players"."injury_status",
                   ("nfl_games"."nfl_team" IS NULL) AS "on_bye"
            FROM "lineup_entries"
+           JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
+             AND "team_players"."player_id" = "lineup_entries"."player_id"
            JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
            LEFT JOIN "nfl_games" ON "nfl_games"."season" = $2 AND "nfl_games"."week" = $3
              AND "nfl_games"."nfl_team" = "players"."nfl_team"

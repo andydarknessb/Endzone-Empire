@@ -96,6 +96,17 @@ const lineupResponse = (overrides = {}) => ({
   ...overrides,
 });
 
+const recoveredStashEntry = () => ({
+  id: 5,
+  name: 'Recovered Receiver',
+  position: 'WR',
+  nfl_team: 'Minnesota Vikings',
+  injury_status: 'Q',
+  slot: 'IR',
+  locked: true,
+  onBye: false,
+});
+
 // URL-keyed mock covering the GETs LineupScreen now issues per week: the
 // lineup itself, start/sit advice, the season-long hindsight tally, and a
 // one-time league fetch (used only for the best_ball flag — see the
@@ -301,8 +312,10 @@ test('renders starters grouped by slot, bench section, and empty slot rows', asy
     within(screen.getByTestId('lineup-bench')).getByText('Davante Adams')
   ).toBeInTheDocument();
 
-  // Empty starter rows: WR(2) + TE(1) + FLEX(1) + K(1) + DEF(1) = 6, plus IR(1) = 7.
-  expect(screen.getAllByText('Empty')).toHaveLength(7);
+  // Empty starter rows: WR(2) + TE(1) + FLEX(1) + K(1) + DEF(1) = 6,
+  // plus IR(1) and the four unoccupied configured bench spots.
+  expect(screen.getAllByText('Empty')).toHaveLength(11);
+  expect(within(screen.getByTestId('lineup-bench')).getAllByText('Empty')).toHaveLength(4);
 });
 
 test('renders BYE and LOCKED chips for flagged entries', async () => {
@@ -472,6 +485,28 @@ test("clicking a locked player shows a warning toast and does not call put", asy
   expect(apiClient.put).not.toHaveBeenCalled();
 });
 
+test('a locked IR occupant can move out after kickoff', async () => {
+  apiClient.get.mockResolvedValue({
+    data: lineupResponse({ entries: [...lineupResponse().entries, recoveredStashEntry()] }),
+  });
+  apiClient.put.mockResolvedValue({});
+
+  renderScreenWithToasts();
+  await screen.findByText('Recovered Receiver');
+
+  await userEvent.click(screen.getByTestId('slot-row-IR-0'));
+  expect(screen.getByText('Moving Recovered Receiver: tap a highlighted slot')).toBeInTheDocument();
+  await userEvent.click(screen.getByTestId('slot-row-WR-0'));
+
+  await waitFor(() =>
+    expect(apiClient.put).toHaveBeenCalledWith('/api/team/lineup', {
+      leagueId: 1,
+      week: 3,
+      moves: [{ playerId: 5, slot: 'WR' }],
+    })
+  );
+});
+
 test('a failed PUT rolls the optimistic move back and shows an error toast', async () => {
   apiClient.get.mockResolvedValue({ data: lineupResponse() });
   apiClient.put.mockRejectedValue({
@@ -522,6 +557,31 @@ test('clicking an empty slot with no selection opens a quick-pick menu; choosing
     })
   );
   expect(await screen.findByText('Lineup saved')).toBeInTheDocument();
+});
+
+test('an empty bench row lets a locked recovered stash activate after a drop', async () => {
+  apiClient.get.mockResolvedValue({
+    data: lineupResponse({
+      benchSlots: 2,
+      entries: [...lineupResponse().entries, recoveredStashEntry()],
+    }),
+  });
+  apiClient.put.mockResolvedValue({});
+
+  renderScreenWithToasts();
+  await screen.findByText('Recovered Receiver');
+
+  await userEvent.click(screen.getByTestId('slot-row-BENCH-empty-1'));
+  const menu = await screen.findByRole('menu');
+  await userEvent.click(within(menu).getByText(/Recovered Receiver/));
+
+  await waitFor(() =>
+    expect(apiClient.put).toHaveBeenCalledWith('/api/team/lineup', {
+      leagueId: 1,
+      week: 3,
+      moves: [{ playerId: 5, slot: 'BENCH' }],
+    })
+  );
 });
 
 test('clicking an empty slot with no eligible players shows a disabled "no eligible players" item', async () => {

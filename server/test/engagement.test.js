@@ -171,6 +171,48 @@ test('sendLineupReminders carries forward an unresolved IR stash before checking
   fake.assertClean();
 });
 
+test('sendLineupReminders ignores a dropped player left in lineup history', async (t) => {
+  const fake = createFakePool([
+    [/^SELECT \* FROM "leagues"/, () => ({ rows: [{
+      id: 502,
+      current_season: 2026,
+      current_week: 10,
+      best_ball: false,
+      roster_slots: [],
+      bench_slots: 1,
+      ir_slots: 1,
+    }] })],
+    [/^SELECT 1 FROM "nfl_games"/, () => ({ rows: [{ exists: 1 }] })],
+    [/^SELECT "teams"\."id"/, () => ({ rows: [{
+      id: 602,
+      name: 'Drop Resolved',
+      owner_id: 702,
+      email: 'manager@example.test',
+    }] })],
+    [/^SELECT "user_id", "prefs" FROM "notification_prefs"/, () => ({ rows: [] })],
+    [/^SELECT "team_players"\."player_id"/, () => ({ rows: [] })],
+    [/^SELECT "lineup_entries"\."slot"/, (text) => ({
+      rows: text.includes('JOIN "team_players"') ? [] : [{
+        slot: 'IR',
+        name: 'Dropped Runner',
+        injury_status: 'Q',
+        on_bye: false,
+      }],
+    })],
+  ]).install(t);
+  const pushes = [];
+  t.mock.method(push, 'sendPushToUsers', async (...args) => {
+    pushes.push(args);
+    return { sent: 1 };
+  });
+
+  const result = await sendLineupReminders();
+
+  assert.deepEqual(result, { remindersSent: 0 });
+  assert.deepEqual(pushes, []);
+  fake.assertClean();
+});
+
 // --- prefs -------------------------------------------------------------------
 
 test('mergePrefs fills defaults and respects stored overrides', () => {

@@ -348,7 +348,7 @@ function LineupScreen() {
   const handleRowClick = (entry, slotType, event) => {
     if (bestBall) return; // best ball lineups are set automatically — no manual moves
 
-    if (entry && entry.locked) {
+    if (entry && entry.locked && entry.slot !== 'IR') {
       notify("Locked players can't be moved", { severity: 'warning' });
       setSelectedEntry(null);
       return;
@@ -516,15 +516,18 @@ function LineupScreen() {
       )
     : [];
 
-  const benchRows = (bySlot.BENCH || []).map((entry) =>
-    renderRow({
-      key: `BENCH-${entry.id}`,
-      testId: `slot-row-BENCH-${entry.id}`,
-      slotLabel: 'BENCH',
-      slotType: 'BENCH',
-      entry,
-    })
-  );
+  const benchRows = lineup
+    ? Array.from({ length: lineup.benchSlots || 0 }, (_, i) => {
+        const entry = (bySlot.BENCH || [])[i] || null;
+        return renderRow({
+          key: entry ? `BENCH-${entry.id}` : `BENCH-empty-${i}`,
+          testId: entry ? `slot-row-BENCH-${entry.id}` : `slot-row-BENCH-empty-${i}`,
+          slotLabel: 'BENCH',
+          slotType: 'BENCH',
+          entry,
+        });
+      })
+    : [];
 
   // Lineup guardrails: a persistent warning (never a block — moves auto-save)
   // when a starting slot is empty or a starter is on this week's bye.
@@ -562,7 +565,7 @@ function LineupScreen() {
   // (TeamManagement) already renders a Bye column awaiting the same data.
 
   const quickPickEligible = quickPick
-    ? entries.filter((e) => !e.locked && isEligibleForSlot(
+    ? entries.filter((e) => (!e.locked || e.slot === 'IR') && isEligibleForSlot(
       e.position,
       quickPick.slotType,
       lineup?.rosterSlots,
