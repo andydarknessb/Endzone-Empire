@@ -102,7 +102,7 @@ describe('the empty roster', () => {
     expect(result.summary).toMatchObject({
       starterInstances: 9, startersFilled: 0, startersOpen: 9,
       benchInstances: 6, benchFilled: 0, benchOpen: 6,
-      capacity: 15, draftable: 15, assignedCount: 0,
+      configuredSlotCount: 15, draftable: 15, assignedCount: 0,
       overflowCount: 0, rosterFull: false,
     });
     expect(result.summary.unfilledStarters).toEqual([
@@ -302,7 +302,7 @@ describe('bench, IR and overflow', () => {
     expect(overflow.every((r) => r.slotLabel === 'No slot' && r.draftable === false)).toBe(true);
   });
 
-  test('flags a roster as full exactly at capacity, not before', () => {
+  test('flags a roster as full exactly at the configured slot count, not before', () => {
     expect(assign(Array(14).fill('RB')).summary.rosterFull).toBe(false);
     expect(assign(Array(15).fill('RB')).summary.rosterFull).toBe(true);
   });
@@ -335,8 +335,10 @@ describe('bench, IR and overflow', () => {
       starterInstances: 12, startersFilled: 12,
       benchInstances: 7, benchFilled: 7,
       irInstances: 1, irFilled: 1,
-      capacity: 20, assignedCount: 20, overflowCount: 0, rosterFull: true,
+      configuredSlotCount: 20, assignedCount: 20, overflowCount: 0, rosterFull: true,
     });
+    // The IR slot is a spot this draft fills, so it counts as draftable.
+    expect(result.summary).toMatchObject({ configuredSlotCount: 20, draftable: 20 });
     // The tail of the draft is what reaches IR.
     expect(result.rows.find((r) => r.section === 'ir').player.pickNumber).toBe(20);
   });
@@ -349,6 +351,10 @@ describe('bench, IR and overflow', () => {
     const ir = result.rows.find((r) => r.section === 'ir');
     expect(ir.player).toBeNull();
     expect(ir.draftable).toBe(false);
+    // Configured slots include IR even though the draft does not fill it.
+    expect(result.summary.configuredSlotCount).toBe(20);
+    expect(result.summary).not.toHaveProperty('capacity');
+    expect(result.summary.draftable).toBe(19);
     // The pick IR would have taken is surfaced as overflow, never dropped.
     expect(result.summary).toMatchObject({ irFilled: 0, overflowCount: 1 });
   });
@@ -390,7 +396,7 @@ describe('purity', () => {
   test('survives being called with nothing at all (I13)', () => {
     const result = assignRosterSlots();
     expect(result.rows).toEqual([]);
-    expect(result.summary).toMatchObject({ capacity: 0, rosterFull: false, assignedCount: 0 });
+    expect(result.summary).toMatchObject({ configuredSlotCount: 0, rosterFull: false, assignedCount: 0 });
   });
 });
 

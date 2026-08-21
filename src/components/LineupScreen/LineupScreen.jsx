@@ -48,6 +48,7 @@ const MIN_WEEK = 1;
 const MAX_WEEK = 18;
 const WEEK_OPTIONS = Array.from({ length: MAX_WEEK }, (_, i) => i + 1);
 const PROJECTION_ENGINE_NAME = 'Endzone Forecast';
+const IR_ELIGIBLE_DESIGNATIONS = new Set(['O', 'IR']);
 
 /** A slot's configured eligiblePositions, with any group key expanded to its member positions. */
 function slotEligiblePositions(rosterSlots, slotKey) {
@@ -60,8 +61,9 @@ function slotEligiblePositions(rosterSlots, slotKey) {
   return [...out];
 }
 
-function isEligibleForSlot(position, slot, rosterSlots) {
-  if (slot === 'BENCH' || slot === 'IR') return true;
+function isEligibleForSlot(position, slot, rosterSlots, injuryDesignation) {
+  if (slot === 'BENCH') return true;
+  if (slot === 'IR') return IR_ELIGIBLE_DESIGNATIONS.has(injuryDesignation);
   return slotEligiblePositions(rosterSlots, slot).includes(position);
 }
 
@@ -161,10 +163,27 @@ function factorChipsFor(side) {
 // must be eligible for each other's slot. A locked occupant can never be a
 // target regardless of position.
 function isEligibleTarget(selectedEntry, targetEntry, slotType, rosterSlots) {
-  if (!targetEntry) return isEligibleForSlot(selectedEntry.position, slotType, rosterSlots);
+  if (!targetEntry) {
+    return isEligibleForSlot(
+      selectedEntry.position,
+      slotType,
+      rosterSlots,
+      selectedEntry.injury_status
+    );
+  }
   if (targetEntry.locked) return false;
-  const aEligible = isEligibleForSlot(selectedEntry.position, targetEntry.slot, rosterSlots);
-  const bEligible = isEligibleForSlot(targetEntry.position, selectedEntry.slot, rosterSlots);
+  const aEligible = isEligibleForSlot(
+    selectedEntry.position,
+    targetEntry.slot,
+    rosterSlots,
+    selectedEntry.injury_status
+  );
+  const bEligible = isEligibleForSlot(
+    targetEntry.position,
+    selectedEntry.slot,
+    rosterSlots,
+    targetEntry.injury_status
+  );
   return aEligible && bEligible;
 }
 
@@ -543,7 +562,12 @@ function LineupScreen() {
   // (TeamManagement) already renders a Bye column awaiting the same data.
 
   const quickPickEligible = quickPick
-    ? entries.filter((e) => !e.locked && isEligibleForSlot(e.position, quickPick.slotType, lineup?.rosterSlots))
+    ? entries.filter((e) => !e.locked && isEligibleForSlot(
+      e.position,
+      quickPick.slotType,
+      lineup?.rosterSlots,
+      e.injury_status
+    ))
     : [];
 
   const currentWeekValue = lineup ? selectedWeek ?? lineup.week : null;

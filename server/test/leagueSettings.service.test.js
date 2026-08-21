@@ -344,7 +344,49 @@ test('a null stored roster_limit falls back to the limit the current shape deriv
   });
   const error = await refusal(db, { keeperCount: 50 });
   assert.equal(error.statusCode, 400);
-  assert.equal(error.message, 'keeperCount cannot exceed the roster limit (7)', 'starters 3 + bench 3 + IR 1, not null');
+  assert.equal(error.message, 'keeperCount cannot exceed the draft roster size (6)', 'starters 3 + bench 3, the IR slot excluded, not null');
+});
+
+// The keeper and draft-order bounds are the draft roster size (starters +
+// bench): the IR slot is never drafted, so it is not a round (#96).
+test('keeperCount is bounded by the draft roster size, not the IR-inclusive roster limit', async () => {
+  const db = fakeDb({ status: statusRow({ roster_limit: 20, ir_slots: 1 }) });
+  const error = await refusal(db, { keeperCount: 20 });
+  assert.equal(error.statusCode, 400);
+  assert.equal(error.message, 'keeperCount cannot exceed the draft roster size (19)');
+});
+
+test('a keeperCount equal to the draft roster size is accepted', async () => {
+  const db = fakeDb({ status: statusRow({ roster_limit: 20, ir_slots: 1 }) });
+  await run(db, { keeperCount: 19 });
+  assert.ok(db.texts().some((t) => t.startsWith('UPDATE "leagues"')));
+});
+
+test('a zero-IR league keeps the whole roster limit as its keeperCount bound', async () => {
+  const db = fakeDb({ status: statusRow({ roster_limit: 15, ir_slots: 0 }) });
+  const error = await refusal(db, { keeperCount: 16 });
+  assert.equal(error.message, 'keeperCount cannot exceed the draft roster size (15)');
+});
+
+test('IR slots arriving in the same patch leave the draft roster size where it was', async () => {
+  const db = fakeDb({
+    status: statusRow({
+      roster_slots: [{ key: 'QB', count: 10, eligiblePositions: ['QB'] }],
+      bench_slots: 9, ir_slots: 0, roster_limit: 19,
+    }),
+  });
+  // The derived roster_limit rises to 21 with the two new IR slots, but the
+  // draft roster size (starters 10 + bench 9) does not move.
+  const error = await refusal(db, { irSlots: 2, keeperCount: 20 });
+  assert.equal(error.statusCode, 400);
+  assert.equal(error.message, 'keeperCount cannot exceed the draft roster size (19)');
+});
+
+test('a draft order override past the last drafted round is refused', async () => {
+  const db = fakeDb({ status: statusRow({ roster_limit: 20, ir_slots: 1 }), teams: [{ id: 11 }, { id: 12 }] });
+  const error = await refusal(db, { draftOrderOverrides: { 20: [11, 12] } });
+  assert.equal(error.statusCode, 400);
+  assert.match(error.message, /must be 1-19/);
 });
 
 test('draftOrderOverrides plus a custom-nomination auctionSettings read the teams once, not twice (#70)', async () => {

@@ -1,6 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { teamIndexForPick } = require('../services/draft.service');
+const { teamIndexForPick, draftPlayer } = require('../services/draft.service');
+const seasonService = require('../services/season.service');
+const { createFakePool, select, insert, update } = require('./helpers/fakePool');
 
 test('teamIndexForPick: 4 teams, round 1 (picks 0-3)', () => {
   assert.equal(teamIndexForPick(0, 4), 0);
@@ -84,4 +86,82 @@ test('teamIndexForPick: 12 teams snake draft', () => {
   assert.equal(teamIndexForPick(23, 12), 0);
   // Round 2 (even): first pick → team 0
   assert.equal(teamIndexForPick(24, 12), 0);
+});
+
+// --- draft completion -------------------------------------------------------
+
+// A draft runs for the draft roster size (starters + bench), not the stored
+// IR-inclusive roster_limit: no round is spent on the IR slot (#96).
+const completionLeague = {
+  id: 1,
+  draft_status: 'active',
+  draft_paused: false,
+  draft_type: 'snake',
+  draft_rotation: 'snake',
+  draft_order_overrides: null,
+  pickem_only: false,
+  roster_limit: 3,
+  ir_slots: 1,
+  position_caps: {},
+  current_pick: 3,
+  pick_time_seconds: 60,
+  autodraft_delay_seconds: 10,
+  waiver_period_hours: 24,
+};
+
+function completionPool({ league, picksMade }) {
+  return createFakePool([
+    [select('leagues'), () => ({ rows: [league] })],
+    [select('teams'), () => ({ rows: [
+      { id: 11, owner_id: 7, draft_position: 1, autodraft: false, locked: false },
+      { id: 12, owner_id: 8, draft_position: 2, autodraft: false, locked: false },
+    ] })],
+    [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB' }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 1 }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "draft_picks"/, () => ({ rows: [{ n: picksMade }] })],
+    [/^SELECT "pick_number" FROM "draft_picks"/, () => ({ rows: [] })],
+    [insert('draft_picks'), () => ({ rows: [], rowCount: 1 })],
+    [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
+    [update('leagues'), () => ({ rows: [{ pick_deadline_at: null }] })],
+    [update('teams'), () => ({ rows: [], rowCount: 1 })],
+  ]);
+}
+
+test('draftPlayer: the draft completes at teams x draft roster size, not x roster_limit', async (t) => {
+  const fake = completionPool({ league: completionLeague, picksMade: 4 }).install(t);
+  t.mock.method(seasonService, 'generateRegularSeason', async () => ({}));
+
+  const result = await draftPlayer({ leagueId: 1, userId: 7, playerId: 500 });
+
+  assert.equal(result.draftComplete, true);
+  assert.equal(result.nextTeamId, null);
+  const leagueUpdate = fake.matching(/^UPDATE "leagues" SET "current_pick"/)[0];
+  assert.equal(leagueUpdate.params[1], 'complete');
+  fake.assertClean();
+});
+
+test('draftPlayer: one pick short of the draft roster size keeps the draft active', async (t) => {
+  // Pick 3 of 4: team 12 is on the clock (0-based current_pick 2).
+  const league = { ...completionLeague, current_pick: 2 };
+  const fake = completionPool({ league, picksMade: 3 }).install(t);
+
+  const result = await draftPlayer({ leagueId: 1, userId: 8, playerId: 500 });
+
+  assert.equal(result.draftComplete, false);
+  const leagueUpdate = fake.matching(/^UPDATE "leagues" SET "current_pick"/)[0];
+  assert.equal(leagueUpdate.params[1], 'active');
+  fake.assertClean();
+});
+
+test('draftPlayer: a zero-IR league still drafts every roster_limit round', async (t) => {
+  const league = { ...completionLeague, ir_slots: 0 };
+  // 2 teams x 3 rounds = 6 picks. The 4th pick ends a 1-IR league but not this one.
+  const midDraft = completionPool({ league, picksMade: 4 }).install(t);
+  assert.equal((await draftPlayer({ leagueId: 1, userId: 7, playerId: 500 })).draftComplete, false);
+  midDraft.assertClean();
+
+  const fake = completionPool({ league, picksMade: 6 }).install(t);
+  t.mock.method(seasonService, 'generateRegularSeason', async () => ({}));
+  assert.equal((await draftPlayer({ leagueId: 1, userId: 7, playerId: 500 })).draftComplete, true);
+  fake.assertClean();
 });

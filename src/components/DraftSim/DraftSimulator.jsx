@@ -166,7 +166,7 @@ function DraftSimulator({ showCta = false }) {
               teams={board.teams}
               picks={board.picks}
               onTheClock={board.onTheClock}
-              rosterLimit={board.rosterLimit}
+              draftRounds={board.draftRounds}
               readOnly
             />
           )}

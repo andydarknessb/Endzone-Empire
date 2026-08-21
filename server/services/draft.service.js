@@ -5,6 +5,7 @@ const { teamForPick, nextOpenPickNumber } = require('./draftOrder.service');
 const { POSITION_GROUPS } = require('./lineup.service');
 const { isLeagueCommissioner, requireMember } = require('./leagueRole.service');
 const { assertFantasyLeagueRow } = require('./leagueType');
+const { draftRosterSize } = require('./rosterShape');
 
 class DraftError extends Error {
   constructor(statusCode, message) {
@@ -175,7 +176,9 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommiss
         [leagueId, myTeam.id, playerId, pickNumber]
       );
 
-      const totalPicks = teams.length * league.roster_limit;
+      // Rounds are the draft roster size (starters + bench): the IR slot is
+      // never drafted, so it costs no round (#96).
+      const totalPicks = teams.length * draftRosterSize(league);
       // Keeper picks are pre-inserted at draft start and can occupy any slot,
       // so completion is a count of all picks made, not a comparison against
       // this pick's own (possibly non-terminal) pick_number.

@@ -1,13 +1,14 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const pool = require('../modules/pool');
 const { byeWeekFromPlayedWeeks, REG_SEASON_WEEKS } = require('../services/bye.service');
+const { createFakePool } = require('./helpers/fakePool');
 const {
   slotEligible,
   validateLineup,
   parseLineupSettings,
   annotateLineupEntries,
   getLineup,
+  setLineup,
   DEFAULT_ROSTER_SLOTS,
 } = require('../services/lineup.service');
 
@@ -61,22 +62,17 @@ test('getLineup batches completed-season projections and preserves weekly null s
     { id: 3, name: 'No History', position: 'TE', nfl_team: null, injury_status: null, slot: 'TE' },
   ];
   const seasonQueries = [];
-  const client = {
-    query: async (sql, params) => {
-      const text = String(sql);
-      if (text === 'BEGIN' || text === 'COMMIT') return { rows: [] };
-      if (text.includes('SELECT * FROM "leagues"')) {
-        return { rows: [{ id: 5, current_season: 2026, current_week: 8 }] };
-      }
-      if (text.includes('SELECT * FROM "teams"')) return { rows: [{ id: 10 }] };
-      if (text.includes('SELECT "team_players"."player_id"')) {
-        return { rows: entries.map(({ id, position }) => ({ player_id: id, position })) };
-      }
-      if (text.includes('SELECT "player_id" FROM "lineup_entries"')) {
-        return { rows: entries.map(({ id }) => ({ player_id: id })) };
-      }
-      if (text.includes('SELECT "players"."id"')) return { rows: entries };
-      if (text.includes('FROM "player_season_stats"')) {
+  const fake = createFakePool([
+    [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 5, current_season: 2026, current_week: 8 }] })],
+    [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
+    [/^SELECT "team_players"\."player_id"/, () => ({
+      rows: entries.map(({ id, position }) => ({ player_id: id, position })),
+    })],
+    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({
+      rows: entries.map(({ id }) => ({ player_id: id })),
+    })],
+    [/^SELECT "players"\."id"/, () => ({ rows: entries })],
+    [/FROM "player_season_stats"/, (text, params) => {
         seasonQueries.push({ text, params });
         return {
           rows: [
@@ -94,13 +90,9 @@ test('getLineup batches completed-season projections and preserves weekly null s
             },
           ],
         };
-      }
-      if (text.includes('SELECT "nfl_team" FROM "nfl_games"')) return { rows: [] };
-      throw new Error(`unexpected query: ${text}`);
-    },
-    release: () => {},
-  };
-  t.mock.method(pool, 'connect', async () => client);
+    }],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
+  ]).install(t);
 
   const lineup = await getLineup({ leagueId: 5, userId: 7, week: 8 });
 
@@ -109,6 +101,63 @@ test('getLineup batches completed-season projections and preserves weekly null s
   assert.equal(lineup.entries[0].projected_points, 16);
   assert.equal(lineup.entries[1].projected_points, null);
   assert.equal(lineup.entries[2].projected_points, null);
+  fake.assertClean();
+});
+
+function installSetLineupWorld(t, injuryDesignation) {
+  const entries = [{
+    player_id: 1,
+    name: 'Test Runner',
+    position: 'RB',
+    nfl_team: 'MIN',
+    injury_status: injuryDesignation,
+    slot: 'BENCH',
+  }];
+  return createFakePool([
+    [/^SELECT \* FROM "leagues"/, () => ({
+      rows: [{
+        id: 5,
+        current_season: 2026,
+        current_week: 8,
+        roster_slots: DEFAULT_ROSTER_SLOTS,
+        bench_slots: 5,
+        ir_slots: 1,
+      }],
+    })],
+    [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
+    [/^SELECT "team_players"\."player_id"/, () => ({
+      rows: entries.map(({ player_id, position }) => ({ player_id, position })),
+    })],
+    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({ rows: [{ player_id: 1 }] })],
+    [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: entries.map((entry) => ({ ...entry })) })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
+    [/^UPDATE "lineup_entries"/, () => ({ rows: [] })],
+  ]).install(t);
+}
+
+test('setLineup rejects placing a healthy player in IR and names the designation', async (t) => {
+  const fake = installSetLineupWorld(t, null);
+
+  await assert.rejects(
+    setLineup({ leagueId: 5, userId: 7, week: 8, moves: [{ playerId: 1, slot: 'IR' }] }),
+    (error) => error.statusCode === 400 && /current injury designation: healthy/.test(error.message)
+  );
+
+  fake.assertClean();
+});
+
+test('setLineup accepts placing an IR-eligible player in an available IR slot', async (t) => {
+  const fake = installSetLineupWorld(t, 'IR');
+
+  const result = await setLineup({
+    leagueId: 5,
+    userId: 7,
+    week: 8,
+    moves: [{ playerId: 1, slot: 'IR' }],
+  });
+
+  assert.equal(result.updated, 1);
+  fake.assertClean();
 });
 
 test('slotEligible: exact-position slots take only that position', () => {

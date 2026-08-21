@@ -10,6 +10,9 @@ export default function RosterRulesView({ league }) {
   const irSlots = Number(league.ir_slots) || 0;
   const starters = slots.reduce((sum, s) => sum + (Number(s.count) || 0), 0);
   const totalRosterSize = starters + benchSlots + irSlots;
+  // The drafted spots are starters + bench; the IR slot costs no draft round
+  // (#96). A league with no IR slot reads exactly as it did before.
+  const draftSpots = starters + benchSlots;
   const caps = league.position_caps || {};
   const cappedPositions = ROSTER_POSITION_OPTIONS.filter((p) => caps[p] !== undefined && caps[p] !== null);
 
@@ -20,7 +23,12 @@ export default function RosterRulesView({ league }) {
           <Chip size="small" label={`${starters} starters`} />
           <Chip size="small" label={`${benchSlots} bench`} />
           <Chip size="small" label={`${irSlots} IR`} />
-          <Chip size="small" color="primary" label={`${totalRosterSize} total roster spots`} />
+          <Chip
+            size="small" color="primary"
+            label={irSlots > 0
+              ? `${draftSpots} roster spots + up to ${irSlots} IR`
+              : `${totalRosterSize} total roster spots`}
+          />
           {league.dp_enabled && <Chip size="small" color="primary" variant="outlined" label="IDP enabled" />}
         </Stack>
         {slots.length === 0 ? (

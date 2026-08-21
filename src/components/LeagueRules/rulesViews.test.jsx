@@ -103,11 +103,17 @@ describe('RosterRulesView', () => {
     position_caps: { QB: 3 },
   };
 
-  it('totals starters, bench and IR', () => {
+  it('separates the drafted roster spots from the IR slots', () => {
     render(<RosterRulesView league={league} />);
     expect(screen.getByText('3 starters')).toBeInTheDocument();
-    expect(screen.getByText('11 total roster spots')).toBeInTheDocument();
+    expect(screen.getByText('9 roster spots + up to 2 IR')).toBeInTheDocument();
+    expect(screen.queryByText(/total roster spots/)).not.toBeInTheDocument();
     expect(screen.getByText('QB: max 3')).toBeInTheDocument();
+  });
+
+  it('a league with no IR slot reads exactly as it did before', () => {
+    render(<RosterRulesView league={{ ...league, ir_slots: 0 }} />);
+    expect(screen.getByText('9 total roster spots')).toBeInTheDocument();
   });
 
   it('says so when there are no position limits', () => {

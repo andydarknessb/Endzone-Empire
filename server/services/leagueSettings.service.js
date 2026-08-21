@@ -43,6 +43,7 @@ const {
   POSITION_KEYS, validateAuctionSettings, keeperSettingsPlan, positionCapsFeasible,
 } = require('./draftValidation.service');
 const { validateOrderOverrides, isPermutationOf } = require('./draftOrder.service');
+const { draftRosterSize } = require('./rosterShape');
 const { commissionerPredicate } = require('./leagueRole.service');
 const { editSizeError } = require('./leagueSize');
 const { PICKEM_ONLY_CODE } = require('./leagueType');
@@ -560,13 +561,21 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
         if (sizeError) return await rejectUpdate(400, sizeError);
       }
       // roster_limit can be null on old rows (#70); fall back to the limit the
-      // current shape derives, so keeperCount never compares against null and
-      // validateOrderOverrides never receives null as maxRounds.
+      // current shape derives, so the draft roster size never derives from null
+      // and validateOrderOverrides never receives null as maxRounds.
       const currentShapeLimit = current
         ? (Array.isArray(current.roster_slots) ? current.roster_slots.reduce((sum, s) => sum + s.count, 0) : 0)
           + (current.bench_slots ?? 0) + (current.ir_slots ?? 0)
         : null;
       const effectiveRosterLimit = derivedRosterLimit ?? current?.roster_limit ?? currentShapeLimit;
+      // Both draft bounds below are the DRAFT roster size (starters + bench),
+      // not the IR-inclusive roster limit: no draft round is spent on an IR
+      // slot (#96), so a league with 1 IR drafts one fewer round and a keeper
+      // cannot be assigned to a round that will never be drafted.
+      const effectiveIrSlots = irSlots !== undefined ? irSlots : (current?.ir_slots ?? 0);
+      const effectiveDraftRosterSize = draftRosterSize({
+        rosterLimit: effectiveRosterLimit, irSlots: effectiveIrSlots,
+      });
       // Both order guards need the team ids; read them once (#70), even when
       // draftOrderOverrides and a custom-nomination auctionSettings arrive
       // together (two identical SELECTs before).
@@ -579,7 +588,7 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
         return cachedTeamIds;
       };
       if (current && draftOrderOverridesProvided) {
-        const overridesError = validateOrderOverrides(draftOrderOverrides, await readTeamIds(), effectiveRosterLimit);
+        const overridesError = validateOrderOverrides(draftOrderOverrides, await readTeamIds(), effectiveDraftRosterSize);
         if (overridesError) return await rejectUpdate(400, overridesError);
       }
       if (current && auctionSettingsProvided && auctionSettings?.nominationOrder === 'custom') {
@@ -587,8 +596,8 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
           return await rejectUpdate(400, 'nominationCustomOrder must list every current team exactly once');
         }
       }
-      if (current && keeperCount !== undefined && keeperCount > effectiveRosterLimit) {
-        return await rejectUpdate(400, `keeperCount cannot exceed the roster limit (${effectiveRosterLimit})`);
+      if (current && keeperCount !== undefined && keeperCount > effectiveDraftRosterSize) {
+        return await rejectUpdate(400, `keeperCount cannot exceed the draft roster size (${effectiveDraftRosterSize})`);
       }
       if (current && keeperSettingsProvided) {
         const assignmentResult = await client.query(
