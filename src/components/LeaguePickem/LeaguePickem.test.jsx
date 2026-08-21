@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import { clearLeagueCache } from '../../hooks/useLeague';
 import { clearPickemStandingsCache } from '../../hooks/usePickemStandings';
+import { clearPickemSettingsCache } from '../../hooks/usePickemSettings';
 import LeaguePickem from './LeaguePickem';
 
 jest.mock('../../api/apiClient', () => ({
@@ -109,6 +110,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   clearLeagueCache();
   clearPickemStandingsCache();
+  clearPickemSettingsCache();
 });
 
 test('a member sees an explanation when the commissioner has not enabled Pick\'em', async () => {
@@ -439,4 +441,25 @@ test("a scoring-mode change invalidates the cached standings (the caption names 
   await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
 
   await waitFor(() => expect(standingsCalls()).toHaveLength(2));
+});
+
+// --- Settings caching (#107) ---
+
+const settingsCalls = () =>
+  apiClient.get.mock.calls.map(([url]) => url).filter((u) => u.startsWith(`/api/pickem/league/${LEAGUE_ID}/settings`));
+
+test('saving the settings shows the saved row without fetching the settings again', async () => {
+  const user = userEvent.setup();
+  mockRequests({ settings: { enabled: false, mode: 'straight', isCommissioner: true } });
+  apiClient.put.mockResolvedValue({ data: { enabled: true, mode: 'straight', isCommissioner: true } });
+  renderPage();
+
+  const toggle = await screen.findByRole('checkbox', { name: /Enable Pick'em for this league/i });
+  expect(settingsCalls()).toHaveLength(1);
+  await user.click(toggle);
+
+  // The PUT response is written through the shared cache, so the enabled
+  // league (its board) comes from the saved row itself, not a second GET.
+  expect(await screen.findByRole('button', { name: 'BUF' })).toBeInTheDocument();
+  expect(settingsCalls()).toHaveLength(1);
 });
