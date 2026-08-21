@@ -213,7 +213,7 @@ function ActivityFeedItem({ txn, onOpenPlayer, isLast }) {
 
 function TransactionLog() {
   const { leagueId } = useParams();
-  // Shared league row (the dashboard primes this cache, so the usual hop
+  // Shared league row (the dashboard reads the same entry, so the usual hop
   // costs no request). The page waits for it before showing the filter bar,
   // as FantasyOnly does, so a pick'em league never flashes the roster-move
   // toggles; if the row cannot be loaded at all the page keeps its fantasy

@@ -45,8 +45,8 @@ export default function LeagueRules() {
 
   // The scoring defaults wait for the league row: a pick'em-only league has no
   // scoring rules, so the request is skipped rather than made and ignored.
-  // (The dashboard primes the useLeague cache, so the row is normally already
-  // in hand when this page mounts and nothing is serialized.)
+  // (The dashboard reads the same useLeague entry, so the row is normally
+  // already in hand when this page mounts and nothing is serialized.)
   const pickemOnly = !!league?.pickem_only;
   const leagueKnown = !!league;
   useEffect(() => {

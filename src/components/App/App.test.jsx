@@ -406,7 +406,7 @@ test.each([
   ['matchups/9', 'Matchup'],
 ])('"/league/:leagueId/%s" renders the FantasyOnly panel for a pick\'em-only league', async (path) => {
   clearLeagueCache();
-  renderApp(`#/league/77/${path}`, { user: loggedIn }, () => {
+  const { unmount } = renderApp(`#/league/77/${path}`, { user: loggedIn }, () => {
     apiClient.get.mockImplementation((url) => {
       if (url === '/api/league/77') {
         return Promise.resolve({ data: { league: { id: 77, name: 'Office Pool', pickem_only: true }, teams: [] } });
@@ -418,5 +418,8 @@ test.each([
     await screen.findByText("This is a pick'em league. Drafts, rosters, and matchups are not part of it.")
   ).toBeInTheDocument();
   expect(screen.getByRole('link', { name: /Office Pool/ })).toHaveAttribute('href', '#/league/77');
+  // A clear reloads whatever is still mounted on the key: take the page down
+  // before clearing so the teardown makes no request.
+  unmount();
   clearLeagueCache();
 });

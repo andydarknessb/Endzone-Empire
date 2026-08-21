@@ -22,6 +22,11 @@ jest.mock('../../api/socket', () => ({
 }));
 
 beforeEach(() => {
+  // The dashboard reads the league (and the pick'em standings) through the
+  // shared resource cache, which is module state and outlives a test: without
+  // these clears the next test would render the previous test's rows.
+  clearLeagueCache();
+  clearPickemStandingsCache();
   createDraftSocket.mockReturnValue({
     on: jest.fn(),
     io: { on: jest.fn() },
@@ -103,8 +108,9 @@ const standingsResponse = (overrides = {}) => ({
 
 /**
  * Build a URL-keyed apiClient.get mock. `overrides` maps a URL (matched
- * exactly or as a trailing path segment via endsWith) to either a resolved
- * value or a { reject: <error> } marker. Falls back to a generic empty
+ * exactly or as a trailing path segment via endsWith) to a resolved value, a
+ * { reject: <error> } marker, or a { pending: true } marker for a request that
+ * stays on the wire for the rest of the test. Falls back to a generic empty
  * response for unmatched URLs — e.g. ChatPanel's `/chat` fetch, which no
  * test needs to override. Exact/suffix matching (rather than a generic
  * substring `includes`) keeps a key like '/api/league/1' from also
@@ -116,6 +122,9 @@ const mockGetByUrl = (overrides = {}) => {
       if (url === key || url.endsWith(key)) {
         if (value && value.reject) {
           return Promise.reject(value.reject);
+        }
+        if (value && value.pending) {
+          return new Promise(() => {}); // never settles
         }
         return Promise.resolve(value);
       }
@@ -134,6 +143,31 @@ const mockGetByUrl = (overrides = {}) => {
     }
     return Promise.resolve({ data: [] });
   });
+};
+
+const leagueGetCount = (leagueId = 1) =>
+  apiClient.get.mock.calls.filter(([url]) => url === `/api/league/${leagueId}`).length;
+
+/**
+ * Click something whose handler keeps working after the click itself resolves:
+ * the POST, and then the un-awaited refresh() behind it. user-event does not
+ * wrap its own waiting in act(), so those later updates would otherwise land
+ * outside it and be reported as such.
+ */
+const clickAndSettle = async (element) => {
+  // The act() is for the work that follows the click, not for the click, which
+  // is why no-unnecessary-act does not apply here.
+  // eslint-disable-next-line testing-library/no-unnecessary-act
+  await act(async () => { await userEvent.click(element); });
+};
+
+/**
+ * A commissioner action fires refresh() without awaiting it, so the toast lands
+ * before the reload does. Assert the reload was actually issued and let it
+ * settle, so the test observes the refreshed page rather than ending mid-flight.
+ */
+const settleRefresh = async (leagueId = 1) => {
+  await waitFor(() => expect(leagueGetCount(leagueId)).toBeGreaterThanOrEqual(2));
 };
 
 afterEach(() => {
@@ -207,6 +241,9 @@ test('marks the phase-appropriate nav actions as Recommended', async () => {
   expect(within(screen.getByRole('link', { name: 'Trades' })).queryByText('Recommended')).not.toBeInTheDocument();
 
   unmount();
+  // Same league id, a different row: the shared entry from the mount above is
+  // still fresh, so drop it (with nothing mounted on it) before re-rendering.
+  clearLeagueCache();
 
   // In-season league: weekly-management actions are recommended, the draft is not.
   mockGetByUrl({
@@ -248,6 +285,60 @@ test('keeps the page alive and shows an error alert when the standings fetch fai
 
   expect(await screen.findByText('Sunday Ballers')).toBeInTheDocument();
   expect(await screen.findByText('standings unavailable')).toBeInTheDocument();
+});
+
+test('a failed background reload keeps the league on screen under an error banner', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse(),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
+
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  // The reload a commissioner action (or any clear of the shared entry) starts
+  // fails. The page has a league already, so it must not fall back to the
+  // skeleton or the error view and lose the tab and form state under it.
+  mockGetByUrl({
+    '/api/league/1': { reject: { response: { data: { error: 'league unavailable' } } } },
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
+  await act(async () => { clearLeagueCache(1); });
+
+  expect(await screen.findByText('league unavailable')).toBeInTheDocument();
+  expect(screen.getByText('Sunday Ballers')).toBeInTheDocument();
+  expect(screen.queryByTestId('page-skeleton')).not.toBeInTheDocument();
+});
+
+test('an in-flight background reload keeps the dashboard mounted, drawer and all', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse(),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
+
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+  await clickAndSettle(screen.getByRole('button', { name: 'Open league chat' }));
+  expect(await screen.findByRole('button', { name: 'Close chat' })).toBeInTheDocument();
+
+  // The reload is still on the wire, which is the window the first-load-only
+  // guard exists for: blanking the page here would unmount the open drawer and
+  // any in-progress form under it. This has to be asserted mid-flight; once
+  // the reload settles, loading is false again and a skeleton that flashed is
+  // invisible.
+  mockGetByUrl({
+    '/api/league/1': { pending: true },
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
+  await act(async () => { clearLeagueCache(1); });
+
+  expect(screen.queryByTestId('page-skeleton')).not.toBeInTheDocument();
+  expect(screen.getByText('Sunday Ballers')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Close chat' })).toBeInTheDocument();
 });
 
 test('shows the invite code and copies it to the clipboard', async () => {
@@ -299,21 +390,34 @@ test('does not render an invite code section when none is present', async () => 
 });
 
 test('shows "Start Draft" only for the owner while the draft is pending, and starting it refetches', async () => {
-  mockGetByUrl({
+  // The server side of the action, so the refetch can be observed landing
+  // rather than merely counted: once the draft has started the league row
+  // comes back active.
+  const gets = {
     '/api/league/1': leagueResponse(),
     '/api/user': userResponse(),
     '/standings': standingsResponse(),
+  };
+  mockGetByUrl(gets);
+  apiClient.post.mockImplementation((url) => {
+    if (url === '/api/league/1/start-draft') {
+      gets['/api/league/1'] = leagueResponse({ draft_status: 'active' });
+    }
+    return Promise.resolve({});
   });
-  apiClient.post.mockResolvedValue({});
 
   renderDashboardWithToasts();
   await screen.findByText('Sunday Ballers');
 
   const startButton = screen.getByRole('button', { name: 'Start Draft' });
-  await userEvent.click(startButton);
+  await clickAndSettle(startButton);
 
   await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith('/api/league/1/start-draft'));
   expect(await screen.findByText('Draft started successfully!')).toBeInTheDocument();
+  await waitFor(() =>
+    expect(screen.queryByRole('button', { name: 'Start Draft' })).not.toBeInTheDocument()
+  );
+  expect(screen.getByText('active')).toBeInTheDocument();
 });
 
 test('disables "Start Draft" until the minimum team count is reached', async () => {
@@ -422,24 +526,34 @@ test('week and season-status chips render from the league row once the draft is 
 });
 
 test('Advance Week is visible for the owner when draft is complete and season is not complete, posts, and refetches on click', async () => {
-  mockGetByUrl({
-    '/api/league/1': leagueResponse({ draft_status: 'complete', season_status: 'regular', current_week: 3, owner_id: 1 }),
+  const advanced = (week) => leagueResponse({
+    draft_status: 'complete', season_status: 'regular', current_week: week, owner_id: 1,
+  });
+  const gets = {
+    '/api/league/1': advanced(3),
     '/api/user': userResponse(),
     '/standings': standingsResponse({ league: { season_status: 'regular', current_week: 3 } }),
+  };
+  mockGetByUrl(gets);
+  apiClient.post.mockImplementation((url) => {
+    if (url === '/api/scoring/league/1/advance-week') gets['/api/league/1'] = advanced(4);
+    return Promise.resolve({});
   });
-  apiClient.post.mockResolvedValue({});
 
   renderDashboardWithToasts();
   await screen.findByText('Sunday Ballers');
+  expect(screen.getByText('Week 3')).toBeInTheDocument();
 
   const advanceButton = screen.getByRole('button', { name: 'Advance Week' });
-  await userEvent.click(advanceButton);
+  await clickAndSettle(advanceButton);
 
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/scoring/league/1/advance-week')
   );
   expect(await screen.findByText('Week advanced!')).toBeInTheDocument();
-  // refetch: league + user + standings called at least twice each (initial + refetch)
+  // The refresh landed, not merely started: the advanced row is on screen, and
+  // the standings were reloaded alongside it.
+  expect(await screen.findByText('Week 4')).toBeInTheDocument();
   expect(apiClient.get.mock.calls.filter((c) => c[0].includes('/standings')).length).toBeGreaterThanOrEqual(2);
 });
 
@@ -565,7 +679,7 @@ test('Lock Transactions toggles via the commissioner endpoint', async () => {
   renderDashboardWithToasts();
   await screen.findByText('Sunday Ballers');
 
-  await userEvent.click(screen.getByRole('checkbox', { name: 'Lock Transactions' }));
+  await clickAndSettle(screen.getByRole('checkbox', { name: 'Lock Transactions' }));
 
   await waitFor(() =>
     expect(apiClient.put).toHaveBeenCalledWith('/api/commissioner/league/1/transactions-lock', {
@@ -573,6 +687,7 @@ test('Lock Transactions toggles via the commissioner endpoint', async () => {
     })
   );
   expect(await screen.findByText('Transactions locked')).toBeInTheDocument();
+  await settleRefresh();
 });
 
 test('removing another owner\'s team calls the commissioner endpoint after confirming', async () => {
@@ -594,12 +709,13 @@ test('removing another owner\'s team calls the commissioner endpoint after confi
   // A severe confirmation dialog guards the destructive action
   expect(await screen.findByText("Remove Bob's Team?")).toBeInTheDocument();
   expect(apiClient.delete).not.toHaveBeenCalled();
-  await userEvent.click(screen.getByRole('button', { name: 'Remove Team' }));
+  await clickAndSettle(screen.getByRole('button', { name: 'Remove Team' }));
 
   await waitFor(() =>
     expect(apiClient.delete).toHaveBeenCalledWith('/api/commissioner/league/1/teams/2')
   );
   expect(await screen.findByText('Team removed')).toBeInTheDocument();
+  await settleRefresh();
 });
 
 test('cancelling the remove-team dialog does not call the API', async () => {
@@ -906,12 +1022,13 @@ test('Start New Season appears only when the season is complete and POSTs the ro
   renderDashboardWithToasts();
   await screen.findByText('Sunday Ballers');
 
-  await userEvent.click(screen.getByRole('button', { name: 'Start New Season' }));
+  await clickAndSettle(screen.getByRole('button', { name: 'Start New Season' }));
 
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/commissioner/league/1/rollover', {})
   );
   expect(await screen.findByText('New season started!')).toBeInTheDocument();
+  await settleRefresh();
 });
 
 // --- Pick'em-only leagues ---
@@ -1006,10 +1123,9 @@ test("a pick'em-only commissioner sees neither Start Draft nor Advance Week, and
   expect(screen.queryByRole('link', { name: 'Make your picks' })).not.toBeInTheDocument();
 });
 
-// --- useLeague cache priming ---
+// --- the shared useLeague entry ---
 
-test('the dashboard primes the shared league cache, so a fantasy page reached from it needs no second league request', async () => {
-  clearLeagueCache();
+test('the dashboard reads the same league entry as the pages it links to, so a fantasy page reached from it needs no second league request', async () => {
   mockGetByUrl({
     '/api/league/1': leagueResponse(),
     '/api/user': userResponse(),
@@ -1020,7 +1136,7 @@ test('the dashboard primes the shared league cache, so a fantasy page reached fr
   unmount();
 
   apiClient.get.mockClear();
-  renderWithProviders(
+  const { unmount: unmountFantasyPage } = renderWithProviders(
     <FantasyOnly>
       <div>Draft Room body</div>
     </FantasyOnly>,
@@ -1028,6 +1144,9 @@ test('the dashboard primes the shared league cache, so a fantasy page reached fr
   );
   expect(screen.getByText('Draft Room body')).toBeInTheDocument();
   expect(apiClient.get).not.toHaveBeenCalledWith('/api/league/1');
+  // A clear reloads whatever is still mounted on the key: take the page down
+  // before clearing so the teardown makes no request.
+  unmountFantasyPage();
   clearLeagueCache();
 });
 

@@ -10,10 +10,10 @@ import { useLeague } from '../../hooks/useLeague';
  * them, so a bookmarked or hand-typed URL gets a short explanation and a way
  * back instead of an empty fantasy page firing roster-shaped requests.
  *
- * Reads the league through useLeague. The dashboard primes that cache with the
- * row it already fetched, so the usual hop (dashboard -> fantasy page) mounts
- * the page synchronously; the wrapped pages that call useLeague themselves
- * share the same entry. Only a cold entry (deep link, expired cache) costs a
+ * Reads the league through useLeague. The dashboard reads the same entry, so
+ * the usual hop (dashboard -> fantasy page) costs no request and mounts the
+ * page synchronously; the wrapped pages that call useLeague themselves share
+ * that entry too. Only a cold entry (deep link, expired cache) costs a
  * request. The verdict waits for the row rather than rendering the page
  * optimistically; if the row cannot be loaded at all the page renders and
  * reports the failure itself, the same way it would without this wrapper.

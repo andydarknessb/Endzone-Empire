@@ -3,7 +3,12 @@ import MockAdapter from 'axios-mock-adapter';
 import registrationSaga, { registerUser } from './registration.saga';
 import apiClient, { getToken, clearToken } from '../../api/apiClient';
 import { renderHook } from '@testing-library/react';
-import { primeLeagueCache, useLeague, clearLeagueCache } from '../../hooks/useLeague';
+import { useLeague, clearLeagueCache } from '../../hooks/useLeague';
+import { setResource } from '../../lib/resourceCache';
+
+// Warm the shared league entry the way a visited page would.
+const primeLeagueForTest = (leagueId, league) =>
+  setResource(['league', leagueId], { league, teams: [] });
 
 // See login.saga.test.js for why this is required: the worker yields a raw
 // apiClient.post(...) promise, which is genuinely invoked when the
@@ -71,7 +76,7 @@ describe('registerUser drops the previous session caches', () => {
   test('a successful registration clears api-cache-v1 and the shared league cache', () => {
     const deleted = [];
     global.caches = { delete: (name) => { deleted.push(name); return Promise.resolve(true); } };
-    primeLeagueCache(1, { id: 1, name: 'Previous account row', is_commissioner: true });
+    primeLeagueForTest(1, { id: 1, name: 'Previous account row', is_commissioner: true });
 
     const gen = registerUser({ type: 'REGISTER', payload: { username: 'bob', email: 'bob@test.local', password: 'pw123456' } });
     gen.next(); // CLEAR_REGISTRATION_ERROR

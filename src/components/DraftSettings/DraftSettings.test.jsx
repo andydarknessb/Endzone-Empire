@@ -244,6 +244,26 @@ test('saves pending-draft timer and delay through the league settings endpoint',
   await waitFor(() => expect(apiClient.put).toHaveBeenCalledWith('/api/league/1', { pickTimeSeconds: 60, autodraftDelaySeconds: 10 }));
 });
 
+test('reloads the league exactly once after a save', async () => {
+  const leagueGets = () => apiClient.get.mock.calls.filter(([url]) => url === '/api/league/1').length;
+  mockData();
+  apiClient.put.mockResolvedValue({ data: {} });
+  renderSettings();
+  await screen.findByText('Sunday Ballers');
+  // The teams half of the payload rides on this one request, so the page never
+  // asks the endpoint twice: once on mount, once for the post-save refetch.
+  expect(leagueGets()).toBe(1);
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Timer' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Save timer' }));
+
+  expect(await screen.findByText('Timer saved')).toBeInTheDocument();
+  // Save timer re-enables only once saveLeague's refresh has settled, so the
+  // count below is the final one, not a snapshot mid-flight.
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Save timer' })).toBeEnabled());
+  expect(leagueGets()).toBe(2);
+});
+
 test('uses the clock endpoint while active and locks draft setup panels', async () => {
   mockData({ draft_status: 'active' });
   apiClient.post.mockResolvedValue({ data: {} });
@@ -296,9 +316,9 @@ test('uses a successful schedule PUT as the baseline when the follow-up refetch 
   const inputValue = new Date(localDraftDate.getTime() - offset).toISOString().slice(0, 16);
   const savedDraftDate = new Date(inputValue).toISOString();
   apiClient.put.mockResolvedValue({ data: { ...response.data.league, draft_date: savedDraftDate } });
-  apiClient.get
-    .mockRejectedValueOnce(new Error('League refresh unavailable'))
-    .mockResolvedValueOnce({ data: { ...response.data, league: { ...response.data.league, draft_date: savedDraftDate } } });
+  // Only the refetch asks the endpoint now (the teams ride on the same
+  // payload), so one queued rejection covers the whole follow-up.
+  apiClient.get.mockRejectedValueOnce(new Error('League refresh unavailable'));
 
   fireEvent.change(screen.getByLabelText('Draft date and time'), { target: { value: inputValue } });
   await userEvent.click(screen.getByRole('button', { name: 'Save schedule' }));
