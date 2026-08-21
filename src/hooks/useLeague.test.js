@@ -215,7 +215,7 @@ test('updateTeams stands down while a reload is in flight, so the reload still l
 
   expect(a.current.league.current_week).toBe(4);
   expect(b.current.league.current_week).toBe(4); // and no sibling is left behind
-  expect(a.current.teams).toEqual(TEAMS); // the reload's membership, avatars included
+  expect(a.current.teams).toEqual(TEAMS); // the write-through stood down, so the reload's membership won
 });
 
 test('updateTeams is a no-op before a league is on screen: the load in flight brings the avatars', () => {

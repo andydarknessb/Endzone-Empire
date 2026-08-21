@@ -100,8 +100,11 @@ export function load(key, fetcher) {
 
   const generation = generationOf(serialized);
   const promise = fetcher();
-  // Keep whatever data was already there: a reload serves the previous
-  // response to other mounts until the new one lands.
+  // Keep whatever data was already there: a reload that no invalidation
+  // preceded (a TTL expiry) serves the previous response to other mounts until
+  // the new one lands. A reload that invalidate() started has nothing to keep,
+  // because invalidate deletes the entry before it notifies; the mounts that
+  // were already on screen hold their own copy either way.
   entries.set(serialized, { data: existing?.data, promise, fetchedAt: null });
   promise.then(
     (data) => {
@@ -136,8 +139,11 @@ export function setResource(key, data) {
  * lands.
  *
  * `reload: false` forgets without telling anyone, which is what a session drop
- * needs: login.saga drops caches before the user is unset, so a reload here
- * would fire requests carrying a token that has just been revoked.
+ * needs: `loginUser` drops caches while the outgoing session's token is still
+ * installed, so a reload there would refill the store with the previous
+ * account's viewer-scoped rows; on the logout path the token is already
+ * cleared, so a reload would be an unauthenticated request against a session
+ * that is about to be revoked.
  */
 export function invalidate(keyPrefix, { reload = true } = {}) {
   const prefix = keyParts(keyPrefix);

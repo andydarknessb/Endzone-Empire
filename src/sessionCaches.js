@@ -11,9 +11,12 @@ import { invalidate } from './lib/resourceCache';
  * cleared; the offline API store is best-effort for a request already on the
  * wire (a fresh session's token is not on it, and its 401 is never cached).
  *
- * `reload: false` is the point of this call: login.saga drops caches before
- * the user is unset, so telling mounted hooks to reload here would fire
- * requests carrying a token that has just been revoked.
+ * `reload: false` is the point of this call. `loginUser` drops caches while
+ * the previous session's token is still installed, so telling mounted hooks to
+ * reload there would refill the store with the outgoing account's
+ * viewer-scoped rows moments before SET_USER. `logoutUser` has already cleared
+ * the token, so a reload there would be an unauthenticated request against a
+ * session that is about to be revoked.
  */
 export function dropSessionCaches() {
   invalidate(undefined, { reload: false });

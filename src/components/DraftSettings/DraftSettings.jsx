@@ -94,8 +94,10 @@ export default function DraftSettings() {
     // refetch() invalidates the shared league entry itself, so every mount on
     // this league reloads from the one request it starts. Its promise settles
     // once the league (and so the teams, which ride on the same payload) is
-    // back on screen, which is what saveLeague awaits before clearing dirty
-    // state.
+    // back on screen, which is what saveLeague awaits before it stops showing
+    // itself as saving, and what saveKeeperSettings awaits before clearing the
+    // keeper dirty flags. The tab's own dirty flag is cleared off the PUT
+    // response, ahead of this reload.
     const requests = [refetch()];
     if (includeKeeperData) requests.push(loadKeeperData());
     await Promise.all(requests);
