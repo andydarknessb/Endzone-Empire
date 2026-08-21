@@ -30,12 +30,11 @@ export default function DraftSettings() {
   const { leagueId } = useParams();
   const user = useSelector((store) => store.user);
   const notify = useSnackbar();
-  const { league, loading, error, refetch, updateLeague } = useLeague(leagueId);
-  const [teams, setTeams] = useState([]);
+  // teams is the other half of the /api/league/:id payload, so it arrives with
+  // the league row rather than from a second request of the same endpoint.
+  const { league, teams, loading, error, refetch, updateLeague } = useLeague(leagueId);
   const [keepers, setKeepers] = useState([]);
   const [keeperCandidates, setKeeperCandidates] = useState([]);
-  const [teamsLoading, setTeamsLoading] = useState(true);
-  const [teamsError, setTeamsError] = useState(null);
   const [keeperDataRequested, setKeeperDataRequested] = useState(false);
   const [keeperDataLoading, setKeeperDataLoading] = useState(false);
   const [keeperDataError, setKeeperDataError] = useState(null);
@@ -64,18 +63,6 @@ export default function DraftSettings() {
       setTab(nextTab);
     });
   };
-  const loadTeams = useCallback(async () => {
-    try {
-      setTeamsLoading(true);
-      setTeamsError(null);
-      const leagueResponse = await apiClient.get(`/api/league/${leagueId}`);
-      setTeams(leagueResponse.data.teams || []);
-    } catch (requestError) {
-      setTeamsError(errorMessage(requestError));
-    } finally {
-      setTeamsLoading(false);
-    }
-  }, [leagueId]);
   const loadKeeperData = useCallback(async () => {
     try {
       setKeeperDataRequested(true);
@@ -94,10 +81,6 @@ export default function DraftSettings() {
     }
   }, [leagueId]);
   useEffect(() => {
-    setTeams([]);
-    loadTeams();
-  }, [loadTeams]);
-  useEffect(() => {
     setKeepers([]);
     setKeeperCandidates([]);
     setKeeperDataRequested(false);
@@ -109,11 +92,14 @@ export default function DraftSettings() {
   }, [keeperDataRequested, loadKeeperData, tab]);
   const refresh = useCallback(async ({ includeKeeperData = tab === 'keepers' } = {}) => {
     // refetch() invalidates the shared league entry itself, so every mount on
-    // this league reloads from the one request it starts.
-    const requests = [refetch(), loadTeams()];
+    // this league reloads from the one request it starts. Its promise settles
+    // once the league (and so the teams, which ride on the same payload) is
+    // back on screen, which is what saveLeague awaits before clearing dirty
+    // state.
+    const requests = [refetch()];
     if (includeKeeperData) requests.push(loadKeeperData());
     await Promise.all(requests);
-  }, [loadKeeperData, loadTeams, refetch, tab]);
+  }, [loadKeeperData, refetch, tab]);
   const saveLeague = async (payload, message, { reloadKeeperData = tab === 'keepers', clearDirty = true } = {}) => {
     setSaving(true);
     try {
@@ -205,19 +191,17 @@ export default function DraftSettings() {
   if (user?.id && !league.is_commissioner && user.id !== league.owner_id) return <Navigate to={`/league/${leagueId}`} replace />;
   const frozen = league.draft_status !== 'pending';
   const common = { league, frozen, onSave: saveLeague, saving, onDirtyChange: setPanelDirty };
-  const teamData = (panel) => {
-    if (teamsLoading) return <Skeleton variant="rounded" height={180} />;
-    if (teamsError) return <Alert severity="error" action={<Button color="inherit" size="small" onClick={loadTeams}>Retry team data</Button>}>Unable to load team data: {teamsError}</Alert>;
-    return panel;
-  };
+  // No teams guard below: teams ride on the league payload, so wherever league
+  // is truthy the membership is already there, and a league that failed to
+  // load is handled page-level above by 'Retry league settings'.
   let content;
   if (tab === 'type') content = <DraftTypePanel {...common} />;
-  else if (tab === 'schedule') content = teamData(<SchedulePanel {...common} teamCount={teams.length} onStart={startNow} />);
+  else if (tab === 'schedule') content = <SchedulePanel {...common} teamCount={teams.length} onStart={startNow} />;
   else if (tab === 'timer') content = <TimerPanel {...common} onSetClock={setClock} />;
-  else if (tab === 'order') content = teamData(<DraftOrderPanel {...common} teams={teams} onSetOrder={setOrder} onRandomize={randomize} />);
-  else if (tab === 'auction') content = league.draft_type === 'auction' ? teamData(<AuctionPanel {...common} teams={teams} />) : <Alert severity="info">Select Salary-cap auction under Draft type to edit auction settings.</Alert>;
+  else if (tab === 'order') content = <DraftOrderPanel {...common} teams={teams} onSetOrder={setOrder} onRandomize={randomize} />;
+  else if (tab === 'auction') content = league.draft_type === 'auction' ? <AuctionPanel {...common} teams={teams} /> : <Alert severity="info">Select Salary-cap auction under Draft type to edit auction settings.</Alert>;
   else if (tab === 'limits') content = <PositionLimitsPanel {...common} />;
-  else if (tab === 'keepers') content = teamData(!keeperDataRequested || keeperDataLoading ? <Skeleton variant="rounded" height={260} /> : keeperDataError ? <Alert severity="error" action={<Button color="inherit" size="small" onClick={loadKeeperData}>Retry keeper data</Button>}>Unable to load keeper data: {keeperDataError}</Alert> : <KeeperPanel league={league} teams={teams} keepers={keepers} keeperCandidates={keeperCandidates} frozen={frozen} saving={saving} onSaveLeague={saveKeeperSettings} onSaveKeepers={saveKeepers} onSettingsDirtyChange={setKeeperSettingsDirty} onAssignmentsDirtyChange={setKeeperAssignmentsDirty} />);
-  else content = teamData(<ReadinessPanel teams={teams} draftType={league.draft_type} />);
+  else if (tab === 'keepers') content = !keeperDataRequested || keeperDataLoading ? <Skeleton variant="rounded" height={260} /> : keeperDataError ? <Alert severity="error" action={<Button color="inherit" size="small" onClick={loadKeeperData}>Retry keeper data</Button>}>Unable to load keeper data: {keeperDataError}</Alert> : <KeeperPanel league={league} teams={teams} keepers={keepers} keeperCandidates={keeperCandidates} frozen={frozen} saving={saving} onSaveLeague={saveKeeperSettings} onSaveKeepers={saveKeepers} onSettingsDirtyChange={setKeeperSettingsDirty} onAssignmentsDirtyChange={setKeeperAssignmentsDirty} />;
+  else content = <ReadinessPanel teams={teams} draftType={league.draft_type} />;
   return <Container maxWidth="lg" sx={{ py: 4 }}><Typography variant="h4" sx={{ mb: 0.5 }}>Draft Settings</Typography><Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>{league.name}</Typography>{error && <Alert severity="error" sx={{ mb: 2 }} action={<Button color="inherit" size="small" onClick={refetch}>Retry league settings</Button>}>Unable to refresh league settings: {error}</Alert>}{frozen && <Alert severity="info" sx={{ mb: 2 }}>Draft setup is locked after the draft starts. The Timer tab remains available while a draft is active.</Alert>}<Paper sx={{ p: { xs: 1.5, sm: 2.5 } }}><Tabs aria-label="Draft settings sections" value={tab} onChange={(event, value) => changeTab(value)} variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile sx={{ borderBottom: '1px solid', borderColor: 'divider', mb: 3 }}>{TAB_ITEMS.map(([value, label]) => <Tab key={value} value={value} label={label} id={tabId(value)} aria-controls={panelId(value)} />)}</Tabs><Box role="tabpanel" id={panelId(tab)} aria-labelledby={tabId(tab)}>{content}</Box></Paper></Container>;
 }

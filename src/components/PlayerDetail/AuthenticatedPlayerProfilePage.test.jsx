@@ -1,8 +1,9 @@
 import React from 'react';
-import { fireEvent, screen } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import publicApiClient from '../../api/publicApiClient';
+import { clearLeagueCache } from '../../hooks/useLeague';
 import AuthenticatedPlayerProfilePage from './AuthenticatedPlayerProfilePage';
 
 jest.mock('../../api/apiClient', () => ({
@@ -68,6 +69,9 @@ const renderPage = (entry = '/players/42') => renderWithProviders(
 );
 
 beforeEach(() => {
+  // The league store outlives a test in this file, so each test has to start
+  // from an empty one instead of the previous test's row.
+  clearLeagueCache();
   publicApiClient.get.mockResolvedValue({ data: { rankings: [] } });
   apiClient.get.mockImplementation((url, config) => {
     if (url === '/api/public/players/42') {
@@ -80,7 +84,10 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => jest.clearAllMocks());
+afterEach(() => {
+  clearLeagueCache();
+  jest.clearAllMocks();
+});
 
 test('renders the scoring switcher, points sparkline, game log, and partial-weekly note', async () => {
   renderPage();
@@ -104,6 +111,96 @@ test('defaults to the active league scoring format without recalculating points'
 
   fireEvent.click(screen.getByRole('button', { name: 'Standard' }));
   expect(screen.getAllByText('300').length).toBeGreaterThan(0);
+});
+
+test('holds the profile back until the league format is known', async () => {
+  let resolveProfile;
+  let resolveLeague;
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/public/players/42') {
+      return new Promise((resolve) => { resolveProfile = () => resolve({ data: COMPLETE_PROFILE }); });
+    }
+    if (url === '/api/league/10') {
+      return new Promise((resolve) => {
+        resolveLeague = () => resolve({ data: { league: { id: 10, scoring_preset: 'ppr' } } });
+      });
+    }
+    return Promise.reject(new Error(`unexpected url ${url}`));
+  });
+
+  renderPage('/players/42?leagueId=10');
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/10'));
+
+  // The profile has landed and the league has not. The body must not mount
+  // yet: initialFormat is an initial value, so a format arriving afterwards
+  // would reset a switch the reader had already flipped.
+  await act(async () => { resolveProfile(); });
+  expect(screen.queryByRole('heading', { name: 'Alpha Back' })).not.toBeInTheDocument();
+
+  await act(async () => { resolveLeague(); });
+
+  expect(await screen.findByText(/2025 fantasy points · Full PPR/)).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Full PPR' })).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('a failed profile shows its error and Retry without waiting for the league', async () => {
+  let rejectProfile;
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/public/players/42') {
+      return new Promise((resolve, reject) => { rejectProfile = () => reject(new Error('boom')); });
+    }
+    // A league endpoint that never answers: a stalled connection, no timeout.
+    if (url === '/api/league/10') return new Promise(() => {});
+    return Promise.reject(new Error(`unexpected url ${url}`));
+  });
+
+  renderPage('/players/42?leagueId=10');
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/10'));
+
+  // Only the body needs the league's format, and no body is going to render.
+  // Holding the failure behind the league would leave the reader on skeletons
+  // with no way to retry, for as long as the league request hangs.
+  await act(async () => { rejectProfile(); });
+
+  expect(await screen.findByText(/We couldn.t load this player/)).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+});
+
+test('an empty profile shows Player not found without waiting for the league', async () => {
+  let resolveEmpty;
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/public/players/42') {
+      return new Promise((resolve) => { resolveEmpty = () => resolve({ data: null }); });
+    }
+    if (url === '/api/league/10') return new Promise(() => {});
+    return Promise.reject(new Error(`unexpected url ${url}`));
+  });
+
+  renderPage('/players/42?leagueId=10');
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/10'));
+
+  await act(async () => { resolveEmpty(); });
+
+  expect(await screen.findByText('Player not found.')).toBeInTheDocument();
+});
+
+test('renders the profile in the default format when the league request fails', async () => {
+  apiClient.get.mockImplementation((url, config) => {
+    if (url === '/api/public/players/42') {
+      return Promise.resolve({ data: config?.params?.season === 2026 ? PENDING_PROFILE : COMPLETE_PROFILE });
+    }
+    if (url === '/api/league/10') return Promise.reject(new Error('League unavailable'));
+    return Promise.reject(new Error(`unexpected url ${url}`));
+  });
+
+  renderPage('/players/42?leagueId=10');
+
+  expect(await screen.findByText(/2025 fantasy points · Half-PPR/)).toBeInTheDocument();
+  expect(apiClient.get).toHaveBeenCalledWith('/api/league/10');
+  expect(screen.getByRole('button', { name: 'Half-PPR' })).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByRole('heading', { name: 'Alpha Back' })).toBeInTheDocument();
+  expect(screen.queryByText(/We couldn.t load this player/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/League unavailable/)).not.toBeInTheDocument();
 });
 
 test('falls back to Half-PPR without league context', async () => {
