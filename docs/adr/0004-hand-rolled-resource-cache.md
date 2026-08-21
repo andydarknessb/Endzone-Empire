@@ -31,11 +31,12 @@ fold them into one small in-house module (`src/lib/resourceCache.js` +
   service worker's API allowlist (read-only, viewer-safe) and is read by more
   than one mount per typical navigation. Everything else stays a plain fetch in
   its component. The transaction log is deliberately not cached.
-- `usePickemStandings` and `usePickemSettings` are one-line adapters over
-  `useResource`; `useLeague` adds only the two write-throughs (`updateLeague`,
-  `updateTeams`) that merge a change into the row the mount is showing. Their
-  exported clear functions, together with `setPickemSettings`, remain the
-  invalidation and write-through API at call sites. `primeLeagueCache` is gone:
+- Each cached GET is a thin adapter over `useResource`: `usePickemStandings` is
+  one line; `useLeague` adds the two write-throughs (`updateLeague`,
+  `updateTeams`) that merge a change into the row the mount is showing;
+  `usePickemSettings` adds `setPickemSettings` for the row a PUT returns. The
+  adapters' exported clear and write-through functions are the cache API at call
+  sites. `primeLeagueCache` is gone:
   `useLeague` exposes `teams`, so the dashboard reads through the hook like
   every other page.
 - Pagination, infinite queries, optimistic rollback or devtools are the signal

@@ -40,10 +40,11 @@ test('drops the offline API cache and every in-memory resource cache in one call
   expect(standings.current.data).toBeNull();
 });
 
-// login.saga drops caches before the user is unset, so a reload triggered from
-// here would put requests on the wire carrying a token that has just been
-// revoked. The drop forgets; it never refetches.
-test('does not make a mounted hook refetch (the session token is already gone)', async () => {
+// A session drop forgets; it never reloads. login.saga drops caches while the
+// outgoing session's token is still installed, so a reload from here would
+// refill the store with that account's viewer-scoped rows; on logout the token
+// is already cleared, so it would be an unauthenticated request.
+test('does not make a mounted hook refetch (a session drop forgets, it never reloads)', async () => {
   apiClient.get.mockResolvedValue({ data: { league: { id: 1, name: 'Signed-in row' }, teams: [] } });
   const { result } = renderHook(() => useLeague(1));
   await waitFor(() => expect(result.current.loading).toBe(false));

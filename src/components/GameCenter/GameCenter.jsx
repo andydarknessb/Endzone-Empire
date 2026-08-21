@@ -395,7 +395,10 @@ function GameCenter() {
 
   const weekIndex = weekFilter === 'All' || weekFilter == null ? -1 : weeks.indexOf(weekFilter);
 
-  if (loading || leagueLoading) {
+  // Only a first load without a league row blanks the page: a reload of the
+  // shared league entry (a clear from elsewhere, a TTL expiry) keeps the page
+  // up with the row it already has.
+  if (loading || (!league && leagueLoading)) {
     return (
       <Container maxWidth="lg" sx={{ py: 4 }} data-testid="page-skeleton">
         <Skeleton variant="text" width={280} height={48} sx={{ mb: 3 }} />
