@@ -3,7 +3,7 @@ import { Navigate, useParams } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { Alert, Box, Button, Container, Paper, Skeleton, Tab, Tabs, Typography } from '@mui/material';
 import apiClient from '../../api/apiClient';
-import { clearLeagueCache, useLeague } from '../../hooks/useLeague';
+import { useLeague } from '../../hooks/useLeague';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import DraftTypePanel from './DraftTypePanel';
 import SchedulePanel from './SchedulePanel';
@@ -108,11 +108,12 @@ export default function DraftSettings() {
     if (tab === 'keepers' && !keeperDataRequested) loadKeeperData();
   }, [keeperDataRequested, loadKeeperData, tab]);
   const refresh = useCallback(async ({ includeKeeperData = tab === 'keepers' } = {}) => {
-    clearLeagueCache(leagueId);
+    // refetch() invalidates the shared league entry itself, so every mount on
+    // this league reloads from the one request it starts.
     const requests = [refetch(), loadTeams()];
     if (includeKeeperData) requests.push(loadKeeperData());
     await Promise.all(requests);
-  }, [leagueId, loadKeeperData, loadTeams, refetch, tab]);
+  }, [loadKeeperData, loadTeams, refetch, tab]);
   const saveLeague = async (payload, message, { reloadKeeperData = tab === 'keepers', clearDirty = true } = {}) => {
     setSaving(true);
     try {

@@ -1020,7 +1020,7 @@ test('the dashboard primes the shared league cache, so a fantasy page reached fr
   unmount();
 
   apiClient.get.mockClear();
-  renderWithProviders(
+  const { unmount: unmountFantasyPage } = renderWithProviders(
     <FantasyOnly>
       <div>Draft Room body</div>
     </FantasyOnly>,
@@ -1028,6 +1028,9 @@ test('the dashboard primes the shared league cache, so a fantasy page reached fr
   );
   expect(screen.getByText('Draft Room body')).toBeInTheDocument();
   expect(apiClient.get).not.toHaveBeenCalledWith('/api/league/1');
+  // A clear reloads whatever is still mounted on the key: take the page down
+  // before clearing so the teardown makes no request.
+  unmountFantasyPage();
   clearLeagueCache();
 });
 

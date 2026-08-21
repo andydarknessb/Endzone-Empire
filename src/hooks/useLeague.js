@@ -1,133 +1,81 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import apiClient from '../api/apiClient';
+import { useCallback, useRef } from 'react';
+import { invalidate, read, setResource } from '../lib/resourceCache';
+import { useResource } from './useResource';
 
-const CACHE_TTL_MS = 60000;
+// Every league subpage wants the same league row, so the shared store dedupes
+// concurrent requests and serves repeat mounts from cache within the TTL
+// instead of each screen re-fetching it.
+const TTL_MS = 60000;
 
-// Module-level cache shared by every useLeague() mount — same plain-module-
-// state precedent as PlayerQuickView's `lastView`: no redux, no new deps.
-// Keyed by leagueId (coerced to a string so a route-param string and a
-// numeric id for the same league share one entry). A pending fetch is
-// stored as `promise` so concurrent mounts await the same request instead of
-// each firing their own; once it resolves, `data`/`fetchedAt` serve
-// same-league mounts within CACHE_TTL_MS without a network round-trip.
-const cache = new Map();
-// Bumped by clearLeagueCache: a response that was already in flight when the
-// cache was cleared (a logout or a new login mid-fetch) must not repopulate
-// it as fresh, so a fetch only stores its result if the generation it started
-// under is still current. The mount that asked still gets its answer.
-const generations = new Map();
-const generationOf = (key) => generations.get(key) || 0;
-
-function keyFor(leagueId) {
-  return String(leagueId);
-}
-
-function fetchLeague(key, leagueId) {
-  const generation = generationOf(key);
-  const promise = apiClient.get(`/api/league/${leagueId}`).then((res) => res.data.league);
-  cache.set(key, { data: cache.get(key)?.data, promise, fetchedAt: null });
-  promise.then(
-    (data) => { if (generationOf(key) === generation) cache.set(key, { data, promise: null, fetchedAt: Date.now() }); },
-    () => { if (generationOf(key) === generation) cache.delete(key); }
-  );
-  return promise;
-}
-
-function drop(key) {
-  cache.delete(key);
-  generations.set(key, generationOf(key) + 1);
-}
-
-function isFresh(entry) {
-  return !!(entry && entry.fetchedAt != null && Date.now() - entry.fetchedAt < CACHE_TTL_MS);
-}
+const keyFor = (leagueId) => ['league', leagueId];
+const urlFor = (leagueId) => `/api/league/${leagueId}`;
 
 /**
- * Seeds the shared cache with a league row already in hand (the dashboard
- * fetches GET /api/league/:id itself), so the subpages reached from it, and
- * the FantasyOnly route guard in front of them, mount without a second
- * request. An empty row is ignored rather than cached.
+ * Clears the shared league cache for one league, or every league when called
+ * with no id. Mounted hooks reload, keeping the row they already have on
+ * screen until the new one lands.
  */
-export function primeLeagueCache(leagueId, league) {
-  if (leagueId == null || !league) return;
-  cache.set(keyFor(leagueId), { data: league, promise: null, fetchedAt: Date.now() });
-}
-
-/** Clears the shared league cache for one league, or every league when called with no id. */
 export function clearLeagueCache(leagueId) {
-  if (leagueId == null) {
-    for (const key of Array.from(cache.keys())) drop(key);
-  } else {
-    drop(keyFor(leagueId));
-  }
+  invalidate(leagueId == null ? ['league'] : keyFor(leagueId));
 }
 
 /**
- * Shared GET /api/league/:id. Every league subpage wants the same league
- * row, so this dedupes concurrent requests and serves repeat mounts from
- * cache within CACHE_TTL_MS instead of each screen re-fetching it.
+ * Deprecated: kept only until the dashboard reads through the hook (a later
+ * commit in this series deletes it, along with the dashboard's raw GET and its
+ * test). Seeds the shared store with the GET /api/league/:id payload the
+ * dashboard already has in hand (the league row and its teams), so the
+ * subpages reached from it, and the FantasyOnly guard in front of them, mount
+ * without a second request. A payload without a league row is ignored rather
+ * than cached.
+ */
+export function primeLeagueCache(leagueId, payload) {
+  if (leagueId == null || !payload?.league) return;
+  setResource(keyFor(leagueId), { league: payload.league, teams: payload.teams ?? [] });
+}
+
+/**
+ * Shared GET /api/league/:id. Returns the league row and its teams (the
+ * league's membership), so no page needs a second request for the same
+ * payload.
  */
 export function useLeague(leagueId) {
   const key = leagueId != null ? keyFor(leagueId) : null;
-  const cached = key ? cache.get(key) : null;
+  const { data, loading, error, refetch } = useResource(key, urlFor(leagueId), { ttl: TTL_MS });
 
-  const [league, setLeague] = useState(cached?.data ?? null);
-  const [loading, setLoading] = useState(!isFresh(cached));
-  const [error, setError] = useState(null);
-  // The key this mount is currently showing. A response for a league the
-  // hook has since navigated away from must not land as the current row: the
-  // route guards in front of the fantasy pages read this row for their
-  // verdict, so a stale one would gate the wrong league.
-  const keyRef = useRef(key);
-  keyRef.current = key;
+  // The row this mount is showing, for the write-through below to merge into.
+  // A ref rather than a dependency, so updateLeague keeps one identity across
+  // the renders its callers pass it through.
+  const dataRef = useRef(data);
+  dataRef.current = data;
 
-  const load = useCallback(() => {
-    if (key == null) return Promise.resolve();
-    const requestKey = key;
-    const stillCurrent = () => keyRef.current === requestKey;
-    setLoading(true);
-    setError(null);
-    const existing = cache.get(key);
-    const promise = existing?.promise || fetchLeague(key, leagueId);
-    return promise
-      .then((data) => { if (stillCurrent()) setLeague(data); })
-      .catch((err) => { if (stillCurrent()) setError(err.response?.data?.error || err.message); })
-      .finally(() => { if (stillCurrent()) setLoading(false); });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, leagueId]);
-
-  useEffect(() => {
-    if (key == null) return;
-    const entry = cache.get(key);
-    if (isFresh(entry)) {
-      setLeague(entry.data);
-      setError(null);
-      setLoading(false);
-      return;
-    }
-    // Switching leagues: never keep serving the previous league's row while
-    // the new one loads (a stale entry for the NEW league is still shown, as
-    // on first mount, since it is at least the right league).
-    setLeague(entry?.data ?? null);
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
-
-  const refetch = useCallback(() => {
-    if (key == null) return Promise.resolve();
-    clearLeagueCache(leagueId);
-    return load();
-  }, [key, leagueId, load]);
-
+  // Write-through after a successful PUT: merge the changed fields into the
+  // row on screen and push the result to every mount on this league, with no
+  // request.
+  //
+  // The merge base is what this mount holds, not what the store holds. While a
+  // reload is in flight the store entry is data-less (invalidate dropped it,
+  // and the pending entry only carries what was there before, which for a
+  // reload after a failed request is nothing), and merging over that would
+  // publish a truncated row as fresh: PUT /api/league/:id returns the bare
+  // `leagues` row, so `is_commissioner` and `co_commissioners`, which only the
+  // GET adds, would vanish and demote the commissioner on screen for a whole
+  // TTL. The generation bump inside setResource would then make the store
+  // refuse the real response still on the wire.
   const updateLeague = useCallback((changes) => {
-    if (key == null || !changes) return;
-    setLeague((current) => {
-      const next = { ...(current || {}), ...changes };
-      cache.set(key, { data: next, promise: null, fetchedAt: Date.now() });
-      return next;
+    if (leagueId == null || !changes) return;
+    const current = dataRef.current || read(keyFor(leagueId))?.data;
+    setResource(keyFor(leagueId), {
+      league: { ...(current?.league || {}), ...changes },
+      teams: current?.teams ?? [],
     });
-    setError(null);
-  }, [key]);
+  }, [leagueId]);
 
-  return { league, loading, error, refetch, updateLeague };
+  return {
+    league: data?.league ?? null,
+    teams: data?.teams ?? [],
+    loading,
+    error,
+    refetch,
+    updateLeague,
+  };
 }

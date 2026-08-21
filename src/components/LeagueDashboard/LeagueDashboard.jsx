@@ -150,9 +150,9 @@ function LeagueDashboard() {
       setLeague(leagueRes.data.league);
       setTeams(leagueRes.data.teams);
       // Every subpage (and the FantasyOnly guard in front of the fantasy
-      // ones) reads the same row through useLeague: hand it over so the hop
-      // from here costs no second request.
-      primeLeagueCache(leagueId, leagueRes.data.league);
+      // ones) reads the same payload through useLeague: hand it over, teams
+      // included, so the hop from here costs no second request.
+      primeLeagueCache(leagueId, leagueRes.data);
 
       const userRes = await apiClient.get('/api/user');
       setUser(userRes.data);
