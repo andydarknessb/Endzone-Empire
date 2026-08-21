@@ -862,7 +862,7 @@ const showRoster = async (picks) => {
   })));
 };
 
-test('renders the league’s own 12 starter / 7 bench / 1 IR shape in the rail', async () => {
+test('renders the league’s own 12 starter / 7 bench / 1 IR shape across rail and board', async () => {
   await showRoster([firstPick]);
 
   const panel = screen.getByLabelText('My Roster');
@@ -874,6 +874,9 @@ test('renders the league’s own 12 starter / 7 bench / 1 IR shape in the rail',
   // The draft runs 19 rounds for 12 starters + 7 bench; the IR slot is not
   // drafted, so there is nothing to warn about (#96).
   expect(screen.queryByText(/This draft runs/)).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
+  expect(screen.getByRole('rowheader', { name: '19' })).toBeInTheDocument();
+  expect(screen.queryByRole('rowheader', { name: '20' })).not.toBeInTheDocument();
 });
 
 test('names the next pick from the league’s own rotation', async () => {
