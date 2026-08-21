@@ -20,20 +20,6 @@ export function clearLeagueCache(leagueId) {
 }
 
 /**
- * Deprecated: kept only until the dashboard reads through the hook (a later
- * commit in this series deletes it, along with the dashboard's raw GET and its
- * test). Seeds the shared store with the GET /api/league/:id payload the
- * dashboard already has in hand (the league row and its teams), so the
- * subpages reached from it, and the FantasyOnly guard in front of them, mount
- * without a second request. A payload without a league row is ignored rather
- * than cached.
- */
-export function primeLeagueCache(leagueId, payload) {
-  if (leagueId == null || !payload?.league) return;
-  setResource(keyFor(leagueId), { league: payload.league, teams: payload.teams ?? [] });
-}
-
-/**
  * Shared GET /api/league/:id. Returns the league row and its teams (the
  * league's membership), so no page needs a second request for the same
  * payload.
@@ -70,6 +56,30 @@ export function useLeague(leagueId) {
     });
   }, [leagueId]);
 
+  // The same write-through for the teams half: the dashboard patches an avatar
+  // into the membership it is showing (a team-profile event, no request), and
+  // every mount on this league sees it. The merge base is the row on screen for
+  // the same reason updateLeague's is, and it stands down whenever a response
+  // is already on its way: with nothing to merge into (no row here and none in
+  // the store) a load is about to start, and with a load in flight that load
+  // carries the new avatar itself.
+  const updateTeams = useCallback((updater) => {
+    if (leagueId == null || typeof updater !== 'function') return;
+    const entry = read(keyFor(leagueId));
+    // Standing down mid-load is not only deference: setResource bumps the
+    // generation, so a write-through here would make the store refuse the
+    // response still on the wire and pin the pre-reload row as fresh for a
+    // whole TTL, on this mount and every sibling. updateLeague deliberately
+    // keeps winning instead, because a PUT result supersedes a read.
+    if (entry?.promise) return;
+    const current = dataRef.current || entry?.data;
+    if (!current) return;
+    setResource(keyFor(leagueId), {
+      league: current.league ?? null,
+      teams: updater(current.teams ?? []),
+    });
+  }, [leagueId]);
+
   return {
     league: data?.league ?? null,
     teams: data?.teams ?? [],
@@ -77,5 +87,6 @@ export function useLeague(leagueId) {
     error,
     refetch,
     updateLeague,
+    updateTeams,
   };
 }

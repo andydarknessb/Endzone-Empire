@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import apiClient from '../api/apiClient';
 import { invalidate } from '../lib/resourceCache';
-import { clearLeagueCache, primeLeagueCache, useLeague } from './useLeague';
+import { clearLeagueCache, useLeague } from './useLeague';
 
 jest.mock('../api/apiClient', () => ({
   __esModule: true,
@@ -170,26 +170,60 @@ test('updateLeague is a no-op without a league or without changes', async () => 
   expect(none.current.league).toBeNull();
 });
 
-// Deprecated, and kept only until the dashboard reads teams through the hook.
-// The commit that migrates the dashboard deletes the function and these three.
-test('primeLeagueCache(leagueId, payload) lets a later mount skip the request entirely', () => {
-  primeLeagueCache(7, { league: { id: 7, name: 'Office Pool', pickem_only: true }, teams: TEAMS });
+test('updateTeams patches the membership through the updater, keeps the league row, and needs no request', async () => {
+  apiClient.get.mockResolvedValue(leagueResponse());
+  const { result: a } = renderHook(() => useLeague(1));
+  const { result: b } = renderHook(() => useLeague(1));
+  await waitFor(() => expect(a.current.loading).toBe(false));
+  await waitFor(() => expect(b.current.loading).toBe(false));
+  apiClient.get.mockClear();
 
-  const { result } = renderHook(() => useLeague(7));
+  // The dashboard's avatar patch: a team-profile event rewrites one row.
+  act(() => {
+    a.current.updateTeams((teams) => teams.map((team) => ({ ...team, avatar_url: '/a.png' })));
+  });
 
-  expect(result.current.league).toEqual({ id: 7, name: 'Office Pool', pickem_only: true });
-  expect(result.current.teams).toEqual(TEAMS);
-  expect(result.current.loading).toBe(false);
+  expect(a.current.teams).toEqual([{ ...TEAMS[0], avatar_url: '/a.png' }]);
+  expect(a.current.league).toEqual({ id: 1, name: 'Sunday Ballers' }); // the row survives
+  expect(b.current.teams[0].avatar_url).toBe('/a.png'); // every mount on the league
   expect(apiClient.get).not.toHaveBeenCalled();
 });
 
-test('primeLeagueCache ignores a payload without a league row so a bad prime cannot poison the cache', async () => {
-  primeLeagueCache(7, null);
-  primeLeagueCache(7, { teams: TEAMS });
-  apiClient.get.mockResolvedValue(leagueResponse({ id: 7 }));
+test('updateTeams stands down while a reload is in flight, so the reload still lands', async () => {
+  apiClient.get.mockResolvedValue(leagueResponse({ current_week: 3 }));
+  const { result: a } = renderHook(() => useLeague(1));
+  const { result: b } = renderHook(() => useLeague(1));
+  await waitFor(() => expect(a.current.loading).toBe(false));
+  await waitFor(() => expect(b.current.loading).toBe(false));
 
-  const { result } = renderHook(() => useLeague(7));
-  await waitFor(() => expect(result.current.loading).toBe(false));
+  // Advance Week refetches, and a team-profile event lands while that GET is
+  // still on the wire. A write-through now would bump the generation, the
+  // store would refuse the response, and every mount would keep showing the
+  // pre-advance row as fresh for the rest of the TTL.
+  const reload = pending();
+  apiClient.get.mockReturnValue(reload.promise);
+  let refetched;
+  act(() => { refetched = a.current.refetch(); });
+  act(() => {
+    a.current.updateTeams((teams) => teams.map((team) => ({ ...team, avatar_url: '/a.png' })));
+  });
 
-  expect(apiClient.get).toHaveBeenCalledWith('/api/league/7');
+  await act(async () => {
+    reload.resolve(leagueResponse({ current_week: 4 }));
+    await refetched;
+  });
+
+  expect(a.current.league.current_week).toBe(4);
+  expect(b.current.league.current_week).toBe(4); // and no sibling is left behind
+  expect(a.current.teams).toEqual(TEAMS); // the reload's membership, avatars included
+});
+
+test('updateTeams is a no-op before a league is on screen: the load in flight brings the avatars', () => {
+  apiClient.get.mockReturnValue(new Promise(() => {}));
+  const { result } = renderHook(() => useLeague(1));
+
+  act(() => { result.current.updateTeams((teams) => [...teams, { id: 12 }]); });
+
+  expect(result.current.teams).toEqual([]);
+  expect(result.current.loading).toBe(true); // still waiting, not answered by a write
 });
