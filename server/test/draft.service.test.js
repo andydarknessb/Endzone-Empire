@@ -187,3 +187,24 @@ test('draftPlayer: completion uses the fixed draft_rounds even when roster_limit
   assert.equal(result.draftComplete, true);
   fake.assertClean();
 });
+
+// Defensive fallback: an active league whose draft_rounds is unexpectedly
+// null (a legacy row the one-time backfill migration has not reached yet)
+// must not silently coerce into `teams.length * null === 0` (a totalPicks of
+// 0, which would report every draft complete after its very first pick); it
+// falls back to the live draftRosterSize() derivation, exactly like every
+// other draftRounds() consumer (rosterShape.js, client components). Picked 3
+// of the fallback-derived 4 total picks: the buggy `* null` path would
+// already read complete (3 >= 0) where the fallback correctly reads active
+// (3 < 4), so this asserts false, not true — a true result on either path
+// would prove nothing.
+test('draftPlayer: an active league with a null draft_rounds falls back to the live derivation, not `teams.length * null`', async (t) => {
+  const league = { ...completionLeague, roster_limit: 3, ir_slots: 1, draft_rounds: null, current_pick: 2 };
+  const fake = completionPool({ league, picksMade: 3 }).install(t);
+
+  const result = await draftPlayer({ leagueId: 1, userId: 8, playerId: 500 });
+
+  // roster_limit 3 - ir_slots 1 = 2 rounds x 2 teams = 4 totalPicks; 3 < 4.
+  assert.equal(result.draftComplete, false);
+  fake.assertClean();
+});
