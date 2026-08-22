@@ -74,6 +74,10 @@ async function startDraft({ leagueId, userId = null }) {
       throw new DraftError(plan.error.status, plan.error.message);
     }
 
+    // The one roster-add site that skips rosterCapacity (#97): keepers are
+    // bounded by validateKeepers (count and round within the draft roster
+    // size, capacity's floor) and only run from draft_status 'pending', so
+    // the pre-fill can never exceed capacity by construction.
     for (const keeperPick of plan.keeperPicks) {
       await client.query(
         `INSERT INTO "draft_picks" ("league_id", "team_id", "player_id", "pick_number", "is_keeper")
