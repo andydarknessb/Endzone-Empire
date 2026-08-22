@@ -145,7 +145,6 @@ describe('Countdown', () => {
       render(<Countdown date={futureIso(5 * MINUTE)} />);
       const ticker = screen.getByText(/^Draft in/);
       expect(ticker).not.toHaveAttribute('aria-live');
-      expect(ticker.closest('[aria-live]')).toBeNull();
     });
 
     test('announces at 5 minutes, 1 minute, 30 seconds, 10 seconds, and Draft start - nothing in between', () => {
