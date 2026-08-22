@@ -47,6 +47,7 @@ const { draftRosterSize } = require('./rosterShape');
 const { commissionerPredicate } = require('./leagueRole.service');
 const { editSizeError } = require('./leagueSize');
 const { PICKEM_ONLY_CODE, isPickemOnly } = require('./leagueType');
+const { isValidIanaTimeZone } = require('../modules/ianaTimeZones');
 // Held as the module, not a destructured function: the notification is
 // looked up at call time so a test can mock activity.service's export.
 const activityService = require('./activity.service');
@@ -155,6 +156,14 @@ const dateRule = (field, { mustBeFuture }) => (v) => {
   return null;
 };
 
+// draftTimezone: undefined = leave as-is, null = clear, string = set to a
+// validated IANA zone. Nullable like draftDate/keeperLockAt, but never a
+// mustBeFuture check (a zone has no direction in time).
+const draftTimezoneRule = (v) => {
+  if (v === null) return null;
+  return isValidIanaTimeZone(v) ? null : 'draftTimezone must be a valid IANA time zone name (e.g. "America/New_York") or null';
+};
+
 const rangeRule = (lo, hi, message) => (v) => (intInRange(v, lo, hi) ? null : message);
 const nullableRangeRule = (lo, hi, message) => (v) => (v === null || intInRange(v, lo, hi) ? null : message);
 const booleanRule = (message) => (v) => (typeof v === 'boolean' ? null : message);
@@ -183,6 +192,7 @@ const enumRule = (values, message) => (v) => (values.includes(v) ? null : messag
  */
 const SETTINGS = Object.freeze([
   { key: 'draftDate', column: 'draft_date', validate: dateRule('draftDate', { mustBeFuture: true }) },
+  { key: 'draftTimezone', column: 'draft_timezone', validate: draftTimezoneRule },
   { key: 'rosterSlots', column: 'roster_slots', validate: rosterSlotsRule },
   {
     key: 'positionCaps', column: 'position_caps',
@@ -305,13 +315,18 @@ const FANTASY_ONLY_SETTING_KEYS = Object.freeze([
  *
  *   - every wire key as sent (undefined when absent), except: draftDate and
  *     keeperLockAt arrive as `<key>Provided` + `<key>Value` (ISO string or
- *     null); draftOrderOverrides and auctionSettings arrive as sent plus a
- *     `<key>Provided` flag (null is a deliberate clear); tradeDeadlineWeek
- *     arrives as sent plus tradeDeadlineWeekProvided (its write is tri-state,
- *     #65); minTeams / maxTeams arrive as newMin / newMax (Number or null;
- *     bounds are the write path's job, via leagueSize.editSizeError, because
- *     they depend on the live team count); and scoringPreset / scoringRules
- *     are not passed raw at all, only as the pair below;
+ *     null); draftTimezone arrives as draftTimezoneProvided + draftTimezone
+ *     itself (a validated IANA name or null; #116 — draft date and timezone
+ *     are one coherent scheduling change, so clearing the date alongside a
+ *     non-null zone is a parse-time error, and the write path force-clears
+ *     an untouched zone when the date clears); draftOrderOverrides and
+ *     auctionSettings arrive as sent plus a `<key>Provided` flag (null is a
+ *     deliberate clear); tradeDeadlineWeek arrives as sent plus
+ *     tradeDeadlineWeekProvided (its write is tri-state, #65); minTeams /
+ *     maxTeams arrive as newMin / newMax (Number or null; bounds are the
+ *     write path's job, via leagueSize.editSizeError, because they depend on
+ *     the live team count); and scoringPreset / scoringRules are not passed
+ *     raw at all, only as the pair below;
  *   - effectiveRules / effectivePreset: a preset is a prefilled full rule
  *     set and explicit scoringRules win; custom rules mark the league
  *     'custom', a preset stores its own name;
@@ -360,13 +375,23 @@ function parseSettingsPatch(body) {
     waiverType, waiverPeriodHours, faabBudget,
     tradeDeadlineWeek, tradeReviewHours, tradeVetoVotes,
     scoringPreset, scoringRules, regularSeasonWeeks, playoffTeams, playoffConsolation,
-    pickTimeSeconds, minTeams, maxTeams, draftDate, autodraftDelaySeconds,
+    pickTimeSeconds, minTeams, maxTeams, draftDate, draftTimezone, autodraftDelaySeconds,
     draftType, draftRotation, draftOrderOverrides, auctionSettings,
     keepersEnabled, keeperCount, keeperLockAt,
   } = input;
 
   const draftDateProvided = draftDate !== undefined;
   const draftDateValue = draftDateProvided && draftDate !== null ? new Date(draftDate).toISOString() : null;
+  const draftTimezoneProvided = draftTimezone !== undefined;
+  // Draft date and timezone are one coherent scheduling change (#116 AC2): a
+  // request that clears the date while also setting a zone is contradictory
+  // (which one wins?), so it is refused outright rather than one silently
+  // overriding the other. Clearing the date force-clears an untouched zone
+  // too (AC5); that half needs no guard here since it is not a conflict, only
+  // the write path's job (it must read the CURRENT date/zone to apply it).
+  if (draftDateProvided && draftDateValue === null && draftTimezoneProvided && draftTimezone !== null) {
+    return { error: 'draftTimezone cannot be set in the same request that clears draftDate' };
+  }
   const keeperLockAtProvided = keeperLockAt !== undefined;
   const keeperLockAtValue = keeperLockAtProvided && keeperLockAt !== null ? new Date(keeperLockAt).toISOString() : null;
   const newMax = maxTeams === undefined ? null : Number(maxTeams);
@@ -408,6 +433,7 @@ function parseSettingsPatch(body) {
       draftType, draftRotation, draftOrderOverrides, auctionSettings,
       keepersEnabled, keeperCount,
       draftDateProvided, draftDateValue,
+      draftTimezoneProvided, draftTimezone: draftTimezone === undefined ? null : draftTimezone,
       keeperLockAtProvided, keeperLockAtValue,
       tradeDeadlineWeekProvided: tradeDeadlineWeek !== undefined,
       newMin, newMax,
@@ -474,7 +500,8 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
     draftType, draftRotation, draftOrderOverrides, auctionSettings,
     keepersEnabled, keeperCount,
     tradeDeadlineWeekProvided,
-    draftDateProvided, draftDateValue, keeperLockAtProvided, keeperLockAtValue,
+    draftDateProvided, draftDateValue, draftTimezoneProvided, draftTimezone,
+    keeperLockAtProvided, keeperLockAtValue,
     draftOrderOverridesProvided, auctionSettingsProvided, keeperSettingsProvided,
     rowLockSettingsProvided,
     newMin, newMax, effectiveRules, effectivePreset,
@@ -546,6 +573,16 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
       }
       if (current && draftDateValue && (draftType ?? current.draft_type) === 'auction') {
         return await rejectUpdate(400, 'salary-cap auction drafts cannot be scheduled until live auction support is available');
+      }
+      // One coherent scheduling change (#116 AC2), the other half: a zone
+      // means nothing without an instant. draftDateValue wins when this same
+      // request also (re)schedules the draft; otherwise the league needs one
+      // already on file.
+      if (current && draftTimezoneProvided && draftTimezone !== null) {
+        const effectiveDraftDate = draftDateProvided ? draftDateValue : current.draft_date;
+        if (!effectiveDraftDate) {
+          return await rejectUpdate(400, 'draftTimezone requires a scheduled draftDate');
+        }
       }
       pendingStatusVerified = Boolean(current);
       // Size-limit invariants: valid bounds, min <= max, and the cap can't drop
@@ -683,6 +720,20 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
              WHEN $22 THEN $23
              ELSE "draft_date"
            END,
+           -- Draft date and timezone move together (#116 AC2/AC5): clearing
+           -- the date (explicitly, or by converting to auction) clears an
+           -- untouched zone with it; parseSettingsPatch already refuses a
+           -- request that clears the date while also SETTING a non-null
+           -- zone, so that combination never reaches here. Otherwise it is
+           -- the same tri-state as draft_order_overrides below ($38 = "was
+           -- it sent", $39 = the value). A timezone-only edit touches
+           -- neither $22 nor $27, so it never trips the reminder reset below.
+           "draft_timezone" = CASE
+             WHEN $27::text = 'auction' THEN NULL
+             WHEN $22 AND $23::timestamptz IS NULL THEN NULL
+             WHEN $38::boolean THEN $39::text
+             ELSE "draft_timezone"
+           END,
            -- Rescheduling resets the reminder/auto-start bookkeeping so the
            -- new time gets a fresh set of reminders. Change-gated like the
            -- notification (#70 item 6): re-posting the identical date must not
@@ -744,6 +795,8 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
         keeperLockAtProvided,
         keeperLockAtProvided ? keeperLockAtValue : null,
         tradeDeadlineWeekProvided,
+        draftTimezoneProvided,
+        draftTimezoneProvided ? draftTimezone : null,
       ]
     );
     if (!result.rows[0]) {

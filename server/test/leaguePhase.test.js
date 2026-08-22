@@ -133,12 +133,12 @@ const EXPECTED_FROZEN = [
   'rosterSlots', 'positionCaps', 'benchSlots', 'dpEnabled', 'irSlots',
   'scoringRules', 'regularSeasonWeeks', 'playoffTeams',
   'playoffConsolation', 'pickTimeSeconds', 'minTeams', 'maxTeams', 'autodraftDelaySeconds',
-  'draftDate', 'draftType', 'draftRotation', 'keepersEnabled', 'keeperCount',
+  'draftDate', 'draftTimezone', 'draftType', 'draftRotation', 'keepersEnabled', 'keeperCount',
   'draftOrderOverrides', 'auctionSettings', 'keeperLockAt',
 ];
 
-test('DRAFT_FROZEN_SETTING_KEYS is the existing 21-key list', () => {
-  assert.equal(DRAFT_FROZEN_SETTING_KEYS.length, 21);
+test('DRAFT_FROZEN_SETTING_KEYS is the existing 22-key list', () => {
+  assert.equal(DRAFT_FROZEN_SETTING_KEYS.length, 22);
   assert.deepEqual([...DRAFT_FROZEN_SETTING_KEYS].sort(), [...EXPECTED_FROZEN].sort());
   assert.ok(Object.isFrozen(DRAFT_FROZEN_SETTING_KEYS));
 });

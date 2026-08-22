@@ -119,7 +119,7 @@ const DRAFT_FROZEN_SETTING_KEYS = Object.freeze([
   'rosterSlots', 'positionCaps', 'benchSlots', 'dpEnabled', 'irSlots',
   'scoringRules', 'regularSeasonWeeks', 'playoffTeams',
   'playoffConsolation', 'pickTimeSeconds', 'minTeams', 'maxTeams', 'autodraftDelaySeconds',
-  'draftDate', 'draftType', 'draftRotation', 'keepersEnabled', 'keeperCount',
+  'draftDate', 'draftTimezone', 'draftType', 'draftRotation', 'keepersEnabled', 'keeperCount',
   'draftOrderOverrides', 'auctionSettings', 'keeperLockAt',
 ]);
 

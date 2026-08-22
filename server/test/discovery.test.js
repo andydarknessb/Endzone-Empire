@@ -22,6 +22,7 @@ test('validateCreateOptions: defaults everything when nothing is given', () => {
     scoringPreset: null,
     scoringRules: null,
     draftDate: null,
+    draftTimezone: null,
     pickemOnly: false,
     pickemEnabled: false,
     pickemMode: 'straight',
@@ -82,6 +83,38 @@ test('validateCreateOptions: rejects an unparseable draftDate', () => {
   assert.match(error, /draftDate must be a valid ISO date string/);
 });
 
+// --- draft timezone (#116) --------------------------------------------
+
+test('validateCreateOptions: missing draftTimezone is fine (stays null)', () => {
+  const { value, error } = validateCreateOptions({});
+  assert.equal(error, undefined);
+  assert.equal(value.draftTimezone, null);
+});
+
+test('validateCreateOptions: accepts a draftTimezone alongside a future draftDate', () => {
+  const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  const { value, error } = validateCreateOptions({ draftDate: future, draftTimezone: 'America/New_York' });
+  assert.equal(error, undefined);
+  assert.equal(value.draftTimezone, 'America/New_York');
+});
+
+test('validateCreateOptions: rejects an unrecognized draftTimezone', () => {
+  const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  const { error } = validateCreateOptions({ draftDate: future, draftTimezone: 'Not/AZone' });
+  assert.match(error, /draftTimezone must be a valid IANA time zone name/);
+});
+
+test('validateCreateOptions: rejects a draftTimezone without a draftDate (#116 AC2 — one coherent scheduling change)', () => {
+  const { error } = validateCreateOptions({ draftTimezone: 'America/New_York' });
+  assert.match(error, /draftTimezone requires a scheduled draftDate/);
+});
+
+test('validateCreateOptions: null draftTimezone stays acceptable with no draftDate', () => {
+  const { value, error } = validateCreateOptions({ draftTimezone: null });
+  assert.equal(error, undefined);
+  assert.equal(value.draftTimezone, null);
+});
+
 // leagueType matrix: absent and 'fantasy' derive no pick'em, 'both' keeps the
 // fantasy side with pick'em on, 'pickem' is pick'em-only (and pick'em on).
 for (const [given, pickemOnly, pickemEnabled] of [
@@ -109,11 +142,12 @@ test('validateCreateOptions: rejects fantasy-only fields for a pick\'em league, 
   assert.match(validateCreateOptions({ leagueType: 'pickem', bestBall: false }).error, /bestBall/);
   assert.match(validateCreateOptions({ leagueType: 'pickem', scoringPreset: 'ppr' }).error, /scoringPreset/);
   assert.match(validateCreateOptions({ leagueType: 'pickem', draftDate: future }).error, /draftDate/);
+  assert.match(validateCreateOptions({ leagueType: 'pickem', draftTimezone: 'America/New_York' }).error, /draftTimezone/);
 });
 
-test('validateCreateOptions: null scoringPreset/draftDate stay acceptable for a pick\'em league', () => {
+test('validateCreateOptions: null scoringPreset/draftDate/draftTimezone stay acceptable for a pick\'em league', () => {
   const { value, error } = validateCreateOptions({
-    leagueType: 'pickem', scoringPreset: null, draftDate: null,
+    leagueType: 'pickem', scoringPreset: null, draftDate: null, draftTimezone: null,
   });
   assert.equal(error, undefined);
   assert.equal(value.pickemOnly, true);

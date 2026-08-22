@@ -38,7 +38,9 @@ function mockClient(t, overrides = []) {
         max_teams: params[3],
         min_teams: params[4],
         best_ball: params[7],
-        pickem_only: params[11],
+        draft_date: params[10],
+        draft_timezone: params[11],
+        pickem_only: params[12],
         draft_status: 'pending',
         season_status: 'regular',
         current_season: 2026,
@@ -98,7 +100,9 @@ test('fantasy create: pickem_only false, no pickem_settings row, no season seed'
   assert.equal(res.body.pickem_only, false);
   const leagueInsert = statementsMatching(calls, /INSERT INTO "leagues"/)[0];
   assert.match(leagueInsert.text, /"pickem_only"/);
-  assert.equal(leagueInsert.params[11], false);
+  assert.equal(leagueInsert.params[12], false);
+  assert.equal(leagueInsert.params[10], null, 'draft_date defaults to null');
+  assert.equal(leagueInsert.params[11], null, 'draft_timezone defaults to null');
   assert.equal(statementsMatching(calls, /INSERT INTO "pickem_settings"/).length, 0);
   assert.equal(statementsMatching(calls, /FROM "nfl_games"/).length, 0);
   assert.equal(statementsMatching(calls, /^COMMIT$/).length, 1);
@@ -132,7 +136,7 @@ test('pick\'em create: pickem_only true, settings row, and season/week seeded fr
     .send({ name: 'Office Pool', leagueType: 'pickem', maxTeams: 50 });
   assert.equal(res.status, 201);
   const leagueInsert = statementsMatching(calls, /INSERT INTO "leagues"/)[0];
-  assert.equal(leagueInsert.params[11], true);
+  assert.equal(leagueInsert.params[12], true);
   assert.equal(statementsMatching(calls, /INSERT INTO "pickem_settings"/).length, 1);
   // Seeded through the SAME derivation the lifecycle job uses
   // (getSeasonWeekBounds + deriveNflWeek), so the two cannot disagree: newest
@@ -197,5 +201,55 @@ test('rejected fantasy-only fields never reach the database', async (t) => {
     .send({ name: 'Sneaky', leagueType: 'pickem', bestBall: true });
   assert.equal(res.status, 400);
   assert.match(res.body.error, /bestBall/);
+  assert.equal(calls.length, 0);
+});
+
+// --- draft timezone (#116) ---------------------------------------------
+
+test('create with a draftDate and a validated draftTimezone stores both', async (t) => {
+  const calls = mockClient(t);
+  const draftDate = new Date(Date.now() + 86400000).toISOString();
+  const res = await request(app)
+    .post('/api/league')
+    .set('Authorization', authed())
+    .send({ name: 'Zoned', maxTeams: 10, draftDate, draftTimezone: 'America/New_York' });
+  assert.equal(res.status, 201);
+  assert.equal(res.body.draft_timezone, 'America/New_York');
+  const leagueInsert = statementsMatching(calls, /INSERT INTO "leagues"/)[0];
+  assert.match(leagueInsert.text, /"draft_timezone"/);
+  assert.equal(leagueInsert.params[11], 'America/New_York');
+});
+
+test('create rejects a draftTimezone without a draftDate before touching the database', async (t) => {
+  const calls = mockClient(t);
+  const res = await request(app)
+    .post('/api/league')
+    .set('Authorization', authed())
+    .send({ name: 'Zoneless', draftTimezone: 'America/New_York' });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.error, 'draftTimezone requires a scheduled draftDate');
+  assert.equal(calls.length, 0);
+});
+
+test('create rejects an invalid IANA draftTimezone before touching the database', async (t) => {
+  const calls = mockClient(t);
+  const draftDate = new Date(Date.now() + 86400000).toISOString();
+  const res = await request(app)
+    .post('/api/league')
+    .set('Authorization', authed())
+    .send({ name: 'Zoneless', draftDate, draftTimezone: 'Not/AZone' });
+  assert.equal(res.status, 400);
+  assert.match(res.body.error, /draftTimezone must be a valid IANA time zone name/);
+  assert.equal(calls.length, 0);
+});
+
+test("create rejects a draftTimezone for a pick'em league before touching the database", async (t) => {
+  const calls = mockClient(t);
+  const res = await request(app)
+    .post('/api/league')
+    .set('Authorization', authed())
+    .send({ name: 'Pool', leagueType: 'pickem', draftTimezone: 'America/New_York' });
+  assert.equal(res.status, 400);
+  assert.match(res.body.error, /draftTimezone is not allowed when leagueType is pickem/);
   assert.equal(calls.length, 0);
 });

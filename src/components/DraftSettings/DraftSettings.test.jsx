@@ -320,11 +320,14 @@ test('uses a successful schedule PUT as the baseline when the follow-up refetch 
   // payload), so one queued rejection covers the whole follow-up.
   apiClient.get.mockRejectedValueOnce(new Error('League refresh unavailable'));
 
-  fireEvent.change(screen.getByLabelText('Draft date and time'), { target: { value: inputValue } });
+  fireEvent.change(screen.getByLabelText('Draft date'), { target: { value: inputValue } });
+  // #116 AC3: the zone selector defaults to the viewer's own zone, but
+  // saving a scheduled draft still requires ticking the acknowledgement.
+  await userEvent.click(screen.getByRole('checkbox', { name: /confirm this draft date and time/i }));
   await userEvent.click(screen.getByRole('button', { name: 'Save schedule' }));
 
   expect(await screen.findByText('Draft schedule saved')).toBeInTheDocument();
-  await waitFor(() => expect(screen.getByLabelText('Draft date and time')).toHaveValue(inputValue));
+  await waitFor(() => expect(screen.getByLabelText('Draft date')).toHaveValue(inputValue));
   await userEvent.click(screen.getByRole('tab', { name: 'Timer' }));
   expect(screen.queryByText(/You have unsaved changes/)).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Save timer' })).toBeInTheDocument();
