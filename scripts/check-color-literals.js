@@ -81,6 +81,9 @@ function isAllowlisted(relPosix) {
 //   - single/double-quoted strings and template literals are scanned as
 //     opaque units so a `//` inside one (e.g. `'http://example.com'`) is
 //     never misread as the start of a line comment
+//   - regex literals (e.g. `/[/*]/`) are scanned as opaque units too, so a
+//     `/*`-like sequence inside a character class can't be misread as the
+//     start of a block comment on the scan's next pass
 // For .css, only `/* ... */` block comments apply (CSS has no `//` line
 // comments); quoted strings are still scanned as opaque units so a `/*`
 // inside a quoted `content:`/`url()` value can't be misread as a comment
@@ -138,11 +141,78 @@ function stripComments(text, ext) {
       continue;
     }
 
+    // A regex literal's body can legally contain `/*` or `//` inside a
+    // character class (e.g. `/[/*]/`) — without this, the scan above would
+    // reach that inner `/*` on its next pass and misread it as a block
+    // comment, silently swallowing every line after it (including any real
+    // color literals) up to the next stray `*/`. `/*` and `//` are already
+    // handled above and can never be regex literals, so this only fires for
+    // an unambiguous `/pattern/` in an expression position.
+    if (isJs && c === '/' && c2 !== '*' && c2 !== '/' && isRegexContext(out)) {
+      const end = scanRegexLiteral(text, i);
+      if (end !== null) {
+        out += text.slice(i, end);
+        i = end;
+        continue;
+      }
+    }
+
     out += c;
     i += 1;
   }
 
   return out;
+}
+
+// Keywords after which a `/` starts an expression (so a regex literal is
+// expected) rather than following a value (so `/` is division).
+const REGEX_CONTEXT_KEYWORDS = new Set([
+  'return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void',
+  'case', 'do', 'else', 'yield', 'await', 'throw',
+]);
+
+// Decide whether a `/` at the current scan position can start a regex
+// literal, by looking at the last significant character already written to
+// `out`. `/*` and `//` are excluded before this is ever called (they can
+// only be comments in real JS — an empty regex literal isn't valid syntax),
+// so this only has to separate "regex expected" contexts (after `(`, `,`,
+// `=`, a keyword, ...) from "division" contexts (after an identifier,
+// number, `)`, `]`, `}`, a string/template that just closed, ...).
+function isRegexContext(out) {
+  let j = out.length - 1;
+  while (j >= 0 && /\s/.test(out[j])) j--;
+  if (j < 0) return true; // start of file
+  const ch = out[j];
+  if (/[)\]}]/.test(ch)) return false;
+  if (/[A-Za-z0-9_$]/.test(ch)) {
+    let k = j;
+    while (k >= 0 && /[A-Za-z0-9_$]/.test(out[k])) k--;
+    return REGEX_CONTEXT_KEYWORDS.has(out.slice(k + 1, j + 1));
+  }
+  return true;
+}
+
+// Look for a regex literal starting at text[i] (`text[i] === '/'`). Returns
+// the index just past the closing delimiter (and any flags), or null if no
+// unescaped closing `/` is found before a newline (real regex literals
+// can't contain a literal line break, so this isn't one).
+function scanRegexLiteral(text, i) {
+  const n = text.length;
+  let j = i + 1;
+  let inClass = false;
+  let closed = false;
+  while (j < n) {
+    const ch = text[j];
+    if (ch === '\n') break;
+    if (ch === '\\') { j += 2; continue; }
+    if (ch === '[') { inClass = true; j += 1; continue; }
+    if (ch === ']') { inClass = false; j += 1; continue; }
+    if (ch === '/' && !inClass) { j += 1; closed = true; break; }
+    j += 1;
+  }
+  if (!closed) return null;
+  while (j < n && /[a-zA-Z]/.test(text[j])) j += 1;
+  return j;
 }
 
 // Ignore var() fallbacks (`var(--x, #fff)` is intentional), then test for
@@ -203,6 +273,8 @@ module.exports = {
   hasColorLiteral,
   findViolations,
   isAllowlisted,
+  isRegexContext,
+  scanRegexLiteral,
   ALLOWLIST,
   HEX,
   FUNC,

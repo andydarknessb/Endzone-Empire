@@ -151,6 +151,34 @@ test('a /* inside a quoted string does not start a fake block comment', () => {
   assert.match(lines[0], /#123abc/);
 });
 
+// A regex literal's character class can legally contain `/*`-shaped text
+// (e.g. `/[/*]/`). Without regex-literal awareness, the scan would reach
+// that inner `/*` on its next pass and misread it as a block-comment start,
+// silently swallowing every line after it — including a real, unallowlisted
+// color literal — up to the next stray `*/` (or end of file).
+test('a /* inside a regex literal character class does not start a fake block comment', () => {
+  const text = "const parts = s.split(/[/*]/);\nconst BRAND_RED = '#ff0000';";
+  const lines = violationLines(text);
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /#ff0000/);
+});
+
+test('a // inside a regex literal character class does not start a fake line comment', () => {
+  const text = "const parts = s.split(/[/x]/);\nconst BRAND_RED = '#ff0000';";
+  const lines = violationLines(text);
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /#ff0000/);
+});
+
+// Plain division must still work: a bare `/` that isn't in an
+// expression-start position is not mistaken for a regex literal.
+test('division is not mistaken for a regex literal', () => {
+  const text = "const half = total / 2; const c = '#123abc';";
+  const lines = violationLines(text);
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /#123abc/);
+});
+
 // var() fallbacks stay exempt (unrelated to comment-stripping, but a
 // pre-existing behavior this rewrite must not disturb).
 test('a var() fallback hex is still exempt outside any comment', () => {

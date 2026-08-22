@@ -59,7 +59,7 @@
     "analyze": "source-map-explorer \"build/static/js/*.js\"",
     "check:bundle": "node scripts/check-bundle-budget.js",
     "check:production-config": "node scripts/check-production-config.js",
-    "lint:colors": "node scripts/check-color-literals.js",
+    "lint:colors": "node --test scripts/check-color-literals.test.js && node scripts/check-color-literals.js",
     "migrate": "knex migrate:latest",
     "migrate:rollback": "knex migrate:rollback",
     "seed": "knex seed:run",
