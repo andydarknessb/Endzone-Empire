@@ -116,6 +116,15 @@ jobs:
       - run: npm run migrate
       - run: npm run migrate:rollback
       - run: npm run migrate
+      # draft_rounds backfill (#118, ADR 0005): the migrate/rollback/migrate
+      # smoke above runs against an empty leagues table, so it can never
+      # exercise the backfill UPDATE's WHERE clause or math. This seeds
+      # active/completed/pending legacy leagues, rolls the one migration
+      # back and forward again, and asserts the backfilled values.
+      - run: npm run test:draft-rounds-pg
+        env:
+          DRAFT_ROUNDS_PG_TESTS: "1"
+
       # Snapshot-client CONTRACTS: the eight production queries re-implemented
       # in JS, checked against the real Postgres on identical seeded rows, plus
       # fn_normalize_nfl_team vs its JS twin, ORDER BY under the server
