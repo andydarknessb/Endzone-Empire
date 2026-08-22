@@ -36,7 +36,8 @@ One manager's entry and identity in one league: the entity that appears in
 standings, matchups and trophies. It controls a roster only in a fantasy
 league; in a pick'em league it is a name and an avatar, nothing more. Teams
 rows ARE league membership app-wide, so every league type creates one per
-manager. A manager in three leagues has three teams.
+manager. A manager in three leagues has three teams. What a shared surface
+may show of that identity is Team identity, a narrower term of its own.
 _Avoid_: franchise, squad, roster (the roster is what a team holds, not the team)
 
 **Team identity**:
