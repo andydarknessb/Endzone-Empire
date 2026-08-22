@@ -201,7 +201,7 @@ test('creating a league posts the form data, shows a notice, and refetches leagu
 
   await userEvent.click(heroButton('Create League'));
   await userEvent.type(screen.getByLabelText('League Name'), 'Monday Mayhem');
-  await userEvent.type(screen.getByLabelText('Team Name'), "Alice's Squad");
+  await userEvent.type(screen.getByLabelText(/Team Name/), "Alice's Squad");
   await userEvent.click(screen.getByRole('button', { name: 'Create' }));
 
   await waitFor(() =>
@@ -227,12 +227,13 @@ test('the approval toggle only appears once Public league is on, and only the fi
   expect(screen.queryByLabelText('Require commissioner approval to join')).not.toBeInTheDocument();
 
   await userEvent.type(screen.getByLabelText('League Name'), 'Plain League');
+  await userEvent.type(screen.getByLabelText(/Team Name/), 'Plain Squad');
   await userEvent.click(screen.getByRole('button', { name: 'Create' }));
 
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/league', {
       name: 'Plain League',
-      teamName: undefined,
+      teamName: 'Plain Squad',
       maxTeams: 2,
       leagueType: 'fantasy',
     })
@@ -248,6 +249,7 @@ test('creating a public, approval-required, best-ball, half-PPR league with a dr
 
   await userEvent.click(heroButton('Create League'));
   await userEvent.type(screen.getByLabelText('League Name'), 'Full League');
+  await userEvent.type(screen.getByLabelText(/Team Name/), 'Full Squad');
   await userEvent.click(screen.getByLabelText('Public league'));
   await userEvent.click(screen.getByLabelText('Require commissioner approval to join'));
   await userEvent.click(screen.getByLabelText('Best ball mode'));
@@ -266,7 +268,7 @@ test('creating a public, approval-required, best-ball, half-PPR league with a dr
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/league', {
       name: 'Full League',
-      teamName: undefined,
+      teamName: 'Full Squad',
       maxTeams: 2,
       leagueType: 'fantasy',
       isPublic: true,
@@ -282,7 +284,7 @@ test('creating a public, approval-required, best-ball, half-PPR league with a dr
   );
 });
 
-test('the Create button is disabled until a league name is entered', async () => {
+test('the Create button is disabled until both a league name and a Team name are entered', async () => {
   apiClient.get.mockResolvedValue({ data: [] });
   renderWithProviders(<UserPage />, { state: baseState });
   await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
@@ -291,6 +293,9 @@ test('the Create button is disabled until a league name is entered', async () =>
   expect(screen.getByRole('button', { name: 'Create' })).toBeDisabled();
 
   await userEvent.type(screen.getByLabelText('League Name'), 'X');
+  expect(screen.getByRole('button', { name: 'Create' })).toBeDisabled();
+
+  await userEvent.type(screen.getByLabelText(/Team Name/), 'Y');
   expect(screen.getByRole('button', { name: 'Create' })).toBeEnabled();
 });
 
@@ -303,6 +308,7 @@ test('creating a league surfaces the server error on failure', async () => {
 
   await userEvent.click(heroButton('Create League'));
   await userEvent.type(screen.getByLabelText('League Name'), 'Dup League');
+  await userEvent.type(screen.getByLabelText(/Team Name/), 'Dup Squad');
   await userEvent.click(screen.getByRole('button', { name: 'Create' }));
 
   expect(await screen.findByText('name already taken')).toBeInTheDocument();
@@ -318,16 +324,17 @@ test('joining a league posts the trimmed invite code, shows a notice, and refetc
   await userEvent.click(heroButton('Join League'));
   expect(getCallsTo('/api/league')).toBe(1); // opening the dialog fetches nothing — no browse list
   await userEvent.type(screen.getByLabelText('Invite Code'), '  abc123  ');
+  await userEvent.type(screen.getByLabelText(/Team Name/), 'Joiner FC');
   await userEvent.click(screen.getByRole('button', { name: 'Join' }));
 
   await waitFor(() =>
-    expect(apiClient.post).toHaveBeenCalledWith('/api/league/join', { inviteCode: 'abc123' })
+    expect(apiClient.post).toHaveBeenCalledWith('/api/league/join', { inviteCode: 'abc123', teamName: 'Joiner FC' })
   );
   expect(await screen.findByText('Joined league!')).toBeInTheDocument();
   await waitFor(() => expect(getCallsTo('/api/league')).toBe(2));
 });
 
-test('the Join button is disabled until an invite code is entered', async () => {
+test('the Join button is disabled until both an invite code and a Team name are entered', async () => {
   apiClient.get.mockResolvedValue({ data: [] });
   renderWithProviders(<UserPage />, { state: baseState });
   await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
@@ -336,6 +343,9 @@ test('the Join button is disabled until an invite code is entered', async () => 
   expect(screen.getByRole('button', { name: 'Join' })).toBeDisabled();
 
   await userEvent.type(screen.getByLabelText('Invite Code'), 'x');
+  expect(screen.getByRole('button', { name: 'Join' })).toBeDisabled();
+
+  await userEvent.type(screen.getByLabelText(/Team Name/), 'y');
   expect(screen.getByRole('button', { name: 'Join' })).toBeEnabled();
 });
 
@@ -348,6 +358,7 @@ test('joining a league surfaces the server error on failure', async () => {
 
   await userEvent.click(heroButton('Join League'));
   await userEvent.type(screen.getByLabelText('Invite Code'), 'bogus');
+  await userEvent.type(screen.getByLabelText(/Team Name/), 'Joiner FC');
   await userEvent.click(screen.getByRole('button', { name: 'Join' }));
 
   expect(await screen.findByText('no league with that invite code')).toBeInTheDocument();
@@ -413,6 +424,7 @@ test("creating an NFL pick'em league sends leagueType, pickemMode and an explici
 
   await userEvent.click(heroButton('Create League'));
   await userEvent.type(screen.getByLabelText('League Name'), 'Office Pool');
+  await userEvent.type(screen.getByLabelText(/Team Name/), 'Office Champs');
   // Fantasy-only state set BEFORE the switch must not leak into the payload.
   await userEvent.click(screen.getByLabelText('Best ball mode'));
   fireEvent.change(screen.getByLabelText('Draft date'), { target: { value: '2026-09-04T13:00' } });
@@ -435,7 +447,7 @@ test("creating an NFL pick'em league sends leagueType, pickemMode and an explici
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/league', {
       name: 'Office Pool',
-      teamName: undefined,
+      teamName: 'Office Champs',
       maxTeams: 30,
       leagueType: 'pickem',
       pickemMode: 'straight',
@@ -459,6 +471,7 @@ test("choosing Both sends leagueType 'both' with the chosen confidence mode and 
 
   await userEvent.click(heroButton('Create League'));
   await userEvent.type(screen.getByLabelText('League Name'), 'Everything League');
+  await userEvent.type(screen.getByLabelText(/Team Name/), 'Everything Squad');
   await userEvent.click(screen.getByRole('radio', { name: /^Both/ }));
   await userEvent.click(screen.getByRole('radio', { name: /Confidence/ }));
   await userEvent.click(screen.getByLabelText('Best ball mode'));
@@ -468,7 +481,7 @@ test("choosing Both sends leagueType 'both' with the chosen confidence mode and 
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/league', {
       name: 'Everything League',
-      teamName: undefined,
+      teamName: 'Everything Squad',
       maxTeams: 2,
       leagueType: 'both',
       pickemMode: 'confidence',
@@ -494,6 +507,7 @@ test("the pick'em team count must be a whole number from 2 to 50 before Create i
 
   await userEvent.click(heroButton('Create League'));
   await userEvent.type(screen.getByLabelText('League Name'), 'Office Pool');
+  await userEvent.type(screen.getByLabelText(/Team Name/), 'Pool Shark');
   await userEvent.click(screen.getByRole('radio', { name: /NFL pick'em league/ }));
   const teams = screen.getByLabelText('Teams');
 
@@ -518,6 +532,7 @@ test("a fractional pick'em count is rounded down, not carried into the fantasy t
 
   await userEvent.click(heroButton('Create League'));
   await userEvent.type(screen.getByLabelText('League Name'), 'Odd Pool');
+  await userEvent.type(screen.getByLabelText(/Team Name/), 'Odd Squad');
   await userEvent.click(screen.getByRole('radio', { name: /NFL pick'em league/ }));
   const teams = screen.getByLabelText('Teams');
   await userEvent.clear(teams);
