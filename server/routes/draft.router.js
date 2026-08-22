@@ -685,7 +685,7 @@ router.post('/league/:id/share-token', async (req, res) => {
 router.get('/mine', async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT "id", "name", "draft_status", "draft_date", "draft_type", "roster_limit", "ir_slots",
+      `SELECT "id", "name", "draft_status", "draft_date", "draft_type", "roster_limit", "ir_slots", "draft_rounds",
               (SELECT COUNT(*)::int FROM "draft_picks" WHERE "draft_picks"."league_id" = "leagues"."id") AS "picks_made",
               (SELECT COUNT(*)::int FROM "teams" WHERE "teams"."league_id" = "leagues"."id") AS "team_count"
        FROM "leagues"
