@@ -73,6 +73,11 @@ export const COMPLETE_PICKS: FixturePick[] = FIXTURE_PLAYERS.map((player, index)
 type LeagueOverrides = Partial<{
   name: string;
   draft_status: 'pending' | 'active' | 'complete';
+  // snake: teams pick in turn on a clock. autopick: every pick is made by
+  // autopick at once, no manual control ever exists. offline: the
+  // commissioner records picks made elsewhere - see CONTEXT.md's Draft type
+  // entry. auction has no live engine yet and is out of scope here.
+  draft_type: 'snake' | 'autopick' | 'offline';
   draft_paused: boolean;
   pick_time_seconds: number;
   pick_deadline_at: string | null;
@@ -87,6 +92,7 @@ export function buildLeague(overrides: LeagueOverrides = {}) {
     id: FIXTURE_LEAGUE_ID,
     name: 'Harness League',
     draft_status: 'pending',
+    draft_type: 'snake',
     draft_paused: false,
     pick_time_seconds: 0,
     pick_deadline_at: null,
@@ -120,4 +126,36 @@ export const COMPLETE_STATE = {
   teams: FIXTURE_TEAMS,
   picks: COMPLETE_PICKS,
   onTheClock: null,
+};
+
+// issue #120: pick-safety fixtures across draft type and turn ownership.
+export const ACTIVE_NOT_MY_TURN_STATE = {
+  league: buildLeague({ draft_status: 'active' }),
+  teams: FIXTURE_TEAMS,
+  picks: ACTIVE_PICKS,
+  // Harbor Hawks (owner_id 502, NOT the harness viewer) is on the clock.
+  onTheClock: FIXTURE_TEAMS[1],
+};
+
+export const ACTIVE_PAUSED_STATE = {
+  league: buildLeague({ draft_status: 'active', draft_paused: true }),
+  teams: FIXTURE_TEAMS,
+  picks: ACTIVE_PICKS,
+  onTheClock: FIXTURE_TEAMS[0],
+};
+
+export const ACTIVE_AUTOPICK_STATE = {
+  league: buildLeague({ draft_status: 'active', draft_type: 'autopick' }),
+  teams: FIXTURE_TEAMS,
+  picks: ACTIVE_PICKS,
+  // Nominally "on the clock" even so - autopick-type drafts are read-only
+  // for every manager regardless of whose turn the rotation names.
+  onTheClock: FIXTURE_TEAMS[0],
+};
+
+export const ACTIVE_OFFLINE_STATE = {
+  league: buildLeague({ draft_status: 'active', draft_type: 'offline' }),
+  teams: FIXTURE_TEAMS,
+  picks: ACTIVE_PICKS,
+  onTheClock: FIXTURE_TEAMS[0],
 };
