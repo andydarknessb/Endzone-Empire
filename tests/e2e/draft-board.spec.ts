@@ -20,6 +20,10 @@ import {
   PENDING_STATE,
   ACTIVE_STATE,
   COMPLETE_STATE,
+  ACTIVE_NOT_MY_TURN_STATE,
+  ACTIVE_PAUSED_STATE,
+  ACTIVE_AUTOPICK_STATE,
+  ACTIVE_OFFLINE_STATE,
   ACTIVE_PICKS,
   FIXTURE_PLAYERS,
   FIXTURE_TEAMS,
@@ -224,7 +228,11 @@ test.describe('existing draft behavior baseline (active fixture)', () => {
     const joshAllenRow = poolTable.getByRole('button', { name: 'Josh Allen' }).locator('xpath=ancestor::tr');
     await expect(joshAllenRow).toBeVisible();
     await expect(joshAllenRow.getByText('Drafted')).toBeVisible();
-    await expect(joshAllenRow.getByRole('button', { name: 'Draft' })).toBeDisabled();
+    // An already-drafted row has nothing left to Pick or Queue: both actions
+    // are hidden entirely rather than shown disabled (#120 acceptance
+    // criterion 5).
+    await expect(joshAllenRow.getByRole('button', { name: 'Draft' })).toHaveCount(0);
+    await expect(joshAllenRow.getByRole('button', { name: 'Queue' })).toHaveCount(0);
   });
 
   test('queues a player, then reorders and removes from the queue', async ({ page }) => {
@@ -376,5 +384,165 @@ test.describe('schedule-aware player pool (issue #119)', () => {
 
     await dialog.getByRole('button', { name: 'Close' }).click();
     await expect(dialog).toBeHidden();
+  });
+});
+
+// --- State-correct player actions, Pick-safe manual Draft (#120, parent #108) ---
+// status (pending/active/complete) x type (snake/autopick/offline) x turn
+// ownership x pause, exercised through the real browser DOM rather than
+// jsdom - focus/hover-driven Tooltip text, aria-disabled vs the native
+// disabled attribute, and the end-to-end confirm-then-commit flow.
+
+test.describe('pick-safe player actions across draft state (issue #120)', () => {
+  test.use({ viewport: VIEWPORTS.desktop });
+
+  test.beforeEach(async ({ page }) => {
+    await setTheme(page, 'light');
+  });
+
+  test('a pending draft exposes Queue but never a manual Draft control', async ({ page }) => {
+    await installDraftSocketHarness(page, PENDING_STATE);
+    await installDraftRestApi(page, { league: PENDING_STATE.league, picks: [] });
+    await gotoDraft(page);
+    await expect(page.getByText('Bijan Robinson')).toBeVisible();
+
+    // exact: true - the ADP column header's own sort button carries an
+    // aria-label mentioning "Average draft position", a substring match
+    // Playwright's default (non-exact) name matching would also catch.
+    await expect(page.getByRole('button', { name: 'Draft', exact: true })).toHaveCount(0);
+    await expect(
+      page.locator('tr', { hasText: 'Bijan Robinson' }).getByRole('button', { name: 'Queue', exact: true })
+    ).toBeVisible();
+  });
+
+  test('a complete draft never renders a manual Draft control, even for a player nobody claimed', async ({ page }) => {
+    const players = [
+      { id: 301, name: 'Leftover Waiver Guy', position: 'RB', nfl_team: 'NYJ', adp: null, position_rank: null, projected_points: null, bye_week: null },
+    ];
+    const league = buildLeague({ draft_status: 'complete' });
+    await installDraftSocketHarness(page, { league, teams: FIXTURE_TEAMS, picks: [], onTheClock: null });
+    await installDraftRestApi(page, { league, picks: [], players });
+    await gotoDraft(page);
+    await expect(page.getByRole('button', { name: 'Leftover Waiver Guy' })).toBeVisible();
+
+    await expect(page.getByRole('button', { name: 'Draft', exact: true })).toHaveCount(0);
+    await expect(
+      page.locator('tr', { hasText: 'Leftover Waiver Guy' }).getByRole('button', { name: 'Queue', exact: true })
+    ).toBeVisible();
+  });
+
+  test('an autopick-type draft is read-only: no manual Draft control anywhere', async ({ page }) => {
+    await installDraftSocketHarness(page, ACTIVE_AUTOPICK_STATE);
+    await installDraftRestApi(page, { league: ACTIVE_AUTOPICK_STATE.league, picks: ACTIVE_PICKS });
+    await gotoDraft(page);
+    await expect(page.getByText('Bijan Robinson')).toBeVisible();
+
+    await expect(page.getByRole('button', { name: 'Draft', exact: true })).toHaveCount(0);
+    // Queue still exists - it just no longer has a manual override to reach
+    // for, since autopick resolves every pick itself.
+    await expect(
+      page.locator('tr', { hasText: 'Bijan Robinson' }).getByRole('button', { name: 'Queue', exact: true })
+    ).toBeVisible();
+  });
+
+  test('an offline-type draft never renders a manual Draft control from the row or Quick View', async ({ page }) => {
+    await installDraftSocketHarness(page, ACTIVE_OFFLINE_STATE);
+    await installDraftRestApi(page, { league: ACTIVE_OFFLINE_STATE.league, picks: ACTIVE_PICKS });
+    await gotoDraft(page);
+    await expect(page.getByText('Bijan Robinson')).toBeVisible();
+
+    await expect(page.getByRole('button', { name: 'Draft', exact: true })).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Bijan Robinson' }).first().click();
+    const quickView = page.getByRole('dialog');
+    await expect(quickView.getByRole('heading', { name: 'Bijan Robinson' })).toBeVisible();
+    await expect(quickView.getByRole('button', { name: 'Draft', exact: true })).toHaveCount(0);
+    await expect(quickView.getByRole('button', { name: 'Queue', exact: true })).toBeVisible();
+  });
+
+  test('off-turn, Draft stays focusable but aria-disabled with the shared explanation, and clicking is a no-op', async ({ page }) => {
+    await installDraftSocketHarness(page, ACTIVE_NOT_MY_TURN_STATE);
+    await installDraftRestApi(page, { league: ACTIVE_NOT_MY_TURN_STATE.league, picks: ACTIVE_PICKS });
+    await gotoDraft(page);
+    await expect(page.getByText('Bijan Robinson')).toBeVisible();
+
+    const draftButton = page
+      .locator('tr', { hasText: 'Bijan Robinson' })
+      .getByRole('button', { name: 'Draft', exact: true });
+    // Temporarily unavailable, not nonexistent: aria-disabled, not the
+    // native disabled attribute - still focusable and reachable. (Not
+    // toBeEnabled(): Playwright's actionability checks treat aria-disabled
+    // the same as the native attribute, so this asserts the DOM directly.)
+    await expect(draftButton).toHaveAttribute('aria-disabled', 'true');
+    expect(await draftButton.evaluate((el) => el.hasAttribute('disabled'))).toBe(false);
+
+    await draftButton.hover();
+    await expect(
+      page.getByText("You can only Pick when it's your turn and the draft isn't paused.")
+    ).toBeVisible();
+
+    // force: true - Playwright's own actionability checks already refuse to
+    // click an aria-disabled element (proving it's inert to a real pointer
+    // user on its own), so bypass them here to exercise the app's own
+    // suppressed-activation guard specifically.
+    await draftButton.click({ force: true });
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  });
+
+  test('a paused draft shows the exact same shared explanation as off-turn, not a different reason string', async ({ page }) => {
+    await installDraftSocketHarness(page, ACTIVE_PAUSED_STATE);
+    await installDraftRestApi(page, { league: ACTIVE_PAUSED_STATE.league, picks: ACTIVE_PICKS });
+    await gotoDraft(page);
+    await expect(page.getByText('Bijan Robinson')).toBeVisible();
+
+    const draftButton = page
+      .locator('tr', { hasText: 'Bijan Robinson' })
+      .getByRole('button', { name: 'Draft', exact: true });
+    await expect(draftButton).toHaveAttribute('aria-disabled', 'true');
+
+    await draftButton.hover();
+    await expect(
+      page.getByText("You can only Pick when it's your turn and the draft isn't paused.")
+    ).toBeVisible();
+  });
+
+  test('a manual Pick requires confirmation naming the player before it commits', async ({ page }) => {
+    await setupActiveDraft(page);
+
+    await page
+      .locator('tr', { hasText: 'Bijan Robinson' })
+      .getByRole('button', { name: 'Draft', exact: true })
+      .click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByText('Draft Bijan Robinson?')).toBeVisible();
+    await expect(dialog.getByText(/advances the draft for everyone right away/)).toBeVisible();
+
+    // Canceling never commits.
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await expect(dialog).toBeHidden();
+    await expect(page.getByText('Drafted Bijan Robinson!')).toHaveCount(0);
+
+    // Confirming does.
+    await page
+      .locator('tr', { hasText: 'Bijan Robinson' })
+      .getByRole('button', { name: 'Draft', exact: true })
+      .click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Draft Bijan Robinson' }).click();
+    await expect(page.getByText('Drafted Bijan Robinson!')).toBeVisible();
+  });
+
+  test('Quick View exposes the same gated Draft action and confirmation as the row', async ({ page }) => {
+    await setupActiveDraft(page);
+
+    await page.getByRole('button', { name: 'Bijan Robinson' }).first().click();
+    const quickView = page.getByRole('dialog');
+    await expect(quickView.getByRole('heading', { name: 'Bijan Robinson' })).toBeVisible();
+
+    await quickView.getByRole('button', { name: 'Draft', exact: true }).click();
+    const confirmDialog = page.getByRole('dialog').filter({ hasText: 'Draft Bijan Robinson?' });
+    await expect(confirmDialog).toBeVisible();
+    await confirmDialog.getByRole('button', { name: 'Draft Bijan Robinson' }).click();
+
+    await expect(page.getByText('Drafted Bijan Robinson!')).toBeVisible();
   });
 });
