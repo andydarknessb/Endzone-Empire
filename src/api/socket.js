@@ -2,7 +2,24 @@ import { io } from 'socket.io-client';
 import { getToken, refreshTokens } from './apiClient';
 import { getSocketOrigin } from './origins';
 
+// Deterministic browser-test seam: when a harness has installed a socket
+// factory on `window` (see tests/e2e/fixtures/draftHarness.ts), every
+// draft-room-shaped socket (draft, chat, game center, matchup detail) is
+// created by that factory instead of a real socket.io-client connection, so
+// nothing this app does over a socket can ever reach a live server. The
+// global is never set outside a test harness, so production and every other
+// test (including socket.test.js, which mocks socket.io-client directly) are
+// unaffected.
+function testSocketFactory() {
+  return typeof window !== 'undefined' && typeof window.__ENDZONE_TEST_SOCKET_FACTORY__ === 'function'
+    ? window.__ENDZONE_TEST_SOCKET_FACTORY__
+    : null;
+}
+
 export function createDraftSocket() {
+  const fakeFactory = testSocketFactory();
+  if (fakeFactory) return fakeFactory();
+
   const socket = io(getSocketOrigin(), {
     // A callback (rather than a frozen object) so socket.io re-invokes it on
     // every reconnection attempt, picking up a rotated JWT (access tokens
