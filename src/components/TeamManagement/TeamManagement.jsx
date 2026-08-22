@@ -331,7 +331,9 @@ function TeamManagement() {
                     <TableCell>
                       <Chip
                         size="small"
-                        label={player.lineup_slot || 'Not set'}
+                        label={player.lineup_slot === 'IR' && player.ir_attested
+                          ? 'IR (attested)'
+                          : player.lineup_slot || 'Not set'}
                         variant={player.lineup_slot && !['BENCH', 'IR'].includes(player.lineup_slot) ? 'filled' : 'outlined'}
                         color={player.lineup_slot && !['BENCH', 'IR'].includes(player.lineup_slot) ? 'primary' : 'default'}
                       />

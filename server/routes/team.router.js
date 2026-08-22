@@ -31,7 +31,7 @@ router.get('/roster', async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT "players".*, "team_players"."created_at" AS "acquired_at", "teams"."id" AS "team_id",
-              "lineup_entries"."slot" AS "lineup_slot"
+              "lineup_entries"."slot" AS "lineup_slot", "lineup_entries"."ir_attested"
        FROM "team_players"
        JOIN "players" ON "players"."id" = "team_players"."player_id"
        JOIN "teams" ON "teams"."id" = "team_players"."team_id"

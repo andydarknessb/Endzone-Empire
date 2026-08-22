@@ -110,6 +110,23 @@ test('shows current starter and bench slots with a Set Lineup entry point', asyn
   expect(screen.getByRole('link', { name: 'Set Lineup' })).toHaveAttribute('href', '/league/1/lineup');
 });
 
+test('an attested IR stash reads "IR (attested)" in the roster slot column', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/league') return Promise.resolve({ data: [makeLeague()] });
+    if (url.includes('/standings')) return Promise.resolve(standingsResponse([makeStanding({ wins: 1 })]));
+    return Promise.resolve({ data: [
+      { id: 12, name: 'Attested Runner', position: 'RB', nfl_team: 'MIN', lineup_slot: 'IR', ir_attested: true },
+      { id: 13, name: 'Eligible Runner', position: 'RB', nfl_team: 'GB', lineup_slot: 'IR', ir_attested: false },
+    ] });
+  });
+  renderWithProviders(<TeamManagement />);
+
+  expect(await screen.findByText('Attested Runner')).toBeInTheDocument();
+  expect(screen.getByText('IR (attested)')).toBeInTheDocument();
+  // The normally eligible stash keeps the plain slot label.
+  expect(screen.getByText('IR')).toBeInTheDocument();
+});
+
 test('post-draft zero-game summary omits rank and keeps the real waiver priority', async () => {
   apiClient.get.mockImplementation((url) => {
     if (url === '/api/league') return Promise.resolve({ data: [makeLeague({ my_team_waiver_priority: 4 })] });

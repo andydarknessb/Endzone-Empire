@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { draftRosterSize, draftRounds } = require('../services/rosterShape');
+const { draftRosterSize, draftRounds, irSlotCount } = require('../services/rosterShape');
 
 test('draftRosterSize: subtracts IR slots from the stored roster limit', () => {
   assert.equal(draftRosterSize({ roster_limit: 20, ir_slots: 1 }), 19);
@@ -56,4 +56,13 @@ test('draftRounds: an active/completed row missing its fixed value (pre-backfill
 
 test('draftRounds: null league degrades to 0', () => {
   assert.equal(draftRounds(null), 0);
+});
+
+test('irSlotCount: reads the column with the same null/legacy tolerance', () => {
+  assert.equal(irSlotCount({ ir_slots: 3 }), 3);
+  assert.equal(irSlotCount({ irSlots: 2 }), 2);
+  assert.equal(irSlotCount({ ir_slots: null }), 0);
+  assert.equal(irSlotCount({}), 0);
+  assert.equal(irSlotCount(null), 0);
+  assert.equal(irSlotCount({ ir_slots: -1 }), 0);
 });
