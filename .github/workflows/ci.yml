@@ -43,7 +43,11 @@ jobs:
       # Split out because six backtest sweep files are ~40 of the suite's 42
       # minutes; run-backtest-sweep alone is ~35. Same coverage, separate step,
       # so a failure points at which half broke.
+      # Pushes to integration/main still run it; pull requests skip it so a PR
+      # sees a ~10 minute test-build instead of ~50. Backtest changes on a PR
+      # are covered by backtest-reproduction.yml, which triggers on those paths.
       - run: npm run test:server:sweep
+        if: github.event_name != 'pull_request'
         env:
           # The Gate-3 publication (backtest-data/publish/) is committed as of
           # this workflow, so the clean-clone reconstruction test's
