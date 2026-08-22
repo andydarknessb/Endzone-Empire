@@ -31,7 +31,8 @@ import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import PositionChip from '../PlayerQuickView/PositionChip';
 import AbbreviationTooltip from '../common/AbbreviationTooltip';
 import ColumnGuide from './ColumnGuide';
-import { touchTargetSx } from '../../lib/a11y';
+import { pickActionExists, pickTemporarilyUnavailable, PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
+import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 
 // The real NFL regular season a Bye can fall in (mirrors REG_SEASON_WEEKS in
 // server/services/bye.service.js) — every selectable option in the multi-select
@@ -93,9 +94,10 @@ function PlayerPoolTable({
   search,
   displayPlayers,
   draftedIds,
+  draftStatus,
+  draftType,
   isMyTurn,
   draftPaused,
-  onTheClockName,
   queue,
   onDraft,
   onQueue,
@@ -115,6 +117,11 @@ function PlayerPoolTable({
       onLoadMore();
     }
   }, [hasMore, loadingMore, onLoadMore]);
+
+  // Constant across every row in this render - computed once rather than
+  // once per displayed player.
+  const tableCanManualPick = pickActionExists({ draftStatus, draftType });
+  const tablePickUnavailable = tableCanManualPick && pickTemporarilyUnavailable({ isMyTurn, draftPaused });
 
   return (
     <Paper component="section" aria-labelledby={headingId} sx={{ p: 2 }}>
@@ -136,7 +143,7 @@ function PlayerPoolTable({
                 size="small"
                 aria-label="Clear search"
                 onClick={() => onSearchInputChange('')}
-                sx={touchTargetSx}
+                sx={MIN_TOUCH_TARGET_SX}
               >
                 <CloseIcon fontSize="small" />
               </IconButton>
@@ -294,14 +301,12 @@ function PlayerPoolTable({
             )}
             {displayPlayers.map((player) => {
               const isDrafted = draftedIds.has(player.id);
-              const draftDisabled = !isMyTurn || !!draftPaused || isDrafted;
-              const draftDisabledReason = isDrafted
-                ? ''
-                : draftPaused
-                ? 'Draft is paused'
-                : !isMyTurn
-                ? `Waiting for ${onTheClockName || 'the next pick'}`
-                : '';
+              // A drafted player has nothing left to Pick or Queue - both
+              // actions are hidden entirely rather than shown disabled (#120
+              // acceptance criterion 5); the "Drafted" chip above already
+              // says why.
+              const canManualPick = !isDrafted && tableCanManualPick;
+              const pickUnavailable = canManualPick && tablePickUnavailable;
               // Rostered players (on the caller's own team) sharing this
               // candidate's Bye week — a neutral roster fact, not a warning.
               // Excludes the candidate itself, in case Hide drafted is off and
@@ -361,36 +366,43 @@ function PlayerPoolTable({
                     )}
                   </TableCell>
                   <TableCell align="center" sx={stickyActionCellSx}>
-                    <Stack direction="row" spacing={1} justifyContent="center" alignItems="center">
-                      <Tooltip title={draftDisabledReason}>
-                        <span>
-                          <Button
-                            variant="contained"
-                            color="success"
-                            size="small"
-                            disabled={draftDisabled}
-                            onClick={() => onDraft(player.id)}
-                            sx={{ minHeight: 44 }}
-                          >
-                            Draft
-                          </Button>
-                        </span>
-                      </Tooltip>
-                      <Tooltip title="Queue">
-                        <span>
-                          <IconButton
-                            aria-label="Queue"
-                            size="small"
-                            color="default"
-                            disabled={isDrafted || queue.some((p) => p.id === player.id)}
-                            onClick={() => onQueue(player)}
-                            sx={touchTargetSx}
-                          >
-                            <PlaylistAddIcon fontSize="small" />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
-                    </Stack>
+                    {isDrafted ? null : (
+                      <Stack direction="row" spacing={1} justifyContent="center" alignItems="center">
+                        {canManualPick && (
+                          <Tooltip title={pickUnavailable ? PICK_UNAVAILABLE_EXPLANATION : ''}>
+                            <span>
+                              <Button
+                                variant="contained"
+                                color="success"
+                                size="small"
+                                aria-disabled={pickUnavailable || undefined}
+                                onClick={() => {
+                                  if (pickUnavailable) return; // suppressed activation
+                                  onDraft(player.id);
+                                }}
+                                sx={MIN_TOUCH_TARGET_SX}
+                              >
+                                Draft
+                              </Button>
+                            </span>
+                          </Tooltip>
+                        )}
+                        <Tooltip title="Queue">
+                          <span>
+                            <IconButton
+                              aria-label="Queue"
+                              size="small"
+                              color="default"
+                              disabled={queue.some((p) => p.id === player.id)}
+                              onClick={() => onQueue(player)}
+                              sx={MIN_TOUCH_TARGET_SX}
+                            >
+                              <PlaylistAddIcon fontSize="small" />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                      </Stack>
+                    )}
                   </TableCell>
                 </TableRow>
               );

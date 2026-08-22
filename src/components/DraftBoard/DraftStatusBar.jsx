@@ -2,7 +2,7 @@ import React from 'react';
 import { Box, Chip, Button, IconButton, Tooltip, Snackbar, Alert } from '@mui/material';
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import NotificationsOffIcon from '@mui/icons-material/NotificationsOff';
-import { touchTargetSx } from '../../lib/a11y';
+import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 
 /** Status chip row (reconnecting/on-the-clock/timer + controls) and the
  * "you're on the clock" snackbar. The prominent pick-clock display lives in
@@ -67,7 +67,7 @@ function DraftStatusBar({
             aria-label={soundOn ? 'Mute pick sound' : 'Unmute pick sound'}
             aria-pressed={soundOn}
             onClick={toggleSound}
-            sx={touchTargetSx}
+            sx={MIN_TOUCH_TARGET_SX}
           >
             {soundOn ? <NotificationsActiveIcon fontSize="small" /> : <NotificationsOffIcon fontSize="small" />}
           </IconButton>

@@ -30,7 +30,7 @@ import NotificationBell from '../NotificationBell/NotificationBell';
 import GlobalPlayerSearch from '../GlobalPlayerSearch/GlobalPlayerSearch';
 import ProfileSettingsModal from './ProfileSettingsModal';
 import { useThemeMode } from '../../theme/AppThemeProvider';
-import { touchTargetSx } from '../../lib/a11y';
+import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 
 // Primary destinations shown inline on desktop and in the drawer on mobile.
 // "Notification Settings" and "Log Out" intentionally live in the profile
@@ -84,7 +84,7 @@ function Nav() {
 
   const themeToggle = (
     <Tooltip title={mode === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}>
-      <IconButton aria-label="Toggle theme" onClick={toggleMode} size="small" sx={touchTargetSx}>
+      <IconButton aria-label="Toggle theme" onClick={toggleMode} size="small" sx={MIN_TOUCH_TARGET_SX}>
         {mode === 'light' ? <Brightness4Icon fontSize="small" /> : <Brightness7Icon fontSize="small" />}
       </IconButton>
     </Tooltip>
@@ -107,7 +107,7 @@ function Nav() {
             aria-label="open navigation menu"
             edge="start"
             onClick={() => setDrawerOpen(true)}
-            sx={{ display: { xs: 'inline-flex', md: 'none' }, color: 'var(--text-muted)', ...touchTargetSx }}
+            sx={{ display: { xs: 'inline-flex', md: 'none' }, color: 'var(--text-muted)', ...MIN_TOUCH_TARGET_SX }}
           >
             <MenuIcon />
           </IconButton>
@@ -196,7 +196,7 @@ function Nav() {
                   aria-label="account menu"
                   onClick={(e) => setProfileAnchor(e.currentTarget)}
                   size="small"
-                  sx={touchTargetSx}
+                  sx={MIN_TOUCH_TARGET_SX}
                 >
                   <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.main', fontSize: 16 }}>
                     {(user.username || '?').charAt(0).toUpperCase()}

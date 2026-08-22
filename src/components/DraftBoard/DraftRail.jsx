@@ -11,6 +11,7 @@ import {
   Accordion,
   AccordionSummary,
   AccordionDetails,
+  Tooltip,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
@@ -19,7 +20,8 @@ import CloseIcon from '@mui/icons-material/Close';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import RosterPanel from '../RosterPanel/RosterPanel';
 import RosterNeedsStrip from '../RosterPanel/RosterNeedsStrip';
-import { touchTargetSx } from '../../lib/a11y';
+import { pickActionExists, pickTemporarilyUnavailable, PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
+import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 
 /** Draft-room rail: my queue (with a quick-draft button on my turn), draft
  * order (with autodraft toggles), my roster, and pick history.
@@ -41,6 +43,7 @@ function DraftRail({
   isCommissioner,
   userId,
   draftStatus,
+  draftType,
   onToggleAutodraft,
   onToggleReady,
   picks,
@@ -119,7 +122,15 @@ function DraftRail({
           </Typography>
         ) : (
           queue.map((player, index) => {
-            const showQuickDraft = index === 0 && isMyTurn && !draftPaused;
+            // The rail's shortcut mirrors the pool table's own rules exactly:
+            // shown only for queue[0] when a manual Pick exists at all
+            // (active, snake-type draft) - hidden entirely otherwise - and,
+            // when it exists but isn't usable right now (not your turn, or
+            // paused), rendered focusable aria-disabled with the same shared
+            // explanation rather than disappearing (issue #120 acceptance
+            // criteria 2, 5).
+            const showQuickDraft = index === 0 && pickActionExists({ draftStatus, draftType });
+            const quickDraftUnavailable = showQuickDraft && pickTemporarilyUnavailable({ isMyTurn, draftPaused });
             return (
               <Box
                 key={player.id}
@@ -130,7 +141,9 @@ function DraftRail({
                   gap: 1,
                   flexWrap: 'wrap',
                   mb: 1,
-                  ...(showQuickDraft ? { bgcolor: 'var(--accent-soft)', borderRadius: 1, p: 0.5 } : {}),
+                  ...(showQuickDraft && !quickDraftUnavailable
+                    ? { bgcolor: 'var(--accent-soft)', borderRadius: 1, p: 0.5 }
+                    : {}),
                 }}
               >
                 <Typography variant="body2">
@@ -139,22 +152,30 @@ function DraftRail({
                 </Typography>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                   {showQuickDraft && (
-                    <Button
-                      variant="contained"
-                      color="primary"
-                      size="small"
-                      onClick={() => onDraft(player.id)}
-                      sx={{ minHeight: 44 }}
-                    >
-                      Draft
-                    </Button>
+                    <Tooltip title={quickDraftUnavailable ? PICK_UNAVAILABLE_EXPLANATION : ''}>
+                      <span>
+                        <Button
+                          variant="contained"
+                          color="primary"
+                          size="small"
+                          aria-disabled={quickDraftUnavailable || undefined}
+                          onClick={() => {
+                            if (quickDraftUnavailable) return; // suppressed activation
+                            onDraft(player.id);
+                          }}
+                          sx={MIN_TOUCH_TARGET_SX}
+                        >
+                          Draft
+                        </Button>
+                      </span>
+                    </Tooltip>
                   )}
                   <IconButton
                     size="small"
                     aria-label="Move up"
                     disabled={index === 0}
                     onClick={() => onMoveUp(index)}
-                    sx={touchTargetSx}
+                    sx={MIN_TOUCH_TARGET_SX}
                   >
                     <ArrowUpwardIcon fontSize="small" />
                   </IconButton>
@@ -163,7 +184,7 @@ function DraftRail({
                     aria-label="Move down"
                     disabled={index === queue.length - 1}
                     onClick={() => onMoveDown(index)}
-                    sx={touchTargetSx}
+                    sx={MIN_TOUCH_TARGET_SX}
                   >
                     <ArrowDownwardIcon fontSize="small" />
                   </IconButton>
@@ -171,7 +192,7 @@ function DraftRail({
                     size="small"
                     aria-label="Remove from queue"
                     onClick={() => onRemoveFromQueue(index)}
-                    sx={touchTargetSx}
+                    sx={MIN_TOUCH_TARGET_SX}
                   >
                     <CloseIcon fontSize="small" />
                   </IconButton>

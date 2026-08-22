@@ -288,6 +288,21 @@ test("draft: GET /mine excludes pick'em-only leagues from Draft Central", async 
   assert.match(mine.text, /"pickem_only" = false/);
 });
 
+// #117: DraftCentralCard's compact Countdown needs the league's Draft time
+// zone to show the same hover/tap detail every other Countdown call site
+// gets (the `leagues".*`-selecting routes already carry it for free).
+test('draft: GET /mine selects draft_timezone so Draft Central can show the league Draft time zone', async (t) => {
+  const calls = mockPool(t, {
+    pickemOnly: false,
+    overrides: [[/FROM "leagues"/, () => ({ rows: [] })]],
+  });
+  const res = await request(routes).get('/api/draft/mine').set('Authorization', authed());
+  assert.equal(res.status, 200);
+  const mine = calls.find((c) => /"draft_status" IN \('active', 'pending'\)/.test(c.text));
+  assert.ok(mine, 'the Draft Central query ran');
+  assert.match(mine.text, /"draft_timezone"/);
+});
+
 // --- league.router: start-draft + PUT /:id ---------------------------------
 
 test("league: POST start-draft 409s PICKEM_ONLY_LEAGUE for a pick'em-only league without opening a transaction", async (t) => {
