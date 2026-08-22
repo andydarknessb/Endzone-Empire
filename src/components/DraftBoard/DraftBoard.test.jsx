@@ -202,12 +202,42 @@ test('clicking Draft on a player emits draft:pick with the league and player id'
   );
 
   await userEvent.click(screen.getByRole('button', { name: 'Draft' }));
+  // Clicking Draft opens the focused confirmation dialog naming the player
+  // instead of committing straight away (#120 acceptance criterion 3).
+  const dialog = await screen.findByRole('dialog');
+  expect(within(dialog).getByText('Draft Patrick Mahomes?')).toBeInTheDocument();
+  expect(fakeSocket.emit).not.toHaveBeenCalledWith('draft:pick', expect.anything(), expect.anything());
+
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Draft Patrick Mahomes' }));
 
   expect(fakeSocket.emit).toHaveBeenCalledWith(
     'draft:pick',
     { leagueId: 3, playerId: 1 },
     expect.any(Function)
   );
+});
+
+test('canceling the Draft confirmation dialog never emits draft:pick', async () => {
+  renderBoard(3, { user: { id: 5 } });
+  await screen.findByText('Patrick Mahomes');
+
+  act(() =>
+    fakeSocket.trigger('draft:state', {
+      league: { name: 'Sunday Ballers', draft_status: 'active', draft_paused: false },
+      teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 5 }],
+      picks: [],
+      onTheClock: { id: 1, name: 'Team A', owner: 'alice', owner_id: 5 },
+    })
+  );
+
+  await userEvent.click(screen.getByRole('button', { name: 'Draft' }));
+  const dialog = await screen.findByRole('dialog');
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  expect(
+    fakeSocket.emit.mock.calls.some(([event]) => event === 'draft:pick')
+  ).toBe(false);
 });
 
 test('a draft:picked event prepends the new pick, updates who is on the clock, and refetches players', async () => {
@@ -355,6 +385,9 @@ test('an error acknowledgment from draft:pick is surfaced as an alert', async ()
   );
 
   await userEvent.click(screen.getByRole('button', { name: 'Draft' }));
+  const dialog = await screen.findByRole('dialog');
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Draft Patrick Mahomes' }));
+
   const [, , ack] = fakeSocket.emit.mock.calls.find(([event]) => event === 'draft:pick');
   act(() => ack({ error: 'it is not your turn to pick' }));
 
@@ -509,7 +542,7 @@ test('the countdown resets to pick_time_seconds on each draft:picked', async () 
   expect(screen.getByText('⏱ 90s')).toBeInTheDocument();
 });
 
-test('a paused draft shows the paused chip and disables drafting', async () => {
+test('a paused draft shows the paused chip and leaves drafting focusable but aria-disabled', async () => {
   renderBoard(1);
   await screen.findByText('Patrick Mahomes');
 
@@ -518,10 +551,18 @@ test('a paused draft shows the paused chip and disables drafting', async () => {
   );
 
   expect(screen.getByText('Draft Paused')).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Draft' })).toBeDisabled();
+  const draftButton = screen.getByRole('button', { name: 'Draft' });
+  // Temporarily unavailable, not nonexistent: focusable aria-disabled, not
+  // the native disabled attribute (#120 acceptance criterion 5).
+  expect(draftButton).not.toBeDisabled();
+  expect(draftButton).toHaveAttribute('aria-disabled', 'true');
+
+  // Suppressed activation: clicking it does nothing.
+  await userEvent.click(draftButton);
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 });
 
-test('the pool Draft button is disabled off-turn and enabled on-turn', async () => {
+test('the pool Draft button is aria-disabled off-turn and fully enabled on-turn', async () => {
   renderBoard(1, { user: { id: 5 } });
   await screen.findByText('Patrick Mahomes');
 
@@ -534,7 +575,7 @@ test('the pool Draft button is disabled off-turn and enabled on-turn', async () 
       })
     )
   );
-  expect(screen.getByRole('button', { name: 'Draft' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Draft' })).toHaveAttribute('aria-disabled', 'true');
 
   act(() =>
     fakeSocket.trigger(
@@ -545,7 +586,9 @@ test('the pool Draft button is disabled off-turn and enabled on-turn', async () 
       })
     )
   );
-  expect(screen.getByRole('button', { name: 'Draft' })).toBeEnabled();
+  const draftButton = screen.getByRole('button', { name: 'Draft' });
+  expect(draftButton).toBeEnabled();
+  expect(draftButton).not.toHaveAttribute('aria-disabled');
 });
 
 test("the queue's top-row Draft button appears only on your turn and drafts queue[0]", async () => {
@@ -584,6 +627,13 @@ test("the queue's top-row Draft button appears only on your turn and drafts queu
   );
   const queueDraftButton = within(queuePanel()).getByRole('button', { name: 'Draft' });
   await userEvent.click(queueDraftButton);
+
+  // The rail's quick-draft button goes through the same focused confirmation
+  // as every other manual Pick, naming the actual queued player even though
+  // he isn't in the (separately fetched, unrelated) pool response.
+  const dialog = await screen.findByRole('dialog');
+  expect(within(dialog).getByText('Draft Bijan Robinson?')).toBeInTheDocument();
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Draft Bijan Robinson' }));
 
   expect(fakeSocket.emit).toHaveBeenCalledWith(
     'draft:pick',
@@ -859,6 +909,159 @@ test('clicking a player name opens the quick-view dialog and never drafts the pl
   expect(
     fakeSocket.emit.mock.calls.some(([event]) => event === 'draft:pick')
   ).toBe(false);
+});
+
+// --- State-correct player actions, Pick-safe manual Draft (#120, parent #108) ---
+// status (pending/active/complete) x type (snake/linear/autopick/offline) x
+// turn ownership x pause x completion. Snake/linear are the same draft_type
+// ('snake') differing only in draft_rotation, which pickActionExists doesn't
+// key on; autopick and offline get their own coverage below.
+
+test('a pending draft never renders a manual Draft control in the pool table or Quick View, only Queue', async () => {
+  apiClient.get.mockImplementation((url) =>
+    url.endsWith('/summary')
+      ? Promise.resolve({
+          data: {
+            player: { id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'KC' },
+            currentSeason: null,
+            previousSeasons: [],
+          },
+        })
+      : Promise.resolve(playersPage())
+  );
+  renderBoard(1, { user: { id: 5 } });
+  await screen.findByText('Patrick Mahomes');
+
+  act(() =>
+    fakeSocket.trigger('draft:state', {
+      league: { name: 'Sunday Ballers', draft_status: 'pending' },
+      teams: [],
+      picks: [],
+      onTheClock: null,
+    })
+  );
+
+  expect(screen.queryByRole('button', { name: 'Draft' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Queue' })).toBeInTheDocument();
+
+  await userEvent.click(screen.getByRole('button', { name: 'Patrick Mahomes' }));
+  const dialog = await screen.findByRole('dialog');
+  expect(within(dialog).queryByRole('button', { name: 'Draft' })).not.toBeInTheDocument();
+  expect(within(dialog).getByRole('button', { name: 'Queue' })).toBeInTheDocument();
+});
+
+test('a complete draft never renders a manual Draft control', async () => {
+  renderBoard(1, { user: { id: 5 } });
+  await screen.findByText('Patrick Mahomes');
+
+  act(() =>
+    fakeSocket.trigger('draft:state', {
+      league: { name: 'Sunday Ballers', draft_status: 'complete' },
+      teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 5 }],
+      picks: [],
+      onTheClock: null,
+    })
+  );
+
+  expect(screen.queryByRole('button', { name: 'Draft' })).not.toBeInTheDocument();
+});
+
+test('an autopick-type active draft never renders a manual Draft control - table, Quick View, or queue rail', async () => {
+  mockGets({ queue: [{ id: 2, name: 'Bijan Robinson', position: 'RB', nfl_team: 'ATL', rank: 1 }] });
+  renderBoard(1, { user: { id: 5 } });
+  await screen.findByRole('button', { name: 'Bijan Robinson' });
+
+  act(() =>
+    fakeSocket.trigger(
+      'draft:state',
+      stateEvent(activeLeague({ draft_type: 'autopick' }), {
+        teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 5 }],
+        onTheClock: { id: 1, name: 'Team A', owner: 'alice', owner_id: 5 }, // even "on the clock"
+      })
+    )
+  );
+
+  // Autopick-type drafts are read-only for the manager: no manual Draft
+  // control anywhere, even though this viewer is nominally on the clock.
+  expect(screen.queryByRole('button', { name: 'Draft' })).not.toBeInTheDocument();
+});
+
+test('an offline-type active draft never renders a manual Draft control from the player-row/Quick View surfaces', async () => {
+  mockGets({ queue: [{ id: 2, name: 'Bijan Robinson', position: 'RB', nfl_team: 'ATL', rank: 1 }] });
+  renderBoard(1, { user: { id: 5 } });
+  await screen.findByRole('button', { name: 'Bijan Robinson' });
+
+  act(() =>
+    fakeSocket.trigger(
+      'draft:state',
+      stateEvent(activeLeague({ draft_type: 'offline' }), {
+        teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 5 }],
+        onTheClock: { id: 1, name: 'Team A', owner: 'alice', owner_id: 5 },
+      })
+    )
+  );
+
+  // The offline commissioner-entry workflow lives outside this table (and is
+  // untouched here); a live 'draft:pick' from these surfaces would just 409.
+  expect(screen.queryByRole('button', { name: 'Draft' })).not.toBeInTheDocument();
+});
+
+test('an already-drafted pool row hides both Draft and Queue entirely, keeping only the Drafted chip', async () => {
+  renderBoard(1, { user: { id: 5 } });
+  await screen.findByText('Patrick Mahomes');
+
+  act(() =>
+    fakeSocket.trigger(
+      'draft:state',
+      stateEvent(activeLeague(), {
+        teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 5 }],
+        picks: [{ pick_number: 1, team_id: 1, player_id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'KC' }],
+        onTheClock: { id: 1, name: 'Team A', owner: 'alice', owner_id: 5 },
+      })
+    )
+  );
+
+  const table = screen.getByRole('table');
+  const row = within(table).getByRole('button', { name: 'Patrick Mahomes' }).closest('tr');
+  expect(within(row).getByText('Drafted')).toBeInTheDocument();
+  expect(within(row).queryByRole('button', { name: 'Draft' })).not.toBeInTheDocument();
+  expect(within(row).queryByRole('button', { name: 'Queue' })).not.toBeInTheDocument();
+});
+
+test('Quick View shows Draft as focusable aria-disabled with the shared explanation off-turn, and suppresses activation', async () => {
+  apiClient.get.mockImplementation((url) =>
+    url.endsWith('/summary')
+      ? Promise.resolve({
+          data: {
+            player: { id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'KC' },
+            currentSeason: null,
+            previousSeasons: [],
+          },
+        })
+      : Promise.resolve(playersPage())
+  );
+  renderBoard(1, { user: { id: 5 } });
+  await screen.findByText('Patrick Mahomes');
+
+  act(() =>
+    fakeSocket.trigger(
+      'draft:state',
+      stateEvent(activeLeague(), {
+        teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 9 }],
+        onTheClock: { id: 1, name: 'Team A', owner: 'alice', owner_id: 9 }, // not this viewer
+      })
+    )
+  );
+
+  await userEvent.click(screen.getByRole('button', { name: 'Patrick Mahomes' }));
+  const dialog = await screen.findByRole('dialog');
+  const draftAction = within(dialog).getByRole('button', { name: 'Draft' });
+  expect(draftAction).not.toBeDisabled();
+  expect(draftAction).toHaveAttribute('aria-disabled', 'true');
+
+  await userEvent.click(draftAction);
+  expect(fakeSocket.emit.mock.calls.some(([event]) => event === 'draft:pick')).toBe(false);
+  expect(screen.queryByText('Draft Patrick Mahomes?')).not.toBeInTheDocument();
 });
 
 // --- Schedule-aware pool: columns, Column guide, Bye filter, Bye overlap ---

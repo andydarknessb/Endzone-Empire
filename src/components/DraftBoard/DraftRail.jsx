@@ -19,6 +19,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import RosterPanel from '../RosterPanel/RosterPanel';
 import RosterNeedsStrip from '../RosterPanel/RosterNeedsStrip';
+import { pickActionExists, MIN_TOUCH_TARGET_SX } from './pickAvailability';
 
 /** Draft-room rail: my queue (with a quick-draft button on my turn), draft
  * order (with autodraft toggles), my roster, and pick history.
@@ -40,6 +41,7 @@ function DraftRail({
   isCommissioner,
   userId,
   draftStatus,
+  draftType,
   onToggleAutodraft,
   onToggleReady,
   picks,
@@ -110,7 +112,12 @@ function DraftRail({
           </Typography>
         ) : (
           queue.map((player, index) => {
-            const showQuickDraft = index === 0 && isMyTurn && !draftPaused;
+            // The rail's shortcut mirrors the pool table's own rules: only
+            // ever shown, never shown disabled, exactly when a manual Pick
+            // both exists (active, snake-type draft) and is actually usable
+            // right now (issue #120 acceptance criteria 2, 5).
+            const showQuickDraft = index === 0 && !draftPaused && isMyTurn
+              && pickActionExists({ draftStatus, draftType });
             return (
               <Box
                 key={player.id}
@@ -130,7 +137,13 @@ function DraftRail({
                 </Typography>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                   {showQuickDraft && (
-                    <Button variant="contained" color="primary" size="small" onClick={() => onDraft(player.id)}>
+                    <Button
+                      variant="contained"
+                      color="primary"
+                      size="small"
+                      onClick={() => onDraft(player.id)}
+                      sx={MIN_TOUCH_TARGET_SX}
+                    >
                       Draft
                     </Button>
                   )}
