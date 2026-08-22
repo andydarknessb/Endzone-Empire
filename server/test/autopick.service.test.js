@@ -1,28 +1,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const pool = require('../modules/pool');
 const draftService = require('../services/draft.service');
 const { autoPick, compareAutopickCandidates } = require('../services/autopick.service');
-
-const LEAGUE = {
-  id: 1, draft_status: 'active', draft_paused: false, current_pick: 0,
-  draft_rotation: 'snake', draft_order_overrides: null,
-};
-
-// A single-team league so teamForPick always resolves to this team regardless
-// of current_pick/rotation — keeps every test focused on candidate ordering.
-const TEAM = { id: 55, owner_id: 7, autodraft: true }; // autodraft:true -> not a "timeout" pick, skips that bookkeeping
-
-function installAutopickPool(t, { candidates }) {
-  t.mock.method(pool, 'query', async (sql) => {
-    const text = String(sql);
-    if (text.includes('FROM "leagues" WHERE "id" = $1')) return { rows: [LEAGUE] };
-    if (text.includes('FROM "teams"')) return { rows: [TEAM] };
-    if (text.includes('EXTRACT(MONTH FROM CURRENT_DATE)')) return { rows: [{ season: 2026 }] };
-    if (text.includes('FROM "players"')) return { rows: candidates };
-    throw new Error(`Unexpected SQL: ${text}`);
-  });
-}
+const { installAutopickPool } = require('./helpers/autopickFixtures');
 
 test('autoPick: an empty queue chooses a no-ADP player with points over a no-ADP player with neither', async (t) => {
   const withPoints = { id: 2, name: 'Has Points', adp: null, queue_rank: null, last_season_points: '50.0' };

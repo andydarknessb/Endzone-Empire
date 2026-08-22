@@ -38,11 +38,15 @@ function compareBestAvailable(a, b) {
   return String(a.name).localeCompare(String(b.name));
 }
 
-/** Eligible rows (ADP or last-season production), in best-available order. */
+/**
+ * Eligible rows (ADP or last-season production), in best-available order.
+ * A convenience for callers that want filter+sort in one step; getDraftPool
+ * calls isBestAvailableEligible/compareBestAvailable directly instead (see
+ * publicRead.service.js) so a spy on the exported comparator observes real
+ * usage — see server/test/bestAvailable.sharedUsage.test.js.
+ */
 function selectBestAvailable(rows) {
-  return rows.filter(bestAvailable.isBestAvailableEligible).sort(bestAvailable.compareBestAvailable);
+  return rows.filter(isBestAvailableEligible).sort(compareBestAvailable);
 }
 
-const bestAvailable = { isBestAvailableEligible, compareBestAvailable, selectBestAvailable };
-
-module.exports = bestAvailable;
+module.exports = { isBestAvailableEligible, compareBestAvailable, selectBestAvailable };
