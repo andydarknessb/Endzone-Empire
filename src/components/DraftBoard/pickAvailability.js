@@ -15,7 +15,9 @@
  *  - pending: nothing has been claimed yet, there is nothing to Pick.
  *  - complete: the draft event is over.
  *  - autopick-type: every pick is made by autopick at once; no manual
- *    control ever exists (CONTEXT.md's Autopick entry).
+ *    control ever exists (CONTEXT.md's Draft type entry, autopick value -
+ *    distinct from the Autopick entry, which is the per-team act on clock
+ *    expiry, not this whole-draft mode).
  *  - offline-type: the commissioner enters every pick outside this table;
  *    draft.service.js rejects any other attempt with a 409.
  *  - auction-type: no live auction engine exists yet (never reaches active).

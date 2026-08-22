@@ -592,7 +592,7 @@ test('the pool Draft button is aria-disabled off-turn and fully enabled on-turn'
   expect(draftButton).not.toHaveAttribute('aria-disabled');
 });
 
-test("the queue's top-row Draft button appears only on your turn and drafts queue[0]", async () => {
+test("the queue's top-row Draft button is aria-disabled off-turn and fully enabled on-turn, and drafts queue[0]", async () => {
   mockGets({
     queue: [
       { id: 2, name: 'Bijan Robinson', position: 'RB', nfl_team: 'ATL', rank: 1 },
@@ -604,7 +604,10 @@ test("the queue's top-row Draft button appears only on your turn and drafts queu
 
   const queuePanel = () => screen.getByText('My Queue').closest('.MuiPaper-root');
 
-  // Not my turn: the queue's top row has no quick-draft button.
+  // Not my turn: the quick-draft button stays in the DOM (a manual Pick
+  // still exists in this active, snake-type draft) but is focusable
+  // aria-disabled, matching the pool row and Quick View - not hidden, and
+  // not the native disabled attribute (#120 acceptance criteria 2, 5).
   act(() =>
     fakeSocket.trigger(
       'draft:state',
@@ -614,7 +617,12 @@ test("the queue's top-row Draft button appears only on your turn and drafts queu
       })
     )
   );
-  expect(within(queuePanel()).queryByRole('button', { name: 'Draft' })).not.toBeInTheDocument();
+  const offTurnButton = within(queuePanel()).getByRole('button', { name: 'Draft' });
+  expect(offTurnButton).not.toBeDisabled();
+  expect(offTurnButton).toHaveAttribute('aria-disabled', 'true');
+  await userEvent.click(offTurnButton);
+  expect(fakeSocket.emit.mock.calls.some(([event]) => event === 'draft:pick')).toBe(false);
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 
   // My turn: the quick-draft button appears and drafts queue[0] (Bijan Robinson, id 2).
   act(() =>
@@ -647,6 +655,32 @@ test("the queue's top-row Draft button appears only on your turn and drafts queu
   // resolvable through the queue, not the (unrelated) pool response - the
   // same lookup requestDraftPlayer used to build the confirmation dialog.
   expect(await screen.findByText('Drafted Bijan Robinson!')).toBeInTheDocument();
+});
+
+test("the queue's top-row Draft button is aria-disabled on your turn while the draft is paused, with the same shared explanation as the pool row", async () => {
+  mockGets({
+    queue: [{ id: 2, name: 'Bijan Robinson', position: 'RB', nfl_team: 'ATL', rank: 1 }],
+  });
+  renderBoard(1, { user: { id: 5 } });
+  await screen.findByRole('button', { name: 'Bijan Robinson' });
+
+  act(() =>
+    fakeSocket.trigger(
+      'draft:state',
+      stateEvent(activeLeague({ draft_paused: true }), {
+        teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 5 }],
+        onTheClock: { id: 1, name: 'Team A', owner: 'alice', owner_id: 5 }, // my turn, but paused
+      })
+    )
+  );
+
+  const queuePanel = () => screen.getByText('My Queue').closest('.MuiPaper-root');
+  const pausedButton = within(queuePanel()).getByRole('button', { name: 'Draft' });
+  expect(pausedButton).not.toBeDisabled();
+  expect(pausedButton).toHaveAttribute('aria-disabled', 'true');
+
+  await userEvent.click(pausedButton);
+  expect(fakeSocket.emit.mock.calls.some(([event]) => event === 'draft:pick')).toBe(false);
 });
 
 test('the queue loads on mount and renders players in rank order', async () => {
