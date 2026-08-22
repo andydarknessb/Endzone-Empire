@@ -23,7 +23,7 @@
  * Team-name validation (#111) lives here and nowhere else: every path must
  * supply a trimmed 1-120 character name, checked after admission (a refused
  * join never surfaces a name complaint instead of the real reason) and
- * before the insert. There is no default name to fall back to any more —
+ * before the insert. There is no default name to fall back to any more:
  * a manager's account identifier must never stand in for one (Team identity,
  * CONTEXT.md).
  *
