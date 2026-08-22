@@ -62,59 +62,149 @@ function isAllowlisted(relPosix) {
   );
 }
 
-// An all-digit `#NNN`/`#NNNN` etc. is exactly what a GitHub issue reference
-// looks like ("(#116", "#116)", "#116 AC3") — and JS/JSX comments and JSDoc
-// routinely cite the issue a change belongs to. A real hex color literal
-// almost always carries at least one a-f digit; requiring digits-only here
-// keeps this exemption from swallowing genuine 3/6-digit all-numeric colors
-// outside a comment (those still hit HEX below, since this only strips
-// matches on lines that are entirely comment).
-const ISSUE_REFERENCE = /#\d+\b/g;
+// Strip comments out of a file's text before it's scanned for color
+// literals. Comments style nothing, so a hex/rgb/named-color literal that
+// only ever appears inside one is never a real violation — and a bare
+// GitHub issue reference like `#116` or `#122` inside a comment can no
+// longer be misread as a 3-digit hex color, because the whole comment is
+// gone before the HEX/FUNC/NAMED patterns ever see it.
+//
+// Handles, for .js/.jsx:
+//   - `//` line comments
+//   - `/* ... */` block comments, single- or multi-line, with or without a
+//     leading `*` continuation on interior lines (that leading-`*` shape is
+//     just a convention some block comments follow, not something this
+//     scanner depends on)
+//   - JSX `{/* ... */}` comments — the outer `{`/`}` are left alone (they
+//     aren't color-literal syntax); the `/* ... */` inside is stripped by
+//     the same block-comment handling as any other block comment
+//   - single/double-quoted strings and template literals are scanned as
+//     opaque units so a `//` inside one (e.g. `'http://example.com'`) is
+//     never misread as the start of a line comment
+// For .css, only `/* ... */` block comments apply (CSS has no `//` line
+// comments); quoted strings are still scanned as opaque units so a `/*`
+// inside a quoted `content:`/`url()` value can't be misread as a comment
+// start.
+//
+// Line breaks are always preserved (stripped characters become spaces, not
+// removed) so line numbers in the reported violations stay accurate.
+function stripComments(text, ext) {
+  const isJs = ext === '.js' || ext === '.jsx';
+  let out = '';
+  let i = 0;
+  const n = text.length;
 
-// A whole-line comment in JS/JSX: a `//` line, an interior line of a
-// `/** ... */` block (which in this codebase always continues with a
-// leading `*`), or a single-line `/** ... */`/`/* ... */` doc comment that is
-// the ENTIRE line (starts with `/*` AND ends with `*/`) — not just a comment
-// prefix followed by real code, e.g. `/* eslint-disable-next-line */ x = 1`,
-// where only the leading fragment is a comment and the rest must still be
-// checked. Scoped to .js/.jsx only — in .css, a leading `*` is the universal
-// selector, not a comment continuation.
-function isCommentLine(ext, trimmedLine) {
-  if (ext !== '.js' && ext !== '.jsx') return false;
-  if (trimmedLine.startsWith('//') || trimmedLine.startsWith('*')) return true;
-  return trimmedLine.startsWith('/*') && trimmedLine.endsWith('*/');
+  while (i < n) {
+    const c = text[i];
+    const c2 = i + 1 < n ? text[i + 1] : '';
+
+    if (c === '"' || c === "'") {
+      const quote = c;
+      let j = i + 1;
+      while (j < n && text[j] !== quote) {
+        j += text[j] === '\\' ? 2 : 1;
+      }
+      j = Math.min(j + 1, n);
+      out += text.slice(i, j);
+      i = j;
+      continue;
+    }
+
+    if (isJs && c === '`') {
+      let j = i + 1;
+      while (j < n && text[j] !== '`') {
+        j += text[j] === '\\' ? 2 : 1;
+      }
+      j = Math.min(j + 1, n);
+      out += text.slice(i, j);
+      i = j;
+      continue;
+    }
+
+    if (isJs && c === '/' && c2 === '/') {
+      let j = i;
+      while (j < n && text[j] !== '\n') j++;
+      out += text.slice(i, j).replace(/[^\n]/g, ' ');
+      i = j;
+      continue;
+    }
+
+    if (c === '/' && c2 === '*') {
+      let j = i + 2;
+      while (j < n && !(text[j] === '*' && text[j + 1] === '/')) j++;
+      j = Math.min(j + 2, n);
+      out += text.slice(i, j).replace(/[^\n]/g, ' ');
+      i = j;
+      continue;
+    }
+
+    out += c;
+    i += 1;
+  }
+
+  return out;
 }
 
-const violations = [];
-for (const file of walk(SRC)) {
-  const relPosix = toPosix(path.relative(path.join(__dirname, '..'), file));
-  if (isAllowlisted(relPosix)) continue;
+// Ignore var() fallbacks (`var(--x, #fff)` is intentional), then test for
+// any of the three color-literal shapes.
+function hasColorLiteral(line) {
+  const stripped = line.replace(/var\([^)]*\)/g, '');
+  return HEX.test(stripped) || FUNC.test(stripped) || NAMED.test(stripped);
+}
 
-  const ext = path.extname(file);
-  const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
-  lines.forEach((line, i) => {
-    // Ignore var() fallbacks: `var(--x, #fff)` is intentional.
-    let stripped = line.replace(/var\([^)]*\)/g, '');
-    if (isCommentLine(ext, line.trim())) {
-      stripped = stripped.replace(ISSUE_REFERENCE, '#');
-    }
-    if (HEX.test(stripped) || FUNC.test(stripped) || NAMED.test(stripped)) {
-      violations.push(`${relPosix}:${i + 1}: ${line.trim()}`);
+// Scan one file's already-read text for violations, given its repo-relative
+// posix path (used only for the reported message) and extension (used to
+// decide whether `//` comments apply).
+function findViolations(relPosix, ext, rawText) {
+  const originalLines = rawText.split(/\r?\n/);
+  const strippedLines = stripComments(rawText, ext).split(/\r?\n/);
+  const violations = [];
+  strippedLines.forEach((strippedLine, i) => {
+    if (hasColorLiteral(strippedLine)) {
+      violations.push(`${relPosix}:${i + 1}: ${originalLines[i].trim()}`);
     }
   });
+  return violations;
 }
 
-if (violations.length > 0) {
-  console.error(
-    `\n❌ Found ${violations.length} hard-coded color literal(s). ` +
-      `Use a design token from src/theme/tokens.js instead.\n`
-  );
-  violations.forEach((v) => console.error(`  ${v}`));
-  console.error(
-    '\nIf a literal is legitimate (external data, data-encoding scale), add it ' +
-      'to the ALLOWLIST in scripts/check-color-literals.js with a reason.\n'
-  );
-  process.exit(1);
+function main() {
+  const violations = [];
+  for (const file of walk(SRC)) {
+    const relPosix = toPosix(path.relative(path.join(__dirname, '..'), file));
+    if (isAllowlisted(relPosix)) continue;
+
+    const ext = path.extname(file);
+    const rawText = fs.readFileSync(file, 'utf8');
+    violations.push(...findViolations(relPosix, ext, rawText));
+  }
+
+  if (violations.length > 0) {
+    console.error(
+      `\n❌ Found ${violations.length} hard-coded color literal(s). ` +
+        `Use a design token from src/theme/tokens.js instead.\n`
+    );
+    violations.forEach((v) => console.error(`  ${v}`));
+    console.error(
+      '\nIf a literal is legitimate (external data, data-encoding scale), add it ' +
+        'to the ALLOWLIST in scripts/check-color-literals.js with a reason.\n'
+    );
+    process.exit(1);
+  }
+
+  console.log('✅ No hard-coded color literals found outside the allowlist.');
 }
 
-console.log('✅ No hard-coded color literals found outside the allowlist.');
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  stripComments,
+  hasColorLiteral,
+  findViolations,
+  isAllowlisted,
+  ALLOWLIST,
+  HEX,
+  FUNC,
+  NAMED,
+};
