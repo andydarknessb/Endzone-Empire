@@ -409,7 +409,13 @@ function DraftBoard() {
         )}
         {league?.draft_status === 'pending' && league?.draft_date && (
           <Box sx={{ mt: 2 }}>
-            <Countdown variant="full" date={league.draft_date} />
+            <Countdown
+              variant="full"
+              date={league.draft_date}
+              timeZone={league.draft_timezone}
+              leagueId={league.id}
+              leagueName={league.name}
+            />
           </Box>
         )}
         {isCommissioner && (

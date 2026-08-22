@@ -39,7 +39,7 @@ function LeagueCard({ league, isOwner = false, onDelete, compact = false }) {
           <Chip size="small" color="primary" variant="outlined" label={isOwner ? 'Commissioner' : 'Co-Commissioner'} />
         )}
         {phase === LEAGUE_PHASE.PRE_DRAFT && league.draft_date && (
-          <Countdown variant="chip" date={league.draft_date} />
+          <Countdown variant="chip" date={league.draft_date} timeZone={league.draft_timezone} />
         )}
       </Stack>
     </CardContent>

@@ -71,13 +71,18 @@ function isAllowlisted(relPosix) {
 // matches on lines that are entirely comment).
 const ISSUE_REFERENCE = /#\d+\b/g;
 
-// A whole-line comment in JS/JSX: a `//` line or an interior line of a
+// A whole-line comment in JS/JSX: a `//` line, an interior line of a
 // `/** ... */` block (which in this codebase always continues with a
-// leading `*`). Scoped to .js/.jsx only — in .css, a leading `*` is the
-// universal selector, not a comment continuation.
+// leading `*`), or a single-line `/** ... */`/`/* ... */` doc comment that is
+// the ENTIRE line (starts with `/*` AND ends with `*/`) — not just a comment
+// prefix followed by real code, e.g. `/* eslint-disable-next-line */ x = 1`,
+// where only the leading fragment is a comment and the rest must still be
+// checked. Scoped to .js/.jsx only — in .css, a leading `*` is the universal
+// selector, not a comment continuation.
 function isCommentLine(ext, trimmedLine) {
   if (ext !== '.js' && ext !== '.jsx') return false;
-  return trimmedLine.startsWith('//') || trimmedLine.startsWith('*');
+  if (trimmedLine.startsWith('//') || trimmedLine.startsWith('*')) return true;
+  return trimmedLine.startsWith('/*') && trimmedLine.endsWith('*/');
 }
 
 const violations = [];
