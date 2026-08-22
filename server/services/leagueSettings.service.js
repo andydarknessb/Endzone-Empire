@@ -587,8 +587,14 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
         }
         return cachedTeamIds;
       };
-      if (current && draftOrderOverridesProvided) {
-        const overridesError = validateOrderOverrides(draftOrderOverrides, await readTeamIds(), effectiveDraftRosterSize);
+      // Validated whenever this request could invalidate the overrides: either
+      // it sends new ones, or it shrinks the draft roster size out from under
+      // the ones already stored. Either way the corrected bound is checked
+      // against whichever overrides object will actually be live afterward
+      // (#118 / ADR 0005 AC4: never silently clamp or drop a stale override).
+      if (current && (draftOrderOverridesProvided || rosterCompositionChanged)) {
+        const effectiveOverrides = draftOrderOverridesProvided ? draftOrderOverrides : current.draft_order_overrides;
+        const overridesError = validateOrderOverrides(effectiveOverrides, await readTeamIds(), effectiveDraftRosterSize);
         if (overridesError) return await rejectUpdate(400, overridesError);
       }
       if (current && auctionSettingsProvided && auctionSettings?.nominationOrder === 'custom') {
@@ -598,6 +604,29 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
       }
       if (current && keeperCount !== undefined && keeperCount > effectiveDraftRosterSize) {
         return await rejectUpdate(400, `keeperCount cannot exceed the draft roster size (${effectiveDraftRosterSize})`);
+      }
+      // #118 / ADR 0005 AC4: a roster-shape change must not silently strand an
+      // already-assigned pending keeper past the corrected draft roster size.
+      // Gated on rosterCompositionChanged alone (not keeperCount, which bounds
+      // the setting, not existing assignments) and skipped when keepers won't
+      // survive this same request (keeperSettingsPlan clears them below).
+      if (current && rosterCompositionChanged) {
+        const effectiveKeepersEnabled = keepersEnabled === undefined ? current.keepers_enabled : keepersEnabled;
+        if (effectiveKeepersEnabled) {
+          const violatingKeepers = await client.query(
+            `SELECT "team_id", "draft_round" FROM "keepers"
+             WHERE "league_id" = $1 AND "draft_round" > $2
+             ORDER BY "draft_round" DESC, "team_id"`,
+            [leagueId, effectiveDraftRosterSize]
+          );
+          if (violatingKeepers.rows.length > 0) {
+            const detail = violatingKeepers.rows.map((row) => `team ${row.team_id} round ${row.draft_round}`).join(', ');
+            return await rejectUpdate(
+              409,
+              `roster shape change would leave keepers assigned past the corrected draft roster size of ${effectiveDraftRosterSize}: ${detail}; reassign or remove them first`
+            );
+          }
+        }
       }
       if (current && keeperSettingsProvided) {
         const assignmentResult = await client.query(
