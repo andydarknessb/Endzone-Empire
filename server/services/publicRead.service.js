@@ -23,6 +23,8 @@ const {
 } = require('../modules/recapStorage');
 const { getWeekProjections } = require('./projection.service');
 const { computeByeWeeks } = require('./bye.service');
+const { upcomingNflSeason } = require('./nflSeason.service');
+const bestAvailable = require('./bestAvailable.service');
 const {
   calculateFantasyPoints, SCORING_PRESETS, IDP_POSITIONS, getSeasonPositionRank,
   projectSeasonPoints,
@@ -31,10 +33,12 @@ const {
 const POSITION_WHITELIST = ['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF', ...IDP_POSITIONS];
 const MAX_RANKINGS_LIMIT = 100;
 
-// Draft-pool sizing. 260 offensive/K/DEF players covers a 14-team × 16-round
-// mock with room to spare; the IDP tranche is appended only when asked for.
+// Draft-pool membership (CONTEXT.md "Draft pool"): every offense/K/DEF player
+// who has an ADP or produced last completed season, in best-available order —
+// a RULE, not a count. DRAFT_POOL_LIMIT is a safety ceiling far above that
+// rule's expected size (~660 as of 2026-08-22), not the cap it used to be.
 const DRAFT_POOL_POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
-const DRAFT_POOL_LIMIT = 260;
+const DRAFT_POOL_LIMIT = 5000;
 const DRAFT_POOL_IDP_LIMIT = 90;
 
 // A compact "key stat line" for a weekly/game row: the handful of normalized
@@ -148,23 +152,6 @@ async function latestSeasonWeek() {
     [season]
   );
   return { season, week: (weekRes.rows[0] && weekRes.rows[0].week) || null };
-}
-
-/**
- * The current NFL season by calendar, resolved in SQL to stay on DB time:
- * Jan/Feb still belong to the prior NFL season; March begins the next league
- * year. This preserves the public read-model's global-data-only boundary
- * (no league-scoped current_season lookups).
- */
-async function upcomingNflSeason() {
-  const res = await pool.query(
-    `SELECT CASE
-       WHEN EXTRACT(MONTH FROM CURRENT_DATE) <= 2
-         THEN EXTRACT(YEAR FROM CURRENT_DATE)::int - 1
-       ELSE EXTRACT(YEAR FROM CURRENT_DATE)::int
-     END AS "season"`
-  );
-  return res.rows[0] && res.rows[0].season != null ? Number(res.rows[0].season) : null;
 }
 
 /** Trend from a player's played weeks: compare the last two played weeks. */
@@ -490,14 +477,15 @@ function serializePlayerProfile({ player, season, seasons, seasonSummary, weekly
 }
 
 /**
- * The bulk player pool the client-side Draft Simulator drafts from: one flat,
- * ADP-ordered list of every player a mock draft could plausibly reach, plus an
- * optional IDP tranche.
+ * The bulk player pool the client-side Draft Simulator drafts from: every
+ * offense/K/DEF player the "Draft pool" glossary rule admits (an ADP or last
+ * completed season's production — CONTEXT.md), in best-available order, plus
+ * an optional IDP tranche.
  *
  * Deliberately a single bulk read rather than a paginated one — the simulator
  * is a pure client-side engine that needs the whole board in memory before the
- * first pick, and the payload (~350 thin rows) is smaller than one page of the
- * authed player list once stats are attached.
+ * first pick, and the payload (~660 thin rows) is still smaller than one page
+ * of the authed player list once stats are attached.
  *
  * IDP rows carry `adp: null` ON PURPOSE. No free redraft IDP market exists (see
  * adp.service.js), so instead of inventing a number here the client owns the
@@ -509,25 +497,34 @@ async function getDraftPool({ includeIdp = false } = {}) {
   // "which season is complete" cut and the bye-week schedule lookup.
   const upcoming = await upcomingNflSeason();
   const currentSeasonYear = upcoming == null ? new Date().getUTCFullYear() : upcoming;
+  const lastSeasonYear = currentSeasonYear - 1;
 
   // Market position rank as a single window function over the whole players
   // table. RANK() is exactly `1 + peers with a lower ADP`, matching the
-  // correlated-subquery definition player.router.js uses, without running 260
-  // correlated subqueries.
+  // correlated-subquery definition player.router.js uses, without running
+  // hundreds of correlated subqueries. last_season_points feeds the
+  // best-available membership rule and tie-break below — no LIMIT here:
+  // membership is a rule (CONTEXT.md "Draft pool"), not a count.
   const mainRes = await pool.query(
     `WITH "market_ranks" AS (
        SELECT "id", RANK() OVER (PARTITION BY "position" ORDER BY "adp")::int AS "rank"
        FROM "players" WHERE "adp" IS NOT NULL
      )
      SELECT "p"."id", "p"."name", "p"."position", "p"."nfl_team", "p"."photo_url",
-            "p"."injury_status", "p"."adp", "market_ranks"."rank" AS "position_rank"
+            "p"."injury_status", "p"."adp", "market_ranks"."rank" AS "position_rank",
+            "season_points"."fantasy_points" AS "last_season_points"
      FROM "players" "p"
      LEFT JOIN "market_ranks" ON "market_ranks"."id" = "p"."id"
-     WHERE "p"."position" = ANY($1)
-     ORDER BY "p"."adp" ASC NULLS LAST, "p"."default_rank" ASC NULLS LAST, "p"."id"
-     LIMIT $2`,
-    [DRAFT_POOL_POSITIONS, DRAFT_POOL_LIMIT]
+     LEFT JOIN "player_season_stats" "season_points"
+       ON "season_points"."player_id" = "p"."id" AND "season_points"."season" = $2
+     WHERE "p"."position" = ANY($1)`,
+    [DRAFT_POOL_POSITIONS, lastSeasonYear]
   );
+
+  // Best available (CONTEXT.md): ADP, then last completed season's points,
+  // then name — never database id. Same shared helper autopick.service.js's
+  // fallback uses; DRAFT_POOL_LIMIT is a safety ceiling, not the rule.
+  const mainRows = bestAvailable.selectBestAvailable(mainRes.rows).slice(0, DRAFT_POOL_LIMIT);
 
   let idpRows = [];
   if (includeIdp) {
@@ -556,7 +553,7 @@ async function getDraftPool({ includeIdp = false } = {}) {
     idpRows = idpRes.rows;
   }
 
-  const rows = [...mainRes.rows, ...idpRows];
+  const rows = [...mainRows, ...idpRows];
   if (rows.length === 0) return { season: currentSeasonYear, includeIdp, players: [] };
 
   // Full-season projection from the last completed season's rollup — the same

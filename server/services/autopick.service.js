@@ -1,12 +1,34 @@
 const pool = require('../modules/pool');
-const { draftPlayer, shouldAutoEnableAutodraft } = require('./draft.service');
+// Accessed via the namespace (not destructured) so tests can mock
+// draftService.draftPlayer without racing this module's own require-time
+// binding — see server/test/autopick.service.test.js.
+const draftService = require('./draft.service');
 const { teamForPick } = require('./draftOrder.service');
 const { getIo } = require('../modules/io');
+const { lastCompletedNflSeason } = require('./nflSeason.service');
+const bestAvailable = require('./bestAvailable.service');
+
+// Defensive bound on draftPlayer() attempts after a snipe — not a ranking cutoff.
+const AUTOPICK_CANDIDATE_LIMIT = 25;
+
+/**
+ * Order candidates for one team's autopick: its own queue first (by the
+ * team's stated rank), then best available (CONTEXT.md) — ADP, then last
+ * completed season's points, then name. Never database id. Shared with the
+ * Draft Sim's pool via bestAvailable.service.js's compareBestAvailable.
+ */
+function compareAutopickCandidates(a, b) {
+  const aQueued = a.queue_rank != null;
+  const bQueued = b.queue_rank != null;
+  if (aQueued !== bQueued) return aQueued ? -1 : 1;
+  if (aQueued) return a.queue_rank - b.queue_rank;
+  return bestAvailable.compareBestAvailable(a, b);
+}
 
 /**
  * Server-side auto-pick for timed drafts. When a league's pick clock expires
  * the team on the clock drafts automatically: first eligible player from its
- * pre-draft queue, otherwise best available by players.default_rank.
+ * pre-draft queue, otherwise best available (CONTEXT.md).
  *
  * Candidate selection and the pick itself are separate transactions, so a
  * candidate can be sniped in between — draftPlayer's own validation catches
@@ -33,23 +55,28 @@ async function autoPick({ leagueId }) {
   // already autodrafting on purpose.
   const wasTimeout = !onTheClock.autodraft;
 
-  const candidates = await pool.query(
-    `SELECT "players"."id"
+  const lastSeason = await lastCompletedNflSeason();
+  const candidatesRes = await pool.query(
+    `SELECT "players"."id", "players"."name", "players"."adp",
+            "draft_queue"."rank" AS "queue_rank",
+            "season_points"."fantasy_points" AS "last_season_points"
      FROM "players"
      LEFT JOIN "team_players" ON "team_players"."player_id" = "players"."id"
        AND "team_players"."league_id" = $1
      LEFT JOIN "draft_queue" ON "draft_queue"."player_id" = "players"."id"
        AND "draft_queue"."team_id" = $2
-     WHERE "team_players"."id" IS NULL
-     ORDER BY ("draft_queue"."rank" IS NULL), "draft_queue"."rank",
-              "players"."default_rank" NULLS LAST, "players"."id"
-     LIMIT 25`,
-    [leagueId, onTheClock.id]
+     LEFT JOIN "player_season_stats" "season_points"
+       ON "season_points"."player_id" = "players"."id" AND "season_points"."season" = $3
+     WHERE "team_players"."id" IS NULL`,
+    [leagueId, onTheClock.id, lastSeason]
   );
+  const candidates = [...candidatesRes.rows]
+    .sort(compareAutopickCandidates)
+    .slice(0, AUTOPICK_CANDIDATE_LIMIT);
 
-  for (const candidate of candidates.rows) {
+  for (const candidate of candidates) {
     try {
-      const outcome = await draftPlayer({
+      const outcome = await draftService.draftPlayer({
         leagueId,
         userId: onTheClock.owner_id,
         playerId: candidate.id,
@@ -73,7 +100,7 @@ async function autoPick({ leagueId }) {
            WHERE "id" = $1 RETURNING "consecutive_timeouts"`,
           [onTheClock.id]
         );
-        if (shouldAutoEnableAutodraft(bumped.rows[0].consecutive_timeouts)) {
+        if (draftService.shouldAutoEnableAutodraft(bumped.rows[0].consecutive_timeouts)) {
           await pool.query(`UPDATE "teams" SET "autodraft" = true WHERE "id" = $1`, [onTheClock.id]);
           await broadcastDraftState(leagueId);
         }
@@ -119,4 +146,9 @@ async function processExpiredPickClocks() {
   return outcomes;
 }
 
-module.exports = { autoPick, processExpiredPickClocks };
+module.exports = {
+  autoPick,
+  processExpiredPickClocks,
+  // exported for unit tests
+  compareAutopickCandidates,
+};

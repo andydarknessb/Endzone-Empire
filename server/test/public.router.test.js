@@ -518,6 +518,81 @@ test('GET /draft-pool surfaces a real query failure as 500', async (t) => {
   assert.deepEqual(res.body, { error: 'failed to fetch the draft pool' });
 });
 
+// ---- Best available (#142): membership rule + order, no id fallback -------
+
+// (a) has an ADP, (b) no ADP but produced last season, (c) neither — modeled
+// directly on the reported bug: Darren Waller and Dawson Knox are TEs with no
+// ADP who scored 76.7 and 85.7 in 2025 and were missing from the pool.
+const BEST_AVAILABLE_ROWS = [
+  {
+    id: 10, name: 'Early ADP TE', position: 'TE', nfl_team: 'KC', photo_url: null,
+    injury_status: null, adp: '4.2', position_rank: 1, last_season_points: null,
+  },
+  {
+    id: 1342, name: 'Dawson Knox', position: 'TE', nfl_team: 'BUF', photo_url: null,
+    injury_status: null, adp: null, position_rank: null, last_season_points: '85.70',
+  },
+  {
+    id: 1310, name: 'Darren Waller', position: 'TE', nfl_team: 'MIA', photo_url: null,
+    injury_status: null, adp: null, position_rank: null, last_season_points: '76.70',
+  },
+  {
+    id: 99, name: 'Practice Squad TE', position: 'TE', nfl_team: 'NYJ', photo_url: null,
+    injury_status: null, adp: null, position_rank: null, last_season_points: null,
+  },
+];
+
+test('GET /draft-pool: membership is ADP-or-last-season-production, ordered ADP then points then name, never id', async (t) => {
+  installPool(t, draftPoolHandlers({ main: { rows: BEST_AVAILABLE_ROWS } }));
+
+  const res = await request(makeApp()).get('/api/public/draft-pool');
+
+  assert.equal(res.status, 200);
+  // The (c)-shaped player (no ADP, no last-season points) never appears.
+  assert.equal(res.body.players.some((p) => p.playerId === 99), false);
+  // (a) before (b)/(b): ADP first, then the two no-ADP producers by points —
+  // Knox (85.7) before Waller (76.7) — id (1342 > 1310) never decides it.
+  assert.deepEqual(res.body.players.map((p) => p.playerId), [10, 1342, 1310]);
+});
+
+test('GET /draft-pool: Darren Waller and Dawson Knox surface at TE with no ADP', async (t) => {
+  installPool(t, draftPoolHandlers({ main: { rows: BEST_AVAILABLE_ROWS } }));
+
+  const res = await request(makeApp()).get('/api/public/draft-pool');
+
+  const waller = res.body.players.find((p) => p.name === 'Darren Waller');
+  const knox = res.body.players.find((p) => p.name === 'Dawson Knox');
+  assert.ok(waller, 'Darren Waller is in the draft pool');
+  assert.ok(knox, 'Dawson Knox is in the draft pool');
+  assert.equal(waller.position, 'TE');
+  assert.equal(knox.position, 'TE');
+  assert.equal(waller.adp, null);
+  assert.equal(knox.adp, null);
+});
+
+test('GET /draft-pool: membership is not capped at 260 — every eligible row survives', async (t) => {
+  // 400 ADP rows + 300 no-ADP-but-productive rows, well past the old LIMIT 260.
+  const rows = [];
+  for (let i = 0; i < 400; i++) {
+    rows.push({
+      id: i, name: `Player ${i}`, position: 'WR', nfl_team: 'KC', photo_url: null,
+      injury_status: null, adp: String(i + 1), position_rank: i + 1, last_season_points: null,
+    });
+  }
+  for (let i = 400; i < 700; i++) {
+    rows.push({
+      id: i, name: `Player ${i}`, position: 'WR', nfl_team: 'KC', photo_url: null,
+      injury_status: null, adp: null, position_rank: null, last_season_points: String(700 - i),
+    });
+  }
+  installPool(t, draftPoolHandlers({ main: { rows } }));
+
+  const res = await request(makeApp()).get('/api/public/draft-pool');
+
+  assert.equal(res.status, 200);
+  assert.equal(res.body.players.length, 700);
+});
+
 test('GET /recaps lists recaps with version metadata and no leaky keys', async (t) => {
   installPool(t, [['FROM "private"."game_recaps"', { rows: [{
     tank01_game_id: '20260112_KC@BUF', season: 2026, week: 19, home_team: 'BUF', away_team: 'KC',
