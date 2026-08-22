@@ -457,6 +457,26 @@ test('a roster-shape shrink with no offending keepers succeeds normally', async 
   assert.deepEqual(await run(db, { benchSlots: 1 }), UPDATED_ROW);
 });
 
+// Regression (#118): a roster-shape edit with keepers disabled and no
+// draft_order_overrides on file at all -- the common case, e.g. a plain
+// bench-size edit -- must not issue the team-ids read either. That query
+// is only for validateOrderOverrides, which is already a no-op on a null
+// overrides object; skipping it when there's nothing to validate matters
+// beyond efficiency: callers (and other tests) that narrowly mock the pool
+// around a roster-shape PUT and don't expect this extra query would 500 on
+// "Unexpected SQL" otherwise, exactly as leagueScheduleValidation.test.js's
+// IDP-FLEX-with-a-space fixture did until this guard was added.
+test('a roster-shape-only edit with no overrides on file skips the team-ids read entirely', async () => {
+  const db = fakeDb({
+    status: statusRow({
+      roster_slots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }],
+      bench_slots: 3, ir_slots: 0, keepers_enabled: false, keeper_count: 0,
+    }),
+  });
+  assert.deepEqual(await run(db, { benchSlots: 1 }), UPDATED_ROW);
+  assert.equal(db.texts().some((t) => t.startsWith('SELECT "id" FROM "teams"')), false);
+});
+
 test('a roster-shape shrink is refused when an existing (unprovided) draftOrderOverrides round would fall out of range (AC4)', async () => {
   const db = fakeDb({
     status: statusRow({

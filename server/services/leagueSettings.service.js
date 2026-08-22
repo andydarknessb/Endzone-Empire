@@ -594,8 +594,16 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
       // (#118 / ADR 0005 AC4: never silently clamp or drop a stale override).
       if (current && (draftOrderOverridesProvided || rosterCompositionChanged)) {
         const effectiveOverrides = draftOrderOverridesProvided ? draftOrderOverrides : current.draft_order_overrides;
-        const overridesError = validateOrderOverrides(effectiveOverrides, await readTeamIds(), effectiveDraftRosterSize);
-        if (overridesError) return await rejectUpdate(400, overridesError);
+        // Skip the team-ids read entirely when there is nothing to validate:
+        // rosterCompositionChanged alone (no overrides sent, none already
+        // stored) is the common roster-shape-only edit, and
+        // validateOrderOverrides(null, ...) is already a no-op -- fetching
+        // team ids first would be a wasted extra query on every such save,
+        // not just the ones that actually have overrides to check.
+        if (effectiveOverrides != null) {
+          const overridesError = validateOrderOverrides(effectiveOverrides, await readTeamIds(), effectiveDraftRosterSize);
+          if (overridesError) return await rejectUpdate(400, overridesError);
+        }
       }
       if (current && auctionSettingsProvided && auctionSettings?.nominationOrder === 'custom') {
         if (!isPermutationOf(auctionSettings.nominationCustomOrder, await readTeamIds())) {
