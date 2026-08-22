@@ -89,6 +89,38 @@ describe('createDraftSocket', () => {
   });
 });
 
+describe('createDraftSocket with a test harness installed', () => {
+  beforeEach(() => {
+    io.mockImplementation(() => ({ on: jest.fn(), emit: jest.fn(), disconnect: jest.fn() }));
+  });
+
+  afterEach(() => {
+    delete window.__ENDZONE_TEST_SOCKET_FACTORY__;
+    io.mockClear();
+  });
+
+  test('returns the harness-provided socket instead of calling io() when window.__ENDZONE_TEST_SOCKET_FACTORY__ is set', () => {
+    const fakeSocket = { on: jest.fn(), emit: jest.fn(), disconnect: jest.fn(), io: { on: jest.fn(), off: jest.fn() } };
+    const factory = jest.fn(() => fakeSocket);
+    window.__ENDZONE_TEST_SOCKET_FACTORY__ = factory;
+
+    const result = createDraftSocket();
+
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(result).toBe(fakeSocket);
+    expect(io).not.toHaveBeenCalled();
+  });
+
+  test('falls back to a real io() connection once the harness global is removed', () => {
+    window.__ENDZONE_TEST_SOCKET_FACTORY__ = jest.fn(() => ({}));
+    delete window.__ENDZONE_TEST_SOCKET_FACTORY__;
+
+    createDraftSocket();
+
+    expect(io).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('onReconnect', () => {
   test('registers the handler on the manager-level "reconnect" event', () => {
     const handler = jest.fn();
