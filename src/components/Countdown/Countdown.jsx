@@ -77,7 +77,7 @@ function useCountdownTicking(targetTime, onExpire) {
   return remainingMs;
 }
 
-function CountdownTicker({ targetTime, prefix = undefined, variant, onExpire }) {
+function CountdownTicker({ targetTime, prefix = undefined, variant, detail = '', onExpire }) {
   const remainingMs = useCountdownTicking(targetTime, onExpire);
 
   if (remainingMs <= 0) return null;
@@ -85,7 +85,10 @@ function CountdownTicker({ targetTime, prefix = undefined, variant, onExpire }) 
   const text = formatByTier(remainingMs, tierFor(remainingMs));
 
   if (variant === 'chip') {
-    return <Chip size="small" label={`⏱ ${text}`} />;
+    const chip = <Chip size="small" label={`⏱ ${text}`} />;
+    // The chip variant is compact enough that the hover/tap detail (#117
+    // AC2) wraps the chip itself rather than adding a second visible line.
+    return detail ? <Tooltip title={detail} enterTouchDelay={0}>{chip}</Tooltip> : chip;
   }
 
   return (
@@ -99,6 +102,7 @@ CountdownTicker.propTypes = {
   targetTime: PropTypes.number.isRequired,
   prefix: PropTypes.string,
   variant: PropTypes.oneOf(['chip', 'full']).isRequired,
+  detail: PropTypes.string,
   onExpire: PropTypes.func.isRequired,
 };
 
@@ -202,17 +206,18 @@ function Countdown({
 
   if (!isValidDate || expired) return null;
 
+  const detail = draftTimezoneDetail(date, timeZone);
+
   if (variant === 'chip') {
     return (
       <>
-        <CountdownTicker targetTime={targetTime} variant="chip" onExpire={handleExpire} />
+        <CountdownTicker targetTime={targetTime} variant="chip" detail={detail} onExpire={handleExpire} />
         <CountdownAnnouncer targetTime={targetTime} eventLabel={eventLabel} enabled={announce} />
       </>
     );
   }
 
   const viewerSchedule = formatViewerLocalSchedule(date);
-  const detail = draftTimezoneDetail(date, timeZone);
 
   return (
     <Box>

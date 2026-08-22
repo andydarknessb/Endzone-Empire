@@ -61,7 +61,9 @@ function DraftCentralCard() {
               <Typography variant="caption" color="text.secondary">{picksMade} / {totalPicks} picks</Typography>
             </Box>
           ) : focusDraft.draft_date ? (
-            <Box sx={{ mt: 1 }}><Countdown variant="chip" date={focusDraft.draft_date} /></Box>
+            <Box sx={{ mt: 1 }}>
+              <Countdown variant="chip" date={focusDraft.draft_date} timeZone={focusDraft.draft_timezone} />
+            </Box>
           ) : null}
         </Box>
         <Button component={Link} to={`/league/${focusDraft.id}/draft`} variant={active.length > 0 ? 'contained' : 'outlined'}>

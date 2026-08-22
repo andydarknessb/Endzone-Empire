@@ -133,9 +133,10 @@ describe('Countdown', () => {
         .toBeInTheDocument();
     });
 
-    test('the chip variant renders no detail line or calendar link', () => {
+    test('the chip variant carries the same detail as a tooltip on the chip, with no separate line or calendar link', () => {
       render(<Countdown variant="chip" date={futureIso(2 * DAY)} timeZone="America/New_York" leagueId={1} leagueName="Harness League" />);
       expect(screen.queryByRole('button', { name: 'Add to calendar' })).not.toBeInTheDocument();
+      expect(screen.getByLabelText(/^League draft time zone \(America\/New_York\):/)).toBeInTheDocument();
     });
   });
 

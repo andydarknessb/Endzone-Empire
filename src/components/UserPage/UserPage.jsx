@@ -49,7 +49,14 @@ function nextUpFor(leagues, activityItems) {
 
   const scheduled = leagues.find((league) => deriveLeaguePhase(league) === LEAGUE_PHASE.PRE_DRAFT && league.draft_date);
   if (scheduled) {
-    return { eyebrow: 'Next up', title: `Draft day for ${scheduled.name}`, action: 'Draft Room', to: `/league/${scheduled.id}/draft`, draftDate: scheduled.draft_date };
+    return {
+      eyebrow: 'Next up',
+      title: `Draft day for ${scheduled.name}`,
+      action: 'Draft Room',
+      to: `/league/${scheduled.id}/draft`,
+      draftDate: scheduled.draft_date,
+      draftTimeZone: scheduled.draft_timezone,
+    };
   }
 
   // A pick'em-only league is in season from day one and has no lineup to set:
@@ -394,7 +401,9 @@ function UserPage() {
             <Box>
               <Typography variant="overline" color="primary.main">{nextUp.eyebrow}</Typography>
               <Typography id="next-up-heading" variant="h6">{nextUp.title}</Typography>
-              {nextUp.draftDate && <Countdown variant="chip" date={nextUp.draftDate} />}
+              {nextUp.draftDate && (
+                <Countdown variant="chip" date={nextUp.draftDate} timeZone={nextUp.draftTimeZone} />
+              )}
             </Box>
             <Button component={RouterLink} to={nextUp.to} variant="contained">{nextUp.action}</Button>
           </Stack>
