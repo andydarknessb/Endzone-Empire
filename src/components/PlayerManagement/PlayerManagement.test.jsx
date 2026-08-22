@@ -150,13 +150,16 @@ test('renders bye and injury badges and supports additional sortable columns', a
 test('labels the row-number column "Row" and computes it from the page, not a rank', async () => {
   const players = Array.from({ length: 10 }, (_, i) => player({ id: i + 1, name: `Player ${i + 1}` }));
   mockDefaultApi({ players, totalPages: 11 });
+  const page = 11;
+  const rowOnPage = 10; // 10th row (index 9) on page 11 => (11-1)*25 + 9 + 1 = 260
+  const expectedRowNumber = (page - 1) * 25 + rowOnPage;
 
-  renderWithProviders(<PlayerManagement />, { route: '/player?page=11', path: '/player' });
+  renderWithProviders(<PlayerManagement />, { route: `/player?page=${page}`, path: '/player' });
 
-  await screen.findByText('Player 10');
+  await screen.findByText(`Player ${rowOnPage}`);
 
   expect(screen.getByText('Row')).toBeInTheDocument();
-  expect(screen.getByText('260')).toBeInTheDocument();
+  expect(screen.getByText(String(expectedRowNumber))).toBeInTheDocument();
 });
 
 test('clicking "Remove" in the roster section deletes the player for the selected league', async () => {
