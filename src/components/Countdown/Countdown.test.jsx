@@ -185,6 +185,23 @@ describe('Countdown', () => {
       render(<Countdown date={futureIso(5 * MINUTE)} prefix="Time remaining:" announce={false} />);
       expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
+
+    // Regression: setTimeout does not reliably honor a delay beyond the
+    // 32-bit signed int range (~24.8 days) - browsers and Node fire it
+    // almost immediately instead of clamping it, so a Draft scheduled more
+    // than 24 days out (completely ordinary) announced "Draft start" the
+    // instant the countdown mounted. Caught by the draft-board browser spec
+    // against real Chromium, where fake timers can't reproduce it.
+    test('never asks setTimeout for a delay beyond the 32-bit safe maximum, however far out the target is', () => {
+      const setTimeoutSpy = jest.spyOn(global, 'setTimeout');
+      render(<Countdown date={futureIso(70 * DAY)} />);
+
+      const delays = setTimeoutSpy.mock.calls
+        .map(([, delay]) => delay)
+        .filter((delay) => typeof delay === 'number');
+      expect(delays.length).toBeGreaterThan(0);
+      delays.forEach((delay) => expect(delay).toBeLessThanOrEqual(2_147_483_647));
+    });
   });
 
   describe('calendar export (#117 AC3)', () => {

@@ -79,6 +79,7 @@ type LeagueOverrides = Partial<{
   owner_id: number;
   pickem_only: boolean;
   draft_date: string | null;
+  draft_timezone: string | null;
 }>;
 
 export function buildLeague(overrides: LeagueOverrides = {}) {
@@ -92,6 +93,9 @@ export function buildLeague(overrides: LeagueOverrides = {}) {
     owner_id: 999,
     pickem_only: false,
     draft_date: null,
+    // Nullable (#116/#117): a legacy schedule with none confirmed displays
+    // honestly as UTC rather than inferring one. See CONTEXT.md: Draft timezone.
+    draft_timezone: null,
     ...overrides,
   };
 }

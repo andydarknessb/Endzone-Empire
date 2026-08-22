@@ -113,6 +113,27 @@ CountdownTicker.propTypes = {
 // never retroactively announced.
 const MILESTONES_MS = [5 * MINUTE_MS, MINUTE_MS, 30 * 1000, 10 * 1000, 0];
 
+// setTimeout silently misbehaves once a delay exceeds the 32-bit signed int
+// range (~24.8 days) - browsers and Node don't reliably clamp it per spec,
+// they fire it almost immediately (see MDN's setTimeout "Maximum delay
+// value" note). A Draft scheduled more than 24 days out is completely
+// ordinary, so the milestone announcer chains through intermediate timeouts
+// rather than ever asking for one huge delay directly.
+const MAX_TIMEOUT_MS = 2_147_483_647;
+
+function scheduleAt(delayMs, callback) {
+  const ref = {};
+  const start = (remaining) => {
+    if (remaining > MAX_TIMEOUT_MS) {
+      ref.id = setTimeout(() => start(remaining - MAX_TIMEOUT_MS), MAX_TIMEOUT_MS);
+    } else {
+      ref.id = setTimeout(callback, Math.max(0, remaining));
+    }
+  };
+  start(delayMs);
+  return () => clearTimeout(ref.id);
+}
+
 function milestoneMessage(thresholdMs, eventLabel) {
   if (thresholdMs <= 0) return eventLabel;
   if (thresholdMs >= MINUTE_MS) {
@@ -129,13 +150,13 @@ function useMilestoneAnnouncement(targetTime, eventLabel, enabled) {
     if (!enabled) return undefined;
 
     const now = Date.now();
-    const timeoutIds = MILESTONES_MS
+    const cancels = MILESTONES_MS
       .map((thresholdMs) => ({ thresholdMs, delay: targetTime - thresholdMs - now }))
       // A milestone already in the past at mount is not announced retroactively.
       .filter(({ delay }) => delay >= 0)
-      .map(({ thresholdMs, delay }) => setTimeout(() => setAnnouncement(milestoneMessage(thresholdMs, eventLabel)), delay));
+      .map(({ thresholdMs, delay }) => scheduleAt(delay, () => setAnnouncement(milestoneMessage(thresholdMs, eventLabel))));
 
-    return () => timeoutIds.forEach(clearTimeout);
+    return () => cancels.forEach((cancel) => cancel());
   }, [targetTime, eventLabel, enabled]);
 
   return announcement;

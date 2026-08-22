@@ -378,3 +378,106 @@ test.describe('schedule-aware player pool (issue #119)', () => {
     await expect(dialog).toBeHidden();
   });
 });
+
+// --- Unambiguous Draft time (issue #117, parent #108) ----------------------
+//
+// A fixed, far-future instant so the pending Countdown is always well past
+// 24h out (the fixture-controlled "days" tier) regardless of when this suite
+// actually runs. 2099-09-03T18:00:00Z is a Thursday.
+const FUTURE_DRAFT_ISO = '2099-09-03T18:00:00.000Z';
+
+async function setupPendingSchedule(page: Page, timezoneOverride: string | null = null) {
+  const league = buildLeague({
+    draft_status: 'pending',
+    draft_date: FUTURE_DRAFT_ISO,
+    draft_timezone: timezoneOverride,
+  });
+  await installDraftSocketHarness(page, {
+    league, teams: FIXTURE_TEAMS.map((t) => ({ ...t, draft_ready: false })), picks: [], onTheClock: null,
+  });
+  await installDraftRestApi(page, { league, picks: [] });
+  await gotoDraft(page);
+  await expect(page.getByText(/^Draft in/)).toBeVisible();
+  return league;
+}
+
+test.describe('unambiguous Draft time - viewer in America/New_York (#117 AC1)', () => {
+  test.use({ viewport: VIEWPORTS.desktop, timezoneId: 'America/New_York' });
+
+  test('the primary schedule is short weekday, no seconds, with an explicit viewer zone abbreviation', async ({ page }) => {
+    await setTheme(page, 'light');
+    await setupPendingSchedule(page);
+
+    await expect(page.getByText('· Thu, Sep 3, 2:00 PM EDT')).toBeVisible();
+  });
+});
+
+test.describe('unambiguous Draft time - viewer in Asia/Tokyo (#117 AC1)', () => {
+  test.use({ viewport: VIEWPORTS.desktop, timezoneId: 'Asia/Tokyo' });
+
+  test('a different viewer time zone reads a different wall time for the same instant', async ({ page }) => {
+    await setTheme(page, 'light');
+    await setupPendingSchedule(page);
+
+    await expect(page.getByText(/^· Fri, Sep 4, 3:00 AM/)).toBeVisible();
+  });
+});
+
+test.describe('unambiguous Draft time - league Draft time zone detail (#117 AC2)', () => {
+  test.use({ viewport: VIEWPORTS.desktop, timezoneId: 'America/Chicago' });
+
+  test('hover/tap detail names the league Draft time zone for the same instant', async ({ page }) => {
+    await setTheme(page, 'light');
+    await setupPendingSchedule(page, 'America/New_York');
+
+    // The viewer (Chicago) and the league Draft zone (New York) read the
+    // same instant differently - the detail names the league's zone
+    // explicitly rather than repeating the viewer-local line above it.
+    await expect(page.getByText('· Thu, Sep 3, 1:00 PM CDT')).toBeVisible();
+    await expect(page.getByLabel('League draft time zone (America/New_York): Thu, Sep 3, 2:00 PM EDT')).toBeAttached();
+  });
+
+  test('falls back to UTC for a legacy schedule with no draft time zone confirmed', async ({ page }) => {
+    await setTheme(page, 'light');
+    await setupPendingSchedule(page, null);
+
+    await expect(page.getByLabel('No draft time zone set - shown in UTC: Thu, Sep 3, 6:00 PM UTC')).toBeAttached();
+  });
+});
+
+test.describe('unambiguous Draft time - calendar export and announcer structure (#117 AC3, AC6)', () => {
+  test.use({ viewport: VIEWPORTS.desktop });
+
+  test('downloads a .ics with a UTC start, stable UID, league title, and the authenticated route - no invented duration', async ({ page }) => {
+    await setTheme(page, 'light');
+    const league = await setupPendingSchedule(page, 'America/New_York');
+
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Add to calendar' }).click();
+    const download = await downloadPromise;
+
+    const stream = await download.createReadStream();
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) chunks.push(chunk as Buffer);
+    const text = Buffer.concat(chunks).toString('utf-8');
+
+    expect(text).toContain('DTSTART:20990903T180000Z');
+    expect(text).toContain(`UID:draft-${league.id}@endzone-empire.app`);
+    expect(text).toContain('SUMMARY:Harness League Draft');
+    expect(text).toContain(`URL:${new URL(page.url()).origin}/#/league/${league.id}/draft`);
+    expect(text).not.toMatch(/DTEND|DURATION/);
+  });
+
+  test('the visible ticker carries no live region of its own; a separate polite status region exists', async ({ page }) => {
+    await setTheme(page, 'light');
+    await setupPendingSchedule(page);
+
+    const ticker = page.getByText(/^Draft in/);
+    await expect(ticker).not.toHaveAttribute('aria-live');
+    // Scoped to a sibling of the ticker: getByRole('status') alone also
+    // matches DraftRail's unrelated "N of N managers ready" status region.
+    const announcer = ticker.locator('xpath=following-sibling::*[@role="status"]');
+    await expect(announcer).toBeAttached();
+    await expect(announcer).toHaveAttribute('aria-live', 'polite');
+  });
+});
