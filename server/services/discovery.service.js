@@ -11,6 +11,7 @@ const { commissionerPredicate } = require('./leagueRole.service');
 const { isMember } = require('./leagueMembership.service');
 const { joinability, joinableWhereSql, joinRefusalMessage } = require('./leaguePhase');
 const { pickemOnlyWhereSql, fantasySideWhereSql } = require('./leagueType');
+const { isFull, hasOpenSlotsHavingSql } = require('./leagueSize');
 
 class DiscoveryError extends Error {
   constructor(statusCode, message, { reason } = {}) {
@@ -129,6 +130,9 @@ function validateCreateOptions({
   return { value };
 }
 
+/** The per-league team count in the Discover aggregate (one row per league). */
+const TEAM_COUNT_EXPR = `COUNT(DISTINCT "teams"."id")`;
+
 /**
  * Pure: build the WHERE/HAVING/ORDER BY fragments + params array for the
  * discover query. Every user-supplied value travels through the params
@@ -162,12 +166,13 @@ function buildDiscoverQuery({ userId, search, scoring, openSlots, sort, type } =
     where.push(fantasySideWhereSql('leagues'));
   }
 
-  const havingClause = openSlots ? `COUNT(DISTINCT "teams"."id") < "leagues"."max_teams"` : null;
+  // "Open slots" is leagueSize's rule, not a comparison of this query's own.
+  const havingClause = openSlots ? hasOpenSlotsHavingSql('leagues', TEAM_COUNT_EXPR) : null;
 
   const orderByOptions = {
     newest: `"leagues"."created_at" DESC`,
     draft_date: `"leagues"."draft_date" ASC NULLS LAST`,
-    open_slots: `("leagues"."max_teams" - COUNT(DISTINCT "teams"."id")) DESC`,
+    open_slots: `("leagues"."max_teams" - ${TEAM_COUNT_EXPR}) DESC`,
   };
   const orderByClause = orderByOptions[sort] || orderByOptions.newest;
 
@@ -193,7 +198,7 @@ async function selectLeagueCards({ whereClause, havingClause = '', orderByClause
        "leagues"."id",
        "leagues"."name",
        "leagues"."max_teams" AS "maxTeams",
-       COUNT(DISTINCT "teams"."id")::int AS "teamCount",
+       ${TEAM_COUNT_EXPR}::int AS "teamCount",
        "leagues"."scoring_preset" AS "scoringPreset",
        "leagues"."best_ball" AS "bestBall",
        "leagues"."pickem_only" AS "pickemOnly",
@@ -216,7 +221,7 @@ async function selectLeagueCards({ whereClause, havingClause = '', orderByClause
   );
   return result.rows.map((row) => ({
     ...row,
-    openSlots: row.teamCount < row.maxTeams,
+    openSlots: !isFull(row.teamCount, row.maxTeams),
   }));
 }
 

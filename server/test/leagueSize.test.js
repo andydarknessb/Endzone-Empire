@@ -8,6 +8,8 @@ const {
   createSizeError,
   editSizeError,
   meetsMinimum,
+  isFull,
+  hasOpenSlotsHavingSql,
 } = require('../services/leagueSize');
 
 /*
@@ -107,4 +109,30 @@ test('meetsMinimum: draft can start only once the floor is reached', () => {
   assert.equal(meetsMinimum(8, 8), true);
   assert.equal(meetsMinimum(9, 8), true);
   assert.equal(meetsMinimum(7, 8), false);
+});
+
+test('isFull: no room once the count reaches the cap', () => {
+  assert.equal(isFull(0, 10), false, 'empty league');
+  assert.equal(isFull(9, 10), false, 'one slot left');
+  assert.equal(isFull(10, 10), true, 'at the cap');
+  assert.equal(isFull(11, 10), true, 'past the cap (a shrunk cap, never a join)');
+  assert.equal(isFull(2, 2), true, 'the smallest league fills at two');
+});
+
+test("isFull: the cap is the league's own max_teams, whatever its type", () => {
+  // No league-type ceiling here: a pick'em-only league with max_teams 50 is
+  // judged against 50, a fantasy league with 12 against 12.
+  assert.equal(isFull(49, 50), false);
+  assert.equal(isFull(50, 50), true);
+  assert.equal(isFull(12, 12), true);
+});
+
+test('hasOpenSlotsHavingSql renders the SQL twin of !isFull over an aggregate', () => {
+  assert.equal(
+    hasOpenSlotsHavingSql('leagues', 'COUNT(DISTINCT "teams"."id")'),
+    `COUNT(DISTINCT "teams"."id") < "leagues"."max_teams"`
+  );
+  assert.equal(hasOpenSlotsHavingSql(null, 'COUNT(*)'), `COUNT(*) < "max_teams"`);
+  // The alias is a code literal and is validated as an identifier.
+  assert.throws(() => hasOpenSlotsHavingSql('leagues; DROP', 'COUNT(*)'), /bare identifier/);
 });

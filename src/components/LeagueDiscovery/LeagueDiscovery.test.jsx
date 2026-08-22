@@ -24,7 +24,7 @@ const league = (overrides = {}) => ({
   name: 'Sunday Ballers',
   maxTeams: 10,
   teamCount: 8,
-  openSlots: 2,
+  openSlots: true,
   scoringPreset: 'ppr',
   bestBall: false,
   joinApproval: false,
