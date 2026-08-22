@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
@@ -70,6 +70,12 @@ test('exposes Notification Settings and Log Out from the profile menu', async ()
 test('the brand link always points at the home route', () => {
   renderWithProviders(<Nav />, { state: { user: {} } });
   expect(screen.getByRole('link', { name: 'Endzone Empire' })).toHaveAttribute('href', '/home');
+});
+
+test('exposes the primary links as a named navigation landmark, not a bare div', () => {
+  renderWithProviders(<Nav />, { state: { user: { id: 1, username: 'alice' } } });
+  const nav = screen.getByRole('navigation', { name: 'Primary navigation' });
+  expect(within(nav).getByRole('link', { name: 'League' })).toBeInTheDocument();
 });
 
 test('shows the notification bell when a user is logged in', () => {

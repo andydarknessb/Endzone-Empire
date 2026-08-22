@@ -12,6 +12,7 @@ import {
 } from '@mui/material';
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import apiClient from '../../api/apiClient';
+import { touchTargetSx } from '../../lib/a11y';
 
 const POLL_INTERVAL_MS = 60000;
 
@@ -82,7 +83,7 @@ function NotificationBell() {
 
   return (
     <>
-      <IconButton color="inherit" aria-label="notifications" onClick={handleOpen}>
+      <IconButton color="inherit" aria-label="notifications" onClick={handleOpen} sx={touchTargetSx}>
         <Badge badgeContent={unread} color="error">
           <NotificationsActiveIcon />
         </Badge>

@@ -33,6 +33,7 @@ import PlayerAvatar from './PlayerAvatar';
 import PositionChip from './PositionChip';
 import { statLine } from './statLine';
 import AbbreviationTooltip from '../common/AbbreviationTooltip';
+import { touchTargetSx } from '../../lib/a11y';
 
 // Module-level: persists the last-selected toggle across dialog opens for the
 // duration of the session (resets on full page reload). Intentionally not
@@ -304,15 +305,27 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
                   {navIndex + 1} of {navIds.length}
                 </Typography>
               )}
-              <IconButton aria-label="Previous player" onClick={goPrev} disabled={!canPrev} size="small">
+              <IconButton
+                aria-label="Previous player"
+                onClick={goPrev}
+                disabled={!canPrev}
+                size="small"
+                sx={touchTargetSx}
+              >
                 ‹
               </IconButton>
-              <IconButton aria-label="Next player" onClick={goNext} disabled={!canNext} size="small">
+              <IconButton
+                aria-label="Next player"
+                onClick={goNext}
+                disabled={!canNext}
+                size="small"
+                sx={touchTargetSx}
+              >
                 ›
               </IconButton>
             </>
           )}
-          <IconButton aria-label="Close" onClick={onClose} size="small">
+          <IconButton aria-label="Close" onClick={onClose} size="small" sx={touchTargetSx}>
             <CloseIcon fontSize="small" />
           </IconButton>
         </Box>
@@ -398,8 +411,8 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
               color="primary"
               sx={{ mb: 2 }}
             >
-              <ToggleButton value="current">Current Season</ToggleButton>
-              <ToggleButton value="previous">Previous Seasons</ToggleButton>
+              <ToggleButton value="current" sx={{ minHeight: 44 }}>Current Season</ToggleButton>
+              <ToggleButton value="previous" sx={{ minHeight: 44 }}>Previous Seasons</ToggleButton>
             </ToggleButtonGroup>
 
             {view === 'current' ? (
@@ -535,6 +548,7 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
                   variant="outlined"
                   size="small"
                   onClick={() => setPinnedComparison((current) => (current ? null : data))}
+                  sx={{ minHeight: 44 }}
                 >
                   {pinnedComparison ? 'Clear compare' : 'Compare'}
                 </Button>
@@ -573,6 +587,7 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
                         size="small"
                         disabled={action.disabled}
                         onClick={action.onClick}
+                        sx={{ minHeight: 44 }}
                       >
                         {action.label}
                       </Button>
@@ -587,6 +602,7 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
                 component={RouterLink}
                 to={`/players/${playerId}${leagueId ? `?leagueId=${leagueId}` : ''}`}
                 onClick={onClose}
+                sx={{ minHeight: 44, display: 'inline-flex', alignItems: 'center' }}
               >
                 Full profile →
               </Link>

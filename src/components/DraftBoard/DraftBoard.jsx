@@ -25,6 +25,14 @@ import DraftDayControls from './DraftDayControls';
 import { assignRosterSlots } from '../../lib/rosterAssignment';
 import { turnSummaryFor, pickLabelFor } from '../../lib/draftTurns';
 import { draftRounds } from '../../lib/rosterShape';
+import { touchTargetSx } from '../../lib/a11y';
+
+// The Draft page's one landmark structure: a single <main>, named by the
+// league-name H1 inside it, that the App-level skip link (see App.jsx)
+// targets directly. Shared by both the loading skeleton and the loaded view
+// so the skip link's destination exists throughout the page's lifecycle.
+const DRAFT_MAIN_ID = 'draft-main-content';
+const DRAFT_H1_ID = 'draft-league-name';
 
 /**
  * Everything the roster panel needs, derived from live draft state. A plain
@@ -245,7 +253,7 @@ function DraftBoard() {
 
   if (loading) {
     return (
-      <Container maxWidth="xl" sx={{ py: 4 }} data-testid="page-skeleton">
+      <Container component="main" id={DRAFT_MAIN_ID} tabIndex={-1} maxWidth="xl" sx={{ py: 4, outline: 'none' }} data-testid="page-skeleton">
         <Skeleton variant="text" width={280} height={48} sx={{ mb: 2 }} />
         <Skeleton variant="rounded" height={56} sx={{ mb: 3 }} />
         <Grid container spacing={3}>
@@ -313,7 +321,14 @@ function DraftBoard() {
       : [];
 
   return (
-    <Container maxWidth="xl" sx={{ py: 4 }}>
+    <Container
+      component="main"
+      id={DRAFT_MAIN_ID}
+      tabIndex={-1}
+      aria-labelledby={DRAFT_H1_ID}
+      maxWidth="xl"
+      sx={{ py: 4, outline: 'none' }}
+    >
       <LeagueBreadcrumb />
       {(error || socketError) && (
         <Alert severity="error" sx={{ mb: 2 }}>
@@ -328,10 +343,12 @@ function DraftBoard() {
 
       <Box sx={{ mb: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-          <Typography variant="h4">{league?.name || 'Draft Board'}</Typography>
+          <Typography id={DRAFT_H1_ID} variant="h4" component="h1">
+            {league?.name || 'Draft Board'}
+          </Typography>
           {isCommissioner && (league?.draft_status === 'pending' || league?.draft_status === 'active') && (
             <Tooltip title="Draft settings">
-              <IconButton aria-label="Draft settings" onClick={() => setSettingsOpen(true)}>
+              <IconButton aria-label="Draft settings" onClick={() => setSettingsOpen(true)} sx={touchTargetSx}>
                 <SettingsIcon />
               </IconButton>
             </Tooltip>
@@ -392,10 +409,11 @@ function DraftBoard() {
       <Tabs
         value={view}
         onChange={(e, next) => setView(next)}
-        sx={{ mb: 3, minHeight: 40, borderBottom: '1px solid', borderColor: 'divider' }}
+        aria-label="Draft view"
+        sx={{ mb: 3, minHeight: 44, borderBottom: '1px solid', borderColor: 'divider' }}
       >
-        <Tab label="Draft" value="draft" sx={{ minHeight: 40 }} />
-        <Tab label="Board" value="board" sx={{ minHeight: 40 }} />
+        <Tab label="Draft" value="draft" sx={{ minHeight: 44 }} />
+        <Tab label="Board" value="board" sx={{ minHeight: 44 }} />
       </Tabs>
 
       {view === 'board' ? (

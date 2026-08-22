@@ -2,6 +2,7 @@ import React from 'react';
 import { Box, Chip, Button, IconButton, Tooltip, Snackbar, Alert } from '@mui/material';
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import NotificationsOffIcon from '@mui/icons-material/NotificationsOff';
+import { touchTargetSx } from '../../lib/a11y';
 
 /** Status chip row (reconnecting/on-the-clock/timer + controls) and the
  * "you're on the clock" snackbar. The prominent pick-clock display lives in
@@ -66,17 +67,18 @@ function DraftStatusBar({
             aria-label={soundOn ? 'Mute pick sound' : 'Unmute pick sound'}
             aria-pressed={soundOn}
             onClick={toggleSound}
+            sx={touchTargetSx}
           >
             {soundOn ? <NotificationsActiveIcon fontSize="small" /> : <NotificationsOffIcon fontSize="small" />}
           </IconButton>
         </Tooltip>
         {isCommissioner && league?.draft_status === 'pending' && (
-          <Button variant="outlined" size="small" onClick={onRandomizeOrder}>
+          <Button variant="outlined" size="small" onClick={onRandomizeOrder} sx={{ minHeight: 44 }}>
             Randomize Draft Order
           </Button>
         )}
         {isCommissioner && league?.draft_status === 'active' && (
-          <Button variant="outlined" size="small" onClick={onTogglePause}>
+          <Button variant="outlined" size="small" onClick={onTogglePause} sx={{ minHeight: 44 }}>
             {league?.draft_paused ? 'Resume Draft' : 'Pause Draft'}
           </Button>
         )}

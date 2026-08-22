@@ -32,16 +32,19 @@ export default function DraftDayControls({ league, picks, onUndo, onReset, onGet
   return (
     <Paper component="section" aria-label="Commissioner draft controls" sx={{ p: 1.5, mb: 2, bgcolor: 'action.hover' }}>
       <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-        <Button variant="outlined" onClick={() => setUndoOpen(true)} disabled={undoDisabled}>Undo last pick</Button>
-        <Button variant="outlined" color="error" onClick={() => setResetOpen(true)}>Reset draft</Button>
-        <Button variant="outlined" onClick={copyPresenterLink} disabled={sharing}>{sharing ? 'Creating link…' : 'Presenter link'}</Button>
+        <Button variant="outlined" onClick={() => setUndoOpen(true)} disabled={undoDisabled} sx={{ minHeight: 44 }}>Undo last pick</Button>
+        <Button variant="outlined" color="error" onClick={() => setResetOpen(true)} sx={{ minHeight: 44 }}>Reset draft</Button>
+        <Button variant="outlined" onClick={copyPresenterLink} disabled={sharing} sx={{ minHeight: 44 }}>{sharing ? 'Creating link…' : 'Presenter link'}</Button>
       </Box>
       {shareLink && <TextField label="Presenter link" value={shareLink} fullWidth size="small" inputProps={{ readOnly: true }} sx={{ mt: 1 }} />}
       {lastReachedPick?.is_keeper && <Alert severity="info" sx={{ mt: 1 }}>Keeper picks cannot be undone.</Alert>}
       <Dialog open={undoOpen} onClose={() => setUndoOpen(false)}>
         <DialogTitle>Undo last pick?</DialogTitle>
         <DialogContent><DialogContentText>This restores the last drafted player to the pool and rewinds the draft clock.</DialogContentText></DialogContent>
-        <DialogActions><Button onClick={() => setUndoOpen(false)}>Cancel</Button><Button variant="contained" onClick={async () => { if (await onUndo()) setUndoOpen(false); }}>Undo pick</Button></DialogActions>
+        <DialogActions>
+          <Button onClick={() => setUndoOpen(false)} sx={{ minHeight: 44 }}>Cancel</Button>
+          <Button variant="contained" onClick={async () => { if (await onUndo()) setUndoOpen(false); }} sx={{ minHeight: 44 }}>Undo pick</Button>
+        </DialogActions>
       </Dialog>
       <Dialog open={resetOpen} onClose={() => setResetOpen(false)}>
         <DialogTitle>Reset {league.name} draft?</DialogTitle>
@@ -49,7 +52,10 @@ export default function DraftDayControls({ league, picks, onUndo, onReset, onGet
           <DialogContentText>This deletes every draft pick and drafted roster entry, clears the schedule, and returns the draft to pending. Type the league name to continue.</DialogContentText>
           <TextField autoFocus fullWidth label="League name" value={resetName} onChange={(event) => setResetName(event.target.value)} sx={{ mt: 2 }} />
         </DialogContent>
-        <DialogActions><Button onClick={() => setResetOpen(false)}>Cancel</Button><Button color="error" variant="contained" disabled={resetName !== league.name} onClick={async () => { if (await onReset()) { setResetOpen(false); setResetName(''); } }}>Reset draft</Button></DialogActions>
+        <DialogActions>
+          <Button onClick={() => setResetOpen(false)} sx={{ minHeight: 44 }}>Cancel</Button>
+          <Button color="error" variant="contained" disabled={resetName !== league.name} onClick={async () => { if (await onReset()) { setResetOpen(false); setResetName(''); } }} sx={{ minHeight: 44 }}>Reset draft</Button>
+        </DialogActions>
       </Dialog>
     </Paper>
   );

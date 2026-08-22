@@ -61,6 +61,7 @@ function LiveDraftBanner({ league, onTheClock, secondsLeft, isMyTurn }) {
       <Box sx={{ flexGrow: 1, minWidth: 0 }}>
         <Typography
           variant="h5"
+          component="div"
           noWrap
           sx={{ fontWeight: 'bold', color: isMyTurn ? 'primary.main' : 'text.primary' }}
         >
@@ -75,6 +76,7 @@ function LiveDraftBanner({ league, onTheClock, secondsLeft, isMyTurn }) {
       {secondsLeft !== null ? (
         <Typography
           variant="h1"
+          component="div"
           data-testid="draft-clock"
           sx={{
             fontWeight: 'bold',
@@ -87,11 +89,11 @@ function LiveDraftBanner({ league, onTheClock, secondsLeft, isMyTurn }) {
           {secondsLeft}s
         </Typography>
       ) : league?.draft_paused ? (
-        <Typography variant="h6" sx={{ color: 'warning.main', flexShrink: 0 }}>
+        <Typography variant="h6" component="div" sx={{ color: 'warning.main', flexShrink: 0 }}>
           Draft paused
         </Typography>
       ) : (
-        <Typography variant="h6" sx={{ color: 'text.secondary', flexShrink: 0 }}>
+        <Typography variant="h6" component="div" sx={{ color: 'text.secondary', flexShrink: 0 }}>
           No pick clock
         </Typography>
       )}

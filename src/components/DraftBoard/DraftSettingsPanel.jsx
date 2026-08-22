@@ -51,9 +51,11 @@ function DraftSettingsPanel({
         </Stack>
       </DialogContent>
       <DialogActions>
-        <Button component={Link} to={`/league/${leagueId}/draft-settings`} onClick={onClose}>All draft settings →</Button>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button type="submit" variant="contained" disabled={saving}>
+        <Button component={Link} to={`/league/${leagueId}/draft-settings`} onClick={onClose} sx={{ minHeight: 44 }}>
+          All draft settings →
+        </Button>
+        <Button onClick={onClose} sx={{ minHeight: 44 }}>Cancel</Button>
+        <Button type="submit" variant="contained" disabled={saving} sx={{ minHeight: 44 }}>
           Save
         </Button>
       </DialogActions>

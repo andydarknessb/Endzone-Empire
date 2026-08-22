@@ -30,6 +30,7 @@ import NotificationBell from '../NotificationBell/NotificationBell';
 import GlobalPlayerSearch from '../GlobalPlayerSearch/GlobalPlayerSearch';
 import ProfileSettingsModal from './ProfileSettingsModal';
 import { useThemeMode } from '../../theme/AppThemeProvider';
+import { touchTargetSx } from '../../lib/a11y';
 
 // Primary destinations shown inline on desktop and in the drawer on mobile.
 // "Notification Settings" and "Log Out" intentionally live in the profile
@@ -83,7 +84,7 @@ function Nav() {
 
   const themeToggle = (
     <Tooltip title={mode === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}>
-      <IconButton aria-label="Toggle theme" onClick={toggleMode} size="small">
+      <IconButton aria-label="Toggle theme" onClick={toggleMode} size="small" sx={touchTargetSx}>
         {mode === 'light' ? <Brightness4Icon fontSize="small" /> : <Brightness7Icon fontSize="small" />}
       </IconButton>
     </Tooltip>
@@ -106,7 +107,7 @@ function Nav() {
             aria-label="open navigation menu"
             edge="start"
             onClick={() => setDrawerOpen(true)}
-            sx={{ display: { xs: 'inline-flex', md: 'none' }, color: 'var(--text-muted)' }}
+            sx={{ display: { xs: 'inline-flex', md: 'none' }, color: 'var(--text-muted)', ...touchTargetSx }}
           >
             <MenuIcon />
           </IconButton>
@@ -136,7 +137,11 @@ function Nav() {
         </Link>
 
         {/* Desktop inline links */}
-        <Box sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'stretch', flexGrow: 1 }}>
+        <Box
+          component="nav"
+          aria-label="Primary navigation"
+          sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'stretch', flexGrow: 1 }}
+        >
           {loggedIn &&
             links.map((l) => (
               <Link key={l.to} component={RouterLink} to={l.to} underline="none" sx={linkSx(l.to)}>
@@ -191,6 +196,7 @@ function Nav() {
                   aria-label="account menu"
                   onClick={(e) => setProfileAnchor(e.currentTarget)}
                   size="small"
+                  sx={touchTargetSx}
                 >
                   <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.main', fontSize: 16 }}>
                     {(user.username || '?').charAt(0).toUpperCase()}
@@ -241,7 +247,7 @@ function Nav() {
       {/* Mobile navigation drawer */}
       <Drawer anchor="left" open={drawerOpen} onClose={() => setDrawerOpen(false)}>
         <Box sx={{ width: 260 }} role="presentation">
-          <Typography variant="h6" sx={{ p: 2, color: 'var(--accent)', fontWeight: 700 }}>
+          <Typography variant="h6" component="div" sx={{ p: 2, color: 'var(--accent)', fontWeight: 700 }}>
             Endzone Empire
           </Typography>
           <Divider />
@@ -251,38 +257,51 @@ function Nav() {
             </Box>
           )}
           {loggedIn ? (
-            <List>
-              {links.map((l) => (
-                <ListItemButton
-                  key={l.to}
-                  component={RouterLink}
-                  to={l.to}
-                  selected={isActive(l.to)}
-                  onClick={() => setDrawerOpen(false)}
-                >
-                  <ListItemText primary={l.label} />
-                </ListItemButton>
-              ))}
+            <>
+              <Box component="nav" aria-label="Primary navigation">
+                <List>
+                  {links.map((l) => (
+                    <ListItemButton
+                      key={l.to}
+                      component={RouterLink}
+                      to={l.to}
+                      selected={isActive(l.to)}
+                      onClick={() => setDrawerOpen(false)}
+                      sx={{ minHeight: 44 }}
+                    >
+                      <ListItemText primary={l.label} />
+                    </ListItemButton>
+                  ))}
+                </List>
+              </Box>
               <Divider />
-              <ListItemButton
-                component={RouterLink}
-                to="/settings/notifications"
-                onClick={() => setDrawerOpen(false)}
-              >
-                <ListItemText primary="Notification Settings" />
-              </ListItemButton>
-              {isAdmin && (
-                <ListItemButton component={RouterLink} to="/admin" onClick={() => setDrawerOpen(false)}>
-                  <ListItemIcon>
-                    <AdminPanelSettingsIcon fontSize="small" />
-                  </ListItemIcon>
-                  <ListItemText primary="Admin" />
+              <List>
+                <ListItemButton
+                  component={RouterLink}
+                  to="/settings/notifications"
+                  onClick={() => setDrawerOpen(false)}
+                  sx={{ minHeight: 44 }}
+                >
+                  <ListItemText primary="Notification Settings" />
                 </ListItemButton>
-              )}
-              <ListItemButton onClick={handleLogout}>
-                <ListItemText primary="Log Out" />
-              </ListItemButton>
-            </List>
+                {isAdmin && (
+                  <ListItemButton
+                    component={RouterLink}
+                    to="/admin"
+                    onClick={() => setDrawerOpen(false)}
+                    sx={{ minHeight: 44 }}
+                  >
+                    <ListItemIcon>
+                      <AdminPanelSettingsIcon fontSize="small" />
+                    </ListItemIcon>
+                    <ListItemText primary="Admin" />
+                  </ListItemButton>
+                )}
+                <ListItemButton onClick={handleLogout} sx={{ minHeight: 44 }}>
+                  <ListItemText primary="Log Out" />
+                </ListItemButton>
+              </List>
+            </>
           ) : (
             <List>
               <ListItemButton component={RouterLink} to="/login" onClick={() => setDrawerOpen(false)}>

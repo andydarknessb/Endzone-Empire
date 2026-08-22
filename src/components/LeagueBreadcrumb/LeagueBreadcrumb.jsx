@@ -11,12 +11,12 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 function LeagueBreadcrumb({ name }) {
   const { leagueId } = useParams();
   return (
-    <Box sx={{ mb: 2 }}>
+    <Box component="nav" aria-label="Breadcrumb" sx={{ mb: 2 }}>
       <Button
         component={RouterLink}
         to={`/league/${leagueId}`}
         startIcon={<ArrowBackIcon />}
-        sx={{ fontWeight: 600 }}
+        sx={{ fontWeight: 600, minHeight: 44 }}
       >
         {name || 'League dashboard'}
       </Button>

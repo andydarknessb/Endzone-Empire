@@ -22,20 +22,20 @@ function PlayerNameLink({ name, playerId, onOpen, sx }) {
         textTransform: 'none',
         textAlign: 'left',
         px: 0,
+        // WCAG target size (issue #121): 44px minimum hit height. No custom
+        // `&:focus-visible` override here on purpose - it used to draw its own
+        // outline in `primary.main`, which drifted from the shared focus-ring
+        // token every other interactive element uses (see base.css's global
+        // `:focus-visible` rule and AppThemeProvider's MuiButtonBase override).
+        // Leaving focus-visible unset lets that shared treatment apply here too.
         minWidth: 24,
-        minHeight: 24,
+        minHeight: 44,
         display: 'inline-flex',
         alignItems: 'center',
         cursor: 'pointer',
         verticalAlign: 'baseline',
         textDecoration: 'none',
         '&:hover': { textDecoration: 'underline' },
-        '&:focus-visible': {
-          outline: '2px solid',
-          outlineColor: 'primary.main',
-          outlineOffset: 2,
-          borderRadius: 0.5,
-        },
         ...sx,
       }}
     >

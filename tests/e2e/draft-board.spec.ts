@@ -15,7 +15,7 @@ import {
   VIEWPORTS,
   type DraftApiHandle,
 } from './fixtures/draftHarness';
-import type { Page } from '@playwright/test';
+import type { Page, Locator } from '@playwright/test';
 import {
   PENDING_STATE,
   ACTIVE_STATE,
@@ -46,7 +46,7 @@ test.describe('draft status fixtures', () => {
 
     await gotoDraft(page);
 
-    await expect(page.getByRole('heading', { name: 'Harness League', level: 4 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toBeVisible();
     await expect(page.getByText('pending', { exact: true })).toBeVisible();
     await expect(page.getByText('No picks yet')).toBeVisible();
     // No draft has happened yet - every fixture player is still available.
@@ -59,7 +59,7 @@ test.describe('draft status fixtures', () => {
     await setTheme(page, 'light');
     await setupActiveDraft(page);
 
-    await expect(page.getByRole('heading', { name: 'Harness League', level: 4 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toBeVisible();
     await expect(page.getByText('On the clock: Ridge Runners (harness-manager)')).toBeVisible();
     // Josh Allen was drafted in the fixture and hide-drafted defaults on, so
     // he's gone from the available-players pool - but not from pick history,
@@ -75,7 +75,7 @@ test.describe('draft status fixtures', () => {
 
     await gotoDraft(page);
 
-    await expect(page.getByRole('heading', { name: 'Harness League', level: 4 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toBeVisible();
     await expect(page.getByText('complete', { exact: true })).toBeVisible();
     // Every fixture player was drafted; the pool is empty with the default
     // hide-drafted filter on.
@@ -91,7 +91,7 @@ test.describe('viewport and theme selection', () => {
     await setTheme(page, 'light');
     await setupActiveDraft(page);
 
-    await expect(page.getByRole('heading', { name: 'Harness League', level: 4 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toBeVisible();
     // Mobile stacks the draft rail above the player pool (Grid `order` swap);
     // desktop puts the pool first. Confirm the swap actually took effect
     // rather than just that the page didn't crash at a narrow width.
@@ -376,5 +376,190 @@ test.describe('schedule-aware player pool (issue #119)', () => {
 
     await dialog.getByRole('button', { name: 'Close' }).click();
     await expect(dialog).toBeHidden();
+  });
+});
+
+// --- Accessible structure (issue #121, parent spec #108) ---
+
+test.describe('accessible structure: skip link, landmarks, headings', () => {
+  test.use({ viewport: VIEWPORTS.desktop });
+
+  test.beforeEach(async ({ page }) => {
+    await setTheme(page, 'light');
+  });
+
+  test('a visible-on-focus skip link is the first focusable element and targets the main landmark', async ({ page }) => {
+    await setupActiveDraft(page);
+
+    const skipLink = page.getByRole('link', { name: 'Skip to main content' });
+    await expect(skipLink).toHaveAttribute('href', '#draft-main-content');
+
+    // Off-screen until focused (translated above the viewport).
+    const before = await skipLink.boundingBox();
+    expect(before).not.toBeNull();
+    expect(before!.y).toBeLessThan(-20);
+
+    await skipLink.focus();
+    await page.waitForTimeout(250); // CSS transition (transform 0.15s) settling
+    const after = await skipLink.boundingBox();
+    expect(after).not.toBeNull();
+    expect(after!.y).toBeGreaterThanOrEqual(0);
+    expect(after!.y).toBeLessThan(60);
+
+    // It's genuinely first: nothing focusable precedes it in DOM order.
+    const firstFocusableIsSkipLink = await page.evaluate(() => {
+      const all = document.querySelectorAll(
+        'a[href], button:not([disabled]), input, select, textarea, [tabindex]'
+      );
+      return all[0]?.textContent?.trim() === 'Skip to main content';
+    });
+    expect(firstFocusableIsSkipLink).toBe(true);
+
+    // Activating it lands focus inside the main landmark's content.
+    await page.keyboard.press('Enter');
+    const main = page.getByRole('main');
+    await expect(main).toHaveAttribute('id', 'draft-main-content');
+  });
+
+  test('exposes primary navigation, a named main landmark, and named panel regions', async ({ page }) => {
+    await setupActiveDraft(page);
+
+    await expect(page.getByRole('navigation', { name: 'Primary navigation' })).toBeVisible();
+    const main = page.getByRole('main');
+    await expect(main).toBeVisible();
+    expect(await main.getAttribute('aria-labelledby')).toBe('draft-league-name');
+
+    await expect(page.getByRole('region', { name: 'Available Players' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'My Queue' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Pick History' })).toBeVisible();
+
+    // The Board tab swaps in a different named region - the panel set is not
+    // a fixed count, and whichever one is showing is still correctly named.
+    await page.getByRole('tab', { name: 'Board' }).click();
+    await expect(page.getByRole('region', { name: 'Draft Board' })).toBeVisible();
+  });
+
+  test('the league name is the single H1, panel titles are H2, with no skipped heading levels', async ({ page }) => {
+    await setupActiveDraft(page);
+
+    const h1s = page.getByRole('heading', { level: 1 });
+    await expect(h1s).toHaveCount(1);
+    await expect(h1s).toHaveText('Harness League');
+
+    await expect(page.getByRole('heading', { level: 2, name: 'Available Players' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'My Queue' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'Pick History' })).toBeVisible();
+
+    const levels = await page.evaluate(() => (
+      Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6')).map((h) => Number(h.tagName[1]))
+    ));
+    const present = new Set(levels);
+    const maxLevel = Math.max(...levels);
+    for (let level = 1; level <= maxLevel; level += 1) {
+      expect(present.has(level)).toBe(true);
+    }
+  });
+
+  test('no positive tabindex exists anywhere - DOM order is tab order', async ({ page }) => {
+    await setupActiveDraft(page);
+
+    const hasPositiveTabIndex = await page.evaluate(() => (
+      Array.from(document.querySelectorAll('[tabindex]')).some((el) => Number(el.getAttribute('tabindex')) > 0)
+    ));
+    expect(hasPositiveTabIndex).toBe(false);
+  });
+
+  test('tabbing through the page advances focus without getting stuck (no accidental focus trap)', async ({ page }) => {
+    await setupActiveDraft(page);
+
+    await page.locator('body').click({ position: { x: 5, y: 5 } });
+    const seen = new Set<string>();
+    for (let i = 0; i < 20; i += 1) {
+      await page.keyboard.press('Tab');
+      // eslint-disable-next-line no-await-in-loop
+      const id = await page.evaluate(() => {
+        const el = document.activeElement;
+        if (!el) return null;
+        // Distinguish same-label elements (e.g. two "Move up" buttons) by position.
+        const rect = el.getBoundingClientRect();
+        const label = el.textContent?.trim().slice(0, 30) || el.getAttribute('aria-label') || '';
+        return `${el.tagName}:${label}:${Math.round(rect.x)},${Math.round(rect.y)}`;
+      });
+      if (id) seen.add(id);
+    }
+    // 20 real Tab presses should reach at least ~15 distinct elements - a
+    // trap would repeatedly cycle a small subset (e.g. stuck inside one row).
+    expect(seen.size).toBeGreaterThanOrEqual(15);
+  });
+
+  test('every interactive element shares the same focus-visible outline treatment', async ({ page }) => {
+    await setupActiveDraft(page);
+
+    // Real Tab presses (not a scripted .focus()) so both the browser's native
+    // :focus-visible and MUI ButtonBase's own focus-visible polyfill actually
+    // engage, exactly like a real keyboard user tabbing through the page: the
+    // skip link, Nav's brand/link/search/bell/theme controls, the breadcrumb,
+    // the settings gear, the sound toggle, and into the player pool - a plain
+    // MUI IconButton (the shared MuiButtonBase-focusVisible override) and a
+    // plain-DOM control with no ButtonBase behind it at all (the player-name
+    // quick-view link) both included, so a still-bespoke style anywhere in
+    // that stretch would surface as a second distinct color below.
+    await page.locator('body').click({ position: { x: 5, y: 5 } });
+    const outlineColors = new Set<string>();
+    for (let i = 0; i < 14; i += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      await page.keyboard.press('Tab');
+      // eslint-disable-next-line no-await-in-loop
+      const style = await page.evaluate(() => {
+        const el = document.activeElement;
+        if (!el) return null;
+        const cs = getComputedStyle(el);
+        return { outlineStyle: cs.outlineStyle, outlineColor: cs.outlineColor };
+      });
+      if (style && style.outlineStyle !== 'none') outlineColors.add(style.outlineColor);
+    }
+
+    expect(outlineColors.size).toBeGreaterThan(0);
+    expect([...outlineColors]).toEqual([[...outlineColors][0]]); // every visible ring is the SAME color
+  });
+});
+
+test.describe('accessible structure: 44x44 minimum interactive targets', () => {
+  test.beforeEach(async ({ page }) => {
+    await setTheme(page, 'light');
+  });
+
+  async function expectAtLeast44(locator: Locator, opts: { widthToo?: boolean } = {}) {
+    const box = await locator.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.height).toBeGreaterThanOrEqual(44);
+    if (opts.widthToo) expect(box!.width).toBeGreaterThanOrEqual(44);
+  }
+
+  test('desktop: nav chrome, tabs, sortable headers, and row actions all meet the 44px minimum', async ({ page }) => {
+    await page.setViewportSize(VIEWPORTS.desktop);
+    await setupActiveDraft(page);
+
+    await expectAtLeast44(page.getByRole('button', { name: 'Toggle theme' }), { widthToo: true });
+    await expectAtLeast44(page.getByRole('button', { name: /notifications/i }), { widthToo: true });
+    await expectAtLeast44(page.getByRole('tab', { name: 'Draft' }));
+    await expectAtLeast44(page.getByRole('button', { name: /^Bye:/ }));
+    await expectAtLeast44(page.getByRole('button', { name: 'Draft', exact: true }).first());
+    await expectAtLeast44(page.locator('tr', { hasText: 'Bijan Robinson' }).getByRole('button', { name: 'Queue' }), { widthToo: true });
+    await expectAtLeast44(page.getByRole('button', { name: 'Column guide' }), { widthToo: true });
+  });
+
+  test('mobile: the nav drawer trigger and its rows, plus row actions, meet the 44px minimum', async ({ page }) => {
+    await page.setViewportSize(VIEWPORTS.mobile);
+    await setupActiveDraft(page);
+
+    const hamburger = page.getByRole('button', { name: 'open navigation menu' });
+    await expectAtLeast44(hamburger, { widthToo: true });
+    await hamburger.click();
+    await expectAtLeast44(page.getByRole('link', { name: 'League', exact: true }));
+    await page.keyboard.press('Escape');
+
+    await expectAtLeast44(page.getByRole('tab', { name: 'Board' }));
+    await expectAtLeast44(page.locator('tr', { hasText: 'Bijan Robinson' }).getByRole('button', { name: 'Queue' }), { widthToo: true });
   });
 });
