@@ -3,6 +3,7 @@ import { screen, waitFor, within, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import { clearLeagueCache } from '../../hooks/useLeague';
+import { clearPickemSettingsCache, setPickemSettings } from '../../hooks/usePickemSettings';
 import LeagueRules from './LeagueRules';
 
 jest.mock('../../api/apiClient', () => ({
@@ -82,6 +83,7 @@ describe('LeagueRules', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     clearLeagueCache();
+    clearPickemSettingsCache();
   });
 
   it('renders every rules tab for a plain member', async () => {
@@ -125,7 +127,7 @@ describe('LeagueRules', () => {
     await screen.findByRole('region', { name: 'Passing' });
 
     await act(async () => { await userEvent.click(screen.getByRole('tab', { name: 'Roster' })); });
-    expect(screen.getByText('8 total roster spots')).toBeInTheDocument();
+    expect(screen.getByText('7 roster spots + up to 1 IR')).toBeInTheDocument();
     expect(screen.getByText('FLEX')).toBeInTheDocument();
 
     await act(async () => { await userEvent.click(screen.getByRole('tab', { name: 'Waivers & Trades' })); });
@@ -181,7 +183,7 @@ describe('LeagueRules', () => {
     expect(await screen.findByText(/Unable to load scoring rules: offline/)).toBeInTheDocument();
 
     await act(async () => { await userEvent.click(screen.getByRole('tab', { name: 'Roster' })); });
-    await waitFor(() => expect(screen.getByText('8 total roster spots')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('7 roster spots + up to 1 IR')).toBeInTheDocument());
   });
 });
 
@@ -201,6 +203,7 @@ test("a pick'em-only league renders the pick'em rulebook instead of the four fan
     return Promise.resolve({ data: {} });
   });
   clearLeagueCache();
+  clearPickemSettingsCache();
   renderPage();
 
   expect(await screen.findByRole('heading', { name: 'League Rules' })).toBeInTheDocument();
@@ -217,4 +220,21 @@ test("a pick'em-only league renders the pick'em rulebook instead of the four fan
   expect(screen.getByText(/most correct picks/i)).toBeInTheDocument();
   // A pick'em league has no scoring rules to fetch defaults for.
   expect(apiClient.get).not.toHaveBeenCalledWith('/api/scoring/rules');
+});
+
+test("the rulebook states a mode already cached by the Pick'em page, with no request of its own", async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url.startsWith('/api/league/')) {
+      return Promise.resolve({ data: { league: league({ pickem_only: true, name: 'Office Pool' }), teams: [] } });
+    }
+    return Promise.reject(new Error(`unexpected GET ${url}`));
+  });
+  clearLeagueCache();
+  clearPickemSettingsCache();
+  // What a visit to the Pick'em page, or a save made there, leaves behind.
+  setPickemSettings(7, { enabled: true, mode: 'straight', isCommissioner: false });
+  renderPage();
+
+  expect(await screen.findByText(/Straight up: 1 point per correct pick/)).toBeInTheDocument();
+  expect(apiClient.get).not.toHaveBeenCalledWith('/api/pickem/league/7/settings');
 });

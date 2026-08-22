@@ -7,6 +7,7 @@ const { getDraftState } = require('../modules/draftSocket');
 const { teamForPick } = require('../services/draftOrder.service');
 const { draftPlayer, DraftError, nextPickClockSeconds } = require('../services/draft.service');
 const { validateKeepers, undoTargets } = require('../services/draftValidation.service');
+const { draftRosterSize } = require('../services/rosterShape');
 const { isLeagueCommissioner, commissionerPredicate, requireMember } = require('../services/leagueRole.service');
 const { requireFantasyLeague, fantasySideWhereSql } = require('../services/leagueType');
 
@@ -548,7 +549,7 @@ router.put('/league/:id/keepers', async (req, res) => {
   try {
     await client.query('BEGIN');
     const leagueResult = await client.query(
-      `SELECT "draft_status", "roster_limit", "keeper_count", "keeper_lock_at", "draft_date",
+      `SELECT "draft_status", "roster_limit", "ir_slots", "keeper_count", "keeper_lock_at", "draft_date",
               ${commissionerPredicate(2)} AS "is_commissioner"
        FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
       [leagueId, req.user.id]
@@ -582,7 +583,7 @@ router.put('/league/:id/keepers', async (req, res) => {
       teams: teamsResult.rows,
       rosterByTeam,
       keeperCount: league.keeper_count,
-      rosterLimit: league.roster_limit,
+      draftRosterSize: draftRosterSize(league),
     });
     if (errors.length > 0) {
       await client.query('ROLLBACK');
@@ -683,7 +684,7 @@ router.post('/league/:id/share-token', async (req, res) => {
 router.get('/mine', async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT "id", "name", "draft_status", "draft_date", "draft_type", "roster_limit",
+      `SELECT "id", "name", "draft_status", "draft_date", "draft_type", "roster_limit", "ir_slots",
               (SELECT COUNT(*)::int FROM "draft_picks" WHERE "draft_picks"."league_id" = "leagues"."id") AS "picks_made",
               (SELECT COUNT(*)::int FROM "teams" WHERE "teams"."league_id" = "leagues"."id") AS "team_count"
        FROM "leagues"

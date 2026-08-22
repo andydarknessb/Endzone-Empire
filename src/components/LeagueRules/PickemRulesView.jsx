@@ -1,10 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Alert, Box, Button, Skeleton, Stack, Typography } from '@mui/material';
-import apiClient from '../../api/apiClient';
+import { usePickemSettings } from '../../hooks/usePickemSettings';
 import RuleRow from './RuleRow';
 import { PICKEM_MODE_OPTIONS } from '../LeaguePickem/PickemSettingsPanel';
-
-const errorMessage = (error) => error?.response?.data?.error || error?.message || 'Request failed';
 
 /**
  * The read-only rulebook of a pick'em-only league. Everything but the scoring
@@ -12,19 +10,9 @@ const errorMessage = (error) => error?.response?.data?.error || error?.message |
  * settings so this page always states the rule actually in force.
  */
 export default function PickemRulesView({ league }) {
-  const [settings, setSettings] = useState(null);
-  const [error, setError] = useState(null);
-  const [reload, setReload] = useState(0);
-
-  useEffect(() => {
-    let active = true;
-    setError(null);
-    apiClient
-      .get(`/api/pickem/league/${league.id}/settings`)
-      .then((res) => { if (active) setSettings(res.data); })
-      .catch((requestError) => { if (active) setError(errorMessage(requestError)); });
-    return () => { active = false; };
-  }, [league.id, reload]);
+  // The same row the Pick'em page reads, so arriving from there (or a save
+  // made there) states the mode in force with no request of its own.
+  const { settings, error, refetch } = usePickemSettings(league.id);
 
   // RuleRow renders its value nowrap, so the value stays a word and the full
   // rule sentence goes in the detail line.
@@ -38,7 +26,7 @@ export default function PickemRulesView({ league }) {
         {error ? (
           <Alert
             severity="error"
-            action={<Button color="inherit" size="small" onClick={() => setReload((n) => n + 1)}>Retry</Button>}
+            action={<Button color="inherit" size="small" onClick={refetch}>Retry</Button>}
           >
             Unable to load the scoring mode: {error}
           </Alert>

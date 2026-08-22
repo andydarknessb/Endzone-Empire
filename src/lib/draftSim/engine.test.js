@@ -239,7 +239,7 @@ describe('toBoardShape', () => {
 
     const board = toBoardShape(state);
     expect(board.teams[0]).toEqual({ id: 1, name: 'You', draft_position: 1 });
-    expect(board.rosterLimit).toBe(15);
+    expect(board.draftRounds).toBe(15);
     expect(board.onTheClock).toEqual({ id: 3, name: 'Team 3' });
     // Newest pick first, matching the live draft room the matrix was built for.
     expect(board.picks[0]).toEqual({

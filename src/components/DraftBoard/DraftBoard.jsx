@@ -23,6 +23,7 @@ import DraftBoardMatrix from './DraftBoardMatrix';
 import DraftDayControls from './DraftDayControls';
 import { assignRosterSlots } from '../../lib/rosterAssignment';
 import { turnSummaryFor, pickLabelFor } from '../../lib/draftTurns';
+import { draftRosterSize } from '../../lib/rosterShape';
 
 /**
  * Everything the roster panel needs, derived from live draft state. A plain
@@ -47,7 +48,9 @@ function rosterViewFor({ league, teams, picks, userId }) {
     return ap === bp ? a.id - b.id : ap - bp;
   });
   const teamIds = ordered.map((team) => team.id);
-  const rounds = Number(league.roster_limit) || 0;
+  // Rounds are the draft roster size (starters + bench): no round is spent on
+  // the IR slot (#96). Mirrors draft.service.js.
+  const rounds = draftRosterSize(league);
 
   const myPicks = picks
     .filter((pick) => pick.team_id === myTeam.id)
@@ -105,7 +108,7 @@ function rosterViewFor({ league, teams, picks, userId }) {
     // One assignment feeds the history's slot tags; the panel recomputes the
     // same pure function, which is guaranteed to agree.
     slotTags: assignRosterSlots({
-      picks: myPicks, rosterSlots, benchCount, irCount,
+      picks: myPicks, rosterSlots, benchCount, irCount, irDraftable: false,
     }).byPickNumber,
   };
 }
@@ -367,7 +370,7 @@ function DraftBoard() {
           teams={teams}
           picks={picks}
           onTheClock={onTheClock}
-          rosterLimit={league?.roster_limit}
+          draftRounds={draftRosterSize(league)}
           onOpenQuickView={setQuickViewId}
         />
       ) : (

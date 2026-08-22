@@ -225,6 +225,7 @@ function DraftRail({
             rosterSlots={rosterView.rosterSlots}
             benchCount={rosterView.benchCount}
             irCount={rosterView.irCount}
+            irDraftable={false}
             picks={rosterView.picks}
             remainingPicks={rosterView.remainingPicks}
             nextPickLabel={rosterView.nextPickLabel}
@@ -235,6 +236,7 @@ function DraftRail({
               rosterSlots={rosterView.rosterSlots}
               benchCount={rosterView.benchCount}
               irCount={rosterView.irCount}
+              irDraftable={false}
               picks={rosterView.picks}
               rounds={rosterView.rounds}
               title="My Roster"

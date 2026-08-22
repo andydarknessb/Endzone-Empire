@@ -4,6 +4,7 @@ import { useParams } from 'react-router-dom';
 import { Alert, Box, Container, Paper, Stack, Typography } from '@mui/material';
 import Countdown from '../Countdown/Countdown';
 import DraftBoardMatrix from '../DraftBoard/DraftBoardMatrix';
+import { draftRosterSize } from '../../lib/rosterShape';
 
 // Presenter links are intentionally anonymous: do not use apiClient here,
 // because its 401 interceptor can attempt an authenticated token refresh.
@@ -105,7 +106,7 @@ function DraftPresenter() {
             teams={teams}
             picks={picksNewestFirst}
             onTheClock={onTheClock}
-            rosterLimit={league.roster_limit}
+            draftRounds={draftRosterSize(league)}
             readOnly
           />
 

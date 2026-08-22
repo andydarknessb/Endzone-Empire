@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   Container,
@@ -40,7 +40,7 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
 import apiClient from '../../api/apiClient';
 import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../lib/teamProfileEvents';
-import { primeLeagueCache } from '../../hooks/useLeague';
+import { useLeague } from '../../hooks/useLeague';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import TeamAvatar from '../common/TeamAvatar';
 import ChatPanel from '../ChatPanel/ChatPanel';
@@ -65,6 +65,16 @@ const SEASON_PHASE_CHIP = {
 // The draft-status chip shows the draft's own state, raw: that is Draft
 // status, not League phase, and the label is the column value itself.
 const DRAFT_STATUS_CHIP_COLOR = { pending: 'default', active: 'warning', complete: 'success' };
+
+// The server's message when the response carried one, else whatever the client
+// threw. The page's own requests have always been read this way.
+const errorMessage = (err) => err?.response?.data?.error || err?.message;
+
+// The resource cache's last-resort text (ADR 0004: the server's message, else
+// the client's, else this) for a rejection that carried neither. The error
+// view's own sentence names what is missing, which says more, so this
+// placeholder never displaces it there.
+const NO_DETAIL_MESSAGE = 'Request failed';
 
 // League navigation, grouped by intent so the dashboard reads as sections
 // rather than a flat wall of buttons. `weight` drives the card's visual
@@ -116,86 +126,98 @@ function streakChipProps(streak) {
 
 function LeagueDashboard() {
   const { leagueId } = useParams();
-  const [league, setLeague] = useState(null);
-  const [teams, setTeams] = useState([]);
+  // The league row and its teams come from the shared cache, so every subpage
+  // reached from here (and the FantasyOnly guard in front of the fantasy ones)
+  // reads the same entry rather than fetching the payload again.
+  const {
+    league,
+    teams,
+    loading: leagueLoading,
+    error: leagueError,
+    refetch,
+    updateTeams,
+  } = useLeague(leagueId);
   const [standings, setStandings] = useState([]);
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [userLoading, setUserLoading] = useState(true);
   const [error, setError] = useState(null);
   const notify = useSnackbar();
   const [chatOpen, setChatOpen] = useState(false);
   const [chatUnread, setChatUnread] = useState(0);
 
+  // Primitives, not the row itself: the standings follow the league's identity
+  // and its pick'em flag, and a refetch that hands back an equal row must not
+  // start a second standings request behind refresh()'s own.
+  const leagueKnown = !!league;
+  const pickemOnly = isPickemOnly(league);
+
   useEffect(() => {
-    fetchLeagueAndUser();
-    // Refresh only when the route changes; league state controls spinner behavior.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    let active = true;
+    // A new league starts with a clean banner: an error from the league just
+    // left must not sit above this one.
+    setError(null);
+    setUserLoading(true);
+    apiClient.get('/api/user').then(
+      (res) => { if (active) { setUser(res.data); setUserLoading(false); } },
+      (err) => { if (active) { setError(errorMessage(err)); setUserLoading(false); } }
+    );
+    return () => { active = false; };
   }, [leagueId]);
 
   useEffect(() => subscribeToTeamProfileUpdates((update) => {
     if (Number(update.leagueId) !== Number(leagueId)) return;
-    setTeams((prev) => prev.map((team) => applyTeamProfileUpdate(team, update, {
+    // The teams live in the shared league entry now, so the avatar patch is a
+    // write-through: every mount reading this league gets the new avatar. The
+    // standings rows are this page's own, and stay local.
+    updateTeams((prev) => prev.map((team) => applyTeamProfileUpdate(team, update, {
       id: 'id', avatarUrl: 'avatar_url', avatarStaticUrl: 'avatar_static_url',
     })));
     setStandings((prev) => prev.map((team) => applyTeamProfileUpdate(team, update)));
-  }), [leagueId]);
+  }), [leagueId, updateTeams]);
 
-  const fetchLeagueAndUser = async () => {
-    try {
-      // Only show the full-page spinner on the first load â€” a background
-      // refresh (e.g. after a Commissioner Tools action) shouldn't unmount
-      // the dashboard and lose the selected tab / in-progress form state.
-      if (!league) setLoading(true);
-      setError(null);
-      const leagueRes = await apiClient.get(`/api/league/${leagueId}`);
-      setLeague(leagueRes.data.league);
-      setTeams(leagueRes.data.teams);
-      // Every subpage (and the FantasyOnly guard in front of the fantasy
-      // ones) reads the same row through useLeague: hand it over so the hop
-      // from here costs no second request.
-      primeLeagueCache(leagueId, leagueRes.data.league);
-
-      const userRes = await apiClient.get('/api/user');
-      setUser(userRes.data);
-
-      // A pick'em-only league has no matchups: the fantasy standings would
-      // come back as an all-zero table (and its failure would set the page
-      // error banner), so it is never requested; the pick'em standings
-      // component below fetches its own.
-      if (isPickemOnly(leagueRes.data.league)) {
-        setStandings([]);
-        return;
-      }
-
-      // Only the standings rows are read from this response. Phase, the
-      // week and the season chips all come from the league row above: both
-      // travel the same fetch chain, so a second copy could only disagree.
-      try {
-        const standingsRes = await apiClient.get(`/api/scoring/league/${leagueId}/standings`);
-        const standingsData = Array.isArray(standingsRes.data?.standings)
-          ? standingsRes.data.standings
-          : [];
-        setStandings(standingsData);
-      } catch (standingsErr) {
-        setStandings([]);
-        setError(standingsErr.response?.data?.error || standingsErr.message);
-      }
-    } catch (err) {
-      setError(err.response?.data?.error || err.message);
-    } finally {
-      setLoading(false);
+  // The standings wait for the league row. A pick'em-only league has no
+  // matchups: the fantasy standings would come back as an all-zero table (and
+  // their failure would set the page error banner), so they are never
+  // requested; the pick'em standings component below fetches its own.
+  //
+  // Only the rows are read from this response. Phase, the week and the season
+  // chips all come from the league row, which is the one source for them.
+  const loadStandings = useCallback(async () => {
+    if (!leagueKnown || pickemOnly) {
+      setStandings([]);
+      return;
     }
-  };
+    try {
+      const standingsRes = await apiClient.get(`/api/scoring/league/${leagueId}/standings`);
+      setStandings(Array.isArray(standingsRes.data?.standings) ? standingsRes.data.standings : []);
+    } catch (standingsErr) {
+      setStandings([]);
+      setError(errorMessage(standingsErr));
+    }
+  }, [leagueId, leagueKnown, pickemOnly]);
+
+  useEffect(() => { loadStandings(); }, [loadStandings]);
+
+  // One refresh for every path that changes the league server-side (starting
+  // the draft, advancing the week, a Commissioner Tools action): refetch()
+  // invalidates the shared entry, so sibling mounts reload on the one request
+  // it starts, and the standings are reloaded alongside it because they are
+  // derived from the same league. No clear first: that would be a second
+  // invalidation and a second request.
+  const refresh = useCallback(async () => {
+    setError(null);
+    await Promise.all([refetch(), loadStandings()]);
+  }, [refetch, loadStandings]);
 
   const handleStartDraft = async () => {
     try {
       setError(null);
       await apiClient.post(`/api/league/${leagueId}/start-draft`);
       notify('Draft started successfully!');
-      fetchLeagueAndUser();
+      refresh();
     } catch (err) {
-      setError(err.response?.data?.error || err.message);
-      notify(err.response?.data?.error || err.message, { severity: 'error' });
+      setError(errorMessage(err));
+      notify(errorMessage(err), { severity: 'error' });
     }
   };
 
@@ -204,9 +226,9 @@ function LeagueDashboard() {
       setError(null);
       await apiClient.post(`/api/scoring/league/${leagueId}/advance-week`);
       notify('Week advanced!');
-      fetchLeagueAndUser();
+      refresh();
     } catch (err) {
-      setError(err.response?.data?.error || err.message);
+      setError(errorMessage(err));
     }
   };
 
@@ -234,7 +256,12 @@ function LeagueDashboard() {
     }
   };
 
-  if (loading) {
+  // Only the first load blanks the page: once the league and the user have
+  // arrived, a background refresh (a Commissioner Tools action, Advance Week)
+  // keeps the dashboard mounted, so the selected tab and any in-progress form
+  // survive it, and a failed refetch leaves the stale row on screen under the
+  // error banner.
+  if ((!league && leagueLoading) || (!user && userLoading)) {
     // Layout-shaped skeleton that mirrors the real dashboard: title + status
     // chips, then the Standings heading and table.
     return (
@@ -251,9 +278,12 @@ function LeagueDashboard() {
   }
 
   if (!league || !user) {
+    const leagueDetail = leagueError === NO_DETAIL_MESSAGE ? null : leagueError;
     return (
       <Container sx={{ py: 4 }}>
-        <Alert severity="error">{error || 'League or user data not available'}</Alert>
+        <Alert severity="error">
+          {error || leagueDetail || 'League or user data not available'}
+        </Alert>
       </Container>
     );
   }
@@ -266,7 +296,6 @@ function LeagueDashboard() {
   // absent in older data â€” treat that as no gate).
   const belowMin = league.min_teams != null && teams.length < league.min_teams;
   const auctionUnsupported = league.draft_type === 'auction';
-  const pickemOnly = isPickemOnly(league);
   const leaguePhase = deriveLeaguePhase(league);
   const preDraft = leaguePhase === LEAGUE_PHASE.PRE_DRAFT;
   const seasonComplete = leaguePhase === LEAGUE_PHASE.COMPLETE;
@@ -292,9 +321,11 @@ function LeagueDashboard() {
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
-      {error && (
+      {/* A background refetch that failed keeps the league it already has on
+          screen and reports the failure here. */}
+      {(error || leagueError) && (
         <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
+          {error || leagueError}
         </Alert>
       )}
       {/* Recaps and draft grades are matchup- and draft-derived; a pick'em
@@ -600,7 +631,7 @@ function LeagueDashboard() {
           teams={teams}
           user={user}
           isOwner={isOwner}
-          onRefresh={fetchLeagueAndUser}
+          onRefresh={refresh}
         />
       )}
 

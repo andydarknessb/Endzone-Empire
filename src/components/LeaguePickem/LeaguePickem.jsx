@@ -32,6 +32,7 @@ import apiClient from '../../api/apiClient';
 import { useLeague } from '../../hooks/useLeague';
 import { isPickemOnly } from '../../lib/leagueType';
 import { clearPickemStandingsCache } from '../../hooks/usePickemStandings';
+import { setPickemSettings, usePickemSettings } from '../../hooks/usePickemSettings';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import usePickemWeek from './usePickemWeek';
 import PickemWeekBoard from './PickemWeekBoard';
@@ -91,21 +92,12 @@ export default function LeaguePickem() {
     setTab(value);
   };
 
-  const [settings, setSettings] = useState(null);
-  const [settingsError, setSettingsError] = useState(null);
+  // The settings row is shared with the rules view of a pick'em-only league,
+  // and a save here writes the server's answer through to both, so neither
+  // screen fetches it twice in one visit.
+  const { settings, error: settingsError, refetch: reloadSettings } = usePickemSettings(leagueId);
   const [settingsSaveError, setSettingsSaveError] = useState(null);
   const [savingSettings, setSavingSettings] = useState(false);
-  const [settingsReload, setSettingsReload] = useState(0);
-
-  useEffect(() => {
-    let active = true;
-    setSettingsError(null);
-    apiClient
-      .get(`/api/pickem/league/${leagueId}/settings`)
-      .then((res) => { if (active) setSettings(res.data); })
-      .catch((error) => { if (active) setSettingsError(errorMessage(error)); });
-    return () => { active = false; };
-  }, [leagueId, settingsReload]);
 
   const [week, setWeek] = useState(null);
   useEffect(() => {
@@ -141,7 +133,9 @@ export default function LeaguePickem() {
     setSettingsSaveError(null);
     try {
       const res = await apiClient.put(`/api/pickem/league/${leagueId}/settings`, patch);
-      setSettings(res.data);
+      // Write-through: the saved row reaches this page and the rules view with
+      // no follow-up request.
+      setPickemSettings(leagueId, res.data);
       // The standings body names the mode in force: a mode change must not
       // leave a cached table captioned with the old one.
       clearPickemStandingsCache(leagueId);
@@ -191,7 +185,7 @@ export default function LeaguePickem() {
         <Alert
           severity="error"
           action={
-            <Button color="inherit" size="small" onClick={() => setSettingsReload((n) => n + 1)}>
+            <Button color="inherit" size="small" onClick={reloadSettings}>
               Retry
             </Button>
           }
@@ -202,6 +196,9 @@ export default function LeaguePickem() {
     );
   }
 
+  // Settings unknown: the skeleton stands in for the whole page. Once a row is
+  // in hand a background reload keeps it on screen rather than flashing this
+  // skeleton again, which is why loading is not part of the condition.
   if (!settings) {
     return (
       <Container maxWidth="lg" sx={{ py: 4 }}>

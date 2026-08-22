@@ -138,6 +138,19 @@ describe('the rounds-vs-capacity note', () => {
     )).toBeInTheDocument();
   });
 
+  test('an undrafted IR slot is named as excluded, not counted as a shortfall', () => {
+    renderPanel({ rounds: 16, irCount: 1, irDraftable: false });
+    expect(screen.getByText(
+      'This draft runs 16 rounds but only 15 of your spots are drafted '
+      + '(9 starters, 6 bench). The last pick has nowhere to go.'
+    )).toBeInTheDocument();
+  });
+
+  test('a 15-round draft with one undrafted IR slot says nothing at all', () => {
+    renderPanel({ rounds: 15, irCount: 1, irDraftable: false });
+    expect(screen.queryByText(/This draft runs/)).not.toBeInTheDocument();
+  });
+
   test.each([[15], [null], [undefined]])('stays silent when rounds is %s', (rounds) => {
     renderPanel({ rounds });
     expect(screen.queryByText(/This draft runs/)).not.toBeInTheDocument();

@@ -98,7 +98,7 @@ test('validateKeepers: valid list against non-empty rosters', () => {
   const rosterByTeam = new Map([[1, new Set([100])], [2, new Set([200])]]);
   const errors = validateKeepers(
     [{ teamId: 1, playerId: 100, round: 3 }, { teamId: 2, playerId: 200, round: 5 }],
-    { teams, rosterByTeam, keeperCount: 2, rosterLimit: 15 }
+    { teams, rosterByTeam, keeperCount: 2, draftRosterSize: 15 }
   );
   assert.deepEqual(errors, []);
 });
@@ -106,7 +106,7 @@ test('validateKeepers: valid list against non-empty rosters', () => {
 test('validateKeepers: empty roster is lenient (pre-first-draft league)', () => {
   const errors = validateKeepers(
     [{ teamId: 1, playerId: 999, round: 1 }],
-    { teams, rosterByTeam: new Map(), keeperCount: 1, rosterLimit: 15 }
+    { teams, rosterByTeam: new Map(), keeperCount: 1, draftRosterSize: 15 }
   );
   assert.deepEqual(errors, []);
 });
@@ -115,7 +115,7 @@ test('validateKeepers: rejects a player not on a non-empty roster', () => {
   const rosterByTeam = new Map([[1, new Set([100])]]);
   const errors = validateKeepers(
     [{ teamId: 1, playerId: 999, round: 1 }],
-    { teams, rosterByTeam, keeperCount: 1, rosterLimit: 15 }
+    { teams, rosterByTeam, keeperCount: 1, draftRosterSize: 15 }
   );
   assert.equal(errors.length, 1);
   assert.match(errors[0], /not on team 1's roster/);
@@ -124,7 +124,7 @@ test('validateKeepers: rejects a player not on a non-empty roster', () => {
 test('validateKeepers: rejects duplicate round for the same team', () => {
   const errors = validateKeepers(
     [{ teamId: 1, playerId: 100, round: 1 }, { teamId: 1, playerId: 101, round: 1 }],
-    { teams, rosterByTeam: new Map(), keeperCount: 5, rosterLimit: 15 }
+    { teams, rosterByTeam: new Map(), keeperCount: 5, draftRosterSize: 15 }
   );
   assert.match(errors.join(';'), /two keepers assigned to round 1/);
 });
@@ -132,7 +132,7 @@ test('validateKeepers: rejects duplicate round for the same team', () => {
 test('validateKeepers: rejects a player kept by two teams', () => {
   const errors = validateKeepers(
     [{ teamId: 1, playerId: 100, round: 1 }, { teamId: 2, playerId: 100, round: 1 }],
-    { teams, rosterByTeam: new Map(), keeperCount: 5, rosterLimit: 15 }
+    { teams, rosterByTeam: new Map(), keeperCount: 5, draftRosterSize: 15 }
   );
   assert.match(errors.join(';'), /kept by more than one team/);
 });
@@ -140,9 +140,73 @@ test('validateKeepers: rejects a player kept by two teams', () => {
 test('validateKeepers: enforces the per-team keeper count', () => {
   const errors = validateKeepers(
     [{ teamId: 1, playerId: 100, round: 1 }, { teamId: 1, playerId: 101, round: 2 }],
-    { teams, rosterByTeam: new Map(), keeperCount: 1, rosterLimit: 15 }
+    { teams, rosterByTeam: new Map(), keeperCount: 1, draftRosterSize: 15 }
   );
   assert.match(errors.join(';'), /allows 1/);
+});
+
+// The keeper round bound is the draft roster size (starters + bench), NOT the
+// IR-inclusive roster limit: no draft round is spent on an IR slot (#96).
+test('validateKeepers: rejects a keeper round past the draft roster size', () => {
+  const errors = validateKeepers(
+    [{ teamId: 1, playerId: 100, round: 20 }],
+    { teams, rosterByTeam: new Map(), keeperCount: 1, draftRosterSize: 19 }
+  );
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /between 1 and 19/);
+  assert.match(errors[0], /draft roster size/);
+});
+
+test('validateKeepers: accepts the last drafted round', () => {
+  const errors = validateKeepers(
+    [{ teamId: 1, playerId: 100, round: 19 }],
+    { teams, rosterByTeam: new Map(), keeperCount: 1, draftRosterSize: 19 }
+  );
+  assert.deepEqual(errors, []);
+});
+
+// --- startPlan ----------------------------------------------------------
+
+const startLeague = {
+  draft_type: 'snake',
+  draft_rotation: 'snake',
+  draft_order_overrides: null,
+  keepers_enabled: false,
+  keeper_count: 0,
+  roster_limit: 20,
+  ir_slots: 1,
+  pick_time_seconds: 60,
+  autodraft_delay_seconds: 10,
+};
+
+test('startPlan: total picks count starters + bench rounds, not the IR slot', () => {
+  const plan = startPlan(startLeague, [{ id: 1 }, { id: 2 }]);
+  assert.equal(plan.error, undefined);
+  assert.equal(plan.totalPicks, 38);
+});
+
+test('startPlan: a zero-IR league still drafts its whole roster limit', () => {
+  const plan = startPlan({ ...startLeague, ir_slots: 0 }, [{ id: 1 }, { id: 2 }]);
+  assert.equal(plan.totalPicks, 40);
+});
+
+test('startPlan: a keeper in a round past the draft roster size is stale', () => {
+  const plan = startPlan(
+    { ...startLeague, keepers_enabled: true, keeper_count: 1 },
+    [{ id: 1 }, { id: 2 }],
+    [{ team_id: 1, player_id: 100, draft_round: 20 }]
+  );
+  assert.equal(plan.error.status, 409);
+  assert.match(plan.error.message, /between 1 and 19/);
+});
+
+test('startPlan: a draft order override past the last drafted round is stale', () => {
+  const plan = startPlan(
+    { ...startLeague, draft_order_overrides: { '20': [2, 1] } },
+    [{ id: 1 }, { id: 2 }]
+  );
+  assert.equal(plan.error.status, 409);
+  assert.match(plan.error.message, /must be 1-19/);
 });
 
 // --- undoTargets --------------------------------------------------------

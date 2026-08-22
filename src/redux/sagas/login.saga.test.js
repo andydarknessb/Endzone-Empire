@@ -3,8 +3,13 @@ import MockAdapter from 'axios-mock-adapter';
 import loginSaga, { loginUser, logoutUser } from './login.saga';
 import apiClient, { getToken, clearToken } from '../../api/apiClient';
 import { renderHook, waitFor } from '@testing-library/react';
-import { primeLeagueCache, useLeague, clearLeagueCache } from '../../hooks/useLeague';
+import { useLeague, clearLeagueCache } from '../../hooks/useLeague';
 import { usePickemStandings, clearPickemStandingsCache } from '../../hooks/usePickemStandings';
+import { setResource } from '../../lib/resourceCache';
+
+// Warm the shared league entry the way a visited page would.
+const primeLeagueForTest = (leagueId, league) =>
+  setResource(['league', leagueId], { league, teams: [] });
 
 // Warm the standings cache the way a page visit would (the hook has no prime).
 const primePickemStandingsForTest = () => {
@@ -123,7 +128,7 @@ test('apiClient is the real module (sanity check for the tests above)', () => {
 describe('session changes drop the shared league cache', () => {
   test('logging out clears it', async () => {
     mock.onGet('/api/league/1').reply(200, { league: { id: 1, name: 'Fresh row' }, teams: [] });
-    primeLeagueCache(1, { id: 1, name: 'Previous account row', is_commissioner: true });
+    primeLeagueForTest(1, { id: 1, name: 'Previous account row', is_commissioner: true });
 
     const gen = logoutUser();
     gen.next(); // clearToken + cache drops happen synchronously before the first yield
@@ -135,7 +140,7 @@ describe('session changes drop the shared league cache', () => {
 
   test('logging in clears it', async () => {
     mock.onGet('/api/league/1').reply(200, { league: { id: 1, name: 'Fresh row' }, teams: [] });
-    primeLeagueCache(1, { id: 1, name: 'Previous account row', is_commissioner: true });
+    primeLeagueForTest(1, { id: 1, name: 'Previous account row', is_commissioner: true });
 
     const gen = loginUser({ payload: { username: 'b', password: 'x' } });
     gen.next(); // CLEAR_LOGIN_ERROR

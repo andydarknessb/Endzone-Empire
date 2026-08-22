@@ -520,6 +520,9 @@ function RosterSettingsPanel({ leagueId, league, onRefresh, notify }) {
     .filter((s) => (s.eligiblePositions || []).length > 0 && s.eligiblePositions.every((p) => DP_GROUP_KEYS.includes(p)))
     .reduce((sum, s) => sum + (Number(s.count) || 0), 0);
   const totalRosterSize = starters + (Number(benchSlots) || 0) + (Number(irSlots) || 0);
+  // Only starters + bench are drafted; the IR slot costs no draft round (#96).
+  const irCount = Number(irSlots) || 0;
+  const draftSpots = starters + (Number(benchSlots) || 0);
 
   const updateSlot = (id, patch) => setSlots((prev) => prev.map((s) => (s._id === id ? { ...s, ...patch } : s)));
   const removeSlot = (id) => setSlots((prev) => prev.filter((s) => s._id !== id));
@@ -685,7 +688,15 @@ function RosterSettingsPanel({ leagueId, league, onRefresh, notify }) {
           sx={{ width: 130 }}
         />
         <Typography variant="body2" color="text.secondary">
-          Total roster size: <strong>{totalRosterSize}</strong> ({starters} starters + {Number(benchSlots) || 0} bench + {Number(irSlots) || 0} IR)
+          {irCount > 0 ? (
+            <>
+              <strong>{draftSpots}</strong> roster spots + up to {irCount} IR ({starters} starters + {Number(benchSlots) || 0} bench)
+            </>
+          ) : (
+            <>
+              Total roster size: <strong>{totalRosterSize}</strong> ({starters} starters + {Number(benchSlots) || 0} bench + 0 IR)
+            </>
+          )}
         </Typography>
       </Box>
 

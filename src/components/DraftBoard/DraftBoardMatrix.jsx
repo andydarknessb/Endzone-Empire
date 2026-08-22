@@ -64,7 +64,7 @@ function useFlashKey(value) {
  * client-side re-derivation of snake order is needed to place a landed pick,
  * only to know the round a pick_number falls in (ceil(pick_number / teamCount)).
  */
-function DraftBoardMatrix({ teams, picks, onTheClock, rosterLimit, onOpenQuickView, readOnly = false }) {
+function DraftBoardMatrix({ teams, picks, onTheClock, draftRounds, onOpenQuickView, readOnly = false }) {
   const orderedTeams = useMemo(
     () => [...teams].sort((a, b) => (a.draft_position ?? Infinity) - (b.draft_position ?? Infinity)),
     [teams]
@@ -82,11 +82,11 @@ function DraftBoardMatrix({ teams, picks, onTheClock, rosterLimit, onOpenQuickVi
   }, [picks, teamCount]);
 
   const totalRounds = useMemo(() => {
-    if (rosterLimit > 0) return rosterLimit;
+    if (draftRounds > 0) return draftRounds;
     if (teamCount === 0) return 0;
     const observedRounds = picks.map((p) => Math.ceil(p.pick_number / teamCount));
     return Math.max(1, ...observedRounds);
-  }, [rosterLimit, teamCount, picks]);
+  }, [draftRounds, teamCount, picks]);
 
   // The most recently landed pick (picks is newest-first) drives the one-shot
   // landing flash; `useFlashKey` only fires on a change *after* mount, so

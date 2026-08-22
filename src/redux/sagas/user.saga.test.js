@@ -2,8 +2,13 @@ import { put } from 'redux-saga/effects';
 import MockAdapter from 'axios-mock-adapter';
 import userSaga, { fetchUser } from './user.saga';
 import { renderHook } from '@testing-library/react';
-import { primeLeagueCache, useLeague } from '../../hooks/useLeague';
+import { useLeague } from '../../hooks/useLeague';
+import { setResource } from '../../lib/resourceCache';
 import apiClient, { setToken, getToken, clearToken } from '../../api/apiClient';
+
+// Warm the shared league entry the way a visited page would.
+const primeLeagueForTest = (leagueId, league) =>
+  setResource(['league', leagueId], { league, teams: [] });
 
 // See login.saga.test.js for why this is required: the worker yields a raw
 // apiClient.get(...) promise, which is genuinely invoked when the
@@ -75,7 +80,7 @@ describe('fetchUser (worker)', () => {
 test('a 401 on FETCH_USER (expired or invalid token) also drops the session caches', () => {
   const deleted = [];
   global.caches = { delete: (name) => { deleted.push(name); return Promise.resolve(true); } };
-  primeLeagueCache(1, { id: 1, name: 'Previous session row' });
+  primeLeagueForTest(1, { id: 1, name: 'Previous session row' });
 
   const gen = fetchUser();
   gen.next(); // apiClient.get('/api/user')
