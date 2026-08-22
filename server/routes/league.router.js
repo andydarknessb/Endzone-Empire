@@ -48,7 +48,7 @@ function serviceErrorBody(error) {
 router.post('/', async (req, res) => {
   const {
     name, maxTeams, minTeams, teamName,
-    isPublic, joinApproval, bestBall, scoringPreset, draftDate,
+    isPublic, joinApproval, bestBall, scoringPreset, draftDate, draftTimezone,
     leagueType, pickemMode,
   } = req.body || {};
   if (!name || typeof name !== 'string') {
@@ -57,7 +57,7 @@ router.post('/', async (req, res) => {
   // Format options first: the size checks below need to know whether this is
   // a pick'em-only league, whose member cap is looser than the fantasy one.
   const optionsResult = validateCreateOptions({
-    isPublic, joinApproval, bestBall, scoringPreset, draftDate, leagueType, pickemMode,
+    isPublic, joinApproval, bestBall, scoringPreset, draftDate, draftTimezone, leagueType, pickemMode,
   });
   if (optionsResult.error) return res.status(400).json({ error: optionsResult.error });
   const options = optionsResult.value;
@@ -80,14 +80,14 @@ router.post('/', async (req, res) => {
       `INSERT INTO "leagues" (
          "name", "owner_id", "invite_code", "max_teams", "min_teams",
          "is_public", "join_approval", "best_ball", "scoring_preset", "scoring_rules", "draft_date",
-         "pickem_only"
+         "draft_timezone", "pickem_only"
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
       [
         name, req.user.id, inviteCode, teams, minimum,
         options.isPublic, options.joinApproval, options.bestBall,
         options.scoringPreset, options.scoringRules ? JSON.stringify(options.scoringRules) : null,
-        options.draftDate, options.pickemOnly,
+        options.draftDate, options.draftTimezone, options.pickemOnly,
       ]
     );
     let league = leagueResult.rows[0];

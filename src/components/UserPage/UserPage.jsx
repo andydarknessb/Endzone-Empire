@@ -14,8 +14,10 @@ import apiClient from '../../api/apiClient';
 import Countdown from '../Countdown/Countdown';
 import LeagueCard from '../common/LeagueCard';
 import LeagueTypeFields from '../common/LeagueTypeFields';
+import DraftScheduleField from '../common/DraftScheduleField';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import { deriveLeaguePhase, LEAGUE_PHASE } from '../../lib/leaguePhase';
+import { browserTimeZone, zonedWallTimeToUtcIso } from '../../lib/draftTimezone';
 import {
   LEAGUE_TYPE, MIN_TEAMS, capForType, clampTeamCount, includesFantasy, isPickemOnly, isPickemOnlyType, isValidTeamCount,
   leagueTypePayload,
@@ -94,6 +96,8 @@ function UserPage() {
   const [bestBall, setBestBall] = useState(false);
   const [scoringPreset, setScoringPreset] = useState('');
   const [draftDate, setDraftDate] = useState('');
+  const [draftTimezone, setDraftTimezone] = useState(browserTimeZone);
+  const [draftAcknowledged, setDraftAcknowledged] = useState(false);
 
   // Join League dialog — leagues are private, so joining is always by invite code
   const [openJoinDialog, setOpenJoinDialog] = useState(false);
@@ -174,17 +178,23 @@ function UserPage() {
   // free text and this dialog is not a <form>, so native min/max never run:
   // gate Create on the count instead of letting the server 400 it.
   const teamCountValid = isValidTeamCount(numTeams, capForType(leagueType));
+  // A scheduled draft needs its zone explicitly acknowledged before Create
+  // can fire (#116 AC3); an empty draft date needs no acknowledgement, and
+  // neither does a pick'em league, which never sends draftDate at all (a
+  // date typed before switching away from fantasy is simply dropped).
+  const draftScheduleReady = !includesFantasy(leagueType) || !draftDate || draftAcknowledged;
 
   const handleCreateLeague = async () => {
     setError(null);
     try {
       // maxTeams is always explicit: the server's default is the fantasy 10
       // for every type, so a pick'em pool must never rely on it.
+      const draftDateUtc = draftDate ? zonedWallTimeToUtcIso(draftDate, draftTimezone) : null;
       const payload = {
         name: leagueName,
         teamName: teamName || undefined,
         maxTeams: Number(numTeams),
-        ...leagueTypePayload({ leagueType, pickemMode, bestBall, scoringPreset, draftDate }),
+        ...leagueTypePayload({ leagueType, pickemMode, bestBall, scoringPreset, draftDate: draftDateUtc, draftTimezone }),
       };
       if (isPublic) payload.isPublic = true;
       if (isPublic && joinApproval) payload.joinApproval = true;
@@ -202,6 +212,8 @@ function UserPage() {
       setBestBall(false);
       setScoringPreset('');
       setDraftDate('');
+      setDraftTimezone(browserTimeZone());
+      setDraftAcknowledged(false);
       fetchMyLeagues();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
@@ -589,16 +601,13 @@ function UserPage() {
               </Select>
             </FormControl>
 
-            <TextField
-              className="dialogTextField"
-              margin="dense"
-              label="Draft date"
-              type="datetime-local"
-              fullWidth
-              InputLabelProps={{ shrink: true }}
-              sx={(theme) => ({ colorScheme: theme.palette.mode })}
-              value={draftDate}
-              onChange={(event) => setDraftDate(event.target.value)}
+            <DraftScheduleField
+              wallTime={draftDate}
+              onWallTimeChange={setDraftDate}
+              timeZone={draftTimezone}
+              onTimeZoneChange={setDraftTimezone}
+              acknowledged={draftAcknowledged}
+              onAcknowledgedChange={setDraftAcknowledged}
             />
               </>
             )}
@@ -607,7 +616,7 @@ function UserPage() {
             <Button onClick={handleCloseCreateDialog} color="primary">
              Cancel
             </Button>
-            <Button onClick={handleCreateLeague} color="primary" disabled={!leagueName.trim() || !teamCountValid}>
+            <Button onClick={handleCreateLeague} color="primary" disabled={!leagueName.trim() || !teamCountValid || !draftScheduleReady}>
              Create
             </Button>
             </DialogActions>

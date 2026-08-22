@@ -53,9 +53,11 @@ function mockPool(t) {
 }
 
 // Bind positions in the settings UPDATE (1-based, as in the SQL): $9 is the
-// trade-deadline value (its position is unchanged), $37 is the new "was it
-// sent" flag appended at the end. The others below are pre-existing positions
-// the position-stability test pins.
+// trade-deadline value (its position is unchanged), $37 is the "was it sent"
+// flag appended at the end for this feature; #116 later appended
+// draftTimezoneProvided/draftTimezone as $38/$39, so the total below has
+// grown past PROVIDED_PARAM without moving anything this file pins. The
+// others below are pre-existing positions the position-stability test pins.
 const VALUE_PARAM = 9;
 const LEAGUE_ID_PARAM = 17;
 const USER_ID_PARAM = 18;
@@ -111,7 +113,9 @@ test('the flag was appended at the end, so every pre-existing bind position stil
   const calls = mockPool(t);
   await request(app).put('/api/league/1').set('Authorization', authed()).send({ tradeDeadlineWeek: 3 });
   const update = updateOf(calls);
-  assert.equal(update.params.length, PROVIDED_PARAM);
+  // 39, not PROVIDED_PARAM (37): #116 appended two more params (draftTimezone
+  // provided flag + value) after this feature's own $37.
+  assert.equal(update.params.length, 39);
   // Values that would shift if the new parameter had been inserted anywhere
   // but the end: the league id and commissioner id the WHERE binds, and the
   // three other tri-state "provided" flags, all false for this body.

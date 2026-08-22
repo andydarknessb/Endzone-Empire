@@ -207,7 +207,8 @@ test('the UPDATE parameters: roster_limit is derived from the merged roster shap
   const db = fakeDb({ status: statusRow({ roster_slots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }, { key: 'RB', count: 2, eligiblePositions: ['RB'] }], bench_slots: 4, ir_slots: 1 }) });
   await run(db, { name: 'Renamed', benchSlots: 6, positionCaps: { QB: 3, RB: 5 } });
   const update = db.calls.find((c) => c.text.startsWith('UPDATE "leagues"'));
-  assert.equal(update.params.length, 37);
+  // 39, not 37: #116 appended draftTimezoneProvided/draftTimezone as $38/$39.
+  assert.equal(update.params.length, 39);
   // An empty name is a parse-time 400 since #66, so the write path's || null
   // coercion is unreachable for a provided name; a valid one passes through.
   assert.equal(update.params[0], 'Renamed');
@@ -216,6 +217,8 @@ test('the UPDATE parameters: roster_limit is derived from the merged roster shap
   assert.equal(update.params[24], 6);
   assert.equal(update.params[2], null, 'rosterSlots was not sent');
   assert.equal(update.params[36], false, 'tradeDeadlineWeek was not sent');
+  assert.equal(update.params[37], false, 'draftTimezone was not sent');
+  assert.equal(update.params[38], null, 'draftTimezone value is null when not sent');
 });
 test('notification: fired once, after COMMIT, on the pool argument (not the client), with the scheduled verb and date', async (t) => {
   const db = fakeDb({ status: statusRow({ draft_date: null }) });

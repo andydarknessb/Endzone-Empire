@@ -2,6 +2,26 @@ const pool = require('../modules/pool');
 const { logTransaction, notify } = require('./activity.service');
 const { MembershipError, requireMember } = require('./leagueMembership.service');
 
+/** Every current commissioner's user id: the owner plus any co-commissioners. */
+async function listCommissionerUserIds(db, leagueId, ownerId) {
+  const coCommissioners = await listCoCommissioners(db, leagueId);
+  return [...new Set([ownerId, ...coCommissioners.map((row) => row.user_id)])];
+}
+
+/**
+ * Notify every CURRENT commissioner of a league — owner and co-commissioners
+ * alike — the counterpart to activity.service's notifyLeague (every team
+ * owner). A commissioner-only alert (a scheduled draft that could not
+ * auto-start, say) must not reach the creator alone once co-commissioners
+ * exist: they hold the same powers and need the same nudge.
+ */
+async function notifyCommissioners(db, { leagueId, ownerId, type, message, data = {} }) {
+  const userIds = await listCommissionerUserIds(db, leagueId, ownerId);
+  for (const userId of userIds) {
+    await notify(db, { userId, leagueId, type, message, data });
+  }
+}
+
 /**
  * League roles — the one module answering "who is this manager to this
  * league". The roles form an ordered set, member < commissioner < owner:
@@ -178,6 +198,8 @@ module.exports = {
   isLeagueCommissioner,
   isLeagueOwner,
   listCoCommissioners,
+  listCommissionerUserIds,
+  notifyCommissioners,
   requireOwner,
   grantCoCommissioner,
   revokeCoCommissioner,

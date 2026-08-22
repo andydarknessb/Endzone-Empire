@@ -12,6 +12,7 @@ const { assertAdmissible, joinLeague } = require('./leagueMembership.service');
 const { joinability, joinableWhereSql } = require('./leaguePhase');
 const { pickemOnlyWhereSql, fantasySideWhereSql } = require('./leagueType');
 const { isFull, hasOpenSlotsHavingSql } = require('./leagueSize');
+const { isValidIanaTimeZone } = require('../modules/ianaTimeZones');
 
 /**
  * Coded error for this module, the same shape as MembershipError: `reason`
@@ -45,7 +46,7 @@ const VALID_LEAGUE_TYPES = ['fantasy', 'pickem', 'both'];
  * combination is representable on the wire.
  */
 function validateCreateOptions({
-  isPublic, joinApproval, bestBall, scoringPreset, draftDate, leagueType, pickemMode,
+  isPublic, joinApproval, bestBall, scoringPreset, draftDate, draftTimezone, leagueType, pickemMode,
 } = {}) {
   if (leagueType !== undefined && !VALID_LEAGUE_TYPES.includes(leagueType)) {
     return { error: `leagueType must be one of ${VALID_LEAGUE_TYPES.join(', ')}` };
@@ -77,6 +78,15 @@ function validateCreateOptions({
     if (draftDate !== undefined && draftDate !== null) {
       return { error: 'draftDate is not allowed when leagueType is pickem' };
     }
+    if (draftTimezone !== undefined && draftTimezone !== null) {
+      return { error: 'draftTimezone is not allowed when leagueType is pickem' };
+    }
+  }
+  // Draft date and timezone are one coherent scheduling change at create time
+  // too (#116 AC2): there is no "current" row to fall back on here, so a zone
+  // means nothing unless this same request also sets the date.
+  if (draftTimezone !== undefined && draftTimezone !== null && (draftDate === undefined || draftDate === null)) {
+    return { error: 'draftTimezone requires a scheduled draftDate' };
   }
 
   const value = {
@@ -86,6 +96,7 @@ function validateCreateOptions({
     scoringPreset: null,
     scoringRules: null,
     draftDate: null,
+    draftTimezone: null,
     pickemOnly: type === 'pickem',
     pickemEnabled: type !== 'fantasy',
     pickemMode: pickemMode == null ? 'straight' : pickemMode,
@@ -115,6 +126,12 @@ function validateCreateOptions({
     if (Number.isNaN(parsed.getTime())) return { error: 'draftDate must be a valid ISO date string' };
     if (parsed.getTime() <= Date.now()) return { error: 'draftDate must be in the future' };
     value.draftDate = parsed;
+  }
+  if (draftTimezone !== undefined && draftTimezone !== null) {
+    if (!isValidIanaTimeZone(draftTimezone)) {
+      return { error: 'draftTimezone must be a valid IANA time zone name (e.g. "America/New_York")' };
+    }
+    value.draftTimezone = draftTimezone;
   }
   return { value };
 }
