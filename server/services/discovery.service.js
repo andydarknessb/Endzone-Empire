@@ -9,6 +9,7 @@ const { SCORING_PRESETS } = require('./scoring.service');
 const { MODES: PICKEM_MODES } = require('./pickem.service');
 const { commissionerPredicate, isMember } = require('./leagueRole.service');
 const { joinability, joinableWhereSql, joinRefusalMessage } = require('./leaguePhase');
+const { pickemOnlyWhereSql, fantasySideWhereSql } = require('./leagueType');
 
 class DiscoveryError extends Error {
   constructor(statusCode, message, { reason } = {}) {
@@ -152,10 +153,12 @@ function buildDiscoverQuery({ userId, search, scoring, openSlots, sort, type } =
   // which includes a fantasy league that also plays pick'em ("both": that is
   // pickem_only=false plus an enabled pickem_settings row, see the pickemEnabled
   // projection). Anything unvalidated adds no fragment rather than silently
-  // meaning "fantasy".
-  if (VALID_DISCOVER_TYPES.includes(type)) {
-    params.push(type === 'pickem');
-    where.push(`"leagues"."pickem_only" = $${params.length}`);
+  // meaning "fantasy". A fixed code string, not request input, so it is
+  // spliced directly rather than travelling through params.
+  if (type === 'pickem') {
+    where.push(pickemOnlyWhereSql('leagues'));
+  } else if (type === 'fantasy') {
+    where.push(fantasySideWhereSql('leagues'));
   }
 
   const havingClause = openSlots ? `COUNT(DISTINCT "teams"."id") < "leagues"."max_teams"` : null;
@@ -239,16 +242,15 @@ async function previewLeagueByInviteCode({ code, userId }) {
     params: [userId, code],
     extraColumns: `,
        "leagues"."is_public" AS "isPublic",
-       "leagues"."draft_status" AS "draftStatus",
-       "leagues"."season_status" AS "seasonStatus",
+       "leagues"."draft_status" AS "draft_status",
+       "leagues"."season_status" AS "season_status",
+       "leagues"."pickem_only" AS "pickem_only",
        (SELECT "users"."username" FROM "users" WHERE "users"."id" = "leagues"."owner_id") AS "ownerUsername"`,
   });
   const row = rows[0];
   if (!row) return null;
-  const { draftStatus, seasonStatus, ...preview } = row;
-  const answer = joinability({
-    pickem_only: row.pickemOnly, draft_status: draftStatus, season_status: seasonStatus,
-  });
+  const { draft_status, season_status, pickem_only, ...preview } = row;
+  const answer = joinability({ draft_status, season_status, pickem_only });
   return { ...preview, joinable: answer.joinable, joinReason: answer.joinable ? null : answer.reason };
 }
 

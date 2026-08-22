@@ -56,6 +56,31 @@ async function assertFantasyLeague(db, leagueId) {
   assertFantasyLeagueRow(result.rows[0]);
 }
 
+/* ------------------------------------------------------------------ *
+ * SQL fragments. Code literals only: the alias is a table alias chosen *
+ * by the caller, never request input, and it is validated as an       *
+ * identifier so the fragment can be spliced where discovery already   *
+ * splices code-literal fragments.                                     *
+ * ------------------------------------------------------------------ */
+
+function column(alias, name) {
+  if (alias === undefined || alias === null || alias === '') return `"${name}"`;
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(String(alias))) {
+    throw new Error(`leagueType: table alias must be a bare identifier, got ${JSON.stringify(alias)}`);
+  }
+  return `"${alias}"."${name}"`;
+}
+
+/** WHERE fragment: matches a pick'em-only league. No polarity flag — it reads as the rule it states. */
+function pickemOnlyWhereSql(alias) {
+  return `${column(alias, 'pickem_only')} = true`;
+}
+
+/** WHERE fragment: matches a league with a fantasy side. */
+function fantasySideWhereSql(alias) {
+  return `${column(alias, 'pickem_only')} = false`;
+}
+
 const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 /**
@@ -93,4 +118,7 @@ module.exports = {
   assertFantasyLeagueRow,
   assertFantasyLeague,
   requireFantasyLeague,
+  column,
+  pickemOnlyWhereSql,
+  fantasySideWhereSql,
 };

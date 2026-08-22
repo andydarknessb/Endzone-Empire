@@ -37,14 +37,15 @@ function makeApp() {
 const app = makeApp();
 
 // A pick'em-only league run by alice with 3 of 12 members, mid-season; the caller is not one of them.
-// draftStatus and seasonStatus are what the lookup reads to answer joinability; neither is shipped.
+// draft_status, season_status and pickem_only are what the lookup reads (under their own
+// column names) to answer joinability; none of the three is shipped.
 const PICKEM_ROW = {
   id: 7, name: 'Office Pick\'em', maxTeams: 12, teamCount: 3, scoringPreset: null, bestBall: false,
   pickemOnly: true, pickemEnabled: true, joinApproval: false, draftDate: null, createdAt: '2026-08-01T00:00:00.000Z',
-  alreadyMember: false, myRequestStatus: null, isPublic: false, ownerUsername: 'alice', draftStatus: 'pending',
-  seasonStatus: 'regular',
+  alreadyMember: false, myRequestStatus: null, isPublic: false, ownerUsername: 'alice', draft_status: 'pending',
+  season_status: 'regular', pickem_only: true,
 };
-const { draftStatus: _draftStatus, seasonStatus: _seasonStatus, ...PICKEM_PREVIEW } = PICKEM_ROW;
+const { draft_status: _draftStatus, season_status: _seasonStatus, pickem_only: _pickemOnly, ...PICKEM_PREVIEW } = PICKEM_ROW;
 
 /** The pool answers the invite-code lookup with `row` (or nothing), recording the params it saw. */
 function fakeDb(t, { row = PICKEM_ROW } = {}) {
@@ -65,8 +66,9 @@ test('a valid invite code previews the league in the Discover card shape, withou
   // Joinability rides along (an in-season pick'em-only pool accepts teams). The raw
   // draft and season statuses are inputs to that answer, never fields (#57 contract step).
   assert.deepEqual(res.body, { ...PICKEM_PREVIEW, openSlots: true, joinable: true, joinReason: null });
-  assert.equal('draftStatus' in res.body, false, 'draftStatus was dropped from the preview');
-  assert.equal('seasonStatus' in res.body, false);
+  assert.equal('draft_status' in res.body, false, 'draft_status was dropped from the preview');
+  assert.equal('season_status' in res.body, false);
+  assert.equal('pickem_only' in res.body, false, 'pickem_only was dropped; pickemOnly (camelCase) is the wire field');
   // Looked up by the code the caller sent, scoped to the caller for alreadyMember,
   // and the projection never selects the code back out.
   assert.equal(calls.length, 1);

@@ -7,6 +7,9 @@ const {
   isPickemOnly,
   assertFantasyLeague,
   requireFantasyLeague,
+  column,
+  pickemOnlyWhereSql,
+  fantasySideWhereSql,
 } = require('../services/leagueType');
 
 const PICKEM_MESSAGE = "this is a pick'em league; it has no draft, rosters, or matchups";
@@ -659,4 +662,31 @@ test('requireFantasyLeague({ from: "body" }) reads the id from the request body'
   const res = await request(app).put('/queue').send({ leagueId: 12, playerIds: [] });
   assert.equal(res.status, 409);
   assert.deepEqual(calls[0].params, [12]);
+});
+
+/* ------------------------------------------------------------------ *
+ * SQL fragments (asserted as text, never executed)                    *
+ * ------------------------------------------------------------------ */
+
+test('column: bare identifier without an alias, alias-qualified with one', () => {
+  assert.equal(column(undefined, 'pickem_only'), `"pickem_only"`);
+  assert.equal(column(null, 'pickem_only'), `"pickem_only"`);
+  assert.equal(column('', 'pickem_only'), `"pickem_only"`);
+  assert.equal(column('l', 'pickem_only'), `"l"."pickem_only"`);
+});
+
+test('column: an alias with a quote or dot is refused (code literals only)', () => {
+  assert.throws(() => column('x"; DROP TABLE', 'pickem_only'), /alias/);
+  assert.throws(() => column('a.b', 'pickem_only'), /alias/);
+  assert.throws(() => column('a b', 'pickem_only'), /alias/);
+});
+
+test('pickemOnlyWhereSql: matches a pick\'em-only league, with and without an alias', () => {
+  assert.equal(pickemOnlyWhereSql('leagues'), `"leagues"."pickem_only" = true`);
+  assert.equal(pickemOnlyWhereSql(), `"pickem_only" = true`);
+});
+
+test('fantasySideWhereSql: matches a league with a fantasy side, with and without an alias', () => {
+  assert.equal(fantasySideWhereSql('leagues'), `"leagues"."pickem_only" = false`);
+  assert.equal(fantasySideWhereSql(), `"pickem_only" = false`);
 });

@@ -4,6 +4,7 @@ const { isTransientDatabaseError } = require('../modules/dbRetry');
 const { tank01Get } = require('../modules/tank01Client');
 const { materializeLineup, optimalLineup, parseLineupSettings, POSITION_GROUPS } = require('./lineup.service');
 const { getIo } = require('../modules/io');
+const { fantasySideWhereSql } = require('./leagueType');
 
 // Default fantasy scoring rules, grouped by category (NFL.com-style
 // defaults) — half-PPR. Tiered stats (FG distance, TD-length bonus,
@@ -1472,7 +1473,7 @@ async function syncPlayerSeasonStats({ currentSeason, positions } = {}) {
     // would widen "strictly before" into a season whose offense/K rollups
     // are still Sleeper-sourced (the clobber the WARNING above forbids).
     const r = await pool.query(
-      `SELECT MAX("current_season") AS s FROM "leagues" WHERE "pickem_only" = false`
+      `SELECT MAX("current_season") AS s FROM "leagues" WHERE ${fantasySideWhereSql()}`
     );
     cutoff = r.rows[0] && r.rows[0].s != null ? Number(r.rows[0].s) : 2026;
   }

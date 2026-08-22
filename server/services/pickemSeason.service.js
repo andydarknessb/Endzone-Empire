@@ -2,6 +2,7 @@ const pool = require('../modules/pool');
 const { REG_SEASON_WEEKS, winnerOf, getSeasonSlate, getStandings } = require('./pickem.service');
 const { awardPickemChampions, notifyAwardedOwners } = require('./trophy.service');
 const { notifyLeague } = require('./activity.service');
+const { pickemOnlyWhereSql } = require('./leagueType');
 
 /**
  * Pick'em season lifecycle for pick'em-only leagues.
@@ -236,7 +237,7 @@ const SEASON_KICKOFFS_SQL = `
 const PICKEM_ONLY_LEAGUES_SQL = `
   SELECT "id", "current_season", "current_week", "created_at"
     FROM "leagues"
-   WHERE "pickem_only" = true AND "season_status" <> 'complete'
+   WHERE ${pickemOnlyWhereSql()} AND "season_status" <> 'complete'
    ORDER BY "id"`;
 
 /** Has anyone in the league saved a pick this season? Pool or client. */
@@ -296,7 +297,7 @@ async function moveLeagueToNewestSeason({ league, from, pointer, db }) {
   if (await hasPicksThisSeason(db, league.id, Number(league.current_season))) return null;
   const moved = await db.query(
     `UPDATE "leagues" SET "current_season" = $1, "current_week" = $2, "updated_at" = now()
-      WHERE "id" = $3 AND "pickem_only" = true AND "season_status" <> 'complete'
+      WHERE "id" = $3 AND ${pickemOnlyWhereSql()} AND "season_status" <> 'complete'
         AND "current_season" = $4 AND "current_week" = $5
       RETURNING "id"`,
     [pointer.season, pointer.week, league.id, Number(league.current_season), from]
@@ -347,7 +348,7 @@ async function syncPickemOnlyWeeks({ now = new Date(), db = pool } = {}) {
       if (to === from) continue;
       const updated = await db.query(
         `UPDATE "leagues" SET "current_week" = $1, "updated_at" = now()
-          WHERE "id" = $2 AND "pickem_only" = true AND "season_status" <> 'complete'
+          WHERE "id" = $2 AND ${pickemOnlyWhereSql()} AND "season_status" <> 'complete'
             AND "current_week" = $3 AND "current_season" = $4
           RETURNING "id"`,
         [to, league.id, from, season]

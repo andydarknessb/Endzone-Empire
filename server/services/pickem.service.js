@@ -1,6 +1,7 @@
 const pool = require('../modules/pool');
 const { logTransaction } = require('./activity.service');
 const { RECAPS_TABLE_SQL, isMissingRecapStorage } = require('../modules/recapStorage');
+const { isPickemOnly } = require('./leagueType');
 
 /**
  * League Pick'em — pick the winner of every NFL game, every week.
@@ -527,7 +528,7 @@ async function putSettings({ leagueId, enabled, mode }) {
   try {
     await client.query('BEGIN');
     const league = await loadLeague(client, leagueId);
-    if (league.pickem_only && enabled === false) {
+    if (isPickemOnly(league) && enabled === false) {
       throw new PickemError(
         409,
         'PICKEM_ONLY_LEAGUE',

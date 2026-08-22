@@ -19,6 +19,8 @@
  * again). A league with a fantasy side is joinable only while pre-draft.
  */
 
+const { isPickemOnly, column, pickemOnlyWhereSql, fantasySideWhereSql } = require('./leagueType');
+
 const LEAGUE_PHASE = Object.freeze({
   PRE_DRAFT: 'pre-draft',
   DRAFTING: 'drafting',
@@ -42,7 +44,7 @@ const JOIN_REFUSAL_MESSAGES = Object.freeze({
 /** Pure: the phase for a leagues row. Null for a missing row. Same rule as the client. */
 function deriveLeaguePhase(league) {
   if (!league) return null;
-  if (league.pickem_only) {
+  if (isPickemOnly(league)) {
     return league.season_status === 'complete' ? LEAGUE_PHASE.COMPLETE : LEAGUE_PHASE.IN_SEASON;
   }
   if (league.draft_status === 'pending') return LEAGUE_PHASE.PRE_DRAFT;
@@ -61,7 +63,7 @@ function deriveLeaguePhase(league) {
 function joinability(league) {
   if (!league) return { joinable: false, reason: null };
   const phase = deriveLeaguePhase(league);
-  if (league.pickem_only) {
+  if (isPickemOnly(league)) {
     return phase === LEAGUE_PHASE.COMPLETE
       ? { joinable: false, reason: JOIN_REFUSAL_REASON.SEASON_COMPLETE }
       : { joinable: true };
@@ -83,21 +85,12 @@ function joinRefusalMessage(reason) {
  * splices code-literal fragments.                                     *
  * ------------------------------------------------------------------ */
 
-function column(alias, name) {
-  if (alias === undefined || alias === null || alias === '') return `"${name}"`;
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(String(alias))) {
-    throw new Error(`leaguePhase: table alias must be a bare identifier, got ${JSON.stringify(alias)}`);
-  }
-  return `"${alias}"."${name}"`;
-}
-
 /** WHERE fragment: the same rule as `joinability`, for the Discover query. */
 function joinableWhereSql(alias) {
-  const pickemOnly = column(alias, 'pickem_only');
   const draftStatus = column(alias, 'draft_status');
   const seasonStatus = column(alias, 'season_status');
-  return `((${pickemOnly} = false AND ${draftStatus} = 'pending')` +
-    ` OR (${pickemOnly} = true AND ${seasonStatus} <> 'complete'))`;
+  return `((${fantasySideWhereSql(alias)} AND ${draftStatus} = 'pending')` +
+    ` OR (${pickemOnlyWhereSql(alias)} AND ${seasonStatus} <> 'complete'))`;
 }
 
 /**
@@ -106,10 +99,9 @@ function joinableWhereSql(alias) {
  * leagues are excluded, as they always were.
  */
 function fantasySeasonLiveWhereSql(alias) {
-  const pickemOnly = column(alias, 'pickem_only');
   const draftStatus = column(alias, 'draft_status');
   const seasonStatus = column(alias, 'season_status');
-  return `(${pickemOnly} = false AND ${draftStatus} = 'complete' AND ${seasonStatus} <> 'complete')`;
+  return `(${fantasySideWhereSql(alias)} AND ${draftStatus} = 'complete' AND ${seasonStatus} <> 'complete')`;
 }
 
 /* ------------------------------------------------------------------ *
@@ -139,7 +131,7 @@ const DRAFT_FROZEN_SETTING_KEYS = Object.freeze([
  */
 function frozenSettingKeys(league) {
   if (!league) return [...DRAFT_FROZEN_SETTING_KEYS];
-  if (league.pickem_only) return [];
+  if (isPickemOnly(league)) return [];
   return deriveLeaguePhase(league) === LEAGUE_PHASE.PRE_DRAFT ? [] : [...DRAFT_FROZEN_SETTING_KEYS];
 }
 
@@ -151,9 +143,8 @@ function frozenSettingKeys(league) {
  * zeroes the update instead of slipping a frozen edit through.
  */
 function settingsUnfrozenWhereSql(alias) {
-  const pickemOnly = column(alias, 'pickem_only');
   const draftStatus = column(alias, 'draft_status');
-  return `(${pickemOnly} = true OR ${draftStatus} = 'pending')`;
+  return `(${pickemOnlyWhereSql(alias)} OR ${draftStatus} = 'pending')`;
 }
 
 module.exports = {

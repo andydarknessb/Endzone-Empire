@@ -45,7 +45,7 @@ const {
 const { validateOrderOverrides, isPermutationOf } = require('./draftOrder.service');
 const { commissionerPredicate } = require('./leagueRole.service');
 const { editSizeError } = require('./leagueSize');
-const { PICKEM_ONLY_CODE } = require('./leagueType');
+const { PICKEM_ONLY_CODE, isPickemOnly } = require('./leagueType');
 // Held as the module, not a destructured function: the notification is
 // looked up at call time so a test can mock activity.service's export.
 const activityService = require('./activity.service');
@@ -526,7 +526,7 @@ async function updateLeagueSettings(db, { leagueId, userId, patch }) {
         const starters = effectiveSlots.reduce((sum, s) => sum + s.count, 0);
         derivedRosterLimit = starters + effectiveBench + effectiveIr;
       }
-      if (current && current.pickem_only && fantasyOnlyRequested.length > 0) {
+      if (current && isPickemOnly(current) && fantasyOnlyRequested.length > 0) {
         return await rejectUpdate(
           409,
           `these settings do not apply to a pick'em league: ${fantasyOnlyRequested.join(', ')}`,

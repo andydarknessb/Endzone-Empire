@@ -1,5 +1,6 @@
 const pool = require('../modules/pool');
 const { notify, notifyLeague } = require('./activity.service');
+const { fantasySideWhereSql } = require('./leagueType');
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -56,7 +57,7 @@ async function processScheduledDrafts({ now = new Date() } = {}) {
             (SELECT COUNT(*)::int FROM "teams" WHERE "teams"."league_id" = "leagues"."id") AS "team_count"
      FROM "leagues"
      WHERE "draft_status" = 'pending' AND "draft_date" IS NOT NULL
-       AND "pickem_only" = false`
+       AND ${fantasySideWhereSql()}`
   );
 
   const actions = [];

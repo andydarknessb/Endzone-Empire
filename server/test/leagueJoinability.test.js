@@ -179,17 +179,18 @@ test('denying a join request never consults joinability (a closed league can sti
  * Invite preview (service)                                             *
  * ------------------------------------------------------------------ */
 
-test('previewLeagueByInviteCode ships joinable + joinReason and neither raw status (draftStatus dropped in the contract step)', async (t) => {
+test('previewLeagueByInviteCode ships joinable + joinReason and none of the three raw inputs (dropped in the contract step)', async (t) => {
   const row = {
     id: 7, name: 'Office Pick\'em', maxTeams: 50, teamCount: 3, pickemOnly: true, pickemEnabled: true,
-    isPublic: false, ownerUsername: 'alice', draftStatus: 'pending', seasonStatus: 'complete',
+    isPublic: false, ownerUsername: 'alice', draft_status: 'pending', season_status: 'complete', pickem_only: true,
   };
   t.mock.method(pool, 'query', async () => ({ rows: [row] }));
   const preview = await previewLeagueByInviteCode({ code: 'e402e816', userId: 9 });
   assert.equal(preview.joinable, false);
   assert.equal(preview.joinReason, 'season-complete');
-  assert.equal('draftStatus' in preview, false, 'draft status is an input, not a preview field');
-  assert.equal('seasonStatus' in preview, false, 'season status is an input, not a preview field');
+  assert.equal('draft_status' in preview, false, 'draft status is an input, not a preview field');
+  assert.equal('season_status' in preview, false, 'season status is an input, not a preview field');
+  assert.equal('pickem_only' in preview, false, 'pickem_only is an input, not a preview field');
 });
 
 /* ------------------------------------------------------------------ *
@@ -218,12 +219,12 @@ test('GET /preview: a completed pick\'em-only league previews as not joinable, s
     id: 7, name: 'Office Pick\'em', maxTeams: 50, teamCount: 3, scoringPreset: null, bestBall: false,
     pickemOnly: true, pickemEnabled: true, joinApproval: false, draftDate: null, createdAt: '2026-08-01T00:00:00.000Z',
     alreadyMember: false, myRequestStatus: null, isPublic: false, ownerUsername: 'alice',
-    draftStatus: 'pending', seasonStatus: 'complete',
+    draft_status: 'pending', season_status: 'complete', pickem_only: true,
   };
   t.mock.method(pool, 'query', async (sql) => {
     const text = String(sql).replace(/\s+/g, ' ').trim();
     if (/"leagues"\."invite_code" = \$\d/.test(text)) {
-      assert.match(text, /"leagues"\."season_status" AS "seasonStatus"/, 'the lookup reads season status');
+      assert.match(text, /"leagues"\."season_status" AS "season_status"/, 'the lookup reads season status');
       return { rows: [row] };
     }
     throw new Error(`unexpected query: ${text}`);
@@ -232,9 +233,9 @@ test('GET /preview: a completed pick\'em-only league previews as not joinable, s
   assert.equal(res.status, 200, JSON.stringify(res.body));
   assert.equal(res.body.joinable, false);
   assert.equal(res.body.joinReason, 'season-complete');
-  assert.equal('draftStatus' in res.body, false);
+  assert.equal('draft_status' in res.body, false);
   assert.equal(res.body.pickemOnly, true);
-  assert.equal('seasonStatus' in res.body, false);
+  assert.equal('season_status' in res.body, false);
 });
 
 test('GET /preview: an in-season pick\'em-only league is joinable with no reason; a drafted fantasy league is not, draft-started', async (t) => {
@@ -244,19 +245,19 @@ test('GET /preview: an in-season pick\'em-only league is joinable with no reason
     joinApproval: false, draftDate: null, createdAt: '2026-08-01T00:00:00.000Z', alreadyMember: false,
     myRequestStatus: null, isPublic: false, ownerUsername: 'alice',
   };
-  let row = { ...base, pickemOnly: true, draftStatus: 'pending', seasonStatus: 'regular' };
+  let row = { ...base, pickemOnly: true, draft_status: 'pending', season_status: 'regular', pickem_only: true };
   t.mock.method(pool, 'query', async () => ({ rows: [row] }));
   let res = await request(app).get('/api/league/preview?code=e402e816').set('Authorization', authed());
   assert.equal(res.status, 200);
   assert.equal(res.body.joinable, true);
   assert.equal(res.body.joinReason, null);
 
-  row = { ...base, pickemOnly: false, draftStatus: 'active', seasonStatus: 'regular' };
+  row = { ...base, pickemOnly: false, draft_status: 'active', season_status: 'regular', pickem_only: false };
   res = await request(app).get('/api/league/preview?code=e402e816').set('Authorization', authed());
   assert.equal(res.status, 200);
   assert.equal(res.body.joinable, false);
   assert.equal(res.body.joinReason, 'draft-started');
-  assert.equal('draftStatus' in res.body, false);
+  assert.equal('draft_status' in res.body, false);
 });
 
 test('POST /join (invite code): a completed pick\'em-only league is refused 409 with the season-complete reason and no team is created', async (t) => {

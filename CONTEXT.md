@@ -22,6 +22,9 @@ NFL pick'em, or both. "Both" is a fantasy league with pick'em enabled from the
 start, not a third structure; a pick'em league can never grow a fantasy side,
 and it always has pick'em on: it is the league's only game, so the commissioner
 cannot turn it off (only change how it scores).
+After creation the only type fact a league carries is whether it is pick'em-only;
+whether a fantasy league plays pick'em is a pick'em setting, one its commissioner
+may turn on at any time, so it is never read back as the league's type.
 _Avoid_: league kind, mode, format
 
 **Manager**:

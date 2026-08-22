@@ -8,7 +8,7 @@ const { teamForPick } = require('../services/draftOrder.service');
 const { draftPlayer, DraftError, nextPickClockSeconds } = require('../services/draft.service');
 const { validateKeepers, undoTargets } = require('../services/draftValidation.service');
 const { isLeagueCommissioner, commissionerPredicate, requireMember } = require('../services/leagueRole.service');
-const { requireFantasyLeague } = require('../services/leagueType');
+const { requireFantasyLeague, fantasySideWhereSql } = require('../services/leagueType');
 
 const router = express.Router();
 
@@ -688,7 +688,7 @@ router.get('/mine', async (req, res) => {
               (SELECT COUNT(*)::int FROM "teams" WHERE "teams"."league_id" = "leagues"."id") AS "team_count"
        FROM "leagues"
        WHERE ${commissionerPredicate(1)}
-         AND "pickem_only" = false
+         AND ${fantasySideWhereSql()}
          AND "draft_status" IN ('active', 'pending')
        ORDER BY ("draft_status" = 'active') DESC, "draft_date" NULLS LAST`,
       [req.user.id]
