@@ -50,7 +50,7 @@ function accessibleName(row, emptyLabel) {
  * league with an undraftable IR slot deliberately runs one round short of its
  * roster limit, and that is not a shortfall to warn about (#96).
  */
-function capacityNote(rounds, summary, irDraftable) {
+function draftRoundMismatchNote(rounds, summary, irDraftable) {
   const { draftable, starterInstances, benchInstances, irInstances } = summary;
   if (rounds == null || !Number.isFinite(Number(rounds))) return null;
   if (draftable === 0 || Number(rounds) === draftable) return null;
@@ -162,7 +162,7 @@ function RosterPanel({
     [picks, rosterSlots, benchCount, irCount, irDraftable]
   );
 
-  const note = capacityNote(rounds, assignment.summary, irDraftable);
+  const note = draftRoundMismatchNote(rounds, assignment.summary, irDraftable);
   const { draftable } = assignment.summary;
   useEffect(() => {
     if (note && process.env.NODE_ENV === 'development') {

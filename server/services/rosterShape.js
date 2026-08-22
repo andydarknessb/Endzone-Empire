@@ -23,8 +23,16 @@ const intOr0 = (value) => (Number.isFinite(Number(value)) ? Math.trunc(Number(va
 function draftRosterSize(league) {
   if (!league) return 0;
   const limit = intOr0(league.roster_limit ?? league.rosterLimit);
-  const ir = intOr0(league.ir_slots ?? league.irSlots);
-  return Math.max(0, limit - ir);
+  return Math.max(0, limit - irSlotCount(league));
 }
 
-module.exports = { draftRosterSize };
+/**
+ * Pure: a league's IR slot count, with the same null/legacy-row tolerance as
+ * `draftRosterSize` (rows predating the column degrade to 0, never NaN).
+ */
+function irSlotCount(league) {
+  if (!league) return 0;
+  return Math.max(0, intOr0(league.ir_slots ?? league.irSlots));
+}
+
+module.exports = { draftRosterSize, irSlotCount };

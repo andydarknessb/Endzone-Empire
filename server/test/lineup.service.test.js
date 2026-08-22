@@ -10,6 +10,7 @@ const {
   annotateLineupEntries,
   getLineup,
   setLineup,
+  benchAcquiredPlayer,
   DEFAULT_ROSTER_SLOTS,
 } = require('../services/lineup.service');
 
@@ -58,9 +59,9 @@ test('annotateLineupEntries does not treat an incomplete schedule gap as a bye',
 
 test('getLineup batches completed-season projections and preserves weekly null semantics', async (t) => {
   const entries = [
-    { id: 1, name: 'Projected Player', position: 'RB', nfl_team: null, injury_status: null, slot: 'RB' },
-    { id: 2, name: 'Small Sample', position: 'WR', nfl_team: null, injury_status: null, slot: 'WR' },
-    { id: 3, name: 'No History', position: 'TE', nfl_team: null, injury_status: null, slot: 'TE' },
+    { id: 1, name: 'Projected Player', position: 'RB', nfl_team: null, injury_status: null, slot: 'RB', ir_attested: false },
+    { id: 2, name: 'Small Sample', position: 'WR', nfl_team: null, injury_status: null, slot: 'WR', ir_attested: false },
+    { id: 3, name: 'No History', position: 'TE', nfl_team: null, injury_status: 'Q', slot: 'IR', ir_attested: true },
   ];
   const seasonQueries = [];
   const fake = createFakePool([
@@ -102,6 +103,12 @@ test('getLineup batches completed-season projections and preserves weekly null s
   assert.equal(lineup.entries[0].projected_points, 16);
   assert.equal(lineup.entries[1].projected_points, null);
   assert.equal(lineup.entries[2].projected_points, null);
+  // The attestation rides along so the client can tell an attested stash
+  // from an invalid one (#100).
+  assert.equal(lineup.entries[0].ir_attested, false);
+  assert.equal(lineup.entries[2].ir_attested, true);
+  assert.equal(lineup.entries[0].valid_stash, false);
+  assert.equal(lineup.entries[2].valid_stash, true);
   fake.assertClean();
 });
 
@@ -109,6 +116,7 @@ function installSetLineupWorld(t, injuryDesignation, {
   slot = 'BENCH',
   extraEntries = [],
   lockedTeams = [],
+  irAttested = false,
   leagueOverrides = {},
 } = {}) {
   const entries = [{
@@ -118,6 +126,7 @@ function installSetLineupWorld(t, injuryDesignation, {
     nfl_team: 'MIN',
     injury_status: injuryDesignation,
     slot,
+    ir_attested: irAttested,
   }, ...extraEntries];
   return createFakePool([
     [/^SELECT \* FROM "leagues"/, () => ({
@@ -277,8 +286,73 @@ test('setLineup lets a locked player resolve a stale stash by moving from IR to 
   fake.assertClean();
 });
 
+test('setLineup lets a locked stale stash leave IR when the league has no bench slots', async (t) => {
+  const fake = installSetLineupWorld(t, 'Q', {
+    slot: 'IR',
+    lockedTeams: ['MIN'],
+    leagueOverrides: { bench_slots: 0 },
+  });
+
+  const result = await setLineup({
+    leagueId: 5,
+    userId: 7,
+    week: 8,
+    moves: [{ playerId: 1, slot: 'BENCH' }],
+  });
+
+  assert.equal(result.updated, 1);
+  fake.assertClean();
+});
+
+test('setLineup cannot launder zero-bench recovery into an ordinary bench slot', async (t) => {
+  const fake = installSetLineupWorld(t, 'Q', {
+    slot: 'IR',
+    leagueOverrides: { bench_slots: 0 },
+    extraEntries: [{
+      player_id: 2,
+      name: 'Starting Runner',
+      position: 'RB',
+      nfl_team: 'KC',
+      injury_status: null,
+      slot: 'RB',
+      ir_attested: false,
+    }],
+  });
+
+  await assert.rejects(
+    setLineup({
+      leagueId: 5,
+      userId: 7,
+      week: 8,
+      moves: [
+        { playerId: 1, slot: 'BENCH' },
+        { playerId: 1, slot: 'RB' },
+        { playerId: 2, slot: 'BENCH' },
+      ],
+    }),
+    (error) => error.statusCode === 400 && /too many players at BENCH \(1\/0\)/.test(error.message)
+  );
+
+  fake.assertClean();
+});
+
 test('setLineup keeps the lock for an IR-eligible player stashed in IR', async (t) => {
   const fake = installSetLineupWorld(t, 'O', { slot: 'IR', lockedTeams: ['MIN'] });
+
+  await assert.rejects(
+    setLineup({ leagueId: 5, userId: 7, week: 8, moves: [{ playerId: 1, slot: 'BENCH' }] }),
+    { statusCode: 409, code: 'LINEUP_LOCKED' }
+  );
+
+  fake.assertClean();
+});
+
+test('setLineup keeps the lock for an attested stash after kickoff', async (t) => {
+  const fake = installSetLineupWorld(t, 'Q', {
+    slot: 'IR',
+    lockedTeams: ['MIN'],
+    irAttested: true,
+  });
 
   await assert.rejects(
     setLineup({ leagueId: 5, userId: 7, week: 8, moves: [{ playerId: 1, slot: 'BENCH' }] }),
@@ -345,8 +419,8 @@ test('setLineup derives a stale stash after weekly slot carry-forward', async (t
       rows: entries.map(({ player_id, position }) => ({ player_id, position })),
     })],
     [/^SELECT "player_id" FROM "lineup_entries"/, () => ({ rows: [] })],
-    [/^SELECT "player_id", "slot" FROM "lineup_entries"/, () => ({
-      rows: entries.map(({ player_id, previousSlot }) => ({ player_id, slot: previousSlot })),
+    [/^SELECT "player_id", "slot", "ir_attested" FROM "lineup_entries"/, () => ({
+      rows: entries.map(({ player_id, previousSlot }) => ({ player_id, slot: previousSlot, ir_attested: false })),
     })],
     [/^INSERT INTO "lineup_entries"/, (text, params) => {
       currentSlots.set(params[2], params[5]);
@@ -581,4 +655,249 @@ test('parseLineupSettings: accepts jsonb objects and JSON strings', () => {
   });
   assert.deepEqual(asString.rosterSlots, customSlots);
   assert.deepEqual(asString.positionCaps, { RB: 4 });
+});
+
+// --- commissioner IR attestation (#100), thin at the lineup seam ------------
+// Attestation semantics (grant, exemption, clearing shape) are dense at the
+// IR policy module seam; here we prove the lineup service consults them.
+
+test('setLineup accepts a save that keeps an attested ineligible player stashed', async (t) => {
+  const fake = installSetLineupWorld(t, 'Q', {
+    slot: 'IR',
+    irAttested: true,
+    extraEntries: [{
+      player_id: 2,
+      name: 'Other Quarterback',
+      position: 'QB',
+      nfl_team: 'KC',
+      injury_status: null,
+      slot: 'BENCH',
+      ir_attested: false,
+    }],
+  });
+
+  const result = await setLineup({ leagueId: 5, userId: 7, week: 8, moves: [{ playerId: 2, slot: 'QB' }] });
+
+  assert.equal(result.updated, 1);
+  fake.assertClean();
+});
+
+test('setLineup clears the attestation on any manager-initiated slot move', async (t) => {
+  const fake = installSetLineupWorld(t, 'Q', { slot: 'IR', irAttested: true });
+
+  const result = await setLineup({ leagueId: 5, userId: 7, week: 8, moves: [{ playerId: 1, slot: 'BENCH' }] });
+
+  assert.equal(result.updated, 1);
+  const update = fake.matching(/^UPDATE "lineup_entries"/)[0];
+  assert.match(update.text, /"ir_attested" = false/);
+  fake.assertClean();
+});
+
+test('weekly materialization carries the attestation forward with the slot', async (t) => {
+  // Week 9 has no entries yet; week 8 stashed player 1 with an attestation.
+  // The copy-forward must write slot IR AND ir_attested true, and the save
+  // must then accept the still-attested stash without a flag.
+  const entries = [
+    {
+      player_id: 1,
+      name: 'Attested Runner',
+      position: 'RB',
+      nfl_team: 'MIN',
+      injury_status: 'Q',
+      previousSlot: 'IR',
+      previousAttested: true,
+    },
+    {
+      player_id: 2,
+      name: 'Other Quarterback',
+      position: 'QB',
+      nfl_team: 'KC',
+      injury_status: null,
+      previousSlot: 'BENCH',
+      previousAttested: false,
+    },
+  ];
+  const materialized = new Map();
+  const fake = createFakePool([
+    [/^SELECT \* FROM "leagues"/, () => ({
+      rows: [{
+        id: 5,
+        current_season: 2026,
+        current_week: 9,
+        roster_slots: DEFAULT_ROSTER_SLOTS,
+        bench_slots: 5,
+        ir_slots: 1,
+      }],
+    })],
+    [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
+    [/^SELECT "team_players"\."player_id"/, () => ({
+      rows: entries.map(({ player_id, position }) => ({ player_id, position })),
+    })],
+    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({ rows: [] })],
+    [/^SELECT "player_id", "slot", "ir_attested" FROM "lineup_entries"/, () => ({
+      rows: entries.map(({ player_id, previousSlot, previousAttested }) => (
+        { player_id, slot: previousSlot, ir_attested: previousAttested }
+      )),
+    })],
+    [/^INSERT INTO "lineup_entries"/, (text, params) => {
+      materialized.set(params[2], { slot: params[5], ir_attested: params[6] });
+      return { rows: [] };
+    }],
+    [/^SELECT "lineup_entries"\."player_id"/, () => ({
+      rows: entries.map(({ previousSlot, previousAttested, ...entry }) => ({
+        ...entry,
+        slot: materialized.get(entry.player_id).slot,
+        ir_attested: materialized.get(entry.player_id).ir_attested,
+      })),
+    })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
+    [/^UPDATE "lineup_entries"/, () => ({ rows: [] })],
+  ]).install(t);
+
+  const result = await setLineup({ leagueId: 5, userId: 7, week: 9, moves: [{ playerId: 2, slot: 'QB' }] });
+
+  assert.equal(result.updated, 1);
+  assert.deepEqual(materialized.get(1), { slot: 'IR', ir_attested: true });
+  assert.deepEqual(materialized.get(2), { slot: 'BENCH', ir_attested: false });
+  fake.assertClean();
+});
+
+test('setLineup cannot relaunder an attestation by moving the player out and back in one save', async (t) => {
+  // The gate judges the post-move stash: the manager's own move ends the
+  // attestation first, so re-stashing the still-ineligible player in the
+  // same save hits the normal eligibility gate.
+  const fake = installSetLineupWorld(t, 'Q', { slot: 'IR', irAttested: true });
+
+  await assert.rejects(
+    setLineup({
+      leagueId: 5, userId: 7, week: 8,
+      moves: [{ playerId: 1, slot: 'BENCH' }, { playerId: 1, slot: 'IR' }],
+    }),
+    (error) => error.statusCode === 400
+      && /current injury designation: questionable/.test(error.message)
+  );
+
+  fake.assertClean();
+});
+
+test('a manager move also clears the attestation from already-materialized later weeks', async (t) => {
+  const fake = installSetLineupWorld(t, 'Q', { slot: 'IR', irAttested: true });
+
+  await setLineup({ leagueId: 5, userId: 7, week: 8, moves: [{ playerId: 1, slot: 'BENCH' }] });
+
+  const updates = fake.matching(/^UPDATE "lineup_entries"/);
+  assert.equal(updates.length, 2);
+  const sweep = updates[1];
+  assert.match(sweep.text, /"week" > \$3/);
+  assert.match(sweep.text, /AND "ir_attested"/);
+  assert.deepEqual(sweep.params, [10, 2026, 8, [1]]);
+  fake.assertClean();
+});
+
+// --- acquisitions land on the bench (#94 user story 13) ---------------------
+// A dropped player's lineup rows survive the drop, so a re-add would otherwise
+// sit straight back in his old IR stash (same week) or have it revived by the
+// copy-forward (later week). Every acquisition site calls this after its
+// roster insert; undoDrop alone does not, because an undo restores the stash.
+
+/**
+ * A lineup world for benchAcquiredPlayer: `roster` is what team_players holds
+ * now, `currentSlots` the current week's existing rows, `previousSlots` the
+ * copy-forward source week. Tracks the current week's slots through the
+ * materialize inserts and the bench update so a test can read its end state.
+ */
+function acquisitionWorld({ roster, currentSlots, previousSlots }) {
+  const slots = new Map(currentSlots);
+  const fake = createFakePool([
+    [/^SELECT "team_players"\."player_id"/, () => ({ rows: roster })],
+    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({
+      rows: [...slots.keys()].map((player_id) => ({ player_id })),
+    })],
+    [/^SELECT "player_id", "slot"/, () => ({
+      rows: [...previousSlots].map(([player_id, slot]) => ({ player_id, slot })),
+    })],
+    [/^INSERT INTO "lineup_entries"/, (text, params) => {
+      if (!slots.has(params[2])) slots.set(params[2], params[5]);
+      return { rows: [] };
+    }],
+    [/^UPDATE "lineup_entries"/, (text, params) => {
+      // The update names the slot it moves from: only that slot is touched.
+      const hit = slots.get(params[1]) === params[5];
+      if (hit) slots.set(params[1], params[4]);
+      return { rows: [], rowCount: hit ? 1 : 0 };
+    }],
+  ]);
+  return { fake, slots };
+}
+
+const acquire = (fake, playerId) => benchAcquiredPlayer(fake, {
+  league: { id: 5, current_season: 2026, current_week: 9 },
+  teamId: 10,
+  playerId,
+});
+
+test('benchAcquiredPlayer moves the acquired player out of a surviving stash, current week onward', async () => {
+  // Player 21 was dropped and re-acquired within week 9: his IR row survived.
+  const { fake, slots } = acquisitionWorld({
+    roster: [{ player_id: 1, position: 'QB' }, { player_id: 21, position: 'RB' }],
+    currentSlots: [[1, 'QB'], [21, 'IR']],
+    previousSlots: [],
+  });
+  const client = await fake.connect();
+  await acquire(client, 21);
+  client.release();
+
+  assert.deepEqual([...slots], [[1, 'QB'], [21, 'BENCH']]);
+  const [bench] = fake.matching(/^UPDATE "lineup_entries"/);
+  assert.deepEqual(bench.params, [10, 21, 2026, 9, 'BENCH', 'IR']);
+  // Benching also ends any standing attestation (#100): only an undone drop
+  // restores one, and this is not an undo.
+  assert.match(bench.text, /SET "slot" = \$5, "ir_attested" = false/);
+  // Current week and any pre-materialized later week; earlier weeks are
+  // history and stay as they were played.
+  assert.match(bench.text, /"week" >= \$4 AND "slot" = \$6/);
+  assert.equal(fake.matching(/^INSERT INTO "lineup_entries"/).length, 0, 'week was complete');
+  fake.assertClean();
+});
+
+test('benchAcquiredPlayer materializes an untouched week first, so no lone row can poison the next copy-forward', async () => {
+  // Nobody has opened week 9 yet. Materializing first carries every slot
+  // into week 9 - including the stale IR of the re-acquired player 21, which
+  // is then reset - so week 10's copy-forward reads a complete week 9.
+  const { fake, slots } = acquisitionWorld({
+    roster: [
+      { player_id: 1, position: 'QB' },
+      { player_id: 2, position: 'RB' },
+      { player_id: 21, position: 'RB' },
+    ],
+    currentSlots: [],
+    previousSlots: [[1, 'QB'], [2, 'IR'], [21, 'IR']],
+  });
+  const client = await fake.connect();
+  await acquire(client, 21);
+  client.release();
+
+  assert.deepEqual([...slots].sort(), [[1, 'QB'], [2, 'IR'], [21, 'BENCH']]);
+  const inserts = fake.calls.filter((c) => /^INSERT INTO "lineup_entries"/.test(c.text));
+  const bench = fake.calls.findIndex((c) => /^UPDATE "lineup_entries"/.test(c.text));
+  assert.equal(inserts.length, 3, 'the whole roster is materialized');
+  assert.ok(bench > fake.calls.indexOf(inserts[2]), 'and only then is the stash reset');
+  fake.assertClean();
+});
+
+test('benchAcquiredPlayer leaves a surviving starter row as played', async () => {
+  // Week 9 is finished but not yet advanced; player 21 started at RB, scored,
+  // was dropped and re-acquired. Only a stash is reset - his RB row (and its
+  // points) stays, since the lock would forbid putting him back.
+  const { fake, slots } = acquisitionWorld({
+    roster: [{ player_id: 21, position: 'RB' }],
+    currentSlots: [[21, 'RB']],
+    previousSlots: [],
+  });
+  const client = await fake.connect();
+  await acquire(client, 21);
+  client.release();
+
+  assert.deepEqual([...slots], [[21, 'RB']]);
+  fake.assertClean();
 });
