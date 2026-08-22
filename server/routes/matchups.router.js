@@ -3,7 +3,7 @@ const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
 const { materializeLineup } = require('../services/lineup.service');
 const { dedupeGameIds } = require('../services/matchupGames.service');
-const { isMember } = require('../services/leagueRole.service');
+const { isMember } = require('../services/leagueMembership.service');
 
 // Isolated on purpose: this only maps a fantasy matchup to the real NFL
 // games it spans (view_matchup_nfl_games) for the frontend to mount

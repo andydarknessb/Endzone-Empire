@@ -14,9 +14,8 @@ const montecarlo = require('../services/montecarlo.service');
 const {
   isLeagueCommissioner,
   commissionerPredicate,
-  isMember,
-  requireMember,
 } = require('../services/leagueRole.service');
+const { isMember, requireMember } = require('../services/leagueMembership.service');
 const { requireFantasyLeague } = require('../services/leagueType');
 
 const router = express.Router();

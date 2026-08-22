@@ -8,7 +8,8 @@ const { teamForPick } = require('../services/draftOrder.service');
 const { draftPlayer, DraftError, nextPickClockSeconds } = require('../services/draft.service');
 const { validateKeepers, undoTargets } = require('../services/draftValidation.service');
 const { draftRosterSize } = require('../services/rosterShape');
-const { isLeagueCommissioner, commissionerPredicate, requireMember } = require('../services/leagueRole.service');
+const { isLeagueCommissioner, commissionerPredicate } = require('../services/leagueRole.service');
+const { requireMember } = require('../services/leagueMembership.service');
 const { requireFantasyLeague, fantasySideWhereSql } = require('../services/leagueType');
 
 const router = express.Router();

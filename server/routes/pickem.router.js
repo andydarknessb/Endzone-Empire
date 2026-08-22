@@ -1,7 +1,8 @@
 const express = require('express');
 const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
-const { isLeagueCommissioner, requireMember } = require('../services/leagueRole.service');
+const { isLeagueCommissioner } = require('../services/leagueRole.service');
+const { requireMember } = require('../services/leagueMembership.service');
 const pickem = require('../services/pickem.service');
 
 /**

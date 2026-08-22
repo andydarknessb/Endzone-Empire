@@ -7,7 +7,8 @@ const pool = require('../modules/pool');
 const { notify } = require('./activity.service');
 const { SCORING_PRESETS } = require('./scoring.service');
 const { MODES: PICKEM_MODES } = require('./pickem.service');
-const { commissionerPredicate, isMember } = require('./leagueRole.service');
+const { commissionerPredicate } = require('./leagueRole.service');
+const { isMember } = require('./leagueMembership.service');
 const { joinability, joinableWhereSql, joinRefusalMessage } = require('./leaguePhase');
 const { pickemOnlyWhereSql, fantasySideWhereSql } = require('./leagueType');
 

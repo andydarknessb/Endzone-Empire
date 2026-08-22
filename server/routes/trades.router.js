@@ -3,7 +3,7 @@ const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
 const trades = require('../services/trade.service');
 const { analyzeTrade } = require('../services/decision.service');
-const { requireMember } = require('../services/leagueRole.service');
+const { requireMember } = require('../services/leagueMembership.service');
 
 const router = express.Router();
 router.use(requireAuth);

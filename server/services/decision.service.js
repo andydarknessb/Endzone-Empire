@@ -4,7 +4,7 @@ const pool = require('../modules/pool');
 // require time and cannot be mocked afterwards.
 const projectionService = require('./projection.service');
 const lineupService = require('./lineup.service');
-const { requireMember } = require('./leagueRole.service');
+const { requireMember } = require('./leagueMembership.service');
 const {
   getWeekProjections,
   toLegacyProjectionMap,

@@ -21,11 +21,11 @@ const { resolveNflSeasonPointer } = require('../services/pickemSeason.service');
 const {
   commissionerPredicate,
   isLeagueCommissioner,
-  isMember,
   listCoCommissioners,
   grantCoCommissioner,
   revokeCoCommissioner,
 } = require('../services/leagueRole.service');
+const { isMember } = require('../services/leagueMembership.service');
 const { assertFantasyLeague } = require('../services/leagueType');
 const { parseSettingsPatch, updateLeagueSettings, LeagueSettingsError } = require('../services/leagueSettings.service');
 
