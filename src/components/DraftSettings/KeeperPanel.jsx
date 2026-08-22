@@ -5,7 +5,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import IconButton from '@mui/material/IconButton';
 import apiClient from '../../api/apiClient';
 import { integerRangeError } from './numericValidation';
-import { draftRosterSize } from '../../lib/rosterShape';
+import { draftRounds as getDraftRounds } from '../../lib/rosterShape';
 
 const EMPTY_PLAYERS = [];
 const localKeeperLock = (value) => value ? new Date(new Date(value).getTime() - new Date(value).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
@@ -159,9 +159,10 @@ export default function KeeperPanel({ league, teams, keepers, keeperCandidates, 
   const assignmentErrors = useMemo(() => keeperAssignmentErrors(rows, allowedKeeperCount, teams), [allowedKeeperCount, rows, teams]);
   const hasAssignmentErrors = assignmentErrors.some((rowErrors) => rowErrors.length > 0);
   const preview = rows.reduce((map, row) => { if (row.player && row.teamId && row.round) map.set(`${row.round}-${row.teamId}`, row.player.name); return map; }, new Map());
-  // Keepers fit inside the drafted rounds, so the bound is the draft roster
-  // size (starters + bench), not the IR-inclusive roster_limit (#96).
-  const draftRounds = draftRosterSize(league);
+  // Keepers fit inside the drafted rounds: the live-derived draft roster
+  // size while pending, or the fixed value once frozen (ADR 0005) — never
+  // the IR-inclusive roster_limit (#96).
+  const draftRounds = getDraftRounds(league);
   const keeperCountError = integerRangeError(count, { label: 'Keepers per team', min: 0, max: draftRounds });
   // Mirrors the server rule (#67): a custom lock must be in the future, or the
   // keepers would lock the moment it is saved. Unchanged saved values pass.

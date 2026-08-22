@@ -3,7 +3,7 @@ import PropTypes from 'prop-types';
 import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Stack, Typography } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import SortableTeamList from './SortableTeamList';
-import { draftRosterSize } from '../../lib/rosterShape';
+import { draftRounds } from '../../lib/rosterShape';
 
 const effectiveOrder = (teams, rotation, round) => rotation === 'snake' && round % 2 === 0 ? [...teams].reverse() : [...teams];
 
@@ -33,8 +33,10 @@ export default function DraftOrderPanel({ league, teams, frozen, onSave, onSetOr
       <Typography variant="subtitle2">Rotation preview</Typography>
       {[1, 2, 3].map((round) => <Typography key={round} variant="body2">Round {round}: {labels(overrides[round] || effectiveOrder(order, league.draft_rotation || 'snake', round).map((team) => team.id)).map((team) => team.label).join(' · ') || 'Set the round 1 order first'}</Typography>)}
       <Typography variant="subtitle2">Round overrides</Typography>
-      {/* Only rounds that will actually be drafted: the IR slot costs none (#96). */}
-      {Array.from({ length: draftRosterSize(league) }, (_, index) => index + 1).map((round) => {
+      {/* Only rounds that will actually be drafted: the IR slot costs none
+          (#96), and once the draft is frozen this is the fixed value, not a
+          live recomputation (ADR 0005). */}
+      {Array.from({ length: draftRounds(league) }, (_, index) => index + 1).map((round) => {
         const rows = labels(overrides[round] || effectiveOrder(order, league.draft_rotation || 'snake', round).map((team) => team.id));
         return <Accordion key={round} disabled={frozen}><AccordionSummary expandIcon={<ExpandMoreIcon />}>Round {round}{overrides[round] ? ' (custom)' : ''}</AccordionSummary><AccordionDetails><Stack spacing={1}><SortableTeamList items={rows} onChange={(next) => setRound(round, next)} disabled={frozen} /><Box><Button size="small" disabled={!overrides[round]} onClick={() => setOverrides((current) => { const next = { ...current }; delete next[round]; return next; })}>Clear round override</Button></Box></Stack></AccordionDetails></Accordion>;
       })}
