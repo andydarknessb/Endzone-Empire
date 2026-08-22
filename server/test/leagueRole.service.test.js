@@ -6,6 +6,8 @@ const {
   isLeagueCommissioner,
   isLeagueOwner,
   listCoCommissioners,
+  listCommissionerUserIds,
+  notifyCommissioners,
 } = require('../services/leagueRole.service');
 
 /**
@@ -63,4 +65,36 @@ test('listCoCommissioners returns user ids with usernames', async () => {
     { user_id: 42, username: 'u42' },
     { user_id: 43, username: 'u43' },
   ]);
+});
+
+// #116: a scheduled-start failure notifies every CURRENT commissioner, not
+// just the league creator — these two are that contract's foundation.
+const numeric = (a, b) => a - b;
+
+test('listCommissionerUserIds: the owner plus every co-commissioner, deduplicated', async () => {
+  assert.deepEqual(
+    (await listCommissionerUserIds(fakeDb({ ownerId: 7, coCommissioners: [42, 43] }), 1, 7)).sort(numeric),
+    [7, 42, 43]
+  );
+  // A solo commissioner (no co-commissioners) still gets exactly one id.
+  assert.deepEqual(await listCommissionerUserIds(fakeDb({ ownerId: 7, coCommissioners: [] }), 1, 7), [7]);
+});
+
+test('notifyCommissioners inserts one notification per current commissioner, addressed and worded identically', async () => {
+  const db = createFakePool([
+    [/FROM "league_commissioners" JOIN "users"/, () => ({ rows: [{ user_id: 42, username: 'u42' }] })],
+    [/^INSERT INTO "notifications"/, () => ({ rows: [] })],
+  ]);
+  await notifyCommissioners(db, {
+    leagueId: 1, ownerId: 7, type: 'draft_understaffed', message: 'nag', data: { url: '/x' },
+  });
+  const inserts = db.matching(/^INSERT INTO "notifications"/);
+  assert.equal(inserts.length, 2);
+  assert.deepEqual(inserts.map((c) => c.params[0]).sort(numeric), [7, 42]);
+  for (const call of inserts) {
+    assert.equal(call.params[1], 1);
+    assert.equal(call.params[2], 'draft_understaffed');
+    assert.equal(call.params[3], 'nag');
+    assert.equal(call.params[4], JSON.stringify({ url: '/x' }));
+  }
 });

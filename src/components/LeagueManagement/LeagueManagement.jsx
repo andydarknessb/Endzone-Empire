@@ -13,7 +13,9 @@ import DraftCentralCard from '../DraftCentral/DraftCentralCard';
 import LeagueCard from '../common/LeagueCard';
 import LeagueTypeFields from '../common/LeagueTypeFields';
 import LeagueTypeChips from '../common/LeagueTypeChips';
+import DraftScheduleField from '../common/DraftScheduleField';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
+import { browserTimeZone, zonedWallTimeToUtcIso } from '../../lib/draftTimezone';
 import {
   LEAGUE_TYPE, MIN_TEAMS, capForType, clampTeamCount, includesFantasy, isPickemOnlyType, isValidTeamCount,
   leagueTypePayload,
@@ -104,6 +106,8 @@ function LeagueManagement() {
   const [bestBall, setBestBall] = useState(false);
   const [scoringPreset, setScoringPreset] = useState('');
   const [draftDate, setDraftDate] = useState('');
+  const [draftTimezone, setDraftTimezone] = useState(browserTimeZone);
+  const [draftAcknowledged, setDraftAcknowledged] = useState(false);
 
   useEffect(() => {
     fetchLeagues();
@@ -133,6 +137,11 @@ function LeagueManagement() {
   const maxTeamsValid = isValidTeamCount(maxTeams, teamCap);
   const minTeamsValid = !includesFantasy(leagueType) || (maxTeamsValid && isValidTeamCount(minTeams, Number(maxTeams)));
   const teamLimitsValid = maxTeamsValid && minTeamsValid;
+  // A scheduled draft needs its zone explicitly acknowledged before Create
+  // can fire (#116 AC3); an empty draft date needs no acknowledgement, and
+  // neither does a pick'em league, which never sends draftDate at all (a
+  // date typed before switching away from fantasy is simply dropped).
+  const draftScheduleReady = !includesFantasy(leagueType) || !draftDate || draftAcknowledged;
 
   const fetchLeagues = async () => {
     try {
@@ -156,7 +165,8 @@ function LeagueManagement() {
         maxTeams: Number(maxTeams),
       };
       if (includesFantasy(leagueType)) payload.minTeams = Number(minTeams);
-      Object.assign(payload, leagueTypePayload({ leagueType, pickemMode, bestBall, scoringPreset, draftDate }));
+      const draftDateUtc = draftDate ? zonedWallTimeToUtcIso(draftDate, draftTimezone) : null;
+      Object.assign(payload, leagueTypePayload({ leagueType, pickemMode, bestBall, scoringPreset, draftDate: draftDateUtc, draftTimezone }));
       if (isPublic) payload.isPublic = true;
       if (isPublic && joinApproval) payload.joinApproval = true;
 
@@ -173,6 +183,8 @@ function LeagueManagement() {
       setBestBall(false);
       setScoringPreset('');
       setDraftDate('');
+      setDraftTimezone(browserTimeZone());
+      setDraftAcknowledged(false);
       setNewLeagueOpen(false);
       fetchLeagues();
     } catch (err) {
@@ -277,14 +289,13 @@ function LeagueManagement() {
               </Select>
             </FormControl>
 
-            <TextField
-              label="Draft date"
-              type="datetime-local"
-              size="small"
-              InputLabelProps={{ shrink: true }}
-              sx={(theme) => ({ colorScheme: theme.palette.mode })}
-              value={draftDate}
-              onChange={(e) => setDraftDate(e.target.value)}
+            <DraftScheduleField
+              wallTime={draftDate}
+              onWallTimeChange={setDraftDate}
+              timeZone={draftTimezone}
+              onTimeZoneChange={setDraftTimezone}
+              acknowledged={draftAcknowledged}
+              onAcknowledgedChange={setDraftAcknowledged}
             />
               </>
             )}
@@ -362,7 +373,7 @@ function LeagueManagement() {
               </AccordionDetails>
             </Accordion>
 
-            <Button type="submit" variant="contained" disabled={!teamLimitsValid}>Create League</Button>
+            <Button type="submit" variant="contained" disabled={!teamLimitsValid || !draftScheduleReady}>Create League</Button>
             {!teamLimitsValid && (
               <Typography variant="caption" color="error">
                 Check the team limits under Advanced Settings.

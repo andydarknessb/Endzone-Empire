@@ -32,7 +32,7 @@ const QB = { key: 'QB', count: 1, eligiblePositions: ['QB'] };
 // the 400), followed by the three keys it never shape-checked. The registry
 // walks this order, so it is the contract multi-invalid bodies depend on.
 const VALIDATION_ORDER = [
-  'draftDate', 'rosterSlots', 'positionCaps', 'benchSlots', 'dpEnabled', 'irSlots',
+  'draftDate', 'draftTimezone', 'rosterSlots', 'positionCaps', 'benchSlots', 'dpEnabled', 'irSlots',
   'waiverType', 'waiverPeriodHours', 'faabBudget', 'tradeDeadlineWeek', 'tradeReviewHours', 'tradeVetoVotes',
   'scoringPreset', 'scoringRules', 'regularSeasonWeeks', 'playoffTeams', 'playoffConsolation',
   'pickTimeSeconds', 'autodraftDelaySeconds', 'draftType', 'draftRotation', 'draftOrderOverrides',
@@ -42,7 +42,7 @@ const VALIDATION_ORDER = [
 
 // Wire key -> leagues column, as the UPDATE in league.router.js writes them.
 const COLUMNS = {
-  draftDate: 'draft_date', rosterSlots: 'roster_slots', positionCaps: 'position_caps', benchSlots: 'bench_slots',
+  draftDate: 'draft_date', draftTimezone: 'draft_timezone', rosterSlots: 'roster_slots', positionCaps: 'position_caps', benchSlots: 'bench_slots',
   dpEnabled: 'dp_enabled', irSlots: 'ir_slots', waiverType: 'waiver_type', waiverPeriodHours: 'waiver_period_hours',
   faabBudget: 'faab_budget', tradeDeadlineWeek: 'trade_deadline_week', tradeReviewHours: 'trade_review_hours',
   tradeVetoVotes: 'trade_veto_votes', scoringPreset: 'scoring_preset', scoringRules: 'scoring_rules',
@@ -53,9 +53,9 @@ const COLUMNS = {
   name: 'name', minTeams: 'min_teams', maxTeams: 'max_teams',
 };
 
-test('the registry holds the 29 settable wire keys in the handler\'s validation order, each naming its column', () => {
+test('the registry holds the 30 settable wire keys in the handler\'s validation order, each naming its column', () => {
   assert.deepEqual(SETTINGS.map((row) => row.key), VALIDATION_ORDER);
-  assert.equal(new Set(VALIDATION_ORDER).size, 29);
+  assert.equal(new Set(VALIDATION_ORDER).size, 30);
   assert.deepEqual(Object.fromEntries(SETTINGS.map((row) => [row.key, row.column])), COLUMNS);
   for (const row of SETTINGS) assert.ok(Object.isFrozen(row), `${row.key} row is frozen`);
   // Every validated row is exercised by the rejection table below.
@@ -72,7 +72,7 @@ test('draftFrozen is membership in leaguePhase.DRAFT_FROZEN_SETTING_KEYS (the mo
   const frozenRows = SETTINGS.filter((row) => row.draftFrozen).map((row) => row.key).sort();
   assert.deepEqual(frozenRows, [
     'auctionSettings', 'autodraftDelaySeconds', 'benchSlots', 'dpEnabled', 'draftDate', 'draftOrderOverrides',
-    'draftRotation', 'draftType', 'irSlots', 'keeperCount', 'keeperLockAt', 'keepersEnabled', 'maxTeams', 'minTeams',
+    'draftRotation', 'draftTimezone', 'draftType', 'irSlots', 'keeperCount', 'keeperLockAt', 'keepersEnabled', 'maxTeams', 'minTeams',
     'pickTimeSeconds', 'playoffConsolation', 'playoffTeams', 'positionCaps', 'regularSeasonWeeks', 'rosterSlots',
     'scoringRules',
   ]);
@@ -90,17 +90,17 @@ test('only name and the size limits are not fantasy-only; the size limits are dr
   assert.equal(SETTINGS.find((row) => row.key === 'name').draftFrozen, false);
 });
 
-test('FANTASY_ONLY_SETTING_KEYS is the current 26-key refusal list, in refusal order', () => {
+test('FANTASY_ONLY_SETTING_KEYS is the current 27-key refusal list, in refusal order', () => {
   assert.deepEqual([...FANTASY_ONLY_SETTING_KEYS], [
     'rosterSlots', 'positionCaps', 'benchSlots', 'dpEnabled', 'irSlots',
     'scoringRules', 'regularSeasonWeeks', 'playoffTeams',
     'playoffConsolation', 'pickTimeSeconds', 'autodraftDelaySeconds',
-    'draftDate', 'draftType', 'draftRotation', 'keepersEnabled', 'keeperCount',
+    'draftDate', 'draftTimezone', 'draftType', 'draftRotation', 'keepersEnabled', 'keeperCount',
     'draftOrderOverrides', 'auctionSettings', 'keeperLockAt',
     'scoringPreset', 'waiverType', 'waiverPeriodHours', 'faabBudget',
     'tradeDeadlineWeek', 'tradeReviewHours', 'tradeVetoVotes',
   ]);
-  assert.equal(FANTASY_ONLY_SETTING_KEYS.length, 26);
+  assert.equal(FANTASY_ONLY_SETTING_KEYS.length, 27);
   assert.ok(Object.isFrozen(FANTASY_ONLY_SETTING_KEYS));
 });
 
@@ -136,6 +136,9 @@ const REJECTIONS = [
   [{ rosterLimit: 15 }, 'rosterLimit is computed automatically from rosterSlots + benchSlots + irSlots and cannot be set directly'],
   [{ draftDate: 'not a date' }, 'draftDate must be a valid date or null'],
   [{ draftDate: PAST }, 'draftDate must be in the future or null'],
+  [{ draftTimezone: 'Not/AZone' }, 'draftTimezone must be a valid IANA time zone name (e.g. "America/New_York") or null'],
+  [{ draftTimezone: 'america/new_york' }, 'draftTimezone must be a valid IANA time zone name (e.g. "America/New_York") or null'],
+  [{ draftTimezone: 42 }, 'draftTimezone must be a valid IANA time zone name (e.g. "America/New_York") or null'],
   [{ rosterSlots: [] }, 'rosterSlots must be a non-empty array of slots'],
   [{ rosterSlots: 'QB' }, 'rosterSlots must be a non-empty array of slots'],
   [{ rosterSlots: Array.from({ length: 21 }, (_, i) => ({ key: `S${i}`, count: 1, eligiblePositions: ['QB'] })) }, 'rosterSlots cannot have more than 20 slot rows'],
@@ -324,7 +327,8 @@ test('waiver and trade settings are administrative (never frozen) yet fantasy-on
 test('a full fantasy body lists frozen keys in DRAFT_FROZEN order and fantasy-only keys in refusal order', () => {
   const body = {
     keeperLockAt: null, auctionSettings: null, draftOrderOverrides: null, keeperCount: 1, keepersEnabled: true,
-    draftRotation: 'linear', draftType: 'snake', draftDate: FUTURE, autodraftDelaySeconds: 5, maxTeams: 12, minTeams: 4,
+    draftRotation: 'linear', draftType: 'snake', draftDate: FUTURE, draftTimezone: 'America/New_York',
+    autodraftDelaySeconds: 5, maxTeams: 12, minTeams: 4,
     pickTimeSeconds: 60, playoffConsolation: true, playoffTeams: 4, regularSeasonWeeks: 14, scoringRules: { passing: { touchdowns: 4 } },
     irSlots: 1, dpEnabled: false, benchSlots: 6, positionCaps: { QB: 3 }, rosterSlots: [QB],
     tradeVetoVotes: 4, tradeReviewHours: 24, tradeDeadlineWeek: null, faabBudget: 100, waiverPeriodHours: 24, waiverType: 'faab',
@@ -337,14 +341,14 @@ test('a full fantasy body lists frozen keys in DRAFT_FROZEN order and fantasy-on
     'rosterSlots', 'positionCaps', 'benchSlots', 'dpEnabled', 'irSlots',
     'scoringRules', 'regularSeasonWeeks', 'playoffTeams',
     'playoffConsolation', 'pickTimeSeconds', 'minTeams', 'maxTeams', 'autodraftDelaySeconds',
-    'draftDate', 'draftType', 'draftRotation', 'keepersEnabled', 'keeperCount',
+    'draftDate', 'draftTimezone', 'draftType', 'draftRotation', 'keepersEnabled', 'keeperCount',
     'draftOrderOverrides', 'auctionSettings', 'keeperLockAt',
   ]);
   assert.deepEqual(value.fantasyOnlyRequested, [
     'rosterSlots', 'positionCaps', 'benchSlots', 'dpEnabled', 'irSlots',
     'scoringRules', 'regularSeasonWeeks', 'playoffTeams',
     'playoffConsolation', 'pickTimeSeconds', 'autodraftDelaySeconds',
-    'draftDate', 'draftType', 'draftRotation', 'keepersEnabled', 'keeperCount',
+    'draftDate', 'draftTimezone', 'draftType', 'draftRotation', 'keepersEnabled', 'keeperCount',
     'draftOrderOverrides', 'auctionSettings', 'keeperLockAt',
     'scoringPreset', 'waiverType', 'waiverPeriodHours', 'faabBudget',
     'tradeDeadlineWeek', 'tradeReviewHours', 'tradeVetoVotes',
@@ -375,6 +379,35 @@ test('tri-state dates: absent leaves, null clears, a string is normalized to ISO
   const set = parseSettingsPatch({ draftDate: FUTURE, keeperLockAt: FUTURE }).value;
   assert.equal(set.draftDateValue, new Date(FUTURE).toISOString());
   assert.equal(set.keeperLockAtValue, new Date(FUTURE).toISOString()); // future-checked like draftDate since #67
+});
+
+// #116: draft date and timezone are one coherent scheduling change.
+test('draftTimezone: tri-state (absent leaves, null clears, a validated IANA name sets)', () => {
+  const absent = parseSettingsPatch({}).value;
+  assert.equal(absent.draftTimezoneProvided, false);
+  assert.equal(absent.draftTimezone, null);
+
+  const cleared = parseSettingsPatch({ draftTimezone: null }).value;
+  assert.equal(cleared.draftTimezoneProvided, true);
+  assert.equal(cleared.draftTimezone, null);
+  assert.deepEqual(cleared.frozenRequested, ['draftTimezone']);
+  assert.deepEqual(cleared.fantasyOnlyRequested, ['draftTimezone']);
+
+  const set = parseSettingsPatch({ draftDate: FUTURE, draftTimezone: 'America/New_York' }).value;
+  assert.equal(set.draftTimezoneProvided, true);
+  assert.equal(set.draftTimezone, 'America/New_York');
+});
+
+test('draftTimezone: clearing draftDate while also setting a non-null zone is refused as a 400 at parse time', () => {
+  assert.deepEqual(
+    parseSettingsPatch({ draftDate: null, draftTimezone: 'America/New_York' }),
+    { error: 'draftTimezone cannot be set in the same request that clears draftDate' }
+  );
+  // Clearing both together is coherent, not a conflict.
+  assert.equal(parseSettingsPatch({ draftDate: null, draftTimezone: null }).error, undefined);
+  // Clearing the date without touching the zone at all is unaffected too
+  // (the write path force-clears the zone; parse time has nothing to refuse).
+  assert.equal(parseSettingsPatch({ draftDate: null }).error, undefined);
 });
 
 test('tri-state objects: provided flags for draftOrderOverrides, auctionSettings and tradeDeadlineWeek follow presence, null included', () => {

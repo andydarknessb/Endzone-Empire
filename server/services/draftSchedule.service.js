@@ -1,5 +1,6 @@
 const pool = require('../modules/pool');
-const { notify, notifyLeague } = require('./activity.service');
+const { notifyLeague } = require('./activity.service');
+const { notifyCommissioners } = require('./leagueRole.service');
 const { fantasySideWhereSql } = require('./leagueType');
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -104,9 +105,9 @@ async function runAction(league, action) {
         `UPDATE "leagues" SET "draft_autostart_failed" = true WHERE "id" = $1`,
         [league.id]
       );
-      await notify(client, {
-        userId: league.owner_id,
+      await notifyCommissioners(client, {
         leagueId: league.id,
+        ownerId: league.owner_id,
         type: 'draft_understaffed',
         message: `${league.name} couldn't auto-start: it needs at least ${row.min_teams} teams (has ${row.team_count}).`,
         data: { url: `/#/league/${league.id}` },
@@ -116,9 +117,9 @@ async function runAction(league, action) {
         `UPDATE "leagues" SET "draft_autostart_failed" = true WHERE "id" = $1`,
         [league.id]
       );
-      await notify(client, {
-        userId: league.owner_id,
+      await notifyCommissioners(client, {
         leagueId: league.id,
+        ownerId: league.owner_id,
         type: 'draft_understaffed',
         message: `${league.name} couldn't auto-start: salary-cap auction drafts aren't supported yet. Change the draft type or start it manually once that ships.`,
         data: { url: `/#/league/${league.id}` },
@@ -170,9 +171,9 @@ async function runStartAction(league) {
       `UPDATE "leagues" SET "draft_autostart_failed" = true WHERE "id" = $1 AND "draft_status" = 'pending'`,
       [league.id]
     );
-    await notify(pool, {
-      userId: league.owner_id,
+    await notifyCommissioners(pool, {
       leagueId: league.id,
+      ownerId: league.owner_id,
       type: 'draft_understaffed',
       message: `${league.name} couldn't auto-start: ${err.message}`,
       data: { url: `/#/league/${league.id}` },

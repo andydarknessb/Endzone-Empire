@@ -62,15 +62,37 @@ function isAllowlisted(relPosix) {
   );
 }
 
+// An all-digit `#NNN`/`#NNNN` etc. is exactly what a GitHub issue reference
+// looks like ("(#116", "#116)", "#116 AC3") — and JS/JSX comments and JSDoc
+// routinely cite the issue a change belongs to. A real hex color literal
+// almost always carries at least one a-f digit; requiring digits-only here
+// keeps this exemption from swallowing genuine 3/6-digit all-numeric colors
+// outside a comment (those still hit HEX below, since this only strips
+// matches on lines that are entirely comment).
+const ISSUE_REFERENCE = /#\d+\b/g;
+
+// A whole-line comment in JS/JSX: a `//` line or an interior line of a
+// `/** ... */` block (which in this codebase always continues with a
+// leading `*`). Scoped to .js/.jsx only — in .css, a leading `*` is the
+// universal selector, not a comment continuation.
+function isCommentLine(ext, trimmedLine) {
+  if (ext !== '.js' && ext !== '.jsx') return false;
+  return trimmedLine.startsWith('//') || trimmedLine.startsWith('*');
+}
+
 const violations = [];
 for (const file of walk(SRC)) {
   const relPosix = toPosix(path.relative(path.join(__dirname, '..'), file));
   if (isAllowlisted(relPosix)) continue;
 
+  const ext = path.extname(file);
   const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
   lines.forEach((line, i) => {
     // Ignore var() fallbacks: `var(--x, #fff)` is intentional.
-    const stripped = line.replace(/var\([^)]*\)/g, '');
+    let stripped = line.replace(/var\([^)]*\)/g, '');
+    if (isCommentLine(ext, line.trim())) {
+      stripped = stripped.replace(ISSUE_REFERENCE, '#');
+    }
     if (HEX.test(stripped) || FUNC.test(stripped) || NAMED.test(stripped)) {
       violations.push(`${relPosix}:${i + 1}: ${line.trim()}`);
     }

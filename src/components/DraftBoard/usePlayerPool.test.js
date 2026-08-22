@@ -132,6 +132,34 @@ test('loadMore appends the next page onto the existing list', async () => {
   expect(result.current.hasMore).toBe(false);
 });
 
+test('changing the Bye-weeks filter refetches page 1 with a sorted, deduped byeWeeks param and mirrors it into the URL', async () => {
+  const { Wrapper, searchRef } = makeWrapper();
+  const { result } = renderHook(() => usePlayerPool(1), { wrapper: Wrapper });
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  apiClient.get.mockClear();
+
+  act(() => result.current.handleByeWeeksFilterChange([9, 6, 6]));
+
+  await waitFor(() =>
+    expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
+      params: { page: 1, leagueId: 1, sort: 'adp', available: true, byeWeeks: '6,9' },
+    })
+  );
+  expect(result.current.byeWeeksFilter).toEqual([6, 9]);
+  await waitFor(() => expect(searchRef.current).toBe('byes=6%2C9'));
+});
+
+test('restores the Bye-weeks filter from the URL on mount', async () => {
+  const { Wrapper } = makeWrapper('/league/1/draft?byes=6,9');
+  const { result } = renderHook(() => usePlayerPool(1), { wrapper: Wrapper });
+  await waitFor(() => expect(result.current.loading).toBe(false));
+
+  expect(result.current.byeWeeksFilter).toEqual([6, 9]);
+  expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
+    params: { page: 1, leagueId: 1, sort: 'adp', available: true, byeWeeks: '6,9' },
+  });
+});
+
 test('a pick landing (refetch) does not re-trigger the initial loading flag', async () => {
   const { Wrapper } = makeWrapper();
   const { result } = renderHook(() => usePlayerPool(1), { wrapper: Wrapper });

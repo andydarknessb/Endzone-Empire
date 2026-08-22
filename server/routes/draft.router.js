@@ -437,11 +437,12 @@ router.post('/league/:id/reset', async (req, res) => {
       [leagueId]
     );
     // draft_date is nulled so the 5-minute scheduler doesn't immediately
-    // auto-restart the draft it just reset.
+    // auto-restart the draft it just reset; draft_timezone clears with it
+    // (#116 — a zone means nothing without the instant it describes).
     await client.query(
       `UPDATE "leagues"
        SET "draft_status" = 'pending', "current_pick" = 0, "draft_paused" = false,
-           "pick_deadline_at" = NULL, "draft_date" = NULL, "draft_reminder_stage" = 0,
+           "pick_deadline_at" = NULL, "draft_date" = NULL, "draft_timezone" = NULL, "draft_reminder_stage" = 0,
            "draft_autostart_failed" = false, "updated_at" = now()
        WHERE "id" = $1`,
       [leagueId]

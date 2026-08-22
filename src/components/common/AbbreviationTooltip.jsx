@@ -9,6 +9,9 @@ export const STAT_DEFINITIONS = Object.freeze({
   Projected: 'Projected fantasy points: an estimate based on available projection data.',
   'FPTS/G': 'Fantasy points per game: total fantasy points divided by games played.',
   'Pos rank': 'Position rank: this player\'s rank among players at the same position.',
+  Bye: 'Bye week: the week this player\'s NFL team does not play, so they can\'t score.',
+  '17-game pace': 'Historical pace: last completed season\'s per-game production, extrapolated '
+    + 'across seventeen games. Not a forecast or a weekly projection.',
 });
 
 function AbbreviationTooltip({ term, label = term }) {
