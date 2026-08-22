@@ -133,6 +133,7 @@ router.post('/', async (req, res) => {
     res.status(201).json(league);
   } catch (error) {
     await client.query('ROLLBACK');
+    if (error.statusCode) return res.status(error.statusCode).json(serviceErrorBody(error));
     console.error('Error creating league', error);
     res.status(500).json({ error: 'failed to create league' });
   } finally {
