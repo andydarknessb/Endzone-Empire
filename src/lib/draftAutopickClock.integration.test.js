@@ -35,8 +35,11 @@ function deferred() {
   return { promise, resolve };
 }
 
-function player(id, position, defaultRank) {
-  return { id, name: `Player ${id}`, position, nfl_team: `NFL-${id}`, default_rank: defaultRank };
+// Third arg is the player's ADP (#142 best available: ADP, then last
+// completed season's points, then name — never database id). Lower sorts
+// first, same convention the old default_rank fixture used.
+function player(id, position, adp) {
+  return { id, name: `Player ${id}`, position, nfl_team: `NFL-${id}`, adp, last_season_points: null };
 }
 
 function createState({ currentPick = 0, deadline, players, roster = [], queue = [] }) {
@@ -191,6 +194,11 @@ class FakeDraftDatabase {
     if (sql.includes('FROM "teams"') && sql.includes('ORDER BY "draft_position"')) {
       return { rows: state.teams.map((team) => ({ ...team })) };
     }
+    // #142: lastCompletedNflSeason()'s calendar resolution — the exact year
+    // doesn't matter to these fixtures, only that it resolves.
+    if (sql.includes('EXTRACT(MONTH FROM CURRENT_DATE)')) {
+      return { rows: [{ season: 2026 }] };
+    }
     if (sql.includes('LEFT JOIN "draft_queue"')) {
       this.candidateRead?.resolve();
       if (this.candidateGate) await this.candidateGate.promise;
@@ -201,21 +209,18 @@ class FakeDraftDatabase {
           .filter((entry) => entry.teamId === teamId)
           .map((entry) => [entry.playerId, entry.rank])
       );
+      // Unordered on purpose — autopick.service.js now sorts candidates in
+      // JS via the shared bestAvailable comparator, the same way real
+      // Postgres results aren't pre-sorted by this fake.
       const candidates = [...state.players.values()]
         .filter((entry) => !rostered.has(entry.id))
-        .sort((left, right) => {
-          const leftQueue = rankByPlayer.get(left.id);
-          const rightQueue = rankByPlayer.get(right.id);
-          if (leftQueue != null || rightQueue != null) {
-            if (leftQueue == null) return 1;
-            if (rightQueue == null) return -1;
-            if (leftQueue !== rightQueue) return leftQueue - rightQueue;
-          }
-          return (left.default_rank ?? Number.MAX_SAFE_INTEGER) -
-            (right.default_rank ?? Number.MAX_SAFE_INTEGER) || left.id - right.id;
-        })
-        .slice(0, 25)
-        .map(({ id }) => ({ id }));
+        .map((entry) => ({
+          id: entry.id,
+          name: entry.name,
+          adp: entry.adp ?? null,
+          queue_rank: rankByPlayer.get(entry.id) ?? null,
+          last_season_points: entry.last_season_points ?? null,
+        }));
       return { rows: candidates };
     }
     if (sql.includes('SET "consecutive_timeouts" = "consecutive_timeouts" + 1')) {

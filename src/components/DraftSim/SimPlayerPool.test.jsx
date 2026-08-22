@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import SimPlayerPool from './SimPlayerPool';
 
 // useMediaQuery(theme.breakpoints.down('md')) reads matchMedia; flip `matches`
@@ -51,5 +52,33 @@ describe('SimPlayerPool', () => {
     matchMediaMatches = true;
     render(<SimPlayerPool players={PLAYERS} onDraft={jest.fn()} myTurn={false} />);
     expect(screen.getByRole('button', { name: 'Draft Jahmyr Gibbs' })).toBeDisabled();
+  });
+
+  // #142: Best available (CONTEXT.md) admits no-ADP TEs who produced last
+  // season — Darren Waller and Dawson Knox were missing from the real pool
+  // and unsearchable here because they never reached this `players` prop.
+  // Given a serialized draft-pool payload that now includes them, search
+  // must still find them (in-memory filtering, no server round trip).
+  it('finds a no-ADP player by name once the pool includes them', async () => {
+    const withNoAdpTEs = [
+      ...PLAYERS,
+      {
+        playerId: 1310, name: 'Darren Waller', position: 'TE', nflTeam: 'MIA',
+        adp: null, positionRank: null, projectedPoints: 76.7, byeWeek: 8, injuryStatus: null,
+      },
+      {
+        playerId: 1342, name: 'Dawson Knox', position: 'TE', nflTeam: 'BUF',
+        adp: null, positionRank: null, projectedPoints: 85.7, byeWeek: 7, injuryStatus: null,
+      },
+    ];
+    render(<SimPlayerPool players={withNoAdpTEs} onDraft={jest.fn()} myTurn />);
+
+    await userEvent.type(screen.getByLabelText('Search players'), 'Waller');
+
+    expect(screen.getByRole('button', { name: 'Draft Darren Waller' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Draft Dawson Knox' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Draft Jahmyr Gibbs' })).not.toBeInTheDocument();
+    // No ADP renders as a dash, not a crash or a fake 0.
+    expect(screen.getAllByRole('row')[1].textContent).toMatch(/-/);
   });
 });
