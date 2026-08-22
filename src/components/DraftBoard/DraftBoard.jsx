@@ -455,6 +455,22 @@ function DraftBoard() {
     rosterView,
   };
 
+  // Desktop only ever shows two tabs (Draft = the dual-pane workspace,
+  // Board); mobile's three swap the Draft/Players split for its own single-
+  // region tabs, in the Players/Board/Draft order the acceptance criteria
+  // name. One shared list (rather than a differently-ordered Tab JSX per
+  // breakpoint) keeps that ordering the single source of truth.
+  const tabDefs = isMobile
+    ? [
+        { value: 'players', label: 'Players' },
+        { value: 'board', label: 'Board' },
+        { value: 'draft', label: 'Draft' },
+      ]
+    : [
+        { value: 'draft', label: 'Draft' },
+        { value: 'board', label: 'Board' },
+      ];
+
   return (
     <Container
       component="main"
@@ -584,10 +600,9 @@ function DraftBoard() {
           aria-label="Draft view"
           sx={{ mb: 3, borderBottom: '1px solid', borderColor: 'divider' }}
         >
-          {isMobile && <Tab label="Players" value="players" sx={MIN_TOUCH_TARGET_SX} />}
-          {!isMobile && <Tab label="Draft" value="draft" sx={MIN_TOUCH_TARGET_SX} />}
-          <Tab label="Board" value="board" sx={MIN_TOUCH_TARGET_SX} />
-          {isMobile && <Tab label="Draft" value="draft" sx={MIN_TOUCH_TARGET_SX} />}
+          {tabDefs.map((tab) => (
+            <Tab key={tab.value} label={tab.label} value={tab.value} sx={MIN_TOUCH_TARGET_SX} />
+          ))}
         </Tabs>
       </Box>
 
@@ -616,7 +631,7 @@ function DraftBoard() {
             <PlayerPoolTable {...playerPoolProps} />
           </Box>
           <Box
-            role="region"
+            component="section"
             aria-label="Draft rail"
             tabIndex={0}
             sx={{ flexBasis: '33.333%', minWidth: 0, height: '100%', overflowY: 'auto' }}

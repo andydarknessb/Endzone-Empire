@@ -47,6 +47,14 @@ const BYE_WEEK_OPTIONS = Array.from({ length: 18 }, (_, i) => i + 1);
 // column headers to sort by, so this drives a "Sort by" Select instead
 // (issue #122 acceptance criterion 4: mobile keeps the full state, not a
 // stripped-down view of it).
+//
+// Known duplication (code-review finding, deferred rather than expanding
+// this PR further): the desktop table's six TableSortLabel headers below
+// hardcode this same key/label pairing individually inline in their own
+// JSX. Unifying the two would mean making the header row itself
+// data-driven off this same list, which touches that stable, already
+// well-tested markup - a follow-up, not a change to make alongside a
+// layout PR.
 const SORT_FIELDS = [
   { key: 'name', label: 'Name' },
   { key: 'nfl_team', label: 'NFL Team' },
