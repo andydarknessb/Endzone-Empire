@@ -94,9 +94,7 @@ router.post('/', async (req, res) => {
     // The creator's Team is written by the one membership write, like every
     // other join path: the league is fresh, so the count is 0 and the creator
     // takes draft_position 1.
-    await joinLeague(client, {
-      leagueId: league.id, userId: req.user.id, teamName, username: req.user.username,
-    });
+    await joinLeague(client, { leagueId: league.id, userId: req.user.id, teamName });
     if (options.pickemEnabled) {
       // Direct insert on the SAME client, not pickem.putSettings: that helper
       // opens its own pool connection and transaction, which would escape
@@ -160,9 +158,7 @@ router.post('/join', async (req, res) => {
     }
     // The code is this path's only gate; admission (joinable, not already a
     // member, not full) and the Team write belong to the membership module.
-    const { team } = await joinLeague(client, {
-      leagueId: league.id, userId: req.user.id, teamName, username: req.user.username,
-    });
+    const { team } = await joinLeague(client, { leagueId: league.id, userId: req.user.id, teamName });
     await client.query('COMMIT');
     res.status(201).json({ league, team });
   } catch (error) {

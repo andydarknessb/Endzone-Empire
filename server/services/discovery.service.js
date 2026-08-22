@@ -332,7 +332,7 @@ async function joinPublicLeague({ leagueId, userId, username, teamName }) {
       return { pending: true, joinRequest };
     }
 
-    const { team } = await joinLeague(client, { leagueId, userId, teamName, username });
+    const { team } = await joinLeague(client, { leagueId, userId, teamName });
     await client.query('COMMIT');
     return { pending: false, league, team };
   } catch (error) {
@@ -405,9 +405,7 @@ async function decideJoinRequest({ leagueId, ownerId, requestId, approve }) {
     // request was filed: a pending request cannot slip a team into a league
     // that has since stopped being joinable or filled up, nor a second Team
     // to a requester who joined another way meanwhile.
-    await joinLeague(client, {
-      leagueId, userId: joinRequest.user_id, teamName: joinRequest.team_name, username: joinRequest.username,
-    });
+    await joinLeague(client, { leagueId, userId: joinRequest.user_id, teamName: joinRequest.team_name });
     await client.query(
       `UPDATE "join_requests" SET "status" = 'approved', "updated_at" = now() WHERE "id" = $1`,
       [joinRequest.id]
