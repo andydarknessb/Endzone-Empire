@@ -279,7 +279,10 @@ function startPlan(league, teams, keepers = []) {
     });
   }
 
-  return { autodraftAll, clockless, keeperPicks, firstOpenPick, firstClockSeconds, totalPicks };
+  // `rounds` is exposed so the caller (draftStart.service.js) can fix it as
+  // `draft_rounds` at the pending -> active transition without a second,
+  // possibly-inconsistent call to draftRosterSize() (ADR 0005).
+  return { autodraftAll, clockless, keeperPicks, firstOpenPick, firstClockSeconds, totalPicks, rounds };
 }
 
 module.exports = {

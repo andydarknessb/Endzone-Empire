@@ -51,6 +51,9 @@ function createState({ currentPick = 0, deadline, players, roster = [], queue = 
       autodraft_delay_seconds: 2,
       pick_deadline_at: deadline,
       roster_limit: 4,
+      // Fixed at draft start (ADR 0005): this league is already 'active', so
+      // draftPlayer reads this instead of recomputing from roster_limit/ir_slots.
+      draft_rounds: 4,
       roster_slots: ROSTER_SLOTS,
       position_caps: { QB: 1, RB: 1, WR: 1, TE: 1 },
       waiver_period_hours: 24,

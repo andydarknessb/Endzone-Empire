@@ -43,7 +43,11 @@ jobs:
       # Split out because six backtest sweep files are ~40 of the suite's 42
       # minutes; run-backtest-sweep alone is ~35. Same coverage, separate step,
       # so a failure points at which half broke.
+      # Pushes to integration/main still run it; pull requests skip it so a PR
+      # sees a ~10 minute test-build instead of ~50. Backtest changes on a PR
+      # are covered by backtest-reproduction.yml, which triggers on those paths.
       - run: npm run test:server:sweep
+        if: github.event_name != 'pull_request'
         env:
           # The Gate-3 publication (backtest-data/publish/) is committed as of
           # this workflow, so the clean-clone reconstruction test's
@@ -127,6 +131,15 @@ jobs:
       - run: npm run migrate
       - run: npm run migrate:rollback
       - run: npm run migrate
+      # draft_rounds backfill (#118, ADR 0005): the migrate/rollback/migrate
+      # smoke above runs against an empty leagues table, so it can never
+      # exercise the backfill UPDATE's WHERE clause or math. This seeds
+      # active/completed/pending legacy leagues, rolls the one migration
+      # back and forward again, and asserts the backfilled values.
+      - run: npm run test:draft-rounds-pg
+        env:
+          DRAFT_ROUNDS_PG_TESTS: "1"
+
       # Snapshot-client CONTRACTS: the eight production queries re-implemented
       # in JS, checked against the real Postgres on identical seeded rows, plus
       # fn_normalize_nfl_team vs its JS twin, ORDER BY under the server

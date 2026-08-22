@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Box, Button, Chip, LinearProgress, Paper, Stack, Typography } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import Countdown from '../Countdown/Countdown';
-import { draftRosterSize } from '../../lib/rosterShape';
+import { draftRounds } from '../../lib/rosterShape';
 
 function DraftCentralCard() {
   const [drafts, setDrafts] = useState([]);
@@ -38,9 +38,10 @@ function DraftCentralCard() {
   const unscheduled = drafts.filter((draft) => draft.draft_status === 'pending' && !draft.draft_date);
   const focusDraft = active[0] || scheduled[0] || unscheduled[0];
   const picksMade = Number(focusDraft.picks_made) || 0;
-  // Rounds are the draft roster size (starters + bench), not the IR-inclusive
-  // roster_limit: the IR slot is never drafted (#96).
-  const totalPicks = draftRosterSize(focusDraft) * (Number(focusDraft.team_count) || 0);
+  // Rounds are Draft rounds (ADR 0005): the live-derived draft roster size
+  // for a scheduled/unscheduled draft, or the fixed value for an active one
+  // (not the IR-inclusive roster_limit: the IR slot is never drafted, #96).
+  const totalPicks = draftRounds(focusDraft) * (Number(focusDraft.team_count) || 0);
   const progress = totalPicks > 0 ? Math.min(100, (picksMade / totalPicks) * 100) : 0;
 
   return (
