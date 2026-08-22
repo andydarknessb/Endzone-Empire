@@ -2,12 +2,20 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import apiClient from '../../api/apiClient';
 
+/** Parses the `byes` URL param (comma-separated week numbers) into a sorted,
+ * deduped array of finite integers — anything unparsable is dropped rather
+ * than surfaced as an error, since it's just restoring a bookmarked filter. */
+function parseByeWeeksParam(raw) {
+  if (!raw) return [];
+  return [...new Set(raw.split(',').map(Number).filter(Number.isFinite))].sort((a, b) => a - b);
+}
+
 /**
  * Owns the draft board's available-players pool: filters (position/search/
- * sort/dir/hide-drafted), their mirroring into the URL so a refresh restores
- * them, and fetching. Pages are fetched server-side (25 at a time) but
- * appended into one growing list — `loadMore()` fetches the next page for a
- * windowed/infinite-scroll pool instead of the old page-by-page UI.
+ * sort/dir/hide-drafted/bye-weeks), their mirroring into the URL so a refresh
+ * restores them, and fetching. Pages are fetched server-side (25 at a time)
+ * but appended into one growing list — `loadMore()` fetches the next page for
+ * a windowed/infinite-scroll pool instead of the old page-by-page UI.
  */
 export default function usePlayerPool(leagueId) {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -17,6 +25,7 @@ export default function usePlayerPool(leagueId) {
   const [sort, setSort] = useState(() => searchParams.get('sort') || 'adp');
   const [dir, setDir] = useState(() => searchParams.get('dir') || 'asc');
   const [hideDrafted, setHideDrafted] = useState(() => searchParams.get('showDrafted') !== '1');
+  const [byeWeeksFilter, setByeWeeksFilter] = useState(() => parseByeWeeksParam(searchParams.get('byes')));
 
   const [availablePlayers, setAvailablePlayers] = useState([]);
   const [page, setPage] = useState(0);
@@ -53,6 +62,7 @@ export default function usePlayerPool(leagueId) {
         if (positionValue !== 'All') params.position = positionValue;
         const searchValue = searchOverride !== undefined ? searchOverride : search;
         if (searchValue) params.search = searchValue;
+        if (byeWeeksFilter.length > 0) params.byeWeeks = byeWeeksFilter.join(',');
 
         const res = await apiClient.get('/api/players', { params });
         if (seq !== requestSeqRef.current) return; // superseded by a newer request
@@ -73,7 +83,7 @@ export default function usePlayerPool(leagueId) {
         }
       }
     },
-    [leagueId, sort, dir, hideDrafted, positionFilter, search]
+    [leagueId, sort, dir, hideDrafted, positionFilter, search, byeWeeksFilter]
   );
 
   // Initial load. Intentionally excludes fetchPage (identity changes with
@@ -91,11 +101,11 @@ export default function usePlayerPool(leagueId) {
   }, [searchInput]);
 
   // Refetch the available list from page 1 when the committed search term,
-  // sort, direction, or the hide-drafted toggle changes. Skips the initial
-  // mount, where the load-on-mount effect above already covers page 1.
-  // Deliberately excludes positionFilter/fetchPage — a position change goes
-  // through handlePositionFilterChange's direct fetch instead, so it isn't
-  // double-fetched here.
+  // sort, direction, hide-drafted toggle, or Bye-weeks filter changes. Skips
+  // the initial mount, where the load-on-mount effect above already covers
+  // page 1. Deliberately excludes positionFilter/fetchPage — a position
+  // change goes through handlePositionFilterChange's direct fetch instead, so
+  // it isn't double-fetched here.
   useEffect(() => {
     if (!didMountRef.current) {
       didMountRef.current = true;
@@ -104,7 +114,7 @@ export default function usePlayerPool(leagueId) {
     fetchPage(0);
     // Position changes fetch directly; including fetchPage would double-fetch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, sort, dir, hideDrafted]);
+  }, [search, sort, dir, hideDrafted, byeWeeksFilter]);
 
   // Mirror the table state into the URL so a refresh restores it (replace, so
   // we don't flood history during a live draft). Built off the previous
@@ -123,9 +133,11 @@ export default function usePlayerPool(leagueId) {
       else next.delete('dir');
       if (!hideDrafted) next.set('showDrafted', '1');
       else next.delete('showDrafted');
+      if (byeWeeksFilter.length > 0) next.set('byes', byeWeeksFilter.join(','));
+      else next.delete('byes');
       return next;
     }, { replace: true });
-  }, [positionFilter, search, sort, dir, hideDrafted, setSearchParams]);
+  }, [positionFilter, search, sort, dir, hideDrafted, byeWeeksFilter, setSearchParams]);
 
   const handleSort = (key) => {
     if (sort === key) {
@@ -139,6 +151,14 @@ export default function usePlayerPool(leagueId) {
   const handlePositionFilterChange = (newPosition) => {
     setPositionFilter(newPosition);
     fetchPage(0, { positionOverride: newPosition });
+  };
+
+  // Selected values arrive from MUI's multi-select Select as whatever was
+  // passed to `value` on the changed MenuItem (already numbers here, since
+  // BYE_WEEK_OPTIONS is numeric) — deduped/sorted so the URL and removable
+  // chips render in a stable order regardless of selection order.
+  const handleByeWeeksFilterChange = (weeks) => {
+    setByeWeeksFilter([...new Set(weeks.map(Number))].sort((a, b) => a - b));
   };
 
   const hasMore = totalPages > 0 && page + 1 < totalPages;
@@ -168,5 +188,7 @@ export default function usePlayerPool(leagueId) {
     handleSort,
     hideDrafted,
     setHideDrafted,
+    byeWeeksFilter,
+    handleByeWeeksFilterChange,
   };
 }

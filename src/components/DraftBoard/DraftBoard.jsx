@@ -11,6 +11,7 @@ import Countdown from '../Countdown/Countdown';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import useDraftSocket from './useDraftSocket';
 import usePlayerPool from './usePlayerPool';
+import useMyRoster from './useMyRoster';
 import useDraftQueue from './useDraftQueue';
 import useDraftAdmin from './useDraftAdmin';
 import useTabTitleFlash from './useTabTitleFlash';
@@ -181,6 +182,7 @@ function DraftBoard() {
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const pool = usePlayerPool(leagueId);
+  const myRoster = useMyRoster(leagueId);
   const {
     league,
     teams,
@@ -194,7 +196,12 @@ function DraftBoard() {
     dismissOnClockAlert,
     emitPick,
     error: socketError,
-  } = useDraftSocket(leagueId, user?.id, { onPickLanded: pool.refetch });
+  } = useDraftSocket(leagueId, user?.id, {
+    onPickLanded: () => {
+      pool.refetch();
+      myRoster.refetchRoster();
+    },
+  });
   const { queue, loading: queueLoading, handleQueuePlayer, handleMoveUp, handleMoveDown, handleRemoveFromQueue } =
     useDraftQueue(leagueId, { onError: setError });
   const admin = useDraftAdmin(leagueId, league, { onError: setError });
@@ -253,6 +260,18 @@ function DraftBoard() {
 
   const draftedIds = new Set(picks.map((p) => p.player_id));
   const displayPlayers = pool.availablePlayers;
+
+  // Bye overlap (see PlayerPoolTable): which of the caller's OWN rostered
+  // players share a Bye week, keyed by that week. A neutral roster fact for
+  // the pool to surface next to a candidate's Bye - never computed against
+  // other teams' rosters, and never phrased as risk/severity.
+  const byeOverlapByWeek = new Map();
+  for (const rosterPlayer of myRoster.roster) {
+    const week = rosterPlayer.bye_week;
+    if (week == null) continue;
+    if (!byeOverlapByWeek.has(week)) byeOverlapByWeek.set(week, []);
+    byeOverlapByWeek.get(week).push({ id: rosterPlayer.id, name: rosterPlayer.name });
+  }
 
   // Context actions for the quick-view: Draft / Queue the currently-viewed
   // available player, mirroring the row buttons. Hidden once the player is
@@ -383,6 +402,8 @@ function DraftBoard() {
               onPositionFilterChange={pool.handlePositionFilterChange}
               hideDrafted={pool.hideDrafted}
               onHideDraftedChange={pool.setHideDrafted}
+              byeWeeksFilter={pool.byeWeeksFilter}
+              onByeWeeksFilterChange={pool.handleByeWeeksFilterChange}
               sort={pool.sort}
               dir={pool.dir}
               onSort={pool.handleSort}
@@ -399,6 +420,7 @@ function DraftBoard() {
               hasMore={pool.hasMore}
               loadingMore={pool.loadingMore}
               onLoadMore={pool.loadMore}
+              byeOverlapByWeek={byeOverlapByWeek}
             />
           </Grid>
 

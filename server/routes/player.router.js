@@ -6,7 +6,7 @@ const {
   rulesForLeague, buildPlayerSummary, projectSeasonPoints, getSeasonPositionRank,
   IDP_POSITIONS,
 } = require('../services/scoring.service');
-const { computeByeWeek, computeByeWeeks } = require('../services/bye.service');
+const { computeByeWeek, computeByeWeeks, REG_SEASON_WEEKS } = require('../services/bye.service');
 
 const router = express.Router();
 
@@ -72,6 +72,22 @@ router.get('/', requireAuth, async (req, res) => {
   }
   const availableOnly = req.query.available === 'true' && leagueId;
 
+  // Optional multi-select Bye-week filter, e.g. `byeWeeks=6,9,14`. Applied
+  // across the FULL eligible pool below (not just the current page) — see
+  // `needsFullPool`. Comma-separated integers in 1..REG_SEASON_WEEKS; anything
+  // else is a 400, same treatment as the other whitelisted inputs above.
+  let byeWeeksFilter = [];
+  if (req.query.byeWeeks !== undefined && req.query.byeWeeks !== '') {
+    const raw = String(req.query.byeWeeks);
+    if (!/^\d+(,\d+)*$/.test(raw)) {
+      return res.status(400).json({ error: 'byeWeeks must be a comma-separated list of integers' });
+    }
+    byeWeeksFilter = [...new Set(raw.split(',').map(Number))];
+    if (byeWeeksFilter.some((week) => week < 1 || week > REG_SEASON_WEEKS)) {
+      return res.status(400).json({ error: `byeWeeks must be between 1 and ${REG_SEASON_WEEKS}` });
+    }
+  }
+
   // Scoring context for the season projection below: use the named league's
   // rules + current season when given (the draft board passes leagueId), else
   // defaults. This keeps the list's projection identical to the quick-view's.
@@ -91,6 +107,10 @@ router.get('/', requireAuth, async (req, res) => {
   // input into SQL. ADP is the default (best pick first, undrafted last).
   const dir = req.query.dir === 'desc' ? 'DESC' : 'ASC';
   const projectionSort = req.query.sort === 'projected_points';
+  // Bye is schedule-derived, not a stored column (see the bye_week attachment
+  // below), so it can't be an ORDER BY target in this query — like
+  // projectionSort, it needs the full matching pool fetched and sorted in JS.
+  const byeSort = req.query.sort === 'bye_week';
   let orderBy;
   if (req.query.sort === 'name') {
     orderBy = `"name" ${dir}, "id"`;
@@ -98,9 +118,16 @@ router.get('/', requireAuth, async (req, res) => {
     orderBy = `"adp" ${dir} NULLS LAST, "id"`;
   } else if (req.query.sort === 'position_rank') {
     orderBy = `"position_rank" ${dir} NULLS LAST, "name", "id"`;
+  } else if (req.query.sort === 'nfl_team') {
+    orderBy = `"nfl_team" ${dir} NULLS LAST, "id"`;
   } else {
     orderBy = `"id"`;
   }
+  // Any of these need the full eligible pool assembled and settled (sorted
+  // and/or filtered) before pagination, rather than a plain SQL LIMIT/OFFSET
+  // page — a computed field (pace, bye) or a post-fetch filter (bye weeks)
+  // can't be decided by the database a page at a time.
+  const needsFullPool = projectionSort || byeSort || byeWeeksFilter.length > 0;
 
   const params = [];
   const where = [];
@@ -128,7 +155,7 @@ router.get('/', requireAuth, async (req, res) => {
   params.push(currentSeasonYear - 1);
   const rankSeasonParam = params.length;
 
-  if (!projectionSort) params.push(PAGE_SIZE, offset);
+  if (!needsFullPool) params.push(PAGE_SIZE, offset);
   // The idp_ranks CTE is computed once per query and joined 1:1, NOT filtered
   // by the outer WHERE — ranks must stay global ("LB #5" can't become "#1"
   // because four LBs are rostered in this league). A per-row correlated
@@ -156,12 +183,12 @@ router.get('/', requireAuth, async (req, res) => {
     LEFT JOIN "idp_ranks" ON "idp_ranks"."player_id" = "players"."id"
     ${whereSql}
     ORDER BY ${orderBy}
-    ${projectionSort ? '' : `LIMIT $${params.length - 1} OFFSET $${params.length}`}
+    ${needsFullPool ? '' : `LIMIT $${params.length - 1} OFFSET $${params.length}`}
   `;
 
   try {
     const result = await pool.query(queryText, params);
-    const total = result.rows[0] ? Number(result.rows[0].total_count) : 0;
+    const sqlTotal = result.rows[0] ? Number(result.rows[0].total_count) : 0;
     const players = result.rows.map(({ total_count, ...p }) => p);
 
     // Attach a full-season projection (same math the quick-view uses), computed
@@ -201,12 +228,43 @@ router.get('/', requireAuth, async (req, res) => {
       });
     }
 
-    const pagePlayers = projectionSort ? players.slice(offset, offset + PAGE_SIZE) : players;
-    const nflTeams = [...new Set(pagePlayers.map((p) => p.nfl_team).filter(Boolean))];
+    // Bye week is schedule-derived, not a stored column — attach it to every
+    // row now (whatever `players` currently holds: the full matching pool when
+    // Bye/pace sort or a Bye filter is in play, or just this one SQL-paginated
+    // page otherwise) so the filter/sort below can see it.
+    const nflTeams = [...new Set(players.map((p) => p.nfl_team).filter(Boolean))];
     const byeByTeam = await computeByeWeeks(nflTeams, currentSeasonYear);
-    for (const player of pagePlayers) {
-      player.bye_week = byeByTeam.get(player.nfl_team) ?? null;
+    for (const p of players) {
+      p.bye_week = byeByTeam.get(p.nfl_team) ?? null;
     }
+
+    // Bye filter: a player with an unknown bye week can't match an explicit
+    // week selection, so it's excluded rather than treated as a wildcard.
+    let settled = players;
+    if (byeWeeksFilter.length > 0) {
+      const weekSet = new Set(byeWeeksFilter);
+      settled = settled.filter((p) => p.bye_week != null && weekSet.has(p.bye_week));
+    }
+
+    // Nulls sort last regardless of direction — folded into the comparator
+    // itself (not a post-hoc `.reverse()`, which would also flip the nulls to
+    // the front on a descending sort). Mirrors the projectionSort comparator
+    // above and the harness's own simulation (draftHarness.ts).
+    if (byeSort) {
+      const direction = dir === 'DESC' ? -1 : 1;
+      settled = [...settled].sort((a, b) => {
+        if (a.bye_week == null && b.bye_week == null) return a.id - b.id;
+        if (a.bye_week == null) return 1;
+        if (b.bye_week == null) return -1;
+        if (a.bye_week !== b.bye_week) return direction * (a.bye_week - b.bye_week);
+        return a.id - b.id;
+      });
+    }
+
+    // The SQL total_count reflects the outer WHERE only — once a Bye filter
+    // narrows `settled` further in JS, the page count has to come from there.
+    const total = needsFullPool ? settled.length : sqlTotal;
+    const pagePlayers = needsFullPool ? settled.slice(offset, offset + PAGE_SIZE) : settled;
 
     res.json({
       players: pagePlayers,

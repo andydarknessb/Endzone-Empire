@@ -30,6 +30,18 @@ import InjuryBadge from '../InjuryBadge/InjuryBadge';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import PositionChip from '../PlayerQuickView/PositionChip';
 import AbbreviationTooltip from '../common/AbbreviationTooltip';
+import ColumnGuide from './ColumnGuide';
+
+// The real NFL regular season a Bye can fall in (mirrors REG_SEASON_WEEKS in
+// server/services/bye.service.js) — every selectable option in the multi-select
+// below, whether or not any team actually has a bye there this season; an
+// empty result for an unused week is a normal, honest "no match", not a bug.
+const BYE_WEEK_OPTIONS = Array.from({ length: 18 }, (_, i) => i + 1);
+
+// Applies to every numeric column (Bye, ADP, Pos rank, 17-game pace): fixed-
+// width digit glyphs so a column of numbers lines up instead of drifting with
+// each digit's natural width.
+const numericCellSx = { fontVariantNumeric: 'tabular-nums' };
 
 // Muted, dark-mode-friendly header: a step off the surrounding Paper instead
 // of a saturated brand color, with a divider rule to separate it from rows.
@@ -72,6 +84,8 @@ function PlayerPoolTable({
   onPositionFilterChange,
   hideDrafted,
   onHideDraftedChange,
+  byeWeeksFilter,
+  onByeWeeksFilterChange,
   sort,
   dir,
   onSort,
@@ -88,6 +102,7 @@ function PlayerPoolTable({
   hasMore,
   loadingMore,
   onLoadMore,
+  byeOverlapByWeek = new Map(),
 }) {
   const scrollRef = useRef(null);
 
@@ -102,7 +117,10 @@ function PlayerPoolTable({
   return (
     <Paper sx={{ p: 2 }}>
       <Box sx={{ mb: 2, display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-        <Typography variant="h6">Available Players</Typography>
+        <Stack direction="row" spacing={0.5} alignItems="center">
+          <Typography variant="h6">Available Players</Typography>
+          <ColumnGuide />
+        </Stack>
         <TextField
           size="small"
           label="Search"
@@ -144,6 +162,42 @@ function PlayerPoolTable({
             <MenuItem value="DB">DB</MenuItem>
           </Select>
         </FormControl>
+        <FormControl sx={{ minWidth: 220 }}>
+          <InputLabel id="draft-bye-filter-label">Bye week</InputLabel>
+          <Select
+            labelId="draft-bye-filter-label"
+            label="Bye week"
+            multiple
+            value={byeWeeksFilter}
+            onChange={(e) => {
+              const { value } = e.target;
+              onByeWeeksFilterChange(typeof value === 'string' ? value.split(',').map(Number) : value);
+            }}
+            size="small"
+            renderValue={(selected) => (
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                {selected.map((week) => (
+                  <Chip
+                    key={week}
+                    size="small"
+                    label={`Bye ${week}`}
+                    // Stops the click from also toggling the Select's open
+                    // state, so the delete icon actually removes the chip
+                    // instead of just reopening the dropdown.
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onDelete={() => onByeWeeksFilterChange(selected.filter((w) => w !== week))}
+                  />
+                ))}
+              </Box>
+            )}
+          >
+            {BYE_WEEK_OPTIONS.map((week) => (
+              <MenuItem key={week} value={week}>
+                Week {week}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
         <FormControlLabel
           control={
             <Switch size="small" checked={hideDrafted} onChange={(e) => onHideDraftedChange(e.target.checked)} />
@@ -156,9 +210,6 @@ function PlayerPoolTable({
         <Table stickyHeader sx={stripedRowsSx}>
           <TableHead>
             <TableRow>
-              <TableCell sx={headCellSx} align="right">
-                #
-              </TableCell>
               <TableCell sx={headCellSx}>
                 <TableSortLabel
                   active={sort === 'name'}
@@ -168,9 +219,25 @@ function PlayerPoolTable({
                   Name
                 </TableSortLabel>
               </TableCell>
-              <TableCell sx={headCellSx}>Pos</TableCell>
-              <TableCell sx={headCellSx}>NFL Team</TableCell>
-              <TableCell sx={headCellSx} align="right">Bye</TableCell>
+              <TableCell sx={headCellSx}>Position</TableCell>
+              <TableCell sx={headCellSx}>
+                <TableSortLabel
+                  active={sort === 'nfl_team'}
+                  direction={sort === 'nfl_team' ? dir : 'asc'}
+                  onClick={() => onSort('nfl_team')}
+                >
+                  NFL Team
+                </TableSortLabel>
+              </TableCell>
+              <TableCell sx={headCellSx} align="right">
+                <TableSortLabel
+                  active={sort === 'bye_week'}
+                  direction={sort === 'bye_week' ? dir : 'asc'}
+                  onClick={() => onSort('bye_week')}
+                >
+                  <AbbreviationTooltip term="Bye" />
+                </TableSortLabel>
+              </TableCell>
               <TableCell sx={headCellSx} align="right">
                 <TableSortLabel
                   active={sort === 'adp'}
@@ -195,23 +262,23 @@ function PlayerPoolTable({
                   direction={sort === 'proj' ? dir : 'asc'}
                   onClick={() => onSort('proj')}
                 >
-                  <AbbreviationTooltip term="Projected" label="Season Proj" />
+                  <AbbreviationTooltip term="17-game pace" />
                 </TableSortLabel>
               </TableCell>
               <TableCell sx={stickyActionHeadSx} align="center">
-                Action
+                Actions
               </TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {displayPlayers.length === 0 && (
               <TableRow>
-                <TableCell colSpan={9} sx={{ color: 'text.secondary', textAlign: 'center' }}>
+                <TableCell colSpan={8} sx={{ color: 'text.secondary', textAlign: 'center' }}>
                   {search ? `No available players matching “${search}”` : 'No available players'}
                 </TableCell>
               </TableRow>
             )}
-            {displayPlayers.map((player, idx) => {
+            {displayPlayers.map((player) => {
               const isDrafted = draftedIds.has(player.id);
               const draftDisabled = !isMyTurn || !!draftPaused || isDrafted;
               const draftDisabledReason = isDrafted
@@ -221,11 +288,13 @@ function PlayerPoolTable({
                 : !isMyTurn
                 ? `Waiting for ${onTheClockName || 'the next pick'}`
                 : '';
+              // Rostered players (on the caller's own team) sharing this
+              // candidate's Bye week — a neutral roster fact, not a warning.
+              // Excludes the candidate itself, in case Hide drafted is off and
+              // this row IS one of the caller's own picks.
+              const overlap = (byeOverlapByWeek.get(player.bye_week) || []).filter((p) => p.id !== player.id);
               return (
                 <TableRow key={player.id}>
-                  <TableCell align="right" sx={{ color: 'text.secondary' }}>
-                    {idx + 1}
-                  </TableCell>
                   <TableCell>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       <PlayerNameLink name={player.name} playerId={player.id} onOpen={onOpenQuickView} />
@@ -237,13 +306,44 @@ function PlayerPoolTable({
                     <PositionChip position={player.position} />
                   </TableCell>
                   <TableCell>{player.nfl_team}</TableCell>
-                  <TableCell align="right">{player.bye_week != null ? player.bye_week : '-'}</TableCell>
-                  <TableCell align="right">{player.adp != null ? player.adp : '-'}</TableCell>
-                  <TableCell align="right">
+                  <TableCell align="right" sx={numericCellSx}>
+                    {player.bye_week != null ? (
+                      <Stack direction="row" spacing={0.5} justifyContent="flex-end" alignItems="center">
+                        <span>{player.bye_week}</span>
+                        {overlap.length > 0 && (
+                          <Tooltip
+                            title={`Also on your roster with this Bye: ${overlap.map((p) => p.name).join(', ')}`}
+                          >
+                            <Chip
+                              size="small"
+                              variant="outlined"
+                              label={overlap.length}
+                              aria-label={
+                                `Bye overlap: ${overlap.length} rostered player${overlap.length === 1 ? '' : 's'} `
+                                + `share this Bye week - ${overlap.map((p) => p.name).join(', ')}`
+                              }
+                            />
+                          </Tooltip>
+                        )}
+                      </Stack>
+                    ) : (
+                      '-'
+                    )}
+                  </TableCell>
+                  <TableCell align="right" sx={numericCellSx}>{player.adp != null ? player.adp : '-'}</TableCell>
+                  <TableCell align="right" sx={numericCellSx}>
                     {player.position_rank != null ? `#${player.position_rank}` : '-'}
                   </TableCell>
-                  <TableCell align="right">
-                    {player.projected_points != null ? player.projected_points : '-'}
+                  <TableCell align="right" sx={numericCellSx}>
+                    {player.projected_points != null ? (
+                      Number(player.projected_points).toFixed(1)
+                    ) : (
+                      <Tooltip title="17-game pace unavailable: not enough games in the prior completed season to extrapolate a pace.">
+                        <Box component="span" tabIndex={0} sx={{ cursor: 'help' }}>
+                          -
+                        </Box>
+                      </Tooltip>
+                    )}
                   </TableCell>
                   <TableCell align="center" sx={stickyActionCellSx}>
                     <Stack direction="row" spacing={1} justifyContent="center" alignItems="center">
@@ -280,7 +380,7 @@ function PlayerPoolTable({
             })}
             {loadingMore && (
               <TableRow>
-                <TableCell colSpan={9} sx={{ textAlign: 'center', py: 2 }}>
+                <TableCell colSpan={8} sx={{ textAlign: 'center', py: 2 }}>
                   <CircularProgress size={20} />
                 </TableCell>
               </TableRow>
