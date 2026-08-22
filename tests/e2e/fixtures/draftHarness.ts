@@ -126,6 +126,11 @@ export type DraftApiOptions = {
   players?: FixturePlayer[];
   picks: FixturePick[];
   initialQueue?: FixturePlayer[];
+  // The team FIXTURE_USER owns, for /api/team/roster below (the pool's Bye
+  // overlap hint reads this). Every fixture team list puts the harness
+  // viewer's own team first (FIXTURE_TEAMS[0], id 1 - "Ridge Runners"), so
+  // that's the default; override for a fixture that varies it.
+  myTeamId?: number;
 };
 
 export type DraftApiHandle = {
@@ -143,6 +148,7 @@ export type DraftApiHandle = {
 export async function installDraftRestApi(page: Page, opts: DraftApiOptions): Promise<DraftApiHandle> {
   const user = opts.user || FIXTURE_USER;
   const players = opts.players || FIXTURE_PLAYERS;
+  const myTeamId = opts.myTeamId ?? 1;
   const draftedIds = new Set(opts.picks.map((p) => p.player_id));
   let queue: FixturePlayer[] = [...(opts.initialQueue || [])];
   const handle: DraftApiHandle = { queueWrites: [] };
@@ -189,6 +195,14 @@ export async function installDraftRestApi(page: Page, opts: DraftApiOptions): Pr
       let list = players.filter((p) => (!position || position === 'All' ? true : p.position === position));
       if (search) list = list.filter((p) => p.name.toLowerCase().includes(search));
       if (available) list = list.filter((p) => !draftedIds.has(p.id));
+      // Bye-weeks filter (multi-select, issue #119): applied here, before
+      // sorting/pagination, across the WHOLE matching pool - the harness has
+      // no separate page to short-cut, same as the real server.
+      const byeWeeksParam = params.get('byeWeeks');
+      if (byeWeeksParam) {
+        const weeks = new Set(byeWeeksParam.split(',').map(Number));
+        list = list.filter((p) => p.bye_week != null && weeks.has(p.bye_week));
+      }
       list = sortPlayers(list, sort, dir);
 
       return json(route, 200, { players: list, totalPages: 1 });
@@ -199,6 +213,25 @@ export async function installDraftRestApi(page: Page, opts: DraftApiOptions): Pr
       const id = Number(summaryMatch[1]);
       const player = players.find((p) => p.id === id) || null;
       return json(route, 200, { player, fantasy: {}, currentSeason: null, previousSeasons: [] });
+    }
+
+    // Feeds only the pool's Bye overlap hint (useMyRoster.js) — every rostered
+    // player this fixture's viewer (FIXTURE_USER, team `myTeamId`) already
+    // holds, with the same bye_week each player carries in the pool response.
+    if (method === 'GET' && path === '/api/team/roster') {
+      const roster = opts.picks
+        .filter((p) => p.team_id === myTeamId)
+        .map((p) => {
+          const player = players.find((pl) => pl.id === p.player_id);
+          return {
+            id: p.player_id,
+            name: p.name,
+            position: p.position,
+            nfl_team: p.nfl_team,
+            bye_week: player ? player.bye_week : null,
+          };
+        });
+      return json(route, 200, roster);
     }
 
     if (method === 'GET' && path === '/api/draft/queue') return json(route, 200, queue);

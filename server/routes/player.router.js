@@ -6,7 +6,7 @@ const {
   rulesForLeague, buildPlayerSummary, projectSeasonPoints, getSeasonPositionRank,
   IDP_POSITIONS,
 } = require('../services/scoring.service');
-const { computeByeWeek, computeByeWeeks } = require('../services/bye.service');
+const { computeByeWeek, computeByeWeeks, REG_SEASON_WEEKS } = require('../services/bye.service');
 
 const router = express.Router();
 
@@ -42,6 +42,35 @@ function summaryCacheSet(key, value) {
   summaryCache.set(key, { value, expires: Date.now() + SUMMARY_TTL_MS });
 }
 
+// Attaches `projected_points` (the "17-game pace" — a full-season projection
+// from prior-season totals under the league's scoring rules, same math the
+// quick-view uses) to every player in `list`, mutating each row in place. One
+// extra query, scoped to exactly the ids passed in — callers decide how much
+// of the pool actually needs this (see the projectionSort branch below: only
+// a sort BY this field needs it computed for the whole matching pool before
+// the pool can be paginated; everything else only needs it for the page).
+async function attachProjectedPoints(list, { projectionRules, currentSeasonYear }) {
+  const ids = list.map((p) => p.id);
+  if (ids.length === 0) return;
+  const seasonRes = await pool.query(
+    `SELECT "player_id", "season", "games_played", "stats", "fantasy_points"
+     FROM "player_season_stats" WHERE "player_id" = ANY($1)`,
+    [ids]
+  );
+  const seasonByPlayer = new Map();
+  for (const row of seasonRes.rows) {
+    if (!seasonByPlayer.has(row.player_id)) seasonByPlayer.set(row.player_id, []);
+    seasonByPlayer.get(row.player_id).push(row);
+  }
+  for (const p of list) {
+    p.projected_points = projectSeasonPoints({
+      seasonRows: seasonByPlayer.get(p.id) || [],
+      rules: projectionRules,
+      currentSeasonYear,
+    });
+  }
+}
+
 // GET /api/players?page=N&position=QB[&leagueId=N&available=true]
 // Paginated player pool with strict integer validation on `page`.
 router.get('/', requireAuth, async (req, res) => {
@@ -72,6 +101,22 @@ router.get('/', requireAuth, async (req, res) => {
   }
   const availableOnly = req.query.available === 'true' && leagueId;
 
+  // Optional multi-select Bye-week filter, e.g. `byeWeeks=6,9,14`. Applied
+  // across the FULL eligible pool below (not just the current page) — see
+  // `needsFullPool`. Comma-separated integers in 1..REG_SEASON_WEEKS; anything
+  // else is a 400, same treatment as the other whitelisted inputs above.
+  let byeWeeksFilter = [];
+  if (req.query.byeWeeks !== undefined && req.query.byeWeeks !== '') {
+    const raw = String(req.query.byeWeeks);
+    if (!/^\d+(,\d+)*$/.test(raw)) {
+      return res.status(400).json({ error: 'byeWeeks must be a comma-separated list of integers' });
+    }
+    byeWeeksFilter = [...new Set(raw.split(',').map(Number))];
+    if (byeWeeksFilter.some((week) => week < 1 || week > REG_SEASON_WEEKS)) {
+      return res.status(400).json({ error: `byeWeeks must be between 1 and ${REG_SEASON_WEEKS}` });
+    }
+  }
+
   // Scoring context for the season projection below: use the named league's
   // rules + current season when given (the draft board passes leagueId), else
   // defaults. This keeps the list's projection identical to the quick-view's.
@@ -91,6 +136,10 @@ router.get('/', requireAuth, async (req, res) => {
   // input into SQL. ADP is the default (best pick first, undrafted last).
   const dir = req.query.dir === 'desc' ? 'DESC' : 'ASC';
   const projectionSort = req.query.sort === 'projected_points';
+  // Bye is schedule-derived, not a stored column (see the bye_week attachment
+  // below), so it can't be an ORDER BY target in this query — like
+  // projectionSort, it needs the full matching pool fetched and sorted in JS.
+  const byeSort = req.query.sort === 'bye_week';
   let orderBy;
   if (req.query.sort === 'name') {
     orderBy = `"name" ${dir}, "id"`;
@@ -98,9 +147,16 @@ router.get('/', requireAuth, async (req, res) => {
     orderBy = `"adp" ${dir} NULLS LAST, "id"`;
   } else if (req.query.sort === 'position_rank') {
     orderBy = `"position_rank" ${dir} NULLS LAST, "name", "id"`;
+  } else if (req.query.sort === 'nfl_team') {
+    orderBy = `"nfl_team" ${dir} NULLS LAST, "id"`;
   } else {
     orderBy = `"id"`;
   }
+  // Any of these need the full eligible pool assembled and settled (sorted
+  // and/or filtered) before pagination, rather than a plain SQL LIMIT/OFFSET
+  // page — a computed field (pace, bye) or a post-fetch filter (bye weeks)
+  // can't be decided by the database a page at a time.
+  const needsFullPool = projectionSort || byeSort || byeWeeksFilter.length > 0;
 
   const params = [];
   const where = [];
@@ -128,7 +184,7 @@ router.get('/', requireAuth, async (req, res) => {
   params.push(currentSeasonYear - 1);
   const rankSeasonParam = params.length;
 
-  if (!projectionSort) params.push(PAGE_SIZE, offset);
+  if (!needsFullPool) params.push(PAGE_SIZE, offset);
   // The idp_ranks CTE is computed once per query and joined 1:1, NOT filtered
   // by the outer WHERE — ranks must stay global ("LB #5" can't become "#1"
   // because four LBs are rostered in this league). A per-row correlated
@@ -156,56 +212,68 @@ router.get('/', requireAuth, async (req, res) => {
     LEFT JOIN "idp_ranks" ON "idp_ranks"."player_id" = "players"."id"
     ${whereSql}
     ORDER BY ${orderBy}
-    ${projectionSort ? '' : `LIMIT $${params.length - 1} OFFSET $${params.length}`}
+    ${needsFullPool ? '' : `LIMIT $${params.length - 1} OFFSET $${params.length}`}
   `;
 
   try {
     const result = await pool.query(queryText, params);
-    const total = result.rows[0] ? Number(result.rows[0].total_count) : 0;
+    const sqlTotal = result.rows[0] ? Number(result.rows[0].total_count) : 0;
     const players = result.rows.map(({ total_count, ...p }) => p);
 
-    // Attach a full-season projection (same math the quick-view uses), computed
-    // from prior-season totals under the league's scoring rules, so the draft
-    // board's "Season Proj" matches the dialog rather than showing a raw
-    // per-game figure. One extra query for the whole page.
-    const ids = players.map((p) => p.id);
-    const seasonByPlayer = new Map();
-    if (ids.length > 0) {
-      const seasonRes = await pool.query(
-        `SELECT "player_id", "season", "games_played", "stats", "fantasy_points"
-         FROM "player_season_stats" WHERE "player_id" = ANY($1)`,
-        [ids]
-      );
-      for (const row of seasonRes.rows) {
-        if (!seasonByPlayer.has(row.player_id)) seasonByPlayer.set(row.player_id, []);
-        seasonByPlayer.get(row.player_id).push(row);
-      }
-    }
-    for (const p of players) {
-      p.projected_points = projectSeasonPoints({
-        seasonRows: seasonByPlayer.get(p.id) || [],
-        rules: projectionRules,
-        currentSeasonYear,
-      });
-    }
-
-    if (projectionSort) {
-      players.sort((a, b) => {
-        const av = a.projected_points == null ? null : Number(a.projected_points);
-        const bv = b.projected_points == null ? null : Number(b.projected_points);
-        const aMissing = av == null || !Number.isFinite(av);
-        const bMissing = bv == null || !Number.isFinite(bv);
-        if (aMissing !== bMissing) return aMissing ? 1 : -1;
-        if (!aMissing && av !== bv) return dir === 'DESC' ? bv - av : av - bv;
-        return a.id - b.id;
-      });
-    }
-
-    const pagePlayers = projectionSort ? players.slice(offset, offset + PAGE_SIZE) : players;
-    const nflTeams = [...new Set(pagePlayers.map((p) => p.nfl_team).filter(Boolean))];
+    // Bye week is schedule-derived, not a stored column — attach it to every
+    // row now (whatever `players` currently holds: the full matching pool when
+    // Bye/pace sort or a Bye filter is in play, or just this one SQL-paginated
+    // page otherwise) so the filter/sort below can see it. Cheap regardless of
+    // pool size: one batched query keyed by distinct NFL team, not by player.
+    const nflTeams = [...new Set(players.map((p) => p.nfl_team).filter(Boolean))];
     const byeByTeam = await computeByeWeeks(nflTeams, currentSeasonYear);
-    for (const player of pagePlayers) {
-      player.bye_week = byeByTeam.get(player.nfl_team) ?? null;
+    for (const p of players) {
+      p.bye_week = byeByTeam.get(p.nfl_team) ?? null;
+    }
+
+    // Bye filter: a player with an unknown bye week can't match an explicit
+    // week selection, so it's excluded rather than treated as a wildcard.
+    let settled = players;
+    if (byeWeeksFilter.length > 0) {
+      const weekSet = new Set(byeWeeksFilter);
+      settled = settled.filter((p) => p.bye_week != null && weekSet.has(p.bye_week));
+    }
+
+    // Nulls sort last regardless of direction — folded into the comparator
+    // itself (not a post-hoc `.reverse()`, which would also flip the nulls to
+    // the front on a descending sort). Shared by every computed-field sort
+    // below (mirrors the harness's own simulation in draftHarness.ts).
+    const nullsLastComparator = (getValue, direction) => (a, b) => {
+      const av = getValue(a);
+      const bv = getValue(b);
+      const aMissing = av == null || !Number.isFinite(av);
+      const bMissing = bv == null || !Number.isFinite(bv);
+      if (aMissing !== bMissing) return aMissing ? 1 : -1;
+      if (!aMissing && av !== bv) return direction * (av - bv);
+      return a.id - b.id;
+    };
+    if (byeSort) {
+      settled = [...settled].sort(nullsLastComparator((p) => p.bye_week, dir === 'DESC' ? -1 : 1));
+    }
+
+    // The SQL total_count reflects the outer WHERE only — once a Bye filter
+    // narrows `settled` further in JS, the page count has to come from there.
+    const total = needsFullPool ? settled.length : sqlTotal;
+
+    // Sorting BY the projection needs it computed for the WHOLE matching pool
+    // first (the sort has to settle before the page can be sliced); every
+    // other sort/filter only needs it for the page actually being returned —
+    // the season-stats query and the math both cost per player, so deferring
+    // this until after the page is known keeps that cost proportional to
+    // what's rendered, not to the whole eligible pool.
+    if (projectionSort) {
+      await attachProjectedPoints(settled, { projectionRules, currentSeasonYear });
+      settled.sort(nullsLastComparator((p) => Number(p.projected_points), dir === 'DESC' ? -1 : 1));
+    }
+
+    const pagePlayers = needsFullPool ? settled.slice(offset, offset + PAGE_SIZE) : settled;
+    if (!projectionSort) {
+      await attachProjectedPoints(pagePlayers, { projectionRules, currentSeasonYear });
     }
 
     res.json({

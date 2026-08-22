@@ -146,7 +146,9 @@ test.describe('existing draft behavior baseline (active fixture)', () => {
 
     await page.getByText('Name', { exact: true }).click();
 
-    const names = await page.locator('table tbody tr td:nth-child(2) button').allTextContents();
+    // The Name column is the first cell (issue #119 removed the leading
+    // render-index column).
+    const names = await page.locator('table tbody tr td:nth-child(1) button').allTextContents();
     expect(names).toEqual([
       'Amon-Ra St. Brown',
       'Bijan Robinson',
@@ -180,7 +182,7 @@ test.describe('existing draft behavior baseline (active fixture)', () => {
     // page text matches that substring too.
     await page.getByRole('button', { name: /^ADP:/ }).click();
 
-    const names = await page.locator('table tbody tr td:nth-child(2) button').allTextContents();
+    const names = await page.locator('table tbody tr td:nth-child(1) button').allTextContents();
     expect(names).toEqual(['Alpha Prospect', 'Beta Prospect', 'Undrafted Rookie']);
   });
 
@@ -269,5 +271,110 @@ test.describe('existing draft behavior baseline (active fixture)', () => {
     await expect(page.getByRole('columnheader', { name: 'Ridge Runners' })).toBeVisible();
     await expect(page.getByRole('columnheader', { name: 'Harbor Hawks' })).toBeVisible();
     await expect(page.getByRole('button', { name: /Round 1 pick 1, Harbor Hawks: Josh Allen/ })).toBeVisible();
+  });
+});
+
+// --- Schedule-aware, truthful available-player pool (issue #119, parent #108) ---
+
+test.describe('schedule-aware player pool (issue #119)', () => {
+  test.use({ viewport: VIEWPORTS.desktop });
+
+  test.beforeEach(async ({ page }) => {
+    await setTheme(page, 'light');
+  });
+
+  test('the final columns are exactly Name/Position/NFL Team/Bye/ADP/Pos rank/17-game pace/Actions', async ({ page }) => {
+    await setupActiveDraft(page);
+
+    const headers = (await page.getByRole('columnheader').allTextContents()).map((h) => h.trim());
+    expect(headers).toEqual([
+      'Name', 'Position', 'NFL Team', 'Bye', 'ADP', 'Pos rank', '17-game pace', 'Actions',
+    ]);
+    // Render index, Draft value, and Tier are all absent.
+    await expect(page.getByText('Draft value')).toHaveCount(0);
+    await expect(page.getByText('Tier', { exact: true })).toHaveCount(0);
+    await expect(page.getByText('Season Proj')).toHaveCount(0);
+  });
+
+  test('sorts by NFL Team across the full pool before pagination', async ({ page }) => {
+    await setupActiveDraft(page);
+
+    await page.getByText('NFL Team', { exact: true }).click();
+
+    const teams = await page.locator('table tbody tr td:nth-child(3)').allTextContents();
+    expect(teams).toEqual([...teams].sort());
+  });
+
+  test('sorts by Bye with deterministic null-last behavior in both directions', async ({ page }) => {
+    const players = [
+      { id: 201, name: 'Early Bye', position: 'RB', nfl_team: 'DAL', adp: 4.0, position_rank: 5, projected_points: 120.0, bye_week: 6 },
+      { id: 202, name: 'Late Bye', position: 'RB', nfl_team: 'ATL', adp: 2.0, position_rank: 3, projected_points: 140.0, bye_week: 12 },
+      { id: 203, name: 'Unknown Bye', position: 'RB', nfl_team: 'NYJ', adp: 1.0, position_rank: 1, projected_points: 150.0, bye_week: null },
+    ];
+    const league = buildLeague({ draft_status: 'active' });
+    await installDraftSocketHarness(page, { league, teams: FIXTURE_TEAMS, picks: [], onTheClock: FIXTURE_TEAMS[0] });
+    await installDraftRestApi(page, { league, picks: [], players });
+    await gotoDraft(page);
+    await expect(page.getByRole('button', { name: 'Early Bye' })).toBeVisible();
+
+    await page.getByRole('button', { name: /^Bye:/ }).click();
+    await expect(page.locator('table tbody tr td:nth-child(1) button')).toHaveText([
+      'Early Bye', 'Late Bye', 'Unknown Bye',
+    ]);
+
+    await page.getByRole('button', { name: /^Bye:/ }).click(); // toggle to descending
+    await expect(page.locator('table tbody tr td:nth-child(1) button')).toHaveText([
+      'Late Bye', 'Early Bye', 'Unknown Bye', // the unknown Bye stays last either direction
+    ]);
+  });
+
+  test('the Bye-weeks multi-select filters the full pool and renders a removable chip', async ({ page }) => {
+    await setupActiveDraft(page);
+
+    // Patrick Mahomes and Travis Kelce (both KC) share Bye 10; nobody else does.
+    // Not `getByLabel('Bye week')`: the Bye column header's AbbreviationTooltip
+    // aria-label ("Bye: Bye week: ...") also contains that substring.
+    await page.getByRole('combobox', { name: 'Bye week' }).click();
+    await page.getByRole('option', { name: 'Week 10' }).click();
+    await page.keyboard.press('Escape');
+
+    await expect(page.getByRole('button', { name: 'Patrick Mahomes' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Travis Kelce' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Bijan Robinson' })).toHaveCount(0);
+    await expect(page.getByText('Bye 10')).toBeVisible(); // the removable-chip rendering of the selection
+  });
+
+  test('shows a neutral Bye overlap hint against the caller\'s own roster', async ({ page }) => {
+    // The harness viewer's own team (Ridge Runners, team 1) already holds
+    // Travis Kelce (KC, Bye 10); Patrick Mahomes (also KC, Bye 10) is still
+    // available and should surface the overlap.
+    const picks = [
+      { pick_number: 1, team_id: 1, player_id: 5, name: 'Travis Kelce', position: 'TE', nfl_team: 'KC' },
+    ];
+    const league = buildLeague({ draft_status: 'active' });
+    await installDraftSocketHarness(page, { league, teams: FIXTURE_TEAMS, picks, onTheClock: FIXTURE_TEAMS[0] });
+    await installDraftRestApi(page, { league, picks });
+    await gotoDraft(page);
+
+    const mahomesRow = page.locator('tr', { hasText: 'Patrick Mahomes' });
+    await expect(mahomesRow).toBeVisible();
+    const overlapHint = mahomesRow.getByLabel(/Bye overlap: 1 rostered player.*Travis Kelce/);
+    await expect(overlapHint).toBeVisible();
+    // Neutral: no harm/severity language anywhere in the hint.
+    expect(await overlapHint.getAttribute('aria-label')).not.toMatch(/conflict|risk|warning/i);
+  });
+
+  test('a keyboard-reachable Column guide explains abbreviations and injury-status codes', async ({ page }) => {
+    await setupActiveDraft(page);
+
+    await page.getByRole('button', { name: 'Column guide' }).focus();
+    await page.keyboard.press('Enter');
+
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByText('17-game pace')).toBeVisible();
+    await expect(dialog.getByText('Injured Reserve')).toBeVisible();
+
+    await dialog.getByRole('button', { name: 'Close' }).click();
+    await expect(dialog).toBeHidden();
   });
 });
