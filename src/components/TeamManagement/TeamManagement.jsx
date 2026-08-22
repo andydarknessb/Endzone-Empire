@@ -16,6 +16,7 @@ import PositionChip from '../PlayerQuickView/PositionChip';
 import TeamAvatarUploader from '../common/TeamAvatarUploader';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import { deriveLeaguePhase, LEAGUE_PHASE } from '../../lib/leaguePhase';
+import { isPickemOnly } from '../../lib/leagueType';
 
 // Injury status -> chip fill. Not backed by real data yet (players has no
 // injury_status column), so this only lights up once that field exists;
@@ -137,7 +138,7 @@ function TeamManagement() {
       const response = await apiClient.get('/api/league');
       // A pick'em-only league has no roster to manage, so it never appears
       // in this selector.
-      const rosterLeagues = response.data.filter((league) => !league.pickem_only);
+      const rosterLeagues = response.data.filter((league) => !isPickemOnly(league));
       setLeagues(rosterLeagues);
       if (rosterLeagues.length > 0) {
         setSelectedLeague(rosterLeagues[0].id);

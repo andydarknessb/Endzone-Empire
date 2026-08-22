@@ -34,6 +34,7 @@ import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import RuleIcon from '@mui/icons-material/Rule';
 import apiClient from '../../api/apiClient';
 import { useLeague } from '../../hooks/useLeague';
+import { isPickemOnly } from '../../lib/leagueType';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
@@ -219,7 +220,7 @@ function TransactionLog() {
   // toggles; if the row cannot be loaded at all the page keeps its fantasy
   // shape, which is also what an older cached row without the flag gets.
   const { league, loading: leagueLoading } = useLeague(leagueId);
-  const pickemOnly = !!league?.pickem_only;
+  const pickemOnly = isPickemOnly(league);
   const filterOptions = FILTER_OPTIONS.filter((opt) => !opt.fantasyOnly || !pickemOnly);
   const [transactions, setTransactions] = useState(null);
   const [loading, setLoading] = useState(true);

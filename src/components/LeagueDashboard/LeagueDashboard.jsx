@@ -52,6 +52,7 @@ import Countdown from '../Countdown/Countdown';
 import CommissionerTools from './CommissionerTools';
 import AbbreviationTooltip from '../common/AbbreviationTooltip';
 import { deriveLeaguePhase, isSeasonLive, LEAGUE_PHASE, LEAGUE_PHASE_META } from '../../lib/leaguePhase';
+import { isPickemOnly } from '../../lib/leagueType';
 
 // The fantasy header's season chip, worded by phase once the draft is done.
 // (A pick'em-only header uses LEAGUE_PHASE_META instead: it has no playoffs.)
@@ -161,7 +162,7 @@ function LeagueDashboard() {
       // come back as an all-zero table (and its failure would set the page
       // error banner), so it is never requested; the pick'em standings
       // component below fetches its own.
-      if (leagueRes.data.league?.pickem_only) {
+      if (isPickemOnly(leagueRes.data.league)) {
         setStandings([]);
         return;
       }
@@ -265,7 +266,7 @@ function LeagueDashboard() {
   // absent in older data â€” treat that as no gate).
   const belowMin = league.min_teams != null && teams.length < league.min_teams;
   const auctionUnsupported = league.draft_type === 'auction';
-  const pickemOnly = !!league.pickem_only;
+  const pickemOnly = isPickemOnly(league);
   const leaguePhase = deriveLeaguePhase(league);
   const preDraft = leaguePhase === LEAGUE_PHASE.PRE_DRAFT;
   const seasonComplete = leaguePhase === LEAGUE_PHASE.COMPLETE;

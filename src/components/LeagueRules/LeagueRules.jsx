@@ -3,6 +3,7 @@ import { useParams, useSearchParams } from 'react-router-dom';
 import { Alert, Box, Button, Container, Paper, Skeleton, Tab, Tabs, Typography } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import { useLeague } from '../../hooks/useLeague';
+import { isPickemOnly } from '../../lib/leagueType';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import LeagueOfficials from './LeagueOfficials';
 import ScoringRulesView from './ScoringRulesView';
@@ -47,7 +48,7 @@ export default function LeagueRules() {
   // scoring rules, so the request is skipped rather than made and ignored.
   // (The dashboard primes the useLeague cache, so the row is normally already
   // in hand when this page mounts and nothing is serialized.)
-  const pickemOnly = !!league?.pickem_only;
+  const pickemOnly = isPickemOnly(league);
   const leagueKnown = !!league;
   useEffect(() => {
     if (!leagueKnown || pickemOnly) return undefined;

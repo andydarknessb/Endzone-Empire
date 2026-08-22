@@ -46,7 +46,7 @@ import {
   perYardHelper,
   buildInitialRules,
 } from '../../lib/leagueRulesFormat';
-import { FANTASY_MAX_TEAMS, MIN_TEAMS, PICKEM_MAX_TEAMS } from '../../lib/leagueType';
+import { capForType, isPickemOnly, leagueTypeOf, MIN_TEAMS } from '../../lib/leagueType';
 import { deriveLeaguePhase, draftSettingsFrozen, LEAGUE_PHASE } from '../../lib/leaguePhase';
 
 const PLAYOFF_TEAM_OPTIONS = [4, 6, 8];
@@ -287,7 +287,7 @@ function GeneralSettingsPanel({ leagueId, league, teams, user, isOwner, onRefres
     try {
       // A pick'em-only league has no draft for a minimum to gate, so only the
       // cap is edited there (the create dialogs omit min the same way).
-      const limits = league.pickem_only
+      const limits = isPickemOnly(league)
         ? { maxTeams: Number(sizeMax) }
         : { minTeams: Number(sizeMin), maxTeams: Number(sizeMax) };
       await apiClient.put(`/api/league/${leagueId}`, limits);
@@ -335,13 +335,13 @@ function GeneralSettingsPanel({ leagueId, league, teams, user, isOwner, onRefres
   // draft to freeze team limits behind, and its rollover lives on its own
   // Season tab. Phase comes from the league row alone: the same row every
   // panel here edits, refetched after each action.
-  const pickemOnly = !!league.pickem_only;
+  const pickemOnly = isPickemOnly(league);
   const seasonComplete = deriveLeaguePhase(league) === LEAGUE_PHASE.COMPLETE;
   // Team limits are draft-frozen keys, so they are offered exactly while the
   // phase module's freeze rule says they are open (pre-draft, or always for a
   // pick'em-only league): the same rule the server's frozenSettingKeys states.
   const limitsEditable = !draftSettingsFrozen(league);
-  const maxTeamsCap = pickemOnly ? PICKEM_MAX_TEAMS : FANTASY_MAX_TEAMS;
+  const maxTeamsCap = capForType(leagueTypeOf(league));
 
   return (
     <Stack spacing={3}>
@@ -1544,7 +1544,7 @@ function CommissionerTools({ leagueId, league, teams, user, isOwner = true, onRe
   // a hash-only hop between two leagues keeps this component mounted, and a
   // fantasy tab left selected must not render its panel inside a pick'em
   // league (or 'season' inside a fantasy one).
-  const pickemOnly = !!league.pickem_only;
+  const pickemOnly = isPickemOnly(league);
   const tabs = pickemOnly ? PICKEM_TABS : FANTASY_TABS;
   const tab = tabs.includes(selectedTab) ? selectedTab : 'general';
 

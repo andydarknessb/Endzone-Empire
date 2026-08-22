@@ -17,7 +17,7 @@ import LeagueTypeFields from '../common/LeagueTypeFields';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import { deriveLeaguePhase, LEAGUE_PHASE } from '../../lib/leaguePhase';
 import {
-  LEAGUE_TYPE, MIN_TEAMS, capForType, clampTeamCount, includesFantasy, isPickemOnlyType, isValidTeamCount,
+  LEAGUE_TYPE, MIN_TEAMS, capForType, clampTeamCount, includesFantasy, isPickemOnly, isPickemOnlyType, isValidTeamCount,
   leagueTypePayload,
 } from '../../lib/leagueType';
 
@@ -52,7 +52,7 @@ function nextUpFor(leagues, activityItems) {
 
   // A pick'em-only league is in season from day one and has no lineup to set:
   // its next step is always this week's picks.
-  const picking = leagues.find((league) => league.pickem_only && deriveLeaguePhase(league) === LEAGUE_PHASE.IN_SEASON);
+  const picking = leagues.find((league) => isPickemOnly(league) && deriveLeaguePhase(league) === LEAGUE_PHASE.IN_SEASON);
   if (picking) {
     const week = picking.current_week ? `week ${picking.current_week} ` : '';
     return { eyebrow: 'Action needed', title: `Make your ${week}picks for ${picking.name}.`, action: 'Make picks', to: `/league/${picking.id}/pickem` };

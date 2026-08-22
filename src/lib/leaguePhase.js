@@ -9,6 +9,8 @@
 // state is DRAFT STATUS, not phase: the draft-room tree and the Draft Central
 // card read draft_status raw. Every other league-level screen asks here.
 
+import { isPickemOnly } from './leagueType';
+
 export const LEAGUE_PHASE = Object.freeze({
   PRE_DRAFT: 'pre-draft',
   DRAFTING: 'drafting',
@@ -22,7 +24,7 @@ export function deriveLeaguePhase(league) {
   // A pick'em-only league has no draft: it is in season from creation until
   // the season completes, whatever draft_status says. A league kind is not a
   // position in time, so it maps onto the existing phases rather than a new one.
-  if (league.pickem_only) {
+  if (isPickemOnly(league)) {
     return league.season_status === 'complete' ? LEAGUE_PHASE.COMPLETE : LEAGUE_PHASE.IN_SEASON;
   }
   if (league.draft_status === 'pending') return LEAGUE_PHASE.PRE_DRAFT;
@@ -47,7 +49,7 @@ export const JOIN_REFUSAL_REASON = Object.freeze({
 export function joinability(league) {
   if (!league) return { joinable: false, reason: null };
   const phase = deriveLeaguePhase(league);
-  if (league.pickem_only) {
+  if (isPickemOnly(league)) {
     return phase === LEAGUE_PHASE.COMPLETE
       ? { joinable: false, reason: JOIN_REFUSAL_REASON.SEASON_COMPLETE }
       : { joinable: true };
@@ -79,7 +81,7 @@ export const DRAFT_FROZEN_SETTING_KEYS = Object.freeze([
  */
 export function frozenSettingKeys(league) {
   if (!league) return [...DRAFT_FROZEN_SETTING_KEYS];
-  if (league.pickem_only) return [];
+  if (isPickemOnly(league)) return [];
   return deriveLeaguePhase(league) === LEAGUE_PHASE.PRE_DRAFT ? [] : [...DRAFT_FROZEN_SETTING_KEYS];
 }
 
@@ -107,7 +109,7 @@ export const LEAGUE_PHASE_META = Object.freeze({
 });
 
 export function rosterActionForPhase(league) {
-  if (league && league.pickem_only) {
+  if (isPickemOnly(league)) {
     return { label: 'No rosters', disabled: true, helper: "This is a pick'em league. There are no rosters." };
   }
   const phase = deriveLeaguePhase(league);

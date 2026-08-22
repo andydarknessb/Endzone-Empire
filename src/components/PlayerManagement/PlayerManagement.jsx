@@ -14,6 +14,7 @@ import PositionChip from '../PlayerQuickView/PositionChip';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import AbbreviationTooltip from '../common/AbbreviationTooltip';
 import { rosterActionForPhase } from '../../lib/leaguePhase';
+import { isPickemOnly } from '../../lib/leagueType';
 
 // DE/DT/LB/CB/S/DB are individual defenders (DP-enabled leagues) — literal
 // Tank01 position codes, not the DL/LB/DB roster-eligibility group keys.
@@ -96,7 +97,7 @@ function PlayerManagement() {
         const response = await apiClient.get('/api/league');
         // A pick'em-only league has no roster to add players to, so it never
         // appears in this selector.
-        const rosterLeagues = response.data.filter((league) => !league.pickem_only);
+        const rosterLeagues = response.data.filter((league) => !isPickemOnly(league));
         setLeagues(rosterLeagues);
         setLeaguesLoaded(true);
         if (rosterLeagues.length > 0) setSelectedLeague(rosterLeagues[0].id);

@@ -3,6 +3,7 @@ import { Link as RouterLink, useParams } from 'react-router-dom';
 import { Box, Button, CircularProgress, Container, Paper, Typography } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { useLeague } from '../../hooks/useLeague';
+import { isPickemOnly } from '../../lib/leagueType';
 
 /**
  * Route guard for the fantasy-only surfaces (draft, lineup, matchups, waivers,
@@ -30,7 +31,7 @@ export default function FantasyOnly({ children }) {
     );
   }
 
-  if (!league || !league.pickem_only) return children;
+  if (!isPickemOnly(league)) return children;
 
   return (
     <Container maxWidth="sm" sx={{ py: 6 }}>

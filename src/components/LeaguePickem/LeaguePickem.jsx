@@ -30,6 +30,7 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import apiClient from '../../api/apiClient';
 import { useLeague } from '../../hooks/useLeague';
+import { isPickemOnly } from '../../lib/leagueType';
 import { clearPickemStandingsCache } from '../../hooks/usePickemStandings';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import usePickemWeek from './usePickemWeek';
@@ -220,7 +221,7 @@ export default function LeaguePickem() {
             saving={savingSettings}
             error={settingsSaveError}
             onSave={handleSaveSettings}
-            lockedOn={Boolean(league && league.pickem_only)}
+            lockedOn={isPickemOnly(league)}
           />
         ) : (
           <Paper sx={{ p: 3 }}>
@@ -287,7 +288,7 @@ export default function LeaguePickem() {
               error={settingsSaveError}
               onSave={handleSaveSettings}
               embedded
-              lockedOn={Boolean(league && league.pickem_only)}
+              lockedOn={isPickemOnly(league)}
             />
           </AccordionDetails>
         </Accordion>

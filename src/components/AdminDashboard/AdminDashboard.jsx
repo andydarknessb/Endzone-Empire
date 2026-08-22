@@ -18,7 +18,7 @@ import {
 } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2';
 import apiClient from '../../api/apiClient';
-import { shortLeagueTypeLabel } from '../../lib/leagueType';
+import { isPickemOnly, shortLeagueTypeLabel } from '../../lib/leagueType';
 
 // Turns a whole number of seconds into a short humanized string, e.g. "3h 42m".
 function humanizeUptime(uptimeSec) {
@@ -247,7 +247,7 @@ function AdminDashboard() {
               </TableHead>
               <TableBody>
                 {leagues.map((row, idx) => (
-                  <TableRow key={`${row.pickem_only ? 'pickem' : 'fantasy'}-${row.draft_status}-${row.season_status}-${idx}`}>
+                  <TableRow key={`${isPickemOnly(row) ? 'pickem' : 'fantasy'}-${row.draft_status}-${row.season_status}-${idx}`}>
                     <TableCell>{shortLeagueTypeLabel(row)}</TableCell>
                     <TableCell>{row.draft_status}</TableCell>
                     <TableCell>{row.season_status}</TableCell>

@@ -1,0 +1,6 @@
+{
+  "_comment": "Contract fixture for league team-size limits, shared by src/lib/leagueType.test.js (client) and server/test/leagueSize.test.js (server): the minimum team count, the fantasy team cap and the pick'em team cap. Server default minimums (DEFAULT_MIN, PICKEM_DEFAULT_MIN) are not mirrored and stay out.",
+  "minTeams": 2,
+  "fantasyMaxTeams": 20,
+  "pickemMaxTeams": 50
+}

@@ -26,7 +26,7 @@ import {
 } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2';
 import apiClient from '../../api/apiClient';
-import { LEAGUE_TYPE } from '../../lib/leagueType';
+import { isPickemOnly, LEAGUE_TYPE } from '../../lib/leagueType';
 import LeagueTypeChips from '../common/LeagueTypeChips';
 
 function LeagueDiscovery() {
@@ -270,7 +270,7 @@ function LeagueDiscovery() {
                       {league.teamCount}/{league.maxTeams} teams · {slotsOpen} slot{slotsOpen === 1 ? '' : 's'} open
                     </Typography>
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                      {league.pickemOnly
+                      {isPickemOnly(league)
                         ? 'Pick winners every week · no draft'
                         : league.draftDate
                           ? `Draft: ${new Date(league.draftDate).toLocaleString()}`
@@ -308,7 +308,7 @@ function LeagueDiscovery() {
             margin="dense"
             label="Team name"
             fullWidth
-            helperText={joinTarget?.pickemOnly ? "Your name in the pick'em standings." : undefined}
+            helperText={isPickemOnly(joinTarget) ? "Your name in the pick'em standings." : undefined}
             value={teamName}
             onChange={(e) => setTeamName(e.target.value)}
           />

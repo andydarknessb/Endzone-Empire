@@ -1,5 +1,6 @@
 import React from 'react';
 import { Chip, Stack } from '@mui/material';
+import { isPickemOnly } from '../../lib/leagueType';
 
 const SCORING_LABEL = {
   standard: 'Standard',
@@ -17,7 +18,7 @@ const SCORING_LABEL = {
 export default function LeagueTypeChips({ league, sx }) {
   return (
     <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={sx}>
-      {league.pickemOnly ? (
+      {isPickemOnly(league) ? (
         <Chip size="small" label="Pick'em" color="secondary" />
       ) : (
         <>

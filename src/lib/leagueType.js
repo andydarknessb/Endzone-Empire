@@ -27,13 +27,29 @@ export const LEAGUE_TYPE_OPTIONS = Object.freeze([
   },
 ]);
 
-// The two-way label for a stored league row, which only carries pickem_only
-// (a "both" league is a fantasy league with pick'em on): the words the type
-// chips use, for tables and lists that show one league type per row.
-export const shortLeagueTypeLabel = ({ pickem_only: pickemOnly } = {}) => (pickemOnly ? "Pick'em" : 'Fantasy');
+/**
+ * The one normaliser for both wire dialects a stored league row arrives in:
+ * snake_case `pickem_only` off a leagues row, camelCase `pickemOnly` off the
+ * Discover projection. Never returns "both" - that is a create-form value,
+ * never inferred from a row, since a fantasy league's pickemEnabled setting
+ * is not its type. A missing row is null, not a type; an absent key reads as
+ * fantasy (today's falsy read).
+ */
+export function leagueTypeOf(row) {
+  if (!row) return null;
+  return row.pickem_only || row.pickemOnly ? LEAGUE_TYPE.PICKEM : LEAGUE_TYPE.FANTASY;
+}
 
-// Mirrors server/services/leagueSize.js: fantasy leagues are capped by the
-// head-to-head schedule, a pick'em pool has no schedule to balance.
+/** Null-tolerant: a missing row is not pick'em-only, so callers fail open. */
+export const isPickemOnly = (row) => leagueTypeOf(row) === LEAGUE_TYPE.PICKEM;
+
+// The two-way label for a stored league row: the words the type chips use,
+// for tables and lists that show one league type per row.
+export const shortLeagueTypeLabel = (row) => (isPickemOnly(row) ? "Pick'em" : 'Fantasy');
+
+// Pinned to server/services/leagueSize.js by leagueSize.fixture.json (parity
+// test on each side): fantasy leagues are capped by the head-to-head
+// schedule, a pick'em pool has no schedule to balance.
 export const FANTASY_MAX_TEAMS = 20;
 export const PICKEM_MAX_TEAMS = 50;
 export const MIN_TEAMS = 2;

@@ -1,11 +1,27 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
+  MIN_ALLOWED,
+  MAX_ALLOWED,
+  PICKEM_MAX_ALLOWED,
   resolveMinTeams,
   createSizeError,
   editSizeError,
   meetsMinimum,
 } = require('../services/leagueSize');
+
+/*
+ * Team caps are pinned to the client by this shared fixture (the client's
+ * own parity test lives in src/lib/leagueType.test.js), the same pattern the
+ * league-phase twins use, rather than a hand-maintained mirror comment.
+ */
+const sizeFixture = require('../../src/lib/leagueSize.fixture.json');
+
+test('team caps equal the shared client-parity fixture', () => {
+  assert.equal(MIN_ALLOWED, sizeFixture.minTeams);
+  assert.equal(MAX_ALLOWED, sizeFixture.fantasyMaxTeams);
+  assert.equal(PICKEM_MAX_ALLOWED, sizeFixture.pickemMaxTeams);
+});
 
 test('resolveMinTeams: defaults to 8 but never above the cap', () => {
   assert.equal(resolveMinTeams(undefined, 10), 8);
