@@ -58,11 +58,28 @@ test('mobile renders player cards (not a table) with the same approved columns',
 
   expect(screen.queryByRole('table')).not.toBeInTheDocument();
   const card = screen.getByText('Bijan Robinson').closest('.MuiPaper-root');
-  expect(within(card).getByText('ATL')).toBeInTheDocument();
+  // Every stat is labeled, including NFL Team - a card has no column header
+  // to supply that context implicitly the way the desktop table row does.
+  expect(within(card).getByText('NFL Team: ATL')).toBeInTheDocument();
   expect(within(card).getByText('Bye: 12')).toBeInTheDocument();
   expect(within(card).getByText('ADP: 1.2')).toBeInTheDocument();
   expect(within(card).getByText('Pos rank: #1')).toBeInTheDocument();
   expect(within(card).getByText('17-game pace: 310.5')).toBeInTheDocument();
+});
+
+test('mobile: a null 17-game pace shows the same explanation the desktop table gives, not a bare dash', async () => {
+  const user = userEvent.setup();
+  const noProj = [{ ...players[0], projected_points: null }];
+  render(<PlayerPoolTable {...baseProps} isMobile displayPlayers={noProj} />);
+
+  const card = screen.getByText('Bijan Robinson').closest('.MuiPaper-root');
+  const explainer = within(card).getByText('unavailable');
+  expect(explainer).toBeInTheDocument();
+
+  await user.hover(explainer);
+  expect(await screen.findByRole('tooltip')).toHaveTextContent(
+    'Not enough games in the prior completed season to extrapolate a pace.'
+  );
 });
 
 test('mobile cards expose the same state-gated Draft/Queue actions as the table', async () => {
@@ -137,7 +154,22 @@ test('mobile: the direction toggle re-invokes onSort with the CURRENT field, mat
   const user = userEvent.setup();
   render(<PlayerPoolTable {...baseProps} isMobile sort="adp" dir="asc" />);
 
-  await user.click(screen.getByRole('button', { name: 'Sort ascending' }));
+  await user.click(screen.getByRole('button', { name: 'Sort direction: ascending. Activate to sort descending.' }));
 
   expect(baseProps.onSort).toHaveBeenCalledWith('adp');
+});
+
+test('mobile: the direction toggle\'s accessible name and visible tooltip always agree, in both directions', async () => {
+  const user = userEvent.setup();
+  const { rerender } = render(<PlayerPoolTable {...baseProps} isMobile sort="adp" dir="asc" />);
+
+  const ascButton = screen.getByRole('button', { name: 'Sort direction: ascending. Activate to sort descending.' });
+  await user.hover(ascButton);
+  expect(await screen.findByRole('tooltip')).toHaveTextContent('Sort direction: ascending. Activate to sort descending.');
+  await user.unhover(ascButton);
+
+  rerender(<PlayerPoolTable {...baseProps} isMobile sort="adp" dir="desc" />);
+  const descButton = screen.getByRole('button', { name: 'Sort direction: descending. Activate to sort ascending.' });
+  await user.hover(descButton);
+  expect(await screen.findByRole('tooltip')).toHaveTextContent('Sort direction: descending. Activate to sort ascending.');
 });

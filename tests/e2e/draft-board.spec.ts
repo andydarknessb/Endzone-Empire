@@ -1012,13 +1012,53 @@ test.describe('mobile/tablet single-scroll tab layout (issue #122 acceptance cri
 
       const card = page.getByRole('button', { name: 'Depth Player 1', exact: true })
         .locator('xpath=ancestor::*[contains(@class, "MuiPaper-root")][1]');
-      await expect(card.getByText('FA')).toBeVisible();
+      // Labeled, like every other stat here - a card has no column header to
+      // supply that context implicitly the way the desktop table row does.
+      await expect(card.getByText('NFL Team: FA')).toBeVisible();
       await expect(card.getByText(/^Bye:/)).toBeVisible();
       await expect(card.getByText(/^ADP:/)).toBeVisible();
       await expect(card.getByText(/^Pos rank:/)).toBeVisible();
       await expect(card.getByText(/^17-game pace:/)).toBeVisible();
       await expect(card.getByRole('button', { name: 'Draft', exact: true })).toBeVisible();
       await expect(card.getByRole('button', { name: 'Queue' })).toBeVisible();
+    });
+
+    // QA accessibility findings on this issue, verified in a real browser:
+    // the sort-direction toggle's accessible name used to contradict its own
+    // tooltip, and a null 17-game pace lost its explanation entirely in the
+    // table-to-card switch.
+    test(`${label}: the sort-direction toggle's visible tooltip and accessible name agree`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await setupOverflowingDraft(page);
+
+      const toggle = page.getByRole('button', { name: 'Sort direction: ascending. Activate to sort descending.' });
+      await expect(toggle).toBeVisible();
+      await toggle.hover();
+      await expect(page.getByRole('tooltip')).toHaveText('Sort direction: ascending. Activate to sort descending.');
+
+      await toggle.click();
+      await expect(
+        page.getByRole('button', { name: 'Sort direction: descending. Activate to sort ascending.' })
+      ).toBeVisible();
+    });
+
+    test(`${label}: a null 17-game pace on a card explains why, same as the desktop table`, async ({ page }) => {
+      const league = buildLeague({ draft_status: 'active' });
+      const players = [
+        { id: 901, name: 'No Pace Guy', position: 'RB', nfl_team: 'FA', adp: null, position_rank: null, projected_points: null, bye_week: null },
+      ];
+      await page.setViewportSize(viewport);
+      await installDraftSocketHarness(page, { league, teams: FIXTURE_TEAMS, picks: [], onTheClock: FIXTURE_TEAMS[0] });
+      await installDraftRestApi(page, { league, picks: [], players });
+      await gotoDraft(page);
+      await expect(page.getByText('No Pace Guy', { exact: true })).toBeVisible();
+
+      const explainer = page.getByText('unavailable', { exact: true });
+      await expect(explainer).toBeVisible();
+      await explainer.hover();
+      await expect(page.getByRole('tooltip')).toHaveText(
+        'Not enough games in the prior completed season to extrapolate a pace.'
+      );
     });
 
     test(`${label}: a "Sort by" control changes the player order, same as the desktop table headers`, async ({ page }) => {

@@ -168,8 +168,9 @@ function PlayerActions({ player, isDrafted, canManualPick, pickUnavailable, queu
 function PlayerCard({ player, isDrafted, canManualPick, pickUnavailable, overlap, queued, onDraft, onQueue, onOpenQuickView }) {
   return (
     <Paper
+      component="li"
       variant="outlined"
-      sx={{ p: 1.5, mb: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}
+      sx={{ p: 1.5, mb: 1.5, display: 'flex', flexDirection: 'column', gap: 1, listStyle: 'none' }}
     >
       <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', minWidth: 0 }}>
@@ -180,11 +181,15 @@ function PlayerCard({ player, isDrafted, canManualPick, pickUnavailable, overlap
         <PositionChip position={player.position} />
       </Box>
       <Box sx={{ display: 'flex', flexWrap: 'wrap', columnGap: 2, rowGap: 0.5 }}>
-        <Typography variant="body2" color="text.secondary">{player.nfl_team}</Typography>
-        {/* Plain labels, not AbbreviationTooltip: that component adds its own
-            focusable (tabIndex=0) hit target, fine once per column header but
-            not repeated per stat per card - the Column guide button already
-            covers these abbreviations in one reachable place (issue 122). */}
+        {/* Every stat here is labeled, including NFL Team - the desktop row
+            got that one for free from its column header, which doesn't exist
+            in card layout (QA finding: a screen reader read a bare "ATL"
+            with no context). Plain labels, not AbbreviationTooltip: that
+            component adds its own focusable (tabIndex=0) hit target, fine
+            once per column header but not repeated per stat per card - the
+            Column guide button already covers these abbreviations in one
+            reachable place (issue 122). */}
+        <Typography variant="body2" color="text.secondary">NFL Team: {player.nfl_team}</Typography>
         <Typography variant="body2" sx={numericCellSx}>
           Bye: {player.bye_week != null ? player.bye_week : '-'}
         </Typography>
@@ -209,7 +214,20 @@ function PlayerCard({ player, isDrafted, canManualPick, pickUnavailable, overlap
           Pos rank: {player.position_rank != null ? `#${player.position_rank}` : '-'}
         </Typography>
         <Typography variant="body2" sx={numericCellSx}>
-          17-game pace: {player.projected_points != null ? Number(player.projected_points).toFixed(1) : '-'}
+          17-game pace:{' '}
+          {player.projected_points != null ? (
+            Number(player.projected_points).toFixed(1)
+          ) : (
+            // Same explanation the desktop table's null-pace tooltip gives
+            // (QA finding: the card dropped it entirely) - a visible caption
+            // here rather than a hover-only Tooltip, since a card has no
+            // hover-equivalent affordance the way a table cell does.
+            <Tooltip title="Not enough games in the prior completed season to extrapolate a pace.">
+              <Box component="span" tabIndex={0} sx={{ cursor: 'help', textDecoration: 'underline dotted', textUnderlineOffset: 3 }}>
+                unavailable
+              </Box>
+            </Tooltip>
+          )}
         </Typography>
       </Box>
       <PlayerActions
@@ -294,6 +312,12 @@ function PlayerPoolTable({
   // once per displayed player.
   const tableCanManualPick = pickActionExists({ draftStatus, draftType });
   const tablePickUnavailable = tableCanManualPick && pickTemporarilyUnavailable({ isMyTurn, draftPaused });
+
+  // Single source of truth for the mobile sort-direction toggle's visible
+  // Tooltip AND accessible name - see the comment at its usage below.
+  const sortDirectionLabel = dir === 'asc'
+    ? 'Sort direction: ascending. Activate to sort descending.'
+    : 'Sort direction: descending. Activate to sort ascending.';
 
   const filtersBox = (
     <Box sx={{ mb: 2, display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', flexShrink: 0 }}>
@@ -415,7 +439,12 @@ function PlayerPoolTable({
             <Select
               labelId="draft-sort-field-label"
               label="Sort by"
-              value={sort}
+              // `sort` comes from usePlayerPool's own `?sort=` URL parsing,
+              // which doesn't validate against any known field list (a
+              // pre-existing gap, unrelated to this Select) - guard here so
+              // a stale/bogus URL value renders a real selection instead of
+              // an empty-looking control (QA finding).
+              value={SORT_FIELDS.some((field) => field.key === sort) ? sort : SORT_FIELDS[0].key}
               onChange={(e) => onSort(e.target.value)}
               size="small"
             >
@@ -426,9 +455,17 @@ function PlayerPoolTable({
               ))}
             </Select>
           </FormControl>
-          <Tooltip title={dir === 'asc' ? 'Ascending - tap to sort descending' : 'Descending - tap to sort ascending'}>
+          {/* One string drives both the visible Tooltip and the accessible
+              name (QA finding: they used to disagree - the label named the
+              CURRENT state while the tooltip described the ACTION, and MUI's
+              Tooltip gives the child's own aria-label precedence anyway, so
+              only the label was ever heard). Deriving both from the same
+              value makes them structurally unable to diverge again. Neither
+              says "tap" - the control is present up to the medium breakpoint,
+              including keyboard/mouse laptop widths, not just touch. */}
+          <Tooltip title={sortDirectionLabel}>
             <IconButton
-              aria-label={dir === 'asc' ? 'Sort ascending' : 'Sort descending'}
+              aria-label={sortDirectionLabel}
               size="small"
               // Re-selecting the SAME field toggles direction (see
               // usePlayerPool's handleSort) - the same rule the desktop
@@ -448,31 +485,35 @@ function PlayerPoolTable({
     return (
       <Paper component="section" aria-labelledby={headingId} sx={{ p: 2 }}>
         {filtersBox}
-        <Box>
-          {displayPlayers.length === 0 && (
-            <Typography sx={{ color: 'text.secondary', textAlign: 'center', py: 2 }}>
-              {search ? `No available players matching “${search}”` : 'No available players'}
-            </Typography>
-          )}
-          {displayPlayers.map((player) => {
-            const state = rowStateFor(player, { draftedIds, canManualPickBase: tableCanManualPick, tablePickUnavailable, byeOverlapByWeek, queue });
-            return (
-              <PlayerCard
-                key={player.id}
-                player={player}
-                {...state}
-                onDraft={onDraft}
-                onQueue={onQueue}
-                onOpenQuickView={onOpenQuickView}
-              />
-            );
-          })}
-          {loadingMore && (
-            <Box sx={{ textAlign: 'center', py: 2 }}>
-              <CircularProgress size={20} />
-            </Box>
-          )}
-        </Box>
+        {displayPlayers.length === 0 ? (
+          <Typography sx={{ color: 'text.secondary', textAlign: 'center', py: 2 }}>
+            {search ? `No available players matching “${search}”` : 'No available players'}
+          </Typography>
+        ) : (
+          // A real list, not a bare stack of Papers (QA finding): browse-mode
+          // screen readers announce a count and each item's position ("N of
+          // M") the same way the desktop table's rows did implicitly.
+          <Box component="ul" sx={{ listStyle: 'none', p: 0, m: 0 }}>
+            {displayPlayers.map((player) => {
+              const state = rowStateFor(player, { draftedIds, canManualPickBase: tableCanManualPick, tablePickUnavailable, byeOverlapByWeek, queue });
+              return (
+                <PlayerCard
+                  key={player.id}
+                  player={player}
+                  {...state}
+                  onDraft={onDraft}
+                  onQueue={onQueue}
+                  onOpenQuickView={onOpenQuickView}
+                />
+              );
+            })}
+          </Box>
+        )}
+        {loadingMore && (
+          <Box sx={{ textAlign: 'center', py: 2 }}>
+            <CircularProgress size={20} />
+          </Box>
+        )}
       </Paper>
     );
   }
