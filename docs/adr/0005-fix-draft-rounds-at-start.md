@@ -1,4 +1,4 @@
-# Snapshot Draft rounds at draft start
+# Fix Draft rounds at draft start
 
 Status: accepted (2026-08-22)
 
@@ -10,7 +10,7 @@ it fresh each time it checks whether the draft is complete. Nothing pins that
 number once a draft starts. We introduce a `draft_rounds` value that is
 computed once, at the moment a draft transitions from pending to active, and
 never recomputed after that: a pending draft keeps deriving Draft roster size
-live, but an active or completed draft reads the snapshot instead. Spec: #108.
+live, but an active or completed draft reads the fixed value instead. Spec: #109.
 
 ## Why
 
@@ -28,13 +28,15 @@ live, but an active or completed draft reads the snapshot instead. Spec: #108.
   ran; silently changing that count after the fact renumbers picks that were
   already made and can strand a keeper outside a shrunk round range.
 - Roster shape is already a draft-frozen setting, so a commissioner cannot edit
-  it once a draft starts. That protects the input, not the derivation: a
-  snapshot is still needed because the derivation itself (the code, or the
-  meaning of the columns it reads) is not similarly frozen, and because legacy
-  rows and future migrations are read by the same live path.
-- A pending draft has no picks, keepers or board to protect, so freezing early
-  would buy nothing; it keeps deriving Draft roster size live, exactly as
-  League settings intends for a draft-frozen setting that has not frozen yet.
+  it once a draft starts. That protects the input, not the derivation: the
+  round count still needs to be fixed independently, because the derivation
+  itself (the code, or the meaning of the columns it reads) is not similarly
+  locked, and because legacy rows and future migrations are read by the same
+  live path.
+- A pending draft has no picks, keepers or board to protect, so fixing the
+  value early would buy nothing; it keeps deriving Draft roster size live,
+  exactly as League settings intends for a draft-frozen setting that has not
+  frozen yet.
 - Draft start, not settings-freeze time or league-phase transition, is the
   moment the value stops being hypothetical and starts being spent: rounds are
   what the first pick begins consuming.
@@ -54,6 +56,5 @@ live, but an active or completed draft reads the snapshot instead. Spec: #108.
   deleted to make them fit a changed round count; they surface as an explicit
   error requiring commissioner repair, consistent with how League settings
   already treats invalid pending configuration.
-- `CONTEXT.md`'s Draft rounds entry states the derive-then-freeze split
-  directly, and Draft roster size stays the term for the live, pending-only
-  computation.
+- `CONTEXT.md`'s Draft rounds entry states the derive-then-fix split directly,
+  and Draft roster size stays the term for the live, pending-only computation.

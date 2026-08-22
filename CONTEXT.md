@@ -252,7 +252,7 @@ _Avoid_: rank, position rank
 **Draft grade**:
 A letter grade assessing a team's completed draft.
 
-**Draft value** (future):
+**Draft value**:
 A season-forward assessment of what a player is worth to a drafting team,
 weighed against where he is actually going (ADP) and what round remains to
 spend. It does not exist yet: no approved season-forward producer backs it,
@@ -296,7 +296,7 @@ _Avoid_: roster limit (the IR-inclusive total), roster size (unqualified)
 
 **Draft rounds**:
 The number of player-claiming rounds in one draft. A pending draft derives it
-from draft roster size; starting the draft snapshots it, and an active or
+from draft roster size; starting the draft fixes it, and an active or
 completed draft never recomputes it from later settings (ADR 0005).
 _Avoid_: roster limit, current roster size
 
