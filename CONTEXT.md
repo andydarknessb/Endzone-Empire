@@ -147,11 +147,33 @@ _Avoid_: game time, start time
 A week in which an NFL team does not play, so none of its players can score.
 Derived from the season schedule rather than supplied.
 
+**Bye overlap**:
+A candidate player sharing a bye week with one or more players already on a
+team's roster. It is a neutral roster fact, not a judgment that the overlap is
+harmful.
+_Avoid_: bye collision, bye conflict
+
+**Injury designation**:
+What the injury feed says about a real player's availability: questionable,
+doubtful, out, or injured reserve — or nothing, which means healthy. A fact
+about the NFL world, written only by the feed sync, never by anything a
+manager does in the app. Distinct from the IR slot, which is a place in a
+lineup; a player can carry the injured-reserve designation while never
+occupying an IR slot, and vice versa is exactly what enforcement exists to
+prevent.
+_Avoid_: injury status (the column name, not the concept), IR (unqualified —
+ambiguous with the slot)
+
 ### Draft
 
 **Draft**:
 The live event in which teams claim players, under the league's draft type
 and draft rotation.
+
+**Draft board**:
+The team-by-round matrix of committed picks. Pick history is the chronological
+view of those same picks, not another draft board.
+_Avoid_: pick history, player pool
 
 **Draft type**:
 How a league's draft is conducted, chosen before it starts: snake (teams pick
@@ -176,6 +198,12 @@ waiver rule, not a draft)
 **On the clock**:
 The team whose turn it is to pick, and the timer bounding that turn.
 _Avoid_: current picker
+
+**Pick**:
+A team's committed claim of one player during a draft. Once accepted it
+advances the shared draft state and cannot be undone by the manager who made
+it; commissioner correction is a separate administrative act.
+_Avoid_: selection, reversible pick
 
 **Autopick**:
 The single act of the server making a team's pick when its clock expires: the
@@ -222,6 +250,35 @@ A named place on the lineup card with its own eligibility rule (QB, RB, WR, TE,
 FLEX, K, DEF, plus BENCH and IR). Configurable per league. A position is a
 property of a player; a slot is a place in a lineup.
 _Avoid_: position
+
+**Draft roster size**:
+The number of roster spots a league drafts for: its starters plus its bench.
+IR slots are not drafted, so this is the planned round count before a draft
+starts and the bound a keeper's round must fit inside.
+_Avoid_: roster limit (the IR-inclusive total), roster size (unqualified)
+
+**Draft rounds**:
+The number of player-claiming rounds in one draft. A pending draft derives it
+from draft roster size; starting the draft freezes it, and an active or
+completed draft never recomputes it from later settings.
+_Avoid_: roster limit, current roster size
+
+**Roster capacity**:
+How many players a team may hold right now: its draft roster size, plus one
+for each IR-eligible player currently stashed in an IR slot, up to the
+league's IR slot count. Capacity is earned by the act of stashing and lost
+when the stash empties or its occupant stops being IR-eligible - it is never
+a standing entitlement. A commissioner may attest a player IR-eligible when
+the feed is wrong, and that attested stash grants capacity like any other.
+_Avoid_: roster limit, effective limit
+
+**IR-eligible**:
+A player whose current injury designation (out or injured reserve) qualifies
+him to occupy an IR slot. Eligibility is a live property of the player, not a
+grant to the team: it is checked when a manager places him on IR, and losing
+it while stashed is what flags the roster for resolution.
+_Avoid_: injured (too broad — questionable and doubtful players are injured
+but not IR-eligible), stashable
 
 **Lineup lock**:
 The moment a player can no longer be moved into or out of a lineup, namely his
@@ -310,6 +367,12 @@ underneath does not change when the name does, and the two are never
 interchangeable in evaluation contexts.
 _Avoid_: the model (in user-facing copy), Start/Sit Suggestions (superseded
 heading)
+
+**17-game pace**:
+A league-scoring extrapolation of a player's per-game production from the prior
+completed season across seventeen games. It is historical pace, not a forecast,
+weekly projection or rest-of-season projection.
+_Avoid_: season projection, Season Proj, projected points
 
 **Projection**:
 A model's estimate of the fantasy points one player will score in one week. Two
