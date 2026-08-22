@@ -22,6 +22,8 @@ import PlayerPoolTable from './PlayerPoolTable';
 import DraftRail from './DraftRail';
 import DraftBoardMatrix from './DraftBoardMatrix';
 import DraftDayControls from './DraftDayControls';
+import DraftPickConfirmDialog from './DraftPickConfirmDialog';
+import { pickActionExists, pickTemporarilyUnavailable, PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
 import { assignRosterSlots } from '../../lib/rosterAssignment';
 import { turnSummaryFor, pickLabelFor } from '../../lib/draftTurns';
 import { draftRounds } from '../../lib/rosterShape';
@@ -181,6 +183,11 @@ function DraftBoard() {
   // without any extra state — the board keeps updating behind the overlay.
   const [quickViewId, setQuickViewId] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // A manual Pick awaiting the focused confirmation dialog: { id, name } |
+  // null. Every manual-Pick surface (pool row, Quick View, queue quick-draft)
+  // routes through requestDraftPlayer below instead of committing directly,
+  // so none of them can skip the confirmation (#120 acceptance criterion 3).
+  const [pendingPick, setPendingPick] = useState(null);
 
   const pool = usePlayerPool(leagueId);
   const myRoster = useMyRoster(leagueId);
@@ -228,9 +235,16 @@ function DraftBoard() {
     if (onClockAlertOpen && soundOnRef.current) playBeep();
   }, [onClockAlertOpen]);
 
+  // Shared by every lookup below: the rail's quick-draft button targets
+  // queue[0], which can be a player the current pool filters/paging don't
+  // currently include, so the pool is checked first and the queue is the
+  // fallback rather than the other way around.
+  const findKnownPlayer = (playerId) =>
+    pool.availablePlayers.find((p) => p.id === playerId) || queue.find((p) => p.id === playerId);
+
   const handleDraftPlayer = (playerId) => {
     setError(null);
-    const player = pool.availablePlayers.find((p) => p.id === playerId);
+    const player = findKnownPlayer(playerId);
     emitPick(playerId, (resp) => {
       if (resp?.error) {
         setError(resp.error);
@@ -240,6 +254,33 @@ function DraftBoard() {
       }
     });
   };
+
+  // Opens the focused confirmation dialog instead of committing straight
+  // away - the single seam every manual-Pick surface below calls through.
+  const requestDraftPlayer = (playerId) => {
+    const player = findKnownPlayer(playerId);
+    setPendingPick({ id: playerId, name: player ? player.name : 'this player' });
+  };
+
+  const confirmDraftPlayer = () => {
+    if (!pendingPick) return;
+    const { id } = pendingPick;
+    setPendingPick(null);
+    setQuickViewId(null);
+    // Re-check against the LATEST live state rather than trusting whatever
+    // was true when the dialog opened: it can sit open across a turn
+    // change (the clock expired and autodraft took the pick), a pause, or
+    // the draft ending, none of which touch `pendingPick` itself.
+    const canManualPickNow = pickActionExists({ draftStatus: league?.draft_status, draftType: league?.draft_type });
+    const stillAvailable = canManualPickNow && !pickTemporarilyUnavailable({ isMyTurn, draftPaused: !!league?.draft_paused });
+    if (!stillAvailable) {
+      notify(PICK_UNAVAILABLE_EXPLANATION, { severity: 'error' });
+      return;
+    }
+    handleDraftPlayer(id);
+  };
+
+  const cancelDraftPlayer = () => setPendingPick(null);
 
   const loading = pool.loading || queueLoading;
 
@@ -288,21 +329,28 @@ function DraftBoard() {
   }
 
   // Context actions for the quick-view: Draft / Queue the currently-viewed
-  // available player, mirroring the row buttons. Hidden once the player is
-  // drafted (the "Drafted by" banner covers that case).
+  // available player, mirroring the row buttons - same rules, same shared
+  // confirmation dialog. Hidden once the player is drafted (the "Drafted by"
+  // banner covers that case), and Draft itself is omitted entirely (not just
+  // disabled) whenever no manual Pick control exists in this draft's status/
+  // type at all (#120 acceptance criteria 1-2, 5).
   const quickViewAvail = pool.availablePlayers.find((p) => p.id === quickViewId);
+  const canManualPick = pickActionExists({ draftStatus: league?.draft_status, draftType: league?.draft_type });
+  const pickUnavailable = canManualPick && pickTemporarilyUnavailable({ isMyTurn, draftPaused: !!league?.draft_paused });
   const quickViewActions =
     quickViewAvail && !quickViewDraftedBy
       ? [
-          {
-            label: 'Draft',
-            variant: 'contained',
-            disabled: !!league?.draft_paused,
-            onClick: () => {
-              handleDraftPlayer(quickViewAvail.id);
-              setQuickViewId(null);
-            },
-          },
+          ...(canManualPick
+            ? [
+                {
+                  label: 'Draft',
+                  variant: 'contained',
+                  color: 'success',
+                  unavailableReason: pickUnavailable ? PICK_UNAVAILABLE_EXPLANATION : null,
+                  onClick: () => requestDraftPlayer(quickViewAvail.id),
+                },
+              ]
+            : []),
           {
             label: queue.some((p) => p.id === quickViewAvail.id) ? 'Queued' : 'Queue',
             variant: 'outlined',
@@ -424,11 +472,12 @@ function DraftBoard() {
               search={pool.search}
               displayPlayers={displayPlayers}
               draftedIds={draftedIds}
+              draftStatus={league?.draft_status}
+              draftType={league?.draft_type}
               isMyTurn={isMyTurn}
               draftPaused={!!league?.draft_paused}
-              onTheClockName={onTheClock ? onTheClock.name : null}
               queue={queue}
-              onDraft={handleDraftPlayer}
+              onDraft={requestDraftPlayer}
               onQueue={handleQueuePlayer}
               onOpenQuickView={setQuickViewId}
               hasMore={pool.hasMore}
@@ -444,7 +493,7 @@ function DraftBoard() {
               onMoveUp={handleMoveUp}
               onMoveDown={handleMoveDown}
               onRemoveFromQueue={handleRemoveFromQueue}
-              onDraft={handleDraftPlayer}
+              onDraft={requestDraftPlayer}
               isMyTurn={isMyTurn}
               draftPaused={!!league?.draft_paused}
               teams={teams}
@@ -452,6 +501,7 @@ function DraftBoard() {
               isCommissioner={isCommissioner}
               userId={user?.id}
               draftStatus={league?.draft_status}
+              draftType={league?.draft_type}
               onToggleAutodraft={admin.handleToggleAutodraft}
               onToggleReady={admin.handleToggleReady}
               picks={picks}
@@ -472,6 +522,13 @@ function DraftBoard() {
         playerIds={displayPlayers.map((p) => p.id)}
         onNavigate={setQuickViewId}
         actions={quickViewActions}
+      />
+
+      <DraftPickConfirmDialog
+        open={pendingPick != null}
+        playerName={pendingPick?.name}
+        onConfirm={confirmDraftPlayer}
+        onCancel={cancelDraftPlayer}
       />
     </Container>
   );

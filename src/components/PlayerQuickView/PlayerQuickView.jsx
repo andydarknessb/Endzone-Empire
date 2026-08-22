@@ -33,6 +33,7 @@ import PlayerAvatar from './PlayerAvatar';
 import PositionChip from './PositionChip';
 import { statLine } from './statLine';
 import AbbreviationTooltip from '../common/AbbreviationTooltip';
+import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 
 // Module-level: persists the last-selected toggle across dialog opens for the
 // duration of the session (resets on full page reload). Intentionally not
@@ -136,8 +137,13 @@ function StatCardList({ label, rows }) {
  * @param playerIds  Optional ordered id list the dialog was opened from; enables
  *                   prev/next arrows + Left/Right arrow-key navigation.
  * @param onNavigate (id) => void — called with the new id on prev/next.
- * @param actions    Optional [{ label, onClick, disabled, tooltip, variant, color }]
+ * @param actions    Optional [{ label, onClick, disabled, tooltip, unavailableReason, variant, color }]
  *                   context action(s) (e.g. Add to Roster / Draft / Queue).
+ *                   `disabled` is a native, permanent disablement (e.g.
+ *                   already queued). `unavailableReason`, when set, renders
+ *                   the action as focusable aria-disabled instead - still
+ *                   reachable by keyboard, with activation suppressed and
+ *                   its text shown as the explanation (issue #120).
  */
 function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerIds, onNavigate, actions }) {
   const [data, setData] = useState(null);
@@ -564,21 +570,34 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
 
             {Array.isArray(actions) && actions.length > 0 && (
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mt: 2 }}>
-                {actions.map((action, i) => (
-                  <Tooltip key={i} title={action.disabled && action.tooltip ? action.tooltip : ''}>
-                    <span>
-                      <Button
-                        variant={action.variant || 'contained'}
-                        color={action.color || 'primary'}
-                        size="small"
-                        disabled={action.disabled}
-                        onClick={action.onClick}
-                      >
-                        {action.label}
-                      </Button>
-                    </span>
-                  </Tooltip>
-                ))}
+                {actions.map((action, i) => {
+                  const unavailable = !!action.unavailableReason;
+                  const tooltipTitle = unavailable
+                    ? action.unavailableReason
+                    : action.disabled && action.tooltip
+                    ? action.tooltip
+                    : '';
+                  return (
+                    <Tooltip key={i} title={tooltipTitle}>
+                      <span>
+                        <Button
+                          variant={action.variant || 'contained'}
+                          color={action.color || 'primary'}
+                          size="small"
+                          disabled={action.disabled}
+                          aria-disabled={unavailable || undefined}
+                          onClick={(event) => {
+                            if (unavailable) return; // suppressed activation
+                            action.onClick(event);
+                          }}
+                          sx={MIN_TOUCH_TARGET_SX}
+                        >
+                          {action.label}
+                        </Button>
+                      </span>
+                    </Tooltip>
+                  );
+                })}
               </Box>
             )}
 
