@@ -108,6 +108,36 @@ test('GET players?byeWeeks=6,9 filters the full pool before the page, excluding 
   assert.ok(res.body.players.every((p) => p.bye_week === 6 || p.bye_week === 9));
 });
 
+test('sorting/filtering by Bye only queries season stats (17-game pace) for the returned page, not the whole pool', async (t) => {
+  // 30 rows past one 25-row page, sorted/filtered by the schedule-derived
+  // Bye field - the expensive per-player pace lookup should still only run
+  // over the 25 actually returned, not all 30 that matched.
+  const rows = Array.from({ length: 30 }, (_, i) => ({
+    id: i + 1,
+    name: `Player ${i + 1}`,
+    position: 'RB',
+    nfl_team: ['DAL', 'ATL'][i % 2],
+    total_count: '30',
+  }));
+  let seasonStatsIds = null;
+  t.mock.method(pool, 'query', async (sql, params) => {
+    const text = String(sql);
+    if (text.includes('FROM "players"')) return { rows };
+    if (text.includes('FROM "nfl_games"')) return { rows: NFL_GAMES };
+    if (text.includes('FROM "player_season_stats"')) {
+      seasonStatsIds = params[0];
+      return { rows: [] };
+    }
+    throw new Error(`unexpected query: ${text}`);
+  });
+
+  const res = await request(app).get('/api/players?sort=bye_week').set('Authorization', authHeader);
+
+  assert.equal(res.status, 200);
+  assert.equal(res.body.players.length, 25);
+  assert.equal(seasonStatsIds.length, 25);
+});
+
 test('GET players?byeWeeks=abc rejects a non-numeric bye filter without querying', async (t) => {
   const spy = t.mock.method(pool, 'query', async () => {
     throw new Error('must not query');

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import apiClient from '../../api/apiClient';
 
 /**
@@ -13,12 +13,19 @@ import apiClient from '../../api/apiClient';
  */
 export default function useMyRoster(leagueId) {
   const [roster, setRoster] = useState([]);
+  // Bumped on every fetch so a slow, superseded request (e.g. two picks
+  // landing in quick succession) can't clobber a later one's result —
+  // mirrors usePlayerPool's requestSeqRef for the same class of race.
+  const requestSeqRef = useRef(0);
 
   const fetchRoster = useCallback(async () => {
+    const seq = ++requestSeqRef.current;
     try {
       const res = await apiClient.get('/api/team/roster', { params: { leagueId: Number(leagueId) } });
+      if (seq !== requestSeqRef.current) return; // superseded by a newer request
       setRoster(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
+      if (seq !== requestSeqRef.current) return;
       setRoster([]);
     }
   }, [leagueId]);

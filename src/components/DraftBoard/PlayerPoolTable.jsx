@@ -320,7 +320,8 @@ function PlayerPoolTable({
                               label={overlap.length}
                               aria-label={
                                 `Bye overlap: ${overlap.length} rostered player${overlap.length === 1 ? '' : 's'} `
-                                + `share this Bye week - ${overlap.map((p) => p.name).join(', ')}`
+                                + `${overlap.length === 1 ? 'shares' : 'share'} this Bye week - `
+                                + overlap.map((p) => p.name).join(', ')
                               }
                             />
                           </Tooltip>

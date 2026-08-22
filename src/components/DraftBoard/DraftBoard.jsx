@@ -183,6 +183,12 @@ function DraftBoard() {
 
   const pool = usePlayerPool(leagueId);
   const myRoster = useMyRoster(leagueId);
+  // useDraftSocket registers its socket listeners once per leagueId (not
+  // per render), so the `onPickLanded` it calls must stay stable in
+  // identity while still seeing this render's `teams`/`user` - a ref holds
+  // the actual logic, refreshed every render below, while the function
+  // passed into the hook itself never changes.
+  const pickLandedRef = useRef(() => {});
   const {
     league,
     teams,
@@ -197,10 +203,17 @@ function DraftBoard() {
     emitPick,
     error: socketError,
   } = useDraftSocket(leagueId, user?.id, {
-    onPickLanded: () => {
+    onPickLanded: (data) => pickLandedRef.current(data),
+  });
+  useEffect(() => {
+    pickLandedRef.current = (data) => {
       pool.refetch();
-      myRoster.refetchRoster();
-    },
+      // Only refetch the caller's own roster when THIS pick actually landed
+      // on it - every other team's pick in the draft leaves it unchanged, and
+      // a full snake draft can be 150+ picks.
+      const myTeam = teams.find((team) => team.owner_id === user?.id);
+      if (myTeam && data?.teamId === myTeam.id) myRoster.refetchRoster();
+    };
   });
   const { queue, loading: queueLoading, handleQueuePlayer, handleMoveUp, handleMoveDown, handleRemoveFromQueue } =
     useDraftQueue(leagueId, { onError: setError });

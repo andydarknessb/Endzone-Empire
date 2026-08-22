@@ -42,6 +42,35 @@ function summaryCacheSet(key, value) {
   summaryCache.set(key, { value, expires: Date.now() + SUMMARY_TTL_MS });
 }
 
+// Attaches `projected_points` (the "17-game pace" — a full-season projection
+// from prior-season totals under the league's scoring rules, same math the
+// quick-view uses) to every player in `list`, mutating each row in place. One
+// extra query, scoped to exactly the ids passed in — callers decide how much
+// of the pool actually needs this (see the projectionSort branch below: only
+// a sort BY this field needs it computed for the whole matching pool before
+// the pool can be paginated; everything else only needs it for the page).
+async function attachProjectedPoints(list, { projectionRules, currentSeasonYear }) {
+  const ids = list.map((p) => p.id);
+  if (ids.length === 0) return;
+  const seasonRes = await pool.query(
+    `SELECT "player_id", "season", "games_played", "stats", "fantasy_points"
+     FROM "player_season_stats" WHERE "player_id" = ANY($1)`,
+    [ids]
+  );
+  const seasonByPlayer = new Map();
+  for (const row of seasonRes.rows) {
+    if (!seasonByPlayer.has(row.player_id)) seasonByPlayer.set(row.player_id, []);
+    seasonByPlayer.get(row.player_id).push(row);
+  }
+  for (const p of list) {
+    p.projected_points = projectSeasonPoints({
+      seasonRows: seasonByPlayer.get(p.id) || [],
+      rules: projectionRules,
+      currentSeasonYear,
+    });
+  }
+}
+
 // GET /api/players?page=N&position=QB[&leagueId=N&available=true]
 // Paginated player pool with strict integer validation on `page`.
 router.get('/', requireAuth, async (req, res) => {
@@ -191,47 +220,11 @@ router.get('/', requireAuth, async (req, res) => {
     const sqlTotal = result.rows[0] ? Number(result.rows[0].total_count) : 0;
     const players = result.rows.map(({ total_count, ...p }) => p);
 
-    // Attach a full-season projection (same math the quick-view uses), computed
-    // from prior-season totals under the league's scoring rules, so the draft
-    // board's "Season Proj" matches the dialog rather than showing a raw
-    // per-game figure. One extra query for the whole page.
-    const ids = players.map((p) => p.id);
-    const seasonByPlayer = new Map();
-    if (ids.length > 0) {
-      const seasonRes = await pool.query(
-        `SELECT "player_id", "season", "games_played", "stats", "fantasy_points"
-         FROM "player_season_stats" WHERE "player_id" = ANY($1)`,
-        [ids]
-      );
-      for (const row of seasonRes.rows) {
-        if (!seasonByPlayer.has(row.player_id)) seasonByPlayer.set(row.player_id, []);
-        seasonByPlayer.get(row.player_id).push(row);
-      }
-    }
-    for (const p of players) {
-      p.projected_points = projectSeasonPoints({
-        seasonRows: seasonByPlayer.get(p.id) || [],
-        rules: projectionRules,
-        currentSeasonYear,
-      });
-    }
-
-    if (projectionSort) {
-      players.sort((a, b) => {
-        const av = a.projected_points == null ? null : Number(a.projected_points);
-        const bv = b.projected_points == null ? null : Number(b.projected_points);
-        const aMissing = av == null || !Number.isFinite(av);
-        const bMissing = bv == null || !Number.isFinite(bv);
-        if (aMissing !== bMissing) return aMissing ? 1 : -1;
-        if (!aMissing && av !== bv) return dir === 'DESC' ? bv - av : av - bv;
-        return a.id - b.id;
-      });
-    }
-
     // Bye week is schedule-derived, not a stored column — attach it to every
     // row now (whatever `players` currently holds: the full matching pool when
     // Bye/pace sort or a Bye filter is in play, or just this one SQL-paginated
-    // page otherwise) so the filter/sort below can see it.
+    // page otherwise) so the filter/sort below can see it. Cheap regardless of
+    // pool size: one batched query keyed by distinct NFL team, not by player.
     const nflTeams = [...new Set(players.map((p) => p.nfl_team).filter(Boolean))];
     const byeByTeam = await computeByeWeeks(nflTeams, currentSeasonYear);
     for (const p of players) {
@@ -248,23 +241,40 @@ router.get('/', requireAuth, async (req, res) => {
 
     // Nulls sort last regardless of direction — folded into the comparator
     // itself (not a post-hoc `.reverse()`, which would also flip the nulls to
-    // the front on a descending sort). Mirrors the projectionSort comparator
-    // above and the harness's own simulation (draftHarness.ts).
+    // the front on a descending sort). Shared by every computed-field sort
+    // below (mirrors the harness's own simulation in draftHarness.ts).
+    const nullsLastComparator = (getValue, direction) => (a, b) => {
+      const av = getValue(a);
+      const bv = getValue(b);
+      const aMissing = av == null || !Number.isFinite(av);
+      const bMissing = bv == null || !Number.isFinite(bv);
+      if (aMissing !== bMissing) return aMissing ? 1 : -1;
+      if (!aMissing && av !== bv) return direction * (av - bv);
+      return a.id - b.id;
+    };
     if (byeSort) {
-      const direction = dir === 'DESC' ? -1 : 1;
-      settled = [...settled].sort((a, b) => {
-        if (a.bye_week == null && b.bye_week == null) return a.id - b.id;
-        if (a.bye_week == null) return 1;
-        if (b.bye_week == null) return -1;
-        if (a.bye_week !== b.bye_week) return direction * (a.bye_week - b.bye_week);
-        return a.id - b.id;
-      });
+      settled = [...settled].sort(nullsLastComparator((p) => p.bye_week, dir === 'DESC' ? -1 : 1));
     }
 
     // The SQL total_count reflects the outer WHERE only — once a Bye filter
     // narrows `settled` further in JS, the page count has to come from there.
     const total = needsFullPool ? settled.length : sqlTotal;
+
+    // Sorting BY the projection needs it computed for the WHOLE matching pool
+    // first (the sort has to settle before the page can be sliced); every
+    // other sort/filter only needs it for the page actually being returned —
+    // the season-stats query and the math both cost per player, so deferring
+    // this until after the page is known keeps that cost proportional to
+    // what's rendered, not to the whole eligible pool.
+    if (projectionSort) {
+      await attachProjectedPoints(settled, { projectionRules, currentSeasonYear });
+      settled.sort(nullsLastComparator((p) => Number(p.projected_points), dir === 'DESC' ? -1 : 1));
+    }
+
     const pagePlayers = needsFullPool ? settled.slice(offset, offset + PAGE_SIZE) : settled;
+    if (!projectionSort) {
+      await attachProjectedPoints(pagePlayers, { projectionRules, currentSeasonYear });
+    }
 
     res.json({
       players: pagePlayers,

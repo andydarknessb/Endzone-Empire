@@ -245,6 +245,54 @@ test('a draft:picked event prepends the new pick, updates who is on the clock, a
   await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/players', expect.any(Object)));
 });
 
+test('a pick landing refetches the caller\'s own roster only when THAT pick is theirs', async () => {
+  renderBoard(1, { user: { id: 5 } });
+  await screen.findByText('Patrick Mahomes');
+
+  act(() =>
+    fakeSocket.trigger('draft:state', {
+      league: { name: 'Sunday Ballers', draft_status: 'active' },
+      teams: [
+        { id: 1, name: 'Team A', owner: 'alice', owner_id: 5 },
+        { id: 2, name: 'Team B', owner: 'bob', owner_id: 6 },
+      ],
+      picks: [],
+      onTheClock: { id: 2, name: 'Team B', owner: 'bob', owner_id: 6 },
+    })
+  );
+  apiClient.get.mockClear();
+
+  // Team B (not the caller's) picks - the caller's own roster is unchanged.
+  act(() =>
+    fakeSocket.trigger('draft:picked', {
+      pickNumber: 1,
+      teamId: 2,
+      player: { id: 20, name: 'Someone Elses Pick', position: 'WR', nfl_team: 'DAL' },
+      nextTeamId: 1,
+      draftComplete: false,
+      by: { username: 'bob' },
+    })
+  );
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/players', expect.any(Object)));
+  expect(apiClient.get).not.toHaveBeenCalledWith('/api/team/roster', expect.any(Object));
+
+  apiClient.get.mockClear();
+  // Team A (the caller's own team) picks - the caller's own roster refetches.
+  act(() =>
+    fakeSocket.trigger('draft:picked', {
+      pickNumber: 2,
+      teamId: 1,
+      player: { id: 21, name: 'My New Guy', position: 'RB', nfl_team: 'KC' },
+      nextTeamId: 2,
+      draftComplete: false,
+      by: { username: 'alice' },
+    })
+  );
+  await waitFor(() =>
+    expect(apiClient.get).toHaveBeenCalledWith('/api/team/roster', { params: { leagueId: 1 } })
+  );
+});
+
 test('a draft:picked event with draftComplete shows the completion banner and marks the league complete', async () => {
   renderBoard(1);
   await screen.findByText('Patrick Mahomes');
