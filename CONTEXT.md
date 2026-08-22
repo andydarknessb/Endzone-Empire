@@ -39,6 +39,15 @@ rows ARE league membership app-wide, so every league type creates one per
 manager. A manager in three leagues has three teams.
 _Avoid_: franchise, squad, roster (the roster is what a team holds, not the team)
 
+**Team identity**:
+The Team name and avatar a manager is known by on every surface shared with
+other managers: standings, matchups, draft chat, Pick history, readiness and
+pick'em. It is the only identity such a surface may ever carry; a manager's
+account identifier (email, username) stays confined to their own private
+account chrome and is never exposed to another manager. A duplicate Team name
+is still valid identity and never a reason to fall back to the account.
+_Avoid_: display name, account identity (the thing this replaces), username
+
 **Membership**:
 A manager's standing in one league: they are a member exactly when they hold a
 team there, and the team is the only record of it. Membership is what every
@@ -170,6 +179,17 @@ ambiguous with the slot)
 The live event in which teams claim players, under the league's draft type
 and draft rotation.
 
+**Draft timezone**:
+The nullable IANA timezone a commissioner selects and confirms for a league's
+draft, stored beside its UTC instant rather than inferred from any manager's
+browser. A legacy schedule with none set displays honestly as UTC. Clearing
+the draft date clears the timezone with it, but changing only the timezone
+never resets instant-based reminders. Every manager still sees the draft in
+their own local time first; the draft timezone is the league's shared
+secondary reference, not a replacement for it.
+_Avoid_: local time (the viewer's own zone, always shown primary), browser
+timezone
+
 **Draft board**:
 The team-by-round matrix of committed picks. Pick history is the chronological
 view of those same picks, not another draft board.
@@ -231,6 +251,15 @@ _Avoid_: rank, position rank
 **Draft grade**:
 A letter grade assessing a team's completed draft.
 
+**Draft value** (future):
+A season-forward assessment of what a player is worth to a drafting team,
+weighed against where he is actually going (ADP) and what round remains to
+spend. It does not exist yet: no approved season-forward producer backs it,
+so no surface may present 17-game pace, ADP or any other historical number as
+Draft value until one does. Naming it here reserves the term so a future
+producer is not built under a borrowed name.
+_Avoid_: value (unqualified), tier, treating 17-game pace or ADP as a stand-in
+
 **Draft Sim**:
 A solo practice draft against CPU opponents. It never touches a real league.
 _Avoid_: mock draft
@@ -251,6 +280,13 @@ FLEX, K, DEF, plus BENCH and IR). Configurable per league. A position is a
 property of a player; a slot is a place in a lineup.
 _Avoid_: position
 
+**Starting need**:
+How many more players at a slot a team still needs to fill its configured
+starting lineup, derived live from the league's own starting slots rather than
+a fixed roster template. Bench capacity is a separate summary and IR is
+excluded, so neither is counted as a starting need.
+_Avoid_: roster need, position need
+
 **Draft roster size**:
 The number of roster spots a league drafts for: its starters plus its bench.
 IR slots are not drafted, so this is the planned round count before a draft
@@ -259,8 +295,8 @@ _Avoid_: roster limit (the IR-inclusive total), roster size (unqualified)
 
 **Draft rounds**:
 The number of player-claiming rounds in one draft. A pending draft derives it
-from draft roster size; starting the draft freezes it, and an active or
-completed draft never recomputes it from later settings.
+from draft roster size; starting the draft snapshots it, and an active or
+completed draft never recomputes it from later settings (ADR 0005).
 _Avoid_: roster limit, current roster size
 
 **Roster capacity**:
