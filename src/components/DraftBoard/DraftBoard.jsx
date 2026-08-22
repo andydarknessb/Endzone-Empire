@@ -566,7 +566,7 @@ function DraftBoard() {
           scrolls at all. It needs a containing block that spans the whole
           scrollable page - this Container itself - so it stays pinned while
           mobile's single page-scroll region scrolls underneath it. On
-          desktop nothing above it ever scrolls (issue #122's non-scrolling
+          desktop nothing above it ever scrolls (issue 122's non-scrolling
           shell), so the banner just sits in place - visible on every tab,
           satisfying acceptance criterion 5 for mobile and trivially for
           desktop. */}

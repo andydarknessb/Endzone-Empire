@@ -154,7 +154,7 @@ function PlayerActions({ player, isDrafted, canManualPick, pickUnavailable, queu
   );
 }
 
-/** One player's card on mobile (issue #122): the same approved columns the
+/** One player's card on mobile (issue 122): the same approved columns the
  * desktop table shows (Name/Position/NFL Team/Bye/ADP/Pos rank/17-game pace)
  * stacked instead of columned, plus the same state-gated Draft/Queue actions. */
 function PlayerCard({ player, isDrafted, canManualPick, pickUnavailable, overlap, queued, onDraft, onQueue, onOpenQuickView }) {
@@ -176,7 +176,7 @@ function PlayerCard({ player, isDrafted, canManualPick, pickUnavailable, overlap
         {/* Plain labels, not AbbreviationTooltip: that component adds its own
             focusable (tabIndex=0) hit target, fine once per column header but
             not repeated per stat per card - the Column guide button already
-            covers these abbreviations in one reachable place (issue #122). */}
+            covers these abbreviations in one reachable place (issue 122). */}
         <Typography variant="body2" sx={numericCellSx}>
           Bye: {player.bye_week != null ? player.bye_week : '-'}
         </Typography>
