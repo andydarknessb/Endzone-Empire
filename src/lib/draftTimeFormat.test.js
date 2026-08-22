@@ -39,6 +39,16 @@ describe('formatDraftTimezoneSchedule', () => {
     expect(formatDraftTimezoneSchedule('2026-09-03T18:00:00.000Z', null)).toBe('Thu, Sep 3, 6:00 PM UTC');
     expect(formatDraftTimezoneSchedule('2026-09-03T18:00:00.000Z', undefined)).toBe('Thu, Sep 3, 6:00 PM UTC');
   });
+
+  // Regression: Intl.DateTimeFormat throws a RangeError for a zone name it
+  // doesn't recognize. A row written before an ICU/tzdata update dropped a
+  // zone name (or any future write path that skips validation) must degrade
+  // to the honest UTC fallback, not crash every render of every Countdown
+  // for that league.
+  test('falls back to UTC rather than throwing for an unrecognized zone value', () => {
+    expect(() => formatDraftTimezoneSchedule('2026-09-03T18:00:00.000Z', 'Not/AZone')).not.toThrow();
+    expect(formatDraftTimezoneSchedule('2026-09-03T18:00:00.000Z', 'Not/AZone')).toBe('Thu, Sep 3, 6:00 PM UTC');
+  });
 });
 
 describe('draftTimezoneDetail', () => {
@@ -49,6 +59,11 @@ describe('draftTimezoneDetail', () => {
 
   test('is honest about a legacy schedule with no zone confirmed', () => {
     expect(draftTimezoneDetail('2026-09-03T18:00:00.000Z', null))
+      .toBe('No draft time zone set - shown in UTC: Thu, Sep 3, 6:00 PM UTC');
+  });
+
+  test('treats an unrecognized zone value the same as unset, rather than naming a bogus zone', () => {
+    expect(draftTimezoneDetail('2026-09-03T18:00:00.000Z', 'Not/AZone'))
       .toBe('No draft time zone set - shown in UTC: Thu, Sep 3, 6:00 PM UTC');
   });
 });

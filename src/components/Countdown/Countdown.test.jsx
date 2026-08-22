@@ -69,6 +69,21 @@ describe('Countdown', () => {
       expect(screen.getByText(/^Draft in \d+m \d{2}s$/)).toBeInTheDocument();
     });
 
+    // Regression: toParts() derives each field via cascading modulo of the
+    // full remaining time, so at exactly one tier's own span the coarser
+    // count wraps to zero unless the boundary folds into that tier -
+    // exactly 1h out rendered "0m 00s" (looked expired) and exactly 24h out
+    // rendered "0h 00m", instead of "1h 00m" / "1d 00h".
+    test('exactly on a tier boundary never wraps its count to zero', () => {
+      render(<Countdown date={futureIso(HOUR)} />);
+      expect(screen.getByText('Draft in 1h 00m')).toBeInTheDocument();
+    });
+
+    test('exactly 24h out never wraps its count to zero', () => {
+      render(<Countdown date={futureIso(DAY)} />);
+      expect(screen.getByText('Draft in 1d 00h')).toBeInTheDocument();
+    });
+
     test('disappears once the target instant is reached', () => {
       const { container } = render(<Countdown date={futureIso(2000)} />);
       expect(screen.getByText(/^Draft in/)).toBeInTheDocument();
@@ -180,9 +195,42 @@ describe('Countdown', () => {
       expect(status).toHaveTextContent('Draft start in 10 seconds');
     });
 
+    test('a rescheduled target clears a stale announcement rather than leaving it displayed', () => {
+      const { rerender } = render(<Countdown date={futureIso(30 * 1000)} />);
+      act(() => { jest.advanceTimersByTime(0); }); // the 30s milestone is due immediately at mount
+      const status = screen.getByRole('status');
+      expect(status).toHaveTextContent('Draft start in 30 seconds');
+
+      // The commissioner pushes the Draft back two hours - the stale
+      // "30 seconds" announcement must not keep sitting in the live region,
+      // read as still current, for the two hours until a real milestone fires.
+      rerender(<Countdown date={futureIso(2 * HOUR)} />);
+      expect(status).toHaveTextContent('');
+    });
+
     test('announce=false renders no status region at all (the pick-clock use)', () => {
       render(<Countdown date={futureIso(5 * MINUTE)} prefix="Time remaining:" announce={false} />);
       expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    // Regression: announce={false} alone left the viewer/league-timezone
+    // line and its tooltip rendering under a per-pick clock date, showing
+    // irrelevant "no draft time zone" copy that has nothing to do with the
+    // pick clock. showScheduleDetail is the prop that actually suppresses it.
+    test('showScheduleDetail=false suppresses the schedule line and calendar link too (the pick-clock use)', () => {
+      render(
+        <Countdown
+          date={futureIso(5 * MINUTE)}
+          prefix="Time remaining:"
+          announce={false}
+          showScheduleDetail={false}
+          leagueId={1}
+          leagueName="Harness League"
+        />
+      );
+      expect(screen.getByText(/^Time remaining:/)).toBeInTheDocument();
+      expect(screen.queryByText(/^·/)).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Add to calendar' })).not.toBeInTheDocument();
     });
 
     // Regression: setTimeout does not reliably honor a delay beyond the

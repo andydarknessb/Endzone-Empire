@@ -9,6 +9,17 @@
  * only so tests can pin a zone deterministically; production callers omit it
  * and get the browser's own zone via Intl's runtime default.
  */
+import { isValidIanaTimeZone } from './draftTimezone';
+
+// Intl.DateTimeFormat throws a RangeError for a zone name it doesn't
+// recognize. `timeZone` on a league row is written through validated paths
+// (league create/settings), but this module has no way to guarantee every
+// value it's ever handed came from one of them - a stale row from before an
+// ICU/tzdata update dropped a zone name, say. Falling back rather than
+// throwing keeps a bad zone value a display quirk instead of a crash.
+function safeTimeZone(timeZone) {
+  return timeZone && isValidIanaTimeZone(timeZone) ? timeZone : null;
+}
 
 // Short weekday, no seconds, explicit zone abbreviation - "Thu, Sep 3, 1:00
 // PM CDT" - so a viewer never has to guess whose clock a bare time belongs
@@ -33,9 +44,8 @@ function toDate(dateLike) {
 export function formatViewerLocalSchedule(dateLike, viewerTimeZone) {
   const date = toDate(dateLike);
   if (Number.isNaN(date.getTime())) return '';
-  const options = viewerTimeZone
-    ? { ...SCHEDULE_FORMAT_OPTIONS, timeZone: viewerTimeZone }
-    : SCHEDULE_FORMAT_OPTIONS;
+  const zone = safeTimeZone(viewerTimeZone);
+  const options = zone ? { ...SCHEDULE_FORMAT_OPTIONS, timeZone: zone } : SCHEDULE_FORMAT_OPTIONS;
   return new Intl.DateTimeFormat(undefined, options).format(date);
 }
 
@@ -47,18 +57,21 @@ export function formatViewerLocalSchedule(dateLike, viewerTimeZone) {
 export function formatDraftTimezoneSchedule(dateLike, timeZone) {
   const date = toDate(dateLike);
   if (Number.isNaN(date.getTime())) return '';
-  return new Intl.DateTimeFormat(undefined, { ...SCHEDULE_FORMAT_OPTIONS, timeZone: timeZone || 'UTC' }).format(date);
+  return new Intl.DateTimeFormat(undefined, { ...SCHEDULE_FORMAT_OPTIONS, timeZone: safeTimeZone(timeZone) || 'UTC' }).format(date);
 }
 
 /**
  * The hover/tap detail string pairing the league Draft timezone (or the
  * honest "no zone set" UTC fallback) with the formatted instant (#117 AC2).
+ * An unrecognized zone value is treated the same as "not set" rather than
+ * displayed verbatim - see safeTimeZone above.
  */
 export function draftTimezoneDetail(dateLike, timeZone) {
   const formatted = formatDraftTimezoneSchedule(dateLike, timeZone);
   if (!formatted) return '';
-  return timeZone
-    ? `League draft time zone (${timeZone}): ${formatted}`
+  const zone = safeTimeZone(timeZone);
+  return zone
+    ? `League draft time zone (${zone}): ${formatted}`
     : `No draft time zone set - shown in UTC: ${formatted}`;
 }
 

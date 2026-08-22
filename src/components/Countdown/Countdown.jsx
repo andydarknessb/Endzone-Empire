@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { Box, Button, Chip, Stack, Tooltip, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
@@ -8,12 +8,41 @@ const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
 
+function slugify(text) {
+  return String(text).replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+}
+
+// The createObjectURL -> temporary <a download> -> click -> revokeObjectURL
+// sequence a client-built file export always needs (ProfileSettingsModal's
+// account-export button does the same thing over a server-sent blob); named
+// and factored out here so this Countdown-local use has one obvious home
+// rather than inlining the four DOM calls at the call site.
+function downloadTextFile(text, mimeType, filename) {
+  const blob = new Blob([text], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 // The four-tier cadence (#117): a countdown days out only needs to be right
 // to the minute and repaints once a minute; one under an hour needs to be
 // right to the second and repaints every second.
+//
+// `>=`, not `>`: toParts() derives each field by cascading modulo off the
+// full remaining time, so a remainder that lands on an exact multiple of a
+// tier's own span (remainingMs === HOUR_MS or === DAY_MS) wraps that span's
+// count to zero - e.g. exactly 3,600,000ms classified into the "seconds"
+// tier renders as "0m 00s" (the whole hour vanishes) instead of the "hours"
+// tier's correct "1h 00m". Folding the boundary into the coarser tier keeps
+// every field a true, non-wrapped count.
 function tierFor(remainingMs) {
-  if (remainingMs > DAY_MS) return 'days';
-  if (remainingMs > HOUR_MS) return 'hours';
+  if (remainingMs >= DAY_MS) return 'days';
+  if (remainingMs >= HOUR_MS) return 'hours';
   return 'seconds';
 }
 
@@ -147,6 +176,11 @@ function useMilestoneAnnouncement(targetTime, eventLabel, enabled) {
   const [announcement, setAnnouncement] = useState('');
 
   useEffect(() => {
+    // A rescheduled Draft (a new targetTime) invalidates whatever milestone
+    // last announced for the old one - e.g. "Draft start in 5 minutes" must
+    // not keep sitting in the live region, read as current, once the
+    // commissioner pushes the date back an hour.
+    setAnnouncement('');
     if (!enabled) return undefined;
 
     const now = Date.now();
@@ -198,6 +232,7 @@ function Countdown({
   leagueId = null,
   announce = true,
   eventLabel = 'Draft start',
+  showScheduleDetail = true,
 }) {
   const targetTime = date ? new Date(date).getTime() : NaN;
   const isValidDate = Boolean(date) && !Number.isNaN(targetTime);
@@ -211,23 +246,27 @@ function Countdown({
 
   const handleExpire = useCallback(() => setExpired(true), []);
 
+  // Memoized: these two rebuild an Intl.DateTimeFormat apiece, and the shell
+  // otherwise re-renders whenever its parent does for reasons that have
+  // nothing to do with the Draft schedule (e.g. an unrelated chat-unread
+  // count ticking over) - not just on the tick this shell is already
+  // isolated from.
+  const detail = useMemo(
+    () => (showScheduleDetail ? draftTimezoneDetail(date, timeZone) : ''),
+    [date, timeZone, showScheduleDetail]
+  );
+  const viewerSchedule = useMemo(
+    () => (showScheduleDetail ? formatViewerLocalSchedule(date) : ''),
+    [date, showScheduleDetail]
+  );
+
   const handleDownloadIcs = useCallback(() => {
     const ics = buildDraftIcs({ leagueId, leagueName, startDate: date });
     if (!ics) return;
-    const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${String(leagueName).replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-draft.ics`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
+    downloadTextFile(ics, 'text/calendar;charset=utf-8', `${slugify(leagueName)}-draft.ics`);
   }, [leagueId, leagueName, date]);
 
   if (!isValidDate || expired) return null;
-
-  const detail = draftTimezoneDetail(date, timeZone);
 
   if (variant === 'chip') {
     return (
@@ -238,25 +277,25 @@ function Countdown({
     );
   }
 
-  const viewerSchedule = formatViewerLocalSchedule(date);
-
   return (
     <Box>
       <CountdownTicker targetTime={targetTime} prefix={prefix} variant="full" onExpire={handleExpire} />
-      <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mt: 0.5 }}>
-        <Tooltip title={detail} enterTouchDelay={0}>
-          <Typography
-            variant="body2"
-            tabIndex={0}
-            sx={{ color: 'text.secondary', cursor: 'help', width: 'fit-content' }}
-          >
-            {`· ${viewerSchedule}`}
-          </Typography>
-        </Tooltip>
-        {leagueId != null && leagueName && (
-          <Button size="small" onClick={handleDownloadIcs}>Add to calendar</Button>
-        )}
-      </Stack>
+      {showScheduleDetail && (
+        <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mt: 0.5 }}>
+          <Tooltip title={detail} enterTouchDelay={0}>
+            <Typography
+              variant="body2"
+              tabIndex={0}
+              sx={{ color: 'text.secondary', cursor: 'help', width: 'fit-content' }}
+            >
+              {`· ${viewerSchedule}`}
+            </Typography>
+          </Tooltip>
+          {leagueId != null && leagueName && (
+            <Button size="small" onClick={handleDownloadIcs}>Add to calendar</Button>
+          )}
+        </Stack>
+      )}
       <CountdownAnnouncer targetTime={targetTime} eventLabel={eventLabel} enabled={announce} />
     </Box>
   );
@@ -271,6 +310,10 @@ Countdown.propTypes = {
   leagueId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
   announce: PropTypes.bool,
   eventLabel: PropTypes.string,
+  // False for a countdown that isn't the Draft's own schedule (the per-pick
+  // clock in DraftPresenter): no viewer/league-timezone line, no calendar
+  // export - both would be about the wrong instant entirely.
+  showScheduleDetail: PropTypes.bool,
 };
 
 export default Countdown;

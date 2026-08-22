@@ -97,7 +97,12 @@ function DraftPresenter() {
               // This is the per-pick clock, not the Draft's own schedule: no
               // milestone announcer (the surrounding Paper is already one
               // aria-live=polite region) and no timezone/calendar detail.
-              <Countdown date={league.pick_deadline_at} prefix="Time remaining:" announce={false} />
+              <Countdown
+                date={league.pick_deadline_at}
+                prefix="Time remaining:"
+                announce={false}
+                showScheduleDetail={false}
+              />
             ) : (
               <Typography variant="h6" sx={{ color: league.draft_paused ? 'warning.main' : 'text.secondary' }}>
                 {league.draft_paused ? 'Draft paused' : 'No active pick clock'}
