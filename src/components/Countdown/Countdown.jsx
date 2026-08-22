@@ -75,11 +75,17 @@ function formatByTier(remainingMs, tier) {
 /**
  * Self-scheduling countdown clock: repaints itself at the tier-appropriate
  * cadence via a self-rescheduling timeout (not a fixed interval), so a
- * countdown that starts in the "hours" tier automatically switches to
- * per-second updates the moment it crosses into the "seconds" tier rather
- * than waiting up to a minute to notice. This is the only piece of Countdown
- * that re-renders every tick - the isolation the shell around it depends on
- * (#117: ticking state isolated from the page tree).
+ * countdown that starts in the "hours" tier automatically picks up
+ * per-second updates once it notices it has crossed into the "seconds"
+ * tier - each tick chooses its own next delay from its own remaining time,
+ * so that notice lands on the next scheduled tick rather than the tier's
+ * fixed multi-minute cadence otherwise repeating past the crossing. That
+ * next tick is still up to one minute-cadence step (not more) behind the
+ * real-world crossing instant - the value it then displays is correct, only
+ * the switch to per-second cadence is delayed by up to that one step. This
+ * is the only piece of Countdown that re-renders every tick - the isolation
+ * the shell around it depends on (#117: ticking state isolated from the
+ * page tree).
  */
 function useCountdownTicking(targetTime, onExpire) {
   const [remainingMs, setRemainingMs] = useState(() => targetTime - Date.now());
