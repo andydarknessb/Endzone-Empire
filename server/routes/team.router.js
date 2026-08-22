@@ -8,7 +8,7 @@ const { getLineup, setLineup } = require('../services/lineup.service');
 const { startSitAdvice, weekHindsight, seasonHindsight } = require('../services/decision.service');
 const { uploadTeamAvatar, removeTeamAvatar, MAX_UPLOAD_BYTES } = require('../services/avatar.service');
 const { computeByeWeeks } = require('../services/bye.service');
-const { requireMember } = require('../services/leagueRole.service');
+const { requireMember } = require('../services/leagueMembership.service');
 const projectionService = require('../services/projection.service');
 
 const router = express.Router();

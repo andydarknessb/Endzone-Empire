@@ -1,6 +1,6 @@
 const pool = require('../modules/pool');
 const { isPickemOnly, PICKEM_ONLY_MESSAGE } = require('./leagueType');
-const { requireMember } = require('./leagueRole.service');
+const { requireMember } = require('./leagueMembership.service');
 const { computeByeWeeks } = require('./bye.service');
 const { injuryDesignationName, isIrEligible } = require('./irPolicy.service');
 

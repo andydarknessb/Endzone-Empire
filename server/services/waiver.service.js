@@ -1,6 +1,6 @@
 const pool = require('../modules/pool');
 const { assertFantasyLeagueRow } = require('./leagueType');
-const { requireMember } = require('./leagueRole.service');
+const { requireMember } = require('./leagueMembership.service');
 const { logTransaction, notify } = require('./activity.service');
 
 class WaiverError extends Error {

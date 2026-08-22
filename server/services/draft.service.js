@@ -3,7 +3,8 @@ const { placeOnWaivers, isOnWaivers } = require('./waiver.service');
 const { logTransaction } = require('./activity.service');
 const { teamForPick, nextOpenPickNumber } = require('./draftOrder.service');
 const { POSITION_GROUPS } = require('./lineup.service');
-const { isLeagueCommissioner, requireMember } = require('./leagueRole.service');
+const { isLeagueCommissioner } = require('./leagueRole.service');
+const { requireMember } = require('./leagueMembership.service');
 const { assertFantasyLeagueRow } = require('./leagueType');
 const { draftRosterSize } = require('./rosterShape');
 

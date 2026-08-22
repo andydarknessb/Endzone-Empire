@@ -1,12 +1,20 @@
 /**
- * Pure league-size-limit rules, shared by the league router and covered by
- * leagueSize.test.js. Keeping them here (rather than inline in the router)
- * makes the enforcement unit-testable without a database.
+ * Pure league-size rules, shared by the league router, the settings module,
+ * admission and Discover, and covered by leagueSize.test.js. Keeping them
+ * here (rather than inline at each site) makes the enforcement unit-testable
+ * without a database.
  *
- * Fantasy leagues are capped by the head-to-head schedule (2-20); pick'em-only
- * leagues have no schedule to balance, so they take a looser cap (2-50) and
- * default their floor to the hard minimum.
+ * Two questions live here. What limits may a league set: fantasy leagues are
+ * capped by the head-to-head schedule (2-20); pick'em-only leagues have no
+ * schedule to balance, so they take a looser cap (2-50) and default their
+ * floor to the hard minimum. And is a league full: `isFull` compares the
+ * team count against the league's own max_teams (already validated against
+ * the type-aware cap at create and edit time, so no league-type logic belongs
+ * in that comparison), with `hasOpenSlotsHavingSql` as its SQL twin for the
+ * Discover query.
  */
+
+const { column } = require('./leagueType');
 
 const MIN_ALLOWED = 2; // hard floor; the UI recommends 4+
 const MAX_ALLOWED = 20;
@@ -58,7 +66,10 @@ function editSizeError({ newMin, newMax, currentMin, currentMax, teamCount, pick
   const effMax = newMax !== null ? newMax : currentMax;
   const effMin = newMin !== null ? newMin : currentMin;
   if (effMin > effMax) return 'minTeams cannot exceed maxTeams';
-  if (effMax < teamCount) {
+  // The cap may shrink to exactly the team count (the league is then full,
+  // by `isFull`, and simply stops admitting) but never below it; `isFull`
+  // admits equality, so this is the strict side of the same line.
+  if (teamCount > effMax) {
     return `maxTeams cannot be below the ${teamCount} team(s) already in the league`;
   }
   return null;
@@ -67,6 +78,25 @@ function editSizeError({ newMin, newMax, currentMin, currentMax, teamCount, pick
 /** Whether a league has enough teams to start its draft. */
 function meetsMinimum(teamCount, minTeams) {
   return teamCount >= minTeams;
+}
+
+/**
+ * Pure: no room for another team. The one "full" rule: admission refuses on
+ * it, the Discover card's `openSlots` is its negation. `maxTeams` is the
+ * league's own cap, never a league-type ceiling.
+ */
+function isFull(teamCount, maxTeams) {
+  return teamCount >= maxTeams;
+}
+
+/**
+ * HAVING fragment: the SQL twin of `!isFull`, for a query that aggregates
+ * teams per league. `teamCountExpr` is the caller's aggregate (a code
+ * literal, e.g. `COUNT(DISTINCT "teams"."id")`); the alias is validated as
+ * an identifier, following the leaguePhase fragments.
+ */
+function hasOpenSlotsHavingSql(alias, teamCountExpr) {
+  return `${teamCountExpr} < ${column(alias, 'max_teams')}`;
 }
 
 module.exports = {
@@ -80,4 +110,6 @@ module.exports = {
   createSizeError,
   editSizeError,
   meetsMinimum,
+  isFull,
+  hasOpenSlotsHavingSql,
 };

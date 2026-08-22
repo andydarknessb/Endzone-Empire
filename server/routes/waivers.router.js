@@ -3,7 +3,8 @@ const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
 const waivers = require('../services/waiver.service');
 const { waiverSuggestions } = require('../services/decision.service');
-const { isLeagueCommissioner, requireMember } = require('../services/leagueRole.service');
+const { isLeagueCommissioner } = require('../services/leagueRole.service');
+const { requireMember } = require('../services/leagueMembership.service');
 
 const router = express.Router();
 router.use(requireAuth);

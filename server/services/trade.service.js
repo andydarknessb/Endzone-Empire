@@ -1,6 +1,7 @@
 const pool = require('../modules/pool');
 const { logTransaction, notify, notifyLeague } = require('./activity.service');
-const { isLeagueCommissioner, requireMember } = require('./leagueRole.service');
+const { isLeagueCommissioner } = require('./leagueRole.service');
+const { requireMember } = require('./leagueMembership.service');
 const { assertFantasyLeagueRow } = require('./leagueType');
 
 class TradeError extends Error {

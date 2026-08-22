@@ -34,7 +34,7 @@
  * contract: it refuses by throwing LeagueSettingsError (statusCode, message,
  * and code only for the pick'em refusal) after rolling back, so call it only
  * where the surrounding catch renders `error.statusCode`, the same rule
- * leagueRole.requireMember states; anything else propagates after the same
+ * leagueMembership.requireMember states; anything else propagates after the same
  * rollback and release.
  */
 
@@ -459,7 +459,7 @@ class LeagueSettingsError extends Error {
  * Thrown-error contract: refuses by throwing LeagueSettingsError (after
  * ROLLBACK when a transaction is open); any other error ROLLBACKs the same
  * way and propagates as-is. Call it only where the surrounding catch renders
- * `error.statusCode` (the rule leagueRole.requireMember states); a caller
+ * `error.statusCode` (the rule leagueMembership.requireMember states); a caller
  * that maps every error to 500 would turn a 409 into a 500.
  *
  * Resolves with the updated `leagues` row (RETURNING *).

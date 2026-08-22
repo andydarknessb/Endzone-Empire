@@ -2,8 +2,8 @@ const { after, test } = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
 const request = require('supertest');
-const pool = require('../modules/pool');
 const { signToken } = require('../modules/auth');
+const { createFakePool } = require('./helpers/fakePool');
 const leagueRouter = require('../routes/league.router');
 
 const previousSecret = process.env.JWT_SECRET;
@@ -21,19 +21,17 @@ const CREATOR = 5;
 const authed = () => `Bearer ${signToken({ id: CREATOR, username: 'commish' })}`;
 
 /**
- * SQL-substring dispatch over a mocked transaction client, mirroring the
- * harness in pickem.router.test.js. The leagues INSERT echoes its params back
- * as the returned row, so assertions on the response body pin what the route
- * actually sent to the database.
+ * The transaction client behind the create route (shared fakePool harness).
+ * The leagues INSERT echoes its params back as the returned row, so
+ * assertions on the response body pin what the route actually sent to the
+ * database; the same row answers the membership module's FOR UPDATE re-read
+ * with the column defaults a fresh league has (pre-draft, season regular).
  */
 function mockClient(t, overrides = []) {
-  const calls = [];
+  let created = null;
   const defaults = [
-    [/^BEGIN$/, () => ({ rows: [] })],
-    [/^COMMIT$/, () => ({ rows: [] })],
-    [/^ROLLBACK$/, () => ({ rows: [] })],
-    [/INSERT INTO "leagues"/, (text, params) => ({
-      rows: [{
+    [/INSERT INTO "leagues"/, (text, params) => {
+      created = {
         id: 77,
         name: params[0],
         owner_id: params[1],
@@ -41,11 +39,21 @@ function mockClient(t, overrides = []) {
         min_teams: params[4],
         best_ball: params[7],
         pickem_only: params[11],
+        draft_status: 'pending',
+        season_status: 'regular',
         current_season: 2026,
         current_week: 1,
-      }],
+      };
+      return { rows: [created] };
+    }],
+    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR UPDATE$/, (text, params) => ({
+      rows: created && created.id === params[0] ? [created] : [],
     })],
-    [/INSERT INTO "teams"/, () => ({ rows: [] })],
+    [/^SELECT 1 FROM "teams"/, () => ({ rows: [] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 0 }] })],
+    [/INSERT INTO "teams"/, (text, params) => ({
+      rows: [{ id: 501, league_id: params[0], owner_id: params[1], name: params[2], draft_position: params[3] }],
+    })],
     [/INSERT INTO "pickem_settings"/, () => ({ rows: [] })],
     [/SELECT MAX\("season"\)/, () => ({ rows: [{ season: 2026 }] })],
     [/SELECT DISTINCT "week", "kickoff_at" FROM "nfl_games"/, () => ({ rows: scheduleAroundNow() })],
@@ -53,19 +61,7 @@ function mockClient(t, overrides = []) {
       rows: [{ id: params[2], pickem_only: true, current_season: params[0], current_week: params[1] }],
     })],
   ];
-  const handlers = [...overrides, ...defaults];
-  t.mock.method(pool, 'connect', async () => ({
-    query: async (sql, params) => {
-      const text = String(sql).replace(/\s+/g, ' ').trim();
-      calls.push({ text, params });
-      for (const [pattern, handler] of handlers) {
-        if (pattern.test(text)) return handler(text, params);
-      }
-      throw new Error(`unexpected query: ${text}`);
-    },
-    release: () => {},
-  }));
-  return calls;
+  return createFakePool([...overrides, ...defaults]).install(t).calls;
 }
 
 const statementsMatching = (calls, pattern) => calls.filter((c) => pattern.test(c.text));
@@ -106,6 +102,11 @@ test('fantasy create: pickem_only false, no pickem_settings row, no season seed'
   assert.equal(statementsMatching(calls, /INSERT INTO "pickem_settings"/).length, 0);
   assert.equal(statementsMatching(calls, /FROM "nfl_games"/).length, 0);
   assert.equal(statementsMatching(calls, /^COMMIT$/).length, 1);
+  // The creator's Team goes through the membership write like every other
+  // join path: the default name, and draft_position 1 on an empty league.
+  const teamInserts = statementsMatching(calls, /INSERT INTO "teams"/);
+  assert.equal(teamInserts.length, 1);
+  assert.deepEqual(teamInserts[0].params, [77, CREATOR, "commish's Team", 1]);
 });
 
 test("'both' create: pickem_settings written in the transaction with the chosen mode, no seed", async (t) => {

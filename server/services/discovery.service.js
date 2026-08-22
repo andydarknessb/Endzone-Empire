@@ -7,31 +7,22 @@ const pool = require('../modules/pool');
 const { notify } = require('./activity.service');
 const { SCORING_PRESETS } = require('./scoring.service');
 const { MODES: PICKEM_MODES } = require('./pickem.service');
-const { commissionerPredicate, isMember } = require('./leagueRole.service');
-const { joinability, joinableWhereSql, joinRefusalMessage } = require('./leaguePhase');
+const { commissionerPredicate } = require('./leagueRole.service');
+const { assertAdmissible, joinLeague } = require('./leagueMembership.service');
+const { joinability, joinableWhereSql } = require('./leaguePhase');
 const { pickemOnlyWhereSql, fantasySideWhereSql } = require('./leagueType');
+const { isFull, hasOpenSlotsHavingSql } = require('./leagueSize');
 
+/**
+ * Coded error for this module, the same shape as MembershipError: `reason`
+ * (the joinability reason the invite preview also ships as `joinReason`)
+ * rides along when a refusal has one, so the route can ship it.
+ */
 class DiscoveryError extends Error {
   constructor(statusCode, message, { reason } = {}) {
     super(message);
     this.statusCode = statusCode;
     if (reason) this.reason = reason;
-  }
-}
-
-/**
- * Refuse a league that will not accept a new team right now (see the League
- * phase module): 409 with a message chosen from the reason, and the reason
- * itself on the error so the route can ship it. Per-manager gates (member,
- * full, approval) stay with each caller. The discriminator is `reason`, not
- * the `code` other services use: it is the same string the invite preview
- * ships as `joinReason`, and `code` on errors in this file already means a
- * pg SQLSTATE (the 23505 checks below).
- */
-function assertJoinable(league) {
-  const answer = joinability(league);
-  if (!answer.joinable) {
-    throw new DiscoveryError(409, joinRefusalMessage(answer.reason), { reason: answer.reason });
   }
 }
 
@@ -128,6 +119,9 @@ function validateCreateOptions({
   return { value };
 }
 
+/** The per-league team count in the Discover aggregate (one row per league). */
+const TEAM_COUNT_EXPR = `COUNT(DISTINCT "teams"."id")`;
+
 /**
  * Pure: build the WHERE/HAVING/ORDER BY fragments + params array for the
  * discover query. Every user-supplied value travels through the params
@@ -161,12 +155,13 @@ function buildDiscoverQuery({ userId, search, scoring, openSlots, sort, type } =
     where.push(fantasySideWhereSql('leagues'));
   }
 
-  const havingClause = openSlots ? `COUNT(DISTINCT "teams"."id") < "leagues"."max_teams"` : null;
+  // "Open slots" is leagueSize's rule, not a comparison of this query's own.
+  const havingClause = openSlots ? hasOpenSlotsHavingSql('leagues', TEAM_COUNT_EXPR) : null;
 
   const orderByOptions = {
     newest: `"leagues"."created_at" DESC`,
     draft_date: `"leagues"."draft_date" ASC NULLS LAST`,
-    open_slots: `("leagues"."max_teams" - COUNT(DISTINCT "teams"."id")) DESC`,
+    open_slots: `("leagues"."max_teams" - ${TEAM_COUNT_EXPR}) DESC`,
   };
   const orderByClause = orderByOptions[sort] || orderByOptions.newest;
 
@@ -192,7 +187,7 @@ async function selectLeagueCards({ whereClause, havingClause = '', orderByClause
        "leagues"."id",
        "leagues"."name",
        "leagues"."max_teams" AS "maxTeams",
-       COUNT(DISTINCT "teams"."id")::int AS "teamCount",
+       ${TEAM_COUNT_EXPR}::int AS "teamCount",
        "leagues"."scoring_preset" AS "scoringPreset",
        "leagues"."best_ball" AS "bestBall",
        "leagues"."pickem_only" AS "pickemOnly",
@@ -215,7 +210,7 @@ async function selectLeagueCards({ whereClause, havingClause = '', orderByClause
   );
   return result.rows.map((row) => ({
     ...row,
-    openSlots: row.teamCount < row.maxTeams,
+    openSlots: !isFull(row.teamCount, row.maxTeams),
   }));
 }
 
@@ -258,7 +253,9 @@ async function previewLeagueByInviteCode({ code, userId }) {
  * Join a public league: either creates the team immediately, or (when the
  * league requires approval) files/refreshes a join_requests row and
  * notifies the owner. Runs inside one transaction with the league row
- * locked, mirroring the invite-code join in league.router.js.
+ * locked. Being public is this path's gate; admission and the Team itself
+ * are the membership module's (leagueMembership.joinLeague), as on every
+ * join path.
  */
 async function joinPublicLeague({ leagueId, userId, username, teamName }) {
   const client = await pool.connect();
@@ -268,17 +265,12 @@ async function joinPublicLeague({ leagueId, userId, username, teamName }) {
     const league = leagueResult.rows[0];
     if (!league) throw new DiscoveryError(404, 'league not found');
     if (!league.is_public) throw new DiscoveryError(403, 'this league is not open for public join');
-    assertJoinable(league);
-
-    if (await isMember(client, leagueId, userId)) {
-      throw new DiscoveryError(409, 'you already have a team in this league');
-    }
-
-    const countResult = await client.query(`SELECT COUNT(*)::int AS n FROM "teams" WHERE "league_id" = $1`, [leagueId]);
-    const teamCount = countResult.rows[0].n;
-    if (teamCount >= league.max_teams) throw new DiscoveryError(409, 'league is full');
 
     if (league.join_approval) {
+      // Admission is decided again when the request is approved; asking now
+      // keeps a member, or a manager facing a full or closed league, from
+      // filing a request that could never be approved.
+      await assertAdmissible(client, league, userId);
       const upsert = await client.query(
         `INSERT INTO "join_requests" ("league_id", "user_id", "team_name", "status")
          VALUES ($1, $2, $3, 'pending')
@@ -311,16 +303,11 @@ async function joinPublicLeague({ leagueId, userId, username, teamName }) {
       return { pending: true, joinRequest };
     }
 
-    const teamResult = await client.query(
-      `INSERT INTO "teams" ("league_id", "owner_id", "name", "draft_position")
-       VALUES ($1, $2, $3, $4) RETURNING *`,
-      [leagueId, userId, teamName || `${username}'s Team`, teamCount + 1]
-    );
+    const { team } = await joinLeague(client, { leagueId, userId, teamName, username });
     await client.query('COMMIT');
-    return { pending: false, league, team: teamResult.rows[0] };
+    return { pending: false, league, team };
   } catch (error) {
     await client.query('ROLLBACK');
-    if (error.code === '23505') throw new DiscoveryError(409, 'you already have a team in this league');
     throw error;
   } finally {
     client.release();
@@ -385,19 +372,13 @@ async function decideJoinRequest({ leagueId, ownerId, requestId, approve }) {
       return { status: 'denied' };
     }
 
-    // Decided against the league as it is now, not as it was when the
+    // Admitted against the league as it is now, not as it was when the
     // request was filed: a pending request cannot slip a team into a league
-    // that has since stopped being joinable.
-    assertJoinable(league);
-    const countResult = await client.query(`SELECT COUNT(*)::int AS n FROM "teams" WHERE "league_id" = $1`, [leagueId]);
-    const teamCount = countResult.rows[0].n;
-    if (teamCount >= league.max_teams) throw new DiscoveryError(409, 'league is full');
-
-    await client.query(
-      `INSERT INTO "teams" ("league_id", "owner_id", "name", "draft_position")
-       VALUES ($1, $2, $3, $4)`,
-      [leagueId, joinRequest.user_id, joinRequest.team_name || `${joinRequest.username}'s Team`, teamCount + 1]
-    );
+    // that has since stopped being joinable or filled up, nor a second Team
+    // to a requester who joined another way meanwhile.
+    await joinLeague(client, {
+      leagueId, userId: joinRequest.user_id, teamName: joinRequest.team_name, username: joinRequest.username,
+    });
     await client.query(
       `UPDATE "join_requests" SET "status" = 'approved', "updated_at" = now() WHERE "id" = $1`,
       [joinRequest.id]
@@ -413,7 +394,6 @@ async function decideJoinRequest({ leagueId, ownerId, requestId, approve }) {
     return { status: 'approved' };
   } catch (error) {
     await client.query('ROLLBACK');
-    if (error.code === '23505') throw new DiscoveryError(409, 'that user already has a team in this league');
     throw error;
   } finally {
     client.release();
