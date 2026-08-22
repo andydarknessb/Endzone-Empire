@@ -34,7 +34,7 @@ export default function DraftOrderPanel({ league, teams, frozen, onSave, onSetOr
       {[1, 2, 3].map((round) => <Typography key={round} variant="body2">Round {round}: {labels(overrides[round] || effectiveOrder(order, league.draft_rotation || 'snake', round).map((team) => team.id)).map((team) => team.label).join(' · ') || 'Set the round 1 order first'}</Typography>)}
       <Typography variant="subtitle2">Round overrides</Typography>
       {/* Only rounds that will actually be drafted: the IR slot costs none
-          (#96), and once the draft is frozen this is the fixed value, not a
+          (#96), and once the draft is active this is the fixed value, not a
           live recomputation (ADR 0005). */}
       {Array.from({ length: draftRounds(league) }, (_, index) => index + 1).map((round) => {
         const rows = labels(overrides[round] || effectiveOrder(order, league.draft_rotation || 'snake', round).map((team) => team.id));

@@ -160,7 +160,7 @@ export default function KeeperPanel({ league, teams, keepers, keeperCandidates, 
   const hasAssignmentErrors = assignmentErrors.some((rowErrors) => rowErrors.length > 0);
   const preview = rows.reduce((map, row) => { if (row.player && row.teamId && row.round) map.set(`${row.round}-${row.teamId}`, row.player.name); return map; }, new Map());
   // Keepers fit inside the drafted rounds: the live-derived draft roster
-  // size while pending, or the fixed value once frozen (ADR 0005) — never
+  // size while pending, or the fixed value once active (ADR 0005) — never
   // the IR-inclusive roster_limit (#96).
   const draftRounds = getDraftRounds(league);
   const keeperCountError = integerRangeError(count, { label: 'Keepers per team', min: 0, max: draftRounds });
