@@ -92,6 +92,22 @@ Whether one particular manager may join (already a member, league full,
 approval required, not public) is a separate question layered on top.
 _Avoid_: open (ambiguous with a public league or open slots), recruiting
 
+**Admission**:
+Whether one particular manager may join a joinable league right now: they
+are not already a member and the league is not full. The same rule on every
+join path, decided at the moment the team is created, never when a request
+was filed. How the manager arrived (an invite code, a public listing, an
+approved request, creating the league) is their join path, not admission.
+_Avoid_: eligibility, permission, joinable (that is the league-level answer)
+
+**Join path**:
+One of the four ways a manager comes to hold a team in a league: creating it,
+entering an invite code, joining a public league directly, or having a join
+request approved. Every path ends in the same act, creating the team, and
+differs only in what must be true beforehand (the code matches, the league is
+public, a commissioner approved).
+_Avoid_: join method, join flow, signup
+
 **League settings**:
 What a commissioner can edit about a league: its name, size limits,
 roster shape, scoring rules, season and playoff structure, waiver and trade
@@ -207,7 +223,25 @@ _Avoid_: draft format, draft mode
 The order in which turns come around in a snake, autopick or offline draft:
 snake (the order reverses every round) or linear (the same order every round).
 An auction has no rotation. A draft-frozen setting.
-_Avoid_: order format, draft order (that is which team holds which slot)
+_Avoid_: order format, draft order (a term of its own: which team holds which
+slot)
+
+**Draft order**:
+Which team holds which slot in a draft: the sequence the first round follows,
+from which the draft rotation derives every later round. Settled before the
+draft starts and unchanged once it has. A manager's upcoming picks are
+positions in this order, not a separate thing.
+_Avoid_: draft rotation (that is how turns come around, snake or linear), pick
+order, slot order
+
+**Readiness**:
+Which teams have declared themselves ready for a pending draft, counted
+against the league's size. A fact of the pending lobby only; it has no meaning
+once the draft starts. A team that has not declared is Not ready, and once
+most teams are ready that group, not the ready one, is the exception worth
+naming.
+_Avoid_: holdout (Holdout ledger is an Evaluation term), ready status, lobby
+status
 
 **Auction draft**:
 The draft type in which teams bid salary-cap dollars for each nominated player
@@ -385,7 +419,10 @@ which uninvolved managers can vote to veto.
 ### Scoring and the week
 
 **Matchup**:
-One week's head-to-head pairing of two teams in a league.
+One week's head-to-head pairing of two teams in a league. Once a matchup is
+final its lineups are a record of the week as played, never a working lineup:
+nothing is added to them after the fact, so re-scoring a final week counts
+only the players who were there when the games were played.
 _Avoid_: game (a game is an NFL game), fixture
 
 **Scoring rules**:
