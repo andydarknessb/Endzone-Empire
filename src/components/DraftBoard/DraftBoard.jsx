@@ -310,7 +310,25 @@ function DraftBoard() {
 
   if (loading) {
     return (
-      <Container component="main" id={DRAFT_MAIN_ID} tabIndex={-1} maxWidth="xl" sx={{ py: 4 }} data-testid="page-skeleton">
+      <Container
+        component="main"
+        id={DRAFT_MAIN_ID}
+        tabIndex={-1}
+        maxWidth="xl"
+        data-testid="page-skeleton"
+        sx={{
+          py: 4,
+          // App.jsx gives the desktop Draft route a fixed-height, non-
+          // scrolling shell (issue #122) whether or not this skeleton is
+          // what's currently mounted inside it. Match that height so the
+          // skeleton fills it instead of being clipped by the shell's own
+          // overflow: hidden, with its own overflow: auto as a safety net
+          // if a very short window ever makes it taller than that anyway -
+          // it scrolls in place rather than vanishing.
+          height: { md: '100%' },
+          overflow: { md: 'auto' },
+        }}
+      >
         <Skeleton variant="text" width={280} height={48} sx={{ mb: 2 }} />
         <Skeleton variant="rounded" height={56} sx={{ mb: 3 }} />
         <Grid container spacing={3}>
@@ -537,16 +555,24 @@ function DraftBoard() {
           )}
         </Box>
 
-        {/* Sibling to (not nested in) the header Box above: sticky positioning
-            is bounded by the containing block, so LiveDraftBanner needs a
-            containing block tall enough to stay pinned while mobile's single
-            page-scroll region scrolls underneath it — the short header Box
-            alone isn't tall enough. On desktop nothing above it ever scrolls
-            (issue #122's non-scrolling shell), so the banner just sits in
-            place - visible on every tab, satisfying acceptance criterion 5
-            for mobile and trivially for desktop. */}
-        <LiveDraftBanner league={league} onTheClock={onTheClock} secondsLeft={secondsLeft} isMyTurn={isMyTurn} />
+      </Box>
 
+      {/* NOT inside either flexShrink wrapper Box above/below, on purpose:
+          sticky positioning is bounded by its containing block, and that
+          block is whichever ancestor box actually renders it - a wrapper
+          added only for flex-shrink bookkeeping still counts, and one sized
+          to just the header chrome would cap LiveDraftBanner's "stuck" travel
+          at that short height, releasing it almost as soon as the page
+          scrolls at all. It needs a containing block that spans the whole
+          scrollable page - this Container itself - so it stays pinned while
+          mobile's single page-scroll region scrolls underneath it. On
+          desktop nothing above it ever scrolls (issue #122's non-scrolling
+          shell), so the banner just sits in place - visible on every tab,
+          satisfying acceptance criterion 5 for mobile and trivially for
+          desktop. */}
+      <LiveDraftBanner league={league} onTheClock={onTheClock} secondsLeft={secondsLeft} isMyTurn={isMyTurn} />
+
+      <Box sx={{ flexShrink: { md: 0 } }}>
         <Tabs
           // Desktop only ever shows two tabs (Draft = the dual-pane
           // workspace, Board); a 'players'-tagged URL/state still resolves
@@ -595,7 +621,7 @@ function DraftBoard() {
             tabIndex={0}
             sx={{ flexBasis: '33.333%', minWidth: 0, height: '100%', overflowY: 'auto' }}
           >
-            <DraftRail {...draftRailProps} queueStickyTop={8} />
+            <DraftRail {...draftRailProps} queueStickyTop={8} queueMaxHeight="45vh" />
           </Box>
         </Box>
       )}

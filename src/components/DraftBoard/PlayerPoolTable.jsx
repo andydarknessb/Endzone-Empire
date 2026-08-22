@@ -26,6 +26,8 @@ import {
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import PlaylistAddIcon from '@mui/icons-material/PlaylistAdd';
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
+import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import InjuryBadge from '../InjuryBadge/InjuryBadge';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import PositionChip from '../PlayerQuickView/PositionChip';
@@ -39,6 +41,20 @@ import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 // below, whether or not any team actually has a bye there this season; an
 // empty result for an unused week is a normal, honest "no match", not a bug.
 const BYE_WEEK_OPTIONS = Array.from({ length: 18 }, (_, i) => i + 1);
+
+// Same six sortable fields the desktop table's TableSortLabel column headers
+// expose, in the same left-to-right order - the mobile card list has no
+// column headers to sort by, so this drives a "Sort by" Select instead
+// (issue #122 acceptance criterion 4: mobile keeps the full state, not a
+// stripped-down view of it).
+const SORT_FIELDS = [
+  { key: 'name', label: 'Name' },
+  { key: 'nfl_team', label: 'NFL Team' },
+  { key: 'bye_week', label: 'Bye' },
+  { key: 'adp', label: 'ADP' },
+  { key: 'position_rank', label: 'Pos rank' },
+  { key: 'proj', label: '17-game pace' },
+];
 
 // Applies to every numeric column (Bye, ADP, Pos rank, 17-game pace): fixed-
 // width digit glyphs so a column of numbers lines up instead of drifting with
@@ -384,6 +400,39 @@ function PlayerPoolTable({
         }
         label="Hide drafted"
       />
+      {isMobile && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <FormControl sx={{ minWidth: 160 }}>
+            <InputLabel id="draft-sort-field-label">Sort by</InputLabel>
+            <Select
+              labelId="draft-sort-field-label"
+              label="Sort by"
+              value={sort}
+              onChange={(e) => onSort(e.target.value)}
+              size="small"
+            >
+              {SORT_FIELDS.map((field) => (
+                <MenuItem key={field.key} value={field.key}>
+                  {field.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <Tooltip title={dir === 'asc' ? 'Ascending - tap to sort descending' : 'Descending - tap to sort ascending'}>
+            <IconButton
+              aria-label={dir === 'asc' ? 'Sort ascending' : 'Sort descending'}
+              size="small"
+              // Re-selecting the SAME field toggles direction (see
+              // usePlayerPool's handleSort) - the same rule the desktop
+              // TableSortLabel headers already rely on.
+              onClick={() => onSort(sort)}
+              sx={MIN_TOUCH_TARGET_SX}
+            >
+              {dir === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />}
+            </IconButton>
+          </Tooltip>
+        </Box>
+      )}
     </Box>
   );
 

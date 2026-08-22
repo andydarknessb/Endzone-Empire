@@ -101,3 +101,43 @@ test('mobile: off-turn Draft stays focusable but aria-disabled, matching the tab
   expect(draftButton).toHaveAttribute('aria-disabled', 'true');
   expect(draftButton).not.toHaveAttribute('disabled');
 });
+
+// Cards have no column headers to sort by - mobile keeps the same sort
+// capability the desktop table's TableSortLabel headers give via a "Sort by"
+// Select plus a direction toggle instead (issue #122 code-review finding:
+// the first cut of the mobile layout silently dropped all sort control).
+
+test('desktop renders no "Sort by" control - the table headers already sort', () => {
+  render(<PlayerPoolTable {...baseProps} />);
+
+  expect(screen.queryByRole('combobox', { name: 'Sort by' })).not.toBeInTheDocument();
+});
+
+test('mobile exposes a "Sort by" control naming every field the desktop headers sort by', async () => {
+  const user = userEvent.setup();
+  render(<PlayerPoolTable {...baseProps} isMobile />);
+
+  await user.click(screen.getByRole('combobox', { name: 'Sort by' }));
+
+  const optionNames = screen.getAllByRole('option').map((o) => o.textContent);
+  expect(optionNames).toEqual(['Name', 'NFL Team', 'Bye', 'ADP', 'Pos rank', '17-game pace']);
+});
+
+test('mobile: picking a new sort field calls onSort with that field\'s key', async () => {
+  const user = userEvent.setup();
+  render(<PlayerPoolTable {...baseProps} isMobile sort="adp" />);
+
+  await user.click(screen.getByRole('combobox', { name: 'Sort by' }));
+  await user.click(screen.getByRole('option', { name: 'NFL Team' }));
+
+  expect(baseProps.onSort).toHaveBeenCalledWith('nfl_team');
+});
+
+test('mobile: the direction toggle re-invokes onSort with the CURRENT field, matching the toggle-on-repeat rule', async () => {
+  const user = userEvent.setup();
+  render(<PlayerPoolTable {...baseProps} isMobile sort="adp" dir="asc" />);
+
+  await user.click(screen.getByRole('button', { name: 'Sort ascending' }));
+
+  expect(baseProps.onSort).toHaveBeenCalledWith('adp');
+});

@@ -1020,6 +1020,42 @@ test.describe('mobile/tablet single-scroll tab layout (issue #122 acceptance cri
       await expect(card.getByRole('button', { name: 'Draft', exact: true })).toBeVisible();
       await expect(card.getByRole('button', { name: 'Queue' })).toBeVisible();
     });
+
+    test(`${label}: a "Sort by" control changes the player order, same as the desktop table headers`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await setupOverflowingDraft(page);
+
+      await page.getByRole('combobox', { name: 'Sort by' }).click();
+      await page.getByRole('option', { name: 'Name' }).click();
+
+      const names = await page.locator('button').filter({ hasText: /^Depth Player \d+$/ }).allTextContents();
+      expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)));
+    });
+
+    // Regression coverage for a code-review finding on this issue: nesting
+    // LiveDraftBanner inside the header's flex-shrink wrapper Box capped its
+    // sticky containing block at that short wrapper's own height, so it
+    // stopped staying pinned almost as soon as the page scrolled at all.
+    // LiveDraftBanner is the only `role="status"` region while a draft is
+    // active and no team roster shape is known (RosterNeedsStrip, the only
+    // other one, needs `roster_slots` this harness league doesn't set).
+    test(`${label}: on-the-clock information (LiveDraftBanner) stays pinned after scrolling well past the header`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await setupOverflowingDraft(page);
+
+      const banner = page.getByRole('status');
+      await expect(banner).toBeVisible();
+      await expect(banner).toHaveText(/on the clock|Your pick|Waiting/);
+      const before = (await banner.boundingBox())!;
+      expect(before.y).toBeLessThan(viewport.height); // starts within the initial viewport
+
+      // Scroll deep into the (long, 40-player) list - well past where the
+      // header chrome + Tabs would have ended.
+      await page.mouse.wheel(0, 2000);
+      await expect(banner).toBeVisible();
+      const after = (await banner.boundingBox())!;
+      expect(after.y).toBeLessThan(before.y + 20); // still pinned near the same spot, not scrolled away
+    });
   }
 
   test('keyboard order matches the visible layout - the Draft tab is keyboard-operable, no swipe needed', async ({ page }) => {
