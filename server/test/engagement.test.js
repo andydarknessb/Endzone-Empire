@@ -114,6 +114,18 @@ test('lineupProblems resurfaces an unresolved ineligible IR stash before kickoff
   ]);
 });
 
+test('lineupProblems never resurfaces a commissioner-attested stash (#100)', () => {
+  const problems = lineupProblems(
+    [
+      entry('QB', 'Healthy QB'),
+      entry('IR', 'Attested Runner', { injury_status: 'Q', ir_attested: true }),
+    ],
+    slots({ QB: 1 })
+  );
+
+  assert.deepEqual(problems, []);
+});
+
 test('sendLineupReminders carries forward an unresolved IR stash before checking it', async (t) => {
   let materialized = false;
   const fake = createFakePool([
@@ -138,11 +150,12 @@ test('sendLineupReminders carries forward an unresolved IR stash before checking
       rows: [{ player_id: 801, position: 'RB' }],
     })],
     [/^SELECT "player_id" FROM "lineup_entries"/, () => ({ rows: [] })],
-    [/^SELECT "player_id", "slot" FROM "lineup_entries"/, () => ({
-      rows: [{ player_id: 801, slot: 'IR' }],
+    [/^SELECT "player_id", "slot", "ir_attested" FROM "lineup_entries"/, () => ({
+      rows: [{ player_id: 801, slot: 'IR', ir_attested: false }],
     })],
     [insert('lineup_entries'), (text, params) => {
       assert.equal(params[5], 'IR');
+      assert.equal(params[6], false);
       materialized = true;
       return { rows: [] };
     }],
@@ -151,6 +164,7 @@ test('sendLineupReminders carries forward an unresolved IR stash before checking
         slot: 'IR',
         name: 'Recovered Runner',
         injury_status: 'Q',
+        ir_attested: false,
         on_bye: false,
       }] : [],
     })],

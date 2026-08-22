@@ -422,7 +422,7 @@ router.post('/league/:id/reset', async (req, res) => {
   try {
     await client.query('BEGIN');
     const leagueResult = await client.query(
-      `SELECT "id" FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)} AND "draft_status" = 'active' FOR UPDATE`,
+      `SELECT "id", "current_season" FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)} AND "draft_status" = 'active' FOR UPDATE`,
       [leagueId, req.user.id]
     );
     if (!leagueResult.rows[0]) {
@@ -430,6 +430,13 @@ router.post('/league/:id/reset', async (req, res) => {
       return res.status(403).json({ error: 'league not found, not commissioner, or draft not active' });
     }
     await client.query(`DELETE FROM "team_players" WHERE "league_id" = $1`, [leagueId]);
+    // The season's lineup rows go with the rosters: the lineup screen has no
+    // draft guard, and a stash set during the wiped draft must not be waiting
+    // for the restarted one's keeper pre-fill or picks (#94, user story 13).
+    await client.query(
+      `DELETE FROM "lineup_entries" WHERE "league_id" = $1 AND "season" = $2`,
+      [leagueId, leagueResult.rows[0].current_season]
+    );
     await client.query(`DELETE FROM "draft_picks" WHERE "league_id" = $1`, [leagueId]);
     await client.query(
       `UPDATE "teams" SET "autodraft" = false, "draft_ready" = false, "consecutive_timeouts" = 0, "updated_at" = now()
