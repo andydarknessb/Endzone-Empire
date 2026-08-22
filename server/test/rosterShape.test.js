@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { draftRosterSize } = require('../services/rosterShape');
+const { draftRosterSize, irSlotCount } = require('../services/rosterShape');
 
 test('draftRosterSize: subtracts IR slots from the stored roster limit', () => {
   assert.equal(draftRosterSize({ roster_limit: 20, ir_slots: 1 }), 19);
@@ -24,4 +24,13 @@ test('draftRosterSize: never goes negative', () => {
 
 test('draftRosterSize: accepts camelCase fields for callers holding request-shaped values', () => {
   assert.equal(draftRosterSize({ rosterLimit: 20, irSlots: 2 }), 18);
+});
+
+test('irSlotCount: reads the column with the same null/legacy tolerance', () => {
+  assert.equal(irSlotCount({ ir_slots: 3 }), 3);
+  assert.equal(irSlotCount({ irSlots: 2 }), 2);
+  assert.equal(irSlotCount({ ir_slots: null }), 0);
+  assert.equal(irSlotCount({}), 0);
+  assert.equal(irSlotCount(null), 0);
+  assert.equal(irSlotCount({ ir_slots: -1 }), 0);
 });

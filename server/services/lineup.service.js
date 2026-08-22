@@ -2,7 +2,7 @@ const pool = require('../modules/pool');
 const { isPickemOnly, PICKEM_ONLY_MESSAGE } = require('./leagueType');
 const { requireMember } = require('./leagueMembership.service');
 const { computeByeWeeks } = require('./bye.service');
-const { injuryDesignationName, isIrEligible } = require('./irPolicy.service');
+const { injuryDesignationName, isValidStash } = require('./irPolicy.service');
 
 class LineupError extends Error {
   constructor(statusCode, message, code = null) {
@@ -108,6 +108,13 @@ function validateLineup(entries, { rosterSlots = DEFAULT_ROSTER_SLOTS, benchSlot
   return errors;
 }
 
+function entriesForLineupValidation(entries, league) {
+  const lineupEntries = Array.from(entries);
+  return league.best_ball
+    ? lineupEntries.filter((entry) => entry.slot === IR)
+    : lineupEntries;
+}
+
 /**
  * Ensure every player currently on the team's roster has a lineup_entries row
  * for (season, week). First touch of a week copies slots forward from the
@@ -132,25 +139,59 @@ async function materializeLineup(client, { leagueId, teamId, season, week }) {
   const missing = rosterResult.rows.filter((r) => !have.has(r.player_id));
   if (missing.length === 0) return;
 
-  // Copy-forward source: the team's latest earlier week this season (if any)
+  // Copy-forward source: the team's latest earlier week this season (if any).
+  // The commissioner attestation travels with the slot (#100), so an
+  // attested stash stays attested across weeks until the manager moves him.
   const prevResult = await client.query(
-    `SELECT "player_id", "slot" FROM "lineup_entries"
+    `SELECT "player_id", "slot", "ir_attested" FROM "lineup_entries"
      WHERE "team_id" = $1 AND "season" = $2
        AND "week" = (SELECT MAX("week") FROM "lineup_entries"
                      WHERE "team_id" = $1 AND "season" = $2 AND "week" < $3)`,
     [teamId, season, week]
   );
-  const prevSlots = new Map(prevResult.rows.map((r) => [r.player_id, r.slot]));
+  const prevEntries = new Map(prevResult.rows.map((r) => [r.player_id, r]));
 
   for (const row of missing) {
-    const slot = prevSlots.get(row.player_id) || BENCH;
+    const prev = prevEntries.get(row.player_id);
     await client.query(
-      `INSERT INTO "lineup_entries" ("league_id", "team_id", "player_id", "season", "week", "slot")
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO "lineup_entries" ("league_id", "team_id", "player_id", "season", "week", "slot", "ir_attested")
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT ("team_id", "season", "week", "player_id") DO NOTHING`,
-      [leagueId, teamId, row.player_id, season, week, slot]
+      [leagueId, teamId, row.player_id, season, week, prev?.slot || BENCH, Boolean(prev?.ir_attested)]
     );
   }
+}
+
+/**
+ * An acquired player never arrives in the IR slot (#94, user story 13): a
+ * player gained by draft pick, waiver, trade, commissioner add or free agency
+ * cannot bypass the placement gate. Lineup rows outlive a drop, so without
+ * this a re-add would sit straight back in his old stash (his surviving
+ * current-week row) or have it revived by `materializeLineup`'s copy-forward
+ * on a later week's first touch.
+ *
+ * Two steps, in this order. First the current week is materialized, so it is
+ * a complete week (never a lone row the next copy-forward would read as its
+ * source and bench the whole roster by) and the player has a row in it.
+ * Then every IR row of his from the current week on is moved to the bench,
+ * ending any standing attestation (#100) with it: an acquisition is not the
+ * undo that restores one. Only IR rows: a surviving starter row from a week
+ * he actually played stays as played, with its points. Earlier weeks are
+ * history and stay as they were.
+ *
+ * `undoDrop` calls this only when the stash it would restore is no longer
+ * valid (`undoRestoresStash`); otherwise an undo restores the stash it
+ * interrupted, which is what `rosterCapacity`'s `restoredPlayerIds` credits.
+ * Must run inside the caller's transaction, after the roster write.
+ */
+async function benchAcquiredPlayer(client, { league, teamId, playerId }) {
+  const { id: leagueId, current_season: season, current_week: week } = league;
+  await materializeLineup(client, { leagueId, teamId, season, week });
+  await client.query(
+    `UPDATE "lineup_entries" SET "slot" = $5, "ir_attested" = false, "updated_at" = now()
+     WHERE "team_id" = $1 AND "player_id" = $2 AND "season" = $3 AND "week" >= $4 AND "slot" = $6`,
+    [teamId, playerId, season, week, BENCH, IR]
+  );
 }
 
 /**
@@ -175,6 +216,7 @@ function annotateLineupEntries(entries, { locked, byeByTeam, selectedWeek }) {
       bye_week: byeWeek,
       locked: locked.has(row.nfl_team),
       onBye: byeWeek === selectedWeek,
+      valid_stash: row.slot === IR && isValidStash(row),
     };
   });
 }
@@ -206,7 +248,7 @@ async function getLineup({ leagueId, userId, week }) {
 
     const entriesResult = await client.query(
       `SELECT "players"."id", "players"."name", "players"."position", "players"."nfl_team",
-              "players"."injury_status", "lineup_entries"."slot"
+              "players"."injury_status", "lineup_entries"."slot", "lineup_entries"."ir_attested"
        FROM "lineup_entries"
        JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
          AND "team_players"."player_id" = "lineup_entries"."player_id"
@@ -303,6 +345,7 @@ async function setLineup({ leagueId, userId, week, moves }) {
 
     const entriesResult = await client.query(
       `SELECT "lineup_entries"."player_id", "lineup_entries"."slot",
+              "lineup_entries"."ir_attested",
               "players"."name", "players"."position", "players"."nfl_team",
               "players"."injury_status"
        FROM "lineup_entries"
@@ -318,6 +361,7 @@ async function setLineup({ leagueId, userId, week, moves }) {
 
     const locked = await lockedNflTeams(client, { season, week: targetWeek });
     const changed = [];
+    let resolvesLockedZeroBenchStash = false;
     for (const move of moves) {
       const entry = byPlayer.get(move.playerId);
       if (!entry) throw new LineupError(404, `player ${move.playerId} is not on your roster`);
@@ -329,16 +373,24 @@ async function setLineup({ leagueId, userId, week, moves }) {
       const resolvesStaleIrStash = !league.best_ball
         && entry.slot === IR
         && move.slot === BENCH
-        && !isIrEligible(entry.injury_status);
+        && !isValidStash(entry);
+      resolvesLockedZeroBenchStash ||= resolvesStaleIrStash
+        && locked.has(entry.nfl_team)
+        && league.bench_slots === 0;
       if (!resolvesStaleIrStash && locked.has(entry.nfl_team)) {
         throw new LineupError(409, 'that player is locked; his game has started', 'LINEUP_LOCKED');
       }
       entry.slot = move.slot;
+      // A manager-initiated move ends any commissioner attestation on this
+      // player right here (#100), so the save rule below judges the
+      // post-move stash by the normal gate - moving an attested player out
+      // and back within one save cannot relaunder the override.
+      entry.ir_attested = false;
       changed.push(entry);
     }
 
     const invalidStash = Array.from(byPlayer.values()).find(
-      (entry) => entry.slot === IR && !isIrEligible(entry.injury_status)
+      (entry) => entry.slot === IR && !isValidStash(entry)
     );
     if (invalidStash) {
       throw new LineupError(
@@ -348,20 +400,34 @@ async function setLineup({ leagueId, userId, week, moves }) {
     }
 
     const settings = parseLineupSettings(league);
-    const entriesToValidate = league.best_ball
-      ? Array.from(byPlayer.values()).filter((entry) => entry.slot === IR)
-      : Array.from(byPlayer.values());
+    const validationSettings = resolvesLockedZeroBenchStash
+      ? { ...settings, benchSlots: 1 }
+      : settings;
+    const entriesToValidate = entriesForLineupValidation(byPlayer.values(), league);
     const errors = validateLineup(
       entriesToValidate.map((e) => ({ playerId: e.player_id, position: e.position, slot: e.slot })),
-      settings
+      validationSettings
     );
     if (errors.length > 0) throw new LineupError(400, errors.join('; '));
 
     for (const entry of changed) {
       await client.query(
-        `UPDATE "lineup_entries" SET "slot" = $1, "updated_at" = now()
+        `UPDATE "lineup_entries" SET "slot" = $1, "ir_attested" = false, "updated_at" = now()
          WHERE "team_id" = $2 AND "season" = $3 AND "week" = $4 AND "player_id" = $5`,
         [entry.slot, team.id, season, targetWeek, entry.player_id]
+      );
+    }
+    // The attestation must not outlive the manager's move in weeks that were
+    // materialized ahead of time (#100): the weekly copy-forward would have
+    // planted the attested stash there already, and nothing later rewrites
+    // it. Earlier weeks keep their history.
+    const movedPlayerIds = [...new Set(changed.map((entry) => entry.player_id))];
+    if (movedPlayerIds.length > 0) {
+      await client.query(
+        `UPDATE "lineup_entries" SET "ir_attested" = false, "updated_at" = now()
+         WHERE "team_id" = $1 AND "season" = $2 AND "week" > $3
+           AND "player_id" = ANY($4::int[]) AND "ir_attested"`,
+        [team.id, season, targetWeek, movedPlayerIds]
       );
     }
     await client.query('COMMIT');
@@ -416,7 +482,9 @@ module.exports = {
   slotEligible,
   parseLineupSettings,
   validateLineup,
+  entriesForLineupValidation,
   materializeLineup,
+  benchAcquiredPlayer,
   lockedNflTeams,
   annotateLineupEntries,
   getLineup,

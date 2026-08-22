@@ -4,12 +4,16 @@ const {
   materializeLineup,
   parseLineupSettings,
   validateLineup,
+  entriesForLineupValidation,
 } = require('./lineup.service');
 const { computeStandings } = require('./season.service');
 const { placeOnWaivers } = require('./waiver.service');
 const { assertManualCorrectionWindow } = require('./correction.service');
 const { deleteAvatarObjects } = require('./avatar.service');
 const { commissionerPredicate } = require('./leagueRole.service');
+const { isIrEligible, rosterCapacity } = require('./irPolicy.service');
+// Module object, not destructured: the seam tests mock benchAcquiredPlayer.
+const lineupService = require('./lineup.service');
 const { isPickemOnly } = require('./leagueType');
 const { getStandings: getPickemStandings, getSeasonSlate } = require('./pickem.service');
 const { pickemChampions } = require('./pickemSeason.service');
@@ -112,7 +116,9 @@ async function forceSetLineup({ leagueId, userId, teamId, week, moves }) {
 
     await materializeLineup(client, { leagueId, teamId, season, week: targetWeek });
     const entriesResult = await client.query(
-      `SELECT "lineup_entries"."player_id", "lineup_entries"."slot", "players"."position"
+      `SELECT "lineup_entries"."player_id", "lineup_entries"."slot",
+              "lineup_entries"."ir_attested",
+              "players"."position", "players"."injury_status"
        FROM "lineup_entries"
        JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
        JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
@@ -126,20 +132,57 @@ async function forceSetLineup({ leagueId, userId, teamId, week, moves }) {
     for (const move of moves) {
       const entry = byPlayer.get(move.playerId);
       if (!entry) throw new CommissionerError(404, `player ${move.playerId} is not on that roster`);
-      if (entry.slot === move.slot) continue;
+      // The force path is the attestation's one writer (#100): stashing a
+      // player the feed calls ineligible attests him; an eligible stash needs
+      // none, and any forced move elsewhere ends whatever attestation stood.
+      // A same-slot force-set still lands when it changes the attestation:
+      // re-stashing an already-stashed player is exactly how a standing stash
+      // gets attested after the feed wrongly clears its occupant.
+      const irAttested = move.slot === 'IR' && !isIrEligible(entry.injury_status);
+      if (entry.slot === move.slot && Boolean(entry.ir_attested) === irAttested) continue;
       entry.slot = move.slot;
+      entry.ir_attested = irAttested;
       changed.push(entry);
     }
+    const entriesToValidate = entriesForLineupValidation(byPlayer.values(), league);
     const errors = validateLineup(
-      Array.from(byPlayer.values()).map((e) => ({ playerId: e.player_id, position: e.position, slot: e.slot })),
+      entriesToValidate.map((e) => ({ playerId: e.player_id, position: e.position, slot: e.slot })),
       parseLineupSettings(league)
     );
     if (errors.length > 0) throw new CommissionerError(400, errors.join('; '));
     for (const entry of changed) {
       await client.query(
-        `UPDATE "lineup_entries" SET "slot" = $1, "updated_at" = now()
-         WHERE "team_id" = $2 AND "season" = $3 AND "week" = $4 AND "player_id" = $5`,
-        [entry.slot, teamId, season, targetWeek, entry.player_id]
+        `UPDATE "lineup_entries" SET "slot" = $1, "ir_attested" = $2, "updated_at" = now()
+         WHERE "team_id" = $3 AND "season" = $4 AND "week" = $5 AND "player_id" = $6`,
+        [entry.slot, entry.ir_attested, teamId, season, targetWeek, entry.player_id]
+      );
+    }
+    // Like the manager path, a force-set governs this week FORWARD: weeks
+    // materialized ahead of time already carry copies of the old state, so
+    // the new state propagates - a granted attestation is planted into rows
+    // still holding the stash (what the weekly copy-forward would have done
+    // had those weeks materialized later), an ended one is swept out.
+    // Earlier weeks keep their history.
+    const attestedIds = [...new Set(changed
+      .filter((entry) => entry.slot === 'IR' && entry.ir_attested)
+      .map((entry) => entry.player_id))];
+    const endedIds = [...new Set(changed
+      .filter((entry) => !(entry.slot === 'IR' && entry.ir_attested))
+      .map((entry) => entry.player_id))];
+    if (attestedIds.length > 0) {
+      await client.query(
+        `UPDATE "lineup_entries" SET "ir_attested" = true, "updated_at" = now()
+         WHERE "team_id" = $1 AND "season" = $2 AND "week" > $3
+           AND "player_id" = ANY($4::int[]) AND "slot" = 'IR' AND NOT "ir_attested"`,
+        [teamId, season, targetWeek, attestedIds]
+      );
+    }
+    if (endedIds.length > 0) {
+      await client.query(
+        `UPDATE "lineup_entries" SET "ir_attested" = false, "updated_at" = now()
+         WHERE "team_id" = $1 AND "season" = $2 AND "week" > $3
+           AND "player_id" = ANY($4::int[]) AND "ir_attested"`,
+        [teamId, season, targetWeek, endedIds]
       );
     }
     await logTransaction(client, {
@@ -539,8 +582,11 @@ async function forceTransaction({ leagueId, userId, teamId, action, playerId }) 
         `SELECT COUNT(*)::int AS n FROM "team_players" WHERE "team_id" = $1`,
         [teamId]
       );
-      if (rosterCountResult.rows[0].n >= league.roster_limit) {
-        throw new CommissionerError(409, `roster limit of ${league.roster_limit} reached`);
+      // The override bypasses locks and holds, but roster capacity still
+      // binds: a forced add gets no more room than any other add site (#97).
+      const capacity = await rosterCapacity(client, { league, teamId });
+      if (rosterCountResult.rows[0].n >= capacity) {
+        throw new CommissionerError(409, `roster capacity of ${capacity} reached`);
       }
       try {
         await client.query(
@@ -553,6 +599,8 @@ async function forceTransaction({ leagueId, userId, teamId, action, playerId }) 
         }
         throw error;
       }
+      // A forced add is still an add: bench, never back into a stash (#94).
+      await lineupService.benchAcquiredPlayer(client, { league, teamId, playerId });
       await client.query(
         `DELETE FROM "waiver_players" WHERE "league_id" = $1 AND "player_id" = $2`,
         [leagueId, playerId]

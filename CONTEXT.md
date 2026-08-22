@@ -307,6 +307,9 @@ league's IR slot count. Capacity is earned by the act of stashing and lost
 when the stash empties or its occupant stops being IR-eligible - it is never
 a standing entitlement. A commissioner may attest a player IR-eligible when
 the feed is wrong, and that attested stash grants capacity like any other.
+A player a team acquires - by waiver, trade, commissioner add or free agency -
+always arrives on the bench and earns nothing; only undoing a drop returns a
+player to the stash it interrupted.
 _Avoid_: roster limit, effective limit
 
 **IR-eligible**:
@@ -316,6 +319,16 @@ grant to the team: it is checked when a manager places him on IR, and losing
 it while stashed is what flags the roster for resolution.
 _Avoid_: injured (too broad — questionable and doubtful players are injured
 but not IR-eligible), stashable
+
+**Attested stash**:
+An IR stash the commissioner has vouched for because the injury feed is
+wrong about its occupant, recorded on the lineup entry by the force-set
+path. A stash is **valid** when its occupant is IR-eligible or the entry is
+attested; a valid stash grants capacity, is never flagged or nagged, and
+carries forward across weeks. The attestation ends the moment the manager
+makes any slot move on that player - from that week forward, never
+retroactively - after which the normal eligibility gate governs.
+_Avoid_: forced stash, override flag
 
 **Lineup lock**:
 The moment a player can no longer be moved into or out of a lineup, namely his
