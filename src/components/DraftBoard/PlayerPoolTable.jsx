@@ -1,4 +1,4 @@
-import React, { useRef, useCallback } from 'react';
+import React, { useId, useRef, useCallback } from 'react';
 import {
   Paper,
   Box,
@@ -108,6 +108,7 @@ function PlayerPoolTable({
   byeOverlapByWeek = new Map(),
 }) {
   const scrollRef = useRef(null);
+  const headingId = useId();
 
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -123,10 +124,10 @@ function PlayerPoolTable({
   const tablePickUnavailable = tableCanManualPick && pickTemporarilyUnavailable({ isMyTurn, draftPaused });
 
   return (
-    <Paper sx={{ p: 2 }}>
+    <Paper component="section" aria-labelledby={headingId} sx={{ p: 2 }}>
       <Box sx={{ mb: 2, display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
         <Stack direction="row" spacing={0.5} alignItems="center">
-          <Typography variant="h6">Available Players</Typography>
+          <Typography id={headingId} variant="h6" component="h2">Available Players</Typography>
           <ColumnGuide />
         </Stack>
         <TextField
@@ -138,7 +139,30 @@ function PlayerPoolTable({
           sx={{ minWidth: 200 }}
           InputProps={{
             endAdornment: searchInput ? (
-              <IconButton size="small" aria-label="Clear search" onClick={() => onSearchInputChange('')}>
+              <IconButton
+                size="small"
+                aria-label="Clear search"
+                onClick={() => onSearchInputChange('')}
+                sx={{
+                  // Growing this button's own box to 44x44 (like everywhere
+                  // else) would grow with it - the small TextField it lives
+                  // inside as an endAdornment, taller than the Position/Bye
+                  // week Selects sitting next to it in the same filter row.
+                  // Keep the visible button MUI's normal small size and
+                  // expand only the invisible hit area via ::after instead -
+                  // the WCAG-sanctioned "target offset" technique (SC 2.5.8).
+                  position: 'relative',
+                  '&::after': {
+                    content: '""',
+                    position: 'absolute',
+                    top: '50%',
+                    left: '50%',
+                    transform: 'translate(-50%, -50%)',
+                    width: 44,
+                    height: 44,
+                  },
+                }}
+              >
                 <CloseIcon fontSize="small" />
               </IconButton>
             ) : null,
@@ -207,6 +231,7 @@ function PlayerPoolTable({
           </Select>
         </FormControl>
         <FormControlLabel
+          sx={MIN_TOUCH_TARGET_SX}
           control={
             <Switch size="small" checked={hideDrafted} onChange={(e) => onHideDraftedChange(e.target.checked)} />
           }
@@ -223,6 +248,7 @@ function PlayerPoolTable({
                   active={sort === 'name'}
                   direction={sort === 'name' ? dir : 'asc'}
                   onClick={() => onSort('name')}
+                  sx={MIN_TOUCH_TARGET_SX}
                 >
                   Name
                 </TableSortLabel>
@@ -233,6 +259,7 @@ function PlayerPoolTable({
                   active={sort === 'nfl_team'}
                   direction={sort === 'nfl_team' ? dir : 'asc'}
                   onClick={() => onSort('nfl_team')}
+                  sx={MIN_TOUCH_TARGET_SX}
                 >
                   NFL Team
                 </TableSortLabel>
@@ -242,6 +269,7 @@ function PlayerPoolTable({
                   active={sort === 'bye_week'}
                   direction={sort === 'bye_week' ? dir : 'asc'}
                   onClick={() => onSort('bye_week')}
+                  sx={MIN_TOUCH_TARGET_SX}
                 >
                   <AbbreviationTooltip term="Bye" />
                 </TableSortLabel>
@@ -251,6 +279,7 @@ function PlayerPoolTable({
                   active={sort === 'adp'}
                   direction={sort === 'adp' ? dir : 'asc'}
                   onClick={() => onSort('adp')}
+                  sx={MIN_TOUCH_TARGET_SX}
                 >
                   <AbbreviationTooltip term="ADP" />
                 </TableSortLabel>
@@ -260,6 +289,7 @@ function PlayerPoolTable({
                   active={sort === 'position_rank'}
                   direction={sort === 'position_rank' ? dir : 'asc'}
                   onClick={() => onSort('position_rank')}
+                  sx={MIN_TOUCH_TARGET_SX}
                 >
                   <AbbreviationTooltip term="Pos rank" />
                 </TableSortLabel>
@@ -269,6 +299,7 @@ function PlayerPoolTable({
                   active={sort === 'proj'}
                   direction={sort === 'proj' ? dir : 'asc'}
                   onClick={() => onSort('proj')}
+                  sx={MIN_TOUCH_TARGET_SX}
                 >
                   <AbbreviationTooltip term="17-game pace" />
                 </TableSortLabel>
@@ -303,7 +334,7 @@ function PlayerPoolTable({
                 <TableRow key={player.id}>
                   <TableCell>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <PlayerNameLink name={player.name} playerId={player.id} onOpen={onOpenQuickView} />
+                      <PlayerNameLink name={player.name} playerId={player.id} onOpen={onOpenQuickView} sx={MIN_TOUCH_TARGET_SX} />
                       <InjuryBadge status={player.injury_status} detail={player.injury_detail} />
                       {isDrafted && <Chip size="small" label="Drafted" color="default" />}
                     </Box>

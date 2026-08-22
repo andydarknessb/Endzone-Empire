@@ -1380,3 +1380,93 @@ test('keeps the roster section out of the DOM until the league shape arrives', a
   // uses a bare aria-live precisely so this singular query keeps working.
   expect(screen.getByRole('status')).toHaveTextContent('1 of 2 managers ready');
 });
+
+// ---------------------------------------------------------------------------
+// Accessible structure (issue #121, parent spec #108): landmarks, headings.
+// ---------------------------------------------------------------------------
+
+describe('accessible structure', () => {
+  /** A commissioner who also owns a team, active draft with the league's own
+   * roster shape, so every optional panel (commissioner controls, roster,
+   * live banner) mounts at once. rosterTeams[0] (Team A) is owner_id 5, so
+   * that's both the logged-in user and the league's commissioner here. */
+  const showFullBoard = async () => {
+    renderBoard(1, { user: { id: 5, username: 'alice' } });
+    await screen.findByText('Patrick Mahomes');
+    act(() => fakeSocket.trigger('draft:state', stateEvent(rosterLeague({
+      owner_id: 5,
+      pick_deadline_at: new Date(Date.now() + 30000).toISOString(),
+    }), {
+      teams: rosterTeams,
+      picks: [firstPick],
+      onTheClock: { id: 1, name: 'Team A' },
+    })));
+    await screen.findByText('Sunday Ballers');
+  };
+
+  test('wraps the page content in a single <main>, named by the league heading', async () => {
+    await showFullBoard();
+
+    const main = screen.getByRole('main');
+    const h1 = screen.getByRole('heading', { level: 1 });
+    expect(h1).toHaveTextContent('Sunday Ballers');
+    // The main landmark's accessible name comes from that same H1 (via
+    // aria-labelledby), not a separately hardcoded string.
+    expect(main).toHaveAccessibleName('Sunday Ballers');
+    expect(main).toContainElement(h1);
+  });
+
+  test('exposes the league name as the single H1, panel titles as H2, no skipped levels', async () => {
+    await showFullBoard();
+
+    const h1s = screen.getAllByRole('heading', { level: 1 });
+    expect(h1s).toHaveLength(1);
+    expect(h1s[0]).toHaveTextContent('Sunday Ballers');
+
+    const h2Names = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
+    expect(h2Names).toEqual(expect.arrayContaining([
+      'Available Players', 'My Queue', 'Draft Order', 'My Roster', 'Pick History',
+    ]));
+
+    // The live "27s" pick clock used to render as a second, competing <h1>
+    // (LiveDraftBanner) - regression coverage for that specific bug.
+    expect(screen.getByTestId('draft-clock').tagName).not.toBe('H1');
+
+    // No heading level from 1 up to the deepest one used is ever skipped.
+    const levels = screen.getAllByRole('heading').map((h) => Number(h.tagName.slice(1)));
+    const maxLevel = Math.max(...levels);
+    for (let level = 1; level <= maxLevel; level += 1) {
+      expect(levels).toContain(level);
+    }
+  });
+
+  test('exposes each rendered panel as a named region, not a bare div', async () => {
+    await showFullBoard();
+
+    expect(screen.getByRole('region', { name: 'Available Players' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'My Queue' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Draft Order' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'My Roster' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Pick History' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Commissioner draft controls' })).toBeInTheDocument();
+
+    // Switching to the Board tab swaps in the matrix's own named region -
+    // the panel set changes by view, and each one it renders is still named.
+    await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
+    expect(screen.getByRole('region', { name: 'Draft Board' })).toBeInTheDocument();
+  });
+
+  test('the pending-draft readiness panel is a named region too', async () => {
+    renderBoard(1, { user: { id: 5, username: 'alice' } });
+    await screen.findByText('Patrick Mahomes');
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ draft_status: 'pending', owner_id: 99 }), {
+      teams: [
+        { id: 1, name: 'Team A', owner: 'alice', owner_id: 5, draft_ready: false },
+        { id: 2, name: 'Team B', owner: 'bob', owner_id: 6, draft_ready: true },
+      ],
+      onTheClock: null,
+    })));
+
+    expect(screen.getByRole('region', { name: 'Draft readiness' })).toBeInTheDocument();
+  });
+});

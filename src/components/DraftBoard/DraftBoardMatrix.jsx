@@ -1,7 +1,8 @@
-import React, { useMemo, useRef, useState, useEffect } from 'react';
+import React, { useId, useMemo, useRef, useState, useEffect } from 'react';
 import { Paper, Box, Chip, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from '@mui/material';
 import { keyframes } from '@mui/material/styles';
 import PositionChip from '../PlayerQuickView/PositionChip';
+import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 
 // Same technique as the matchup score flash: a CSS var color (theme-aware,
 // no hard-coded literal) that fades in and back out.
@@ -64,7 +65,16 @@ function useFlashKey(value) {
  * client-side re-derivation of snake order is needed to place a landed pick,
  * only to know the round a pick_number falls in (ceil(pick_number / teamCount)).
  */
-function DraftBoardMatrix({ teams, picks, onTheClock, draftRounds, onOpenQuickView, readOnly = false }) {
+function DraftBoardMatrix({
+  teams, picks, onTheClock, draftRounds, onOpenQuickView, readOnly = false,
+  // Shared with DraftPresenter.jsx and the mock draft simulator, each with
+  // their own heading hierarchy - defaults to h2 for this issue's target
+  // (DraftBoard.jsx, directly under the page's H1), overridable so a caller
+  // with a different structure isn't forced to accept a level that creates
+  // its own skipped-level problem.
+  titleComponent = 'h2',
+}) {
+  const headingId = useId();
   const orderedTeams = useMemo(
     () => [...teams].sort((a, b) => (a.draft_position ?? Infinity) - (b.draft_position ?? Infinity)),
     [teams]
@@ -103,7 +113,10 @@ function DraftBoardMatrix({ teams, picks, onTheClock, draftRounds, onOpenQuickVi
 
   if (teamCount === 0) {
     return (
-      <Paper sx={{ p: 2 }}>
+      <Paper component="section" aria-labelledby={headingId} sx={{ p: 2 }}>
+        <Typography id={headingId} variant="h6" component={titleComponent} sx={{ mb: 1 }}>
+          Draft Board
+        </Typography>
         <Typography variant="body2" sx={{ color: 'text.secondary' }}>
           Draft order isn&apos;t set yet.
         </Typography>
@@ -114,8 +127,8 @@ function DraftBoardMatrix({ teams, picks, onTheClock, draftRounds, onOpenQuickVi
   const rounds = Array.from({ length: totalRounds }, (_, i) => i + 1);
 
   return (
-    <Paper sx={{ p: 2 }}>
-      <Typography variant="h6" sx={{ mb: 2 }}>
+    <Paper component="section" aria-labelledby={headingId} sx={{ p: 2 }}>
+      <Typography id={headingId} variant="h6" component={titleComponent} sx={{ mb: 2 }}>
         Draft Board
       </Typography>
       <TableContainer sx={{ overflowX: 'auto' }}>
@@ -190,10 +203,17 @@ function DraftBoardMatrix({ teams, picks, onTheClock, draftRounds, onOpenQuickVi
                             onClick={() => onOpenQuickView(pick.player_id)}
                             aria-label={`Round ${round} pick ${pick.pick_number}, ${team.name}: ${pick.name}`}
                             sx={{
-                              width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
+                              width: '100%', display: 'flex', flexDirection: 'column',
+                              alignItems: 'flex-start',
                               gap: 0.5, textAlign: 'left', border: 'none', bgcolor: 'transparent', borderRadius: 1,
                               p: 0.75, cursor: 'pointer', font: 'inherit', color: 'inherit',
+                              ...MIN_TOUCH_TARGET_SX,
                               '&:hover': { bgcolor: 'action.hover' },
+                              // Same shared token every other focus-visible ring
+                              // uses (see base.css); the offset is negative
+                              // (inward) rather than the usual +2px so the ring
+                              // stays inside this cell instead of bleeding into
+                              // the next column over.
                               '&:focus-visible': { outline: '2px solid var(--focus-ring)', outlineOffset: -2 },
                               animation: isFlashing ? `${pickLandedFlash} 1.2s ease-out` : 'none',
                               '@media (prefers-reduced-motion: reduce)': { animation: 'none' },

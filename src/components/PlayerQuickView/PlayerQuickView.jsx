@@ -310,15 +310,27 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
                   {navIndex + 1} of {navIds.length}
                 </Typography>
               )}
-              <IconButton aria-label="Previous player" onClick={goPrev} disabled={!canPrev} size="small">
+              <IconButton
+                aria-label="Previous player"
+                onClick={goPrev}
+                disabled={!canPrev}
+                size="small"
+                sx={MIN_TOUCH_TARGET_SX}
+              >
                 ‹
               </IconButton>
-              <IconButton aria-label="Next player" onClick={goNext} disabled={!canNext} size="small">
+              <IconButton
+                aria-label="Next player"
+                onClick={goNext}
+                disabled={!canNext}
+                size="small"
+                sx={MIN_TOUCH_TARGET_SX}
+              >
                 ›
               </IconButton>
             </>
           )}
-          <IconButton aria-label="Close" onClick={onClose} size="small">
+          <IconButton aria-label="Close" onClick={onClose} size="small" sx={MIN_TOUCH_TARGET_SX}>
             <CloseIcon fontSize="small" />
           </IconButton>
         </Box>
@@ -404,8 +416,8 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
               color="primary"
               sx={{ mb: 2 }}
             >
-              <ToggleButton value="current">Current Season</ToggleButton>
-              <ToggleButton value="previous">Previous Seasons</ToggleButton>
+              <ToggleButton value="current" sx={MIN_TOUCH_TARGET_SX}>Current Season</ToggleButton>
+              <ToggleButton value="previous" sx={MIN_TOUCH_TARGET_SX}>Previous Seasons</ToggleButton>
             </ToggleButtonGroup>
 
             {view === 'current' ? (
@@ -541,6 +553,7 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
                   variant="outlined"
                   size="small"
                   onClick={() => setPinnedComparison((current) => (current ? null : data))}
+                  sx={MIN_TOUCH_TARGET_SX}
                 >
                   {pinnedComparison ? 'Clear compare' : 'Compare'}
                 </Button>
@@ -606,6 +619,7 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
                 component={RouterLink}
                 to={`/players/${playerId}${leagueId ? `?leagueId=${leagueId}` : ''}`}
                 onClick={onClose}
+                sx={{ display: 'inline-flex', alignItems: 'center', ...MIN_TOUCH_TARGET_SX }}
               >
                 Full profile →
               </Link>

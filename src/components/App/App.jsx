@@ -9,6 +9,7 @@ import {
 
 import { useDispatch, useSelector } from 'react-redux';
 import Box from '@mui/material/Box';
+import Link from '@mui/material/Link';
 import CircularProgress from '@mui/material/CircularProgress';
 
 import Nav from '../Nav/Nav';
@@ -31,6 +32,7 @@ import OfflineBanner from '../OfflineBanner/OfflineBanner';
 import NotFound from '../NotFound/NotFound';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 import NavigationGuard from '../NavigationGuard/NavigationGuard';
+import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 
 import './App.css';
 
@@ -57,12 +59,66 @@ const AuthenticatedPlayerProfilePage = lazy(() => import('../PlayerDetail/Authen
 const AdminDashboard = lazy(() => import('../AdminDashboard/AdminDashboard'));
 const DraftSimScreen = lazy(() => import('../DraftSim/DraftSimScreen'));
 
+// The Draft route path this session's skip link targets (issue #121). Kept
+// as a narrow, route-scoped check rather than a site-wide skip link: the
+// #draft-main-content landmark it points at only exists on this one route
+// today (see DraftBoard.jsx). Broader coverage is parent-spec #108 territory.
+// Trailing slash is optional to match how react-router itself matches this
+// route (matchPath ignores a trailing "/" when `end` is true, the default
+// for a route with no children) - without the `\/?`, a stray trailing slash
+// would mount DraftBoard while this regex silently failed to match it.
+const DRAFT_ROUTE_PATTERN = /^\/league\/[^/]+\/draft\/?$/;
+
+// HashRouter reads the URL's #fragment as the app's OWN route, so a plain
+// `href="#draft-main-content"` skip link would make the browser's native
+// same-page anchor navigation look like a route change to `/draft-main-
+// content` instead of scrolling/focusing the landmark. Handle the click
+// ourselves - focus the target directly - and never let that hash reach
+// the router.
+function skipToMainContent(event) {
+  event.preventDefault();
+  const target = document.getElementById('draft-main-content');
+  if (!target) return;
+  target.focus();
+  target.scrollIntoView();
+}
+
 function AppLayout({ children }) {
   const { pathname } = useLocation();
   const isPresenter = pathname.startsWith('/present/');
+  const isDraftRoute = DRAFT_ROUTE_PATTERN.test(pathname);
 
   return (
     <Box sx={isPresenter ? { minHeight: '100vh' } : { display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+      {isDraftRoute && (
+        <Link
+          href="#draft-main-content"
+          onClick={skipToMainContent}
+          sx={{
+            position: 'fixed',
+            top: 8,
+            left: 8,
+            zIndex: (theme) => theme.zIndex.tooltip + 1,
+            transform: 'translateY(-200%)',
+            transition: 'transform 0.15s ease-in',
+            '@media (prefers-reduced-motion: reduce)': { transition: 'none' },
+            bgcolor: 'background.paper',
+            color: 'text.primary',
+            px: 2,
+            display: 'inline-flex',
+            alignItems: 'center',
+            borderRadius: 1,
+            border: '2px solid',
+            borderColor: 'primary.main',
+            fontWeight: 600,
+            textDecoration: 'none',
+            '&:focus': { transform: 'translateY(0)' },
+            ...MIN_TOUCH_TARGET_SX,
+          }}
+        >
+          Skip to main content
+        </Link>
+      )}
       {!isPresenter && <Nav />}
       <Box sx={isPresenter ? undefined : { flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
         {children}
@@ -105,7 +161,7 @@ function App() {
           <Route path="/league/:leagueId" element={<ProtectedRoute><LeagueDashboard /></ProtectedRoute>} />
           <Route path="/league/:leagueId/matchups/:matchupId" element={<ProtectedRoute><FantasyOnly><MatchupDetail /></FantasyOnly></ProtectedRoute>} />
           <Route path="/league/:leagueId/game-center" element={<ProtectedRoute><FantasyOnly><GameCenter /></FantasyOnly></ProtectedRoute>} />
-          <Route path="/league/:leagueId/draft" element={<ProtectedRoute><FantasyOnly><DraftBoard /></FantasyOnly></ProtectedRoute>} />
+          <Route path="/league/:leagueId/draft" element={<ProtectedRoute><FantasyOnly mainContentId="draft-main-content"><DraftBoard /></FantasyOnly></ProtectedRoute>} />
           <Route path="/league/:leagueId/draft-settings" element={<ProtectedRoute><FantasyOnly><DraftSettings /></FantasyOnly></ProtectedRoute>} />
           <Route path="/league/:leagueId/rules" element={<ProtectedRoute><LeagueRules /></ProtectedRoute>} />
           <Route path="/league/:leagueId/pickem" element={<ProtectedRoute><LeaguePickem /></ProtectedRoute>} />
