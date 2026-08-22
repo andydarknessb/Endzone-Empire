@@ -9,6 +9,12 @@ import {
 } from './leaguePhase';
 import fixture from './leaguePhase.fixture.json';
 
+// The parity block below requires the server twin, whose leagueType import pulls
+// in the pg pool; pg needs TextEncoder, which the jsdom environment lacks. The
+// pure derivations under test never touch the pool, so stub it like the other
+// client-side parity tests do (prior art: draftAutopickClock.integration.test.js).
+jest.mock('../../server/modules/pool', () => ({ query: jest.fn(), connect: jest.fn() }));
+
 // The phase / joinability contract fixture is shared with the server phase
 // test (server/test/leaguePhase.test.js loads this same file), so the two
 // derivations cannot drift silently: every case asserts phase, joinable and
