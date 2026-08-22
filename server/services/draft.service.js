@@ -6,7 +6,6 @@ const { POSITION_GROUPS } = require('./lineup.service');
 const { isLeagueCommissioner } = require('./leagueRole.service');
 const { requireMember } = require('./leagueMembership.service');
 const { assertFantasyLeagueRow } = require('./leagueType');
-const { draftRosterSize } = require('./rosterShape');
 
 class DraftError extends Error {
   constructor(statusCode, message) {
@@ -177,9 +176,11 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommiss
         [leagueId, myTeam.id, playerId, pickNumber]
       );
 
-      // Rounds are the draft roster size (starters + bench): the IR slot is
-      // never drafted, so it costs no round (#96).
-      const totalPicks = teams.length * draftRosterSize(league);
+      // Rounds are draft_rounds, fixed once when the draft went active (ADR
+      // 0005) — NOT a live draftRosterSize() call. A completion check that
+      // re-derived this from the league's current roster_limit/ir_slots would
+      // let a later roster-shape reinterpretation renumber picks already made.
+      const totalPicks = teams.length * league.draft_rounds;
       // Keeper picks are pre-inserted at draft start and can occupy any slot,
       // so completion is a count of all picks made, not a comparison against
       // this pick's own (possibly non-terminal) pick_number.

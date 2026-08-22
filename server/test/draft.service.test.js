@@ -91,7 +91,12 @@ test('teamIndexForPick: 12 teams snake draft', () => {
 // --- draft completion -------------------------------------------------------
 
 // A draft runs for the draft roster size (starters + bench), not the stored
-// IR-inclusive roster_limit: no round is spent on the IR slot (#96).
+// IR-inclusive roster_limit: no round is spent on the IR slot (#96). Once a
+// draft is active, that round count is the FIXED draft_rounds (ADR 0005),
+// not a live draftRosterSize() recomputation — roster_limit/ir_slots below
+// still happen to agree with draft_rounds (3 - 1 = 2) so the completion math
+// in these tests reads the same either way; the test further down proves the
+// fixed value, not roster_limit/ir_slots, is what actually drives it.
 const completionLeague = {
   id: 1,
   draft_status: 'active',
@@ -102,6 +107,7 @@ const completionLeague = {
   pickem_only: false,
   roster_limit: 3,
   ir_slots: 1,
+  draft_rounds: 2,
   position_caps: {},
   current_pick: 3,
   pick_time_seconds: 60,
@@ -154,7 +160,7 @@ test('draftPlayer: one pick short of the draft roster size keeps the draft activ
 });
 
 test('draftPlayer: a zero-IR league still drafts every roster_limit round', async (t) => {
-  const league = { ...completionLeague, ir_slots: 0 };
+  const league = { ...completionLeague, ir_slots: 0, draft_rounds: 3 };
   // 2 teams x 3 rounds = 6 picks. The 4th pick ends a 1-IR league but not this one.
   const midDraft = completionPool({ league, picksMade: 4 }).install(t);
   assert.equal((await draftPlayer({ leagueId: 1, userId: 7, playerId: 500 })).draftComplete, false);
@@ -163,5 +169,21 @@ test('draftPlayer: a zero-IR league still drafts every roster_limit round', asyn
   const fake = completionPool({ league, picksMade: 6 }).install(t);
   t.mock.method(seasonService, 'generateRegularSeason', async () => ({}));
   assert.equal((await draftPlayer({ leagueId: 1, userId: 7, playerId: 500 })).draftComplete, true);
+  fake.assertClean();
+});
+
+// ADR 0005: an active draft's completion check reads the fixed draft_rounds,
+// never re-derives it from roster_limit/ir_slots. roster_limit/ir_slots below
+// would derive 9 rounds live (a settings edit long after the draft roster
+// size was already frozen) if draftPlayer still called draftRosterSize(); the
+// fixed draft_rounds of 2 is what must actually govern completion.
+test('draftPlayer: completion uses the fixed draft_rounds even when roster_limit/ir_slots would derive something else', async (t) => {
+  const league = { ...completionLeague, roster_limit: 20, ir_slots: 1, draft_rounds: 2 };
+  const fake = completionPool({ league, picksMade: 4 }).install(t);
+  t.mock.method(seasonService, 'generateRegularSeason', async () => ({}));
+
+  const result = await draftPlayer({ leagueId: 1, userId: 7, playerId: 500 });
+
+  assert.equal(result.draftComplete, true);
   fake.assertClean();
 });
