@@ -185,6 +185,12 @@ test('startPlan: total picks count starters + bench rounds, not the IR slot', ()
   assert.equal(plan.totalPicks, 38);
 });
 
+test('startPlan: exposes the Draft roster size it computed as `rounds`, for the caller to fix as draft_rounds (ADR 0005)', () => {
+  const plan = startPlan(startLeague, [{ id: 1 }, { id: 2 }]);
+  // roster_limit 20 - ir_slots 1 = 19 rounds; 2 teams * 19 rounds = 38 totalPicks.
+  assert.equal(plan.rounds, 19);
+});
+
 test('startPlan: a zero-IR league still drafts its whole roster limit', () => {
   const plan = startPlan({ ...startLeague, ir_slots: 0 }, [{ id: 1 }, { id: 2 }]);
   assert.equal(plan.totalPicks, 40);

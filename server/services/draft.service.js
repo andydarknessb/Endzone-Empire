@@ -7,7 +7,7 @@ const lineupService = require('./lineup.service');
 const { isLeagueCommissioner } = require('./leagueRole.service');
 const { requireMember } = require('./leagueMembership.service');
 const { assertFantasyLeagueRow } = require('./leagueType');
-const { draftRosterSize } = require('./rosterShape');
+const { draftRounds } = require('./rosterShape');
 const { rosterCapacity, undoRestoresStash } = require('./irPolicy.service');
 
 const { POSITION_GROUPS } = lineupService;
@@ -193,9 +193,15 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommiss
         [leagueId, myTeam.id, playerId, pickNumber]
       );
 
-      // Rounds are the draft roster size (starters + bench): the IR slot is
-      // never drafted, so it costs no round (#96).
-      const totalPicks = teams.length * draftRosterSize(league);
+      // Rounds are draftRounds(league): fixed once when the draft went active
+      // (ADR 0005), NOT a live draftRosterSize() recomputation — a completion
+      // check that re-derived this from the league's current
+      // roster_limit/ir_slots would let a later roster-shape reinterpretation
+      // renumber picks already made. Goes through the same helper every other
+      // consumer uses (not `league.draft_rounds` directly) so a legacy row the
+      // one-time backfill migration hasn't reached yet falls back to the live
+      // derivation instead of silently coercing `teams.length * null` to 0.
+      const totalPicks = teams.length * draftRounds(league);
       // Keeper picks are pre-inserted at draft start and can occupy any slot,
       // so completion is a count of all picks made, not a comparison against
       // this pick's own (possibly non-terminal) pick_number.

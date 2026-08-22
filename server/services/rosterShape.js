@@ -35,4 +35,26 @@ function irSlotCount(league) {
   return Math.max(0, intOr0(league.ir_slots ?? league.irSlots));
 }
 
-module.exports = { draftRosterSize, irSlotCount };
+/**
+ * Pure: **Draft rounds** (ADR 0005) — the number of player-claiming rounds
+ * in one draft. A pending draft has no picks, keepers or board to protect,
+ * so it keeps deriving Draft roster size live via draftRosterSize(). Once a
+ * draft transitions to active, draftStart.service.js fixes `draft_rounds`
+ * once and never recomputes it; this reads that fixed value for any
+ * active/completed league rather than calling draftRosterSize() again, so a
+ * later roster-shape reinterpretation cannot renumber picks already made or
+ * strand a keeper outside a shrunk round range.
+ *
+ * Falls back to the live derivation when `draft_rounds` is unexpectedly null
+ * on an active/completed row (a legacy row the one-time backfill migration
+ * has not reached yet) rather than returning a nonsensical 0 rounds.
+ */
+function draftRounds(league) {
+  if (!league) return 0;
+  if (league.draft_status !== 'pending' && league.draft_rounds != null) {
+    return intOr0(league.draft_rounds);
+  }
+  return draftRosterSize(league);
+}
+
+module.exports = { draftRosterSize, draftRounds, irSlotCount };

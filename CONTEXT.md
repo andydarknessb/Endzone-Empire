@@ -231,6 +231,23 @@ The single act of the server making a team's pick when its clock expires: the
 first eligible player from that team's queue, otherwise the best available.
 _Avoid_: autodraft (that is the standing mode, not the act)
 
+**Best available**:
+The order in which players are offered when nobody has expressed a preference:
+by ADP where the market has one, then by last completed season's fantasy
+points, then by name. It is the fallback behind autopick and the order of the
+draft pool, and it is never the database's own ordering: a player the market
+has not ranked but who produced last season comes before one who did neither.
+_Avoid_: default rank (a column, and an empty one), top available, BPA
+
+**Draft pool**:
+The board a Draft Sim drafts from: every player the market ranks (has an ADP)
+or who produced last completed season, in best-available order, plus the IDP
+tranche when the template needs it. Membership is that rule, never a count:
+a player a mock draft could plausibly reach is in it, and a player in it can
+be found by search. The draft room's available players are the real league's
+equivalent and are paged from the whole player table instead.
+_Avoid_: player pool, top N, the board (that is the Draft board, committed picks)
+
 **Autodraft**:
 A standing mode a team can be placed in so that every remaining pick is made by
 autopick immediately, without waiting out the clock.

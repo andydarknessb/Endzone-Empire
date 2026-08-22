@@ -40,6 +40,10 @@ function fakeDb({
   assignmentCounts = [],
   updateRows = [UPDATED_ROW],
   recheckRows = [],
+  // AC4: existing keeper rows whose draft_round would land past a
+  // roster-shape save's corrected draft roster size. Empty by default so
+  // every pre-existing rosterCompositionChanged test keeps passing unchanged.
+  keeperRoundViolations = [],
 } = {}) {
   const calls = [];
   let released = 0;
@@ -50,6 +54,7 @@ function fakeDb({
     if (text === 'BEGIN' || text === 'COMMIT' || text === 'ROLLBACK') return { rows: [] };
     if (text.includes('SELECT "draft_status"')) return { rows: status ? [status] : [] };
     if (text.startsWith('SELECT "id" FROM "teams"')) return { rows: teams };
+    if (text.startsWith('SELECT "team_id", "draft_round" FROM "keepers"')) return { rows: keeperRoundViolations };
     if (text.includes('COUNT(*)::int AS "count"')) return { rows: assignmentCounts };
     if (text.startsWith('DELETE FROM "keepers"')) return { rows: [], rowCount: assignmentCounts.length };
     if (text.startsWith('UPDATE "leagues"')) return { rows: updateRows, rowCount: updateRows.length };
@@ -390,6 +395,101 @@ test('a draft order override past the last drafted round is refused', async () =
   const error = await refusal(db, { draftOrderOverrides: { 20: [11, 12] } });
   assert.equal(error.statusCode, 400);
   assert.match(error.message, /must be 1-19/);
+});
+
+// --- AC4 (issue #118 / ADR 0005): a roster-shape save that would strand an
+// existing pending keeper or order override past the corrected draft roster
+// size is refused outright, naming the exact offending team(s)/round(s) --
+// never silently clamped or deleted.
+
+test('a roster-shape shrink is refused when an existing keeper sits past the corrected draft roster size (AC4)', async () => {
+  const db = fakeDb({
+    status: statusRow({
+      roster_slots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }],
+      bench_slots: 3, ir_slots: 0, keepers_enabled: true, keeper_count: 5,
+    }),
+    // New shape: QB(1) + bench(1) = 2 rounds; this keeper sits in round 4.
+    keeperRoundViolations: [{ team_id: 11, draft_round: 4 }],
+  });
+  const error = await refusal(db, { benchSlots: 1 });
+  assert.equal(error.statusCode, 409);
+  assert.match(error.message, /team 11 round 4/);
+  assert.match(error.message, /corrected draft roster size of 2/);
+  assert.equal(db.texts().some((t) => t.startsWith('UPDATE "leagues"')), false);
+});
+
+test('a roster-shape shrink names every offending keeper, not just the first (AC4)', async () => {
+  const db = fakeDb({
+    status: statusRow({
+      roster_slots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }],
+      bench_slots: 3, ir_slots: 0, keepers_enabled: true, keeper_count: 5,
+    }),
+    keeperRoundViolations: [
+      { team_id: 12, draft_round: 5 },
+      { team_id: 11, draft_round: 4 },
+    ],
+  });
+  const error = await refusal(db, { benchSlots: 1 });
+  assert.match(error.message, /team 12 round 5/);
+  assert.match(error.message, /team 11 round 4/);
+});
+
+test('a roster-shape shrink that leaves keepers disabled is not policed against stale rounds (they are cleared instead)', async () => {
+  const db = fakeDb({
+    status: statusRow({
+      roster_slots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }],
+      bench_slots: 3, ir_slots: 0, keepers_enabled: true, keeper_count: 5,
+    }),
+    assignmentCounts: [{ team_id: 11, count: 1 }],
+    keeperRoundViolations: [{ team_id: 11, draft_round: 4 }],
+  });
+  // Disabling keepers in the same request clears assignments (existing
+  // behavior), so the stale-round check must not fire on rows about to go away.
+  assert.deepEqual(await run(db, { benchSlots: 1, keepersEnabled: false }), UPDATED_ROW);
+  assert.ok(db.texts().some((t) => t.startsWith('DELETE FROM "keepers"')));
+});
+
+test('a roster-shape shrink with no offending keepers succeeds normally', async () => {
+  const db = fakeDb({
+    status: statusRow({
+      roster_slots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }],
+      bench_slots: 3, ir_slots: 0, keepers_enabled: true, keeper_count: 2,
+    }),
+    keeperRoundViolations: [],
+  });
+  assert.deepEqual(await run(db, { benchSlots: 1 }), UPDATED_ROW);
+});
+
+// Regression (#118): a roster-shape edit with keepers disabled and no
+// draft_order_overrides on file at all -- the common case, e.g. a plain
+// bench-size edit -- must not issue the team-ids read either. That query
+// is only for validateOrderOverrides, which is already a no-op on a null
+// overrides object; skipping it when there's nothing to validate matters
+// beyond efficiency: callers (and other tests) that narrowly mock the pool
+// around a roster-shape PUT and don't expect this extra query would 500 on
+// "Unexpected SQL" otherwise, exactly as leagueScheduleValidation.test.js's
+// IDP-FLEX-with-a-space fixture did until this guard was added.
+test('a roster-shape-only edit with no overrides on file skips the team-ids read entirely', async () => {
+  const db = fakeDb({
+    status: statusRow({
+      roster_slots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }],
+      bench_slots: 3, ir_slots: 0, keepers_enabled: false, keeper_count: 0,
+    }),
+  });
+  assert.deepEqual(await run(db, { benchSlots: 1 }), UPDATED_ROW);
+  assert.equal(db.texts().some((t) => t.startsWith('SELECT "id" FROM "teams"')), false);
+});
+
+test('a roster-shape shrink is refused when an existing (unprovided) draftOrderOverrides round would fall out of range (AC4)', async () => {
+  const db = fakeDb({
+    status: statusRow({
+      roster_slots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }],
+      bench_slots: 3, ir_slots: 0, draft_order_overrides: { 4: [11, 12] },
+    }),
+  });
+  const error = await refusal(db, { benchSlots: 1 });
+  assert.equal(error.statusCode, 400);
+  assert.match(error.message, /must be 1-2/);
 });
 
 test('draftOrderOverrides plus a custom-nomination auctionSettings read the teams once, not twice (#70)', async () => {
