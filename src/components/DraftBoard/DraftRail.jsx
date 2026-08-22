@@ -50,6 +50,14 @@ function DraftRail({
   isXs,
   onOpenQuickView,
   rosterView = null,
+  // How far from the top of its scrolling ancestor the queue panel sticks.
+  // Embedded in the page (mobile's single scroll region, or the pre-#122
+  // desktop layout) it must clear LiveDraftBanner, which is itself sticky at
+  // top: 0 there. Inside the desktop rail's own bounded scroll region
+  // (issue #122) LiveDraftBanner lives in the non-scrolling header above the
+  // region instead, so nothing needs clearing and the caller passes a small
+  // constant instead.
+  queueStickyTop = draftStatus === 'active' ? 148 : 16,
 }) {
   const myTeam = teams.find((team) => team.owner_id === userId);
   const readyCount = teams.filter((team) => team.draft_ready).length;
@@ -107,7 +115,7 @@ function DraftRail({
           // down the page. The offset when a draft is active clears
           // LiveDraftBanner, which is sticky above it at top: 0.
           position: 'sticky',
-          top: draftStatus === 'active' ? 148 : 16,
+          top: queueStickyTop,
           zIndex: 2,
           maxHeight: draftStatus === 'active' ? 'calc(100vh - 164px)' : '80vh',
           overflowY: 'auto',

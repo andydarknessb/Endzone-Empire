@@ -154,18 +154,34 @@ function DraftBoard() {
   const notify = useSnackbar();
   const theme = useTheme();
   const isXs = useMediaQuery(theme.breakpoints.down('sm'));
+  // The medium breakpoint already established by this route's own Grid
+  // (players/rail switch order there at `md`) - issue #122 reuses it as the
+  // one place desktop's dual-scroll shell and mobile's single-scroll tabs
+  // diverge. Defaults to false when matchMedia is unavailable (jsdom unit
+  // tests), so every existing desktop-shaped assertion is unaffected unless a
+  // test explicitly opts into mobile via the matchMedia mock convention.
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
   const [error, setError] = useState(null);
   // Draft/Board view tab, mirrored into the URL (view=board) alongside the
   // pool-state params usePlayerPool owns. Built off the previous params so
   // switching tabs doesn't clobber filters, and vice versa (see usePlayerPool).
   const [searchParams, setSearchParams] = useSearchParams();
-  const [view, setView] = useState(() => (searchParams.get('view') === 'board' ? 'board' : 'draft'));
+  // Three logical views: 'players' (the default), 'draft' (the rail) and
+  // 'board'. Desktop collapses 'players'/'draft' into one dual-pane workspace
+  // (issue #122 acceptance criterion 1) - only 'board' swaps out the whole
+  // region there. Below the medium breakpoint each is its own tab/single
+  // scroll region, in the persistent Players/Board/Draft order the
+  // acceptance criteria name.
+  const [view, setView] = useState(() => {
+    const requested = searchParams.get('view');
+    return requested === 'board' || requested === 'draft' ? requested : 'players';
+  });
   useEffect(() => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
-      if (view === 'board') next.set('view', 'board');
-      else next.delete('view');
+      if (view === 'players') next.delete('view');
+      else next.set('view', view);
       return next;
     }, { replace: true });
   }, [view, setSearchParams]);
@@ -368,6 +384,59 @@ function DraftBoard() {
         ]
       : [];
 
+  // Shared by every PlayerPoolTable render below - built once instead of
+  // duplicated between the desktop and mobile branches.
+  const playerPoolProps = {
+    searchInput: pool.searchInput,
+    onSearchInputChange: pool.setSearchInput,
+    positionFilter: pool.positionFilter,
+    onPositionFilterChange: pool.handlePositionFilterChange,
+    hideDrafted: pool.hideDrafted,
+    onHideDraftedChange: pool.setHideDrafted,
+    byeWeeksFilter: pool.byeWeeksFilter,
+    onByeWeeksFilterChange: pool.handleByeWeeksFilterChange,
+    sort: pool.sort,
+    dir: pool.dir,
+    onSort: pool.handleSort,
+    search: pool.search,
+    displayPlayers,
+    draftedIds,
+    draftStatus: league?.draft_status,
+    draftType: league?.draft_type,
+    isMyTurn,
+    draftPaused: !!league?.draft_paused,
+    queue,
+    onDraft: requestDraftPlayer,
+    onQueue: handleQueuePlayer,
+    onOpenQuickView: setQuickViewId,
+    hasMore: pool.hasMore,
+    loadingMore: pool.loadingMore,
+    onLoadMore: pool.loadMore,
+    byeOverlapByWeek,
+  };
+  // Shared by every DraftRail render below likewise.
+  const draftRailProps = {
+    queue,
+    onMoveUp: handleMoveUp,
+    onMoveDown: handleMoveDown,
+    onRemoveFromQueue: handleRemoveFromQueue,
+    onDraft: requestDraftPlayer,
+    isMyTurn,
+    draftPaused: !!league?.draft_paused,
+    teams,
+    onTheClock,
+    isCommissioner,
+    userId: user?.id,
+    draftStatus: league?.draft_status,
+    draftType: league?.draft_type,
+    onToggleAutodraft: admin.handleToggleAutodraft,
+    onToggleReady: admin.handleToggleReady,
+    picks,
+    isXs,
+    onOpenQuickView: setQuickViewId,
+    rosterView,
+  };
+
   return (
     <Container
       component="main"
@@ -375,166 +444,160 @@ function DraftBoard() {
       tabIndex={-1}
       aria-labelledby={DRAFT_H1_ID}
       maxWidth="xl"
-      sx={{ py: 4 }}
+      sx={{
+        py: { xs: 4, md: 2 },
+        // Desktop viewport-height shell (issue #122 acceptance criterion 1):
+        // the chrome below keeps its natural size (flexShrink: 0) and only
+        // the final board/workspace region grows to fill what's left, so
+        // nothing here needs the page itself to scroll. Below the medium
+        // breakpoint this is a plain block - the page scrolls as the single
+        // region acceptance criterion 3 asks for.
+        display: { md: 'flex' },
+        flexDirection: { md: 'column' },
+        height: { md: '100%' },
+        minHeight: { md: 0 },
+        overflow: { md: 'hidden' },
+      }}
     >
-      <LeagueBreadcrumb />
-      {(error || socketError) && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {error || socketError}
-        </Alert>
-      )}
-      {draftComplete && (
-        <Alert severity="success" sx={{ mb: 2 }} data-testid="draft-complete-alert">
-          Draft complete!
-        </Alert>
-      )}
+      <Box sx={{ flexShrink: { md: 0 } }}>
+        <LeagueBreadcrumb />
+        {(error || socketError) && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error || socketError}
+          </Alert>
+        )}
+        {draftComplete && (
+          <Alert severity="success" sx={{ mb: 2 }} data-testid="draft-complete-alert">
+            Draft complete!
+          </Alert>
+        )}
 
-      <Box sx={{ mb: 3 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-          <Typography id={DRAFT_H1_ID} variant="h4" component="h1">
-            {league?.name || 'Draft Board'}
-          </Typography>
-          {isCommissioner && (league?.draft_status === 'pending' || league?.draft_status === 'active') && (
-            <Tooltip title="Draft settings">
-              <IconButton aria-label="Draft settings" onClick={() => setSettingsOpen(true)} sx={MIN_TOUCH_TARGET_SX}>
-                <SettingsIcon />
-              </IconButton>
-            </Tooltip>
+        <Box sx={{ mb: 3 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+            <Typography id={DRAFT_H1_ID} variant="h4" component="h1">
+              {league?.name || 'Draft Board'}
+            </Typography>
+            {isCommissioner && (league?.draft_status === 'pending' || league?.draft_status === 'active') && (
+              <Tooltip title="Draft settings">
+                <IconButton aria-label="Draft settings" onClick={() => setSettingsOpen(true)} sx={MIN_TOUCH_TARGET_SX}>
+                  <SettingsIcon />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Box>
+          <DraftStatusBar
+            league={league}
+            onTheClock={onTheClock}
+            secondsLeft={secondsLeft}
+            reconnecting={reconnecting}
+            soundOn={soundOn}
+            toggleSound={toggleSound}
+            isCommissioner={isCommissioner}
+            onRandomizeOrder={admin.handleRandomizeOrder}
+            onTogglePause={admin.handleTogglePause}
+            onClockAlertOpen={onClockAlertOpen}
+            onCloseOnClockAlert={dismissOnClockAlert}
+          />
+          {isCommissioner && league?.draft_status === 'active' && (
+            <DraftDayControls
+              league={league}
+              picks={picks}
+              onUndo={admin.handleUndoPick}
+              onReset={admin.handleResetDraft}
+              onGetShareLink={admin.handleGetShareLink}
+            />
+          )}
+          {league?.draft_status === 'pending' && league?.draft_date && (
+            <Box sx={{ mt: 2 }}>
+              <Countdown
+                variant="full"
+                date={league.draft_date}
+                timeZone={league.draft_timezone}
+                leagueId={league.id}
+                leagueName={league.name}
+              />
+            </Box>
+          )}
+          {isCommissioner && (
+            <DraftSettingsPanel
+              open={settingsOpen}
+              onClose={() => setSettingsOpen(false)}
+              pickTimeSeconds={admin.pickTimeSeconds}
+              onPickTimeSecondsChange={admin.setPickTimeSeconds}
+              autodraftDelaySeconds={admin.autodraftDelaySeconds}
+              onAutodraftDelaySecondsChange={admin.setAutodraftDelaySeconds}
+              onSubmit={async (e) => {
+                await admin.handleSaveDraftSettings(e);
+                setSettingsOpen(false);
+              }}
+              saving={admin.settingsSaving}
+              leagueId={leagueId}
+              draftStatus={league?.draft_status}
+            />
           )}
         </Box>
-        <DraftStatusBar
-          league={league}
-          onTheClock={onTheClock}
-          secondsLeft={secondsLeft}
-          reconnecting={reconnecting}
-          soundOn={soundOn}
-          toggleSound={toggleSound}
-          isCommissioner={isCommissioner}
-          onRandomizeOrder={admin.handleRandomizeOrder}
-          onTogglePause={admin.handleTogglePause}
-          onClockAlertOpen={onClockAlertOpen}
-          onCloseOnClockAlert={dismissOnClockAlert}
-        />
-        {isCommissioner && league?.draft_status === 'active' && (
-          <DraftDayControls
-            league={league}
-            picks={picks}
-            onUndo={admin.handleUndoPick}
-            onReset={admin.handleResetDraft}
-            onGetShareLink={admin.handleGetShareLink}
-          />
-        )}
-        {league?.draft_status === 'pending' && league?.draft_date && (
-          <Box sx={{ mt: 2 }}>
-            <Countdown
-              variant="full"
-              date={league.draft_date}
-              timeZone={league.draft_timezone}
-              leagueId={league.id}
-              leagueName={league.name}
-            />
-          </Box>
-        )}
-        {isCommissioner && (
-          <DraftSettingsPanel
-            open={settingsOpen}
-            onClose={() => setSettingsOpen(false)}
-            pickTimeSeconds={admin.pickTimeSeconds}
-            onPickTimeSecondsChange={admin.setPickTimeSeconds}
-            autodraftDelaySeconds={admin.autodraftDelaySeconds}
-            onAutodraftDelaySecondsChange={admin.setAutodraftDelaySeconds}
-            onSubmit={async (e) => {
-              await admin.handleSaveDraftSettings(e);
-              setSettingsOpen(false);
-            }}
-            saving={admin.settingsSaving}
-            leagueId={leagueId}
-            draftStatus={league?.draft_status}
-          />
-        )}
+
+        {/* Sibling to (not nested in) the header Box above: sticky positioning
+            is bounded by the containing block, so LiveDraftBanner needs a
+            containing block tall enough to stay pinned while mobile's single
+            page-scroll region scrolls underneath it — the short header Box
+            alone isn't tall enough. On desktop nothing above it ever scrolls
+            (issue #122's non-scrolling shell), so the banner just sits in
+            place - visible on every tab, satisfying acceptance criterion 5
+            for mobile and trivially for desktop. */}
+        <LiveDraftBanner league={league} onTheClock={onTheClock} secondsLeft={secondsLeft} isMyTurn={isMyTurn} />
+
+        <Tabs
+          // Desktop only ever shows two tabs (Draft = the dual-pane
+          // workspace, Board); a 'players'-tagged URL/state still resolves
+          // to the same Draft tab there since desktop never mounts 'players'
+          // on its own. Mobile's three tabs use `view` directly - it only
+          // ever holds one of their three values.
+          value={isMobile ? view : (view === 'board' ? 'board' : 'draft')}
+          onChange={(e, next) => setView(next)}
+          aria-label="Draft view"
+          sx={{ mb: 3, borderBottom: '1px solid', borderColor: 'divider' }}
+        >
+          {isMobile && <Tab label="Players" value="players" sx={MIN_TOUCH_TARGET_SX} />}
+          {!isMobile && <Tab label="Draft" value="draft" sx={MIN_TOUCH_TARGET_SX} />}
+          <Tab label="Board" value="board" sx={MIN_TOUCH_TARGET_SX} />
+          {isMobile && <Tab label="Draft" value="draft" sx={MIN_TOUCH_TARGET_SX} />}
+        </Tabs>
       </Box>
 
-      {/* Sibling to (not nested in) the header Box above: sticky positioning is
-          bounded by the containing block, so LiveDraftBanner needs a containing
-          block tall enough to stay pinned while the Grid below scrolls underneath
-          it — the short header Box alone isn't tall enough. */}
-      <LiveDraftBanner league={league} onTheClock={onTheClock} secondsLeft={secondsLeft} isMyTurn={isMyTurn} />
-
-      <Tabs
-        value={view}
-        onChange={(e, next) => setView(next)}
-        aria-label="Draft view"
-        sx={{ mb: 3, borderBottom: '1px solid', borderColor: 'divider' }}
-      >
-        <Tab label="Draft" value="draft" sx={MIN_TOUCH_TARGET_SX} />
-        <Tab label="Board" value="board" sx={MIN_TOUCH_TARGET_SX} />
-      </Tabs>
-
       {view === 'board' ? (
-        <DraftBoardMatrix
-          teams={teams}
-          picks={picks}
-          onTheClock={onTheClock}
-          draftRounds={draftRounds(league)}
-          onOpenQuickView={setQuickViewId}
-        />
+        <Box sx={{ flex: { md: '1 1 auto' }, minHeight: { md: 0 }, overflow: { md: 'auto' } }}>
+          <DraftBoardMatrix
+            teams={teams}
+            picks={picks}
+            onTheClock={onTheClock}
+            draftRounds={draftRounds(league)}
+            onOpenQuickView={setQuickViewId}
+          />
+        </Box>
+      ) : isMobile ? (
+        view === 'players' ? (
+          <PlayerPoolTable {...playerPoolProps} isMobile />
+        ) : (
+          <DraftRail {...draftRailProps} />
+        )
       ) : (
-        <Grid container spacing={3}>
-          <Grid xs={12} md={8} order={{ xs: 2, md: 1 }}>
-            <PlayerPoolTable
-              searchInput={pool.searchInput}
-              onSearchInputChange={pool.setSearchInput}
-              positionFilter={pool.positionFilter}
-              onPositionFilterChange={pool.handlePositionFilterChange}
-              hideDrafted={pool.hideDrafted}
-              onHideDraftedChange={pool.setHideDrafted}
-              byeWeeksFilter={pool.byeWeeksFilter}
-              onByeWeeksFilterChange={pool.handleByeWeeksFilterChange}
-              sort={pool.sort}
-              dir={pool.dir}
-              onSort={pool.handleSort}
-              search={pool.search}
-              displayPlayers={displayPlayers}
-              draftedIds={draftedIds}
-              draftStatus={league?.draft_status}
-              draftType={league?.draft_type}
-              isMyTurn={isMyTurn}
-              draftPaused={!!league?.draft_paused}
-              queue={queue}
-              onDraft={requestDraftPlayer}
-              onQueue={handleQueuePlayer}
-              onOpenQuickView={setQuickViewId}
-              hasMore={pool.hasMore}
-              loadingMore={pool.loadingMore}
-              onLoadMore={pool.loadMore}
-              byeOverlapByWeek={byeOverlapByWeek}
-            />
-          </Grid>
-
-          <Grid xs={12} md={4} order={{ xs: 1, md: 2 }}>
-            <DraftRail
-              queue={queue}
-              onMoveUp={handleMoveUp}
-              onMoveDown={handleMoveDown}
-              onRemoveFromQueue={handleRemoveFromQueue}
-              onDraft={requestDraftPlayer}
-              isMyTurn={isMyTurn}
-              draftPaused={!!league?.draft_paused}
-              teams={teams}
-              onTheClock={onTheClock}
-              isCommissioner={isCommissioner}
-              userId={user?.id}
-              draftStatus={league?.draft_status}
-              draftType={league?.draft_type}
-              onToggleAutodraft={admin.handleToggleAutodraft}
-              onToggleReady={admin.handleToggleReady}
-              picks={picks}
-              isXs={isXs}
-              onOpenQuickView={setQuickViewId}
-              rosterView={rosterView}
-            />
-          </Grid>
-        </Grid>
+        // Desktop dual-scroll workspace (issue #122 acceptance criterion 1):
+        // players and the Draft rail each get their own bounded, scrollable
+        // region instead of the whole page scrolling underneath them.
+        <Box sx={{ display: 'flex', flexDirection: 'row', gap: 3, flex: '1 1 auto', minHeight: 0 }}>
+          <Box sx={{ flexBasis: '66.666%', minWidth: 0, height: '100%' }}>
+            <PlayerPoolTable {...playerPoolProps} />
+          </Box>
+          <Box
+            role="region"
+            aria-label="Draft rail"
+            tabIndex={0}
+            sx={{ flexBasis: '33.333%', minWidth: 0, height: '100%', overflowY: 'auto' }}
+          >
+            <DraftRail {...draftRailProps} queueStickyTop={8} />
+          </Box>
+        </Box>
       )}
 
       <PlayerQuickView
