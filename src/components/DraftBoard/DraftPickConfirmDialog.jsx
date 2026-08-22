@@ -1,6 +1,6 @@
 import React from 'react';
 import { Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Button } from '@mui/material';
-import { MIN_TOUCH_TARGET_SX } from './pickAvailability';
+import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 
 /**
  * Focused confirmation in front of every manual Pick: names the specific

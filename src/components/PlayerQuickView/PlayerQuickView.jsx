@@ -33,6 +33,7 @@ import PlayerAvatar from './PlayerAvatar';
 import PositionChip from './PositionChip';
 import { statLine } from './statLine';
 import AbbreviationTooltip from '../common/AbbreviationTooltip';
+import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 
 // Module-level: persists the last-selected toggle across dialog opens for the
 // duration of the session (resets on full page reload). Intentionally not
@@ -589,7 +590,7 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
                             if (unavailable) return; // suppressed activation
                             action.onClick(event);
                           }}
-                          sx={{ minWidth: 44, minHeight: 44 }}
+                          sx={MIN_TOUCH_TARGET_SX}
                         >
                           {action.label}
                         </Button>

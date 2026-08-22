@@ -234,9 +234,16 @@ function DraftBoard() {
     if (onClockAlertOpen && soundOnRef.current) playBeep();
   }, [onClockAlertOpen]);
 
+  // Shared by every lookup below: the rail's quick-draft button targets
+  // queue[0], which can be a player the current pool filters/paging don't
+  // currently include, so the pool is checked first and the queue is the
+  // fallback rather than the other way around.
+  const findKnownPlayer = (playerId) =>
+    pool.availablePlayers.find((p) => p.id === playerId) || queue.find((p) => p.id === playerId);
+
   const handleDraftPlayer = (playerId) => {
     setError(null);
-    const player = pool.availablePlayers.find((p) => p.id === playerId);
+    const player = findKnownPlayer(playerId);
     emitPick(playerId, (resp) => {
       if (resp?.error) {
         setError(resp.error);
@@ -249,12 +256,8 @@ function DraftBoard() {
 
   // Opens the focused confirmation dialog instead of committing straight
   // away - the single seam every manual-Pick surface below calls through.
-  // Looks in the queue too: the rail's quick-draft button targets queue[0],
-  // which can be a player the current pool filters/paging don't currently
-  // include.
   const requestDraftPlayer = (playerId) => {
-    const player =
-      pool.availablePlayers.find((p) => p.id === playerId) || queue.find((p) => p.id === playerId);
+    const player = findKnownPlayer(playerId);
     setPendingPick({ id: playerId, name: player ? player.name : 'this player' });
   };
 
@@ -263,6 +266,16 @@ function DraftBoard() {
     const { id } = pendingPick;
     setPendingPick(null);
     setQuickViewId(null);
+    // Re-check against the LATEST live state rather than trusting whatever
+    // was true when the dialog opened: it can sit open across a turn
+    // change (the clock expired and autodraft took the pick), a pause, or
+    // the draft ending, none of which touch `pendingPick` itself.
+    const canManualPickNow = pickActionExists({ draftStatus: league?.draft_status, draftType: league?.draft_type });
+    const stillAvailable = canManualPickNow && !pickTemporarilyUnavailable({ isMyTurn, draftPaused: !!league?.draft_paused });
+    if (!stillAvailable) {
+      notify(PICK_UNAVAILABLE_EXPLANATION, { severity: 'error' });
+      return;
+    }
     handleDraftPlayer(id);
   };
 

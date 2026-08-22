@@ -31,7 +31,8 @@ import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import PositionChip from '../PlayerQuickView/PositionChip';
 import AbbreviationTooltip from '../common/AbbreviationTooltip';
 import ColumnGuide from './ColumnGuide';
-import { pickActionExists, pickTemporarilyUnavailable, PICK_UNAVAILABLE_EXPLANATION, MIN_TOUCH_TARGET_SX } from './pickAvailability';
+import { pickActionExists, pickTemporarilyUnavailable, PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
+import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 
 // The real NFL regular season a Bye can fall in (mirrors REG_SEASON_WEEKS in
 // server/services/bye.service.js) — every selectable option in the multi-select
@@ -115,6 +116,11 @@ function PlayerPoolTable({
       onLoadMore();
     }
   }, [hasMore, loadingMore, onLoadMore]);
+
+  // Constant across every row in this render - computed once rather than
+  // once per displayed player.
+  const tableCanManualPick = pickActionExists({ draftStatus, draftType });
+  const tablePickUnavailable = tableCanManualPick && pickTemporarilyUnavailable({ isMyTurn, draftPaused });
 
   return (
     <Paper sx={{ p: 2 }}>
@@ -286,8 +292,8 @@ function PlayerPoolTable({
               // actions are hidden entirely rather than shown disabled (#120
               // acceptance criterion 5); the "Drafted" chip above already
               // says why.
-              const canManualPick = !isDrafted && pickActionExists({ draftStatus, draftType });
-              const pickUnavailable = canManualPick && pickTemporarilyUnavailable({ isMyTurn, draftPaused });
+              const canManualPick = !isDrafted && tableCanManualPick;
+              const pickUnavailable = canManualPick && tablePickUnavailable;
               // Rostered players (on the caller's own team) sharing this
               // candidate's Bye week — a neutral roster fact, not a warning.
               // Excludes the candidate itself, in case Hide drafted is off and

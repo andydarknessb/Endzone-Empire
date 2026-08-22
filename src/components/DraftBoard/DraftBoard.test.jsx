@@ -5,6 +5,7 @@ import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import { createDraftSocket, onReconnect } from '../../api/socket';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
+import { PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
 import DraftBoard from './DraftBoard';
 
 jest.mock('../../api/apiClient', () => ({
@@ -598,7 +599,7 @@ test("the queue's top-row Draft button appears only on your turn and drafts queu
       { id: 3, name: 'Justin Jefferson', position: 'WR', nfl_team: 'MIN', rank: 2 },
     ],
   });
-  renderBoard(1, { user: { id: 5 } });
+  renderBoardWithToasts(1, { user: { id: 5 } });
   await screen.findByRole('button', { name: 'Bijan Robinson' });
 
   const queuePanel = () => screen.getByText('My Queue').closest('.MuiPaper-root');
@@ -635,11 +636,17 @@ test("the queue's top-row Draft button appears only on your turn and drafts queu
   expect(within(dialog).getByText('Draft Bijan Robinson?')).toBeInTheDocument();
   await userEvent.click(within(dialog).getByRole('button', { name: 'Draft Bijan Robinson' }));
 
+  const [, , ack] = fakeSocket.emit.mock.calls.find(([event]) => event === 'draft:pick');
   expect(fakeSocket.emit).toHaveBeenCalledWith(
     'draft:pick',
     { leagueId: 1, playerId: 2 },
     expect.any(Function)
   );
+  act(() => ack({}));
+  // The success toast names the actual player even though he was only ever
+  // resolvable through the queue, not the (unrelated) pool response - the
+  // same lookup requestDraftPlayer used to build the confirmation dialog.
+  expect(await screen.findByText('Drafted Bijan Robinson!')).toBeInTheDocument();
 });
 
 test('the queue loads on mount and renders players in rank order', async () => {
@@ -1062,6 +1069,47 @@ test('Quick View shows Draft as focusable aria-disabled with the shared explanat
   await userEvent.click(draftAction);
   expect(fakeSocket.emit.mock.calls.some(([event]) => event === 'draft:pick')).toBe(false);
   expect(screen.queryByText('Draft Patrick Mahomes?')).not.toBeInTheDocument();
+});
+
+test('a stale confirmation (the turn moved on while the dialog sat open) never commits', async () => {
+  renderBoardWithToasts(1, { user: { id: 5 } });
+  await screen.findByText('Patrick Mahomes');
+
+  act(() =>
+    fakeSocket.trigger(
+      'draft:state',
+      stateEvent(activeLeague(), {
+        teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 5 }],
+        onTheClock: { id: 1, name: 'Team A', owner: 'alice', owner_id: 5 }, // my turn
+      })
+    )
+  );
+
+  await userEvent.click(screen.getByRole('button', { name: 'Draft' }));
+  const dialog = await screen.findByRole('dialog');
+  expect(within(dialog).getByText('Draft Patrick Mahomes?')).toBeInTheDocument();
+
+  // The confirmation sits open while the turn moves on without the manager -
+  // their pick clock expired and autodraft resolved it, say - which never
+  // touches the pending confirmation itself.
+  act(() =>
+    fakeSocket.trigger(
+      'draft:state',
+      stateEvent(activeLeague(), {
+        teams: [
+          { id: 1, name: 'Team A', owner: 'alice', owner_id: 5 },
+          { id: 2, name: 'Team B', owner: 'bob', owner_id: 6 },
+        ],
+        onTheClock: { id: 2, name: 'Team B', owner: 'bob', owner_id: 6 }, // no longer my turn
+      })
+    )
+  );
+
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Draft Patrick Mahomes' }));
+
+  expect(fakeSocket.emit.mock.calls.some(([event]) => event === 'draft:pick')).toBe(false);
+  expect(await screen.findByText(PICK_UNAVAILABLE_EXPLANATION)).toBeInTheDocument();
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
 });
 
 // --- Schedule-aware pool: columns, Column guide, Bye filter, Bye overlap ---

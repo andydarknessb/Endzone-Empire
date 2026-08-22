@@ -153,6 +153,40 @@ test('draftPlayer: one pick short of the draft roster size keeps the draft activ
   fake.assertClean();
 });
 
+// --- autopick-type drafts have no manual Pick, server-side too (#120) -----
+
+test('draftPlayer: rejects a manual (non-auto) pick in an active autopick-type draft', async (t) => {
+  const league = { ...completionLeague, draft_type: 'autopick' };
+  const fake = createFakePool([
+    [select('leagues'), () => ({ rows: [league] })],
+    [select('teams'), () => ({ rows: [
+      { id: 11, owner_id: 7, draft_position: 1, autodraft: true, locked: false },
+      { id: 12, owner_id: 8, draft_position: 2, autodraft: true, locked: false },
+    ] })],
+  ]).install(t);
+
+  await assert.rejects(
+    () => draftPlayer({ leagueId: 1, userId: 7, playerId: 500 }),
+    (error) => {
+      assert.equal(error.statusCode, 409);
+      assert.match(error.message, /autopick draft/);
+      return true;
+    }
+  );
+  fake.assertClean();
+});
+
+test('draftPlayer: still accepts autopick.service.js\'s own auto: true pick in an autopick-type draft', async (t) => {
+  const league = { ...completionLeague, draft_type: 'autopick' };
+  const fake = completionPool({ league, picksMade: 4 }).install(t);
+  t.mock.method(seasonService, 'generateRegularSeason', async () => ({}));
+
+  const result = await draftPlayer({ leagueId: 1, userId: 7, playerId: 500, auto: true });
+
+  assert.equal(result.draftComplete, true);
+  fake.assertClean();
+});
+
 test('draftPlayer: a zero-IR league still drafts every roster_limit round', async (t) => {
   const league = { ...completionLeague, ir_slots: 0 };
   // 2 teams x 3 rounds = 6 picks. The 4th pick ends a 1-IR league but not this one.

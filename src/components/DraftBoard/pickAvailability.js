@@ -44,6 +44,3 @@ export function pickTemporarilyUnavailable({ isMyTurn, draftPaused }) {
  */
 export const PICK_UNAVAILABLE_EXPLANATION =
   "You can only Pick when it's your turn and the draft isn't paused.";
-
-/** Shared minimum touch target (issue #120 acceptance criterion 6). */
-export const MIN_TOUCH_TARGET_SX = { minWidth: 44, minHeight: 44 };

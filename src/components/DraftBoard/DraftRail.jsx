@@ -19,7 +19,8 @@ import CloseIcon from '@mui/icons-material/Close';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import RosterPanel from '../RosterPanel/RosterPanel';
 import RosterNeedsStrip from '../RosterPanel/RosterNeedsStrip';
-import { pickActionExists, MIN_TOUCH_TARGET_SX } from './pickAvailability';
+import { pickActionExists, pickTemporarilyUnavailable } from './pickAvailability';
+import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 
 /** Draft-room rail: my queue (with a quick-draft button on my turn), draft
  * order (with autodraft toggles), my roster, and pick history.
@@ -116,8 +117,9 @@ function DraftRail({
             // ever shown, never shown disabled, exactly when a manual Pick
             // both exists (active, snake-type draft) and is actually usable
             // right now (issue #120 acceptance criteria 2, 5).
-            const showQuickDraft = index === 0 && !draftPaused && isMyTurn
-              && pickActionExists({ draftStatus, draftType });
+            const showQuickDraft = index === 0
+              && pickActionExists({ draftStatus, draftType })
+              && !pickTemporarilyUnavailable({ isMyTurn, draftPaused });
             return (
               <Box
                 key={player.id}
