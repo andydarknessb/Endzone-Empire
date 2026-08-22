@@ -15,7 +15,6 @@ const {
   listJoinRequests,
   decideJoinRequest,
 } = require('../services/discovery.service');
-const { joinability, joinRefusalMessage } = require('../services/leaguePhase');
 const { resolveMinTeams, createSizeError } = require('../services/leagueSize');
 const { resolveNflSeasonPointer } = require('../services/pickemSeason.service');
 const {
@@ -25,7 +24,7 @@ const {
   grantCoCommissioner,
   revokeCoCommissioner,
 } = require('../services/leagueRole.service');
-const { isMember } = require('../services/leagueMembership.service');
+const { isMember, joinLeague } = require('../services/leagueMembership.service');
 const { assertFantasyLeague } = require('../services/leagueType');
 const { parseSettingsPatch, updateLeagueSettings, LeagueSettingsError } = require('../services/leagueSettings.service');
 
@@ -92,11 +91,12 @@ router.post('/', async (req, res) => {
       ]
     );
     let league = leagueResult.rows[0];
-    await client.query(
-      `INSERT INTO "teams" ("league_id", "owner_id", "name", "draft_position")
-       VALUES ($1, $2, $3, 1)`,
-      [league.id, req.user.id, teamName || `${req.user.username}'s Team`]
-    );
+    // The creator's Team is written by the one membership write, like every
+    // other join path: the league is fresh, so the count is 0 and the creator
+    // takes draft_position 1.
+    await joinLeague(client, {
+      leagueId: league.id, userId: req.user.id, teamName, username: req.user.username,
+    });
     if (options.pickemEnabled) {
       // Direct insert on the SAME client, not pickem.putSettings: that helper
       // opens its own pool connection and transaction, which would escape
@@ -157,33 +157,16 @@ router.post('/join', async (req, res) => {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'no league with that invite code' });
     }
-    // A fantasy league accepts a team only while pre-draft; a pick'em-only
-    // league until its season completes (see the League phase module).
-    const answer = joinability(league);
-    if (!answer.joinable) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ error: joinRefusalMessage(answer.reason), reason: answer.reason });
-    }
-    const countResult = await client.query(
-      `SELECT COUNT(*)::int AS n FROM "teams" WHERE "league_id" = $1`,
-      [league.id]
-    );
-    if (countResult.rows[0].n >= league.max_teams) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ error: 'league is full' });
-    }
-    const teamResult = await client.query(
-      `INSERT INTO "teams" ("league_id", "owner_id", "name", "draft_position")
-       VALUES ($1, $2, $3, $4) RETURNING *`,
-      [league.id, req.user.id, teamName || `${req.user.username}'s Team`, countResult.rows[0].n + 1]
-    );
+    // The code is this path's only gate; admission (joinable, not already a
+    // member, not full) and the Team write belong to the membership module.
+    const { team } = await joinLeague(client, {
+      leagueId: league.id, userId: req.user.id, teamName, username: req.user.username,
+    });
     await client.query('COMMIT');
-    res.status(201).json({ league, team: teamResult.rows[0] });
+    res.status(201).json({ league, team });
   } catch (error) {
     await client.query('ROLLBACK');
-    if (error.code === '23505') {
-      return res.status(409).json({ error: 'you already have a team in this league' });
-    }
+    if (error.statusCode) return res.status(error.statusCode).json(serviceErrorBody(error));
     console.error('Error joining league', error);
     res.status(500).json({ error: 'failed to join league' });
   } finally {

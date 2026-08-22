@@ -149,6 +149,7 @@ test('approving a pending join request into a completed pick\'em-only league is 
   const calls = mockClient(t, [
     ...TXN,
     [/FROM "leagues" WHERE "id" = \$1 AND .*FOR UPDATE/, () => ({ rows: [{ ...COMPLETED_PICKEM, join_approval: true }] })],
+    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [{ ...COMPLETED_PICKEM, join_approval: true }] })],
     [/FROM "join_requests" JOIN "users"/, () => ({ rows: [{ id: 3, user_id: 5, username: 'eve', team_name: null, status: 'pending' }] })],
   ]);
   await assert.rejects(
@@ -265,6 +266,7 @@ test('POST /join (invite code): a completed pick\'em-only league is refused 409 
   const calls = mockClient(t, [
     ...TXN,
     [/FROM "leagues" WHERE "invite_code" = \$1 FOR UPDATE/, () => ({ rows: [{ ...COMPLETED_PICKEM, invite_code: 'e402e816' }] })],
+    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [COMPLETED_PICKEM] })],
   ]);
   const res = await request(app).post('/api/league/join').set('Authorization', authed()).send({ inviteCode: 'e402e816' });
   assert.equal(res.status, 409, JSON.stringify(res.body));
@@ -279,6 +281,7 @@ test('POST /join (invite code): a fantasy league past pre-draft is refused 409 d
   mockClient(t, [
     ...TXN,
     [/FROM "leagues" WHERE "invite_code" = \$1 FOR UPDATE/, () => ({ rows: [{ ...FANTASY_DRAFTED, invite_code: 'abcdef01' }] })],
+    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [FANTASY_DRAFTED] })],
   ]);
   const res = await request(app).post('/api/league/join').set('Authorization', authed()).send({ inviteCode: 'abcdef01' });
   assert.equal(res.status, 409);
@@ -290,6 +293,8 @@ test('POST /join (invite code): an in-season (rolled-over) pick\'em-only league 
   const calls = mockClient(t, [
     ...TXN,
     [/FROM "leagues" WHERE "invite_code" = \$1 FOR UPDATE/, () => ({ rows: [{ ...ROLLED_OVER_PICKEM, invite_code: 'e402e816' }] })],
+    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [ROLLED_OVER_PICKEM] })],
+    [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
     [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
     [/INSERT INTO "teams"/, (_text, params) => ({ rows: [{ id: 99, league_id: 7, owner_id: params[1], name: params[2] }] })],
   ]);
