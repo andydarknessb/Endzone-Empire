@@ -131,11 +131,12 @@ test('an injury refresh cannot pass an IR placement before scanning the committe
       }] };
     }],
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
-    [/^UPDATE "lineup_entries"/, (text, params) => {
+    [/^UPDATE "lineup_entries" SET "slot"/, (text, params) => {
       lineupSlot = params[0];
       signalLineupMoved();
       return { rows: [] };
     }],
+    [/^UPDATE "lineup_entries" SET "ir_attested"/, () => ({ rows: [] })],
     [select('players'), async () => {
       signalSyncAttempted();
       if (lineupReadHasLock) await lineupMoved;

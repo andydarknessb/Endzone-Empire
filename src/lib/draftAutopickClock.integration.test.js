@@ -13,6 +13,7 @@ jest.mock('../../server/modules/io', () => ({
 
 const pool = require('../../server/modules/pool');
 const ioRegistry = require('../../server/modules/io');
+const lineupService = require('../../server/services/lineup.service');
 const { draftPlayer } = require('../../server/services/draft.service');
 const { processExpiredPickClocks } = require('../../server/services/autopick.service');
 
@@ -50,6 +51,9 @@ function createState({ currentPick = 0, deadline, players, roster = [], queue = 
       autodraft_delay_seconds: 2,
       pick_deadline_at: deadline,
       roster_limit: 4,
+      // Fixed at draft start (ADR 0005): this league is already 'active', so
+      // draftPlayer reads this instead of recomputing from roster_limit/ir_slots.
+      draft_rounds: 4,
       roster_slots: ROSTER_SLOTS,
       position_caps: { QB: 1, RB: 1, WR: 1, TE: 1 },
       waiver_period_hours: 24,
@@ -303,6 +307,7 @@ describe('live snake-draft expiry and autopick integration', () => {
   let hub;
   let fetchSpy;
   let suppliedFetch;
+  let benchAcquiredPlayerSpy;
 
   function install(state) {
     database = new FakeDraftDatabase(state);
@@ -314,6 +319,10 @@ describe('live snake-draft expiry and autopick integration', () => {
   }
 
   beforeEach(() => {
+    // This harness owns draft-clock serialization and realtime delivery. The
+    // draft service seam separately proves that a roster write benches the
+    // acquisition, so keep lineup persistence out of this fake database.
+    benchAcquiredPlayerSpy = jest.spyOn(lineupService, 'benchAcquiredPlayer').mockResolvedValue();
     jest.useFakeTimers({ doNotFake: ['performance'] });
     jest.setSystemTime(new Date('2026-09-06T17:00:00.000Z'));
     suppliedFetch = !global.fetch;
@@ -328,6 +337,7 @@ describe('live snake-draft expiry and autopick integration', () => {
   afterEach(() => {
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
+    benchAcquiredPlayerSpy.mockRestore();
     if (suppliedFetch) delete global.fetch;
     jest.useRealTimers();
     jest.clearAllMocks();

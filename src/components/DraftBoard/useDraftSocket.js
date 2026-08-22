@@ -159,7 +159,10 @@ export default function useDraftSocket(leagueId, userId, { onPickLanded } = {}) 
 
     newSocket.on('draft:picked', (data) => {
       dispatch({ type: 'picked', data });
-      onPickLandedRef.current?.();
+      // Passes the raw payload (notably `teamId`) through so a caller can
+      // tell whether THIS pick is relevant to it, rather than treating every
+      // pick in the draft as equally actionable.
+      onPickLandedRef.current?.(data);
     });
 
     newSocket.on('draft:complete', () => {

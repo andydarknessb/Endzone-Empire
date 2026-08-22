@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
@@ -180,7 +180,13 @@ test('creating a public, approval-required, best-ball, PPR league with a draft d
   await userEvent.click(screen.getByLabelText('Best ball mode'));
   await userEvent.click(screen.getByLabelText('Scoring'));
   await userEvent.click(await screen.findByRole('option', { name: 'PPR' }));
-  await userEvent.type(screen.getByLabelText('Draft date'), '2026-09-04T13:00');
+  fireEvent.change(screen.getByLabelText('Draft date'), { target: { value: '2026-09-04T13:00' } });
+  // #116 AC3: a scheduled draft's zone requires explicit acknowledgement
+  // before Create League is enabled.
+  expect(screen.getByRole('button', { name: 'Create League' })).toBeDisabled();
+  await userEvent.click(screen.getByLabelText('Draft time zone'));
+  await userEvent.click(await screen.findByRole('option', { name: 'America/New_York' }));
+  await userEvent.click(screen.getByRole('checkbox', { name: /confirm this draft date and time/i }));
   await userEvent.click(screen.getByRole('button', { name: 'Create League' }));
 
   await waitFor(() =>
@@ -193,7 +199,10 @@ test('creating a public, approval-required, best-ball, PPR league with a draft d
       joinApproval: true,
       bestBall: true,
       scoringPreset: 'ppr',
-      draftDate: new Date('2026-09-04T13:00').toISOString(),
+      // #116 AC4: 1pm in the selected zone (America/New_York, EDT/UTC-4 in
+      // September), not the test runner's own zone.
+      draftDate: '2026-09-04T17:00:00.000Z',
+      draftTimezone: 'America/New_York',
     })
   );
 });
@@ -274,7 +283,7 @@ test("creating an NFL pick'em league hides the fantasy fields and sends leagueTy
   expect(screen.getByRole('radio', { name: /Fantasy football league/ })).toBeChecked();
   await userEvent.type(screen.getByLabelText(/League name/), 'Office Pool');
   // Fantasy-only state set BEFORE the switch must not leak into the payload.
-  await userEvent.type(screen.getByLabelText('Draft date'), '2026-09-04T13:00');
+  fireEvent.change(screen.getByLabelText('Draft date'), { target: { value: '2026-09-04T13:00' } });
   await userEvent.click(screen.getByRole('radio', { name: /NFL pick'em league/ }));
 
   expect(screen.queryByLabelText('Scoring')).not.toBeInTheDocument();

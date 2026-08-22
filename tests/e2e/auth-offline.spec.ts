@@ -1,7 +1,5 @@
-import { expect, test, type Page, type Route } from '@playwright/test';
-
-const json = (route: Route, status: number, body: unknown) =>
-  route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+import { expect, test, type Page } from '@playwright/test';
+import { json } from './fixtures/jsonRoute';
 
 async function seedSession(page: Page, access = 'old-access-token', refresh = 'old-refresh-token') {
   await page.addInitScript(({ accessToken, refreshToken }) => {

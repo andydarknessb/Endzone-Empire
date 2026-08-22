@@ -231,6 +231,23 @@ The single act of the server making a team's pick when its clock expires: the
 first eligible player from that team's queue, otherwise the best available.
 _Avoid_: autodraft (that is the standing mode, not the act)
 
+**Best available**:
+The order in which players are offered when nobody has expressed a preference:
+by ADP where the market has one, then by last completed season's fantasy
+points, then by name. It is the fallback behind autopick and the order of the
+draft pool, and it is never the database's own ordering: a player the market
+has not ranked but who produced last season comes before one who did neither.
+_Avoid_: default rank (a column, and an empty one), top available, BPA
+
+**Draft pool**:
+The board a Draft Sim drafts from: every player the market ranks (has an ADP)
+or who produced last completed season, in best-available order, plus the IDP
+tranche when the template needs it. Membership is that rule, never a count:
+a player a mock draft could plausibly reach is in it, and a player in it can
+be found by search. The draft room's available players are the real league's
+equivalent and are paged from the whole player table instead.
+_Avoid_: player pool, top N, the board (that is the Draft board, committed picks)
+
 **Autodraft**:
 A standing mode a team can be placed in so that every remaining pick is made by
 autopick immediately, without waiting out the clock.
@@ -307,6 +324,9 @@ league's IR slot count. Capacity is earned by the act of stashing and lost
 when the stash empties or its occupant stops being IR-eligible - it is never
 a standing entitlement. A commissioner may attest a player IR-eligible when
 the feed is wrong, and that attested stash grants capacity like any other.
+A player a team acquires - by waiver, trade, commissioner add or free agency -
+always arrives on the bench and earns nothing; only undoing a drop returns a
+player to the stash it interrupted.
 _Avoid_: roster limit, effective limit
 
 **IR-eligible**:
@@ -316,6 +336,16 @@ grant to the team: it is checked when a manager places him on IR, and losing
 it while stashed is what flags the roster for resolution.
 _Avoid_: injured (too broad — questionable and doubtful players are injured
 but not IR-eligible), stashable
+
+**Attested stash**:
+An IR stash the commissioner has vouched for because the injury feed is
+wrong about its occupant, recorded on the lineup entry by the force-set
+path. A stash is **valid** when its occupant is IR-eligible or the entry is
+attested; a valid stash grants capacity, is never flagged or nagged, and
+carries forward across weeks. The attestation ends the moment the manager
+makes any slot move on that player - from that week forward, never
+retroactively - after which the normal eligibility gate governs.
+_Avoid_: forced stash, override flag
 
 **Lineup lock**:
 The moment a player can no longer be moved into or out of a lineup, namely his

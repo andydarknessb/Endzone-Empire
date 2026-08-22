@@ -18,7 +18,9 @@ const baseLeague = {
   autodraft_delay_seconds: 10,
 };
 
-function draftClient({ league = baseLeague, keepers = [] } = {}) {
+const DEFAULT_TEAMS = [{ id: 11, owner_id: 7, draft_position: 1, autodraft: false, locked: false }];
+
+function draftClient({ league = baseLeague, keepers = [], teams = DEFAULT_TEAMS } = {}) {
   const calls = [];
   const client = {
     release: () => calls.push('RELEASE'),
@@ -29,10 +31,12 @@ function draftClient({ league = baseLeague, keepers = [] } = {}) {
       if (text.includes('SELECT * FROM "leagues"')) return { rows: [league] };
       // isLeagueCommissioner's owner-or-co-commissioner probe.
       if (text.includes('SELECT 1 FROM "leagues"')) return { rows: [{ '?column?': 1 }] };
-      if (text.includes('FROM "teams"')) {
-        return { rows: [{ id: 11, owner_id: 7, draft_position: 1, autodraft: false, locked: false }] };
-      }
+      if (text.includes('FROM "teams"')) return { rows: teams };
       if (text.includes('FROM "keepers"')) return { rows: keepers };
+      // generateRegularSeason, run inline on this same client when the draft
+      // completes immediately (every slot pre-filled by keepers).
+      if (text.includes('FROM "matchups"')) return { rows: [] };
+      if (text.startsWith('INSERT INTO "matchups"')) return { rows: [], rowCount: 1 };
       if (text.startsWith('UPDATE "leagues"')) return { rows: [], rowCount: 1 };
       if (text.startsWith('INSERT INTO "draft_picks"') || text.startsWith('INSERT INTO "team_players"')) {
         return { rows: [], rowCount: 1 };
@@ -54,6 +58,43 @@ test('startDraft skips keeper reads and inserts when keepers are disabled', asyn
   assert.ok(!tx.calls.some((sql) => sql.includes('FROM "keepers"')));
   assert.ok(!tx.calls.some((sql) => sql.startsWith('INSERT INTO "draft_picks"')));
   assert.ok(!tx.calls.some((sql) => sql.startsWith('INSERT INTO "team_players"')));
+});
+
+// ADR 0005: starting a draft must fix draft_rounds once, from Draft roster
+// size at that instant, so active/completed reads never recompute it.
+test('startDraft fixes draft_rounds (roster_limit - ir_slots) when the draft goes active', async (t) => {
+  const tx = draftClient({ league: { ...baseLeague, roster_limit: 20, ir_slots: 1 } });
+  t.mock.method(pool, 'connect', async () => tx.client);
+
+  await startDraft({ leagueId: 1, userId: 7 });
+
+  const updateCall = tx.calls.find((sql) => sql.startsWith('UPDATE "leagues"') && sql.includes("'active'"));
+  assert.ok(updateCall, 'expected an UPDATE ... SET draft_status = active');
+  assert.match(updateCall, /"draft_rounds"\s*=\s*\$/);
+});
+
+test('startDraft fixes draft_rounds even when every roster slot is pre-filled by keepers (the draft completes without a single live pick)', async (t) => {
+  const tx = draftClient({
+    league: {
+      ...baseLeague, roster_limit: 1, ir_slots: 0, keepers_enabled: true, keeper_count: 1,
+      regular_season_weeks: 0, current_season: 2026, waiver_period_hours: 24,
+    },
+    keepers: [
+      { team_id: 11, player_id: 101, draft_round: 1 },
+      { team_id: 12, player_id: 201, draft_round: 1 },
+    ],
+    teams: [
+      { id: 11, owner_id: 7, draft_position: 1, autodraft: false, locked: false },
+      { id: 12, owner_id: 8, draft_position: 2, autodraft: false, locked: false },
+    ],
+  });
+  t.mock.method(pool, 'connect', async () => tx.client);
+
+  await startDraft({ leagueId: 1, userId: 7 });
+
+  const updateCall = tx.calls.find((sql) => sql.startsWith('UPDATE "leagues"') && sql.includes("'complete'"));
+  assert.ok(updateCall, 'expected an UPDATE ... SET draft_status = complete');
+  assert.match(updateCall, /"draft_rounds"\s*=\s*\$/);
 });
 
 test('startDraft rolls back without writes when keepers exceed the current per-team count', async (t) => {

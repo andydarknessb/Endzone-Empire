@@ -422,7 +422,7 @@ router.post('/league/:id/reset', async (req, res) => {
   try {
     await client.query('BEGIN');
     const leagueResult = await client.query(
-      `SELECT "id" FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)} AND "draft_status" = 'active' FOR UPDATE`,
+      `SELECT "id", "current_season" FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)} AND "draft_status" = 'active' FOR UPDATE`,
       [leagueId, req.user.id]
     );
     if (!leagueResult.rows[0]) {
@@ -430,6 +430,13 @@ router.post('/league/:id/reset', async (req, res) => {
       return res.status(403).json({ error: 'league not found, not commissioner, or draft not active' });
     }
     await client.query(`DELETE FROM "team_players" WHERE "league_id" = $1`, [leagueId]);
+    // The season's lineup rows go with the rosters: the lineup screen has no
+    // draft guard, and a stash set during the wiped draft must not be waiting
+    // for the restarted one's keeper pre-fill or picks (#94, user story 13).
+    await client.query(
+      `DELETE FROM "lineup_entries" WHERE "league_id" = $1 AND "season" = $2`,
+      [leagueId, leagueResult.rows[0].current_season]
+    );
     await client.query(`DELETE FROM "draft_picks" WHERE "league_id" = $1`, [leagueId]);
     await client.query(
       `UPDATE "teams" SET "autodraft" = false, "draft_ready" = false, "consecutive_timeouts" = 0, "updated_at" = now()
@@ -437,11 +444,12 @@ router.post('/league/:id/reset', async (req, res) => {
       [leagueId]
     );
     // draft_date is nulled so the 5-minute scheduler doesn't immediately
-    // auto-restart the draft it just reset.
+    // auto-restart the draft it just reset; draft_timezone clears with it
+    // (#116 — a zone means nothing without the instant it describes).
     await client.query(
       `UPDATE "leagues"
        SET "draft_status" = 'pending', "current_pick" = 0, "draft_paused" = false,
-           "pick_deadline_at" = NULL, "draft_date" = NULL, "draft_reminder_stage" = 0,
+           "pick_deadline_at" = NULL, "draft_date" = NULL, "draft_timezone" = NULL, "draft_reminder_stage" = 0,
            "draft_autostart_failed" = false, "updated_at" = now()
        WHERE "id" = $1`,
       [leagueId]
@@ -685,7 +693,7 @@ router.post('/league/:id/share-token', async (req, res) => {
 router.get('/mine', async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT "id", "name", "draft_status", "draft_date", "draft_type", "roster_limit", "ir_slots",
+      `SELECT "id", "name", "draft_status", "draft_date", "draft_type", "roster_limit", "ir_slots", "draft_rounds",
               (SELECT COUNT(*)::int FROM "draft_picks" WHERE "draft_picks"."league_id" = "leagues"."id") AS "picks_made",
               (SELECT COUNT(*)::int FROM "teams" WHERE "teams"."league_id" = "leagues"."id") AS "team_count"
        FROM "leagues"

@@ -2,6 +2,9 @@ const pool = require('../modules/pool');
 const { assertFantasyLeagueRow } = require('./leagueType');
 const { requireMember } = require('./leagueMembership.service');
 const { logTransaction, notify } = require('./activity.service');
+const { rosterCapacity } = require('./irPolicy.service');
+// Module object, not destructured: the seam tests mock benchAcquiredPlayer.
+const lineupService = require('./lineup.service');
 
 class WaiverError extends Error {
   constructor(statusCode, message) {
@@ -238,6 +241,8 @@ async function processWaivers({ leagueId }) {
           `INSERT INTO "team_players" ("league_id", "team_id", "player_id") VALUES ($1, $2, $3)`,
           [leagueId, team.id, playerId]
         );
+        // A won claim lands on the bench, never back in an old stash (#94).
+        await lineupService.benchAcquiredPlayer(client, { league, teamId: team.id, playerId });
         if (league.waiver_type === 'faab' && claim.bid > 0) {
           await client.query(
             `UPDATE "teams" SET "faab_remaining" = "faab_remaining" - $1, "updated_at" = now() WHERE "id" = $2`,
@@ -339,7 +344,15 @@ async function claimFailureReason(client, { league, team, claim }) {
     [team.id]
   );
   const effective = count.rows[0].n - (dropValid ? 1 : 0);
-  if (effective >= league.roster_limit) return `roster limit of ${league.roster_limit} reached`;
+  // Roster capacity, not the static roster limit: an eligible IR stash grants
+  // a spot, and a dropped player's own stash grants nothing (#97). The claimed
+  // player gets no restored credit either - a won claim benches him.
+  const capacity = await rosterCapacity(client, {
+    league,
+    teamId: team.id,
+    excludePlayerIds: dropValid ? [claim.drop_player_id] : [],
+  });
+  if (effective >= capacity) return `roster capacity of ${capacity} reached`;
   return null;
 }
 
@@ -367,6 +380,7 @@ async function processAllDueWaivers() {
 
 module.exports = {
   WaiverError,
+  claimFailureReason,
   orderClaims,
   placeOnWaivers,
   isOnWaivers,

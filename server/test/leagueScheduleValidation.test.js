@@ -329,3 +329,135 @@ test('does not delay the schedule response while activity notification is pendin
   assert.equal(payload.data.url, '/#/league/1');
   assert.equal(payload.data.draftDate, draftDate);
 });
+
+// --- draft timezone (#116) ---------------------------------------------
+
+const PENDING_ROW = (over = {}) => ({
+  draft_status: 'pending', draft_type: 'snake', min_teams: 2, max_teams: 12, draft_date: null,
+  roster_slots: [], bench_slots: 0, ir_slots: 0, position_caps: {}, roster_limit: 15,
+  keepers_enabled: false, keeper_count: 0, team_count: 2, ...over,
+});
+
+test('rejects an unrecognized draftTimezone before querying the database', async (t) => {
+  let queryCount = 0;
+  t.mock.method(pool, 'query', async () => { queryCount++; throw new Error('database should not be queried'); });
+
+  const response = await request(app)
+    .put('/api/league/1')
+    .set('Authorization', authorization())
+    .send({ draftTimezone: 'Mars/OlympusMons' });
+
+  assert.equal(response.status, 400);
+  assert.match(response.body.error, /draftTimezone must be a valid IANA time zone name/);
+  assert.equal(queryCount, 0);
+});
+
+test('draftTimezone alone is refused when the league has no draft date scheduled (#116 AC2)', async (t) => {
+  let updateCalled = false;
+  t.mock.method(pool, 'query', async (sql) => {
+    const text = String(sql);
+    if (text.includes('SELECT "draft_status"')) return { rows: [PENDING_ROW()] };
+    if (text.startsWith('UPDATE "leagues"')) { updateCalled = true; return { rows: [] }; }
+    throw new Error(`Unexpected SQL: ${text}`);
+  });
+
+  const response = await request(app)
+    .put('/api/league/1')
+    .set('Authorization', authorization())
+    .send({ draftTimezone: 'America/New_York' });
+
+  assert.equal(response.status, 400);
+  assert.equal(response.body.error, 'draftTimezone requires a scheduled draftDate');
+  assert.equal(updateCalled, false);
+});
+
+test('draftTimezone is accepted alongside a draftTimezone-less league when draftDate arrives in the same request', async (t) => {
+  const draftDate = new Date(Date.now() + 60000).toISOString();
+  t.mock.method(pool, 'query', async (sql) => {
+    const text = String(sql);
+    if (text.includes('SELECT "draft_status"')) return { rows: [PENDING_ROW()] };
+    if (text.startsWith('UPDATE "leagues"')) {
+      return { rows: [{ id: 1, owner_id: 7, draft_status: 'pending', draft_date: draftDate, draft_timezone: 'America/New_York' }] };
+    }
+    if (text.includes('SELECT DISTINCT "owner_id"')) return { rows: [] };
+    throw new Error(`Unexpected SQL: ${text}`);
+  });
+
+  const response = await request(app)
+    .put('/api/league/1')
+    .set('Authorization', authorization())
+    .send({ draftDate, draftTimezone: 'America/New_York' });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.draft_timezone, 'America/New_York');
+});
+
+test('draftTimezone alone is accepted when the league already has a draftDate on file', async (t) => {
+  const existingDraftDate = new Date(Date.now() + 3600000).toISOString();
+  let updateParams = null;
+  t.mock.method(pool, 'query', async (sql, params) => {
+    const text = String(sql);
+    if (text.includes('SELECT "draft_status"')) return { rows: [PENDING_ROW({ draft_date: existingDraftDate })] };
+    if (text.startsWith('UPDATE "leagues"')) {
+      updateParams = params;
+      return { rows: [{ id: 1, owner_id: 7, draft_status: 'pending', draft_date: existingDraftDate, draft_timezone: 'Asia/Tokyo' }] };
+    }
+    throw new Error(`Unexpected SQL: ${text}`);
+  });
+
+  const response = await request(app)
+    .put('/api/league/1')
+    .set('Authorization', authorization())
+    .send({ draftTimezone: 'Asia/Tokyo' });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.draft_timezone, 'Asia/Tokyo');
+  // A timezone-only edit never touches draftDateProvided ($22), so the
+  // reminder/auto-start reset stays gated off (#116 AC5).
+  assert.equal(updateParams[21], false, 'draftDateProvided ($22) is false for a timezone-only edit');
+});
+
+test('clearing draftDate clears an existing draftTimezone in the same UPDATE (#116 AC5)', async (t) => {
+  const existingDraftDate = new Date(Date.now() + 3600000).toISOString();
+  let updateQuery = null;
+  let updateParams = null;
+  t.mock.method(pool, 'query', async (sql, params) => {
+    const text = String(sql);
+    if (text.includes('SELECT "draft_status"')) {
+      return { rows: [PENDING_ROW({ draft_date: existingDraftDate })] };
+    }
+    if (text.startsWith('UPDATE "leagues"')) {
+      updateQuery = text;
+      updateParams = params;
+      return { rows: [{ id: 1, owner_id: 7, draft_status: 'pending', draft_date: null, draft_timezone: null }] };
+    }
+    throw new Error(`Unexpected SQL: ${text}`);
+  });
+
+  const response = await request(app)
+    .put('/api/league/1')
+    .set('Authorization', authorization())
+    .send({ draftDate: null });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.draft_date, null);
+  assert.equal(response.body.draft_timezone, null);
+  assert.match(updateQuery, /"draft_timezone" = CASE/);
+  assert.match(updateQuery, /WHEN \$22 AND \$23::timestamptz IS NULL THEN NULL/);
+  assert.equal(updateParams[21], true, 'draftDateProvided ($22)');
+  assert.equal(updateParams[22], null, 'draftDateValue ($23) is null: the date was cleared');
+});
+
+test('a request that clears draftDate while also setting a non-null draftTimezone is refused before querying the database', async (t) => {
+  let queryCount = 0;
+  t.mock.method(pool, 'query', async () => { queryCount++; throw new Error('database should not be queried'); });
+
+  const response = await request(app)
+    .put('/api/league/1')
+    .set('Authorization', authorization())
+    .send({ draftDate: null, draftTimezone: 'America/New_York' });
+
+  assert.equal(response.status, 400);
+  assert.equal(response.body.error, 'draftTimezone cannot be set in the same request that clears draftDate');
+  assert.equal(queryCount, 0);
+});

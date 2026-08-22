@@ -85,17 +85,27 @@ export function isValidTeamCount(value, cap) {
 /**
  * The type-dependent part of a POST /api/league body. Always names the type;
  * carries the pick'em mode only when the type includes pick'em; and never
- * carries bestBall / scoringPreset / draftDate for a pick'em-only league,
- * which the server rejects on presence (not value), so stale state left over
- * from a type switch must be dropped here rather than sent as false/null.
+ * carries bestBall / scoringPreset / draftDate / draftTimezone for a
+ * pick'em-only league, which the server rejects on presence (not value), so
+ * stale state left over from a type switch must be dropped here rather than
+ * sent as false/null.
+ *
+ * `draftDate` is taken as the caller already converted it: a UTC ISO string,
+ * via draftTimezone.js's zonedWallTimeToUtcIso (#116 AC4) — this function
+ * does no zone math of its own, it only decides what gets sent. draftTimezone
+ * rides along only when draftDate does (#116 AC2): a zone means nothing
+ * without the instant it was confirmed against.
  */
-export function leagueTypePayload({ leagueType, pickemMode, bestBall, scoringPreset, draftDate }) {
+export function leagueTypePayload({ leagueType, pickemMode, bestBall, scoringPreset, draftDate, draftTimezone }) {
   const payload = { leagueType };
   if (includesPickem(leagueType)) payload.pickemMode = pickemMode;
   if (includesFantasy(leagueType)) {
     if (bestBall) payload.bestBall = true;
     if (scoringPreset) payload.scoringPreset = scoringPreset;
-    if (draftDate) payload.draftDate = new Date(draftDate).toISOString();
+    if (draftDate) {
+      payload.draftDate = draftDate;
+      if (draftTimezone) payload.draftTimezone = draftTimezone;
+    }
   }
   return payload;
 }

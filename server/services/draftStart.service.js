@@ -74,6 +74,10 @@ async function startDraft({ leagueId, userId = null }) {
       throw new DraftError(plan.error.status, plan.error.message);
     }
 
+    // The one roster-add site that skips rosterCapacity (#97): keepers are
+    // bounded by validateKeepers (count and round within the draft roster
+    // size, capacity's floor) and only run from draft_status 'pending', so
+    // the pre-fill can never exceed capacity by construction.
     for (const keeperPick of plan.keeperPicks) {
       await client.query(
         `INSERT INTO "draft_picks" ("league_id", "team_id", "player_id", "pick_number", "is_keeper")
@@ -94,28 +98,37 @@ async function startDraft({ leagueId, userId = null }) {
     if (plan.firstOpenPick === null) {
       // Every roster slot was pre-filled by keepers — the draft is over before
       // a single live pick, so run the same completion side effects draftPlayer
-      // would have on the final pick.
+      // would have on the final pick. draft_rounds is fixed here too (ADR
+      // 0005): a draft that completes without a live pick is still "active or
+      // completed" for every later read, so it must not fall through to a
+      // live draftRosterSize() recomputation either.
       await client.query(
         `UPDATE "leagues"
          SET "draft_status" = 'complete', "current_pick" = $2, "updated_at" = now(),
              "draft_autostart_failed" = false, "pick_deadline_at" = NULL,
+             "draft_rounds" = $3,
              "waivers_clear_at" = now() + make_interval(hours => "waiver_period_hours")
          WHERE "id" = $1`,
-        [leagueId, plan.totalPicks]
+        [leagueId, plan.totalPicks, plan.rounds]
       );
       const { generateRegularSeason } = require('./season.service');
       await generateRegularSeason({ leagueId }, client);
     } else {
+      // Fix draft_rounds once, from Draft roster size at this instant (ADR
+      // 0005). draftPlayer's completion check and every other active/completed
+      // read use this stored value from here on; none of them call
+      // draftRosterSize() again for this league.
       await client.query(
         `UPDATE "leagues"
          SET "draft_status" = 'active', "current_pick" = $2, "updated_at" = now(),
              "draft_autostart_failed" = false,
+             "draft_rounds" = $4,
              "pick_deadline_at" = CASE
                WHEN $3::int IS NULL THEN NULL
                ELSE now() + make_interval(secs => $3::int)
              END
          WHERE "id" = $1`,
-        [leagueId, plan.firstOpenPick, plan.firstClockSeconds]
+        [leagueId, plan.firstOpenPick, plan.firstClockSeconds, plan.rounds]
       );
     }
 
