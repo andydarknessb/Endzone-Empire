@@ -416,8 +416,8 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
               color="primary"
               sx={{ mb: 2 }}
             >
-              <ToggleButton value="current" sx={{ minHeight: 44 }}>Current Season</ToggleButton>
-              <ToggleButton value="previous" sx={{ minHeight: 44 }}>Previous Seasons</ToggleButton>
+              <ToggleButton value="current" sx={MIN_TOUCH_TARGET_SX}>Current Season</ToggleButton>
+              <ToggleButton value="previous" sx={MIN_TOUCH_TARGET_SX}>Previous Seasons</ToggleButton>
             </ToggleButtonGroup>
 
             {view === 'current' ? (
@@ -553,7 +553,7 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
                   variant="outlined"
                   size="small"
                   onClick={() => setPinnedComparison((current) => (current ? null : data))}
-                  sx={{ minHeight: 44 }}
+                  sx={MIN_TOUCH_TARGET_SX}
                 >
                   {pinnedComparison ? 'Clear compare' : 'Compare'}
                 </Button>
@@ -619,7 +619,7 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
                 component={RouterLink}
                 to={`/players/${playerId}${leagueId ? `?leagueId=${leagueId}` : ''}`}
                 onClick={onClose}
-                sx={{ minHeight: 44, display: 'inline-flex', alignItems: 'center' }}
+                sx={{ display: 'inline-flex', alignItems: 'center', ...MIN_TOUCH_TARGET_SX }}
               >
                 Full profile →
               </Link>

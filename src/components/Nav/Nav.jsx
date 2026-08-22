@@ -136,18 +136,21 @@ function Nav() {
           </Stack>
         </Link>
 
-        {/* Desktop inline links */}
-        <Box
-          component="nav"
-          aria-label="Primary navigation"
-          sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'stretch', flexGrow: 1 }}
-        >
-          {loggedIn &&
-            links.map((l) => (
-              <Link key={l.to} component={RouterLink} to={l.to} underline="none" sx={linkSx(l.to)}>
-                {l.label}
-              </Link>
-            ))}
+        {/* Desktop inline links. The flexGrow:1 spacer stays even when logged
+            out (it's what pushes Log In/Register to the edge), but the <nav>
+            landmark itself only exists when it actually has links in it -
+            an always-present, always-empty landmark is its own confusion for
+            a screen reader user on the logged-out pages. */}
+        <Box sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'stretch', flexGrow: 1 }}>
+          {loggedIn && (
+            <Box component="nav" aria-label="Primary navigation" sx={{ display: 'flex', alignItems: 'stretch' }}>
+              {links.map((l) => (
+                <Link key={l.to} component={RouterLink} to={l.to} underline="none" sx={linkSx(l.to)}>
+                  {l.label}
+                </Link>
+              ))}
+            </Box>
+          )}
         </Box>
 
         {/* Pushes the right cluster to the edge on mobile (no desktop links to grow) */}
@@ -267,7 +270,7 @@ function Nav() {
                       to={l.to}
                       selected={isActive(l.to)}
                       onClick={() => setDrawerOpen(false)}
-                      sx={{ minHeight: 44 }}
+                      sx={MIN_TOUCH_TARGET_SX}
                     >
                       <ListItemText primary={l.label} />
                     </ListItemButton>
@@ -280,7 +283,7 @@ function Nav() {
                   component={RouterLink}
                   to="/settings/notifications"
                   onClick={() => setDrawerOpen(false)}
-                  sx={{ minHeight: 44 }}
+                  sx={MIN_TOUCH_TARGET_SX}
                 >
                   <ListItemText primary="Notification Settings" />
                 </ListItemButton>
@@ -289,7 +292,7 @@ function Nav() {
                     component={RouterLink}
                     to="/admin"
                     onClick={() => setDrawerOpen(false)}
-                    sx={{ minHeight: 44 }}
+                    sx={MIN_TOUCH_TARGET_SX}
                   >
                     <ListItemIcon>
                       <AdminPanelSettingsIcon fontSize="small" />
@@ -297,7 +300,7 @@ function Nav() {
                     <ListItemText primary="Admin" />
                   </ListItemButton>
                 )}
-                <ListItemButton onClick={handleLogout} sx={{ minHeight: 44 }}>
+                <ListItemButton onClick={handleLogout} sx={MIN_TOUCH_TARGET_SX}>
                   <ListItemText primary="Log Out" />
                 </ListItemButton>
               </List>

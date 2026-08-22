@@ -32,6 +32,7 @@ import OfflineBanner from '../OfflineBanner/OfflineBanner';
 import NotFound from '../NotFound/NotFound';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 import NavigationGuard from '../NavigationGuard/NavigationGuard';
+import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 
 import './App.css';
 
@@ -100,10 +101,10 @@ function AppLayout({ children }) {
             zIndex: (theme) => theme.zIndex.tooltip + 1,
             transform: 'translateY(-200%)',
             transition: 'transform 0.15s ease-in',
+            '@media (prefers-reduced-motion: reduce)': { transition: 'none' },
             bgcolor: 'background.paper',
             color: 'text.primary',
             px: 2,
-            minHeight: 44,
             display: 'inline-flex',
             alignItems: 'center',
             borderRadius: 1,
@@ -112,6 +113,7 @@ function AppLayout({ children }) {
             fontWeight: 600,
             textDecoration: 'none',
             '&:focus': { transform: 'translateY(0)' },
+            ...MIN_TOUCH_TARGET_SX,
           }}
         >
           Skip to main content

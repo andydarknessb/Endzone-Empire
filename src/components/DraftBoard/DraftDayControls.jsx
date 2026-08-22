@@ -11,6 +11,7 @@ import {
   Paper,
   TextField,
 } from '@mui/material';
+import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 
 /** Commissioner-only active-draft controls. Server broadcasts remain the source of truth after each action. */
 export default function DraftDayControls({ league, picks, onUndo, onReset, onGetShareLink }) {
@@ -32,9 +33,9 @@ export default function DraftDayControls({ league, picks, onUndo, onReset, onGet
   return (
     <Paper component="section" aria-label="Commissioner draft controls" sx={{ p: 1.5, mb: 2, bgcolor: 'action.hover' }}>
       <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-        <Button variant="outlined" onClick={() => setUndoOpen(true)} disabled={undoDisabled} sx={{ minHeight: 44 }}>Undo last pick</Button>
-        <Button variant="outlined" color="error" onClick={() => setResetOpen(true)} sx={{ minHeight: 44 }}>Reset draft</Button>
-        <Button variant="outlined" onClick={copyPresenterLink} disabled={sharing} sx={{ minHeight: 44 }}>{sharing ? 'Creating link…' : 'Presenter link'}</Button>
+        <Button variant="outlined" onClick={() => setUndoOpen(true)} disabled={undoDisabled} sx={MIN_TOUCH_TARGET_SX}>Undo last pick</Button>
+        <Button variant="outlined" color="error" onClick={() => setResetOpen(true)} sx={MIN_TOUCH_TARGET_SX}>Reset draft</Button>
+        <Button variant="outlined" onClick={copyPresenterLink} disabled={sharing} sx={MIN_TOUCH_TARGET_SX}>{sharing ? 'Creating link…' : 'Presenter link'}</Button>
       </Box>
       {shareLink && <TextField label="Presenter link" value={shareLink} fullWidth size="small" inputProps={{ readOnly: true }} sx={{ mt: 1 }} />}
       {lastReachedPick?.is_keeper && <Alert severity="info" sx={{ mt: 1 }}>Keeper picks cannot be undone.</Alert>}
@@ -42,8 +43,8 @@ export default function DraftDayControls({ league, picks, onUndo, onReset, onGet
         <DialogTitle>Undo last pick?</DialogTitle>
         <DialogContent><DialogContentText>This restores the last drafted player to the pool and rewinds the draft clock.</DialogContentText></DialogContent>
         <DialogActions>
-          <Button onClick={() => setUndoOpen(false)} sx={{ minHeight: 44 }}>Cancel</Button>
-          <Button variant="contained" onClick={async () => { if (await onUndo()) setUndoOpen(false); }} sx={{ minHeight: 44 }}>Undo pick</Button>
+          <Button onClick={() => setUndoOpen(false)} sx={MIN_TOUCH_TARGET_SX}>Cancel</Button>
+          <Button variant="contained" onClick={async () => { if (await onUndo()) setUndoOpen(false); }} sx={MIN_TOUCH_TARGET_SX}>Undo pick</Button>
         </DialogActions>
       </Dialog>
       <Dialog open={resetOpen} onClose={() => setResetOpen(false)}>
@@ -53,8 +54,8 @@ export default function DraftDayControls({ league, picks, onUndo, onReset, onGet
           <TextField autoFocus fullWidth label="League name" value={resetName} onChange={(event) => setResetName(event.target.value)} sx={{ mt: 2 }} />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setResetOpen(false)} sx={{ minHeight: 44 }}>Cancel</Button>
-          <Button color="error" variant="contained" disabled={resetName !== league.name} onClick={async () => { if (await onReset()) { setResetOpen(false); setResetName(''); } }} sx={{ minHeight: 44 }}>Reset draft</Button>
+          <Button onClick={() => setResetOpen(false)} sx={MIN_TOUCH_TARGET_SX}>Cancel</Button>
+          <Button color="error" variant="contained" disabled={resetName !== league.name} onClick={async () => { if (await onReset()) { setResetOpen(false); setResetName(''); } }} sx={MIN_TOUCH_TARGET_SX}>Reset draft</Button>
         </DialogActions>
       </Dialog>
     </Paper>

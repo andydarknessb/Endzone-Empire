@@ -206,7 +206,7 @@ function DraftRail({
       {draftStatus === 'pending' && myTeam && (
         <Paper component="section" aria-label="Draft readiness" sx={{ p: 2, mb: 3 }}>
           <FormControlLabel
-            sx={{ minHeight: 44 }}
+            sx={MIN_TOUCH_TARGET_SX}
             control={<Switch checked={!!myTeam.draft_ready} onChange={(event) => onToggleReady(event.target.checked)} inputProps={{ 'aria-label': 'I am ready for the draft' }} />}
             label="I'm ready"
           />
@@ -247,7 +247,7 @@ function DraftRail({
                   {team.autodraft && <Chip size="small" color="warning" label="AUTO" />}
                   {canToggle && (
                     <FormControlLabel
-                      sx={{ m: 0, minHeight: 44 }}
+                      sx={{ m: 0, ...MIN_TOUCH_TARGET_SX }}
                       labelPlacement="start"
                       control={
                         <Switch

@@ -73,12 +73,12 @@ function DraftStatusBar({
           </IconButton>
         </Tooltip>
         {isCommissioner && league?.draft_status === 'pending' && (
-          <Button variant="outlined" size="small" onClick={onRandomizeOrder} sx={{ minHeight: 44 }}>
+          <Button variant="outlined" size="small" onClick={onRandomizeOrder} sx={MIN_TOUCH_TARGET_SX}>
             Randomize Draft Order
           </Button>
         )}
         {isCommissioner && league?.draft_status === 'active' && (
-          <Button variant="outlined" size="small" onClick={onTogglePause} sx={{ minHeight: 44 }}>
+          <Button variant="outlined" size="small" onClick={onTogglePause} sx={MIN_TOUCH_TARGET_SX}>
             {league?.draft_paused ? 'Resume Draft' : 'Pause Draft'}
           </Button>
         )}

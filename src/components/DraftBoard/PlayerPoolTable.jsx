@@ -231,7 +231,7 @@ function PlayerPoolTable({
           </Select>
         </FormControl>
         <FormControlLabel
-          sx={{ minHeight: 44 }}
+          sx={MIN_TOUCH_TARGET_SX}
           control={
             <Switch size="small" checked={hideDrafted} onChange={(e) => onHideDraftedChange(e.target.checked)} />
           }
@@ -248,7 +248,7 @@ function PlayerPoolTable({
                   active={sort === 'name'}
                   direction={sort === 'name' ? dir : 'asc'}
                   onClick={() => onSort('name')}
-                  sx={{ minHeight: 44 }}
+                  sx={MIN_TOUCH_TARGET_SX}
                 >
                   Name
                 </TableSortLabel>
@@ -259,7 +259,7 @@ function PlayerPoolTable({
                   active={sort === 'nfl_team'}
                   direction={sort === 'nfl_team' ? dir : 'asc'}
                   onClick={() => onSort('nfl_team')}
-                  sx={{ minHeight: 44 }}
+                  sx={MIN_TOUCH_TARGET_SX}
                 >
                   NFL Team
                 </TableSortLabel>
@@ -269,7 +269,7 @@ function PlayerPoolTable({
                   active={sort === 'bye_week'}
                   direction={sort === 'bye_week' ? dir : 'asc'}
                   onClick={() => onSort('bye_week')}
-                  sx={{ minHeight: 44 }}
+                  sx={MIN_TOUCH_TARGET_SX}
                 >
                   <AbbreviationTooltip term="Bye" />
                 </TableSortLabel>
@@ -279,7 +279,7 @@ function PlayerPoolTable({
                   active={sort === 'adp'}
                   direction={sort === 'adp' ? dir : 'asc'}
                   onClick={() => onSort('adp')}
-                  sx={{ minHeight: 44 }}
+                  sx={MIN_TOUCH_TARGET_SX}
                 >
                   <AbbreviationTooltip term="ADP" />
                 </TableSortLabel>
@@ -289,7 +289,7 @@ function PlayerPoolTable({
                   active={sort === 'position_rank'}
                   direction={sort === 'position_rank' ? dir : 'asc'}
                   onClick={() => onSort('position_rank')}
-                  sx={{ minHeight: 44 }}
+                  sx={MIN_TOUCH_TARGET_SX}
                 >
                   <AbbreviationTooltip term="Pos rank" />
                 </TableSortLabel>
@@ -299,7 +299,7 @@ function PlayerPoolTable({
                   active={sort === 'proj'}
                   direction={sort === 'proj' ? dir : 'asc'}
                   onClick={() => onSort('proj')}
-                  sx={{ minHeight: 44 }}
+                  sx={MIN_TOUCH_TARGET_SX}
                 >
                   <AbbreviationTooltip term="17-game pace" />
                 </TableSortLabel>

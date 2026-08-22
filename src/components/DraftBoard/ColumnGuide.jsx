@@ -59,7 +59,7 @@ function ColumnGuide() {
           </List>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpen(false)} sx={{ minHeight: 44 }}>Close</Button>
+          <Button onClick={() => setOpen(false)} sx={MIN_TOUCH_TARGET_SX}>Close</Button>
         </DialogActions>
       </Dialog>
     </>

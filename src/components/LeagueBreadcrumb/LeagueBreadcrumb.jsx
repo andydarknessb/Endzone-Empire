@@ -2,6 +2,7 @@ import React from 'react';
 import { Link as RouterLink, useParams } from 'react-router-dom';
 import { Button, Box } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 
 /**
  * A small back-link to the league dashboard, shown at the top of every league
@@ -16,7 +17,7 @@ function LeagueBreadcrumb({ name }) {
         component={RouterLink}
         to={`/league/${leagueId}`}
         startIcon={<ArrowBackIcon />}
-        sx={{ fontWeight: 600, minHeight: 44 }}
+        sx={{ fontWeight: 600, ...MIN_TOUCH_TARGET_SX }}
       >
         {name || 'League dashboard'}
       </Button>

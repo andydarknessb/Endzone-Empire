@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import { clearLeagueCache } from '../../hooks/useLeague';
 import FantasyOnly from './FantasyOnly';
@@ -81,10 +81,29 @@ test('mainContentId marks the pick\'em-only blocked page as a focusable skip-lin
   );
 
   const blocked = await screen.findByText("This is a pick'em league. Drafts, rosters, and matchups are not part of it.");
-  const target = document.getElementById('draft-main-content');
-  expect(target).not.toBeNull();
+  const target = screen.getByRole('main');
+  expect(target).toHaveAttribute('id', 'draft-main-content');
   expect(target).toContainElement(blocked);
   expect(target).toHaveAttribute('tabIndex', '-1');
+});
+
+test('mainContentId also marks the loading state as a <main> landmark, not just the blocked page', () => {
+  apiClient.get.mockReturnValue(new Promise(() => {}));
+  renderWithProviders(
+    <FantasyOnly mainContentId="draft-main-content">
+      <div>Fantasy page body</div>
+    </FantasyOnly>,
+    { route: '/league/7/lineup', path: '/league/:leagueId/lineup' }
+  );
+
+  // A bare role="status" would win over <main>'s implicit role, so this
+  // variant announces via aria-live instead - still gets read by a screen
+  // reader, without hiding the landmark the skip link needs.
+  const target = screen.getByRole('main', { name: 'Loading league' });
+  expect(target).toHaveAttribute('id', 'draft-main-content');
+  expect(target).toHaveAttribute('tabIndex', '-1');
+  expect(target).toHaveAttribute('aria-live', 'polite');
+  expect(within(target).getByRole('progressbar')).toBeInTheDocument();
 });
 
 test('without mainContentId, nothing carries that id (every other FantasyOnly caller is unaffected)', async () => {

@@ -464,10 +464,10 @@ function DraftBoard() {
         value={view}
         onChange={(e, next) => setView(next)}
         aria-label="Draft view"
-        sx={{ mb: 3, minHeight: 44, borderBottom: '1px solid', borderColor: 'divider' }}
+        sx={{ mb: 3, borderBottom: '1px solid', borderColor: 'divider' }}
       >
-        <Tab label="Draft" value="draft" sx={{ minHeight: 44 }} />
-        <Tab label="Board" value="board" sx={{ minHeight: 44 }} />
+        <Tab label="Draft" value="draft" sx={MIN_TOUCH_TARGET_SX} />
+        <Tab label="Board" value="board" sx={MIN_TOUCH_TARGET_SX} />
       </Tabs>
 
       {view === 'board' ? (

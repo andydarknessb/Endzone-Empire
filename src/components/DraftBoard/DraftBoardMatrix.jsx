@@ -2,6 +2,7 @@ import React, { useId, useMemo, useRef, useState, useEffect } from 'react';
 import { Paper, Box, Chip, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from '@mui/material';
 import { keyframes } from '@mui/material/styles';
 import PositionChip from '../PlayerQuickView/PositionChip';
+import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 
 // Same technique as the matchup score flash: a CSS var color (theme-aware,
 // no hard-coded literal) that fades in and back out.
@@ -202,10 +203,11 @@ function DraftBoardMatrix({
                             onClick={() => onOpenQuickView(pick.player_id)}
                             aria-label={`Round ${round} pick ${pick.pick_number}, ${team.name}: ${pick.name}`}
                             sx={{
-                              width: '100%', minHeight: 44, display: 'flex', flexDirection: 'column',
+                              width: '100%', display: 'flex', flexDirection: 'column',
                               alignItems: 'flex-start',
                               gap: 0.5, textAlign: 'left', border: 'none', bgcolor: 'transparent', borderRadius: 1,
                               p: 0.75, cursor: 'pointer', font: 'inherit', color: 'inherit',
+                              ...MIN_TOUCH_TARGET_SX,
                               '&:hover': { bgcolor: 'action.hover' },
                               // Same shared token every other focus-visible ring
                               // uses (see base.css); the offset is negative

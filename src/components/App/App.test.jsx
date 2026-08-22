@@ -442,9 +442,8 @@ test('a pick\'em-only league at the Draft route still gets a skip link with a re
 
   const skipLink = screen.getByRole('link', { name: 'Skip to main content' });
   expect(skipLink).toHaveAttribute('href', '#draft-main-content');
-  // eslint-disable-next-line testing-library/no-node-access
-  const target = document.getElementById('draft-main-content');
-  expect(target).not.toBeNull();
+  const target = screen.getByRole('main');
+  expect(target).toHaveAttribute('id', 'draft-main-content');
   expect(target).toHaveAttribute('tabIndex', '-1');
 
   unmount();
