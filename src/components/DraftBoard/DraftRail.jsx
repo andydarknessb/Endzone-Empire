@@ -73,7 +73,7 @@ function DraftRail({
               #{pick.pick_number}
             </Typography>
             <Typography variant="body2">
-              <PlayerNameLink name={pick.name} playerId={pick.player_id} onOpen={onOpenQuickView} /> (
+              <PlayerNameLink name={pick.name} playerId={pick.player_id} onOpen={onOpenQuickView} sx={MIN_TOUCH_TARGET_SX} /> (
               {pick.position})
             </Typography>
             <Typography variant="caption" sx={{ color: 'text.secondary' }}>
@@ -147,7 +147,7 @@ function DraftRail({
                 }}
               >
                 <Typography variant="body2">
-                  {index + 1}. <PlayerNameLink name={player.name} playerId={player.id} onOpen={onOpenQuickView} /> (
+                  {index + 1}. <PlayerNameLink name={player.name} playerId={player.id} onOpen={onOpenQuickView} sx={MIN_TOUCH_TARGET_SX} /> (
                   {player.position})
                 </Typography>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -299,7 +299,13 @@ function DraftRail({
       )}
 
       {isXs ? (
-        <Accordion component="section" aria-labelledby={pickHistoryHeadingId} defaultExpanded={false}>
+        // No component="section"/aria-labelledby on the Accordion root itself:
+        // MUI's Accordion already builds its own role="region" internally,
+        // labelled from summary.props.id (Accordion.js reads the FIRST
+        // child's `id`, which is this wrapping Box, not AccordionSummary
+        // itself) - adding a second one here would nest two identically-named
+        // "Pick History" regions.
+        <Accordion defaultExpanded={false}>
           {/* The WAI-ARIA accordion pattern: a heading wraps the trigger button
               rather than sitting inside it, so "Pick History" reads as a real
               H2 landmark title even while collapsed. */}

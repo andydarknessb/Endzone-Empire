@@ -58,7 +58,15 @@ function LiveDraftBanner({ league, onTheClock, secondsLeft, isMyTurn }) {
       >
         {initialsFor(onTheClock?.name)}
       </Avatar>
-      <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+      {/* aria-live scoped to just who's-on-the-clock, not the whole banner:
+          that changes once per pick (worth announcing), while the seconds
+          countdown right after this Box changes every second - wrapping
+          that too would spam assistive tech with a per-second announcement.
+          This also restores the discoverability the old (mis-leveled) h1/h5
+          headings gave for free before #121 correctly demoted them to
+          non-headings - a screen reader is told the turn changed instead of
+          losing that signal entirely. */}
+      <Box sx={{ flexGrow: 1, minWidth: 0 }} role="status" aria-live="polite">
         <Typography
           variant="h5"
           component="div"

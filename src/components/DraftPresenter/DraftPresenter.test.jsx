@@ -47,6 +47,17 @@ test('renders a public draft board from the presenter token route', async () => 
   expect(mockPresenterGet).toHaveBeenCalledWith('/api/draft/board/share-token');
 });
 
+test('the shared DraftBoardMatrix keeps this page\'s own (pre-#121) heading level, not the Draft route\'s default H2', async () => {
+  renderWithProviders(<DraftPresenter />, { path: '/present/:token', route: '/present/share-token' });
+
+  await screen.findByRole('heading', { name: 'Sunday Ballers' });
+  // This page's own hierarchy (h1 the league name, h3 on-the-clock status,
+  // h4 Recent picks) has no h2 in it; DraftBoardMatrix's title stays out of
+  // that chain entirely rather than defaulting into the middle of it.
+  expect(screen.getByRole('heading', { name: 'Draft Board', level: 6 })).toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: 'Draft Board', level: 2 })).not.toBeInTheDocument();
+});
+
 test('polls the public board every five seconds', async () => {
   jest.useFakeTimers();
   renderWithProviders(<DraftPresenter />, { path: '/present/:token', route: '/present/share-token' });

@@ -64,7 +64,15 @@ function useFlashKey(value) {
  * client-side re-derivation of snake order is needed to place a landed pick,
  * only to know the round a pick_number falls in (ceil(pick_number / teamCount)).
  */
-function DraftBoardMatrix({ teams, picks, onTheClock, draftRounds, onOpenQuickView, readOnly = false }) {
+function DraftBoardMatrix({
+  teams, picks, onTheClock, draftRounds, onOpenQuickView, readOnly = false,
+  // Shared with DraftPresenter.jsx and the mock draft simulator, each with
+  // their own heading hierarchy - defaults to h2 for this issue's target
+  // (DraftBoard.jsx, directly under the page's H1), overridable so a caller
+  // with a different structure isn't forced to accept a level that creates
+  // its own skipped-level problem.
+  titleComponent = 'h2',
+}) {
   const headingId = useId();
   const orderedTeams = useMemo(
     () => [...teams].sort((a, b) => (a.draft_position ?? Infinity) - (b.draft_position ?? Infinity)),
@@ -105,7 +113,7 @@ function DraftBoardMatrix({ teams, picks, onTheClock, draftRounds, onOpenQuickVi
   if (teamCount === 0) {
     return (
       <Paper component="section" aria-labelledby={headingId} sx={{ p: 2 }}>
-        <Typography id={headingId} variant="h6" component="h2" sx={{ mb: 1 }}>
+        <Typography id={headingId} variant="h6" component={titleComponent} sx={{ mb: 1 }}>
           Draft Board
         </Typography>
         <Typography variant="body2" sx={{ color: 'text.secondary' }}>
@@ -119,7 +127,7 @@ function DraftBoardMatrix({ teams, picks, onTheClock, draftRounds, onOpenQuickVi
 
   return (
     <Paper component="section" aria-labelledby={headingId} sx={{ p: 2 }}>
-      <Typography id={headingId} variant="h6" component="h2" sx={{ mb: 2 }}>
+      <Typography id={headingId} variant="h6" component={titleComponent} sx={{ mb: 2 }}>
         Draft Board
       </Typography>
       <TableContainer sx={{ overflowX: 'auto' }}>

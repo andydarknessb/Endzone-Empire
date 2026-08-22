@@ -294,7 +294,7 @@ function DraftBoard() {
 
   if (loading) {
     return (
-      <Container component="main" id={DRAFT_MAIN_ID} tabIndex={-1} maxWidth="xl" sx={{ py: 4, outline: 'none' }} data-testid="page-skeleton">
+      <Container component="main" id={DRAFT_MAIN_ID} tabIndex={-1} maxWidth="xl" sx={{ py: 4 }} data-testid="page-skeleton">
         <Skeleton variant="text" width={280} height={48} sx={{ mb: 2 }} />
         <Skeleton variant="rounded" height={56} sx={{ mb: 3 }} />
         <Grid container spacing={3}>
@@ -375,7 +375,7 @@ function DraftBoard() {
       tabIndex={-1}
       aria-labelledby={DRAFT_H1_ID}
       maxWidth="xl"
-      sx={{ py: 4, outline: 'none' }}
+      sx={{ py: 4 }}
     >
       <LeagueBreadcrumb />
       {(error || socketError) && (

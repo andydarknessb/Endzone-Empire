@@ -62,7 +62,11 @@ const DraftSimScreen = lazy(() => import('../DraftSim/DraftSimScreen'));
 // as a narrow, route-scoped check rather than a site-wide skip link: the
 // #draft-main-content landmark it points at only exists on this one route
 // today (see DraftBoard.jsx). Broader coverage is parent-spec #108 territory.
-const DRAFT_ROUTE_PATTERN = /^\/league\/[^/]+\/draft$/;
+// Trailing slash is optional to match how react-router itself matches this
+// route (matchPath ignores a trailing "/" when `end` is true, the default
+// for a route with no children) - without the `\/?`, a stray trailing slash
+// would mount DraftBoard while this regex silently failed to match it.
+const DRAFT_ROUTE_PATTERN = /^\/league\/[^/]+\/draft\/?$/;
 
 // HashRouter reads the URL's #fragment as the app's OWN route, so a plain
 // `href="#draft-main-content"` skip link would make the browser's native
@@ -155,7 +159,7 @@ function App() {
           <Route path="/league/:leagueId" element={<ProtectedRoute><LeagueDashboard /></ProtectedRoute>} />
           <Route path="/league/:leagueId/matchups/:matchupId" element={<ProtectedRoute><FantasyOnly><MatchupDetail /></FantasyOnly></ProtectedRoute>} />
           <Route path="/league/:leagueId/game-center" element={<ProtectedRoute><FantasyOnly><GameCenter /></FantasyOnly></ProtectedRoute>} />
-          <Route path="/league/:leagueId/draft" element={<ProtectedRoute><FantasyOnly><DraftBoard /></FantasyOnly></ProtectedRoute>} />
+          <Route path="/league/:leagueId/draft" element={<ProtectedRoute><FantasyOnly mainContentId="draft-main-content"><DraftBoard /></FantasyOnly></ProtectedRoute>} />
           <Route path="/league/:leagueId/draft-settings" element={<ProtectedRoute><FantasyOnly><DraftSettings /></FantasyOnly></ProtectedRoute>} />
           <Route path="/league/:leagueId/rules" element={<ProtectedRoute><LeagueRules /></ProtectedRoute>} />
           <Route path="/league/:leagueId/pickem" element={<ProtectedRoute><LeaguePickem /></ProtectedRoute>} />

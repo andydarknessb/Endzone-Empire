@@ -416,6 +416,41 @@ test('a non-Draft route renders no skip link (this increment is scoped to the Dr
   expect(screen.queryByRole('link', { name: 'Skip to main content' })).not.toBeInTheDocument();
 });
 
+test('a trailing slash on the Draft route still gets the skip link, matching how react-router itself matches the route', async () => {
+  renderApp('#/league/1/draft/', { user: loggedIn }, () => {
+    apiClient.get.mockResolvedValue({ data: { players: [], totalPages: 1 } });
+  });
+  expect(await screen.findByText('Draft Board')).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Skip to main content' })).toBeInTheDocument();
+});
+
+test('a pick\'em-only league at the Draft route still gets a skip link with a real target (FantasyOnly blocks DraftBoard there)', async () => {
+  // A league id no other test in this file touches, so this test's cached
+  // verdict can't leak into (or be leaked into by) anything else here.
+  clearLeagueCache();
+  const { unmount } = renderApp('#/league/88/draft', { user: loggedIn }, () => {
+    apiClient.get.mockImplementation((url) => {
+      if (url === '/api/league/88') {
+        return Promise.resolve({ data: { league: { id: 88, name: 'Office Pool', pickem_only: true }, teams: [] } });
+      }
+      return Promise.resolve({ data: [] });
+    });
+  });
+  expect(
+    await screen.findByText("This is a pick'em league. Drafts, rosters, and matchups are not part of it.")
+  ).toBeInTheDocument();
+
+  const skipLink = screen.getByRole('link', { name: 'Skip to main content' });
+  expect(skipLink).toHaveAttribute('href', '#draft-main-content');
+  // eslint-disable-next-line testing-library/no-node-access
+  const target = document.getElementById('draft-main-content');
+  expect(target).not.toBeNull();
+  expect(target).toHaveAttribute('tabIndex', '-1');
+
+  unmount();
+  clearLeagueCache();
+});
+
 test('dispatches FETCH_USER on mount', () => {
   const { store } = renderApp('#/about', { user: loggedOut });
   expect(store.getActions()).toContainEqual({ type: 'FETCH_USER' });

@@ -768,13 +768,10 @@ test.describe('accessible structure: skip link, landmarks, headings', () => {
 
     // Real Tab presses (not a scripted .focus()) so both the browser's native
     // :focus-visible and MUI ButtonBase's own focus-visible polyfill actually
-    // engage, exactly like a real keyboard user tabbing through the page: the
-    // skip link, Nav's brand/link/search/bell/theme controls, the breadcrumb,
-    // the settings gear, the sound toggle, and into the player pool - a plain
-    // MUI IconButton (the shared MuiButtonBase-focusVisible override) and a
-    // plain-DOM control with no ButtonBase behind it at all (the player-name
-    // quick-view link) both included, so a still-bespoke style anywhere in
-    // that stretch would surface as a second distinct color below.
+    // engage, exactly like a real keyboard user tabbing through the page:
+    // the skip link, then Nav's brand/link/search/bell/theme controls -
+    // enough of them to prove the shared token holds across that stretch
+    // without needing to tab all the way into the (much longer) player pool.
     await page.locator('body').click({ position: { x: 5, y: 5 } });
     const outlineColors = new Set<string>();
     for (let i = 0; i < 14; i += 1) {
@@ -791,7 +788,20 @@ test.describe('accessible structure: skip link, landmarks, headings', () => {
     }
 
     expect(outlineColors.size).toBeGreaterThan(0);
-    expect([...outlineColors]).toEqual([[...outlineColors][0]]); // every visible ring is the SAME color
+    const [sharedColor] = outlineColors;
+    expect([...outlineColors]).toEqual([sharedColor]); // every visible ring so far is the SAME color
+
+    // PlayerNameLink (issue #121 finding): a plain MUI `Link
+    // component="button"`, not a ButtonBase - MuiButtonBase's
+    // Mui-focusVisible override above never touches it, and Link bakes in
+    // its own `outline: 0` / `outline: auto` rules that would otherwise win
+    // over the global :focus-visible fallback. Confirms its explicit
+    // override still resolves to the exact same token, not just a similar
+    // color.
+    const nameLink = page.getByRole('button', { name: 'Bijan Robinson' }).first();
+    await nameLink.focus();
+    const nameLinkOutline = await nameLink.evaluate((el) => getComputedStyle(el).outlineColor);
+    expect(nameLinkOutline).toBe(sharedColor);
   });
 });
 

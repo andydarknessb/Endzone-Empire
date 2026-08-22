@@ -143,7 +143,25 @@ function PlayerPoolTable({
                 size="small"
                 aria-label="Clear search"
                 onClick={() => onSearchInputChange('')}
-                sx={MIN_TOUCH_TARGET_SX}
+                sx={{
+                  // Growing this button's own box to 44x44 (like everywhere
+                  // else) would grow with it - the small TextField it lives
+                  // inside as an endAdornment, taller than the Position/Bye
+                  // week Selects sitting next to it in the same filter row.
+                  // Keep the visible button MUI's normal small size and
+                  // expand only the invisible hit area via ::after instead -
+                  // the WCAG-sanctioned "target offset" technique (SC 2.5.8).
+                  position: 'relative',
+                  '&::after': {
+                    content: '""',
+                    position: 'absolute',
+                    top: '50%',
+                    left: '50%',
+                    transform: 'translate(-50%, -50%)',
+                    width: 44,
+                    height: 44,
+                  },
+                }}
               >
                 <CloseIcon fontSize="small" />
               </IconButton>
@@ -316,7 +334,7 @@ function PlayerPoolTable({
                 <TableRow key={player.id}>
                   <TableCell>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <PlayerNameLink name={player.name} playerId={player.id} onOpen={onOpenQuickView} />
+                      <PlayerNameLink name={player.name} playerId={player.id} onOpen={onOpenQuickView} sx={MIN_TOUCH_TARGET_SX} />
                       <InjuryBadge status={player.injury_status} detail={player.injury_detail} />
                       {isDrafted && <Chip size="small" label="Drafted" color="default" />}
                     </Box>

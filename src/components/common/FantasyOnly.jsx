@@ -18,14 +18,26 @@ import { isPickemOnly } from '../../lib/leagueType';
  * request. The verdict waits for the row rather than rendering the page
  * optimistically; if the row cannot be loaded at all the page renders and
  * reports the failure itself, the same way it would without this wrapper.
+ *
+ * `mainContentId` is optional and opt-in: pass it only from a route whose
+ * skip link targets that id (today, just the Draft route - see App.jsx),
+ * so the skip link still has something real to focus on the loading and
+ * pick'em-blocked renders below, not only once `children` (e.g. DraftBoard)
+ * actually mounts. Every other FantasyOnly caller omits it and is unaffected.
  */
-export default function FantasyOnly({ children }) {
+export default function FantasyOnly({ children, mainContentId }) {
   const { leagueId } = useParams();
   const { league, loading } = useLeague(leagueId);
+  const mainContentProps = mainContentId ? { id: mainContentId, tabIndex: -1 } : {};
 
   if (!league && loading) {
     return (
-      <Box role="status" aria-label="Loading league" sx={{ py: 8, textAlign: 'center' }}>
+      <Box
+        role="status"
+        aria-label="Loading league"
+        sx={{ py: 8, textAlign: 'center' }}
+        {...mainContentProps}
+      >
         <CircularProgress />
       </Box>
     );
@@ -34,7 +46,7 @@ export default function FantasyOnly({ children }) {
   if (!isPickemOnly(league)) return children;
 
   return (
-    <Container maxWidth="sm" sx={{ py: 6 }}>
+    <Container maxWidth="sm" sx={{ py: 6 }} {...mainContentProps}>
       <Paper sx={{ p: { xs: 3, sm: 4 }, textAlign: 'center' }}>
         <Typography variant="h5" sx={{ mb: 1 }}>Not part of this league</Typography>
         <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
