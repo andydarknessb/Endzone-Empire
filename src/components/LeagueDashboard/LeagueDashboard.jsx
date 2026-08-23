@@ -133,6 +133,7 @@ function LeagueDashboard() {
   const {
     league,
     teams,
+    viewerTeamId,
     loading: leagueLoading,
     error: leagueError,
     refetch,
@@ -645,7 +646,7 @@ function LeagueDashboard() {
           leagueId={leagueId}
           league={league}
           teams={teams}
-          user={user}
+          viewerTeamId={viewerTeamId}
           isOwner={isOwner}
           onRefresh={refresh}
         />

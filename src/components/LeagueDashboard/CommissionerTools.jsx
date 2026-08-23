@@ -255,7 +255,7 @@ function CoCommissionerCard({ leagueId, league, teams, onRefresh, notify }) {
   );
 }
 
-function GeneralSettingsPanel({ leagueId, league, teams, user, isOwner, onRefresh, notify }) {
+function GeneralSettingsPanel({ leagueId, league, teams, viewerTeamId, isOwner, onRefresh, notify }) {
   const [sizeMin, setSizeMin] = useState(league.min_teams ?? '');
   const [sizeMax, setSizeMax] = useState(league.max_teams ?? '');
   const [removeTarget, setRemoveTarget] = useState(null);
@@ -330,7 +330,11 @@ function GeneralSettingsPanel({ leagueId, league, teams, user, isOwner, onRefres
     }
   };
 
-  const removableTeams = teams.filter((team) => team.owner !== user.username);
+  // "Which of these is me" is always a Team ID comparison against the
+  // viewer-relative field (CONTEXT.md, Team identity), never a username or an
+  // owner-user-ID: both leave league-shared payloads under #115, and a
+  // username can change out from under a stale comparison anyway (#185).
+  const removableTeams = teams.filter((team) => team.id !== viewerTeamId);
   // A pick'em-only league has no adds, drops, waivers or trades to lock, no
   // draft to freeze team limits behind, and its rollover lives on its own
   // Season tab. Phase comes from the league row alone: the same row every
@@ -1546,7 +1550,7 @@ function PickemSeasonPanel({ leagueId, league, onRefresh, notify }) {
 const FANTASY_TABS = ['general', 'roster', 'scoring', 'playoffs', 'waivers', 'overrides'];
 const PICKEM_TABS = ['general', 'season'];
 
-function CommissionerTools({ leagueId, league, teams, user, isOwner = true, onRefresh }) {
+function CommissionerTools({ leagueId, league, teams, viewerTeamId, isOwner = true, onRefresh }) {
   const notify = useSnackbar();
   const [selectedTab, setTab] = useState('general');
   // A pick'em-only league has no roster, scoring, schedule, waiver or matchup
@@ -1587,7 +1591,7 @@ function CommissionerTools({ leagueId, league, teams, user, isOwner = true, onRe
       <Box sx={{ p: 2 }}>
         {tab === 'general' && (
           <GeneralSettingsPanel
-            leagueId={leagueId} league={league} teams={teams} user={user} isOwner={isOwner}
+            leagueId={leagueId} league={league} teams={teams} viewerTeamId={viewerTeamId} isOwner={isOwner}
             onRefresh={onRefresh} notify={notify}
           />
         )}
