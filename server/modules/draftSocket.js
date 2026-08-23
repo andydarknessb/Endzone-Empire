@@ -86,12 +86,15 @@ function attachDraftSocket(httpServer) {
       }
       const text = message.trim().slice(0, 500);
       try {
+        // Read the author's Team BEFORE the insert: a lookup that failed
+        // after it would leave the message persisted but never broadcast,
+        // and tell the sender it failed.
+        const authorTeam = await lookupTeam(pool, { leagueId, userId: socket.user.id });
         const result = await pool.query(
           `INSERT INTO "chat_messages" ("league_id", "user_id", "message")
            VALUES ($1, $2, $3) RETURNING "id", "created_at"`,
           [leagueId, socket.user.id, text]
         );
-        const authorTeam = await lookupTeam(pool, { leagueId, userId: socket.user.id });
         io.to(`league:${leagueId}`).emit('chat:message', chatMessagePayload({
           id: result.rows[0].id,
           leagueId,
