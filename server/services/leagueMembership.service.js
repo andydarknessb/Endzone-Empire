@@ -20,7 +20,12 @@
  * this manager may join this joinable league right now (not already a
  * member, league not full), is `assertAdmissible`: the same rule on every
  * path, decided when the Team is created, never when a request was filed.
- * The default team name lives here and nowhere else.
+ * Team-name validation (#111) lives here and nowhere else: every path must
+ * supply a trimmed 1-120 character name, checked after admission (a refused
+ * join never surfaces a name complaint instead of the real reason) and
+ * before the insert. There is no default name to fall back to any more:
+ * a manager's account identifier must never stand in for one (Team identity,
+ * CONTEXT.md).
  *
  * `draft_position` is a provisional arrival order (team count + 1 at join
  * time) and nothing more: no unique constraint, every reader sorts
@@ -37,6 +42,7 @@
  */
 const { joinability, joinRefusalMessage } = require('./leaguePhase');
 const { isFull } = require('./leagueSize');
+const { validateTeamName } = require('./teamName');
 
 class MembershipError extends Error {
   constructor(statusCode, message, { reason } = {}) {
@@ -100,13 +106,14 @@ async function assertAdmissible(client, league, userId) {
 
 /**
  * The membership write: `userId` joins `leagueId` with a Team named
- * `teamName`, or the default. Locks the league row (a no-op when the
- * caller's transaction already holds it), checks admission, and inserts the
- * Team at the next arrival position. A unique violation from the insert is
- * the already-a-member refusal: a racing join got there first. Returns
+ * `teamName`, a required trimmed 1-120 character name (validateTeamName).
+ * Locks the league row (a no-op when the caller's transaction already holds
+ * it), checks admission, validates the name, and inserts the Team at the
+ * next arrival position. A unique violation from the insert is the
+ * already-a-member refusal: a racing join got there first. Returns
  * `{ league, team }`. The caller owns BEGIN/COMMIT/ROLLBACK.
  */
-async function joinLeague(client, { leagueId, userId, teamName, username }) {
+async function joinLeague(client, { leagueId, userId, teamName }) {
   const leagueResult = await client.query(
     `SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
     [leagueId]
@@ -115,12 +122,15 @@ async function joinLeague(client, { leagueId, userId, teamName, username }) {
   if (!league) throw new MembershipError(404, 'league not found');
   const { teamCount } = await assertAdmissible(client, league, userId);
 
+  const { value: name, error: nameError } = validateTeamName(teamName);
+  if (nameError) throw new MembershipError(400, nameError);
+
   let teamResult;
   try {
     teamResult = await client.query(
       `INSERT INTO "teams" ("league_id", "owner_id", "name", "draft_position")
        VALUES ($1, $2, $3, $4) RETURNING *`,
-      [leagueId, userId, teamName || `${username}'s Team`, teamCount + 1]
+      [leagueId, userId, name, teamCount + 1]
     );
   } catch (error) {
     if (error.code === '23505') throw new MembershipError(409, ALREADY_A_MEMBER);

@@ -9,6 +9,7 @@ const { SCORING_PRESETS } = require('./scoring.service');
 const { MODES: PICKEM_MODES } = require('./pickem.service');
 const { commissionerPredicate } = require('./leagueRole.service');
 const { assertAdmissible, joinLeague } = require('./leagueMembership.service');
+const { validateTeamName } = require('./teamName');
 const { joinability, joinableWhereSql } = require('./leaguePhase');
 const { pickemOnlyWhereSql, fantasySideWhereSql } = require('./leagueType');
 const { isFull, hasOpenSlotsHavingSql } = require('./leagueSize');
@@ -272,7 +273,11 @@ async function previewLeagueByInviteCode({ code, userId }) {
  * notifies the owner. Runs inside one transaction with the league row
  * locked. Being public is this path's gate; admission and the Team itself
  * are the membership module's (leagueMembership.joinLeague), as on every
- * join path.
+ * join path. A required Team name (#111) is validated on both branches: the
+ * immediate branch inside joinLeague itself, the pending branch here (a
+ * filed request must already carry a valid name -- decideJoinRequest
+ * validates again when it later calls joinLeague, but nothing should ever
+ * get that far with an invalid one).
  */
 async function joinPublicLeague({ leagueId, userId, username, teamName }) {
   const client = await pool.connect();
@@ -288,18 +293,25 @@ async function joinPublicLeague({ leagueId, userId, username, teamName }) {
       // keeps a member, or a manager facing a full or closed league, from
       // filing a request that could never be approved.
       await assertAdmissible(client, league, userId);
+      const { value: name, error: nameError } = validateTeamName(teamName);
+      if (nameError) throw new DiscoveryError(400, nameError);
+      // 'denied' resubmits normally; 'cancelled' (#111: a legacy pending
+      // request the Team-name migration cancelled outright rather than
+      // defaulting) resubmits the same way -- a manager files a fresh,
+      // validated request rather than being stuck forever on a request the
+      // migration refused to silently repair.
       const upsert = await client.query(
         `INSERT INTO "join_requests" ("league_id", "user_id", "team_name", "status")
          VALUES ($1, $2, $3, 'pending')
          ON CONFLICT ("league_id", "user_id")
          DO UPDATE SET "status" = 'pending', "team_name" = EXCLUDED."team_name", "updated_at" = now()
-         WHERE "join_requests"."status" = 'denied'
+         WHERE "join_requests"."status" IN ('denied', 'cancelled')
          RETURNING *`,
-        [leagueId, userId, teamName || null]
+        [leagueId, userId, name]
       );
       let joinRequest = upsert.rows[0];
       if (!joinRequest) {
-        // Conflict existed but wasn't 'denied' (already pending) — surface as-is
+        // Conflict existed but wasn't denied/cancelled (already pending): surface as-is
         const existing = await client.query(
           `SELECT * FROM "join_requests" WHERE "league_id" = $1 AND "user_id" = $2`,
           [leagueId, userId]
@@ -320,7 +332,7 @@ async function joinPublicLeague({ leagueId, userId, username, teamName }) {
       return { pending: true, joinRequest };
     }
 
-    const { team } = await joinLeague(client, { leagueId, userId, teamName, username });
+    const { team } = await joinLeague(client, { leagueId, userId, teamName });
     await client.query('COMMIT');
     return { pending: false, league, team };
   } catch (error) {
@@ -393,9 +405,7 @@ async function decideJoinRequest({ leagueId, ownerId, requestId, approve }) {
     // request was filed: a pending request cannot slip a team into a league
     // that has since stopped being joinable or filled up, nor a second Team
     // to a requester who joined another way meanwhile.
-    await joinLeague(client, {
-      leagueId, userId: joinRequest.user_id, teamName: joinRequest.team_name, username: joinRequest.username,
-    });
+    await joinLeague(client, { leagueId, userId: joinRequest.user_id, teamName: joinRequest.team_name });
     await client.query(
       `UPDATE "join_requests" SET "status" = 'approved', "updated_at" = now() WHERE "id" = $1`,
       [joinRequest.id]

@@ -38,9 +38,11 @@ function LeagueManagement() {
   const [leagues, setLeagues] = useState([]);
   const [activeTab, setActiveTab] = useState('create');
   const [leagueName, setLeagueName] = useState('');
+  const [teamName, setTeamName] = useState('');
   const [maxTeams, setMaxTeams] = useState(10);
   const [minTeams, setMinTeams] = useState(8);
   const [inviteCode, setInviteCode] = useState('');
+  const [joinTeamName, setJoinTeamName] = useState('');
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
   const [newLeagueOpen, setNewLeagueOpen] = useState(false);
@@ -162,6 +164,7 @@ function LeagueManagement() {
       // defaults it to the floor).
       const payload = {
         name: leagueName,
+        teamName: teamName.trim(),
         maxTeams: Number(maxTeams),
       };
       if (includesFantasy(leagueType)) payload.minTeams = Number(minTeams);
@@ -174,6 +177,7 @@ function LeagueManagement() {
       setNotice(`League created! Invite code: ${response.data.invite_code}`);
       notify('League created!');
       setLeagueName('');
+      setTeamName('');
       setMaxTeams(10);
       setMinTeams(8);
       setLeagueType(LEAGUE_TYPE.FANTASY);
@@ -197,10 +201,11 @@ function LeagueManagement() {
     event.preventDefault();
     setError(null);
     try {
-      await apiClient.post('/api/league/join', { inviteCode: inviteCode.trim() });
+      await apiClient.post('/api/league/join', { inviteCode: inviteCode.trim(), teamName: joinTeamName.trim() });
       setNotice('Joined league!');
       notify('Joined league!');
       setInviteCode('');
+      setJoinTeamName('');
       setNewLeagueOpen(false);
       fetchLeagues();
     } catch (err) {
@@ -260,6 +265,10 @@ function LeagueManagement() {
           <Stack spacing={2}>
             <TextField label="League name" size="small" required
               value={leagueName} onChange={(e) => setLeagueName(e.target.value)} />
+            <TextField label="Team name" size="small" required
+              inputProps={{ maxLength: 120 }}
+              helperText="Your Team's identity in this league. Other managers never see your account email or username."
+              value={teamName} onChange={(e) => setTeamName(e.target.value)} />
 
             <LeagueTypeFields
               leagueType={leagueType}
@@ -386,6 +395,10 @@ function LeagueManagement() {
           <Stack spacing={2}>
             <TextField label="Invite code" size="small" required
               value={inviteCode} onChange={(e) => setInviteCode(e.target.value)} />
+            <TextField label="Team name" size="small" required
+              inputProps={{ maxLength: 120 }}
+              helperText="Your Team's identity in this league. Other managers never see your account email or username."
+              value={joinTeamName} onChange={(e) => setJoinTeamName(e.target.value)} />
             {preview && preview.code === trimmedInviteCode && (
               <Paper variant="outlined" sx={{ p: 1.5 }} data-testid="invite-preview">
                 <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{preview.name}</Typography>

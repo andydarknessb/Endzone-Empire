@@ -103,11 +103,13 @@ test('creating a league posts the form data and shows the returned invite code',
   await openNewLeague();
 
   await userEvent.type(screen.getByLabelText(/League name/), 'Monday Mayhem');
+  await userEvent.type(screen.getByLabelText(/Team name/), 'Monday Mavericks');
   await userEvent.click(screen.getByRole('button', { name: 'Create League' }));
 
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/league', {
       name: 'Monday Mayhem',
+      teamName: 'Monday Mavericks',
       maxTeams: 10,
       minTeams: 8,
       leagueType: 'fantasy',
@@ -126,6 +128,7 @@ test('creating a league surfaces the server error on failure', async () => {
   await openNewLeague();
 
   await userEvent.type(screen.getByLabelText(/League name/), 'Dup League');
+  await userEvent.type(screen.getByLabelText(/Team name/), 'Dup Squad');
   await userEvent.click(screen.getByRole('button', { name: 'Create League' }));
 
   expect(await screen.findByText('name already taken')).toBeInTheDocument();
@@ -166,11 +169,13 @@ test('creating a league only sends the new optional fields the user actually set
   await openNewLeague();
 
   await userEvent.type(screen.getByLabelText(/League name/), 'Plain League');
+  await userEvent.type(screen.getByLabelText(/Team name/), 'Plain Squad');
   await userEvent.click(screen.getByRole('button', { name: 'Create League' }));
 
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/league', {
       name: 'Plain League',
+      teamName: 'Plain Squad',
       maxTeams: 10,
       minTeams: 8,
       leagueType: 'fantasy',
@@ -202,8 +207,10 @@ test('creating a public, approval-required, best-ball, PPR league with a draft d
     await openNewLeague(user);
 
     // Typing semantics (per-keystroke state) aren't under test here, only
-    // the posted value, so a single change event stands in for 21 keystrokes.
+    // the posted value, so a single change event stands in for real
+    // keystrokes on both name fields.
     fireEvent.change(screen.getByLabelText(/League name/), { target: { value: 'Full Featured League' } });
+    fireEvent.change(screen.getByLabelText(/Team name/), { target: { value: 'Full Featured Squad' } });
     // These are plain click-to-toggle native inputs (MUI Switch/Checkbox) or
     // a button whose handler only cares about the click, not pointer
     // semantics like hover/press timing, so fireEvent.click stands in for
@@ -226,6 +233,7 @@ test('creating a public, approval-required, best-ball, PPR league with a draft d
     await waitFor(() =>
       expect(apiClient.post).toHaveBeenCalledWith('/api/league', {
         name: 'Full Featured League',
+        teamName: 'Full Featured Squad',
         maxTeams: 10,
         minTeams: 8,
         leagueType: 'fantasy',
@@ -254,10 +262,11 @@ test('joining a league posts the trimmed invite code', async () => {
 
   await userEvent.click(screen.getByRole('tab', { name: 'Join League' }));
   await userEvent.type(screen.getByLabelText(/Invite code/), '  xyz789  ');
+  await userEvent.type(screen.getByLabelText(/Team name/), 'Joiner FC');
   await userEvent.click(screen.getByRole('button', { name: 'Join League' }));
 
   await waitFor(() =>
-    expect(apiClient.post).toHaveBeenCalledWith('/api/league/join', { inviteCode: 'xyz789' })
+    expect(apiClient.post).toHaveBeenCalledWith('/api/league/join', { inviteCode: 'xyz789', teamName: 'Joiner FC' })
   );
   expect(await screen.findByText('Joined league!')).toBeInTheDocument();
 });
@@ -319,6 +328,7 @@ test("creating an NFL pick'em league hides the fantasy fields and sends leagueTy
 
   expect(screen.getByRole('radio', { name: /Fantasy football league/ })).toBeChecked();
   await userEvent.type(screen.getByLabelText(/League name/), 'Office Pool');
+  await userEvent.type(screen.getByLabelText(/Team name/), 'Office Champs');
   // Fantasy-only state set BEFORE the switch must not leak into the payload.
   fireEvent.change(screen.getByLabelText('Draft date'), { target: { value: '2026-09-04T13:00' } });
   await userEvent.click(screen.getByRole('radio', { name: /NFL pick'em league/ }));
@@ -340,6 +350,7 @@ test("creating an NFL pick'em league hides the fantasy fields and sends leagueTy
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/league', {
       name: 'Office Pool',
+      teamName: 'Office Champs',
       maxTeams: 40,
       leagueType: 'pickem',
       pickemMode: 'straight',
@@ -357,6 +368,7 @@ test("choosing Both keeps the fantasy fields, caps teams at 20, and sends the ch
   await openNewLeague();
 
   await userEvent.type(screen.getByLabelText(/League name/), 'Everything League');
+  await userEvent.type(screen.getByLabelText(/Team name/), 'Everything Squad');
   await userEvent.click(screen.getByRole('radio', { name: /^Both/ }));
   await userEvent.click(screen.getByRole('radio', { name: /Confidence/ }));
   expect(screen.getByLabelText('Scoring')).toBeInTheDocument();
@@ -370,6 +382,7 @@ test("choosing Both keeps the fantasy fields, caps teams at 20, and sends the ch
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/league', {
       name: 'Everything League',
+      teamName: 'Everything Squad',
       maxTeams: 10,
       minTeams: 8,
       leagueType: 'both',
@@ -388,6 +401,7 @@ test("switching back from pick'em keeps min teams inside the re-capped max", asy
   await openNewLeague();
 
   await userEvent.type(screen.getByLabelText(/League name/), 'Small League');
+  await userEvent.type(screen.getByLabelText(/Team name/), 'Small Squad');
   await userEvent.click(screen.getByRole('radio', { name: /NFL pick'em league/ }));
   await userEvent.click(screen.getByRole('button', { name: /advanced settings/i }));
   const maxTeams = screen.getByLabelText('Max teams');
@@ -402,6 +416,7 @@ test("switching back from pick'em keeps min teams inside the re-capped max", asy
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/league', {
       name: 'Small League',
+      teamName: 'Small Squad',
       maxTeams: 3,
       minTeams: 3,
       leagueType: 'both',
@@ -485,9 +500,10 @@ test('a failed preview (unknown code) shows no card and leaves Join usable', asy
   await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/preview?code=deadbeef'));
   expect(screen.queryByTestId('invite-preview')).not.toBeInTheDocument();
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  await userEvent.type(screen.getByLabelText(/Team name/), 'Late Entry');
   await userEvent.click(screen.getByRole('button', { name: 'Join League' }));
   await waitFor(() =>
-    expect(apiClient.post).toHaveBeenCalledWith('/api/league/join', { inviteCode: 'deadbeef' })
+    expect(apiClient.post).toHaveBeenCalledWith('/api/league/join', { inviteCode: 'deadbeef', teamName: 'Late Entry' })
   );
 });
 
