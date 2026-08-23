@@ -29,6 +29,7 @@ import apiClient from '../../api/apiClient';
 import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../lib/teamProfileEvents';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import { useLeague } from '../../hooks/useLeague';
+import { isLeagueCreator } from '../../lib/teamIdentity';
 import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import TradeProposalCard from './TradeProposalCard';
@@ -398,8 +399,7 @@ function TradeCenter() {
   const theirRoster = rosters.find((r) => r.teamId === selectedTeamId);
   // The creator's Team against the reader's own, both from league detail
   // (#113): the same question as before, with no account id in the client.
-  const isCommissioner = !!(league && (league.is_commissioner
-    || (viewerTeamId != null && league.ownerTeamId === viewerTeamId)));
+  const isCommissioner = !!(league && (league.is_commissioner || isLeagueCreator(league, viewerTeamId)));
 
   const pendingTrades = (trades || []).filter((t) => ACTIVE_STATUSES.has(t.status));
   const completedTrades = (trades || []).filter((t) => !ACTIVE_STATUSES.has(t.status));

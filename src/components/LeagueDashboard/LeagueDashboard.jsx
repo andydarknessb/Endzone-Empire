@@ -54,6 +54,7 @@ import AbbreviationTooltip from '../common/AbbreviationTooltip';
 import { deriveLeaguePhase, isSeasonLive, LEAGUE_PHASE, LEAGUE_PHASE_META } from '../../lib/leaguePhase';
 import { isPickemOnly } from '../../lib/leagueType';
 import draftRosterSize, { draftRounds } from '../../lib/rosterShape';
+import { isLeagueCreator } from '../../lib/teamIdentity';
 
 // The fantasy header's season chip, worded by phase once the draft is done.
 // (A pick'em-only header uses LEAGUE_PHASE_META instead: it has no playoffs.)
@@ -295,11 +296,9 @@ function LeagueDashboard() {
   //
   // Asked through the viewer-relative contract (#113): the league names its
   // creator's Team, and the response root names the reader's own, so this is
-  // the same question it always was without any account id passing through the
-  // client. Membership gates this response, so a reader always holds a Team
-  // here, and a league whose creator has left it answers ownerTeamId null,
-  // which matches nobody rather than everybody.
-  const isOwner = viewerTeamId != null && league.ownerTeamId === viewerTeamId;
+  // the same question it always was without any account id passing through
+  // the client.
+  const isOwner = isLeagueCreator(league, viewerTeamId);
   const isCommissioner = !!league.is_commissioner || isOwner;
   // Below the configured minimum, the draft can't start yet (min_teams may be
   // absent in older data â€” treat that as no gate).

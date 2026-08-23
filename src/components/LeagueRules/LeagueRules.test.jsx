@@ -190,12 +190,13 @@ describe('LeagueRules', () => {
     expect(await screen.findByText('Former manager · co-commissioner')).toBeInTheDocument();
   });
 
-  it('says nothing at all rather than a bare label when no official has a Team', async () => {
-    mockRequests({ leagueRow: league({ ownerTeamName: null, co_commissioners: [] }) });
+  it('names a commissioner who has left their own league as a former manager', async () => {
+    // A league always has a creator, so dropping the chip when they have no
+    // Team would leave a league whose rules nobody appears able to change.
+    mockRequests({ leagueRow: league({ ownerTeamId: null, ownerTeamName: null, co_commissioners: [] }) });
     renderPage();
 
-    await screen.findByRole('region', { name: 'Passing' });
-    expect(screen.queryByText('Who can change these:')).not.toBeInTheDocument();
+    expect(await screen.findByText('Former manager · commissioner')).toBeInTheDocument();
   });
 
   it('offers a retry when the league request fails', async () => {

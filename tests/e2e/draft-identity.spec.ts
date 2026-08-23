@@ -25,7 +25,7 @@ import {
   ACTIVE_STATE,
   COMPLETE_STATE,
   ACTIVE_PICKS,
-  COMPLETE_PICKS_WITH_DEPARTED_MANAGER,
+  COMPLETE_PICKS_WITH_NULL_TEAM,
   FIXTURE_USER,
 } from './fixtures/draftFixtures';
 
@@ -130,11 +130,13 @@ test.describe('Team identity', () => {
     await expectNoAccountIdentity(page);
   });
 
-  test('complete: a Pick left by a departed manager reads as a former manager', async ({ page }) => {
-    // The server's joins are LEFT on purpose, so this record survives its
-    // manager leaving the league and reads back with no Team identity at all.
-    // It is named rather than left blank, and never printed as "null".
-    const state = { ...COMPLETE_STATE, picks: COMPLETE_PICKS_WITH_DEPARTED_MANAGER };
+  test('complete: a Pick with no Team identity reads as a former manager', async ({ page }) => {
+    // The rendering rule, not a payload the server produces today: the
+    // contract lets any LEFT-joined Team identity read back null, but a
+    // Pick's cannot, because draft_picks.team_id is NOT NULL and cascades, so
+    // removing a team removes its picks rather than orphaning them. Either
+    // way a null is named rather than left blank or printed as "null".
+    const state = { ...COMPLETE_STATE, picks: COMPLETE_PICKS_WITH_NULL_TEAM };
     await installDraftSocketHarness(page, state);
     await installDraftRestApi(page, { league: state.league, picks: state.picks });
     await gotoDraft(page);

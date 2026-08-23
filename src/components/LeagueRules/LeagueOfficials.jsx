@@ -15,14 +15,17 @@ import { teamNameLabel, teamRowKey } from '../../lib/teamIdentity';
  */
 export default function LeagueOfficials({ league }) {
   const coCommissioners = league.co_commissioners || [];
-  if (!league.ownerTeamName && coCommissioners.length === 0) return null;
 
   return (
     <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mb: 3 }}>
       <Typography variant="body2" color="text.secondary">Who can change these:</Typography>
-      {league.ownerTeamName && (
-        <Chip size="small" variant="outlined" label={`${teamNameLabel(league.ownerTeamName)} · commissioner`} />
-      )}
+      {/* Unconditional: a league always has a creator (leagues.owner_id is
+          NOT NULL), so the only question is what to call them. A creator who
+          has left their own league has no Team, and is named a former manager
+          for exactly the same reason a co-commissioner in that position is -
+          gating the chip on the name instead would leave a league whose rules
+          nobody appears able to change. */}
+      <Chip size="small" variant="outlined" label={`${teamNameLabel(league.ownerTeamName)} · commissioner`} />
       {coCommissioners.map((c, index) => (
         <Chip
           key={teamRowKey(c.teamId, index)}

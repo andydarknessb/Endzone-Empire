@@ -1,4 +1,4 @@
-import { teamNameLabel, teamRowKey, FORMER_MANAGER_LABEL } from './teamIdentity';
+import { teamNameLabel, teamRowKey, isLeagueCreator, FORMER_MANAGER_LABEL } from './teamIdentity';
 
 test('a Team name is shown as it is', () => {
   expect(teamNameLabel('Anvils')).toBe('Anvils');
@@ -30,4 +30,20 @@ test('a row with no Team ID falls back to its position, not to a shared null', (
   expect(teamRowKey(null, 0)).toBe('former-0');
   expect(teamRowKey(undefined, 1)).toBe('former-1');
   expect(teamRowKey(null, 0)).not.toBe(teamRowKey(null, 1));
+});
+
+test('the league creator is recognised by Team, not by account', () => {
+  expect(isLeagueCreator({ ownerTeamId: 7 }, 7)).toBe(true);
+  expect(isLeagueCreator({ ownerTeamId: 7 }, 8)).toBe(false);
+});
+
+test('two absent Teams are not the same manager', () => {
+  // A creator who has left their own league reads ownerTeamId null, and a
+  // reader with no Team on this league reads viewerTeamId null. Matching
+  // those would hand every such reader the two powers the creator cannot
+  // delegate: deleting the league, and granting co-commissioner.
+  expect(isLeagueCreator({ ownerTeamId: null }, null)).toBe(false);
+  expect(isLeagueCreator({ ownerTeamId: null }, 7)).toBe(false);
+  expect(isLeagueCreator({ ownerTeamId: 7 }, null)).toBe(false);
+  expect(isLeagueCreator(null, 7)).toBe(false);
 });

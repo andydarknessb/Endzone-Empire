@@ -14,6 +14,7 @@ import PositionLimitsPanel from './PositionLimitsPanel';
 import KeeperPanel from './KeeperPanel';
 import ReadinessPanel from './ReadinessPanel';
 import { useUnsavedChangesGuard } from '../NavigationGuard/NavigationGuard';
+import { isLeagueCreator } from '../../lib/teamIdentity';
 
 const TAB_ITEMS = [
   ['type', 'Draft type'], ['schedule', 'Schedule'], ['timer', 'Timer'], ['order', 'Draft order'],
@@ -193,7 +194,7 @@ export default function DraftSettings() {
   // The same route guard as before, asked through the viewer-relative contract
   // (#113): the league names its creator's Team and the response root names
   // the reader's own, so no account id passes through the client.
-  if (user?.id && !league.is_commissioner && !(viewerTeamId != null && league.ownerTeamId === viewerTeamId)) return <Navigate to={`/league/${leagueId}`} replace />;
+  if (user?.id && !league.is_commissioner && !isLeagueCreator(league, viewerTeamId)) return <Navigate to={`/league/${leagueId}`} replace />;
   const frozen = league.draft_status !== 'pending';
   const common = { league, frozen, onSave: saveLeague, saving, onDirtyChange: setPanelDirty };
   // No teams guard below: teams ride on the league payload, so wherever league

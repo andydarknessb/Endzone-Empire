@@ -243,6 +243,24 @@ test('re-joining after a reconnect refreshes viewerTeamId from the new acknowled
   expect(result.current.viewerTeamId).toBe(7);
 });
 
+test('drops the viewer Team when the league changes, rather than carrying it across', () => {
+  const { result, rerender } = renderHook(({ leagueId }) => useDraftSocket(leagueId), {
+    initialProps: { leagueId: 1 },
+  });
+
+  act(() => fakeSocket.trigger('connect'));
+  ackJoin(1);
+  expect(result.current.viewerTeamId).toBe(1);
+
+  // A new league gets a new socket, and the Team the viewer holds is a fact
+  // about the league they left, not the one they are joining.
+  fakeSocket = makeFakeSocket();
+  createDraftSocket.mockReturnValue(fakeSocket);
+  rerender({ leagueId: 2 });
+
+  expect(result.current.viewerTeamId).toBe(null);
+});
+
 test('disconnects the socket on unmount', () => {
   const { unmount } = renderHook(() => useDraftSocket(1));
   unmount();

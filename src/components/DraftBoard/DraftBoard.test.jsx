@@ -147,14 +147,17 @@ test('renders league state (name, on-the-clock, pick history) from a draft:state
   expect(screen.getByText(/by Bob's Team/)).toBeInTheDocument();
 });
 
-test('a Pick left behind by a departed manager is attributed as a former manager, never blank', async () => {
+test('a Pick with no Team identity is attributed as a former manager, never blank', async () => {
   renderBoard(1);
   await screen.findByText('Patrick Mahomes');
   connectAsTeam(1);
 
-  // The server's join to `teams` is LEFT on purpose, so a manager who has
-  // left the league keeps their Pick history and it reads back with null Team
-  // identity (#113). Rendering that straight would print nothing at all.
+  // This pins the RENDERING RULE, not a payload the server produces today:
+  // the contract lets any LEFT-joined Team identity read back null, but a
+  // Pick's cannot, because draft_picks.team_id is NOT NULL and cascades (see
+  // 20260710000001_initial_schema.js), so removing a team removes its picks
+  // rather than orphaning them. Rendering a null straight would print
+  // nothing at all, which is the failure this rules out either way.
   act(() =>
     fakeSocket.trigger('draft:state', stateEvent(activeLeague(), {
       picks: [{

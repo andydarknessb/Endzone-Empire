@@ -144,6 +144,11 @@ export default function useDraftSocket(leagueId, { onPickLanded } = {}) {
   }, [onPickLanded]);
 
   useEffect(() => {
+    // Which Team the viewer holds is a fact about THIS league, so it is torn
+    // down with the socket that answered it. Nothing can match a stale one
+    // (a Team ID is unique across leagues), but leaving it standing would
+    // mean the hook briefly reported a Team for a league it had left.
+    setViewerTeamId(null);
     const newSocket = createDraftSocket();
     socketRef.current = newSocket;
 

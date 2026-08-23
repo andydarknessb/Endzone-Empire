@@ -46,3 +46,20 @@ export function teamNameLabel(teamName) {
 export function teamRowKey(teamId, index) {
   return teamId == null ? `former-${index}` : teamId;
 }
+
+/**
+ * Whether the viewer is the one who created this league, asked the only way
+ * the contract allows: the league names its creator's Team (`ownerTeamId`),
+ * the per-viewer channel names the reader's own, and the two are compared.
+ * Never `user.id === league.owner_id`, which is what this replaces.
+ *
+ * The null guard is the whole reason this is a function rather than a
+ * comparison written out at each call site. A league whose creator has left
+ * it answers `ownerTeamId: null`, and a reader with no Team on this league is
+ * `viewerTeamId: null`; without the guard those two nulls would match and
+ * every such reader would be handed the creator's powers.
+ */
+export function isLeagueCreator(league, viewerTeamId) {
+  if (viewerTeamId == null || !league) return false;
+  return league.ownerTeamId === viewerTeamId;
+}

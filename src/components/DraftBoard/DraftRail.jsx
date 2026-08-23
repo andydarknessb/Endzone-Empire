@@ -107,9 +107,14 @@ function DraftRail({
             {/* Every Pick is attributed by Team (#113). Before the contract
                 landed a Pick could not name its Team at all - its own `name`
                 is the PLAYER's - so only picks that arrived live carried an
-                attribution, and it was the picking manager's username. A
-                manager who has left the league keeps their Pick history by
-                design, and it reads back with no Team at all. */}
+                attribution, and it was the picking manager's username.
+
+                teamNameLabel is defensive here rather than load-bearing: the
+                contract lets any LEFT-joined Team identity read back null,
+                but a Pick's cannot today, because draft_picks.team_id is NOT
+                NULL and cascades, so removing a team removes its picks
+                outright. If that ever changes this renders a former manager
+                instead of a blank line. */}
             <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
               by {teamNameLabel(pick.teamName)}
               {pick.auto ? ' · AUTO' : ''}

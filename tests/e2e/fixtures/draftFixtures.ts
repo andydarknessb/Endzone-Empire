@@ -91,11 +91,12 @@ export const COMPLETE_PICKS: FixturePick[] = FIXTURE_PLAYERS.map((player, index)
 });
 
 /**
- * A completed draft one of whose managers has since left the league. Their
- * Pick history survives by design (the server joins LEFT), so the record
- * still has to name whoever made pick 1 without a Team to name.
+ * A completed draft in which one Pick carries no Team identity. The contract
+ * lets any LEFT-joined Team identity read back null; a Pick's cannot today,
+ * since draft_picks.team_id is NOT NULL and cascades. This exists to pin what
+ * the board renders for a null, not to claim the server can send one.
  */
-export const COMPLETE_PICKS_WITH_DEPARTED_MANAGER: FixturePick[] = COMPLETE_PICKS.map((pick) =>
+export const COMPLETE_PICKS_WITH_NULL_TEAM: FixturePick[] = COMPLETE_PICKS.map((pick) =>
   (pick.pick_number === 1 ? { ...pick, teamId: null, teamName: null } : pick)
 );
 
