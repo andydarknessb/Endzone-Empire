@@ -84,8 +84,13 @@ beforeEach(() => {
   mockGetByUrl();
 });
 
-test('renders all six tabs, defaulting to General Settings', () => {
+test('renders all six tabs, defaulting to General Settings', async () => {
   renderTools();
+  // MUI's Tabs indicator repositions via a MutationObserver that fires
+  // asynchronously after mount (see the hash-only-navigation test below for
+  // the full explanation). Let it settle before this, the first test in the
+  // file, ends.
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
   expect(screen.getByRole('tab', { name: 'General Settings' })).toHaveAttribute('aria-selected', 'true');
   expect(screen.getByRole('tab', { name: 'Roster Settings' })).toBeInTheDocument();
   expect(screen.getByRole('tab', { name: 'Scoring Settings' })).toBeInTheDocument();
@@ -844,8 +849,10 @@ test("a fantasy tab left selected does not survive a switch to a pick'em-only le
   );
   // MUI's Tabs indicator repositions via a MutationObserver that fires
   // asynchronously after mount, outside render()'s own synchronous act()
-  // flush. Let it settle before interacting so its update lands inside act.
-  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  // flush. A microtask flush isn't reliably enough hops under load; a
+  // macrotask tick is. Let it settle before interacting so its update
+  // lands inside act.
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
   await userEvent.click(screen.getByRole('tab', { name: 'Scoring Settings' }));
   expect(screen.getByRole('button', { name: 'Save Scoring Settings' })).toBeInTheDocument();
 
@@ -854,6 +861,10 @@ test("a fantasy tab left selected does not survive a switch to a pick'em-only le
       <CommissionerTools leagueId={2} league={pickemLeague({ id: 2 })} teams={teams} viewerTeamId={1} onRefresh={jest.fn()} />
     </StableShell>
   );
+  // The rerender swaps in a whole new tab set, so Tabs repositions its
+  // indicator again - same MutationObserver settling as after the initial
+  // render above.
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
 
   expect(screen.getByRole('tab', { name: 'General Settings' })).toHaveAttribute('aria-selected', 'true');
   expect(screen.queryByRole('button', { name: 'Save Scoring Settings' })).not.toBeInTheDocument();
@@ -871,7 +882,12 @@ test("a pick'em-only league edits only its max teams (min gates nothing without 
   await userEvent.type(max, '12');
   await userEvent.click(screen.getByRole('button', { name: 'Save Limits' }));
 
+  // handleSaveLimits awaits apiClient.put before its own notify()/onRefresh()
+  // calls, so asserting on the call alone resolves before that trailing
+  // consequence lands. Await the visible toast instead, matching the other
+  // save-settings tests in this file.
   await waitFor(() => expect(apiClient.put).toHaveBeenCalledWith('/api/league/1', { maxTeams: 12 }));
+  expect(await screen.findByText('Team limits updated')).toBeInTheDocument();
 });
 
 // --- Settings freeze keys on League phase (#57) ---
