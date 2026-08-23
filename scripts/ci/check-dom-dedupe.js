@@ -8,7 +8,7 @@
  * declares @testing-library/dom as a peer, so if npm ever resolves two
  * different installed copies, user-event reads a config singleton RTL
  * never configured and every user-event interaction in the test suite
- * dispatches its events OUTSIDE act() — silently. #219 fixed this for the
+ * dispatches its events OUTSIDE act(), silently. #219 fixed this for the
  * versions in place at the time by pinning @testing-library/dom to the
  * version @testing-library/react already used, collapsing both consumers
  * onto one resolved copy. That pin only holds while every consumer's
@@ -47,15 +47,24 @@ const PACKAGE_NAME = '@testing-library/dom';
 // occasional blank line npm emits alongside a warning) are dropped.
 // Windows line endings are normalized so this behaves the same whether
 // npm's stdout used `\n` or `\r\n`.
-function parseParseablePaths(stdout) {
-  return Array.from(
-    new Set(
-      String(stdout || '')
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean)
-    )
-  );
+//
+// Paths are deduplicated case-insensitively on platforms whose default
+// filesystem is case-insensitive (Windows, macOS) — two differently-cased
+// spellings of the same physical directory are the same install, not two
+// copies, on those platforms. `caseInsensitive` defaults from
+// `process.platform` but is overridable so this stays testable without
+// depending on the OS the tests happen to run on.
+function parseParseablePaths(stdout, caseInsensitive = process.platform !== 'linux') {
+  const seen = new Map(); // normalized key -> first-seen original spelling
+  String(stdout || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .forEach((p) => {
+      const key = caseInsensitive ? p.toLowerCase() : p;
+      if (!seen.has(key)) seen.set(key, p);
+    });
+  return Array.from(seen.values());
 }
 
 // Decide whether a set of installed paths represents the healthy,
@@ -133,19 +142,16 @@ function main() {
   // regardless of exit code rather than trusting the exit code itself —
   // that's the exact trap #224 documents for THIS package.
   const paths = parseParseablePaths(result.stdout);
-  const { ok, count } = evaluate(paths);
-
-  if (!ok && count === 0 && result.status !== 0 && !result.stdout) {
-    // Nothing parsed and npm itself failed outright (e.g. no
-    // node_modules at all) — surface npm's own error instead of an
-    // empty violation report.
-    console.error(`\n❌ "npm ls ${PACKAGE_NAME}" produced no output.\n`);
-    if (result.stderr) console.error(result.stderr);
-    process.exit(1);
-  }
+  const { ok } = evaluate(paths);
 
   if (!ok) {
     console.error(buildViolationMessage(paths));
+    // npm's own stderr (e.g. an ELSPROBLEMS "invalid" warning) can carry
+    // context this script's own diagnostic doesn't have; surface it too
+    // when npm produced any.
+    if (result.stderr && result.stderr.trim()) {
+      console.error(`npm ls stderr:\n${result.stderr.trim()}\n`);
+    }
     process.exit(1);
   }
 

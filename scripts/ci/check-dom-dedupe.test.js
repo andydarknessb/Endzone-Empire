@@ -47,6 +47,25 @@ test('parseParseablePaths: empty output yields no entries', () => {
   assert.deepEqual(parseParseablePaths(''), []);
 });
 
+test('parseParseablePaths: with caseInsensitive=true, two differently-cased spellings of the same path count as one (Windows/macOS)', () => {
+  const stdout =
+    'C:\\repo\\node_modules\\@testing-library\\dom\n' +
+    'c:\\repo\\node_modules\\@testing-library\\dom\n';
+  assert.deepEqual(parseParseablePaths(stdout, true), [
+    'C:\\repo\\node_modules\\@testing-library\\dom',
+  ]);
+});
+
+test('parseParseablePaths: with caseInsensitive=false, two differently-cased spellings count as two (Linux)', () => {
+  const stdout =
+    '/repo/node_modules/@testing-library/dom\n' +
+    '/repo/Node_Modules/@testing-library/dom\n';
+  assert.deepEqual(parseParseablePaths(stdout, false), [
+    '/repo/node_modules/@testing-library/dom',
+    '/repo/Node_Modules/@testing-library/dom',
+  ]);
+});
+
 test('evaluate: exactly one path is ok (the healthy, deduped state)', () => {
   assert.deepEqual(evaluate(['/repo/node_modules/@testing-library/dom']), {
     ok: true,
