@@ -113,7 +113,11 @@ test('every desktop sortable header shows the label SORT_FIELDS assigns its key,
 
   const headerRow = screen.getAllByRole('row')[0];
   const sortButtons = within(headerRow).getAllByRole('button');
-  const renderedLabels = sortButtons.map((button) => button.textContent);
+  // baseProps' default sort ('adp') is active, so its header's button also
+  // carries the visually-hidden "sorted ascending" direction text (issue
+  // #212) as real DOM text, not just an aria attribute - strip that known
+  // suffix rather than the plain label this test actually cares about.
+  const renderedLabels = sortButtons.map((button) => button.textContent.replace(/sorted (ascending|descending)$/, ''));
 
   // Labels the fixed column order implies, looked up from SORT_FIELDS BY KEY
   // rather than by SORT_FIELDS' own array position - same reasoning as
@@ -172,3 +176,113 @@ test('every RIGHT_ALIGNED_SORT_KEYS entry is a real SORT_FIELDS key', () => {
   expect(keys.length).toBeGreaterThan(0);
   keys.forEach((key) => expect(SORT_KEYS).toContain(key));
 });
+
+// Issue #212: the desktop sortable headers never announced the current sort
+// to assistive technology. sortButtons[i] lines up 1:1 with
+// EXPECTED_COLUMN_ORDER[i] - the same correspondence the "exactly one
+// desktop sortable header" test above establishes by clicking every button
+// in DOM order and recording the key it invokes onSort with.
+test('the active desktop sort header carries aria-sort matching its direction, and every inactive sortable header carries none', () => {
+  ['asc', 'desc'].forEach((dir) => {
+    const { unmount } = render(<PlayerPoolTable {...baseProps} sort="adp" dir={dir} />);
+    const headerRow = screen.getAllByRole('row')[0];
+    const sortButtons = within(headerRow).getAllByRole('button');
+
+    sortButtons.forEach((button, i) => {
+      const key = EXPECTED_COLUMN_ORDER[i];
+      // eslint-disable-next-line testing-library/no-node-access
+      const th = button.closest('th');
+      const expectedAriaSort = key === 'adp' ? { asc: 'ascending', desc: 'descending' }[dir] : null;
+      // A single unconditional assertion (jest/no-conditional-expect) that
+      // reads the raw attribute rather than toHaveAttribute('aria-sort',
+      // 'none') for the inactive case - MUI's TableCell omits the attribute
+      // entirely for an inactive column rather than writing
+      // aria-sort="none", so `null` here IS the correct "no attribute"
+      // state; a value-matching assertion instead of this null check would
+      // pass against either state, silently accepting a regression to
+      // aria-sort="none".
+      expect(th.getAttribute('aria-sort')).toBe(expectedAriaSort);
+    });
+
+    unmount();
+  });
+});
+
+// Mutation check for the test above: temporarily deleting the
+// `sortDirection={active ? dir : false}` prop from TableCell in
+// SortableHeaderCell (reverting to the pre-#212 header) and re-running this
+// file failed this test - the 'asc' iteration's active 'adp' header no
+// longer carried aria-sort at all:
+//   Expected: "ascending"
+//   Received: null
+// (the test throws on that first failing assertion, inside the
+// ['asc','desc'].forEach, so only the 'asc' iteration's failure is
+// reported - not a separate failure per direction). Restoring the prop
+// returned the suite to green. See the PR body for the same evidence
+// recorded against the real diff.
+
+// Issue #212 acceptance criterion 2: the visually-hidden direction text is
+// present only on the active header, and matches its actual direction.
+test('only the active desktop sort header carries visually-hidden sort-direction text, matching the active direction', () => {
+  [['asc', 'sorted ascending'], ['desc', 'sorted descending']].forEach(([dir, expectedText]) => {
+    const { unmount } = render(<PlayerPoolTable {...baseProps} sort="adp" dir={dir} />);
+    const headerRow = screen.getAllByRole('row')[0];
+    const sortButtons = within(headerRow).getAllByRole('button');
+
+    sortButtons.forEach((button, i) => {
+      const key = EXPECTED_COLUMN_ORDER[i];
+      const hiddenText = within(button).queryByText(/^sorted (ascending|descending)$/);
+      const expected = key === 'adp' ? expectedText : null;
+      // A single unconditional assertion (jest/no-conditional-expect):
+      // hiddenText is null on every inactive header, so this checks both
+      // "present with the right text" and "absent" in one comparison.
+      expect(hiddenText ? hiddenText.textContent : null).toBe(expected);
+    });
+
+    unmount();
+  });
+});
+
+// Mutation check for the test above: temporarily deleting the `{active &&
+// (<Box component="span" sx={visuallyHidden}>...)}` block from
+// SortableHeaderCell and re-running this file failed this test on its first
+// ('asc') iteration:
+//   Expected: "sorted ascending"
+//   Received: null
+// because the active header no longer rendered the hidden text at all (the
+// loop throws on that first failure, so only one iteration's failure is
+// reported, same as the aria-sort mutation check above). Restoring the
+// block returned the suite to green.
+
+// Issue #212 acceptance criterion 4: tabbing across the headers lands on
+// exactly one focusable element per header. Before this fix, a numeric
+// header's AbbreviationTooltip nested its own tabIndex=0 span inside the
+// already-focusable TableSortLabel button, giving every numeric header two
+// Tab stops; the fix moved the tooltip/definition onto the button's own
+// aria-label instead of nesting a second focusable element.
+test('each desktop sort header (including every numeric one) exposes exactly one focusable tab stop', () => {
+  render(<PlayerPoolTable {...baseProps} />);
+
+  const headerRow = screen.getAllByRole('row')[0];
+  const sortButtons = within(headerRow).getAllByRole('button');
+  expect(sortButtons.length).toBeGreaterThan(0);
+
+  sortButtons.forEach((button) => {
+    // eslint-disable-next-line testing-library/no-node-access
+    const th = button.closest('th');
+    // eslint-disable-next-line testing-library/no-node-access
+    expect(th.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
+  });
+});
+
+// Mutation check for the test above: temporarily re-adding `tabIndex={0}`
+// to the alignRight label Box in SortableHeaderCell (reproducing the
+// pre-#212 shape, where AbbreviationTooltip's own focusable span nested
+// inside the header's already-focusable TableSortLabel) and re-running this
+// file failed on the first numeric header checked (Bye):
+//   Expected length: 1
+//   Received length: 2
+//   Received object: [<span aria-label="Bye: Bye week: ..." role="button"
+//   tabindex="0">...<span class="MuiBox-root ..." tabindex="0">Bye</span>...
+// i.e. exactly the two-tab-stop shape the ticket describes. Removing the
+// tabIndex again returned the suite to green.
