@@ -23,6 +23,11 @@ const ROSTER_VIEW = {
   slotTags: new Map(),
 };
 
+// Deliberately the snake-turn case: Harbor Hawks holds 1.02 and 2.01 back to
+// back, so the same Team appears twice. That is the honest reading (see
+// upcomingTeams.js) but only if each entry says which Pick it is - two
+// identical-looking rows read as a duplicate-render bug, and a manager who
+// discounts the strip as glitchy loses the wait it exists to tell them.
 const UPCOMING = [
   { pickNumber: 2, pickLabel: '1.02', teamId: 2, teamName: 'Harbor Hawks' },
   { pickNumber: 3, pickLabel: '2.01', teamId: 2, teamName: 'Harbor Hawks' },
@@ -127,6 +132,9 @@ test('Upcoming names the next three Teams with the Pick each one holds', () => {
   const upcoming = screen.getByRole('region', { name: 'Upcoming' });
   const entries = within(upcoming).getAllByRole('listitem');
   expect(entries).toHaveLength(3);
+  // Each entry leads with its own Pick, which is what makes the repeated
+  // Harbor Hawks read as two picks across a snake turn rather than as the
+  // same row rendered twice.
   expect(entries.map((entry) => entry.textContent)).toEqual([
     '1.02 Harbor Hawks', '2.01 Harbor Hawks', '2.02 Ridge Runners',
   ]);

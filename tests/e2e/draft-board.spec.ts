@@ -895,6 +895,20 @@ function manyPicks(count: number) {
   }));
 }
 
+/**
+ * A draft with enough content to make both desktop scroll regions overflow.
+ *
+ * WHAT PROVIDES THE OVERFLOW, because it changed and the failure mode is
+ * confusing otherwise. The players region overflows on `manyPlayers(40)`, and
+ * always has. The DRAFT RAIL used to overflow on the 20 rows of Pick history
+ * `manyPicks(20)` put in it - but Pick history moved to the Board (issue
+ * #123), and the rail's overflow now comes from My Roster, which renders
+ * because `buildLeague` carries a real roster shape (7 starters, 5 bench).
+ * So if "the Draft rail region scrolls independently" starts failing, look
+ * first at whether the rail still renders My Roster at all: a rail that is
+ * merely short is not a scrolling bug, and the picks below are no longer what
+ * makes it tall.
+ */
 async function setupOverflowingDraft(page: Page) {
   const league = buildLeague({ draft_status: 'active' });
   const players = manyPlayers(40);
