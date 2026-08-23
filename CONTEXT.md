@@ -466,27 +466,6 @@ _Avoid_: preset
 The commissioner action that closes out the current week: finalizes scores,
 settles standings, awards trophies and opens the next week.
 
-**Score of record**:
-The score a week's matchups carry once that week has been closed: the number
-the league is told and the one standings and playoff seeding are computed
-from. Written by the settle pass when a commissioner advances the week, and
-thereafter the historical answer, re-derived identically by any later
-re-score. A live week has a score; only a closed one has a score of record.
-_Avoid_: final score (a week can be final without being closed), official
-score
-
-**Settle pass**:
-The scoring population used once, when a week is closed: the week's lineup
-entries as they stood, with no re-materialization and no join to the current
-roster, excluding only a row whose tenure began after its player's game
-kicked off. Distinct from the live population, which joins the roster so a
-dropped player stops scoring immediately, and from the final population,
-which re-scores a closed week from the same entries. Three populations, and
-a reader who finds two should assume the third is missing rather than
-redundant.
-_Avoid_: freeze (that is #106's materialization freeze, a different
-mechanism), snapshot
-
 **Trophy**:
 An automatic award written when a week or a season finalizes, such as weekly
 high score, champion, longest win streak, biggest comeback or best draft grade.
