@@ -14,10 +14,10 @@ Per issue #205's approved measurement, dated 2026-08-23:
 | `lineup_entries` | 0 |
 | `waiver_players` | 0 |
 
-Leagues and teams exist, so league- and team-shaped queries can still be
-answered against production. `team_players`, `lineup_entries` and
-`waiver_players` are empty: no roster-shaped behavior (draft results, lineup
-sets, waiver activity) can be verified there as of this date.
+Leagues exist, so league-shaped queries can still be answered against
+production. `team_players`, `lineup_entries` and `waiver_players` are empty:
+no roster-shaped behavior (draft results, lineup sets, waiver activity) can
+be verified there as of this date.
 
 ## Rules
 
