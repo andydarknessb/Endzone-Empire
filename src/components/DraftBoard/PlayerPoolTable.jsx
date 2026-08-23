@@ -58,6 +58,14 @@ const BYE_WEEK_OPTIONS = Array.from({ length: 18 }, (_, i) => i + 1);
 // SORT_FIELDS' own keys rather than repeating them.
 const RIGHT_ALIGNED_SORT_KEYS = new Set(['bye_week', 'adp', 'position_rank', 'proj']);
 
+// Keyed lookup onto SORT_FIELDS (code-review finding on issue #163: the
+// header row below places each SortableHeaderCell by key rather than by
+// SORT_FIELDS' array position/slice, so reordering SORT_FIELDS - which only
+// needs to stay meaningful for the mobile "Sort by" Select's option order -
+// can't silently desync the desktop headers from the TableBody's own,
+// independently fixed column sequence).
+const sortFieldsByKey = Object.fromEntries(SORT_FIELDS.map((field) => [field.key, field]));
+
 // Applies to every numeric column (Bye, ADP, Pos rank, 17-game pace): fixed-
 // width digit glyphs so a column of numbers lines up instead of drifting with
 // each digit's natural width.
@@ -570,15 +578,21 @@ function PlayerPoolTable({
         <Table stickyHeader sx={stripedRowsSx}>
           <TableHead>
             <TableRow>
-              {/* Column order is fixed markup, not derived from SORT_FIELDS:
-                  Name leads, then the non-sortable Position column, then the
-                  remaining five sortable fields in SORT_FIELDS order, then
-                  the non-sortable Actions column. */}
-              <SortableHeaderCell field={SORT_FIELDS[0]} sort={sort} dir={dir} onSort={onSort} />
+              {/* Column order is fixed markup here, same as the equally-fixed
+                  TableBody row below it - each SortableHeaderCell is looked
+                  up by key rather than taken from SORT_FIELDS' array
+                  position, so reordering SORT_FIELDS (its order only has to
+                  stay meaningful for the mobile "Sort by" Select) can't
+                  silently reorder these headers out of step with the body's
+                  independently-fixed column sequence. Position and Actions
+                  are the two non-sortable columns and aren't in SORT_FIELDS. */}
+              <SortableHeaderCell field={sortFieldsByKey.name} sort={sort} dir={dir} onSort={onSort} />
               <TableCell sx={headCellSx}>Position</TableCell>
-              {SORT_FIELDS.slice(1).map((field) => (
-                <SortableHeaderCell key={field.key} field={field} sort={sort} dir={dir} onSort={onSort} />
-              ))}
+              <SortableHeaderCell field={sortFieldsByKey.nfl_team} sort={sort} dir={dir} onSort={onSort} />
+              <SortableHeaderCell field={sortFieldsByKey.bye_week} sort={sort} dir={dir} onSort={onSort} />
+              <SortableHeaderCell field={sortFieldsByKey.adp} sort={sort} dir={dir} onSort={onSort} />
+              <SortableHeaderCell field={sortFieldsByKey.position_rank} sort={sort} dir={dir} onSort={onSort} />
+              <SortableHeaderCell field={sortFieldsByKey.proj} sort={sort} dir={dir} onSort={onSort} />
               <TableCell sx={stickyActionHeadSx} align="center">
                 Actions
               </TableCell>
