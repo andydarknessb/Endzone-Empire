@@ -42,6 +42,15 @@ const PAIRINGS = [
   // needs strip's "every remaining pick has to fill a starting spot" line and
   // the roster panel's rounds-vs-capacity note.
   ['warning', 'surface', AA_TEXT, 'warning severity line on cards'],
+  // The keyboard focus ring (base.css `:focus-visible` and the
+  // Mui-focusVisible override) is opaque so its ratio against every surface
+  // it can land on is fixed and verifiable (#155) — unlike an alpha, which
+  // composites to a different color per surface.
+  ['focus-ring', 'surface', AA_LARGE, 'focus ring on cards'],
+  ['focus-ring', 'surface-raised', AA_LARGE, 'focus ring on a raised surface'],
+  ['focus-ring', 'row-stripe', AA_LARGE, 'focus ring on a striped row'],
+  ['focus-ring', 'row-hover', AA_LARGE, 'focus ring on a hovered row'],
+  ['focus-ring', 'bg-page', AA_LARGE, 'focus ring on the page'],
 ];
 
 describe.each(['light', 'dark'])('%s theme contrast', (mode) => {

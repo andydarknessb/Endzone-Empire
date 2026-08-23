@@ -32,7 +32,11 @@ export const colorTokens = {
     success: '#1b7d4f',
     danger: '#c62828',
     warning: '#8a5a00',
-    'focus-ring': 'rgba(30, 91, 184, 0.55)',
+    // Opaque (not alpha) so the ratio against each surface it can sit on is
+    // fixed and verifiable in tokens.contrast.test.js. An alpha composites
+    // to a different color over each surface, which is hard to verify and
+    // easy to regress. This is `accent` with the alpha dropped. See #155.
+    'focus-ring': '#1e5bb8',
     overlay: 'rgba(15, 20, 25, 0.5)',
     // Fantasy position palette (data encoding). Light theme: saturated, dark
     // enough to carry white (`text-inverse`) chip/avatar labels at AA.
@@ -74,7 +78,8 @@ export const colorTokens = {
     success: '#7ee2a8',
     danger: '#ff6b6b',
     warning: '#f0b34e',
-    'focus-ring': 'rgba(92, 147, 255, 0.6)',
+    // Opaque (not alpha); see the light-theme note above and #155.
+    'focus-ring': '#5c93ff',
     overlay: 'rgba(0, 0, 0, 0.6)',
     // Fantasy position palette (data encoding). Dark theme: lighter, brighter
     // fills that carry the dark `text-inverse` label at AA.
