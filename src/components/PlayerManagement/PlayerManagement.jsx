@@ -19,7 +19,6 @@ import { isPickemOnly } from '../../lib/leagueType';
 // DE/DT/LB/CB/S/DB are individual defenders (DP-enabled leagues) — literal
 // Tank01 position codes, not the DL/LB/DB roster-eligibility group keys.
 const POSITIONS = ['All', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF', 'DE', 'DT', 'LB', 'CB', 'S', 'DB'];
-const PLAYERS_PAGE_SIZE = 25; // matches the server page size; for ADP rank numbers
 
 const headCellSx = { fontWeight: 'bold', backgroundColor: 'primary.main', color: 'primary.contrastText' };
 // Keep the action column reachable when the table overflows horizontally on
@@ -303,7 +302,6 @@ function PlayerManagement() {
         <Table sx={{ minWidth: 900, ...stripedRowsSx }}>
           <TableHead>
             <TableRow>
-              <TableCell sx={headCellSx} align="right">Row</TableCell>
               <TableCell sx={headCellSx}>
                 <TableSortLabel
                   active={sort === 'name'}
@@ -353,16 +351,13 @@ function PlayerManagement() {
           <TableBody>
             {shownPlayers.length === 0 && (
               <TableRow>
-                <TableCell colSpan={9} sx={{ color: 'text.secondary', textAlign: 'center' }}>
+                <TableCell colSpan={8} sx={{ color: 'text.secondary', textAlign: 'center' }}>
                   {search ? `No players matching “${search}”` : 'No players found'}
                 </TableCell>
               </TableRow>
             )}
-            {shownPlayers.map((player, idx) => (
+            {shownPlayers.map((player) => (
               <TableRow key={player.id}>
-                <TableCell align="right" sx={{ color: 'text.secondary' }}>
-                  {(pageNumber - 1) * PLAYERS_PAGE_SIZE + idx + 1}
-                </TableCell>
                 <TableCell component="th" scope="row">
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                     <PlayerAvatar
