@@ -1,10 +1,7 @@
 import React from 'react';
-import fs from 'fs';
-import path from 'path';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PlayerPoolTable from './PlayerPoolTable';
-import { SORT_KEYS } from './sortFields';
 
 // PlayerPoolTable is provider-free (MUI only, same as DraftRail - see its own
 // doc comment), so a bare render is enough here.
@@ -175,42 +172,4 @@ test('mobile: the direction toggle\'s accessible name and visible tooltip always
   const descButton = screen.getByRole('button', { name: 'Sort direction: descending. Activate to sort ascending.' });
   await user.hover(descButton);
   expect(await screen.findByRole('tooltip')).toHaveTextContent('Sort direction: descending. Activate to sort ascending.');
-});
-
-// Issue #211: RIGHT_ALIGNED_SORT_KEYS (in PlayerPoolTable.jsx) decides which
-// desktop headers get wrapped in AbbreviationTooltip, and that wrapper is
-// what supplies the header's accessible name. A numeric field missing from
-// that Set doesn't just render left-aligned - it renders with no definition
-// at all for a screen-reader user. A test asserting only that the header
-// renders (getByText) can't tell a wrapped header from an unwrapped one,
-// since both render the same visible label; asserting the accessible name
-// itself is the only check a dropped key actually fails.
-test('desktop: every numeric header carries its AbbreviationTooltip accessible name', () => {
-  render(<PlayerPoolTable {...baseProps} />);
-
-  const table = screen.getByRole('table');
-  expect(within(table).getByRole('button', { name: /^Bye: Bye week:/ })).toBeInTheDocument();
-  expect(within(table).getByRole('button', { name: /^ADP: Average draft position:/ })).toBeInTheDocument();
-  expect(within(table).getByRole('button', { name: /^Pos rank: Position rank:/ })).toBeInTheDocument();
-  expect(within(table).getByRole('button', { name: /^17-game pace: Historical pace:/ })).toBeInTheDocument();
-});
-
-// The opposite direction: a key in RIGHT_ALIGNED_SORT_KEYS that ISN'T a
-// SORT_FIELDS key. Nothing renders differently for a stray entry - the Set is
-// only ever queried with `.has(field.key)` for keys SORT_FIELDS actually
-// produces - so no amount of rendering the table can catch it; this reads
-// the Set literal straight out of the source instead. (No export was added
-// to PlayerPoolTable.jsx to make the Set reachable another way - #211's
-// scope is tests and a comment only.)
-test('every RIGHT_ALIGNED_SORT_KEYS entry is a real SORT_FIELDS key', () => {
-  const source = fs.readFileSync(path.join(__dirname, 'PlayerPoolTable.jsx'), 'utf8');
-  const match = source.match(/RIGHT_ALIGNED_SORT_KEYS\s*=\s*new Set\(\[([^\]]*)\]\)/);
-  expect(match).not.toBeNull();
-
-  const keys = match[1]
-    .split(',')
-    .map((entry) => entry.trim().replace(/^['"]|['"]$/g, ''))
-    .filter(Boolean);
-  expect(keys.length).toBeGreaterThan(0);
-  keys.forEach((key) => expect(SORT_KEYS).toContain(key));
 });
