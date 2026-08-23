@@ -122,6 +122,24 @@
         "extends": [
           "react-app/jest"
         ]
+      },
+      {
+        "files": [
+          "server/**/*.js",
+          "scripts/**/*.js"
+        ],
+        "excludedFiles": [
+          "scripts/k6-*.js"
+        ],
+        "env": {
+          "node": true
+        },
+        "parserOptions": {
+          "sourceType": "script"
+        },
+        "rules": {
+          "strict": "off"
+        }
       }
     ]
   },

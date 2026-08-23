@@ -26,7 +26,7 @@ const teamRouter = require('../../server/routes/team.router');
 const { lockedNflTeams } = require('../../server/services/lineup.service');
 
 function createDatabaseFixture() {
-  const { league, players, timeline } = fixture;
+  const { league, players } = fixture;
   const state = {
     rostered: new Set([players.playerA.id, players.playerB.id]),
     slots: new Map([

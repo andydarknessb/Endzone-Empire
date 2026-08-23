@@ -6,7 +6,6 @@ const path = require('path');
 const zlib = require('zlib');
 
 const packager = require('../../scripts/backtest/package-snapshot');
-const checks = require('../../scripts/backtest/snapshot-checks');
 const store = require('../../scripts/backtest/lib/snapshotStore');
 const { sha256Hex } = require('../../scripts/backtest/lib/verifiedBytes');
 const { SOURCES: REAL_SOURCES } = require('../../scripts/backtest/lib/sources');
