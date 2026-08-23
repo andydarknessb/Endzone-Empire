@@ -93,13 +93,11 @@ const PAIRINGS = [
   pairing('text-muted', 'accent-soft', AA_TEXT, 'muted cell text on an accent-tinted row', 'surface'),
   pairing('on-overlay', 'scrim', AA_LARGE, 'light text on a photo scrim', BRIGHTEST_BACKDROP),
   pairing('on-overlay', 'overlay', AA_LARGE, 'light text on a modal overlay', BRIGHTEST_BACKDROP),
-  // NOT listed, and deliberately: `accent` on `accent-soft` over
-  // `surface-raised` is the Nav link hover on the app bar (Nav.jsx, Nav.css),
-  // and #203's compositing measures it at 3.75:1 in dark theme, under AA for
-  // 15px links. Adding the row would make this suite red, and every fix for it
-  // (moving a token value, or repainting the hover) is outside #203, which is
-  // a harness change. Filed as a follow-up; the number is recorded here so the
-  // omission is a decision on the record rather than a gap.
+  // The Nav link hover on the app bar (Nav.jsx): `accent` text on `accent-soft`
+  // over `surface-raised`. #203's compositing was what made this measurable at
+  // all; it came in under AA in dark theme (3.75:1) until #237 lightened
+  // `accent`/`accent-soft` to clear it. Body text, so AA_TEXT, not AA_LARGE.
+  pairing('accent', 'accent-soft', AA_TEXT, 'nav link hover on the app bar', 'surface-raised'),
 ];
 
 describe.each(['light', 'dark'])('%s theme contrast', (mode) => {
