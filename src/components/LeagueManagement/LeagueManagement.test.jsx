@@ -635,6 +635,11 @@ test("the card is genuinely inserted into the DOM when the preview arrives, not 
   expect(form).toContainElement(screen.getByLabelText(/Invite code/i));
   expect(screen.queryByTestId('invite-preview')).not.toBeInTheDocument();
 
+  // An accumulating callback, not a no-op + takeRecords() after the await
+  // below. Tried that first: it silently returned 0 records every time,
+  // because the mutation's delivery microtask fires (and drains the queue
+  // into the no-op) before control returns here. A test built that way would
+  // have passed while observing nothing.
   const capturedRecords = [];
   const observer = new MutationObserver((records) => capturedRecords.push(...records));
   observer.observe(form, { childList: true, subtree: true });
