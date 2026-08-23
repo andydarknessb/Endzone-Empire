@@ -455,7 +455,7 @@ test('the real engine really did see a Date for kickoff_at, not the stored strin
   // This is the type-rehydration contract in its most consequential form:
   // `inputCutoff` is built from `kickoff_at`, and a string would have produced
   // a different value silently.
-  const { root, snapshot } = await buildFixtureSnapshot();
+  const { snapshot } = await buildFixtureSnapshot();
   const client = snapshotClient.createSnapshotClient({
     snapshot, season: 2025, week: 5, mode: MODES.OFF,
   });

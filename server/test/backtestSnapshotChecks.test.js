@@ -416,7 +416,7 @@ test('a games.csv that no longer hashes to what the extraction recorded fails im
   const { root, readSource } = await buildSnapshot('sourcedrift');
   const drifted = (arg) => {
     const name = typeof arg === 'string' ? arg : arg.name;
-    return name === 'games' ? `${readSource('games')}` .replace('KC', 'DEN') : readSource(arg);
+    return name === 'games' ? `${readSource('games')}`.replace('KC', 'DEN') : readSource(arg);
   };
   const out = checks.runChecks({ root, readSource: drifted, normalizeTeamKey });
   assert.ok(out.failures.some((f) => f.name === 'overlay:source'

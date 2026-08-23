@@ -2,6 +2,11 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { sniffImageType } = require('../modules/imageSniff');
 
+// Whatever follows the magic bytes. Named so the signature under test stays
+// visually separate from the payload without concatenating two literals,
+// which is what the string is for and what `no-useless-concat` objects to.
+const PAYLOAD = 'rest-of-file';
+
 test('recognizes a PNG signature', () => {
   const buffer = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00]);
   assert.deepEqual(sniffImageType(buffer), { ext: 'png', mimeType: 'image/png' });
@@ -13,12 +18,12 @@ test('recognizes a JPEG signature', () => {
 });
 
 test('recognizes a GIF87a signature', () => {
-  const buffer = Buffer.from('GIF87a' + 'rest-of-file', 'ascii');
+  const buffer = Buffer.from(`GIF87a${PAYLOAD}`, 'ascii');
   assert.deepEqual(sniffImageType(buffer), { ext: 'gif', mimeType: 'image/gif' });
 });
 
 test('recognizes a GIF89a signature (the common animated variant)', () => {
-  const buffer = Buffer.from('GIF89a' + 'rest-of-file', 'ascii');
+  const buffer = Buffer.from(`GIF89a${PAYLOAD}`, 'ascii');
   assert.deepEqual(sniffImageType(buffer), { ext: 'gif', mimeType: 'image/gif' });
 });
 

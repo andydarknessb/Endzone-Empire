@@ -1,5 +1,4 @@
 import {
-  isPermutationOf,
   teamIndexForPick,
   teamIdForPick,
   pickLabelFor,

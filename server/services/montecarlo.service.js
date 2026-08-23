@@ -96,10 +96,15 @@ function simulateOnce({ teams, playedMatchups, remainingMatchups, models, playof
   // Play the bracket with re-seeding until one team stands
   let entrants = qualifiers.map((teamId, i) => ({ teamId, seed: i + 1 }));
   while (entrants.length > 1) {
-    const { games, byes } = pairBySeed(entrants);
+    // Seeds are looked up against THIS round's field, so bind it to a const the
+    // closures below can capture. Reading the reassigned `entrants` directly
+    // happens to be correct today only because nothing defers those lookups
+    // past the end of the iteration; `round` makes that independent of timing.
+    const round = entrants;
+    const { games, byes } = pairBySeed(round);
     const advancing = byes.map((teamId) => ({
       teamId,
-      seed: entrants.find((e) => e.teamId === teamId).seed,
+      seed: round.find((e) => e.teamId === teamId).seed,
     }));
     for (const game of games) {
       const home = model(game.home);
@@ -108,7 +113,7 @@ function simulateOnce({ teams, playedMatchups, remainingMatchups, models, playof
         normalSample(rng, home.mean, home.sigma) >= normalSample(rng, away.mean, away.sigma)
           ? game.home
           : game.away;
-      advancing.push({ teamId: winner, seed: entrants.find((e) => e.teamId === winner).seed });
+      advancing.push({ teamId: winner, seed: round.find((e) => e.teamId === winner).seed });
     }
     entrants = advancing;
   }
