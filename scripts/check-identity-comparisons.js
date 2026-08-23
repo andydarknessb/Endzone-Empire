@@ -99,6 +99,14 @@ const CLIENT_ROOTS = ['src'];
  *
  * Deliberately not keyed on line numbers: they move, and an allowlist that
  * needs re-deriving after every unrelated edit is one people stop reading.
+ *
+ * BEWARE WHEN COUNTING: every `code` below is a VERBATIM source excerpt, so
+ * grepping the tree for a comparison finds it twice - once where it lives and
+ * once quoted here - and an auditor counting hits concludes the sweep missed
+ * some. Exclude this file from any such count, and say that you did. The
+ * danger is not that the number is wrong but that it CORROBORATES the wrong
+ * conclusion, and a count confirming what you already suspected does not send
+ * you looking for a second opinion.
  */
 const ALLOWLIST = [
   // --- The three sanctioned owner-shaped actions -------------------------
