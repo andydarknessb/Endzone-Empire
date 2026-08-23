@@ -227,6 +227,29 @@ const pathMounts = (app) =>
 const responders = (app) =>
   terminalMiddleware(app).filter((row) => row.answers).map(describeMount);
 
+/**
+ * Every socket.io namespace on this server, with the handshake middleware it
+ * carries.
+ *
+ * Handshake middleware belongs to a NAMESPACE, not to the server: `io.use(fn)`
+ * is `io.of('/').use(fn)`, and `io.of('/admin')` starts life with its own empty
+ * `_fns`. `io._nsps` is the Map of them, keyed by path, and `io.sockets` is
+ * simply its `/` entry - so the pre-#241 check read one namespace and reported
+ * on all of them.
+ */
+function namespaceGuards(io) {
+  return [...io._nsps.entries()].map(([name, nsp]) => ({
+    name,
+    middleware: (nsp._fns || []).map((fn) => fn.name),
+  }));
+}
+
+/** The namespaces a caller could reach without `requireSocketAuth` in the handshake. */
+const unguardedNamespaces = (io) =>
+  namespaceGuards(io)
+    .filter((nsp) => !nsp.middleware.includes(requireSocketAuth.name))
+    .map((nsp) => nsp.name);
+
 const signatures = (app, wanted) =>
   classifyApp(app).filter((r) => r.guarded === wanted).map((r) => r.signature).sort();
 const anonymous = (app) => signatures(app, false);
@@ -546,17 +569,31 @@ test('the draft socket admits no unauthenticated connection', async () => {
   // `socket.on(...)` handler is reachable - but only if it is actually
   // installed, and only if it actually refuses. Both are checked here rather
   // than read off the source.
+  //
+  // Read across EVERY namespace since #241, not just the default one. Handshake
+  // middleware belongs to a namespace, not to the server: `io.of('/admin')`
+  // gets its own empty `_fns`, and reading `io.sockets._fns` (which is exactly
+  // `io._nsps.get('/')._fns`) would have reported the guard present and said
+  // nothing about it.
   const { attachDraftSocket, closeDraftSocket } = require('../modules/draftSocket');
   const httpServer = http.createServer();
   const io = attachDraftSocket(httpServer);
   try {
     await io.redisReady;
-    const middleware = io.sockets._fns;
     assert.deepEqual(
-      middleware.map((fn) => fn.name),
-      ['requireSocketAuth'],
-      'the connection guard is the only handshake middleware'
+      namespaceGuards(io),
+      [{ name: '/', middleware: ['requireSocketAuth'] }],
+      'one namespace, carrying the connection guard and nothing else'
     );
+
+    // Namespaces named by a regexp or a function are held in `parentNsps`
+    // instead, and their children are created per connection - so they cannot
+    // be enumerated the way the above enumerates `_nsps`. There are none;
+    // adding one would need this assertion answered before the guarantee above
+    // means anything.
+    assert.equal(io.parentNsps.size, 0, 'no dynamic namespace escapes the enumeration');
+
+    const middleware = io._nsps.get('/')._fns;
     assert.equal(middleware[0], requireSocketAuth, 'and it is the real one');
 
     // It refuses a handshake with no token, and one with a token it cannot verify.
@@ -567,6 +604,18 @@ test('the draft socket admits no unauthenticated connection', async () => {
       assert.ok(error instanceof Error, `a handshake with ${JSON.stringify(auth)} is refused`);
       assert.equal(error.message, 'unauthorized');
     }
+
+    // And the enumeration above can fail, demonstrated on this same server
+    // rather than argued: a second namespace, created the way a future admin
+    // or spectator channel would create one, is unguarded from the moment it
+    // exists and is named here as such (#241).
+    io.of('/admin');
+    assert.deepEqual(unguardedNamespaces(io), ['/admin']);
+    assert.deepEqual(
+      namespaceGuards(io).map((n) => n.name),
+      ['/', '/admin'],
+      'and it is enumerated, which reading io.sockets._fns never was'
+    );
   } finally {
     await closeDraftSocket(io);
     httpServer.close();
