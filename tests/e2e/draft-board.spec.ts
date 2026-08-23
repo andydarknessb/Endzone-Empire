@@ -917,8 +917,11 @@ test.describe('desktop dual-scroll shell (issue #122 acceptance criteria 1-2)', 
     const before = await scrollRegion.evaluate((el) => el.scrollTop);
     await scrollRegion.hover();
     await page.mouse.wheel(0, 1500);
-    const after = await scrollRegion.evaluate((el) => el.scrollTop);
-    expect(after).toBeGreaterThan(before);
+    // expect.poll rather than a single immediate read: an occasional flake
+    // here was the wheel's scroll not yet having been processed/painted at
+    // the instant right after dispatching it, not the scroll failing to
+    // happen at all.
+    await expect.poll(() => scrollRegion.evaluate((el) => el.scrollTop)).toBeGreaterThan(before);
 
     // The table header and the filter bar above it are still exactly where
     // they were - neither moved with the rows underneath them.
@@ -937,8 +940,7 @@ test.describe('desktop dual-scroll shell (issue #122 acceptance criteria 1-2)', 
     const before = await railRegion.evaluate((el) => el.scrollTop);
     await railRegion.hover();
     await page.mouse.wheel(0, 1500);
-    const after = await railRegion.evaluate((el) => el.scrollTop);
-    expect(after).toBeGreaterThan(before);
+    await expect.poll(() => railRegion.evaluate((el) => el.scrollTop)).toBeGreaterThan(before);
 
     // Unaffected: the players table header is still visible and the pool
     // scroll position hasn't moved.
@@ -1053,12 +1055,12 @@ test.describe('mobile/tablet single-scroll tab layout (issue #122 acceptance cri
       await gotoDraft(page);
       await expect(page.getByText('No Pace Guy', { exact: true })).toBeVisible();
 
-      const explainer = page.getByText('unavailable', { exact: true });
-      await expect(explainer).toBeVisible();
-      await explainer.hover();
-      await expect(page.getByRole('tooltip')).toHaveText(
-        'Not enough games in the prior completed season to extrapolate a pace.'
-      );
+      // Plain, always-visible text (not a hover-only Tooltip) - reachable
+      // without hovering, same as every other missing stat rendering '-'.
+      await expect(page.getByText('17-game pace: -', { exact: true })).toBeVisible();
+      await expect(page.getByText(
+        '17-game pace unavailable: not enough games in the prior completed season to extrapolate a pace.'
+      )).toBeVisible();
     });
 
     test(`${label}: a "Sort by" control changes the player order, same as the desktop table headers`, async ({ page }) => {

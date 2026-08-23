@@ -51,6 +51,21 @@ test('fetches page 1 on mount and clears the initial loading flag', async () => 
   });
 });
 
+test('a bogus or legacy ?sort= value falls back to the default (adp) rather than being trusted verbatim', async () => {
+  const { Wrapper, searchRef } = makeWrapper('/league/1/draft?sort=not_a_real_field');
+  const { result } = renderHook(() => usePlayerPool(1), { wrapper: Wrapper });
+
+  await waitFor(() => expect(result.current.loading).toBe(false));
+
+  expect(result.current.sort).toBe('adp');
+  expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
+    params: { page: 1, leagueId: 1, sort: 'adp', available: true },
+  });
+  // The mirror effect drops `sort` from the URL once it equals the default,
+  // so the bogus value never gets written back either.
+  await waitFor(() => expect(searchRef.current).toBe(''));
+});
+
 test('maps the projection URL sort to the server global projection sort', async () => {
   const { Wrapper } = makeWrapper('/league/1/draft?sort=proj&dir=desc');
   const { result } = renderHook(() => usePlayerPool(1), { wrapper: Wrapper });

@@ -34,6 +34,7 @@ import PositionChip from '../PlayerQuickView/PositionChip';
 import AbbreviationTooltip from '../common/AbbreviationTooltip';
 import ColumnGuide from './ColumnGuide';
 import { pickActionExists, pickTemporarilyUnavailable, PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
+import { SORT_FIELDS } from './sortFields';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 
 // The real NFL regular season a Bye can fall in (mirrors REG_SEASON_WEEKS in
@@ -42,11 +43,10 @@ import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 // empty result for an unused week is a normal, honest "no match", not a bug.
 const BYE_WEEK_OPTIONS = Array.from({ length: 18 }, (_, i) => i + 1);
 
-// Same six sortable fields the desktop table's TableSortLabel column headers
-// expose, in the same left-to-right order - the mobile card list has no
-// column headers to sort by, so this drives a "Sort by" Select instead
-// (issue #122 acceptance criterion 4: mobile keeps the full state, not a
-// stripped-down view of it).
+// SORT_FIELDS drives the mobile "Sort by" Select below (issue 122 acceptance
+// criterion 4: mobile keeps the full sort capability, not a stripped-down
+// view of it) - see sortFields.js for why it's shared with usePlayerPool's
+// own `?sort=` URL validation rather than defined here.
 //
 // Known duplication (code-review finding, deferred rather than expanding
 // this PR further): the desktop table's six TableSortLabel headers below
@@ -55,14 +55,6 @@ const BYE_WEEK_OPTIONS = Array.from({ length: 18 }, (_, i) => i + 1);
 // data-driven off this same list, which touches that stable, already
 // well-tested markup - a follow-up, not a change to make alongside a
 // layout PR.
-const SORT_FIELDS = [
-  { key: 'name', label: 'Name' },
-  { key: 'nfl_team', label: 'NFL Team' },
-  { key: 'bye_week', label: 'Bye' },
-  { key: 'adp', label: 'ADP' },
-  { key: 'position_rank', label: 'Pos rank' },
-  { key: 'proj', label: '17-game pace' },
-];
 
 // Applies to every numeric column (Bye, ADP, Pos rank, 17-game pace): fixed-
 // width digit glyphs so a column of numbers lines up instead of drifting with
@@ -168,9 +160,9 @@ function PlayerActions({ player, isDrafted, canManualPick, pickUnavailable, queu
 function PlayerCard({ player, isDrafted, canManualPick, pickUnavailable, overlap, queued, onDraft, onQueue, onOpenQuickView }) {
   return (
     <Paper
-      component="li"
+      role="listitem"
       variant="outlined"
-      sx={{ p: 1.5, mb: 1.5, display: 'flex', flexDirection: 'column', gap: 1, listStyle: 'none' }}
+      sx={{ p: 1.5, mb: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}
     >
       <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', minWidth: 0 }}>
@@ -214,22 +206,24 @@ function PlayerCard({ player, isDrafted, canManualPick, pickUnavailable, overlap
           Pos rank: {player.position_rank != null ? `#${player.position_rank}` : '-'}
         </Typography>
         <Typography variant="body2" sx={numericCellSx}>
-          17-game pace:{' '}
-          {player.projected_points != null ? (
-            Number(player.projected_points).toFixed(1)
-          ) : (
-            // Same explanation the desktop table's null-pace tooltip gives
-            // (QA finding: the card dropped it entirely) - a visible caption
-            // here rather than a hover-only Tooltip, since a card has no
-            // hover-equivalent affordance the way a table cell does.
-            <Tooltip title="Not enough games in the prior completed season to extrapolate a pace.">
-              <Box component="span" tabIndex={0} sx={{ cursor: 'help', textDecoration: 'underline dotted', textUnderlineOffset: 3 }}>
-                unavailable
-              </Box>
-            </Tooltip>
-          )}
+          17-game pace: {player.projected_points != null ? Number(player.projected_points).toFixed(1) : '-'}
         </Typography>
       </Box>
+      {player.projected_points == null && (
+        // Same explanation the desktop table's null-pace tooltip gives (QA
+        // finding: the card dropped it entirely), but as plain, always-
+        // visible text rather than a Tooltip: a hover-only explanation on a
+        // generic <span> both needs its own tabIndex=0 stop (which the
+        // comment above rejects AbbreviationTooltip for doing, once per
+        // stat, for this exact reason) and isn't reliably announced (a
+        // role-less element isn't a valid aria-label target under ARIA 1.2).
+        // Plain text sidesteps all of that and reaches every user, sighted
+        // or not, without hovering - which is also strictly better than the
+        // desktop cell's hover-gated version.
+        <Typography variant="caption" color="text.secondary">
+          17-game pace unavailable: not enough games in the prior completed season to extrapolate a pace.
+        </Typography>
+      )}
       <PlayerActions
         player={player}
         isDrafted={isDrafted}
@@ -439,12 +433,13 @@ function PlayerPoolTable({
             <Select
               labelId="draft-sort-field-label"
               label="Sort by"
-              // `sort` comes from usePlayerPool's own `?sort=` URL parsing,
-              // which doesn't validate against any known field list (a
-              // pre-existing gap, unrelated to this Select) - guard here so
-              // a stale/bogus URL value renders a real selection instead of
-              // an empty-looking control (QA finding).
-              value={SORT_FIELDS.some((field) => field.key === sort) ? sort : SORT_FIELDS[0].key}
+              // No fallback needed here (QA correction to the prior round):
+              // usePlayerPool validates `?sort=` against this same field
+              // list at the source, so `sort` is guaranteed to always name
+              // a real field by the time it reaches this Select - guarding
+              // again at this layer would let the Select display a
+              // DIFFERENT field than what's actually in effect.
+              value={sort}
               onChange={(e) => onSort(e.target.value)}
               size="small"
             >
@@ -492,8 +487,14 @@ function PlayerPoolTable({
         ) : (
           // A real list, not a bare stack of Papers (QA finding): browse-mode
           // screen readers announce a count and each item's position ("N of
-          // M") the same way the desktop table's rows did implicitly.
-          <Box component="ul" sx={{ listStyle: 'none', p: 0, m: 0 }}>
+          // M") the same way the desktop table's rows did implicitly. role
+          // + aria-label rather than a semantic <ul>/<li> (this repo's own
+          // established pattern - see StatCardList in PlayerQuickView.jsx and
+          // RankingTable.jsx): WebKit drops the list accessibility mapping
+          // for a <ul> styled list-style: none, and VoiceOver - the primary
+          // screen reader on the mobile layout this exists for - honors the
+          // explicit role regardless of styling.
+          <Box role="list" aria-label="Available players">
             {displayPlayers.map((player) => {
               const state = rowStateFor(player, { draftedIds, canManualPickBase: tableCanManualPick, tablePickUnavailable, byeOverlapByWeek, queue });
               return (

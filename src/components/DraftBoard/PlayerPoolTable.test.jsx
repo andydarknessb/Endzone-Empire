@@ -67,19 +67,19 @@ test('mobile renders player cards (not a table) with the same approved columns',
   expect(within(card).getByText('17-game pace: 310.5')).toBeInTheDocument();
 });
 
-test('mobile: a null 17-game pace shows the same explanation the desktop table gives, not a bare dash', async () => {
-  const user = userEvent.setup();
+test('mobile: a null 17-game pace shows the same explanation as the desktop table, as plain always-visible text', () => {
   const noProj = [{ ...players[0], projected_points: null }];
   render(<PlayerPoolTable {...baseProps} isMobile displayPlayers={noProj} />);
 
   const card = screen.getByText('Bijan Robinson').closest('.MuiPaper-root');
-  const explainer = within(card).getByText('unavailable');
-  expect(explainer).toBeInTheDocument();
-
-  await user.hover(explainer);
-  expect(await screen.findByRole('tooltip')).toHaveTextContent(
-    'Not enough games in the prior completed season to extrapolate a pace.'
-  );
+  // Consistent with every other missing stat on the card (Bye/ADP/Pos rank
+  // all render '-'), not a special-cased word.
+  expect(within(card).getByText('17-game pace: -')).toBeInTheDocument();
+  // The explanation is plain text, not a hover-only Tooltip on a tabIndex=0
+  // span - reachable without hovering, and without an extra tab stop.
+  expect(within(card).getByText(
+    '17-game pace unavailable: not enough games in the prior completed season to extrapolate a pace.'
+  )).toBeInTheDocument();
 });
 
 test('mobile cards expose the same state-gated Draft/Queue actions as the table', async () => {
