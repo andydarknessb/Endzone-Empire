@@ -35,6 +35,9 @@ const PAIRINGS = [
   ['text-primary', 'row-stripe', AA_TEXT, 'cell text on a striped row'],
   ['text-primary', 'row-hover', AA_TEXT, 'cell text on a hovered row'],
   ['text-muted', 'row-stripe', AA_TEXT, 'muted cell text on a striped row'],
+  // row-hover has less headroom than row-stripe, and text-muted is the most
+  // common non-plain foreground on a hoverable row (#174 follow-up).
+  ['text-muted', 'row-hover', AA_TEXT, 'muted cell text on a hovered row'],
   // The amber "Teams: N/M" chip (MUI warning): its label flips white/dark with
   // the theme, matching text-inverse.
   ['text-inverse', 'warning', AA_TEXT, 'label on the amber Teams chip'],

@@ -123,7 +123,14 @@ export function buildTheme(mode) {
       MuiTableBody: {
         styleOverrides: {
           root: {
-            '& .MuiTableRow-root': { transition: 'background-color 150ms ease' },
+            // An explicit opaque base, not just a transition: without it every
+            // row's background-color is the initial 'transparent', and a
+            // sticky action/round column (bgcolor: 'inherit') goes transparent
+            // right along with it, letting scrolled-under cells show through.
+            '& .MuiTableRow-root': {
+              backgroundColor: c.surface,
+              transition: 'background-color 150ms ease',
+            },
             '& .MuiTableRow-root:nth-of-type(even)': {
               backgroundColor: c['row-stripe'],
             },
