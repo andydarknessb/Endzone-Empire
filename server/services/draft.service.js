@@ -127,6 +127,10 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommiss
       myTeam = teamForPick(league.current_pick, teams, rotationOpts);
       if (!myTeam) throw new DraftError(409, 'no team is currently on the clock');
     } else {
+      // Caller comparison: the drafting manager's own team, found by the
+      // caller's own id. Nothing about the league's creator enters here - the
+      // commissioner branch above is where a commissioner-shaped power lives,
+      // and it authorizes through isLeagueCommissioner.
       myTeam = teams.find((t) => t.owner_id === userId);
       if (!myTeam) throw new DraftError(403, 'not a member of this league');
       // A commissioner-locked team can't add players (draft picks flow through

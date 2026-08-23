@@ -7,6 +7,23 @@ const { rosterCapacity } = require('./irPolicy.service');
 // Module object, not destructured: the seam tests mock benchAcquiredPlayer.
 const lineupService = require('./lineup.service');
 
+/**
+ * Who may act on a trade (#188, recorded here rather than beside each check).
+ *
+ * Every `owner_id !== userId` in this module is a CALLER comparison and never
+ * a role one: `owner_id` here is a `teams` row's, so it asks "is this team the
+ * signed-in manager's own", and the error message beside each one states the
+ * rule it enforces. Only the two managers in a trade may move it, and which of
+ * them may do what is the whole of the rule: the receiving manager responds
+ * and counters, the proposing manager cancels.
+ *
+ * Being a commissioner grants nothing here. The one commissioner-shaped power
+ * over a trade is commissionerDecide's force-approve/veto, which authorizes
+ * through isLeagueCommissioner like every other commissioner-gated action, so
+ * a co-commissioner holds it. A commissioner has no standing to accept a trade
+ * on a manager's behalf, and nothing in here should acquire one by comparing
+ * against `leagues.owner_id`.
+ */
 class TradeError extends Error {
   constructor(statusCode, message) {
     super(message);

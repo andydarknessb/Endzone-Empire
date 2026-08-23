@@ -7,7 +7,7 @@ const pool = require('../modules/pool');
 const { notify } = require('./activity.service');
 const { SCORING_PRESETS } = require('./scoring.service');
 const { MODES: PICKEM_MODES } = require('./pickem.service');
-const { commissionerPredicate } = require('./leagueRole.service');
+const { commissionerPredicate, notifyCommissioners } = require('./leagueRole.service');
 const { assertAdmissible, joinLeague } = require('./leagueMembership.service');
 const { validateTeamName } = require('./teamName');
 const { joinability, joinableWhereSql } = require('./leaguePhase');
@@ -427,9 +427,16 @@ async function joinPublicLeague({ leagueId, userId, username, teamName }) {
           throw new DiscoveryError(409, 'unable to submit join request');
         }
       }
-      await notify(client, {
-        userId: league.owner_id,
+      // Every commissioner, not the creator alone (#188). Approving or
+      // denying this request is commissioner-gated - listJoinRequests and
+      // decideJoinRequest below both authorize through commissionerPredicate
+      // - so a co-commissioner can action the queue and needs to hear that it
+      // filled up. Notifying `league.owner_id` resolved the commissioner role
+      // as the creator, which is the narrower rule and not the one that gates
+      // the power being alerted about.
+      await notifyCommissioners(client, {
         leagueId,
+        ownerId: league.owner_id,
         type: 'join_request',
         message: `${username} requested to join ${league.name}`,
         data: { requestId: joinRequest.id, userId },

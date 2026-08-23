@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useSelector } from 'react-redux';
 import {
   Typography, TextField, Button, Paper, Stack, Alert,
   Switch, FormControlLabel, Select, MenuItem, InputLabel, FormControl,
@@ -33,7 +32,6 @@ const JOIN_CLOSED_COPY = {
 };
 
 function LeagueManagement() {
-  const user = useSelector((store) => store.user);
   const notify = useSnackbar();
   const [leagues, setLeagues] = useState([]);
   const [activeTab, setActiveTab] = useState('create');
@@ -245,7 +243,6 @@ function LeagueManagement() {
             <LeagueCard
               key={league.id}
               league={league}
-              isOwner={user.id === league.owner_id}
               onDelete={deleteLeague}
             />
           ))}

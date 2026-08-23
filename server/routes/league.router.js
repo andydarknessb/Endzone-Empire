@@ -280,6 +280,14 @@ router.get('/preview', previewRateLimiter, async (req, res) => {
 // GET /api/league — leagues the caller belongs to
 router.get('/', async (req, res) => {
   try {
+    // `is_owner` and `is_commissioner` are the viewer's role on each league,
+    // answered here so no card has to rebuild it from `leagues.owner_id` and
+    // the signed-in account id (#188). `is_owner` is the creator-alone half,
+    // covering the powers leagueRole.service's header keeps owner-shaped
+    // (deleting the league, granting or revoking co-commissioners);
+    // `is_commissioner` is the half a co-commissioner holds too. Both are
+    // per-viewer, evaluated against $1, and this response is the list's only
+    // per-viewer channel, so they belong on the row.
     const result = await pool.query(
       `SELECT "leagues".*, "teams"."id" AS "my_team_id", "teams"."name" AS "my_team_name",
               "teams"."avatar_url" AS "my_team_avatar_url",
@@ -287,6 +295,7 @@ router.get('/', async (req, res) => {
               "teams"."waiver_priority" AS "my_team_waiver_priority",
               "teams"."faab_remaining" AS "my_team_faab_remaining",
               (SELECT COUNT(*)::int FROM "teams" "t" WHERE "t"."league_id" = "leagues"."id") AS "team_count",
+              ("leagues"."owner_id" = $1) AS "is_owner",
               ${commissionerPredicate(1)} AS "is_commissioner"
        FROM "leagues"
        JOIN "teams" ON "teams"."league_id" = "leagues"."id"
@@ -419,7 +428,13 @@ router.post('/:id/start-draft', async (req, res) => {
   }
 });
 
-// DELETE /api/league/:id — owner deletes the league
+// DELETE /api/league/:id — owner deletes the league.
+//
+// Sanctioned direct owner_id comparison, the first of the three
+// leagueRole.service's header enumerates: this power does not delegate, so a
+// co-commissioner is refused here exactly as a member is. The WHERE clause IS
+// the gate rather than a filter in front of one - no row deleted means the
+// caller was not the creator - which is why the 403 is decided on rowCount.
 router.delete('/:id', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });

@@ -62,9 +62,13 @@ const league = (overrides = {}) => ({
   ...overrides,
 });
 
+// Both `id` and `teamId`, because GET /api/league/:id selects both: the raw
+// column and the contract alias teamIdentityColumns() puts beside it. A
+// fixture carrying only `id` would let a comparison against the legacy column
+// pass while the contract one silently matched nothing.
 const teams = [
-  { id: 1, name: "Alice's Team", owner: 'alice', faab_remaining: 100, locked: false },
-  { id: 2, name: "Bob's Team", owner: 'bob', faab_remaining: 60, locked: false },
+  { id: 1, teamId: 1, name: "Alice's Team", owner: 'alice', faab_remaining: 100, locked: false },
+  { id: 2, teamId: 2, name: "Bob's Team", owner: 'bob', faab_remaining: 60, locked: false },
 ];
 
 const mockGetByUrl = (overrides = {}) => {
@@ -149,6 +153,102 @@ test("excludes the viewer's own team by Team ID once the owner username field is
   expect(screen.queryByRole('button', { name: "Remove Alice's Team" })).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: "Remove Bob's Team" })).toBeInTheDocument();
 });
+
+// #188. Team identity on a league-shared payload is `teamId`, and every other
+// "which of these is me" comparison in src/ reads it. This filter read the raw
+// `teams.id` that GET /api/league/:id still selects beside it, and the failure
+// direction is the bad one: drop the legacy column and `undefined !==
+// viewerTeamId` is true for every row, so the viewer's own team becomes
+// removable. The fixture below carries Team identity and no legacy id.
+test("excludes the viewer's own team by teamId, the contract field, not the legacy id", () => {
+  const contractTeams = [
+    { teamId: 1, name: "Alice's Team", faab_remaining: 100, locked: false },
+    { teamId: 2, name: "Bob's Team", faab_remaining: 60, locked: false },
+  ];
+  renderTools({ viewerTeamId: 1, teams: contractTeams });
+
+  expect(screen.queryByRole('button', { name: "Remove Alice's Team" })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: "Remove Bob's Team" })).toBeInTheDocument();
+});
+
+// #188. Two rules bound removal and the server enforces both: no commissioner
+// may remove their OWN team, and whoever the caller is, the creator's team
+// cannot be removed (leagueRole.service's invariant; commissioner.service's
+// removeTeam raises 409 for each). The client mirrored only the first, so a
+// co-commissioner was offered a Remove button that could only ever fail. The
+// viewer here is a co-commissioner, which is what makes the two rules
+// distinguishable: for the creator, their own team is already excluded by the
+// first rule.
+test("offers a co-commissioner no Remove button for the creator's team", () => {
+  const withTeamIds = [
+    { id: 1, teamId: 1, name: "Alice's Team", owner: 'alice', owner_id: 1 },
+    { id: 2, teamId: 2, name: "Bob's Team", owner: 'bob', owner_id: 2 },
+    { id: 3, teamId: 3, name: "Carol's Team", owner: 'carol', owner_id: 3 },
+  ];
+  // Bob is a co-commissioner; Alice created the league.
+  renderTools({
+    viewerTeamId: 2,
+    teams: withTeamIds,
+    league: league({ ownerTeamId: 1, ownerTeamName: "Alice's Team" }),
+  });
+
+  expect(screen.queryByRole('button', { name: "Remove Alice's Team" })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: "Remove Bob's Team" })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: "Remove Carol's Team" })).toBeInTheDocument();
+});
+
+// #188 follow-up. Filtering the creator's team out of the removal list is
+// right, but the 409 it used to produce ("the league creator's team can't be
+// removed") was the ONLY place that rule was ever stated to a user. Hiding the
+// button without saying why leaves a co-commissioner looking for a team that
+// is simply absent - and because the whole Paper was gated on the list being
+// non-empty, in a two-team league the overline, the subheading and the list
+// vanished from the DOM together, so there was no trace of the section at all.
+test('states the creator-team rule instead of silently omitting the team', () => {
+  const twoTeams = [
+    { id: 1, teamId: 1, name: "Alice's Team", owner: 'alice' },
+    { id: 2, teamId: 2, name: "Bob's Team", owner: 'bob' },
+  ];
+  // Bob is a co-commissioner; Alice created the league. Nothing is removable:
+  // Bob's own team by the first rule, Alice's by the second.
+  renderTools({
+    viewerTeamId: 2,
+    teams: twoTeams,
+    league: league({ ownerTeamId: 1, ownerTeamName: "Alice's Team" }),
+  });
+
+  expect(screen.getByText('Remove a team')).toBeInTheDocument();
+  expect(screen.getByText(/the league creator's team can't be removed/i)).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: "Remove Alice's Team" })).not.toBeInTheDocument();
+});
+
+// The rule is stated whenever the section is, not only when the list empties:
+// a co-commissioner who CAN remove someone still needs to know why one name is
+// missing from the list in front of them.
+test('states the rule alongside a non-empty removal list too', () => {
+  const threeTeams = [
+    { id: 1, teamId: 1, name: "Alice's Team", owner: 'alice' },
+    { id: 2, teamId: 2, name: "Bob's Team", owner: 'bob' },
+    { id: 3, teamId: 3, name: "Carol's Team", owner: 'carol' },
+  ];
+  renderTools({
+    viewerTeamId: 2,
+    teams: threeTeams,
+    league: league({ ownerTeamId: 1, ownerTeamName: "Alice's Team" }),
+  });
+
+  expect(screen.getByRole('button', { name: "Remove Carol's Team" })).toBeInTheDocument();
+  expect(screen.getByText(/the league creator's team can't be removed/i)).toBeInTheDocument();
+});
+
+// The list row's React key moved to `teamId` with the filter above it, or
+// the file contradicts itself (#188). There is no test for it: a React key
+// is not observable from the DOM, and the one probe that exists - React's
+// own "unique key prop" warning - is emitted at most once per component per
+// run, so a test asserting on it passes or fails depending on which other
+// test rendered this panel first. A green that depends on file order would
+// certify nothing, which is the failure this whole sweep is about. The
+// change is verified by reading it.
 
 // --- Roster Settings ---
 
@@ -715,8 +815,8 @@ test('Lock Specific Team toggles a single team without touching the league-wide 
 // --- Co-commissioners (owner-only) ---
 
 const withOwnerIds = [
-  { id: 1, name: "Alice's Team", owner: 'alice', owner_id: 1, faab_remaining: 100, locked: false },
-  { id: 2, name: "Bob's Team", owner: 'bob', owner_id: 2, faab_remaining: 60, locked: false },
+  { id: 1, teamId: 1, name: "Alice's Team", owner: 'alice', owner_id: 1, faab_remaining: 100, locked: false },
+  { id: 2, teamId: 2, name: "Bob's Team", owner: 'bob', owner_id: 2, faab_remaining: 60, locked: false },
 ];
 
 test('the co-commissioner section is owner-only', () => {
@@ -726,6 +826,43 @@ test('the co-commissioner section is owner-only', () => {
 
   renderTools({ isOwner: true, teams: withOwnerIds });
   expect(screen.getByText('Co-commissioners')).toBeInTheDocument();
+});
+
+// #188: a role prop defaults to the answer that grants nothing. `isOwner`
+// defaulted to true, so a caller that forgot to pass it was handed the two
+// powers the creator cannot delegate. There is one caller today and it passes
+// the prop, so this was latent rather than live - but a role question whose
+// unanswered state is "yes" is the kind of thing this sweep exists to find.
+test('owner-only controls stay hidden when no role is passed at all', () => {
+  renderTools({ teams: withOwnerIds });
+  expect(screen.queryByText('Co-commissioners')).not.toBeInTheDocument();
+});
+
+// #188: listCoCommissioners LEFT JOINs each grant to its Team and ships
+// `teamId` / `teamName` (#112), and LeagueRules' LeagueOfficials renders that
+// same array the contract way. This card instead rebuilt the join client-side
+// by matching `c.user_id` against `teams[].owner_id` - re-deriving, from
+// account fields, an answer the payload already carried. The fixture below is
+// the shape that separates the two: the grant names its own Team and the team
+// rows carry no owner account id to re-join on.
+test("names each grant's Team from the payload rather than re-joining on account ids", () => {
+  const contractTeams = [
+    { id: 1, teamId: 1, name: "Alice's Team" },
+    { id: 2, teamId: 2, name: "Bob's Team" },
+  ];
+  renderTools({
+    isOwner: true,
+    teams: contractTeams,
+    league: league({
+      co_commissioners: [{ user_id: 2, username: 'bob', teamId: 2, teamName: 'Deputy FC' }],
+    }),
+  });
+
+  // Scoped to the grant's own row: "Deputy FC" is the Team name the grant
+  // carries, and it appears nowhere else on the page, so finding it proves the
+  // card read the payload rather than rebuilding a null.
+  const grantRow = screen.getByRole('button', { name: 'Remove bob as co-commissioner' }).closest('li');
+  expect(within(grantRow).getByText('Deputy FC')).toBeInTheDocument();
 });
 
 test('the owner promotes a member by user id and refreshes', async () => {

@@ -77,6 +77,19 @@ async function isLeagueCommissioner(db, leagueId, userId) {
   return !!result.rows[0];
 }
 
+/**
+ * Whether this user is the league's CREATOR, which is a narrower question than
+ * `isLeagueCommissioner` and answers only the owner-shaped actions in the
+ * header above.
+ *
+ * It has no call sites today (#188), and that is the thing worth knowing
+ * before reaching for it: every commissioner-gated action must authorize
+ * through `isLeagueCommissioner` or `commissionerPredicate`, and the three
+ * owner-shaped actions each already compare `owner_id` where they stand.
+ * Reaching for this is only right once you have decided the rule is genuinely
+ * about the creator rather than about the commissioner or the caller, which is
+ * precisely the decision #188 found people getting wrong.
+ */
 async function isLeagueOwner(db, leagueId, userId) {
   if (!leagueId || !userId) return false;
   const result = await db.query(
@@ -127,6 +140,10 @@ async function grantCoCommissioner({ leagueId, userId, targetUserId }) {
   try {
     await client.query('BEGIN');
     const league = await requireOwner(client, { leagueId, userId, forUpdate: true });
+    // Sanctioned direct owner_id comparison, the second of the three in the
+    // header: granting the role. The creator already holds it, so they can
+    // never be a grantee, and the comparison genuinely is about the owner
+    // rather than about the caller.
     if (targetUserId === league.owner_id) {
       throw new MembershipError(400, 'the league owner is already the commissioner');
     }
