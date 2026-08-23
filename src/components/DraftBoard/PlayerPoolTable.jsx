@@ -93,13 +93,6 @@ export const stickyActionHeadSx = {
 // vertical seam against the row.
 export const stickyActionCellSx = { position: 'sticky', right: 0, bgcolor: 'inherit', zIndex: 1 };
 
-// Opaque zebra striping + hover; the sticky action cell inherits these.
-const stripedRowsSx = {
-  '& tbody tr': { backgroundColor: 'var(--surface)' },
-  '& tbody tr:nth-of-type(even)': { backgroundColor: 'var(--row-stripe)' },
-  '& tbody tr:hover': { backgroundColor: 'var(--row-hover)' },
-};
-
 // Fetch the next page once the scroller is within this many pixels of the
 // bottom, so the next window of rows is ready before the user hits the edge.
 const NEAR_BOTTOM_PX = 200;
@@ -575,7 +568,7 @@ function PlayerPoolTable({
         data-testid="players-scroll-region"
         sx={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}
       >
-        <Table stickyHeader sx={stripedRowsSx}>
+        <Table stickyHeader>
           <TableHead>
             <TableRow>
               {/* Column order is fixed markup here, same as the equally-fixed

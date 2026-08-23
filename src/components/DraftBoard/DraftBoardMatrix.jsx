@@ -40,11 +40,6 @@ const stickyRoundCellSx = {
   color: 'text.secondary',
 };
 
-const stripedRowsSx = {
-  '& tbody tr': { backgroundColor: 'var(--surface)' },
-  '& tbody tr:nth-of-type(even)': { backgroundColor: 'var(--row-stripe)' },
-};
-
 /** Remounts (via the returned key) whenever `value` changes after the first render, so a CSS animation can replay. */
 function useFlashKey(value) {
   const prevRef = useRef(value);
@@ -137,7 +132,7 @@ function DraftBoardMatrix({
         Draft Board
       </Typography>
       <TableContainer sx={{ overflowX: 'auto' }}>
-        <Table size="small" sx={stripedRowsSx}>
+        <Table size="small">
           <TableHead>
             <TableRow sx={{ bgcolor: 'primary.main' }}>
               <TableCell component="th" scope="col" sx={stickyRoundHeadSx}>

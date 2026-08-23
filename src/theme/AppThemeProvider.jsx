@@ -125,9 +125,9 @@ export function buildTheme(mode) {
           root: {
             '& .MuiTableRow-root': { transition: 'background-color 150ms ease' },
             '& .MuiTableRow-root:nth-of-type(even)': {
-              backgroundColor: c['surface-sunken'],
+              backgroundColor: c['row-stripe'],
             },
-            '& .MuiTableRow-root:hover': { backgroundColor: c['accent-soft'] },
+            '& .MuiTableRow-root:hover': { backgroundColor: c['row-hover'] },
           },
         },
       },
