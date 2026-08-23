@@ -16,14 +16,42 @@ jest.mock('../../api/socket', () => ({
   onReconnect: jest.fn(),
 }));
 
+// A chat row as the server sends it today: Team identity beside the account
+// fields the expand step deliberately left in place (#112). The panel must
+// read only the Team half, so every fixture keeps a username that the
+// assertions then refuse to find on screen.
 const chatMessage = (overrides = {}) => ({
   id: 1,
   user_id: 1,
   username: 'alice',
+  teamId: 11,
+  teamName: 'Anvils',
   message: 'hello there',
   created_at: '2026-01-01T12:00:00Z',
   ...overrides,
 });
+
+// The `chat:message` broadcast. It carries Team identity and, by contract,
+// never a viewer-relative field: one payload reaches the whole league room.
+const broadcast = (overrides = {}) => ({
+  id: 2,
+  leagueId: 1,
+  userId: 2,
+  username: 'bob',
+  teamId: 22,
+  teamName: 'Bulldogs',
+  message: 'yo',
+  created_at: '2026-01-01T12:05:00Z',
+  ...overrides,
+});
+
+// `league:join` is answered to one socket, so it is the chat panel's only
+// route to its own Team ID; nothing else it receives can carry one.
+const answerJoinWith = (viewerTeamId) => {
+  mockSocket.emit.mockImplementation((event, payload, ack) => {
+    if (event === 'league:join' && ack) ack({ ok: true, viewerTeamId });
+  });
+};
 
 let mockSocket;
 let socketHandlers;
@@ -62,14 +90,30 @@ afterEach(() => {
   jest.clearAllMocks();
 });
 
-test('loads and renders chat history', async () => {
-  apiClient.get.mockResolvedValue({ data: [chatMessage({ id: 1, username: 'alice', message: 'hi' })] });
+test('loads chat history and attributes each message to its Team, never its account', async () => {
+  apiClient.get.mockResolvedValue({ data: [chatMessage({ id: 1, message: 'hi' })] });
 
   renderWithProviders(<ChatPanel leagueId={1} />);
 
   expect(await screen.findByText('hi')).toBeInTheDocument();
-  expect(screen.getByText('alice')).toBeInTheDocument();
+  expect(screen.getByText('Anvils')).toBeInTheDocument();
+  expect(screen.queryByText('alice')).not.toBeInTheDocument();
   expect(apiClient.get).toHaveBeenCalledWith('/api/league/1/chat');
+});
+
+test('a message from a manager who has left the league is attributed to a former manager', async () => {
+  // The history join is LEFT so the message survives the departure; its Team
+  // identity comes back null and there is no account name to fall back to.
+  apiClient.get.mockResolvedValue({
+    data: [chatMessage({ id: 1, teamId: null, teamName: null, username: 'ghost', message: 'so long' })],
+  });
+
+  renderWithProviders(<ChatPanel leagueId={1} />);
+
+  expect(await screen.findByText('so long')).toBeInTheDocument();
+  expect(screen.getByText('Former manager')).toBeInTheDocument();
+  expect(screen.queryByText('ghost')).not.toBeInTheDocument();
+  expect(screen.queryByText('null')).not.toBeInTheDocument();
 });
 
 test('shows an empty state when there are no messages', async () => {
@@ -87,18 +131,12 @@ test('appends an incoming chat:message in real time', async () => {
   await screen.findByText('No messages yet');
 
   act(() => {
-    socketHandlers['chat:message']({
-      id: 2,
-      leagueId: 1,
-      userId: 2,
-      username: 'bob',
-      message: 'yo',
-      created_at: '2026-01-01T12:05:00Z',
-    });
+    socketHandlers['chat:message'](broadcast());
   });
 
   expect(await screen.findByText('yo')).toBeInTheDocument();
-  expect(screen.getByText('bob')).toBeInTheDocument();
+  expect(screen.getByText('Bulldogs')).toBeInTheDocument();
+  expect(screen.queryByText('bob')).not.toBeInTheDocument();
 });
 
 test('sending a message emits chat:send with the trimmed text and clears the input on success', async () => {
@@ -156,7 +194,13 @@ test('joins the league room on mount and disconnects on unmount', async () => {
   await screen.findByText('No messages yet');
 
   expect(createDraftSocket).toHaveBeenCalled();
-  expect(mockSocket.emit).toHaveBeenCalledWith('league:join', { leagueId: 7 });
+  // The join now carries an acknowledgement callback: it is the only channel
+  // that can tell this panel which Team is the viewer's own.
+  expect(mockSocket.emit).toHaveBeenCalledWith(
+    'league:join',
+    { leagueId: 7 },
+    expect.any(Function)
+  );
 
   unmount();
   expect(mockSocket.disconnect).toHaveBeenCalled();
@@ -164,30 +208,30 @@ test('joins the league room on mount and disconnects on unmount', async () => {
 
 test('while closed, unread starts from the server count and grows with others\' messages only', async () => {
   mockGets({ unread: 2 });
+  // "Which of these is mine" is answered by Team, and the join ack is where
+  // that answer arrives.
+  answerJoinWith(99);
   const onUnreadChange = jest.fn();
 
-  renderWithProviders(
-    <ChatPanel leagueId={1} open={false} currentUserId={9} onUnreadChange={onUnreadChange} />
-  );
+  renderWithProviders(<ChatPanel leagueId={1} open={false} onUnreadChange={onUnreadChange} />);
   await screen.findByText('No messages yet');
 
   // Server-persisted count (survives reloads) seeds the badge.
   await waitFor(() => expect(onUnreadChange).toHaveBeenCalledWith(2));
   expect(apiClient.get).toHaveBeenCalledWith('/api/league/1/chat/unread');
 
-  // Someone else's live message increments...
+  // Someone else's Team increments...
   act(() => {
-    socketHandlers['chat:message']({
-      id: 2, leagueId: 1, userId: 2, username: 'bob', message: 'yo', created_at: '2026-01-01T12:05:00Z',
-    });
+    socketHandlers['chat:message'](broadcast());
   });
   await waitFor(() => expect(onUnreadChange).toHaveBeenLastCalledWith(3));
 
-  // ...but the user's own broadcast echo does not.
+  // ...but the viewer's own broadcast echo does not, recognised by Team ID
+  // and not by any account field on the payload.
   act(() => {
-    socketHandlers['chat:message']({
-      id: 3, leagueId: 1, userId: 9, username: 'me', message: 'mine', created_at: '2026-01-01T12:06:00Z',
-    });
+    socketHandlers['chat:message'](broadcast({
+      id: 3, userId: 9, username: 'me', teamId: 99, teamName: 'Mine', message: 'mine',
+    }));
   });
   await screen.findByText('mine');
   expect(onUnreadChange).toHaveBeenLastCalledWith(3);
@@ -195,17 +239,35 @@ test('while closed, unread starts from the server count and grows with others\' 
   expect(apiClient.post).not.toHaveBeenCalled();
 });
 
+test('a broadcast that shares the viewer\'s account but not their Team still counts as unread', async () => {
+  // Pins the migration: the account fields still on the payload have no say
+  // in the answer, so a userId collision cannot swallow someone else's
+  // message the way an account-ID comparison would.
+  mockGets({ unread: 0 });
+  answerJoinWith(99);
+  const onUnreadChange = jest.fn();
+
+  renderWithProviders(<ChatPanel leagueId={1} open={false} onUnreadChange={onUnreadChange} />);
+  await screen.findByText('No messages yet');
+
+  act(() => {
+    socketHandlers['chat:message'](broadcast({ userId: 9, teamId: 22, message: 'not mine' }));
+  });
+
+  await waitFor(() => expect(onUnreadChange).toHaveBeenLastCalledWith(1));
+});
+
 test('opening the chat resets unread and moves the server-side read marker', async () => {
   mockGets({ unread: 5 });
   const onUnreadChange = jest.fn();
 
   const { rerender } = renderWithProviders(
-    <ChatPanel leagueId={1} open={false} currentUserId={9} onUnreadChange={onUnreadChange} />
+    <ChatPanel leagueId={1} open={false} onUnreadChange={onUnreadChange} />
   );
   await waitFor(() => expect(onUnreadChange).toHaveBeenCalledWith(5));
 
   // ChatPanel needs no providers, so a bare rerender flips the drawer open.
-  rerender(<ChatPanel leagueId={1} open currentUserId={9} onUnreadChange={onUnreadChange} />);
+  rerender(<ChatPanel leagueId={1} open onUnreadChange={onUnreadChange} />);
 
   await waitFor(() => expect(onUnreadChange).toHaveBeenLastCalledWith(0));
   expect(apiClient.post).toHaveBeenCalledWith('/api/league/1/chat/read');
@@ -214,14 +276,12 @@ test('opening the chat resets unread and moves the server-side read marker', asy
 test('messages arriving while open are marked read on the server immediately', async () => {
   mockGets();
 
-  renderWithProviders(<ChatPanel leagueId={4} open currentUserId={9} />);
+  renderWithProviders(<ChatPanel leagueId={4} open />);
   await screen.findByText('No messages yet');
   apiClient.post.mockClear(); // drop the mount-time mark-read
 
   act(() => {
-    socketHandlers['chat:message']({
-      id: 2, leagueId: 4, userId: 2, username: 'bob', message: 'seen live', created_at: '2026-01-01T12:05:00Z',
-    });
+    socketHandlers['chat:message'](broadcast({ leagueId: 4, message: 'seen live' }));
   });
 
   await screen.findByText('seen live');
@@ -244,7 +304,11 @@ test('re-joins the league room and re-fetches chat history on reconnect', async 
     reconnectHandlers.forEach((cb) => cb());
   });
 
-  expect(mockSocket.emit).toHaveBeenCalledWith('league:join', { leagueId: 7 });
+  expect(mockSocket.emit).toHaveBeenCalledWith(
+    'league:join',
+    { leagueId: 7 },
+    expect.any(Function)
+  );
   expect(apiClient.get).toHaveBeenCalledWith('/api/league/7/chat');
   expect(await screen.findByText('missed while offline')).toBeInTheDocument();
 });
