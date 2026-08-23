@@ -1671,6 +1671,15 @@ async function playersAcquiredAfterKickoff(client, { teamId, season, week }) {
  *   lineup_entries rows — minus any player whose roster row was created
  *   AFTER his NFL game for that week kicked off. Only advance-week asks for
  *   this, to compute the score of record before finalizing (#190).
+ *   Consequence worth knowing: a team with NO rows for the week scores 0
+ *   here, where the live path would have materialized a carried-forward
+ *   lineup for it first. That is the price of not re-materializing, and
+ *   re-materializing is the whole bug - it is what hands a post-game
+ *   acquisition a row. In practice the week is already materialized by
+ *   then: the scheduler live-scores every league whose week has had a
+ *   kickoff in the last 8 hours, and that path does materialize. A week
+ *   with no synced schedule and no manager who ever opened his lineup is
+ *   the case that reaches 0.
  * - FINAL (`matchups.final`): score straight from that week's
  *   lineup_entries, the historical record, with no exclusion applied at all.
  *   A player traded or dropped SINCE then still counts, and the lineup is
