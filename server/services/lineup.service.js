@@ -261,6 +261,13 @@ async function benchAcquiredPlayer(client, { league, teamId, playerId }) {
  * cost real points.
  *
  * Runs inside the caller's transaction, after the roster row is gone.
+ *
+ * Six paths call this, and if you are adding a seventh, note that five of
+ * them are one call beside one DELETE of a single roster row. The sixth,
+ * `commissioner.service`'s keeper-pruning rollover, prunes the whole league
+ * in one bulk statement, so it derives the pruned (team, player) pairs from
+ * a roster read taken beforehand and loops. A bulk removal modelled on the
+ * other five cleans nothing and fails no test.
  */
 async function removeLineupEntries(client, { league, teamId, playerId, now = new Date() }) {
   const { id: leagueId, current_season: season, current_week: week } = league;
