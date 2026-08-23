@@ -166,6 +166,40 @@ test('DATABASE_URL_MIGRATIONS beats DATABASE_URL_RUNTIME beats DATABASE_URL', ()
   assert.deepEqual(plain.ignored, []);
 });
 
+test('the reason a variable lost matches WHY it lost, not a fixed sentence', () => {
+  // This is the deploy's own shape: two DATABASE_URL* variables, no PG* at
+  // all. Saying "a DATABASE_URL* always beats the PG* block" here would be
+  // explaining a defeat that never happened, in the one output Cory reads to
+  // confirm the deploy is pointed correctly.
+  const deploy = announce({
+    DATABASE_URL_MIGRATIONS: 'postgresql://u@a.example.com/one',
+    DATABASE_URL_RUNTIME: 'postgresql://u@b.example.com/two',
+    [OPT_IN]: '1',
+  });
+  assert.match(deploy.output, /DATABASE_URL_RUNTIME/);
+  assert.doesNotMatch(deploy.output, /PG\*/);
+
+  // PG* only: the PG* sentence is the right one, and nothing claims a
+  // lower-priority URL variable lost.
+  const pgLost = announce({
+    DATABASE_URL: 'postgresql://u@a.example.com/one',
+    PGHOST: '127.0.0.1',
+    [OPT_IN]: '1',
+  });
+  assert.match(pgLost.output, /PG\* block/);
+  assert.doesNotMatch(pgLost.output, /first one set wins/);
+
+  // Both kinds lost: both reasons are given.
+  const both = announce({
+    DATABASE_URL_MIGRATIONS: 'postgresql://u@a.example.com/one',
+    DATABASE_URL: 'postgresql://u@c.example.com/three',
+    PGHOST: '127.0.0.1',
+    [OPT_IN]: '1',
+  });
+  assert.match(both.output, /PG\* block/);
+  assert.match(both.output, /first one set wins/);
+});
+
 test('an empty-string URL variable does not win (it is not a target)', () => {
   const target = resolveTarget({ DATABASE_URL_MIGRATIONS: '', PGHOST: '127.0.0.1' });
   assert.equal(target.via, 'pg');

@@ -151,6 +151,28 @@ function resolveTarget(env) {
 }
 
 /**
+ * Explains WHY the ignored variables lost, based on what actually lost.
+ *
+ * The two reasons are different rules and the output must not confuse them.
+ * The deploy's own shape is two DATABASE_URL* variables and no PG* at all, so
+ * a fixed "a DATABASE_URL* always beats the PG* block" sentence would be
+ * explaining a defeat that never happened, in the very line Cory reads to
+ * confirm a release is pointed at the right database.
+ */
+function whyIgnored(target) {
+  const reasons = [];
+  if (target.ignored.some((name) => PG_VARS.includes(name))) {
+    reasons.push('A DATABASE_URL* always beats the PG* block here.');
+  }
+  if (target.ignored.some((name) => URL_VARS.includes(name))) {
+    reasons.push(
+      `Among ${URL_VARS.join(', ')}, the first one set wins.`,
+    );
+  }
+  return reasons.join(' ');
+}
+
+/**
  * The line (or lines) a knex run prints before it connects. Returns an array
  * so the caller decides where they go; never contains a password.
  */
@@ -169,7 +191,7 @@ function describeTarget(target) {
   if (target.ignored.length > 0) {
     lines.push(
       `knex target: ${target.source} won. These were set and IGNORED: `
-      + `${target.ignored.join(', ')}. A DATABASE_URL* always beats the PG* block here.`,
+      + `${target.ignored.join(', ')}. ${whyIgnored(target)}`,
     );
   }
 
@@ -196,9 +218,8 @@ function refusalMessage(target) {
 
   if (target.ignored.length > 0) {
     lines.push(
-      `${target.ignored.join(', ')} were set and IGNORED: a DATABASE_URL* always beats `
-      + 'the PG* block here. If you believed you were pointed at a local container, '
-      + 'this is why you were not.',
+      `${target.ignored.join(', ')} were set and IGNORED. ${whyIgnored(target)} `
+      + 'If you believed you were pointed at a local container, this is why you were not.',
     );
   }
 
