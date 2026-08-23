@@ -204,9 +204,9 @@ test('renders league name, status chips, and the standings table', async () => {
   // The standings identify participants by Team and nothing else: the Owner
   // column beside it printed every other manager's username (#113 criterion
   // 4). The row still arrives carrying `owner`; nothing renders it.
-  const standingsTable = screen.getByRole('columnheader', { name: 'Rank' }).closest('table');
-  expect(within(standingsTable).queryByRole('columnheader', { name: 'Owner' })).not.toBeInTheDocument();
-  expect(within(standingsTable).queryByText('alice')).not.toBeInTheDocument();
+  expect(screen.queryByRole('columnheader', { name: 'Owner' })).not.toBeInTheDocument();
+  const standingsRow = screen.getByRole('row', { name: /Alice's Team/ });
+  expect(within(standingsRow).queryByText('alice')).not.toBeInTheDocument();
 });
 
 // --- Draft roster size / Draft rounds chip (#162) ---

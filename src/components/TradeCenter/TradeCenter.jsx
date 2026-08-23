@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { useSelector } from 'react-redux';
 import {
   Container,
   Typography,
@@ -218,7 +217,6 @@ function SummaryChipRow({ label, ids, roster }) {
 
 function TradeCenter() {
   const { leagueId } = useParams();
-  const user = useSelector((store) => store.user);
   const notify = useSnackbar();
 
   const [trades, setTrades] = useState(null);

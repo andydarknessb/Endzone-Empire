@@ -16,7 +16,7 @@
 // Nothing here can reach a live league, the shared Supabase database, or the
 // Tank01 API: both channels are intercepted before they leave the page.
 import { test as base, expect, type Page } from '@playwright/test';
-import { FIXTURE_USER, FIXTURE_LEAGUE_ID, FIXTURE_PLAYERS, type FixturePlayer, type FixtureTeam, type FixturePick } from './draftFixtures';
+import { FIXTURE_USER, FIXTURE_LEAGUE_ID, FIXTURE_PLAYERS, VIEWER_TEAM_ID, type FixturePlayer, type FixtureTeam, type FixturePick } from './draftFixtures';
 import { json } from './jsonRoute';
 
 export { expect };
@@ -53,6 +53,15 @@ export type DraftSocketState = {
   teams: FixtureTeam[];
   picks: FixturePick[];
   onTheClock: FixtureTeam | null;
+  /**
+   * The Team this viewer holds, as the `draft:join` acknowledgement answers
+   * it. Defaults to the harness viewer's own Team; pass null for a viewer
+   * with no team in this league. It rides ONLY on the ack, never on the
+   * `draft:state` snapshot below, because that snapshot is broadcast to the
+   * whole league room and no viewer-relative field on it could be true for
+   * every recipient (#113, contract #112).
+   */
+  viewerTeamId?: number | null;
 };
 
 /**
@@ -68,6 +77,7 @@ export type DraftSocketState = {
  * not the live-pick flow (#108).
  */
 export async function installDraftSocketHarness(page: Page, state: DraftSocketState) {
+  const initial: DraftSocketState = { viewerTeamId: VIEWER_TEAM_ID, ...state };
   await page.addInitScript((initialState) => {
     function createFakeDraftSocket() {
       const handlers: Record<string, Array<(payload?: unknown) => void>> = {};
@@ -88,7 +98,13 @@ export async function installDraftSocketHarness(page: Page, state: DraftSocketSt
         off,
         emit(event: string, payload: unknown, ack?: (resp: unknown) => void) {
           if (event === 'draft:join') {
-            if (typeof ack === 'function') ack({});
+            // The server answers the acknowledgement BEFORE the first
+            // snapshot, so the client knows its own Team before it holds any
+            // Team identity to compare against. The snapshot itself carries
+            // no viewer-relative field, exactly as the broadcast does not.
+            if (typeof ack === 'function') {
+              ack({ ok: true, viewerTeamId: initialState.viewerTeamId ?? null });
+            }
             setTimeout(() => {
               fire('draft:state', {
                 league: initialState.league,
@@ -122,7 +138,7 @@ export async function installDraftSocketHarness(page: Page, state: DraftSocketSt
 
     (window as unknown as { __ENDZONE_TEST_SOCKET_FACTORY__: unknown }).__ENDZONE_TEST_SOCKET_FACTORY__ =
       createFakeDraftSocket;
-  }, state);
+  }, initial);
 }
 
 export type DraftApiOptions = {
@@ -131,10 +147,10 @@ export type DraftApiOptions = {
   players?: FixturePlayer[];
   picks: FixturePick[];
   initialQueue?: FixturePlayer[];
-  // The team FIXTURE_USER owns, for /api/team/roster below (the pool's Bye
-  // overlap hint reads this). Every fixture team list puts the harness
-  // viewer's own team first (FIXTURE_TEAMS[0], id 1 - "Ridge Runners"), so
-  // that's the default; override for a fixture that varies it.
+  // The Team the harness viewer holds, for /api/team/roster below (the pool's
+  // Bye overlap hint reads this) and for league detail's viewerTeamId. Every
+  // fixture team list puts it first (FIXTURE_TEAMS[0], "Ridge Runners"), so
+  // VIEWER_TEAM_ID is the default; override for a fixture that varies it.
   myTeamId?: number;
 };
 
@@ -153,7 +169,7 @@ export type DraftApiHandle = {
 export async function installDraftRestApi(page: Page, opts: DraftApiOptions): Promise<DraftApiHandle> {
   const user = opts.user || FIXTURE_USER;
   const players = opts.players || FIXTURE_PLAYERS;
-  const myTeamId = opts.myTeamId ?? 1;
+  const myTeamId = opts.myTeamId ?? VIEWER_TEAM_ID;
   const draftedIds = new Set(opts.picks.map((p) => p.player_id));
   let queue: FixturePlayer[] = [...(opts.initialQueue || [])];
   const handle: DraftApiHandle = { queueWrites: [] };
@@ -186,7 +202,9 @@ export async function installDraftRestApi(page: Page, opts: DraftApiOptions): Pr
     if (method === 'GET' && path === '/api/notifications') return json(route, 200, { notifications: [], unread: 0 });
 
     if (method === 'GET' && path === `/api/league/${opts.league.id}`) {
-      return json(route, 200, { league: opts.league, teams: [] });
+      // viewerTeamId sits at the response root, which is the per-viewer
+      // channel league detail has (#113, contract #112).
+      return json(route, 200, { viewerTeamId: myTeamId, league: opts.league, teams: [] });
     }
 
     if (method === 'GET' && path === '/api/players') {
@@ -225,7 +243,7 @@ export async function installDraftRestApi(page: Page, opts: DraftApiOptions): Pr
     // holds, with the same bye_week each player carries in the pool response.
     if (method === 'GET' && path === '/api/team/roster') {
       const roster = opts.picks
-        .filter((p) => p.team_id === myTeamId)
+        .filter((p) => p.teamId === myTeamId)
         .map((p) => {
           const player = players.find((pl) => pl.id === p.player_id);
           return {

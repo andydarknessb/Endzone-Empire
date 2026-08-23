@@ -64,7 +64,7 @@ test.describe('draft status fixtures', () => {
     await setupActiveDraft(page);
 
     await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toBeVisible();
-    await expect(page.getByText('On the clock: Ridge Runners (harness-manager)')).toBeVisible();
+    await expect(page.getByText('On the clock: Ridge Runners')).toBeVisible();
     // Josh Allen was drafted in the fixture and hide-drafted defaults on, so
     // he's gone from the available-players pool - but not from pick history,
     // where his name is also a quick-view button, so this must be scoped to
@@ -357,7 +357,10 @@ test.describe('schedule-aware player pool (issue #119)', () => {
     // Travis Kelce (KC, Bye 10); Patrick Mahomes (also KC, Bye 10) is still
     // available and should surface the overlap.
     const picks = [
-      { pick_number: 1, team_id: 1, player_id: 5, name: 'Travis Kelce', position: 'TE', nfl_team: 'KC' },
+      {
+        pick_number: 1, teamId: 1, teamName: 'Ridge Runners',
+        player_id: 5, name: 'Travis Kelce', position: 'TE', nfl_team: 'KC',
+      },
     ];
     const league = buildLeague({ draft_status: 'active' });
     await installDraftSocketHarness(page, { league, teams: FIXTURE_TEAMS, picks, onTheClock: FIXTURE_TEAMS[0] });
@@ -869,7 +872,8 @@ function manyPlayers(count: number) {
 function manyPicks(count: number) {
   return Array.from({ length: count }, (_, i) => ({
     pick_number: i + 1,
-    team_id: FIXTURE_TEAMS[i % 2].id,
+    teamId: FIXTURE_TEAMS[i % 2].teamId,
+    teamName: FIXTURE_TEAMS[i % 2].teamName,
     player_id: 900 + i,
     name: `Drafted Guy ${i + 1}`,
     position: 'RB',
@@ -990,7 +994,7 @@ test.describe('mobile/tablet single-scroll tab layout (issue #122 acceptance cri
       const tabs = await page.getByRole('tab').allTextContents();
       expect(tabs).toEqual(['Players', 'Board', 'Draft']);
 
-      const onClockChip = page.getByText('On the clock: Ridge Runners (harness-manager)');
+      const onClockChip = page.getByText('On the clock: Ridge Runners');
       await expect(onClockChip).toBeVisible();
       await expect(page.getByText('Depth Player 1', { exact: true })).toBeVisible();
 
