@@ -1,11 +1,54 @@
 import React from 'react';
-import { act, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { Provider } from 'react-redux';
+import configureMockStore from 'redux-mock-store';
+import { MemoryRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import { clearLeagueCache } from '../../hooks/useLeague';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 import LineupScreen from './LineupScreen';
+
+const mockStore = configureMockStore([]);
+
+function NavigateButton({ to }) {
+  const navigate = useNavigate();
+  return (
+    <button type="button" data-testid="nav-to-league" onClick={() => navigate(to)}>
+      switch league
+    </button>
+  );
+}
+
+// Mounts LineupScreen bare (no FantasyOnly wrapper) with a button that
+// navigates the route from one leagueId to another, so a leagueId switch can
+// be driven while the component instance stays mounted throughout — the
+// scenario the ref-latching bug needed and FantasyOnly's own unmount-on-load
+// behavior happens to mask in production.
+const renderScreenWithNavigation = (initialLeagueId, nextLeagueId) => {
+  const store = mockStore({ user: {}, errors: { loginMessage: '', registrationMessage: '' } });
+  return render(
+    <Provider store={store}>
+      <MemoryRouter
+        initialEntries={[`/league/${initialLeagueId}/lineup`]}
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
+        <Routes>
+          <Route
+            path="/league/:leagueId/lineup"
+            element={(
+              <>
+                <NavigateButton to={`/league/${nextLeagueId}/lineup`} />
+                <LineupScreen />
+              </>
+            )}
+          />
+        </Routes>
+      </MemoryRouter>
+    </Provider>
+  );
+};
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
@@ -917,6 +960,180 @@ test('best ball: quick-pick offers only unlocked players from the opposite manag
   expect(within(menu).getByText('No eligible players available')).toBeInTheDocument();
   expect(within(menu).queryByText(/Recovered Receiver/)).not.toBeInTheDocument();
   expect(within(menu).queryByText(/Patrick Mahomes/)).not.toBeInTheDocument();
+});
+
+test('best ball: no advice request and no suggestions panel when the lineup resolves before the league (#167)', async () => {
+  let resolveLeague;
+  const leagueGate = new Promise((resolve) => {
+    resolveLeague = resolve;
+  });
+  apiClient.get.mockImplementation((url) => {
+    if (url.startsWith('/api/team/lineup/advice')) {
+      return Promise.resolve({ data: adviceResponse() });
+    }
+    if (url.startsWith('/api/team/lineup')) {
+      // Resolves immediately, ahead of the league request below.
+      return Promise.resolve({ data: lineupResponse() });
+    }
+    if (url.startsWith('/api/team/hindsight')) {
+      return Promise.resolve({ data: hindsightSeasonResponse() });
+    }
+    if (url.startsWith('/api/league/')) {
+      // Held open until the test explicitly resolves it, so the lineup
+      // response lands first regardless of which request went out first.
+      return leagueGate.then(() => ({ data: { league: { id: 1, best_ball: true } } }));
+    }
+    return Promise.reject(new Error(`unexpected url ${url}`));
+  });
+
+  renderScreenWithToasts();
+
+  // The lineup has landed and rendered; the league request is still
+  // in flight. The advice decision must not have fired yet — it must wait
+  // to learn the real best_ball value rather than treating "not loaded" as
+  // "not best ball".
+  await screen.findByText('Patrick Mahomes');
+  expect(apiClient.get.mock.calls.some(([url]) => url.startsWith('/api/team/lineup/advice'))).toBe(
+    false
+  );
+  expect(screen.queryByTestId('lineup-advice-panel')).not.toBeInTheDocument();
+  expect(screen.queryByText(/Projected .* · Optimal/)).not.toBeInTheDocument();
+
+  // Now let the league response land.
+  resolveLeague();
+  await screen.findByTestId('best-ball-alert');
+
+  expect(apiClient.get.mock.calls.some(([url]) => url.startsWith('/api/team/lineup/advice'))).toBe(
+    false
+  );
+  expect(screen.queryByTestId('lineup-advice-panel')).not.toBeInTheDocument();
+  expect(screen.queryByText(/Projected .* · Optimal/)).not.toBeInTheDocument();
+});
+
+// This guards a specific rejected implementation, not the #167 bug directly:
+// with `leagueKnown` computed as plain `!leagueLoading` (the first fix this
+// issue tried), a background revalidation's true->false loading flip would
+// re-run the advice-decision effect and refire the advice request even
+// though nothing relevant had changed. It does NOT fail against the
+// original, entirely-unfixed component (bestBall alone, no leagueLoading
+// involved at all): there, `bestBall` never changes across a same-league
+// revalidation, so the effect's dependency array never differs and nothing
+// refires either, for an unrelated reason. This test exists to keep the
+// rejected variant rejected, since it is the obvious next thing to reach
+// for.
+test('a background revalidation of the shared league resource does not refire the advice request', async () => {
+  // The revalidation response is held open deliberately, and the trigger
+  // below uses a plain (non-async) `act()` followed by a separate explicit
+  // flush, rather than one `await act(async () => { clearLeagueCache(1) })`
+  // call: a synchronous act() commits `setLoading(true)` as its own render
+  // before any microtask runs, whereas wrapping the whole revalidation
+  // (trigger + an instantly-resolved response) in a single async act() lets
+  // React settle both the true and the (immediately following) false update
+  // together, so the transient "loading" render never appears as its own
+  // commit and this test would pass trivially without exercising the
+  // hazard (verified directly: an instant response inside a single async
+  // act() shows only one post-trigger render, already loading:false).
+  // Holding the response open additionally keeps its resolution under this
+  // test's own explicit act() rather than racing an uncontrolled microtask.
+  let revalidating = false;
+  let resolveRevalidatedLeague;
+  apiClient.get.mockImplementation((url) => {
+    if (url.startsWith('/api/team/lineup/advice')) {
+      return Promise.resolve({ data: adviceResponse() });
+    }
+    if (url.startsWith('/api/team/lineup')) {
+      return Promise.resolve({ data: lineupResponse({ entries: flexBenchEntries }) });
+    }
+    if (url.startsWith('/api/team/hindsight')) {
+      return Promise.resolve({ data: hindsightSeasonResponse() });
+    }
+    if (url.startsWith('/api/league/')) {
+      if (!revalidating) {
+        return Promise.resolve({ data: { league: { id: 1, best_ball: false } } });
+      }
+      return new Promise((resolve) => {
+        resolveRevalidatedLeague = () => resolve({ data: { league: { id: 1, best_ball: false } } });
+      });
+    }
+    return Promise.reject(new Error(`unexpected url ${url}`));
+  });
+
+  renderScreen();
+  await screen.findByText('Justin Jefferson');
+
+  const adviceCallCount = () =>
+    apiClient.get.mock.calls.filter(([url]) => url.startsWith('/api/team/lineup/advice')).length;
+  expect(adviceCallCount()).toBe(1);
+
+  // Simulate the shared league cache entry revalidating in the background
+  // (a TTL lapse, or another mount on the same league invalidating it) with
+  // the same best_ball value. This must not look like a fresh "league just
+  // became known" transition to the advice-decision effect.
+  revalidating = true;
+  act(() => {
+    clearLeagueCache(1);
+  });
+
+  // The revalidation's own loading state has now committed on its own
+  // (leagueLoading flipped true again, ahead of the held-open response).
+  expect(adviceCallCount()).toBe(1);
+
+  await act(async () => {
+    resolveRevalidatedLeague();
+    await Promise.resolve();
+  });
+
+  expect(adviceCallCount()).toBe(1);
+});
+
+test('does not fire an advice request for a newly-selected league before its own league response settles', async () => {
+  // League 1 resolves normally; league 2's own league response is held
+  // open for the whole test, so its best_ball value is genuinely never
+  // learned. If the "is the league known" check can latch onto league 1's
+  // already-resolved state and carry it across the leagueId switch, it
+  // would treat league 2 as known too and fire advice for it prematurely.
+  apiClient.get.mockImplementation((url) => {
+    if (url.startsWith('/api/team/lineup/advice')) {
+      return Promise.resolve({ data: adviceResponse() });
+    }
+    if (url.startsWith('/api/team/lineup?leagueId=2')) {
+      return Promise.resolve({ data: lineupResponse({ leagueId: 2 }) });
+    }
+    if (url.startsWith('/api/team/lineup')) {
+      return Promise.resolve({ data: lineupResponse() });
+    }
+    if (url.startsWith('/api/team/hindsight')) {
+      return Promise.resolve({ data: hindsightSeasonResponse() });
+    }
+    if (url.startsWith('/api/league/2')) {
+      return new Promise(() => {}); // never settles for the life of this test
+    }
+    if (url.startsWith('/api/league/1')) {
+      return Promise.resolve({ data: { league: { id: 1, best_ball: false } } });
+    }
+    return Promise.reject(new Error(`unexpected url ${url}`));
+  });
+
+  renderScreenWithNavigation(1, 2);
+  await screen.findByText('Patrick Mahomes');
+
+  const adviceCallsFor = (leagueId) =>
+    apiClient.get.mock.calls.filter(
+      ([url]) => url.startsWith('/api/team/lineup/advice') && url.includes(`leagueId=${leagueId}`)
+    ).length;
+  expect(adviceCallsFor(1)).toBe(1);
+
+  await userEvent.click(screen.getByTestId('nav-to-league'));
+
+  // League 2's own lineup has landed (it resolves immediately in this
+  // mock), but its league response never will — the advice decision must
+  // still be blocked, not carried over from league 1's answer.
+  await waitFor(() => {
+    expect(
+      apiClient.get.mock.calls.some(([url]) => url.startsWith('/api/team/lineup?leagueId=2'))
+    ).toBe(true);
+  });
+  expect(adviceCallsFor(2)).toBe(0);
 });
 
 test('a non-best-ball league still shows the suggestions panel and no info alert', async () => {
