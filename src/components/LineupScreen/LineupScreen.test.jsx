@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Provider } from 'react-redux';
 import configureMockStore from 'redux-mock-store';
@@ -151,6 +151,23 @@ const recoveredStashEntry = (overrides = {}) => ({
   onBye: false,
   ...overrides,
 });
+
+// A single-response stand-in for `apiClient.get.mockResolvedValue(response)`
+// that still answers the league endpoint separately, with a resolved,
+// known-standard league (#217). The tests using this only care about the
+// lineup response, not best_ball, and must not have their league request
+// look permanently unsettled just because they never mocked it: with the
+// tri-state fix, an unmocked (never-resolving) league request means every
+// league-gated consumer — advice, quick-pick, warnings, row interactivity —
+// treats the league as still unknown, which would break tests that have
+// nothing to do with best-ball.
+const mockGetAll = (response) => {
+  apiClient.get.mockImplementation((url) =>
+    url.startsWith('/api/league/')
+      ? Promise.resolve({ data: { league: { id: 1, best_ball: false } } })
+      : Promise.resolve(response)
+  );
+};
 
 // URL-keyed mock covering the GETs LineupScreen now issues per week: the
 // lineup itself, start/sit advice, the season-long hindsight tally, and a
@@ -353,7 +370,7 @@ test('shows skeleton placeholders before data arrives', () => {
 });
 
 test('renders starters grouped by slot, bench section, and empty slot rows', async () => {
-  apiClient.get.mockResolvedValue({ data: lineupResponse() });
+  mockGetAll({ data: lineupResponse() });
 
   renderScreen();
 
@@ -371,7 +388,7 @@ test('renders starters grouped by slot, bench section, and empty slot rows', asy
 });
 
 test('renders BYE and LOCKED chips for flagged entries', async () => {
-  apiClient.get.mockResolvedValue({ data: lineupResponse() });
+  mockGetAll({ data: lineupResponse() });
 
   renderScreen();
   await screen.findByText('Davante Adams');
@@ -381,7 +398,7 @@ test('renders BYE and LOCKED chips for flagged entries', async () => {
 });
 
 test('an attested stash wears the ATTESTED chip on its IR row; an eligible stash does not', async () => {
-  apiClient.get.mockResolvedValue({
+  mockGetAll({
     data: lineupResponse({
       entries: [
         {
@@ -407,7 +424,7 @@ test('an attested stash wears the ATTESTED chip on its IR row; an eligible stash
 });
 
 test('a normally eligible stash renders without the ATTESTED chip', async () => {
-  apiClient.get.mockResolvedValue({
+  mockGetAll({
     data: lineupResponse({
       entries: [
         {
@@ -433,7 +450,7 @@ test('a normally eligible stash renders without the ATTESTED chip', async () => 
 });
 
 test('clicking bench player then empty eligible slot applies the move optimistically, PUTs one move, and does not refetch', async () => {
-  apiClient.get.mockResolvedValue({ data: lineupResponse() });
+  mockGetAll({ data: lineupResponse() });
   apiClient.put.mockResolvedValue({});
 
   renderScreenWithToasts();
@@ -465,7 +482,7 @@ test('clicking bench player then empty eligible slot applies the move optimistic
 
 test('an offline move is cached without a request and replays once when connectivity returns', async () => {
   setOnline(false);
-  apiClient.get.mockResolvedValue({ data: lineupResponse() });
+  mockGetAll({ data: lineupResponse() });
   apiClient.request.mockResolvedValue({ status: 200 });
 
   renderScreenWithToasts();
@@ -527,7 +544,7 @@ test('swapping two players PUTs two moves', async () => {
       onBye: false,
     },
   ];
-  apiClient.get.mockResolvedValue({ data: lineupResponse({ entries: customEntries }) });
+  mockGetAll({ data: lineupResponse({ entries: customEntries }) });
   apiClient.put.mockResolvedValue({});
 
   renderScreen();
@@ -549,7 +566,7 @@ test('swapping two players PUTs two moves', async () => {
 });
 
 test('selecting a player highlights eligible slots and disables ineligible ones (no top-of-page error)', async () => {
-  apiClient.get.mockResolvedValue({ data: lineupResponse() });
+  mockGetAll({ data: lineupResponse() });
 
   renderScreen();
   await screen.findByText('Patrick Mahomes');
@@ -578,7 +595,7 @@ test('selecting a player highlights eligible slots and disables ineligible ones 
 });
 
 test("clicking a locked player shows a warning toast and does not call put", async () => {
-  apiClient.get.mockResolvedValue({ data: lineupResponse() });
+  mockGetAll({ data: lineupResponse() });
 
   renderScreenWithToasts();
   await screen.findByText('Christian McCaffrey');
@@ -590,7 +607,7 @@ test("clicking a locked player shows a warning toast and does not call put", asy
 });
 
 test('a locked recovered stash cannot move into a starting slot after kickoff', async () => {
-  apiClient.get.mockResolvedValue({
+  mockGetAll({
     data: lineupResponse({ entries: [...lineupResponse().entries, recoveredStashEntry()] }),
   });
 
@@ -604,7 +621,7 @@ test('a locked recovered stash cannot move into a starting slot after kickoff', 
 });
 
 test('a locked IR-eligible stash remains unavailable after kickoff', async () => {
-  apiClient.get.mockResolvedValue({
+  mockGetAll({
     data: lineupResponse({
       benchSlots: 2,
       entries: [
@@ -628,7 +645,7 @@ test('a locked IR-eligible stash remains unavailable after kickoff', async () =>
 });
 
 test('a locked attested stash remains unavailable after kickoff', async () => {
-  apiClient.get.mockResolvedValue({
+  mockGetAll({
     data: lineupResponse({
       benchSlots: 2,
       entries: [
@@ -652,7 +669,7 @@ test('a locked attested stash remains unavailable after kickoff', async () => {
 });
 
 test('a failed PUT rolls the optimistic move back and shows an error toast', async () => {
-  apiClient.get.mockResolvedValue({ data: lineupResponse() });
+  mockGetAll({ data: lineupResponse() });
   apiClient.put.mockRejectedValue({
     response: { data: { error: 'Player is on bye and cannot start' } },
   });
@@ -679,7 +696,7 @@ test('a failed PUT rolls the optimistic move back and shows an error toast', asy
 });
 
 test('clicking an empty slot with no selection opens a quick-pick menu; choosing a player fills that slot directly', async () => {
-  apiClient.get.mockResolvedValue({ data: lineupResponse() });
+  mockGetAll({ data: lineupResponse() });
   apiClient.put.mockResolvedValue({});
 
   renderScreenWithToasts();
@@ -704,7 +721,7 @@ test('clicking an empty slot with no selection opens a quick-pick menu; choosing
 });
 
 test('an empty bench row lets a locked recovered stash activate after a drop', async () => {
-  apiClient.get.mockResolvedValue({
+  mockGetAll({
     data: lineupResponse({
       benchSlots: 2,
       entries: [...lineupResponse().entries, recoveredStashEntry()],
@@ -729,7 +746,7 @@ test('an empty bench row lets a locked recovered stash activate after a drop', a
 });
 
 test('a zero-bench league exposes a corrective target for a locked stale stash', async () => {
-  apiClient.get.mockResolvedValue({
+  mockGetAll({
     data: lineupResponse({
       benchSlots: 0,
       entries: [
@@ -757,7 +774,7 @@ test('a zero-bench league exposes a corrective target for a locked stale stash',
 });
 
 test('clicking an empty slot with no eligible players shows a disabled "no eligible players" item', async () => {
-  apiClient.get.mockResolvedValue({ data: lineupResponse() });
+  mockGetAll({ data: lineupResponse() });
 
   renderScreen();
   await screen.findByText('Patrick Mahomes');
@@ -770,7 +787,7 @@ test('clicking an empty slot with no eligible players shows a disabled "no eligi
 });
 
 test('shows a "Needs attention" warning chip in the summary header when starting slots are empty', async () => {
-  apiClient.get.mockResolvedValue({ data: lineupResponse() });
+  mockGetAll({ data: lineupResponse() });
 
   renderScreen();
   await screen.findByText('Patrick Mahomes');
@@ -781,7 +798,20 @@ test('shows a "Needs attention" warning chip in the summary header when starting
 });
 
 test('shows an error alert when the initial fetch fails', async () => {
-  apiClient.get.mockRejectedValue({ response: { data: { error: 'lineup unavailable' } } });
+  // The league endpoint resolves normally here (rather than a blanket
+  // mockRejectedValue for every URL) so this stays a clean regression test
+  // for the LINEUP fetch's own error surface: with the league also failing,
+  // its separate #217 error alert would carry the same rejection text and
+  // this assertion would ambiguously match two elements instead of one.
+  apiClient.get.mockImplementation((url) => {
+    if (url.startsWith('/api/team/lineup')) {
+      return Promise.reject({ response: { data: { error: 'lineup unavailable' } } });
+    }
+    if (url.startsWith('/api/league/')) {
+      return Promise.resolve({ data: { league: { id: 1, best_ball: false } } });
+    }
+    return Promise.resolve({ data: undefined });
+  });
 
   renderScreen();
 
@@ -789,7 +819,7 @@ test('shows an error alert when the initial fetch fails', async () => {
 });
 
 test('week chevrons step the selected week and are disabled at the boundaries', async () => {
-  apiClient.get.mockResolvedValue({ data: lineupResponse() }); // week 3
+  mockGetAll({ data: lineupResponse() }); // week 3
 
   renderScreen();
   await screen.findByText('Patrick Mahomes');
@@ -812,7 +842,7 @@ test('week chevrons step the selected week and are disabled at the boundaries', 
 });
 
 test('the previous-week chevron is disabled at week 1', async () => {
-  apiClient.get.mockResolvedValue({ data: lineupResponse({ week: 1, currentWeek: 1 }) });
+  mockGetAll({ data: lineupResponse({ week: 1, currentWeek: 1 }) });
 
   renderScreen();
   await screen.findByText('Patrick Mahomes');
@@ -1136,6 +1166,127 @@ test('does not fire an advice request for a newly-selected league before its own
   expect(adviceCallsFor(2)).toBe(0);
 });
 
+// --- League state: unresolved or failed (#217) ---
+//
+// `bestBall` used to default to false whenever `league` was anything other
+// than a resolved best-ball league, so "still loading" and "request failed"
+// both rendered exactly like a resolved standard league everywhere in this
+// file — clickable rows, the quick-pick offer, the lineup warning, and (via
+// the advice effect #167 fixed for the ordering race only) potentially the
+// advice request itself, permanently for a failed request. Each test below
+// drives every one of the roughly ten affected sites through one pass, since
+// a partial migration (nine sites moved off the boolean, one left behind)
+// would still pass a narrower test that only checks the one thing it looks
+// at. Both tests were run against this file's own pre-#217 LineupScreen.jsx
+// (bestBall collapsing straight off `!!league?.best_ball`, no tri-state) and
+// failed — see the PR body for which assertion failed and its message.
+
+test('league state - loading: no advice request, no quick-pick, no alert, no warning, rows inert, lineup still renders (#217)', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url.startsWith('/api/team/lineup/advice')) {
+      return Promise.resolve({ data: adviceResponse() });
+    }
+    if (url.startsWith('/api/team/lineup')) {
+      return Promise.resolve({ data: lineupResponse() });
+    }
+    if (url.startsWith('/api/team/hindsight')) {
+      return Promise.resolve({ data: hindsightSeasonResponse() });
+    }
+    if (url.startsWith('/api/league/')) {
+      // Never settles for the life of this test: the league is permanently
+      // "still loading" from this component's point of view.
+      return new Promise(() => {});
+    }
+    return Promise.reject(new Error(`unexpected url ${url}`));
+  });
+
+  renderScreenWithToasts();
+  await screen.findByText('Patrick Mahomes');
+
+  // Default lineupResponse() leaves WR/TE/FLEX/K/DEF starter slots empty,
+  // which would trip the lineup warning the instant the league is known to
+  // be standard. It must not trip while the league is still unknown.
+  expect(screen.queryByTestId('lineup-summary-header')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('lineup-warning-chip')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('best-ball-alert')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('lineup-advice-panel')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('league-error-alert')).not.toBeInTheDocument();
+  expect(apiClient.get.mock.calls.some(([url]) => url.startsWith('/api/team/lineup/advice'))).toBe(
+    false
+  );
+
+  // Rows are not interactive: every rendered slot row carries the disabled
+  // treatment, not just the ones a best-ball league would manage.
+  expect(screen.getByTestId('slot-row-QB-0')).toHaveAttribute('aria-disabled', 'true');
+  expect(screen.getByTestId('slot-row-RB-1')).toHaveAttribute('aria-disabled', 'true');
+  expect(screen.getByTestId('slot-row-WR-0')).toHaveAttribute('aria-disabled', 'true');
+  expect(screen.getByTestId('slot-row-BENCH-4')).toHaveAttribute('aria-disabled', 'true');
+
+  // Clicking an occupied, unlocked row must not enter select-mode. Plain
+  // fireEvent rather than userEvent: MUI's `disabled` prop sets
+  // `pointer-events: none`, which userEvent's own hover/pointer simulation
+  // (correctly) refuses to click through — the click handler must never run
+  // at all here, so bypassing that simulation is the point, not a workaround.
+  fireEvent.click(screen.getByTestId('slot-row-RB-1'));
+  expect(screen.queryByTestId('lineup-move-strip')).not.toBeInTheDocument();
+
+  // Clicking an empty slot must not open the quick-pick menu.
+  fireEvent.click(screen.getByTestId('slot-row-WR-0'));
+  expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+
+  // Clicking the locked row must not surface the "locked" notice either —
+  // that branch only makes sense once best_ball is actually known.
+  fireEvent.click(screen.getByTestId('slot-row-RB-0'));
+  expect(screen.queryByText("Locked players can't be moved")).not.toBeInTheDocument();
+
+  expect(apiClient.put).not.toHaveBeenCalled();
+});
+
+test('league state - error: shows the league error surface, no advice request, no quick-pick, rows inert (#217)', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url.startsWith('/api/team/lineup/advice')) {
+      return Promise.resolve({ data: adviceResponse() });
+    }
+    if (url.startsWith('/api/team/lineup')) {
+      return Promise.resolve({ data: lineupResponse() });
+    }
+    if (url.startsWith('/api/team/hindsight')) {
+      return Promise.resolve({ data: hindsightSeasonResponse() });
+    }
+    if (url.startsWith('/api/league/')) {
+      return Promise.reject(new Error('League fetch failed'));
+    }
+    return Promise.reject(new Error(`unexpected url ${url}`));
+  });
+
+  renderScreenWithToasts();
+  await screen.findByText('Patrick Mahomes');
+
+  // The existing lineup-fetch-failure pattern (an error Alert, nothing
+  // frozen silently underneath it) applies here too, for the league's own
+  // failure, rather than a second, invented error convention.
+  expect(await screen.findByTestId('league-error-alert')).toHaveTextContent('League fetch failed');
+  expect(screen.queryByTestId('lineup-summary-header')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('lineup-warning-chip')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('best-ball-alert')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('lineup-advice-panel')).not.toBeInTheDocument();
+  expect(apiClient.get.mock.calls.some(([url]) => url.startsWith('/api/team/lineup/advice'))).toBe(
+    false
+  );
+
+  expect(screen.getByTestId('slot-row-QB-0')).toHaveAttribute('aria-disabled', 'true');
+  expect(screen.getByTestId('slot-row-WR-0')).toHaveAttribute('aria-disabled', 'true');
+
+  // Plain fireEvent, not userEvent: see the loading-state test above for why.
+  fireEvent.click(screen.getByTestId('slot-row-RB-1'));
+  expect(screen.queryByTestId('lineup-move-strip')).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByTestId('slot-row-WR-0'));
+  expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+
+  expect(apiClient.put).not.toHaveBeenCalled();
+});
+
 test('a non-best-ball league still shows the suggestions panel and no info alert', async () => {
   setupGet({ lineup: lineupResponse({ entries: flexBenchEntries }), advice: adviceResponse() });
 
@@ -1153,7 +1304,7 @@ test('shows injury badges and projected points on lineup rows', async () => {
   const response = lineupResponse();
   response.entries[0].injury_status = 'Q';
   response.entries[0].projected_points = 21.5;
-  apiClient.get.mockResolvedValue({ data: response });
+  mockGetAll({ data: response });
   renderScreen();
 
   await screen.findByText('Patrick Mahomes');
@@ -1164,7 +1315,7 @@ test('shows injury badges and projected points on lineup rows', async () => {
 test('appends the opponent to the row caption when provided, and omits it when missing', async () => {
   const response = lineupResponse();
   response.entries[0].opponent = 'DAL';
-  apiClient.get.mockResolvedValue({ data: response });
+  mockGetAll({ data: response });
   renderScreen();
 
   await screen.findByText('Patrick Mahomes');

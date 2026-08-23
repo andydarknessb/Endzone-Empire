@@ -222,27 +222,43 @@ function LineupScreen() {
   // league object is otherwise available to this screen (it's reached
   // directly at /league/:leagueId/lineup with no league context passed
   // in) — read best_ball off the shared league fetch instead.
-  const { league, loading: leagueLoading } = useLeague(leagueId);
-  const bestBall = !!league?.best_ball;
+  const { league, loading: leagueLoading, error: leagueError } = useLeague(leagueId);
 
-  // Whether the league is actually known, so the advice effect below can
-  // wait for a real answer instead of treating "not loaded yet" as "not
-  // best ball" (issue #167). Deliberately not just "!leagueLoading":
-  // useLeague's shared cache does a stale-while-revalidate refresh (loading
-  // flips true, then false again, with the same settled data) whenever
-  // another mount on this league invalidates it or its TTL lapses, without
-  // clearing `league` for the duration — so `league != null` alone already
-  // stays true straight through a revalidation of an already-resolved
-  // league, and re-running the advice decision on every one of those cycles
-  // would trade the original wasted request for a new one fired on every
-  // background refresh. This also self-corrects when `leagueId` itself
-  // changes: useLeague's internal key-switch effect resets `league` to null
-  // before the new id's request starts, so a stale `league` from the
-  // previous id cannot make this look "known" for the new one beyond the
-  // one transient render the underlying hook itself briefly shows stale
-  // data for on any key switch (a pre-existing characteristic of
-  // useResource, not specific to this gate).
-  const leagueKnown = !leagueLoading || league != null;
+  // One tri-state read of the league's best-ball status (#217), replacing
+  // the boolean `bestBall` that used to collapse "not loaded yet" AND
+  // "the request failed" into "not best ball" — every consumer in this file
+  // read that as a standard league, permanently in the failure case.
+  //   - 'loading': the league request has not settled and never has, for
+  //     this render — no answer exists yet.
+  //   - 'error': the league request settled and failed. From every
+  //     consumer's point of view this is the same as 'loading' (nothing is
+  //     known), plus a message worth showing for it.
+  //   - 'bestBall' / 'standard': the league settled and best_ball is known.
+  // `league != null` is checked first, deliberately, for the same reason
+  // #167's `leagueKnown` checked it first: useLeague's shared cache does a
+  // stale-while-revalidate refresh (`loading` flips true, then false again,
+  // with the same settled `data`) whenever another mount on this league
+  // invalidates it or its TTL lapses, without ever clearing `league` for the
+  // duration. Checking `league != null` first means a background
+  // revalidation (or one that itself errors) never demotes an
+  // already-known league back to 'loading' or 'error' — it stays exactly
+  // what it was already known to be. This also self-corrects when
+  // `leagueId` changes: useResource's key-switch effect resets `data` to
+  // null for the new id before its request starts, so a stale `league` from
+  // the previous id cannot make the new one look known.
+  const leagueMode = league != null
+    ? (league.best_ball ? 'bestBall' : 'standard')
+    : (leagueLoading ? 'loading' : 'error');
+
+  // Derived convenience booleans. Every direct `league?.best_ball` /
+  // `!bestBall` read in this file goes through one of these two instead, so
+  // "not yet known" can never be mistaken for "known standard" again.
+  const bestBall = leagueMode === 'bestBall';
+  const isStandardLeague = leagueMode === 'standard';
+  // The ruling's "commit to nothing" state: still loading, or never going
+  // to resolve for this render because the request failed. Rows are inert
+  // and no best-ball-or-not decision may be made while this is true.
+  const leagueUnsettled = leagueMode === 'loading' || leagueMode === 'error';
 
   useEffect(() => {
     fetchLineup();
@@ -259,23 +275,28 @@ function LineupScreen() {
   }, [lineup]);
 
   // Once the lineup for this week is known, decide whether to fetch
-  // start/sit advice. This must wait for the league request to resolve too:
-  // `bestBall` defaults to false while `league` hasn't loaded yet, and the
-  // lineup response commonly lands before the league response does. Firing
-  // on that unresolved default would request (and briefly render) start/sit
-  // advice for a best-ball league before the real best_ball value is known.
-  // Best ball leagues set their optimal lineup automatically, so the
-  // start/sit advice panel is skipped entirely — no need to even fetch it.
+  // start/sit advice. This only fires once the league is settled AND known
+  // to be standard (#167, extended by #217): the lineup response commonly
+  // lands before the league response does, and a failed league request
+  // never resolves at all, so gating on `bestBall` alone (false in both the
+  // loading and the error case) would fire the request — and once for a
+  // failed league, keep firing it forever — before or without ever learning
+  // the real best_ball value. Best ball leagues set their optimal lineup
+  // automatically, so the start/sit advice panel is skipped entirely (no
+  // fetch) once that is genuinely known, exactly like the loading/error
+  // states are skipped for not yet being known at all.
   useEffect(() => {
-    if (!lineup || !leagueKnown) return;
-    if (!bestBall) {
+    if (!lineup) return;
+    if (isStandardLeague) {
       fetchAdvice();
     } else {
       setAdvice(null);
     }
     // Advice refreshes when the loaded lineup changes; fetch functions are event helpers.
+    // `isStandardLeague` is a pure function of `leagueMode`, so it isn't
+    // listed separately here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lineup, leagueKnown, bestBall]);
+  }, [lineup, leagueMode]);
 
   const fetchLineup = async () => {
     try {
@@ -388,6 +409,10 @@ function LineupScreen() {
   };
 
   const handleRowClick = (entry, slotType, event) => {
+    // Commit to nothing while the league isn't known (#217): no selection,
+    // no locked notice, no quick-pick — those all depend on knowing whether
+    // this is a best-ball league.
+    if (leagueUnsettled) return;
     if (bestBall && !BEST_BALL_MANAGED_SLOTS.has(slotType)) return;
 
     if (entry && entry.locked && (bestBall || !canResolveLockedIrStash(entry, 'BENCH'))) {
@@ -438,7 +463,11 @@ function LineupScreen() {
     const isSelected = !!(entry && selectedEntry && selectedEntry.id === entry.id);
     const showEligibility = !!selectedEntry && !isSelected;
     const eligible = showEligibility && isEligibleTarget(selectedEntry, entry, slotType, lineup?.rosterSlots);
-    const disabled = (bestBall && !BEST_BALL_MANAGED_SLOTS.has(slotType))
+    // Every row is inert while the league isn't known yet (#217) — the same
+    // disabled treatment a locked slot already gets, not just the slots a
+    // best-ball league would manage.
+    const disabled = leagueUnsettled
+      || (bestBall && !BEST_BALL_MANAGED_SLOTS.has(slotType))
       || (showEligibility && !eligible);
     const isEmpty = !entry;
     return (
@@ -491,7 +520,7 @@ function LineupScreen() {
           ) : (
             <>
               <Typography sx={{ flexGrow: 1, color: 'text.secondary' }}>Empty</Typography>
-              {!selectedEntry && !bestBall && (
+              {!selectedEntry && isStandardLeague && (
                 <IconButton
                   size="small"
                   component="span"
@@ -565,7 +594,10 @@ function LineupScreen() {
     : [];
 
   const benchEntries = bySlot.BENCH || [];
-  const needsZeroBenchRecoveryTarget = !bestBall
+  // Only meaningful for a known-standard league: while the league isn't
+  // known (#217), whether to offer this recovery row is undecidable, and
+  // the row would be inert anyway (rows are non-interactive until settled).
+  const needsZeroBenchRecoveryTarget = isStandardLeague
     && lineup?.benchSlots === 0
     && (bySlot.IR || []).some((entry) => canResolveLockedIrStash(entry, 'BENCH'));
   const benchRowCount = bestBall
@@ -573,7 +605,11 @@ function LineupScreen() {
         lineup?.benchSlots || 0,
         benchEntries.length + ((bySlot.IR || []).length > 0 ? 1 : 0)
       )
-    : Math.max(lineup?.benchSlots || 0, needsZeroBenchRecoveryTarget ? 1 : 0);
+    : isStandardLeague
+      ? Math.max(lineup?.benchSlots || 0, needsZeroBenchRecoveryTarget ? 1 : 0)
+      // Loading/error: neither formula above is knowable yet, so just show
+      // the configured bench slots with no best-ball or recovery boost.
+      : lineup?.benchSlots || 0;
   const benchRows = lineup
     ? Array.from({ length: benchRowCount }, (_, i) => {
         const entry = benchEntries[i] || null;
@@ -599,7 +635,7 @@ function LineupScreen() {
   const startersOnBye = lineup
     ? starterSlotOrder.flatMap((type) => bySlot[type] || []).filter((e) => e.onBye)
     : [];
-  const showLineupWarning = !bestBall && (emptyStarterSlots > 0 || startersOnBye.length > 0);
+  const showLineupWarning = isStandardLeague && (emptyStarterSlots > 0 || startersOnBye.length > 0);
   const lineupWarningText = [
     emptyStarterSlots > 0 &&
       `${emptyStarterSlots} empty starting slot${emptyStarterSlots > 1 ? 's' : ''}.`,
@@ -624,10 +660,10 @@ function LineupScreen() {
 
   const quickPickEligible = quickPick
     ? entries.filter((e) => {
-      const bestBallSourceAllowed = !bestBall
+      const bestBallSourceAllowed = isStandardLeague
         || (BEST_BALL_MANAGED_SLOTS.has(e.slot) && e.slot !== quickPick.slotType);
       const lockAllowsMove = !e.locked
-        || (!bestBall && canResolveLockedIrStash(e, quickPick.slotType));
+        || (isStandardLeague && canResolveLockedIrStash(e, quickPick.slotType));
       return bestBallSourceAllowed && lockAllowsMove && isEligibleForSlot(
         e.position,
         quickPick.slotType,
@@ -676,6 +712,14 @@ function LineupScreen() {
           {error}
         </Alert>
       )}
+      {/* Same pattern as the lineup-fetch error above, for the league's own
+          failure (#217): the screen must not sit silently frozen forever
+          in what looks like a loading state that will never resolve. */}
+      {leagueMode === 'error' && (
+        <Alert severity="error" sx={{ mb: 2 }} data-testid="league-error-alert">
+          {leagueError}
+        </Alert>
+      )}
 
       {lineup && (
         <>
@@ -700,7 +744,7 @@ function LineupScreen() {
             </Typography>
           )}
 
-          {!bestBall && (advice || showLineupWarning) && (
+          {isStandardLeague && (advice || showLineupWarning) && (
             <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }} data-testid="lineup-summary-header">
               {advice && (
                 <Typography variant="h6">
@@ -759,7 +803,7 @@ function LineupScreen() {
             </IconButton>
           </Box>
 
-          {!bestBall && Array.isArray(advice?.suggestions) && (
+          {isStandardLeague && Array.isArray(advice?.suggestions) && (
             <Paper sx={{ p: 2, mb: 3 }} data-testid="lineup-advice-panel" ref={advicePanelRef}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Typography variant="h6">{PROJECTION_ENGINE_NAME}</Typography>
