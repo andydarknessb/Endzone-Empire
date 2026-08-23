@@ -463,3 +463,55 @@ test('undoDrop: a player who had no current-week row when he was dropped benches
   assert.deepEqual(benched, [{ league: undoLeague, teamId: 11, playerId: 500, afterRosterWrite: true }]);
   fake.assertClean();
 });
+
+// #194: the final live pick completes the draft and generates the season
+// schedule on ONE transaction, and the season engine now refuses a league that
+// is still pre-draft or drafting. This path survives the gate only because the
+// UPDATE setting draft_status = 'complete' runs before generateRegularSeason is
+// called on that same client. The other completion tests above mock the engine
+// out, so nothing there would notice a reordering; this one runs the real
+// engine against a fake that honours the transaction's own write.
+test('draftPlayer: the completing pick schedules the season for real, gate and all (#194)', async (t) => {
+  const row = { ...completionLeague, current_season: 2026, regular_season_weeks: 1 };
+  const fake = createFakePool([
+    [select('leagues'), () => ({ rows: [{ ...row }] })],
+    [select('teams'), () => ({ rows: [
+      { id: 11, owner_id: 7, draft_position: 1, autodraft: false, locked: false },
+      { id: 12, owner_id: 8, draft_position: 2, autodraft: false, locked: false },
+    ] })],
+    [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB' }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 1 }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, () => ({ rows: [{ n: 0 }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "draft_picks"/, () => ({ rows: [{ n: 4 }] })],
+    [/^SELECT "pick_number" FROM "draft_picks"/, () => ({ rows: [] })],
+    [insert('draft_picks'), () => ({ rows: [], rowCount: 1 })],
+    [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
+    [select('matchups'), () => ({ rows: [] })],
+    [insert('matchups'), () => ({ rows: [], rowCount: 1 })],
+    [update('leagues'), (text, params) => {
+      // A real client reads back its own uncommitted write; the gate depends on it.
+      if (/^UPDATE "leagues" SET "current_pick"/.test(text)) row.draft_status = params[1];
+      return { rows: [{ pick_deadline_at: null }] };
+    }],
+    [update('teams'), () => ({ rows: [], rowCount: 1 })],
+  ]).install(t);
+  recordBenching(t, fake);
+  // generateRegularSeason is deliberately NOT mocked here.
+
+  const result = await draftPlayer({ leagueId: 1, userId: 7, playerId: 500 });
+
+  assert.equal(result.draftComplete, true);
+  // The schedule exists: 2 teams over 1 regular-season week is one matchup.
+  assert.equal(fake.matching(insert('matchups')).length, 1);
+
+  const completedAt = fake.calls.findIndex(
+    (c) => /^UPDATE "leagues" SET "current_pick"/.test(c.text) && c.params[1] === 'complete'
+  );
+  const scheduledAt = fake.calls.findIndex((c) => /"matchups"/.test(c.text));
+  assert.ok(completedAt !== -1 && scheduledAt !== -1);
+  assert.ok(
+    completedAt < scheduledAt,
+    'draft_status must be set to complete before generateRegularSeason is called'
+  );
+  fake.assertClean();
+});
