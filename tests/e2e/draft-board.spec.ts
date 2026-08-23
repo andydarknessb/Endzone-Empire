@@ -96,14 +96,14 @@ test.describe('viewport and theme selection', () => {
     await setupActiveDraft(page);
 
     await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toBeVisible();
-    // Mobile stacks the draft rail above the player pool (Grid `order` swap);
-    // desktop puts the pool first. Confirm the swap actually took effect
-    // rather than just that the page didn't crash at a narrow width.
-    const railTop = await page.getByText('My Queue').first().boundingBox();
-    const poolTop = await page.getByText('Available Players').boundingBox();
-    expect(railTop).not.toBeNull();
-    expect(poolTop).not.toBeNull();
-    expect(railTop!.y).toBeLessThan(poolTop!.y);
+    // Below the medium breakpoint (issue #122), the Grid `order` swap is gone
+    // - Players/Board/Draft are three persistent tabs, one region at a time,
+    // landing on Players by default.
+    await expect(page.getByRole('tab', { name: 'Players' })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Board' })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Draft' })).toBeVisible();
+    await expect(page.getByText('Bijan Robinson')).toBeVisible();
+    await expect(page.getByText('My Queue')).toHaveCount(0);
   });
 
   test('renders the draft route under the dark theme', async ({ page }) => {
@@ -830,7 +830,7 @@ test.describe('accessible structure: 44x44 minimum interactive targets', () => {
     await expectAtLeast44(page.getByRole('button', { name: 'Column guide' }), { widthToo: true });
   });
 
-  test('mobile: the nav drawer trigger and its rows, plus row actions, meet the 44px minimum', async ({ page }) => {
+  test('mobile: the nav drawer trigger and its rows, plus card actions, meet the 44px minimum', async ({ page }) => {
     await page.setViewportSize(VIEWPORTS.mobile);
     await setupActiveDraft(page);
 
@@ -841,6 +841,309 @@ test.describe('accessible structure: 44x44 minimum interactive targets', () => {
     await page.keyboard.press('Escape');
 
     await expectAtLeast44(page.getByRole('tab', { name: 'Board' }));
-    await expectAtLeast44(page.locator('tr', { hasText: 'Bijan Robinson' }).getByRole('button', { name: 'Queue' }), { widthToo: true });
+    // Mobile renders cards, not table rows (issue #122) - find the Queue
+    // button inside Bijan Robinson's own card the same way the queue panel
+    // is scoped elsewhere in this file.
+    const card = page.getByRole('button', { name: 'Bijan Robinson' }).locator('xpath=ancestor::*[contains(@class, "MuiPaper-root")][1]');
+    await expectAtLeast44(card.getByRole('button', { name: 'Queue' }), { widthToo: true });
   });
+});
+
+// --- Desktop dual-scroll shell / mobile tab-card layouts (issue #122, parent
+// spec #108). A large pool and a long pick history so the two desktop
+// regions actually overflow and there's something real to scroll. ---
+
+function manyPlayers(count: number) {
+  return Array.from({ length: count }, (_, i) => ({
+    id: 100 + i,
+    name: `Depth Player ${i + 1}`,
+    position: 'WR',
+    nfl_team: 'FA',
+    adp: 50 + i,
+    position_rank: 10 + i,
+    projected_points: 100 - i,
+    bye_week: (i % 14) + 1,
+  }));
+}
+
+function manyPicks(count: number) {
+  return Array.from({ length: count }, (_, i) => ({
+    pick_number: i + 1,
+    team_id: FIXTURE_TEAMS[i % 2].id,
+    player_id: 900 + i,
+    name: `Drafted Guy ${i + 1}`,
+    position: 'RB',
+    nfl_team: 'FA',
+  }));
+}
+
+async function setupOverflowingDraft(page: Page) {
+  const league = buildLeague({ draft_status: 'active' });
+  const players = manyPlayers(40);
+  const picks = manyPicks(20);
+  await installDraftSocketHarness(page, { league, teams: FIXTURE_TEAMS, picks, onTheClock: FIXTURE_TEAMS[0] });
+  await installDraftRestApi(page, { league, picks, players });
+  await gotoDraft(page);
+  await expect(page.getByText('Depth Player 1', { exact: true })).toBeVisible();
+}
+
+test.describe('desktop dual-scroll shell (issue #122 acceptance criteria 1-2)', () => {
+  test.use({ viewport: VIEWPORTS.desktop });
+  test.beforeEach(async ({ page }) => {
+    await setTheme(page, 'light');
+  });
+
+  test('the page itself does not scroll - the shell is exactly the viewport height', async ({ page }) => {
+    await setupOverflowingDraft(page);
+
+    const pageScrolls = await page.evaluate(() => (
+      document.documentElement.scrollHeight > document.documentElement.clientHeight + 1
+    ));
+    expect(pageScrolls).toBe(false);
+
+    await expect(page.getByRole('region', { name: 'Available Players' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Draft rail' })).toBeVisible();
+  });
+
+  test('the players region scrolls independently, and its filter bar plus table header stay put', async ({ page }) => {
+    await setupOverflowingDraft(page);
+
+    const scrollRegion = page.getByTestId('players-scroll-region');
+    const nameHeader = page.getByRole('columnheader', { name: 'Name' });
+    const searchBox = page.getByRole('textbox', { name: 'Search', exact: true });
+    await expect(nameHeader).toBeVisible();
+    await expect(searchBox).toBeVisible();
+
+    const before = await scrollRegion.evaluate((el) => el.scrollTop);
+    await scrollRegion.hover();
+    await page.mouse.wheel(0, 1500);
+    // expect.poll rather than a single immediate read: an occasional flake
+    // here was the wheel's scroll not yet having been processed/painted at
+    // the instant right after dispatching it, not the scroll failing to
+    // happen at all.
+    await expect.poll(() => scrollRegion.evaluate((el) => el.scrollTop)).toBeGreaterThan(before);
+
+    // The table header and the filter bar above it are still exactly where
+    // they were - neither moved with the rows underneath them.
+    await expect(nameHeader).toBeVisible();
+    await expect(searchBox).toBeVisible();
+
+    // Scrolling the players region never moved the page - the rail's own
+    // content (a completely different scroll region) is untouched.
+    await expect(page.getByRole('heading', { name: 'My Queue', level: 2 })).toBeVisible();
+  });
+
+  test('the Draft rail region scrolls independently of the players region', async ({ page }) => {
+    await setupOverflowingDraft(page);
+
+    const railRegion = page.getByRole('region', { name: 'Draft rail' });
+    const before = await railRegion.evaluate((el) => el.scrollTop);
+    await railRegion.hover();
+    await page.mouse.wheel(0, 1500);
+    await expect.poll(() => railRegion.evaluate((el) => el.scrollTop)).toBeGreaterThan(before);
+
+    // Unaffected: the players table header is still visible and the pool
+    // scroll position hasn't moved.
+    await expect(page.getByRole('columnheader', { name: 'Name' })).toBeVisible();
+    const playersScrollTop = await page.getByTestId('players-scroll-region').evaluate((el) => el.scrollTop);
+    expect(playersScrollTop).toBe(0);
+  });
+
+  test('no Footer renders on the desktop Draft route - the shell owns the whole viewport', async ({ page }) => {
+    await setupOverflowingDraft(page);
+    await expect(page.getByRole('contentinfo')).toHaveCount(0);
+  });
+});
+
+test.describe('mobile/tablet single-scroll tab layout (issue #122 acceptance criteria 3-6)', () => {
+  test.beforeEach(async ({ page }) => {
+    await setTheme(page, 'light');
+  });
+
+  for (const [label, viewport] of [['mobile', VIEWPORTS.mobile], ['tablet', VIEWPORTS.tablet]] as const) {
+    test(`${label}: no horizontal body overflow, and the page itself is the one scroll region`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await setupOverflowingDraft(page);
+
+      const horizontalOverflow = await page.evaluate(() => (
+        document.documentElement.scrollWidth > document.documentElement.clientWidth + 1
+      ));
+      expect(horizontalOverflow).toBe(false);
+
+      // No table (and so no independently horizontally-scrolling
+      // TableContainer either) - cards stack instead.
+      await expect(page.locator('table')).toHaveCount(0);
+
+      // The page itself grows tall enough to need scrolling - there's no
+      // separate bounded region competing with it (unlike the desktop shell,
+      // which is pinned to exactly the viewport height).
+      const pageScrolls = await page.evaluate(() => (
+        document.documentElement.scrollHeight > document.documentElement.clientHeight + 1
+      ));
+      expect(pageScrolls).toBe(true);
+    });
+
+    test(`${label}: persistent Players, Board, and Draft tabs; on-the-clock stays visible across all three`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await setupOverflowingDraft(page);
+
+      const tabs = await page.getByRole('tab').allTextContents();
+      expect(tabs).toEqual(['Players', 'Board', 'Draft']);
+
+      const onClockChip = page.getByText('On the clock: Ridge Runners (harness-manager)');
+      await expect(onClockChip).toBeVisible();
+      await expect(page.getByText('Depth Player 1', { exact: true })).toBeVisible();
+
+      await page.getByRole('tab', { name: 'Board' }).click();
+      await expect(onClockChip).toBeVisible();
+      await expect(page.getByRole('region', { name: 'Draft Board' })).toBeVisible();
+
+      await page.getByRole('tab', { name: 'Draft' }).click();
+      await expect(onClockChip).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'My Queue', level: 2 })).toBeVisible();
+      await expect(page.getByText('Depth Player 1', { exact: true })).toHaveCount(0);
+
+      await page.getByRole('tab', { name: 'Players' }).click();
+      await expect(onClockChip).toBeVisible();
+      await expect(page.getByText('Depth Player 1', { exact: true })).toBeVisible();
+    });
+
+    test(`${label}: player cards carry the approved columns and state-valid Draft/Queue actions`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await setupOverflowingDraft(page);
+
+      const card = page.getByRole('button', { name: 'Depth Player 1', exact: true })
+        .locator('xpath=ancestor::*[contains(@class, "MuiPaper-root")][1]');
+      // Labeled, like every other stat here - a card has no column header to
+      // supply that context implicitly the way the desktop table row does.
+      await expect(card.getByText('NFL Team: FA')).toBeVisible();
+      await expect(card.getByText(/^Bye:/)).toBeVisible();
+      await expect(card.getByText(/^ADP:/)).toBeVisible();
+      await expect(card.getByText(/^Pos rank:/)).toBeVisible();
+      await expect(card.getByText(/^17-game pace:/)).toBeVisible();
+      await expect(card.getByRole('button', { name: 'Draft', exact: true })).toBeVisible();
+      await expect(card.getByRole('button', { name: 'Queue' })).toBeVisible();
+    });
+
+    // QA accessibility findings on this issue, verified in a real browser:
+    // the sort-direction toggle's accessible name used to contradict its own
+    // tooltip, and a null 17-game pace lost its explanation entirely in the
+    // table-to-card switch.
+    test(`${label}: the sort-direction toggle's visible tooltip and accessible name agree`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await setupOverflowingDraft(page);
+
+      const toggle = page.getByRole('button', { name: 'Sort direction: ascending. Activate to sort descending.' });
+      await expect(toggle).toBeVisible();
+      await toggle.hover();
+      await expect(page.getByRole('tooltip')).toHaveText('Sort direction: ascending. Activate to sort descending.');
+
+      await toggle.click();
+      await expect(
+        page.getByRole('button', { name: 'Sort direction: descending. Activate to sort ascending.' })
+      ).toBeVisible();
+    });
+
+    test(`${label}: a null 17-game pace on a card explains why, same as the desktop table`, async ({ page }) => {
+      const league = buildLeague({ draft_status: 'active' });
+      const players = [
+        { id: 901, name: 'No Pace Guy', position: 'RB', nfl_team: 'FA', adp: null, position_rank: null, projected_points: null, bye_week: null },
+      ];
+      await page.setViewportSize(viewport);
+      await installDraftSocketHarness(page, { league, teams: FIXTURE_TEAMS, picks: [], onTheClock: FIXTURE_TEAMS[0] });
+      await installDraftRestApi(page, { league, picks: [], players });
+      await gotoDraft(page);
+      await expect(page.getByText('No Pace Guy', { exact: true })).toBeVisible();
+
+      // Plain, always-visible text (not a hover-only Tooltip) - reachable
+      // without hovering, same as every other missing stat rendering '-'.
+      await expect(page.getByText('17-game pace: -', { exact: true })).toBeVisible();
+      await expect(page.getByText(
+        '17-game pace unavailable: not enough games in the prior completed season to extrapolate a pace.'
+      )).toBeVisible();
+    });
+
+    test(`${label}: a "Sort by" control changes the player order, same as the desktop table headers`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await setupOverflowingDraft(page);
+
+      await page.getByRole('combobox', { name: 'Sort by' }).click();
+      await page.getByRole('option', { name: 'Name' }).click();
+
+      const names = await page.locator('button').filter({ hasText: /^Depth Player \d+$/ }).allTextContents();
+      expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)));
+    });
+
+    // Regression coverage for a code-review finding on this issue: nesting
+    // LiveDraftBanner inside the header's flex-shrink wrapper Box capped its
+    // sticky containing block at that short wrapper's own height, so it
+    // stopped staying pinned almost as soon as the page scrolled at all.
+    // LiveDraftBanner is the only `role="status"` region while a draft is
+    // active and no team roster shape is known (RosterNeedsStrip, the only
+    // other one, needs `roster_slots` this harness league doesn't set).
+    test(`${label}: on-the-clock information (LiveDraftBanner) stays pinned after scrolling well past the header`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await setupOverflowingDraft(page);
+
+      const banner = page.getByRole('status');
+      await expect(banner).toBeVisible();
+      await expect(banner).toHaveText(/on the clock|Your pick|Waiting/);
+      const before = (await banner.boundingBox())!;
+      expect(before.y).toBeLessThan(viewport.height); // starts within the initial viewport
+
+      // Scroll deep into the (long, 40-player) list - well past where the
+      // header chrome + Tabs would have ended.
+      await page.mouse.wheel(0, 2000);
+      await expect(banner).toBeVisible();
+      const after = (await banner.boundingBox())!;
+      expect(after.y).toBeLessThan(before.y + 20); // still pinned near the same spot, not scrolled away
+    });
+  }
+
+  test('keyboard order matches the visible layout - the Draft tab is keyboard-operable, no swipe needed', async ({ page }) => {
+    await page.setViewportSize(VIEWPORTS.mobile);
+    await setupOverflowingDraft(page);
+
+    // DOM tab order matches the visible Players/Board/Draft order.
+    const tabOrder = await page.getByRole('tab').evaluateAll((els) => els.map((el) => el.textContent?.trim()));
+    expect(tabOrder).toEqual(['Players', 'Board', 'Draft']);
+
+    // Activated purely by keyboard (focus, then Enter) - proves the tabs are
+    // ordinary operable controls, not a swipe-only surface.
+    const draftTab = page.getByRole('tab', { name: 'Draft' });
+    await draftTab.focus();
+    await expect(draftTab).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('heading', { name: 'My Queue', level: 2 })).toBeVisible();
+  });
+});
+
+// --- Browser evidence across 390/768/1280/1920, light and dark (acceptance
+// criterion 7) - one sanity pass per width/theme combination. ---
+
+test.describe('browser evidence: every required width in both themes', () => {
+  for (const [label, viewport] of Object.entries(VIEWPORTS)) {
+    for (const theme of ['light', 'dark'] as const) {
+      test(`${label} (${viewport.width}x${viewport.height}), ${theme} theme renders the Draft route cleanly`, async ({ page }) => {
+        await page.setViewportSize(viewport);
+        await setTheme(page, theme);
+        await setupOverflowingDraft(page);
+
+        await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toBeVisible();
+        const tabs = await page.getByRole('tab').allTextContents();
+        // Desktop/wide collapse Players+Draft into one workspace tab;
+        // mobile/tablet expose all three separately (issue #122).
+        if (viewport.width >= 900) {
+          expect(tabs).toEqual(['Draft', 'Board']);
+        } else {
+          expect(tabs).toEqual(['Players', 'Board', 'Draft']);
+        }
+
+        const horizontalOverflow = await page.evaluate(() => (
+          document.documentElement.scrollWidth > document.documentElement.clientWidth + 1
+        ));
+        expect(horizontalOverflow).toBe(false);
+      });
+    }
+  }
 });

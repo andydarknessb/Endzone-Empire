@@ -11,6 +11,8 @@ import { useDispatch, useSelector } from 'react-redux';
 import Box from '@mui/material/Box';
 import Link from '@mui/material/Link';
 import CircularProgress from '@mui/material/CircularProgress';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import { useTheme } from '@mui/material/styles';
 
 import Nav from '../Nav/Nav';
 import Footer from '../Footer/Footer';
@@ -85,11 +87,31 @@ function skipToMainContent(event) {
 
 function AppLayout({ children }) {
   const { pathname } = useLocation();
+  const muiTheme = useTheme();
   const isPresenter = pathname.startsWith('/present/');
   const isDraftRoute = DRAFT_ROUTE_PATTERN.test(pathname);
+  // Desktop's Draft room gets its own viewport-height shell (issue #122):
+  // a fixed-height flex column so DraftBoard's two internal scroll regions
+  // are the only things that ever scroll there - the page itself doesn't.
+  // Below the medium breakpoint the Draft route keeps the site's ordinary
+  // single-scroll-region page, Footer included. Always called (never behind
+  // `isDraftRoute &&`) so the hook order never varies between renders.
+  const isDesktopViewport = useMediaQuery(muiTheme.breakpoints.up('md'));
+  const isDesktopDraftShell = isDraftRoute && isDesktopViewport;
+
+  const outerSx = isPresenter
+    ? { minHeight: '100vh' }
+    : isDesktopDraftShell
+      ? { display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }
+      : { display: 'flex', flexDirection: 'column', minHeight: '100vh' };
+  const contentSx = isPresenter
+    ? undefined
+    : isDesktopDraftShell
+      ? { flex: '1 1 auto', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }
+      : { flexGrow: 1, display: 'flex', flexDirection: 'column' };
 
   return (
-    <Box sx={isPresenter ? { minHeight: '100vh' } : { display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+    <Box sx={outerSx}>
       {isDraftRoute && (
         <Link
           href="#draft-main-content"
@@ -120,10 +142,10 @@ function AppLayout({ children }) {
         </Link>
       )}
       {!isPresenter && <Nav />}
-      <Box sx={isPresenter ? undefined : { flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+      <Box sx={contentSx}>
         {children}
       </Box>
-      {!isPresenter && <Footer />}
+      {!isPresenter && !isDesktopDraftShell && <Footer />}
     </Box>
   );
 }

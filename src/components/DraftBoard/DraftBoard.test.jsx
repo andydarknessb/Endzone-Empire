@@ -1443,7 +1443,14 @@ describe('accessible structure', () => {
   test('exposes each rendered panel as a named region, not a bare div', async () => {
     await showFullBoard();
 
-    expect(screen.getByRole('region', { name: 'Available Players' })).toBeInTheDocument();
+    // Available Players and Draft rail (issue #122 acceptance criterion 1):
+    // desktop's two named, focusable dual-scroll regions.
+    const playersRegion = screen.getByRole('region', { name: 'Available Players' });
+    expect(playersRegion).toBeInTheDocument();
+    expect(playersRegion).toHaveAttribute('tabIndex', '0');
+    const railRegion = screen.getByRole('region', { name: 'Draft rail' });
+    expect(railRegion).toBeInTheDocument();
+    expect(railRegion).toHaveAttribute('tabIndex', '0');
     expect(screen.getByRole('region', { name: 'My Queue' })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Draft Order' })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'My Roster' })).toBeInTheDocument();
@@ -1468,5 +1475,91 @@ describe('accessible structure', () => {
     })));
 
     expect(screen.getByRole('region', { name: 'Draft readiness' })).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Mobile tab-card layout (issue #122): below the medium breakpoint, three
+// persistent tabs (Players/Board/Draft) replace desktop's dual-pane
+// workspace, each its own single scroll region.
+// ---------------------------------------------------------------------------
+
+describe('mobile layout (issue #122)', () => {
+  // Same matchMedia-mock convention used elsewhere in this codebase (see
+  // PlayerQuickView.test.jsx, PowerRankings.test.jsx): jsdom has no real
+  // media-query engine, so every query the component asks resolves to this
+  // one flag regardless of its breakpoint text.
+  beforeEach(() => {
+    window.matchMedia = jest.fn().mockImplementation((query) => ({
+      matches: true,
+      media: query,
+      onchange: null,
+      addListener: jest.fn(),
+      removeListener: jest.fn(),
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn(),
+      dispatchEvent: jest.fn(),
+    }));
+  });
+  afterEach(() => {
+    delete window.matchMedia;
+  });
+
+  const showMobileActiveDraft = async () => {
+    renderBoard(1, { user: { id: 5, username: 'alice' } });
+    await screen.findByText('Patrick Mahomes');
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ owner_id: 99 }), {
+      teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 5 }],
+      picks: [],
+      onTheClock: { id: 1, name: 'Team A', owner: 'alice' },
+    })));
+  };
+
+  test('exposes persistent Players, Board, and Draft tabs, in that order, landing on Players', async () => {
+    await showMobileActiveDraft();
+
+    const tabs = screen.getAllByRole('tab').map((t) => t.textContent);
+    expect(tabs).toEqual(['Players', 'Board', 'Draft']);
+    expect(screen.getByRole('tab', { name: 'Players' })).toHaveAttribute('aria-selected', 'true');
+    // The player pool renders by default - no tab switch needed.
+    expect(screen.getByText('Patrick Mahomes')).toBeInTheDocument();
+    expect(screen.queryByText('My Queue')).not.toBeInTheDocument();
+  });
+
+  test('the Draft tab shows the rail and not the player pool - a single region at a time', async () => {
+    await showMobileActiveDraft();
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Draft' }));
+
+    expect(screen.getByText('My Queue')).toBeInTheDocument();
+    expect(screen.queryByText('Patrick Mahomes')).not.toBeInTheDocument();
+  });
+
+  test('the Board tab shows the matrix and not the player pool or the rail', async () => {
+    await showMobileActiveDraft();
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
+
+    expect(screen.getByRole('region', { name: 'Draft Board' })).toBeInTheDocument();
+    expect(screen.queryByText('Patrick Mahomes')).not.toBeInTheDocument();
+    expect(screen.queryByText('My Queue')).not.toBeInTheDocument();
+  });
+
+  test('on-the-clock information (LiveDraftBanner) stays visible across every mobile tab', async () => {
+    await showMobileActiveDraft();
+    expect(screen.getByText('Team A is on the clock')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
+    expect(screen.getByText('Team A is on the clock')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Draft' }));
+    expect(screen.getByText('Team A is on the clock')).toBeInTheDocument();
+  });
+
+  test('renders player cards, not a table, on the Players tab', async () => {
+    await showMobileActiveDraft();
+
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.getByText('Patrick Mahomes')).toBeInTheDocument();
   });
 });

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import apiClient from '../../api/apiClient';
+import { SORT_KEYS } from './sortFields';
 
 /** Parses the `byes` URL param (comma-separated week numbers) into a sorted,
  * deduped array of finite integers — anything unparsable is dropped rather
@@ -8,6 +9,16 @@ import apiClient from '../../api/apiClient';
 function parseByeWeeksParam(raw) {
   if (!raw) return [];
   return [...new Set(raw.split(',').map(Number).filter(Number.isFinite))].sort((a, b) => a - b);
+}
+
+/** A bogus or legacy `?sort=` value (hand-edited, an old field name that no
+ * longer exists) falls back to the hook's own default rather than being kept
+ * in state, mirrored back into the URL, and sent to the API verbatim - the
+ * one place this is validated, so every consumer of `sort` downstream (the
+ * desktop table's active-column check, the mobile Sort-by Select) can trust
+ * it always names a real field. */
+function parseSortParam(raw) {
+  return SORT_KEYS.includes(raw) ? raw : 'adp';
 }
 
 /**
@@ -22,7 +33,7 @@ export default function usePlayerPool(leagueId) {
   const [positionFilter, setPositionFilter] = useState(() => searchParams.get('pos') || 'All');
   const [searchInput, setSearchInput] = useState(() => searchParams.get('q') || '');
   const [search, setSearch] = useState(() => searchParams.get('q') || '');
-  const [sort, setSort] = useState(() => searchParams.get('sort') || 'adp');
+  const [sort, setSort] = useState(() => parseSortParam(searchParams.get('sort')));
   const [dir, setDir] = useState(() => searchParams.get('dir') || 'asc');
   const [hideDrafted, setHideDrafted] = useState(() => searchParams.get('showDrafted') !== '1');
   const [byeWeeksFilter, setByeWeeksFilter] = useState(() => parseByeWeeksParam(searchParams.get('byes')));
