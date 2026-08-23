@@ -34,8 +34,18 @@
  * variable NAMES are. `server/test/knexTarget.test.js` asserts that on every
  * path, including the refusal path.
  *
- * The message style follows the *.pg.test.js suites' refusal ("unset X, then
- * ..."): the corrective action first, the reason second.
+ * On message style: the *.pg.test.js suites' refusal is the precedent this
+ * borrows from, and it is one line, corrective action first:
+ *
+ *   unset DATABASE_URL, DATABASE_URL_RUNTIME -- these tests must only ever
+ *   see a disposable PG* database
+ *
+ * What is kept from it is the vocabulary and the naming of the offending
+ * variables. What is deliberately NOT kept is the ordering: this refusal
+ * leads with the host it is refusing, because unlike a test suite it can be
+ * hit by someone who does not yet know which database they are pointed at,
+ * and that fact is the whole point of the message. The corrections follow,
+ * one per line, because there are two of them and they are alternatives.
  */
 const { sslForConnection } = require('./dbSsl');
 
@@ -46,7 +56,24 @@ const URL_VARS = ['DATABASE_URL_MIGRATIONS', 'DATABASE_URL_RUNTIME', 'DATABASE_U
  *  naming it is what tells someone their whole override was discarded. */
 const PG_VARS = ['PGHOST', 'PGPORT', 'PGDATABASE', 'PGUSER', 'PGPASSWORD'];
 
-const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]', '']);
+/**
+ * The three spellings the issue names, plus the bracketed IPv6 form.
+ *
+ * NOT the empty string, though dbSsl.js's own list includes it. A connection
+ * string with no authority (`postgresql:///postgres`) parses to an empty
+ * hostname, and pg then takes the host from PGHOST and connects there. So an
+ * empty host defeated both mechanisms at once: the guard allowed it, and the
+ * printed line read `host=` with nothing after it, blank in exactly the place
+ * it was meant to be loudest. Anything that cannot be shown to be local is
+ * refused here, and dbSsl's list is a separate question (it decides TLS, and
+ * erring towards SSL is the safe direction there).
+ *
+ * Other near-misses that are deliberately absent, and therefore refused:
+ * 127.0.0.2, 0.0.0.0, ::ffff:127.0.0.1, a trailing-dot `127.0.0.1.`, and
+ * decimal 2130706433. Some of those really are local; refusing them is one
+ * KNEX_ALLOW_REMOTE away, whereas a loose matcher is how a guard goes quiet.
+ */
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 
 /** Must be exactly this. "true"/"yes"/"0" are all refusals, so a half-remembered
  *  spelling fails closed rather than opening production. */
@@ -69,23 +96,31 @@ function decode(value) {
 
 /**
  * Pulls host/port/database/user out of a connection string WITHOUT the
- * password. Returns null when the string cannot be parsed, which the caller
- * treats as "not provably loopback" rather than as "local".
+ * password. Returns `{ parts }` on success, or `{ unresolved }` naming why
+ * the target could not be established, which the caller treats as "not
+ * provably loopback" rather than as "local".
+ *
+ * The two failures are told apart because they need different advice: an
+ * unparseable string is a typo, whereas a host-less one is silently
+ * completed from PGHOST by pg and is the more dangerous of the two.
  */
 function parseUrl(connectionString) {
   let url;
   try {
     url = new URL(connectionString);
   } catch (err) {
-    return null;
+    return { unresolved: 'unparseable' };
   }
-  if (!url.protocol.startsWith('postgres')) return null;
+  if (!url.protocol.startsWith('postgres')) return { unresolved: 'unparseable' };
+  if (!url.hostname) return { unresolved: 'no-host' };
   const database = decode(url.pathname.replace(/^\//, ''));
   return {
-    host: url.hostname,
-    port: Number(url.port) || DEFAULTS.port,
-    database: database || DEFAULTS.database,
-    user: url.username ? decode(url.username) : undefined,
+    parts: {
+      host: url.hostname,
+      port: Number(url.port) || DEFAULTS.port,
+      database: database || DEFAULTS.database,
+      user: url.username ? decode(url.username) : undefined,
+    },
   };
 }
 
@@ -94,7 +129,7 @@ function parseUrl(connectionString) {
  * get there. Pure: no env reads, no output, no connection.
  *
  * @param {object} env
- * @returns {{via: 'url'|'pg', sourceVar: string|null, source: string,
+ * @returns {{via: 'url'|'pg', source: string,
  *            host: string, port: number, database: string, user: string|undefined,
  *            password: string|undefined, connectionString: string|undefined,
  *            parsed: boolean, loopback: boolean, ignored: string[],
@@ -107,7 +142,7 @@ function resolveTarget(env) {
   if (setUrlVars.length > 0) {
     const sourceVar = setUrlVars[0];
     const connectionString = env[sourceVar];
-    const parts = parseUrl(connectionString);
+    const { parts, unresolved = null } = parseUrl(connectionString);
     // A URL that won silently discards the ENTIRE PG* block. Report every
     // member of it that was set, plus the lower-priority URL variables.
     const ignored = [
@@ -116,7 +151,10 @@ function resolveTarget(env) {
     ];
     return {
       via: 'url',
-      sourceVar,
+      // On this path `source` IS the winning variable's name. On the PG* path
+      // it is the list of PG* variables that were set. One field either way:
+      // `via` already says which kind it is, so a second near-identical field
+      // would only be one more thing to keep in step.
       source: sourceVar,
       host: parts ? parts.host : null,
       port: parts ? parts.port : null,
@@ -125,6 +163,7 @@ function resolveTarget(env) {
       password: undefined,
       connectionString,
       parsed: Boolean(parts),
+      unresolved,
       loopback: parts ? isLoopback(parts.host) : false,
       ignored,
       allowedRemote,
@@ -135,7 +174,6 @@ function resolveTarget(env) {
   const host = env.PGHOST || DEFAULTS.host;
   return {
     via: 'pg',
-    sourceVar: null,
     source: setPgVars.length ? setPgVars.join(', ') : 'the PG* defaults',
     host,
     port: Number(env.PGPORT) || DEFAULTS.port,
@@ -144,6 +182,7 @@ function resolveTarget(env) {
     password: env.PGPASSWORD,
     connectionString: undefined,
     parsed: true,
+    unresolved: null,
     loopback: isLoopback(host),
     ignored: [],
     allowedRemote,
@@ -159,6 +198,11 @@ function resolveTarget(env) {
  * explaining a defeat that never happened, in the very line Cory reads to
  * confirm a release is pointed at the right database.
  */
+/** "PGHOST was set and IGNORED" / "PGHOST, PGPORT were set and IGNORED". */
+function ignoredClause(ignored) {
+  return `${ignored.join(', ')} ${ignored.length === 1 ? 'was' : 'were'} set and IGNORED.`;
+}
+
 function whyIgnored(target) {
   const reasons = [];
   if (target.ignored.some((name) => PG_VARS.includes(name))) {
@@ -177,6 +221,13 @@ function whyIgnored(target) {
  * so the caller decides where they go; never contains a password.
  */
 function describeTarget(target) {
+  // Never `host=` with nothing after it. A blank where the host belongs is
+  // worse than no line at all: it reads as "resolved, and it is nothing".
+  const UNRESOLVED_FIELDS = {
+    'no-host': 'host=<none: the connection string does not name one>',
+    unparseable: 'host=<unknown: the connection string could not be parsed>',
+  };
+
   const fields = target.parsed
     ? [
       `host=${target.host}`,
@@ -184,14 +235,14 @@ function describeTarget(target) {
       `database=${target.database}`,
       ...(target.user ? [`user=${target.user}`] : []),
     ].join(' ')
-    : 'host=<unparseable connection string>';
+    : UNRESOLVED_FIELDS[target.unresolved];
 
   const lines = [`knex target: ${fields} (from ${target.source})`];
 
   if (target.ignored.length > 0) {
     lines.push(
-      `knex target: ${target.source} won. These were set and IGNORED: `
-      + `${target.ignored.join(', ')}. ${whyIgnored(target)}`,
+      `knex target: ${target.source} won. `
+      + `${ignoredClause(target.ignored)} ${whyIgnored(target)}`,
     );
   }
 
@@ -204,21 +255,32 @@ function describeTarget(target) {
 
 /** The refusal, naming the host, the variable that supplied it, and the opt-in. */
 function refusalMessage(target) {
+  const UNRESOLVED_WHERE = {
+    'no-host': 'a connection string that names no host',
+    unparseable: 'a connection string that could not be parsed',
+  };
+  const UNRESOLVED_WHY = {
+    // The dangerous one: pg quietly completes a host-less string from PGHOST,
+    // so this can reach a remote database while looking like nothing at all.
+    'no-host': 'pg would take the host from PGHOST, so this cannot be shown to be local.',
+    unparseable: 'An unparseable target cannot be shown to be local.',
+  };
+
   const where = target.parsed
     ? `${target.host}:${target.port}/${target.database}`
-    : 'a connection string that could not be parsed';
+    : UNRESOLVED_WHERE[target.unresolved];
 
   const lines = [
     `knex refuses to connect to ${where}, supplied by ${target.source}.`,
   ];
 
   if (!target.parsed) {
-    lines.push('An unparseable target cannot be shown to be local, so it is treated as remote.');
+    lines.push(`${UNRESOLVED_WHY[target.unresolved]} It is treated as remote.`);
   }
 
   if (target.ignored.length > 0) {
     lines.push(
-      `${target.ignored.join(', ')} were set and IGNORED. ${whyIgnored(target)} `
+      `${ignoredClause(target.ignored)} ${whyIgnored(target)} `
       + 'If you believed you were pointed at a local container, this is why you were not.',
     );
   }
@@ -286,11 +348,13 @@ function resolveKnexConnection(options) {
   return connectionFor(announceTarget(options));
 }
 
+// OPT_IN is exported because the tests assert on the name rather than
+// hard-coding it. OPT_IN_VALUE, URL_VARS and PG_VARS deliberately are NOT:
+// nothing outside this file reads them today, and the seven *.pg.test.js
+// suites that each redeclare their own URL_VARS keep doing so on purpose,
+// since their whole gate depends on requiring nothing that loads .env.
 module.exports = {
   OPT_IN,
-  OPT_IN_VALUE,
-  URL_VARS,
-  PG_VARS,
   resolveTarget,
   describeTarget,
   refusalMessage,

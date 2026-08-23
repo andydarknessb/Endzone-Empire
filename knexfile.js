@@ -1,18 +1,12 @@
 /**
- * Root knexfile: what `npm run migrate` / `npm run migrate:rollback` use, and
- * what a bare `npx knex ...` from the repo root picks up.
+ * Root knexfile: `npm run migrate`, `npm run migrate:rollback`, CI's
+ * migration-smoke job, and a bare `npx knex ...` from the repo root.
  *
- * THIS IS THE ACCIDENT PATH. The 2026-08-23 incident went through this file:
- * an agent ran `npx knex migrate:latest` from a worktree root with PG* set at
- * a local container, and a `.env`-supplied DATABASE_URL silently won. CI's
- * migration-smoke job also runs through here, against a loopback PG* service
- * container, which is what keeps that job green without an opt-in.
- *
- * server/knexfile.js is the DEPLOY path (Render's preDeployCommand), guarded
- * for the opposite reason: it must keep reaching a remote host. Both require
- * the same resolver, so neither can be fixed while the other stays open.
- *
- * See server/modules/knexTarget.js (#258) for what is printed and refused.
+ * THIS IS THE ACCIDENT PATH, and it is the file the 2026-08-23 incident went
+ * through. server/knexfile.js is the deploy path. Both require the same
+ * resolver; why they are guarded for opposite reasons is written down once,
+ * in server/modules/knexTarget.js (#258), along with what is printed and
+ * refused. Read that rather than the two headers here.
  */
 require('dotenv').config();
 const { resolveKnexConnection } = require('./server/modules/knexTarget');

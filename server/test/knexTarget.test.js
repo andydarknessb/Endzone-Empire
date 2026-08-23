@@ -74,7 +74,7 @@ test('describes a URL target by naming the variable that supplied it', () => {
   const { target, output } = announce({ DATABASE_URL: REMOTE_URL, [OPT_IN]: '1' });
 
   assert.equal(target.via, 'url');
-  assert.equal(target.sourceVar, 'DATABASE_URL');
+  assert.equal(target.source, 'DATABASE_URL');
   assert.equal(target.host, 'db.abcdefghijkl.supabase.co');
   assert.equal(target.port, 5432);
   assert.equal(target.database, 'postgres');
@@ -136,12 +136,28 @@ test('a URL wins over the PG* block and the output says the PG* variables were i
   }
 });
 
-test('a single PG* variable is enough to be reported as ignored', () => {
+test('a single PG* variable is enough to be reported as ignored, and reads as one', () => {
   const { target, output } = announce({ DATABASE_URL: LOCAL_URL, PGHOST: '10.0.0.9' });
 
   assert.deepEqual(target.ignored, ['PGHOST']);
   assert.match(output, /ignored/i);
   assert.match(output, /PGHOST/);
+
+  // Number agreement. A guard nobody trusts is a guard nobody reads, and
+  // "PGHOST were set" is exactly the sort of seam that makes a message look
+  // machine-assembled rather than meant.
+  assert.match(output, /PGHOST was set and IGNORED/);
+  assert.doesNotMatch(output, /\bwere set\b/);
+
+  const refused = announceExpectingThrow({ DATABASE_URL: REMOTE_URL, PGHOST: '10.0.0.9' });
+  assert.match(refused.error.message, /PGHOST was set and IGNORED/);
+  assert.doesNotMatch(refused.error.message, /\bwere set\b/);
+});
+
+test('several ignored variables read as plural', () => {
+  const { output } = announce({ DATABASE_URL: LOCAL_URL, PGHOST: '10.0.0.9', PGPORT: '5432' });
+  assert.match(output, /PGHOST, PGPORT were set and IGNORED/);
+  assert.doesNotMatch(output, /\bwas set\b/);
 });
 
 test('DATABASE_URL_MIGRATIONS beats DATABASE_URL_RUNTIME beats DATABASE_URL', () => {
@@ -150,7 +166,7 @@ test('DATABASE_URL_MIGRATIONS beats DATABASE_URL_RUNTIME beats DATABASE_URL', ()
     DATABASE_URL_RUNTIME: 'postgresql://u@b.example.com/two',
     DATABASE_URL: 'postgresql://u@c.example.com/three',
   });
-  assert.equal(migrations.sourceVar, 'DATABASE_URL_MIGRATIONS');
+  assert.equal(migrations.source, 'DATABASE_URL_MIGRATIONS');
   assert.equal(migrations.host, 'a.example.com');
   assert.deepEqual(migrations.ignored, ['DATABASE_URL_RUNTIME', 'DATABASE_URL']);
 
@@ -158,11 +174,11 @@ test('DATABASE_URL_MIGRATIONS beats DATABASE_URL_RUNTIME beats DATABASE_URL', ()
     DATABASE_URL_RUNTIME: 'postgresql://u@b.example.com/two',
     DATABASE_URL: 'postgresql://u@c.example.com/three',
   });
-  assert.equal(runtime.sourceVar, 'DATABASE_URL_RUNTIME');
+  assert.equal(runtime.source, 'DATABASE_URL_RUNTIME');
   assert.deepEqual(runtime.ignored, ['DATABASE_URL']);
 
   const plain = resolveTarget({ DATABASE_URL: 'postgresql://u@c.example.com/three' });
-  assert.equal(plain.sourceVar, 'DATABASE_URL');
+  assert.equal(plain.source, 'DATABASE_URL');
   assert.deepEqual(plain.ignored, []);
 });
 
@@ -270,6 +286,32 @@ test('a non-loopback PG* host is refused too, not just a URL one', () => {
   assert.ok(error, 'expected a refusal');
   assert.match(error.message, /db\.abcdefghijkl\.supabase\.co/);
   assert.match(error.message, /PGHOST/);
+});
+
+test('a host-less connection string is refused, because pg resolves the host from PGHOST', () => {
+  // Found by review, and it defeated BOTH mechanisms at once, which is why it
+  // gets its own test rather than a line in another.
+  //
+  // `postgresql:///postgres` has no authority, so `new URL(...).hostname` is
+  // the empty string. Treating that as loopback (dbSsl.js does, for its own
+  // narrower purpose) made the guard allow it AND print `host=` with nothing
+  // after it, while `pg` went on to take the host from PGHOST and connect to
+  // a remote database. The printed line was blank exactly where it was meant
+  // to be loudest.
+  //
+  // An empty host is not one of the three loopback spellings the issue names,
+  // and it cannot be shown to be local, so it is refused like any other host
+  // that cannot be proven local.
+  const { error, output } = announceExpectingThrow({
+    DATABASE_URL: 'postgresql:///postgres',
+    PGHOST: 'db.evil.invalid',
+  });
+
+  assert.ok(error, 'a host-less connection string must not pass the guard');
+  assert.match(error.message, new RegExp(OPT_IN));
+  // And it must not claim a host it does not have.
+  assert.doesNotMatch(output, /host= /);
+  assert.doesNotMatch(output, /host=$/m);
 });
 
 test('an unparseable URL is refused rather than assumed local', () => {
