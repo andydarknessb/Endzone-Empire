@@ -214,7 +214,7 @@ describe('LeagueRules', () => {
     expect(await screen.findByText(/Unable to load scoring rules: offline/)).toBeInTheDocument();
 
     await act(async () => { await userEvent.click(screen.getByRole('tab', { name: 'Roster' })); });
-    await screen.findByText('7 roster spots + up to 1 IR');
+    expect(await screen.findByText('7 roster spots + up to 1 IR')).toBeInTheDocument();
   });
 });
 

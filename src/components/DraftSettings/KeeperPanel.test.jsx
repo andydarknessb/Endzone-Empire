@@ -24,7 +24,7 @@ function renderPanel(onSaveLeague = jest.fn()) {
       onAssignmentsDirtyChange={jest.fn()}
     />
   );
-  return onSaveLeague;
+  return { onSaveLeague };
 }
 
 function renderAssignments({ keeperCount, keepers }) {
@@ -46,7 +46,7 @@ function renderAssignments({ keeperCount, keepers }) {
       onAssignmentsDirtyChange={jest.fn()}
     />
   );
-  return onSaveKeepers;
+  return { onSaveKeepers };
 }
 
 test.each([
@@ -54,7 +54,7 @@ test.each([
   ['1.5', 'Keepers per team must be a whole number between 0 and 4.'],
   ['5', 'Keepers per team must be between 0 and 4.'],
 ])('blocks invalid keeper count %s', (value, message) => {
-  const onSaveLeague = renderPanel();
+  const { onSaveLeague } = renderPanel();
   fireEvent.change(screen.getByLabelText('Keepers per team'), { target: { value } });
 
   expect(screen.getByText(message)).toBeInTheDocument();
@@ -91,7 +91,7 @@ test('blocks a custom keeper lock in the past and allows a future one (#67, mirr
 });
 
 test.each(['0', '4'])('accepts keeper count boundary %s', async (value) => {
-  const onSaveLeague = renderPanel();
+  const { onSaveLeague } = renderPanel();
   fireEvent.change(screen.getByLabelText('Keepers per team'), { target: { value } });
   // See the comment above: userEvent's own await catches saveSettings's
   // trailing setConfirmSettingsSave(false) update.
@@ -132,7 +132,7 @@ test('a stored lock that has since passed does not block a count-only edit: the 
 });
 
 test('shows a row error and blocks duplicate player assignments', () => {
-  const onSaveKeepers = renderAssignments({
+  const { onSaveKeepers } = renderAssignments({
     keeperCount: 2,
     keepers: [
       { team_id: 1, player_id: 101, name: 'Player One', position: 'QB', draft_round: 1 },
@@ -147,7 +147,7 @@ test('shows a row error and blocks duplicate player assignments', () => {
 });
 
 test('shows a row error and blocks duplicate team and round slots', () => {
-  const onSaveKeepers = renderAssignments({
+  const { onSaveKeepers } = renderAssignments({
     keeperCount: 2,
     keepers: [
       { team_id: 1, player_id: 101, name: 'Player One', position: 'QB', draft_round: 1 },
@@ -162,7 +162,7 @@ test('shows a row error and blocks duplicate team and round slots', () => {
 });
 
 test('shows a row error when one team exceeds its keeper allowance', () => {
-  const onSaveKeepers = renderAssignments({
+  const { onSaveKeepers } = renderAssignments({
     keeperCount: 1,
     keepers: [
       { team_id: 1, player_id: 101, name: 'Player One', position: 'QB', draft_round: 1 },

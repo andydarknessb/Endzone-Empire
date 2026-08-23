@@ -13,7 +13,7 @@ function renderPanel(onSave = jest.fn()) {
       onDirtyChange={jest.fn()}
     />
   );
-  return onSave;
+  return { onSave };
 }
 
 test.each([
@@ -21,7 +21,7 @@ test.each([
   ['1.5', 'Autodraft delay must be a whole number between 1 and 60.'],
   ['61', 'Autodraft delay must be between 1 and 60.'],
 ])('blocks invalid autodraft delay %s', (value, message) => {
-  const onSave = renderPanel();
+  const { onSave } = renderPanel();
   fireEvent.change(screen.getByLabelText('Autodraft delay (seconds)'), { target: { value } });
 
   expect(screen.getByText(message)).toBeInTheDocument();
@@ -31,7 +31,7 @@ test.each([
 });
 
 test.each(['1', '60'])('accepts autodraft delay boundary %s', (value) => {
-  const onSave = renderPanel();
+  const { onSave } = renderPanel();
   fireEvent.change(screen.getByLabelText('Autodraft delay (seconds)'), { target: { value } });
   fireEvent.click(screen.getByRole('button', { name: 'Save timer' }));
 

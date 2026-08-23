@@ -138,5 +138,5 @@ test('a failed load offers a retry', async () => {
   apiClient.get.mockResolvedValue({ data: STANDINGS });
   await user.click(screen.getByRole('button', { name: /Retry standings/i }));
 
-  await screen.findByRole('table');
+  expect(await screen.findByRole('table')).toBeInTheDocument();
 });
