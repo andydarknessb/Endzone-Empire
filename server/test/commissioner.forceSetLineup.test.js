@@ -16,6 +16,8 @@ const DEFAULT_ROSTER_SLOTS = [
 function forceSetWorld(t, { entries, leagueOverrides = {} }) {
   const updates = [];
   const fake = createFakePool([
+    // #106: every world here is a LIVE week, so nothing is frozen.
+    [/^SELECT 1 FROM "matchups"/, () => ({ rows: [] })],
     [/FROM "leagues" WHERE "id" = \$1/, () => ({
       rows: [{
         id: 5,

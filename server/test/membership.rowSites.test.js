@@ -54,6 +54,10 @@ function fakeDb(t, { member = null, overrides = [] } = {}) {
     [/SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
     [/FROM "leagues" WHERE "id" = \$1/, () => ({ rows: [LEAGUE] })],
     [/FROM "teams" WHERE "league_id" = \$1 AND "owner_id" = \$2/, () => ({ rows: member ? [member] : [] })],
+    // #106: materializeLineup probes the week's finality before it reads any
+    // roster. Nothing here is a final week, so it answers "not frozen" and the
+    // team_players override below stays the first read after the gate.
+    [/^SELECT 1 FROM "matchups"/, () => ({ rows: [] })],
     [/FROM "trades" WHERE "id" = \$1/, () => ({
       rows: [{ id: 77, league_id: 3, status: 'accepted', proposing_team_id: 51, receiving_team_id: 52 }],
     })],

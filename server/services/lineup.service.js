@@ -116,12 +116,51 @@ function entriesForLineupValidation(entries, league) {
 }
 
 /**
+ * Is this (team, week) closed to new lineup rows? True only when the team's
+ * OWN matchup for that week is final (#106).
+ *
+ * Absence of a matchup row is deliberately not finality: a team on a bye, or
+ * any week before the schedule exists, has nothing to be final and must keep
+ * materializing exactly as before. Another matchup being final says nothing
+ * about a team that did not play in it, so the team is matched on either side
+ * of its own game rather than on the week as a whole.
+ */
+async function isFinalWeekForTeam(client, { leagueId, teamId, season, week }) {
+  const result = await client.query(
+    `SELECT 1 FROM "matchups"
+     WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 AND "final" = true
+       AND ("home_team_id" = $4 OR "away_team_id" = $4)
+     LIMIT 1`,
+    [leagueId, season, week, teamId]
+  );
+  return result.rows.length > 0;
+}
+
+/**
  * Ensure every player currently on the team's roster has a lineup_entries row
  * for (season, week). First touch of a week copies slots forward from the
  * team's most recent earlier week; players without history default to BENCH.
  * Must run inside the caller's transaction (client).
+ *
+ * A FINAL week is frozen (#106): its rows are the record of the week as
+ * played, never a working lineup, so nothing materializes into one. The guard
+ * lives here rather than at each caller because a final week must be closed
+ * on EVERY path that reaches this function - getLineup, setLineup, the two
+ * matchup routes, decision.service's liveWhatIf and waiverSuggestions,
+ * commissioner.forceSetLineup, digest.service's lineup reminder, and
+ * benchAcquiredPlayer - and because the next such caller must inherit it for
+ * free. Without it, a player acquired in the routine window between the last
+ * whistle and the commissioner's advance gets a row in the finished week and
+ * is then paid for it by the next re-score: a stat correction or a manual
+ * score call silently rewrites a score that was already settled.
+ *
+ * This does not change how a live week scores, and it does not cost the
+ * acquired player his bench spot: the new current week has no row for him
+ * either, so its first touch materializes him onto the bench (#97 / PR #102).
  */
 async function materializeLineup(client, { leagueId, teamId, season, week }) {
+  if (await isFinalWeekForTeam(client, { leagueId, teamId, season, week })) return;
+
   const rosterResult = await client.query(
     `SELECT "team_players"."player_id", "players"."position"
      FROM "team_players" JOIN "players" ON "players"."id" = "team_players"."player_id"
