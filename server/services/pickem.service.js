@@ -35,7 +35,7 @@ const { teamIdentityColumns, teamIdentityJoin } = require('./teamIdentity');
  * ## Lock semantics
  *
  * A game locks INCLUSIVELY at kickoff (`kickoff_at <= now()`), matching
- * `lockedNflTeams` in lineup.service.js. Locking is what reveals other
+ * `lockedPlayerIds` in lineup.service.js. Locking is what reveals other
  * managers' picks, so the two must agree: an unlocked pick is never returned
  * to anyone but its owner.
  *
@@ -186,7 +186,7 @@ function winnerOf(game) {
   return { winner: home > away ? game.homeTeam : game.awayTeam, isTie: false, final: true };
 }
 
-/** Pure: inclusive at kickoff, exactly like lineup.service `lockedNflTeams`. */
+/** Pure: inclusive at kickoff, exactly like lineup.service `lockedPlayerIds`. */
 function isGameLocked(game, now = new Date()) {
   if (!game || !game.kickoffAt) return false;
   const at = now instanceof Date ? now : new Date(now);

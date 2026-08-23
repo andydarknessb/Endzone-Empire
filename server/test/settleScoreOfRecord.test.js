@@ -73,6 +73,10 @@ const BYE_MAN = 5; // RB, 12.0 points, whose NFL team has NO game row this week
 const QB_C = 6; // Team C's QB, 20.0 points (seeding fixture only)
 const QB_D = 7; // Team D's QB, 5.0 points (seeding fixture only)
 const THURSDAY_MAN = 8; // QB, 10.0 points, whose game kicks off on THURSDAY
+// A DEF unit: position DEF, and `players.nfl_team` a FULL TEAM NAME, because
+// that is how syncTeamDefenses seeds all 32 of them. The schedule spells his
+// team 'DEN'. Raw equality between those two strings is #227.
+const DEF_UNIT = 9; // DEF, 5.0 points, plays for the Broncos
 
 // The one timeline every test reads. Most NFL games in the fixture kick off
 // at KICKOFF, so "before" and "after" mean before and after the week's games.
@@ -92,6 +96,7 @@ const FIRST_MATERIALIZE = '2026-10-25T17:05:00.000Z';
 const ROSTER_SLOTS = [
   { key: 'QB', label: 'QB', count: 1, eligiblePositions: ['QB'] },
   { key: 'RB', label: 'RB', count: 1, eligiblePositions: ['RB'] },
+  { key: 'DEF', label: 'DEF', count: 1, eligiblePositions: ['DEF'] },
 ];
 
 const NFL_TEAM = new Map([
@@ -102,6 +107,7 @@ const NFL_TEAM = new Map([
   [QB_C, 'Chiefs'],
   [QB_D, 'Chiefs'],
   [THURSDAY_MAN, 'Ravens'],
+  [DEF_UNIT, 'Denver Broncos'],
 ]);
 
 const POSITION = new Map([
@@ -112,6 +118,7 @@ const POSITION = new Map([
   [QB_C, 'QB'],
   [QB_D, 'QB'],
   [THURSDAY_MAN, 'QB'],
+  [DEF_UNIT, 'DEF'],
 ]);
 
 const WEEK_STATS = new Map([
@@ -122,6 +129,7 @@ const WEEK_STATS = new Map([
   [QB_C, { passingYards: 500 }], // 20.0
   [QB_D, { passingYards: 125 }], // 5.0
   [THURSDAY_MAN, { passingYards: 250 }], // 10.0
+  [DEF_UNIT, { sack: 5 }], // 5.0
 ]);
 
 function createWorld({
@@ -176,6 +184,8 @@ function createWorld({
       { season: SEASON, week: WEEK, nfl_team: 'Bills', kickoff_at: KICKOFF },
       { season: SEASON, week: WEEK, nfl_team: 'Eagles', kickoff_at: KICKOFF },
       { season: SEASON, week: WEEK, nfl_team: 'Ravens', kickoff_at: THURSDAY_KICKOFF },
+      // Tank01's spelling, which is the only spelling nfl_games ever holds.
+      { season: SEASON, week: WEEK, nfl_team: 'DEN', kickoff_at: KICKOFF },
     ],
     matchups: matchups || [{
       id: 90,
@@ -515,6 +525,37 @@ test('#190 best ball: a player acquired AFTER his game is excluded from the scor
 
   assert.equal(awayScoreOf(world.state), 10,
     'his 30 points were earned for someone else after the whistle and must not settle here');
+  world.fake.assertClean();
+});
+
+test('#227 best ball: a DEF UNIT acquired AFTER its game is excluded too', async (t) => {
+  // The same case as the test above, with the one player type the exclusion
+  // used to be blind to. `players.nfl_team` here is "Denver Broncos" while
+  // `nfl_games` says "DEN", so under raw equality he had no game that week,
+  // no kickoff to be held at, and sailed through the exclusion carrying
+  // points earned for whoever actually rostered him on Sunday.
+  const world = createWorld({ bestBall: true });
+  world.fake.install(t);
+
+  await acquire(world.fake, world.state, { playerId: DEF_UNIT });
+  await advanceWeek(world.state);
+
+  assert.equal(awayScoreOf(world.state), 10,
+    'his 5 points were earned before Team B ever held him and must not settle here');
+  world.fake.assertClean();
+});
+
+test('#227 best ball: a DEF UNIT acquired BEFORE its game still counts', async (t) => {
+  // The control, and the half a normalisation can break just as easily: the
+  // fix must make a DEF unit ordinary, not permanently excluded.
+  const world = createWorld({ bestBall: true });
+  world.fake.install(t);
+
+  await acquire(world.fake, world.state, { playerId: DEF_UNIT, at: BEFORE_KICKOFF });
+  await advanceWeek(world.state);
+
+  assert.equal(awayScoreOf(world.state), 15,
+    'Team B held him when the Broncos kicked off, so his 5 are part of the week as played');
   world.fake.assertClean();
 });
 
@@ -1015,7 +1056,7 @@ test('#190 the kickoff question goes through lineup.service\'s shared predicate'
   assert.ok(scheduleReads.length > 0, 'the schedule is consulted');
   for (const call of scheduleReads) {
     assert.match(call.text, /^SELECT "nfl_team", "kickoff_at" FROM "nfl_games"/,
-      'every schedule read on this path is lineup.service\'s weekKickoffs, not a second one grown here');
+      'every schedule read on this path is lineup.service\'s weekKickoffs, reached through playerKickoffs, not a second one grown here');
     assert.deepEqual(call.params, [SEASON, WEEK]);
   }
   const [tenureRead] = world.fake.matching(/FROM "roster_tenures"/);

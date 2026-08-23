@@ -6,6 +6,7 @@ const {
   materializeLineup, optimalLineup, parseLineupSettings, POSITION_GROUPS,
   playersNotHeldAtKickoff,
 } = require('./lineup.service');
+const { NFL_TEAM_FULL_NAMES: NFL_TEAM_NAME_TO_ABBR } = require('./nflTeam');
 const { getIo } = require('../modules/io');
 const { fantasySideWhereSql } = require('./leagueType');
 const { seasonEngineAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('./leaguePhase');
@@ -530,24 +531,25 @@ function normalizeTank01DstStats(dstSide, opponentTeamStats) {
   };
 }
 
-// Full NFL team name -> Tank01 abbreviation, used only to match a league's
-// seeded/rostered DEF-unit player (stored with either a full name or an
-// abbreviation in nfl_team) against the live box score's teamAbv.
-const NFL_TEAM_NAME_TO_ABBR = {
-  'ARIZONA CARDINALS': 'ARI', 'ATLANTA FALCONS': 'ATL', 'BALTIMORE RAVENS': 'BAL',
-  'BUFFALO BILLS': 'BUF', 'CAROLINA PANTHERS': 'CAR', 'CHICAGO BEARS': 'CHI',
-  'CINCINNATI BENGALS': 'CIN', 'CLEVELAND BROWNS': 'CLE', 'DALLAS COWBOYS': 'DAL',
-  'DENVER BRONCOS': 'DEN', 'DETROIT LIONS': 'DET', 'GREEN BAY PACKERS': 'GB',
-  'HOUSTON TEXANS': 'HOU', 'INDIANAPOLIS COLTS': 'IND', 'JACKSONVILLE JAGUARS': 'JAX',
-  'KANSAS CITY CHIEFS': 'KC', 'LAS VEGAS RAIDERS': 'LV', 'LOS ANGELES CHARGERS': 'LAC',
-  'LOS ANGELES RAMS': 'LAR', 'MIAMI DOLPHINS': 'MIA', 'MINNESOTA VIKINGS': 'MIN',
-  'NEW ENGLAND PATRIOTS': 'NE', 'NEW ORLEANS SAINTS': 'NO', 'NEW YORK GIANTS': 'NYG',
-  'NEW YORK JETS': 'NYJ', 'PHILADELPHIA EAGLES': 'PHI', 'PITTSBURGH STEELERS': 'PIT',
-  'SAN FRANCISCO 49ERS': 'SF', 'SEATTLE SEAHAWKS': 'SEA', 'TAMPA BAY BUCCANEERS': 'TB',
-  'TENNESSEE TITANS': 'TEN', 'WASHINGTON COMMANDERS': 'WAS',
-};
-
-/** A players.nfl_team value (full name or already-an-abbreviation) -> Tank01 abbreviation. */
+/**
+ * A players.nfl_team value (full name or already-an-abbreviation) -> Tank01
+ * abbreviation, used only to match a league's seeded/rostered DEF-unit player
+ * against the live box score's teamAbv.
+ *
+ * The 32-name table it reads (`NFL_TEAM_NAME_TO_ABBR`) now lives in
+ * services/nflTeam.js, next to the alias table and under the guard that holds
+ * both against the migration defining fn_normalize_nfl_team (#227). It was a
+ * third copy of the same rows, and a renamed or relocated franchise had to be
+ * remembered in three places.
+ *
+ * This function is NOT `normalizeNflTeam`, and the difference is the
+ * short-circuit below: an already-abbreviated input is returned as-is, so
+ * `WSH` stays `WSH` here where the shared helper would fold it to `WAS`. That
+ * is correct for this caller - both sides of its comparison are Tank01's own
+ * spelling - but it means this is a second resolver, and #227 deliberately did
+ * not merge them: nothing here is kickoff-keyed, and changing how a live box
+ * score matches a DEF unit is a behaviour change that ticket did not ask for.
+ */
 function normalizeTeamAbbr(nflTeam) {
   const raw = String(nflTeam || '').trim();
   if (!raw) return null;

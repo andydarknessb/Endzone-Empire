@@ -15,6 +15,7 @@ const {
   parseLineupSettings,
   slotEligible,
   materializeLineup,
+  lockedPlayerIds,
   DEFAULT_ROSTER_SLOTS,
 } = require('./lineup.service');
 const { optimalAssignment, buildSwapSuggestions } = require('./lineupOptimizer');
@@ -489,6 +490,20 @@ async function weekHindsight({ leagueId, teamId, season, week }) {
  * so locked players are excluded from swap suggestions entirely. The returned
  * `swaps` therefore only lists actionable bench-for-starter upgrades among
  * still-unlocked players; `delta` is their combined gain.
+ *
+ * The lock comes from `lineup.service`'s `lockedPlayerIds`, the same predicate
+ * `setLineup` refuses a move with, and NOT from a schedule join of this
+ * query's own (#227). It used to be the latter, joining `nfl_games` to
+ * `players` on raw `nfl_team`, which is the comparison #227 exists to end: a
+ * DEF unit's `players.nfl_team` is a full team name, so he joined to nothing
+ * and read UNLOCKED here however long his game had been over. This advisor
+ * would then suggest benching him and `setLineup` would refuse the very move
+ * it had just recommended, with a 409 the manager cannot act on. An advisor
+ * that disagrees with the rule it is advising about is worse than no advisor.
+ *
+ * That also moves the lock's clock from the database's `now()` to the app's,
+ * which is the clock `setLineup` has always judged a move by. The two agreeing
+ * is the point; a second clock is a second way to disagree.
  */
 async function liveWhatIf({ leagueId, teamId, season, week }) {
   const league = await assertLeagueAndTeam({ leagueId, teamId });
@@ -497,18 +512,21 @@ async function liveWhatIf({ leagueId, teamId, season, week }) {
   const rows = await pool.query(
     `SELECT "lineup_entries"."player_id", "players"."name", "players"."position",
             "players"."nfl_team", "lineup_entries"."slot",
-            COALESCE("player_stats"."fantasy_points", 0) AS "fantasy_points",
-            ("nfl_games"."kickoff_at" IS NOT NULL AND "nfl_games"."kickoff_at" <= now()) AS "locked"
+            COALESCE("player_stats"."fantasy_points", 0) AS "fantasy_points"
      FROM "lineup_entries"
      JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
      LEFT JOIN "player_stats" ON "player_stats"."player_id" = "lineup_entries"."player_id"
        AND "player_stats"."season" = $2 AND "player_stats"."week" = $3
-     LEFT JOIN "nfl_games" ON "nfl_games"."nfl_team" = "players"."nfl_team"
-       AND "nfl_games"."season" = $2 AND "nfl_games"."week" = $3
      WHERE "lineup_entries"."team_id" = $1 AND "lineup_entries"."season" = $2
        AND "lineup_entries"."week" = $3`,
     [teamId, season, week]
   );
+  const locked = await lockedPlayerIds(pool, {
+    season,
+    week,
+    players: rows.rows.map((row) => ({ id: row.player_id, nflTeam: row.nfl_team })),
+  });
+  for (const row of rows.rows) row.locked = locked.has(row.player_id);
 
   let actualPoints = 0;
   const pointsFor = new Map();

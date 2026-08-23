@@ -23,7 +23,7 @@ jest.mock('@supabase/supabase-js', () => ({
 
 const pool = require('../../server/modules/pool');
 const teamRouter = require('../../server/routes/team.router');
-const { lockedNflTeams } = require('../../server/services/lineup.service');
+const { lockedPlayerIds } = require('../../server/services/lineup.service');
 
 function createDatabaseFixture() {
   const { league, players } = fixture;
@@ -239,12 +239,17 @@ describe('individual-player lineup lock timeline', () => {
     );
 
     jest.setSystemTime(new Date(fixture.timeline.benchTransactionAttempt));
-    const lockedTeams = await lockedNflTeams(client, {
+    // The predicate answers about PLAYERS, not about team names (#227), so
+    // this reads the same way for a DEF unit whose nfl_team is a full team
+    // name as it does for these two abbreviation-coded skill players.
+    const locked = await lockedPlayerIds(client, {
       season: fixture.league.season,
       week: fixture.league.week,
+      players: [fixture.players.playerA, fixture.players.playerB]
+        .map((player) => ({ id: player.id, nflTeam: player.nflTeam })),
     });
-    expect(lockedTeams).toEqual(new Set([fixture.players.playerA.nflTeam]));
-    expect(lockedTeams.has(fixture.players.playerB.nflTeam)).toBe(false);
+    expect(locked).toEqual(new Set([fixture.players.playerA.id]));
+    expect(locked.has(fixture.players.playerB.id)).toBe(false);
 
     const dropResponse = await request(createApp()).delete(fixture.requests.dropPlayerB.path);
 
