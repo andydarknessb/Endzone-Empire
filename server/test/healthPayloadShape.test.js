@@ -5,8 +5,8 @@ const request = require('supertest');
 const holdout = require('../services/holdout.service');
 
 
-const tank01Client = require('../modules/tank01Client');
 const { createFakePool } = require('./helpers/fakePool');
+const { keys, NEXT_QUARTER } = require('./helpers/payloadShape');
 
 /**
  * The payload contract of every unauthenticated /api/health/* route (#201).
@@ -40,7 +40,6 @@ after(() => {
   else process.env.REDIS_URL = previousRedisUrl;
 });
 
-const keys = (value) => Object.keys(value).sort();
 
 /** A worker_heartbeats row wider than the contract. */
 const wideWorkerRow = (over = {}) => ({
@@ -48,7 +47,7 @@ const wideWorkerRow = (over = {}) => ({
   last_seen_at: new Date().toISOString(),
   last_error: null,
   release_sha: 'abc1234',
-  a_column_added_next_quarter: 'publishes by default under a delete-list',
+  a_column_added_next_quarter: NEXT_QUARTER,
   ...over,
 });
 
@@ -59,17 +58,22 @@ function healthPool(over = {}) {
   ]);
 }
 
-function stubQuota(t, state) {
-  t.mock.method(tank01Client, 'getQuotaState', async () => state ?? {
-    provider: 'tank01',
-    mode: 'metered',
-    used: 12,
-    budget: 1000,
-    remaining: 988,
-    cycleStart: '2026-08-01T00:00:00.000Z',
-    a_column_added_next_quarter: 'publishes by default under a delete-list',
-  });
-}
+/**
+ * There is deliberately no quota stub.
+ *
+ * `health.router.js` destructures `getQuotaState` at load, exactly as it does
+ * `getRedisClient`, so `t.mock.method(tank01Client, 'getQuotaState', ...)`
+ * would be INERT - it replaces a property the router already captured. An
+ * inert stub is worse than none: it plants a decoy that never enters the code
+ * under test while reading like proof that the decoy was withheld.
+ *
+ * So the composite tests below run the real `getQuotaState`, and the
+ * `keys(res.body.quota)` assertions are load-bearing without it: the real
+ * function answers thirteen fields (`localUsed`, `headerUsed`, `softLimit`,
+ * `hardCeiling`, `providerLimit`, `providerRemaining`, `providerSeenAt`,
+ * `backoffUntil` among them) and `quotaStatus` names six. A serializer that
+ * spread its input instead of naming its fields fails on the other seven.
+ */
 
 function stubHoldout(t, result) {
   t.mock.method(holdout, 'reconcileObligations', async () => result ?? {
@@ -182,7 +186,7 @@ test('an obligation publishes exactly the fields holdout.service names, and no d
   // Driven through the REAL reconcileObligations, because the route does no
   // filtering of its own: the service's object literal IS the public
   // allowlist here. The fake answers rows wider than the contract.
-  const decoy = 'publishes by default under a delete-list';
+  const decoy = NEXT_QUARTER;
   const now = new Date('2026-09-01T00:00:00Z');
   const scheduleRows = [
     { season: 2026, week: 1, nfl_team: 'KC', opponent: 'BUF', home_away: 'home',
@@ -243,7 +247,6 @@ test('an obligation publishes exactly the fields holdout.service names, and no d
 test('GET / publishes exactly the composite allowlist and every nested status shape', async (t) => {
   delete process.env.REDIS_URL;
   const fake = healthPool().install(t);
-  stubQuota(t);
   stubHoldout(t);
 
   const res = await request(app).get('/api/health');
@@ -268,10 +271,9 @@ test('GET / publishes exactly the composite allowlist and every nested status sh
   fake.assertClean();
 });
 
-test('GET / publishes the same key set while shutting down with nothing to report', async (t) => {
+test('GET / publishes the same key set when it is not ready and has nothing to report', async (t) => {
   delete process.env.REDIS_URL;
   const fake = healthPool({ workers: [] }).install(t);
-  stubQuota(t);
   t.mock.method(console, 'error', () => {});
   t.mock.method(holdout, 'reconcileObligations', async () => {
     throw new Error('permission denied for schema private');
@@ -286,9 +288,9 @@ test('GET / publishes the same key set while shutting down with nothing to repor
   ]);
   // The section that WIDENS rather than narrows when its source is gone: one
   // extra key, named. (`quota`'s own `{ unavailable }` fallback is not
-  // reachable from this seam - getQuotaState swallows its own read failure and
-  // still answers a full state - so it is reported in the audit rather than
-  // pinned here.)
+  // reachable from this seam - getQuotaState is destructured at load, and it
+  // swallows its own read failure anyway - so it is reported in the audit
+  // rather than pinned here.)
   assert.deepEqual(keys(res.body.holdout), ['obligations', 'ok', 'unavailable']);
   assert.deepEqual(keys(res.body.quota), ['budget', 'cycleStart', 'mode', 'provider', 'remaining', 'used']);
   assert.deepEqual(res.body.worker.workers, []);
@@ -302,7 +304,6 @@ test('a third field on the holdout service result does not reach the composite',
   // `return status` refactor cannot quietly turn it into one.
   delete process.env.REDIS_URL;
   const fake = healthPool().install(t);
-  stubQuota(t);
   stubHoldout(t, {
     ok: true,
     obligations: [],

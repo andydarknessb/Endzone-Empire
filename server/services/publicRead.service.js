@@ -604,10 +604,11 @@ async function getDraftPool({ includeIdp = false } = {}) {
 
 function serializeDraftPoolRow({ row, projectedPoints, byeWeek }) {
   return {
+    // `?? null` on every raw passthrough - see serializeRankingRow.
     playerId: row.id ?? null,
-    name: row.name,
-    position: row.position,
-    nflTeam: row.nfl_team,
+    name: row.name ?? null,
+    position: row.position ?? null,
+    nflTeam: row.nfl_team ?? null,
     photoUrl: row.photo_url == null ? null : String(row.photo_url),
     injuryStatus: row.injury_status == null ? null : String(row.injury_status),
     adp: row.adp == null ? null : Number(row.adp),

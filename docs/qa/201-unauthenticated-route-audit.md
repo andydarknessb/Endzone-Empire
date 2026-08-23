@@ -27,6 +27,20 @@ a route registered ahead of a router-level guard, a per-route guard with no
 router-level one, a path-scoped `router.use(path, guard)` that protects no
 sibling, and the guard itself actually refusing a request.
 
+It has one structural blind spot, closed by two assertions beside it rather
+than by the classifier: app-level middleware that is neither a route nor a
+router (`app.use(path, fn)`) has no `.route` and no nested stack, so
+`app.use('/exports', express.static('server/data'))` would be an anonymous
+surface the walk never sees. Every static mount, and every non-root
+`app.use`, is therefore pinned by name.
+
+The name-keying has a blind spot too: `express-async-errors` wraps every
+handler, so the classifier matches on the Layer's recorded handler NAME rather
+than on function identity, and a second function called `requireAuth` would
+launder its routes into the guarded column. A recursive scan of `server/`
+asserts that the name is defined in exactly one file, and that every router
+takes it from there - whether it destructures or reaches for a member.
+
 ## Every route reachable without a session
 
 `origin` is where the payload's values come from; `filtering` is what stands
@@ -58,7 +72,9 @@ between that and the response.
 **Socket.IO.** `attachDraftSocket` installs `requireSocketAuth` as the only
 handshake middleware, ahead of every `socket.on(...)` handler, and it refuses
 both a tokenless handshake and one carrying a token it cannot verify. There is
-no anonymous socket surface. Asserted, not read off the source.
+no anonymous socket surface. Asserted, not read off the source. (The engine.io
+transport underneath it does answer an anonymous `GET /socket.io/` before
+Express runs - see "found and deliberately not changed".)
 
 ## Routes that turned out NOT to be anonymous
 
@@ -83,14 +99,14 @@ Worth recording, because two of them read like public surfaces:
    `result.rows[0]` with the hash `delete`d off afterwards. Nothing had leaked:
    the delete runs before the response on every path. The shape was the defect,
    and the same allowlist now serves register and refresh.
-2. **Twenty-four raw row passthroughs in `publicRead.service.js` now `?? null`**,
+2. **Twenty-seven raw row passthroughs in `publicRead.service.js` now `?? null`**,
    across all four serializers that read a database row directly:
 
    | Serializer | Fields |
    | --- | --- |
    | `serializeRankingRow` | `playerId`, `name`, `position`, `nflTeam`, `photoUrl`, `injuryStatus` |
    | `serializePlayerProfile` | `playerId`, `name`, `position`, `nflTeam`, `photoUrl`, `jerseyNumber`, `injuryStatus`, `injuryDetail`, `news` |
-   | `serializeDraftPoolRow` | `playerId` |
+   | `serializeDraftPoolRow` | `playerId`, `name`, `position`, `nflTeam` |
    | `serializeRecapListRow` and `serializeRecapDetail` | `gameId`, `homeTeam`, `awayTeam`, `finalAt` each |
 
    Each answered `undefined` when the row lacked the column, and
@@ -104,13 +120,47 @@ Worth recording, because two of them read like public surfaces:
 
 ## Found and deliberately not changed
 
-- **`GET /api/health` publishes `worker.lastError` verbatim** to anonymous
-  callers, straight from `worker_heartbeats."last_error"`. It is a named
-  allowlist, so it is not the default-publish shape this audit was looking
-  for - but the VALUE is an arbitrary error string a worker wrote, and it is
-  the one place on the anonymous surface where a message could carry a
-  connection string or a failing query. Changing it changes a field the
-  monitor reads, which the issue put out of scope.
+- **`GET /api/health` publishes three raw `err.message` values verbatim** to
+  anonymous callers: `worker.lastError` from `worker_heartbeats."last_error"`,
+  `scheduler.lastTickError` (`modules/scheduler.js`), and
+  `liveGameEngine.lastError` (`modules/liveGameEngine.js`). All three are named
+  allowlists, so none is the default-publish shape this audit was looking for -
+  but the VALUES are arbitrary error strings, and a message that quoted a
+  connection string or a failing query would go out with them. The two module
+  ones stay `null` on the Render web service (`RUN_JOBS_IN_WEB=false`), and
+  populate wherever jobs run in web, which is the default off production.
+  Changing any of them changes a field the monitor reads, which the issue put
+  out of scope. Their KEY sets are pinned; the values are the exposure.
+
+- **The SPA holds a second anonymous data plane that is not an Express route
+  at all.** `src/api/supabaseClient.js` builds a Supabase client from
+  `REACT_APP_SUPABASE_ANON_KEY`, which ships in the public bundle, and
+  `netlify.toml` allows `https://*.supabase.co` in the production CSP. That is
+  a PostgREST and Realtime endpoint reachable with no Endzone session, on
+  another host, whose disclosure is bounded by RLS policies and table GRANTs
+  rather than by anything in this repo - a policy list, which is a denylist's
+  cousin. The file's own comment scopes the intent to `live_game_states`
+  under a public-read policy. Whether the `anon` role can in fact read
+  anything else is the same question #201 asks, one layer down, and it cannot
+  be answered from this repo: it needs the project's grants and policies read,
+  which is a database session an IC may not open. **Recommend a follow-up
+  ticket.**
+
+- **`/socket.io/` answers an anonymous caller before Express sees it.**
+  engine.io is attached to the same listener, so
+  `GET /socket.io/?EIO=4&transport=polling` returns 200 with a session id and
+  no CSP header, ahead of helmet and the `/api` rate limiter.
+  `requireSocketAuth` then refuses the handshake, so no application data
+  crosses it - but "the only anonymous non-API route is the SPA shell" is true
+  of the Express app, not of the listener.
+
+- **`OPTIONS` is answered without a token on the per-route-guarded routers.**
+  `OPTIONS /api/players/` returns 200 `Allow: GET,HEAD` and `OPTIONS
+  /api/user/` returns 200 `Allow: GET,HEAD,DELETE`, because Express's built-in
+  OPTIONS responder runs when nothing terminated first - which never happens on
+  a router with `router.use(requireAuth)`. Method lists and path existence
+  only, no row data. The inventory keys on declared methods, so `OPTIONS` sits
+  in neither column.
 - **Three `SELECT *` reads sit in the anonymous-reachable call chain** and none
   of them reaches a response: `account.service` reads `auth_tokens` twice
   (reset and verify) and `token.service.rotateRefreshToken` reads

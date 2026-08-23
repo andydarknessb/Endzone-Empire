@@ -6,6 +6,7 @@ const encryptLib = require('../modules/encryption');
 const account = require('../services/account.service');
 const tokens = require('../services/token.service');
 const { createFakePool } = require('./helpers/fakePool');
+const { withheld, NEXT_QUARTER } = require('./helpers/payloadShape');
 
 /**
  * The payload contract of every unauthenticated /api/auth/* route (#201).
@@ -43,35 +44,33 @@ app.use(express.json());
 app.use('/api/auth', authRouter);
 
 const HASH = '$2a$10$notarealbcrypthashbutlongenoughtolooklikeone';
-const NEXT_QUARTER = 'publishes by default under a delete-list';
 
-/** Everything a `users` row can hand these routes today, plus tomorrow's column. */
-const wideUserRow = (over = {}) => ({
-  id: 42,
-  username: 'alice',
-  email: 'alice@example.com',
+/**
+ * Everything on a `users` row that must NOT reach the wire, kept in one object
+ * with the assertion that checks for it. A forbidden-key loop can only prove
+ * what the fixture actually supplied, so the decoys are spread into the row
+ * rather than merely named in the assertion.
+ */
+const { decoys: SECRETS, assertWithheld } = withheld({
   password: HASH,
   deleted_at: null,
   email_verified: false,
   created_at: '2026-01-01T00:00:00.000Z',
   updated_at: '2026-01-01T00:00:00.000Z',
   a_column_added_next_quarter: NEXT_QUARTER,
+});
+
+/** Everything a `users` row can hand these routes today, plus tomorrow's column. */
+const wideUserRow = (over = {}) => ({
+  id: 42,
+  username: 'alice',
+  email: 'alice@example.com',
+  ...SECRETS,
   ...over,
 });
 
 /** The account object, in full. A field appears here only because someone published it. */
 const USER_KEYS = ['email', 'id', 'username'];
-
-function assertPublishesNoSecret(body) {
-  const published = JSON.stringify(body);
-  for (const forbidden of ['password', 'deleted_at', 'email_verified', 'created_at', 'updated_at', 'a_column_added_next_quarter']) {
-    assert.ok(!new RegExp(`"${forbidden}"`).test(published), `${forbidden} is not published`);
-  }
-  // By value too, so a rename cannot smuggle one back.
-  for (const secret of [HASH, NEXT_QUARTER]) {
-    assert.ok(!published.includes(secret), `${secret} is not published`);
-  }
-}
 
 /** The account payload is `{ token, user }`, and `user` is exactly USER_KEYS. */
 function assertAccountPayload(res) {
@@ -79,7 +78,7 @@ function assertAccountPayload(res) {
   assert.deepEqual(Object.keys(res.body).sort(), ['token', 'user']);
   assert.deepEqual(Object.keys(res.body.user).sort(), USER_KEYS);
   assert.equal(typeof res.body.token, 'string');
-  assertPublishesNoSecret(res.body);
+  assertWithheld(res.body);
 }
 
 function stubTokens(t) {
@@ -181,7 +180,7 @@ test('the login key set is the allowlist, not the row: a narrower row still answ
   assert.equal(res.status, 200, JSON.stringify(res.body));
   assert.deepEqual(Object.keys(res.body.user).sort(), USER_KEYS);
   assert.equal(res.body.user.email, null, 'a column the query stopped selecting answers null');
-  assertPublishesNoSecret(res.body);
+  assertWithheld(res.body);
   fake.assertClean();
 });
 
@@ -200,7 +199,7 @@ test('POST /login refusals publish exactly an error, and never say which half wa
   assert.equal(badPassword.status, 401);
   assert.deepEqual(Object.keys(badPassword.body), ['error']);
   assert.equal(badPassword.body.error, unknown.body.error);
-  assertPublishesNoSecret(badPassword.body);
+  assertWithheld(badPassword.body);
   wrong.assertClean();
 
   const blank = await request(app).post('/api/auth/login').send({});

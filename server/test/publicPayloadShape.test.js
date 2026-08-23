@@ -2,7 +2,8 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
 const request = require('supertest');
-const pool = require('../modules/pool');
+const { createFakePool } = require('./helpers/fakePool');
+const { keys, withheld, NEXT_QUARTER } = require('./helpers/payloadShape');
 
 /**
  * The payload contract of every unauthenticated /api/public/* route (#201).
@@ -44,23 +45,27 @@ function makeApp() {
   return app;
 }
 
-function installPool(t, handlers) {
-  t.mock.method(pool, 'query', async (sql, params) => {
-    const text = String(sql);
-    for (const [needle, fn] of handlers) {
-      if (text.includes(needle)) return typeof fn === 'function' ? fn(params) : fn;
-    }
-    throw new Error(`Unexpected SQL: ${text}`);
-  });
-}
+/**
+ * These routes are read-only and never check out a client, so the shared fake
+ * is used for its matcher dispatch alone: one line, so the fourteen call sites
+ * below read as fixtures rather than as plumbing. Matchers are raw regexes
+ * because every query here is either a CTE (`WITH ... SELECT`) or reads a
+ * table that is not its statement's first FROM - the two cases fakePool's
+ * docblock says the `select(table)` shape matcher cannot express.
+ */
+const fakePool = (t, handlers) => createFakePool(
+  // The helper always CALLS its answer; a constant result reads better as a
+  // literal in a fixture table this long, so constants are lifted here.
+  handlers.map(([pattern, answer]) => [pattern, typeof answer === 'function' ? answer : () => answer])
+).install(t);
 
 /**
- * Columns no public row may ever publish, mixed into every fixture. They are
- * here rather than in a comment because a forbidden-key assertion can only
- * prove what the fixture actually supplies: a loop naming a key no row carries
- * asserts nothing while reading as a guarantee.
+ * The whole point of these fixtures: an anonymous payload built from a row
+ * carrying league and user columns AND a stand-in for a column someone adds
+ * next quarter. `withheld` keeps the decoys and the assertion in one object,
+ * so a decoy can never be asserted-against without also being supplied.
  */
-const DECOYS = {
+const { decoys: DECOYS, assertWithheld } = withheld({
   user_id: 9,
   userId: 9,
   league_id: 4,
@@ -70,29 +75,8 @@ const DECOYS = {
   email: 'manager@example.com',
   draft_share_token: 'presenter-share-token',
   invite_code: 'JOIN-ME-42',
-  a_column_added_next_quarter: 'publishes by default under a denylist',
-};
-
-/** The decoy VALUES, so a rename cannot smuggle one through under a new key. */
-const DECOY_VALUES = [
-  'account-holder',
-  'manager@example.com',
-  'presenter-share-token',
-  'JOIN-ME-42',
-  'publishes by default under a denylist',
-];
-
-function assertNoDecoys(body) {
-  const published = JSON.stringify(body);
-  for (const key of Object.keys(DECOYS)) {
-    assert.ok(!new RegExp(`"${key}"`).test(published), `${key} is not published`);
-  }
-  for (const value of DECOY_VALUES) {
-    assert.ok(!published.includes(value), `the value ${value} is not published`);
-  }
-}
-
-const keys = (value) => Object.keys(value).sort();
+  a_column_added_next_quarter: NEXT_QUARTER,
+});
 
 // ---------------------------------------------------------------------------
 // GET /api/public/rankings
@@ -113,21 +97,21 @@ const BYE_ROWS = () => {
 };
 
 const rankingsHandlers = () => [
-  ['FROM "player_projections"', { rows: [
+  [/FROM "player_projections"/, { rows: [
     { player_id: 1, projected_points: '22.4', source: 'extrapolated', ...DECOYS },
     { player_id: 2, projected_points: '18.1', source: 'extrapolated' },
   ] }],
-  ['MAX("season")::int', { rows: [{ season: 2026 }] }],
-  ['MAX("week")::int', { rows: [{ week: 3 }] }],
-  ['EXTRACT(MONTH FROM CURRENT_DATE)', { rows: [{ season: 2026 }] }],
-  ['fn_normalize_nfl_team', BYE_ROWS],
-  ['FROM "players" "p"', { rows: [
+  [/MAX\("season"\)::int/, { rows: [{ season: 2026 }] }],
+  [/MAX\("week"\)::int/, { rows: [{ week: 3 }] }],
+  [/EXTRACT\(MONTH FROM CURRENT_DATE\)/, { rows: [{ season: 2026 }] }],
+  [/fn_normalize_nfl_team/, BYE_ROWS],
+  [/FROM "players" "p"/, { rows: [
     { id: 1, name: 'Alpha Back', position: 'RB', nfl_team: 'KC', photo_url: 'http://x/1.png',
       injury_status: null, season_points: '120.5', ...DECOYS },
     { id: 2, name: 'Bravo Wide', position: 'WR', nfl_team: 'BUF', photo_url: null,
       injury_status: 'Q', season_points: '90.0', ...DECOYS },
   ] }],
-  ['"week" <= $3', { rows: [
+  [/"week" <= \$3/, { rows: [
     { player_id: 1, week: 1, fantasy_points: '10', ...DECOYS },
     { player_id: 1, week: 2, fantasy_points: '15' },
     { player_id: 2, week: 1, fantasy_points: '12' },
@@ -136,16 +120,16 @@ const rankingsHandlers = () => [
 ];
 
 test('GET /rankings publishes exactly season, week and rankings', async (t) => {
-  installPool(t, rankingsHandlers());
+  fakePool(t, rankingsHandlers());
   const res = await request(makeApp()).get('/api/public/rankings');
 
   assert.equal(res.status, 200, JSON.stringify(res.body));
   assert.deepEqual(keys(res.body), ['rankings', 'season', 'week']);
-  assertNoDecoys(res.body);
+  assertWithheld(res.body);
 });
 
 test('a rankings[] entry publishes exactly the ranking allowlist, however wide the row is', async (t) => {
-  installPool(t, rankingsHandlers());
+  fakePool(t, rankingsHandlers());
   const res = await request(makeApp()).get('/api/public/rankings');
 
   assert.equal(res.status, 200, JSON.stringify(res.body));
@@ -160,17 +144,17 @@ test('a rankings[] entry keeps every key when the row and its lookups are empty'
   // serializer, not of whatever the row happened to hold, so a client may read
   // every field unconditionally. A missing projection, week history or bye
   // answers null; it never drops the key.
-  installPool(t, [
-    ['FROM "player_projections"', { rows: [] }],
-    ['array_agg("fantasy_points")', { rows: [] }],
-    ['MAX("season")::int', { rows: [{ season: 2026 }] }],
-    ['MAX("week")::int', { rows: [{ week: 3 }] }],
-    ['EXTRACT(MONTH FROM CURRENT_DATE)', { rows: [{ season: 2026 }] }],
-    ['fn_normalize_nfl_team', { rows: [] }],
-    ['FROM "players" "p"', { rows: [
+  fakePool(t, [
+    [/FROM "player_projections"/, { rows: [] }],
+    [/array_agg\("fantasy_points"\)/, { rows: [] }],
+    [/MAX\("season"\)::int/, { rows: [{ season: 2026 }] }],
+    [/MAX\("week"\)::int/, { rows: [{ week: 3 }] }],
+    [/EXTRACT\(MONTH FROM CURRENT_DATE\)/, { rows: [{ season: 2026 }] }],
+    [/fn_normalize_nfl_team/, { rows: [] }],
+    [/FROM "players" "p"/, { rows: [
       { id: 1, name: 'Sparse Player', position: 'RB', nfl_team: 'KC', season_points: '5' },
     ] }],
-    ['"week" <= $3', { rows: [] }],
+    [/"week" <= \$3/, { rows: [] }],
   ]);
   const res = await request(makeApp()).get('/api/public/rankings');
 
@@ -195,34 +179,34 @@ const DRAFT_POOL_KEYS = [
 ].sort();
 
 const draftPoolHandlers = () => [
-  ['"market_ranks" AS', { rows: [
+  [/"market_ranks" AS/, { rows: [
     { id: 1, name: 'Alpha Back', position: 'RB', nfl_team: 'KC', photo_url: 'http://x/1.png',
       injury_status: null, adp: '1.4', position_rank: 1, ...DECOYS },
     { id: 2, name: 'Bravo Wide', position: 'WR', nfl_team: 'BUF', photo_url: null,
       injury_status: 'Q', adp: '8.2', position_rank: 2, ...DECOYS },
   ] }],
-  ['"idp_ranks" AS', { rows: [
+  [/"idp_ranks" AS/, { rows: [
     { id: 3, name: 'Charlie Backer', position: 'LB', nfl_team: 'KC', photo_url: null,
       injury_status: null, position_rank: 1, ...DECOYS },
   ] }],
-  ['EXTRACT(MONTH FROM CURRENT_DATE)', { rows: [{ season: 2026 }] }],
-  ['FROM "player_season_stats" WHERE "player_id" = ANY', { rows: [
+  [/EXTRACT\(MONTH FROM CURRENT_DATE\)/, { rows: [{ season: 2026 }] }],
+  [/FROM "player_season_stats" WHERE "player_id" = ANY/, { rows: [
     { player_id: 1, season: 2025, games_played: 17, stats: { rushingYards: 1700 }, fantasy_points: '170', ...DECOYS },
   ] }],
-  ['fn_normalize_nfl_team', BYE_ROWS],
+  [/fn_normalize_nfl_team/, BYE_ROWS],
 ];
 
 test('GET /draft-pool publishes exactly season, includeIdp and players', async (t) => {
-  installPool(t, draftPoolHandlers());
+  fakePool(t, draftPoolHandlers());
   const res = await request(makeApp()).get('/api/public/draft-pool');
 
   assert.equal(res.status, 200, JSON.stringify(res.body));
   assert.deepEqual(keys(res.body), ['includeIdp', 'players', 'season']);
-  assertNoDecoys(res.body);
+  assertWithheld(res.body);
 });
 
 test('a players[] entry publishes exactly the draft-pool allowlist, base and IDP alike', async (t) => {
-  installPool(t, draftPoolHandlers());
+  fakePool(t, draftPoolHandlers());
   const res = await request(makeApp()).get('/api/public/draft-pool?idp=1');
 
   assert.equal(res.status, 200, JSON.stringify(res.body));
@@ -233,7 +217,31 @@ test('a players[] entry publishes exactly the draft-pool allowlist, base and IDP
   // The IDP tranche carries a null ADP on purpose, and still carries the key.
   const idp = res.body.players.find((p) => p.position === 'LB');
   assert.equal(idp.adp, null);
-  assertNoDecoys(res.body);
+  assertWithheld(res.body);
+});
+
+test('a draft-pool row missing its identity columns entirely still publishes every key', async (t) => {
+  // The half the wide-row test above cannot reach. Without it, `name`,
+  // `position` and `nflTeam` are asserted against the FIXTURE's shape rather
+  // than the serializer's: a query that stopped selecting `p.name` would
+  // narrow the public contract and nothing here would fail. (It caught exactly
+  // that: those three were the raw passthroughs this audit missed on its first
+  // pass through the file.)
+  fakePool(t, [
+    [/"market_ranks" AS/, { rows: [{ id: 1, adp: '1.4', position_rank: 1 }] }],
+    [/"idp_ranks" AS/, { rows: [] }],
+    [/EXTRACT\(MONTH FROM CURRENT_DATE\)/, { rows: [{ season: 2026 }] }],
+    [/FROM "player_season_stats" WHERE "player_id" = ANY/, { rows: [] }],
+    [/fn_normalize_nfl_team/, { rows: [] }],
+  ]);
+  const res = await request(makeApp()).get('/api/public/draft-pool');
+
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(res.body.players.length, 1);
+  assert.deepEqual(keys(res.body.players[0]), DRAFT_POOL_KEYS);
+  for (const field of ['name', 'position', 'nflTeam', 'photoUrl', 'injuryStatus']) {
+    assert.equal(res.body.players[0][field], null, `${field} answers null rather than dropping out`);
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -251,20 +259,20 @@ const RECENT_GAME_KEYS = ['fantasyPoints', 'opponent', 'points', 'season', 'stat
 
 const profileHandlers = (overrides = {}) => [
   // Must precede the rollup needle: the rank window query also reads player_season_stats.
-  ['RANK() OVER', overrides.posRank || { rows: [{ rank: 3, group_size: 60, ...DECOYS }] }],
-  ['UNION SELECT DISTINCT "season"', overrides.seasons || { rows: [{ season: 2025, ...DECOYS }] }],
-  ['EXTRACT(MONTH FROM CURRENT_DATE)', { rows: [{ season: 2026 }] }],
-  ['FROM "player_season_stats"', overrides.rollup || { rows: [{
+  [/RANK\(\) OVER/, overrides.posRank || { rows: [{ rank: 3, group_size: 60, ...DECOYS }] }],
+  [/UNION SELECT DISTINCT "season"/, overrides.seasons || { rows: [{ season: 2025, ...DECOYS }] }],
+  [/EXTRACT\(MONTH FROM CURRENT_DATE\)/, { rows: [{ season: 2026 }] }],
+  [/FROM "player_season_stats"/, overrides.rollup || { rows: [{
     games_played: 17,
     stats: { rushingYards: 200, rushingTDs: 3, receptions: 40, receivingYards: 500, receivingTDs: 2 },
     ...DECOYS,
   }] }],
-  ['COUNT(*)::int AS "n"', overrides.count || { rows: [{ n: 2 }] }],
-  ['LEFT JOIN "nfl_games"', overrides.recent || { rows: [{
+  [/COUNT\(\*\)::int AS "n"/, overrides.count || { rows: [{ n: 2 }] }],
+  [/LEFT JOIN "nfl_games"/, overrides.recent || { rows: [{
     season: 2025, week: 3, fantasy_points: '20',
     stats: { rushingYards: 100, rushingTDs: 1 }, opponent: 'DEN', ...DECOYS,
   }] }],
-  ['FROM "players" WHERE "id" = $1', overrides.player || { rows: [{
+  [/FROM "players" WHERE "id" = \$1/, overrides.player || { rows: [{
     id: 1, name: 'Alpha Back', position: 'RB', nfl_team: 'KC', photo_url: 'http://x/1.png',
     jersey_number: '25', injury_status: null, injury_detail: null, news: null, adp: '12.5',
     ...DECOYS,
@@ -272,20 +280,21 @@ const profileHandlers = (overrides = {}) => [
 ];
 
 test('GET /players/:id publishes exactly the public profile allowlist', async (t) => {
-  installPool(t, profileHandlers());
+  fakePool(t, profileHandlers());
   const res = await request(makeApp()).get('/api/public/players/1');
 
   assert.equal(res.status, 200, JSON.stringify(res.body));
   assert.deepEqual(keys(res.body), PROFILE_KEYS);
-  assertNoDecoys(res.body);
+  assertWithheld(res.body);
 });
 
 test('every nested object in a public profile publishes an exact key set too', async (t) => {
-  installPool(t, profileHandlers());
+  fakePool(t, profileHandlers());
   const res = await request(makeApp()).get('/api/public/players/1');
 
   assert.equal(res.status, 200, JSON.stringify(res.body));
 
+  assert.equal(res.body.seasons.length, 2, 'the loop below has something to assert against');
   for (const season of res.body.seasons) {
     assert.deepEqual(keys(season), ['season', 'status']);
   }
@@ -305,7 +314,7 @@ test('a profile for a season with no data keeps the same key set, summary and al
   // The pending-season branch returns early through a different call to the
   // serializer, without a posRank. It must publish the same contract: a client
   // reads these fields unconditionally.
-  installPool(t, profileHandlers());
+  fakePool(t, profileHandlers());
   const res = await request(makeApp()).get('/api/public/players/1?season=2026');
 
   assert.equal(res.status, 200, JSON.stringify(res.body));
@@ -314,11 +323,11 @@ test('a profile for a season with no data keeps the same key set, summary and al
   assert.equal(res.body.posRank, null);
   assert.equal(res.body.posRankOf, null);
   assert.deepEqual(res.body.recentGames, []);
-  assertNoDecoys(res.body);
+  assertWithheld(res.body);
 });
 
 test('a profile row missing its optional columns entirely still publishes every key', async (t) => {
-  installPool(t, profileHandlers({
+  fakePool(t, profileHandlers({
     player: { rows: [{ id: 1, name: 'Sparse Player', position: 'RB', nfl_team: 'KC' }] },
   }));
   const res = await request(makeApp()).get('/api/public/players/1');
@@ -376,7 +385,7 @@ const recapRow = () => ({
 });
 
 test('GET /recaps publishes exactly a recaps list, and each entry an exact key set', async (t) => {
-  installPool(t, [['FROM "private"."game_recaps"', { rows: [recapRow()] }]]);
+  fakePool(t, [[/FROM "private"\."game_recaps"/, { rows: [recapRow()] }]]);
   const res = await request(makeApp()).get('/api/public/recaps');
 
   assert.equal(res.status, 200, JSON.stringify(res.body));
@@ -384,23 +393,23 @@ test('GET /recaps publishes exactly a recaps list, and each entry an exact key s
   assert.equal(res.body.recaps.length, 1);
   assert.deepEqual(keys(res.body.recaps[0]), RECAP_LIST_KEYS);
   assert.deepEqual(keys(res.body.recaps[0].topPerformer), TOP_PERFORMER_KEYS);
-  assertNoDecoys(res.body);
+  assertWithheld(res.body);
 });
 
 test('GET /recaps/:gameId publishes exactly the recap detail allowlist', async (t) => {
-  installPool(t, [
-    ['FROM "private"."game_recaps" WHERE "tank01_game_id" = $1', { rows: [recapRow()] }],
+  fakePool(t, [
+    [/FROM "private"\."game_recaps" WHERE "tank01_game_id" = \$1/, { rows: [recapRow()] }],
   ]);
   const res = await request(makeApp()).get('/api/public/recaps/20260112_KC@BUF');
 
   assert.equal(res.status, 200, JSON.stringify(res.body));
   assert.deepEqual(keys(res.body), RECAP_DETAIL_KEYS);
-  assertNoDecoys(res.body);
+  assertWithheld(res.body);
 });
 
 test('every nested object in a recap detail publishes an exact key set too', async (t) => {
-  installPool(t, [
-    ['FROM "private"."game_recaps" WHERE "tank01_game_id" = $1', { rows: [recapRow()] }],
+  fakePool(t, [
+    [/FROM "private"\."game_recaps" WHERE "tank01_game_id" = \$1/, { rows: [recapRow()] }],
   ]);
   const res = await request(makeApp()).get('/api/public/recaps/20260112_KC@BUF');
 
@@ -419,8 +428,8 @@ test('every nested object in a recap detail publishes an exact key set too', asy
 test('a recap whose stored document is empty still publishes the same key set', async (t) => {
   const row = recapRow();
   row.data = {};
-  installPool(t, [
-    ['FROM "private"."game_recaps" WHERE "tank01_game_id" = $1', { rows: [row] }],
+  fakePool(t, [
+    [/FROM "private"\."game_recaps" WHERE "tank01_game_id" = \$1/, { rows: [row] }],
   ]);
   const res = await request(makeApp()).get('/api/public/recaps/20260112_KC@BUF');
 
@@ -438,12 +447,12 @@ test('a recap whose stored document is empty still publishes the same key set', 
 
 test('every public refusal publishes exactly an error message and nothing else', async (t) => {
   // A 400/404/500 is a public payload too. None of them may grow a field.
-  installPool(t, [
-    ['FROM "players" WHERE "id" = $1', { rows: [] }],
-    ['RANK() OVER', { rows: [] }],
-    ['UNION SELECT DISTINCT "season"', { rows: [] }],
-    ['EXTRACT(MONTH FROM CURRENT_DATE)', { rows: [{ season: 2026 }] }],
-    ['FROM "private"."game_recaps" WHERE "tank01_game_id" = $1', { rows: [] }],
+  fakePool(t, [
+    [/FROM "players" WHERE "id" = \$1/, { rows: [] }],
+    [/RANK\(\) OVER/, { rows: [] }],
+    [/UNION SELECT DISTINCT "season"/, { rows: [] }],
+    [/EXTRACT\(MONTH FROM CURRENT_DATE\)/, { rows: [{ season: 2026 }] }],
+    [/FROM "private"\."game_recaps" WHERE "tank01_game_id" = \$1/, { rows: [] }],
   ]);
   const app = makeApp();
 

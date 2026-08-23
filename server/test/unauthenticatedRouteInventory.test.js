@@ -116,6 +116,22 @@ function classifyApp(app) {
   return found;
 }
 
+/**
+ * App-level middleware that is neither a route nor a router: `app.use(fn)` and
+ * `app.use(path, fn)`.
+ *
+ * `classifyApp` cannot see these - they have no `.route` and no `.handle.stack`
+ * - so an anonymous surface mounted that way (`app.use('/exports',
+ * express.static('server/data'))` is the shape to fear) would contribute
+ * nothing to the inventory and fail no assertion in it. They are enumerated
+ * separately and pinned by name below.
+ */
+function terminalMiddleware(app) {
+  return app._router.stack
+    .filter((layer) => !layer.route && !(layer.handle && Array.isArray(layer.handle.stack)))
+    .map((layer) => `${layer.name} ${mountPathOf(layer) || '/'}`);
+}
+
 const signatures = (app, wanted) =>
   classifyApp(app).filter((r) => r.guarded === wanted).map((r) => r.signature).sort();
 const anonymous = (app) => signatures(app, false);
@@ -256,6 +272,35 @@ test('only four routers hold an anonymous route at all', () => {
   assert.deepEqual([...mounts].sort(), ['/api/auth', '/api/draft', '/api/health', '/api/public']);
 });
 
+test('no app-level middleware serves a directory except the SPA shell', () => {
+  // `express.static` is the one middleware that turns a mount path into a
+  // readable directory, and `app.use(path, express.static(dir))` is invisible
+  // to the route classifier above: no `.route`, no nested stack. So it is
+  // asserted directly, wherever it is mounted.
+  const { app } = require('../server');
+  const staticMounts = terminalMiddleware(app).filter((row) => row.startsWith('serveStatic '));
+  assert.deepEqual(staticMounts, ['serveStatic /'], 'the only static mount is build/ at the root');
+});
+
+test('no app-level middleware is mounted at a path without a decision here', () => {
+  // Everything `app.use(path, fn)` installs, other than the routers. Each is a
+  // cross-cutting concern with no payload of its own; the list is pinned so
+  // that mounting a NEW responder at a path is a failure naming the path,
+  // rather than a surface the route classifier structurally cannot see.
+  // Root-mounted middleware (cors, helmet, compression, the body parsers, the
+  // error handlers) is excluded: it cannot expose a path on its own.
+  const { app } = require('../server');
+  const mounted = terminalMiddleware(app).filter((row) => !row.endsWith(' /'));
+  assert.deepEqual(mounted, [
+    '<anonymous> /api',                       // Cache-Control: private, no-store
+    'rateLimitMiddleware /api',               // generalApiLimiter
+    'rateLimitMiddleware /api/auth/login/?(?=/|$)|^/api/auth/register/?(?=/|$)|^/api/auth/forgot-password',
+    'rateLimitMiddleware /api/auth/refresh',  // refreshLimiter
+    '<anonymous> /api/public',                // the public CDN Cache-Control
+    '<anonymous> /api',                       // the API 404
+  ]);
+});
+
 test('the only anonymous non-API route is the static SPA shell', () => {
   // `app.get(/^(?!\/api\/).*/)` serves build/index.html and touches no
   // database. It is in the anonymous column and belongs there; it is named
@@ -311,18 +356,49 @@ test('no router binds the name requireAuth to anything but the real guard', () =
   // helper that happened to be called `requireAuth` could launder a route
   // into the guarded column. No router may declare one: the name is imported
   // from modules/auth or it is not used at all.
-  const routesDir = path.join(__dirname, '..', 'routes');
+  // Scanned over the WHOLE server tree, not just server/routes, and recursively:
+  // a router can live anywhere, and a guard named `requireAuth` defined
+  // anywhere would be enough to launder one. Tests are excluded - they define
+  // stand-ins on purpose, including in this file.
+  const serverDir = path.join(__dirname, '..');
   const declaresOwn = [];
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (['node_modules', 'test', 'data', 'migrations'].includes(entry.name)) continue;
+        walk(full);
+        continue;
+      }
+      if (!entry.name.endsWith('.js')) continue;
+      const source = fs.readFileSync(full, 'utf8');
+      // `const { requireAuth } = ...` is a destructure, not a fresh binding of
+      // the name, so this catches only a locally DEFINED one.
+      if (/\b(?:function|const|let|var|class)\s+requireAuth\b/.test(source)) {
+        declaresOwn.push(path.relative(serverDir, full).replace(/\\/g, '/'));
+      }
+    }
+  };
+  walk(serverDir);
+
+  // modules/auth.js is where it is supposed to be defined, and the only place.
+  assert.deepEqual(declaresOwn, ['modules/auth.js']);
+
+  // And every router takes it from there, however it imports it - a namespace
+  // import (`const auth = require('./elsewhere'); router.use(auth.requireAuth)`)
+  // would bind the name without destructuring, so the check is on the member
+  // access as well as on the destructure.
+  const routesDir = path.join(serverDir, 'routes');
   const importsElsewhere = [];
   for (const file of fs.readdirSync(routesDir).filter((n) => n.endsWith('.js'))) {
     const source = fs.readFileSync(path.join(routesDir, file), 'utf8');
-    // `const { requireAuth } = ...` is a destructure, not a declaration of the
-    // name as a fresh binding, so this catches only a locally defined one.
-    if (/\b(?:function|const|let|var|class)\s+requireAuth\b/.test(source)) declaresOwn.push(file);
     for (const match of source.matchAll(/\{[^{}]*\brequireAuth\b[^{}]*\}\s*=\s*require\(([^)]*)\)/g)) {
-      if (!/['"]\.\.\/modules\/auth['"]/.test(match[1])) importsElsewhere.push(file);
+      if (!/['"]\.\.\/modules\/auth['"]/.test(match[1])) importsElsewhere.push(`${file} (destructured)`);
+    }
+    for (const match of source.matchAll(/\b(\w+)\.requireAuth\b/g)) {
+      const binding = new RegExp(`\\b(?:const|let|var)\\s+${match[1]}\\s*=\\s*require\\(['"]\\.\\./modules/auth['"]\\)`);
+      if (!binding.test(source)) importsElsewhere.push(`${file} (${match[1]}.requireAuth)`);
     }
   }
-  assert.deepEqual(declaresOwn, [], 'no router defines its own requireAuth');
   assert.deepEqual(importsElsewhere, [], 'every requireAuth comes from modules/auth');
 });
