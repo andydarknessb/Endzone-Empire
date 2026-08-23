@@ -25,7 +25,7 @@ const league = (overrides = {}) => ({
   id: 1,
   name: 'Sunday Ballers',
   draft_status: 'pending',
-  owner_id: 1,
+  is_owner: true,
   my_team_name: "alice's Team",
   ...overrides,
 });
@@ -80,7 +80,7 @@ test('shows an error alert when fetching leagues fails', async () => {
 
 test('the Delete action only appears for leagues the user owns', async () => {
   apiClient.get.mockResolvedValue({
-    data: [league({ id: 1, name: 'Mine', owner_id: 1 }), league({ id: 2, name: 'Not Mine', owner_id: 99 })],
+    data: [league({ id: 1, name: 'Mine' }), league({ id: 2, name: 'Not Mine', is_owner: false })],
   });
 
   renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
@@ -293,7 +293,7 @@ test('joining a league posts the trimmed invite code', async () => {
 });
 
 test('deleting a league calls the delete endpoint and refetches', async () => {
-  apiClient.get.mockResolvedValue({ data: [league({ id: 7, owner_id: 1 })] });
+  apiClient.get.mockResolvedValue({ data: [league({ id: 7 })] });
   apiClient.delete.mockResolvedValue({});
 
   renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
@@ -308,7 +308,7 @@ test('deleting a league calls the delete endpoint and refetches', async () => {
 });
 
 test('canceling the delete confirmation dialog leaves the league intact', async () => {
-  apiClient.get.mockResolvedValue({ data: [league({ id: 7, owner_id: 1 })] });
+  apiClient.get.mockResolvedValue({ data: [league({ id: 7 })] });
 
   renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
   await screen.findByText('Sunday Ballers');
