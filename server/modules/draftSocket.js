@@ -10,6 +10,7 @@ const {
   withTeamIdentity,
   lookupTeam,
 } = require('../services/teamIdentity');
+const { isLeagueCommissioner } = require('../services/leagueRole.service');
 const { getCorsOptions } = require('./clientOrigins');
 const { createAdapter } = require('@socket.io/redis-adapter');
 const { createRedisSubscriber, getRedisClient } = require('./redis');
@@ -43,12 +44,12 @@ function attachDraftSocket(httpServer) {
         return ack && ack({ error: 'leagueId (integer) required' });
       }
       try {
-        const viewerTeam = await lookupTeam(pool, { leagueId, userId: socket.user.id });
-        if (!viewerTeam) {
+        const viewer = await viewerContext(pool, { leagueId, userId: socket.user.id });
+        if (!viewer) {
           return ack && ack({ error: 'you are not in this league' });
         }
         socket.join(`league:${leagueId}`);
-        ack && ack(joinAck(viewerTeam));
+        ack && ack(joinAck(viewer));
       } catch (error) {
         console.error('league:join failed', error);
         ack && ack({ error: 'failed to join league room' });
@@ -60,19 +61,21 @@ function attachDraftSocket(httpServer) {
         return ack && ack({ error: 'leagueId (integer) required' });
       }
       try {
-        // The viewer's team IS their membership (ADR 0002), so one read
-        // answers both "may they join the room" and "which Team are they".
-        const viewerTeam = await lookupTeam(pool, { leagueId, userId: socket.user.id });
-        if (!viewerTeam) {
+        // The viewer's team IS their membership (ADR 0002), so the team read
+        // inside this one is also the "may they join the room" answer: no
+        // team, no context, no join.
+        const viewer = await viewerContext(pool, { leagueId, userId: socket.user.id });
+        if (!viewer) {
           return ack && ack({ error: 'you are not in this league' });
         }
         socket.join(`league:${leagueId}`);
         const state = await getDraftState(leagueId);
         // Acknowledge before the first snapshot, so a client knows which Team
-        // is its own before it has any Team identity to compare against.
-        ack && ack(joinAck(viewerTeam));
+        // is its own, and whether it may act as commissioner, before it has
+        // any Team identity or draft state to apply either answer to.
+        ack && ack(joinAck(viewer));
         socket.emit('draft:state', state);
-        socket.to(`league:${leagueId}`).emit('draft:presence', presencePayload(socket.user, viewerTeam));
+        socket.to(`league:${leagueId}`).emit('draft:presence', presencePayload(socket.user, viewer.viewerTeam));
       } catch (error) {
         console.error('draft:join failed', error);
         ack && ack({ error: 'failed to join draft room' });
@@ -171,12 +174,43 @@ async function closeDraftSocket(io) {
  * `viewerTeamId` and compares it against the `teamId` on everything that
  * follows.
  *
+ * `isCommissioner` is here for the same reason and no other: it is a fact
+ * about the one manager this ack is answered to (#178). Both fields travel
+ * together so a viewer-relative field never has to be invented anywhere
+ * else in this room.
+ *
  * Both joins answer it, because both rooms have a viewer: the chat panel
  * joins with `league:join` and never reads league detail, so this ack is its
  * only route to knowing which Team is its own.
  */
-function joinAck(viewerTeam) {
-  return { ok: true, viewerTeamId: teamIdentityOf(viewerTeam).teamId };
+function joinAck({ viewerTeam, isCommissioner }) {
+  return {
+    ok: true,
+    viewerTeamId: teamIdentityOf(viewerTeam).teamId,
+    isCommissioner: !!isCommissioner,
+  };
+}
+
+/**
+ * Everything the ack above needs to say about ONE viewer of one league, or
+ * null when they hold no Team in it. Membership IS the Team (ADR 0002), so
+ * the null is also the join handlers' "you are not in this league" answer
+ * and a non-member is never asked the role question at all.
+ *
+ * `isCommissioner` is decided here, on the server, through the same
+ * `isLeagueCommissioner` predicate every commissioner-gated route
+ * authorizes with, so the owner and a `league_commissioners` row answer
+ * alike (#178). The Draft room used to derive it from the snapshot's
+ * `league` row with an `owner_id` comparison as a fallback; that row is a
+ * bare `SELECT *` on `leagues` and carries no per-viewer field, so a
+ * co-commissioner silently got no controls. It cannot be computed on the
+ * client from anything the room holds, and it cannot ride on `draft:state`,
+ * so it rides here.
+ */
+async function viewerContext(db, { leagueId, userId } = {}) {
+  const viewerTeam = await lookupTeam(db, { leagueId, userId });
+  if (!viewerTeam) return null;
+  return { viewerTeam, isCommissioner: await isLeagueCommissioner(db, leagueId, userId) };
 }
 
 /** The `draft:presence` payload: who joined the room, by Team and by account. */
@@ -233,6 +267,7 @@ module.exports = {
   attachDraftSocket,
   closeDraftSocket,
   getDraftState,
+  viewerContext,
   joinAck,
   presencePayload,
   chatMessagePayload,

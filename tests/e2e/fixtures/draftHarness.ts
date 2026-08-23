@@ -62,6 +62,14 @@ export type DraftSocketState = {
    * every recipient (#113, contract #112).
    */
   viewerTeamId?: number | null;
+  /**
+   * Whether the server has told this viewer they may act as commissioner of
+   * this league (#178). Defaults to false, the answer for an ordinary
+   * manager. It rides on the ack for the same reason `viewerTeamId` does,
+   * and the Draft room reads nothing else to decide it: not the snapshot's
+   * `owner_id`, not the signed-in account.
+   */
+  isCommissioner?: boolean;
 };
 
 /**
@@ -77,7 +85,7 @@ export type DraftSocketState = {
  * not the live-pick flow (#108).
  */
 export async function installDraftSocketHarness(page: Page, state: DraftSocketState) {
-  const initial: DraftSocketState = { viewerTeamId: VIEWER_TEAM_ID, ...state };
+  const initial: DraftSocketState = { viewerTeamId: VIEWER_TEAM_ID, isCommissioner: false, ...state };
   await page.addInitScript((initialState) => {
     function createFakeDraftSocket() {
       const handlers: Record<string, Array<(payload?: unknown) => void>> = {};
@@ -103,7 +111,11 @@ export async function installDraftSocketHarness(page: Page, state: DraftSocketSt
             // Team identity to compare against. The snapshot itself carries
             // no viewer-relative field, exactly as the broadcast does not.
             if (typeof ack === 'function') {
-              ack({ ok: true, viewerTeamId: initialState.viewerTeamId ?? null });
+              ack({
+                ok: true,
+                viewerTeamId: initialState.viewerTeamId ?? null,
+                isCommissioner: initialState.isCommissioner === true,
+              });
             }
             setTimeout(() => {
               fire('draft:state', {

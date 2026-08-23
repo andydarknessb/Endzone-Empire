@@ -35,7 +35,7 @@
  *    spell it that way). `teamIdentityColumns()` produces the SQL aliases so
  *    they cannot drift from the JS ones.
  *
- * 2. The viewer-relative field is always `viewerTeamId`: the Team ID of the
+ * 2. The viewer's own Team is always `viewerTeamId`: the Team ID of the
  *    signed-in manager on THIS league, so "which one of these is me" is
  *    `entry.teamId === viewerTeamId` and never needs another manager's
  *    account ID (the precedent is matchup detail and power rankings, which
@@ -48,6 +48,15 @@
  *    the whole league room and cannot be true for every recipient at once. A
  *    broadcast carries Team identity only, and the client compares it against
  *    the `viewerTeamId` it was given on the per-viewer channel.
+ *
+ *    `viewerTeamId` is no longer the only field that rule governs. The same
+ *    join acknowledgement carries `isCommissioner`, whether the viewer may
+ *    act as this league's commissioner (#178): a different fact about the
+ *    same viewer, on the same per-viewer channel, kept off `draft:state` for
+ *    the same reason. So what makes a field belong here is the CHANNEL it
+ *    can honestly travel on, not the name - `viewerTeamId` names one
+ *    concept, it does not exhaust the category. Any further per-viewer field
+ *    takes an ack or a REST response and never a broadcast.
  *
  *    Chat history is the one surface with no root to hang the field on: it
  *    is a bare JSON array. Its viewer gets `viewerTeamId` from the join
