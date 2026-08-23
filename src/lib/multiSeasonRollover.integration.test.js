@@ -206,6 +206,17 @@ describe('multi-season rollover transaction', () => {
     expect(state.history.season).toBe(2025);
     expect(state.history.standings).toHaveLength(4);
     expect(state.history.rosters).toHaveLength(5);
+    // The archived roster snapshot is a persisted record, so its shape is
+    // part of the contract. `tenure_started_at` is read alongside it purely
+    // so the pruning loop below can pass each departing tenure's start to
+    // removeLineupEntries (#190), and it is stripped before this is written:
+    // a stored record quietly gaining a field is invisible until something
+    // downstream parses it strictly.
+    for (const row of state.history.rosters) {
+      expect(Object.keys(row).sort()).toEqual(
+        ['nfl_team', 'player_id', 'player_name', 'position', 'team_id']
+      );
+    }
     expect(state.history.awards).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ type: 'champion', team_id: 11 }),
