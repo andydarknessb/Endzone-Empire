@@ -896,6 +896,54 @@ test('best ball: quick-pick offers only unlocked players from the opposite manag
   expect(within(menu).queryByText(/Patrick Mahomes/)).not.toBeInTheDocument();
 });
 
+test('best ball: no advice request and no suggestions panel when the lineup resolves before the league (#167)', async () => {
+  let resolveLeague;
+  const leagueGate = new Promise((resolve) => {
+    resolveLeague = resolve;
+  });
+  apiClient.get.mockImplementation((url) => {
+    if (url.startsWith('/api/team/lineup/advice')) {
+      return Promise.resolve({ data: adviceResponse() });
+    }
+    if (url.startsWith('/api/team/lineup')) {
+      // Resolves immediately, ahead of the league request below.
+      return Promise.resolve({ data: lineupResponse() });
+    }
+    if (url.startsWith('/api/team/hindsight')) {
+      return Promise.resolve({ data: hindsightSeasonResponse() });
+    }
+    if (url.startsWith('/api/league/')) {
+      // Held open until the test explicitly resolves it, so the lineup
+      // response lands first regardless of which request went out first.
+      return leagueGate.then(() => ({ data: { league: { id: 1, best_ball: true } } }));
+    }
+    return Promise.reject(new Error(`unexpected url ${url}`));
+  });
+
+  renderScreenWithToasts();
+
+  // The lineup has landed and rendered; the league request is still
+  // in flight. The advice decision must not have fired yet — it must wait
+  // to learn the real best_ball value rather than treating "not loaded" as
+  // "not best ball".
+  await screen.findByText('Patrick Mahomes');
+  expect(apiClient.get.mock.calls.some(([url]) => url.startsWith('/api/team/lineup/advice'))).toBe(
+    false
+  );
+  expect(screen.queryByTestId('lineup-advice-panel')).not.toBeInTheDocument();
+  expect(screen.queryByText(/Projected .* · Optimal/)).not.toBeInTheDocument();
+
+  // Now let the league response land.
+  resolveLeague();
+  await screen.findByTestId('best-ball-alert');
+
+  expect(apiClient.get.mock.calls.some(([url]) => url.startsWith('/api/team/lineup/advice'))).toBe(
+    false
+  );
+  expect(screen.queryByTestId('lineup-advice-panel')).not.toBeInTheDocument();
+  expect(screen.queryByText(/Projected .* · Optimal/)).not.toBeInTheDocument();
+});
+
 test('a non-best-ball league still shows the suggestions panel and no info alert', async () => {
   setupGet({ lineup: lineupResponse({ entries: flexBenchEntries }), advice: adviceResponse() });
 
