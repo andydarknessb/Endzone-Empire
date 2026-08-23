@@ -3,8 +3,8 @@ import { contrastRatio } from './contrast';
 
 // WCAG 2.1 AA thresholds: 4.5:1 for normal body text, 3:1 for large text and
 // UI component text (e.g. button labels). Each pairing below is a
-// foreground/background combination the token set puts on screen, or (for the
-// veil tokens, which have no call site today) the one the token exists for.
+// foreground/background combination the token set puts on screen, except the
+// two veil rows, whose premise is spelled out with BRIGHTEST_BACKDROP.
 const AA_TEXT = 4.5;
 const AA_LARGE = 3.0;
 
@@ -12,14 +12,26 @@ const AA_LARGE = 3.0;
 // it is laid over. `backdrop` is that solid color, and contrast.js composites
 // the pairing over it before measuring. Two backdrops are in play:
 //
-//   * `surface` for `accent-soft`, the row-hover / quick-draft tint, which is
-//     always painted on a card.
+//   * `surface` for `accent-soft`, which marks a row as yours or as next up
+//     and is always painted on a card.
 //   * BRIGHTEST_BACKDROP for `scrim` and `overlay`, dark veils laid over
 //     content this file cannot know (a photo, or whatever a modal covers).
 //     White is the worst case for the light text that sits on them; over any
-//     darker backdrop the ratio only improves. Measured there both land under
-//     4.5, so they carry the large-text threshold: `on-overlay` is heading and
-//     label text on a veil, not body copy.
+//     darker backdrop the ratio only improves.
+//
+// READ THIS BEFORE PUTTING `on-overlay` ON SCREEN. Both veil rows carry the
+// large-text threshold, and that is an ASSUMPTION, not a measurement: at
+// 4.38 (scrim) and 3.21 (overlay, light) they are under 4.5, so they hold 3:1
+// only while `on-overlay` is heading and label text rather than body copy.
+// Nothing enforces that today because nothing renders these tokens at all -
+// `--scrim`, `--on-overlay` and `--overlay` have exactly one textual reference
+// between them, UserPage.css, and that file is imported by no component
+// (UserPage.jsx loads no stylesheet). It is dead, and the premise is one
+// import line away from being false: revive it and `.container` sets
+// `color: var(--on-overlay)` on a general content container, so ordinary body
+// text inherits it and 4.38 becomes a live AA failure this suite reports as
+// green. The first real consumer of these tokens has to honour the large-text
+// assumption or raise these two rows to AA_TEXT. Tracked in #238.
 const BRIGHTEST_BACKDROP = '#ffffff';
 
 // fg / bg are token keys; backdrop is a token key or a literal color, and is
