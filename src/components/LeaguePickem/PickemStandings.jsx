@@ -16,6 +16,7 @@ import {
 } from '@mui/material';
 import TeamAvatar from '../common/TeamAvatar';
 import { usePickemStandings } from '../../hooks/usePickemStandings';
+import { teamDisplayName } from '../../lib/teamIdentity';
 
 /**
  * Season Pick'em leaderboard, computed on read by the server. Same table
@@ -24,6 +25,12 @@ import { usePickemStandings } from '../../hooks/usePickemStandings';
  * sits beside the season total. The rows come through the shared
  * usePickemStandings cache, so the dashboard and the Pick'em page one click
  * later cost the server one computation, not two.
+ *
+ * Participants are Teams here, not accounts (#114, parent #108): the table
+ * shows `teamName` and marks the viewer's own row by comparing `teamId`
+ * against the `viewerTeamId` at the root of the response. A REST response is
+ * a per-viewer channel, so that field can be trusted to be about this reader;
+ * without it nobody is marked, rather than guessing from an account.
  */
 export default function PickemStandings({ leagueId, season, week }) {
   const { data, error, refetch } = usePickemStandings(leagueId, season);
@@ -45,6 +52,7 @@ export default function PickemStandings({ leagueId, season, week }) {
   if (!data) return <Skeleton variant="rounded" height={280} />;
 
   const confidence = data.mode === 'confidence';
+  const viewerTeamId = data.viewerTeamId ?? null;
 
   return (
     <Box>
@@ -68,7 +76,7 @@ export default function PickemStandings({ leagueId, season, week }) {
               }}
             >
               <TableCell>Rank</TableCell>
-              <TableCell>Manager</TableCell>
+              <TableCell>Team</TableCell>
               {week != null && <TableCell align="right">{`Wk ${week}`}</TableCell>}
               <TableCell align="right">Points</TableCell>
               <TableCell align="right">Correct</TableCell>
@@ -77,36 +85,49 @@ export default function PickemStandings({ leagueId, season, week }) {
             </TableRow>
           </TableHead>
           <TableBody>
-            {data.standings.map((row) => (
-              <TableRow key={row.userId}>
-                <TableCell>{row.rank}</TableCell>
-                <TableCell>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <TeamAvatar
-                      name={row.teamName || row.username}
-                      avatarUrl={row.avatarUrl}
-                      avatarStaticUrl={row.avatarStaticUrl}
-                      size={28}
-                    />
-                    <Box>
-                      <Typography variant="body2">{row.teamName || row.username}</Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {row.username}
-                      </Typography>
+            {data.standings.map((row, index) => {
+              const isViewer = viewerTeamId != null && row.teamId === viewerTeamId;
+              // A row whose Team is gone has no ID to key on either, so its
+              // position stands in; the table is rebuilt whole on every load.
+              const name = teamDisplayName(row.teamName);
+              return (
+                <TableRow
+                  key={row.teamId == null ? `former-${index}` : row.teamId}
+                  data-testid={`pickem-standings-row-${row.teamId}`}
+                  data-viewer-team={isViewer || undefined}
+                  sx={{
+                    ...(isViewer && {
+                      bgcolor: 'var(--accent-soft)',
+                      borderLeft: '3px solid',
+                      borderLeftColor: 'primary.main',
+                    }),
+                  }}
+                >
+                  <TableCell>{row.rank}</TableCell>
+                  <TableCell>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <TeamAvatar
+                        name={name}
+                        avatarUrl={row.avatarUrl}
+                        avatarStaticUrl={row.avatarStaticUrl}
+                        size={28}
+                      />
+                      <Typography variant="body2">{name}</Typography>
+                      {isViewer && <Chip size="small" label="You" />}
                     </Box>
-                  </Box>
-                </TableCell>
-                {week != null && (
-                  <TableCell align="right">{(row.weekly && row.weekly[week]) || 0}</TableCell>
-                )}
-                <TableCell align="right">
-                  <Chip size="small" label={row.points} />
-                </TableCell>
-                <TableCell align="right">{row.correct}</TableCell>
-                <TableCell align="right">{row.incorrect}</TableCell>
-                <TableCell align="right">{row.pending}</TableCell>
-              </TableRow>
-            ))}
+                  </TableCell>
+                  {week != null && (
+                    <TableCell align="right">{(row.weekly && row.weekly[week]) || 0}</TableCell>
+                  )}
+                  <TableCell align="right">
+                    <Chip size="small" label={row.points} />
+                  </TableCell>
+                  <TableCell align="right">{row.correct}</TableCell>
+                  <TableCell align="right">{row.incorrect}</TableCell>
+                  <TableCell align="right">{row.pending}</TableCell>
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
       </TableContainer>

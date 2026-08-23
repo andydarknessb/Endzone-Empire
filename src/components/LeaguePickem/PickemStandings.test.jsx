@@ -11,12 +11,17 @@ jest.mock('../../api/apiClient', () => ({
 import apiClient from '../../api/apiClient';
 import { clearPickemStandingsCache } from '../../hooks/usePickemStandings';
 
+// The standings response as the server sends it: Team identity on every row,
+// `viewerTeamId` at the root because a REST response is a per-viewer channel,
+// and the account fields the expand step left in place (#112) which this
+// table must no longer read.
 const STANDINGS = {
   season: 2026,
   mode: 'confidence',
+  viewerTeamId: 92,
   standings: [
-    { userId: 2, username: 'abe', teamName: 'Anvils', points: 21, correct: 9, incorrect: 4, pending: 2, rank: 1 },
-    { userId: 9, username: 'zoe', teamName: 'Zephyrs', points: 12, correct: 6, incorrect: 7, pending: 2, rank: 2 },
+    { userId: 2, username: 'abe', teamId: 21, teamName: 'Anvils', points: 21, correct: 9, incorrect: 4, pending: 2, rank: 1 },
+    { userId: 9, username: 'zoe', teamId: 92, teamName: 'Zephyrs', points: 12, correct: 6, incorrect: 7, pending: 2, rank: 2 },
   ],
 };
 
@@ -35,6 +40,58 @@ test('renders the leaderboard in the order the server returned', async () => {
   expect(apiClient.get).toHaveBeenCalledWith('/api/pickem/league/7/standings?season=2026');
 });
 
+test('names each participant by Team and never by their account', async () => {
+  apiClient.get.mockResolvedValue({ data: STANDINGS });
+  renderWithProviders(<PickemStandings leagueId={7} season={2026} />);
+
+  const table = await screen.findByRole('table');
+  expect(within(table).getByText('Anvils')).toBeInTheDocument();
+  expect(within(table).queryByText('abe')).not.toBeInTheDocument();
+  expect(within(table).queryByText('zoe')).not.toBeInTheDocument();
+  // The column heading follows the identity it now shows.
+  expect(within(table).getByText('Team')).toBeInTheDocument();
+  expect(within(table).queryByText('Manager')).not.toBeInTheDocument();
+  // Rows are addressed by Team too, so nothing keys off the account.
+  expect(screen.getByTestId('pickem-standings-row-21')).toBeInTheDocument();
+  expect(screen.getByTestId('pickem-standings-row-92')).toBeInTheDocument();
+});
+
+test('marks the viewer\'s own row from viewerTeamId, without any account comparison', async () => {
+  apiClient.get.mockResolvedValue({ data: STANDINGS });
+  renderWithProviders(<PickemStandings leagueId={7} season={2026} />);
+
+  const table = await screen.findByRole('table');
+  const rows = within(table).getAllByRole('row').slice(1);
+  expect(rows[0]).not.toHaveAttribute('data-viewer-team');
+  expect(rows[1]).toHaveAttribute('data-viewer-team', 'true');
+  expect(within(rows[1]).getByText('You')).toBeInTheDocument();
+});
+
+test('marks nobody when the response carries no viewerTeamId', async () => {
+  const { viewerTeamId, ...withoutViewer } = STANDINGS;
+  apiClient.get.mockResolvedValue({ data: withoutViewer });
+  renderWithProviders(<PickemStandings leagueId={7} season={2026} />);
+
+  const table = await screen.findByRole('table');
+  const rows = within(table).getAllByRole('row').slice(1);
+  for (const row of rows) expect(row).not.toHaveAttribute('data-viewer-team');
+  expect(within(table).queryByText('You')).not.toBeInTheDocument();
+});
+
+test('a standings row with no Team name reads as a former manager, not as blank', async () => {
+  apiClient.get.mockResolvedValue({
+    data: {
+      ...STANDINGS,
+      standings: [{ ...STANDINGS.standings[0], teamId: null, teamName: null, username: 'abe' }],
+    },
+  });
+  renderWithProviders(<PickemStandings leagueId={7} season={2026} />);
+
+  const table = await screen.findByRole('table');
+  expect(within(table).getByText('Former manager')).toBeInTheDocument();
+  expect(within(table).queryByText('abe')).not.toBeInTheDocument();
+});
+
 test('names the scoring mode and the tie rule', async () => {
   apiClient.get.mockResolvedValue({ data: STANDINGS });
   renderWithProviders(<PickemStandings leagueId={7} />);
@@ -48,7 +105,7 @@ test('names the scoring mode and the tie rule', async () => {
 test('shows a per-week points column when the page passes the selected week', async () => {
   const withWeekly = {
     ...STANDINGS,
-    standings: STANDINGS.standings.map((row) => ({ ...row, weekly: { 3: row.userId === 2 ? 5 : 8 } })),
+    standings: STANDINGS.standings.map((row) => ({ ...row, weekly: { 3: row.teamId === 21 ? 5 : 8 } })),
   };
   apiClient.get.mockResolvedValue({ data: withWeekly });
   renderWithProviders(<PickemStandings leagueId={7} season={2026} week={3} />);
