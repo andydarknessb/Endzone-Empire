@@ -80,9 +80,9 @@ test('blocks a custom keeper lock in the past and allows a future one (#67, mirr
   fireEvent.change(lockField, { target: { value: local } });
   expect(screen.queryByText('Keeper lock must be in the future')).not.toBeInTheDocument();
   // saveSettings awaits onSaveLeague before its own setConfirmSettingsSave(false)
-  // lands, so the click itself needs to be inside an async act to catch that
-  // trailing state update rather than just the synchronous mock call.
-  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save keeper settings' })); });
+  // lands, so the click needs userEvent's own await (fireEvent's act wrap is
+  // synchronous and returns before that trailing update completes).
+  await userEvent.click(screen.getByRole('button', { name: 'Save keeper settings' }));
   expect(onSaveLeague).toHaveBeenCalledWith({
     keepersEnabled: true,
     keeperCount: 1,
@@ -93,9 +93,9 @@ test('blocks a custom keeper lock in the past and allows a future one (#67, mirr
 test.each(['0', '4'])('accepts keeper count boundary %s', async (value) => {
   const onSaveLeague = renderPanel();
   fireEvent.change(screen.getByLabelText('Keepers per team'), { target: { value } });
-  // See the comment above: awaiting the click catches saveSettings's trailing
-  // setConfirmSettingsSave(false) update rather than just the mock call.
-  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save keeper settings' })); });
+  // See the comment above: userEvent's own await catches saveSettings's
+  // trailing setConfirmSettingsSave(false) update.
+  await userEvent.click(screen.getByRole('button', { name: 'Save keeper settings' }));
 
   // keeperLockAt is omitted: the lock was not touched (tri-state leave-as-is).
   expect(onSaveLeague).toHaveBeenCalledWith({
@@ -122,9 +122,9 @@ test('a stored lock that has since passed does not block a count-only edit: the 
   );
   expect(screen.queryByText('Keeper lock must be in the future')).not.toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('Keepers per team'), { target: { value: '2' } });
-  // See the comment above: awaiting the click catches saveSettings's trailing
-  // setConfirmSettingsSave(false) update rather than just the mock call.
-  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save keeper settings' })); });
+  // See the comment above: userEvent's own await catches saveSettings's
+  // trailing setConfirmSettingsSave(false) update.
+  await userEvent.click(screen.getByRole('button', { name: 'Save keeper settings' }));
   expect(onSaveLeague).toHaveBeenCalledWith({
     keepersEnabled: true,
     keeperCount: 2,
