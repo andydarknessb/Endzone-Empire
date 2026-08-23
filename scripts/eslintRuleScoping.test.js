@@ -193,6 +193,19 @@ test('a deliberate violation in a server file is still reported', async () => {
 // change in service of a stylistic preference nobody here has adopted. The rule
 // is therefore scoped off for `server/**/*.js` and left ON everywhere else,
 // which the mirror assertions further down pin in place.
+//
+// WHAT #246 DELIBERATELY DID NOT FIX, so nobody reads the green below as
+// covering more than it does. `scripts/` is CommonJS too, run straight by
+// node, and it has the identical defect: `npx eslint scripts` reports 64
+// `strict` warnings, every one of them "fixable" by the same directive strip
+// -- including in THIS file. The override is keyed on `server/**/*.js`
+// because #246's acceptance is `npx eslint src server`, and `scripts/` sits
+// outside that surface (it also carries 28 pre-existing errors, which is why
+// it sits outside). So the footgun is still armed over there: `npx eslint
+// scripts --fix` still performs the wrong repair. Widening this glob is a
+// one-line follow-up that costs the `src server` check nothing. It was left
+// out to hold #246 to its stated scope, NOT because that tree does not need
+// it.
 // ---------------------------------------------------------------------------
 
 test('the representative server file still carries the directive #246 is about', () => {
@@ -254,6 +267,13 @@ test('client files are still parsed as ES modules', async () => {
   assert.equal(config.parserOptions.sourceType, 'module');
 });
 
+// The `.js` extension here is load bearing, and is the one detail in this file
+// that is not self-evident. The over-broad override this test exists to catch
+// would be written `**/*.js`, so the fixture has to be a `.js` path to fall
+// inside it; the other mirror assertions all point at `App.jsx`, which such an
+// override would miss, and the failure would go unreported. The path itself is
+// deliberately not a real file -- calculateConfigForFile and lintText both
+// resolve by path SHAPE, never touching the disk.
 test("a deliberate 'use strict' in a client file is still reported", async () => {
   const [result] = await eslint.lintText("'use strict';\n\nexport const ok = true;\n", {
     filePath: path.join(REPO_ROOT, 'src', 'lib', 'eslintScopingFixture.js'),

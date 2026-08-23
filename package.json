@@ -127,6 +127,9 @@
         "files": [
           "server/**/*.js"
         ],
+        "env": {
+          "node": true
+        },
         "parserOptions": {
           "sourceType": "script"
         },
