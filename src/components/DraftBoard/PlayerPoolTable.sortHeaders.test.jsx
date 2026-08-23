@@ -137,8 +137,18 @@ test('every desktop sortable header shows the label SORT_FIELDS assigns its key,
 // RIGHT_ALIGNED_SORT_KEYS in PlayerPoolTable.jsx isn't derived from
 // SORT_FIELDS, so this asserts the four current entries directly rather than
 // trying to derive the set.
+//
+// Renders with sort="name" (overriding baseProps' default 'adp') rather
+// than baseProps as-is: issue #212 gave the active header's aria-label a
+// ", sorted ascending"/"sorted descending" suffix (see the dedicated tests
+// below), so leaving ADP active here would make its accessible name no
+// longer equal this exact label:definition string - not because the
+// definition was lost, but because a second, correct fact (direction) got
+// appended to it. Keeping none of these four active isolates this test back
+// to its original #211 question - does the definition reach the name at
+// all - independent of #212's direction suffix, which has its own tests.
 test('every numeric desktop sort header keeps its AbbreviationTooltip accessible name', () => {
-  render(<PlayerPoolTable {...baseProps} />);
+  render(<PlayerPoolTable {...baseProps} sort="name" />);
 
   const headerRow = screen.getAllByRole('row')[0];
   ['Bye', 'ADP', 'Pos rank', '17-game pace'].forEach((term) => {
@@ -146,6 +156,36 @@ test('every numeric desktop sort header keeps its AbbreviationTooltip accessible
     expect(within(headerRow).getByRole('button', { name: expectedName })).toBeInTheDocument();
   });
 });
+
+// Code-review finding on issue #212: a numeric header's aria-label (set
+// directly on TableSortLabel so it wins over MUI Tooltip's own
+// title-derived one - see the SortableHeaderCell doc comment) fully REPLACES
+// the computed accessible name rather than merging with it, so a static
+// "label: definition" aria-label would silently swallow the sibling
+// "sorted ascending"/"sorted descending" text next to it whenever that
+// header was the active one - the exact failure mode #211 fixed for the
+// definition, reappearing here for the direction. This asserts the active
+// numeric header's accessible name carries BOTH, not just whichever one
+// last happened to win.
+test('the active numeric desktop sort header\'s accessible name includes both its AbbreviationTooltip definition and the sort direction', () => {
+  render(<PlayerPoolTable {...baseProps} sort="adp" dir="desc" />);
+
+  const headerRow = screen.getAllByRole('row')[0];
+  const expectedName = `ADP: ${STAT_DEFINITIONS.ADP}, sorted descending`;
+  expect(within(headerRow).getByRole('button', { name: expectedName })).toBeInTheDocument();
+});
+
+// Mutation check for the test above - the exact bug a code review caught in
+// this PR: temporarily reverting numericAriaLabel in SortableHeaderCell to
+// the static `${field.label}: ${definition || field.label}` (no
+// sortStatusText suffix, which is what an aria-label set directly on
+// TableSortLabel had regressed to) and re-running this file failed -
+// "Unable to find an accessible element with the role 'button' and name
+// 'ADP: Average draft position: the typical pick where this player is
+// selected., sorted descending'" - because the active ADP header's
+// accessible name was back to just the static definition, silently
+// dropping the direction. Restoring the suffix returned the suite to
+// green.
 
 // The other direction of the same #211 drift: a key added to
 // RIGHT_ALIGNED_SORT_KEYS that ISN'T a SORT_FIELDS key. Nothing renders

@@ -147,23 +147,55 @@ function rowStateFor(player, { draftedIds, canManualPickBase, tablePickUnavailab
  * #212): AbbreviationTooltip's definition span carries its own tabIndex=0,
  * and nesting it inside TableSortLabel's already-focusable button gave every
  * numeric header two Tab stops instead of one. Wrapping the WHOLE
- * TableSortLabel in a Tooltip and putting the label:definition string on its
- * own aria-label keeps the tooltip reachable from that single focusable
- * control instead of dropping it from the tab order - the same trap #211 was
- * about, just moved rather than fixed.
+ * TableSortLabel in a Tooltip keeps the tooltip reachable from that single
+ * focusable control instead of dropping it from the tab order - the same
+ * trap #211 was about, just moved rather than fixed.
+ *
+ * numericAriaLabel is passed to TableSortLabel itself, NOT left to
+ * name-from-content, and NOT left to MUI's Tooltip to fill in on its own -
+ * two code-review findings on this issue, both about where an aria-label
+ * ends up winning:
+ *
+ * 1. Wrapping TableSortLabel in <Tooltip title={definition}> without an
+ *    explicit aria-label on TableSortLabel does NOT fall back to computing
+ *    the name from content. MUI's Tooltip (describeChild default: false)
+ *    itself injects `aria-label: title` onto whatever it clones, UNLESS
+ *    the child already carries its own aria-label prop (children.props is
+ *    spread after Tooltip's own props, so an explicit one wins) - so
+ *    omitting it here doesn't restore content-based naming, it just hands
+ *    the override to Tooltip's own auto-injected (and prefix-less) one
+ *    instead of this component's.
+ * 2. Whichever aria-label wins completely replaces the computed name -
+ *    content is never consulted once aria-label is present - so a STATIC
+ *    aria-label (just "label: definition", independent of active/direction)
+ *    silently discards the sibling "sorted ascending"/"sorted descending"
+ *    text below for exactly these four headers. That's the same kind of
+ *    silent loss #211 was about, moved from the definition onto the
+ *    direction announcement. numericAriaLabel is built to include the
+ *    direction phrase whenever this header is active, so there is nothing
+ *    left for it to silently discard.
+ *
+ * The hidden direction Box still renders unconditionally by `active` (not
+ * gated on `alignRight`) so its DOM presence stays a single, uniform rule
+ * across every header - for Name/NFL Team (no aria-label anywhere in their
+ * header) it's what makes the direction reach the name via ordinary
+ * name-from-content; for the numeric headers it's redundant with
+ * numericAriaLabel already saying so, not a second, divergent source of
+ * truth for whether the direction is announced.
  *
  * The active column also carries aria-sort - TableCell's sortDirection prop
  * (MUI renders aria-sort="ascending"/"descending" when it's 'asc'/'desc' and
  * omits the attribute entirely, rather than writing aria-sort="none", when
- * it's false) - and visually-hidden "sorted ascending"/"sorted descending"
- * text inside the active TableSortLabel, following the MUI table-sorting
- * example pattern (this repo's own visuallyHidden convention - see
- * Countdown.jsx and ReadinessAnnouncer.jsx). */
+ * it's false) - following the MUI table-sorting example pattern (this
+ * repo's own visuallyHidden convention - see Countdown.jsx and
+ * ReadinessAnnouncer.jsx) for the hidden text. */
 function SortableHeaderCell({ field, sort, dir, onSort }) {
   const alignRight = RIGHT_ALIGNED_SORT_KEYS.has(field.key);
   const active = sort === field.key;
   const direction = active ? dir : 'asc';
   const definition = STAT_DEFINITIONS[field.label];
+  const sortStatusText = active ? (direction === 'desc' ? 'sorted descending' : 'sorted ascending') : null;
+  const numericAriaLabel = `${field.label}: ${definition || field.label}${sortStatusText ? `, ${sortStatusText}` : ''}`;
 
   const sortLabel = (
     <TableSortLabel
@@ -171,7 +203,7 @@ function SortableHeaderCell({ field, sort, dir, onSort }) {
       direction={direction}
       onClick={() => onSort(field.key)}
       sx={MIN_TOUCH_TARGET_SX}
-      {...(alignRight ? { 'aria-label': `${field.label}: ${definition || field.label}` } : {})}
+      {...(alignRight ? { 'aria-label': numericAriaLabel } : {})}
     >
       {alignRight ? (
         <Box
@@ -183,9 +215,9 @@ function SortableHeaderCell({ field, sort, dir, onSort }) {
       ) : (
         field.label
       )}
-      {active && (
+      {sortStatusText && (
         <Box component="span" sx={visuallyHidden}>
-          {direction === 'desc' ? 'sorted descending' : 'sorted ascending'}
+          {sortStatusText}
         </Box>
       )}
     </TableSortLabel>
