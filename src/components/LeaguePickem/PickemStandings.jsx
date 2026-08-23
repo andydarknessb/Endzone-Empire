@@ -31,10 +31,10 @@ import { teamNameLabel, teamRowKey } from '../../lib/teamIdentity';
  * reads an account field, and there is deliberately no fallback to one when
  * the Team name is missing.
  *
- * The response also carries `viewerTeamId` at its root, which nothing in this
- * table reads yet. That is the expand step working as designed rather than a
- * gap: #112 landed the field ahead of any consumer, and marking the viewer's
- * own row is a new affordance rather than part of this migration.
+ * The response's root `viewerTeamId` marks the row whose `teamId` matches it
+ * as the viewer's own, the same treatment PowerRankings applies to its viewer
+ * row: `data-viewer-team`, the `accent-soft` background, and a 3px
+ * `primary.main` left border. No chip, no label, no copy change (#182).
  */
 export default function PickemStandings({ leagueId, season, week }) {
   const { data, error, refetch } = usePickemStandings(leagueId, season);
@@ -56,6 +56,7 @@ export default function PickemStandings({ leagueId, season, week }) {
   if (!data) return <Skeleton variant="rounded" height={280} />;
 
   const confidence = data.mode === 'confidence';
+  const viewerTeamId = data.viewerTeamId ?? null;
 
   return (
     <Box>
@@ -94,8 +95,20 @@ export default function PickemStandings({ leagueId, season, week }) {
               // manager's row is not `former-0` in one place and `null` in
               // the other.
               const rowKey = teamRowKey(row.teamId, index);
+              const isViewer = viewerTeamId != null && row.teamId === viewerTeamId;
               return (
-                <TableRow key={rowKey} data-testid={`pickem-standings-row-${rowKey}`}>
+                <TableRow
+                  key={rowKey}
+                  data-testid={`pickem-standings-row-${rowKey}`}
+                  data-viewer-team={isViewer || undefined}
+                  sx={{
+                    ...(isViewer && {
+                      bgcolor: 'var(--accent-soft)',
+                      borderLeft: '3px solid',
+                      borderLeftColor: 'primary.main',
+                    }),
+                  }}
+                >
                   <TableCell>{row.rank}</TableCell>
                   <TableCell>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
