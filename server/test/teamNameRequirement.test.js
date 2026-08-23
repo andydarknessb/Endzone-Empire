@@ -40,6 +40,21 @@ const TXN = [
   [/^ROLLBACK$/, () => ({ rows: [] })],
 ];
 
+// Filing a request now alerts every commissioner rather than the creator
+// alone (#188), so the approval branch reads the co-commissioner roster on its
+// way out. These leagues have none, so the owner is still the only recipient
+// and nothing else about these tests changes. Fan-out itself is covered by
+// commissionerAlertFanout.test.js.
+// Anchored to listCoCommissioners' own SELECT list, not to a bare
+// `FROM "league_commissioners"`: commissionerPredicate embeds that table in an
+// EXISTS subquery, so the loose pattern would also swallow decideJoinRequest's
+// `SELECT * FROM "leagues" ... AND (... EXISTS ...)` and answer it with no
+// league.
+const COMMISSIONER_ALERT = [
+  [/^SELECT "league_commissioners"\."user_id"/, () => ({ rows: [] })],
+  [/^INSERT INTO "notifications"/, () => ({ rows: [] })],
+];
+
 const upserted = (calls) => calls.filter((c) => /INSERT INTO "join_requests"/.test(c.text));
 const committed = (calls) => calls.some((c) => c.text === 'COMMIT');
 
@@ -51,6 +66,7 @@ const APPROVAL_LEAGUE = {
 test('joinPublicLeague (join_approval): validates and trims the Team name, then upserts a pending request', async (t) => {
   const calls = mockClient(t, [
     ...TXN,
+    ...COMMISSIONER_ALERT,
     [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [APPROVAL_LEAGUE] })],
     [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
     [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
@@ -70,6 +86,7 @@ test('joinPublicLeague (join_approval): refuses a missing, blank or whitespace-o
   for (const teamName of [undefined, null, '', '   ']) {
     const calls = mockClient(t, [
       ...TXN,
+      ...COMMISSIONER_ALERT,
       [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [APPROVAL_LEAGUE] })],
       [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
       [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
@@ -90,6 +107,7 @@ test('joinPublicLeague (join_approval): refuses a missing, blank or whitespace-o
 test('joinPublicLeague (join_approval): refuses a Team name over 120 characters, before any upsert', async (t) => {
   const calls = mockClient(t, [
     ...TXN,
+    ...COMMISSIONER_ALERT,
     [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [APPROVAL_LEAGUE] })],
     [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
     [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
@@ -112,6 +130,7 @@ for (const priorStatus of ['denied', 'cancelled']) {
     // status is one this path is meant to resurrect from.
     const calls = mockClient(t, [
       ...TXN,
+      ...COMMISSIONER_ALERT,
       [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [APPROVAL_LEAGUE] })],
       [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
       [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
@@ -133,6 +152,7 @@ test('joinPublicLeague (join_approval): a still-pending request is surfaced as-i
   const existingPending = { id: 9, league_id: 7, user_id: 5, team_name: 'Already Filed', status: 'pending' };
   mockClient(t, [
     ...TXN,
+    ...COMMISSIONER_ALERT,
     [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [APPROVAL_LEAGUE] })],
     [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
     [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
@@ -150,6 +170,7 @@ test('joinPublicLeague (join_approval): a still-pending request is surfaced as-i
 test('decideJoinRequest (approve): a nameless join request cannot slip through -- joinLeague refuses it with the same 400', async (t) => {
   mockClient(t, [
     ...TXN,
+    ...COMMISSIONER_ALERT,
     [/FROM "leagues" WHERE "id" = \$1 AND .*FOR UPDATE/, () => ({ rows: [APPROVAL_LEAGUE] })],
     [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [APPROVAL_LEAGUE] })],
     [/FROM "join_requests" JOIN "users"/, () => ({
