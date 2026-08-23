@@ -810,7 +810,7 @@ test('move up and remove reorder the queue and persist it', async () => {
   );
 });
 
-test('Randomize Draft Order shows only for the commissioner pre-draft and POSTs', async () => {
+test('Randomize Draft order shows only for the commissioner pre-draft and POSTs', async () => {
   const { unmount } = renderBoardWithToasts(1, { user: { id: 7, username: 'commish' } });
   await screen.findByText('Patrick Mahomes');
   act(() =>
@@ -820,7 +820,7 @@ test('Randomize Draft Order shows only for the commissioner pre-draft and POSTs'
     }), { onTheClock: null }))
   );
 
-  await userEvent.click(screen.getByRole('button', { name: 'Randomize Draft Order' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Randomize Draft order' }));
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/draft/league/1/order', { randomize: true })
   );
@@ -836,7 +836,7 @@ test('Randomize Draft Order shows only for the commissioner pre-draft and POSTs'
       owner_id: 7,
     }), { onTheClock: null }))
   );
-  expect(screen.queryByRole('button', { name: 'Randomize Draft Order' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Randomize Draft order' })).not.toBeInTheDocument();
 });
 
 test('Pause Draft POSTs the toggled paused flag for the commissioner during an active draft', async () => {
