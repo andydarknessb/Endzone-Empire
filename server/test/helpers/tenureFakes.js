@@ -40,6 +40,17 @@
  * unasked question with an empty set, and quietly becomes a test asserting
  * that EVERYONE is excluded - still green, still named after the thing it
  * has stopped covering.
+ *
+ * AND KNOW WHAT THE DEFAULT COSTS YOU, which is now demonstrated rather than
+ * predicted. Taking it means your suite CANNOT OBSERVE A BEHAVIOURAL CHANGE
+ * IN THE TENURE RULE: if the rule changes under you, your suite stays green
+ * while the database disagrees. That happened on #228's own branch. Every
+ * mocked removal suite here took the default and passed, and
+ * `lineupFollowsRoster.pg.test.js` - the one test in this area with no fake
+ * in it, running a real trigger that stamps `now()` - went red on exactly
+ * the rule those suites were reporting as fine. If a change to the predicate
+ * matters to your suite, the default is the wrong tool and a real Postgres
+ * may be the only honest one.
  * ─────────────────────────────────────────────────────────────────────────
  */
 
