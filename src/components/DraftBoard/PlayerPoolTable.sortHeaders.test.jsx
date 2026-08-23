@@ -1,8 +1,10 @@
 import React from 'react';
+import fs from 'fs';
+import path from 'path';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PlayerPoolTable from './PlayerPoolTable';
-import { SORT_FIELDS } from './sortFields';
+import { SORT_FIELDS, SORT_KEYS } from './sortFields';
 import { STAT_DEFINITIONS } from '../common/AbbreviationTooltip';
 
 // Parity guard for issue #163: the desktop table's TableSortLabel headers
@@ -139,4 +141,34 @@ test('every numeric desktop sort header keeps its AbbreviationTooltip accessible
     const expectedName = `${term}: ${STAT_DEFINITIONS[term]}`;
     expect(within(headerRow).getByRole('button', { name: expectedName })).toBeInTheDocument();
   });
+});
+
+// The other direction of the same #211 drift: a key added to
+// RIGHT_ALIGNED_SORT_KEYS that ISN'T a SORT_FIELDS key. Nothing renders
+// differently for a stray entry - the Set is only ever read via
+// `.has(field.key)` for keys SORT_FIELDS actually produces, so no amount of
+// rendering the table (including the test above) can catch it. This reads
+// the Set literal straight out of the source instead of exporting it -
+// #211's scope is tests and a comment only, no production change beyond the
+// comment. The extraction pulls every quoted string token out of the
+// captured region rather than splitting on commas, so it isn't thrown by
+// reordering, multiline formatting, or a trailing per-entry comment in this
+// file's own dense-comment style (e.g. `'bye_week', // Bye`) - a comma-split
+// approach would mangle a comment into the next entry and fail for reasons
+// that have nothing to do with the actual invariant.
+test('every RIGHT_ALIGNED_SORT_KEYS entry is a real SORT_FIELDS key', () => {
+  const source = fs.readFileSync(path.join(__dirname, 'PlayerPoolTable.jsx'), 'utf8');
+  const setLiteral = source.match(/RIGHT_ALIGNED_SORT_KEYS\s*=\s*new Set\(\[([\s\S]*?)\]\)/);
+  expect(setLiteral).not.toBeNull();
+
+  const stringLiteral = /'([^']*)'|"([^"]*)"/g;
+  const keys = [];
+  let match;
+  // eslint-disable-next-line no-cond-assign
+  while ((match = stringLiteral.exec(setLiteral[1])) !== null) {
+    keys.push(match[1] !== undefined ? match[1] : match[2]);
+  }
+
+  expect(keys.length).toBeGreaterThan(0);
+  keys.forEach((key) => expect(SORT_KEYS).toContain(key));
 });
