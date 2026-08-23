@@ -70,10 +70,10 @@ test('executeTrade: a full receiving team with no stash rejects at the draft ros
   assert.deepEqual(stashQueries[0][0], 41);
   assert.deepEqual(stashQueries[0][2], [21]);
   // The receiving team gets no restored credit for the incoming player: he
-  // lands on the bench, so even a stale stash of his on this team grants
-  // nothing toward the trade.
+  // lands on the bench, so nothing about his history on this team grants
+  // anything toward the trade. No restored ids means no fourth parameter.
   assert.deepEqual(stashQueries[1][0], 42);
-  assert.deepEqual(stashQueries[1][3], []);
+  assert.equal(stashQueries[1].length, 3);
   fake.assertClean();
 });
 

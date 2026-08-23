@@ -202,10 +202,14 @@ async function materializeLineup(client, { leagueId, teamId, season, week }) {
 /**
  * An acquired player never arrives in the IR slot (#94, user story 13): a
  * player gained by draft pick, waiver, trade, commissioner add or free agency
- * cannot bypass the placement gate. Lineup rows outlive a drop, so without
- * this a re-add would sit straight back in his old stash (his surviving
- * current-week row) or have it revived by `materializeLineup`'s copy-forward
- * on a later week's first touch.
+ * cannot bypass the placement gate.
+ *
+ * A lineup entry follows the roster now (#197), so an ordinary departure no
+ * longer leaves a stash behind for a re-add to sit straight back into. Two
+ * routes to an IR row still reach this function, and both need closing: a
+ * POST-KICKOFF departure keeps its current-week row deliberately, and
+ * `materializeLineup`'s copy-forward can carry an IR slot into a later week
+ * from an earlier one he was stashed in.
  *
  * Two steps, in this order. First the current week is materialized, so it is
  * a complete week (never a lone row the next copy-forward would read as its
@@ -217,8 +221,9 @@ async function materializeLineup(client, { leagueId, teamId, season, week }) {
  * history and stay as they were.
  *
  * `undoDrop` calls this only when the stash it would restore is no longer
- * valid (`undoRestoresStash`); otherwise an undo restores the stash it
- * interrupted, which is what `rosterCapacity`'s `restoredPlayerIds` credits.
+ * valid (`undoRestoresStash`); otherwise an undo replays the stash its drop
+ * interrupted, from the record on the waiver hold, which is also what
+ * `rosterCapacity`'s `restoredPlayerIds` credits.
  * Must run inside the caller's transaction, after the roster write.
  */
 async function benchAcquiredPlayer(client, { league, teamId, playerId }) {
