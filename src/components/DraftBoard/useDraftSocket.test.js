@@ -370,7 +370,7 @@ test('drops the commissioner flag when the league changes, rather than carrying 
 // evidence about this behaviour in neither direction, and its green must not
 // be mistaken for cover.
 
-test('a not_a_member refusal clears the viewer\u2019s Team and their commissioner flag', () => {
+test('a not_a_member refusal clears the viewer’s Team and their commissioner flag', () => {
   const { result } = renderHook(() => useDraftSocket(1));
 
   act(() => fakeSocket.trigger('connect'));
@@ -400,7 +400,7 @@ test('a join_failed refusal surfaces the error and leaves both values standing',
   expect(result.current.error).toBe('failed to join draft room');
 });
 
-test('a refusal carrying NO code leaves both values standing, as an older server\u2019s does', () => {
+test('a refusal carrying NO code leaves both values standing, as an older server’s does', () => {
   // A client and a server ship separately, so an ack with no code is a real
   // payload and not a hypothetical. The safe reading of it is the same as any
   // other non-membership failure: surface the error, take nothing away. This

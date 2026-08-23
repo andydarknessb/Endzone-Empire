@@ -175,20 +175,25 @@ test('a connection with a token this server did not sign is refused', async (t) 
 // Validation, before anything touches the database.
 // ---------------------------------------------------------------------------
 
+// Both joins, not just the draft one: #230 puts a code on all three refusal
+// paths of BOTH handlers, and this is the only path where nothing is read
+// before the answer, so nothing else would notice league:join losing its.
 for (const [label, leagueId] of [
   ['a string', String(LEAGUE_ID)],
   ['a fractional number', 1.5],
   ['missing', undefined],
 ]) {
-  test(`draft:join with a leagueId that is ${label} is refused as invalid`, async (t) => {
-    const fake = world(t);
-    const client = await harness.connectAs(OWNER, t);
+  for (const event of JOIN_EVENTS) {
+    test(`${event} with a leagueId that is ${label} is refused as invalid`, async (t) => {
+      const fake = world(t);
+      const client = await harness.connectAs(OWNER, t);
 
-    const ack = await harness.emit(client, 'draft:join', { leagueId });
+      const ack = await harness.emit(client, event, { leagueId });
 
-    assert.deepEqual(ack, { error: 'leagueId (integer) required', code: 'invalid_request' });
-    assert.equal(fake.calls.length, 0, 'an invalid leagueId never reaches the database');
-  });
+      assert.deepEqual(ack, { error: 'leagueId (integer) required', code: 'invalid_request' });
+      assert.equal(fake.calls.length, 0, 'an invalid leagueId never reaches the database');
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------

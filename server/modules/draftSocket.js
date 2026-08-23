@@ -25,11 +25,8 @@ const { createRedisSubscriber, getRedisClient } = require('./redis');
  *
  * A REFUSED 'league:join' or 'draft:join' acknowledges { error, code }, where
  * code is one of 'invalid_request', 'not_a_member' or 'join_failed' (#230).
- * The code is the discriminator a client branches on; the message text is
- * user-facing copy, and one of the three differs per handler, so it never was
- * safe to match on. Only 'not_a_member' says anything about the viewer's
- * standing in the league, and it is the only refusal on which a client clears
- * the viewer's Team identity and commissioner flag. See joinError below.
+ * The code is the discriminator, never the message text; joinError below says
+ * why, and which single code a client may act on.
  */
 function attachDraftSocket(httpServer) {
   const io = new Server(httpServer, {
@@ -49,24 +46,24 @@ function attachDraftSocket(httpServer) {
     // Generic league room join (live scores, chat) — no draft state attached
     socket.on('league:join', async ({ leagueId } = {}, ack) => {
       if (!Number.isInteger(leagueId)) {
-        return ack && ack(joinError('invalid_request', 'leagueId (integer) required'));
+        return ack && ack(joinError({ code: 'invalid_request', message: 'leagueId (integer) required' }));
       }
       try {
         const viewer = await viewerContext(pool, { leagueId, userId: socket.user.id });
         if (!viewer) {
-          return ack && ack(joinError('not_a_member', 'you are not in this league'));
+          return ack && ack(joinError({ code: 'not_a_member', message: 'you are not in this league' }));
         }
         socket.join(`league:${leagueId}`);
         ack && ack(joinAck(viewer));
       } catch (error) {
         console.error('league:join failed', error);
-        ack && ack(joinError('join_failed', 'failed to join league room'));
+        ack && ack(joinError({ code: 'join_failed', message: 'failed to join league room' }));
       }
     });
 
     socket.on('draft:join', async ({ leagueId } = {}, ack) => {
       if (!Number.isInteger(leagueId)) {
-        return ack && ack(joinError('invalid_request', 'leagueId (integer) required'));
+        return ack && ack(joinError({ code: 'invalid_request', message: 'leagueId (integer) required' }));
       }
       try {
         // The viewer's team IS their membership (ADR 0002), so the team read
@@ -74,7 +71,7 @@ function attachDraftSocket(httpServer) {
         // team, no context, no join.
         const viewer = await viewerContext(pool, { leagueId, userId: socket.user.id });
         if (!viewer) {
-          return ack && ack(joinError('not_a_member', 'you are not in this league'));
+          return ack && ack(joinError({ code: 'not_a_member', message: 'you are not in this league' }));
         }
         socket.join(`league:${leagueId}`);
         const state = await getDraftState(leagueId);
@@ -86,7 +83,7 @@ function attachDraftSocket(httpServer) {
         socket.to(`league:${leagueId}`).emit('draft:presence', presencePayload(socket.user, viewer.viewerTeam));
       } catch (error) {
         console.error('draft:join failed', error);
-        ack && ack(joinError('join_failed', 'failed to join draft room'));
+        ack && ack(joinError({ code: 'join_failed', message: 'failed to join draft room' }));
       }
     });
 
@@ -222,7 +219,7 @@ function joinAck({ viewerTeam, isCommissioner }) {
  * strip a manager's own controls off the screen on a reconnect blip, which is
  * worse than a stale display: it is a wrong answer that arrives repeatedly.
  */
-function joinError(code, message) {
+function joinError({ code, message }) {
   return { error: message, code };
 }
 

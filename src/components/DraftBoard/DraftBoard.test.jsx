@@ -1114,7 +1114,7 @@ test('an ordinary manager gets no commissioner controls', async () => {
   expect(screen.queryByRole('button', { name: 'Randomize Draft order' })).not.toBeInTheDocument();
 });
 
-test('a not_a_member refusal takes the commissioner controls and the viewer\u2019s own picks off the room', async () => {
+test('a not_a_member refusal takes the commissioner controls and the viewer’s own picks off the room', async () => {
   // #230. A viewer removed from the league while sitting in the draft room
   // learns of it on the re-join every reconnect makes, and this room is the
   // only thing that knows: it holds both viewer-relative values and nothing
@@ -1135,15 +1135,20 @@ test('a not_a_member refusal takes the commissioner controls and the viewer\u201
     onTheClock: TEAM_A,
   })));
   expect(screen.getByRole('button', { name: 'Pause Draft' })).toBeInTheDocument();
+  // Two attributions, and they are not the same claim: a TAKEN pick sitting in
+  // this viewer’s roster, and the UPCOMING picks offered as theirs. Both read
+  // off viewerTeamId, so both have to go together - asserting only the upcoming
+  // group would leave the drafted player still shown as this manager’s.
+  expect(within(screen.getByLabelText('My Roster')).getByText('Bijan Robinson')).toBeInTheDocument();
   expect(within(screen.getByRole('region', { name: 'Upcoming' }))
     .getByRole('group', { name: 'My picks' })).toBeInTheDocument();
 
   refuseJoin('you are not in this league', 'not_a_member');
 
   expect(screen.queryByRole('button', { name: 'Pause Draft' })).not.toBeInTheDocument();
-  // No pick, upcoming or taken, is the former manager’s any more. The panel
-  // still stands on its league-wide strip; only the viewer-relative group is
-  // gone, exactly as it is for a spectator who never held a Team here.
+  expect(screen.queryByLabelText('My Roster')).not.toBeInTheDocument();
+  // The panel still stands on its league-wide strip; only the viewer-relative
+  // group is gone, exactly as it is for a spectator who never held a Team here.
   const upcoming = screen.getByRole('region', { name: 'Upcoming' });
   expect(within(upcoming).queryByRole('group', { name: 'My picks' })).not.toBeInTheDocument();
   expect(within(upcoming).getByRole('button', { name: 'Full Draft order' })).toBeInTheDocument();
@@ -1166,6 +1171,7 @@ test('a transient refusal leaves the commissioner controls exactly where they we
   refuseJoin('failed to join draft room', 'join_failed');
 
   expect(screen.getByRole('button', { name: 'Pause Draft' })).toBeInTheDocument();
+  expect(within(screen.getByLabelText('My Roster')).getByText('Bijan Robinson')).toBeInTheDocument();
   expect(within(screen.getByRole('region', { name: 'Upcoming' }))
     .getByRole('group', { name: 'My picks' })).toBeInTheDocument();
 });

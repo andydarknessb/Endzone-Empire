@@ -140,13 +140,9 @@ function reducer(state, action) {
  * first, the load-bearing part: a dropped socket mid-draft must not quietly
  * take a commissioner's controls away.
  *
- * A REFUSED join is read the same way, off its `code` and never its message
- * (#230). Only `not_a_member` is a statement about this viewer's standing in
- * the league, so it alone clears both values; every other refusal - and an
- * ack with no code, which is what a server older than #230 answers - says
- * the attempt failed, not that the viewer lost anything, and leaves them
- * standing. The same re-join that must not silently take a commissioner's
- * controls away must not flicker them away either.
+ * A REFUSED join is read the same way, off its `code` and never its message:
+ * only `not_a_member` clears these two, and every other refusal leaves them
+ * standing (#230, and the join handler below for why).
  */
 export default function useDraftSocket(leagueId, { onPickLanded } = {}) {
   const [state, dispatch] = useReducer(reducer, initialState);
