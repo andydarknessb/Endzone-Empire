@@ -18,6 +18,78 @@ function intOrNull(value) {
   return /^\d+$/.test(String(value)) ? Number(value) : null;
 }
 
+/**
+ * The public presenter board's payload contract (#173).
+ *
+ * These lists are an ALLOWLIST, and that direction is the point. The snapshot
+ * they project from is `SELECT * FROM "leagues"` joined to the manager
+ * accounts behind each team, so under the previous "take everything, delete
+ * the fields we thought of" shape, publication was the DEFAULT: every column
+ * added to `leagues` reached anonymous viewers the day it landed, and nothing
+ * failed. Here, a field is published only because it is named below, and
+ * `server/test/draftPresenterBoard.test.js` pins the exact key set of each
+ * object so a new column fails loudly instead of shipping silently.
+ *
+ * Adding a name to one of these lists is a deliberate act of publication to
+ * anyone holding a league's share link. Account identity never qualifies:
+ * teams and the clock are identified by Team identity only (`teamId` /
+ * `teamName`, #112), per CONTEXT.md's Team identity rule.
+ *
+ * This is the same guarantee publicRead.service.js's rule 2 gives the rest of
+ * the anonymous surface ("every value returned to the client passes through
+ * an explicit serializer that names each field"), reached a different way.
+ * That module cannot serve this route: its rule 1 forbids it from touching a
+ * league-scoped table, and the presenter board is nothing but league-scoped.
+ *
+ * These lists are also, in effect, the definition of what a presenter-rendered
+ * component may read. The only consumer today is src/components/DraftPresenter
+ * /DraftPresenter.jsx, which passes the payload into DraftBoardMatrix,
+ * Countdown, lib/rosterShape draftRounds() and lib/teamIdentity. A component
+ * added to that page needs its fields added here too.
+ */
+const PUBLIC_LEAGUE_FIELDS = [
+  'name',
+  'draft_status',
+  'draft_paused',
+  'pick_deadline_at',
+  // draftRounds() on the client reads all three (ADR 0005).
+  'draft_rounds',
+  'roster_limit',
+  'ir_slots',
+];
+const PUBLIC_TEAM_FIELDS = ['teamId', 'teamName', 'draft_position'];
+const PUBLIC_PICK_FIELDS = [
+  'pick_number',
+  'teamId',
+  'teamName',
+  // No `team_id`: redundant with teamId since #113, and nothing reads it.
+  // DraftBoardMatrix, the presenter's own Recent picks list and (on the
+  // authenticated Board only) PickHistory all resolve a Pick's Team by
+  // teamId / teamName. Confirmed against #123 before it was dropped.
+  'is_keeper',
+  'player_id',
+  'name',
+  'position',
+  'nfl_team',
+];
+
+/**
+ * A new object carrying `fields` and nothing else. A field the source lacks
+ * is answered with null rather than omitted, so the key set is a property of
+ * the list above and not of whatever the row happened to hold, and a consumer
+ * can read every field unconditionally (the same rule teamIdentityOf() states
+ * for Team identity). A null source stays null: an absent object is absent,
+ * not an object of nulls.
+ */
+function allowlisted(source, fields) {
+  if (!source) return null;
+  const published = {};
+  for (const field of fields) {
+    published[field] = field in source && source[field] !== undefined ? source[field] : null;
+  }
+  return published;
+}
+
 // GET /api/draft/board/:token — PUBLIC presenter-mode board (no auth). Must
 // stay registered before router.use(requireAuth) below.
 router.get('/board/:token', async (req, res) => {
@@ -34,18 +106,15 @@ router.get('/board/:token', async (req, res) => {
     if (!league) return res.status(404).json({ error: 'invalid presenter link' });
     const state = await getDraftState(league.id);
     if (!state) return res.status(404).json({ error: 'invalid presenter link' });
-    // Anonymous viewers only get what's already visible on the draft board —
-    // strip anything that identifies a real account.
-    delete state.league.owner_id;
-    delete state.league.invite_code;
-    // The `owner` key is the manager account USERNAME (getDraftState selects
-    // it as "users"."username" AS "owner"), so it is stripped with owner_id.
-    state.teams = state.teams.map(({ owner_id, owner, ...team }) => team);
-    if (state.onTheClock) {
-      const { owner_id, owner, ...clock } = state.onTheClock;
-      state.onTheClock = clock;
-    }
-    res.json(state);
+    // Anonymous viewers get the allowlist above and nothing else, including
+    // nothing the snapshot grows later. Built as a fresh object rather than
+    // by mutating `state`, so a field can only appear here by being named.
+    res.json({
+      league: allowlisted(state.league, PUBLIC_LEAGUE_FIELDS),
+      teams: state.teams.map((team) => allowlisted(team, PUBLIC_TEAM_FIELDS)),
+      picks: state.picks.map((pick) => allowlisted(pick, PUBLIC_PICK_FIELDS)),
+      onTheClock: allowlisted(state.onTheClock, PUBLIC_TEAM_FIELDS),
+    });
   } catch (error) {
     console.error('Error fetching presenter board', error);
     res.status(500).json({ error: 'failed to fetch draft board' });
