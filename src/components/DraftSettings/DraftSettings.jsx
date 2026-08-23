@@ -32,7 +32,7 @@ export default function DraftSettings() {
   const notify = useSnackbar();
   // teams is the other half of the /api/league/:id payload, so it arrives with
   // the league row rather than from a second request of the same endpoint.
-  const { league, teams, loading, error, refetch, updateLeague } = useLeague(leagueId);
+  const { league, teams, viewerTeamId, loading, error, refetch, updateLeague } = useLeague(leagueId);
   const [keepers, setKeepers] = useState([]);
   const [keeperCandidates, setKeeperCandidates] = useState([]);
   const [keeperDataRequested, setKeeperDataRequested] = useState(false);
@@ -190,7 +190,10 @@ export default function DraftSettings() {
   if (loading && !league) return <Container maxWidth="lg" sx={{ py: 4 }}><Skeleton height={50} /><Skeleton variant="rounded" height={420} /></Container>;
   if (error && !league) return <Container maxWidth="lg" sx={{ py: 4 }}><Alert severity="error" action={<Button color="inherit" size="small" onClick={refetch}>Retry league settings</Button>}>Unable to load league settings: {error}</Alert></Container>;
   if (!league) return null;
-  if (user?.id && !league.is_commissioner && user.id !== league.owner_id) return <Navigate to={`/league/${leagueId}`} replace />;
+  // The same route guard as before, asked through the viewer-relative contract
+  // (#113): the league names its creator's Team and the response root names
+  // the reader's own, so no account id passes through the client.
+  if (user?.id && !league.is_commissioner && !(viewerTeamId != null && league.ownerTeamId === viewerTeamId)) return <Navigate to={`/league/${leagueId}`} replace />;
   const frozen = league.draft_status !== 'pending';
   const common = { league, frozen, onSave: saveLeague, saving, onDirtyChange: setPanelDirty };
   // No teams guard below: teams ride on the league payload, so wherever league

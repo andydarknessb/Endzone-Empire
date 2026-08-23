@@ -155,17 +155,47 @@ describe('LeagueRules', () => {
     expect(screen.getByRole('tab', { name: 'Scoring' })).toHaveAttribute('aria-selected', 'true');
   });
 
-  it('names the commissioner and co-commissioners for every member', async () => {
+  it('names the commissioner and co-commissioners by Team for every member', async () => {
     mockRequests({
       leagueRow: league({
         owner_username: 'alice',
-        co_commissioners: [{ user_id: 9, username: 'bob' }],
+        ownerTeamId: 1,
+        ownerTeamName: 'Ridge Runners',
+        co_commissioners: [{ user_id: 9, username: 'bob', teamId: 2, teamName: 'Harbor Hawks' }],
       }),
     });
     renderPage();
 
-    expect(await screen.findByText('alice · commissioner')).toBeInTheDocument();
-    expect(screen.getByText('bob · co-commissioner')).toBeInTheDocument();
+    // This page is read by every member, so the officials it names are named
+    // by Team; their usernames used to be the label (#113 criterion 4).
+    expect(await screen.findByText('Ridge Runners · commissioner')).toBeInTheDocument();
+    expect(screen.getByText('Harbor Hawks · co-commissioner')).toBeInTheDocument();
+    expect(screen.queryByText(/alice/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/bob/)).not.toBeInTheDocument();
+  });
+
+  it('names a co-commissioner who has left the league as a former manager', async () => {
+    // The grant outlives the team: #112 joins LEFT so revoking it stays
+    // possible, and the entry reads back with null Team identity.
+    mockRequests({
+      leagueRow: league({
+        owner_username: 'alice',
+        ownerTeamId: 1,
+        ownerTeamName: 'Ridge Runners',
+        co_commissioners: [{ user_id: 9, username: 'bob', teamId: null, teamName: null }],
+      }),
+    });
+    renderPage();
+
+    expect(await screen.findByText('Former manager · co-commissioner')).toBeInTheDocument();
+  });
+
+  it('says nothing at all rather than a bare label when no official has a Team', async () => {
+    mockRequests({ leagueRow: league({ ownerTeamName: null, co_commissioners: [] }) });
+    renderPage();
+
+    await screen.findByRole('region', { name: 'Passing' });
+    expect(screen.queryByText('Who can change these:')).not.toBeInTheDocument();
   });
 
   it('offers a retry when the league request fails', async () => {

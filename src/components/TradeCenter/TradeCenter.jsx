@@ -224,7 +224,7 @@ function TradeCenter() {
   const [trades, setTrades] = useState(null);
   const [myTeamId, setMyTeamId] = useState(null);
   const [rosters, setRosters] = useState([]);
-  const { league, loading: leagueLoading, error: leagueError } = useLeague(leagueId);
+  const { league, viewerTeamId, loading: leagueLoading, error: leagueError } = useLeague(leagueId);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -398,7 +398,10 @@ function TradeCenter() {
   const myRoster = rosters.find((r) => r.teamId === myTeamId);
   const otherTeams = rosters.filter((r) => r.teamId !== myTeamId);
   const theirRoster = rosters.find((r) => r.teamId === selectedTeamId);
-  const isCommissioner = !!(league && user && (league.is_commissioner || league.owner_id === user.id));
+  // The creator's Team against the reader's own, both from league detail
+  // (#113): the same question as before, with no account id in the client.
+  const isCommissioner = !!(league && (league.is_commissioner
+    || (viewerTeamId != null && league.ownerTeamId === viewerTeamId)));
 
   const pendingTrades = (trades || []).filter((t) => ACTIVE_STATUSES.has(t.status));
   const completedTrades = (trades || []).filter((t) => !ACTIVE_STATUSES.has(t.status));

@@ -11,10 +11,10 @@ jest.mock('../api/apiClient', () => ({
 // Thin on purpose: the caching machinery is pinned in resourceCache.test.js
 // and useResource.test.js. What is league-specific is the key, the url, the
 // returned shape and the write-through.
-const TEAMS = [{ id: 11, user_id: 5, team_name: 'Team One' }];
+const TEAMS = [{ teamId: 11, teamName: 'Team One' }];
 
 const leagueResponse = (overrides = {}) => ({
-  data: { league: { id: 1, name: 'Sunday Ballers', ...overrides }, teams: TEAMS },
+  data: { viewerTeamId: 11, league: { id: 1, name: 'Sunday Ballers', ...overrides }, teams: TEAMS },
 });
 
 const pending = () => {
@@ -45,6 +45,24 @@ test('requests /api/league/:id and returns the row together with its teams', asy
   expect(result.current.league).toEqual({ id: 1, name: 'Sunday Ballers' });
   expect(result.current.teams).toEqual(TEAMS);
   expect(result.current.error).toBeNull();
+});
+
+test('surfaces viewerTeamId from the response root, and keeps it through a write-through', async () => {
+  apiClient.get.mockResolvedValue(leagueResponse());
+  const { result } = renderHook(() => useLeague(1));
+  await waitFor(() => expect(result.current.loading).toBe(false));
+
+  // The viewer-relative field lives at the root of the response, beside
+  // `league` and `teams`, and is how a consumer answers "which of these is
+  // me" without holding another manager's account id (#113, contract #112).
+  expect(result.current.viewerTeamId).toBe(11);
+
+  // Both write-throughs rebuild the cached value, so either could silently
+  // drop a root field that neither of them is about.
+  act(() => { result.current.updateLeague({ name: 'Renamed' }); });
+  expect(result.current.viewerTeamId).toBe(11);
+  act(() => { result.current.updateTeams((teams) => [...teams]); });
+  expect(result.current.viewerTeamId).toBe(11);
 });
 
 test('a null leagueId never requests and reads as an empty league', () => {

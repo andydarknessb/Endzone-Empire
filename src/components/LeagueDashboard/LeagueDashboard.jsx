@@ -133,6 +133,7 @@ function LeagueDashboard() {
   const {
     league,
     teams,
+    viewerTeamId,
     loading: leagueLoading,
     error: leagueError,
     refetch,
@@ -291,7 +292,14 @@ function LeagueDashboard() {
 
   // isOwner gates the two powers the owner can't delegate (deleting the league,
   // managing co-commissioners); isCommissioner gates everything else.
-  const isOwner = user.id === league.owner_id;
+  //
+  // Asked through the viewer-relative contract (#113): the league names its
+  // creator's Team, and the response root names the reader's own, so this is
+  // the same question it always was without any account id passing through the
+  // client. Membership gates this response, so a reader always holds a Team
+  // here, and a league whose creator has left it answers ownerTeamId null,
+  // which matches nobody rather than everybody.
+  const isOwner = viewerTeamId != null && league.ownerTeamId === viewerTeamId;
   const isCommissioner = !!league.is_commissioner || isOwner;
   // Below the configured minimum, the draft can't start yet (min_teams may be
   // absent in older data â€” treat that as no gate).
@@ -476,8 +484,11 @@ function LeagueDashboard() {
               }}
             >
               <TableCell>Rank</TableCell>
+              {/* Team, and no Owner column beside it: the standings are shared
+                  with the whole league, so a row identifies its participant by
+                  Team (#113, contract #112). The column that stood here
+                  printed every other manager's username. */}
               <TableCell>Team</TableCell>
-              <TableCell>Owner</TableCell>
               {/* A record like 0-0-0 breaks at every hyphen once the table is
                   squeezed on a phone: keep the header and the records on one line. */}
               <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>W-L-T</TableCell>
@@ -503,7 +514,6 @@ function LeagueDashboard() {
                       {team.name}
                     </Box>
                   </TableCell>
-                  <TableCell>{team.owner}</TableCell>
                   <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{`${team.wins}-${team.losses}-${team.ties}`}</TableCell>
                   <TableCell align="right">{team.pf}</TableCell>
                   <TableCell align="right">{team.pa}</TableCell>
