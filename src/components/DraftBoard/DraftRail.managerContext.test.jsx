@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import DraftRail from './DraftRail';
 
@@ -262,7 +262,10 @@ describe("the manager's own Pick numbers", () => {
     render(<DraftRail {...baseProps} draftStatus="active" viewerPicks={VIEWER_PICKS} />);
 
     const trigger = within(myPicks()).getByRole('button', { name: 'All 4 of my picks' });
-    trigger.focus();
+    // A raw DOM .focus() call, unlike fireEvent/userEvent, isn't wrapped in
+    // act() by RTL - it synchronously triggers MUI's own focus-visible state
+    // update on the ButtonBase underneath.
+    act(() => { trigger.focus(); });
     await user.keyboard('{Enter}');
     expect(screen.getByRole('dialog', { name: 'All my picks' })).toBeInTheDocument();
 
@@ -297,7 +300,8 @@ describe('a control that vanishes hands focus somewhere deliberate', () => {
       <DraftRail {...baseProps} draftStatus="pending" upcoming={[]} teams={lobby(5, 6)} />
     );
     const trigger = within(readinessRegion()).getByRole('button', { name: 'Not ready managers (1)' });
-    trigger.focus();
+    // See the comment above: a raw .focus() call isn't act()-wrapped by RTL.
+    act(() => { trigger.focus(); });
     expect(trigger).toHaveFocus();
 
     rerender(<DraftRail {...baseProps} draftStatus="pending" upcoming={[]} teams={lobby(6, 6)} />);
@@ -332,7 +336,8 @@ describe('a control that vanishes hands focus somewhere deliberate', () => {
       <DraftRail {...baseProps} draftStatus="pending" upcoming={[]} teams={lobby(5, 6)} />
     );
     const elsewhere = within(readinessRegion()).getByRole('checkbox', { name: 'I am ready for the draft' });
-    elsewhere.focus();
+    // See the comment above: a raw .focus() call isn't act()-wrapped by RTL.
+    act(() => { elsewhere.focus(); });
 
     rerender(<DraftRail {...baseProps} draftStatus="pending" upcoming={[]} teams={lobby(6, 6)} />);
 
