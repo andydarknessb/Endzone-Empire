@@ -478,9 +478,12 @@ _Avoid_: final score (a matchup's NFL-style total), official score
 
 **Settle pass**:
 The scoring run that produces the score of record. It counts the week's lineup
-entries as played and excludes a player whose tenure began after his game
-kicked off. Distinct from live scoring (the current roster, every few minutes)
-and from re-scoring a final week.
+entries as played and excludes a player unless one of the team's tenures covered
+his game's kickoff: began at or before it and had not ended by it. A tenure
+that began after kickoff and one that ended before it are both excluded; a
+player with no game that week is never excluded. The same predicate governs a
+re-score of a final week. Distinct from live scoring (the current roster, every
+few minutes).
 _Avoid_: final scoring, finalize (the step that follows it)
 
 **Advance week**:
