@@ -94,8 +94,22 @@ exports.up = async function (knex) {
        FROM "team_players"`
   );
 
-  // Opening a tenure. Nothing here reads a parent row, so it cannot fail on
-  // account of one being absent.
+  /*
+   * Opening a tenure. Nothing here reads a parent row, so it cannot fail on
+   * account of one being absent.
+   *
+   * ONE CALLER DEPENDS ON A DETAIL OF ITS OWN STATEMENT, from a file that
+   * never mentions tenures. `draftStart.service.js`'s keeper seeding inserts
+   * with `ON CONFLICT DO NOTHING`. On a conflict that performs NO insert, so
+   * this trigger does not fire and no second tenure opens for a player who
+   * already has one - which is exactly why the partial unique index above
+   * does not blow up on keeper seeding.
+   *
+   * Changing that statement to `ON CONFLICT ... DO UPDATE` would be silently
+   * worse rather than noisily broken: an upsert's UPDATE path fires no INSERT
+   * trigger either, so the roster row would move while its tenure stayed
+   * exactly where it was. Leave it DO NOTHING, or open the tenure explicitly.
+   */
   await knex.raw(`
     CREATE OR REPLACE FUNCTION fn_open_roster_tenure() RETURNS trigger AS $$
     BEGIN
