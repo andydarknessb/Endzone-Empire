@@ -25,6 +25,7 @@ const {
   revokeCoCommissioner,
 } = require('../services/leagueRole.service');
 const { isMember, joinLeague } = require('../services/leagueMembership.service');
+const { teamIdentityColumns, viewerTeamIdOf } = require('../services/teamIdentity');
 const { assertFantasyLeague } = require('../services/leagueType');
 const { parseSettingsPatch, updateLeagueSettings, LeagueSettingsError } = require('../services/leagueSettings.service');
 
@@ -305,9 +306,17 @@ router.get('/:id', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
   try {
+    // The creator's Team identity rides beside their account identity (#112,
+    // parent #108): the league is a shared surface, so a consumer must be
+    // able to name the creator by Team. LEFT JOIN because a creator who has
+    // been removed from their own league leaves no team behind.
     const leagueResult = await pool.query(
-      `SELECT "leagues".*, "users"."username" AS "owner_username"
+      `SELECT "leagues".*, "users"."username" AS "owner_username",
+              "owner_team"."id" AS "ownerTeamId", "owner_team"."name" AS "ownerTeamName"
          FROM "leagues" JOIN "users" ON "users"."id" = "leagues"."owner_id"
+         LEFT JOIN "teams" AS "owner_team"
+           ON "owner_team"."league_id" = "leagues"."id"
+          AND "owner_team"."owner_id" = "leagues"."owner_id"
         WHERE "leagues"."id" = $1`,
       [leagueId]
     );
@@ -323,6 +332,7 @@ router.get('/:id', async (req, res) => {
               "teams"."faab_remaining", "teams"."locked", "teams"."draft_ready",
               "teams"."avatar_url", "teams"."avatar_static_url",
               "teams"."owner_id",
+              ${teamIdentityColumns()},
               "users"."username" AS "owner",
               COUNT("team_players"."id")::int AS "roster_count",
               COALESCE(SUM(CASE WHEN "matchups"."home_team_id" = "teams"."id" THEN "matchups"."home_score"
@@ -346,7 +356,13 @@ router.get('/:id', async (req, res) => {
     league.co_commissioners = await listCoCommissioners(pool, leagueId);
     // Only a commissioner should see the invite code
     if (!league.is_commissioner) delete league.invite_code;
-    res.json({ league, teams: teamsResult.rows });
+    // viewerTeamId is how a consumer answers "which of these is me" without
+    // holding another manager's account ID (#112): teamId === viewerTeamId.
+    res.json({
+      viewerTeamId: viewerTeamIdOf(teamsResult.rows, req.user.id),
+      league,
+      teams: teamsResult.rows,
+    });
   } catch (error) {
     console.error('Error fetching league details', error);
     res.status(500).json({ error: 'failed to fetch league details' });

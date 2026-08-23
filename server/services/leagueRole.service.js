@@ -1,6 +1,7 @@
 const pool = require('../modules/pool');
 const { logTransaction, notify } = require('./activity.service');
 const { MembershipError, requireMember } = require('./leagueMembership.service');
+const { teamIdentityColumns } = require('./teamIdentity');
 
 /** Every current commissioner's user id: the owner plus any co-commissioners. */
 async function listCommissionerUserIds(db, leagueId, ownerId) {
@@ -77,12 +78,22 @@ async function isLeagueOwner(db, leagueId, userId) {
   return !!result.rows[0];
 }
 
-/** The co-commissioners of a league, oldest grant first. */
+/**
+ * The co-commissioners of a league, oldest grant first. The roster is
+ * league-shared (every member reads it on league detail), so each entry
+ * carries Team identity beside its account fields (#112, parent #108). The
+ * join is LEFT because a co-commissioner grant outlives the team briefly
+ * when a commissioner removes the team before revoking the role.
+ */
 async function listCoCommissioners(db, leagueId) {
   const result = await db.query(
-    `SELECT "league_commissioners"."user_id", "users"."username"
+    `SELECT "league_commissioners"."user_id", "users"."username",
+            ${teamIdentityColumns()}
        FROM "league_commissioners"
        JOIN "users" ON "users"."id" = "league_commissioners"."user_id"
+       LEFT JOIN "teams"
+         ON "teams"."league_id" = "league_commissioners"."league_id"
+        AND "teams"."owner_id" = "league_commissioners"."user_id"
       WHERE "league_commissioners"."league_id" = $1
       ORDER BY "league_commissioners"."created_at", "league_commissioners"."user_id"`,
     [leagueId]
