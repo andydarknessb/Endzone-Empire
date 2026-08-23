@@ -1244,8 +1244,12 @@ test("the pick'em dashboard's standings are shared with the Pick'em page: a seco
   expect(standingsCalls()).toBe(1);
   unmount();
 
-  renderWithProviders(<PickemStandings leagueId={1} season={2026} />);
+  const { unmount: unmountStandings } = renderWithProviders(<PickemStandings leagueId={1} season={2026} />);
   expect(await screen.findByText('one point per correct pick', { exact: false })).toBeInTheDocument();
   expect(standingsCalls()).toBe(1);
+  // A clear reloads whatever is still mounted on the key (#35): take the
+  // component down before clearing so the teardown makes no request that
+  // outlives the test (mirrors the league-cache teardown above).
+  unmountStandings();
   clearPickemStandingsCache();
 });

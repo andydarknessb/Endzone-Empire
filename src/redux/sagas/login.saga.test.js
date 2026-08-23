@@ -156,13 +156,18 @@ test('logging out and logging in also drop the shared pick\'em standings cache',
   mock.onGet('/api/pickem/league/1/standings').reply(200, { season: 2026, mode: 'straight', standings: [] });
   primePickemStandingsForTest();
   logoutUser().next();
-  const { result } = renderHook(() => usePickemStandings(1));
+  const { result, unmount } = renderHook(() => usePickemStandings(1));
   expect(result.current.data).toBeNull();
   await waitFor(() => expect(result.current.loading).toBe(false));
+  // A clear reloads whatever is still mounted on the key (#35): take this
+  // hook instance down before clearing again so its reload doesn't outlive
+  // the test (mirrors the LeagueDashboard cache teardown for the same hook).
+  unmount();
 
   primePickemStandingsForTest();
   const gen = loginUser({ payload: { username: 'b', password: 'x' } });
   gen.next(); gen.next();
   const { result: afterLogin } = renderHook(() => usePickemStandings(1));
   expect(afterLogin.current.data).toBeNull();
+  await waitFor(() => expect(afterLogin.current.loading).toBe(false));
 });
