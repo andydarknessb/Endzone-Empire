@@ -117,6 +117,25 @@ type LeagueOverrides = Partial<{
   draft_timezone: string | null;
 }>;
 
+/**
+ * The harness league's roster shape: seven starting slots, five bench, one
+ * IR. Draft roster size is starters plus bench and excludes IR (ADR 0005), so
+ * this league drafts 12 rounds - `roster_limit` 13 less the one IR slot.
+ *
+ * Every league has a roster shape; this harness went without one until issue
+ * #123, which is why nothing here used to render My Roster or know how many
+ * rounds an active draft has. A league with none is not a state the product
+ * can reach, so leaving it out was a hole in the fixture rather than a
+ * deliberately minimal one.
+ */
+export const FIXTURE_ROSTER_SLOTS = [
+  { key: 'QB', label: 'QB', count: 1, eligiblePositions: ['QB'] },
+  { key: 'RB', label: 'RB', count: 2, eligiblePositions: ['RB'] },
+  { key: 'WR', label: 'WR', count: 2, eligiblePositions: ['WR'] },
+  { key: 'TE', label: 'TE', count: 1, eligiblePositions: ['TE'] },
+  { key: 'FLEX', label: 'FLEX', count: 1, eligiblePositions: ['RB', 'WR', 'TE'] },
+];
+
 export function buildLeague(overrides: LeagueOverrides = {}) {
   return {
     id: FIXTURE_LEAGUE_ID,
@@ -132,6 +151,20 @@ export function buildLeague(overrides: LeagueOverrides = {}) {
     // Nullable (#116/#117): a legacy schedule with none confirmed displays
     // honestly as UTC rather than inferring one. See CONTEXT.md: Draft timezone.
     draft_timezone: null,
+    roster_slots: FIXTURE_ROSTER_SLOTS,
+    bench_slots: 5,
+    ir_slots: 1,
+    // IR-inclusive, as the stored column is. Draft roster size subtracts the
+    // IR slots back off (src/lib/rosterShape.js).
+    roster_limit: 13,
+    // Null on purpose: a pending draft derives Draft rounds live, and an
+    // active or completed one falls back to that same derivation when the
+    // frozen snapshot is absent (ADR 0005). Pinning a number here would hide
+    // the derivation the client actually runs.
+    draft_rounds: null,
+    current_pick: 0,
+    draft_rotation: 'snake',
+    draft_order_overrides: null,
     ...overrides,
   };
 }
