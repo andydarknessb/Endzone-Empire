@@ -224,8 +224,8 @@ function DraftBoard() {
   const myRoster = useMyRoster(leagueId);
   // useDraftSocket registers its socket listeners once per leagueId (not
   // per render), so the `onPickLanded` it calls must stay stable in
-  // identity while still seeing this render's `teams`/`viewerTeamId` - a ref holds
-  // the actual logic, refreshed every render below, while the function
+  // identity while still seeing this render's `teams`/`viewerTeamId` - a ref
+  // holds the actual logic, refreshed every render below, while the function
   // passed into the hook itself never changes.
   const pickLandedRef = useRef(() => {});
   const {
@@ -235,16 +235,12 @@ function DraftBoard() {
     onTheClock,
     viewerTeamId,
     // Whether this viewer may act as commissioner HERE, decided by the server
-    // and answered on the per-viewer join acknowledgement (#178). The room
-    // used to derive it from the draft:state snapshot, whose league is a bare
-    // `SELECT *` on `leagues`: `is_commissioner` is computed per viewer and
-    // only on the league-detail REST path, so that operand was always
-    // undefined and the check collapsed into an `owner_id === user.id`
-    // fallback that refused a co-commissioner their controls. There is no
-    // client-side fallback now, deliberately: the snapshot loses `owner_id`
-    // in #115, and a fallback comparing against an absent field just goes
-    // quiet - every viewer, the owner included, would lose the controls with
-    // nothing failing to say so.
+    // and answered on the per-viewer join acknowledgement (#178; the hook's
+    // header has the rest of the why). Read it ALONE: the old
+    // `league.owner_id === user.id` fallback beside it is deliberately gone,
+    // because #115 takes `owner_id` off this snapshot and a fallback
+    // comparing against an absent field just goes quiet - every viewer, the
+    // owner included, would lose the controls with nothing failing to say so.
     isCommissioner,
     secondsLeft,
     reconnecting,

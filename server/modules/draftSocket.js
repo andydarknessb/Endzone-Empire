@@ -61,8 +61,9 @@ function attachDraftSocket(httpServer) {
         return ack && ack({ error: 'leagueId (integer) required' });
       }
       try {
-        // The viewer's team IS their membership (ADR 0002), so one read
-        // answers both "may they join the room" and "which Team are they".
+        // The viewer's team IS their membership (ADR 0002), so the team read
+        // inside this one is also the "may they join the room" answer: no
+        // team, no context, no join.
         const viewer = await viewerContext(pool, { leagueId, userId: socket.user.id });
         if (!viewer) {
           return ack && ack({ error: 'you are not in this league' });
