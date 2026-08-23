@@ -693,7 +693,6 @@ function LeagueDashboard() {
             <ChatPanel
               leagueId={leagueId}
               open={chatOpen}
-              currentUserId={user ? user.id : null}
               onUnreadChange={setChatUnread}
             />
           </Box>
