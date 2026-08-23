@@ -927,6 +927,110 @@ test('move up and remove reorder the queue and persist it', async () => {
   );
 });
 
+// Issue #216: the queue hook used to raise the same `loading` flag on the
+// resync fetch it runs after a failed PUT as it did on the very first load,
+// and the room ORed that into a page-wide `loading` that swapped in the
+// skeleton whenever it was true - unmounting and remounting the whole room
+// (board, live banner, rail) on a failed reorder. Node identity, not mere
+// presence, is the only assertion that would have caught that: a component
+// that unmounts and remounts into a look-alike node still passes a
+// `toBeInTheDocument()` check.
+test('a failed queue write shows an inline error in the queue panel and never remounts the room', async () => {
+  mockGets({
+    queue: [
+      { id: 2, name: 'Bijan Robinson', position: 'RB', nfl_team: 'ATL', rank: 1 },
+      { id: 3, name: 'Justin Jefferson', position: 'WR', nfl_team: 'MIN', rank: 2 },
+    ],
+  });
+  renderBoard(1);
+  await screen.findByRole('button', { name: 'Bijan Robinson' });
+  connectAsTeam(1);
+  act(() =>
+    fakeSocket.trigger('draft:state', stateEvent(activeLeague({
+      pick_deadline_at: new Date(Date.now() + 30000).toISOString(),
+    })))
+  );
+  await screen.findByTestId('draft-clock');
+
+  const mainBefore = screen.getByRole('main');
+  const clockBefore = screen.getByTestId('draft-clock');
+  const railBefore = screen.getByRole('region', { name: 'Draft rail' });
+
+  // The resync GET the queue hook fires after the rejected PUT is held open
+  // deliberately, rather than left to resolve instantly like the mock
+  // elsewhere in this file - a same-tick resolution lets React's automatic
+  // batching coalesce a spurious `loading: true -> false` flip into one
+  // commit and hide it from the test. Holding it open forces a real commit
+  // while the resync is still in flight, which is exactly where the room
+  // used to be showing the page skeleton (issue #216).
+  let resolveResync;
+  apiClient.get.mockImplementation((url) =>
+    (url === '/api/draft/queue'
+      ? new Promise((resolve) => { resolveResync = resolve; })
+      : Promise.resolve(playersPage())));
+  apiClient.put.mockRejectedValueOnce(new Error('Could not save queue'));
+
+  await userEvent.click(screen.getAllByLabelText('Move up')[1]);
+
+  // Identity, not presence, while the resync is still pending: a component
+  // that unmounted and remounted into a look-alike node would still pass a
+  // `toBeInTheDocument()`/`queryByText` check here.
+  expect(screen.getByRole('main')).toBe(mainBefore);
+  expect(screen.getByTestId('draft-clock')).toBe(clockBefore);
+  expect(screen.getByRole('region', { name: 'Draft rail' })).toBe(railBefore);
+  expect(screen.queryByTestId('page-skeleton')).not.toBeInTheDocument();
+
+  const queuePanel = screen.getByRole('region', { name: 'My Queue' });
+  expect(within(queuePanel).getByText('Could not save queue')).toBeInTheDocument();
+
+  // Resolve the resync and confirm the room is still exactly as it was -
+  // this is the moment the pre-fix code would have already skeletoned and
+  // remounted, discarding these references.
+  await act(async () => {
+    resolveResync({
+      data: [
+        { id: 2, name: 'Bijan Robinson', position: 'RB', nfl_team: 'ATL', rank: 1 },
+        { id: 3, name: 'Justin Jefferson', position: 'WR', nfl_team: 'MIN', rank: 2 },
+      ],
+    });
+  });
+  expect(screen.getByRole('main')).toBe(mainBefore);
+  expect(screen.getByTestId('draft-clock')).toBe(clockBefore);
+  expect(screen.getByRole('region', { name: 'Draft rail' })).toBe(railBefore);
+  expect(screen.queryByTestId('page-skeleton')).not.toBeInTheDocument();
+
+  // The failed write resynced from the server (rolling back the optimistic
+  // reorder), which the queue's own order confirms happened.
+  const queued = screen
+    .getAllByRole('button', { name: /Bijan Robinson|Justin Jefferson/ })
+    .map((b) => b.textContent);
+  expect(queued).toEqual(['Bijan Robinson', 'Justin Jefferson']);
+});
+
+test('the page skeleton still renders before the pool and queue first resolve', async () => {
+  let resolvePlayers;
+  let resolveQueue;
+  // /api/team/roster (useMyRoster) also fires on mount but isn't part of
+  // `loading` - it resolves immediately so it can't be mistaken for one of
+  // the two deferred promises below.
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/draft/queue') return new Promise((resolve) => { resolveQueue = resolve; });
+    if (url === '/api/players') return new Promise((resolve) => { resolvePlayers = resolve; });
+    return Promise.resolve({ data: [] });
+  });
+
+  renderBoard(1);
+  expect(screen.getByTestId('page-skeleton')).toBeInTheDocument();
+
+  await act(async () => {
+    resolvePlayers(playersPage());
+    resolveQueue({ data: [] });
+  });
+
+  await screen.findByText('Patrick Mahomes');
+  expect(screen.queryByTestId('page-skeleton')).not.toBeInTheDocument();
+});
+
 // --- who gets the commissioner controls (#178) ---
 //
 // The room asks the join acknowledgement and nothing else. Before #178 it
