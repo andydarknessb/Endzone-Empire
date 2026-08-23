@@ -221,13 +221,24 @@ function createWorld({
       }),
     })],
     // --- lineup.service's shared schedule predicate ------------------------
-    // Strictly before the instant, which is what nflTeamsKickedOffBefore asks.
-    [/^SELECT "nfl_team" FROM "nfl_games".*"kickoff_at" < \$3/, (text, [season, week, at]) => ({
-      rows: state.nflGames
-        .filter((g) => g.season === season && g.week === week
-          && new Date(g.kickoff_at) < new Date(at))
-        .map((g) => ({ nfl_team: g.nfl_team })),
-    })],
+    // Reads the comparison OUT OF THE SQL rather than assuming it. The lock
+    // asks `<=` ("has his game started by now") and the tenure question asks
+    // `<` ("had it already started when this tenure began"), and the boundary
+    // between them is load-bearing: flipping the operator in production must
+    // change what this returns, not merely which handler answers.
+    [/^SELECT "nfl_team" FROM "nfl_games"/, (text, [season, week, at]) => {
+      const inclusive = /"kickoff_at" <= \$3/.test(text);
+      return {
+        rows: state.nflGames
+          .filter((g) => {
+            if (g.season !== season || g.week !== week) return false;
+            const kickoff = new Date(g.kickoff_at).getTime();
+            const instant = new Date(at).getTime();
+            return inclusive ? kickoff <= instant : kickoff < instant;
+          })
+          .map((g) => ({ nfl_team: g.nfl_team })),
+      };
+    }],
 
     // --- lineup.service ----------------------------------------------------
     [/^SELECT "team_players"\."player_id"/, (text, [teamId]) => ({
@@ -275,12 +286,8 @@ function createWorld({
     [/^SELECT "nfl_team" FROM "players"/, (text, [playerId]) => ({
       rows: [{ nfl_team: NFL_TEAM.get(playerId) }],
     })],
-    [/^SELECT "nfl_team" FROM "nfl_games"/, (text, [season, week, now]) => ({
-      rows: state.nflGames
-        .filter((g) => g.season === season && g.week === week
-          && new Date(g.kickoff_at) <= new Date(now))
-        .map((g) => ({ nfl_team: g.nfl_team })),
-    })],
+    // (the schedule read is answered by the operator-aware handler above,
+    // which serves the lock and the tenure question alike)
     [/^DELETE FROM "lineup_entries"/, (text, [teamId, playerId, season, week, removeCurrent]) => {
       const before = state.lineupEntries.length;
       state.lineupEntries = state.lineupEntries.filter((e) => !(
@@ -774,8 +781,12 @@ test('#190 without settle, an open week still materializes and still joins the c
 
   assert.equal(awayScoreOf(world.state), 40,
     'live scoring counts the current roster, exactly as it did before #190');
+  // Must be the SAME matcher the settle tests use. An earlier version of this
+  // line looked for `"player_id" FROM "lineup_entries"`, which the emitted SQL
+  // never says - there is a comma there - so it counted 0 whatever the code
+  // did and would have gone on passing if the live path started settling.
   assert.equal(
-    world.fake.matching(/^SELECT "lineup_entries"\."player_id" FROM "lineup_entries"/).length,
+    world.fake.matching(/^SELECT "lineup_entries"\."player_id", "players"\."nfl_team"/).length,
     0,
     "and it never asks the settle pass's question"
   );
@@ -839,6 +850,30 @@ test('#190 the kickoff question goes through lineup.service\'s shared predicate'
   const [strict] = world.fake.matching(/"kickoff_at" < \$3/);
   assert.ok(strict, 'the tenure question asks STRICTLY before: a tenure starting AT kickoff was there');
   assert.deepEqual(strict.params.slice(0, 2), [SEASON, WEEK]);
+  world.fake.assertClean();
+});
+
+test('#190 a tenure beginning EXACTLY at kickoff counts, it did not begin after', async (t) => {
+  // Clause 1's boundary. The rule excludes when the tenure began strictly
+  // AFTER kickoff, so a tenure that began AT the kickoff instant was there
+  // when the game started and its row counts. Nothing else in this file can
+  // fail if that `>` silently becomes `>=`: every other fixture puts the
+  // tenure a day early or hours late, so the one instant where the two
+  // readings disagree is never visited.
+  const world = createWorld({ bestBall: true });
+  world.fake.install(t);
+
+  await acquire(world.fake, world.state, { at: KICKOFF });
+  assert.equal(
+    world.state.teamPlayers.find((tp) => tp.player_id === ACQUIRED).created_at,
+    KICKOFF,
+    'the fixture really does sit on the boundary'
+  );
+
+  await advanceWeek(world.state);
+
+  assert.equal(awayScoreOf(world.state), 40,
+    'acquired AT kickoff is not acquired after it, so his points are the team\'s');
   world.fake.assertClean();
 });
 

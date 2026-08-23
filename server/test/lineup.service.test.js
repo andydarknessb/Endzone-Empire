@@ -954,11 +954,25 @@ test('benchAcquiredPlayer leaves a surviving starter row as played', async () =>
  * ordinary case of a player held since before anything kicked off.
  */
 function removalWorld({
-  nflTeam = 'MIN', kickedOff = [], kickedOffBeforeTenure = [], final = false,
+  nflTeam = 'MIN', kickedOff = [], kickedOffBeforeTenure = [], schedule = null, final = false,
 } = {}) {
-  return createFakePool([
-    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: final ? [{ 1: 1 }] : [] })],
-    [/^SELECT "nfl_team" FROM "players"/, () => ({ rows: [{ nfl_team: nflTeam }] })],
+  // `schedule` ([{ nfl_team, kickoff_at }]) answers from real timestamps,
+  // reading the comparison out of the SQL. The canned lists cannot express
+  // the boundary between the two questions even in principle - they return
+  // the same rows whichever operator was asked - so a test that turns on
+  // "began exactly AT kickoff" has to use this form.
+  const scheduleHandler = [/^SELECT "nfl_team" FROM "nfl_games"/, (text, params) => {
+    const inclusive = /"kickoff_at" <= \$3/.test(text);
+    const at = new Date(params[2]).getTime();
+    return {
+      rows: schedule
+        .filter(({ kickoff_at: k }) => (inclusive
+          ? new Date(k).getTime() <= at
+          : new Date(k).getTime() < at))
+        .map(({ nfl_team: t }) => ({ nfl_team: t })),
+    };
+  }];
+  const cannedHandlers = [
     // Must precede the inclusive matcher below, which would otherwise catch it.
     [/^SELECT "nfl_team" FROM "nfl_games".*"kickoff_at" < \$3/, () => ({
       rows: kickedOffBeforeTenure.map((nfl_team) => ({ nfl_team })),
@@ -966,6 +980,11 @@ function removalWorld({
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({
       rows: kickedOff.map((nfl_team) => ({ nfl_team })),
     })],
+  ];
+  return createFakePool([
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: final ? [{ 1: 1 }] : [] })],
+    [/^SELECT "nfl_team" FROM "players"/, () => ({ rows: [{ nfl_team: nflTeam }] })],
+    ...(schedule ? [scheduleHandler] : cannedHandlers),
     [/^DELETE FROM "lineup_entries"/, () => ({ rows: [], rowCount: 1 })],
   ]);
 }
@@ -1035,6 +1054,31 @@ test('removeLineupEntries: a tenure that BEGAN after kickoff leaves no row behin
 
   assert.equal(result.removedCurrentWeek, true,
     'no row survives a tenure that never saw the game, so none can be inherited');
+  fake.assertClean();
+});
+
+test('removeLineupEntries: a tenure beginning EXACTLY at kickoff keeps its row (#190)', async () => {
+  // Clause 1's boundary on the other consumer. "Had his game already started
+  // when this tenure began" must be answered STRICTLY, or a tenure that began
+  // at the kickoff instant reads as having begun after it and the row is
+  // dropped - losing the points of a player who was held when the whistle
+  // blew. The canned-list fixtures cannot reach this: they answer the same
+  // rows whichever operator was asked, so this one uses a real schedule.
+  const KICKOFF_AT = '2026-11-01T17:00:00.000Z';
+  const fake = removalWorld({
+    nflTeam: 'MIN',
+    schedule: [{ nfl_team: 'MIN', kickoff_at: KICKOFF_AT }],
+  });
+  const client = await fake.connect();
+
+  const result = await removeFor(client, {
+    tenureStartedAt: new Date(KICKOFF_AT),
+    now: new Date('2026-11-01T23:00:00Z'), // after the game, so it HAS kicked off
+  });
+  client.release();
+
+  assert.equal(result.removedCurrentWeek, false,
+    'he was on the roster at kickoff, so the row is the record of a week he played');
   fake.assertClean();
 });
 
