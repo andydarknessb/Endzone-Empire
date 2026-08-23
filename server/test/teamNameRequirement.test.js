@@ -1,9 +1,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const pool = require('../modules/pool');
+const { createFakePool } = require('./helpers/fakePool');
 const { joinPublicLeague, decideJoinRequest } = require('../services/discovery.service');
 const { MembershipError } = require('../services/leagueMembership.service');
-
 /**
  * Contract tests for #111 (Require explicit Team names and repair legacy
  * email-derived names), the parts leagueJoinability.test.js doesn't cover:
@@ -18,28 +17,20 @@ const { MembershipError } = require('../services/leagueMembership.service');
  * invite-code join, immediate public join, and join-request approval --
  * runs through.)
  */
-
-function mockClient(t, handlers) {
-  const calls = [];
-  const dispatch = (via) => async (sql, params) => {
-    const text = String(sql).replace(/\s+/g, ' ').trim();
-    calls.push({ via, text, params });
-    for (const [pattern, handler] of handlers) {
-      if (pattern.test(text)) return handler(text, params);
-    }
-    throw new Error(`unexpected query: ${text}`);
-  };
-  t.mock.method(pool, 'query', dispatch('pool'));
-  t.mock.method(pool, 'connect', async () => ({ query: dispatch('client'), release: () => {} }));
-  return calls;
+// Migrated off this suite's own hand-rolled pool fake and onto the shared
+// helper, per the migration rule in helpers/fakePool.js's header: touching a
+// suite's bespoke fake means moving it over. #188 touched it, because the
+// join-request fan-out now reads one more table, so it moves.
+//
+// Two things come with the move that the local fake did not have. Its
+// `release` was a no-op, so a leaked client or a transaction left open was
+// invisible; `assertClean()` proves both now. And the helper answers
+// BEGIN/COMMIT/ROLLBACK itself, so the old TXN block is gone.
+function installFake(t, handlers) {
+  const fake = createFakePool(handlers);
+  fake.install(t);
+  return fake;
 }
-
-const TXN = [
-  [/^BEGIN$/, () => ({ rows: [] })],
-  [/^COMMIT$/, () => ({ rows: [] })],
-  [/^ROLLBACK$/, () => ({ rows: [] })],
-];
-
 // Filing a request now alerts every commissioner rather than the creator
 // alone (#188), so the approval branch reads the co-commissioner roster on its
 // way out. These leagues have none, so the owner is still the only recipient
@@ -54,18 +45,15 @@ const COMMISSIONER_ALERT = [
   [/^SELECT "league_commissioners"\."user_id"/, () => ({ rows: [] })],
   [/^INSERT INTO "notifications"/, () => ({ rows: [] })],
 ];
-
 const upserted = (calls) => calls.filter((c) => /INSERT INTO "join_requests"/.test(c.text));
 const committed = (calls) => calls.some((c) => c.text === 'COMMIT');
-
 const APPROVAL_LEAGUE = {
   id: 7, name: 'Curated League', owner_id: 100, is_public: true, join_approval: true,
   max_teams: 10, pickem_only: false, draft_status: 'pending', season_status: 'regular',
 };
 
 test('joinPublicLeague (join_approval): validates and trims the Team name, then upserts a pending request', async (t) => {
-  const calls = mockClient(t, [
-    ...TXN,
+  const fake = installFake(t, [
     ...COMMISSIONER_ALERT,
     [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [APPROVAL_LEAGUE] })],
     [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
@@ -77,15 +65,15 @@ test('joinPublicLeague (join_approval): validates and trims the Team name, then 
   ]);
   const result = await joinPublicLeague({ leagueId: 7, userId: 5, username: 'eve', teamName: '  Eve Picks  ' });
   assert.equal(result.pending, true);
-  const [insert] = upserted(calls);
+  const [insert] = upserted(fake.calls);
   assert.deepEqual(insert.params, [7, 5, 'Eve Picks']);
-  assert.equal(committed(calls), true);
+  assert.equal(committed(fake.calls), true);
+  fake.assertClean();
 });
 
 test('joinPublicLeague (join_approval): refuses a missing, blank or whitespace-only Team name with 400, before any upsert', async (t) => {
   for (const teamName of [undefined, null, '', '   ']) {
-    const calls = mockClient(t, [
-      ...TXN,
+    const fake = installFake(t, [
       ...COMMISSIONER_ALERT,
       [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [APPROVAL_LEAGUE] })],
       [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
@@ -99,14 +87,14 @@ test('joinPublicLeague (join_approval): refuses a missing, blank or whitespace-o
         return true;
       }
     );
-    assert.equal(upserted(calls).length, 0, `no upsert for teamName=${JSON.stringify(teamName)}`);
-    assert.equal(committed(calls), false);
+    assert.equal(upserted(fake.calls).length, 0, `no upsert for teamName=${JSON.stringify(teamName)}`);
+    assert.equal(committed(fake.calls), false);
+    fake.assertClean();
   }
 });
 
 test('joinPublicLeague (join_approval): refuses a Team name over 120 characters, before any upsert', async (t) => {
-  const calls = mockClient(t, [
-    ...TXN,
+  const fake = installFake(t, [
     ...COMMISSIONER_ALERT,
     [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [APPROVAL_LEAGUE] })],
     [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
@@ -120,7 +108,8 @@ test('joinPublicLeague (join_approval): refuses a Team name over 120 characters,
       return true;
     }
   );
-  assert.equal(upserted(calls).length, 0);
+  assert.equal(upserted(fake.calls).length, 0);
+  fake.assertClean();
 });
 
 for (const priorStatus of ['denied', 'cancelled']) {
@@ -128,8 +117,7 @@ for (const priorStatus of ['denied', 'cancelled']) {
     // The ON CONFLICT ... WHERE clause is what the real database evaluates;
     // this mock stands in for it by returning a row only when the prior
     // status is one this path is meant to resurrect from.
-    const calls = mockClient(t, [
-      ...TXN,
+    const fake = installFake(t, [
       ...COMMISSIONER_ALERT,
       [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [APPROVAL_LEAGUE] })],
       [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
@@ -144,14 +132,14 @@ for (const priorStatus of ['denied', 'cancelled']) {
     assert.equal(result.pending, true);
     assert.equal(result.joinRequest.status, 'pending');
     assert.equal(result.joinRequest.team_name, 'Second Try FC');
-    assert.equal(committed(calls), true);
+    assert.equal(committed(fake.calls), true);
+    fake.assertClean();
   });
 }
 
 test('joinPublicLeague (join_approval): a still-pending request is surfaced as-is, refusing a second file', async (t) => {
   const existingPending = { id: 9, league_id: 7, user_id: 5, team_name: 'Already Filed', status: 'pending' };
-  mockClient(t, [
-    ...TXN,
+  const fake = installFake(t, [
     ...COMMISSIONER_ALERT,
     [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [APPROVAL_LEAGUE] })],
     [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
@@ -165,11 +153,11 @@ test('joinPublicLeague (join_approval): a still-pending request is surfaced as-i
   const result = await joinPublicLeague({ leagueId: 7, userId: 5, username: 'eve', teamName: 'Second Try FC' });
   assert.equal(result.pending, true);
   assert.equal(result.joinRequest, existingPending);
+  fake.assertClean();
 });
 
 test('decideJoinRequest (approve): a nameless join request cannot slip through -- joinLeague refuses it with the same 400', async (t) => {
-  mockClient(t, [
-    ...TXN,
+  const fake = installFake(t, [
     ...COMMISSIONER_ALERT,
     [/FROM "leagues" WHERE "id" = \$1 AND .*FOR UPDATE/, () => ({ rows: [APPROVAL_LEAGUE] })],
     [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [APPROVAL_LEAGUE] })],
@@ -183,4 +171,5 @@ test('decideJoinRequest (approve): a nameless join request cannot slip through -
     decideJoinRequest({ leagueId: 7, ownerId: 100, requestId: 3, approve: true }),
     (error) => error instanceof MembershipError && error.statusCode === 400 && error.message === 'Team name is required'
   );
+  fake.assertClean();
 });

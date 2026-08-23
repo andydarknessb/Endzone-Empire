@@ -11,8 +11,7 @@
  * writing down which rule it implements.
  *
  * The rule it holds every entry against is stated in
- * `server/services/leagueRole.service.js`'s module docstring, and restated in
- * CONTEXT.md's Commissioner entry:
+ * `server/services/leagueRole.service.js`'s module docstring:
  *
  *   "Commissioner" is the league owner OR anyone holding a `league_commissioners`
  *   row; every commissioner-gated action authorizes through
@@ -20,6 +19,15 @@
  *   alone, and THREE things stay owner-shaped and keep comparing `owner_id`
  *   directly: deleting the league, granting or revoking co-commissioners, and
  *   protecting the creator's Team from removal.
+ *
+ * CONTEXT.md's Commissioner entry states the same rule and counts it
+ * differently: "Two powers stay with the creator alone ... One protection
+ * stands alongside them". Same three items, and the split is the more precise
+ * reading - the protection is not a power anyone holds, it is a refusal that
+ * binds everyone including the creator. Recorded rather than reconciled,
+ * because #188 asks for divergent statements of a rule to be listed even when
+ * they agree substantively, and a reader who has met "three" in one file and
+ * "two plus one" in the other should find the discrepancy already noticed.
  *
  * So every allowlist entry carries a `rule`, and the rule names either one of
  * those three, or the caller-identity question the comparison answers. Adding
@@ -59,7 +67,17 @@
  * and a guard that only runs where half its subject lives is the kind of green
  * that certifies nothing.
  *
- * Run standalone: `npm run lint:identity-comparisons`
+ * Run standalone: `npm run lint:identity-comparisons`, which runs the server
+ * half of the guard's own tests first, the way `lint:colors` does.
+ *
+ * `stripComments` is imported from check-color-literals.js rather than
+ * reimplemented, because getting it right is genuinely hard (strings, template
+ * literals, regex literals, JSX comments) and it is already tested. `walk` and
+ * `toPosix` below are NOT shared with that module, deliberately: its `walk`
+ * closes over its own extension set and skips only `node_modules`, so sharing
+ * would mean parameterising a checker that sits on a CI gate in order to save
+ * a dozen lines here. Two small correct walks beat one walk with two callers'
+ * options threaded through it.
  */
 const fs = require('fs');
 const path = require('path');
@@ -172,6 +190,18 @@ const ALLOWLIST = [
     rule: 'caller: only the proposing team\'s own manager may cancel their proposal',
   },
 
+  // --- Single-recipient notifications ------------------------------------
+  {
+    file: 'server/services/commissioner.service.js',
+    code: 'NOTIFY userId: result.rows[0].owner_id,',
+    rule: 'not a role: this is a TEAM\'s own manager being told their team was locked or unlocked. The query two lines up is `FROM "teams"`, and the news is about that one team, so one recipient is the whole of the rule',
+  },
+  {
+    file: 'server/services/trophy.service.js',
+    code: 'NOTIFY userId: owner.rows[0].owner_id,',
+    rule: 'not a role: notifyOwner tells a TEAM\'s own manager they earned a trophy. `SELECT "owner_id" FROM "teams" WHERE "id" = $1` - a team row, and nobody else has any stake in it',
+  },
+
   // --- Recorded rather than changed --------------------------------------
   {
     file: 'server/services/discovery.service.js',
@@ -216,7 +246,7 @@ function walk(dir, out = []) {
 }
 
 const toPosix = (rel) => rel.split(path.sep).join('/');
-const isTestFile = (rel) => /\.(test|spec)\.(js|jsx|ts|tsx)$/.test(rel);
+const isTestFile = (rel) => /\.test\.(js|jsx)$/.test(rel);
 
 // An operand is an identifier followed by any run of member, index and call
 // steps: `userId`, `req.user.id`, `user?.id`, `teams[0].owner_id`,
@@ -253,6 +283,37 @@ const mentionsUsername = (operand) => /username$/i.test(operand);
 const SQL_LEAGUES = /"leagues"/;
 const SQL_OWNER_COMPARISON = /"owner_id"\s*=/;
 
+// Addressing ONE notification recipient by an owner id that might be a
+// LEAGUE's rather than a TEAM's.
+//
+// Not a comparison at all, which is why it needs its own rule: #188 found two
+// of these (correction.service's playoff-flip alert, discovery.service's
+// join-request alert) and nothing above would have caught either. Both
+// resolved the COMMISSIONER role as `leagues.owner_id` and notified that one
+// account, so a co-commissioner holding the very power the alert was about
+// never heard it. Nothing throws when a notification reaches too few people,
+// so this class has no failure mode of its own at all.
+//
+// The narrowing is the whole design problem. `userId: <x>.owner_id` is the
+// CORRECT everyday shape - eighteen places notify a team's own manager that
+// way - so flagging all of them would bury the two that matter, exactly as
+// scanning `"teams"."owner_id" = $n` would. Nothing syntactic separates a
+// league row from a team row, so this keys on the two shapes the real defects
+// took: a variable named for a league, and an owner id pulled straight out of
+// a query result to be notified. That is two allowlist entries today, both
+// genuine team-owner notifications, and it catches both #188 instances.
+//
+// It is a partial guard and says so: `userId: row.owner_id` where `row` came
+// from a `leagues` query would still slip through. Comparisons are the class
+// this script covers properly.
+//
+// Written as "userId: <anything up to the next comma or brace>" rather than
+// reusing OPERAND, because that pattern's member chain swallows the
+// `.owner_id` it is meant to be looking for and leaves the alternation nothing
+// to match. Bounded to one property so it cannot reach across a whole object
+// literal onto an unrelated field.
+const NOTIFY_ONE_OWNER = /\buserId:\s*[^,}\n]*(?:\b\w*[Ll]eague\w*\.owner_id|\.rows\[\d+\]\.owner_id)\b/;
+
 /**
  * Every scannable comparison in one file's source, as `{ code, line }` with
  * `code` single-spaced so formatting does not decide whether an allowlist
@@ -281,6 +342,9 @@ function findComparisons(rawText, { includeUsername, ext = '.js' }) {
       // these are the bare `"owner_id" = $2`, which would make every entry
       // read the same and tell a reader nothing about which query it is.
       found.push({ code: `SQL ${line.replace(/\s+/g, ' ').trim()}`, line: i + 1 });
+    }
+    if (NOTIFY_ONE_OWNER.test(line)) {
+      found.push({ code: `NOTIFY ${line.replace(/\s+/g, ' ').trim()}`, line: i + 1 });
     }
   });
   return found;
@@ -311,7 +375,7 @@ function check(roots, { includeUsername, allowlist = ALLOWLIST }) {
   const byFile = scan(roots, { includeUsername });
   const scannedFiles = new Set(byFile.keys());
   const relevant = allowlist.filter((entry) =>
-    roots.some((root) => entry.file.startsWith(`${root}/`) || entry.file.startsWith(root))
+    roots.some((root) => entry.file.startsWith(`${root}/`))
   );
 
   const unlisted = [];

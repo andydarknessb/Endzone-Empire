@@ -109,6 +109,20 @@ async function deleteUserAccount({ userId, confirmation }) {
       );
     }
 
+    // Owner-shaped by design: only the creator can delete a league, so only
+    // the creator can leave one orphaned, and only their account is blocked
+    // here. A co-commissioner deletes their account freely.
+    //
+    // #188 flagged a disagreement between this rule and the message it raises
+    // below: the code says creator, the copy says "your commissioned
+    // leagues", and "commissioned" reads as commissioner, which includes
+    // co-commissioners. Both readings are defensible - either the copy
+    // over-states a creator-only rule, or the rule is under-scoped and a
+    // league losing its only co-commissioner has much the same problem as one
+    // losing its creator. Choosing is a product decision about a string a
+    // user reads, so NEITHER half was changed. Recorded here, in
+    // scripts/check-identity-comparisons.js's allowlist, and on #275. Do not
+    // "tidy" one side of it without deciding the other.
     const owned = await client.query(
       `SELECT "leagues"."id", "leagues"."name", count("teams"."id")::int AS "team_count"
        FROM "leagues"

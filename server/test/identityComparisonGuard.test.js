@@ -37,6 +37,39 @@ test('every server identity comparison is allowlisted with a rule', () => {
   );
 });
 
+// The test above passes trivially if the scan found nothing at all - a broken
+// walk, a bad root, an extension filter that matches no file would each make
+// it green while guarding nothing. These two pin the scan against the real
+// tree from the other side: it must FIND comparisons, and it must NOTICE an
+// entry that describes none.
+test('the server scan actually reaches the source tree', () => {
+  const { unlisted } = check(SERVER_ROOTS, { includeUsername: false, allowlist: [] });
+
+  assert.ok(
+    unlisted.length >= 10,
+    `with an empty allowlist the scan must report every comparison it finds; got ${unlisted.length}`
+  );
+  // The three sanctioned owner-shaped actions must each be among them, or the
+  // scan is missing the very shapes the guard exists for.
+  assert.ok(unlisted.some((v) => v.includes('server/services/commissioner.service.js')));
+  assert.ok(unlisted.some((v) => v.includes('server/services/leagueRole.service.js')));
+  assert.ok(unlisted.some((v) => v.startsWith('server/routes/league.router.js')));
+});
+
+test('an allowlist entry describing no code is reported as stale', () => {
+  const { stale } = check(SERVER_ROOTS, {
+    includeUsername: false,
+    allowlist: [{
+      file: 'server/services/commissioner.service.js',
+      code: 'team.owner_id === somethingThatIsNotThere',
+      rule: 'a rule for a comparison that does not exist',
+    }],
+  });
+
+  assert.equal(stale.length, 1);
+  assert.match(stale[0], /no longer present/);
+});
+
 test('every allowlist entry names a rule', () => {
   for (const entry of ALLOWLIST) {
     assert.ok(entry.file, 'an allowlist entry has no file');
@@ -97,6 +130,34 @@ test('a comparison quoted inside a comment is not a comparison', () => {
   ].join('\n');
 
   assert.deepEqual(findComparisons(commented, { includeUsername: false }), []);
+});
+
+// The class #188 found that no comparison rule can see: addressing one
+// recipient by a league's owner id. Both instances resolved the COMMISSIONER
+// role as the creator, so a co-commissioner holding the very power the alert
+// was about never heard it - and nothing throws when a notification reaches
+// too few people, so the class has no failure mode of its own.
+test('catches a commissioner alert addressed to the creator alone', () => {
+  const mutant = [
+    'await notify(client, {',
+    '  userId: league.owner_id,',
+    '  message: `Review the bracket with your commissioner tools.`,',
+    '});',
+    '',
+  ].join('\n');
+
+  const found = findComparisons(mutant, { includeUsername: false });
+  assert.equal(found.length, 1);
+  assert.match(found[0].code, /^NOTIFY userId: league\.owner_id,$/);
+});
+
+// notifyCommissioners takes `ownerId:` and fans out from there, so the fixed
+// shape must NOT be reported - a guard that fires on the correct answer is a
+// guard people turn off.
+test('leaves the fanned-out form alone', () => {
+  const fixed = 'await notifyCommissioners(client, { leagueId, ownerId: league.owner_id, type: "x" });\n';
+
+  assert.deepEqual(findComparisons(fixed, { includeUsername: false }), []);
 });
 
 // The server's only username comparison is privacy.service's typed

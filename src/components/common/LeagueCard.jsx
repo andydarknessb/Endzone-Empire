@@ -20,7 +20,8 @@ function LeagueCard({ league, onDelete, compact = false }) {
   // never passed it, so on /user a league's own creator was labelled
   // "Co-Commissioner". A role question belongs to the payload, not the call
   // site. `=== true` because an older cached row carries neither flag, and an
-  // absent one must read as "no", never as "maybe".
+  // absent one must read as "no", never as "maybe". Both flags are read the
+  // same way for the same reason.
   const isOwner = league.is_owner === true;
   const phase = deriveLeaguePhase(league);
   const meta = LEAGUE_PHASE_META[phase] || { label: 'League', color: 'default' };
@@ -44,7 +45,7 @@ function LeagueCard({ league, onDelete, compact = false }) {
         {league.scoring_preset && (
           <Chip size="small" variant="outlined" label={league.scoring_preset.replace('_', ' ').toUpperCase()} />
         )}
-        {(isOwner || league.is_commissioner) && (
+        {(isOwner || league.is_commissioner === true) && (
           <Chip size="small" color="primary" variant="outlined" label={isOwner ? 'Commissioner' : 'Co-Commissioner'} />
         )}
         {phase === LEAGUE_PHASE.PRE_DRAFT && league.draft_date && (
