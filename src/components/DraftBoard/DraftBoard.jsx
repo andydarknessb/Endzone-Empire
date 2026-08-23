@@ -20,6 +20,7 @@ import DraftSettingsPanel from './DraftSettingsPanel';
 import LiveDraftBanner from './LiveDraftBanner';
 import PlayerPoolTable from './PlayerPoolTable';
 import DraftRail from './DraftRail';
+import ReadinessAnnouncer from './ReadinessAnnouncer';
 import DraftBoardMatrix from './DraftBoardMatrix';
 import PickHistory from './PickHistory';
 import DraftDayControls from './DraftDayControls';
@@ -618,6 +619,19 @@ function DraftBoard() {
       }}
     >
       <Box sx={{ flexShrink: { md: 0 } }}>
+        {/* The Draft room's one readiness announcement (issue #164). It lives
+            here, in the chrome every tab renders, rather than in the rail:
+            below the medium breakpoint only the active tab's region is
+            mounted, so a live region inside the rail was destroyed and
+            rebuilt on every tab switch and stopped being a region assistive
+            technology was observing. Visually hidden - the rail still shows
+            the same sentence to sighted managers, without a live region of
+            its own. */}
+        <ReadinessAnnouncer
+          teams={teams}
+          viewerTeamId={viewerTeamId}
+          draftStatus={league?.draft_status}
+        />
         <LeagueBreadcrumb />
         {(error || socketError) && (
           <Alert severity="error" sx={{ mb: 2 }}>
