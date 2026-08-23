@@ -192,6 +192,20 @@ test('creating a public, approval-required, best-ball, PPR league with a draft d
   // walk up the ancestor chain on every click. Restored in `finally`
   // regardless of outcome. See listIanaTimeZones mock above for why the
   // zone picker itself is cheap here.
+  apiClient.get.mockResolvedValue({ data: [] });
+  apiClient.post.mockResolvedValue({ data: { invite_code: 'abc123' } });
+
+  // Mount happens on REAL timers, before the fake-timer window opens.
+  // Rendering inside that window left the mount fetch's setLeagues landing
+  // outside act (measured: one warning per run, #169). Note this findByText
+  // does not itself gate on the fetch - `leagues` starts [] so the empty
+  // state is in the first synchronous render - it is the awaited boundary
+  // that lets the fetch settle before the fake window opens.
+  // Nothing here needs faking; the transitions #149 added it for all start
+  // at the first interaction below.
+  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+  await screen.findByText(/you aren't in any leagues yet/i);
+
   jest.useFakeTimers();
   try {
     const user = userEvent.setup({
@@ -199,11 +213,6 @@ test('creating a public, approval-required, best-ball, PPR league with a draft d
       advanceTimers: jest.advanceTimersByTime,
       pointerEventsCheck: PointerEventsCheckLevel.Never,
     });
-    apiClient.get.mockResolvedValue({ data: [] });
-    apiClient.post.mockResolvedValue({ data: { invite_code: 'abc123' } });
-
-    renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
-    await screen.findByText(/you aren't in any leagues yet/i);
     await openNewLeague(user);
 
     // Typing semantics (per-keystroke state) aren't under test here, only
@@ -228,7 +237,15 @@ test('creating a public, approval-required, best-ball, PPR league with a draft d
     await user.click(screen.getByLabelText('Draft time zone'));
     await user.click(await screen.findByRole('option', { name: 'America/New_York' }));
     fireEvent.click(screen.getByRole('checkbox', { name: /confirm this draft date and time/i }));
-    fireEvent.click(screen.getByRole('button', { name: 'Create League' }));
+    // Submit is the one click here that must be awaited rather than fired.
+    // `fireEvent` wraps its dispatch in a SYNCHRONOUS act, which returns
+    // before the awaited apiClient.post resolves, leaving createLeague's
+    // success path (the notice, the field resets, the refetch) to land
+    // outside the interaction that caused it. Measured on the deduped tree:
+    // 15 warnings per run from those updates, 0 once the click is awaited
+    // (#169). Awaiting settles that path inside the interaction rather than
+    // racing the assertions after it.
+    await user.click(screen.getByRole('button', { name: 'Create League' }));
 
     await waitFor(() =>
       expect(apiClient.post).toHaveBeenCalledWith('/api/league', {
@@ -247,6 +264,10 @@ test('creating a public, approval-required, best-ball, PPR league with a draft d
         draftTimezone: 'America/New_York',
       })
     );
+    // `waitFor` above is satisfied the moment post is CALLED, so on its own it
+    // says nothing about what the component did with the answer. Assert the
+    // visible outcome too, as the sibling create test does.
+    expect(await screen.findByText(/Invite code: abc123/)).toBeInTheDocument();
   } finally {
     jest.useRealTimers();
   }
