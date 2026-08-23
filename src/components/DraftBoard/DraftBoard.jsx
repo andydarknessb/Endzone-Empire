@@ -27,7 +27,9 @@ import DraftPickConfirmDialog from './DraftPickConfirmDialog';
 import { pickActionExists, pickTemporarilyUnavailable, PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
 import { upcomingTeamsFor } from './upcomingTeams';
 import { assignRosterSlots } from '../../lib/rosterAssignment';
-import { turnSummaryFor, pickLabelFor } from '../../lib/draftTurns';
+import {
+  turnSummaryFor, pickLabelFor, teamsInDraftOrder, draftOrderIsSettled,
+} from '../../lib/draftTurns';
 import { draftRounds } from '../../lib/rosterShape';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 import { teamNameLabel } from '../../lib/teamIdentity';
@@ -52,15 +54,11 @@ function rosterViewFor({ league, teams, picks, viewerTeamId }) {
   const myTeam = viewerTeamId == null ? null : teams.find((team) => team.teamId === viewerTeamId) || null;
   if (!myTeam || rosterSlots.length === 0) return null;
 
-  // Mirrors the server's ORDER BY "draft_position" NULLS LAST, "id". The id
-  // tie-break is load-bearing, not cosmetic: with two null draft_positions,
-  // (a ?? Infinity) - (b ?? Infinity) is NaN, and a comparator returning NaN is
-  // unspecified behaviour rather than merely unstable.
-  const ordered = [...teams].sort((a, b) => {
-    const ap = a.draft_position == null ? Infinity : a.draft_position;
-    const bp = b.draft_position == null ? Infinity : b.draft_position;
-    return ap === bp ? a.teamId - b.teamId : ap - bp;
-  });
+  // Base Draft order, and the question of whether it is settled, both come
+  // from src/lib/draftTurns.js, which owns everything else about order and
+  // carries the sync obligation against the server's own ordering. Keeping a
+  // hand-copy here is what let this and the Upcoming strip start to disagree.
+  const ordered = teamsInDraftOrder(teams);
   const teamIds = ordered.map((team) => team.teamId);
   // Rounds are Draft rounds (ADR 0005): the live-derived draft roster size
   // while pending, or the fixed value once the draft is active/complete.
@@ -86,11 +84,7 @@ function rosterViewFor({ league, teams, picks, viewerTeamId }) {
     .sort((a, b) => a.pickNumber - b.pickNumber);
 
   // Before the order is set there is no honest next pick to name.
-  const positions = ordered.map((team) => team.draft_position);
-  const orderKnown = league.draft_status !== 'pending'
-    && rounds > 0
-    && positions.every((position) => position != null)
-    && new Set(positions).size === positions.length;
+  const orderKnown = draftOrderIsSettled({ league, orderedTeams: ordered, rounds });
 
   const turn = orderKnown
     ? turnSummaryFor({
@@ -255,16 +249,30 @@ function DraftBoard() {
       if (viewerTeamId != null && data?.teamId === viewerTeamId) myRoster.refetchRoster();
     };
   });
-  // A completed draft opens on the Board (issue #123 acceptance criterion 4):
+  // A completed draft OPENS on the Board (issue #123 acceptance criterion 4):
   // it is a record rather than a workspace, and the record is the Board plus
   // the chronological Pick history inside it. draft_status is unknown until
   // the first draft:state frame lands, which is why this is an effect rather
-  // than part of `view`'s initial state - and why it is guarded by
-  // viewChosenRef, so it can never pull a manager off a view they picked.
+  // than part of `view`'s initial state.
+  //
+  // ONLY on the first frame, which is the whole of the rule. Keying this on
+  // draft_status alone made it fire mid-session too, because useDraftSocket
+  // flips the status to complete in place when the draftComplete frame
+  // arrives - so a manager watching the board fill would have had the
+  // workspace swapped out from under them at the final pick, the moment they
+  // were most engaged with it. viewChosenRef does not save them either: it is
+  // seeded from the `view` query parameter, and the URL effect above DELETES
+  // that parameter for the default tab, so anyone who opened a bare URL and
+  // never clicked a tab carries a false ref all session. A view someone has
+  // been reading for an hour was never "picked", and relocating them is the
+  // failure this guard was supposed to prevent rather than an edge of it.
+  const firstStatusSeenRef = useRef(false);
   useEffect(() => {
+    const status = league?.draft_status;
+    if (!status || firstStatusSeenRef.current) return;
+    firstStatusSeenRef.current = true;
     if (viewChosenRef.current) return;
-    if (league?.draft_status !== 'complete') return;
-    viewChosenRef.current = true;
+    if (status !== 'complete') return;
     setView('board');
   }, [league?.draft_status]);
 

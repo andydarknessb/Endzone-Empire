@@ -1235,7 +1235,14 @@ test.describe('state-dependent rail composition (issue #123)', () => {
     await setupActiveDraft(page);
 
     const upcoming = page.getByRole('region', { name: 'Upcoming' });
-    await expect(upcoming.getByRole('listitem').first()).toBeVisible();
+    // The exact strip, not merely a non-empty one. This is the only test that
+    // covers how upcomingTeamsFor's arguments are wired in DraftBoard, and a
+    // "first entry is visible" assertion still passed with `picks` omitted -
+    // which silently stops keeper picks being skipped. The fixture is an
+    // active snake draft, Ridge Runners on the clock at pick 1 of 2 teams.
+    await expect(upcoming.getByRole('listitem')).toHaveText([
+      '1.02 Harbor Hawks', '2.01 Harbor Hawks', '2.02 Ridge Runners',
+    ]);
 
     // Compact by default; the complete list - and with it the per-team
     // Auto-draft switches - is available without leaving the panel.

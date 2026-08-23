@@ -160,7 +160,11 @@ test('the Draft order disclosure names the region it opens', async () => {
   // MUI builds a role="region" inside the Accordion and names it from the
   // summary's own id. Unnamed, it announces as a bare region inside a panel
   // already called Upcoming, which says nothing about what was opened.
-  expect(screen.getByRole('region', { name: 'Full Draft order' })).toBeInTheDocument();
+  const region = screen.getByRole('region', { name: 'Full Draft order' });
+  expect(region).toBeInTheDocument();
+  // And the trigger says what it expands, not just that it is expanded.
+  expect(screen.getByRole('button', { name: 'Full Draft order' }))
+    .toHaveAttribute('aria-controls', region.getAttribute('id'));
 });
 
 test('the full Draft order is reachable from Upcoming, collapsed until asked for', async () => {

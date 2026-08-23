@@ -383,10 +383,18 @@ function DraftRail({
             Without one that nested region is announced unnamed, inside a
             panel already called Upcoming, which tells a screen-reader user
             nothing about what they just opened. */}
-        <AccordionSummary id={orderDisclosureId} expandIcon={<ExpandMoreIcon />} sx={MIN_TOUCH_TARGET_SX}>
+        <AccordionSummary
+          id={orderDisclosureId}
+          // MUI only emits aria-controls when it is given one, so without this
+          // the trigger announces its expanded state without ever saying what
+          // it expands.
+          aria-controls={`${orderDisclosureId}-content`}
+          expandIcon={<ExpandMoreIcon />}
+          sx={MIN_TOUCH_TARGET_SX}
+        >
           <Typography variant="body2">Full Draft order</Typography>
         </AccordionSummary>
-        <AccordionDetails sx={{ px: 0 }}>{orderListBody}</AccordionDetails>
+        <AccordionDetails id={`${orderDisclosureId}-content`} sx={{ px: 0 }}>{orderListBody}</AccordionDetails>
       </Accordion>
     </Paper>
   ) : null;
@@ -400,7 +408,23 @@ function DraftRail({
   };
 
   const composed = railCompositionFor(draftStatus)
-    .map((panelKey) => ({ panelKey, panel: panels[panelKey] }))
+    .map((panelKey) => {
+      // A key with no builder and a panel that declined to render are both
+      // `undefined` here, and the filter below cannot tell them apart - so
+      // without this, composing a panel nobody wired would drop it silently
+      // and every composition-order assertion would still pass. Development
+      // and test only: this is a programmer error that cannot arise from
+      // data, and a hard failure in a live draft room would be a worse
+      // outcome than a missing panel.
+      if (process.env.NODE_ENV !== 'production' && !Object.prototype.hasOwnProperty.call(panels, panelKey)) {
+        throw new Error(
+          `DraftRail: the composition for draft status "${draftStatus}" names the panel `
+          + `"${panelKey}", which nothing builds. Add it to \`panels\` here, or remove it `
+          + 'from railComposition.js.'
+        );
+      }
+      return { panelKey, panel: panels[panelKey] };
+    })
     .filter((entry) => entry.panel != null);
 
   // Only one composition can come out empty: complete, whose single panel is

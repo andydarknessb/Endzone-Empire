@@ -93,6 +93,16 @@ test('a pending draft has no upcoming picks - the order is not settled yet', () 
   })).toEqual([]);
 });
 
+test('a completed draft has no upcoming picks either', () => {
+  // Its order IS settled, and deliberately stays so: My Roster reads pick
+  // labels off the same predicate to render a finished team. Nothing is
+  // upcoming once the draft is over, and current_pick is not what says so -
+  // a completed draft can carry any value there.
+  expect(upcomingTeamsFor({
+    league: league({ draft_status: 'complete', current_pick: 0 }), teams: TEAMS, picks: [], rounds: 4,
+  })).toEqual([]);
+});
+
 test('an incomplete or duplicated Draft order yields nothing rather than a guess', () => {
   const unset = [{ ...TEAMS[0] }, { ...TEAMS[1], draft_position: null }, TEAMS[2]];
   expect(upcomingTeamsFor({ league: league(), teams: unset, picks: [], rounds: 4 })).toEqual([]);

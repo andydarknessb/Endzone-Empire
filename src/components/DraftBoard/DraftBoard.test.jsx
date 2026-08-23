@@ -456,6 +456,77 @@ test('a draft:picked event with draftComplete shows the completion banner and ma
   // The status chip, in product language rather than the stored enum.
   expect(screen.getByText('Draft complete')).toBeInTheDocument();
   expect(screen.queryByText('complete')).not.toBeInTheDocument();
+
+  // And the manager is NOT relocated. The draft completing in front of
+  // someone is the moment they are most engaged with what they are reading,
+  // and useDraftSocket flips draft_status in place on this frame - so a
+  // completed-draft default keyed on the status alone would swap the
+  // workspace out from under them here. It opens the Board on arrival only.
+  expect(screen.getByRole('tab', { name: 'Draft', selected: true })).toBeInTheDocument();
+  expect(screen.getByRole('region', { name: 'Available Players' })).toBeInTheDocument();
+});
+
+test('a draft that is already complete when the room opens lands on the Board', async () => {
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+  connectAsTeam(1);
+
+  act(() =>
+    fakeSocket.trigger('draft:state', {
+      league: { name: 'Sunday Ballers', draft_status: 'complete' },
+      teams: [{ teamId: 1, teamName: 'Team A', draft_position: 1 }],
+      picks: [],
+      onTheClock: null,
+    })
+  );
+
+  expect(screen.getByRole('tab', { name: 'Board', selected: true })).toBeInTheDocument();
+  expect(screen.getByRole('region', { name: 'Draft Board' })).toBeInTheDocument();
+});
+
+test('an explicit ?view= wins over the completed-draft default', async () => {
+  // The first guard clause. Someone who asked for a view in the URL keeps it,
+  // even on a draft that is already complete when the room opens.
+  renderWithProviders(<DraftBoard />, {
+    path: '/league/:leagueId/draft',
+    route: '/league/1/draft?view=draft',
+  });
+  await screen.findByText('Patrick Mahomes');
+  connectAsTeam(1);
+
+  act(() =>
+    fakeSocket.trigger('draft:state', {
+      league: { name: 'Sunday Ballers', draft_status: 'complete' },
+      teams: [{ teamId: 1, teamName: 'Team A', draft_position: 1 }],
+      picks: [],
+      onTheClock: null,
+    })
+  );
+
+  expect(screen.getByRole('tab', { name: 'Draft', selected: true })).toBeInTheDocument();
+  expect(screen.getByRole('region', { name: 'Available Players' })).toBeInTheDocument();
+});
+
+test('a tab the manager clicked is never overridden afterwards', async () => {
+  // The second guard clause, and the one the ref exists for: a deliberate
+  // choice outranks the default even before the status is known.
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+  connectAsTeam(1);
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
+  await userEvent.click(screen.getByRole('tab', { name: 'Draft' }));
+
+  act(() =>
+    fakeSocket.trigger('draft:state', {
+      league: { name: 'Sunday Ballers', draft_status: 'complete' },
+      teams: [{ teamId: 1, teamName: 'Team A', draft_position: 1 }],
+      picks: [],
+      onTheClock: null,
+    })
+  );
+
+  expect(screen.getByRole('tab', { name: 'Draft', selected: true })).toBeInTheDocument();
 });
 
 test('a draft:complete event alone also shows the completion banner', async () => {

@@ -1,4 +1,6 @@
-import { teamIdForPick, pickLabelFor } from '../../lib/draftTurns';
+import {
+  teamIdForPick, pickLabelFor, teamsInDraftOrder, draftOrderIsSettled,
+} from '../../lib/draftTurns';
 
 /**
  * Who picks next, for the active rail's compact Upcoming strip (issue #123
@@ -16,33 +18,6 @@ import { teamIdForPick, pickLabelFor } from '../../lib/draftTurns';
  * draftOrder.service.js. Nothing about snake reversal or per-round overrides
  * is re-derived here.
  */
-
-/** Teams in base Draft order: by draft_position, ties broken by Team ID. */
-function orderedByDraftPosition(teams) {
-  // Mirrors the server's ORDER BY "draft_position" NULLS LAST, "id". The id
-  // tie-break is load-bearing: with two null positions,
-  // (a ?? Infinity) - (b ?? Infinity) is NaN, and a comparator returning NaN
-  // is unspecified behaviour rather than merely unstable.
-  return [...teams].sort((a, b) => {
-    const ap = a.draft_position == null ? Infinity : a.draft_position;
-    const bp = b.draft_position == null ? Infinity : b.draft_position;
-    return ap === bp ? a.teamId - b.teamId : ap - bp;
-  });
-}
-
-/**
- * Whether the Draft order is settled enough to read anything off it: the
- * draft has started, it has rounds, and every Team holds a distinct slot.
- * Before that there is no honest answer to "who is next", and a guess would
- * be indistinguishable on screen from a fact.
- */
-function draftOrderIsSettled(league, ordered, rounds) {
-  if (!league || league.draft_status === 'pending') return false;
-  if (!(rounds > 0) || ordered.length === 0) return false;
-  const positions = ordered.map((team) => team.draft_position);
-  return positions.every((position) => position != null)
-    && new Set(positions).size === positions.length;
-}
 
 /**
  * The next `limit` picks after the one on the clock, each as
@@ -64,8 +39,14 @@ function draftOrderIsSettled(league, ordered, rounds) {
  * a departed manager.
  */
 export function upcomingTeamsFor({ league, teams = [], picks = [], rounds = 0, limit = 3 } = {}) {
-  const ordered = orderedByDraftPosition(teams);
-  if (!draftOrderIsSettled(league, ordered, rounds)) return [];
+  const ordered = teamsInDraftOrder(teams);
+  if (!draftOrderIsSettled({ league, orderedTeams: ordered, rounds })) return [];
+  // A finished draft has nothing upcoming, and saying so here rather than in
+  // draftOrderIsSettled is deliberate: that predicate must stay true for a
+  // complete draft, because My Roster reads pick labels and remaining picks
+  // off it to render a finished team. "Settled" and "still being drafted"
+  // are different questions and only this one wants the second.
+  if (league.draft_status === 'complete') return [];
 
   const teamIds = ordered.map((team) => team.teamId);
   const nameById = new Map(ordered.map((team) => [team.teamId, team.teamName]));
