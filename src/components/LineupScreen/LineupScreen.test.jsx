@@ -944,6 +944,63 @@ test('best ball: no advice request and no suggestions panel when the lineup reso
   expect(screen.queryByText(/Projected .* · Optimal/)).not.toBeInTheDocument();
 });
 
+test('a background revalidation of the shared league resource does not refire the advice request', async () => {
+  // The revalidation response is held open deliberately, rather than
+  // resolved immediately like the rest of this mock: an instantly-resolved
+  // promise lets React coalesce the transient "loading" render away
+  // entirely, which would make this test pass trivially without actually
+  // exercising the hazard (a real revalidation is never instant).
+  let revalidating = false;
+  let resolveRevalidatedLeague;
+  apiClient.get.mockImplementation((url) => {
+    if (url.startsWith('/api/team/lineup/advice')) {
+      return Promise.resolve({ data: adviceResponse() });
+    }
+    if (url.startsWith('/api/team/lineup')) {
+      return Promise.resolve({ data: lineupResponse({ entries: flexBenchEntries }) });
+    }
+    if (url.startsWith('/api/team/hindsight')) {
+      return Promise.resolve({ data: hindsightSeasonResponse() });
+    }
+    if (url.startsWith('/api/league/')) {
+      if (!revalidating) {
+        return Promise.resolve({ data: { league: { id: 1, best_ball: false } } });
+      }
+      return new Promise((resolve) => {
+        resolveRevalidatedLeague = () => resolve({ data: { league: { id: 1, best_ball: false } } });
+      });
+    }
+    return Promise.reject(new Error(`unexpected url ${url}`));
+  });
+
+  renderScreen();
+  await screen.findByText('Justin Jefferson');
+
+  const adviceCallCount = () =>
+    apiClient.get.mock.calls.filter(([url]) => url.startsWith('/api/team/lineup/advice')).length;
+  expect(adviceCallCount()).toBe(1);
+
+  // Simulate the shared league cache entry revalidating in the background
+  // (a TTL lapse, or another mount on the same league invalidating it) with
+  // the same best_ball value. This must not look like a fresh "league just
+  // became known" transition to the advice-decision effect.
+  revalidating = true;
+  act(() => {
+    clearLeagueCache(1);
+  });
+
+  // The revalidation's own loading state has now committed on its own
+  // (leagueLoading flipped true again, ahead of the held-open response).
+  expect(adviceCallCount()).toBe(1);
+
+  await act(async () => {
+    resolveRevalidatedLeague();
+    await Promise.resolve();
+  });
+
+  expect(adviceCallCount()).toBe(1);
+});
+
 test('a non-best-ball league still shows the suggestions panel and no info alert', async () => {
   setupGet({ lineup: lineupResponse({ entries: flexBenchEntries }), advice: adviceResponse() });
 
