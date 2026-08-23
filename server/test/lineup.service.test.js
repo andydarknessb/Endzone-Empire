@@ -11,6 +11,9 @@ const {
   getLineup,
   setLineup,
   benchAcquiredPlayer,
+  removeLineupEntries,
+  currentWeekEntry,
+  restoreInterruptedStash,
   DEFAULT_ROSTER_SLOTS,
 } = require('../services/lineup.service');
 
@@ -911,5 +914,233 @@ test('benchAcquiredPlayer leaves a surviving starter row as played', async () =>
   client.release();
 
   assert.deepEqual([...slots], [[21, 'RB']]);
+  fake.assertClean();
+});
+
+// --- a lineup entry follows the roster (#197) --------------------------------
+// Six paths remove a player from a team and none of them used to touch
+// lineup_entries, so a lineup row outlived the roster relationship it
+// describes. `removeLineupEntries` is the one operation all six now call.
+//
+// The rule it implements: future weeks always go, the current week goes only
+// if the player's NFL game for that week has NOT kicked off, and past weeks
+// are never touched. A row that survives therefore means "he was on this
+// roster at kickoff", which is what every reader of the week as played
+// assumes.
+
+/**
+ * A removal world. `nflTeam` is the departing player's team, `kickedOff` the
+ * NFL teams whose game for the week has started, `final` whether the team's
+ * own matchup for the week is already final (#106).
+ */
+function removalWorld({ nflTeam = 'MIN', kickedOff = [], final = false } = {}) {
+  return createFakePool([
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: final ? [{ 1: 1 }] : [] })],
+    [/^SELECT "nfl_team" FROM "players"/, () => ({ rows: [{ nfl_team: nflTeam }] })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({
+      rows: kickedOff.map((nfl_team) => ({ nfl_team })),
+    })],
+    [/^DELETE FROM "lineup_entries"/, () => ({ rows: [], rowCount: 1 })],
+  ]);
+}
+
+const removalLeague = { id: 5, current_season: 2026, current_week: 9 };
+
+const removeFor = (client, overrides = {}) => removeLineupEntries(client, {
+  league: removalLeague,
+  teamId: 10,
+  playerId: 21,
+  ...overrides,
+});
+
+test('removeLineupEntries: a pre-kickoff departure takes the current week and every future week', async () => {
+  const fake = removalWorld({ nflTeam: 'MIN', kickedOff: ['KC'] });
+  const client = await fake.connect();
+
+  const result = await removeFor(client);
+  client.release();
+
+  assert.equal(result.removedCurrentWeek, true);
+  const [remove] = fake.matching(/^DELETE FROM "lineup_entries"/);
+  // Scoped to THIS team's rows for THIS player in the current season, and
+  // bounded below by the current week: past weeks are the record of the week
+  // as played and are never touched (#106).
+  assert.deepEqual(remove.params, [10, 21, 2026, 9, true]);
+  assert.match(remove.text, /"team_id" = \$1 AND "player_id" = \$2 AND "season" = \$3/);
+  assert.match(remove.text, /\("week" > \$4 OR \("week" = \$4 AND \$5::boolean\)\)/);
+  fake.assertClean();
+});
+
+test('removeLineupEntries: a post-kickoff departure keeps the current week and still takes the future', async () => {
+  const fake = removalWorld({ nflTeam: 'MIN', kickedOff: ['MIN', 'KC'] });
+  const client = await fake.connect();
+
+  const result = await removeFor(client);
+  client.release();
+
+  assert.equal(result.removedCurrentWeek, false);
+  // Same statement either way; the current week is spared by the bound
+  // parameter, not by a different query. A starter dropped after his game
+  // played keeps his row and therefore his points.
+  const [remove] = fake.matching(/^DELETE FROM "lineup_entries"/);
+  assert.deepEqual(remove.params, [10, 21, 2026, 9, false]);
+  fake.assertClean();
+});
+
+test('removeLineupEntries: the kickoff question is asked of the schedule, not of the caller', async () => {
+  const fake = removalWorld({ nflTeam: 'MIN', kickedOff: [] });
+  const client = await fake.connect();
+
+  const now = new Date('2026-11-01T17:00:00Z');
+  await removeFor(client, { now });
+  client.release();
+
+  // Pinned to the statement text, not merely to the shape the fake returns:
+  // this is the SAME predicate the lineup lock uses (lockedNflTeams), so a
+  // mutation of it has to fail here rather than pass because a fake answered
+  // from its parameters. `kickoff_at <= now` and nothing looser.
+  const [locked] = fake.matching(/FROM "nfl_games"/);
+  assert.match(locked.text, /SELECT "nfl_team" FROM "nfl_games"/);
+  assert.match(locked.text, /"season" = \$1 AND "week" = \$2 AND "kickoff_at" <= \$3/);
+  assert.deepEqual(locked.params, [2026, 9, now]);
+  fake.assertClean();
+});
+
+test('removeLineupEntries: a player with no game that week is not kicked off (bye and no-schedule control)', async () => {
+  // The schedule has other teams playing and nothing for MIN: a bye, or a
+  // week whose schedule has not been synced. Absence of a game row is
+  // absence of a kickoff, exactly as the lineup lock reads it.
+  const fake = removalWorld({ nflTeam: 'MIN', kickedOff: ['KC', 'BUF'] });
+  const client = await fake.connect();
+
+  const result = await removeFor(client);
+  client.release();
+
+  assert.equal(result.removedCurrentWeek, true);
+  assert.equal(fake.matching(/^DELETE FROM "lineup_entries"/)[0].params[4], true);
+  fake.assertClean();
+});
+
+test('removeLineupEntries: an empty schedule locks nothing at all', async () => {
+  const fake = removalWorld({ nflTeam: 'MIN', kickedOff: [] });
+  const client = await fake.connect();
+
+  const result = await removeFor(client);
+  client.release();
+
+  assert.equal(result.removedCurrentWeek, true);
+  fake.assertClean();
+});
+
+test('removeLineupEntries: a final week keeps its rows even for a player with no game (#106)', async () => {
+  // The one case the kickoff question alone would get wrong: the team's
+  // matchup is already final and the departing player had no game row that
+  // week. #106 froze a final week as the record of the week as played, and a
+  // DELETE is a write into it like any other. An incomplete schedule is the
+  // real exposure here, not a true bye: a bye scores nothing either way.
+  const fake = removalWorld({ nflTeam: 'MIN', kickedOff: [], final: true });
+  const client = await fake.connect();
+
+  const result = await removeFor(client);
+  client.release();
+
+  assert.equal(result.removedCurrentWeek, false);
+  assert.deepEqual(fake.matching(/^DELETE FROM "lineup_entries"/)[0].params, [10, 21, 2026, 9, false]);
+  fake.assertClean();
+});
+
+test('removeLineupEntries: a player with no players row is simply not locked', async () => {
+  const fake = createFakePool([
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    [/^SELECT "nfl_team" FROM "players"/, () => ({ rows: [] })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [{ nfl_team: 'MIN' }] })],
+    [/^DELETE FROM "lineup_entries"/, () => ({ rows: [], rowCount: 0 })],
+  ]);
+  const client = await fake.connect();
+
+  const result = await removeFor(client);
+  client.release();
+
+  assert.equal(result.removedCurrentWeek, true);
+  fake.assertClean();
+});
+
+// --- what the drop interrupted, recorded at drop time ------------------------
+
+test('currentWeekEntry reads the slot and attestation the player holds right now', async () => {
+  const fake = createFakePool([
+    [/^SELECT "slot", "ir_attested" FROM "lineup_entries"/, () => ({
+      rows: [{ slot: 'IR', ir_attested: true }],
+    })],
+  ]);
+  const client = await fake.connect();
+
+  const entry = await currentWeekEntry(client, { league: removalLeague, teamId: 10, playerId: 21 });
+  client.release();
+
+  assert.deepEqual(entry, { slot: 'IR', ir_attested: true });
+  assert.deepEqual(fake.calls[0].params, [10, 21, 2026, 9]);
+  fake.assertClean();
+});
+
+test('currentWeekEntry answers null when he has no current-week row', async () => {
+  const fake = createFakePool([
+    [/^SELECT "slot", "ir_attested" FROM "lineup_entries"/, () => ({ rows: [] })],
+  ]);
+  const client = await fake.connect();
+
+  const entry = await currentWeekEntry(client, { league: removalLeague, teamId: 10, playerId: 21 });
+  client.release();
+
+  assert.equal(entry, null);
+  fake.assertClean();
+});
+
+// --- undoing a drop replays what it interrupted ------------------------------
+
+test('restoreInterruptedStash materializes the week, then puts him back in the recorded slot', async () => {
+  const inserts = [];
+  const fake = createFakePool([
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    [/^SELECT "team_players"\."player_id"/, () => ({ rows: [{ player_id: 21, position: 'RB' }] })],
+    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({ rows: [] })],
+    [/^SELECT "player_id", "slot"/, () => ({ rows: [] })],
+    [/^INSERT INTO "lineup_entries"/, (text, params) => {
+      inserts.push({ text, params });
+      return { rows: [] };
+    }],
+  ]);
+  const client = await fake.connect();
+
+  await restoreInterruptedStash(client, {
+    league: removalLeague, teamId: 10, playerId: 21, slot: 'IR', irAttested: true,
+  });
+  client.release();
+
+  // Materialization first (a complete week, never a lone row the next
+  // copy-forward would read as its source), then the recorded slot written
+  // over whatever it left him in.
+  assert.equal(inserts.length, 2);
+  assert.deepEqual(inserts[0].params, [5, 10, 21, 2026, 9, 'BENCH', false]);
+  assert.deepEqual(inserts[1].params, [5, 10, 21, 2026, 9, 'IR', true]);
+  assert.match(
+    inserts[1].text,
+    /ON CONFLICT \("team_id", "season", "week", "player_id"\) DO UPDATE SET "slot" = EXCLUDED\."slot", "ir_attested" = EXCLUDED\."ir_attested"/
+  );
+  fake.assertClean();
+});
+
+test('restoreInterruptedStash writes nothing into a week that is already final (#106)', async () => {
+  const fake = createFakePool([
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [{ 1: 1 }] })],
+  ]);
+  const client = await fake.connect();
+
+  await restoreInterruptedStash(client, {
+    league: removalLeague, teamId: 10, playerId: 21, slot: 'IR', irAttested: false,
+  });
+  client.release();
+
+  assert.equal(fake.matching(/^INSERT INTO "lineup_entries"/).length, 0);
   fake.assertClean();
 });

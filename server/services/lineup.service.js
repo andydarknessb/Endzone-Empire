@@ -232,6 +232,94 @@ async function benchAcquiredPlayer(client, { league, teamId, playerId }) {
 }
 
 /**
+ * A lineup entry follows the roster (#197). When a team loses a player - by
+ * drop, waiver claim, commissioner drop, trade, undone draft pick or the
+ * keeper-pruning season rollover - his entries for that team go with him:
+ *
+ *   - every FUTURE week, always: he is not on the roster, so the row is noise
+ *     that no reader should ever see;
+ *   - the CURRENT week, unless his NFL game for it has already kicked off, by
+ *     the same predicate the lineup lock uses (`lockedNflTeams`), so no game
+ *     row that week means not locked;
+ *   - PAST weeks, never: they are the record of the week as played (#106).
+ *
+ * A surviving current-week row therefore means "he was on this roster at
+ * kickoff", which is what every reader of a played week assumes. Deleting it
+ * unconditionally would be the same disappearance #190 exists to prevent: a
+ * starter dropped on Sunday night would lose his row and with it his points.
+ *
+ * A week the team's own matchup has already settled is likewise left alone,
+ * for the reason #106 gives - its rows are the record, not a working lineup,
+ * and a DELETE is a write into it like any other. That only ever bites when
+ * the kickoff question cannot answer (no game row for him that week), which
+ * is a true bye or an unsynced schedule; the second is the one that would
+ * cost real points.
+ *
+ * Runs inside the caller's transaction, after the roster row is gone.
+ */
+async function removeLineupEntries(client, { league, teamId, playerId, now = new Date() }) {
+  const { id: leagueId, current_season: season, current_week: week } = league;
+  const playerResult = await client.query(
+    `SELECT "nfl_team" FROM "players" WHERE "id" = $1`,
+    [playerId]
+  );
+  const locked = await lockedNflTeams(client, { season, week, now });
+  const removeCurrentWeek = !locked.has(playerResult.rows[0]?.nfl_team)
+    && !(await isFinalWeekForTeam(client, { leagueId, teamId, season, week }));
+  // One statement either way: the current week is spared by the bound
+  // parameter, not by a second query, so there is a single predicate to read
+  // and a single one to get wrong.
+  const result = await client.query(
+    `DELETE FROM "lineup_entries"
+     WHERE "team_id" = $1 AND "player_id" = $2 AND "season" = $3
+       AND ("week" > $4 OR ("week" = $4 AND $5::boolean))`,
+    [teamId, playerId, season, week, removeCurrentWeek]
+  );
+  return { removedCurrentWeek: removeCurrentWeek, removed: result.rowCount };
+}
+
+/**
+ * The slot and attestation a player holds on this team in the league's
+ * current week right now, or null when he has no row there. A drop reads it
+ * before `removeLineupEntries` takes the row away, so the waiver hold can
+ * record what the drop interrupted and an undo can replay it (#197).
+ */
+async function currentWeekEntry(client, { league, teamId, playerId }) {
+  const result = await client.query(
+    `SELECT "slot", "ir_attested" FROM "lineup_entries"
+     WHERE "team_id" = $1 AND "player_id" = $2 AND "season" = $3 AND "week" = $4`,
+    [teamId, playerId, league.current_season, league.current_week]
+  );
+  return result.rows[0] || null;
+}
+
+/**
+ * Undoing a drop puts the player back in the slot the drop interrupted,
+ * recorded on his waiver hold at drop time (#197). The row itself is gone -
+ * the drop deleted it - so the undo recreates it rather than finding it.
+ *
+ * Materialize first, for the same reason `benchAcquiredPlayer` does: the week
+ * must be complete before it can be the next copy-forward's source. Then the
+ * recorded slot and attestation are written over whatever materialization
+ * left him in. A final week is frozen and takes neither (#106).
+ *
+ * Only `undoDrop` calls this, and only when `undoRestoresStash` says the
+ * recorded stash is still valid; every other acquisition benches the player.
+ */
+async function restoreInterruptedStash(client, { league, teamId, playerId, slot, irAttested }) {
+  const { id: leagueId, current_season: season, current_week: week } = league;
+  if (await isFinalWeekForTeam(client, { leagueId, teamId, season, week })) return;
+  await materializeLineup(client, { leagueId, teamId, season, week });
+  await client.query(
+    `INSERT INTO "lineup_entries" ("league_id", "team_id", "player_id", "season", "week", "slot", "ir_attested")
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT ("team_id", "season", "week", "player_id")
+     DO UPDATE SET "slot" = EXCLUDED."slot", "ir_attested" = EXCLUDED."ir_attested", "updated_at" = now()`,
+    [leagueId, teamId, playerId, season, week, slot, Boolean(irAttested)]
+  );
+}
+
+/**
  * The set of NFL team names whose game for (season, week) has kicked off —
  * players on those teams are locked. Empty schedule means nothing is locked.
  */
@@ -522,6 +610,9 @@ module.exports = {
   entriesForLineupValidation,
   materializeLineup,
   benchAcquiredPlayer,
+  removeLineupEntries,
+  currentWeekEntry,
+  restoreInterruptedStash,
   lockedNflTeams,
   annotateLineupEntries,
   getLineup,
