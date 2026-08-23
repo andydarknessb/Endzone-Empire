@@ -10,6 +10,8 @@ const {
   fantasySeasonLiveWhereSql,
   frozenSettingKeys,
   settingsUnfrozenWhereSql,
+  seasonEngineAvailable,
+  SEASON_BEFORE_DRAFT_MESSAGE,
   DRAFT_FROZEN_SETTING_KEYS,
 } = require('../services/leaguePhase');
 
@@ -168,4 +170,57 @@ test('frozenSettingKeys: fails closed for a missing league (everything frozen)',
   // matches the router's existing "reject when the status read is missing".
   assert.deepEqual([...frozenSettingKeys(null)].sort(), [...EXPECTED_FROZEN].sort());
   assert.deepEqual([...frozenSettingKeys(undefined)].sort(), [...EXPECTED_FROZEN].sort());
+});
+
+/* ------------------------------------------------------------------ *
+ * Season engine availability (#194)                                   *
+ * ------------------------------------------------------------------ */
+
+test('seasonEngineAvailable: refused while a fantasy league is pre-draft or drafting', () => {
+  assert.equal(seasonEngineAvailable({ pickem_only: false, draft_status: 'pending', season_status: 'regular' }), false);
+  assert.equal(seasonEngineAvailable({ pickem_only: false, draft_status: 'active', season_status: 'regular' }), false);
+});
+
+test('seasonEngineAvailable: allowed once the draft is complete, in every later phase', () => {
+  for (const season_status of ['regular', 'playoffs', 'complete']) {
+    assert.equal(
+      seasonEngineAvailable({ pickem_only: false, draft_status: 'complete', season_status }),
+      true,
+      season_status
+    );
+  }
+});
+
+test("seasonEngineAvailable: a pick'em-only league has no draft to wait for", () => {
+  // It is in-season from creation whatever draft_status says, so the gate
+  // must never be what stops it. (In the routers the pick'em refusal fires
+  // upstream of this anyway, in requireFantasyLeague.)
+  for (const draft_status of ['pending', 'active', 'complete']) {
+    assert.equal(
+      seasonEngineAvailable({ pickem_only: true, draft_status, season_status: 'regular' }),
+      true,
+      draft_status
+    );
+  }
+  assert.equal(seasonEngineAvailable({ pickem_only: true, draft_status: 'pending', season_status: 'complete' }), true);
+});
+
+test('seasonEngineAvailable: fails closed for a missing league row', () => {
+  assert.equal(seasonEngineAvailable(null), false);
+  assert.equal(seasonEngineAvailable(undefined), false);
+});
+
+test('seasonEngineAvailable: it is deriveLeaguePhase that decides, for every fixture case', () => {
+  // One source for the rule: the helper must agree with the shared fixture's
+  // phase on every case, so it cannot drift from the derivation it wraps.
+  for (const c of fixture.cases) {
+    const expected = c.phase !== null && c.phase !== 'pre-draft' && c.phase !== 'drafting';
+    assert.equal(seasonEngineAvailable(c.league), expected, c.name);
+  }
+});
+
+test('SEASON_BEFORE_DRAFT_MESSAGE: says why in plain words, with no em-dash', () => {
+  assert.match(SEASON_BEFORE_DRAFT_MESSAGE, /draft/i);
+  assert.match(SEASON_BEFORE_DRAFT_MESSAGE, /once it completes/i);
+  assert.doesNotMatch(SEASON_BEFORE_DRAFT_MESSAGE, /—/);
 });

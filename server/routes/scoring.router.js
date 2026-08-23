@@ -17,6 +17,7 @@ const {
 } = require('../services/leagueRole.service');
 const { isMember, requireMember } = require('../services/leagueMembership.service');
 const { requireFantasyLeague } = require('../services/leagueType');
+const { seasonEngineAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('../services/leaguePhase');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -76,6 +77,9 @@ router.post('/league/:id/matchups', async (req, res) => {
     const result = await scoring.generateMatchups({ leagueId, ...sw });
     res.status(201).json(result);
   } catch (error) {
+    // The phase refusal (#194) is a 409; map it like the sibling handlers do
+    // rather than flattening every failure here into a 500.
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     console.error('Matchup generation failed:', error);
     res.status(500).json({ error: 'matchup generation failed' });
   }
@@ -429,9 +433,17 @@ router.post('/league/:id/advance-week', async (req, res) => {
   try {
     if (!(await requireLeagueCommissioner(req, res, leagueId))) return;
     const leagueResult = await pool.query(
-      `SELECT "current_season", "current_week" FROM "leagues" WHERE "id" = $1`,
+      `SELECT "current_season", "current_week", "pickem_only", "draft_status", "season_status"
+       FROM "leagues" WHERE "id" = $1`,
       [leagueId]
     );
+    // #194: refuse before the week is scored, not after. finalizeWeekAndAdvance
+    // refuses too, but it runs SECOND here (see the note below on why scoring
+    // comes first), so a gate only there would answer 409 with a full week of
+    // scores already written.
+    if (!seasonEngineAvailable(leagueResult.rows[0])) {
+      return res.status(409).json({ error: SEASON_BEFORE_DRAFT_MESSAGE });
+    }
     const { current_season, current_week } = leagueResult.rows[0];
     // The score of record, so SETTLE semantics rather than the live path
     // (#190): the week as played, with no re-materialization and no join to

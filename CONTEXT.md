@@ -74,6 +74,11 @@ may join, whether settings may still change, whether the season is live. The
 draft's own turn-by-turn state is draft status, not phase. A pick'em-only
 league has no draft and needs its own derivation: it is in-season from the
 moment it is created, then complete, and never pre-draft or drafting.
+Schedule generation, week finalization and the scoring that precedes it are a
+phase rule too: they are unavailable to a league that is pre-draft or drafting,
+because there are no rosters yet to schedule or score. They become
+available the moment the draft completes, which is also when the schedule is
+generated, on the same transaction that completes the draft.
 _Avoid_: league status, stage, state
 
 **Draft status**:
