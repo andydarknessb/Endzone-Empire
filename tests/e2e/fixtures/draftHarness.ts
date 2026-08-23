@@ -21,12 +21,17 @@ import { json } from './jsonRoute';
 
 export { expect };
 
-// Desktop is comfortably above MUI's `sm` (600px) breakpoint; mobile is
-// comfortably below it, so `useMediaQuery(theme.breakpoints.down('sm'))`
-// (DraftBoard's own mobile switch) resolves deterministically either way.
+// `desktop` and `mobile` straddle MUI's `sm` (600px) breakpoint that
+// `useMediaQuery(theme.breakpoints.down('sm'))` (DraftBoard's isXs switch)
+// resolves against. `tablet` and `wide` add the medium breakpoint (900px)
+// straddle that DraftBoard's own desktop-shell/mobile-tabs switch uses
+// (issue #122) - all four are the widths its acceptance criteria name for
+// browser evidence, comfortably clear of both breakpoints in each direction.
 export const VIEWPORTS = {
-  desktop: { width: 1280, height: 900 },
   mobile: { width: 390, height: 844 },
+  tablet: { width: 768, height: 1024 },
+  desktop: { width: 1280, height: 900 },
+  wide: { width: 1920, height: 1080 },
 } as const;
 
 export type ThemeMode = 'light' | 'dark';

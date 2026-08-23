@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useId, useMemo } from 'react';
 import {
   Box, Chip, List, ListItem, Paper, Typography,
 } from '@mui/material';
@@ -157,6 +157,7 @@ function RosterPanel({
   dense = false,
   emptyLabel = 'Open',
 }) {
+  const headingId = useId();
   const assignment = useMemo(
     () => assignRosterSlots({ picks, rosterSlots, benchCount, irCount, irDraftable }),
     [picks, rosterSlots, benchCount, irCount, irDraftable]
@@ -174,8 +175,8 @@ function RosterPanel({
   if (!Array.isArray(rosterSlots) || rosterSlots.length === 0) return null;
 
   return (
-    <Paper variant="outlined" sx={{ p: 2 }} aria-label={title}>
-      <Typography variant="h6" sx={{ mb: note ? 0.5 : 1 }}>{title}</Typography>
+    <Paper component="section" variant="outlined" sx={{ p: 2 }} aria-labelledby={headingId}>
+      <Typography id={headingId} variant="h6" component="h2" sx={{ mb: note ? 0.5 : 1 }}>{title}</Typography>
       {note && (
         <Typography variant="caption" sx={{ color: 'warning.main', display: 'block', mb: 1 }}>
           {note}

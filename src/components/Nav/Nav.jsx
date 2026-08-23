@@ -30,6 +30,7 @@ import NotificationBell from '../NotificationBell/NotificationBell';
 import GlobalPlayerSearch from '../GlobalPlayerSearch/GlobalPlayerSearch';
 import ProfileSettingsModal from './ProfileSettingsModal';
 import { useThemeMode } from '../../theme/AppThemeProvider';
+import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 
 // Primary destinations shown inline on desktop and in the drawer on mobile.
 // "Notification Settings" and "Log Out" intentionally live in the profile
@@ -83,7 +84,7 @@ function Nav() {
 
   const themeToggle = (
     <Tooltip title={mode === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}>
-      <IconButton aria-label="Toggle theme" onClick={toggleMode} size="small">
+      <IconButton aria-label="Toggle theme" onClick={toggleMode} size="small" sx={MIN_TOUCH_TARGET_SX}>
         {mode === 'light' ? <Brightness4Icon fontSize="small" /> : <Brightness7Icon fontSize="small" />}
       </IconButton>
     </Tooltip>
@@ -106,7 +107,7 @@ function Nav() {
             aria-label="open navigation menu"
             edge="start"
             onClick={() => setDrawerOpen(true)}
-            sx={{ display: { xs: 'inline-flex', md: 'none' }, color: 'var(--text-muted)' }}
+            sx={{ display: { xs: 'inline-flex', md: 'none' }, color: 'var(--text-muted)', ...MIN_TOUCH_TARGET_SX }}
           >
             <MenuIcon />
           </IconButton>
@@ -135,14 +136,21 @@ function Nav() {
           </Stack>
         </Link>
 
-        {/* Desktop inline links */}
+        {/* Desktop inline links. The flexGrow:1 spacer stays even when logged
+            out (it's what pushes Log In/Register to the edge), but the <nav>
+            landmark itself only exists when it actually has links in it -
+            an always-present, always-empty landmark is its own confusion for
+            a screen reader user on the logged-out pages. */}
         <Box sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'stretch', flexGrow: 1 }}>
-          {loggedIn &&
-            links.map((l) => (
-              <Link key={l.to} component={RouterLink} to={l.to} underline="none" sx={linkSx(l.to)}>
-                {l.label}
-              </Link>
-            ))}
+          {loggedIn && (
+            <Box component="nav" aria-label="Primary navigation" sx={{ display: 'flex', alignItems: 'stretch' }}>
+              {links.map((l) => (
+                <Link key={l.to} component={RouterLink} to={l.to} underline="none" sx={linkSx(l.to)}>
+                  {l.label}
+                </Link>
+              ))}
+            </Box>
+          )}
         </Box>
 
         {/* Pushes the right cluster to the edge on mobile (no desktop links to grow) */}
@@ -191,6 +199,7 @@ function Nav() {
                   aria-label="account menu"
                   onClick={(e) => setProfileAnchor(e.currentTarget)}
                   size="small"
+                  sx={MIN_TOUCH_TARGET_SX}
                 >
                   <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.main', fontSize: 16 }}>
                     {(user.username || '?').charAt(0).toUpperCase()}
@@ -241,7 +250,7 @@ function Nav() {
       {/* Mobile navigation drawer */}
       <Drawer anchor="left" open={drawerOpen} onClose={() => setDrawerOpen(false)}>
         <Box sx={{ width: 260 }} role="presentation">
-          <Typography variant="h6" sx={{ p: 2, color: 'var(--accent)', fontWeight: 700 }}>
+          <Typography variant="h6" component="div" sx={{ p: 2, color: 'var(--accent)', fontWeight: 700 }}>
             Endzone Empire
           </Typography>
           <Divider />
@@ -251,38 +260,51 @@ function Nav() {
             </Box>
           )}
           {loggedIn ? (
-            <List>
-              {links.map((l) => (
-                <ListItemButton
-                  key={l.to}
-                  component={RouterLink}
-                  to={l.to}
-                  selected={isActive(l.to)}
-                  onClick={() => setDrawerOpen(false)}
-                >
-                  <ListItemText primary={l.label} />
-                </ListItemButton>
-              ))}
+            <>
+              <Box component="nav" aria-label="Primary navigation">
+                <List>
+                  {links.map((l) => (
+                    <ListItemButton
+                      key={l.to}
+                      component={RouterLink}
+                      to={l.to}
+                      selected={isActive(l.to)}
+                      onClick={() => setDrawerOpen(false)}
+                      sx={MIN_TOUCH_TARGET_SX}
+                    >
+                      <ListItemText primary={l.label} />
+                    </ListItemButton>
+                  ))}
+                </List>
+              </Box>
               <Divider />
-              <ListItemButton
-                component={RouterLink}
-                to="/settings/notifications"
-                onClick={() => setDrawerOpen(false)}
-              >
-                <ListItemText primary="Notification Settings" />
-              </ListItemButton>
-              {isAdmin && (
-                <ListItemButton component={RouterLink} to="/admin" onClick={() => setDrawerOpen(false)}>
-                  <ListItemIcon>
-                    <AdminPanelSettingsIcon fontSize="small" />
-                  </ListItemIcon>
-                  <ListItemText primary="Admin" />
+              <List>
+                <ListItemButton
+                  component={RouterLink}
+                  to="/settings/notifications"
+                  onClick={() => setDrawerOpen(false)}
+                  sx={MIN_TOUCH_TARGET_SX}
+                >
+                  <ListItemText primary="Notification Settings" />
                 </ListItemButton>
-              )}
-              <ListItemButton onClick={handleLogout}>
-                <ListItemText primary="Log Out" />
-              </ListItemButton>
-            </List>
+                {isAdmin && (
+                  <ListItemButton
+                    component={RouterLink}
+                    to="/admin"
+                    onClick={() => setDrawerOpen(false)}
+                    sx={MIN_TOUCH_TARGET_SX}
+                  >
+                    <ListItemIcon>
+                      <AdminPanelSettingsIcon fontSize="small" />
+                    </ListItemIcon>
+                    <ListItemText primary="Admin" />
+                  </ListItemButton>
+                )}
+                <ListItemButton onClick={handleLogout} sx={MIN_TOUCH_TARGET_SX}>
+                  <ListItemText primary="Log Out" />
+                </ListItemButton>
+              </List>
+            </>
           ) : (
             <List>
               <ListItemButton component={RouterLink} to="/login" onClick={() => setDrawerOpen(false)}>

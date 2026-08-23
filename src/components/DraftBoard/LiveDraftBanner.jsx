@@ -58,9 +58,18 @@ function LiveDraftBanner({ league, onTheClock, secondsLeft, isMyTurn }) {
       >
         {initialsFor(onTheClock?.name)}
       </Avatar>
-      <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+      {/* aria-live scoped to just who's-on-the-clock, not the whole banner:
+          that changes once per pick (worth announcing), while the seconds
+          countdown right after this Box changes every second - wrapping
+          that too would spam assistive tech with a per-second announcement.
+          This also restores the discoverability the old (mis-leveled) h1/h5
+          headings gave for free before issue 121 correctly demoted them to
+          non-headings - a screen reader is told the turn changed instead of
+          losing that signal entirely. */}
+      <Box sx={{ flexGrow: 1, minWidth: 0 }} role="status" aria-live="polite">
         <Typography
           variant="h5"
+          component="div"
           noWrap
           sx={{ fontWeight: 'bold', color: isMyTurn ? 'primary.main' : 'text.primary' }}
         >
@@ -75,6 +84,7 @@ function LiveDraftBanner({ league, onTheClock, secondsLeft, isMyTurn }) {
       {secondsLeft !== null ? (
         <Typography
           variant="h1"
+          component="div"
           data-testid="draft-clock"
           sx={{
             fontWeight: 'bold',
@@ -87,11 +97,11 @@ function LiveDraftBanner({ league, onTheClock, secondsLeft, isMyTurn }) {
           {secondsLeft}s
         </Typography>
       ) : league?.draft_paused ? (
-        <Typography variant="h6" sx={{ color: 'warning.main', flexShrink: 0 }}>
+        <Typography variant="h6" component="div" sx={{ color: 'warning.main', flexShrink: 0 }}>
           Draft paused
         </Typography>
       ) : (
-        <Typography variant="h6" sx={{ color: 'text.secondary', flexShrink: 0 }}>
+        <Typography variant="h6" component="div" sx={{ color: 'text.secondary', flexShrink: 0 }}>
           No pick clock
         </Typography>
       )}

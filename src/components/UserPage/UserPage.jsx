@@ -49,7 +49,14 @@ function nextUpFor(leagues, activityItems) {
 
   const scheduled = leagues.find((league) => deriveLeaguePhase(league) === LEAGUE_PHASE.PRE_DRAFT && league.draft_date);
   if (scheduled) {
-    return { eyebrow: 'Next up', title: `Draft day for ${scheduled.name}`, action: 'Draft Room', to: `/league/${scheduled.id}/draft`, draftDate: scheduled.draft_date };
+    return {
+      eyebrow: 'Next up',
+      title: `Draft day for ${scheduled.name}`,
+      action: 'Draft Room',
+      to: `/league/${scheduled.id}/draft`,
+      draftDate: scheduled.draft_date,
+      draftTimeZone: scheduled.draft_timezone,
+    };
   }
 
   // A pick'em-only league is in season from day one and has no lineup to set:
@@ -102,6 +109,7 @@ function UserPage() {
   // Join League dialog — leagues are private, so joining is always by invite code
   const [openJoinDialog, setOpenJoinDialog] = useState(false);
   const [inviteCode, setInviteCode] = useState('');
+  const [joinTeamName, setJoinTeamName] = useState('');
 
   // Below-the-fold dashboard widgets — each fetches independently so a slow
   // or failed one never blocks the leagues list (or each other).
@@ -178,6 +186,10 @@ function UserPage() {
   // free text and this dialog is not a <form>, so native min/max never run:
   // gate Create on the count instead of letting the server 400 it.
   const teamCountValid = isValidTeamCount(numTeams, capForType(leagueType));
+  // A Team name is required on every join path (#111); this dialog's own
+  // gate mirrors the server's trimmed-non-blank rule so Create never fires
+  // a request the server would only reject.
+  const teamNameValid = teamName.trim().length > 0;
   // A scheduled draft needs its zone explicitly acknowledged before Create
   // can fire (#116 AC3); an empty draft date needs no acknowledgement, and
   // neither does a pick'em league, which never sends draftDate at all (a
@@ -192,7 +204,7 @@ function UserPage() {
       const draftDateUtc = draftDate ? zonedWallTimeToUtcIso(draftDate, draftTimezone) : null;
       const payload = {
         name: leagueName,
-        teamName: teamName || undefined,
+        teamName: teamName.trim(),
         maxTeams: Number(numTeams),
         ...leagueTypePayload({ leagueType, pickemMode, bestBall, scoringPreset, draftDate: draftDateUtc, draftTimezone }),
       };
@@ -235,10 +247,11 @@ function UserPage() {
   const handleJoinLeague = async () => {
     setError(null);
     try {
-      await apiClient.post('/api/league/join', { inviteCode: inviteCode.trim() });
+      await apiClient.post('/api/league/join', { inviteCode: inviteCode.trim(), teamName: joinTeamName.trim() });
       setNotice('Joined league!');
       notify('Joined league!');
       setInviteCode('');
+      setJoinTeamName('');
       fetchMyLeagues();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
@@ -394,7 +407,9 @@ function UserPage() {
             <Box>
               <Typography variant="overline" color="primary.main">{nextUp.eyebrow}</Typography>
               <Typography id="next-up-heading" variant="h6">{nextUp.title}</Typography>
-              {nextUp.draftDate && <Countdown variant="chip" date={nextUp.draftDate} />}
+              {nextUp.draftDate && (
+                <Countdown variant="chip" date={nextUp.draftDate} timeZone={nextUp.draftTimeZone} />
+              )}
             </Box>
             <Button component={RouterLink} to={nextUp.to} variant="contained">{nextUp.action}</Button>
           </Stack>
@@ -501,7 +516,17 @@ function UserPage() {
           <DialogTitle className="dialogTitle">Create a New League</DialogTitle>
           <DialogContent>
             <TextField className="dialogTextField" autoFocus margin="dense" label="League Name" fullWidth value={leagueName} onChange={(event) => setLeagueName(event.target.value)} />
-            <TextField className="dialogTextField" margin="dense" label="Team Name" fullWidth value={teamName} onChange={(event) => setTeamName(event.target.value)} />
+            <TextField
+              className="dialogTextField"
+              margin="dense"
+              label="Team Name"
+              fullWidth
+              required
+              inputProps={{ maxLength: 120 }}
+              helperText="Your Team's identity in this league. Other managers never see your account email or username."
+              value={teamName}
+              onChange={(event) => setTeamName(event.target.value)}
+            />
 
             <LeagueTypeFields
               leagueType={leagueType}
@@ -616,7 +641,7 @@ function UserPage() {
             <Button onClick={handleCloseCreateDialog} color="primary">
              Cancel
             </Button>
-            <Button onClick={handleCreateLeague} color="primary" disabled={!leagueName.trim() || !teamCountValid || !draftScheduleReady}>
+            <Button onClick={handleCreateLeague} color="primary" disabled={!leagueName.trim() || !teamNameValid || !teamCountValid || !draftScheduleReady}>
              Create
             </Button>
             </DialogActions>
@@ -633,12 +658,23 @@ function UserPage() {
               value={inviteCode}
               onChange={(event) => setInviteCode(event.target.value)}
             />
+            <TextField
+              className="dialogTextField"
+              margin="dense"
+              label="Team Name"
+              fullWidth
+              required
+              inputProps={{ maxLength: 120 }}
+              helperText="Your Team's identity in this league. Other managers never see your account email or username."
+              value={joinTeamName}
+              onChange={(event) => setJoinTeamName(event.target.value)}
+            />
           </DialogContent>
                   <DialogActions>
                     <Button onClick={handleCloseJoinDialog} color="primary">
                       Cancel
                     </Button>
-                    <Button onClick={handleJoinLeague} color="primary" disabled={!inviteCode.trim()}>
+                    <Button onClick={handleJoinLeague} color="primary" disabled={!inviteCode.trim() || !joinTeamName.trim()}>
                       Join
                     </Button>
                   </DialogActions>

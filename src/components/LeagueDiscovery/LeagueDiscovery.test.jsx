@@ -145,7 +145,7 @@ test('direct join posts team name and navigates to the league dashboard on 201',
   await screen.findByText('Sunday Ballers');
 
   await userEvent.click(screen.getByRole('button', { name: 'Join' }));
-  await userEvent.type(screen.getByLabelText('Team name'), "Cory's Squad");
+  await userEvent.type(screen.getByLabelText(/Team name/), "Cory's Squad");
   await userEvent.click(screen.getByRole('button', { name: 'Join' }));
 
   await waitFor(() =>
@@ -164,7 +164,7 @@ test('an approval-required league shows "Request to join" and flips to a disable
 
   await userEvent.click(screen.getByRole('button', { name: 'Request to join' }));
   const dialog = screen.getByRole('dialog');
-  await userEvent.type(within(dialog).getByLabelText('Team name'), "Cory's Squad");
+  await userEvent.type(within(dialog).getByLabelText(/Team name/), "Cory's Squad");
   await userEvent.click(within(dialog).getByRole('button', { name: 'Request to join' }));
 
   await waitFor(() =>
@@ -300,7 +300,7 @@ test("the join dialog for a pick'em-only league explains what the team name is",
   await screen.findByText('Office Pool');
 
   await userEvent.click(screen.getByRole('button', { name: 'Join' }));
-  expect(await screen.findByLabelText('Team name')).toBeInTheDocument();
+  expect(await screen.findByLabelText(/Team name/)).toBeInTheDocument();
   expect(screen.getByText("Your name in the pick'em standings.")).toBeInTheDocument();
 });
 

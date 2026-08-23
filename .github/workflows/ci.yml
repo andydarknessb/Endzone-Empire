@@ -139,6 +139,13 @@ jobs:
       - run: npm run test:draft-rounds-pg
         env:
           DRAFT_ROUNDS_PG_TESTS: "1"
+      # Team-name backfill + CHECK constraint + widened join_requests column
+      # (#111): same reasoning as the draft_rounds smoke above -- the empty
+      # leagues table in the plain migrate/rollback/migrate smoke can never
+      # exercise this migration's backfill predicate or cancellation UPDATE.
+      - run: npm run test:team-names-pg
+        env:
+          TEAM_NAMES_PG_TESTS: "1"
 
       # Snapshot-client CONTRACTS: the eight production queries re-implemented
       # in JS, checked against the real Postgres on identical seeded rows, plus

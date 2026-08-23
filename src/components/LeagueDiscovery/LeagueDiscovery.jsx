@@ -308,7 +308,13 @@ function LeagueDiscovery() {
             margin="dense"
             label="Team name"
             fullWidth
-            helperText={isPickemOnly(joinTarget) ? "Your name in the pick'em standings." : undefined}
+            required
+            inputProps={{ maxLength: 120 }}
+            helperText={
+              isPickemOnly(joinTarget)
+                ? "Your name in the pick'em standings."
+                : "Your Team's identity in this league. Other managers never see your account email or username."
+            }
             value={teamName}
             onChange={(e) => setTeamName(e.target.value)}
           />

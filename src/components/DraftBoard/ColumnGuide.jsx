@@ -13,6 +13,7 @@ import {
 } from '@mui/material';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import { STAT_DEFINITIONS } from '../common/AbbreviationTooltip';
+import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 
 // The pool's per-column abbreviation tooltips (see AbbreviationTooltip) are
 // individually keyboard-focusable, but a keyboard/screen-reader user has no
@@ -37,7 +38,7 @@ function ColumnGuide() {
   return (
     <>
       <Tooltip title="Column guide">
-        <IconButton aria-label="Column guide" size="small" onClick={() => setOpen(true)}>
+        <IconButton aria-label="Column guide" size="small" onClick={() => setOpen(true)} sx={MIN_TOUCH_TARGET_SX}>
           <HelpOutlineIcon fontSize="small" />
         </IconButton>
       </Tooltip>
@@ -58,7 +59,7 @@ function ColumnGuide() {
           </List>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpen(false)}>Close</Button>
+          <Button onClick={() => setOpen(false)} sx={MIN_TOUCH_TARGET_SX}>Close</Button>
         </DialogActions>
       </Dialog>
     </>

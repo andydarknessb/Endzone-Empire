@@ -368,7 +368,13 @@ function LeagueDashboard() {
 
       {!pickemOnly && preDraft && league.draft_date && (
         <Box sx={{ mb: 3 }}>
-          <Countdown variant="full" date={league.draft_date} />
+          <Countdown
+            variant="full"
+            date={league.draft_date}
+            timeZone={league.draft_timezone}
+            leagueId={league.id}
+            leagueName={league.name}
+          />
         </Box>
       )}
 

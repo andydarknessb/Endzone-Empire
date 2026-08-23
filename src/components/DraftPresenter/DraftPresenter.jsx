@@ -94,7 +94,15 @@ function DraftPresenter() {
               </Typography>
             </Box>
             {isActive && !league.draft_paused && league.pick_deadline_at ? (
-              <Countdown date={league.pick_deadline_at} prefix="Time remaining:" />
+              // This is the per-pick clock, not the Draft's own schedule: no
+              // milestone announcer (the surrounding Paper is already one
+              // aria-live=polite region) and no timezone/calendar detail.
+              <Countdown
+                date={league.pick_deadline_at}
+                prefix="Time remaining:"
+                announce={false}
+                showScheduleDetail={false}
+              />
             ) : (
               <Typography variant="h6" sx={{ color: league.draft_paused ? 'warning.main' : 'text.secondary' }}>
                 {league.draft_paused ? 'Draft paused' : 'No active pick clock'}
@@ -108,6 +116,13 @@ function DraftPresenter() {
             onTheClock={onTheClock}
             draftRounds={draftRounds(league)}
             readOnly
+            // This page's own heading order is h1 (above) then h3 (the
+            // on-the-clock status) then h4 ("Recent picks" below) - not
+            // something issue #121 owns fixing. Keep the matrix's title at
+            // its own pre-existing level here (out of the h1-h3-h4 chain
+            // entirely) rather than accepting the default h2, which would
+            // sit awkwardly between the h3 and h4 already on this page.
+            titleComponent="h6"
           />
 
           <Paper component="section" aria-labelledby="recent-picks-heading" sx={{ p: { xs: 2, md: 3 } }}>

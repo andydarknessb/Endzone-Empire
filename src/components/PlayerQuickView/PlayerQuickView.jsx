@@ -33,6 +33,7 @@ import PlayerAvatar from './PlayerAvatar';
 import PositionChip from './PositionChip';
 import { statLine } from './statLine';
 import AbbreviationTooltip from '../common/AbbreviationTooltip';
+import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 
 // Module-level: persists the last-selected toggle across dialog opens for the
 // duration of the session (resets on full page reload). Intentionally not
@@ -136,8 +137,13 @@ function StatCardList({ label, rows }) {
  * @param playerIds  Optional ordered id list the dialog was opened from; enables
  *                   prev/next arrows + Left/Right arrow-key navigation.
  * @param onNavigate (id) => void — called with the new id on prev/next.
- * @param actions    Optional [{ label, onClick, disabled, tooltip, variant, color }]
+ * @param actions    Optional [{ label, onClick, disabled, tooltip, unavailableReason, variant, color }]
  *                   context action(s) (e.g. Add to Roster / Draft / Queue).
+ *                   `disabled` is a native, permanent disablement (e.g.
+ *                   already queued). `unavailableReason`, when set, renders
+ *                   the action as focusable aria-disabled instead - still
+ *                   reachable by keyboard, with activation suppressed and
+ *                   its text shown as the explanation (issue #120).
  */
 function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerIds, onNavigate, actions }) {
   const [data, setData] = useState(null);
@@ -304,15 +310,27 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
                   {navIndex + 1} of {navIds.length}
                 </Typography>
               )}
-              <IconButton aria-label="Previous player" onClick={goPrev} disabled={!canPrev} size="small">
+              <IconButton
+                aria-label="Previous player"
+                onClick={goPrev}
+                disabled={!canPrev}
+                size="small"
+                sx={MIN_TOUCH_TARGET_SX}
+              >
                 ‹
               </IconButton>
-              <IconButton aria-label="Next player" onClick={goNext} disabled={!canNext} size="small">
+              <IconButton
+                aria-label="Next player"
+                onClick={goNext}
+                disabled={!canNext}
+                size="small"
+                sx={MIN_TOUCH_TARGET_SX}
+              >
                 ›
               </IconButton>
             </>
           )}
-          <IconButton aria-label="Close" onClick={onClose} size="small">
+          <IconButton aria-label="Close" onClick={onClose} size="small" sx={MIN_TOUCH_TARGET_SX}>
             <CloseIcon fontSize="small" />
           </IconButton>
         </Box>
@@ -398,8 +416,8 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
               color="primary"
               sx={{ mb: 2 }}
             >
-              <ToggleButton value="current">Current Season</ToggleButton>
-              <ToggleButton value="previous">Previous Seasons</ToggleButton>
+              <ToggleButton value="current" sx={MIN_TOUCH_TARGET_SX}>Current Season</ToggleButton>
+              <ToggleButton value="previous" sx={MIN_TOUCH_TARGET_SX}>Previous Seasons</ToggleButton>
             </ToggleButtonGroup>
 
             {view === 'current' ? (
@@ -535,6 +553,7 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
                   variant="outlined"
                   size="small"
                   onClick={() => setPinnedComparison((current) => (current ? null : data))}
+                  sx={MIN_TOUCH_TARGET_SX}
                 >
                   {pinnedComparison ? 'Clear compare' : 'Compare'}
                 </Button>
@@ -564,21 +583,34 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
 
             {Array.isArray(actions) && actions.length > 0 && (
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mt: 2 }}>
-                {actions.map((action, i) => (
-                  <Tooltip key={i} title={action.disabled && action.tooltip ? action.tooltip : ''}>
-                    <span>
-                      <Button
-                        variant={action.variant || 'contained'}
-                        color={action.color || 'primary'}
-                        size="small"
-                        disabled={action.disabled}
-                        onClick={action.onClick}
-                      >
-                        {action.label}
-                      </Button>
-                    </span>
-                  </Tooltip>
-                ))}
+                {actions.map((action, i) => {
+                  const unavailable = !!action.unavailableReason;
+                  const tooltipTitle = unavailable
+                    ? action.unavailableReason
+                    : action.disabled && action.tooltip
+                    ? action.tooltip
+                    : '';
+                  return (
+                    <Tooltip key={i} title={tooltipTitle}>
+                      <span>
+                        <Button
+                          variant={action.variant || 'contained'}
+                          color={action.color || 'primary'}
+                          size="small"
+                          disabled={action.disabled}
+                          aria-disabled={unavailable || undefined}
+                          onClick={(event) => {
+                            if (unavailable) return; // suppressed activation
+                            action.onClick(event);
+                          }}
+                          sx={MIN_TOUCH_TARGET_SX}
+                        >
+                          {action.label}
+                        </Button>
+                      </span>
+                    </Tooltip>
+                  );
+                })}
               </Box>
             )}
 
@@ -587,6 +619,7 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
                 component={RouterLink}
                 to={`/players/${playerId}${leagueId ? `?leagueId=${leagueId}` : ''}`}
                 onClick={onClose}
+                sx={{ display: 'inline-flex', alignItems: 'center', ...MIN_TOUCH_TARGET_SX }}
               >
                 Full profile →
               </Link>

@@ -183,7 +183,7 @@ test('assertAdmissible: a full league refuses 409 league is full; one slot short
   assert.deepEqual(await assertAdmissible(open.client, FANTASY_PRE_DRAFT, 5), { teamCount: 9 });
 });
 
-test('joinLeague: a missing league is 404', async () => {
+test('joinLeague: a missing league is 404 (before any team-name check)', async () => {
   const { fake, client } = await world({ league: null });
   await assert.rejects(
     joinLeague(client, { leagueId: 404, userId: 5, username: 'eve' }),
@@ -192,21 +192,21 @@ test('joinLeague: a missing league is 404', async () => {
   assert.equal(fake.matching(insert('teams')).length, 0);
 });
 
-test('joinLeague: locks the league, inserts draft_position = teamCount + 1 with the default name, returns { league, team }', async () => {
+test('joinLeague: locks the league, trims the given name, inserts draft_position = teamCount + 1, returns { league, team }', async () => {
   const { fake, client } = await world({ league: FANTASY_PRE_DRAFT, teamCount: 3 });
-  const result = await joinLeague(client, { leagueId: 7, userId: 5, username: 'eve' });
+  const result = await joinLeague(client, { leagueId: 7, userId: 5, username: 'eve', teamName: '  Eve Picks  ' });
   assert.equal(fake.matching(LOCK_LEAGUE).length, 1, 'the league row is locked FOR UPDATE');
   const [inserted] = fake.matching(insert('teams'));
   assert.match(inserted.text, /RETURNING \*$/);
-  assert.deepEqual(inserted.params, [7, 5, "eve's Team", 4]);
+  assert.deepEqual(inserted.params, [7, 5, 'Eve Picks', 4]);
   assert.deepEqual(result, {
     league: FANTASY_PRE_DRAFT,
-    team: { id: 99, league_id: 7, owner_id: 5, name: "eve's Team", draft_position: 4 },
+    team: { id: 99, league_id: 7, owner_id: 5, name: 'Eve Picks', draft_position: 4 },
   });
   assert.equal(fake.calls.some((c) => TX.test(c.text)), false, 'the caller owns the transaction');
 });
 
-test('joinLeague: a given team name is used as is', async () => {
+test('joinLeague: a given team name is used as is (once trimmed)', async () => {
   const { fake, client } = await world({ league: FANTASY_PRE_DRAFT, teamCount: 3 });
   const { team } = await joinLeague(client, { leagueId: 7, userId: 5, username: 'eve', teamName: 'Eve Picks' });
   assert.equal(team.name, 'Eve Picks');
@@ -215,12 +215,12 @@ test('joinLeague: a given team name is used as is', async () => {
 
 test('joinLeague: on a just-created league (the create path) the count is 0 and the position 1', async () => {
   const { fake, client } = await world({ league: FANTASY_PRE_DRAFT, teamCount: 0 });
-  const { team } = await joinLeague(client, { leagueId: 7, userId: 100, username: 'commish' });
+  const { team } = await joinLeague(client, { leagueId: 7, userId: 100, username: 'commish', teamName: "Commish's Crew" });
   assert.equal(team.draft_position, 1);
-  assert.deepEqual(fake.matching(insert('teams'))[0].params, [7, 100, "commish's Team", 1]);
+  assert.deepEqual(fake.matching(insert('teams'))[0].params, [7, 100, "Commish's Crew", 1]);
 });
 
-test('joinLeague: the admission rules apply on the way in (member, full, not joinable)', async () => {
+test('joinLeague: the admission rules apply on the way in (member, full, not joinable), before any team-name check', async () => {
   const member = await world({ league: FANTASY_PRE_DRAFT, members: [5] });
   await assert.rejects(joinLeague(member.client, { leagueId: 7, userId: 5, username: 'eve' }), refusal(409, 'already has a team in this league'));
   const full = await world({ league: FANTASY_PRE_DRAFT, teamCount: 10 });
@@ -236,7 +236,7 @@ test('joinLeague: a 23505 from the insert (a racing join) surfaces as the alread
     onInsert: () => { throw Object.assign(new Error('duplicate key value violates unique constraint'), { code: '23505' }); },
   });
   await assert.rejects(
-    joinLeague(client, { leagueId: 7, userId: 5, username: 'eve' }),
+    joinLeague(client, { leagueId: 7, userId: 5, username: 'eve', teamName: 'Eve Picks' }),
     refusal(409, 'already has a team in this league')
   );
 });
@@ -244,5 +244,37 @@ test('joinLeague: a 23505 from the insert (a racing join) surfaces as the alread
 test('joinLeague: any other insert error is rethrown untouched', async () => {
   const boom = Object.assign(new Error('deadlock detected'), { code: '40P01' });
   const { client } = await world({ league: FANTASY_PRE_DRAFT, onInsert: () => { throw boom; } });
-  await assert.rejects(joinLeague(client, { leagueId: 7, userId: 5, username: 'eve' }), (error) => error === boom);
+  await assert.rejects(joinLeague(client, { leagueId: 7, userId: 5, username: 'eve', teamName: 'Eve Picks' }), (error) => error === boom);
+});
+
+/* ------------------------------------------------------------------ *
+ * Required Team name (#111): the same rule on every join path, checked  *
+ * after admission and before the insert.                                *
+ * ------------------------------------------------------------------ */
+
+test('joinLeague: refuses a missing, blank or whitespace-only team name with 400, and inserts nothing', async () => {
+  for (const teamName of [undefined, null, '', '   ', '\t']) {
+    const { fake, client } = await world({ league: FANTASY_PRE_DRAFT, teamCount: 3 });
+    await assert.rejects(
+      joinLeague(client, { leagueId: 7, userId: 5, username: 'eve', teamName }),
+      refusal(400, 'Team name is required')
+    );
+    assert.equal(fake.matching(insert('teams')).length, 0, `no insert for teamName=${JSON.stringify(teamName)}`);
+  }
+});
+
+test('joinLeague: refuses a team name over 120 characters, and inserts nothing', async () => {
+  const { fake, client } = await world({ league: FANTASY_PRE_DRAFT, teamCount: 3 });
+  await assert.rejects(
+    joinLeague(client, { leagueId: 7, userId: 5, username: 'eve', teamName: 'x'.repeat(121) }),
+    refusal(400, 'Team name must be 120 characters or fewer')
+  );
+  assert.equal(fake.matching(insert('teams')).length, 0);
+});
+
+test('joinLeague: accepts a team name at exactly the 120-character boundary', async () => {
+  const { fake, client } = await world({ league: FANTASY_PRE_DRAFT, teamCount: 3 });
+  const name = 'x'.repeat(120);
+  await joinLeague(client, { leagueId: 7, userId: 5, username: 'eve', teamName: name });
+  assert.deepEqual(fake.matching(insert('teams'))[0].params, [7, 5, name, 4]);
 });

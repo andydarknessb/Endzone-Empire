@@ -22,9 +22,19 @@ import PlayerPoolTable from './PlayerPoolTable';
 import DraftRail from './DraftRail';
 import DraftBoardMatrix from './DraftBoardMatrix';
 import DraftDayControls from './DraftDayControls';
+import DraftPickConfirmDialog from './DraftPickConfirmDialog';
+import { pickActionExists, pickTemporarilyUnavailable, PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
 import { assignRosterSlots } from '../../lib/rosterAssignment';
 import { turnSummaryFor, pickLabelFor } from '../../lib/draftTurns';
 import { draftRounds } from '../../lib/rosterShape';
+import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
+
+// The Draft page's one landmark structure: a single <main>, named by the
+// league-name H1 inside it, that the App-level skip link (see App.jsx)
+// targets directly. Shared by both the loading skeleton and the loaded view
+// so the skip link's destination exists throughout the page's lifecycle.
+const DRAFT_MAIN_ID = 'draft-main-content';
+const DRAFT_H1_ID = 'draft-league-name';
 
 /**
  * Everything the roster panel needs, derived from live draft state. A plain
@@ -144,18 +154,34 @@ function DraftBoard() {
   const notify = useSnackbar();
   const theme = useTheme();
   const isXs = useMediaQuery(theme.breakpoints.down('sm'));
+  // The medium breakpoint already established by this route's own Grid
+  // (players/rail switch order there at `md`) - issue #122 reuses it as the
+  // one place desktop's dual-scroll shell and mobile's single-scroll tabs
+  // diverge. Defaults to false when matchMedia is unavailable (jsdom unit
+  // tests), so every existing desktop-shaped assertion is unaffected unless a
+  // test explicitly opts into mobile via the matchMedia mock convention.
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
   const [error, setError] = useState(null);
   // Draft/Board view tab, mirrored into the URL (view=board) alongside the
   // pool-state params usePlayerPool owns. Built off the previous params so
   // switching tabs doesn't clobber filters, and vice versa (see usePlayerPool).
   const [searchParams, setSearchParams] = useSearchParams();
-  const [view, setView] = useState(() => (searchParams.get('view') === 'board' ? 'board' : 'draft'));
+  // Three logical views: 'players' (the default), 'draft' (the rail) and
+  // 'board'. Desktop collapses 'players'/'draft' into one dual-pane workspace
+  // (issue #122 acceptance criterion 1) - only 'board' swaps out the whole
+  // region there. Below the medium breakpoint each is its own tab/single
+  // scroll region, in the persistent Players/Board/Draft order the
+  // acceptance criteria name.
+  const [view, setView] = useState(() => {
+    const requested = searchParams.get('view');
+    return requested === 'board' || requested === 'draft' ? requested : 'players';
+  });
   useEffect(() => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
-      if (view === 'board') next.set('view', 'board');
-      else next.delete('view');
+      if (view === 'players') next.delete('view');
+      else next.set('view', view);
       return next;
     }, { replace: true });
   }, [view, setSearchParams]);
@@ -181,6 +207,11 @@ function DraftBoard() {
   // without any extra state — the board keeps updating behind the overlay.
   const [quickViewId, setQuickViewId] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // A manual Pick awaiting the focused confirmation dialog: { id, name } |
+  // null. Every manual-Pick surface (pool row, Quick View, queue quick-draft)
+  // routes through requestDraftPlayer below instead of committing directly,
+  // so none of them can skip the confirmation (#120 acceptance criterion 3).
+  const [pendingPick, setPendingPick] = useState(null);
 
   const pool = usePlayerPool(leagueId);
   const myRoster = useMyRoster(leagueId);
@@ -228,9 +259,16 @@ function DraftBoard() {
     if (onClockAlertOpen && soundOnRef.current) playBeep();
   }, [onClockAlertOpen]);
 
+  // Shared by every lookup below: the rail's quick-draft button targets
+  // queue[0], which can be a player the current pool filters/paging don't
+  // currently include, so the pool is checked first and the queue is the
+  // fallback rather than the other way around.
+  const findKnownPlayer = (playerId) =>
+    pool.availablePlayers.find((p) => p.id === playerId) || queue.find((p) => p.id === playerId);
+
   const handleDraftPlayer = (playerId) => {
     setError(null);
-    const player = pool.availablePlayers.find((p) => p.id === playerId);
+    const player = findKnownPlayer(playerId);
     emitPick(playerId, (resp) => {
       if (resp?.error) {
         setError(resp.error);
@@ -241,11 +279,56 @@ function DraftBoard() {
     });
   };
 
+  // Opens the focused confirmation dialog instead of committing straight
+  // away - the single seam every manual-Pick surface below calls through.
+  const requestDraftPlayer = (playerId) => {
+    const player = findKnownPlayer(playerId);
+    setPendingPick({ id: playerId, name: player ? player.name : 'this player' });
+  };
+
+  const confirmDraftPlayer = () => {
+    if (!pendingPick) return;
+    const { id } = pendingPick;
+    setPendingPick(null);
+    setQuickViewId(null);
+    // Re-check against the LATEST live state rather than trusting whatever
+    // was true when the dialog opened: it can sit open across a turn
+    // change (the clock expired and autodraft took the pick), a pause, or
+    // the draft ending, none of which touch `pendingPick` itself.
+    const canManualPickNow = pickActionExists({ draftStatus: league?.draft_status, draftType: league?.draft_type });
+    const stillAvailable = canManualPickNow && !pickTemporarilyUnavailable({ isMyTurn, draftPaused: !!league?.draft_paused });
+    if (!stillAvailable) {
+      notify(PICK_UNAVAILABLE_EXPLANATION, { severity: 'error' });
+      return;
+    }
+    handleDraftPlayer(id);
+  };
+
+  const cancelDraftPlayer = () => setPendingPick(null);
+
   const loading = pool.loading || queueLoading;
 
   if (loading) {
     return (
-      <Container maxWidth="xl" sx={{ py: 4 }} data-testid="page-skeleton">
+      <Container
+        component="main"
+        id={DRAFT_MAIN_ID}
+        tabIndex={-1}
+        maxWidth="xl"
+        data-testid="page-skeleton"
+        sx={{
+          py: 4,
+          // App.jsx gives the desktop Draft route a fixed-height, non-
+          // scrolling shell (issue #122) whether or not this skeleton is
+          // what's currently mounted inside it. Match that height so the
+          // skeleton fills it instead of being clipped by the shell's own
+          // overflow: hidden, with its own overflow: auto as a safety net
+          // if a very short window ever makes it taller than that anyway -
+          // it scrolls in place rather than vanishing.
+          height: { md: '100%' },
+          overflow: { md: 'auto' },
+        }}
+      >
         <Skeleton variant="text" width={280} height={48} sx={{ mb: 2 }} />
         <Skeleton variant="rounded" height={56} sx={{ mb: 3 }} />
         <Grid container spacing={3}>
@@ -288,21 +371,28 @@ function DraftBoard() {
   }
 
   // Context actions for the quick-view: Draft / Queue the currently-viewed
-  // available player, mirroring the row buttons. Hidden once the player is
-  // drafted (the "Drafted by" banner covers that case).
+  // available player, mirroring the row buttons - same rules, same shared
+  // confirmation dialog. Hidden once the player is drafted (the "Drafted by"
+  // banner covers that case), and Draft itself is omitted entirely (not just
+  // disabled) whenever no manual Pick control exists in this draft's status/
+  // type at all (#120 acceptance criteria 1-2, 5).
   const quickViewAvail = pool.availablePlayers.find((p) => p.id === quickViewId);
+  const canManualPick = pickActionExists({ draftStatus: league?.draft_status, draftType: league?.draft_type });
+  const pickUnavailable = canManualPick && pickTemporarilyUnavailable({ isMyTurn, draftPaused: !!league?.draft_paused });
   const quickViewActions =
     quickViewAvail && !quickViewDraftedBy
       ? [
-          {
-            label: 'Draft',
-            variant: 'contained',
-            disabled: !!league?.draft_paused,
-            onClick: () => {
-              handleDraftPlayer(quickViewAvail.id);
-              setQuickViewId(null);
-            },
-          },
+          ...(canManualPick
+            ? [
+                {
+                  label: 'Draft',
+                  variant: 'contained',
+                  color: 'success',
+                  unavailableReason: pickUnavailable ? PICK_UNAVAILABLE_EXPLANATION : null,
+                  onClick: () => requestDraftPlayer(quickViewAvail.id),
+                },
+              ]
+            : []),
           {
             label: queue.some((p) => p.id === quickViewAvail.id) ? 'Queued' : 'Queue',
             variant: 'outlined',
@@ -312,155 +402,243 @@ function DraftBoard() {
         ]
       : [];
 
-  return (
-    <Container maxWidth="xl" sx={{ py: 4 }}>
-      <LeagueBreadcrumb />
-      {(error || socketError) && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {error || socketError}
-        </Alert>
-      )}
-      {draftComplete && (
-        <Alert severity="success" sx={{ mb: 2 }} data-testid="draft-complete-alert">
-          Draft complete!
-        </Alert>
-      )}
+  // Shared by every PlayerPoolTable render below - built once instead of
+  // duplicated between the desktop and mobile branches.
+  const playerPoolProps = {
+    searchInput: pool.searchInput,
+    onSearchInputChange: pool.setSearchInput,
+    positionFilter: pool.positionFilter,
+    onPositionFilterChange: pool.handlePositionFilterChange,
+    hideDrafted: pool.hideDrafted,
+    onHideDraftedChange: pool.setHideDrafted,
+    byeWeeksFilter: pool.byeWeeksFilter,
+    onByeWeeksFilterChange: pool.handleByeWeeksFilterChange,
+    sort: pool.sort,
+    dir: pool.dir,
+    onSort: pool.handleSort,
+    search: pool.search,
+    displayPlayers,
+    draftedIds,
+    draftStatus: league?.draft_status,
+    draftType: league?.draft_type,
+    isMyTurn,
+    draftPaused: !!league?.draft_paused,
+    queue,
+    onDraft: requestDraftPlayer,
+    onQueue: handleQueuePlayer,
+    onOpenQuickView: setQuickViewId,
+    hasMore: pool.hasMore,
+    loadingMore: pool.loadingMore,
+    onLoadMore: pool.loadMore,
+    byeOverlapByWeek,
+  };
+  // Shared by every DraftRail render below likewise.
+  const draftRailProps = {
+    queue,
+    onMoveUp: handleMoveUp,
+    onMoveDown: handleMoveDown,
+    onRemoveFromQueue: handleRemoveFromQueue,
+    onDraft: requestDraftPlayer,
+    isMyTurn,
+    draftPaused: !!league?.draft_paused,
+    teams,
+    onTheClock,
+    isCommissioner,
+    userId: user?.id,
+    draftStatus: league?.draft_status,
+    draftType: league?.draft_type,
+    onToggleAutodraft: admin.handleToggleAutodraft,
+    onToggleReady: admin.handleToggleReady,
+    picks,
+    isXs,
+    onOpenQuickView: setQuickViewId,
+    rosterView,
+  };
 
-      <Box sx={{ mb: 3 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-          <Typography variant="h4">{league?.name || 'Draft Board'}</Typography>
-          {isCommissioner && (league?.draft_status === 'pending' || league?.draft_status === 'active') && (
-            <Tooltip title="Draft settings">
-              <IconButton aria-label="Draft settings" onClick={() => setSettingsOpen(true)}>
-                <SettingsIcon />
-              </IconButton>
-            </Tooltip>
+  // Desktop only ever shows two tabs (Draft = the dual-pane workspace,
+  // Board); mobile's three swap the Draft/Players split for its own single-
+  // region tabs, in the Players/Board/Draft order the acceptance criteria
+  // name. One shared list (rather than a differently-ordered Tab JSX per
+  // breakpoint) keeps that ordering the single source of truth.
+  const tabDefs = isMobile
+    ? [
+        { value: 'players', label: 'Players' },
+        { value: 'board', label: 'Board' },
+        { value: 'draft', label: 'Draft' },
+      ]
+    : [
+        { value: 'draft', label: 'Draft' },
+        { value: 'board', label: 'Board' },
+      ];
+
+  return (
+    <Container
+      component="main"
+      id={DRAFT_MAIN_ID}
+      tabIndex={-1}
+      aria-labelledby={DRAFT_H1_ID}
+      maxWidth="xl"
+      sx={{
+        py: { xs: 4, md: 2 },
+        // Desktop viewport-height shell (issue #122 acceptance criterion 1):
+        // the chrome below keeps its natural size (flexShrink: 0) and only
+        // the final board/workspace region grows to fill what's left, so
+        // nothing here needs the page itself to scroll. Below the medium
+        // breakpoint this is a plain block - the page scrolls as the single
+        // region acceptance criterion 3 asks for.
+        display: { md: 'flex' },
+        flexDirection: { md: 'column' },
+        height: { md: '100%' },
+        minHeight: { md: 0 },
+        overflow: { md: 'hidden' },
+      }}
+    >
+      <Box sx={{ flexShrink: { md: 0 } }}>
+        <LeagueBreadcrumb />
+        {(error || socketError) && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error || socketError}
+          </Alert>
+        )}
+        {draftComplete && (
+          <Alert severity="success" sx={{ mb: 2 }} data-testid="draft-complete-alert">
+            Draft complete!
+          </Alert>
+        )}
+
+        <Box sx={{ mb: 3 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+            <Typography id={DRAFT_H1_ID} variant="h4" component="h1">
+              {league?.name || 'Draft Board'}
+            </Typography>
+            {isCommissioner && (league?.draft_status === 'pending' || league?.draft_status === 'active') && (
+              <Tooltip title="Draft settings">
+                <IconButton aria-label="Draft settings" onClick={() => setSettingsOpen(true)} sx={MIN_TOUCH_TARGET_SX}>
+                  <SettingsIcon />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Box>
+          <DraftStatusBar
+            league={league}
+            onTheClock={onTheClock}
+            secondsLeft={secondsLeft}
+            reconnecting={reconnecting}
+            soundOn={soundOn}
+            toggleSound={toggleSound}
+            isCommissioner={isCommissioner}
+            onRandomizeOrder={admin.handleRandomizeOrder}
+            onTogglePause={admin.handleTogglePause}
+            onClockAlertOpen={onClockAlertOpen}
+            onCloseOnClockAlert={dismissOnClockAlert}
+          />
+          {isCommissioner && league?.draft_status === 'active' && (
+            <DraftDayControls
+              league={league}
+              picks={picks}
+              onUndo={admin.handleUndoPick}
+              onReset={admin.handleResetDraft}
+              onGetShareLink={admin.handleGetShareLink}
+            />
+          )}
+          {league?.draft_status === 'pending' && league?.draft_date && (
+            <Box sx={{ mt: 2 }}>
+              <Countdown
+                variant="full"
+                date={league.draft_date}
+                timeZone={league.draft_timezone}
+                leagueId={league.id}
+                leagueName={league.name}
+              />
+            </Box>
+          )}
+          {isCommissioner && (
+            <DraftSettingsPanel
+              open={settingsOpen}
+              onClose={() => setSettingsOpen(false)}
+              pickTimeSeconds={admin.pickTimeSeconds}
+              onPickTimeSecondsChange={admin.setPickTimeSeconds}
+              autodraftDelaySeconds={admin.autodraftDelaySeconds}
+              onAutodraftDelaySecondsChange={admin.setAutodraftDelaySeconds}
+              onSubmit={async (e) => {
+                await admin.handleSaveDraftSettings(e);
+                setSettingsOpen(false);
+              }}
+              saving={admin.settingsSaving}
+              leagueId={leagueId}
+              draftStatus={league?.draft_status}
+            />
           )}
         </Box>
-        <DraftStatusBar
-          league={league}
-          onTheClock={onTheClock}
-          secondsLeft={secondsLeft}
-          reconnecting={reconnecting}
-          soundOn={soundOn}
-          toggleSound={toggleSound}
-          isCommissioner={isCommissioner}
-          onRandomizeOrder={admin.handleRandomizeOrder}
-          onTogglePause={admin.handleTogglePause}
-          onClockAlertOpen={onClockAlertOpen}
-          onCloseOnClockAlert={dismissOnClockAlert}
-        />
-        {isCommissioner && league?.draft_status === 'active' && (
-          <DraftDayControls
-            league={league}
-            picks={picks}
-            onUndo={admin.handleUndoPick}
-            onReset={admin.handleResetDraft}
-            onGetShareLink={admin.handleGetShareLink}
-          />
-        )}
-        {league?.draft_status === 'pending' && league?.draft_date && (
-          <Box sx={{ mt: 2 }}>
-            <Countdown variant="full" date={league.draft_date} />
-          </Box>
-        )}
-        {isCommissioner && (
-          <DraftSettingsPanel
-            open={settingsOpen}
-            onClose={() => setSettingsOpen(false)}
-            pickTimeSeconds={admin.pickTimeSeconds}
-            onPickTimeSecondsChange={admin.setPickTimeSeconds}
-            autodraftDelaySeconds={admin.autodraftDelaySeconds}
-            onAutodraftDelaySecondsChange={admin.setAutodraftDelaySeconds}
-            onSubmit={async (e) => {
-              await admin.handleSaveDraftSettings(e);
-              setSettingsOpen(false);
-            }}
-            saving={admin.settingsSaving}
-            leagueId={leagueId}
-            draftStatus={league?.draft_status}
-          />
-        )}
+
       </Box>
 
-      {/* Sibling to (not nested in) the header Box above: sticky positioning is
-          bounded by the containing block, so LiveDraftBanner needs a containing
-          block tall enough to stay pinned while the Grid below scrolls underneath
-          it — the short header Box alone isn't tall enough. */}
+      {/* NOT inside either flexShrink wrapper Box above/below, on purpose:
+          sticky positioning is bounded by its containing block, and that
+          block is whichever ancestor box actually renders it - a wrapper
+          added only for flex-shrink bookkeeping still counts, and one sized
+          to just the header chrome would cap LiveDraftBanner's "stuck" travel
+          at that short height, releasing it almost as soon as the page
+          scrolls at all. It needs a containing block that spans the whole
+          scrollable page - this Container itself - so it stays pinned while
+          mobile's single page-scroll region scrolls underneath it. On
+          desktop nothing above it ever scrolls (issue 122's non-scrolling
+          shell), so the banner just sits in place - visible on every tab,
+          satisfying acceptance criterion 5 for mobile and trivially for
+          desktop. */}
       <LiveDraftBanner league={league} onTheClock={onTheClock} secondsLeft={secondsLeft} isMyTurn={isMyTurn} />
 
-      <Tabs
-        value={view}
-        onChange={(e, next) => setView(next)}
-        sx={{ mb: 3, minHeight: 40, borderBottom: '1px solid', borderColor: 'divider' }}
-      >
-        <Tab label="Draft" value="draft" sx={{ minHeight: 40 }} />
-        <Tab label="Board" value="board" sx={{ minHeight: 40 }} />
-      </Tabs>
+      <Box sx={{ flexShrink: { md: 0 } }}>
+        <Tabs
+          // Desktop only ever shows two tabs (Draft = the dual-pane
+          // workspace, Board); a 'players'-tagged URL/state still resolves
+          // to the same Draft tab there since desktop never mounts 'players'
+          // on its own. Mobile's three tabs use `view` directly - it only
+          // ever holds one of their three values.
+          value={isMobile ? view : (view === 'board' ? 'board' : 'draft')}
+          onChange={(e, next) => setView(next)}
+          aria-label="Draft view"
+          sx={{ mb: 3, borderBottom: '1px solid', borderColor: 'divider' }}
+        >
+          {tabDefs.map((tab) => (
+            <Tab key={tab.value} label={tab.label} value={tab.value} sx={MIN_TOUCH_TARGET_SX} />
+          ))}
+        </Tabs>
+      </Box>
 
       {view === 'board' ? (
-        <DraftBoardMatrix
-          teams={teams}
-          picks={picks}
-          onTheClock={onTheClock}
-          draftRounds={draftRounds(league)}
-          onOpenQuickView={setQuickViewId}
-        />
+        <Box sx={{ flex: { md: '1 1 auto' }, minHeight: { md: 0 }, overflow: { md: 'auto' } }}>
+          <DraftBoardMatrix
+            teams={teams}
+            picks={picks}
+            onTheClock={onTheClock}
+            draftRounds={draftRounds(league)}
+            onOpenQuickView={setQuickViewId}
+          />
+        </Box>
+      ) : isMobile ? (
+        view === 'players' ? (
+          <PlayerPoolTable {...playerPoolProps} isMobile />
+        ) : (
+          <DraftRail {...draftRailProps} />
+        )
       ) : (
-        <Grid container spacing={3}>
-          <Grid xs={12} md={8} order={{ xs: 2, md: 1 }}>
-            <PlayerPoolTable
-              searchInput={pool.searchInput}
-              onSearchInputChange={pool.setSearchInput}
-              positionFilter={pool.positionFilter}
-              onPositionFilterChange={pool.handlePositionFilterChange}
-              hideDrafted={pool.hideDrafted}
-              onHideDraftedChange={pool.setHideDrafted}
-              byeWeeksFilter={pool.byeWeeksFilter}
-              onByeWeeksFilterChange={pool.handleByeWeeksFilterChange}
-              sort={pool.sort}
-              dir={pool.dir}
-              onSort={pool.handleSort}
-              search={pool.search}
-              displayPlayers={displayPlayers}
-              draftedIds={draftedIds}
-              isMyTurn={isMyTurn}
-              draftPaused={!!league?.draft_paused}
-              onTheClockName={onTheClock ? onTheClock.name : null}
-              queue={queue}
-              onDraft={handleDraftPlayer}
-              onQueue={handleQueuePlayer}
-              onOpenQuickView={setQuickViewId}
-              hasMore={pool.hasMore}
-              loadingMore={pool.loadingMore}
-              onLoadMore={pool.loadMore}
-              byeOverlapByWeek={byeOverlapByWeek}
-            />
-          </Grid>
-
-          <Grid xs={12} md={4} order={{ xs: 1, md: 2 }}>
-            <DraftRail
-              queue={queue}
-              onMoveUp={handleMoveUp}
-              onMoveDown={handleMoveDown}
-              onRemoveFromQueue={handleRemoveFromQueue}
-              onDraft={handleDraftPlayer}
-              isMyTurn={isMyTurn}
-              draftPaused={!!league?.draft_paused}
-              teams={teams}
-              onTheClock={onTheClock}
-              isCommissioner={isCommissioner}
-              userId={user?.id}
-              draftStatus={league?.draft_status}
-              onToggleAutodraft={admin.handleToggleAutodraft}
-              onToggleReady={admin.handleToggleReady}
-              picks={picks}
-              isXs={isXs}
-              onOpenQuickView={setQuickViewId}
-              rosterView={rosterView}
-            />
-          </Grid>
-        </Grid>
+        // Desktop dual-scroll workspace (issue #122 acceptance criterion 1):
+        // players and the Draft rail each get their own bounded, scrollable
+        // region instead of the whole page scrolling underneath them.
+        <Box sx={{ display: 'flex', flexDirection: 'row', gap: 3, flex: '1 1 auto', minHeight: 0 }}>
+          <Box sx={{ flexBasis: '66.666%', minWidth: 0, height: '100%' }}>
+            <PlayerPoolTable {...playerPoolProps} />
+          </Box>
+          <Box
+            component="section"
+            aria-label="Draft rail"
+            tabIndex={0}
+            sx={{ flexBasis: '33.333%', minWidth: 0, height: '100%', overflowY: 'auto' }}
+          >
+            <DraftRail {...draftRailProps} queueStickyTop={8} queueMaxHeight="45vh" />
+          </Box>
+        </Box>
       )}
 
       <PlayerQuickView
@@ -472,6 +650,13 @@ function DraftBoard() {
         playerIds={displayPlayers.map((p) => p.id)}
         onNavigate={setQuickViewId}
         actions={quickViewActions}
+      />
+
+      <DraftPickConfirmDialog
+        open={pendingPick != null}
+        playerName={pendingPick?.name}
+        onConfirm={confirmDraftPlayer}
+        onCancel={cancelDraftPlayer}
       />
     </Container>
   );

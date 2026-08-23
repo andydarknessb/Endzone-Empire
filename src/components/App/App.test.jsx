@@ -386,6 +386,110 @@ test('always renders the Nav and Footer around the routed page', async () => {
   expect(screen.getByRole('contentinfo')).toHaveTextContent('© Endzone Empire');
 });
 
+// --- Desktop viewport-height Draft shell (issue #122) ---
+
+describe('desktop Draft route shell (issue #122)', () => {
+  // Same matchMedia-mock convention used elsewhere (PlayerQuickView.test.jsx,
+  // PowerRankings.test.jsx): jsdom has no real media-query engine, so every
+  // query resolves to this one flag - here, "at least the medium breakpoint".
+  beforeEach(() => {
+    window.matchMedia = jest.fn().mockImplementation((query) => ({
+      matches: true,
+      media: query,
+      onchange: null,
+      addListener: jest.fn(),
+      removeListener: jest.fn(),
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn(),
+      dispatchEvent: jest.fn(),
+    }));
+  });
+  afterEach(() => {
+    delete window.matchMedia;
+  });
+
+  test('the Draft route omits the Footer at desktop widths, unlike every other route', async () => {
+    renderApp('#/league/1/draft', { user: loggedIn }, () => {
+      apiClient.get.mockResolvedValue({ data: { players: [], totalPages: 1 } });
+    });
+    expect(await screen.findByText('Draft Board')).toBeInTheDocument();
+
+    expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
+    // Nav (and its landmark) stay - only the Footer is dropped.
+    expect(screen.getByRole('navigation', { name: 'Primary navigation' })).toBeInTheDocument();
+  });
+
+  test('a non-Draft route keeps its Footer even at desktop widths', async () => {
+    renderApp('#/about', { user: loggedOut });
+    await screen.findByText('This about page is for anyone to read!');
+    expect(screen.getByRole('contentinfo')).toBeInTheDocument();
+  });
+});
+
+// --- Skip link (issue #121): first focusable element on the Draft route ---
+
+test('the Draft route renders a skip link, first in the DOM, targeting the Draft main landmark', async () => {
+  renderApp('#/league/1/draft', { user: loggedIn }, () => {
+    apiClient.get.mockResolvedValue({ data: { players: [], totalPages: 1 } });
+  });
+  expect(await screen.findByText('Draft Board')).toBeInTheDocument();
+
+  const skipLink = screen.getByRole('link', { name: 'Skip to main content' });
+  expect(skipLink).toHaveAttribute('href', '#draft-main-content');
+  const main = screen.getByRole('main');
+  expect(main.tagName).toBe('MAIN');
+  expect(main).toHaveAttribute('id', 'draft-main-content');
+
+  // First focusable element: nothing focusable precedes it in DOM order, in
+  // particular Nav's own hamburger/brand/link controls come after it. DOM
+  // order (not accessible-name/role) is exactly what this needs to check.
+  // eslint-disable-next-line testing-library/no-node-access
+  const focusable = document.body.querySelectorAll(
+    'a[href], button:not([disabled]), input, select, textarea, [tabindex]'
+  );
+  expect(focusable[0]).toBe(skipLink);
+});
+
+test('a non-Draft route renders no skip link (this increment is scoped to the Draft route)', async () => {
+  renderApp('#/about', { user: loggedOut });
+  await screen.findByText('This about page is for anyone to read!');
+  expect(screen.queryByRole('link', { name: 'Skip to main content' })).not.toBeInTheDocument();
+});
+
+test('a trailing slash on the Draft route still gets the skip link, matching how react-router itself matches the route', async () => {
+  renderApp('#/league/1/draft/', { user: loggedIn }, () => {
+    apiClient.get.mockResolvedValue({ data: { players: [], totalPages: 1 } });
+  });
+  expect(await screen.findByText('Draft Board')).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Skip to main content' })).toBeInTheDocument();
+});
+
+test('a pick\'em-only league at the Draft route still gets a skip link with a real target (FantasyOnly blocks DraftBoard there)', async () => {
+  // A league id no other test in this file touches, so this test's cached
+  // verdict can't leak into (or be leaked into by) anything else here.
+  clearLeagueCache();
+  const { unmount } = renderApp('#/league/88/draft', { user: loggedIn }, () => {
+    apiClient.get.mockImplementation((url) => {
+      if (url === '/api/league/88') {
+        return Promise.resolve({ data: { league: { id: 88, name: 'Office Pool', pickem_only: true }, teams: [] } });
+      }
+      return Promise.resolve({ data: [] });
+    });
+  });
+  expect(
+    await screen.findByText("This is a pick'em league. Drafts, rosters, and matchups are not part of it.")
+  ).toBeInTheDocument();
+
+  const skipLink = screen.getByRole('link', { name: 'Skip to main content' });
+  expect(skipLink).toHaveAttribute('href', '#draft-main-content');
+  const target = screen.getByRole('main');
+  expect(target).toHaveAttribute('id', 'draft-main-content');
+  expect(target).toHaveAttribute('tabIndex', '-1');
+
+  unmount();
+  clearLeagueCache();
+});
+
 test('dispatches FETCH_USER on mount', () => {
   const { store } = renderApp('#/about', { user: loggedOut });
   expect(store.getActions()).toContainEqual({ type: 'FETCH_USER' });

@@ -298,7 +298,8 @@ test('POST /join (invite code): an in-season (rolled-over) pick\'em-only league 
     [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
     [/INSERT INTO "teams"/, (_text, params) => ({ rows: [{ id: 99, league_id: 7, owner_id: params[1], name: params[2] }] })],
   ]);
-  const res = await request(app).post('/api/league/join').set('Authorization', authed()).send({ inviteCode: 'e402e816' });
+  const res = await request(app).post('/api/league/join').set('Authorization', authed())
+    .send({ inviteCode: 'e402e816', teamName: 'Rolled Over FC' });
   assert.equal(res.status, 201, JSON.stringify(res.body));
   assert.equal(res.body.team.id, 99);
   assert.equal(inserted(calls).length, 1);

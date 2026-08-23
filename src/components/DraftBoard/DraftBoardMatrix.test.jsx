@@ -31,3 +31,24 @@ test('renders picks without interactive player controls in read-only mode', () =
   expect(screen.queryByRole('button', { name: 'Round 1 pick 1, Team A: Josh Allen' })).not.toBeInTheDocument();
   expect(screen.getByLabelText('Round 1 pick 1, Team A: Josh Allen')).toBeInTheDocument();
 });
+
+test('exposes itself as a named "Draft Board" H2 region, with and without a set draft order', () => {
+  const { unmount } = render(
+    <DraftBoardMatrix teams={[]} picks={[]} onTheClock={null} draftRounds={0} onOpenQuickView={jest.fn()} />
+  );
+  expect(screen.getByRole('region', { name: 'Draft Board' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { level: 2, name: 'Draft Board' })).toBeInTheDocument();
+  unmount();
+
+  render(
+    <DraftBoardMatrix
+      teams={[{ id: 1, name: 'Team A', draft_position: 1 }]}
+      picks={[]}
+      onTheClock={null}
+      draftRounds={1}
+      onOpenQuickView={jest.fn()}
+    />
+  );
+  expect(screen.getByRole('region', { name: 'Draft Board' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { level: 2, name: 'Draft Board' })).toBeInTheDocument();
+});

@@ -303,7 +303,7 @@ function PlayerManagement() {
         <Table sx={{ minWidth: 900, ...stripedRowsSx }}>
           <TableHead>
             <TableRow>
-              <TableCell sx={headCellSx} align="right">#</TableCell>
+              <TableCell sx={headCellSx} align="right">Row</TableCell>
               <TableCell sx={headCellSx}>
                 <TableSortLabel
                   active={sort === 'name'}
