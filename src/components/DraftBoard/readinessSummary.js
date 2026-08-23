@@ -5,11 +5,20 @@ import { teamsInDraftOrder } from '../../lib/draftTurns';
  * (issue #124 acceptance criteria 1-2).
  *
  * Readiness is which Teams have declared themselves ready for a pending draft,
- * counted against the league's size, and a Team that has not declared is
+ * counted against the Teams in the league, and a Team that has not declared is
  * **Not ready** (CONTEXT.md: Readiness). The word *holdout* is deliberately
  * absent from this module and from everything it produces: the glossary
  * reserves it for the Evaluation context's Holdout ledger, and the Readiness
  * entry names it on its own Avoid list.
+ *
+ * `total` is `teams.length` and deliberately NOT `league.max_teams`, which is
+ * on the same league row and would be the easier thing to reach for. A Team
+ * that has not joined has not declined to be ready: it is absent, not Not
+ * ready, and it has no Team name to put in either list. With the configured
+ * size as the denominator, a half-filled lobby where everyone present is ready
+ * reads as 4 of 10, lands below half, and lists the ready Teams while implying
+ * six Not ready ones that do not exist. That a league is not yet full is a
+ * real and separate fact, and does not belong in this ratio.
  *
  * The rule this module exists for is the inversion. A twelve-team lobby with
  * two managers ready and one with ten ready need opposite lists: early on the

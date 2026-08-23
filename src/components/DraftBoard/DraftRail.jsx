@@ -234,9 +234,11 @@ function DraftRail({
   );
 
   // Readiness: which teams have declared themselves ready, counted against the
-  // league's size. A team that has not declared is Not ready (CONTEXT.md:
-  // Readiness). Renders only for a viewer who holds a Team, since its own
-  // control is a declaration about that Team.
+  // Teams in the league rather than its configured size. A team that has not
+  // declared is Not ready; a team that has not JOINED has not declined to be
+  // ready and cannot appear in either list (CONTEXT.md: Readiness). Renders
+  // only for a viewer who holds a Team, since its own control is a
+  // declaration about that Team.
   //
   // The count and the bar say the same thing twice on purpose: the bar is the
   // glanceable reading and the sentence is the exact one, and a bar alone

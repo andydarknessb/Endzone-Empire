@@ -242,10 +242,12 @@ order, slot order
 
 **Readiness**:
 Which teams have declared themselves ready for a pending draft, counted
-against the league's size. A fact of the pending lobby only; it has no meaning
-once the draft starts. A team that has not declared is Not ready, and once
-most teams are ready that group, not the ready one, is the exception worth
-naming.
+against the Teams in the league, not against its configured size: a Team that
+has not joined has not declined to be ready, and an empty slot cannot appear
+in either list. That the league is not yet full is a separate fact. A fact of
+the pending lobby only; it has no meaning once the draft starts. A team that
+has not declared is Not ready, and once most teams are ready that group, not
+the ready one, is the exception worth naming.
 _Avoid_: holdout (Holdout ledger is an Evaluation term), ready status, lobby
 status
 
