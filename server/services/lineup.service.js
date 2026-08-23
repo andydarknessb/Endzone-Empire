@@ -3,6 +3,7 @@ const { isPickemOnly, PICKEM_ONLY_MESSAGE } = require('./leagueType');
 const { requireMember } = require('./leagueMembership.service');
 const { computeByeWeeks } = require('./bye.service');
 const { injuryDesignationName, isValidStash } = require('./irPolicy.service');
+const { normalizeNflTeam } = require('./nflTeam');
 
 class LineupError extends Error {
   constructor(statusCode, message, code = null) {
@@ -244,8 +245,9 @@ async function benchAcquiredPlayer(client, { league, teamId, playerId }) {
  *   - every FUTURE week, always: he is not on the roster, so the row is noise
  *     that no reader should ever see;
  *   - the CURRENT week, unless BOTH his NFL game for it has already kicked
- *     off (by the same predicate the lineup lock uses, `lockedNflTeams`, so
- *     no game row that week means not locked) AND a tenure of this team
+ *     off (by the same predicate the lineup lock uses, `lockedPlayerIds`, so
+ *     no game row that week means not locked, and a DEF unit is answered the
+ *     same way as anyone else, #227) AND a tenure of this team
  *     covered that kickoff (#228);
  *   - PAST weeks, never: they are the record of the week as played (#106).
  *
@@ -283,7 +285,9 @@ async function removeLineupEntries(client, { league, teamId, playerId, now = new
     [playerId]
   );
   const nflTeam = playerResult.rows[0]?.nfl_team;
-  const locked = await lockedNflTeams(client, { season, week, now });
+  const locked = await lockedPlayerIds(client, {
+    season, week, now, players: [{ id: playerId, nflTeam }],
+  });
   // Spared only if his game had kicked off AND a tenure of this team covered
   // that kickoff. "Kicked off" alone is what #197 shipped, and it is not
   // enough: a player acquired AFTER his game had already been played is
@@ -291,7 +295,7 @@ async function removeLineupEntries(client, { league, teamId, playerId, now = new
   // would survive as evidence of a week he did not play here (#190). The
   // tenure just closed by this drop is still visible - the trigger closed it
   // at `now()`, after kickoff - so it answers for the tenure that is ending.
-  const kickedOff = locked.has(scheduleTeamFor(nflTeam));
+  const kickedOff = locked.has(playerId);
   // Only a kicked-off game can spare the row, so the tenure is only worth
   // asking about once that is true. A departure before kickoff keeps exactly
   // the reads it has always made. `sparedByKickoff` therefore already implies
@@ -379,56 +383,88 @@ async function restoreInterruptedStash(client, { league, teamId, playerId, slot,
 }
 
 /**
- * The set of NFL team names whose game for (season, week) has kicked off —
- * players on those teams are locked. Empty schedule means nothing is locked.
+ * THE KICKOFF QUESTION, AND WHY IT IS ANSWERED PER PLAYER (#227).
+ *
+ * Four rules in this codebase turn on "has this player's NFL game for the
+ * week already started?" - `annotateLineupEntries` (what the manager is shown
+ * as locked), `setLineup` (whether a move is refused), `removeLineupEntries`
+ * (whether a departing player's current-week row is spared, #197), and the
+ * score-of-record exclusion behind `playersNotHeldAtKickoff` (#190/#228).
+ * They must agree about every player, always: a manager told a slot is locked
+ * and a settle pass that thinks the game never started are the same bug seen
+ * from two ends.
+ *
+ * They used to disagree, because the question was answered by comparing
+ * `players.nfl_team` to `nfl_games.nfl_team` raw, and those two columns do
+ * not share a vocabulary. `nfl_games` holds Tank01 abbreviations; a DEF
+ * unit's `players.nfl_team` is a full team name; and even among codes Tank01
+ * writes `WSH` where the app says `WAS`. So a DEF unit was in NO week's
+ * locked set, on any of the four - never locked, never spared on a drop,
+ * never excluded by the settle pass. See `services/nflTeam.js`.
+ *
+ * THE SHAPE IS THE FIX, not just the normalisation inside it. The predicate
+ * takes the PLAYERS and answers about PLAYERS: a Set of player ids, a Map
+ * keyed by player id. It hands no caller a set of team names, so the raw
+ * comparison that caused this cannot be written here again by accident - the
+ * object you would need in order to write it does not exist any more. That is
+ * why `lockedNflTeams` is gone rather than fixed in place: it returned team
+ * keys and trusted four call sites to spell their side the same way, and the
+ * whole of #227 is that one of them could not.
+ *
+ * Both sides go through `normalizeNflTeam`, and neither spelling is
+ * privileged: a `WSH` game row locks a `WAS` player and a `WAS` game row
+ * locks a `WSH` player.
+ *
+ * ABSENCE STAYS ABSENCE. A player whose team has no `nfl_games` row that week
+ * - a bye, or a schedule nobody synced - is simply not in the answer, on
+ * every consumer. That is structural rather than a rule: no game row means no
+ * entry to return, so nothing downstream can read it as a kickoff.
  */
-async function lockedNflTeams(client, { season, week, now = new Date() }) {
+
+/**
+ * The normalised NFL teams whose game for (season, week) has kicked off.
+ * Private on purpose: this is the schedule side of the comparison, and
+ * handing it out is how the module got #227 in the first place.
+ */
+async function kickedOffTeams(client, { season, week, now }) {
   const result = await client.query(
     `SELECT "nfl_team" FROM "nfl_games"
      WHERE "season" = $1 AND "week" = $2 AND "kickoff_at" <= $3`,
     [season, week, now]
   );
-  return new Set(result.rows.map((r) => r.nfl_team));
+  const teams = new Set();
+  for (const row of result.rows) {
+    const team = normalizeNflTeam(row.nfl_team);
+    if (team !== null) teams.add(team);
+  }
+  return teams;
 }
 
 /**
- * The NFL team whose game a player is scheduled in, from the team stored on
- * the player. ONE definition, and the reason it exists is #227.
+ * Of these players, the ones whose OWN NFL game for (season, week) has
+ * already kicked off - a Set of PLAYER IDS. An empty schedule locks nobody.
  *
- * It is an identity today, which is exactly why it needs a name and this
- * comment rather than being inlined at each call site. A DEF unit's stored
- * `players.nfl_team` does not match the schedule's spelling in `nfl_games`,
- * so every consumer that maps a player onto his game for a week is wrong in
- * the same way, and they must stop being wrong together. Every such consumer
- * in this module routes through here:
- *
- *   - the lineup lock's three membership tests against `lockedNflTeams` -
- *     `annotateLineupEntries` (what the manager sees), `setLineup` (whether a
- *     move is refused), and `removeLineupEntries` (whether a departing
- *     player's current-week row is spared);
- *   - the score-of-record exclusion below, which decides whether a settled
- *     week counts him at all.
- *
- * So fixing #227 here fixes all of them at once. Fixing it at any one call
- * site would fix that site and leave the others quietly broken, which is the
- * shape of failure #228 exists to end. Note that `lockedNflTeams` itself does
- * NOT map: it returns the schedule's own spelling, because it is the schedule
- * side of the comparison. The mapping belongs on the PLAYER side, which is
- * the side that is wrong.
+ * `players` is `[{ id, nflTeam }]`, the same shape `playersNotHeldAtKickoff`
+ * takes, so the two halves of a kickoff question are asked the same way.
  */
-function scheduleTeamFor(nflTeam) {
-  return nflTeam;
+async function lockedPlayerIds(client, { season, week, now = new Date(), players }) {
+  const kickedOff = await kickedOffTeams(client, { season, week, now });
+  const locked = new Set();
+  for (const player of players || []) {
+    const team = normalizeNflTeam(player.nflTeam);
+    if (team !== null && kickedOff.has(team)) locked.add(player.id);
+  }
+  return locked;
 }
 
 /**
- * The week's kickoffs, by schedule team. The only read of `nfl_games` on the
- * scoring path: the scoring service asks this module rather than joining the
- * schedule itself, so there is one place that knows how a week's games are
- * found and one place for #227 to change.
+ * The week's kickoffs, keyed by NORMALISED NFL team. Private for the same
+ * reason as `kickedOffTeams`; `playerKickoffs` below is the way out.
  *
- * A team absent from the result has no game that week - a bye, or a schedule
- * that was never synced. Both are answered the same way everywhere: nothing
- * is concluded from the absence.
+ * A team is expected at most once per week, so the MIN guard is a tie-break
+ * that should never fire: it can only matter if the schedule holds two rows
+ * for one team under two spellings, and the moment that team first took the
+ * field is the honest answer to every question asked of this map.
  */
 async function weekKickoffs(client, { season, week }) {
   const result = await client.query(
@@ -436,7 +472,37 @@ async function weekKickoffs(client, { season, week }) {
      WHERE "season" = $1 AND "week" = $2`,
     [season, week]
   );
-  return new Map(result.rows.map((row) => [row.nfl_team, row.kickoff_at]));
+  const byTeam = new Map();
+  for (const row of result.rows) {
+    const team = normalizeNflTeam(row.nfl_team);
+    if (team === null) continue;
+    const held = byTeam.get(team);
+    if (held === undefined || new Date(row.kickoff_at) < new Date(held)) {
+      byTeam.set(team, row.kickoff_at);
+    }
+  }
+  return byTeam;
+}
+
+/**
+ * Each of these players' own kickoff for (season, week), keyed by PLAYER ID.
+ * A player with no game that week is ABSENT from the map rather than present
+ * with a null, so a caller cannot mistake "no game" for a kickoff instant.
+ *
+ * The only read of `nfl_games` on the scoring path: the scoring service asks
+ * this module rather than joining the schedule itself, so there is one place
+ * that knows how a week's games are found and one place for #227 to change.
+ */
+async function playerKickoffs(client, { season, week, players }) {
+  const kickoffs = await weekKickoffs(client, { season, week });
+  const byPlayer = new Map();
+  for (const player of players || []) {
+    const team = normalizeNflTeam(player.nflTeam);
+    if (team === null) continue;
+    const kickoff = kickoffs.get(team);
+    if (kickoff !== undefined) byPlayer.set(player.id, kickoff);
+  }
+  return byPlayer;
 }
 
 /**
@@ -466,9 +532,9 @@ async function weekKickoffs(client, { season, week }) {
  * same reason: tenures are append-and-close, never rewritten.
  */
 async function playersNotHeldAtKickoff(client, { teamId, season, week, players }) {
-  const kickoffs = await weekKickoffs(client, { season, week });
+  const kickoffs = await playerKickoffs(client, { season, week, players });
   const scheduled = players
-    .map((player) => ({ id: player.id, kickoff: kickoffs.get(scheduleTeamFor(player.nflTeam)) }))
+    .map((player) => ({ id: player.id, kickoff: kickoffs.get(player.id) }))
     .filter((player) => player.kickoff !== undefined);
   if (scheduled.length === 0) return new Set();
   const result = await client.query(
@@ -486,14 +552,21 @@ async function playersNotHeldAtKickoff(client, { teamId, season, week, players }
   return new Set(result.rows.map((row) => row.player_id));
 }
 
-/** Pure: add schedule-derived lock and bye metadata to lineup entries. */
+/**
+ * Pure: add schedule-derived lock and bye metadata to lineup entries.
+ *
+ * `locked` is a Set of PLAYER IDS from `lockedPlayerIds`, not of team names
+ * (#227). `byeByTeam` is still keyed by the caller's own team string, because
+ * `computeByeWeeks` returns the caller's vocabulary back; that is the one map
+ * here a raw `nfl_team` is the right key for.
+ */
 function annotateLineupEntries(entries, { locked, byeByTeam, selectedWeek }) {
   return entries.map((row) => {
     const byeWeek = byeByTeam.get(row.nfl_team) ?? null;
     return {
       ...row,
       bye_week: byeWeek,
-      locked: locked.has(scheduleTeamFor(row.nfl_team)),
+      locked: locked.has(row.id),
       onBye: byeWeek === selectedWeek,
       valid_stash: row.slot === IR && isValidStash(row),
     };
@@ -566,7 +639,11 @@ async function getLineup({ leagueId, userId, week }) {
         : Math.round((seasonProjection / 17) * 10) / 10;
     }
 
-    const locked = await lockedNflTeams(client, { season, week: targetWeek });
+    const locked = await lockedPlayerIds(client, {
+      season,
+      week: targetWeek,
+      players: entriesResult.rows.map((row) => ({ id: row.id, nflTeam: row.nfl_team })),
+    });
     const byeByTeam = await computeByeWeeks(entriesResult.rows.map((row) => row.nfl_team), season);
     await client.query('COMMIT');
 
@@ -638,7 +715,11 @@ async function setLineup({ leagueId, userId, week, moves }) {
     );
     const byPlayer = new Map(entriesResult.rows.map((r) => [r.player_id, r]));
 
-    const locked = await lockedNflTeams(client, { season, week: targetWeek });
+    const locked = await lockedPlayerIds(client, {
+      season,
+      week: targetWeek,
+      players: entriesResult.rows.map((row) => ({ id: row.player_id, nflTeam: row.nfl_team })),
+    });
     const changed = [];
     let resolvesLockedZeroBenchStash = false;
     for (const move of moves) {
@@ -654,9 +735,9 @@ async function setLineup({ leagueId, userId, week, moves }) {
         && move.slot === BENCH
         && !isValidStash(entry);
       resolvesLockedZeroBenchStash ||= resolvesStaleIrStash
-        && locked.has(scheduleTeamFor(entry.nfl_team))
+        && locked.has(entry.player_id)
         && league.bench_slots === 0;
-      if (!resolvesStaleIrStash && locked.has(scheduleTeamFor(entry.nfl_team))) {
+      if (!resolvesStaleIrStash && locked.has(entry.player_id)) {
         throw new LineupError(409, 'that player is locked; his game has started', 'LINEUP_LOCKED');
       }
       entry.slot = move.slot;
@@ -768,7 +849,8 @@ module.exports = {
   currentWeekEntry,
   interruptedStashFields,
   restoreInterruptedStash,
-  lockedNflTeams,
+  lockedPlayerIds,
+  playerKickoffs,
   playersNotHeldAtKickoff,
   annotateLineupEntries,
   getLineup,

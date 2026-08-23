@@ -55,13 +55,18 @@ const DEF_UNIT = { player_id: 1, name: 'Denver Broncos', position: 'DEF', nfl_te
 const ALIAS_QB = { player_id: 2, name: 'Jayden Daniels', position: 'QB', nfl_team: 'WAS' };
 
 /**
- * @param entries  the team's lineup rows.
- * @param games    `nfl_games` rows for the week, SPELLED THE WAY THE SCHEDULE
- *                 SPELLS THEM: Tank01 abbreviations, never the player's own
- *                 `nfl_team` string. A test that seeds the player's spelling
- *                 into the schedule proves nothing about #227.
+ * @param entries   the team's lineup rows.
+ * @param kickedOff the teams whose game for the week HAS started, SPELLED THE
+ *                  WAY THE SCHEDULE SPELLS THEM: Tank01 abbreviations, never
+ *                  the player's own `nfl_team` string. A test that seeds the
+ *                  player's spelling into the schedule proves nothing here.
+ *
+ * `getLineup` and `setLineup` take the server clock rather than an injected
+ * `now`, so the world states the ANSWER to `kickoff_at <= now` directly - the
+ * same way `installSetLineupWorld` in lineup.service.test.js does - instead of
+ * dating fixtures against the wall clock.
  */
-function lineupWorld({ entries, games, now = NOW }) {
+function lineupWorld({ entries, kickedOff }) {
   const rows = entries.map((entry) => ({ injury_status: null, ir_attested: false, ...entry }));
   return createFakePool([
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
@@ -86,12 +91,8 @@ function lineupWorld({ entries, games, now = NOW }) {
     [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: rows.map((row) => ({ ...row })) })],
     [/^SELECT "players"\."id"/, () => ({ rows: rows.map((row) => ({ ...row, id: row.player_id })) })],
     [/^SELECT "player_id", "season", "games_played"/, () => ({ rows: [] })],
-    // The two schedule reads, both answered from the SAME rows: the lock's
-    // kicked-off filter and the kickoff map behind the tenure predicate.
-    [/^SELECT "nfl_team" FROM "nfl_games"/, (text, [, , at]) => ({
-      rows: games
-        .filter((game) => game.kickoff_at.getTime() <= new Date(at ?? now).getTime())
-        .map((game) => ({ nfl_team: game.nfl_team })),
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({
+      rows: kickedOff.map((nfl_team) => ({ nfl_team })),
     })],
     [/FROM "nfl_games" "ng"/, () => ({ rows: [] })], // computeByeWeeks
     [/^UPDATE "lineup_entries"/, () => ({ rows: [] })],
@@ -109,7 +110,7 @@ const scheduleFor = (games) => Object.fromEntries(games.map((g) => [g.nfl_team, 
 test('#227 setLineup refuses to move a DEF unit whose game has kicked off', async (t) => {
   const fake = lineupWorld({
     entries: [{ ...DEF_UNIT, slot: 'DEF' }, { ...ALIAS_QB, slot: 'QB' }],
-    games: [{ nfl_team: 'DEN', kickoff_at: KICKED_OFF_AT }, { nfl_team: 'WSH', kickoff_at: NOT_YET_AT }],
+    kickedOff: ['DEN'],
   }).install(t);
 
   await assert.rejects(
@@ -122,7 +123,7 @@ test('#227 setLineup refuses to move a DEF unit whose game has kicked off', asyn
 test('#227 setLineup still allows moving a DEF unit before its game kicks off', async (t) => {
   const fake = lineupWorld({
     entries: [{ ...DEF_UNIT, slot: 'DEF' }, { ...ALIAS_QB, slot: 'QB' }],
-    games: [{ nfl_team: 'DEN', kickoff_at: NOT_YET_AT }, { nfl_team: 'WSH', kickoff_at: NOT_YET_AT }],
+    kickedOff: [],
   }).install(t);
 
   const result = await setLineup({
@@ -137,7 +138,7 @@ test('#227 setLineup still allows moving a DEF unit before its game kicks off', 
 test('#227 a WSH-coded game row locks a WAS-coded player, and vice versa', async (t) => {
   const wshGame = lineupWorld({
     entries: [{ ...ALIAS_QB, slot: 'QB' }],
-    games: [{ nfl_team: 'WSH', kickoff_at: KICKED_OFF_AT }],
+    kickedOff: ['WSH'],
   }).install(t);
 
   await assert.rejects(
@@ -150,7 +151,7 @@ test('#227 a WSH-coded game row locks a WAS-coded player, and vice versa', async
 
   const wasGame = lineupWorld({
     entries: [{ ...ALIAS_QB, nfl_team: 'WSH', slot: 'QB' }],
-    games: [{ nfl_team: 'WAS', kickoff_at: KICKED_OFF_AT }],
+    kickedOff: ['WAS'],
   }).install(t);
 
   await assert.rejects(
@@ -167,7 +168,7 @@ test('#227 a player with no game row that week is not locked (bye / unsynced sch
     // Every other team in the league has kicked off. Neither of these two has
     // a row at all, which is a bye or a schedule nobody synced, and is never
     // evidence that a game has started.
-    games: [{ nfl_team: 'KC', kickoff_at: KICKED_OFF_AT }, { nfl_team: 'BUF', kickoff_at: KICKED_OFF_AT }],
+    kickedOff: ['KC', 'BUF'],
   }).install(t);
 
   const result = await setLineup({
@@ -182,7 +183,7 @@ test('#227 a player with no game row that week is not locked (bye / unsynced sch
 test('#227 getLineup reports a kicked-off DEF unit as locked to the manager', async (t) => {
   const fake = lineupWorld({
     entries: [{ ...DEF_UNIT, slot: 'DEF' }, { ...ALIAS_QB, slot: 'QB' }],
-    games: [{ nfl_team: 'DEN', kickoff_at: KICKED_OFF_AT }, { nfl_team: 'WSH', kickoff_at: NOT_YET_AT }],
+    kickedOff: ['DEN'],
   }).install(t);
 
   const lineup = await getLineup({ leagueId: LEAGUE_ID, userId: USER_ID, week: WEEK });

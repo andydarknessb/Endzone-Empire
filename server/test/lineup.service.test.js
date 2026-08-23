@@ -27,7 +27,11 @@ test('annotateLineupEntries derives onBye only from the canonical bye week', () 
       { id: 3, name: 'Patrick Mahomes', nfl_team: 'KC' },
     ],
     {
-      locked: new Set(['BUF']),
+      // PLAYER IDS, not team names (#227): the kickoff question is answered
+      // per player now, so a DEF unit's full team name and Tank01's WSH can
+      // never miss the set the way they used to. `byeByTeam` stays keyed by
+      // the caller's own team string - computeByeWeeks hands that back.
+      locked: new Set([2]),
       byeByTeam: new Map([['MIN', 6], ['BUF', 7], ['KC', null]]),
       selectedWeek,
     }
