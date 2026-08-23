@@ -194,18 +194,37 @@ test('a deliberate violation in a server file is still reported', async () => {
 // is therefore scoped off for `server/**/*.js` and left ON everywhere else,
 // which the mirror assertions further down pin in place.
 //
-// WHAT #246 DELIBERATELY DID NOT FIX, so nobody reads the green below as
-// covering more than it does. `scripts/` is CommonJS too, run straight by
-// node, and it has the identical defect: `npx eslint scripts` reports 64
-// `strict` warnings, every one of them "fixable" by the same directive strip
-// -- including in THIS file. The override is keyed on `server/**/*.js`
-// because #246's acceptance is `npx eslint src server`, and `scripts/` sits
-// outside that surface (it also carries 28 pre-existing errors, which is why
-// it sits outside). So the footgun is still armed over there: `npx eslint
-// scripts --fix` still performs the wrong repair. Widening this glob is a
-// one-line follow-up that costs the `src server` check nothing. It was left
-// out to hold #246 to its stated scope, NOT because that tree does not need
-// it.
+// WHY THE OVERRIDE COVERS `scripts/` TOO, AND WHAT THAT DOES NOT MEAN.
+//
+// `scripts/` is CommonJS as well, run straight by node, and it had the
+// identical defect: 64 `strict` warnings, every one "fixable" by the same
+// directive strip -- including in THIS file, which is how the omission was
+// caught. A guard that documents a footgun while standing inside the loaded
+// end of it is a weaker guard.
+//
+// The override says what these files ARE -- CommonJS, therefore not
+// implicitly strict, therefore not answerable to a rule written for ESM.
+// That is a language fact about the tree, true whether or not anything ever
+// lints it, which is why the glob follows the module system rather than the
+// lint surface.
+//
+// The `scripts/k6-*.js` exclusion is not a detail. Those two are the one
+// genuinely-ESM corner of the tree: they run under k6, not node, and they use
+// real `import`. Sweeping them into `sourceType: 'script'` makes them fail to
+// PARSE, and a file ESLint cannot parse reports its parse error and nothing
+// else -- which silently hid the 28 pre-existing `__ENV` errors in those two
+// files and made `npx eslint scripts` look like it had improved from 98
+// problems to 5. That is the #207 failure mode exactly: the count went down
+// because coverage went down. With the exclusion the honest numbers are 28
+// errors (unchanged, untouched, still #245's) and 6 warnings, down from 70,
+// the difference being the 64 `strict` reports.
+//
+// READ THE NEXT SENTENCE BEFORE CONCLUDING ANYTHING ABOUT COVERAGE.
+// `scripts/` IS NOT IN THE LINT SURFACE and this entry does not put it there.
+// The tenant check is `npx eslint src server`; it does not read `scripts/`,
+// before this change or after it. An eslint config entry naming a tree is not
+// evidence the tree is linted. `scripts/` also carries 28 pre-existing errors
+// of its own, untouched here; those and the surface question belong to #245.
 // ---------------------------------------------------------------------------
 
 test('the representative server file still carries the directive #246 is about', () => {
@@ -227,6 +246,45 @@ test('server files are parsed as CommonJS scripts, not ES modules', async () => 
 test('server test files are parsed as CommonJS scripts too', async () => {
   const config = await eslint.calculateConfigForFile(SERVER_TEST_FILE);
   assert.equal(config.parserOptions.sourceType, 'script');
+});
+
+// This file is itself in `scripts/`, so it is its own fixture: before #246 the
+// guard warning against the directive strip sat in a tree where `--fix` would
+// have performed it.
+test('this guard file is not itself mis-parsed as an ES module', async () => {
+  const config = await eslint.calculateConfigForFile(__filename);
+  assert.equal(config.parserOptions.sourceType, 'script');
+  assert.ok(
+    !isEnabled(config.rules[STRICT_RULE]),
+    `${STRICT_RULE} still reaches scripts/, so this guard warns about a repair ` +
+      'that is one --fix away from being performed on the guard itself'
+  );
+});
+
+// The k6 load scripts are the exception the override has to carve out, and the
+// cost of getting it wrong is invisible: they stop parsing, and a parse error
+// suppresses every other report in the file. Assert they still parse, not just
+// that they are configured as modules, because parsing is the property that
+// actually protects the errors underneath.
+test('the k6 load scripts are still parsed as the ES modules they are', async () => {
+  const k6Files = fs
+    .readdirSync(path.join(REPO_ROOT, 'scripts'))
+    .filter((name) => name.startsWith('k6-') && name.endsWith('.js'));
+  assert.ok(k6Files.length > 0, 'no scripts/k6-*.js found; the excludedFiles glob now guards nothing');
+
+  for (const name of k6Files) {
+    const filePath = path.join(REPO_ROOT, 'scripts', name);
+    const config = await eslint.calculateConfigForFile(filePath);
+    assert.equal(config.parserOptions.sourceType, 'module', `${name} must stay sourceType module`);
+
+    const [result] = await eslint.lintFiles([filePath]);
+    const parseErrors = result.messages.filter((message) => message.fatal);
+    assert.deepEqual(
+      parseErrors.map((message) => message.message),
+      [],
+      `${name} no longer parses, which silently suppresses every other report in it`
+    );
+  }
 });
 
 test('the strict rule does not reach server files', async () => {

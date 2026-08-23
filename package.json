@@ -125,7 +125,11 @@
       },
       {
         "files": [
-          "server/**/*.js"
+          "server/**/*.js",
+          "scripts/**/*.js"
+        ],
+        "excludedFiles": [
+          "scripts/k6-*.js"
         ],
         "env": {
           "node": true
