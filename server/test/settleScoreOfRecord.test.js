@@ -61,12 +61,21 @@ const ACQUIRED = 4; // RB, 30.0 points, plays for the Eagles
 const BYE_MAN = 5; // RB, 12.0 points, whose NFL team has NO game row this week
 const QB_C = 6; // Team C's QB, 20.0 points (seeding fixture only)
 const QB_D = 7; // Team D's QB, 5.0 points (seeding fixture only)
+const THURSDAY_MAN = 8; // QB, 10.0 points, whose game kicks off on THURSDAY
 
-// The one timeline every test reads. Every NFL game in the fixture kicks off
+// The one timeline every test reads. Most NFL games in the fixture kick off
 // at KICKOFF, so "before" and "after" mean before and after the week's games.
 const KICKOFF = '2026-10-25T17:00:00.000Z';
 const BEFORE_KICKOFF = '2026-10-24T12:00:00.000Z';
 const AFTER_GAMES = '2026-10-25T23:30:00.000Z';
+const LATER_STILL = '2026-10-25T23:45:00.000Z';
+
+// The Thursday game, and the moment the scheduler first materializes an
+// untouched lineup: its first tick AFTER the week's first kickoff. For a
+// Thursday player that instant is already past his own kickoff, which is why
+// `lineup_entries.created_at` cannot be read against kickoff on its own.
+const THURSDAY_KICKOFF = '2026-10-22T00:20:00.000Z';
+const FIRST_MATERIALIZE = '2026-10-25T17:05:00.000Z';
 
 const ROSTER_SLOTS = [
   { key: 'QB', label: 'QB', count: 1, eligiblePositions: ['QB'] },
@@ -80,6 +89,7 @@ const NFL_TEAM = new Map([
   [BYE_MAN, 'Ghosts'], // deliberately absent from nfl_games
   [QB_C, 'Chiefs'],
   [QB_D, 'Chiefs'],
+  [THURSDAY_MAN, 'Ravens'],
 ]);
 
 const POSITION = new Map([
@@ -89,6 +99,7 @@ const POSITION = new Map([
   [BYE_MAN, 'RB'],
   [QB_C, 'QB'],
   [QB_D, 'QB'],
+  [THURSDAY_MAN, 'QB'],
 ]);
 
 const WEEK_STATS = new Map([
@@ -98,6 +109,7 @@ const WEEK_STATS = new Map([
   [BYE_MAN, { rushingYards: 120 }], // 12.0
   [QB_C, { passingYards: 500 }], // 20.0
   [QB_D, { passingYards: 125 }], // 5.0
+  [THURSDAY_MAN, { passingYards: 250 }], // 10.0
 ]);
 
 function createWorld({
@@ -143,6 +155,7 @@ function createWorld({
       { season: SEASON, week: WEEK, nfl_team: 'Chiefs', kickoff_at: KICKOFF },
       { season: SEASON, week: WEEK, nfl_team: 'Bills', kickoff_at: KICKOFF },
       { season: SEASON, week: WEEK, nfl_team: 'Eagles', kickoff_at: KICKOFF },
+      { season: SEASON, week: WEEK, nfl_team: 'Ravens', kickoff_at: THURSDAY_KICKOFF },
     ],
     matchups: matchups || [{
       id: 90,
@@ -159,7 +172,16 @@ function createWorld({
       playoff_round: null,
     }],
     notifications: [],
+    // The wall clock a lineup-row INSERT stamps into created_at. Helpers move
+    // it so "when was this row written" is a property of the test, not of the
+    // order the fixture happens to run in.
+    clock: AFTER_GAMES,
   };
+  // Rows the fixture declares are the ordinary case: written when the manager
+  // set his lineup, before anything kicked off. A test that cares says so.
+  for (const entry of state.lineupEntries) {
+    if (entry.created_at === undefined) entry.created_at = BEFORE_KICKOFF;
+  }
 
   const entriesFor = (teamId, season, week) =>
     state.lineupEntries.filter((e) => e.team_id === teamId && e.season === season && e.week === week);
@@ -222,11 +244,14 @@ function createWorld({
           .map(({ player_id, slot, ir_attested }) => ({ player_id, slot, ir_attested })),
       };
     }],
+    // ON CONFLICT DO NOTHING: an existing row keeps its original created_at,
+    // which is the whole reason a survived row can be told from a fresh one.
     [/^INSERT INTO "lineup_entries"/, (text, [, teamId, playerId, season, week, slot, irAttested]) => {
       const clash = entriesFor(teamId, season, week).some((e) => e.player_id === playerId);
       if (!clash) {
         state.lineupEntries.push({
           team_id: teamId, player_id: playerId, season, week, slot, ir_attested: irAttested,
+          created_at: state.clock,
         });
       }
       return { rows: [] };
@@ -357,6 +382,10 @@ async function advanceWeek(state) {
 
 /** A post-game (or pre-kickoff) acquisition: roster row, then the bench rule. */
 async function acquire(fake, state, { teamId = TEAM_B, playerId = ACQUIRED, at = AFTER_GAMES } = {}) {
+  // One transaction inserts the roster row and materializes the lineup row,
+  // so Postgres' now() - transaction start - stamps both identically. That
+  // equality is why the rule's second clause is >= and not >.
+  state.clock = at;
   state.teamPlayers.push({ team_id: teamId, player_id: playerId, created_at: at });
   const client = await fake.connect();
   await benchAcquiredPlayer(client, { league: state.league, teamId, playerId });
@@ -483,6 +512,72 @@ test('#190 standard: excluding a post-game acquisition still leaves him benched 
   assert.deepEqual(nextWeek.map((e) => e.player_id).sort(), [QB_B, ACQUIRED].sort());
   assert.equal(nextWeek.find((e) => e.player_id === ACQUIRED).slot, 'BENCH',
     'excluding him from last week must not cost him his bench spot in this one');
+  world.fake.assertClean();
+});
+
+/* ------------------------------------------------------------------ *
+ * The escalation's case, and the hole in the AND-on-kickoff candidate *
+ * ------------------------------------------------------------------ */
+
+test('#190 a starter dropped after his game and RE-ADDED still counts', async (t) => {
+  // The escalation. He was held at kickoff and played. The drop leaves his
+  // row standing (his game had started), and the re-add gives him a
+  // team_players row stamped now - after kickoff. Reading the roster row
+  // alone cannot tell this from a fresh pickup, and excluding him is the
+  // very harm this ticket exists to remove, arriving through another door.
+  const world = createWorld();
+  world.fake.install(t);
+
+  await drop(world.fake, world.state);
+  await acquire(world.fake, world.state, { playerId: QB_B, at: LATER_STILL });
+
+  assert.equal(
+    world.entriesFor(TEAM_B, SEASON, WEEK).find((e) => e.player_id === QB_B).created_at,
+    BEFORE_KICKOFF,
+    'the surviving row keeps its original timestamp: ON CONFLICT DO NOTHING preserved it'
+  );
+
+  await advanceWeek(world.state);
+
+  assert.equal(awayScoreOf(world.state), 10,
+    'the row predates the tenure now on the books, so it is not that tenure\'s row');
+  world.fake.assertClean();
+});
+
+test('#190 the Thursday player on an untouched lineup counts when dropped and re-added', async (t) => {
+  // Why reading lineup_entries.created_at against KICKOFF would not do.
+  // The scheduler first materializes an untouched lineup on its first tick
+  // AFTER the week's first kickoff, so for a Thursday player that row is
+  // ALREADY stamped after his own kickoff. Both timestamps sit after it, and
+  // a rule comparing either one to kickoff excludes a man who was held all
+  // along. Only the relation BETWEEN them separates the two.
+  const world = createWorld({
+    teamPlayers: [
+      { team_id: TEAM_A, player_id: QB_A, created_at: BEFORE_KICKOFF },
+      { team_id: TEAM_B, player_id: THURSDAY_MAN, created_at: '2026-10-01T00:00:00.000Z' },
+    ],
+    lineupEntries: [
+      { team_id: TEAM_A, player_id: QB_A, season: SEASON, week: WEEK, slot: 'QB', ir_attested: false },
+      {
+        team_id: TEAM_B, player_id: THURSDAY_MAN, season: SEASON, week: WEEK,
+        slot: 'QB', ir_attested: false, created_at: FIRST_MATERIALIZE,
+      },
+    ],
+  });
+  world.fake.install(t);
+
+  assert.ok(
+    new Date(FIRST_MATERIALIZE) > new Date(THURSDAY_KICKOFF),
+    'the fixture is the real trap: his lineup row postdates his own kickoff'
+  );
+
+  await drop(world.fake, world.state, { playerId: THURSDAY_MAN });
+  await acquire(world.fake, world.state, { playerId: THURSDAY_MAN, at: LATER_STILL });
+
+  await advanceWeek(world.state);
+
+  assert.equal(awayScoreOf(world.state), 10,
+    'held since October and played on Thursday: his points are the score of record');
   world.fake.assertClean();
 });
 
