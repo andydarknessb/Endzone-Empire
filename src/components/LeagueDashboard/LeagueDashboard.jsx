@@ -53,6 +53,7 @@ import CommissionerTools from './CommissionerTools';
 import AbbreviationTooltip from '../common/AbbreviationTooltip';
 import { deriveLeaguePhase, isSeasonLive, LEAGUE_PHASE, LEAGUE_PHASE_META } from '../../lib/leaguePhase';
 import { isPickemOnly } from '../../lib/leagueType';
+import draftRosterSize, { draftRounds } from '../../lib/rosterShape';
 
 // The fantasy header's season chip, worded by phase once the draft is done.
 // (A pick'em-only header uses LEAGUE_PHASE_META instead: it has no playoffs.)
@@ -298,6 +299,7 @@ function LeagueDashboard() {
   const auctionUnsupported = league.draft_type === 'auction';
   const leaguePhase = deriveLeaguePhase(league);
   const preDraft = leaguePhase === LEAGUE_PHASE.PRE_DRAFT;
+  const drafting = leaguePhase === LEAGUE_PHASE.DRAFTING;
   const seasonComplete = leaguePhase === LEAGUE_PHASE.COMPLETE;
   // The season is being played (in season or playoffs): the week can advance.
   const seasonLive = isSeasonLive(league);
@@ -347,7 +349,15 @@ function LeagueDashboard() {
           label={league.draft_status}
           color={DRAFT_STATUS_CHIP_COLOR[league.draft_status] || 'default'}
         />
-        <Chip label={`Roster Limit: ${league.roster_limit}`} />
+        {/* Draft-preparation fact, so it speaks before and during the draft
+            and goes quiet once the draft is done (2026-08-22 ruling on #162):
+            pre-draft reads the live Draft roster size the Draft room shows
+            for a pending draft; drafting reads the fixed Draft rounds
+            (ADR 0005) the Draft room and Board read once picks are
+            underway. Phase comes from the shared derivation, never a local
+            guess. */}
+        {preDraft && <Chip label={`Draft roster size: ${draftRosterSize(league)}`} />}
+        {drafting && <Chip label={`Draft rounds: ${draftRounds(league)}`} />}
         <Chip
           label={`Teams: ${teams.length}/${league.max_teams}`}
           color={belowMin ? 'warning' : 'default'}
