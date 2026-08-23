@@ -60,7 +60,10 @@ league holds none)
 
 **Commissioner**:
 A manager authorized to administer a league, either its creator or someone the
-creator has granted the role. A few powers stay with the creator alone.
+creator has granted the role, a co-commissioner. Two powers stay with the
+creator alone: deleting the league, and granting or revoking the role. One
+protection stands alongside them: the creator's team cannot be removed by
+anyone. Separately, no commissioner of either kind may remove their own team.
 _Avoid_: admin, owner, moderator
 
 **League phase**:

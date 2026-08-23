@@ -49,7 +49,23 @@ async function requireCommissioner(client, { leagueId, userId, forUpdate = false
 /**
  * Remove a team from the league. Before the draft this is clean; later it
  * also cascades the team's roster, lineups, and matchups (history rewrites
- * are on the commissioner). The commissioner's own team can't be removed.
+ * are on the commissioner). Two separate rules refuse a removal, and they
+ * answer separate questions, so they carry separate messages:
+ *
+ * - No commissioner of either kind may remove their own team. That compares
+ *   the target against the CALLER (`userId`), never against the league
+ *   owner: a co-commissioner is a commissioner, and removing their team
+ *   would delete their `league_commissioners` grant on the way past.
+ * - The league creator's team cannot be removed by anyone, a co-commissioner
+ *   included. That compares against `leagues.owner_id`, and it is one of the
+ *   three direct owner_id comparisons leagueRole.service sanctions.
+ *
+ * Both apply to the creator removing their own team, and the first answers:
+ * the caller is being told about themselves, which is the more useful of the
+ * two things true about that request.
+ *
+ * Every other removal proceeds, including revoking the removed manager's
+ * co-commissioner grant.
  */
 async function removeTeam({ leagueId, userId, teamId }) {
   const client = await pool.connect();
@@ -62,8 +78,11 @@ async function removeTeam({ leagueId, userId, teamId }) {
     );
     const team = teamResult.rows[0];
     if (!team) throw new CommissionerError(404, 'team not found in this league');
+    if (team.owner_id === userId) {
+      throw new CommissionerError(409, "you can't remove your own team");
+    }
     if (team.owner_id === league.owner_id) {
-      throw new CommissionerError(409, "the commissioner's own team can't be removed");
+      throw new CommissionerError(409, "the league creator's team can't be removed");
     }
     await client.query(`DELETE FROM "teams" WHERE "id" = $1`, [teamId]);
     // Leaving the league gives up commissioner powers with it.
