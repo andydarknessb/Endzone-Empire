@@ -119,8 +119,8 @@ function createSocketHarness({ secret = 'socket-harness-secret' } = {}) {
    * test's `t` and the client is released when that test ends rather than at
    * the end of the file.
    */
-  async function connectAs({ userId, username = `user-${userId}` }, t) {
-    const client = await open({ auth: { token: signToken({ id: userId, username }) } });
+  async function connectAs({ userId, username = `user-${userId}` }, t, options = {}) {
+    const client = await open({ auth: { token: signToken({ id: userId, username }) }, ...options });
     if (t) t.after(() => release(client));
     await withDeadline(
       new Promise((resolve, reject) => {
@@ -169,9 +169,14 @@ function createSocketHarness({ secret = 'socket-harness-secret' } = {}) {
     );
   }
 
-  /** Collect the next `event` payload; call BEFORE the emit that triggers it. */
+  /** Collect the next `event` payload; call BEFORE the emit that triggers it.
+   *  Deadlined like every other wait here, so an event that never arrives
+   *  fails by name in seconds instead of stalling to the runner's timeout. */
   function nextEvent(client, event) {
-    return new Promise((resolve) => client.once(event, resolve));
+    return withDeadline(
+      new Promise((resolve) => client.once(event, resolve)),
+      `${event} event`
+    );
   }
 
   async function stop() {
@@ -201,7 +206,10 @@ function createSocketHarness({ secret = 'socket-harness-secret' } = {}) {
 
   after(stop);
 
-  return { start, connectAs, connectExpectingRefusal, release, emit, nextEvent, stop };
+  // Only what a suite calls. `start`, `release` and `stop` are reached from
+  // inside this file (by `open`, by `connectAs`'s cleanup, and by the
+  // `after` above), so exposing them would be surface with no caller.
+  return { connectAs, connectExpectingRefusal, emit, nextEvent };
 }
 
 module.exports = { createSocketHarness };

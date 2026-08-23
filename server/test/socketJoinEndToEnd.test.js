@@ -1,6 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createSocketHarness } = require('./helpers/socketHarness');
+const { joinAck } = require('../modules/draftSocket');
 const {
   leagueWorld,
   LEAGUE_ID,
@@ -88,6 +89,38 @@ for (const event of JOIN_EVENTS) {
 // ---------------------------------------------------------------------------
 // The handshake, through the real middleware.
 // ---------------------------------------------------------------------------
+
+test('the payload on the wire is the one joinAck builds, not merely the same shape', async (t) => {
+  // #231 Key interfaces: "the harness asserts the emitted payload equals what
+  // joinAck builds, so the shape test and the wiring test agree." Exactly ONE
+  // test does it this way. If every case above compared against joinAck(...)
+  // they would all be tautologies - the handler calls joinAck too, so both
+  // sides would move together and no shape change could ever fail them. The
+  // literals above pin the wire; this pins the two to each other.
+  world(t);
+  const client = await harness.connectAs(MEMBER, t);
+
+  const ack = await harness.emit(client, 'draft:join', { leagueId: LEAGUE_ID });
+
+  assert.deepEqual(ack, joinAck({
+    viewerTeam: { id: MEMBER.teamId, name: MEMBER.teamName },
+    isCommissioner: false,
+  }));
+});
+
+test('the handshake also succeeds on the default transports, not just websocket', async (t) => {
+  // The suite pins `websocket` for speed and determinism, which would skip
+  // the polling handshake entirely. The real browser client opens on polling
+  // and upgrades, and the server's CORS resolves to `origin: false`, so this
+  // keeps the assumption the rest of the suite is built on under test rather
+  // than in a smoke-check someone ran once.
+  world(t);
+  const client = await harness.connectAs(OWNER, t, { transports: ['polling', 'websocket'] });
+
+  const ack = await harness.emit(client, 'draft:join', { leagueId: LEAGUE_ID });
+
+  assert.deepEqual(ack, { ok: true, viewerTeamId: OWNER.teamId, isCommissioner: true });
+});
 
 test('a connection with no token is refused by the socket middleware', async (t) => {
   world(t);
