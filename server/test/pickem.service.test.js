@@ -498,10 +498,10 @@ test('getWeekView hides unlocked picks and reveals locked ones', async (t) => {
     if (text.includes('FROM "pickem_picks"')) {
       return {
         rows: [
-          { user_id: 9, team_pair: 'DAL|WAS', picked_team: 'DAL', confidence: 2, username: 'me' },
-          { user_id: 9, team_pair: 'DEN|KC', picked_team: 'KC', confidence: 1, username: 'me' },
-          { user_id: 5, team_pair: 'DAL|WAS', picked_team: 'WAS', confidence: 1, username: 'rival' },
-          { user_id: 5, team_pair: 'DEN|KC', picked_team: 'DEN', confidence: 2, username: 'rival' },
+          { user_id: 9, team_pair: 'DAL|WAS', picked_team: 'DAL', confidence: 2, username: 'me', teamId: 90, teamName: 'My Team' },
+          { user_id: 9, team_pair: 'DEN|KC', picked_team: 'KC', confidence: 1, username: 'me', teamId: 90, teamName: 'My Team' },
+          { user_id: 5, team_pair: 'DAL|WAS', picked_team: 'WAS', confidence: 1, username: 'rival', teamId: 50, teamName: 'Rival Team' },
+          { user_id: 5, team_pair: 'DEN|KC', picked_team: 'DEN', confidence: 2, username: 'rival', teamId: 50, teamName: 'Rival Team' },
         ],
       };
     }
@@ -517,8 +517,12 @@ test('getWeekView hides unlocked picks and reveals locked ones', async (t) => {
   ]);
   assert.equal(view.myPicks.length, 2, 'my own picks are always mine to see');
   assert.deepEqual(Object.keys(view.othersPicks), ['DAL|WAS']);
+  // Team identity rides beside the author's account fields (#112, parent #108).
   assert.deepEqual(view.othersPicks['DAL|WAS'], [
-    { userId: 5, username: 'rival', gameKey: 'DAL|WAS', pickedTeam: 'WAS', confidence: 1 },
+    {
+      userId: 5, username: 'rival', teamId: 50, teamName: 'Rival Team',
+      gameKey: 'DAL|WAS', pickedTeam: 'WAS', confidence: 1,
+    },
   ]);
 });
 
