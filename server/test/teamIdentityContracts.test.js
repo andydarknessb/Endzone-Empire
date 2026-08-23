@@ -2,9 +2,17 @@ const { after, test } = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
 const request = require('supertest');
-const { createFakePool } = require('./helpers/fakePool');
+const { createFakePool, select, insert, update } = require('./helpers/fakePool');
 const { signToken } = require('../modules/auth');
 const leagueRouter = require('../routes/league.router');
+const {
+  getDraftState,
+  draftJoinAck,
+  presencePayload,
+  chatMessagePayload,
+} = require('../modules/draftSocket');
+const { draftPlayer } = require('../services/draft.service');
+const lineupService = require('../services/lineup.service');
 
 /**
  * Contract tests for #112 (parent #108): the EXPAND step of the shared
@@ -135,4 +143,163 @@ test('league detail: the league creator and the co-commissioners carry Team iden
   assert.match(leagueQuery.text, /AS "ownerTeamId"/);
   const [coCommissionerQuery] = fake.matching(/^SELECT "league_commissioners"\."user_id"/);
   assert.match(coCommissionerQuery.text, /"teams"\."id" AS "teamId", "teams"\."name" AS "teamName"/);
+});
+
+// ------------------------------------------- Draft snapshot and Draft events
+
+const DRAFT_LEAGUE = {
+  id: LEAGUE_ID,
+  name: 'Sunday Ballers',
+  draft_status: 'active',
+  draft_rotation: 'snake',
+  draft_order_overrides: null,
+  current_pick: 0, // 0-based: the first slot in the Draft order
+  invite_code: 'invite',
+};
+
+const draftTeamRow = ({ userId, teamId, teamName }, draftPosition) => ({
+  id: teamId,
+  name: teamName,
+  teamId,
+  teamName,
+  draft_position: draftPosition,
+  autodraft: false,
+  draft_ready: true,
+  owner_id: userId,
+  owner: `u${userId}`,
+});
+
+function draftStateFake(t) {
+  return createFakePool([
+    [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ ...DRAFT_LEAGUE }] })],
+    [/FROM "teams" JOIN "users"/, () => ({
+      rows: [draftTeamRow(VIEWER, 1), draftTeamRow(OTHER, 2)],
+    })],
+    [/FROM "draft_picks"/, () => ({
+      rows: [{
+        pick_number: 1,
+        team_id: OTHER.teamId,
+        teamId: OTHER.teamId,
+        teamName: OTHER.teamName,
+        is_keeper: false,
+        player_id: 900,
+        name: 'Justin Jefferson',
+        position: 'WR',
+        nfl_team: 'MIN',
+      }],
+    })],
+  ]).install(t);
+}
+
+test('Draft snapshot: every team carries Team identity beside its account fields', async (t) => {
+  const fake = draftStateFake(t);
+
+  const state = await getDraftState(LEAGUE_ID);
+
+  assert.deepEqual(
+    state.teams.map((team) => [team.teamId, team.teamName]),
+    [[VIEWER.teamId, VIEWER.teamName], [OTHER.teamId, OTHER.teamName]]
+  );
+  assert.equal(state.teams[1].owner_id, OTHER.userId, 'the legacy account fields survive');
+  assert.equal(state.teams[1].owner, `u${OTHER.userId}`);
+  const [teamsQuery] = fake.matching(/FROM "teams" JOIN "users"/);
+  assert.match(teamsQuery.text, /"teams"\."id" AS "teamId", "teams"\."name" AS "teamName"/);
+});
+
+test('Draft snapshot: the team On the clock carries Team identity', async (t) => {
+  draftStateFake(t);
+
+  const state = await getDraftState(LEAGUE_ID);
+
+  assert.equal(state.onTheClock.teamId, VIEWER.teamId);
+  assert.equal(state.onTheClock.teamName, VIEWER.teamName);
+  assert.equal(state.onTheClock.owner_id, VIEWER.userId);
+});
+
+test('Draft snapshot: every Pick names the Team that made it, not just its id', async (t) => {
+  const fake = draftStateFake(t);
+
+  const state = await getDraftState(LEAGUE_ID);
+
+  const [pick] = state.picks;
+  assert.equal(pick.teamId, OTHER.teamId);
+  assert.equal(pick.teamName, OTHER.teamName);
+  assert.equal(pick.team_id, OTHER.teamId, 'the legacy pick field survives');
+  // `name` on a pick row is the PLAYER's name, which is exactly why the Team
+  // needs its own contract field rather than another bare `name`.
+  assert.equal(pick.name, 'Justin Jefferson');
+  const [picksQuery] = fake.matching(/FROM "draft_picks"/);
+  assert.match(picksQuery.text, /"teams"\."id" AS "teamId", "teams"\."name" AS "teamName"/);
+});
+
+test('draft:picked: the Pick outcome names the Team that made it', async (t) => {
+  // draft:picked is `{ ...outcome, by }`, so the Pick's own Team identity has
+  // to come off the outcome for the broadcast to attribute it by Team.
+  const league = {
+    id: LEAGUE_ID,
+    draft_status: 'active',
+    draft_paused: false,
+    draft_type: 'snake',
+    draft_rotation: 'snake',
+    draft_order_overrides: null,
+    pickem_only: false,
+    roster_limit: 3,
+    ir_slots: 1,
+    draft_rounds: 2,
+    position_caps: {},
+    current_pick: 0, // 0-based: the viewer's Team holds the first slot
+    pick_time_seconds: 60,
+    autodraft_delay_seconds: 10,
+    waiver_period_hours: 24,
+  };
+  const fake = createFakePool([
+    [select('leagues'), () => ({ rows: [league] })],
+    [select('teams'), () => ({ rows: [
+      { id: VIEWER.teamId, name: VIEWER.teamName, owner_id: VIEWER.userId, draft_position: 1, autodraft: false, locked: false },
+      { id: OTHER.teamId, name: OTHER.teamName, owner_id: OTHER.userId, draft_position: 2, autodraft: false, locked: false },
+    ] })],
+    [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB' }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 0 }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, () => ({ rows: [{ n: 0 }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "draft_picks"/, () => ({ rows: [{ n: 0 }] })],
+    [/^SELECT "pick_number" FROM "draft_picks"/, () => ({ rows: [] })],
+    [insert('draft_picks'), () => ({ rows: [], rowCount: 1 })],
+    [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
+    [update('leagues'), () => ({ rows: [{ pick_deadline_at: null }] })],
+    [update('teams'), () => ({ rows: [], rowCount: 1 })],
+  ]).install(t);
+  t.mock.method(lineupService, 'benchAcquiredPlayer', async () => {});
+
+  const outcome = await draftPlayer({ leagueId: LEAGUE_ID, userId: VIEWER.userId, playerId: 500 });
+
+  assert.equal(outcome.teamId, VIEWER.teamId, 'the legacy Team id field survives');
+  assert.equal(outcome.teamName, VIEWER.teamName);
+  fake.assertClean();
+});
+
+test('draft:join acknowledges the viewer with their own Team ID', () => {
+  assert.deepEqual(draftJoinAck({ id: VIEWER.teamId, name: VIEWER.teamName }), {
+    ok: true,
+    viewerTeamId: VIEWER.teamId,
+  });
+  assert.deepEqual(draftJoinAck(null), { ok: true, viewerTeamId: null });
+});
+
+test('draft:presence carries the joining manager\'s Team identity beside their account', () => {
+  assert.deepEqual(
+    presencePayload({ id: VIEWER.userId, username: 'u42' }, { id: VIEWER.teamId, name: VIEWER.teamName }),
+    { userId: VIEWER.userId, username: 'u42', teamId: VIEWER.teamId, teamName: VIEWER.teamName, joined: true }
+  );
+});
+
+test('a broadcast Draft payload never carries a viewer-relative field', () => {
+  // One draft:presence payload reaches the whole league room, so no field on
+  // it can be true for every recipient. viewerTeamId lives on the join ack,
+  // which is answered to one socket.
+  const payload = presencePayload(
+    { id: VIEWER.userId, username: 'u42' },
+    { id: VIEWER.teamId, name: VIEWER.teamName }
+  );
+  assert.equal('viewerTeamId' in payload, false);
+  assert.equal('isViewer' in payload, false);
 });

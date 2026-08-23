@@ -6,6 +6,7 @@ const { teamForPick, nextOpenPickNumber } = require('./draftOrder.service');
 const lineupService = require('./lineup.service');
 const { isLeagueCommissioner } = require('./leagueRole.service');
 const { requireMember } = require('./leagueMembership.service');
+const { teamIdentityOf } = require('./teamIdentity');
 const { assertFantasyLeagueRow } = require('./leagueType');
 const { draftRounds } = require('./rosterShape');
 const { rosterCapacity, undoRestoresStash } = require('./irPolicy.service');
@@ -111,7 +112,7 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommiss
     }
 
     const teamsResult = await client.query(
-      `SELECT "id", "owner_id", "draft_position", "autodraft", "locked" FROM "teams"
+      `SELECT "id", "name", "owner_id", "draft_position", "autodraft", "locked" FROM "teams"
        WHERE "league_id" = $1 ORDER BY "draft_position" NULLS LAST, "id"`,
       [leagueId]
     );
@@ -288,9 +289,12 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommiss
     }
 
     await client.query('COMMIT');
+    // teamName rides beside teamId so the `draft:picked` broadcast built from
+    // this outcome can attribute the Pick by Team without a second lookup
+    // (#112, parent #108).
     return {
       leagueId,
-      teamId: myTeam.id,
+      ...teamIdentityOf(myTeam),
       player: playerResult.rows[0],
       pickNumber,
       nextTeamId,
