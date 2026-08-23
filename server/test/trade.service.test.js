@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createFakePool, select, insert, update } = require('./helpers/fakePool');
+const { createFakePool, select, insert, update, remove } = require('./helpers/fakePool');
 const { TradeError, executeTrade } = require('../services/trade.service');
 const lineupService = require('../services/lineup.service');
 
@@ -29,7 +29,16 @@ function tradeWorld({ counts, stashes, stashQueries }) {
       if (stashQueries) stashQueries.push(params);
       return { rows: [{ n: stashes.get(params[0]) }] };
     }],
-    [update('team_players'), () => ({ rows: [], rowCount: 1 })],
+    // Delete-and-insert, not UPDATE ... SET team_id (#197): the giving
+    // team's row is replaced rather than moved, so created_at means "when
+    // this team acquired him" on every path.
+    [remove('team_players'), () => ({ rows: [], rowCount: 1 })],
+    [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
+    // The giving side's lineup follows its roster out.
+    [/^SELECT 1 FROM "matchups"/, () => ({ rows: [] })],
+    [/^SELECT "nfl_team" FROM "players"/, () => ({ rows: [{ nfl_team: 'MIN' }] })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
+    [remove('lineup_entries'), () => ({ rows: [], rowCount: 1 })],
     [update('trades'), () => ({ rows: [], rowCount: 1 })],
     [select('players'), () => ({ rows: [{ id: 21, name: 'Test Runner' }] })],
     [insert('transactions'), () => ({ rows: [] })],
@@ -75,14 +84,22 @@ test('executeTrade: an eligible IR stash on the receiving team grants the extra 
   });
   const benched = [];
   t.mock.method(lineupService, 'benchAcquiredPlayer', async (client, args) => {
-    benched.push({ ...args, afterRosterWrite: fake.matching(/^UPDATE "team_players"/).length > 0 });
+    benched.push({ ...args, afterRosterWrite: fake.matching(/^INSERT INTO "team_players"/).length > 0 });
   });
   const client = await fake.connect();
 
   await executeTrade(client, { trade, league, items, teams });
   client.release();
 
-  assert.equal(fake.matching(/^UPDATE "team_players"/).length, 1);
+  // The writer count for one traded player, pinned (#197): exactly one
+  // delete of the giving team's row and one insert of the receiving team's,
+  // and NO update of team_players anywhere in the path. This is the
+  // assertion that guards the shape - a reader that dates an acquisition
+  // from created_at is only correct while the row is replaced rather than
+  // moved, and updated_at is no longer written here at all.
+  assert.equal(fake.matching(/^UPDATE "team_players"/).length, 0);
+  assert.equal(fake.matching(/^DELETE FROM "team_players"/).length, 1);
+  assert.equal(fake.matching(/^INSERT INTO "team_players"/).length, 1);
   assert.equal(fake.matching(/^UPDATE "trades" SET "status" = 'executed'/).length, 1);
   // The acquired player lands on the receiving team's bench (user story 13),
   // never in a stash his old lineup rows there might still describe.

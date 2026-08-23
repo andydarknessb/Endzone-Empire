@@ -455,6 +455,24 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
         await client.query(`DELETE FROM "team_players" WHERE "league_id" = $1`, [leagueId]);
       }
 
+      // The lineup follows the roster (#197). This is the one removal path
+      // that prunes in a single bulk statement rather than player by player,
+      // so the pairs it removed are derived from the roster read above
+      // rather than being at hand. A path modelled on the other five - one
+      // call beside one delete - would silently clean nothing here.
+      //
+      // It runs against the season being ARCHIVED (the league row is still
+      // pre-rollover), which is the season those rows belong to. In practice
+      // it removes little: a completed season's current week has played, so
+      // the kickoff guard keeps its rows, and there is rarely a later week.
+      const keptPairs = new Set(keeperPairs.map(([teamId, playerId]) => `${teamId}:${playerId}`));
+      for (const row of rosters) {
+        if (keptPairs.has(`${row.team_id}:${row.player_id}`)) continue;
+        await lineupService.removeLineupEntries(client, {
+          league, teamId: row.team_id, playerId: row.player_id,
+        });
+      }
+
       await client.query(`DELETE FROM "draft_picks" WHERE "league_id" = $1`, [leagueId]);
       await client.query(`DELETE FROM "waiver_players" WHERE "league_id" = $1`, [leagueId]);
       await client.query(

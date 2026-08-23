@@ -8,6 +8,7 @@ const { teamForPick } = require('../services/draftOrder.service');
 const { draftPlayer, DraftError, nextPickClockSeconds } = require('../services/draft.service');
 const { validateKeepers, undoTargets } = require('../services/draftValidation.service');
 const { draftRosterSize } = require('../services/rosterShape');
+const { removeLineupEntries } = require('../services/lineup.service');
 const { isLeagueCommissioner, commissionerPredicate } = require('../services/leagueRole.service');
 const { requireMember } = require('../services/leagueMembership.service');
 const { requireFantasyLeague, fantasySideWhereSql } = require('../services/leagueType');
@@ -375,6 +376,9 @@ router.post('/league/:id/undo', async (req, res) => {
         `DELETE FROM "team_players" WHERE "league_id" = $1 AND "team_id" = $2 AND "player_id" = $3`,
         [leagueId, row.team_id, row.player_id]
       );
+      // The lineup follows the roster (#197): the pick benched him when it
+      // was made, so undoing it takes that row back too.
+      await removeLineupEntries(client, { league, teamId: row.team_id, playerId: row.player_id });
     }
     // The earliest undone pick's own slot was itself open (a live pick, never
     // a keeper) before it was made, so rewinding current_pick straight to it
