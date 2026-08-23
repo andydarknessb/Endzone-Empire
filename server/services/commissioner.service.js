@@ -116,6 +116,14 @@ async function removeTeam({ leagueId, userId, teamId }) {
  * Commissioner force-sets any team's lineup for a week. Bypasses ownership
  * and lineup locks, but still validates slot counts and eligibility so the
  * result is a legal lineup.
+ *
+ * A week before the league's current week is settled and refused outright
+ * (409), mirroring the manager path's own past-week guard: once a matchup is
+ * final its lineups are the record of the week as played, never a working
+ * lineup, so the force path may not edit one. matchups.final has a single
+ * writer that advances current_week in the same transaction, so
+ * `week < current_week` is equivalent to "settled" here and needs no matchup
+ * lookup of its own.
  */
 async function forceSetLineup({ leagueId, userId, teamId, week, moves }) {
   if (!Array.isArray(moves) || moves.length === 0) {
@@ -132,6 +140,9 @@ async function forceSetLineup({ leagueId, userId, teamId, week, moves }) {
     if (!teamResult.rows[0]) throw new CommissionerError(404, 'team not found in this league');
     const season = league.current_season;
     const targetWeek = week || league.current_week;
+    if (targetWeek < league.current_week) {
+      throw new CommissionerError(409, 'cannot edit a settled week');
+    }
 
     await materializeLineup(client, { leagueId, teamId, season, week: targetWeek });
     const entriesResult = await client.query(
