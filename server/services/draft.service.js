@@ -1,5 +1,5 @@
 const pool = require('../modules/pool');
-const { placeOnWaivers, isOnWaivers } = require('./waiver.service');
+const { dropToWaiversUndoable, isOnWaivers } = require('./waiver.service');
 const { logTransaction } = require('./activity.service');
 const { teamForPick, nextOpenPickNumber } = require('./draftOrder.service');
 // Module object, not destructured: the seam tests mock benchAcquiredPlayer.
@@ -345,19 +345,10 @@ async function dropPlayer({ leagueId, userId, playerId }) {
       throw new DraftError(404, 'player is not on your roster');
     }
 
-    const interrupted = await lineupService.currentWeekEntry(client, {
-      league, teamId: team.id, playerId,
-    });
-    await lineupService.removeLineupEntries(client, { league, teamId: team.id, playerId });
-
-    // Dropped players pass through waivers before returning to free agency
-    await placeOnWaivers(client, {
-      leagueId,
-      playerId,
-      waiverPeriodHours: league.waiver_period_hours,
-      droppedByTeamId: team.id,
-      ...lineupService.interruptedStashFields(interrupted),
-    });
+    // Dropped players pass through waivers before returning to free agency,
+    // and a manager drop is undoable, so the hold carries what the drop
+    // interrupted (#197). Shared with the forced drop (#222).
+    await dropToWaiversUndoable(client, { league, teamId: team.id, playerId });
     await logTransaction(client, {
       leagueId,
       teamId: team.id,

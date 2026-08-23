@@ -72,6 +72,40 @@ async function placeOnWaivers(client, {
 }
 
 /**
+ * Send a dropped player to waivers with everything an undo will need: what
+ * his current-week lineup row held, recorded on the hold before the row is
+ * deleted, and the team that may replay it. Runs inside the caller's
+ * transaction, after the roster row is gone.
+ *
+ * The order is the point, and it is why this is one function rather than
+ * three calls repeated at each site: `currentWeekEntry` has to run before
+ * `removeLineupEntries` takes the row away, and both have to run before the
+ * hold is written, or the hold records nothing and the undo silently
+ * benches him (#197).
+ *
+ * **Two callers, and a third that must not become one.** `draft.service`'s
+ * manager drop and `commissioner.service`'s forced drop are both undoable
+ * and both belong here. The waiver-claim drop in `processWaivers` below is
+ * not: a claim's drop leaves no undo to offer, so it records no interrupted
+ * stash and names no dropping team, and it calls `placeOnWaivers` directly.
+ * That is a deliberate difference, not an oversight - hence the name. If a
+ * fourth drop path appears, the question to answer before reaching for this
+ * helper is whether it is undoable; if it is not, it does not want the
+ * record and passing it would offer an undo that cannot work.
+ */
+async function dropToWaiversUndoable(client, { league, teamId, playerId }) {
+  const interrupted = await lineupService.currentWeekEntry(client, { league, teamId, playerId });
+  await lineupService.removeLineupEntries(client, { league, teamId, playerId });
+  await placeOnWaivers(client, {
+    leagueId: league.id,
+    playerId,
+    waiverPeriodHours: league.waiver_period_hours,
+    droppedByTeamId: teamId,
+    ...lineupService.interruptedStashFields(interrupted),
+  });
+}
+
+/**
  * Is this player currently on waivers in the league (not yet a free agent)?
  * True when he has an unexpired waiver_players row, or the league's post-draft
  * blanket window is still open and he is unrostered.
@@ -252,6 +286,12 @@ async function processWaivers({ leagueId }) {
           // The lineup follows the roster (#197). No interrupted-stash
           // record here: a waiver-claim drop is not undoable, so there is
           // nothing for an undo to replay.
+          //
+          // This is the third drop-to-waivers sequence and the one that
+          // deliberately stays open-coded: `dropToWaiversUndoable` above
+          // exists for the two that ARE undoable, and routing this one
+          // through it would write a hold advertising an undo no route
+          // offers (#222). The omission is the behaviour, not a shortcut.
           await lineupService.removeLineupEntries(client, {
             league, teamId: team.id, playerId: claim.drop_player_id,
           });
@@ -407,6 +447,7 @@ module.exports = {
   claimFailureReason,
   orderClaims,
   placeOnWaivers,
+  dropToWaiversUndoable,
   isOnWaivers,
   submitClaim,
   cancelClaim,
