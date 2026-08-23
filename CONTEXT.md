@@ -472,7 +472,8 @@ _Avoid_: preset
 
 **Score of record**:
 The score a week is settled with: written once when the commissioner advances
-the week and never recomputed from a later roster.
+the week, never recomputed from a later roster, and returned unchanged by every
+later re-score of that week.
 _Avoid_: final score (a matchup's NFL-style total), official score
 
 **Settle pass**:
