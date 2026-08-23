@@ -106,7 +106,7 @@ const openPickHistory = async () => {
 
 /**
  * Once a draft is live the rail shows the compact Upcoming strip, and the full
- * Draft order - with its per-team Auto-draft switches - sits behind a
+ * Draft order - with its per-team Autodraft switches - sits behind a
  * disclosure inside it (issue #123 acceptance criterion 2).
  */
 const openFullDraftOrder = async () => {

@@ -25,13 +25,23 @@ import {
  * Team here. An invented pick number is indistinguishable on screen from a
  * real one, and a manager plans their wait around it.
  */
+
+/**
+ * How many of the viewer's picks read inline before the popover takes over
+ * (issue #124 acceptance criterion 4: "the next three"). A constant rather
+ * than a parameter: no caller wants a different number, and the argument it
+ * used to be carried a `Math.max(0, ...)` clamp that no caller could reach -
+ * a guard no broken implementation can be caught by, which is the thing this
+ * module's own comment below objects to.
+ */
+const INLINE_PREVIEW_COUNT = 3;
+
 export function viewerPicksFor({
   league,
   teams = [],
   picks = [],
   rounds = 0,
   viewerTeamId = null,
-  previewCount = 3,
 } = {}) {
   const empty = { all: [], next: [] };
 
@@ -67,7 +77,5 @@ export function viewerPicksFor({
     pickLabel: pickLabelFor(pickNumber0, teamIds.length),
   }));
 
-  return { all, next: all.slice(0, Math.max(0, previewCount)) };
+  return { all, next: all.slice(0, INLINE_PREVIEW_COUNT) };
 }
-
-export default viewerPicksFor;

@@ -87,4 +87,3 @@ export function readinessSummaryFor(teams = []) {
   };
 }
 
-export default readinessSummaryFor;

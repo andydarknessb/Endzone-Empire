@@ -153,8 +153,15 @@ describe('IR is excluded from Starting needs', () => {
       remainingPicks: 2,
     });
 
+    // The warning variant, and only it. A follow-up
+    // `expect(queryByText(/Only 2 picks left/)).not.toBeInTheDocument()` was
+    // here and has been removed: the two severity strings are mutually
+    // exclusive by construction, so once this assertion passes the other one
+    // cannot go red for any mutation, which makes it a guarantee of nothing.
+    // This line already discriminates - counting the two IR spots as open
+    // starting spots gives 2 picks against 4 spots, which renders the error
+    // variant instead and fails here.
     expect(screen.getByText('Every remaining pick has to fill a starting spot.')).toBeInTheDocument();
-    expect(screen.queryByText(/Only 2 picks left/)).not.toBeInTheDocument();
   });
 });
 

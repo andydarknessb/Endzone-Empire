@@ -188,7 +188,7 @@ test('the full Draft order is reachable from Upcoming, collapsed until asked for
   expect(within(upcoming).getByText(/Turn on/)).toBeInTheDocument();
 });
 
-test('the Auto-draft switches survive the move into that disclosure', async () => {
+test('the Autodraft switches survive the move into that disclosure', async () => {
   // They are the only client surface that posts to the autodraft endpoint,
   // and the draft's own copy says autodraft switches itself on after two
   // missed picks - so this is how a manager who stepped away turns it off.

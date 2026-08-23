@@ -134,6 +134,20 @@ describe('which group Readiness names', () => {
     expect(listed).toEqual(['Team 5', 'Team 6']);
   });
 
+  test('at exactly half, the ready Teams are still the listed group', async () => {
+    // The boundary the rule turns on, exercised through the rail and not only
+    // in readinessSummary's own suite: every other fixture here is 2/6, 4/6,
+    // 5/6 or 6/6, so inverting the comparison to `readyCount * 2 < total`
+    // would leave this file entirely green without this case.
+    const user = userEvent.setup();
+    render(<DraftRail {...baseProps} draftStatus="pending" upcoming={[]} teams={lobby(3, 6)} />);
+
+    await user.click(within(readinessRegion()).getByRole('button', { name: 'Ready managers (3)' }));
+
+    expect(within(readinessRegion()).getAllByRole('listitem').map((item) => item.textContent))
+      .toEqual(['Team 1', 'Team 2', 'Team 3']);
+  });
+
   test('at full readiness no expandable exception list remains', () => {
     render(<DraftRail {...baseProps} draftStatus="pending" upcoming={[]} teams={lobby(6, 6)} />);
 
@@ -268,6 +282,64 @@ describe("the manager's own Pick numbers", () => {
   });
 });
 
+describe('a control that vanishes hands focus somewhere deliberate', () => {
+  // Both of these unmount a focusable control in response to a socket frame
+  // rather than to anything the user did, which is the case the browser
+  // handles worst: it drops focus to <body>, so the next Tab restarts from the
+  // top of the document and a screen reader announces nothing at all. Neither
+  // could happen before this diff, because the surfaces they replace held no
+  // focusable elements.
+
+  test('the Readiness exception list, when the last manager declares ready', () => {
+    // The panel exists to be watched while it fills, so the user most likely
+    // to be holding this trigger is the one guaranteed to lose it.
+    const { rerender } = render(
+      <DraftRail {...baseProps} draftStatus="pending" upcoming={[]} teams={lobby(5, 6)} />
+    );
+    const trigger = within(readinessRegion()).getByRole('button', { name: 'Not ready managers (1)' });
+    trigger.focus();
+    expect(trigger).toHaveFocus();
+
+    rerender(<DraftRail {...baseProps} draftStatus="pending" upcoming={[]} teams={lobby(6, 6)} />);
+
+    expect(within(readinessRegion()).queryAllByRole('button')).toEqual([]);
+    expect(document.activeElement).not.toBe(document.body);
+    expect(screen.getByRole('heading', { name: 'Readiness' })).toHaveFocus();
+  });
+
+  test('the picks popover, when the viewer\'s last pick lands while it is open', async () => {
+    // Their own pick, or an autopick fired while they read the list. MUI
+    // restores focus to the trigger on a normal close; it cannot restore focus
+    // to a trigger that unmounted with the dialog.
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <DraftRail {...baseProps} draftStatus="active" viewerPicks={VIEWER_PICKS} />
+    );
+    await user.click(screen.getByRole('button', { name: 'All 4 of my picks' }));
+    expect(screen.getByRole('dialog', { name: 'All my picks' })).toBeInTheDocument();
+
+    rerender(<DraftRail {...baseProps} draftStatus="active" viewerPicks={{ all: [], next: [] }} />);
+
+    expect(screen.queryByRole('dialog', { name: 'All my picks' })).not.toBeInTheDocument();
+    expect(document.activeElement).not.toBe(document.body);
+    expect(screen.getByRole('heading', { name: 'Upcoming' })).toHaveFocus();
+  });
+
+  test('and does not steal focus from a user who was somewhere else entirely', () => {
+    // The counterpart the fix must not break: readiness reaching full while
+    // the manager is typing in the queue must leave their focus alone.
+    const { rerender } = render(
+      <DraftRail {...baseProps} draftStatus="pending" upcoming={[]} teams={lobby(5, 6)} />
+    );
+    const elsewhere = within(readinessRegion()).getByRole('checkbox', { name: 'I am ready for the draft' });
+    elsewhere.focus();
+
+    rerender(<DraftRail {...baseProps} draftStatus="pending" upcoming={[]} teams={lobby(6, 6)} />);
+
+    expect(elsewhere).toHaveFocus();
+  });
+});
+
 describe('the rail\'s ids are unique, because ARIA resolves them by id', () => {
   // MUI's Accordion renders its own <div role="region" id={summary aria-controls}>
   // around whatever it is given, so an AccordionDetails carrying that same id
@@ -303,7 +375,7 @@ describe('the rail\'s ids are unique, because ARIA resolves them by id', () => {
 });
 
 describe('help sits with the control it explains', () => {
-  test('every Auto-draft switch is described by the autodraft help', () => {
+  test('every Autodraft switch is described by the Autodraft help', () => {
     render(<DraftRail {...baseProps} draftStatus="pending" upcoming={[]} isCommissioner />);
 
     const order = screen.getByRole('region', { name: 'Draft order' });
@@ -313,7 +385,7 @@ describe('help sits with the control it explains', () => {
     for (const control of switches) {
       const describedBy = control.getAttribute('aria-describedby');
       expect(describedBy).toBeTruthy();
-      expect(document.getElementById(describedBy)).toHaveTextContent(/Turn on Auto-draft/);
+      expect(document.getElementById(describedBy)).toHaveTextContent(/Turn on Autodraft/);
     }
   });
 

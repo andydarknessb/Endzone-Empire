@@ -1,4 +1,6 @@
-import React, { useId, useState } from 'react';
+import React, {
+  useId, useState, useRef, useEffect, useLayoutEffect,
+} from 'react';
 import {
   Paper,
   Box,
@@ -27,6 +29,48 @@ import { railCompositionFor, RAIL_PANELS } from './railComposition';
 import { readinessSummaryFor, READINESS_LIST } from './readinessSummary';
 import { teamsInDraftOrder } from '../../lib/draftTurns';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
+
+/**
+ * Hand focus somewhere deliberate when a focusable thing disappears out from
+ * under the person using it.
+ *
+ * The rail is driven by a socket, so its controls come and go in response to
+ * what OTHER managers do. Two of them can vanish mid-interaction: the
+ * Readiness exception list, when the last manager declares ready, and the
+ * viewer's picks popover, when their last pick lands. The browser's answer in
+ * both cases is to drop focus to `<body>`, which restarts the next Tab at the
+ * top of the document and announces nothing at all - and the manager most
+ * likely to be holding the Readiness trigger is precisely the one watching the
+ * lobby fill, so the bad case is the expected one rather than an edge.
+ *
+ * `present` going true -> false is the signal. Focus is only moved if it was
+ * actually inside the subtree that went away, tracked by the returned
+ * focus/blur handlers: a manager whose focus is elsewhere in the rail when the
+ * lobby fills must not have it yanked to a heading. React's synthetic focus
+ * events bubble through the React tree rather than the DOM, so these still see
+ * focus land inside a portalled popover.
+ *
+ * `useLayoutEffect` rather than `useEffect` so the move happens in the same
+ * commit as the removal, with no frame in which focus is on nothing.
+ */
+function useFocusRescue(present, fallbackRef) {
+  const heldFocus = useRef(false);
+  const wasPresent = useRef(present);
+
+  useLayoutEffect(() => {
+    const vanished = wasPresent.current && !present;
+    wasPresent.current = present;
+    if (vanished && heldFocus.current) {
+      heldFocus.current = false;
+      if (fallbackRef.current) fallbackRef.current.focus();
+    }
+  }, [present, fallbackRef]);
+
+  return {
+    onFocus: () => { heldFocus.current = true; },
+    onBlur: () => { heldFocus.current = false; },
+  };
+}
 
 /** Draft-room rail, composed from the draft's status (issue #123 acceptance
  * criteria 1-4).
@@ -119,6 +163,24 @@ function DraftRail({
   // element it was opened from.
   const [allPicksAnchor, setAllPicksAnchor] = useState(null);
   const allPicksOpen = Boolean(allPicksAnchor);
+
+  // Where focus goes when one of the two vanishing controls takes it with it.
+  // The panel's own heading in each case: it names where the manager still is,
+  // which is the question losing focus leaves them with.
+  const readinessHeadingRef = useRef(null);
+  const upcomingHeadingRef = useRef(null);
+  const hasExceptionList = readiness.listKind !== READINESS_LIST.NONE;
+  const hasViewerPicks = viewerPicks.all.length > 0;
+  const readinessFocus = useFocusRescue(hasExceptionList, readinessHeadingRef);
+  const myPicksFocus = useFocusRescue(hasViewerPicks, upcomingHeadingRef);
+
+  // The anchor outlives the element it points at when the picks group unmounts
+  // with the popover open, so drop it rather than leave a detached node to be
+  // measured against if the group ever comes back (a commissioner correcting a
+  // pick, or a corrected socket frame).
+  useEffect(() => {
+    if (!hasViewerPicks && allPicksAnchor) setAllPicksAnchor(null);
+  }, [hasViewerPicks, allPicksAnchor]);
 
   const queuePanel = (
     <Paper
@@ -250,7 +312,16 @@ function DraftRail({
   const readinessCountText = `${readiness.readyCount} of ${readiness.total} managers ready`;
   const readinessPanel = myTeam ? (
     <Paper component="section" aria-labelledby={readinessHeadingId} sx={{ p: 2, mb: 3 }}>
-      <Typography id={readinessHeadingId} variant="h6" component="h2" sx={{ mb: 1 }}>
+      {/* tabIndex -1: not in the tab order, but focusable for the rescue
+          above when the exception list is removed while holding focus. */}
+      <Typography
+        id={readinessHeadingId}
+        variant="h6"
+        component="h2"
+        ref={readinessHeadingRef}
+        tabIndex={-1}
+        sx={{ mb: 1 }}
+      >
         Readiness
       </Typography>
       <FormControlLabel
@@ -272,8 +343,9 @@ function DraftRail({
         aria-valuetext={readinessCountText}
         sx={{ height: 8, borderRadius: 'var(--radius-sm)', mb: 1 }}
       />
-      {readiness.listKind !== READINESS_LIST.NONE && (
+      {hasExceptionList && (
         <Accordion
+          {...readinessFocus}
           defaultExpanded={false}
           disableGutters
           elevation={0}
@@ -315,7 +387,7 @@ function DraftRail({
   // Draft order: which team holds which slot (CONTEXT.md: Draft order). The
   // list itself is shared by the two places a status can meet it - its own
   // panel while the draft is pending, and the disclosure inside Upcoming once
-  // it is live - so the Auto-draft switches, their help caption and the rule
+  // it is live - so the Autodraft switches, their help caption and the rule
   // about who may touch them are written once.
   const orderListBody = (
     <>
@@ -326,7 +398,7 @@ function DraftRail({
           reader now hears it on the control it explains instead of it having
           been read out minutes earlier, if at all. */}
       <Typography id={autodraftHelpId} variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2 }}>
-        Turn on <strong>Auto-draft</strong> to let the system pick automatically for a team (best available by
+        Turn on <strong>Autodraft</strong> to let the system pick automatically for a team (best available by
         ADP) when it's on the clock. It also switches on by itself after a team misses two picks.
       </Typography>
       <Box component="ul" role="list" sx={{ display: 'flex', flexDirection: 'column', gap: 1, listStyle: 'none', p: 0, m: 0 }}>
@@ -397,7 +469,7 @@ function DraftRail({
                   }
                   label={
                     <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                      Auto-draft
+                      Autodraft
                     </Typography>
                   }
                 />
@@ -452,7 +524,7 @@ function DraftRail({
   // The full Draft order sits behind a disclosure inside this panel rather
   // than as a panel of its own. Compact is the point of the strip (spec #108
   // story 56: the next three visible, the complete list available
-  // accessibly), but the complete list is also where the per-team Auto-draft
+  // accessibly), but the complete list is also where the per-team Autodraft
   // switches live, and those are how a manager who stepped away turns
   // autodraft back off - the panel's own caption says it switches on by
   // itself after two missed picks. Collapsed by default, so it costs nothing
@@ -460,7 +532,14 @@ function DraftRail({
   // composition's H2s are its panels, and this is a control within one.
   const upcomingPanel = teams.length > 0 ? (
     <Paper component="section" aria-labelledby={upcomingHeadingId} sx={{ p: 2, mb: 3 }}>
-      <Typography id={upcomingHeadingId} variant="h6" component="h2" sx={{ mb: 1 }}>
+      <Typography
+        id={upcomingHeadingId}
+        variant="h6"
+        component="h2"
+        ref={upcomingHeadingRef}
+        tabIndex={-1}
+        sx={{ mb: 1 }}
+      >
         Upcoming
       </Typography>
       {upcoming.length === 0 && (
@@ -514,8 +593,9 @@ function DraftRail({
           wrong instead. Absent entirely for a spectator, and for a manager
           whose picks are all made - viewerPicks.js answers empty rather than
           guessing, and a group heading over nothing is worse than no group. */}
-      {viewerPicks.all.length > 0 && (
+      {hasViewerPicks && (
         <Box
+          {...myPicksFocus}
           role="group"
           aria-labelledby={myPicksHeadingId}
           sx={{
