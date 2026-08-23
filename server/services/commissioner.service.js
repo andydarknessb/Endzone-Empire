@@ -7,7 +7,7 @@ const {
   entriesForLineupValidation,
 } = require('./lineup.service');
 const { computeStandings } = require('./season.service');
-const { dropToWaiversUndoable } = require('./waiver.service');
+const { placeOnWaiversUndoable } = require('./waiver.service');
 const { assertManualCorrectionWindow } = require('./correction.service');
 const { deleteAvatarObjects } = require('./avatar.service');
 const { commissionerPredicate } = require('./leagueRole.service');
@@ -667,7 +667,7 @@ async function forceTransaction({ leagueId, userId, teamId, action, playerId }) 
       // A forced drop is still a drop: the lineup follows the roster, and
       // the hold records what it interrupted so the undo can replay it
       // (#197). It is undoable on the same hold as a manager drop.
-      await dropToWaiversUndoable(client, { league, teamId, playerId });
+      await placeOnWaiversUndoable(client, { league, teamId, playerId });
     }
 
     await logTransaction(client, {

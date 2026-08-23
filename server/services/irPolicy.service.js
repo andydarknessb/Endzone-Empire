@@ -87,7 +87,9 @@ function injuryDesignationName(injuryDesignation) {
  * happened by the time capacity is checked, so crediting the restore would
  * count one IR spot twice. Both arms of the count therefore honour the
  * exclusion - the SQL for the still-rostered stashes, this filter for the
- * restored one.
+ * restored one. Both lists are player ids as numbers: the overlap filter
+ * compares them by identity, so a caller mixing `21` and `'21'` across the
+ * two would defeat it where the SQL's `::int[]` cast would not.
  *
  * `league` must carry `id`, `roster_limit` and `ir_slots`; season and week
  * come from the team's league row inside the query, like the enforcement scan.

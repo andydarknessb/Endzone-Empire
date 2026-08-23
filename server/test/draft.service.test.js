@@ -420,12 +420,12 @@ test('undoDrop: the interrupted-stash record is read twice, deliberately', async
 
   await undoDrop({ leagueId: 1, userId: 7, playerId: 500 });
 
-  // Once inside rosterCapacity (through restoredPlayerIds) and once here for
-  // the restore decision. Collapsing the two means handing the resolved
-  // record to rosterCapacity, which would give up the property that it
-  // re-derives the restored credit itself instead of believing its caller
-  // (#222). The read is a primary-key lookup in an open transaction and the
-  // league row is held FOR UPDATE, so the two cannot disagree.
+  // Once inside rosterCapacity (through restoredPlayerIds) and once in
+  // undoDrop for the restore decision. Kept on purpose (#222): passing the
+  // record INTO rosterCapacity gives up its re-derivation property, and
+  // handing it BACK widens a return value four other call sites read as a
+  // bare number. The reasoning, and the one axis on which the two reads can
+  // genuinely disagree, is at the second read in draft.service.js.
   //
   // If you are here to remove one of them, that is the trade to argue with.
   assert.equal(fake.matching(/^SELECT "waiver_players"\."interrupted_slot"/).length, 2);

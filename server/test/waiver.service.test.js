@@ -190,7 +190,7 @@ test('processWaivers: the winning claim benches the acquired player', async (t) 
 });
 
 // --- the claim's own drop is NOT undoable (#222) ----------------------------
-// The manager drop and the forced drop share `dropToWaiversUndoable`, which
+// The manager drop and the forced drop share `placeOnWaiversUndoable`, which
 // records what the drop interrupted so an undo can replay it. This drop
 // deliberately does not: no route offers an undo of a waiver-claim swap, so
 // a hold advertising one would be a lie. That difference used to live only
@@ -233,10 +233,13 @@ test('processWaivers: the claim drop records no undo, unlike the two undoable dr
   await processWaivers({ leagueId: 1 });
 
   // The hold names no dropping team and carries no interrupted stash, so
-  // undoDrop's `dropped_by_team_id` check finds nothing to undo.
+  // undoDrop's `dropped_by_team_id` check finds nothing to undo. Asserted on
+  // the three undo-carrying fields alone rather than the whole parameter
+  // list, so this test does not also pin placeOnWaivers' unrelated defaults.
+  const [, droppedPlayerId, , droppedByTeamId, interruptedSlot, interruptedIrAttested] = holdParams;
   assert.deepEqual(
-    holdParams,
-    [1, 77, 24, null, null, false],
+    { droppedPlayerId, droppedByTeamId, interruptedSlot, interruptedIrAttested },
+    { droppedPlayerId: 77, droppedByTeamId: null, interruptedSlot: null, interruptedIrAttested: false },
     'claim drop must write a bare hold: no dropper, no interrupted slot, not attested'
   );
   // And it never even asks what the row held - that read only exists to feed

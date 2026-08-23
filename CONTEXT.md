@@ -347,10 +347,11 @@ kicked off, in which case it stays as the record of the week as played. A week
 whose matchup has settled keeps its entries whatever the schedule says about
 kickoff: a settled week is scored from those entries alone, so removing one
 changes a score the league has already been told. A surviving entry therefore
-means the player was on that roster at kickoff. Only undoing a drop puts an
-entry back, and only ever into an IR stash: the undo restores the recorded
-slot when the drop interrupted a stash that is still valid, and benches him
-in every other case.
+means the player was on that roster at kickoff. Only undoing a drop ever puts
+an entry back where it was, and the only slot it puts back is IR: the undo
+replays the stash the drop interrupted, and only while that stash is still
+valid. Anything else, an undo of a stash that stopped qualifying included,
+benches the player like any other acquisition.
 _Avoid_: lineup row, stale row
 
 **Tenure**:
@@ -409,8 +410,9 @@ but not IR-eligible), stashable
 **Attested stash**:
 An IR stash the commissioner has vouched for because the injury feed is
 wrong about its occupant, recorded on the lineup entry by the force-set
-path and, when a drop interrupts it, copied onto the dropped player's waiver
-hold for the life of that hold so the undo can put it back. A stash is
+path and, when an undoable drop interrupts it, copied onto the dropped
+player's waiver hold for the life of that hold so the undo can put it back.
+A waiver-claim drop is not undoable and copies nothing. A stash is
 **valid** when its occupant is IR-eligible or the entry is attested; a valid
 stash grants capacity, is never flagged or nagged, and carries forward across
 weeks. The attestation ends the moment the manager makes any slot move on

@@ -72,10 +72,13 @@ async function placeOnWaivers(client, {
 }
 
 /**
- * Send a dropped player to waivers with everything an undo will need: what
- * his current-week lineup row held, recorded on the hold before the row is
- * deleted, and the team that may replay it. Runs inside the caller's
- * transaction, after the roster row is gone.
+ * `placeOnWaivers` plus everything an undo will need: what the dropped
+ * player's current-week lineup row held, recorded on the hold before the row
+ * is deleted, and the team that may replay it.
+ *
+ * Named for what it does, which is not the whole drop. The caller still owns
+ * the roster row: delete it first, then call this inside the same
+ * transaction. Both callers do exactly that.
  *
  * The order is the point, and it is why this is one function rather than
  * three calls repeated at each site: `currentWeekEntry` has to run before
@@ -93,7 +96,7 @@ async function placeOnWaivers(client, {
  * helper is whether it is undoable; if it is not, it does not want the
  * record and passing it would offer an undo that cannot work.
  */
-async function dropToWaiversUndoable(client, { league, teamId, playerId }) {
+async function placeOnWaiversUndoable(client, { league, teamId, playerId }) {
   const interrupted = await lineupService.currentWeekEntry(client, { league, teamId, playerId });
   await lineupService.removeLineupEntries(client, { league, teamId, playerId });
   await placeOnWaivers(client, {
@@ -288,7 +291,7 @@ async function processWaivers({ leagueId }) {
           // nothing for an undo to replay.
           //
           // This is the third drop-to-waivers sequence and the one that
-          // deliberately stays open-coded: `dropToWaiversUndoable` above
+          // deliberately stays open-coded: `placeOnWaiversUndoable` above
           // exists for the two that ARE undoable, and routing this one
           // through it would write a hold advertising an undo no route
           // offers (#222). The omission is the behaviour, not a shortcut.
@@ -447,7 +450,7 @@ module.exports = {
   claimFailureReason,
   orderClaims,
   placeOnWaivers,
-  dropToWaiversUndoable,
+  placeOnWaiversUndoable,
   isOnWaivers,
   submitClaim,
   cancelClaim,
