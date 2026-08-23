@@ -18,15 +18,28 @@
 /** The pending draft's product-language name. See CONTEXT.md: Draft. */
 export const DRAFT_NOT_STARTED_LABEL = 'Draft not started';
 
-const LABELS = {
-  pending: DRAFT_NOT_STARTED_LABEL,
-  active: 'Draft in progress',
-  complete: 'Draft complete',
+/**
+ * One entry per stored status, holding everything the status readout says
+ * about it. The chip's color lives here beside its label rather than in a
+ * second cascade at the call site: they are one presentation fact about one
+ * status, and splitting them is how they drift.
+ */
+const STATUS_READOUT = {
+  pending: { label: DRAFT_NOT_STARTED_LABEL, chipColor: 'default' },
+  active: { label: 'Draft in progress', chipColor: 'warning' },
+  complete: { label: 'Draft complete', chipColor: 'success' },
 };
 
-const UNKNOWN_LABEL = 'Draft status unknown';
+const UNKNOWN = { label: 'Draft status unknown', chipColor: 'default' };
+
+const readoutFor = (draftStatus) => STATUS_READOUT[draftStatus] || UNKNOWN;
 
 /** The product-language label for a stored `draft_status`. */
 export function draftStatusLabel(draftStatus) {
-  return LABELS[draftStatus] || UNKNOWN_LABEL;
+  return readoutFor(draftStatus).label;
+}
+
+/** The MUI Chip color the status readout wears for a stored `draft_status`. */
+export function draftStatusChipColor(draftStatus) {
+  return readoutFor(draftStatus).chipColor;
 }

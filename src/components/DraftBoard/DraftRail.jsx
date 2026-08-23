@@ -95,6 +95,7 @@ function DraftRail({
   const orderHeadingId = useId();
   const readinessHeadingId = useId();
   const upcomingHeadingId = useId();
+  const orderDisclosureId = useId();
 
   const queuePanel = (
     <Paper
@@ -336,6 +337,16 @@ function DraftRail({
       <Typography id={upcomingHeadingId} variant="h6" component="h2" sx={{ mb: 1 }}>
         Upcoming
       </Typography>
+      {upcoming.length === 0 && (
+        // Deliberately does not say why. There are two reasons the strip can
+        // be empty - the draft is on its last pick, or the Draft order is not
+        // settled enough to read forward from - and the rail cannot tell them
+        // apart from here. Neutral copy beats a heading standing over nothing,
+        // and beats guessing at a cause.
+        <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+          No upcoming picks to show.
+        </Typography>
+      )}
       <Box
         component="ul"
         // Explicit list roles: the strip removes its bullets, and some screen
@@ -367,7 +378,12 @@ function DraftRail({
       </Box>
 
       <Accordion defaultExpanded={false} disableGutters elevation={0} sx={{ mt: 1, bgcolor: 'transparent', '&::before': { display: 'none' } }}>
-        <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={MIN_TOUCH_TARGET_SX}>
+        {/* The id is what names the role="region" MUI builds internally: it
+            reads the FIRST child's `id` for the region's aria-labelledby.
+            Without one that nested region is announced unnamed, inside a
+            panel already called Upcoming, which tells a screen-reader user
+            nothing about what they just opened. */}
+        <AccordionSummary id={orderDisclosureId} expandIcon={<ExpandMoreIcon />} sx={MIN_TOUCH_TARGET_SX}>
           <Typography variant="body2">Full Draft order</Typography>
         </AccordionSummary>
         <AccordionDetails sx={{ px: 0 }}>{orderListBody}</AccordionDetails>
@@ -384,8 +400,8 @@ function DraftRail({
   };
 
   const composed = railCompositionFor(draftStatus)
-    .map((panel) => ({ panel, node: panels[panel] }))
-    .filter((entry) => entry.node != null);
+    .map((panelKey) => ({ panelKey, panel: panels[panelKey] }))
+    .filter((entry) => entry.panel != null);
 
   // Only one composition can come out empty: complete, whose single panel is
   // My Roster, seen by someone with no Team in this league. Saying nothing
@@ -400,7 +416,7 @@ function DraftRail({
 
   return (
     <>
-      {composed.map(({ panel, node }) => <React.Fragment key={panel}>{node}</React.Fragment>)}
+      {composed.map(({ panelKey, panel }) => <React.Fragment key={panelKey}>{panel}</React.Fragment>)}
     </>
   );
 }

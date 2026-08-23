@@ -3,7 +3,7 @@ import { Box, Chip, Button, IconButton, Tooltip, Snackbar, Alert } from '@mui/ma
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import NotificationsOffIcon from '@mui/icons-material/NotificationsOff';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
-import { draftStatusLabel } from './draftStatusCopy';
+import { draftStatusLabel, draftStatusChipColor } from './draftStatusCopy';
 
 /** Status chip row (reconnecting/on-the-clock/timer) and the "you're on the
  * clock" snackbar, plus the controls that used to sit inside that same row.
@@ -55,15 +55,11 @@ function DraftStatusBar({
             />
           ) : (
             <Chip
-              // Product language, never the stored enum (see draftStatusCopy).
+              // Product language, never the stored enum, and the color that
+              // goes with it - both from the one place that knows how a
+              // status is spoken (see draftStatusCopy).
               label={draftStatusLabel(league?.draft_status)}
-              color={
-                league?.draft_status === 'complete'
-                  ? 'success'
-                  : league?.draft_status === 'active'
-                  ? 'warning'
-                  : 'default'
-              }
+              color={draftStatusChipColor(league?.draft_status)}
             />
           )}
           {secondsLeft !== null && (

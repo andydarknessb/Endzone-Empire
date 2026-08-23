@@ -71,6 +71,23 @@ test('complete composes My Roster alone', () => {
   expect(panelOrder()).toEqual(['My Roster']);
 });
 
+test('before the first draft:state frame the rail is My Queue alone', () => {
+  // An unknown status composes as active, but nothing in the active
+  // composition has anything to say yet: no teams, no roster, no settled
+  // order. So the fallback cannot show a live draft's panels over a pending
+  // one - the panels themselves decline - and My Queue, which needs no draft
+  // state at all, is what stands there while the socket connects.
+  render(<DraftRail
+    {...baseProps}
+    draftStatus={undefined}
+    teams={[]}
+    rosterView={null}
+    upcoming={[]}
+  />);
+
+  expect(panelOrder()).toEqual(['My Queue']);
+});
+
 test('Readiness disappears once the draft starts', () => {
   // A fact of the pending lobby only; it has no meaning once the draft
   // starts (CONTEXT.md: Readiness).
@@ -120,8 +137,22 @@ test('Upcoming names no picks at all when the Draft order says nothing yet', () 
 
   const upcoming = screen.getByRole('region', { name: 'Upcoming' });
   expect(within(upcoming).queryAllByRole('listitem')).toHaveLength(0);
+  // Neutral copy rather than a heading standing over nothing - and it does
+  // not guess at which of the two possible reasons applies.
+  expect(within(upcoming).getByText('No upcoming picks to show.')).toBeInTheDocument();
   // The panel still stands, because the full Draft order lives inside it.
   expect(panelOrder()).toEqual(['My Queue', 'My Roster', 'Upcoming']);
+});
+
+test('the Draft order disclosure names the region it opens', async () => {
+  const user = userEvent.setup();
+  render(<DraftRail {...baseProps} draftStatus="active" />);
+  await user.click(screen.getByRole('button', { name: 'Full Draft order' }));
+
+  // MUI builds a role="region" inside the Accordion and names it from the
+  // summary's own id. Unnamed, it announces as a bare region inside a panel
+  // already called Upcoming, which says nothing about what was opened.
+  expect(screen.getByRole('region', { name: 'Full Draft order' })).toBeInTheDocument();
 });
 
 test('the full Draft order is reachable from Upcoming, collapsed until asked for', async () => {

@@ -519,11 +519,30 @@ function DraftBoard() {
     </>
   );
 
+  // The rail as the desktop shell wants it: its own named, focusable, bounded
+  // scrolling region beside whatever fills the other two thirds (issue #122
+  // acceptance criterion 1). One definition, because the workspace and a
+  // completed draft's Board both put the rail in exactly this column, and a
+  // second copy is how the two would drift apart. Below the medium breakpoint
+  // the rail is just content in the page's single scroll region - a bounded
+  // one there is the thing #122 forbids.
+  const desktopRailColumn = isMobile ? (
+    <DraftRail {...draftRailProps} />
+  ) : (
+    <Box
+      component="section"
+      aria-label="Draft rail"
+      tabIndex={0}
+      sx={{ flexBasis: '33.333%', minWidth: 0, height: '100%', overflowY: 'auto' }}
+    >
+      <DraftRail {...draftRailProps} queueStickyTop={8} queueMaxHeight="45vh" />
+    </Box>
+  );
+
   // A completed draft centers My Roster AND the Board (acceptance criterion
   // 4), so the Board view carries the rail beside it: two bounded scrolling
-  // regions on desktop, exactly as the workspace does (issue #122), and one
-  // stacked page-scrolling column below the medium breakpoint, where a second
-  // scroll region is the thing #122 forbids.
+  // regions on desktop, exactly as the workspace does, and one stacked
+  // page-scrolling column below the medium breakpoint.
   const boardView = isComplete ? (
     <Box
       sx={{
@@ -537,18 +556,7 @@ function DraftBoard() {
       <Box sx={{ flexBasis: { md: '66.666%' }, minWidth: 0, height: { md: '100%' }, overflowY: { md: 'auto' } }}>
         {boardWithHistory}
       </Box>
-      {isMobile ? (
-        <DraftRail {...draftRailProps} />
-      ) : (
-        <Box
-          component="section"
-          aria-label="Draft rail"
-          tabIndex={0}
-          sx={{ flexBasis: '33.333%', minWidth: 0, height: '100%', overflowY: 'auto' }}
-        >
-          <DraftRail {...draftRailProps} queueStickyTop={8} queueMaxHeight="45vh" />
-        </Box>
-      )}
+      {desktopRailColumn}
     </Box>
   ) : (
     <Box sx={{ flex: { md: '1 1 auto' }, minHeight: { md: 0 }, overflow: { md: 'auto' } }}>
@@ -728,14 +736,7 @@ function DraftBoard() {
           <Box sx={{ flexBasis: '66.666%', minWidth: 0, height: '100%' }}>
             <PlayerPoolTable {...playerPoolProps} />
           </Box>
-          <Box
-            component="section"
-            aria-label="Draft rail"
-            tabIndex={0}
-            sx={{ flexBasis: '33.333%', minWidth: 0, height: '100%', overflowY: 'auto' }}
-          >
-            <DraftRail {...draftRailProps} queueStickyTop={8} queueMaxHeight="45vh" />
-          </Box>
+          {desktopRailColumn}
         </Box>
       )}
 
