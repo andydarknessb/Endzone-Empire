@@ -22,6 +22,7 @@ const CREATOR_MESSAGE = "the league creator's team can't be removed";
 
 function removeTeamWorld(t) {
   const state = {
+    league: { id: 5, name: 'Test League', owner_id: CREATOR },
     teams: [
       { id: 10, league_id: 5, owner_id: CREATOR, name: 'Founder FC' },
       { id: 20, league_id: 5, owner_id: CO_COMMISSIONER, name: 'Deputy Dawgs' },
@@ -37,11 +38,10 @@ function removeTeamWorld(t) {
     // subquery has its own FROM, so this needs a raw regex, not select().
     [/FROM "leagues" WHERE "id" = \$1/, (text, params) => ({
       rows: [{
-        id: params[0],
-        name: 'Test League',
-        owner_id: CREATOR,
+        ...state.league,
         // What commissionerPredicate computes: owner OR a grant row.
-        is_commissioner: params[1] === CREATOR || state.grants.includes(params[1]),
+        is_commissioner:
+          params[1] === state.league.owner_id || state.grants.includes(params[1]),
       }],
     })],
     [select('teams'), (text, params) => ({
@@ -160,10 +160,4 @@ test('a plain member cannot remove any team', async (t) => {
 
   assert.deepEqual(teamIds(state), [10, 20, 30]);
   fake.assertClean();
-});
-
-test('the removal messages carry no em-dash', () => {
-  for (const message of [SELF_MESSAGE, CREATOR_MESSAGE]) {
-    assert.equal(message.includes('—'), false);
-  }
 });

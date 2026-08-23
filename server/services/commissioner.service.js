@@ -60,6 +60,10 @@ async function requireCommissioner(client, { leagueId, userId, forUpdate = false
  *   included. That compares against `leagues.owner_id`, and it is one of the
  *   three direct owner_id comparisons leagueRole.service sanctions.
  *
+ * Both apply to the creator removing their own team, and the first answers:
+ * the caller is being told about themselves, which is the more useful of the
+ * two things true about that request.
+ *
  * Every other removal proceeds, including revoking the removed manager's
  * co-commissioner grant.
  */
