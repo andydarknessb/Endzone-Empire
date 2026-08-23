@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useSelector } from 'react-redux';
 import {
   Container,
   Typography,
@@ -197,9 +196,15 @@ function LiveScoringFeed({ items }) {
 
 function GameCenter() {
   const { leagueId } = useParams();
-  const user = useSelector((store) => store.user);
   const [matchups, setMatchups] = useState([]);
-  const { league, loading: leagueLoading, error: leagueError } = useLeague(leagueId);
+  // viewerTeamId is the per-viewer answer to "which of these Teams is me",
+  // delivered on league detail's own response (#112, contract in
+  // src/lib/teamIdentity.js). It replaces a lookup through the league-shared
+  // rosters payload's `ownerId`: that rebuilt viewer identity out of an
+  // account field, and #115 takes account fields off league-shared payloads,
+  // at which point the old comparison would have matched nothing and every
+  // viewer would have lost their hero card with nothing failing to say so.
+  const { league, viewerTeamId, loading: leagueLoading, error: leagueError } = useLeague(leagueId);
   const [rosters, setRosters] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -359,9 +364,6 @@ function GameCenter() {
       setLoading(false);
     }
   };
-
-  const viewerTeam = rosters.find((t) => t.ownerId === user?.id);
-  const viewerTeamId = viewerTeam ? viewerTeam.teamId : null;
 
   const filteredMatchups =
     weekFilter === 'All' || weekFilter == null
