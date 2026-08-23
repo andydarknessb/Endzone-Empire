@@ -312,6 +312,39 @@ test('rosterCapacity: a restored player whose recorded stash went invalid earns 
   fake.assertClean();
 });
 
+test('rosterCapacity: a player both excluded and restored earns no restored credit', async () => {
+  const holds = [];
+  const fake = capacityPool({
+    // The lineup-entry arm already skips him: he is in excludePlayerIds.
+    stashed: 0,
+    // ...and the stash his drop interrupted is a perfectly valid one.
+    // Validity is not the question here, the exclusion is.
+    extra: [interruptedRecord(
+      { interrupted_slot: 'IR', interrupted_ir_attested: false, injury_status: 'O' },
+      holds
+    )],
+  });
+  const client = await fake.connect();
+
+  const capacity = await rosterCapacity(client, {
+    league: { id: 5, roster_limit: 16, ir_slots: 1 },
+    teamId: 31,
+    excludePlayerIds: [21],
+    restoredPlayerIds: [21],
+  });
+  client.release();
+
+  // Excluded wins over restored: the transaction that would put his stash
+  // back is the same one taking it away, so the two arms of the count would
+  // otherwise credit one spot twice.
+  assert.equal(capacity, 15);
+  // The exclusion is settled before the record is read, not after, so the
+  // read never happens at all.
+  assert.equal(holds.length, 0);
+  assert.equal(fake.matching(/FROM "waiver_players"/).length, 0);
+  fake.assertClean();
+});
+
 test('IR flag push reaches only managers who keep irAlerts enabled', async (t) => {
   const sends = [];
   t.mock.method(prefs, 'usersWanting', async (userIds, key) => {

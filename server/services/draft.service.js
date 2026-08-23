@@ -1,5 +1,5 @@
 const pool = require('../modules/pool');
-const { placeOnWaivers, isOnWaivers } = require('./waiver.service');
+const { placeOnWaiversUndoable, isOnWaivers } = require('./waiver.service');
 const { logTransaction } = require('./activity.service');
 const { teamForPick, nextOpenPickNumber } = require('./draftOrder.service');
 // Module object, not destructured: the seam tests mock benchAcquiredPlayer.
@@ -345,19 +345,10 @@ async function dropPlayer({ leagueId, userId, playerId }) {
       throw new DraftError(404, 'player is not on your roster');
     }
 
-    const interrupted = await lineupService.currentWeekEntry(client, {
-      league, teamId: team.id, playerId,
-    });
-    await lineupService.removeLineupEntries(client, { league, teamId: team.id, playerId });
-
-    // Dropped players pass through waivers before returning to free agency
-    await placeOnWaivers(client, {
-      leagueId,
-      playerId,
-      waiverPeriodHours: league.waiver_period_hours,
-      droppedByTeamId: team.id,
-      ...lineupService.interruptedStashFields(interrupted),
-    });
+    // Dropped players pass through waivers before returning to free agency,
+    // and a manager drop is undoable, so the hold carries what the drop
+    // interrupted (#197). Shared with the forced drop (#222).
+    await placeOnWaiversUndoable(client, { league, teamId: team.id, playerId });
     await logTransaction(client, {
       leagueId,
       teamId: team.id,
@@ -429,6 +420,29 @@ async function undoDrop({ leagueId, userId, playerId }) {
     // Read before the waiver hold is deleted below: the hold carries the
     // record of what the drop interrupted, and there is no longer a
     // surviving lineup row to fall back on (#197).
+    //
+    // This is the second read of that record in this function - `capacity`
+    // above resolved it too, through `rosterCapacity`'s restoredPlayerIds -
+    // and the duplication is kept on purpose (#222). Two ways to collapse it
+    // were considered, and both cost more than the read:
+    //
+    // - Pass the resolved record INTO `rosterCapacity`. That gives up the
+    //   property that makes it safe: it re-derives the restored credit
+    //   itself rather than believing a caller, so no call site can inflate a
+    //   roster limit by asserting a stash that is not there.
+    // - Have `rosterCapacity` hand the record BACK. That keeps the property
+    //   but widens a return value four other call sites consume as a bare
+    //   number (draftPlayer, forceTransaction, trade, claimFailureReason),
+    //   for the benefit of the one caller that passes restoredPlayerIds.
+    //
+    // The two reads can disagree on one axis, and it is worth being precise
+    // about which: the recorded slot and attestation cannot move (the hold is
+    // this transaction's own row and the league is held FOR UPDATE), but
+    // validity also joins live `players.injury_status`, which the injury sync
+    // updates under its own lock with no league lock. Every ordering is
+    // benign: a designation that clears between the reads spends the credit
+    // and benches him, one that qualifies restores the stash without the
+    // credit, and a refusal is a 409 the manager retries.
     const restored = await interruptedStash(client, { leagueId, teamId: team.id, playerId });
 
     const playerResult = await client.query(

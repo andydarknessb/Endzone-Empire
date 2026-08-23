@@ -81,6 +81,16 @@ function injuryDesignationName(injuryDesignation) {
  * caller, so a caller that passes an id whose recorded stash is no longer
  * valid gains nothing by it.
  *
+ * The two lists are not independent: `excludePlayerIds` wins wherever they
+ * overlap. An id in both names a player the same transaction is putting back
+ * and taking away again, and the exclusion is the half that has actually
+ * happened by the time capacity is checked, so crediting the restore would
+ * count one IR spot twice. Both arms of the count therefore honour the
+ * exclusion - the SQL for the still-rostered stashes, this filter for the
+ * restored one. Both lists are player ids as numbers: the overlap filter
+ * compares them by identity, so a caller mixing `21` and `'21'` across the
+ * two would defeat it where the SQL's `::int[]` cast would not.
+ *
  * `league` must carry `id`, `roster_limit` and `ir_slots`; season and week
  * come from the team's league row inside the query, like the enforcement scan.
  */
@@ -97,7 +107,11 @@ async function rosterCapacity(client, { league, teamId, excludePlayerIds = [], r
     [teamId, [...IR_ELIGIBLE_DESIGNATIONS], excludePlayerIds]
   );
   let stashed = stash.rows[0].n;
+  const excluded = new Set(excludePlayerIds);
   for (const playerId of restoredPlayerIds) {
+    // Filtered before the read, not after: an excluded id earns nothing
+    // whatever its record says, so asking is wasted work as well as wrong.
+    if (excluded.has(playerId)) continue;
     if (await undoRestoresStash(client, { leagueId: league.id, teamId, playerId })) stashed += 1;
   }
   return base + Math.min(irSlots, stashed);

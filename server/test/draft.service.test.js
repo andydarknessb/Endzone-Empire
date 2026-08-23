@@ -410,6 +410,28 @@ test('undoDrop: the stash his drop interrupted still grants its spot on the way 
   fake.assertClean();
 });
 
+test('undoDrop: the interrupted-stash record is read twice, deliberately', async (t) => {
+  const fake = undoWorld({
+    stashed: 0,
+    interrupted: { interrupted_slot: 'IR', interrupted_ir_attested: false, injury_status: 'O' },
+  }).install(t);
+  recordBenching(t, fake);
+  recordRestoring(t);
+
+  await undoDrop({ leagueId: 1, userId: 7, playerId: 500 });
+
+  // Once inside rosterCapacity (through restoredPlayerIds) and once in
+  // undoDrop for the restore decision. Kept on purpose (#222): passing the
+  // record INTO rosterCapacity gives up its re-derivation property, and
+  // handing it BACK widens a return value four other call sites read as a
+  // bare number. The reasoning, and the one axis on which the two reads can
+  // genuinely disagree, is at the second read in draft.service.js.
+  //
+  // If you are here to remove one of them, that is the trade to argue with.
+  assert.equal(fake.matching(/^SELECT "waiver_players"\."interrupted_slot"/).length, 2);
+  fake.assertClean();
+});
+
 test('undoDrop: an attested stash comes back attested', async (t) => {
   const fake = undoWorld({
     stashed: 0,
