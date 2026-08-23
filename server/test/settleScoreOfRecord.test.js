@@ -1096,8 +1096,19 @@ test('#190 advance-week asks for settle semantics, pinned to the week it is clos
     const text = String(sql).replace(/\s+/g, ' ').trim();
     if (/"pickem_only" FROM "leagues"/.test(text)) return { rows: [{ pickem_only: false }] };
     if (/SELECT 1 FROM "leagues"/.test(text)) return { rows: [{ ok: 1 }] }; // commissioner
-    if (/"current_season", "current_week" FROM "leagues"/.test(text)) {
-      return { rows: [{ current_season: SEASON, current_week: WEEK }] };
+    if (/"current_season", "current_week"/.test(text)) {
+      // The handler also selects the phase columns now (#194); this league is
+      // mid-season with its draft done, which is the only state in which
+      // advance-week does anything at all.
+      return {
+        rows: [{
+          current_season: SEASON,
+          current_week: WEEK,
+          pickem_only: false,
+          draft_status: 'complete',
+          season_status: 'regular',
+        }],
+      };
     }
     throw new Error(`unexpected query: ${text}`);
   });
