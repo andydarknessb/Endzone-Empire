@@ -346,6 +346,14 @@ means the player was on that roster at kickoff. Only undoing a drop puts an
 entry back, in the slot the drop interrupted.
 _Avoid_: lineup row, stale row
 
+**Tenure**:
+One team's continuous holding of one player, from the move that brought him
+onto the roster to the move that took him off. A player who leaves and returns
+has two tenures. Whether a team held a player at a kickoff is a question about
+his tenures, never about his lineup entries.
+_Avoid_: membership (a manager's standing in a league), stint, ownership
+period
+
 **Slot**:
 A named place on the lineup card with its own eligibility rule (QB, RB, WR, TE,
 FLEX, K, DEF, plus BENCH and IR). Configurable per league. A position is a
@@ -461,6 +469,18 @@ One of those same three presets used as a fixed identity when one set of players
 must be scored several ways at once, as in holdout capture and the backtest. A
 profile is never a particular league's rules.
 _Avoid_: preset
+
+**Score of record**:
+The score a week is settled with: written once when the commissioner advances
+the week and never recomputed from a later roster.
+_Avoid_: final score (a matchup's NFL-style total), official score
+
+**Settle pass**:
+The scoring run that produces the score of record. It counts the week's lineup
+entries as played and excludes a player whose tenure began after his game
+kicked off. Distinct from live scoring (the current roster, every few minutes)
+and from re-scoring a final week.
+_Avoid_: final scoring, finalize (the step that follows it)
 
 **Advance week**:
 The commissioner action that closes out the current week: finalizes scores,
