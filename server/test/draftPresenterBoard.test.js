@@ -10,7 +10,7 @@ const { createFakePool } = require('./helpers/fakePool');
  * This suite is a payload CONTRACT, not a rendering test. The route is
  * reachable with no credentials by anyone holding a league's share link, and
  * `getDraftState` feeds it `SELECT * FROM "leagues"`, so the route's own
- * projection is the only thing standing between an anonymous viewer and every
+ * allowlist is the only thing standing between an anonymous viewer and every
  * column of that table. The assertions below pin the EXACT key set of the
  * public `league`, of a `teams[]` entry, of `onTheClock` and of a `picks[]`
  * entry, so a column added to `leagues` (or a field added to the snapshot)
@@ -58,6 +58,14 @@ const wideTeamRow = (id, draftPosition, over = {}) => ({
   draft_ready: true,
   owner_id: 100 + id,
   owner: `manager${id}`,
+  // Not on the teams query today: the alias is `owner`. They are here because
+  // the forbidden-key loop below can only prove what the fixture supplies, and
+  // a loop that lists a key no fixture carries asserts nothing while reading
+  // as a guarantee. A query later written to select "users"."username" or
+  // "users"."email" straight through is exactly the case that assertion is
+  // named for, so the fixture has to contain it.
+  username: `account${id}`,
+  email: `manager${id}@example.com`,
   ...over,
 });
 
@@ -94,10 +102,10 @@ app.use('/api/draft', require('../routes/draft.router'));
 
 const getBoard = () => request(app).get(`/api/draft/board/${TOKEN}`);
 
-test('the snapshot the presenter route projects from is an unrestricted SELECT *', async (t) => {
+test('the snapshot the presenter route selects from is an unrestricted SELECT *', async (t) => {
   // This is why the route needs an allowlist rather than a denylist: the row
   // it starts from is every column of "leagues", present and future. If this
-  // ever stops being true the projection can be reconsidered, but until then
+  // ever stops being true the allowlist can be reconsidered, but until then
   // the exact-key-set assertions below are the only backstop.
   const fake = presenterPool().install(t);
 
@@ -221,7 +229,11 @@ test('no account identity or secret appears anywhere in the response', async (t)
     assert.ok(!new RegExp(`"${forbidden}"`).test(body), `${forbidden} is not published`);
   }
   // The VALUES, not only the keys: a rename must not smuggle them back.
-  for (const secret of ['manager11', 'manager12', 'JOIN-ME-42', TOKEN, 'leaks by default under a denylist']) {
+  for (const secret of [
+    'manager11', 'manager12', 'account11', 'account12',
+    'manager11@example.com', 'manager12@example.com',
+    'JOIN-ME-42', TOKEN, 'leaks by default under a denylist',
+  ]) {
     assert.ok(!body.includes(secret), `${secret} is not published`);
   }
   fake.assertClean();
@@ -245,7 +257,7 @@ test('the presenter board still renders: teams are named, picks and the clock re
   fake.assertClean();
 });
 
-test('a pending draft has no onTheClock and still projects the league', async (t) => {
+test('a pending draft has no onTheClock and still allowlists the league', async (t) => {
   const fake = presenterPool({ league: { draft_status: 'pending' } }).install(t);
 
   const res = await getBoard();

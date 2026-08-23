@@ -22,7 +22,7 @@ function intOrNull(value) {
  * The public presenter board's payload contract (#173).
  *
  * These lists are an ALLOWLIST, and that direction is the point. The snapshot
- * they project from is `SELECT * FROM "leagues"` joined to the manager
+ * they select from is `SELECT * FROM "leagues"` joined to the manager
  * accounts behind each team, so under the previous "take everything, delete
  * the fields we thought of" shape, publication was the DEFAULT: every column
  * added to `leagues` reached anonymous viewers the day it landed, and nothing
@@ -85,7 +85,7 @@ function allowlisted(source, fields) {
   if (!source) return null;
   const published = {};
   for (const field of fields) {
-    published[field] = field in source && source[field] !== undefined ? source[field] : null;
+    published[field] = source[field] === undefined ? null : source[field];
   }
   return published;
 }
