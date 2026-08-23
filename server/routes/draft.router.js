@@ -504,6 +504,24 @@ router.post('/league/:id/reset', async (req, res) => {
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'league not found, not commissioner, or draft not active' });
     }
+    // Refuse rather than repair (#192): after #189 froze materialization on
+    // final weeks, a deleted lineup_entries row behind a final matchup can
+    // never be refilled, so a settled week would keep its score with nothing
+    // behind it. Scoping the delete to spare only the non-final weeks was
+    // considered and ruled out - a reset over settled weeks is a request to
+    // invalidate results that already counted, and the answer to that
+    // request is no. This check must run, and the transaction must roll
+    // back, before any DELETE below.
+    const finalMatchup = await client.query(
+      `SELECT 1 FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "final" = true LIMIT 1`,
+      [leagueId, leagueResult.rows[0].current_season]
+    );
+    if (finalMatchup.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'the draft cannot be reset because weeks of this season are already settled',
+      });
+    }
     await client.query(`DELETE FROM "team_players" WHERE "league_id" = $1`, [leagueId]);
     // The season's lineup rows go with the rosters: the lineup screen has no
     // draft guard, and a stash set during the wiped draft must not be waiting
