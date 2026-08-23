@@ -286,11 +286,16 @@ function serializeRankingRow({ rank, row, projectedPoints, seasonPoints, lastWee
   return {
     rank,
     playerId: row.id,
-    name: row.name,
-    position: row.position,
-    nflTeam: row.nfl_team,
-    photoUrl: row.photo_url,
-    injuryStatus: row.injury_status,
+    // `?? null` on every raw passthrough, so the key set is a property of THIS
+    // serializer rather than of whatever columns the row happened to carry: a
+    // query that stops selecting a column answers null here instead of
+    // silently dropping the key from a payload clients read unconditionally.
+    // Same rule as the invite preview (#181) and the presenter board (#199).
+    name: row.name ?? null,
+    position: row.position ?? null,
+    nflTeam: row.nfl_team ?? null,
+    photoUrl: row.photo_url ?? null,
+    injuryStatus: row.injury_status ?? null,
     projectedPoints: projectedPoints == null ? null : round1(projectedPoints),
     lastWeekPoints: lastWeekPoints == null ? null : round1(lastWeekPoints),
     seasonPoints: round1(seasonPoints),
@@ -445,14 +450,15 @@ async function getPlayerProfile(playerId, { season } = {}) {
 function serializePlayerProfile({ player, season, seasons, seasonSummary, weeklyLogPartial, recentRows, posRank }) {
   return {
     playerId: player.id,
-    name: player.name,
-    position: player.position,
-    nflTeam: player.nfl_team,
-    photoUrl: player.photo_url,
-    jerseyNumber: player.jersey_number,
-    injuryStatus: player.injury_status,
-    injuryDetail: player.injury_detail,
-    news: player.news,
+    // `?? null` on every raw passthrough — see serializeRankingRow.
+    name: player.name ?? null,
+    position: player.position ?? null,
+    nflTeam: player.nfl_team ?? null,
+    photoUrl: player.photo_url ?? null,
+    jerseyNumber: player.jersey_number ?? null,
+    injuryStatus: player.injury_status ?? null,
+    injuryDetail: player.injury_detail ?? null,
+    news: player.news ?? null,
     adp: player.adp == null ? null : Number(player.adp),
     // Rank within the same position code by the viewed season's stored points
     // (null for pending/unavailable seasons). posRankOf = peers with a rollup.
@@ -656,14 +662,14 @@ async function listRecaps({ season, week, limit = 20 } = {}) {
 function serializeRecapListRow(row) {
   const data = row.data || {};
   return {
-    gameId: row.tank01_game_id,
+    gameId: row.tank01_game_id ?? null,
     season: Number(row.season),
     week: Number(row.week),
-    homeTeam: row.home_team,
-    awayTeam: row.away_team,
+    homeTeam: row.home_team ?? null,
+    awayTeam: row.away_team ?? null,
     homeScore: Number(row.home_score),
     awayScore: Number(row.away_score),
-    finalAt: row.final_at,
+    finalAt: row.final_at ?? null,
     hook: firstSentence(data.narrative),
     topPerformer: Array.isArray(data.topPerformers) && data.topPerformers[0] && typeof data.topPerformers[0] === 'object'
       ? serializeTopPerformer(data.topPerformers[0])
@@ -730,14 +736,14 @@ async function getRecap(gameId) {
 function serializeRecapDetail(row) {
   const data = row.data || {};
   return {
-    gameId: row.tank01_game_id,
+    gameId: row.tank01_game_id ?? null,
     season: Number(row.season),
     week: Number(row.week),
-    homeTeam: row.home_team,
-    awayTeam: row.away_team,
+    homeTeam: row.home_team ?? null,
+    awayTeam: row.away_team ?? null,
     homeScore: Number(row.home_score),
     awayScore: Number(row.away_score),
-    finalAt: row.final_at,
+    finalAt: row.final_at ?? null,
     lineScore: serializeLineScore(data.lineScore),
     scoringPlays: Array.isArray(data.scoringPlays)
       ? data.scoringPlays.filter((play) => play && typeof play === 'object').map(serializeScoringPlay)
