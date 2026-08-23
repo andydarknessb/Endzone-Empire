@@ -27,6 +27,42 @@
  * it still has, which is why `remainingPickNumbersFor` takes `takenPickNumbers`.
  */
 
+/**
+ * Teams in base Draft order: by `draft_position`, ties broken by Team ID.
+ *
+ * Mirrors the server's ORDER BY "draft_position" NULLS LAST, "id". The id
+ * tie-break is load-bearing, not cosmetic: with two null draft_positions,
+ * (a ?? Infinity) - (b ?? Infinity) is NaN, and a comparator returning NaN is
+ * unspecified behaviour rather than merely unstable.
+ *
+ * Lives here rather than at its call sites because everything asking it is
+ * asking the question this module already owns - which team holds which slot.
+ * Two hand-copies of a server mirror drift the moment the server's tie-break
+ * changes, and each copy's own tests keep passing while they disagree.
+ */
+export function teamsInDraftOrder(teams = []) {
+  return [...teams].sort((a, b) => {
+    const ap = a.draft_position == null ? Infinity : a.draft_position;
+    const bp = b.draft_position == null ? Infinity : b.draft_position;
+    return ap === bp ? a.teamId - b.teamId : ap - bp;
+  });
+}
+
+/**
+ * Whether a draft's order is settled enough to read anything off it: it has
+ * started, it has rounds, and every Team holds a distinct slot.
+ *
+ * Before that there is no honest answer to "who picks next" or "which picks
+ * are still mine", and a guess is indistinguishable on screen from a fact.
+ */
+export function draftOrderIsSettled({ league, orderedTeams = [], rounds = 0 } = {}) {
+  if (!league || league.draft_status === 'pending') return false;
+  if (!(rounds > 0) || orderedTeams.length === 0) return false;
+  const positions = orderedTeams.map((team) => team.draft_position);
+  return positions.every((position) => position != null)
+    && new Set(positions).size === positions.length;
+}
+
 /** Mirrors draftOrder.service.js isPermutationOf. */
 export function isPermutationOf(candidate, teamIds) {
   if (!Array.isArray(candidate) || candidate.length !== teamIds.length) return false;

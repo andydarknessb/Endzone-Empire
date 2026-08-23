@@ -52,7 +52,7 @@ test.describe('Team identity', () => {
 
     // Readiness counts every Team and names each one (CONTEXT.md: Readiness;
     // the not-yet-ready group is Not ready).
-    const readiness = page.getByRole('region', { name: 'Draft readiness' });
+    const readiness = page.getByRole('region', { name: 'Readiness' });
     await expect(readiness).toBeVisible();
     await expect(readiness.getByText('Ridge Runners: Not ready')).toBeVisible();
     await expect(readiness.getByText('Harbor Hawks: Not ready')).toBeVisible();
@@ -64,7 +64,7 @@ test.describe('Team identity', () => {
     await expect(page.getByRole('checkbox', { name: 'I am ready for the draft' })).toBeVisible();
 
     // Draft order names Teams in slot order (CONTEXT.md: Draft order).
-    const order = page.getByRole('region', { name: 'Draft Order' });
+    const order = page.getByRole('region', { name: 'Draft order' });
     await expect(order.getByText('Ridge Runners')).toBeVisible();
     await expect(order.getByText('Harbor Hawks')).toBeVisible();
 
@@ -84,7 +84,11 @@ test.describe('Team identity', () => {
     // Pick attribution: the fixture's one Pick belongs to the OTHER Team and
     // was already on the board when the room opened. Before the contract
     // landed, a snapshot Pick carried no attribution at all, because a Pick's
-    // own `name` is the PLAYER's.
+    // own `name` is the PLAYER's. Pick history left the active rail for the
+    // Board (issue #123 acceptance criteria 3 and 5), so this is where the
+    // attribution is now read.
+    await page.getByRole('tab', { name: 'Board' }).click();
+    await page.getByRole('button', { name: 'Pick history' }).click();
     await expect(page.getByText('by Harbor Hawks')).toBeVisible();
 
     await expectNoAccountIdentity(page);
@@ -142,6 +146,10 @@ test.describe('Team identity', () => {
     await gotoDraft(page);
     await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toBeVisible();
 
+    // Pick history is the collapsible chronological view inside Board (issue
+    // #123 acceptance criterion 5). A completed draft opens on the Board with
+    // that history already open, because the record is what the page is for.
+    await expect(page.getByRole('button', { name: 'Pick history' })).toHaveAttribute('aria-expanded', 'true');
     await expect(page.getByText('by Former manager')).toBeVisible();
     await expectNoAccountIdentity(page);
   });

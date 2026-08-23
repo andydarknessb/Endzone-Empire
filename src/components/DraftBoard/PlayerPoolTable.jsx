@@ -321,8 +321,13 @@ function PlayerPoolTable({
       </Stack>
       <TextField
         size="small"
-        label="Search"
-        placeholder="Search by name…"
+        // The pool's own filter, named apart from the Nav bar's global player
+        // search (issue #123 acceptance criterion 6): this narrows the
+        // available players already on screen; that one looks up any player in
+        // the league's world. Two controls named "Search" on one page left the
+        // difference carried by position alone.
+        label="Filter available"
+        placeholder="Filter by name…"
         value={searchInput}
         onChange={(e) => onSearchInputChange(e.target.value)}
         sx={{ minWidth: 200 }}
@@ -330,7 +335,7 @@ function PlayerPoolTable({
           endAdornment: searchInput ? (
             <IconButton
               size="small"
-              aria-label="Clear search"
+              aria-label="Clear filter"
               onClick={() => onSearchInputChange('')}
               sx={{
                 // Growing this button's own box to 44x44 (like everywhere

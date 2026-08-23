@@ -5,6 +5,8 @@ import {
   pickLabelFor,
   remainingPickNumbersFor,
   turnSummaryFor,
+  teamsInDraftOrder,
+  draftOrderIsSettled,
 } from './draftTurns';
 
 // Ids are deliberately NOT 1..N and not in id order: any function that returns
@@ -218,5 +220,71 @@ describe('parity with server/services/draftOrder.service.js', () => {
         expect(mine).toBe(theirs ? theirs.id : null);
       }
     }
+  });
+});
+
+// teamsInDraftOrder and draftOrderIsSettled moved here from two hand-copies
+// (rosterViewFor in DraftBoard.jsx, and upcomingTeams.js) that had already
+// begun to diverge. Both are mirrors of server ordering, so they are tested
+// where the sync obligation is recorded rather than beside each consumer.
+describe('teamsInDraftOrder', () => {
+  const team = (teamId, draft_position) => ({ teamId, draft_position });
+
+  test('orders by draft_position, lowest first', () => {
+    const ordered = teamsInDraftOrder([team(9, 3), team(7, 1), team(8, 2)]);
+    expect(ordered.map((t) => t.teamId)).toEqual([7, 8, 9]);
+  });
+
+  test('puts teams with no slot last, not first', () => {
+    // NULLS LAST on the server. Sorting them first would silently hand slot 1
+    // to a team that does not hold it.
+    const ordered = teamsInDraftOrder([team(9, null), team(7, 2), team(8, 1)]);
+    expect(ordered.map((t) => t.teamId)).toEqual([8, 7, 9]);
+  });
+
+  test('breaks ties on Team ID rather than returning NaN', () => {
+    // The load-bearing case: with two null positions a comparator written as
+    // (a ?? Infinity) - (b ?? Infinity) returns NaN, which is unspecified
+    // behaviour rather than merely unstable ordering.
+    const ordered = teamsInDraftOrder([team(9, null), team(7, null), team(8, null)]);
+    expect(ordered.map((t) => t.teamId)).toEqual([7, 8, 9]);
+  });
+
+  test('does not reorder the array it was given', () => {
+    const teams = [team(9, 3), team(7, 1)];
+    teamsInDraftOrder(teams);
+    expect(teams.map((t) => t.teamId)).toEqual([9, 7]);
+  });
+});
+
+describe('draftOrderIsSettled', () => {
+  const ORDERED = [
+    { teamId: 7, draft_position: 1 },
+    { teamId: 8, draft_position: 2 },
+  ];
+  const settled = (overrides = {}, orderedTeams = ORDERED, rounds = 4) =>
+    draftOrderIsSettled({ league: { draft_status: 'active', ...overrides }, orderedTeams, rounds });
+
+  test('an active draft with every slot held and distinct is settled', () => {
+    expect(settled()).toBe(true);
+  });
+
+  test('a pending draft is never settled, however complete its order looks', () => {
+    expect(settled({ draft_status: 'pending' })).toBe(false);
+  });
+
+  test('an unheld slot or a duplicated one is not settled', () => {
+    expect(settled({}, [ORDERED[0], { teamId: 8, draft_position: null }])).toBe(false);
+    expect(settled({}, [ORDERED[0], { teamId: 8, draft_position: 1 }])).toBe(false);
+  });
+
+  test('no teams and no rounds are each unsettled rather than vacuously true', () => {
+    expect(settled({}, [])).toBe(false);
+    expect(settled({}, ORDERED, 0)).toBe(false);
+  });
+
+  test('no league at all is unsettled rather than a throw', () => {
+    expect(draftOrderIsSettled({ league: null, orderedTeams: ORDERED, rounds: 4 })).toBe(false);
+    expect(draftOrderIsSettled()).toBe(false);
   });
 });

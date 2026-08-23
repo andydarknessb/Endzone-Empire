@@ -92,6 +92,27 @@ const renderBoardWithToasts = (leagueId = 1, state) =>
     }
   );
 
+/**
+ * Pick history left the rail for the Board (issue #123 acceptance criterion
+ * 5), where it is a collapsible chronological view of the same committed
+ * Picks the matrix is built from. Anything that asserts on history opens the
+ * Board tab and expands it first, exactly as a manager would.
+ */
+const openPickHistory = async () => {
+  await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
+  const trigger = screen.getByRole('button', { name: 'Pick history' });
+  if (trigger.getAttribute('aria-expanded') !== 'true') await userEvent.click(trigger);
+};
+
+/**
+ * Once a draft is live the rail shows the compact Upcoming strip, and the full
+ * Draft order - with its per-team Auto-draft switches - sits behind a
+ * disclosure inside it (issue #123 acceptance criterion 2).
+ */
+const openFullDraftOrder = async () => {
+  await userEvent.click(screen.getByRole('button', { name: 'Full Draft order' }));
+};
+
 let fakeSocket;
 
 beforeEach(() => {
@@ -139,6 +160,8 @@ test('renders league state (name, on-the-clock, pick history) from a draft:state
   // username used to sit in parentheses after it (#113 criterion 4).
   expect(screen.getByText("On the clock: Bob's Team")).toBeInTheDocument();
   expect(screen.queryByText(/bob/)).not.toBeInTheDocument();
+
+  await openPickHistory();
   expect(screen.getByText('#1')).toBeInTheDocument();
   // The pick-history name is now a quick-view button (separate from any action).
   expect(screen.getByRole('button', { name: 'Josh Allen' })).toBeInTheDocument();
@@ -167,10 +190,10 @@ test('a Pick with no Team identity is attributed as a former manager, never blan
     }))
   );
 
+  await openPickHistory();
   expect(screen.getByText(`by ${FORMER_MANAGER_LABEL}`)).toBeInTheDocument();
   // And the board itself simply has no cell for a Team that is gone, rather
   // than an unlabelled column appearing for it.
-  await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
   expect(screen.queryByText('null')).not.toBeInTheDocument();
 });
 
@@ -212,6 +235,7 @@ test('shows an AUTO badge and a checked autodraft switch for an autodrafting tea
     })
   );
 
+  await openFullDraftOrder();
   expect(screen.getByText('AUTO')).toBeInTheDocument();
   expect(screen.getByRole('checkbox', { name: /Autodraft for Bob's Team/ })).toBeChecked();
 });
@@ -230,6 +254,7 @@ test('toggling a team\'s autodraft posts to the autodraft endpoint', async () =>
     })
   );
 
+  await openFullDraftOrder();
   await userEvent.click(screen.getByRole('checkbox', { name: /Autodraft for Bob's Team/ }));
 
   await waitFor(() =>
@@ -250,8 +275,12 @@ test('shows "No picks yet" when the pick history is empty', async () => {
     })
   );
 
+  // Product language, not the stored enum (issue #123 acceptance criterion 6).
+  expect(screen.getByText('Draft not started')).toBeInTheDocument();
+  expect(screen.queryByText('pending')).not.toBeInTheDocument();
+
+  await openPickHistory();
   expect(screen.getByText('No picks yet')).toBeInTheDocument();
-  expect(screen.getByText('pending')).toBeInTheDocument(); // falls back to draft_status chip
 });
 
 test('clicking Draft on a player emits draft:pick with the league and player id', async () => {
@@ -338,9 +367,11 @@ test('a draft:picked event prepends the new pick, updates who is on the clock, a
     })
   );
 
+  expect(screen.getByText('On the clock: Team B')).toBeInTheDocument();
+
+  await openPickHistory();
   expect(screen.getByText('#1')).toBeInTheDocument();
   expect(screen.getAllByRole('button', { name: 'Patrick Mahomes' }).length).toBeGreaterThan(0);
-  expect(screen.getByText('On the clock: Team B')).toBeInTheDocument();
   // The landed Pick is attributed to the Team that made it, and the
   // username the broadcast carried in `by` reaches no rendered surface.
   expect(screen.getByText(/by Team A/)).toBeInTheDocument();
@@ -422,7 +453,80 @@ test('a draft:picked event with draftComplete shows the completion banner and ma
   );
 
   expect(screen.getByText('Draft complete!')).toBeInTheDocument();
-  expect(screen.getByText('complete')).toBeInTheDocument(); // draft_status chip fallback
+  // The status chip, in product language rather than the stored enum.
+  expect(screen.getByText('Draft complete')).toBeInTheDocument();
+  expect(screen.queryByText('complete')).not.toBeInTheDocument();
+
+  // And the manager is NOT relocated. The draft completing in front of
+  // someone is the moment they are most engaged with what they are reading,
+  // and useDraftSocket flips draft_status in place on this frame - so a
+  // completed-draft default keyed on the status alone would swap the
+  // workspace out from under them here. It opens the Board on arrival only.
+  expect(screen.getByRole('tab', { name: 'Draft', selected: true })).toBeInTheDocument();
+  expect(screen.getByRole('region', { name: 'Available Players' })).toBeInTheDocument();
+});
+
+test('a draft that is already complete when the room opens lands on the Board', async () => {
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+  connectAsTeam(1);
+
+  act(() =>
+    fakeSocket.trigger('draft:state', {
+      league: { name: 'Sunday Ballers', draft_status: 'complete' },
+      teams: [{ teamId: 1, teamName: 'Team A', draft_position: 1 }],
+      picks: [],
+      onTheClock: null,
+    })
+  );
+
+  expect(screen.getByRole('tab', { name: 'Board', selected: true })).toBeInTheDocument();
+  expect(screen.getByRole('region', { name: 'Draft Board' })).toBeInTheDocument();
+});
+
+test('an explicit ?view= wins over the completed-draft default', async () => {
+  // The first guard clause. Someone who asked for a view in the URL keeps it,
+  // even on a draft that is already complete when the room opens.
+  renderWithProviders(<DraftBoard />, {
+    path: '/league/:leagueId/draft',
+    route: '/league/1/draft?view=draft',
+  });
+  await screen.findByText('Patrick Mahomes');
+  connectAsTeam(1);
+
+  act(() =>
+    fakeSocket.trigger('draft:state', {
+      league: { name: 'Sunday Ballers', draft_status: 'complete' },
+      teams: [{ teamId: 1, teamName: 'Team A', draft_position: 1 }],
+      picks: [],
+      onTheClock: null,
+    })
+  );
+
+  expect(screen.getByRole('tab', { name: 'Draft', selected: true })).toBeInTheDocument();
+  expect(screen.getByRole('region', { name: 'Available Players' })).toBeInTheDocument();
+});
+
+test('a tab the manager clicked is never overridden afterwards', async () => {
+  // The second guard clause, and the one the ref exists for: a deliberate
+  // choice outranks the default even before the status is known.
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+  connectAsTeam(1);
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
+  await userEvent.click(screen.getByRole('tab', { name: 'Draft' }));
+
+  act(() =>
+    fakeSocket.trigger('draft:state', {
+      league: { name: 'Sunday Ballers', draft_status: 'complete' },
+      teams: [{ teamId: 1, teamName: 'Team A', draft_position: 1 }],
+      picks: [],
+      onTheClock: null,
+    })
+  );
+
+  expect(screen.getByRole('tab', { name: 'Draft', selected: true })).toBeInTheDocument();
 });
 
 test('a draft:complete event alone also shows the completion banner', async () => {
@@ -810,7 +914,7 @@ test('move up and remove reorder the queue and persist it', async () => {
   );
 });
 
-test('Randomize Draft Order shows only for the commissioner pre-draft and POSTs', async () => {
+test('Randomize Draft order shows only for the commissioner pre-draft and POSTs', async () => {
   const { unmount } = renderBoardWithToasts(1, { user: { id: 7, username: 'commish' } });
   await screen.findByText('Patrick Mahomes');
   act(() =>
@@ -820,7 +924,7 @@ test('Randomize Draft Order shows only for the commissioner pre-draft and POSTs'
     }), { onTheClock: null }))
   );
 
-  await userEvent.click(screen.getByRole('button', { name: 'Randomize Draft Order' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Randomize Draft order' }));
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/draft/league/1/order', { randomize: true })
   );
@@ -836,7 +940,7 @@ test('Randomize Draft Order shows only for the commissioner pre-draft and POSTs'
       owner_id: 7,
     }), { onTheClock: null }))
   );
-  expect(screen.queryByRole('button', { name: 'Randomize Draft Order' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Randomize Draft order' })).not.toBeInTheDocument();
 });
 
 test('Pause Draft POSTs the toggled paused flag for the commissioner during an active draft', async () => {
@@ -1404,7 +1508,10 @@ test('skips a keeper the team already holds when naming the next pick', async ()
 });
 
 test('tags the manager’s own picks in the history with the slot they filled', async () => {
+  // The history moved to the Board, but it is still handed the viewer's own
+  // slot assignment, so their picks keep the slot tag other Teams' cannot have.
   await showRoster([firstPick]);
+  await openPickHistory();
   expect(screen.getByText('→ RB 1')).toBeInTheDocument();
 });
 
@@ -1471,9 +1578,12 @@ describe('accessible structure', () => {
     expect(h1s).toHaveLength(1);
     expect(h1s[0]).toHaveTextContent('Sunday Ballers');
 
+    // showFullBoard is an ACTIVE draft, so this is the active composition
+    // (issue #123 acceptance criterion 2): Draft order is behind the Upcoming
+    // disclosure and Pick history has moved to the Board.
     const h2Names = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
     expect(h2Names).toEqual(expect.arrayContaining([
-      'Available Players', 'My Queue', 'Draft Order', 'My Roster', 'Pick History',
+      'Available Players', 'My Queue', 'My Roster', 'Upcoming',
     ]));
 
     // The live "27s" pick clock used to render as a second, competing <h1>
@@ -1500,15 +1610,16 @@ describe('accessible structure', () => {
     expect(railRegion).toBeInTheDocument();
     expect(railRegion).toHaveAttribute('tabIndex', '0');
     expect(screen.getByRole('region', { name: 'My Queue' })).toBeInTheDocument();
-    expect(screen.getByRole('region', { name: 'Draft Order' })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'My Roster' })).toBeInTheDocument();
-    expect(screen.getByRole('region', { name: 'Pick History' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Upcoming' })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Commissioner draft controls' })).toBeInTheDocument();
 
-    // Switching to the Board tab swaps in the matrix's own named region -
-    // the panel set changes by view, and each one it renders is still named.
-    await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
+    // Switching to the Board tab swaps in the matrix's own named region, plus
+    // the Pick history that now lives inside Board - the panel set changes by
+    // view, and each one it renders is still named.
+    await openPickHistory();
     expect(screen.getByRole('region', { name: 'Draft Board' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Pick history' })).toBeInTheDocument();
   });
 
   test('the pending-draft readiness panel is a named region too', async () => {
@@ -1523,7 +1634,10 @@ describe('accessible structure', () => {
       onTheClock: null,
     })));
 
-    expect(screen.getByRole('region', { name: 'Draft readiness' })).toBeInTheDocument();
+    // Named for the term itself (CONTEXT.md: Readiness), and a real H2 now
+    // that it is the first panel of the pending composition.
+    expect(screen.getByRole('region', { name: 'Readiness' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Readiness' })).toBeInTheDocument();
   });
 });
 

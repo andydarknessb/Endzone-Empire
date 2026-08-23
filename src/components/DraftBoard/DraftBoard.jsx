@@ -21,11 +21,15 @@ import LiveDraftBanner from './LiveDraftBanner';
 import PlayerPoolTable from './PlayerPoolTable';
 import DraftRail from './DraftRail';
 import DraftBoardMatrix from './DraftBoardMatrix';
+import PickHistory from './PickHistory';
 import DraftDayControls from './DraftDayControls';
 import DraftPickConfirmDialog from './DraftPickConfirmDialog';
 import { pickActionExists, pickTemporarilyUnavailable, PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
+import { upcomingTeamsFor } from './upcomingTeams';
 import { assignRosterSlots } from '../../lib/rosterAssignment';
-import { turnSummaryFor, pickLabelFor } from '../../lib/draftTurns';
+import {
+  turnSummaryFor, pickLabelFor, teamsInDraftOrder, draftOrderIsSettled,
+} from '../../lib/draftTurns';
 import { draftRounds } from '../../lib/rosterShape';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 import { teamNameLabel } from '../../lib/teamIdentity';
@@ -50,15 +54,11 @@ function rosterViewFor({ league, teams, picks, viewerTeamId }) {
   const myTeam = viewerTeamId == null ? null : teams.find((team) => team.teamId === viewerTeamId) || null;
   if (!myTeam || rosterSlots.length === 0) return null;
 
-  // Mirrors the server's ORDER BY "draft_position" NULLS LAST, "id". The id
-  // tie-break is load-bearing, not cosmetic: with two null draft_positions,
-  // (a ?? Infinity) - (b ?? Infinity) is NaN, and a comparator returning NaN is
-  // unspecified behaviour rather than merely unstable.
-  const ordered = [...teams].sort((a, b) => {
-    const ap = a.draft_position == null ? Infinity : a.draft_position;
-    const bp = b.draft_position == null ? Infinity : b.draft_position;
-    return ap === bp ? a.teamId - b.teamId : ap - bp;
-  });
+  // Base Draft order, and the question of whether it is settled, both come
+  // from src/lib/draftTurns.js, which owns everything else about order and
+  // carries the sync obligation against the server's own ordering. Keeping a
+  // hand-copy here is what let this and the Upcoming strip start to disagree.
+  const ordered = teamsInDraftOrder(teams);
   const teamIds = ordered.map((team) => team.teamId);
   // Rounds are Draft rounds (ADR 0005): the live-derived draft roster size
   // while pending, or the fixed value once the draft is active/complete.
@@ -84,11 +84,7 @@ function rosterViewFor({ league, teams, picks, viewerTeamId }) {
     .sort((a, b) => a.pickNumber - b.pickNumber);
 
   // Before the order is set there is no honest next pick to name.
-  const positions = ordered.map((team) => team.draft_position);
-  const orderKnown = league.draft_status !== 'pending'
-    && rounds > 0
-    && positions.every((position) => position != null)
-    && new Set(positions).size === positions.length;
+  const orderKnown = draftOrderIsSettled({ league, orderedTeams: ordered, rounds });
 
   const turn = orderKnown
     ? turnSummaryFor({
@@ -178,6 +174,10 @@ function DraftBoard() {
     const requested = searchParams.get('view');
     return requested === 'board' || requested === 'draft' ? requested : 'players';
   });
+  // Whether the manager has chosen a view themselves - an explicit ?view= in
+  // the URL when the page opened, or a tab click since. Only while they have
+  // not does the completed-draft default below get to move them.
+  const viewChosenRef = useRef(searchParams.get('view') != null);
   useEffect(() => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
@@ -249,6 +249,33 @@ function DraftBoard() {
       if (viewerTeamId != null && data?.teamId === viewerTeamId) myRoster.refetchRoster();
     };
   });
+  // A completed draft OPENS on the Board (issue #123 acceptance criterion 4):
+  // it is a record rather than a workspace, and the record is the Board plus
+  // the chronological Pick history inside it. draft_status is unknown until
+  // the first draft:state frame lands, which is why this is an effect rather
+  // than part of `view`'s initial state.
+  //
+  // ONLY on the first frame, which is the whole of the rule. Keying this on
+  // draft_status alone made it fire mid-session too, because useDraftSocket
+  // flips the status to complete in place when the draftComplete frame
+  // arrives - so a manager watching the board fill would have had the
+  // workspace swapped out from under them at the final pick, the moment they
+  // were most engaged with it. viewChosenRef does not save them either: it is
+  // seeded from the `view` query parameter, and the URL effect above DELETES
+  // that parameter for the default tab, so anyone who opened a bare URL and
+  // never clicked a tab carries a false ref all session. A view someone has
+  // been reading for an hour was never "picked", and relocating them is the
+  // failure this guard was supposed to prevent rather than an edge of it.
+  const firstStatusSeenRef = useRef(false);
+  useEffect(() => {
+    const status = league?.draft_status;
+    if (!status || firstStatusSeenRef.current) return;
+    firstStatusSeenRef.current = true;
+    if (viewChosenRef.current) return;
+    if (status !== 'complete') return;
+    setView('board');
+  }, [league?.draft_status]);
+
   const { queue, loading: queueLoading, handleQueuePlayer, handleMoveUp, handleMoveDown, handleRemoveFromQueue } =
     useDraftQueue(leagueId, { onError: setError });
   const admin = useDraftAdmin(leagueId, league, { onError: setError });
@@ -358,6 +385,11 @@ function DraftBoard() {
   // SELECT * on leagues), so a co-commissioner silently gets no controls.
   const isCommissioner = !!(league && user && (league.is_commissioner || league.owner_id === user.id));
   const rosterView = rosterViewFor({ league, teams, picks, viewerTeamId });
+  // Draft rounds (ADR 0005): derived while pending, the frozen snapshot once
+  // the draft is active or complete. One call, shared by everything below
+  // that needs to know how long this draft is.
+  const rounds = draftRounds(league);
+  const isComplete = league?.draft_status === 'complete';
 
   // Derive the "Drafted by X" banner for the open quick-view from live draft
   // state: if the viewed player already appears in the pick history, name the
@@ -462,11 +494,83 @@ function DraftBoard() {
     draftType: league?.draft_type,
     onToggleAutodraft: admin.handleToggleAutodraft,
     onToggleReady: admin.handleToggleReady,
-    picks,
     isXs,
     onOpenQuickView: setQuickViewId,
     rosterView,
+    // The next three picks after the one on the clock, for the active rail's
+    // compact Upcoming strip. Empty for a draft whose order is not settled.
+    upcoming: upcomingTeamsFor({ league, teams, picks, rounds }),
   };
+
+  // Board is the team-by-round matrix; Pick history is the chronological view
+  // of the same committed Picks, collapsible inside it rather than a second
+  // panel of its own (CONTEXT.md: Draft board; issue #123 acceptance
+  // criterion 5). Both are handed the one `picks` array the socket maintains,
+  // so the two views cannot disagree about what was drafted.
+  const boardWithHistory = (
+    <>
+      <DraftBoardMatrix
+        teams={teams}
+        picks={picks}
+        onTheClock={onTheClock}
+        draftRounds={rounds}
+        onOpenQuickView={setQuickViewId}
+      />
+      <PickHistory
+        picks={picks}
+        slotTags={rosterView ? rosterView.slotTags : null}
+        onOpenQuickView={setQuickViewId}
+        // A completed draft's record is what the page is for, so it opens
+        // read rather than folded away.
+        defaultExpanded={isComplete}
+      />
+    </>
+  );
+
+  // The rail as the desktop shell wants it: its own named, focusable, bounded
+  // scrolling region beside whatever fills the other two thirds (issue #122
+  // acceptance criterion 1). One definition, because the workspace and a
+  // completed draft's Board both put the rail in exactly this column, and a
+  // second copy is how the two would drift apart. Below the medium breakpoint
+  // the rail is just content in the page's single scroll region - a bounded
+  // one there is the thing #122 forbids.
+  const desktopRailColumn = isMobile ? (
+    <DraftRail {...draftRailProps} />
+  ) : (
+    <Box
+      component="section"
+      aria-label="Draft rail"
+      tabIndex={0}
+      sx={{ flexBasis: '33.333%', minWidth: 0, height: '100%', overflowY: 'auto' }}
+    >
+      <DraftRail {...draftRailProps} queueStickyTop={8} queueMaxHeight="45vh" />
+    </Box>
+  );
+
+  // A completed draft centers My Roster AND the Board (acceptance criterion
+  // 4), so the Board view carries the rail beside it: two bounded scrolling
+  // regions on desktop, exactly as the workspace does, and one stacked
+  // page-scrolling column below the medium breakpoint.
+  const boardView = isComplete ? (
+    <Box
+      sx={{
+        display: 'flex',
+        flexDirection: { xs: 'column', md: 'row' },
+        gap: 3,
+        flex: { md: '1 1 auto' },
+        minHeight: { md: 0 },
+      }}
+    >
+      <Box sx={{ flexBasis: { md: '66.666%' }, minWidth: 0, height: { md: '100%' }, overflowY: { md: 'auto' } }}>
+        {boardWithHistory}
+      </Box>
+      {desktopRailColumn}
+    </Box>
+  ) : (
+    <Box sx={{ flex: { md: '1 1 auto' }, minHeight: { md: 0 }, overflow: { md: 'auto' } }}>
+      {boardWithHistory}
+    </Box>
+  );
 
   // Desktop only ever shows two tabs (Draft = the dual-pane workspace,
   // Board); mobile's three swap the Draft/Players split for its own single-
@@ -609,7 +713,12 @@ function DraftBoard() {
           // on its own. Mobile's three tabs use `view` directly - it only
           // ever holds one of their three values.
           value={isMobile ? view : (view === 'board' ? 'board' : 'draft')}
-          onChange={(e, next) => setView(next)}
+          onChange={(e, next) => {
+            // A deliberate choice, which the completed-draft default above
+            // must never override afterwards.
+            viewChosenRef.current = true;
+            setView(next);
+          }}
           aria-label="Draft view"
           sx={{ mb: 3, borderBottom: '1px solid', borderColor: 'divider' }}
         >
@@ -620,15 +729,7 @@ function DraftBoard() {
       </Box>
 
       {view === 'board' ? (
-        <Box sx={{ flex: { md: '1 1 auto' }, minHeight: { md: 0 }, overflow: { md: 'auto' } }}>
-          <DraftBoardMatrix
-            teams={teams}
-            picks={picks}
-            onTheClock={onTheClock}
-            draftRounds={draftRounds(league)}
-            onOpenQuickView={setQuickViewId}
-          />
-        </Box>
+        boardView
       ) : isMobile ? (
         view === 'players' ? (
           <PlayerPoolTable {...playerPoolProps} isMobile />
@@ -643,14 +744,7 @@ function DraftBoard() {
           <Box sx={{ flexBasis: '66.666%', minWidth: 0, height: '100%' }}>
             <PlayerPoolTable {...playerPoolProps} />
           </Box>
-          <Box
-            component="section"
-            aria-label="Draft rail"
-            tabIndex={0}
-            sx={{ flexBasis: '33.333%', minWidth: 0, height: '100%', overflowY: 'auto' }}
-          >
-            <DraftRail {...draftRailProps} queueStickyTop={8} queueMaxHeight="45vh" />
-          </Box>
+          {desktopRailColumn}
         </Box>
       )}
 
