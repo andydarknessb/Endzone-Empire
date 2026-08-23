@@ -60,6 +60,7 @@
     "check:bundle": "node scripts/check-bundle-budget.js",
     "check:production-config": "node scripts/check-production-config.js",
     "lint:colors": "npm run test:check-color-literals && node scripts/check-color-literals.js",
+    "lint:identity-comparisons": "node scripts/check-identity-comparisons.js",
     "migrate": "knex migrate:latest",
     "migrate:rollback": "knex migrate:rollback",
     "seed": "knex seed:run",
