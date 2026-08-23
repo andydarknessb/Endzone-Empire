@@ -105,9 +105,18 @@ function ChatPanel({ leagueId, open = true, onUnreadChange = null }) {
         // Reading live: keep the server-side marker current so a later
         // reload doesn't resurrect these as unread.
         markRead();
-      } else if (data.teamId !== viewerTeamIdRef.current) {
+      } else if (viewerTeamIdRef.current == null || data.teamId !== viewerTeamIdRef.current) {
         // The viewer's own broadcast echo is recognised by Team, because the
         // broadcast carries no viewer-relative field to recognise it by.
+        //
+        // The null guard is the same one isLeagueCreator's docstring explains,
+        // reached here through the unread badge (#188). A departed author's
+        // message reads back with `teamId: null` - chat's join is LEFT so they
+        // keep their history - and this ref is null until the `league:join`
+        // ack lands. Without the guard those two nulls match, and such a
+        // message is misread as the viewer's own echo and never counted. A
+        // viewer with no Team of their own owns no message here, so while the
+        // answer is unknown nothing can be theirs.
         setUnread((count) => count + 1);
       }
     });

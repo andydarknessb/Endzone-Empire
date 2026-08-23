@@ -257,6 +257,30 @@ test('a broadcast that shares the viewer\'s account but not their Team still cou
   await waitFor(() => expect(onUnreadChange).toHaveBeenLastCalledWith(1));
 });
 
+// #188: the two-nulls-match trap, the one isLeagueCreator's docstring exists
+// to warn about, reached here through the unread badge. A former manager's
+// message reads back with `teamId: null` (chat's LEFT join keeps what a
+// departed author wrote), and the viewer's own Team ID is null until the
+// `league:join` ack lands. `null !== null` is false, so the message was
+// misread as the viewer's own broadcast echo and silently swallowed.
+test("counts a former manager's message as unread when the viewer's own Team is not known yet", async () => {
+  mockGets({ unread: 0 });
+  // No ack answered: the panel is in the window between connect and join,
+  // where its viewer Team ID is still null.
+  const onUnreadChange = jest.fn();
+
+  renderWithProviders(<ChatPanel leagueId={1} open={false} onUnreadChange={onUnreadChange} />);
+  await screen.findByText('No messages yet');
+
+  act(() => {
+    socketHandlers['chat:message'](broadcast({
+      id: 7, teamId: null, teamName: null, username: 'ghost', message: 'from a departed manager',
+    }));
+  });
+
+  await waitFor(() => expect(onUnreadChange).toHaveBeenLastCalledWith(1));
+});
+
 test('opening the chat resets unread and moves the server-side read marker', async () => {
   mockGets({ unread: 5 });
   const onUnreadChange = jest.fn();
