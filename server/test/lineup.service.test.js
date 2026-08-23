@@ -483,9 +483,18 @@ test('a full roster resolves by dropping a bench player before activating the st
       const deleted = rosteredPlayerIds.delete(params[1]);
       return { rows: deleted ? [{ id: 99 }] : [], rowCount: deleted ? 1 : 0 };
     }],
-    [/^SELECT "waiver_period_hours" FROM "leagues"/, () => ({
-      rows: [{ waiver_period_hours: 24 }],
+    [/^SELECT "id", "waiver_period_hours"/, () => ({
+      rows: [{ id: 5, waiver_period_hours: 24, current_season: 2026, current_week: 8 }],
     })],
+    // The dropped player's lineup rows follow his roster row out (#197): he
+    // is a KC bench player and only MIN has kicked off, so the current week
+    // goes too. Nothing here depends on which rows went - the drop is a
+    // fixture for the stash activation that follows it.
+    [/^SELECT "slot", "ir_attested" FROM "lineup_entries"/, () => ({
+      rows: [{ slot: 'BENCH', ir_attested: false }],
+    })],
+    [/^SELECT "nfl_team" FROM "players"/, () => ({ rows: [{ nfl_team: 'KC' }] })],
+    [/^DELETE FROM "lineup_entries"/, () => ({ rows: [], rowCount: 1 })],
     [/^INSERT INTO "waiver_players"/, () => ({ rows: [] })],
     [/^INSERT INTO "transactions"/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({

@@ -315,6 +315,11 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommiss
 /**
  * Drop a player from the caller's roster in the league — transactional so the
  * roster row and any bookkeeping stay consistent.
+ *
+ * The lineup follows the roster (#197): his unlocked current-week row and
+ * every future week's row go with the roster row. What that row held is
+ * recorded on the waiver hold first, because the hold is what gates undo and
+ * the row will not be there to read afterwards.
  */
 async function dropPlayer({ leagueId, userId, playerId }) {
   const client = await pool.connect();
@@ -322,6 +327,14 @@ async function dropPlayer({ leagueId, userId, playerId }) {
     await client.query('BEGIN');
     const team = await requireMember(client, { leagueId, userId, forUpdate: true });
     if (team.locked) throw new DraftError(409, 'your team is locked by the commissioner');
+
+    const leagueResult = await client.query(
+      `SELECT "id", "waiver_period_hours", "current_season", "current_week"
+         FROM "leagues" WHERE "id" = $1`,
+      [leagueId]
+    );
+    const league = leagueResult.rows[0];
+    if (!league) throw new DraftError(404, 'league not found');
 
     const deleted = await client.query(
       `DELETE FROM "team_players"
@@ -332,16 +345,19 @@ async function dropPlayer({ leagueId, userId, playerId }) {
       throw new DraftError(404, 'player is not on your roster');
     }
 
+    const interrupted = await lineupService.currentWeekEntry(client, {
+      league, teamId: team.id, playerId,
+    });
+    await lineupService.removeLineupEntries(client, { league, teamId: team.id, playerId });
+
     // Dropped players pass through waivers before returning to free agency
-    const leagueResult = await client.query(
-      `SELECT "waiver_period_hours" FROM "leagues" WHERE "id" = $1`,
-      [leagueId]
-    );
     await placeOnWaivers(client, {
       leagueId,
       playerId,
-      waiverPeriodHours: leagueResult.rows[0].waiver_period_hours,
+      waiverPeriodHours: league.waiver_period_hours,
       droppedByTeamId: team.id,
+      interruptedSlot: interrupted ? interrupted.slot : null,
+      interruptedIrAttested: Boolean(interrupted && interrupted.ir_attested),
     });
     await logTransaction(client, {
       leagueId,

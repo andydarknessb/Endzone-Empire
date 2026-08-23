@@ -635,11 +635,18 @@ async function forceTransaction({ leagueId, userId, teamId, action, playerId }) 
         [teamId, playerId]
       );
       if (deleted.rowCount === 0) throw new CommissionerError(404, 'player is not on that roster');
+      // A forced drop is still a drop: the lineup follows the roster, and
+      // the hold records what it interrupted so the undo can replay it
+      // (#197). It is undoable on the same hold as a manager drop.
+      const interrupted = await lineupService.currentWeekEntry(client, { league, teamId, playerId });
+      await lineupService.removeLineupEntries(client, { league, teamId, playerId });
       await placeOnWaivers(client, {
         leagueId,
         playerId,
         waiverPeriodHours: league.waiver_period_hours,
         droppedByTeamId: teamId,
+        interruptedSlot: interrupted ? interrupted.slot : null,
+        interruptedIrAttested: Boolean(interrupted && interrupted.ir_attested),
       });
     }
 
