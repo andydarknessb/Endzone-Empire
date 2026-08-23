@@ -233,7 +233,10 @@ slot)
 Which team holds which slot in a draft: the sequence the first round follows,
 from which the draft rotation derives every later round. Settled before the
 draft starts and unchanged once it has. A manager's upcoming picks are
-positions in this order, not a separate thing.
+positions in this order, not a separate thing, and neither is the live
+near-term view of it: a panel showing which picks come next is this order
+windowed at the current pick, derived and never stored. "Upcoming" is copy
+over this concept, not a concept of its own.
 _Avoid_: draft rotation (that is how turns come around, snake or linear), pick
 order, slot order
 
