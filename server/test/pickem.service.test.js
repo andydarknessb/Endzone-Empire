@@ -123,7 +123,7 @@ test('applyRecapFinals resolves a game the live table never marked final', () =>
  * Locks and winners                                                   *
  * ------------------------------------------------------------------ */
 
-test('a game locks INCLUSIVELY at kickoff, matching lineup.service lockedNflTeams', () => {
+test('a game locks INCLUSIVELY at kickoff, matching lineup.service lockedPlayerIds', () => {
   const game = { gameKey: 'BUF|MIA', kickoffAt: KICKOFF };
   const at = (ms) => new Date(Date.parse(KICKOFF) + ms);
   assert.equal(pickem.isGameLocked(game, at(-60_000)), false, 'a minute before kickoff');

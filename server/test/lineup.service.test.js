@@ -1121,7 +1121,7 @@ test('removeLineupEntries: the kickoff question is asked of the schedule, not of
   client.release();
 
   // Pinned to the statement text, not merely to the shape the fake returns:
-  // this is the SAME predicate the lineup lock uses (lockedNflTeams), so a
+  // this is the SAME predicate the lineup lock uses (lockedPlayerIds), so a
   // mutation of it has to fail here rather than pass because a fake answered
   // from its parameters. `kickoff_at <= now` and nothing looser.
   const [locked] = fake.matching(/FROM "nfl_games"/);
