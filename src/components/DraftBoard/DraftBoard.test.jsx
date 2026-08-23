@@ -33,6 +33,7 @@ function makeFakeSocket() {
   const managerHandlers = {};
   const socket = {
     viewerTeamId: null,
+    isCommissioner: false,
     on: jest.fn((event, cb) => {
       handlers[event] = cb;
     }),
@@ -43,7 +44,7 @@ function makeFakeSocket() {
     },
     emit: jest.fn((event, payload, ack) => {
       if (event === 'draft:join' && typeof ack === 'function') {
-        ack({ ok: true, viewerTeamId: socket.viewerTeamId });
+        ack({ ok: true, viewerTeamId: socket.viewerTeamId, isCommissioner: socket.isCommissioner });
       }
     }),
     disconnect: jest.fn(),
@@ -63,10 +64,22 @@ function makeFakeSocket() {
  * acknowledgement before it sends the first snapshot, so this always runs
  * before a `draft:state` trigger.
  */
-const connectAsTeam = (teamId) => {
+const connectAsTeam = (teamId, { isCommissioner = false } = {}) => {
   fakeSocket.viewerTeamId = teamId;
+  // Set on every connect, never left standing from an earlier one: one test
+  // can render the room twice off the same fake socket, and a role that
+  // leaked from the first render would answer for the second.
+  fakeSocket.isCommissioner = isCommissioner;
   act(() => fakeSocket.trigger('connect'));
 };
+
+/**
+ * Connect as a manager the server has answered "you are a commissioner of
+ * this league" (#178). That answer is the ack's alone: the room reads no
+ * `owner_id` and no signed-in account id, so a test that wants the
+ * commissioner controls has to connect, exactly as the app does.
+ */
+const connectAsCommissioner = (teamId = null) => connectAsTeam(teamId, { isCommissioner: true });
 
 const playersPage = (players = [{ id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'Kansas City Chiefs' }]) => ({
   data: { players, totalPages: 1 },
@@ -914,9 +927,80 @@ test('move up and remove reorder the queue and persist it', async () => {
   );
 });
 
-test('Randomize Draft order shows only for the commissioner pre-draft and POSTs', async () => {
-  const { unmount } = renderBoardWithToasts(1, { user: { id: 7, username: 'commish' } });
+// --- who gets the commissioner controls (#178) ---
+//
+// The room asks the join acknowledgement and nothing else. Before #178 it
+// asked the draft:state snapshot for `is_commissioner` (a field a bare
+// `SELECT * FROM leagues` never has) and fell back to comparing the
+// snapshot's owner_id against the signed-in account, so a co-commissioner
+// was silently refused controls they hold everywhere else.
+
+test('a co-commissioner who does not own the league gets the Draft room controls', async () => {
+  renderBoard(1, { user: { id: 8, username: 'cocommish' } });
   await screen.findByText('Patrick Mahomes');
+  connectAsCommissioner(2);
+  act(() =>
+    // owner_id is somebody else's, and this viewer still holds the controls.
+    fakeSocket.trigger('draft:state', stateEvent(activeLeague({
+      draft_status: 'pending',
+      owner_id: 7,
+    }), { onTheClock: null }))
+  );
+
+  expect(screen.getByRole('button', { name: 'Randomize Draft order' })).toBeInTheDocument();
+});
+
+test('the league owner gets the controls from the acknowledgement, not from owner_id', async () => {
+  // The regression guard for deleting the owner_id fallback. #115 removes
+  // account identity from league-shared payloads, so this snapshot is the
+  // one the room will be handed then: no owner_id at all. The controls have
+  // to survive that, and they can only survive it via the ack.
+  renderBoard(1, { user: { id: 7, username: 'commish' } });
+  await screen.findByText('Patrick Mahomes');
+  connectAsCommissioner(1);
+  const { owner_id: _ownerId, ...leagueWithoutOwner } = activeLeague({ draft_status: 'pending' });
+  act(() =>
+    fakeSocket.trigger('draft:state', stateEvent(leagueWithoutOwner, { onTheClock: null }))
+  );
+
+  expect(screen.getByRole('button', { name: 'Randomize Draft order' })).toBeInTheDocument();
+});
+
+test('the owner gets no controls when the acknowledgement never grants them', async () => {
+  // The other half of the same guard: if the flag goes missing the room must
+  // fail closed, and it must not quietly re-derive the answer from the fact
+  // that this viewer's account id matches the snapshot's owner_id.
+  renderBoard(1, { user: { id: 7, username: 'commish' } });
+  await screen.findByText('Patrick Mahomes');
+  connectAsTeam(1); // connected, acknowledged, not a commissioner
+  act(() =>
+    fakeSocket.trigger('draft:state', stateEvent(activeLeague({
+      draft_status: 'pending',
+      owner_id: 7,
+    }), { onTheClock: null }))
+  );
+
+  expect(screen.queryByRole('button', { name: 'Randomize Draft order' })).not.toBeInTheDocument();
+});
+
+test('an ordinary manager gets no commissioner controls', async () => {
+  renderBoard(1, { user: { id: 9, username: 'manager' } });
+  await screen.findByText('Patrick Mahomes');
+  connectAsTeam(3);
+  act(() =>
+    fakeSocket.trigger('draft:state', stateEvent(activeLeague({
+      draft_status: 'pending',
+      owner_id: 7,
+    }), { onTheClock: null }))
+  );
+
+  expect(screen.queryByRole('button', { name: 'Randomize Draft order' })).not.toBeInTheDocument();
+});
+
+test('Randomize Draft order shows only for the commissioner pre-draft and POSTs', async () => {
+  const { unmount } = renderBoardWithToasts(1);
+  await screen.findByText('Patrick Mahomes');
+  connectAsCommissioner();
   act(() =>
     fakeSocket.trigger('draft:state', stateEvent(activeLeague({
       draft_status: 'pending',
@@ -931,9 +1015,10 @@ test('Randomize Draft order shows only for the commissioner pre-draft and POSTs'
   expect(await screen.findByText('Draft order randomized')).toBeInTheDocument();
   unmount();
 
-  // Non-owner never sees the button
-  renderBoard(1, { user: { id: 8, username: 'notcommish' } });
+  // A manager the ack did not name a commissioner never sees the button
+  renderBoard(1);
   await screen.findByText('Patrick Mahomes');
+  connectAsTeam(2);
   act(() =>
     fakeSocket.trigger('draft:state', stateEvent(activeLeague({
       draft_status: 'pending',
@@ -944,8 +1029,9 @@ test('Randomize Draft order shows only for the commissioner pre-draft and POSTs'
 });
 
 test('Pause Draft POSTs the toggled paused flag for the commissioner during an active draft', async () => {
-  renderBoard(1, { user: { id: 7, username: 'commish' } });
+  renderBoard(1);
   await screen.findByText('Patrick Mahomes');
+  connectAsCommissioner();
   act(() =>
     fakeSocket.trigger('draft:state', stateEvent(activeLeague({ owner_id: 7 })))
   );
@@ -957,8 +1043,9 @@ test('Pause Draft POSTs the toggled paused flag for the commissioner during an a
 });
 
 test('commissioner confirms undo before posting the last-pick rollback', async () => {
-  renderBoardWithToasts(1, { user: { id: 99, username: 'commish' } });
+  renderBoardWithToasts(1);
   await screen.findByText('Patrick Mahomes');
+  connectAsCommissioner();
   act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ owner_id: 99, current_pick: 1 }), {
     picks: [{ pick_number: 1, player_id: 10, name: 'Josh Allen', position: 'QB', nfl_team: 'BUF', is_keeper: false }],
   })));
@@ -972,8 +1059,9 @@ test('commissioner confirms undo before posting the last-pick rollback', async (
 });
 
 test('undo is disabled when the most recent reached pick is a keeper', async () => {
-  renderBoard(1, { user: { id: 99, username: 'commish' } });
+  renderBoard(1);
   await screen.findByText('Patrick Mahomes');
+  connectAsCommissioner();
   act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ owner_id: 99, current_pick: 1 }), {
     picks: [{ pick_number: 1, player_id: 10, name: 'Josh Allen', position: 'QB', nfl_team: 'BUF', is_keeper: true }],
   })));
@@ -983,8 +1071,9 @@ test('undo is disabled when the most recent reached pick is a keeper', async () 
 });
 
 test('reset draft requires the exact league name before calling the destructive endpoint', async () => {
-  renderBoardWithToasts(1, { user: { id: 99, username: 'commish' } });
+  renderBoardWithToasts(1);
   await screen.findByText('Patrick Mahomes');
+  connectAsCommissioner();
   act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ owner_id: 99 }))));
 
   await userEvent.click(screen.getByRole('button', { name: 'Reset draft' }));
@@ -999,8 +1088,9 @@ test('reset draft requires the exact league name before calling the destructive 
 test('commissioner copies a presenter link generated by the share-token endpoint', async () => {
   Object.assign(navigator, { clipboard: { writeText: jest.fn().mockResolvedValue() } });
   apiClient.post.mockResolvedValue({ data: { url: 'http://localhost:3000/#/present/example-token' } });
-  renderBoardWithToasts(1, { user: { id: 99, username: 'commish' } });
+  renderBoardWithToasts(1);
   await screen.findByText('Patrick Mahomes');
+  connectAsCommissioner();
   act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ owner_id: 99 }))));
 
   await userEvent.click(screen.getByRole('button', { name: 'Presenter link' }));
@@ -1597,8 +1687,11 @@ test('keeps the roster section out of the DOM until the league shape arrives', a
 
   expect(screen.queryByLabelText('My Roster')).not.toBeInTheDocument();
   expect(screen.queryByLabelText('Roster needs')).not.toBeInTheDocument();
-  // And the managers-ready line stays the ONE status region: RosterNeedsStrip
-  // uses a bare aria-live precisely so this singular query keeps working.
+  // And the readiness announcement stays the ONE status region:
+  // RosterNeedsStrip uses a bare aria-live precisely so this singular query
+  // keeps working. The element it matches is now the Draft room's
+  // ReadinessAnnouncer rather than the rail's own line, which #164 stripped
+  // role/aria-live from - same invariant, different element.
   expect(screen.getByRole('status')).toHaveTextContent('1 of 2 managers ready');
 });
 
@@ -1609,13 +1702,13 @@ test('keeps the roster section out of the DOM until the league shape arrives', a
 describe('accessible structure', () => {
   /** A commissioner who also owns a team, active draft with the league's own
    * roster shape, so every optional panel (commissioner controls, roster,
-   * live banner) mounts at once. The viewer holds Team A through the join
-   * acknowledgement, and is the league's commissioner by account (the one
-   * check on this page that is still an account comparison - see #178). */
+   * live banner) mounts at once. Both viewer-relative facts come from the
+   * join acknowledgement (#178): the viewer holds Team A, and the server has
+   * told them they are a commissioner here. */
   const showFullBoard = async () => {
     renderBoard(1, { user: { id: 5, username: 'alice' } });
     await screen.findByText('Patrick Mahomes');
-    connectAsTeam(1);
+    connectAsCommissioner(1);
     act(() => fakeSocket.trigger('draft:state', stateEvent(rosterLeague({
       owner_id: 5,
       pick_deadline_at: new Date(Date.now() + 30000).toISOString(),
@@ -1709,17 +1802,16 @@ describe('accessible structure', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Mobile tab-card layout (issue #122): below the medium breakpoint, three
-// persistent tabs (Players/Board/Draft) replace desktop's dual-pane
-// workspace, each its own single scroll region.
-// ---------------------------------------------------------------------------
-
-describe('mobile layout (issue #122)', () => {
-  // Same matchMedia-mock convention used elsewhere in this codebase (see
-  // PlayerQuickView.test.jsx, PowerRankings.test.jsx): jsdom has no real
-  // media-query engine, so every query the component asks resolves to this
-  // one flag regardless of its breakpoint text.
+/**
+ * Put the describe that calls this below the medium breakpoint.
+ *
+ * The matchMedia-mock convention used elsewhere in this codebase (see
+ * PlayerQuickView.test.jsx, PowerRankings.test.jsx): jsdom has no real
+ * media-query engine, so every query the component asks resolves to this one
+ * flag regardless of its breakpoint text. Its absence is how this file says
+ * "desktop" - MUI's useMediaQuery falls back to false without it.
+ */
+const mockMobileViewport = () => {
   beforeEach(() => {
     window.matchMedia = jest.fn().mockImplementation((query) => ({
       matches: true,
@@ -1735,6 +1827,16 @@ describe('mobile layout (issue #122)', () => {
   afterEach(() => {
     delete window.matchMedia;
   });
+};
+
+// ---------------------------------------------------------------------------
+// Mobile tab-card layout (issue #122): below the medium breakpoint, three
+// persistent tabs (Players/Board/Draft) replace desktop's dual-pane
+// workspace, each its own single scroll region.
+// ---------------------------------------------------------------------------
+
+describe('mobile layout (issue #122)', () => {
+  mockMobileViewport();
 
   const showMobileActiveDraft = async () => {
     renderBoard(1, { user: { id: 5, username: 'alice' } });
@@ -1792,5 +1894,131 @@ describe('mobile layout (issue #122)', () => {
 
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
     expect(screen.getByText('Patrick Mahomes')).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Readiness live region (issue #164): one region, mounted for the pending
+// lobby rather than for whichever tab happens to be showing.
+//
+// The whole ticket is the difference between "a status region exists after
+// the switch" and "it is the SAME region". Assistive technology announces
+// CHANGES to a region it is already observing; a region inserted into the DOM
+// already containing its text is generally not announced at all. So every
+// assertion below that matters compares node identity (`toBe`) across the
+// switch - an assertion that merely found a region afterwards would pass
+// against the broken code too, because a freshly mounted one is present.
+// ---------------------------------------------------------------------------
+
+describe('readiness live region (issue #164)', () => {
+  // The mobile/tablet layout is the one that mounts a single region per tab
+  // (issue #122 / PR #158), so it is the layout that unmounted the rail - and
+  // the live region inside it - on every switch. The one desktop test below
+  // opts back out.
+  mockMobileViewport();
+
+  /** A pending lobby whose viewer holds Team A, with Team B ready: Readiness
+   * composes into `pending` alone (railComposition.js) and the panel renders
+   * only for a viewer who holds a Team, so this is the one state the region
+   * speaks in. */
+  const showPendingLobby = async (leagueOverrides = {}) => {
+    renderBoard(1, { user: { id: 5, username: 'alice' } });
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1);
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ draft_status: 'pending', ...leagueOverrides }), {
+      teams: [
+        { teamId: 1, teamName: 'Team A', draft_ready: false },
+        { teamId: 2, teamName: 'Team B', draft_ready: true },
+      ],
+      onTheClock: null,
+    })));
+  };
+
+  test('is the same DOM node before and after switching mobile tabs away and back', async () => {
+    await showPendingLobby();
+
+    const before = screen.getByRole('status');
+    expect(before).toHaveTextContent('1 of 2 managers ready');
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
+    // Present on a tab that does not render the rail at all - which is the
+    // point: the region does not belong to the rail any more.
+    expect(screen.getByRole('status')).toBe(before);
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Draft' }));
+    expect(screen.getByRole('status')).toBe(before);
+
+    // And back to the tab the room opened on, which is the switch the issue
+    // describes: "the rail is rendered only while the players tab is active".
+    await userEvent.click(screen.getByRole('tab', { name: 'Players' }));
+    expect(screen.getByRole('status')).toBe(before);
+    expect(before).toHaveTextContent('1 of 2 managers ready');
+  });
+
+  test('updates its text in place when readiness changes while the rail is unmounted', async () => {
+    await showPendingLobby();
+    const region = screen.getByRole('status');
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
+    expect(screen.queryByRole('region', { name: 'Readiness' })).not.toBeInTheDocument();
+
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ draft_status: 'pending' }), {
+      teams: [
+        { teamId: 1, teamName: 'Team A', draft_ready: true },
+        { teamId: 2, teamName: 'Team B', draft_ready: true },
+      ],
+      onTheClock: null,
+    })));
+
+    // Same node, new text: a change to a region already being observed, which
+    // is the shape assistive technology announces.
+    expect(screen.getByRole('status')).toBe(region);
+    expect(region).toHaveTextContent('2 of 2 managers ready');
+  });
+
+  test('is the only readiness announcement in the room - the rail shows the count without repeating it', async () => {
+    // With a draft date, so the countdown's own status region (Countdown.jsx,
+    // issue #117) is in the room too. The invariant is one region announcing
+    // READINESS, not one region in the document: a bare count of role=status
+    // would pass here only for as long as no other announcement exists, and
+    // would then fail for a reason that has nothing to do with readiness.
+    await showPendingLobby({ draft_date: '2099-09-01T17:00:00.000Z' });
+    await userEvent.click(screen.getByRole('tab', { name: 'Draft' }));
+
+    const announcing = screen.getAllByRole('status')
+      .filter((region) => region.textContent.includes('managers ready'));
+    expect(announcing).toHaveLength(1);
+
+    const readiness = screen.getByRole('region', { name: 'Readiness' });
+    const visibleCount = within(readiness).getByText('1 of 2 managers ready');
+    expect(visibleCount).not.toHaveAttribute('aria-live');
+    expect(visibleCount).not.toHaveAttribute('role', 'status');
+  });
+
+  test('persists across the desktop Board tab too, where the rail is also unmounted', async () => {
+    // The issue records desktop as unaffected because the rail is always
+    // mounted there. It is not: `desktopRailColumn` appears only in the
+    // isComplete branch, so the Board tab of a draft that is not yet complete
+    // renders the matrix alone, with no rail column beside it, and desktop
+    // lost the region on that switch exactly as mobile did. Removing
+    // matchMedia is how this file says "desktop" - MUI's useMediaQuery falls
+    // back to false without it.
+    delete window.matchMedia;
+    await showPendingLobby();
+
+    // Proof this test ran where it says it ran. Desktop composes two tabs,
+    // Draft and Board; Players is mobile's alone. Without this the whole test
+    // passes under the mobile mock as well - every other assertion in it is
+    // true at both breakpoints, since mobile's Board tab also drops the rail
+    // and a tab named Board exists either way. That would leave the one test
+    // pinning this correction to the issue unable to tell which layout it was
+    // exercising.
+    expect(screen.queryByRole('tab', { name: 'Players' })).not.toBeInTheDocument();
+
+    const before = screen.getByRole('status');
+    await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
+
+    expect(screen.queryByRole('region', { name: 'Readiness' })).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toBe(before);
   });
 });

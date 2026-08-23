@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { useSelector } from 'react-redux';
 import { Container, Typography, Alert, Box, Skeleton, useMediaQuery, Tabs, Tab, IconButton, Tooltip } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import Grid from '@mui/material/Unstable_Grid2';
@@ -20,6 +19,7 @@ import DraftSettingsPanel from './DraftSettingsPanel';
 import LiveDraftBanner from './LiveDraftBanner';
 import PlayerPoolTable from './PlayerPoolTable';
 import DraftRail from './DraftRail';
+import ReadinessAnnouncer from './ReadinessAnnouncer';
 import DraftBoardMatrix from './DraftBoardMatrix';
 import PickHistory from './PickHistory';
 import DraftDayControls from './DraftDayControls';
@@ -148,7 +148,12 @@ function playBeep() {
 
 function DraftBoard() {
   const { leagueId } = useParams();
-  const user = useSelector((store) => store.user);
+  // No `useSelector((store) => store.user)` here any more, and that absence is
+  // the point (#178, ahead of #115): with the commissioner flag arriving on
+  // the join acknowledgement, the Draft room reads the signed-in account for
+  // nothing at all. Every question it asks about a manager - which Team is
+  // mine, whose turn is it, may I use this control - is answered by the
+  // server, by Team ID or by a per-viewer flag.
   const notify = useSnackbar();
   const theme = useTheme();
   const isXs = useMediaQuery(theme.breakpoints.down('sm'));
@@ -219,8 +224,8 @@ function DraftBoard() {
   const myRoster = useMyRoster(leagueId);
   // useDraftSocket registers its socket listeners once per leagueId (not
   // per render), so the `onPickLanded` it calls must stay stable in
-  // identity while still seeing this render's `teams`/`user` - a ref holds
-  // the actual logic, refreshed every render below, while the function
+  // identity while still seeing this render's `teams`/`viewerTeamId` - a ref
+  // holds the actual logic, refreshed every render below, while the function
   // passed into the hook itself never changes.
   const pickLandedRef = useRef(() => {});
   const {
@@ -229,6 +234,14 @@ function DraftBoard() {
     picks,
     onTheClock,
     viewerTeamId,
+    // Whether this viewer may act as commissioner HERE, decided by the server
+    // and answered on the per-viewer join acknowledgement (#178; the hook's
+    // header has the rest of the why). Read it ALONE: the old
+    // `league.owner_id === user.id` fallback beside it is deliberately gone,
+    // because #115 takes `owner_id` off this snapshot and a fallback
+    // comparing against an absent field just goes quiet - every viewer, the
+    // owner included, would lose the controls with nothing failing to say so.
+    isCommissioner,
     secondsLeft,
     reconnecting,
     isMyTurn,
@@ -375,16 +388,6 @@ function DraftBoard() {
     );
   }
 
-  // Deliberately still an account comparison, and the one on this page (#113).
-  // It asks "am I this league's commissioner", not "which of these Teams is
-  // me", and it compares the viewer's OWN account id against a league column
-  // rather than reading another manager's identity. It cannot be expressed in
-  // Team identity yet either: the draft:state snapshot carries no
-  // ownerTeamId - only league detail does - because a broadcast cannot carry a
-  // viewer-relative field. See #178, which owns both halves of that: the
-  // is_commissioner operand is always undefined here (the snapshot is a bare
-  // SELECT * on leagues), so a co-commissioner silently gets no controls.
-  const isCommissioner = !!(league && user && (league.is_commissioner || league.owner_id === user.id));
   const rosterView = rosterViewFor({ league, teams, picks, viewerTeamId });
   // Draft rounds (ADR 0005): derived while pending, the frozen snapshot once
   // the draft is active or complete. One call, shared by everything below
@@ -618,6 +621,19 @@ function DraftBoard() {
       }}
     >
       <Box sx={{ flexShrink: { md: 0 } }}>
+        {/* The Draft room's one readiness announcement (issue #164). It lives
+            here, in the chrome every tab renders, rather than in the rail:
+            below the medium breakpoint only the active tab's region is
+            mounted, so a live region inside the rail was destroyed and
+            rebuilt on every tab switch and stopped being a region assistive
+            technology was observing. Visually hidden - the rail still shows
+            the same sentence to sighted managers, without a live region of
+            its own. */}
+        <ReadinessAnnouncer
+          teams={teams}
+          viewerTeamId={viewerTeamId}
+          draftStatus={league?.draft_status}
+        />
         <LeagueBreadcrumb />
         {(error || socketError) && (
           <Alert severity="error" sx={{ mb: 2 }}>
