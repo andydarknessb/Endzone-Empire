@@ -190,3 +190,24 @@ describe('the label the list is opened by', () => {
     expect(readinessSummaryFor(league(4, 6)).listLabel).toBe('Not ready managers (2)');
   });
 });
+
+describe('the exact reading of the count (issue #164)', () => {
+  // Three surfaces render this sentence and one of them - the Draft room's
+  // persistent live region - is in a different component from the other two,
+  // so it is stated here once and read from here everywhere.
+  test('reads ready over total, in managers', () => {
+    expect(readinessSummaryFor(league(3, 8)).countText).toBe('3 of 8 managers ready');
+  });
+
+  test('is the same string at both ends, so nothing has to special-case them', () => {
+    expect(readinessSummaryFor(league(0, 6)).countText).toBe('0 of 6 managers ready');
+    expect(readinessSummaryFor(league(6, 6)).countText).toBe('6 of 6 managers ready');
+  });
+
+  test('counts against the Teams present, never a configured league size', () => {
+    // The denominator rule this module exists for, restated on the sentence
+    // the announcement actually carries: an empty lobby says 0 of 0 rather
+    // than dividing by nothing.
+    expect(readinessSummaryFor([]).countText).toBe('0 of 0 managers ready');
+  });
+});

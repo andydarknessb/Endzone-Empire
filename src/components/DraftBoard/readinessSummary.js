@@ -49,6 +49,7 @@ export const READINESS_LIST = {
  * @returns {{
  *   readyCount: number, total: number, percentReady: number,
  *   listKind: string, listedTeams: Array, listLabel: (string|null),
+ *   countText: string,
  * }}
  */
 export function readinessSummaryFor(teams = []) {
@@ -63,6 +64,20 @@ export function readinessSummaryFor(teams = []) {
   const readyCount = ready.length;
 
   const percentReady = total === 0 ? 0 : Math.round((readyCount / total) * 100);
+
+  // The exact reading, in one place. Three surfaces in the DRAFT ROOM say
+  // this sentence - the rail's visible caption, the progress bar's
+  // aria-valuetext, and the room's persistent live region (issue #164) - and
+  // the live region is in a different component from the other two, so a
+  // template literal per caller is how they would quietly drift into
+  // announcing one wording and showing another.
+  //
+  // The Draft SETTINGS page builds the same sentence from its own template
+  // literal (DraftSettings/ReadinessPanel.jsx), against a different Team
+  // shape (`{ id, name }` rather than the socket's `{ teamId, teamName }`),
+  // so it is not wired to this and the drift between the two pages is real
+  // but out of #164's scope.
+  const countText = `${readyCount} of ${total} managers ready`;
 
   // At or below half, name the ready group; above it, name the Not ready one.
   const atOrBelowHalf = readyCount * 2 <= total;
@@ -83,7 +98,7 @@ export function readinessSummaryFor(teams = []) {
     : `${listKind === READINESS_LIST.READY ? 'Ready' : 'Not ready'} managers (${listedTeams.length})`;
 
   return {
-    readyCount, total, percentReady, listKind, listedTeams, listLabel,
+    readyCount, total, percentReady, listKind, listedTeams, listLabel, countText,
   };
 }
 
