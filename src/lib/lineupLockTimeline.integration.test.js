@@ -69,6 +69,11 @@ function createDatabaseFixture() {
       if (sql.includes('SELECT "id", "locked" FROM "teams"')) {
         return { rows: [{ id: league.teamId, locked: false }] };
       }
+      if (sql.includes('SELECT 1 FROM "matchups"')) {
+        // #106: materializeLineup refuses to write into a final week. This
+        // fixture is a live week mid-kickoff, so it is never frozen.
+        return { rows: [] };
+      }
       if (sql.includes('SELECT "team_players"."player_id"') && sql.includes('FROM "team_players"')) {
         return { rows: playerRows.filter((row) => state.rostered.has(row.player_id)) };
       }
