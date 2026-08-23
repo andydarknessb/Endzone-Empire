@@ -12,11 +12,11 @@ function renderPanel(onSave = jest.fn()) {
       onDirtyChange={jest.fn()}
     />
   );
-  return onSave;
+  return { onSave };
 }
 
 test('keeps decimal input visible and never reports a successful save that discards it', () => {
-  const onSave = renderPanel();
+  const { onSave } = renderPanel();
   const quarterbackLimit = screen.getByLabelText('QB');
   fireEvent.change(quarterbackLimit, { target: { value: '1.5' } });
 
@@ -36,7 +36,7 @@ test('blocks an out-of-range position limit', () => {
 });
 
 test.each(['0', '10'])('saves position limit boundary %s without dropping it', (value) => {
-  const onSave = renderPanel();
+  const { onSave } = renderPanel();
   fireEvent.change(screen.getByLabelText('QB'), { target: { value } });
   fireEvent.click(screen.getByRole('button', { name: 'Save position limits' }));
 

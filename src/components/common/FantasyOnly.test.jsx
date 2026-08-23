@@ -3,12 +3,12 @@ import { screen, within } from '@testing-library/react';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import { clearLeagueCache } from '../../hooks/useLeague';
 import FantasyOnly from './FantasyOnly';
+import apiClient from '../../api/apiClient';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn() },
 }));
-import apiClient from '../../api/apiClient';
 
 const renderGuarded = (league) => {
   apiClient.get.mockResolvedValue({ data: { league, teams: [] } });

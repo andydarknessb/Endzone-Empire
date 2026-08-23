@@ -104,7 +104,7 @@ describe('DraftSimulator', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Sim to my pick' }));
 
-    await waitFor(() => expect(screen.getByText("You're up")).toBeInTheDocument());
+    await screen.findByText("You're up");
     // 10-team snake: the user's second pick is #20, so 18 CPU picks landed.
     expect(screen.getByText('20')).toBeInTheDocument();
   });

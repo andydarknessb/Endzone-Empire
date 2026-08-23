@@ -12,11 +12,11 @@ const renderPanel = (draftType, onSave = jest.fn()) => {
       onDirtyChange={jest.fn()}
     />
   );
-  return onSave;
+  return { onSave };
 };
 
 test('hides and omits draft rotation when salary-cap auction is selected', () => {
-  const onSave = renderPanel('snake');
+  const { onSave } = renderPanel('snake');
 
   expect(screen.getByText('Draft rotation')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('radio', { name: /Salary-cap auction/i }));
@@ -29,7 +29,7 @@ test('hides and omits draft rotation when salary-cap auction is selected', () =>
 });
 
 test.each(['snake', 'autopick', 'offline'])('supports rotation for %s drafts', (draftType) => {
-  const onSave = renderPanel(draftType);
+  const { onSave } = renderPanel(draftType);
 
   fireEvent.click(screen.getByRole('button', { name: 'Linear' }));
   fireEvent.click(screen.getByRole('button', { name: 'Save draft type' }));
