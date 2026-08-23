@@ -50,6 +50,18 @@ function ackJoin(viewerTeamId, rest = {}) {
   act(() => call[2]({ ok: true, viewerTeamId, ...rest }));
 }
 
+/**
+ * Refuses the LATEST `draft:join` the way the server does (#230): the message,
+ * plus the `code` a client discriminates on. Pass no code for the ack a server
+ * older than #230 sends - that case is not a curiosity, it is a client and a
+ * server that ship separately.
+ */
+function refuseJoin(error, code) {
+  const joins = fakeSocket.emit.mock.calls.filter(([event]) => event === 'draft:join');
+  const [, , ack] = joins[joins.length - 1];
+  act(() => ack(code === undefined ? { error } : { error, code }));
+}
+
 test('joins the draft room on connect and emits pick over the socket', () => {
   const { result } = renderHook(() => useDraftSocket(1));
 
@@ -340,6 +352,92 @@ test('drops the commissioner flag when the league changes, rather than carrying 
   createDraftSocket.mockReturnValue(fakeSocket);
   rerender({ leagueId: 2 });
 
+  expect(result.current.isCommissioner).toBe(false);
+});
+
+// --- a refused re-join, and what it is allowed to take away (#230) ---
+//
+// The room re-joins on every reconnect, so a refusal is the only news it
+// ever gets that the viewer no longer holds a Team here. Exactly one refusal
+// means that - not_a_member - and it is the only one that may clear the two
+// viewer-relative values. A transient failure must not: it arrives on a
+// reconnect blip, and clearing on it flickers a manager's own controls off
+// and back on. Triage rejected that as worse than a stale display.
+//
+// EVERY TEST HERE JOINS SUCCESSFULLY FIRST, which is the whole ticket. The
+// older 'surfaces a draft:join error acknowledgment' test reads back a null
+// viewerTeamId after an error too, but only because it never held one - it is
+// evidence about this behaviour in neither direction, and its green must not
+// be mistaken for cover.
+
+test('a not_a_member refusal clears the viewer’s Team and their commissioner flag', () => {
+  const { result } = renderHook(() => useDraftSocket(1));
+
+  act(() => fakeSocket.trigger('connect'));
+  ackJoin(1, { isCommissioner: true });
+  expect(result.current.viewerTeamId).toBe(1);
+  expect(result.current.isCommissioner).toBe(true);
+
+  refuseJoin('you are not in this league', 'not_a_member');
+
+  expect(result.current.viewerTeamId).toBe(null);
+  expect(result.current.isCommissioner).toBe(false);
+  expect(result.current.error).toBe('you are not in this league');
+});
+
+test('a join_failed refusal surfaces the error and leaves both values standing', () => {
+  // The server threw. That says nothing about whether this viewer is still a
+  // manager here, so the room keeps showing what it last knew.
+  const { result } = renderHook(() => useDraftSocket(1));
+
+  act(() => fakeSocket.trigger('connect'));
+  ackJoin(1, { isCommissioner: true });
+
+  refuseJoin('failed to join draft room', 'join_failed');
+
+  expect(result.current.viewerTeamId).toBe(1);
+  expect(result.current.isCommissioner).toBe(true);
+  expect(result.current.error).toBe('failed to join draft room');
+});
+
+test('a refusal carrying NO code leaves both values standing, as an older server’s does', () => {
+  // A client and a server ship separately, so an ack with no code is a real
+  // payload and not a hypothetical. The safe reading of it is the same as any
+  // other non-membership failure: surface the error, take nothing away. This
+  // is the case a later refactor is most likely to break, by treating "not a
+  // success" as "not a member".
+  const { result } = renderHook(() => useDraftSocket(1));
+
+  act(() => fakeSocket.trigger('connect'));
+  ackJoin(1, { isCommissioner: true });
+
+  refuseJoin('you are not in this league');
+
+  expect(result.current.viewerTeamId).toBe(1);
+  expect(result.current.isCommissioner).toBe(true);
+  expect(result.current.error).toBe('you are not in this league');
+});
+
+test('a reconnect refused with not_a_member clears what the first join granted', () => {
+  // The shape the bug actually takes: the viewer was removed from the league
+  // while sitting in the room, and finds out on the re-join a dropped socket
+  // forces. Nothing else in the room ever revisits either value.
+  let reconnectHandler;
+  onReconnect.mockImplementation((socket, handler) => {
+    reconnectHandler = handler;
+    return () => {};
+  });
+  const { result } = renderHook(() => useDraftSocket(1));
+
+  act(() => fakeSocket.trigger('connect'));
+  ackJoin(1, { isCommissioner: true });
+  act(() => fakeSocket.trigger('disconnect'));
+  expect(result.current.isCommissioner).toBe(true); // a blip is not a removal
+
+  act(() => reconnectHandler());
+  refuseJoin('you are not in this league', 'not_a_member');
+
+  expect(result.current.viewerTeamId).toBe(null);
   expect(result.current.isCommissioner).toBe(false);
 });
 

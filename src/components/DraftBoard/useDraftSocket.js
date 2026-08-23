@@ -139,6 +139,10 @@ function reducer(state, action) {
  * fall back to - which makes re-reading it on EVERY join, not just the
  * first, the load-bearing part: a dropped socket mid-draft must not quietly
  * take a commissioner's controls away.
+ *
+ * A REFUSED join is read the same way, off its `code` and never its message:
+ * only `not_a_member` clears these two, and every other refusal leaves them
+ * standing (#230, and the join handler below for why).
  */
 export default function useDraftSocket(leagueId, { onPickLanded } = {}) {
   const [state, dispatch] = useReducer(reducer, initialState);
@@ -175,7 +179,26 @@ export default function useDraftSocket(leagueId, { onPickLanded } = {}) {
     // (the resync mechanism for whatever happened while we were offline).
     const joinDraftRoom = () => {
       newSocket.emit('draft:join', { leagueId: Number(leagueId) }, (resp) => {
-        if (resp?.error) return setError(resp.error);
+        if (resp?.error) {
+          setError(resp.error);
+          // The refusal's CODE decides whether the two viewer-relative values
+          // survive it, and nothing else does - never the message, which is
+          // copy and differs per room on the generic failure (#230).
+          //
+          // 'not_a_member' is the one refusal that is a statement about this
+          // viewer: they hold no Team in this league, so the Team and the
+          // commissioner flag they were shown are now false and go. Every
+          // other refusal - and an ack with no code, which is what a server
+          // older than #230 sends - says the ATTEMPT failed, not that the
+          // viewer lost anything, and the room keeps what it last knew. This
+          // runs on every reconnect, so clearing on a transient failure would
+          // flicker a manager's own controls off and back on a blip.
+          if (resp.code === 'not_a_member') {
+            setViewerTeamId(null);
+            setIsCommissioner(false);
+          }
+          return;
+        }
         // Re-read on every join, not just the first: a reconnect re-runs this
         // and the answer is the authority on which Team the viewer is and on
         // whether they may act as commissioner here. Strictly `=== true`: an

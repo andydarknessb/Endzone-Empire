@@ -1,6 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createSocketHarness } = require('./helpers/socketHarness');
+const { createFakePool, select } = require('./helpers/fakePool');
 const { joinAck } = require('../modules/draftSocket');
 const {
   leagueWorld,
@@ -100,7 +101,13 @@ for (const event of JOIN_EVENTS) {
     // an unanswered query would produce, and it must not be able to pass here.
     // deepEqual (not a property check) is also what proves no viewerTeamId or
     // isCommissioner leaked to a non-member.
-    assert.deepEqual(ack, { error: 'you are not in this league' });
+    // The CODE is what the client discriminates on (#230), never the text:
+    // this is the one refusal that clears the viewer's Team identity and
+    // commissioner flag, and it has to be told apart from the other two
+    // without matching a message string. Still deepEqual on the WHOLE
+    // object - loosening it to a property check to accommodate the new
+    // field would reopen the masking trap the exactness exists to close.
+    assert.deepEqual(ack, { error: 'you are not in this league', code: 'not_a_member' });
     // Membership IS the Team (ADR 0002), so a non-member is never asked the
     // role question at all.
     assert.equal(fake.matching(/FROM "leagues"/).length, 0, 'no role question for a non-member');
@@ -168,19 +175,58 @@ test('a connection with a token this server did not sign is refused', async (t) 
 // Validation, before anything touches the database.
 // ---------------------------------------------------------------------------
 
+// Both joins, not just the draft one: #230 puts a code on all three refusal
+// paths of BOTH handlers, and this is the only path where nothing is read
+// before the answer, so nothing else would notice league:join losing its.
 for (const [label, leagueId] of [
   ['a string', String(LEAGUE_ID)],
   ['a fractional number', 1.5],
   ['missing', undefined],
 ]) {
-  test(`draft:join with a leagueId that is ${label} is refused as invalid`, async (t) => {
-    const fake = world(t);
+  for (const event of JOIN_EVENTS) {
+    test(`${event} with a leagueId that is ${label} is refused as invalid`, async (t) => {
+      const fake = world(t);
+      const client = await harness.connectAs(OWNER, t);
+
+      const ack = await harness.emit(client, event, { leagueId });
+
+      assert.deepEqual(ack, { error: 'leagueId (integer) required', code: 'invalid_request' });
+      assert.equal(fake.calls.length, 0, 'an invalid leagueId never reaches the database');
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The third refusal: the attempt threw (#230).
+// ---------------------------------------------------------------------------
+
+for (const [event, message] of [
+  ['draft:join', 'failed to join draft room'],
+  ['league:join', 'failed to join league room'],
+]) {
+  test(`${event} answers join_failed when the attempt throws, not a membership answer`, async (t) => {
+    // This is the generic failure the header warns a fixture GAP produces,
+    // and it is under test here rather than in the way: the throw is
+    // deliberate, and the ack is still asserted whole. What the code buys is
+    // that a client can now tell this apart from the refusal above WITHOUT
+    // reading either message - and it must, because a client that read a
+    // database blip as "you are not a member" would clear a manager's Team
+    // identity and commissioner controls off the screen on every reconnect
+    // attempt. Triage rejected that flicker; the code is what prevents it.
+    const thrown = new Error('the database went away mid-join');
+    createFakePool([
+      [select('teams'), () => { throw thrown; }],
+    ]).install(t);
+    // The handler logs the throw on purpose. Silenced so a deliberate fault
+    // does not read as a broken run, and asserted below so silencing it does
+    // not also hide a handler that stopped reporting.
+    const logged = t.mock.method(console, 'error', () => {});
     const client = await harness.connectAs(OWNER, t);
 
-    const ack = await harness.emit(client, 'draft:join', { leagueId });
+    const ack = await harness.emit(client, event, { leagueId: LEAGUE_ID });
 
-    assert.deepEqual(ack, { error: 'leagueId (integer) required' });
-    assert.equal(fake.calls.length, 0, 'an invalid leagueId never reaches the database');
+    assert.deepEqual(ack, { error: message, code: 'join_failed' });
+    assert.deepEqual(logged.mock.calls[0].arguments, [`${event} failed`, thrown]);
   });
 }
 

@@ -81,6 +81,19 @@ const connectAsTeam = (teamId, { isCommissioner = false } = {}) => {
  */
 const connectAsCommissioner = (teamId = null) => connectAsTeam(teamId, { isCommissioner: true });
 
+/**
+ * Refuse the LATEST `draft:join` the way the server does (#230). The fake
+ * answers a join with success, so a refusal has to be delivered to the
+ * acknowledgement callback of the join that already went out - which is also
+ * what happens on the wire: the viewer joined, and it is the NEXT join, on a
+ * reconnect, that is refused.
+ */
+const refuseJoin = (error, code) => {
+  const joins = fakeSocket.emit.mock.calls.filter(([event]) => event === 'draft:join');
+  const [, , ack] = joins[joins.length - 1];
+  act(() => ack(code === undefined ? { error } : { error, code }));
+};
+
 const playersPage = (players = [{ id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'Kansas City Chiefs' }]) => ({
   data: { players, totalPages: 1 },
 });
@@ -1099,6 +1112,68 @@ test('an ordinary manager gets no commissioner controls', async () => {
   );
 
   expect(screen.queryByRole('button', { name: 'Randomize Draft order' })).not.toBeInTheDocument();
+});
+
+test('a not_a_member refusal takes the commissioner controls and the viewer’s own picks off the room', async () => {
+  // #230. A viewer removed from the league while sitting in the draft room
+  // learns of it on the re-join every reconnect makes, and this room is the
+  // only thing that knows: it holds both viewer-relative values and nothing
+  // else revisits them.
+  //
+  // Nothing was GRANTED by the stale display - the controls behind this flag
+  // re-authorise server-side, and the one socket action authorises inside
+  // startDraft - so what is repaired here is coherence, not access. The room
+  // was telling a former manager that they were a commissioner of this league
+  // and that one of these Teams was theirs. Both claims are now false, so both
+  // go, together: they arrive on one acknowledgement and they leave on one.
+  renderBoard(1, { user: { id: 7, username: 'commish' } });
+  await screen.findByText('Patrick Mahomes');
+  connectAsCommissioner(1);
+  act(() => fakeSocket.trigger('draft:state', stateEvent(rosterLeague(), {
+    teams: rosterTeams,
+    picks: [firstPick],
+    onTheClock: TEAM_A,
+  })));
+  expect(screen.getByRole('button', { name: 'Pause Draft' })).toBeInTheDocument();
+  // Two attributions, and they are not the same claim: a TAKEN pick sitting in
+  // this viewer’s roster, and the UPCOMING picks offered as theirs. Both read
+  // off viewerTeamId, so both have to go together - asserting only the upcoming
+  // group would leave the drafted player still shown as this manager’s.
+  expect(within(screen.getByLabelText('My Roster')).getByText('Bijan Robinson')).toBeInTheDocument();
+  expect(within(screen.getByRole('region', { name: 'Upcoming' }))
+    .getByRole('group', { name: 'My picks' })).toBeInTheDocument();
+
+  refuseJoin('you are not in this league', 'not_a_member');
+
+  expect(screen.queryByRole('button', { name: 'Pause Draft' })).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('My Roster')).not.toBeInTheDocument();
+  // The panel still stands on its league-wide strip; only the viewer-relative
+  // group is gone, exactly as it is for a spectator who never held a Team here.
+  const upcoming = screen.getByRole('region', { name: 'Upcoming' });
+  expect(within(upcoming).queryByRole('group', { name: 'My picks' })).not.toBeInTheDocument();
+  expect(within(upcoming).getByRole('button', { name: 'Full Draft order' })).toBeInTheDocument();
+});
+
+test('a transient refusal leaves the commissioner controls exactly where they were', async () => {
+  // The other half, and the one a refactor breaks: join_failed says the
+  // ATTEMPT failed, not that this viewer stopped being a commissioner. This
+  // path runs on every reconnect, so clearing here would flicker the controls
+  // off and back on a blip - rejected at triage as worse than a stale display.
+  renderBoard(1, { user: { id: 7, username: 'commish' } });
+  await screen.findByText('Patrick Mahomes');
+  connectAsCommissioner(1);
+  act(() => fakeSocket.trigger('draft:state', stateEvent(rosterLeague(), {
+    teams: rosterTeams,
+    picks: [firstPick],
+    onTheClock: TEAM_A,
+  })));
+
+  refuseJoin('failed to join draft room', 'join_failed');
+
+  expect(screen.getByRole('button', { name: 'Pause Draft' })).toBeInTheDocument();
+  expect(within(screen.getByLabelText('My Roster')).getByText('Bijan Robinson')).toBeInTheDocument();
+  expect(within(screen.getByRole('region', { name: 'Upcoming' }))
+    .getByRole('group', { name: 'My picks' })).toBeInTheDocument();
 });
 
 test('Randomize Draft order shows only for the commissioner pre-draft and POSTs', async () => {
