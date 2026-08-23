@@ -38,6 +38,16 @@ services:
         sync: false
       - key: DATABASE_URL_MIGRATIONS
         sync: false
+      # preDeployCommand above runs `knex migrate:latest` through
+      # server/knexfile.js, which refuses a non-loopback database unless this
+      # is exactly "1" (see server/modules/knexTarget.js, #258). The remote
+      # host IS the point here: this is the one place in the project where a
+      # migration is meant to reach production, so the opt-in is declared
+      # here, beside the credentials it authorises, and nowhere else. It is
+      # set only on this web service; the worker has no preDeployCommand and
+      # never migrates.
+      - key: KNEX_ALLOW_REMOTE
+        value: "1"
       - key: DB_SSL_CA
         sync: false
       - key: JWT_SECRET
