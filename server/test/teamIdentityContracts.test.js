@@ -8,6 +8,7 @@ const leagueRouter = require('../routes/league.router');
 const {
   getDraftState,
   joinAck,
+  joinError,
   presencePayload,
   chatMessagePayload,
 } = require('../modules/draftSocket');
@@ -299,6 +300,35 @@ test('league:join and draft:join both acknowledge the viewer with their own Team
     viewerTeamId: null,
     isCommissioner: false,
   });
+});
+
+test('a REFUSED league:join or draft:join carries a code, and no viewer-relative field at all', () => {
+  // #230. The two joins refuse in three ways and the client has to tell them
+  // apart, because only one of them - not_a_member - says the viewer holds no
+  // Team here and is therefore the only one on which the room may clear their
+  // Team identity and commissioner flag. The message text cannot carry that:
+  // it is copy, and join_failed's text names the room it failed to join, so
+  // matching on text is two strings for one condition. The code is the
+  // contract; these are the three, and there is no fourth.
+  //
+  // This pins the SHAPE. That each handler emits the right code on the right
+  // path is proven through a real connection in socketJoinEndToEnd.test.js,
+  // for both joins - the same division of labour as the ack above.
+  const refusals = [
+    joinError({ code: 'invalid_request', message: 'leagueId (integer) required' }),
+    joinError({ code: 'not_a_member', message: 'you are not in this league' }),
+    joinError({ code: 'join_failed', message: 'failed to join draft room' }),
+    joinError({ code: 'join_failed', message: 'failed to join league room' }),
+  ];
+
+  for (const refusal of refusals) {
+    // An EXACT key set, not a property check. A refusal that also carried
+    // `ok: true`, or a stale `viewerTeamId`, would be read as a partial
+    // success by any client that tests the fields rather than the error -
+    // and a refusal is precisely when a viewer-relative field is a lie.
+    assert.deepEqual(Object.keys(refusal).sort(), ['code', 'error']);
+    assert.equal(typeof refusal.error, 'string');
+  }
 });
 
 test('draft:presence carries the joining manager\'s Team identity beside their account', () => {
