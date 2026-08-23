@@ -31,9 +31,19 @@ const EVERYONE = [OWNER, CO_COMMISSIONER, MEMBER];
 
 /**
  * A league whose commissioners are exactly the owner plus `coCommissioners`.
- * The commissioner answer comes from the REAL predicate SQL: the handler
- * only plays the rows Postgres would return for it, so a call site that
- * asked an owner-only question would still be visible in `fake.calls`.
+ *
+ * Be clear about what this proves and what it does not. The handler does NOT
+ * execute the commissioner predicate: it ignores the SQL text and answers
+ * from a JS Set, so it plays the rows Postgres WOULD return for that query
+ * without ever running it. That is the right fixture for these three tests,
+ * which are about what the ack says for each role, but it means none of them
+ * can catch a call site that asked the wrong question and got a coincidentally
+ * right answer.
+ *
+ * What closes that gap is `fake.calls`, which records every statement: the
+ * fourth test below reads the SQL back and asserts the question was asked of
+ * `league_commissioners`. Evidence about the ANSWER comes from here; evidence
+ * about the QUESTION comes from there.
  */
 function leagueWorld({ coCommissioners = [] } = {}) {
   const commissioners = new Set([OWNER.userId, ...coCommissioners]);
