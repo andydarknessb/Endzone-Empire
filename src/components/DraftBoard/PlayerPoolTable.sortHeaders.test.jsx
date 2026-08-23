@@ -18,6 +18,21 @@ const players = [
   { id: 1, name: 'Bijan Robinson', position: 'RB', nfl_team: 'ATL', adp: 1.2, position_rank: 1, projected_points: 310.5, bye_week: 12 },
 ];
 
+// Mirrors the TableBody's own fixed column sequence in PlayerPoolTable.jsx
+// (Name, [Position], NFL Team, Bye, ADP, Pos rank, 17-game pace, [Actions]) -
+// deliberately a LITERAL here, not derived from SORT_FIELDS. SORT_FIELDS'
+// own array order only needs to stay meaningful for the mobile "Sort by"
+// Select (its order is presented there) and must be free to change for that
+// reason without moving desktop columns - PlayerPoolTable.jsx looks each
+// desktop header up by key for exactly this reason (issue #163 code-review
+// finding). Comparing against SORT_FIELDS' order here instead of this
+// literal would silently re-impose the coupling that fix removed: someone
+// reordering SORT_FIELDS for the mobile Select would see this test go red,
+// "fix" it by reordering the header call sites to match, and desync the
+// headers from the TableBody's own separate, untouched literal - green
+// suite, scrambled table.
+const EXPECTED_COLUMN_ORDER = ['name', 'nfl_team', 'bye_week', 'adp', 'position_rank', 'proj'];
+
 const baseProps = {
   searchInput: '',
   onSearchInputChange: jest.fn(),
@@ -72,27 +87,40 @@ test('every SORT_FIELDS key has exactly one desktop sortable header, and every d
   }
 
   const expectedKeys = SORT_FIELDS.map((field) => field.key);
-  // Ordered array comparison, not a Set: a Set is membership-only, so it
-  // passes unchanged if two headers are transposed - exactly the desync
-  // this PR's second commit (looking each header up by key rather than by
-  // SORT_FIELDS array position) exists to prevent (code-review finding on
-  // #163). Order equality also covers both membership directions a Set
-  // comparison would: a key added to SORT_FIELDS with no header shortens
-  // renderedKeys, and a hardcoded header for a key not in SORT_FIELDS (or a
-  // duplicate header for one already present) lengthens or mismatches it -
-  // either way this fails.
-  expect(renderedKeys).toEqual(expectedKeys);
+  // Set comparison for MEMBERSHIP, not order: SORT_FIELDS' own array order
+  // only needs to stay meaningful for the mobile "Sort by" Select and must
+  // be free to change without this assertion caring. Both directions: a key
+  // added to SORT_FIELDS with no header shrinks renderedKeys below
+  // expectedKeys, and a hardcoded header for a key not in SORT_FIELDS grows
+  // renderedKeys past it - either way this fails.
+  expect(new Set(renderedKeys)).toEqual(new Set(expectedKeys));
+  // Guards against a duplicate header for the same key masking a missing one
+  // (same Set size, different multiset).
+  expect(renderedKeys).toHaveLength(expectedKeys.length);
+
+  // Column ORDER is a separate concern from membership above, asserted
+  // against the fixed EXPECTED_COLUMN_ORDER literal rather than SORT_FIELDS'
+  // order - see that constant's comment for why. This is what actually
+  // catches a transposition (e.g. two SortableHeaderCell call sites swapped)
+  // that a Set comparison can't.
+  expect(renderedKeys).toEqual(EXPECTED_COLUMN_ORDER);
 });
 
-test('every desktop sortable header shows the label SORT_FIELDS assigns its key, in SORT_FIELDS order', () => {
+test('every desktop sortable header shows the label SORT_FIELDS assigns its key, in the fixed column order', () => {
   render(<PlayerPoolTable {...baseProps} />);
 
   const headerRow = screen.getAllByRole('row')[0];
   const sortButtons = within(headerRow).getAllByRole('button');
   const renderedLabels = sortButtons.map((button) => button.textContent);
 
-  // Ordered, not a Set, for the same reason as the key-parity test above.
-  expect(renderedLabels).toEqual(SORT_FIELDS.map((field) => field.label));
+  // Labels the fixed column order implies, looked up from SORT_FIELDS BY KEY
+  // rather than by SORT_FIELDS' own array position - same reasoning as
+  // EXPECTED_COLUMN_ORDER above: this must stay green if SORT_FIELDS is
+  // reordered for the mobile Select alone, and red only if a header's actual
+  // key or label is wrong for its fixed column position.
+  const sortFieldsByKey = Object.fromEntries(SORT_FIELDS.map((field) => [field.key, field]));
+  const expectedLabels = EXPECTED_COLUMN_ORDER.map((key) => sortFieldsByKey[key].label);
+  expect(renderedLabels).toEqual(expectedLabels);
 });
 
 // Code-review finding (issue #211): AbbreviationTooltip isn't decoration on
