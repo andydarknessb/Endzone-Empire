@@ -115,12 +115,17 @@ test('league detail: the response names the viewer\'s own Team explicitly', asyn
   );
 });
 
-test('league detail: viewerTeamId is null for a viewer who holds no team in the league', async (t) => {
+test('league detail: viewerTeamId is present and null rather than absent when no team matches', async (t) => {
+  // Membership already gates this route, so a reader always holds a team
+  // here in practice. The contract still answers null rather than omitting
+  // the field, so a consumer can read `viewerTeamId` unconditionally instead
+  // of branching on whether the key exists.
   leagueDetailFake(t);
 
   const res = await request(app).get(`/api/league/${LEAGUE_ID}`).set('Authorization', authed(999));
 
   assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal('viewerTeamId' in res.body, true);
   assert.equal(res.body.viewerTeamId, null);
 });
 
