@@ -37,12 +37,20 @@ async function notifyCommissioners(db, { leagueId, ownerId, type, message, data 
  *   action should authorize through `isLeagueCommissioner` or
  *   `commissionerPredicate`, so adding a co-commissioner grants powers
  *   everywhere at once instead of one endpoint at a time.
- * - "Owner" is the creator alone. Two things stay owner-only and must keep
- *   checking `owner_id` directly: deleting the league, and granting/revoking
- *   co-commissioners.
+ * - "Owner" is the creator alone. Three things stay owner-shaped and must
+ *   keep comparing `owner_id` directly: deleting the league, granting or
+ *   revoking co-commissioners, and protecting the creator's Team from
+ *   removal.
  *
  * Invariant: a commissioner is always a member. Removing a Team already
- * revokes any co-commissioner grant, and the creator's Team cannot be removed.
+ * revokes any co-commissioner grant. Two separate rules bound removal, and
+ * only the second of them is an `owner_id` comparison:
+ *
+ * - No commissioner of either kind may remove their own Team. That compares
+ *   the target against the CALLER, never against the owner; see
+ *   commissioner.service's removeTeam.
+ * - Whoever the caller is, the creator's Team cannot be removed.
+ *
  * The next role-shaped question belongs here, not in a new predicate.
  */
 
