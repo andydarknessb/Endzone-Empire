@@ -66,7 +66,7 @@ test('getLineup batches completed-season projections and preserves weekly null s
   const seasonQueries = [];
   const fake = createFakePool([
     // #106: every world here is a LIVE week, so nothing is frozen.
-    [/^SELECT 1 FROM "matchups"/, () => ({ rows: [] })],
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 5, current_season: 2026, current_week: 8 }] })],
     [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
     [/^SELECT "team_players"\."player_id"/, () => ({
@@ -132,7 +132,7 @@ function installSetLineupWorld(t, injuryDesignation, {
   }, ...extraEntries];
   return createFakePool([
     // #106: every world here is a LIVE week, so nothing is frozen.
-    [/^SELECT 1 FROM "matchups"/, () => ({ rows: [] })],
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({
       rows: [{
         id: 5,
@@ -409,7 +409,7 @@ test('setLineup derives a stale stash after weekly slot carry-forward', async (t
   const currentSlots = new Map();
   const fake = createFakePool([
     // #106: every world here is a LIVE week, so nothing is frozen.
-    [/^SELECT 1 FROM "matchups"/, () => ({ rows: [] })],
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({
       rows: [{
         id: 5,
@@ -474,7 +474,7 @@ test('a full roster resolves by dropping a bench player before activating the st
   const rosteredPlayerIds = new Set(entries.map(({ player_id }) => player_id));
   const fake = createFakePool([
     // #106: every world here is a LIVE week, so nothing is frozen.
-    [/^SELECT 1 FROM "matchups"/, () => ({ rows: [] })],
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
     [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10, locked: false }] })],
     [/^DELETE FROM "team_players"/, (text, params) => {
       const deleted = rosteredPlayerIds.delete(params[1]);
@@ -728,7 +728,7 @@ test('weekly materialization carries the attestation forward with the slot', asy
   const materialized = new Map();
   const fake = createFakePool([
     // #106: every world here is a LIVE week, so nothing is frozen.
-    [/^SELECT 1 FROM "matchups"/, () => ({ rows: [] })],
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({
       rows: [{
         id: 5,
@@ -820,7 +820,7 @@ function acquisitionWorld({ roster, currentSlots, previousSlots }) {
   const slots = new Map(currentSlots);
   const fake = createFakePool([
     // #106: every world here is a LIVE week, so nothing is frozen.
-    [/^SELECT 1 FROM "matchups"/, () => ({ rows: [] })],
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
     [/^SELECT "team_players"\."player_id"/, () => ({ rows: roster })],
     [/^SELECT "player_id" FROM "lineup_entries"/, () => ({
       rows: [...slots.keys()].map((player_id) => ({ player_id })),

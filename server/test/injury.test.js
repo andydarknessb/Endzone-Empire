@@ -30,7 +30,7 @@ test('syncInjuries commits designation updates and IR flags before delivering ga
   const notifications = [];
   const fake = createFakePool([
     // #106: every world here is a LIVE week, so nothing is frozen.
-    [/^SELECT 1 FROM "matchups"/, () => ({ rows: [] })],
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
     [select('players'), () => ({
       rows: [
         { id: 21, external_id: 'tank-21', injury_status: 'O' },
@@ -105,7 +105,7 @@ test('an injury refresh cannot pass an IR placement before scanning the committe
 
   const fake = createFakePool([
     // #106: every world here is a LIVE week, so nothing is frozen.
-    [/^SELECT 1 FROM "matchups"/, () => ({ rows: [] })],
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{
       id: 5,
       current_season: 2026,

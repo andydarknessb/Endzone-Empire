@@ -69,9 +69,12 @@ function createDatabaseFixture() {
       if (sql.includes('SELECT "id", "locked" FROM "teams"')) {
         return { rows: [{ id: league.teamId, locked: false }] };
       }
-      if (sql.includes('SELECT 1 FROM "matchups"')) {
+      if (sql.includes('SELECT 1 FROM "matchups"') && sql.includes('"final" = true')) {
         // #106: materializeLineup refuses to write into a final week. This
-        // fixture is a live week mid-kickoff, so it is never frozen.
+        // fixture is a live week mid-kickoff, so it is never frozen. The
+        // "final" clause is matched too, so this cannot swallow the other
+        // `SELECT 1 FROM "matchups"` probes (the schedule-exists checks in
+        // scoring.service and season.service).
         return { rows: [] };
       }
       if (sql.includes('SELECT "team_players"."player_id"') && sql.includes('FROM "team_players"')) {

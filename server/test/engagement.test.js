@@ -130,7 +130,7 @@ test('sendLineupReminders carries forward an unresolved IR stash before checking
   let materialized = false;
   const fake = createFakePool([
     // #106: every world here is a LIVE week, so nothing is frozen.
-    [/^SELECT 1 FROM "matchups"/, () => ({ rows: [] })],
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{
       id: 501,
       current_season: 2026,
@@ -190,7 +190,7 @@ test('sendLineupReminders carries forward an unresolved IR stash before checking
 test('sendLineupReminders ignores a dropped player left in lineup history', async (t) => {
   const fake = createFakePool([
     // #106: every world here is a LIVE week, so nothing is frozen.
-    [/^SELECT 1 FROM "matchups"/, () => ({ rows: [] })],
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{
       id: 502,
       current_season: 2026,
@@ -243,7 +243,7 @@ test('sendLineupReminders sends best-ball teams only the unresolved IR warning',
   };
   const fake = createFakePool([
     // #106: every world here is a LIVE week, so nothing is frozen.
-    [/^SELECT 1 FROM "matchups"/, () => ({ rows: [] })],
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, (text) => ({
       rows: text.includes('"best_ball" = false') ? [] : [bestBallLeague],
     })],

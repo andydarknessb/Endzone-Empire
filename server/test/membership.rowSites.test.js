@@ -54,10 +54,6 @@ function fakeDb(t, { member = null, overrides = [] } = {}) {
     [/SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
     [/FROM "leagues" WHERE "id" = \$1/, () => ({ rows: [LEAGUE] })],
     [/FROM "teams" WHERE "league_id" = \$1 AND "owner_id" = \$2/, () => ({ rows: member ? [member] : [] })],
-    // #106: materializeLineup probes the week's finality before it reads any
-    // roster. Nothing here is a final week, so it answers "not frozen" and the
-    // team_players override below stays the first read after the gate.
-    [/^SELECT 1 FROM "matchups"/, () => ({ rows: [] })],
     [/FROM "trades" WHERE "id" = \$1/, () => ({
       rows: [{ id: 77, league_id: 3, status: 'accepted', proposing_team_id: 51, receiving_team_id: 52 }],
     })],
@@ -214,7 +210,12 @@ test('lineup service: getLineup refuses a non-member; setLineup locks the member
   const calls = fakeDb(t, {
     member: TEAM,
     // Stop right after the gate: the first roster read answers with an error we can recognise.
-    overrides: [[/FROM "team_players"/, () => { throw new Error('stop after gate'); }]],
+    // #106 put a finality probe ahead of that read, so answer it "not frozen"
+    // (this is a live week) and the team_players read is reached as before.
+    overrides: [
+      [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+      [/FROM "team_players"/, () => { throw new Error('stop after gate'); }],
+    ],
   });
   await assert.rejects(
     lineup.setLineup({ leagueId: 3, userId: CALLER, moves: [{ playerId: 1, slot: 'QB' }] }),

@@ -145,14 +145,12 @@ async function isFinalWeekForTeam(client, { leagueId, teamId, season, week }) {
  * A FINAL week is frozen (#106): its rows are the record of the week as
  * played, never a working lineup, so nothing materializes into one. The guard
  * lives here rather than at each caller because a final week must be closed
- * on EVERY path that reaches this function - getLineup, setLineup, the two
- * matchup routes, decision.service's liveWhatIf and waiverSuggestions,
- * commissioner.forceSetLineup, digest.service's lineup reminder, and
- * benchAcquiredPlayer - and because the next such caller must inherit it for
- * free. Without it, a player acquired in the routine window between the last
- * whistle and the commissioner's advance gets a row in the finished week and
- * is then paid for it by the next re-score: a stat correction or a manual
- * score call silently rewrites a score that was already settled.
+ * on EVERY path that reaches this function, and because the next caller added
+ * must inherit that for free rather than having to remember it. Without it, a
+ * player acquired in the routine window between the last whistle and the
+ * commissioner's advance gets a row in the finished week and is then paid for
+ * it by the next re-score: a stat correction or a manual score call silently
+ * rewrites a score that was already settled.
  *
  * This does not change how a live week scores, and it does not cost the
  * acquired player his bench spot: the new current week has no row for him
