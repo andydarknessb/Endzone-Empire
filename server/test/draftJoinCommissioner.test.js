@@ -1,7 +1,13 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { createFakePool, select } = require('./helpers/fakePool');
 const { viewerContext, joinAck } = require('../modules/draftSocket');
+const {
+  leagueWorld,
+  LEAGUE_ID,
+  OWNER,
+  CO_COMMISSIONER,
+  MEMBER,
+} = require('./helpers/socketJoinWorld');
 
 /**
  * #178: the Draft room's commissioner controls are gated on a per-viewer
@@ -22,42 +28,25 @@ const { viewerContext, joinAck } = require('../modules/draftSocket');
  * carries `viewerTeamId` and why it carries this beside it.
  */
 
-const LEAGUE_ID = 1;
-const OWNER = { userId: 7, teamId: 71, teamName: 'Founding Fathers' };
-const CO_COMMISSIONER = { userId: 8, teamId: 81, teamName: 'Second Chair' };
-const MEMBER = { userId: 9, teamId: 91, teamName: 'Just Here To Draft' };
-
-const EVERYONE = [OWNER, CO_COMMISSIONER, MEMBER];
-
 /**
- * A league whose commissioners are exactly the owner plus `coCommissioners`.
+ * The league world (owner/co-commissioner/member ids, Team names, and the
+ * `{ coCommissioners }` builder) is `helpers/socketJoinWorld.js`'s, not a
+ * copy: that file is also what `socketJoinEndToEnd.test.js`'s real-socket
+ * harness builds its world from, and the two suites being unable to drift
+ * apart is what makes the harness's mutation evidence mean anything (#260).
  *
- * Be clear about what this proves and what it does not. The handler does NOT
- * execute the commissioner predicate: it ignores the SQL text and answers
- * from a JS Set, so it plays the rows Postgres WOULD return for that query
- * without ever running it. That is the right fixture for these three tests,
- * which are about what the ack says for each role, but it means none of them
- * can catch a call site that asked the wrong question and got a coincidentally
- * right answer.
+ * Be clear about what the shared world proves and what it does not. The
+ * handler does NOT execute the commissioner predicate: it ignores the SQL
+ * text and answers from a JS Set, so it plays the rows Postgres WOULD return
+ * for that query without ever running it. That is the right fixture for the
+ * three role tests below, but it means none of them can catch a call site
+ * that asked the wrong question and got a coincidentally right answer.
  *
  * What closes that gap is `fake.calls`, which records every statement: the
  * fourth test below reads the SQL back and asserts the question was asked of
  * `league_commissioners`. Evidence about the ANSWER comes from here; evidence
  * about the QUESTION comes from there.
  */
-function leagueWorld({ coCommissioners = [] } = {}) {
-  const commissioners = new Set([OWNER.userId, ...coCommissioners]);
-  return createFakePool([
-    [select('teams'), (text, [leagueId, userId]) => {
-      const manager = EVERYONE.find((m) => m.userId === userId);
-      return { rows: manager && leagueId === LEAGUE_ID ? [{ id: manager.teamId, name: manager.teamName }] : [] };
-    }],
-    [select('leagues'), (text, [leagueId, userId]) => ({
-      rows: leagueId === LEAGUE_ID && commissioners.has(userId) ? [{ '?column?': 1 }] : [],
-    })],
-  ]);
-}
-
 const contextFor = (fake, userId) => viewerContext(fake, { leagueId: LEAGUE_ID, userId });
 
 test('the join ack tells the league owner they are a commissioner', async () => {
