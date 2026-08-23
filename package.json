@@ -118,5 +118,11 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "jest": {
+    "testMatch": [
+      "**/src/**/__tests__/**/*.{js,jsx,ts,tsx}",
+      "**/src/**/*.{spec,test}.{js,jsx,ts,tsx}"
+    ]
   }
 }
