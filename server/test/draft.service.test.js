@@ -316,8 +316,10 @@ test('draftPlayer free agency: an eligible IR stash grants the extra spot', asyn
   assert.equal(result.player.id, 500);
   assert.equal(fake.matching(/^INSERT INTO "team_players"/).length, 1);
   // A free-agent add earns no restored credit and lands on the bench (user
-  // story 13), even when the player's old stash rows on this team survive.
-  assert.deepEqual(stashQueries[0][3], []);
+  // story 13): it passes no restored ids, so the capacity query carries no
+  // fourth parameter and no interrupted-stash record is read at all.
+  assert.equal(stashQueries[0].length, 3);
+  assert.equal(fake.matching(/FROM "waiver_players"/).length, 1, 'only the on-waivers check');
   assert.deepEqual(benched, [{ league: freeAgencyLeague, teamId: 11, playerId: 500, afterRosterWrite: true }]);
   fake.assertClean();
 });
@@ -345,18 +347,25 @@ const undoLeague = {
   id: 1, roster_limit: 3, ir_slots: 1, position_caps: {}, current_season: 2026, current_week: 4,
 };
 
-/** An undo world: `stashed` answers the capacity count, `restorable` the valid-stash probe. */
-function undoWorld({ rostered = 2, stashed, restorable, onStashQuery }) {
+/**
+ * An undo world. `stashed` answers the capacity count for the players still
+ * on the roster; `interrupted` is the record the drop left on the waiver
+ * hold, which is what an undo replays now that the stale lineup row it used
+ * to read is deleted by the drop (#197).
+ */
+function undoWorld({ rostered = 2, stashed, interrupted = null, onStashQuery }) {
   return createFakePool([
     [select('leagues'), () => ({ rows: [undoLeague] })],
     [select('teams'), () => ({ rows: [{ id: 11, owner_id: 7, locked: false }] })],
     [/^SELECT 1 FROM "waiver_players"/, () => ({ rows: [{ 1: 1 }] })],
+    [/^SELECT "waiver_players"\."interrupted_slot"/, () => ({
+      rows: interrupted ? [interrupted] : [],
+    })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: rostered }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, (text, params) => {
       if (onStashQuery) onStashQuery(params);
       return { rows: [{ n: stashed }] };
     }],
-    [/^SELECT 1 FROM "lineup_entries"/, () => ({ rows: restorable ? [{ 1: 1 }] : [] })],
     [select('players'), () => ({ rows: [{ id: 500, name: 'Stash Returner', position: 'RB' }] })],
     [/^DELETE FROM "waiver_players"/, () => ({ rows: [] })],
     [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
@@ -364,34 +373,93 @@ function undoWorld({ rostered = 2, stashed, restorable, onStashQuery }) {
   ]);
 }
 
-test('undoDrop: the dropped player\'s own surviving stash still grants its spot on the way back in', async (t) => {
-  // Draft roster size 2, ir_slots 1, roster legally 3 with player 500 stashed;
-  // he was dropped (roster now 2) and his IR entry survives. The undo
-  // restores that exact state, so it must pass at capacity 3 - and, the
-  // stash still being valid, it is restored rather than benched.
+/** Mock the stash restore and record each call, like recordBenching. */
+function recordRestoring(t) {
+  const restored = [];
+  t.mock.method(lineupService, 'restoreInterruptedStash', async (client, args) => {
+    restored.push(args);
+  });
+  return restored;
+}
+
+test('undoDrop: the stash his drop interrupted still grants its spot on the way back in', async (t) => {
+  // Draft roster size 2, ir_slots 1, roster legally 3 with player 500
+  // stashed; he was dropped (roster now 2, and his IR row went with the drop)
+  // and the hold recorded the stash. The undo restores that exact state, so
+  // it must pass at capacity 3 - and, the stash still being valid, he is put
+  // back in it rather than benched.
   let stashParams;
-  const fake = undoWorld({ stashed: 1, restorable: true, onStashQuery: (params) => { stashParams = params; } }).install(t);
+  const fake = undoWorld({
+    stashed: 0,
+    interrupted: { interrupted_slot: 'IR', interrupted_ir_attested: false, injury_status: 'O' },
+    onStashQuery: (params) => { stashParams = params; },
+  }).install(t);
   const benched = recordBenching(t, fake);
+  const restored = recordRestoring(t);
 
   const result = await undoDrop({ leagueId: 1, userId: 7, playerId: 500 });
 
   assert.equal(result.player.id, 500);
-  assert.deepEqual(stashParams[3], [500]);
+  // The count itself no longer carries a restored-player list; the credit is
+  // the separate record read.
+  assert.equal(stashParams.length, 3);
   assert.deepEqual(benched, []);
+  assert.deepEqual(restored, [{
+    league: undoLeague, teamId: 11, playerId: 500, slot: 'IR', irAttested: false,
+  }]);
   fake.assertClean();
 });
 
-test('undoDrop: a stash that stopped being valid while he was off the roster is benched, not restored', async (t) => {
-  // Player 500 recovered after the drop: his IR row still exists but grants
-  // nothing (stashed 0) and is not a valid stash to return to. With 2 rostered
-  // at draft roster size 2 the undo is out of capacity; with room (1 rostered)
-  // it lands him on the bench rather than restoring an ungated stash.
-  const fake = undoWorld({ rostered: 1, stashed: 0, restorable: false }).install(t);
+test('undoDrop: an attested stash comes back attested', async (t) => {
+  const fake = undoWorld({
+    stashed: 0,
+    interrupted: { interrupted_slot: 'IR', interrupted_ir_attested: true, injury_status: 'Q' },
+  }).install(t);
   const benched = recordBenching(t, fake);
+  const restored = recordRestoring(t);
+
+  await undoDrop({ leagueId: 1, userId: 7, playerId: 500 });
+
+  // The commissioner's override (#100) rides the undo: a drop is not the
+  // manager slot move that ends an attestation.
+  assert.deepEqual(benched, []);
+  assert.deepEqual(restored[0].irAttested, true);
+  fake.assertClean();
+});
+
+test('undoDrop: a designation that cleared while he was on waivers benches him', async (t) => {
+  // Player 500 recovered after the drop: the hold still records the IR slot,
+  // but he is only questionable now and nothing attested it. With 2 rostered
+  // at draft roster size 2 the undo would be out of capacity; with room
+  // (1 rostered) it lands him on the bench rather than restoring an ungated
+  // stash past the placement gate.
+  const fake = undoWorld({
+    rostered: 1,
+    stashed: 0,
+    interrupted: { interrupted_slot: 'IR', interrupted_ir_attested: false, injury_status: 'Q' },
+  }).install(t);
+  const benched = recordBenching(t, fake);
+  const restored = recordRestoring(t);
 
   const result = await undoDrop({ leagueId: 1, userId: 7, playerId: 500 });
 
   assert.equal(result.player.id, 500);
+  assert.deepEqual(restored, []);
+  assert.deepEqual(benched, [{ league: undoLeague, teamId: 11, playerId: 500, afterRosterWrite: true }]);
+  fake.assertClean();
+});
+
+test('undoDrop: a player who had no current-week row when he was dropped benches', async (t) => {
+  const fake = undoWorld({ rostered: 1, stashed: 0, interrupted: null }).install(t);
+  const benched = recordBenching(t, fake);
+  const restored = recordRestoring(t);
+
+  await undoDrop({ leagueId: 1, userId: 7, playerId: 500 });
+
+  // Nothing was recorded, so there is nothing to replay. This is also the
+  // shape of every pre-#197 hold: an old row with null columns benches, it
+  // does not throw.
+  assert.deepEqual(restored, []);
   assert.deepEqual(benched, [{ league: undoLeague, teamId: 11, playerId: 500, afterRosterWrite: true }]);
   fake.assertClean();
 });

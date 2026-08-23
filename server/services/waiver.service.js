@@ -41,15 +41,33 @@ function orderClaims(claims, priorities, waiverType) {
  * period. Runs inside the caller's transaction. `droppedByTeamId` (when the
  * waiver hold originates from a roster drop rather than a waiver-claim swap)
  * records which team can undo it — see `undoDrop` in draft.service.js.
+ *
+ * `interruptedSlot` / `interruptedIrAttested` record what the drop
+ * interrupted: the slot and attestation the player held in the current week
+ * at the moment he was dropped (#197). The undo replays that record rather
+ * than reading a leftover lineup row, because the drop deletes the row. The
+ * hold is the right home for it: it already names the dropping team, it
+ * already gates undo, and it is cleared when the hold clears, which is
+ * exactly when the undo stops being offered.
  */
-async function placeOnWaivers(client, { leagueId, playerId, waiverPeriodHours, droppedByTeamId = null }) {
+async function placeOnWaivers(client, {
+  leagueId,
+  playerId,
+  waiverPeriodHours,
+  droppedByTeamId = null,
+  interruptedSlot = null,
+  interruptedIrAttested = false,
+}) {
   await client.query(
-    `INSERT INTO "waiver_players" ("league_id", "player_id", "available_at", "dropped_by_team_id")
-     VALUES ($1, $2, now() + make_interval(hours => $3), $4)
+    `INSERT INTO "waiver_players" ("league_id", "player_id", "available_at", "dropped_by_team_id",
+                                   "interrupted_slot", "interrupted_ir_attested")
+     VALUES ($1, $2, now() + make_interval(hours => $3), $4, $5, $6)
      ON CONFLICT ("league_id", "player_id")
      DO UPDATE SET "available_at" = EXCLUDED."available_at", "updated_at" = now(),
-                   "dropped_by_team_id" = EXCLUDED."dropped_by_team_id"`,
-    [leagueId, playerId, waiverPeriodHours, droppedByTeamId]
+                   "dropped_by_team_id" = EXCLUDED."dropped_by_team_id",
+                   "interrupted_slot" = EXCLUDED."interrupted_slot",
+                   "interrupted_ir_attested" = EXCLUDED."interrupted_ir_attested"`,
+    [leagueId, playerId, waiverPeriodHours, droppedByTeamId, interruptedSlot, interruptedIrAttested]
   );
 }
 
@@ -231,6 +249,12 @@ async function processWaivers({ leagueId }) {
             `DELETE FROM "team_players" WHERE "team_id" = $1 AND "player_id" = $2`,
             [team.id, claim.drop_player_id]
           );
+          // The lineup follows the roster (#197). No interrupted-stash
+          // record here: a waiver-claim drop is not undoable, so there is
+          // nothing for an undo to replay.
+          await lineupService.removeLineupEntries(client, {
+            league, teamId: team.id, playerId: claim.drop_player_id,
+          });
           await placeOnWaivers(client, {
             leagueId,
             playerId: claim.drop_player_id,

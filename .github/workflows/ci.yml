@@ -146,6 +146,15 @@ jobs:
       - run: npm run test:team-names-pg
         env:
           TEAM_NAMES_PG_TESTS: "1"
+      # A lineup entry follows the roster (#197): the stale-row cleanup
+      # migration's WHERE clause, and the runtime operation that maintains
+      # the same rule from now on, checked against real rows. The mocked
+      # suites can pin the predicate text but cannot prove which rows go --
+      # in particular that no PAST week is ever touched. Seeds and deletes
+      # its own far-future season.
+      - run: npm run test:lineup-roster-pg
+        env:
+          LINEUP_FOLLOWS_ROSTER_PG_TESTS: "1"
 
       # Snapshot-client CONTRACTS: the eight production queries re-implemented
       # in JS, checked against the real Postgres on identical seeded rows, plus
