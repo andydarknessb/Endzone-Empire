@@ -1,6 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createSocketHarness } = require('./helpers/socketHarness');
+const { createFakePool, select } = require('./helpers/fakePool');
 const { joinAck } = require('../modules/draftSocket');
 const {
   leagueWorld,
@@ -187,6 +188,40 @@ for (const [label, leagueId] of [
 
     assert.deepEqual(ack, { error: 'leagueId (integer) required', code: 'invalid_request' });
     assert.equal(fake.calls.length, 0, 'an invalid leagueId never reaches the database');
+  });
+}
+
+// ---------------------------------------------------------------------------
+// The third refusal: the attempt threw (#230).
+// ---------------------------------------------------------------------------
+
+for (const [event, message] of [
+  ['draft:join', 'failed to join draft room'],
+  ['league:join', 'failed to join league room'],
+]) {
+  test(`${event} answers join_failed when the attempt throws, not a membership answer`, async (t) => {
+    // This is the generic failure the header warns a fixture GAP produces,
+    // and it is under test here rather than in the way: the throw is
+    // deliberate, and the ack is still asserted whole. What the code buys is
+    // that a client can now tell this apart from the refusal above WITHOUT
+    // reading either message - and it must, because a client that read a
+    // database blip as "you are not a member" would clear a manager's Team
+    // identity and commissioner controls off the screen on every reconnect
+    // attempt. Triage rejected that flicker; the code is what prevents it.
+    const thrown = new Error('the database went away mid-join');
+    createFakePool([
+      [select('teams'), () => { throw thrown; }],
+    ]).install(t);
+    // The handler logs the throw on purpose. Silenced so a deliberate fault
+    // does not read as a broken run, and asserted below so silencing it does
+    // not also hide a handler that stopped reporting.
+    const logged = t.mock.method(console, 'error', () => {});
+    const client = await harness.connectAs(OWNER, t);
+
+    const ack = await harness.emit(client, event, { leagueId: LEAGUE_ID });
+
+    assert.deepEqual(ack, { error: message, code: 'join_failed' });
+    assert.deepEqual(logged.mock.calls[0].arguments, [`${event} failed`, thrown]);
   });
 }
 
