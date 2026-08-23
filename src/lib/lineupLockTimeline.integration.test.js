@@ -98,13 +98,6 @@ function createDatabaseFixture() {
         const serverNow = new Date(values[2]);
         return { rows: games.filter((game) => game.kickoff_at <= serverNow) };
       }
-      // The strict form of the same read (#190): had the game already started
-      // when the departing tenure began. These players were rostered long
-      // before the week, so nothing had started yet.
-      if (sql.includes('FROM "nfl_games"') && sql.includes('"kickoff_at" < $3')) {
-        const instant = new Date(values[2]);
-        return { rows: games.filter((game) => game.kickoff_at < instant) };
-      }
       if (sql.includes('UPDATE "lineup_entries" SET "slot"')) {
         state.slots.set(values[4], values[0]);
         return { rowCount: 1, rows: [] };
@@ -118,13 +111,7 @@ function createDatabaseFixture() {
       if (sql.includes('DELETE FROM "team_players"')) {
         const playerId = values[1];
         if (!state.rostered.delete(playerId)) return { rowCount: 0, rows: [] };
-        // created_at rides out with the row: the removal rule needs the
-        // departing tenure's start (#190). These players were rostered long
-        // before the week, which is what this lock fixture assumes.
-        return {
-          rowCount: 1,
-          rows: [{ id: playerId, created_at: new Date('2026-09-01T00:00:00Z') }],
-        };
+        return { rowCount: 1, rows: [{ id: playerId }] };
       }
       if (sql.includes('SELECT "id", "waiver_period_hours"')) {
         return {

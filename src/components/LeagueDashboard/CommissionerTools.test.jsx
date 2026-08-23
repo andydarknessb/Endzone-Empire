@@ -21,6 +21,19 @@ const userEvent = Object.fromEntries(
   ])
 );
 
+// Settles background work that isn't tied to a mocked promise the test can
+// await directly: MUI's Tabs indicator, which repositions via a
+// MutationObserver that fires asynchronously after a mount/rerender, and the
+// join-requests panel's own mount-effect GET. A single tick is what these
+// need in practice, but this loops (matching NavigationGuard.test.jsx's own
+// flush helper) so the wait isn't pinned to a fragile exact-hop-count guess.
+const flush = async (times = 6) => {
+  for (let i = 0; i < times; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  }
+};
+
 const league = (overrides = {}) => ({
   id: 1,
   name: 'Sunday Ballers',
@@ -84,8 +97,13 @@ beforeEach(() => {
   mockGetByUrl();
 });
 
-test('renders all six tabs, defaulting to General Settings', () => {
+test('renders all six tabs, defaulting to General Settings', async () => {
   renderTools();
+  // MUI's Tabs indicator repositions via a MutationObserver that fires
+  // asynchronously after mount (see the hash-only-navigation test below for
+  // the full explanation). Let it settle before this, the first test in the
+  // file, ends.
+  await flush();
   expect(screen.getByRole('tab', { name: 'General Settings' })).toHaveAttribute('aria-selected', 'true');
   expect(screen.getByRole('tab', { name: 'Roster Settings' })).toBeInTheDocument();
   expect(screen.getByRole('tab', { name: 'Scoring Settings' })).toBeInTheDocument();
@@ -95,8 +113,13 @@ test('renders all six tabs, defaulting to General Settings', () => {
   expect(screen.getByRole('checkbox', { name: 'Lock Transactions' })).toBeInTheDocument();
 });
 
-test('calls out immediate general-setting effects and destructive team removal', () => {
+test('calls out immediate general-setting effects and destructive team removal', async () => {
   renderTools({ league: league({ is_public: true, join_approval: true }) });
+  // is_public + join_approval mounts the join-requests panel, which fires its
+  // own GET on mount (unrelated to what this test asserts). Let that settle
+  // inside act before asserting, or its setJoinRequests(...) update lands
+  // after the test has already finished reading the screen.
+  await flush();
 
   expect(screen.getByText(/Applies immediately\. Freezes adds/)).toBeInTheDocument();
   expect(screen.getByText('Destructive actions')).toBeInTheDocument();
@@ -837,6 +860,10 @@ test("a fantasy tab left selected does not survive a switch to a pick'em-only le
       <CommissionerTools leagueId={1} league={league()} teams={teams} viewerTeamId={1} onRefresh={jest.fn()} />
     </StableShell>
   );
+  // MUI's Tabs indicator repositions via a MutationObserver that fires
+  // asynchronously after mount, outside render()'s own synchronous act()
+  // flush. Let it settle before interacting so its update lands inside act.
+  await flush();
   await userEvent.click(screen.getByRole('tab', { name: 'Scoring Settings' }));
   expect(screen.getByRole('button', { name: 'Save Scoring Settings' })).toBeInTheDocument();
 
@@ -845,6 +872,10 @@ test("a fantasy tab left selected does not survive a switch to a pick'em-only le
       <CommissionerTools leagueId={2} league={pickemLeague({ id: 2 })} teams={teams} viewerTeamId={1} onRefresh={jest.fn()} />
     </StableShell>
   );
+  // The rerender swaps in a whole new tab set, so Tabs repositions its
+  // indicator again - same MutationObserver settling as after the initial
+  // render above.
+  await flush();
 
   expect(screen.getByRole('tab', { name: 'General Settings' })).toHaveAttribute('aria-selected', 'true');
   expect(screen.queryByRole('button', { name: 'Save Scoring Settings' })).not.toBeInTheDocument();
@@ -862,7 +893,14 @@ test("a pick'em-only league edits only its max teams (min gates nothing without 
   await userEvent.type(max, '12');
   await userEvent.click(screen.getByRole('button', { name: 'Save Limits' }));
 
-  await waitFor(() => expect(apiClient.put).toHaveBeenCalledWith('/api/league/1', { maxTeams: 12 }));
+  // handleSaveLimits awaits apiClient.put before its own notify()/onRefresh()
+  // calls, so asserting on the call alone resolves before that trailing
+  // consequence lands. Await the visible toast instead, matching the other
+  // save-settings tests in this file - by the time it appears, the put call
+  // has already happened with its final args, so no separate waitFor is
+  // needed for that.
+  expect(await screen.findByText('Team limits updated')).toBeInTheDocument();
+  expect(apiClient.put).toHaveBeenCalledWith('/api/league/1', { maxTeams: 12 });
 });
 
 // --- Settings freeze keys on League phase (#57) ---

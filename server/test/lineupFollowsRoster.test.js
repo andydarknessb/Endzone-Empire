@@ -21,15 +21,10 @@ const assert = require('node:assert/strict');
 const express = require('express');
 const request = require('supertest');
 const { createFakePool } = require('./helpers/fakePool');
+const { tenureHandlers } = require('./helpers/tenureFakes');
 
 const CURRENT_SEASON = 2026;
 const CURRENT_WEEK = 9;
-
-// The departing tenure's start, which every removal path now carries out of
-// the roster delete (#190). Long before the week, so these paths read as they
-// always did: the second condition on the spare is satisfied and the first
-// one - has his game kicked off - is what each test is varying.
-const HELD_ALL_ALONG = new Date('2026-09-01T00:00:00Z');
 
 // The draft-pick undo is a route handler, not a service function, so its
 // path is exercised through the router like the other draft route tests.
@@ -48,28 +43,36 @@ const app = express();
 app.use(express.json());
 app.use('/api/draft', require('../routes/draft.router'));
 
+// A kicked-off game is in the past and an open one is not. Real instants,
+// because the tenure predicate compares against them (#228).
+const KICKED_OFF_AT = new Date(Date.now() - 3 * 60 * 60 * 1000);
+const NOT_YET_AT = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
+// Long enough before kickoff that "held since before the game" is unambiguous.
+const HELD_SINCE = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
 /**
  * The reads `removeLineupEntries` makes, as fake-pool handlers. `kickedOff`
  * is the set of NFL teams whose game for the week has started; the departing
  * player is on MIN unless a test says otherwise.
+ *
+ * `tenures` defaults to one open tenure held since well before kickoff, which
+ * is what every pre-#228 fixture here silently assumed: these suites are about
+ * WHICH ROWS GO when a player leaves, not about whether he was ever here. A
+ * test that cares about the tenure passes its own (see the post-kickoff
+ * acquisition case).
  */
 function removalHandlers({
-  nflTeam = 'MIN', kickedOff = [], kickedOffBeforeTenure = [], removals = [],
+  nflTeam = 'MIN', kickedOff = [], removals = [], tenures = [],
 } = {}) {
+  const schedule = Object.fromEntries(kickedOff.map((team) => [team, KICKED_OFF_AT]));
+  if (!schedule[nflTeam]) schedule[nflTeam] = NOT_YET_AT;
   return [
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
     [/^SELECT "nfl_team" FROM "players"/, () => ({ rows: [{ nfl_team: nflTeam }] })],
-    // Two different questions of the same schedule (#190), and conflating
-    // them is the bug: "has his game started by now" (inclusive, the lock)
-    // versus "had it already started when the departing tenure began"
-    // (strict). The strict matcher must come first or the other catches it.
-    // Empty by default: a player held since before anything kicked off.
-    [/^SELECT "nfl_team" FROM "nfl_games".*"kickoff_at" < \$3/, () => ({
-      rows: kickedOffBeforeTenure.map((team) => ({ nfl_team: team })),
-    })],
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({
       rows: kickedOff.map((team) => ({ nfl_team: team })),
     })],
+    ...tenureHandlers({ schedule, tenures, heldSince: HELD_SINCE }),
     [/^DELETE FROM "lineup_entries"/, (text, params) => {
       removals.push({ text, params });
       return { rows: [], rowCount: 1 };
@@ -105,7 +108,7 @@ function managerDropWorld({
     [/^SELECT "id", "waiver_period_hours"/, () => ({
       rows: [{ ...dropLeague, best_ball: bestBall }],
     })],
-    [/^DELETE FROM "team_players"/, () => ({ rows: [{ id: 99, created_at: HELD_ALL_ALONG }], rowCount: 1 })],
+    [/^DELETE FROM "team_players"/, () => ({ rows: [{ id: 99 }], rowCount: 1 })],
     [/^SELECT "slot", "ir_attested" FROM "lineup_entries"/, () => ({
       rows: interrupted ? [interrupted] : [],
     })],
@@ -229,7 +232,7 @@ function waiverWorld({ kickedOff = [], removals = [] } = {}) {
     )],
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 10 }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, () => ({ rows: [{ n: 0 }] })],
-    [/^DELETE FROM "team_players"/, () => ({ rows: [{ created_at: HELD_ALL_ALONG }], rowCount: 1 })],
+    [/^DELETE FROM "team_players"/, () => ({ rows: [], rowCount: 1 })],
     ...removalHandlers({ kickedOff, removals }),
     [/^INSERT INTO "waiver_players"/, () => ({ rows: [] })],
     [/^INSERT INTO "team_players"/, () => ({ rows: [], rowCount: 1 })],
@@ -286,7 +289,7 @@ function commissionerDropWorld({ kickedOff = [], interrupted = null, removals = 
     [/^SELECT \*, .* AS "is_commissioner"/, () => ({ rows: [commissionerLeague] })],
     [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10, owner_id: 7, league_id: 5 }] })],
     [/^SELECT "id", "name" FROM "players"/, () => ({ rows: [{ id: 21, name: 'Test Runner' }] })],
-    [/^DELETE FROM "team_players"/, () => ({ rows: [{ id: 99, created_at: HELD_ALL_ALONG }], rowCount: 1 })],
+    [/^DELETE FROM "team_players"/, () => ({ rows: [{ id: 99 }], rowCount: 1 })],
     [/^SELECT "slot", "ir_attested" FROM "lineup_entries"/, () => ({
       rows: interrupted ? [interrupted] : [],
     })],
@@ -349,7 +352,7 @@ function tradeWorld({ kickedOff = [], removals = [] } = {}) {
     [/^SELECT 1 FROM "team_players"/, () => ({ rows: [{ 1: 1 }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 10 }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, () => ({ rows: [{ n: 0 }] })],
-    [/^DELETE FROM "team_players"/, () => ({ rows: [{ created_at: HELD_ALL_ALONG }], rowCount: 1 })],
+    [/^DELETE FROM "team_players"/, () => ({ rows: [], rowCount: 1 })],
     ...removalHandlers({ kickedOff, removals }),
     [/^INSERT INTO "team_players"/, () => ({ rows: [], rowCount: 1 })],
     // benchAcquiredPlayer on the receiving side, unchanged by this work.
@@ -456,7 +459,7 @@ function undoPickWorld({ kickedOff = [], removals = [] } = {}) {
       ],
     })],
     [/^DELETE FROM "draft_picks"/, () => ({ rows: [], rowCount: 1 })],
-    [/^DELETE FROM "team_players"/, () => ({ rows: [{ created_at: HELD_ALL_ALONG }], rowCount: 1 })],
+    [/^DELETE FROM "team_players"/, () => ({ rows: [], rowCount: 1 })],
     ...removalHandlers({ kickedOff, removals }),
     [/^SELECT "id", "autodraft" FROM "teams"/, () => ({
       rows: [{ id: 10, autodraft: false }, { id: 11, autodraft: false }],
@@ -523,15 +526,15 @@ function rolloverWorld({ kickedOff = [], removals = [] } = {}) {
     [/^SELECT \* FROM "matchups"/, () => ({ rows: [] })],
     [/^SELECT "team_players"\."team_id"/, () => ({
       rows: [
-        { team_id: 10, player_id: 20, player_name: 'Keeper', position: 'RB', nfl_team: 'KC', tenure_started_at: HELD_ALL_ALONG },
-        { team_id: 10, player_id: 21, player_name: 'Pruned', position: 'WR', nfl_team: 'MIN', tenure_started_at: HELD_ALL_ALONG },
+        { team_id: 10, player_id: 20, player_name: 'Keeper', position: 'RB', nfl_team: 'KC' },
+        { team_id: 10, player_id: 21, player_name: 'Pruned', position: 'WR', nfl_team: 'MIN' },
       ],
     })],
     [/^DELETE FROM "trophies"/, () => ({ rows: [] })],
     [/^INSERT INTO "trophies"/, () => ({ rows: [] })],
     [/^SELECT .* FROM "trophies"/, () => ({ rows: [] })],
     [/^INSERT INTO "league_history"/, () => ({ rows: [] })],
-    [/^DELETE FROM "team_players"/, () => ({ rows: [{ created_at: HELD_ALL_ALONG }], rowCount: 1 })],
+    [/^DELETE FROM "team_players"/, () => ({ rows: [], rowCount: 1 })],
     ...removalHandlers({ kickedOff, removals }),
     [/^DELETE FROM "draft_picks"/, () => ({ rows: [] })],
     [/^DELETE FROM "waiver_players"/, () => ({ rows: [] })],
@@ -624,6 +627,8 @@ const STATS = new Map([[81, { passingYards: 250 }], [82, { rushingYards: 300 }]]
  * and IR slots - so removing either clause from the real SQL changes what
  * these tests see instead of leaving them green.
  */
+const SCORING_NFL_TEAM = 'SCT';
+
 function scoringWorld({ bestBall = false, entries }) {
   const scored = {};
   const rowsFor = (text) => {
@@ -646,16 +651,23 @@ function scoringWorld({ bestBall = false, entries }) {
         player_id: entry.playerId,
         slot: entry.slot,
         position: entry.position,
+        nfl_team: SCORING_NFL_TEAM,
         stats: STATS.get(entry.playerId) || null,
       })),
     })],
-    [/^SELECT "player_stats"\."stats"/, (text, [teamId]) => ({
+    [/^SELECT "lineup_entries"\."player_id", "players"\."nfl_team", "player_stats"\."stats"/, (text, [teamId]) => ({
       // An inner join on player_stats drops a player with no stats row.
       rows: teamId !== 10 ? [] : rowsFor(text)
-        .map((entry) => STATS.get(entry.playerId))
-        .filter(Boolean)
-        .map((stats) => ({ stats })),
+        .filter((entry) => STATS.get(entry.playerId))
+        .map((entry) => ({
+          player_id: entry.playerId,
+          nfl_team: SCORING_NFL_TEAM,
+          stats: STATS.get(entry.playerId),
+        })),
     })],
+    // Everyone here was held all along: these tests are about which entries
+    // survive a departure, not about who was on the roster at kickoff (#228).
+    ...tenureHandlers({ schedule: { [SCORING_NFL_TEAM]: KICKED_OFF_AT }, heldSince: HELD_SINCE }),
     [/^UPDATE "matchups" SET "home_score"/, (text, [homeScore]) => {
       scored.home = Number(homeScore);
       return { rows: [] };

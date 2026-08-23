@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool } = require('./helpers/fakePool');
+const { tenureHandlers } = require('./helpers/tenureFakes');
 const {
   materializeLineup,
   benchAcquiredPlayer,
@@ -34,6 +35,10 @@ const { finalizeWeekAndAdvance } = require('../services/season.service');
  */
 
 const SEASON = 2026;
+const FREEZE_NFL_TEAM = 'FRZ';
+// A game already played, and a tenure that long predates it (#228).
+const KICKED_OFF_AT = new Date('2026-10-25T17:00:00Z');
+const HELD_SINCE = new Date('2026-08-01T00:00:00Z');
 const LEAGUE_ID = 5;
 const TEAM_A = 10;
 const TEAM_B = 20;
@@ -192,16 +197,29 @@ function createWorld({
         player_id: e.player_id,
         slot: e.slot,
         position: state.positions.get(e.player_id),
+        nfl_team: FREEZE_NFL_TEAM,
         stats: week === 8 ? WEEK_8_STATS.get(e.player_id) || null : null,
       })),
     })],
-    [/^SELECT "player_stats"\."stats"/, (text, [teamId, season, week]) => ({
+    [/^SELECT "lineup_entries"\."player_id", "players"\."nfl_team", "player_stats"\."stats"/, (text, [teamId, season, week]) => ({
       rows: scoringRows(text, teamId, week)
         .filter((e) => e.slot !== 'BENCH' && e.slot !== 'IR')
-        .map((e) => (week === 8 ? WEEK_8_STATS.get(e.player_id) : null))
-        .filter(Boolean) // an inner JOIN on player_stats drops a statless row
-        .map((stats) => ({ stats })),
+        // an inner JOIN on player_stats drops a statless row
+        .filter((e) => (week === 8 ? WEEK_8_STATS.get(e.player_id) : null))
+        .map((e) => ({
+          player_id: e.player_id,
+          nfl_team: FREEZE_NFL_TEAM,
+          stats: WEEK_8_STATS.get(e.player_id),
+        })),
     })],
+    /*
+     * #106 is about a final week refusing NEW ROWS; #228 is about a final
+     * week refusing rows whose player was not held at kickoff. Two different
+     * guards, and this suite is the first one's. Everybody here is held since
+     * well before kickoff, so the tenure predicate excludes nobody and what
+     * these tests observe stays attributable to the freeze alone.
+     */
+    ...tenureHandlers({ schedule: { [FREEZE_NFL_TEAM]: KICKED_OFF_AT }, heldSince: HELD_SINCE }),
     [/^UPDATE "matchups" SET "home_score"/, (text, [homeScore, awayScore, id]) => {
       const matchup = state.matchups.find((m) => m.id === id);
       matchup.home_score = homeScore;

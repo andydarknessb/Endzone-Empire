@@ -28,10 +28,11 @@ import CloseIcon from '@mui/icons-material/Close';
 import PlaylistAddIcon from '@mui/icons-material/PlaylistAdd';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
+import { visuallyHidden } from '@mui/utils';
 import InjuryBadge from '../InjuryBadge/InjuryBadge';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import PositionChip from '../PlayerQuickView/PositionChip';
-import AbbreviationTooltip from '../common/AbbreviationTooltip';
+import { STAT_DEFINITIONS } from '../common/AbbreviationTooltip';
 import ColumnGuide from './ColumnGuide';
 import { pickActionExists, pickTemporarilyUnavailable, PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
 import { SORT_FIELDS } from './sortFields';
@@ -53,9 +54,27 @@ const BYE_WEEK_OPTIONS = Array.from({ length: 18 }, (_, i) => i + 1);
 // list and can't drift apart again.
 //
 // RIGHT_ALIGNED_SORT_KEYS below is presentation-only (which sortable columns
-// are numeric and get the right-aligned, AbbreviationTooltip-wrapped header
-// treatment) - not a second list of sortable fields, since it's keyed off
-// SORT_FIELDS' own keys rather than repeating them.
+// are numeric and get the right-aligned header treatment: a label:definition
+// accessible name and a hover/focus tooltip, the same STAT_DEFINITIONS-keyed
+// pattern AbbreviationTooltip supplies everywhere else in this table - built
+// inline in SortableHeaderCell rather than by nesting an AbbreviationTooltip
+// inside it, because that nesting gave every numeric header two Tab stops
+// instead of one: AbbreviationTooltip's own focusable span nested inside the
+// header's already-focusable TableSortLabel (issue #212)) - not a second
+// list of sortable fields, since it's keyed off SORT_FIELDS' own keys rather
+// than repeating them. That said, it is its own hand-maintained membership
+// list, and the "can't drift apart again" guarantee above is about the
+// key/label pairing only - it does nothing to protect this Set. A numeric
+// SORT_FIELDS key missing here doesn't just render left-aligned: it's what
+// decides whether the header gets a definition at all, so the header renders
+// unwrapped and a screen-reader user gets a bare abbreviation with no
+// definition, silently (issue #211). Tests assert the accessible name of all
+// four current members (Bye, ADP, Pos rank, 17-game pace), so dropping any
+// one of them fails a test; a separate test catches a stray key added here
+// that isn't a SORT_FIELDS key (a dead entry, never rendered, rather than a
+// crash). Neither test derives this list from SORT_FIELDS - adding a new
+// numeric SORT_FIELDS entry still means remembering to add its key here and
+// a matching accessible-name assertion.
 const RIGHT_ALIGNED_SORT_KEYS = new Set(['bye_week', 'adp', 'position_rank', 'proj']);
 
 // Keyed lookup onto SORT_FIELDS (code-review finding on issue #163: the
@@ -118,21 +137,101 @@ function rowStateFor(player, { draftedIds, canManualPickBase, tablePickUnavailab
 /** One desktop sortable column header, driven off a single SORT_FIELDS entry
  * (issue #163) - active/direction/onSort/touch-target behaviour identical to
  * what the six hardcoded headers had. Numeric columns (RIGHT_ALIGNED_SORT_KEYS)
- * right-align and wrap their label in AbbreviationTooltip, matching every
- * other numeric header (and body cell) in this table; Name and NFL Team show
- * their label plain, same as before. */
+ * right-align and carry the same label:definition accessible name and
+ * hover/focus tooltip AbbreviationTooltip supplies everywhere else in this
+ * table (issue #211); Name and NFL Team show their label plain, same as
+ * before.
+ *
+ * The definition is built inline off STAT_DEFINITIONS rather than by nesting
+ * an AbbreviationTooltip inside this header's own TableSortLabel (issue
+ * #212): AbbreviationTooltip's definition span carries its own tabIndex=0,
+ * and nesting it inside TableSortLabel's already-focusable button gave every
+ * numeric header two Tab stops instead of one. Wrapping the WHOLE
+ * TableSortLabel in a Tooltip keeps the tooltip reachable from that single
+ * focusable control instead of dropping it from the tab order - the same
+ * trap #211 was about, just moved rather than fixed.
+ *
+ * numericAriaLabel is passed to TableSortLabel itself, NOT left to
+ * name-from-content, and NOT left to MUI's Tooltip to fill in on its own -
+ * two code-review findings on this issue, both about where an aria-label
+ * ends up winning:
+ *
+ * 1. Wrapping TableSortLabel in <Tooltip title={definition}> without an
+ *    explicit aria-label on TableSortLabel does NOT fall back to computing
+ *    the name from content. MUI's Tooltip (describeChild default: false)
+ *    itself injects `aria-label: title` onto whatever it clones, UNLESS
+ *    the child already carries its own aria-label prop (children.props is
+ *    spread after Tooltip's own props, so an explicit one wins) - so
+ *    omitting it here doesn't restore content-based naming, it just hands
+ *    the override to Tooltip's own auto-injected (and prefix-less) one
+ *    instead of this component's.
+ * 2. Whichever aria-label wins completely replaces the computed name -
+ *    content is never consulted once aria-label is present - so a STATIC
+ *    aria-label (just "label: definition", independent of active/direction)
+ *    silently discards the sibling "sorted ascending"/"sorted descending"
+ *    text below for exactly these four headers. That's the same kind of
+ *    silent loss #211 was about, moved from the definition onto the
+ *    direction announcement. numericAriaLabel is built to include the
+ *    direction phrase whenever this header is active, so there is nothing
+ *    left for it to silently discard.
+ *
+ * The hidden direction Box still renders unconditionally by `active` (not
+ * gated on `alignRight`) so its DOM presence stays a single, uniform rule
+ * across every header - for Name/NFL Team (no aria-label anywhere in their
+ * header) it's what makes the direction reach the name via ordinary
+ * name-from-content; for the numeric headers it's redundant with
+ * numericAriaLabel already saying so, not a second, divergent source of
+ * truth for whether the direction is announced.
+ *
+ * The active column also carries aria-sort - TableCell's sortDirection prop
+ * (MUI renders aria-sort="ascending"/"descending" when it's 'asc'/'desc' and
+ * omits the attribute entirely, rather than writing aria-sort="none", when
+ * it's false) - following the MUI table-sorting example pattern (this
+ * repo's own visuallyHidden convention - see Countdown.jsx and
+ * ReadinessAnnouncer.jsx) for the hidden text. */
 function SortableHeaderCell({ field, sort, dir, onSort }) {
   const alignRight = RIGHT_ALIGNED_SORT_KEYS.has(field.key);
+  const active = sort === field.key;
+  const direction = active ? dir : 'asc';
+  const definition = STAT_DEFINITIONS[field.label];
+  const sortStatusText = active ? (direction === 'desc' ? 'sorted descending' : 'sorted ascending') : null;
+  const numericAriaLabel = `${field.label}: ${definition || field.label}${sortStatusText ? `, ${sortStatusText}` : ''}`;
+
+  const sortLabel = (
+    <TableSortLabel
+      active={active}
+      direction={direction}
+      onClick={() => onSort(field.key)}
+      sx={MIN_TOUCH_TARGET_SX}
+      {...(alignRight ? { 'aria-label': numericAriaLabel } : {})}
+    >
+      {alignRight ? (
+        <Box
+          component="span"
+          sx={{ cursor: 'help', textDecoration: 'underline dotted', textUnderlineOffset: 3 }}
+        >
+          {field.label}
+        </Box>
+      ) : (
+        field.label
+      )}
+      {sortStatusText && (
+        <Box component="span" sx={visuallyHidden}>
+          {sortStatusText}
+        </Box>
+      )}
+    </TableSortLabel>
+  );
+
   return (
-    <TableCell sx={headCellSx} align={alignRight ? 'right' : undefined}>
-      <TableSortLabel
-        active={sort === field.key}
-        direction={sort === field.key ? dir : 'asc'}
-        onClick={() => onSort(field.key)}
-        sx={MIN_TOUCH_TARGET_SX}
-      >
-        {alignRight ? <AbbreviationTooltip term={field.label} /> : field.label}
-      </TableSortLabel>
+    <TableCell sx={headCellSx} align={alignRight ? 'right' : undefined} sortDirection={active ? dir : false}>
+      {alignRight ? (
+        <Tooltip title={definition || field.label} arrow>
+          {sortLabel}
+        </Tooltip>
+      ) : (
+        sortLabel
+      )}
     </TableCell>
   );
 }

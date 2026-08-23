@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import DraftRail from './DraftRail';
 
@@ -14,6 +14,11 @@ import DraftRail from './DraftRail';
  *
  * DraftRail is provider-free (MUI only), so a bare render is enough.
  */
+
+// A raw DOM .focus() call, unlike fireEvent/userEvent, isn't wrapped in
+// act() by RTL - it synchronously triggers MUI's own focus-visible state
+// update on the ButtonBase underneath.
+const focusInAct = (el) => act(() => { el.focus(); });
 
 const TEAMS = [
   { teamId: 1, teamName: 'Ridge Runners', draft_position: 1, draft_ready: false },
@@ -262,7 +267,7 @@ describe("the manager's own Pick numbers", () => {
     render(<DraftRail {...baseProps} draftStatus="active" viewerPicks={VIEWER_PICKS} />);
 
     const trigger = within(myPicks()).getByRole('button', { name: 'All 4 of my picks' });
-    trigger.focus();
+    focusInAct(trigger);
     await user.keyboard('{Enter}');
     expect(screen.getByRole('dialog', { name: 'All my picks' })).toBeInTheDocument();
 
@@ -297,7 +302,7 @@ describe('a control that vanishes hands focus somewhere deliberate', () => {
       <DraftRail {...baseProps} draftStatus="pending" upcoming={[]} teams={lobby(5, 6)} />
     );
     const trigger = within(readinessRegion()).getByRole('button', { name: 'Not ready managers (1)' });
-    trigger.focus();
+    focusInAct(trigger);
     expect(trigger).toHaveFocus();
 
     rerender(<DraftRail {...baseProps} draftStatus="pending" upcoming={[]} teams={lobby(6, 6)} />);
@@ -332,7 +337,7 @@ describe('a control that vanishes hands focus somewhere deliberate', () => {
       <DraftRail {...baseProps} draftStatus="pending" upcoming={[]} teams={lobby(5, 6)} />
     );
     const elsewhere = within(readinessRegion()).getByRole('checkbox', { name: 'I am ready for the draft' });
-    elsewhere.focus();
+    focusInAct(elsewhere);
 
     rerender(<DraftRail {...baseProps} draftStatus="pending" upcoming={[]} teams={lobby(6, 6)} />);
 

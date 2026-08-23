@@ -338,7 +338,7 @@ async function dropPlayer({ leagueId, userId, playerId }) {
 
     const deleted = await client.query(
       `DELETE FROM "team_players"
-       WHERE "team_id" = $1 AND "player_id" = $2 RETURNING "id", "created_at"`,
+       WHERE "team_id" = $1 AND "player_id" = $2 RETURNING "id"`,
       [team.id, playerId]
     );
     if (deleted.rowCount === 0) {
@@ -348,9 +348,7 @@ async function dropPlayer({ leagueId, userId, playerId }) {
     const interrupted = await lineupService.currentWeekEntry(client, {
       league, teamId: team.id, playerId,
     });
-    await lineupService.removeLineupEntries(client, {
-      league, teamId: team.id, playerId, tenureStartedAt: deleted.rows[0].created_at,
-    });
+    await lineupService.removeLineupEntries(client, { league, teamId: team.id, playerId });
 
     // Dropped players pass through waivers before returning to free agency
     await placeOnWaivers(client, {
