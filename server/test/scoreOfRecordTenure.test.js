@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool } = require('./helpers/fakePool');
+const { tenureHandlers, tenure } = require('./helpers/tenureFakes');
 const { scoreMatchups } = require('../services/scoring.service');
 const { correctLeagueWeek } = require('../services/correction.service');
 
@@ -63,7 +64,9 @@ const OPPONENT_PLAYER = 9; // team B's only starter, 10.0, never in question
  */
 function createWorld({ tenures = [], starters = [], teams = {} } = {}) {
   const state = {
-    tenures: tenures.map((t) => ({ released_at: null, ...t })),
+    // Mutable: the idempotence case closes one of these mid-test, the way a
+    // drop's trigger would.
+    tenures: tenures.map((t) => ({ ...t })),
     teamPlayers: [
       ...starters.map((id) => ({ team_id: TEAM_A, player_id: id })),
       { team_id: TEAM_B, player_id: OPPONENT_PLAYER },
@@ -94,37 +97,6 @@ function createWorld({ tenures = [], starters = [], teams = {} } = {}) {
 
   const nflTeamOf = (playerId) => teams[playerId] || SUN_TEAM;
 
-  /**
-   * The exclusion, recomputed here from the SEEDED TENURES and the operators
-   * actually present in the statement under test. This is the fixture's whole
-   * point: it is not a canned answer, it is the same question asked of real
-   * timestamps, so a mutated predicate changes what comes back.
-   */
-  const excludedPlayers = (text, playerIds, kickoffs) => {
-    const acquiredInclusive = /"acquired_at" <= /.test(text);
-    const releasedStrict = /"released_at" > (?!=)/.test(text);
-    assert.ok(
-      /"acquired_at" <?=? /.test(text),
-      'the tenure predicate must compare acquired_at against the kickoff'
-    );
-    const out = [];
-    playerIds.forEach((playerId, i) => {
-      const kickoff = new Date(kickoffs[i]).getTime();
-      const covered = state.tenures.some((t) => {
-        if (t.playerId !== playerId) return false;
-        if (t.teamId !== TEAM_A) return false;
-        const acquired = t.acquiredAt.getTime();
-        const startedInTime = acquiredInclusive ? acquired <= kickoff : acquired < kickoff;
-        if (!startedInTime) return false;
-        if (t.releasedAt === null || t.releasedAt === undefined) return true;
-        const released = t.releasedAt.getTime();
-        return releasedStrict ? released > kickoff : released >= kickoff;
-      });
-      if (!covered) out.push(playerId);
-    });
-    return out;
-  };
-
   const handlers = [
     [/^SELECT \* FROM "leagues"/, () => ({
       rows: [{
@@ -148,17 +120,17 @@ function createWorld({ tenures = [], starters = [], teams = {} } = {}) {
         .map((m) => ({ ...m })),
     })],
 
-    // The week's schedule: the ONE nfl_games read the scoring path makes, and
-    // it is made through lineup.service rather than by the scoring service.
-    [/^SELECT "nfl_team", "kickoff_at" FROM "nfl_games"/, () => ({
-      rows: state.schedule.map((g) => ({ ...g })),
-    })],
-
-    // The tenure exclusion. Matched loosely on the table so that a change to
-    // the predicate still ROUTES here and is answered on its merits.
-    [/FROM "roster_tenures"/, (text, [, playerIds, kickoffs]) => ({
-      rows: excludedPlayers(text, playerIds, kickoffs).map((id) => ({ player_id: id })),
-    })],
+    /*
+     * The week's schedule and the tenure predicate, from the SHARED helper -
+     * the same one the removal and freeze suites use. This suite is the one
+     * that exercises the predicate directly, so it seeds every tenure
+     * explicitly and passes no `heldSince`: nothing here is held unless a
+     * case says so.
+     */
+    ...tenureHandlers({
+      schedule: Object.fromEntries(state.schedule.map((g) => [g.nfl_team, g.kickoff_at])),
+      tenures: state.tenures,
+    }),
 
     /*
      * The final population: rows alone, no team_players join.
@@ -225,8 +197,9 @@ async function scoreTeamA(fake, t) {
   return null;
 }
 
+/** A tenure of the team under test, so the cases below read as one line each. */
 const held = (playerId, acquiredAt, releasedAt = null) =>
-  ({ teamId: TEAM_A, playerId, acquiredAt, releasedAt });
+  tenure(TEAM_A, playerId, acquiredAt, releasedAt);
 
 // ---------------------------------------------------------------------------
 // The #190 case table, one row per test, answered entirely from tenures.

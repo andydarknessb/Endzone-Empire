@@ -84,13 +84,17 @@ exports.up = async function (knex) {
      CHECK ("released_at" IS NULL OR "released_at" >= "acquired_at")`
   );
 
-  // Backfill: one OPEN tenure per current roster row. COALESCE because a row
-  // written before `created_at` carried a default would otherwise violate the
-  // NOT NULL, and an unknown acquisition is better recorded as "since the
-  // migration" than not recorded at all.
+  // Backfill: one OPEN tenure per current roster row, stamped with that row's
+  // own `created_at` rather than with migration time, so the tenure is as
+  // historical as the record allows. `team_players.created_at` is NOT NULL
+  // with a now() default from the initial schema (knex `timestamps(true,
+  // true)`), so there is no missing value to defend against here.
+  //
+  // What this CANNOT recover is closed history: a tenure that had already
+  // ended leaves nothing behind to backfill from. See the header.
   await knex.raw(
     `INSERT INTO "${TENURES}" ("league_id", "team_id", "player_id", "acquired_at")
-     SELECT "league_id", "team_id", "player_id", COALESCE("created_at", now())
+     SELECT "league_id", "team_id", "player_id", "created_at"
        FROM "team_players"`
   );
 

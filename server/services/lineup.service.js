@@ -291,14 +291,17 @@ async function removeLineupEntries(client, { league, teamId, playerId, now = new
   // would survive as evidence of a week he did not play here (#190). The
   // tenure just closed by this drop is still visible - the trigger closed it
   // at `now()`, after kickoff - so it answers for the tenure that is ending.
-  const kickedOff = locked.has(nflTeam);
+  const kickedOff = locked.has(scheduleTeamFor(nflTeam));
   // Only a kicked-off game can spare the row, so the tenure is only worth
   // asking about once that is true. A departure before kickoff keeps exactly
-  // the reads it has always made.
-  const heldAtKickoff = kickedOff && !(await playersNotHeldAtKickoff(client, {
+  // the reads it has always made. `sparedByKickoff` therefore already implies
+  // `kickedOff`, and re-testing it below would be dead.
+  const sparedByKickoff = kickedOff && !(await playersNotHeldAtKickoff(client, {
     teamId, season, week, players: [{ id: playerId, nflTeam }],
   })).has(playerId);
-  const removeCurrentWeek = !(kickedOff && heldAtKickoff)
+  // Finality still wins over both (#106): a settled week's rows are the record,
+  // and a DELETE into one is a write like any other, whatever the tenure says.
+  const removeCurrentWeek = !sparedByKickoff
     && !(await isFinalWeekForTeam(client, { leagueId, teamId, season, week }));
   // One statement either way: the current week is spared by the bound
   // parameter, not by a second query, so there is a single predicate to read
@@ -396,12 +399,22 @@ async function lockedNflTeams(client, { season, week, now = new Date() }) {
  * comment rather than being inlined at each call site. A DEF unit's stored
  * `players.nfl_team` does not match the schedule's spelling in `nfl_games`,
  * so every consumer that maps a player onto his game for a week is wrong in
- * the same way. There are two such consumers and they must stop being wrong
- * together: the lineup lock, which decides whether a player may still be
- * moved, and the score-of-record exclusion below, which decides whether a
- * settled week counts him at all. Fixing #227 here fixes both. Fixing it at
- * either call site fixes one and leaves the other quietly broken, which is
- * the shape of failure #228 exists to end.
+ * the same way, and they must stop being wrong together. Every such consumer
+ * in this module routes through here:
+ *
+ *   - the lineup lock's three membership tests against `lockedNflTeams` -
+ *     `annotateLineupEntries` (what the manager sees), `setLineup` (whether a
+ *     move is refused), and `removeLineupEntries` (whether a departing
+ *     player's current-week row is spared);
+ *   - the score-of-record exclusion below, which decides whether a settled
+ *     week counts him at all.
+ *
+ * So fixing #227 here fixes all of them at once. Fixing it at any one call
+ * site would fix that site and leave the others quietly broken, which is the
+ * shape of failure #228 exists to end. Note that `lockedNflTeams` itself does
+ * NOT map: it returns the schedule's own spelling, because it is the schedule
+ * side of the comparison. The mapping belongs on the PLAYER side, which is
+ * the side that is wrong.
  */
 function scheduleTeamFor(nflTeam) {
   return nflTeam;
@@ -480,7 +493,7 @@ function annotateLineupEntries(entries, { locked, byeByTeam, selectedWeek }) {
     return {
       ...row,
       bye_week: byeWeek,
-      locked: locked.has(row.nfl_team),
+      locked: locked.has(scheduleTeamFor(row.nfl_team)),
       onBye: byeWeek === selectedWeek,
       valid_stash: row.slot === IR && isValidStash(row),
     };
@@ -641,9 +654,9 @@ async function setLineup({ leagueId, userId, week, moves }) {
         && move.slot === BENCH
         && !isValidStash(entry);
       resolvesLockedZeroBenchStash ||= resolvesStaleIrStash
-        && locked.has(entry.nfl_team)
+        && locked.has(scheduleTeamFor(entry.nfl_team))
         && league.bench_slots === 0;
-      if (!resolvesStaleIrStash && locked.has(entry.nfl_team)) {
+      if (!resolvesStaleIrStash && locked.has(scheduleTeamFor(entry.nfl_team))) {
         throw new LineupError(409, 'that player is locked; his game has started', 'LINEUP_LOCKED');
       }
       entry.slot = move.slot;

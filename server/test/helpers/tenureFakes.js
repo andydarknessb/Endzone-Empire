@@ -19,6 +19,28 @@
  *
  * Test fakes do not run triggers (ADR 0006). Every tenure here exists because
  * a test seeded it, never because a `team_players` row implies one.
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * DECIDE THIS BEFORE YOU USE `heldSince`, because it is a permissive default
+ * and permissive defaults manufacture green.
+ *
+ *   IF YOUR SUITE IS ABOUT THE TENURE PREDICATE - which weeks count, which
+ *   rows survive a departure, where a boundary falls - pass explicit
+ *   `tenures` and leave `heldSince` NULL. Nothing is held unless your case
+ *   says so, which is the only setting in which your assertions mean what
+ *   they appear to.
+ *
+ *   IF YOU TAKE THE DEFAULT, you are asserting that TENURE IS NOT WHAT YOUR
+ *   TEST IS ABOUT: every player the statement asks about is treated as held
+ *   since long before kickoff, so the predicate excludes nobody and whatever
+ *   you are measuring stays attributable to the thing you meant to measure.
+ *
+ * Get that backwards and the failure is silent in the worse direction. A
+ * suite that omits `heldSince` when it meant to take the default answers an
+ * unasked question with an empty set, and quietly becomes a test asserting
+ * that EVERYONE is excluded - still green, still named after the thing it
+ * has stopped covering.
+ * ─────────────────────────────────────────────────────────────────────────
  */
 
 /** A tenure row as the seeder writes it. `releasedAt` null means still open. */
