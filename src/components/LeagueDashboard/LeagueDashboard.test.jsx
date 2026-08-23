@@ -192,10 +192,69 @@ test('renders league name, status chips, and the standings table', async () => {
 
   expect(await screen.findByText('Sunday Ballers')).toBeInTheDocument();
   expect(screen.getByText('pending')).toBeInTheDocument();
-  expect(screen.getByText('Roster Limit: 15')).toBeInTheDocument();
+  // Pre-draft: Draft roster size, live-derived (roster_limit minus ir_slots).
+  expect(screen.getByText('Draft roster size: 15')).toBeInTheDocument();
   expect(screen.getByText('Teams: 1/10')).toBeInTheDocument();
   expect(screen.getByText("Alice's Team")).toBeInTheDocument();
   expect(screen.getByText('alice')).toBeInTheDocument();
+});
+
+// --- Draft roster size / Draft rounds chip (#162) ---
+//
+// The chip is a draft-preparation fact: it speaks pre-draft and while
+// drafting, and goes quiet once the draft is done (2026-08-22 ruling).
+// Phase comes from deriveLeaguePhase, never a local guess.
+
+test('pre-draft: the chip reads Draft roster size, IR slots excluded, derived live', async () => {
+  mockGetByUrl({
+    // roster_limit is IR-inclusive; ir_slots are not drafted, so Draft roster
+    // size (17 - 3) is what the Draft room shows a pending draft, not 17.
+    '/api/league/1': leagueResponse({ roster_limit: 17, ir_slots: 3 }),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
+
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  expect(screen.getByText('Draft roster size: 14')).toBeInTheDocument();
+  expect(screen.queryByText(/Draft rounds/)).not.toBeInTheDocument();
+});
+
+test('drafting: the chip reads the fixed Draft rounds (ADR 0005), not a live recomputation', async () => {
+  mockGetByUrl({
+    // roster_limit/ir_slots changed after the draft started; draft_rounds
+    // (16) is the fixed value snapshotted at draft start and must win.
+    '/api/league/1': leagueResponse({
+      draft_status: 'active', roster_limit: 99, ir_slots: 99, draft_rounds: 16,
+    }),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse(),
+  });
+
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  expect(screen.getByText('Draft rounds: 16')).toBeInTheDocument();
+  expect(screen.queryByText(/Draft roster size/)).not.toBeInTheDocument();
+});
+
+test.each([
+  ['in-season', { draft_status: 'complete', season_status: 'regular' }],
+  ['playoffs', { draft_status: 'complete', season_status: 'playoffs' }],
+  ['complete', { draft_status: 'complete', season_status: 'complete' }],
+])('%s: no draft roster/rounds chip is rendered', async (_phaseName, overrides) => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse(overrides),
+    '/api/user': userResponse(),
+    '/standings': standingsResponse({ league: { season_status: 'regular', current_week: 3 } }),
+  });
+
+  renderDashboard();
+  await screen.findByText('Sunday Ballers');
+
+  expect(screen.queryByText(/Draft roster size/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Draft rounds/)).not.toBeInTheDocument();
 });
 
 test('standings table renders W-L-T, PF, PA, and a streak chip (no redundant playoff-seed pill)', async () => {
@@ -1102,7 +1161,11 @@ test("a pick'em-only league's chips describe the pool, not a draft", async () =>
   expect(screen.getByText('In season')).toBeInTheDocument();
   expect(screen.queryByText('Regular Season')).not.toBeInTheDocument();
   expect(screen.queryByText('pending')).not.toBeInTheDocument();
-  expect(screen.queryByText(/Roster Limit/)).not.toBeInTheDocument();
+  // A pick'em-only league has no draft; it never renders the roster/rounds
+  // chip in any phase (#162), even though pickemLeagueResponse's draft_status
+  // of 'pending' would otherwise read as pre-draft on a fantasy league.
+  expect(screen.queryByText(/Draft roster size/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Draft rounds/)).not.toBeInTheDocument();
   expect(screen.queryByText(/Min to start/)).not.toBeInTheDocument();
 });
 
@@ -1121,6 +1184,9 @@ test("a pick'em-only commissioner sees neither Start Draft nor Advance Week, and
   // The CTA stops asking for picks once the season is over.
   expect(screen.getByRole('link', { name: 'View picks' })).toHaveAttribute('href', '/league/1/pickem');
   expect(screen.queryByRole('link', { name: 'Make your picks' })).not.toBeInTheDocument();
+  // Still no draft chip in the complete phase for a pick'em-only league.
+  expect(screen.queryByText(/Draft roster size/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Draft rounds/)).not.toBeInTheDocument();
 });
 
 // --- the shared useLeague entry ---
