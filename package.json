@@ -88,7 +88,8 @@
     "test:load-pipeline": "node scripts/run-load-triage.js",
     "test:jest-discovery": "node --test scripts/jestTestMatch.test.js",
     "check:dom-dedupe": "npm run test:check-dom-dedupe && node scripts/ci/check-dom-dedupe.js",
-    "test:check-dom-dedupe": "node --test scripts/ci/check-dom-dedupe.test.js"
+    "test:check-dom-dedupe": "node --test scripts/ci/check-dom-dedupe.test.js",
+    "test:eslint-scoping": "node --test scripts/eslintRuleScoping.test.js"
   },
   "//devDependencies-testing-library-dom": "@testing-library/dom is pinned so @testing-library/react and @testing-library/user-event share one installed copy; a second copy re-splits user-event's act()-aware config and every user-event interaction dispatches outside act() with no test failing. Do not remove or loosen this pin without running `npm run check:dom-dedupe` first. See #219 (the original defect) and #224 (the guard, not yet wired into CI).",
   "devDependencies": {
@@ -106,10 +107,21 @@
     "supertest": "^7.2.2",
     "yaml": "^2.9.0"
   },
+  "//eslintConfig-jest-scoping": "react-app/jest declares the testing-library rules in an override whose globs are unanchored ('**/*.{spec,test}.*'), so extending it at the top level applied React/DOM testing rules to server/test/*.test.js, which run under node --test with no DOM. It is scoped to client test globs here instead. Keep this an allowlist: scope the preset, never disable its rules under server/**, or each rule the preset adds later leaks back until someone extends an off-list. Keep the globs extension-agnostic ('*' and '.*'), exactly as the preset writes them: ESLint derives which extensions to lint in a directory from the overrides patterns, so spelling them out as '.{js,jsx,ts,tsx}' silently pulls .jsx/.ts/.tsx client tests into `eslint src server` for the first time (528 files -> 636, surfacing 161 pre-existing errors). Anchoring to src/ is the whole change. Do not edit this block without running `npm run test:eslint-scoping` after; no CI step runs eslint, so nothing else will catch a regression. See #207.",
   "eslintConfig": {
     "extends": [
-      "react-app",
-      "react-app/jest"
+      "react-app"
+    ],
+    "overrides": [
+      {
+        "files": [
+          "src/**/__tests__/**/*",
+          "src/**/*.{spec,test}.*"
+        ],
+        "extends": [
+          "react-app/jest"
+        ]
+      }
     ]
   },
   "browserslist": {
