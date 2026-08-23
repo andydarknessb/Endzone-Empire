@@ -243,9 +243,16 @@ async function benchAcquiredPlayer(client, { league, teamId, playerId }) {
  *
  *   - every FUTURE week, always: he is not on the roster, so the row is noise
  *     that no reader should ever see;
- *   - the CURRENT week, unless his NFL game for it has already kicked off, by
- *     the same predicate the lineup lock uses (`lockedNflTeams`), so no game
- *     row that week means not locked;
+ *   - the CURRENT week, unless BOTH his NFL game for it has already kicked
+ *     off AND the tenure that is ending had begun by then. Same predicate
+ *     the lineup lock uses, so no game row that week means not locked.
+ *     The second half is #190's: a player acquired after his game, dropped,
+ *     and re-added would otherwise inherit a row from a tenure that never
+ *     saw the game, and be paid for it in the score of record. With it,
+ *     "a surviving row means he was held at kickoff" is exactly true rather
+ *     than approximately true, and the settle pass leans on exactly that.
+ *     `tenureStartedAt` is the departing `team_players.created_at`; pass
+ *     null only when it genuinely cannot be known, which drops the row.
  *   - PAST weeks, never: they are the record of the week as played (#106).
  *
  * A surviving current-week row therefore means "he was on this roster at
@@ -269,14 +276,34 @@ async function benchAcquiredPlayer(client, { league, teamId, playerId }) {
  * a roster read taken beforehand and loops. A bulk removal modelled on the
  * other five cleans nothing and fails no test.
  */
-async function removeLineupEntries(client, { league, teamId, playerId, now = new Date() }) {
+async function removeLineupEntries(
+  client,
+  { league, teamId, playerId, tenureStartedAt, now = new Date() }
+) {
   const { id: leagueId, current_season: season, current_week: week } = league;
+  if (tenureStartedAt === undefined) {
+    // Loud rather than silent: without the departing tenure's start this
+    // cannot tell "held at kickoff" from "picked up after the game", and
+    // guessing either way corrupts the score of record (#190). Every caller
+    // deletes the roster row and so has the value; a seventh that forgets
+    // should fail in its own test, not mis-score a settled week in April.
+    throw new Error('removeLineupEntries requires tenureStartedAt (null when unknown)');
+  }
   const playerResult = await client.query(
     `SELECT "nfl_team" FROM "players" WHERE "id" = $1`,
     [playerId]
   );
+  const nflTeam = playerResult.rows[0]?.nfl_team;
   const locked = await lockedNflTeams(client, { season, week, now });
-  const removeCurrentWeek = !locked.has(playerResult.rows[0]?.nfl_team)
+  // The spare is now two conditions, not one (#190). Sparing on kickoff
+  // alone let a player acquired AFTER his game, then dropped, leave a row
+  // standing that a re-add would inherit and be paid for. The tenure that is
+  // leaving must itself have been under way at kickoff for its row to be the
+  // record of a week he actually played.
+  const heldAtKickoff = tenureStartedAt !== null
+    && !(await nflTeamsKickedOffBefore(client, { season, week, instant: tenureStartedAt }))
+      .has(nflTeam);
+  const removeCurrentWeek = !(locked.has(nflTeam) && heldAtKickoff)
     && !(await isFinalWeekForTeam(client, { leagueId, teamId, season, week }));
   // One statement either way: the current week is spared by the bound
   // parameter, not by a second query, so there is a single predicate to read
@@ -354,16 +381,49 @@ async function restoreInterruptedStash(client, { league, teamId, playerId, slot,
 }
 
 /**
- * The set of NFL team names whose game for (season, week) has kicked off —
- * players on those teams are locked. Empty schedule means nothing is locked.
+ * NFL teams whose game for (season, week) had started by `at` — inclusive of
+ * the kickoff instant itself, or strictly before it when `inclusive` is false.
+ *
+ * THE ONE PLACE the schedule is asked "has this team kicked off yet", and the
+ * one place `nfl_games`' team vocabulary meets `players.nfl_team`. The lineup
+ * lock, #197's removal spare and #190's settle exclusion all come through
+ * here, so #227 (DEF units carry full team names while `nfl_games` keys by
+ * Tank01 abbreviation, and the two disagree on WSH vs WAS) has a single
+ * consumer to fix rather than three that could drift apart. If you normalise
+ * this, every one of them is normalised at once, which is the point.
+ *
+ * Empty schedule means nothing has kicked off.
  */
-async function lockedNflTeams(client, { season, week, now = new Date() }) {
+async function nflTeamsKickedOff(client, { season, week, at, inclusive = true }) {
   const result = await client.query(
     `SELECT "nfl_team" FROM "nfl_games"
-     WHERE "season" = $1 AND "week" = $2 AND "kickoff_at" <= $3`,
-    [season, week, now]
+     WHERE "season" = $1 AND "week" = $2 AND "kickoff_at" ${inclusive ? '<=' : '<'} $3`,
+    [season, week, at]
   );
   return new Set(result.rows.map((r) => r.nfl_team));
+}
+
+/**
+ * The set of NFL team names whose game for (season, week) has kicked off —
+ * players on those teams are locked. Empty schedule means nothing is locked.
+ * Inclusive at kickoff, which `pickem.service` deliberately mirrors.
+ */
+async function lockedNflTeams(client, { season, week, now = new Date() }) {
+  return nflTeamsKickedOff(client, { season, week, at: now, inclusive: true });
+}
+
+/**
+ * NFL teams whose game had ALREADY started before `instant` — strictly, so
+ * `instant` falling exactly on kickoff reads as "not yet started".
+ *
+ * That strictness is the point rather than an accident. Both callers ask a
+ * question about a roster tenure: was this tenure already under way when the
+ * game began, or did it begin after. A tenure that starts at the kickoff
+ * instant began AT kickoff, not after it, so it counts as having been there
+ * (#190's rule: excluded iff `team_players.created_at > kickoff_at`).
+ */
+async function nflTeamsKickedOffBefore(client, { season, week, instant }) {
+  return nflTeamsKickedOff(client, { season, week, at: instant, inclusive: false });
 }
 
 /** Pure: add schedule-derived lock and bye metadata to lineup entries. */
@@ -649,6 +709,7 @@ module.exports = {
   interruptedStashFields,
   restoreInterruptedStash,
   lockedNflTeams,
+  nflTeamsKickedOffBefore,
   annotateLineupEntries,
   getLineup,
   setLineup,

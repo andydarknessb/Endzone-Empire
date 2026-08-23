@@ -245,15 +245,21 @@ async function processWaivers({ leagueId }) {
 
         // Execute: optional drop (dropped player goes on waivers), then add
         if (claim.drop_player_id) {
-          await client.query(
-            `DELETE FROM "team_players" WHERE "team_id" = $1 AND "player_id" = $2`,
+          const droppedRow = await client.query(
+            `DELETE FROM "team_players" WHERE "team_id" = $1 AND "player_id" = $2
+             RETURNING "created_at"`,
             [team.id, claim.drop_player_id]
           );
           // The lineup follows the roster (#197). No interrupted-stash
           // record here: a waiver-claim drop is not undoable, so there is
-          // nothing for an undo to replay.
+          // nothing for an undo to replay. The departing tenure's start
+          // decides whether its current-week row is the record of a week he
+          // played or a leftover from a post-kickoff pickup (#190).
           await lineupService.removeLineupEntries(client, {
-            league, teamId: team.id, playerId: claim.drop_player_id,
+            league,
+            teamId: team.id,
+            playerId: claim.drop_player_id,
+            tenureStartedAt: droppedRow.rows[0] ? droppedRow.rows[0].created_at : null,
           });
           await placeOnWaivers(client, {
             leagueId,

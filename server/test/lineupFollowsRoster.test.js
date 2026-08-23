@@ -25,6 +25,12 @@ const { createFakePool } = require('./helpers/fakePool');
 const CURRENT_SEASON = 2026;
 const CURRENT_WEEK = 9;
 
+// The departing tenure's start, which every removal path now carries out of
+// the roster delete (#190). Long before the week, so these paths read as they
+// always did: the second condition on the spare is satisfied and the first
+// one - has his game kicked off - is what each test is varying.
+const HELD_ALL_ALONG = new Date('2026-09-01T00:00:00Z');
+
 // The draft-pick undo is a route handler, not a service function, so its
 // path is exercised through the router like the other draft route tests.
 const previousSecret = process.env.JWT_SECRET;
@@ -47,10 +53,20 @@ app.use('/api/draft', require('../routes/draft.router'));
  * is the set of NFL teams whose game for the week has started; the departing
  * player is on MIN unless a test says otherwise.
  */
-function removalHandlers({ nflTeam = 'MIN', kickedOff = [], removals = [] } = {}) {
+function removalHandlers({
+  nflTeam = 'MIN', kickedOff = [], kickedOffBeforeTenure = [], removals = [],
+} = {}) {
   return [
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
     [/^SELECT "nfl_team" FROM "players"/, () => ({ rows: [{ nfl_team: nflTeam }] })],
+    // Two different questions of the same schedule (#190), and conflating
+    // them is the bug: "has his game started by now" (inclusive, the lock)
+    // versus "had it already started when the departing tenure began"
+    // (strict). The strict matcher must come first or the other catches it.
+    // Empty by default: a player held since before anything kicked off.
+    [/^SELECT "nfl_team" FROM "nfl_games".*"kickoff_at" < \$3/, () => ({
+      rows: kickedOffBeforeTenure.map((team) => ({ nfl_team: team })),
+    })],
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({
       rows: kickedOff.map((team) => ({ nfl_team: team })),
     })],
@@ -89,7 +105,7 @@ function managerDropWorld({
     [/^SELECT "id", "waiver_period_hours"/, () => ({
       rows: [{ ...dropLeague, best_ball: bestBall }],
     })],
-    [/^DELETE FROM "team_players"/, () => ({ rows: [{ id: 99 }], rowCount: 1 })],
+    [/^DELETE FROM "team_players"/, () => ({ rows: [{ id: 99, created_at: HELD_ALL_ALONG }], rowCount: 1 })],
     [/^SELECT "slot", "ir_attested" FROM "lineup_entries"/, () => ({
       rows: interrupted ? [interrupted] : [],
     })],
@@ -213,7 +229,7 @@ function waiverWorld({ kickedOff = [], removals = [] } = {}) {
     )],
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 10 }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, () => ({ rows: [{ n: 0 }] })],
-    [/^DELETE FROM "team_players"/, () => ({ rows: [], rowCount: 1 })],
+    [/^DELETE FROM "team_players"/, () => ({ rows: [{ created_at: HELD_ALL_ALONG }], rowCount: 1 })],
     ...removalHandlers({ kickedOff, removals }),
     [/^INSERT INTO "waiver_players"/, () => ({ rows: [] })],
     [/^INSERT INTO "team_players"/, () => ({ rows: [], rowCount: 1 })],
@@ -270,7 +286,7 @@ function commissionerDropWorld({ kickedOff = [], interrupted = null, removals = 
     [/^SELECT \*, .* AS "is_commissioner"/, () => ({ rows: [commissionerLeague] })],
     [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10, owner_id: 7, league_id: 5 }] })],
     [/^SELECT "id", "name" FROM "players"/, () => ({ rows: [{ id: 21, name: 'Test Runner' }] })],
-    [/^DELETE FROM "team_players"/, () => ({ rows: [{ id: 99 }], rowCount: 1 })],
+    [/^DELETE FROM "team_players"/, () => ({ rows: [{ id: 99, created_at: HELD_ALL_ALONG }], rowCount: 1 })],
     [/^SELECT "slot", "ir_attested" FROM "lineup_entries"/, () => ({
       rows: interrupted ? [interrupted] : [],
     })],
@@ -333,7 +349,7 @@ function tradeWorld({ kickedOff = [], removals = [] } = {}) {
     [/^SELECT 1 FROM "team_players"/, () => ({ rows: [{ 1: 1 }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 10 }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, () => ({ rows: [{ n: 0 }] })],
-    [/^DELETE FROM "team_players"/, () => ({ rows: [], rowCount: 1 })],
+    [/^DELETE FROM "team_players"/, () => ({ rows: [{ created_at: HELD_ALL_ALONG }], rowCount: 1 })],
     ...removalHandlers({ kickedOff, removals }),
     [/^INSERT INTO "team_players"/, () => ({ rows: [], rowCount: 1 })],
     // benchAcquiredPlayer on the receiving side, unchanged by this work.
@@ -440,7 +456,7 @@ function undoPickWorld({ kickedOff = [], removals = [] } = {}) {
       ],
     })],
     [/^DELETE FROM "draft_picks"/, () => ({ rows: [], rowCount: 1 })],
-    [/^DELETE FROM "team_players"/, () => ({ rows: [], rowCount: 1 })],
+    [/^DELETE FROM "team_players"/, () => ({ rows: [{ created_at: HELD_ALL_ALONG }], rowCount: 1 })],
     ...removalHandlers({ kickedOff, removals }),
     [/^SELECT "id", "autodraft" FROM "teams"/, () => ({
       rows: [{ id: 10, autodraft: false }, { id: 11, autodraft: false }],
@@ -507,15 +523,15 @@ function rolloverWorld({ kickedOff = [], removals = [] } = {}) {
     [/^SELECT \* FROM "matchups"/, () => ({ rows: [] })],
     [/^SELECT "team_players"\."team_id"/, () => ({
       rows: [
-        { team_id: 10, player_id: 20, player_name: 'Keeper', position: 'RB', nfl_team: 'KC' },
-        { team_id: 10, player_id: 21, player_name: 'Pruned', position: 'WR', nfl_team: 'MIN' },
+        { team_id: 10, player_id: 20, player_name: 'Keeper', position: 'RB', nfl_team: 'KC', tenure_started_at: HELD_ALL_ALONG },
+        { team_id: 10, player_id: 21, player_name: 'Pruned', position: 'WR', nfl_team: 'MIN', tenure_started_at: HELD_ALL_ALONG },
       ],
     })],
     [/^DELETE FROM "trophies"/, () => ({ rows: [] })],
     [/^INSERT INTO "trophies"/, () => ({ rows: [] })],
     [/^SELECT .* FROM "trophies"/, () => ({ rows: [] })],
     [/^INSERT INTO "league_history"/, () => ({ rows: [] })],
-    [/^DELETE FROM "team_players"/, () => ({ rows: [], rowCount: 1 })],
+    [/^DELETE FROM "team_players"/, () => ({ rows: [{ created_at: HELD_ALL_ALONG }], rowCount: 1 })],
     ...removalHandlers({ kickedOff, removals }),
     [/^DELETE FROM "draft_picks"/, () => ({ rows: [] })],
     [/^DELETE FROM "waiver_players"/, () => ({ rows: [] })],

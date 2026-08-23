@@ -481,7 +481,12 @@ test('a full roster resolves by dropping a bench player before activating the st
     [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10, locked: false }] })],
     [/^DELETE FROM "team_players"/, (text, params) => {
       const deleted = rosteredPlayerIds.delete(params[1]);
-      return { rows: deleted ? [{ id: 99 }] : [], rowCount: deleted ? 1 : 0 };
+      // created_at rides out with the row: the departing tenure's start is
+      // what decides whether its current-week lineup row survives (#190).
+      return {
+        rows: deleted ? [{ id: 99, created_at: new Date('2026-09-01T00:00:00Z') }] : [],
+        rowCount: deleted ? 1 : 0,
+      };
     }],
     [/^SELECT "id", "waiver_period_hours"/, () => ({
       rows: [{ id: 5, waiver_period_hours: 24, current_season: 2026, current_week: 8 }],
@@ -941,11 +946,23 @@ test('benchAcquiredPlayer leaves a surviving starter row as played', async () =>
  * A removal world. `nflTeam` is the departing player's team, `kickedOff` the
  * NFL teams whose game for the week has started, `final` whether the team's
  * own matchup for the week is already final (#106).
+ *
+ * The schedule is asked TWO different questions and they must not be
+ * conflated (#190): "has his game started by now" (inclusive, the lock), and
+ * "had it already started when the departing tenure began" (strict).
+ * `kickedOffBeforeTenure` answers the second, and defaults to empty - the
+ * ordinary case of a player held since before anything kicked off.
  */
-function removalWorld({ nflTeam = 'MIN', kickedOff = [], final = false } = {}) {
+function removalWorld({
+  nflTeam = 'MIN', kickedOff = [], kickedOffBeforeTenure = [], final = false,
+} = {}) {
   return createFakePool([
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: final ? [{ 1: 1 }] : [] })],
     [/^SELECT "nfl_team" FROM "players"/, () => ({ rows: [{ nfl_team: nflTeam }] })],
+    // Must precede the inclusive matcher below, which would otherwise catch it.
+    [/^SELECT "nfl_team" FROM "nfl_games".*"kickoff_at" < \$3/, () => ({
+      rows: kickedOffBeforeTenure.map((nfl_team) => ({ nfl_team })),
+    })],
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({
       rows: kickedOff.map((nfl_team) => ({ nfl_team })),
     })],
@@ -955,10 +972,15 @@ function removalWorld({ nflTeam = 'MIN', kickedOff = [], final = false } = {}) {
 
 const removalLeague = { id: 5, current_season: 2026, current_week: 9 };
 
+// Held since long before the week: the ordinary tenure, so a test that does
+// not care about #190's second condition reads exactly as it did before.
+const HELD_ALL_ALONG = new Date('2026-09-01T00:00:00Z');
+
 const removeFor = (client, overrides = {}) => removeLineupEntries(client, {
   league: removalLeague,
   teamId: 10,
   playerId: 21,
+  tenureStartedAt: HELD_ALL_ALONG,
   ...overrides,
 });
 
@@ -993,6 +1015,55 @@ test('removeLineupEntries: a post-kickoff departure keeps the current week and s
   // played keeps his row and therefore his points.
   const [remove] = fake.matching(/^DELETE FROM "lineup_entries"/);
   assert.deepEqual(remove.params, [10, 21, 2026, 9, false]);
+  fake.assertClean();
+});
+
+test('removeLineupEntries: a tenure that BEGAN after kickoff leaves no row behind (#190)', async () => {
+  // The tightening. Sparing on kickoff alone let a player picked up after
+  // his game, then dropped, leave a current-week row standing - and a later
+  // re-add would inherit it and be paid for a game that tenure never saw.
+  // His game HAS kicked off, which is what used to be enough on its own.
+  const fake = removalWorld({
+    nflTeam: 'MIN',
+    kickedOff: ['MIN', 'KC'],
+    kickedOffBeforeTenure: ['MIN'], // his game had already started when he arrived
+  });
+  const client = await fake.connect();
+
+  const result = await removeFor(client, { tenureStartedAt: new Date('2026-11-01T20:00:00Z') });
+  client.release();
+
+  assert.equal(result.removedCurrentWeek, true,
+    'no row survives a tenure that never saw the game, so none can be inherited');
+  fake.assertClean();
+});
+
+test('removeLineupEntries: an unknown tenure start drops the row rather than guessing', async () => {
+  const fake = removalWorld({ nflTeam: 'MIN', kickedOff: ['MIN'] });
+  const client = await fake.connect();
+
+  const result = await removeFor(client, { tenureStartedAt: null });
+  client.release();
+
+  assert.equal(result.removedCurrentWeek, true);
+  // A null means the caller genuinely could not read the departing row. The
+  // schedule is then not consulted for the tenure question at all: there is
+  // nothing to compare it against.
+  assert.equal(fake.matching(/"kickoff_at" < \$3/).length, 0);
+  fake.assertClean();
+});
+
+test('removeLineupEntries: omitting the tenure start is an error, not a default', async () => {
+  // A seventh removal path that forgets to pass it must fail in its own
+  // test rather than silently mis-score a settled week months later.
+  const fake = removalWorld({ nflTeam: 'MIN', kickedOff: ['MIN'] });
+  const client = await fake.connect();
+
+  await assert.rejects(
+    () => removeLineupEntries(client, { league: removalLeague, teamId: 10, playerId: 21 }),
+    /requires tenureStartedAt/
+  );
+  client.release();
   fake.assertClean();
 });
 

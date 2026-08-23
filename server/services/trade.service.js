@@ -400,15 +400,21 @@ async function executeTrade(client, { trade, league, items, teams, byCommissione
     // row dates the acquisition it actually records, which is what a
     // post-kickoff exclusion has to read. The delete comes first: the unique
     // constraint on (league_id, player_id) would refuse the insert otherwise.
-    await client.query(
-      `DELETE FROM "team_players" WHERE "team_id" = $1 AND "player_id" = $2`,
+    const givenUp = await client.query(
+      `DELETE FROM "team_players" WHERE "team_id" = $1 AND "player_id" = $2
+       RETURNING "created_at"`,
       [item.from_team_id, item.player_id]
     );
     // The giving side's lineup follows its roster, and it is settled before
     // the receiving side is touched: benchAcquiredPlayer materializes the
-    // receiving team's week, and these two must not interleave.
+    // receiving team's week, and these two must not interleave. The giving
+    // tenure's start says whether its current-week row is the record of a
+    // week that team actually played him (#190).
     await lineupService.removeLineupEntries(client, {
-      league, teamId: item.from_team_id, playerId: item.player_id,
+      league,
+      teamId: item.from_team_id,
+      playerId: item.player_id,
+      tenureStartedAt: givenUp.rows[0] ? givenUp.rows[0].created_at : null,
     });
     await client.query(
       `INSERT INTO "team_players" ("league_id", "team_id", "player_id") VALUES ($1, $2, $3)`,

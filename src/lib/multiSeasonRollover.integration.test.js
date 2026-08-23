@@ -39,11 +39,11 @@ function completedSeasonState() {
       { id: 14, league_id: LEAGUE_ID, owner_id: 104, name: 'Goal Line Stand', faab_remaining: 91 },
     ],
     rosters: [
-      { team_id: 11, player_id: 501, player_name: 'Alpha Quarterback', position: 'QB', nfl_team: 'KC' },
-      { team_id: 11, player_id: 502, player_name: 'Bravo Receiver', position: 'WR', nfl_team: 'BUF' },
-      { team_id: 12, player_id: 503, player_name: 'Charlie Runner', position: 'RB', nfl_team: 'DET' },
-      { team_id: 13, player_id: 504, player_name: 'Delta Tight End', position: 'TE', nfl_team: 'SF' },
-      { team_id: 14, player_id: 505, player_name: 'Echo Kicker', position: 'K', nfl_team: 'DAL' },
+      { team_id: 11, player_id: 501, player_name: 'Alpha Quarterback', position: 'QB', nfl_team: 'KC', tenure_started_at: new Date('2026-09-01T00:00:00Z') },
+      { team_id: 11, player_id: 502, player_name: 'Bravo Receiver', position: 'WR', nfl_team: 'BUF', tenure_started_at: new Date('2026-09-01T00:00:00Z') },
+      { team_id: 12, player_id: 503, player_name: 'Charlie Runner', position: 'RB', nfl_team: 'DET', tenure_started_at: new Date('2026-09-01T00:00:00Z') },
+      { team_id: 13, player_id: 504, player_name: 'Delta Tight End', position: 'TE', nfl_team: 'SF', tenure_started_at: new Date('2026-09-01T00:00:00Z') },
+      { team_id: 14, player_id: 505, player_name: 'Echo Kicker', position: 'K', nfl_team: 'DAL', tenure_started_at: new Date('2026-09-01T00:00:00Z') },
     ],
     matchups: [
       { week: 1, home_team_id: 11, away_team_id: 12, home_score: 120, away_score: 101, final: true, is_playoff: false },

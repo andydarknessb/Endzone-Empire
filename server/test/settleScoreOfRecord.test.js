@@ -187,9 +187,6 @@ function createWorld({
     state.lineupEntries.filter((e) => e.team_id === teamId && e.season === season && e.week === week);
   const rosterRow = (teamId, playerId) =>
     state.teamPlayers.find((tp) => tp.team_id === teamId && tp.player_id === playerId);
-  const gameFor = (playerId, season, week) =>
-    state.nflGames.find((g) => g.season === season && g.week === week
-      && g.nfl_team === NFL_TEAM.get(playerId));
 
   // The live path's roster join, reproduced from the SQL text: its absence is
   // exactly what makes the settle and final populations differ from live.
@@ -209,19 +206,27 @@ function createWorld({
         .map(() => ({ frozen: 1 })),
     })],
 
-    // --- the settle pass's exclusion probe ---------------------------------
-    // All three joins are inner, so a player with no roster row (dropped) and
-    // a player with no game row that week (bye) both fall out unexcluded.
-    [/^SELECT "lineup_entries"\."player_id" FROM "lineup_entries"/, (text, [teamId, season, week]) => ({
-      rows: entriesFor(teamId, season, week)
-        .filter((e) => {
-          const tp = rosterRow(teamId, e.player_id);
-          if (!tp) return false;
-          const game = gameFor(e.player_id, season, week);
-          if (!game) return false;
-          return new Date(tp.created_at) > new Date(game.kickoff_at);
-        })
-        .map((e) => ({ player_id: e.player_id })),
+    // --- the settle pass's population read ---------------------------------
+    // A LEFT JOIN to team_players, so a dropped player stays in the
+    // population with a null tenure. The rule itself lives in the service.
+    [/^SELECT "lineup_entries"\."player_id", "players"\."nfl_team"/, (text, [teamId, season, week]) => ({
+      rows: entriesFor(teamId, season, week).map((e) => {
+        const tp = rosterRow(teamId, e.player_id);
+        return {
+          player_id: e.player_id,
+          nfl_team: NFL_TEAM.get(e.player_id),
+          row_written_at: e.created_at,
+          tenure_started_at: tp ? tp.created_at : null,
+        };
+      }),
+    })],
+    // --- lineup.service's shared schedule predicate ------------------------
+    // Strictly before the instant, which is what nflTeamsKickedOffBefore asks.
+    [/^SELECT "nfl_team" FROM "nfl_games".*"kickoff_at" < \$3/, (text, [season, week, at]) => ({
+      rows: state.nflGames
+        .filter((g) => g.season === season && g.week === week
+          && new Date(g.kickoff_at) < new Date(at))
+        .map((g) => ({ nfl_team: g.nfl_team })),
     })],
 
     // --- lineup.service ----------------------------------------------------
@@ -394,11 +399,19 @@ async function acquire(fake, state, { teamId = TEAM_B, playerId = ACQUIRED, at =
 
 /** A drop: the roster row goes, then #197 decides the lineup row's fate. */
 async function drop(fake, state, { teamId = TEAM_B, playerId = QB_B, at = AFTER_GAMES } = {}) {
+  // The real paths delete the roster row RETURNING created_at and hand it
+  // straight on, so the departing tenure's start travels with the removal.
+  const departing = state.teamPlayers
+    .find((tp) => tp.team_id === teamId && tp.player_id === playerId);
   state.teamPlayers = state.teamPlayers
     .filter((tp) => !(tp.team_id === teamId && tp.player_id === playerId));
   const client = await fake.connect();
   const result = await removeLineupEntries(client, {
-    league: state.league, teamId, playerId, now: new Date(at),
+    league: state.league,
+    teamId,
+    playerId,
+    tenureStartedAt: departing ? departing.created_at : null,
+    now: new Date(at),
   });
   client.release();
   return result;
@@ -581,6 +594,59 @@ test('#190 the Thursday player on an untouched lineup counts when dropped and re
   world.fake.assertClean();
 });
 
+test('#190 dropped BEFORE kickoff and re-added after is excluded', async (t) => {
+  // The mirror of the case above, and the reason it cannot simply trust any
+  // surviving row: this row does NOT survive, because #197 deletes a
+  // current-week row when the game has not started. The re-add recreates it,
+  // stamped with the new tenure, so the two timestamps are equal and he is
+  // excluded. He was not on the roster when the game kicked off.
+  const world = createWorld({ bestBall: true });
+  world.fake.install(t);
+
+  const dropped = await drop(world.fake, world.state, { at: BEFORE_KICKOFF });
+  assert.equal(dropped.removedCurrentWeek, true, 'his game had not started, so the row went');
+
+  await acquire(world.fake, world.state, { playerId: QB_B, at: AFTER_GAMES });
+  assert.equal(
+    world.entriesFor(TEAM_B, SEASON, WEEK).find((e) => e.player_id === QB_B).created_at,
+    AFTER_GAMES,
+    'the row is new, not inherited'
+  );
+
+  await advanceWeek(world.state);
+
+  assert.equal(awayScoreOf(world.state), 0,
+    'he was not held at kickoff, so the week was not his to score');
+  world.fake.assertClean();
+});
+
+test('#190 acquired after kickoff, dropped, then re-added is still excluded', async (t) => {
+  // This one needs the #197 tightening to hold. Without it the first drop
+  // would spare his current-week row purely because his game had kicked off,
+  // and the re-add would inherit a row created before the new tenure - the
+  // same shape as the legitimate case above, but with no game ever played
+  // for this team. The tightening removes the row, so nothing is inherited.
+  const world = createWorld({ bestBall: true });
+  world.fake.install(t);
+
+  await acquire(world.fake, world.state);
+  const dropped = await drop(world.fake, world.state, { playerId: ACQUIRED, at: AFTER_GAMES });
+  assert.equal(dropped.removedCurrentWeek, true,
+    'the tightening: his tenure began after kickoff, so his row is not a record of the week');
+  assert.equal(
+    world.entriesFor(TEAM_B, SEASON, WEEK).find((e) => e.player_id === ACQUIRED),
+    undefined,
+    'and there is nothing left for a re-add to inherit'
+  );
+
+  await acquire(world.fake, world.state, { playerId: ACQUIRED, at: LATER_STILL });
+
+  await advanceWeek(world.state);
+
+  assert.equal(awayScoreOf(world.state), 10, 'he never played a down for this team this week');
+  world.fake.assertClean();
+});
+
 /* ------------------------------------------------------------------ *
  * Controls: the cutoff is the KICKOFF, not the advance                *
  * ------------------------------------------------------------------ */
@@ -731,23 +797,67 @@ test('#190 the settle pass neither materializes nor joins the live roster', asyn
   world.fake.assertClean();
 });
 
-test('#190 the exclusion reads team_players.created_at against nfl_games.kickoff_at', async (t) => {
-  // The world answers this probe from its own arrays, so on its own it would
-  // keep passing even if the production SQL asked a different question. Pin
-  // the statement so the rule's two timestamps are the ones actually read,
-  // and so nobody quietly substitutes lineup_entries.created_at.
+test('#190 the settle population keeps dropped players in, and reads both timestamps', async (t) => {
+  // The world answers from its own arrays, so on its own it would keep
+  // passing even if the production SQL asked a different question. Pin the
+  // statement itself, because the LEFT JOIN is the entire difference between
+  // "the week as played" and "the roster as it is now".
   const world = createWorld();
   world.fake.install(t);
 
   await scoreMatchups({ leagueId: LEAGUE_ID, season: SEASON, week: WEEK, settle: true });
 
-  const [probe] = world.fake.matching(/^SELECT "lineup_entries"\."player_id" FROM "lineup_entries"/);
-  assert.ok(probe, 'the settle pass must ask which players were acquired after kickoff');
-  assert.match(probe.text, /"team_players"\."created_at" > "nfl_games"\."kickoff_at"/,
-    'acquisition time is the roster row, kickoff is the NFL schedule');
-  assert.doesNotMatch(probe.text, /"lineup_entries"\."created_at"/,
-    'a lineup row is written whenever the week is first materialized, not when the player arrived');
+  const [probe] = world.fake.matching(/^SELECT "lineup_entries"\."player_id", "players"\."nfl_team"/);
+  assert.ok(probe, 'the settle pass must read the week\'s rows with both timestamps');
+  assert.match(probe.text, /LEFT JOIN "team_players"/,
+    'a dropped player must stay in the population, not be filtered out of it');
+  assert.doesNotMatch(probe.text, /(?<!LEFT )JOIN "team_players"/,
+    'and the join must never be the inner one the live path uses');
+  assert.match(probe.text, /"lineup_entries"\."created_at" AS "row_written_at"/);
+  assert.match(probe.text, /"team_players"\."created_at" AS "tenure_started_at"/);
   assert.deepEqual(probe.params, [TEAM_A, SEASON, WEEK], 'team, season, week');
+  world.fake.assertClean();
+});
+
+test('#190 the kickoff question goes through lineup.service\'s shared predicate', async (t) => {
+  // Not a style point. DEF units carry full team names while nfl_games keys
+  // by Tank01 abbreviation (#227), so if this pass matched teams its own way
+  // it could exclude a player the lock rule considers unlocked - the two
+  // halves disagreeing about the same man. One predicate, one fix.
+  const world = createWorld({ bestBall: true });
+  world.fake.install(t);
+
+  await acquire(world.fake, world.state);
+  await scoreMatchups({ leagueId: LEAGUE_ID, season: SEASON, week: WEEK, settle: true });
+
+  assert.equal(world.fake.matching(/FROM "nfl_games"/).length > 0, true,
+    'the schedule is consulted');
+  for (const call of world.fake.matching(/FROM "nfl_games"/)) {
+    assert.match(call.text, /^SELECT "nfl_team" FROM "nfl_games"/,
+      'every schedule read is lineup.service\'s, not a second one grown here');
+  }
+  const [strict] = world.fake.matching(/"kickoff_at" < \$3/);
+  assert.ok(strict, 'the tenure question asks STRICTLY before: a tenure starting AT kickoff was there');
+  assert.deepEqual(strict.params.slice(0, 2), [SEASON, WEEK]);
+  world.fake.assertClean();
+});
+
+test('#190 a fresh post-kickoff pickup is excluded on equal timestamps', async (t) => {
+  // The >= boundary, stated as a test because getting it wrong silently
+  // flips the ordinary case. One transaction inserts the roster row and
+  // materializes the lineup row, so Postgres now() stamps both identically.
+  const world = createWorld({ bestBall: true });
+  world.fake.install(t);
+
+  await acquire(world.fake, world.state);
+  const row = world.entriesFor(TEAM_B, SEASON, WEEK).find((e) => e.player_id === ACQUIRED);
+  const roster = world.state.teamPlayers.find((tp) => tp.player_id === ACQUIRED);
+  assert.equal(row.created_at, roster.created_at,
+    'the fixture reproduces the equality: same transaction, same now()');
+
+  await advanceWeek(world.state);
+
+  assert.equal(awayScoreOf(world.state), 10, 'equal timestamps still mean "this tenure\'s row"');
   world.fake.assertClean();
 });
 

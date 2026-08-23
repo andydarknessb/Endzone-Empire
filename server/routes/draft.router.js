@@ -443,13 +443,20 @@ router.post('/league/:id/undo', async (req, res) => {
         `DELETE FROM "draft_picks" WHERE "league_id" = $1 AND "pick_number" = $2`,
         [leagueId, row.pick_number]
       );
-      await client.query(
-        `DELETE FROM "team_players" WHERE "league_id" = $1 AND "team_id" = $2 AND "player_id" = $3`,
+      const undone = await client.query(
+        `DELETE FROM "team_players" WHERE "league_id" = $1 AND "team_id" = $2 AND "player_id" = $3
+         RETURNING "created_at"`,
         [leagueId, row.team_id, row.player_id]
       );
       // The lineup follows the roster (#197): the pick benched him when it
-      // was made, so undoing it takes that row back too.
-      await removeLineupEntries(client, { league, teamId: row.team_id, playerId: row.player_id });
+      // was made, so undoing it takes that row back too. The pick's own
+      // timestamp is the tenure being undone (#190).
+      await removeLineupEntries(client, {
+        league,
+        teamId: row.team_id,
+        playerId: row.player_id,
+        tenureStartedAt: undone.rows[0] ? undone.rows[0].created_at : null,
+      });
     }
     // The earliest undone pick's own slot was itself open (a live pick, never
     // a keeper) before it was made, so rewinding current_pick straight to it

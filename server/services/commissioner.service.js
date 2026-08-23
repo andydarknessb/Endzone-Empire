@@ -361,9 +361,14 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
       );
       standings = computeStandings(teamsResult.rows, matchupsResult.rows);
       const rostersResult = await client.query(
+        // `tenure_started_at` rides along for the pruning loop below, which
+        // needs each departing tenure's start (#190) after the bulk delete
+        // has already taken the rows away. It is stripped before the season
+        // record is written, so the stored payload is unchanged.
         `SELECT "team_players"."team_id", "team_players"."player_id",
                 "players"."name" AS "player_name", "players"."position",
-                "players"."nfl_team"
+                "players"."nfl_team",
+                "team_players"."created_at" AS "tenure_started_at"
          FROM "team_players"
          JOIN "players" ON "players"."id" = "team_players"."player_id"
          WHERE "team_players"."league_id" = $1
@@ -429,7 +434,7 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
         championTeamId,
         championUserId,
         JSON.stringify(standings),
-        JSON.stringify(rosters),
+        JSON.stringify(rosters.map(({ tenure_started_at, ...row }) => row)),
         JSON.stringify(awardsResult.rows),
       ]
     );
@@ -469,7 +474,10 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
       for (const row of rosters) {
         if (keptPairs.has(`${row.team_id}:${row.player_id}`)) continue;
         await lineupService.removeLineupEntries(client, {
-          league, teamId: row.team_id, playerId: row.player_id,
+          league,
+          teamId: row.team_id,
+          playerId: row.player_id,
+          tenureStartedAt: row.tenure_started_at,
         });
       }
 
@@ -649,7 +657,8 @@ async function forceTransaction({ leagueId, userId, teamId, action, playerId }) 
       );
     } else {
       const deleted = await client.query(
-        `DELETE FROM "team_players" WHERE "team_id" = $1 AND "player_id" = $2 RETURNING "id"`,
+        `DELETE FROM "team_players" WHERE "team_id" = $1 AND "player_id" = $2
+         RETURNING "id", "created_at"`,
         [teamId, playerId]
       );
       if (deleted.rowCount === 0) throw new CommissionerError(404, 'player is not on that roster');
@@ -657,7 +666,9 @@ async function forceTransaction({ leagueId, userId, teamId, action, playerId }) 
       // the hold records what it interrupted so the undo can replay it
       // (#197). It is undoable on the same hold as a manager drop.
       const interrupted = await lineupService.currentWeekEntry(client, { league, teamId, playerId });
-      await lineupService.removeLineupEntries(client, { league, teamId, playerId });
+      await lineupService.removeLineupEntries(client, {
+        league, teamId, playerId, tenureStartedAt: deleted.rows[0].created_at,
+      });
       await placeOnWaivers(client, {
         leagueId,
         playerId,
