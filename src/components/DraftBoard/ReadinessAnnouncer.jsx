@@ -39,11 +39,20 @@ import { railCompositionFor, RAIL_PANELS } from './railComposition';
  * it), and the panel additionally renders only for a viewer who holds a
  * Team, since readiness is a declaration about a Team. A region kept mounted
  * through an active draft could never speak, and would sit beside
- * LiveDraftBanner's own status region saying nothing. What matters for this
- * issue is that nothing about the mount depends on the selected tab: the
- * remaining mount/unmount edges are draft-status and Team-membership changes,
- * which are page-level facts a manager crosses once, not something they cross
- * every time they look at the board.
+ * LiveDraftBanner's own status region saying nothing.
+ *
+ * What matters for this issue is that neither condition reads anything
+ * tab-derived, so no tab switch can unmount this. The mount edges it does
+ * have - draft status and Team membership - are page-level facts a manager
+ * crosses once, not something they cross every time they look at the board.
+ *
+ * That is NOT a claim that nothing else can remount this. Issue #216 is one
+ * that does: DraftBoard early-returns a page skeleton for the whole room
+ * while loading, and useDraftQueue's persistQueue calls fetchQueue from its
+ * catch, which sets loading true - so a failed queue write unmounts and
+ * rebuilds this region, which is #164's own failure mode reached through a
+ * different door. It blanks the entire draft room, so it is filed and fixed
+ * there rather than worked around here.
  */
 function ReadinessAnnouncer({ teams = [], viewerTeamId = null, draftStatus = null }) {
   const roomHasReadiness = railCompositionFor(draftStatus).includes(RAIL_PANELS.READINESS);

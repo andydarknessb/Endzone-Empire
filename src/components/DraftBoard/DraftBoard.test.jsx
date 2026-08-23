@@ -1597,8 +1597,11 @@ test('keeps the roster section out of the DOM until the league shape arrives', a
 
   expect(screen.queryByLabelText('My Roster')).not.toBeInTheDocument();
   expect(screen.queryByLabelText('Roster needs')).not.toBeInTheDocument();
-  // And the managers-ready line stays the ONE status region: RosterNeedsStrip
-  // uses a bare aria-live precisely so this singular query keeps working.
+  // And the readiness announcement stays the ONE status region:
+  // RosterNeedsStrip uses a bare aria-live precisely so this singular query
+  // keeps working. The element it matches is now the Draft room's
+  // ReadinessAnnouncer rather than the rail's own line, which #164 stripped
+  // role/aria-live from - same invariant, different element.
   expect(screen.getByRole('status')).toHaveTextContent('1 of 2 managers ready');
 });
 
@@ -1904,13 +1907,23 @@ describe('readiness live region (issue #164)', () => {
 
   test('persists across the desktop Board tab too, where the rail is also unmounted', async () => {
     // The issue records desktop as unaffected because the rail is always
-    // mounted there. It is not: the Board tab of a draft that is not yet
-    // complete renders the matrix alone, with no rail column beside it, so
-    // desktop lost the region on that switch exactly as mobile did. Removing
+    // mounted there. It is not: `desktopRailColumn` appears only in the
+    // isComplete branch, so the Board tab of a draft that is not yet complete
+    // renders the matrix alone, with no rail column beside it, and desktop
+    // lost the region on that switch exactly as mobile did. Removing
     // matchMedia is how this file says "desktop" - MUI's useMediaQuery falls
     // back to false without it.
     delete window.matchMedia;
     await showPendingLobby();
+
+    // Proof this test ran where it says it ran. Desktop composes two tabs,
+    // Draft and Board; Players is mobile's alone. Without this the whole test
+    // passes under the mobile mock as well - every other assertion in it is
+    // true at both breakpoints, since mobile's Board tab also drops the rail
+    // and a tab named Board exists either way. That would leave the one test
+    // pinning this correction to the issue unable to tell which layout it was
+    // exercising.
+    expect(screen.queryByRole('tab', { name: 'Players' })).not.toBeInTheDocument();
 
     const before = screen.getByRole('status');
     await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
