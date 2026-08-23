@@ -6,6 +6,7 @@ import apiClient from '../../api/apiClient';
 import { createDraftSocket, onReconnect } from '../../api/socket';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 import { PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
+import { FORMER_MANAGER_LABEL } from '../../lib/teamIdentity';
 import DraftBoard from './DraftBoard';
 
 jest.mock('../../api/apiClient', () => ({
@@ -144,6 +145,30 @@ test('renders league state (name, on-the-clock, pick history) from a draft:state
   // Every Pick is attributed by Team, including one already on the board
   // when the room opened - which could not be attributed at all before.
   expect(screen.getByText(/by Bob's Team/)).toBeInTheDocument();
+});
+
+test('a Pick left behind by a departed manager is attributed as a former manager, never blank', async () => {
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+  connectAsTeam(1);
+
+  // The server's join to `teams` is LEFT on purpose, so a manager who has
+  // left the league keeps their Pick history and it reads back with null Team
+  // identity (#113). Rendering that straight would print nothing at all.
+  act(() =>
+    fakeSocket.trigger('draft:state', stateEvent(activeLeague(), {
+      picks: [{
+        pick_number: 1, teamId: null, teamName: null,
+        player_id: 10, name: 'Josh Allen', position: 'QB', nfl_team: 'BUF',
+      }],
+    }))
+  );
+
+  expect(screen.getByText(`by ${FORMER_MANAGER_LABEL}`)).toBeInTheDocument();
+  // And the board itself simply has no cell for a Team that is gone, rather
+  // than an unlabelled column appearing for it.
+  await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
+  expect(screen.queryByText('null')).not.toBeInTheDocument();
 });
 
 test('shows the prominent on-clock timer with "Your pick!" for the active user', async () => {

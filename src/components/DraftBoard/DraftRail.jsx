@@ -22,6 +22,7 @@ import RosterPanel from '../RosterPanel/RosterPanel';
 import RosterNeedsStrip from '../RosterPanel/RosterNeedsStrip';
 import { pickActionExists, pickTemporarilyUnavailable, PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
+import { teamNameLabel } from '../../lib/teamIdentity';
 
 /** Draft-room rail: my queue (with a quick-draft button on my turn), draft
  * order (with autodraft toggles), my roster, and pick history.
@@ -106,9 +107,11 @@ function DraftRail({
             {/* Every Pick is attributed by Team (#113). Before the contract
                 landed a Pick could not name its Team at all - its own `name`
                 is the PLAYER's - so only picks that arrived live carried an
-                attribution, and it was the picking manager's username. */}
+                attribution, and it was the picking manager's username. A
+                manager who has left the league keeps their Pick history by
+                design, and it reads back with no Team at all. */}
             <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
-              by {pick.teamName}
+              by {teamNameLabel(pick.teamName)}
               {pick.auto ? ' · AUTO' : ''}
             </Typography>
           </Paper>

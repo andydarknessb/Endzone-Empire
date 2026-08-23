@@ -28,6 +28,7 @@ import { assignRosterSlots } from '../../lib/rosterAssignment';
 import { turnSummaryFor, pickLabelFor } from '../../lib/draftTurns';
 import { draftRounds } from '../../lib/rosterShape';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
+import { teamNameLabel } from '../../lib/teamIdentity';
 
 // The Draft page's one landmark structure: a single <main>, named by the
 // league-name H1 inside it, that the App-level skip link (see App.jsx)
@@ -365,7 +366,7 @@ function DraftBoard() {
   // A Pick now names its own Team (#113), so this no longer resolves a bare
   // team_id against the teams list to find a name to show.
   const quickViewPick = quickViewId != null ? picks.find((p) => p.player_id === quickViewId) : null;
-  const quickViewDraftedBy = quickViewPick ? quickViewPick.teamName || null : null;
+  const quickViewDraftedBy = quickViewPick ? teamNameLabel(quickViewPick.teamName) : null;
 
   const draftedIds = new Set(picks.map((p) => p.player_id));
   const displayPlayers = pool.availablePlayers;

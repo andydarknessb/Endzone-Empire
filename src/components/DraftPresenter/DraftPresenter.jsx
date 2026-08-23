@@ -5,6 +5,7 @@ import { Alert, Box, Container, Paper, Stack, Typography } from '@mui/material';
 import Countdown from '../Countdown/Countdown';
 import DraftBoardMatrix from '../DraftBoard/DraftBoardMatrix';
 import { draftRounds } from '../../lib/rosterShape';
+import { teamNameLabel } from '../../lib/teamIdentity';
 
 // Presenter links are intentionally anonymous: do not use apiClient here,
 // because its 401 interceptor can attempt an authenticated token refresh.
@@ -132,7 +133,7 @@ function DraftPresenter() {
                 {picksNewestFirst.slice(0, 5).map((pick) => (
                   <Box key={pick.pick_number} sx={{ minWidth: { xs: 180, md: 240 } }}>
                     <Typography variant="overline" sx={{ color: 'text.secondary' }}>
-                      Pick {pick.pick_number} · {pick.teamName}
+                      Pick {pick.pick_number} · {teamNameLabel(pick.teamName)}
                     </Typography>
                     <Typography variant="h5" noWrap title={pick.name}>{pick.name}</Typography>
                     <Typography variant="body1" sx={{ color: 'text.secondary' }}>
