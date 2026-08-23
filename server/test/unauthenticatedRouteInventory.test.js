@@ -205,6 +205,7 @@ function terminalMiddleware(app) {
         at: prefix + mountPathOf(layer),
         rooted: isRootMiddleware(layer),
         answers: !canContinue(layer),
+        level: prefix === '' ? 'app' : 'router',
       });
     }
   };
@@ -510,16 +511,35 @@ test('no middleware anywhere in the tree is mounted at a path without a decision
   // the harmful 18th. What separates them is not a name but a POSITION: these
   // are the mounts that own a path.
   //
-  // The 17 are excluded by the rule this assertion already used at app level -
+  // That splits the 17 rather than excluding them. FIFTEEN are root-mounted
+  // and drop out by the rule this assertion already used at app level -
   // root-mounted middleware runs for everything below it and owns no path of
-  // its own - and the assumption inside that rule, that such a middleware
-  // hands the request on, is not assumed here: it is asserted separately
-  // below, by arity.
+  // its own. The other TWO own a path, so they are here, on the two lines
+  // naming requireFantasyLeague(); they are listed for the same reason the
+  // app-level rate limiters are, not as an exception to it. The assumption
+  // inside the exclusion, that a root-mounted middleware hands the request on,
+  // is not assumed: it is asserted separately below, by arity.
   //
   // This list is therefore EXPECTED to change when the app legitimately adds a
   // path-mounted middleware. Adding the new line is the decision; the failure
   // is the prompt to make it deliberately.
   const { app } = require('../server');
+
+  // The three counts the paragraph above argues from, asserted rather than
+  // asserted-about, so the argument cannot quietly stop being true. They are
+  // also the only net under the residue named by the arity pin below: a
+  // three-argument responder added at a router root satisfies all three pins
+  // and changes nothing here except the first of these numbers.
+  //
+  // All three are EXPECTED to move when a router gains a guard or a limiter.
+  // Moving them is a one-line edit; the value of the line is the look it
+  // forces at what was added.
+  const layers = terminalMiddleware(app);
+  const routerLevel = layers.filter((row) => row.level === 'router');
+  assert.equal(layers.length, 34, 'terminal middlewares in the whole tree');
+  assert.equal(routerLevel.length, 17, 'of which sit inside a router');
+  assert.equal(routerLevel.filter((row) => row.rooted).length, 15, 'of which own no path');
+
   assert.deepEqual(pathMounts(app), [
     '<anonymous> /api',                       // Cache-Control: private, no-store
     'rateLimitMiddleware /api',               // generalApiLimiter
@@ -546,6 +566,12 @@ test('only one middleware in the tree answers a request rather than passing it o
   // proving they do. `requireAuth` is itself an example of one that answers
   // sometimes, and that is the residue this pin does not cover: a
   // three-argument middleware that responds anyway is invisible to it.
+  //
+  // That residue has one net, and it is a weak one: the three pins here name 9
+  // of the tree's 34 terminal layers between them, and the count pinned in the
+  // assertion above is all that stands under the other 25. It says "something
+  // was added", never "something is wrong" - which is the honest limit of what
+  // a mounted stack can be asked about a function's behaviour.
   const { app } = require('../server');
   assert.deepEqual(responders(app), ['<anonymous> /api'], 'the API 404 is the only one');
 });

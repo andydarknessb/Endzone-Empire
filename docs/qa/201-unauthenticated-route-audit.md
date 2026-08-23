@@ -27,9 +27,10 @@ a route registered ahead of a router-level guard, a per-route guard with no
 router-level one, a path-scoped `router.use(path, guard)` that protects no
 sibling, a `router.route(path)` chain whose methods are guarded differently
 from one another, a guard registered behind a terminal handler so that it never
-runs, and the guard itself actually refusing a request. The last two were added
-by **#241**: both had been classifying an anonymous route as guarded, which
-kept it out of the audited set entirely.
+runs, and the guard itself actually refusing a request. The fourth and fifth
+were added by **#241**: both had been classifying an anonymous route as
+guarded, which kept it out of the audited set entirely. The sixth is the
+original refusal check and predates them.
 
 It has one structural blind spot, closed by three assertions beside it rather
 than by the classifier: middleware that is neither a route nor a router
@@ -42,7 +43,10 @@ each layer's full mount path.
 Recursing brings 17 pre-existing router-level layers into view - each router's
 own `requireAuth`, `requirePlatformAdmin`, the public rate limiter and the two
 `requireFantasyLeague()` mounts - so the pins are written to distinguish a
-harmful mount from those 17 rather than to list them, by three properties:
+harmful mount from those 17 by three properties rather than by a pattern over
+their names. Fifteen of the 17 are root-mounted and drop out by position; the
+two `requireFantasyLeague()` mounts own a path and are listed, on the same
+footing as the app-level rate limiters:
 
 - **by name**, every `express.static` anywhere in the tree;
 - **by position**, every middleware mounted at a path, at any level. Root
