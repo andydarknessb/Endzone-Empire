@@ -58,6 +58,10 @@ const renderDashboardWithToasts = (leagueId = 1) =>
 
 const leagueResponse = (overrides = {}) => ({
   data: {
+    // Alice (user id 1, the default signed-in user below) owns team 1, so
+    // team 1 is the viewer's own — the server derives this server-side
+    // (#112); the fixture mirrors that shape rather than a username field.
+    viewerTeamId: 1,
     league: {
       id: 1,
       name: 'Sunday Ballers',
