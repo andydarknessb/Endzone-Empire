@@ -1747,10 +1747,26 @@ async function playersAcquiredAfterKickoff(client, { teamId, season, week, kicke
  *   `settle` so re-scoring a settled week stays idempotent: stat corrections
  *   re-run this and must not move a number that is already the record.
  *
- * Settle and final differ only in the exclusion, and only for the window
- * between the last whistle and the advance: once the week is final, nothing
- * new can reach its lineup_entries anyway (#106 froze materialization), so
- * there is nothing left for the exclusion to catch.
+ * KNOWN DEFECT, under ruling on #190 - do not read the FINAL bullet above as
+ * settled. This docstring previously argued that finality could win over
+ * `settle` harmlessly, because "once the week is final nothing new can reach
+ * its lineup_entries anyway". That is true of rows ARRIVING after finality
+ * and false of rows that were already there and were excluded at settle
+ * time, which is the entire population this exclusion is about. The
+ * exclusion is applied at score time only and never removes the row, so an
+ * excluded row survives into finality, and `correction.service` re-scores
+ * final weeks with no `settle` flag on every correction sweep - announcing
+ * the movement to the league as a stat correction. So the score of record is
+ * right until the first sweep after the advance and wrong afterwards.
+ *
+ * Three resolutions were identified (apply the exclusion to the final
+ * population too; delete the excluded rows at settle time; persist the
+ * exclusion) and they differ in what the score of record IS, so the choice
+ * is the maintainer's. Whoever implements it: the boundary cases in
+ * settleScoreOfRecord.test.js and lineup.service.test.js guard the SETTLE
+ * consumer, and every resolution relocates where the exclusion is evaluated.
+ * A guard that does not move with it goes dead silently, still named after
+ * the thing it stopped protecting.
  *
  * Best-ball leagues ignore the slots owners set: the score is the OPTIMAL
  * legal lineup over that week's players (same three population rules),
@@ -1784,7 +1800,10 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
       return kickoffCache.get(key);
     };
     const teamScore = async (teamId, isFinal) => {
-      // Finality wins over `settle`: a final week is already the record.
+      // Finality wins over `settle`. This is the line under ruling on #190:
+      // it means a FINAL week applies no exclusion at all, so a row excluded
+      // at settle time is counted again by the next re-score of that week.
+      // See the KNOWN DEFECT note in the docstring before changing it.
       const settling = settle && !isFinal;
       const live = !isFinal && !settling;
       if (live) {
