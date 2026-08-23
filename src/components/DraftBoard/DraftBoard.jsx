@@ -44,9 +44,9 @@ const DRAFT_H1_ID = 'draft-league-name';
  * Returns null when there is nothing honest to show - before the first
  * draft:state frame, or for a spectator with no team in the league.
  */
-function rosterViewFor({ league, teams, picks, userId }) {
+function rosterViewFor({ league, teams, picks, viewerTeamId }) {
   const rosterSlots = Array.isArray(league?.roster_slots) ? league.roster_slots : [];
-  const myTeam = teams.find((team) => team.owner_id === userId) || null;
+  const myTeam = viewerTeamId == null ? null : teams.find((team) => team.teamId === viewerTeamId) || null;
   if (!myTeam || rosterSlots.length === 0) return null;
 
   // Mirrors the server's ORDER BY "draft_position" NULLS LAST, "id". The id
@@ -56,16 +56,16 @@ function rosterViewFor({ league, teams, picks, userId }) {
   const ordered = [...teams].sort((a, b) => {
     const ap = a.draft_position == null ? Infinity : a.draft_position;
     const bp = b.draft_position == null ? Infinity : b.draft_position;
-    return ap === bp ? a.id - b.id : ap - bp;
+    return ap === bp ? a.teamId - b.teamId : ap - bp;
   });
-  const teamIds = ordered.map((team) => team.id);
+  const teamIds = ordered.map((team) => team.teamId);
   // Rounds are Draft rounds (ADR 0005): the live-derived draft roster size
   // while pending, or the fixed value once the draft is active/complete.
   // Mirrors draft.service.js.
   const rounds = draftRounds(league);
 
   const myPicks = picks
-    .filter((pick) => pick.team_id === myTeam.id)
+    .filter((pick) => pick.teamId === myTeam.teamId)
     .map((pick) => ({
       pickNumber: pick.pick_number,
       pickLabel: pickLabelFor(pick.pick_number - 1, teamIds.length),
@@ -74,9 +74,9 @@ function rosterViewFor({ league, teams, picks, userId }) {
       position: pick.position,
       nflTeam: pick.nfl_team,
       // Neither flag is on both socket payloads: draft:state carries is_keeper
-      // but no autodraft flag, draft:picked carries by.auto but no is_keeper.
+      // but no autopick flag, draft:picked carries one but no is_keeper.
       // Each renders when the data happens to be there.
-      auto: !!(pick.by && pick.by.auto),
+      auto: !!pick.auto,
       keeper: !!pick.is_keeper,
     }))
     // The socket reducer stores picks newest-first for the history list.
@@ -91,7 +91,7 @@ function rosterViewFor({ league, teams, picks, userId }) {
 
   const turn = orderKnown
     ? turnSummaryFor({
-      teamId: myTeam.id,
+      teamId: myTeam.teamId,
       teamIds,
       // leagues.current_pick is ALREADY 0-based - see draft.service.js, which
       // passes it straight to teamForPick and stores current_pick + 1 as the
@@ -226,6 +226,7 @@ function DraftBoard() {
     teams,
     picks,
     onTheClock,
+    viewerTeamId,
     secondsLeft,
     reconnecting,
     isMyTurn,
@@ -234,7 +235,7 @@ function DraftBoard() {
     dismissOnClockAlert,
     emitPick,
     error: socketError,
-  } = useDraftSocket(leagueId, user?.id, {
+  } = useDraftSocket(leagueId, {
     onPickLanded: (data) => pickLandedRef.current(data),
   });
   useEffect(() => {
@@ -242,9 +243,9 @@ function DraftBoard() {
       pool.refetch();
       // Only refetch the caller's own roster when THIS pick actually landed
       // on it - every other team's pick in the draft leaves it unchanged, and
-      // a full snake draft can be 150+ picks.
-      const myTeam = teams.find((team) => team.owner_id === user?.id);
-      if (myTeam && data?.teamId === myTeam.id) myRoster.refetchRoster();
+      // a full snake draft can be 150+ picks. Both sides are Team IDs, so the
+      // comparison no longer has to route through a team lookup by account.
+      if (viewerTeamId != null && data?.teamId === viewerTeamId) myRoster.refetchRoster();
     };
   });
   const { queue, loading: queueLoading, handleQueuePlayer, handleMoveUp, handleMoveDown, handleRemoveFromQueue } =
@@ -345,15 +346,26 @@ function DraftBoard() {
     );
   }
 
+  // Deliberately still an account comparison, and the one on this page (#113).
+  // It asks "am I this league's commissioner", not "which of these Teams is
+  // me", and it compares the viewer's OWN account id against a league column
+  // rather than reading another manager's identity. It cannot be expressed in
+  // Team identity yet either: the draft:state snapshot carries no
+  // ownerTeamId - only league detail does - because a broadcast cannot carry a
+  // viewer-relative field. See #178, which owns both halves of that: the
+  // is_commissioner operand is always undefined here (the snapshot is a bare
+  // SELECT * on leagues), so a co-commissioner silently gets no controls.
   const isCommissioner = !!(league && user && (league.is_commissioner || league.owner_id === user.id));
-  const rosterView = rosterViewFor({ league, teams, picks, userId: user?.id });
+  const rosterView = rosterViewFor({ league, teams, picks, viewerTeamId });
 
   // Derive the "Drafted by X" banner for the open quick-view from live draft
   // state: if the viewed player already appears in the pick history, name the
   // team that took them. Recomputes as picks stream in, so a player drafted
   // while the dialog is open shows the banner without disrupting the board.
+  // A Pick now names its own Team (#113), so this no longer resolves a bare
+  // team_id against the teams list to find a name to show.
   const quickViewPick = quickViewId != null ? picks.find((p) => p.player_id === quickViewId) : null;
-  const quickViewDraftedBy = quickViewPick ? teams.find((t) => t.id === quickViewPick.team_id)?.name || null : null;
+  const quickViewDraftedBy = quickViewPick ? quickViewPick.teamName || null : null;
 
   const draftedIds = new Set(picks.map((p) => p.player_id));
   const displayPlayers = pool.availablePlayers;
@@ -444,7 +456,7 @@ function DraftBoard() {
     teams,
     onTheClock,
     isCommissioner,
-    userId: user?.id,
+    viewerTeamId,
     draftStatus: league?.draft_status,
     draftType: league?.draft_type,
     onToggleAutodraft: admin.handleToggleAutodraft,

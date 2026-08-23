@@ -18,11 +18,20 @@ jest.mock('../../api/socket', () => ({
   onReconnect: jest.fn(),
 }));
 
-/** A controllable fake socket: captures .on() handlers so tests can fire them. */
+/**
+ * A controllable fake socket: captures .on() handlers so tests can fire them,
+ * and answers `draft:join` the way the server does.
+ *
+ * The acknowledgement is the viewer's ONLY per-viewer channel (#113, contract
+ * #112): `viewerTeamId` never rides on a broadcast, so a test that wants the
+ * board to know which Team is the viewer's sets `fakeSocket.viewerTeamId` and
+ * connects, rather than putting an account id in the redux store.
+ */
 function makeFakeSocket() {
   const handlers = {};
   const managerHandlers = {};
-  return {
+  const socket = {
+    viewerTeamId: null,
     on: jest.fn((event, cb) => {
       handlers[event] = cb;
     }),
@@ -31,7 +40,11 @@ function makeFakeSocket() {
         managerHandlers[event] = cb;
       }),
     },
-    emit: jest.fn(),
+    emit: jest.fn((event, payload, ack) => {
+      if (event === 'draft:join' && typeof ack === 'function') {
+        ack({ ok: true, viewerTeamId: socket.viewerTeamId });
+      }
+    }),
     disconnect: jest.fn(),
     trigger(event, payload) {
       if (handlers[event]) handlers[event](payload);
@@ -40,7 +53,19 @@ function makeFakeSocket() {
       if (managerHandlers[event]) managerHandlers[event](payload);
     },
   };
+  return socket;
 }
+
+/**
+ * Connect the draft room as the manager who owns Team `teamId`, which is how
+ * a test says "this viewer is that Team". The server answers the join
+ * acknowledgement before it sends the first snapshot, so this always runs
+ * before a `draft:state` trigger.
+ */
+const connectAsTeam = (teamId) => {
+  fakeSocket.viewerTeamId = teamId;
+  act(() => fakeSocket.trigger('connect'));
+};
 
 const playersPage = (players = [{ id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'Kansas City Chiefs' }]) => ({
   data: { players, totalPages: 1 },
@@ -99,22 +124,32 @@ test('renders league state (name, on-the-clock, pick history) from a draft:state
   act(() =>
     fakeSocket.trigger('draft:state', {
       league: { name: 'Sunday Ballers', draft_status: 'active' },
-      teams: [{ id: 5, name: "Bob's Team", owner: 'bob' }],
-      picks: [{ pick_number: 1, player_id: 10, name: 'Josh Allen', position: 'QB', nfl_team: 'Buffalo Bills' }],
-      onTheClock: { id: 5, name: "Bob's Team", owner: 'bob' },
+      teams: [{ teamId: 5, teamName: "Bob's Team" }],
+      picks: [{
+        pick_number: 1, teamId: 5, teamName: "Bob's Team",
+        player_id: 10, name: 'Josh Allen', position: 'QB', nfl_team: 'Buffalo Bills',
+      }],
+      onTheClock: { teamId: 5, teamName: "Bob's Team" },
     })
   );
 
   expect(screen.getByText('Sunday Ballers')).toBeInTheDocument();
-  expect(screen.getByText("On the clock: Bob's Team (bob)")).toBeInTheDocument();
+  // The on-the-clock chip names the Team and nothing else: the manager's
+  // username used to sit in parentheses after it (#113 criterion 4).
+  expect(screen.getByText("On the clock: Bob's Team")).toBeInTheDocument();
+  expect(screen.queryByText(/bob/)).not.toBeInTheDocument();
   expect(screen.getByText('#1')).toBeInTheDocument();
   // The pick-history name is now a quick-view button (separate from any action).
   expect(screen.getByRole('button', { name: 'Josh Allen' })).toBeInTheDocument();
+  // Every Pick is attributed by Team, including one already on the board
+  // when the room opened - which could not be attributed at all before.
+  expect(screen.getByText(/by Bob's Team/)).toBeInTheDocument();
 });
 
 test('shows the prominent on-clock timer with "Your pick!" for the active user', async () => {
-  renderBoard(1, { user: { id: 5 } });
+  renderBoard(1);
   await screen.findByText('Patrick Mahomes');
+  connectAsTeam(5);
 
   act(() =>
     fakeSocket.trigger('draft:state', {
@@ -125,9 +160,9 @@ test('shows the prominent on-clock timer with "Your pick!" for the active user',
         pick_time_seconds: 90,
         pick_deadline_at: new Date(Date.now() + 30000).toISOString(),
       },
-      teams: [{ id: 5, name: "Bob's Team", owner: 'bob', owner_id: 5, draft_position: 1, autodraft: false }],
+      teams: [{ teamId: 5, teamName: "Bob's Team", draft_position: 1, autodraft: false }],
       picks: [],
-      onTheClock: { id: 5, name: "Bob's Team", owner: 'bob', owner_id: 5 },
+      onTheClock: { teamId: 5, teamName: "Bob's Team" },
     })
   );
 
@@ -136,13 +171,14 @@ test('shows the prominent on-clock timer with "Your pick!" for the active user',
 });
 
 test('shows an AUTO badge and a checked autodraft switch for an autodrafting team', async () => {
-  renderBoard(1, { user: { id: 5 } });
+  renderBoard(1);
   await screen.findByText('Patrick Mahomes');
+  connectAsTeam(5);
 
   act(() =>
     fakeSocket.trigger('draft:state', {
       league: { name: 'Sunday Ballers', draft_status: 'active', owner_id: 99 },
-      teams: [{ id: 5, name: "Bob's Team", owner: 'bob', owner_id: 5, draft_position: 1, autodraft: true }],
+      teams: [{ teamId: 5, teamName: "Bob's Team", draft_position: 1, autodraft: true }],
       picks: [],
       onTheClock: null,
     })
@@ -153,13 +189,14 @@ test('shows an AUTO badge and a checked autodraft switch for an autodrafting tea
 });
 
 test('toggling a team\'s autodraft posts to the autodraft endpoint', async () => {
-  renderBoard(1, { user: { id: 5 } });
+  renderBoard(1);
   await screen.findByText('Patrick Mahomes');
+  connectAsTeam(5);
 
   act(() =>
     fakeSocket.trigger('draft:state', {
       league: { name: 'Sunday Ballers', draft_status: 'active', owner_id: 99 },
-      teams: [{ id: 5, name: "Bob's Team", owner: 'bob', owner_id: 5, draft_position: 1, autodraft: false }],
+      teams: [{ teamId: 5, teamName: "Bob's Team", draft_position: 1, autodraft: false }],
       picks: [],
       onTheClock: null,
     })
@@ -190,15 +227,16 @@ test('shows "No picks yet" when the pick history is empty', async () => {
 });
 
 test('clicking Draft on a player emits draft:pick with the league and player id', async () => {
-  renderBoard(3, { user: { id: 5 } });
+  renderBoard(3);
   await screen.findByText('Patrick Mahomes');
+  connectAsTeam(1);
 
   act(() =>
     fakeSocket.trigger('draft:state', {
       league: { name: 'Sunday Ballers', draft_status: 'active', draft_paused: false },
-      teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 5 }],
+      teams: [{ teamId: 1, teamName: 'Team A' }],
       picks: [],
-      onTheClock: { id: 1, name: 'Team A', owner: 'alice', owner_id: 5 },
+      onTheClock: { teamId: 1, teamName: 'Team A' },
     })
   );
 
@@ -219,15 +257,16 @@ test('clicking Draft on a player emits draft:pick with the league and player id'
 });
 
 test('canceling the Draft confirmation dialog never emits draft:pick', async () => {
-  renderBoard(3, { user: { id: 5 } });
+  renderBoard(3);
   await screen.findByText('Patrick Mahomes');
+  connectAsTeam(1);
 
   act(() =>
     fakeSocket.trigger('draft:state', {
       league: { name: 'Sunday Ballers', draft_status: 'active', draft_paused: false },
-      teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 5 }],
+      teams: [{ teamId: 1, teamName: 'Team A' }],
       picks: [],
-      onTheClock: { id: 1, name: 'Team A', owner: 'alice', owner_id: 5 },
+      onTheClock: { teamId: 1, teamName: 'Team A' },
     })
   );
 
@@ -249,11 +288,11 @@ test('a draft:picked event prepends the new pick, updates who is on the clock, a
     fakeSocket.trigger('draft:state', {
       league: { name: 'Sunday Ballers', draft_status: 'active' },
       teams: [
-        { id: 1, name: 'Team A', owner: 'alice' },
-        { id: 2, name: 'Team B', owner: 'bob' },
+        { teamId: 1, teamName: 'Team A' },
+        { teamId: 2, teamName: 'Team B' },
       ],
       picks: [],
-      onTheClock: { id: 1, name: 'Team A', owner: 'alice' },
+      onTheClock: { teamId: 1, teamName: 'Team A' },
     })
   );
   apiClient.get.mockClear();
@@ -263,32 +302,38 @@ test('a draft:picked event prepends the new pick, updates who is on the clock, a
     fakeSocket.trigger('draft:picked', {
       pickNumber: 1,
       teamId: 1,
+      teamName: 'Team A',
       player: { id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'Kansas City Chiefs' },
       nextTeamId: 2,
       draftComplete: false,
-      by: { username: 'alice' },
+      by: { userId: 5, username: 'alice' },
     })
   );
 
   expect(screen.getByText('#1')).toBeInTheDocument();
   expect(screen.getAllByRole('button', { name: 'Patrick Mahomes' }).length).toBeGreaterThan(0);
-  expect(screen.getByText('On the clock: Team B (bob)')).toBeInTheDocument();
+  expect(screen.getByText('On the clock: Team B')).toBeInTheDocument();
+  // The landed Pick is attributed to the Team that made it, and the
+  // username the broadcast carried in `by` reaches no rendered surface.
+  expect(screen.getByText(/by Team A/)).toBeInTheDocument();
+  expect(screen.queryByText(/alice/)).not.toBeInTheDocument();
   await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/players', expect.any(Object)));
 });
 
 test('a pick landing refetches the caller\'s own roster only when THAT pick is theirs', async () => {
-  renderBoard(1, { user: { id: 5 } });
+  renderBoard(1);
   await screen.findByText('Patrick Mahomes');
+  connectAsTeam(1);
 
   act(() =>
     fakeSocket.trigger('draft:state', {
       league: { name: 'Sunday Ballers', draft_status: 'active' },
       teams: [
-        { id: 1, name: 'Team A', owner: 'alice', owner_id: 5 },
-        { id: 2, name: 'Team B', owner: 'bob', owner_id: 6 },
+        { teamId: 1, teamName: 'Team A' },
+        { teamId: 2, teamName: 'Team B' },
       ],
       picks: [],
-      onTheClock: { id: 2, name: 'Team B', owner: 'bob', owner_id: 6 },
+      onTheClock: { teamId: 2, teamName: 'Team B' },
     })
   );
   apiClient.get.mockClear();
@@ -331,9 +376,9 @@ test('a draft:picked event with draftComplete shows the completion banner and ma
   act(() =>
     fakeSocket.trigger('draft:state', {
       league: { name: 'Sunday Ballers', draft_status: 'active' },
-      teams: [{ id: 1, name: 'Team A', owner: 'alice' }],
+      teams: [{ teamId: 1, teamName: 'Team A' }],
       picks: [],
-      onTheClock: { id: 1, name: 'Team A', owner: 'alice' },
+      onTheClock: { teamId: 1, teamName: 'Team A' },
     })
   );
 
@@ -373,15 +418,16 @@ test('an error acknowledgment from draft:join is surfaced as an alert', async ()
 });
 
 test('an error acknowledgment from draft:pick is surfaced as an alert', async () => {
-  renderBoard(1, { user: { id: 5 } });
+  renderBoard(1);
   await screen.findByText('Patrick Mahomes');
+  connectAsTeam(1);
 
   act(() =>
     fakeSocket.trigger('draft:state', {
       league: { name: 'Sunday Ballers', draft_status: 'active', draft_paused: false },
-      teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 5 }],
+      teams: [{ teamId: 1, teamName: 'Team A' }],
       picks: [],
-      onTheClock: { id: 1, name: 'Team A', owner: 'alice', owner_id: 5 },
+      onTheClock: { teamId: 1, teamName: 'Team A' },
     })
   );
 
@@ -478,11 +524,16 @@ const activeLeague = (overrides = {}) => ({
   ...overrides,
 });
 
+// Team identity on the wire, as the server sends it: `teamId` / `teamName`,
+// with no account field to fall back on (#113, contract #112).
+const TEAM_A = { teamId: 1, teamName: 'Team A' };
+const TEAM_B = { teamId: 2, teamName: 'Team B' };
+
 const stateEvent = (league, extra = {}) => ({
   league,
-  teams: [{ id: 1, name: 'Team A', owner: 'alice' }],
+  teams: [TEAM_A, TEAM_B],
   picks: [],
-  onTheClock: { id: 1, name: 'Team A', owner: 'alice' },
+  onTheClock: TEAM_A,
   ...extra,
 });
 
@@ -523,8 +574,8 @@ test('the countdown resets to pick_time_seconds on each draft:picked', async () 
       pick_deadline_at: new Date(Date.now() + 5000).toISOString(),
     }), {
       teams: [
-        { id: 1, name: 'Team A', owner: 'alice' },
-        { id: 2, name: 'Team B', owner: 'bob' },
+        { teamId: 1, teamName: 'Team A' },
+        { teamId: 2, teamName: 'Team B' },
       ],
     }))
   );
@@ -564,28 +615,19 @@ test('a paused draft shows the paused chip and leaves drafting focusable but ari
 });
 
 test('the pool Draft button is aria-disabled off-turn and fully enabled on-turn', async () => {
-  renderBoard(1, { user: { id: 5 } });
+  renderBoard(1);
   await screen.findByText('Patrick Mahomes');
+  connectAsTeam(1);
 
+  // Whose turn it is, is now decided by Team: the clock names a Team ID and
+  // the viewer holds their own from the join acknowledgement (#113).
   act(() =>
-    fakeSocket.trigger(
-      'draft:state',
-      stateEvent(activeLeague(), {
-        teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 9 }],
-        onTheClock: { id: 1, name: 'Team A', owner: 'alice', owner_id: 9 },
-      })
-    )
+    fakeSocket.trigger('draft:state', stateEvent(activeLeague(), { onTheClock: TEAM_B }))
   );
   expect(screen.getByRole('button', { name: 'Draft' })).toHaveAttribute('aria-disabled', 'true');
 
   act(() =>
-    fakeSocket.trigger(
-      'draft:state',
-      stateEvent(activeLeague(), {
-        teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 5 }],
-        onTheClock: { id: 1, name: 'Team A', owner: 'alice', owner_id: 5 },
-      })
-    )
+    fakeSocket.trigger('draft:state', stateEvent(activeLeague(), { onTheClock: TEAM_A }))
   );
   const draftButton = screen.getByRole('button', { name: 'Draft' });
   expect(draftButton).toBeEnabled();
@@ -599,8 +641,9 @@ test("the queue's top-row Draft button is aria-disabled off-turn and fully enabl
       { id: 3, name: 'Justin Jefferson', position: 'WR', nfl_team: 'MIN', rank: 2 },
     ],
   });
-  renderBoardWithToasts(1, { user: { id: 5 } });
+  renderBoardWithToasts(1);
   await screen.findByRole('button', { name: 'Bijan Robinson' });
+  connectAsTeam(1);
 
   const queuePanel = () => screen.getByText('My Queue').closest('.MuiPaper-root');
 
@@ -609,13 +652,7 @@ test("the queue's top-row Draft button is aria-disabled off-turn and fully enabl
   // aria-disabled, matching the pool row and Quick View - not hidden, and
   // not the native disabled attribute (#120 acceptance criteria 2, 5).
   act(() =>
-    fakeSocket.trigger(
-      'draft:state',
-      stateEvent(activeLeague(), {
-        teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 9 }],
-        onTheClock: { id: 1, name: 'Team A', owner: 'alice', owner_id: 9 },
-      })
-    )
+    fakeSocket.trigger('draft:state', stateEvent(activeLeague(), { onTheClock: TEAM_B }))
   );
   const offTurnButton = within(queuePanel()).getByRole('button', { name: 'Draft' });
   expect(offTurnButton).not.toBeDisabled();
@@ -626,13 +663,7 @@ test("the queue's top-row Draft button is aria-disabled off-turn and fully enabl
 
   // My turn: the quick-draft button appears and drafts queue[0] (Bijan Robinson, id 2).
   act(() =>
-    fakeSocket.trigger(
-      'draft:state',
-      stateEvent(activeLeague(), {
-        teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 5 }],
-        onTheClock: { id: 1, name: 'Team A', owner: 'alice', owner_id: 5 },
-      })
-    )
+    fakeSocket.trigger('draft:state', stateEvent(activeLeague(), { onTheClock: TEAM_A }))
   );
   const queueDraftButton = within(queuePanel()).getByRole('button', { name: 'Draft' });
   await userEvent.click(queueDraftButton);
@@ -661,15 +692,16 @@ test("the queue's top-row Draft button is aria-disabled on your turn while the d
   mockGets({
     queue: [{ id: 2, name: 'Bijan Robinson', position: 'RB', nfl_team: 'ATL', rank: 1 }],
   });
-  renderBoard(1, { user: { id: 5 } });
+  renderBoard(1);
   await screen.findByRole('button', { name: 'Bijan Robinson' });
+  connectAsTeam(1);
 
   act(() =>
     fakeSocket.trigger(
       'draft:state',
       stateEvent(activeLeague({ draft_paused: true }), {
-        teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 5 }],
-        onTheClock: { id: 1, name: 'Team A', owner: 'alice', owner_id: 5 }, // my turn, but paused
+        teams: [{ teamId: 1, teamName: 'Team A' }],
+        onTheClock: { teamId: 1, teamName: 'Team A' }, // my turn, but paused
       })
     )
   );
@@ -846,12 +878,13 @@ test('commissioner copies a presenter link generated by the share-token endpoint
 });
 
 test('a pending-draft member can toggle readiness and sees the league readiness chips', async () => {
-  renderBoardWithToasts(1, { user: { id: 5, username: 'alice' } });
+  renderBoardWithToasts(1);
   await screen.findByText('Patrick Mahomes');
+  connectAsTeam(1);
   act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ draft_status: 'pending', owner_id: 99 }), {
     teams: [
-      { id: 1, name: 'Team A', owner: 'alice', owner_id: 5, draft_ready: false },
-      { id: 2, name: 'Team B', owner: 'bob', owner_id: 6, draft_ready: true },
+      { teamId: 1, teamName: 'Team A', draft_ready: false },
+      { teamId: 2, teamName: 'Team B', draft_ready: true },
     ],
     onTheClock: null,
   })));
@@ -998,7 +1031,7 @@ test('a complete draft never renders a manual Draft control', async () => {
   act(() =>
     fakeSocket.trigger('draft:state', {
       league: { name: 'Sunday Ballers', draft_status: 'complete' },
-      teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 5 }],
+      teams: [{ teamId: 1, teamName: 'Team A' }],
       picks: [],
       onTheClock: null,
     })
@@ -1009,15 +1042,16 @@ test('a complete draft never renders a manual Draft control', async () => {
 
 test('an autopick-type active draft never renders a manual Draft control - table, Quick View, or queue rail', async () => {
   mockGets({ queue: [{ id: 2, name: 'Bijan Robinson', position: 'RB', nfl_team: 'ATL', rank: 1 }] });
-  renderBoard(1, { user: { id: 5 } });
+  renderBoard(1);
   await screen.findByRole('button', { name: 'Bijan Robinson' });
+  connectAsTeam(1);
 
   act(() =>
     fakeSocket.trigger(
       'draft:state',
       stateEvent(activeLeague({ draft_type: 'autopick' }), {
-        teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 5 }],
-        onTheClock: { id: 1, name: 'Team A', owner: 'alice', owner_id: 5 }, // even "on the clock"
+        teams: [{ teamId: 1, teamName: 'Team A' }],
+        onTheClock: { teamId: 1, teamName: 'Team A' }, // even "on the clock"
       })
     )
   );
@@ -1029,15 +1063,16 @@ test('an autopick-type active draft never renders a manual Draft control - table
 
 test('an offline-type active draft never renders a manual Draft control from the player-row/Quick View surfaces', async () => {
   mockGets({ queue: [{ id: 2, name: 'Bijan Robinson', position: 'RB', nfl_team: 'ATL', rank: 1 }] });
-  renderBoard(1, { user: { id: 5 } });
+  renderBoard(1);
   await screen.findByRole('button', { name: 'Bijan Robinson' });
+  connectAsTeam(1);
 
   act(() =>
     fakeSocket.trigger(
       'draft:state',
       stateEvent(activeLeague({ draft_type: 'offline' }), {
-        teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 5 }],
-        onTheClock: { id: 1, name: 'Team A', owner: 'alice', owner_id: 5 },
+        teams: [{ teamId: 1, teamName: 'Team A' }],
+        onTheClock: { teamId: 1, teamName: 'Team A' },
       })
     )
   );
@@ -1055,9 +1090,9 @@ test('an already-drafted pool row hides both Draft and Queue entirely, keeping o
     fakeSocket.trigger(
       'draft:state',
       stateEvent(activeLeague(), {
-        teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 5 }],
+        teams: [{ teamId: 1, teamName: 'Team A' }],
         picks: [{ pick_number: 1, team_id: 1, player_id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'KC' }],
-        onTheClock: { id: 1, name: 'Team A', owner: 'alice', owner_id: 5 },
+        onTheClock: { teamId: 1, teamName: 'Team A' },
       })
     )
   );
@@ -1081,17 +1116,12 @@ test('Quick View shows Draft as focusable aria-disabled with the shared explanat
         })
       : Promise.resolve(playersPage())
   );
-  renderBoard(1, { user: { id: 5 } });
+  renderBoard(1);
   await screen.findByText('Patrick Mahomes');
+  connectAsTeam(1);
 
   act(() =>
-    fakeSocket.trigger(
-      'draft:state',
-      stateEvent(activeLeague(), {
-        teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 9 }],
-        onTheClock: { id: 1, name: 'Team A', owner: 'alice', owner_id: 9 }, // not this viewer
-      })
-    )
+    fakeSocket.trigger('draft:state', stateEvent(activeLeague(), { onTheClock: TEAM_B })) // not this viewer
   );
 
   await userEvent.click(screen.getByRole('button', { name: 'Patrick Mahomes' }));
@@ -1106,17 +1136,12 @@ test('Quick View shows Draft as focusable aria-disabled with the shared explanat
 });
 
 test('a stale confirmation (the turn moved on while the dialog sat open) never commits', async () => {
-  renderBoardWithToasts(1, { user: { id: 5 } });
+  renderBoardWithToasts(1);
   await screen.findByText('Patrick Mahomes');
+  connectAsTeam(1);
 
   act(() =>
-    fakeSocket.trigger(
-      'draft:state',
-      stateEvent(activeLeague(), {
-        teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 5 }],
-        onTheClock: { id: 1, name: 'Team A', owner: 'alice', owner_id: 5 }, // my turn
-      })
-    )
+    fakeSocket.trigger('draft:state', stateEvent(activeLeague(), { onTheClock: TEAM_A })) // my turn
   );
 
   await userEvent.click(screen.getByRole('button', { name: 'Draft' }));
@@ -1127,16 +1152,7 @@ test('a stale confirmation (the turn moved on while the dialog sat open) never c
   // their pick clock expired and autodraft resolved it, say - which never
   // touches the pending confirmation itself.
   act(() =>
-    fakeSocket.trigger(
-      'draft:state',
-      stateEvent(activeLeague(), {
-        teams: [
-          { id: 1, name: 'Team A', owner: 'alice', owner_id: 5 },
-          { id: 2, name: 'Team B', owner: 'bob', owner_id: 6 },
-        ],
-        onTheClock: { id: 2, name: 'Team B', owner: 'bob', owner_id: 6 }, // no longer my turn
-      })
-    )
+    fakeSocket.trigger('draft:state', stateEvent(activeLeague(), { onTheClock: TEAM_B })) // no longer my turn
   );
 
   await userEvent.click(within(dialog).getByRole('button', { name: 'Draft Patrick Mahomes' }));
@@ -1300,22 +1316,23 @@ const rosterLeague = (overrides = {}) => activeLeague({
 });
 
 const rosterTeams = [
-  { id: 1, name: 'Team A', owner: 'alice', owner_id: 5, draft_position: 1 },
-  { id: 2, name: 'Team B', owner: 'bob', owner_id: 6, draft_position: 2 },
+  { teamId: 1, teamName: 'Team A', draft_position: 1 },
+  { teamId: 2, teamName: 'Team B', draft_position: 2 },
 ];
 
 const firstPick = {
-  pick_number: 1, team_id: 1, player_id: 10,
+  pick_number: 1, teamId: 1, teamName: 'Team A', player_id: 10,
   name: 'Bijan Robinson', position: 'RB', nfl_team: 'ATL',
 };
 
 const showRoster = async (picks) => {
-  renderBoard(1, { user: { id: 5, username: 'alice' } });
+  renderBoard(1);
   await screen.findByText('Patrick Mahomes');
+  connectAsTeam(1);
   act(() => fakeSocket.trigger('draft:state', stateEvent(rosterLeague(), {
     teams: rosterTeams,
     picks,
-    onTheClock: { id: 1, name: 'Team A' },
+    onTheClock: TEAM_A,
   })));
 };
 
@@ -1347,7 +1364,7 @@ test('skips a keeper the team already holds when naming the next pick', async ()
   await showRoster([
     firstPick,
     {
-      pick_number: 4, team_id: 1, player_id: 11, is_keeper: true,
+      pick_number: 4, teamId: 1, teamName: 'Team A', player_id: 11, is_keeper: true,
       name: 'Kept Guy', position: 'WR', nfl_team: 'BUF',
     },
   ]);
@@ -1364,12 +1381,13 @@ test('tags the manager’s own picks in the history with the slot they filled', 
 });
 
 test('keeps the roster section out of the DOM until the league shape arrives', async () => {
-  renderBoardWithToasts(1, { user: { id: 5, username: 'alice' } });
+  renderBoardWithToasts(1);
   await screen.findByText('Patrick Mahomes');
+  connectAsTeam(1);
   act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ draft_status: 'pending', owner_id: 99 }), {
     teams: [
-      { id: 1, name: 'Team A', owner: 'alice', owner_id: 5, draft_ready: false },
-      { id: 2, name: 'Team B', owner: 'bob', owner_id: 6, draft_ready: true },
+      { teamId: 1, teamName: 'Team A', draft_ready: false },
+      { teamId: 2, teamName: 'Team B', draft_ready: true },
     ],
     onTheClock: null,
   })));
@@ -1388,18 +1406,20 @@ test('keeps the roster section out of the DOM until the league shape arrives', a
 describe('accessible structure', () => {
   /** A commissioner who also owns a team, active draft with the league's own
    * roster shape, so every optional panel (commissioner controls, roster,
-   * live banner) mounts at once. rosterTeams[0] (Team A) is owner_id 5, so
-   * that's both the logged-in user and the league's commissioner here. */
+   * live banner) mounts at once. The viewer holds Team A through the join
+   * acknowledgement, and is the league's commissioner by account (the one
+   * check on this page that is still an account comparison - see #178). */
   const showFullBoard = async () => {
     renderBoard(1, { user: { id: 5, username: 'alice' } });
     await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1);
     act(() => fakeSocket.trigger('draft:state', stateEvent(rosterLeague({
       owner_id: 5,
       pick_deadline_at: new Date(Date.now() + 30000).toISOString(),
     }), {
       teams: rosterTeams,
       picks: [firstPick],
-      onTheClock: { id: 1, name: 'Team A' },
+      onTheClock: TEAM_A,
     })));
     await screen.findByText('Sunday Ballers');
   };
@@ -1464,12 +1484,13 @@ describe('accessible structure', () => {
   });
 
   test('the pending-draft readiness panel is a named region too', async () => {
-    renderBoard(1, { user: { id: 5, username: 'alice' } });
+    renderBoard(1);
     await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1);
     act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ draft_status: 'pending', owner_id: 99 }), {
       teams: [
-        { id: 1, name: 'Team A', owner: 'alice', owner_id: 5, draft_ready: false },
-        { id: 2, name: 'Team B', owner: 'bob', owner_id: 6, draft_ready: true },
+        { teamId: 1, teamName: 'Team A', draft_ready: false },
+        { teamId: 2, teamName: 'Team B', draft_ready: true },
       ],
       onTheClock: null,
     })));
@@ -1509,9 +1530,9 @@ describe('mobile layout (issue #122)', () => {
     renderBoard(1, { user: { id: 5, username: 'alice' } });
     await screen.findByText('Patrick Mahomes');
     act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ owner_id: 99 }), {
-      teams: [{ id: 1, name: 'Team A', owner: 'alice', owner_id: 5 }],
+      teams: [{ teamId: 1, teamName: 'Team A' }],
       picks: [],
-      onTheClock: { id: 1, name: 'Team A', owner: 'alice' },
+      onTheClock: { teamId: 1, teamName: 'Team A' },
     })));
   };
 
