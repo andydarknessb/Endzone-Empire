@@ -290,8 +290,15 @@ function DraftBoard() {
     setView('board');
   }, [league?.draft_status]);
 
-  const { queue, loading: queueLoading, handleQueuePlayer, handleMoveUp, handleMoveDown, handleRemoveFromQueue } =
-    useDraftQueue(leagueId, { onError: setError });
+  const {
+    queue,
+    loading: queueLoading,
+    writeError: queueWriteError,
+    handleQueuePlayer,
+    handleMoveUp,
+    handleMoveDown,
+    handleRemoveFromQueue,
+  } = useDraftQueue(leagueId, { onError: setError });
   const admin = useDraftAdmin(leagueId, league, { onError: setError });
 
   useTabTitleFlash(isMyTurn);
@@ -484,6 +491,7 @@ function DraftBoard() {
   // Shared by every DraftRail render below likewise.
   const draftRailProps = {
     queue,
+    queueError: queueWriteError,
     onMoveUp: handleMoveUp,
     onMoveDown: handleMoveDown,
     onRemoveFromQueue: handleRemoveFromQueue,

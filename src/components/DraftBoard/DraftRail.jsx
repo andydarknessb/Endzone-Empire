@@ -16,6 +16,7 @@ import {
   AccordionDetails,
   LinearProgress,
   Popover,
+  Alert,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
@@ -94,6 +95,11 @@ function useFocusRescue(present, fallbackRef) {
  * rail's own scrolling region, and a copy in here would scroll away. */
 function DraftRail({
   queue,
+  // The last failed queue write (issue #216), surfaced right here rather
+  // than in the room-wide error banner: a rejected reorder is a queue-panel
+  // problem, and the rest of the room - board, live banner, other panels -
+  // stays live and unaffected by it.
+  queueError = null,
   onMoveUp,
   onMoveDown,
   onRemoveFromQueue,
@@ -202,6 +208,11 @@ function DraftRail({
       <Typography id={queueHeadingId} variant="h6" component="h2" sx={{ mb: 2 }}>
         My Queue
       </Typography>
+      {queueError && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {queueError}
+        </Alert>
+      )}
       {queue.length === 0 ? (
         // Names the action a manager takes rather than where the players are.
         // "below" is only true in one of the three layouts this rail renders
