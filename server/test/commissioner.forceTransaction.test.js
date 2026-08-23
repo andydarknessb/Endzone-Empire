@@ -59,7 +59,10 @@ test('forceTransaction add: an eligible IR stash grants the extra spot', async (
   assert.equal(fake.matching(/^INSERT INTO "team_players"/).length, 1);
   // The added player earns no restored credit and lands on the bench (user
   // story 13): a forced add is still an add, never a way back into a stash.
-  assert.deepEqual(stashQueries[0][3], []);
+  // Passing no restored ids means the capacity query carries no fourth
+  // parameter and no interrupted-stash record is read (#197).
+  assert.equal(stashQueries[0].length, 3);
+  assert.equal(fake.matching(/^SELECT "waiver_players"\."interrupted_slot"/).length, 0);
   assert.deepEqual(benched, [{ league, teamId: 31, playerId: 500, afterRosterWrite: true }]);
   fake.assertClean();
 });

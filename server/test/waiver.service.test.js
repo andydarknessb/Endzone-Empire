@@ -94,9 +94,10 @@ test('claimFailureReason: a full team with no stash is rejected at the draft ros
   client.release();
 
   assert.equal(reason, 'roster capacity of 14 reached');
-  // The claimed player earns no restored credit: a won claim lands him on the
-  // bench, so a stale stash of his on this team grants nothing to the claim.
-  assert.deepEqual(stashParams[3], []);
+  // The claimed player earns no restored credit: a won claim lands him on
+  // the bench, so nothing about his history on this team grants anything to
+  // the claim. No restored ids means no fourth parameter (#197).
+  assert.equal(stashParams.length, 3);
   fake.assertClean();
 });
 

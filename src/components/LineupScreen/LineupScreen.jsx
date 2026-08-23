@@ -222,8 +222,27 @@ function LineupScreen() {
   // league object is otherwise available to this screen (it's reached
   // directly at /league/:leagueId/lineup with no league context passed
   // in) — read best_ball off the shared league fetch instead.
-  const { league } = useLeague(leagueId);
+  const { league, loading: leagueLoading } = useLeague(leagueId);
   const bestBall = !!league?.best_ball;
+
+  // Whether the league is actually known, so the advice effect below can
+  // wait for a real answer instead of treating "not loaded yet" as "not
+  // best ball" (issue #167). Deliberately not just "!leagueLoading":
+  // useLeague's shared cache does a stale-while-revalidate refresh (loading
+  // flips true, then false again, with the same settled data) whenever
+  // another mount on this league invalidates it or its TTL lapses, without
+  // clearing `league` for the duration — so `league != null` alone already
+  // stays true straight through a revalidation of an already-resolved
+  // league, and re-running the advice decision on every one of those cycles
+  // would trade the original wasted request for a new one fired on every
+  // background refresh. This also self-corrects when `leagueId` itself
+  // changes: useLeague's internal key-switch effect resets `league` to null
+  // before the new id's request starts, so a stale `league` from the
+  // previous id cannot make this look "known" for the new one beyond the
+  // one transient render the underlying hook itself briefly shows stale
+  // data for on any key switch (a pre-existing characteristic of
+  // useResource, not specific to this gate).
+  const leagueKnown = !leagueLoading || league != null;
 
   useEffect(() => {
     fetchLineup();
@@ -231,22 +250,32 @@ function LineupScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leagueId, selectedWeek]);
 
-  // Once the lineup for this week is known, load the decision-support
-  // panels that ride alongside it. Re-runs whenever `lineup` changes (week
-  // switch or a post-save refetch) so suggestions/bench stats stay in sync.
+  // Bench-total isn't gated on best_ball at all, so it doesn't need to wait
+  // on the league request the way the advice decision below does.
+  useEffect(() => {
+    if (!lineup) return;
+    fetchSeasonBenchTotal();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lineup]);
+
+  // Once the lineup for this week is known, decide whether to fetch
+  // start/sit advice. This must wait for the league request to resolve too:
+  // `bestBall` defaults to false while `league` hasn't loaded yet, and the
+  // lineup response commonly lands before the league response does. Firing
+  // on that unresolved default would request (and briefly render) start/sit
+  // advice for a best-ball league before the real best_ball value is known.
   // Best ball leagues set their optimal lineup automatically, so the
   // start/sit advice panel is skipped entirely — no need to even fetch it.
   useEffect(() => {
-    if (!lineup) return;
+    if (!lineup || !leagueKnown) return;
     if (!bestBall) {
       fetchAdvice();
     } else {
       setAdvice(null);
     }
-    fetchSeasonBenchTotal();
     // Advice refreshes when the loaded lineup changes; fetch functions are event helpers.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lineup, bestBall]);
+  }, [lineup, leagueKnown, bestBall]);
 
   const fetchLineup = async () => {
     try {
@@ -730,7 +759,7 @@ function LineupScreen() {
             </IconButton>
           </Box>
 
-          {Array.isArray(advice?.suggestions) && (
+          {!bestBall && Array.isArray(advice?.suggestions) && (
             <Paper sx={{ p: 2, mb: 3 }} data-testid="lineup-advice-panel" ref={advicePanelRef}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Typography variant="h6">{PROJECTION_ENGINE_NAME}</Typography>

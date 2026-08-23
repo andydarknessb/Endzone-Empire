@@ -9,7 +9,7 @@ const { requireMember } = require('./leagueMembership.service');
 const { teamIdentityOf } = require('./teamIdentity');
 const { assertFantasyLeagueRow } = require('./leagueType');
 const { draftRounds } = require('./rosterShape');
-const { rosterCapacity, undoRestoresStash } = require('./irPolicy.service');
+const { rosterCapacity, interruptedStash } = require('./irPolicy.service');
 
 const { POSITION_GROUPS } = lineupService;
 
@@ -315,6 +315,11 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommiss
 /**
  * Drop a player from the caller's roster in the league — transactional so the
  * roster row and any bookkeeping stay consistent.
+ *
+ * The lineup follows the roster (#197): his unlocked current-week row and
+ * every future week's row go with the roster row. What that row held is
+ * recorded on the waiver hold first, because the hold is what gates undo and
+ * the row will not be there to read afterwards.
  */
 async function dropPlayer({ leagueId, userId, playerId }) {
   const client = await pool.connect();
@@ -322,6 +327,14 @@ async function dropPlayer({ leagueId, userId, playerId }) {
     await client.query('BEGIN');
     const team = await requireMember(client, { leagueId, userId, forUpdate: true });
     if (team.locked) throw new DraftError(409, 'your team is locked by the commissioner');
+
+    const leagueResult = await client.query(
+      `SELECT "id", "waiver_period_hours", "current_season", "current_week"
+         FROM "leagues" WHERE "id" = $1`,
+      [leagueId]
+    );
+    const league = leagueResult.rows[0];
+    if (!league) throw new DraftError(404, 'league not found');
 
     const deleted = await client.query(
       `DELETE FROM "team_players"
@@ -332,16 +345,18 @@ async function dropPlayer({ leagueId, userId, playerId }) {
       throw new DraftError(404, 'player is not on your roster');
     }
 
+    const interrupted = await lineupService.currentWeekEntry(client, {
+      league, teamId: team.id, playerId,
+    });
+    await lineupService.removeLineupEntries(client, { league, teamId: team.id, playerId });
+
     // Dropped players pass through waivers before returning to free agency
-    const leagueResult = await client.query(
-      `SELECT "waiver_period_hours" FROM "leagues" WHERE "id" = $1`,
-      [leagueId]
-    );
     await placeOnWaivers(client, {
       leagueId,
       playerId,
-      waiverPeriodHours: leagueResult.rows[0].waiver_period_hours,
+      waiverPeriodHours: league.waiver_period_hours,
       droppedByTeamId: team.id,
+      ...lineupService.interruptedStashFields(interrupted),
     });
     await logTransaction(client, {
       leagueId,
@@ -365,6 +380,11 @@ async function dropPlayer({ leagueId, userId, playerId }) {
  * hold still names this team as the dropper (see `placeOnWaivers`'s
  * `droppedByTeamId`). This is what powers the drop snackbar's "Undo" button —
  * a normal `draftPlayer` call would be rejected by the waiver-hold check.
+ *
+ * Undo is the one acquisition that does not bench: it returns the player to
+ * the stash his drop interrupted, from the record the drop wrote on that
+ * same hold (#197), and only while that stash is still valid. Everything the
+ * undo needs is therefore read before the hold is deleted.
  */
 async function undoDrop({ leagueId, userId, playerId }) {
   const client = await pool.connect();
@@ -394,10 +414,10 @@ async function undoDrop({ leagueId, userId, playerId }) {
       `SELECT COUNT(*)::int AS n FROM "team_players" WHERE "team_id" = $1`,
       [team.id]
     );
-    // restoredPlayerIds makes the undo really an undo: the dropped player's
-    // surviving stash still grants its spot on the way back in - but only
-    // while it is still a valid stash. If it stopped being one while he was
-    // off the roster, the undo benches him instead of restoring it ungated.
+    // restoredPlayerIds makes the undo really an undo: the stash his drop
+    // interrupted still grants its spot on the way back in - but only while
+    // it is still a valid stash. If it stopped being one while he was on
+    // waivers, the undo benches him instead of restoring it ungated.
     const capacity = await rosterCapacity(client, {
       league,
       teamId: team.id,
@@ -406,7 +426,10 @@ async function undoDrop({ leagueId, userId, playerId }) {
     if (rosterCountResult.rows[0].n >= capacity) {
       throw new DraftError(409, `roster capacity of ${capacity} reached`);
     }
-    const restoresStash = await undoRestoresStash(client, { teamId: team.id, playerId });
+    // Read before the waiver hold is deleted below: the hold carries the
+    // record of what the drop interrupted, and there is no longer a
+    // surviving lineup row to fall back on (#197).
+    const restored = await interruptedStash(client, { leagueId, teamId: team.id, playerId });
 
     const playerResult = await client.query(
       `SELECT "id", "name", "position" FROM "players" WHERE "id" = $1`,
@@ -428,7 +451,14 @@ async function undoDrop({ leagueId, userId, playerId }) {
       `INSERT INTO "team_players" ("league_id", "team_id", "player_id") VALUES ($1, $2, $3)`,
       [leagueId, team.id, playerId]
     );
-    if (!restoresStash) {
+    if (restored) {
+      // The row the undo returns him to no longer exists - the drop deleted
+      // it - so the undo recreates it in the recorded slot, carrying the
+      // attestation the drop interrupted.
+      await lineupService.restoreInterruptedStash(client, {
+        league, teamId: team.id, playerId, slot: restored.slot, irAttested: restored.irAttested,
+      });
+    } else {
       await lineupService.benchAcquiredPlayer(client, { league, teamId: team.id, playerId });
     }
     await logTransaction(client, {

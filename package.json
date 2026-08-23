@@ -71,6 +71,7 @@
     "test:holdout-pg": "node --test server/test/holdout.pg.test.js",
     "test:draft-rounds-pg": "node --test server/test/draftRoundsBackfill.pg.test.js",
     "test:team-names-pg": "node --test server/test/teamNamesBackfill.pg.test.js",
+    "test:lineup-roster-pg": "node --test server/test/lineupFollowsRoster.pg.test.js",
     "test:backtest-pg": "node --test server/test/backtestSnapshotClient.pg.test.js server/test/backtestGate1Role.pg.test.js",
     "test:security": "playwright test --config=playwright.security.config.js",
     "test:e2e:auth-offline": "playwright test --config=playwright.e2e.config.js tests/e2e/auth-offline.spec.ts",
@@ -84,15 +85,18 @@
     "load:k6:notification-burst": "k6 run scripts/k6-notification-burst.js",
     "load:k6:admin-health": "k6 run load-tests/admin-dashboard-health.js",
     "infra:activate-k6": "node scripts/activate-k6.js",
-    "test:load-pipeline": "node scripts/run-load-triage.js"
+    "test:load-pipeline": "node scripts/run-load-triage.js",
+    "test:jest-discovery": "node --test scripts/jestTestMatch.test.js"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
     "react-scripts": "^5.0.1",
+    "@testing-library/dom": "^9.3.4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^14.3.1",
     "@testing-library/user-event": "^14.6.1",
     "axios-mock-adapter": "^2.1.0",
+    "jest-util": "^27.5.1",
     "nodemon": "^3.1.9",
     "redux-mock-store": "^1.5.5",
     "source-map-explorer": "^2.5.3",
@@ -116,6 +120,12 @@
       "last 1 chrome version",
       "last 1 firefox version",
       "last 1 safari version"
+    ]
+  },
+  "jest": {
+    "testMatch": [
+      "**/src/**/__tests__/**/*.{js,jsx,ts,tsx}",
+      "**/src/**/*.{spec,test}.{js,jsx,ts,tsx}"
     ]
   }
 }

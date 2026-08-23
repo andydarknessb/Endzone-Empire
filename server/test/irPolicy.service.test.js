@@ -5,6 +5,7 @@ const prefs = require('../services/prefs.service');
 const push = require('../services/push.service');
 const {
   flagRecoveredIrStashes,
+  interruptedStash,
   isIrEligible,
   isValidStash,
   rosterCapacity,
@@ -126,15 +127,29 @@ test('a stash is valid when its occupant is IR-eligible or commissioner-attested
 
 // --- roster capacity --------------------------------------------------------
 
-/** A stash-count world: answers the eligible-IR-stash count with `stashed`. */
-function capacityPool({ stashed, onQuery } = {}) {
+/**
+ * A stash-count world: answers the eligible-IR-stash count with `stashed`.
+ * `extra` handlers go first, for the interrupted-stash record a restored
+ * player's credit is re-derived from (#197).
+ */
+function capacityPool({ stashed, onQuery, extra = [] } = {}) {
   return createFakePool([
+    ...extra,
     [select('lineup_entries'), (text, params) => {
       if (onQuery) onQuery(text, params);
       return { rows: [{ n: stashed }] };
     }],
   ]);
 }
+
+/** The waiver hold's interrupted-stash record, as a fake-pool handler. */
+const interruptedRecord = (record, log = []) => [
+  /^SELECT "waiver_players"\."interrupted_slot"/,
+  (text, params) => {
+    log.push({ text, params });
+    return { rows: record ? [record] : [] };
+  },
+];
 
 test('rosterCapacity: an empty stash leaves capacity at the draft roster size', async () => {
   const fake = capacityPool({ stashed: 0 });
@@ -165,7 +180,7 @@ test('rosterCapacity: each eligible stash grants one spot, and only eligible occ
   // The count is scoped to this team's current-week IR slots and filtered to
   // the qualifying designations, so an ineligible occupant grants nothing -
   // unless the commissioner attested the stash, which grants like eligible.
-  assert.deepEqual(seen.params, [31, ['O', 'IR'], [], []]);
+  assert.deepEqual(seen.params, [31, ['O', 'IR'], []]);
   assert.match(seen.text, /\("players"\."injury_status" = ANY\(\$2::text\[\]\) OR "lineup_entries"\."ir_attested"\)/);
   assert.match(seen.text, /"lineup_entries"\."slot" = 'IR'/);
   assert.match(seen.text, /SELECT MAX\("latest"\."week"\)/);
@@ -220,47 +235,80 @@ test('rosterCapacity: excluded players (leaving in this transaction) grant nothi
   fake.assertClean();
 });
 
-test('rosterCapacity: a restored player counts through the stash the undo will land him in', async () => {
+test('rosterCapacity: a restored player counts through the stash his drop interrupted', async () => {
   let seen;
-  const fake = capacityPool({ stashed: 1, onQuery: (text, params) => { seen = { text, params }; } });
+  // The record the drop left on his waiver hold, which is what an undo
+  // returns him to now that no stale lineup row survives (#197).
+  const holds = [];
+  const fake = capacityPool({
+    stashed: 1,
+    onQuery: (text, params) => { seen = { text, params }; },
+    extra: [interruptedRecord(
+      { interrupted_slot: 'IR', interrupted_ir_attested: false, injury_status: 'O' },
+      holds
+    )],
+  });
   const client = await fake.connect();
 
   const capacity = await rosterCapacity(client, {
-    league: { roster_limit: 16, ir_slots: 1 },
+    league: { id: 5, roster_limit: 16, ir_slots: 1 },
     teamId: 31,
     restoredPlayerIds: [21],
   });
   client.release();
 
   assert.equal(capacity, 16);
-  assert.deepEqual(seen.params[3], [21]);
-  // The still-rostered requirement is relaxed for the restored player, but
-  // only for the entry the undo really returns him to: his current-week row
-  // (it survived the drop, so he sits straight back in it) or his row in the
-  // team's latest earlier week (materializeLineup's copy-forward source, so
-  // the stash is revived on the week's first touch). Anything older grants
-  // nothing - the copy-forward has no row for him and benches him.
-  assert.match(seen.text, /"team_players"\."player_id" IS NOT NULL AND "lineup_entries"\."week" = \( SELECT MAX\("latest"\."week"\)/);
-  assert.doesNotMatch(seen.text, /"latest"\."player_id"/);
-  assert.match(seen.text, /"lineup_entries"\."player_id" = ANY\(\$4::int\[\]\) AND "lineup_entries"\."week" = \( SELECT MAX\("restore"\."week"\)/);
-  assert.match(seen.text, /"restore"\."player_id" = "lineup_entries"\."player_id"/);
-  assert.match(seen.text, /"restore"\."week" = "leagues"\."current_week" OR "restore"\."week" = \( SELECT MAX\("source"\."week"\)/);
+  // The lineup-entry count itself no longer knows anything about restored
+  // players: the credit is a separate read of the interrupted-stash record,
+  // scoped to the league, the player and the team that holds the undo.
+  assert.deepEqual(seen.params, [31, ['O', 'IR'], []]);
+  assert.deepEqual(holds[0].params, [5, 21, 31]);
   fake.assertClean();
 });
 
-test('rosterCapacity: with no restored player the relaxation arm is bound to an empty list', async () => {
+test('rosterCapacity: the stash count is strictly still-on-the-roster, with no relaxation arm left', async () => {
   let seen;
   const fake = capacityPool({ stashed: 0, onQuery: (text, params) => { seen = { text, params }; } });
   const client = await fake.connect();
 
-  await rosterCapacity(client, { league: { roster_limit: 16, ir_slots: 1 }, teamId: 31 });
+  await rosterCapacity(client, { league: { id: 5, roster_limit: 16, ir_slots: 1 }, teamId: 31 });
   client.release();
 
-  // The arm is always in the SQL; what makes it inert is the empty int[] it
-  // is bound to (`= ANY('{}')` is false), so the stash count stays strictly
-  // "still on the roster" for every add site that passes no restored ids.
-  assert.match(seen.text, /"lineup_entries"\."player_id" = ANY\(\$4::int\[\]\)/);
-  assert.deepEqual(seen.params[3], []);
+  // The old relaxation arm revived a stash from the copy-forward SOURCE week
+  // when the current week had no row. A lineup entry now follows the roster,
+  // so a missing current-week row means he is not stashed - not that an
+  // older week should speak for him. The arm is gone, join and all.
+  assert.match(seen.text, /JOIN "team_players" ON "team_players"\."team_id" = "teams"\."id"/);
+  assert.doesNotMatch(seen.text, /LEFT JOIN "team_players"/);
+  assert.doesNotMatch(seen.text, /"restore"\./);
+  assert.doesNotMatch(seen.text, /"source"\./);
+  assert.equal(seen.params.length, 3);
+  // And with no restored ids there is no record read at all.
+  assert.equal(fake.matching(/FROM "waiver_players"/).length, 0);
+  fake.assertClean();
+});
+
+test('rosterCapacity: a restored player whose recorded stash went invalid earns nothing', async () => {
+  const fake = capacityPool({
+    stashed: 0,
+    // He recovered while on waivers: the slot is recorded, the designation
+    // no longer qualifies, and nothing attested it.
+    extra: [interruptedRecord({
+      interrupted_slot: 'IR', interrupted_ir_attested: false, injury_status: 'Q',
+    })],
+  });
+  const client = await fake.connect();
+
+  const capacity = await rosterCapacity(client, {
+    league: { id: 5, roster_limit: 16, ir_slots: 1 },
+    teamId: 31,
+    restoredPlayerIds: [21],
+  });
+  client.release();
+
+  // Re-derived here rather than trusted from the caller: passing the id is
+  // not what earns the spot, the record still being a valid stash is.
+  assert.equal(capacity, 15);
   fake.assertClean();
 });
 
@@ -305,31 +353,75 @@ test('IR flag push reaches only managers who keep irAlerts enabled', async (t) =
 
 // --- undo restores only a still-valid stash ----------------------------------
 
-test('undoRestoresStash asks whether the entry the undo lands in is a valid stash', async () => {
-  for (const [rows, expected] of [[[{ 1: 1 }], true], [[], false]]) {
-    let seen;
-    const fake = createFakePool([
-      [select('lineup_entries'), (text, params) => {
-        seen = { text, params };
-        return { rows };
-      }],
-    ]);
+test('undoRestoresStash reads the record the drop left, not a lineup entry', async () => {
+  const log = [];
+  const fake = createFakePool([
+    interruptedRecord(
+      { interrupted_slot: 'IR', interrupted_ir_attested: false, injury_status: 'O' },
+      log
+    ),
+  ]);
+  const client = await fake.connect();
+
+  const restores = await undoRestoresStash(client, { leagueId: 5, teamId: 31, playerId: 21 });
+  client.release();
+
+  assert.equal(restores, true);
+  // Scoped to the league, the player, and the team the hold names as the
+  // dropper: only the team that can undo the drop is credited for it.
+  assert.deepEqual(log[0].params, [5, 21, 31]);
+  assert.match(log[0].text, /"waiver_players"\."dropped_by_team_id" = \$3/);
+  assert.match(log[0].text, /JOIN "players" ON "players"\."id" = "waiver_players"\."player_id"/);
+  // No lineup row is consulted at all: the row the undo used to read is the
+  // one the drop now deletes (#197).
+  assert.equal(fake.matching(/"lineup_entries"/).length, 0);
+  fake.assertClean();
+});
+
+test('undoRestoresStash: the recorded slot and the live designation both have to qualify', async () => {
+  const cases = [
+    [{ interrupted_slot: 'IR', interrupted_ir_attested: false, injury_status: 'O' }, true,
+      'out, so still IR-eligible'],
+    [{ interrupted_slot: 'IR', interrupted_ir_attested: false, injury_status: 'IR' }, true,
+      'on injured reserve'],
+    [{ interrupted_slot: 'IR', interrupted_ir_attested: true, injury_status: 'Q' }, true,
+      'the commissioner attested it (#100), which stands in for eligibility'],
+    [{ interrupted_slot: 'IR', interrupted_ir_attested: false, injury_status: 'Q' }, false,
+      'he recovered while on waivers'],
+    [{ interrupted_slot: 'IR', interrupted_ir_attested: false, injury_status: null }, false,
+      'healthy'],
+    [{ interrupted_slot: 'BENCH', interrupted_ir_attested: false, injury_status: 'O' }, false,
+      'the drop interrupted a bench row, not a stash'],
+    [{ interrupted_slot: 'RB', interrupted_ir_attested: false, injury_status: 'O' }, false,
+      'the drop interrupted a starting slot; only a stash is restored'],
+    [{ interrupted_slot: null, interrupted_ir_attested: false, injury_status: 'O' }, false,
+      'he had no current-week row when he was dropped'],
+    [null, false, 'no waiver hold names this team as the dropper'],
+  ];
+
+  for (const [record, expected, why] of cases) {
+    const fake = createFakePool([interruptedRecord(record)]);
     const client = await fake.connect();
 
-    const restores = await undoRestoresStash(client, { teamId: 31, playerId: 21 });
+    const restores = await undoRestoresStash(client, { leagueId: 5, teamId: 31, playerId: 21 });
     client.release();
 
-    assert.equal(restores, expected);
-    assert.deepEqual(seen.params, [31, [21], ['O', 'IR']]);
-    // Same definition of "the stash the undo returns him to" as the capacity
-    // count: the restored placeholder relaxes the still-rostered join, and the
-    // occupant must be IR-eligible for the stash to be worth restoring.
-    assert.match(seen.text, /"lineup_entries"\."player_id" = ANY\(\$2::int\[\]\) AND "lineup_entries"\."week" = \( SELECT MAX\("restore"\."week"\)/);
-    assert.match(seen.text, /"restore"\."week" = "leagues"\."current_week" OR "restore"\."week" = \( SELECT MAX\("source"\."week"\)/);
-    // An attested stash (#100) is as valid to return to as an eligible one.
-    assert.match(seen.text, /\("players"\."injury_status" = ANY\(\$3::text\[\]\) OR "lineup_entries"\."ir_attested"\)/);
-    assert.match(seen.text, /"lineup_entries"\."slot" = 'IR'/);
-    assert.match(seen.text, /LIMIT 1$/);
+    assert.equal(restores, expected, why);
     fake.assertClean();
   }
+});
+
+test('interruptedStash hands back the attestation, so the undo can carry it', async () => {
+  const fake = createFakePool([interruptedRecord({
+    interrupted_slot: 'IR', interrupted_ir_attested: true, injury_status: 'Q',
+  })]);
+  const client = await fake.connect();
+
+  const stash = await interruptedStash(client, { leagueId: 5, teamId: 31, playerId: 21 });
+  client.release();
+
+  // A drop is not the manager slot move that ends an attestation, so undoing
+  // it restores the commissioner's standing override with the slot.
+  assert.deepEqual(stash, { slot: 'IR', irAttested: true });
+  fake.assertClean();
 });
