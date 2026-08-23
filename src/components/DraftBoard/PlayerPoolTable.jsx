@@ -43,18 +43,28 @@ import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 // empty result for an unused week is a normal, honest "no match", not a bug.
 const BYE_WEEK_OPTIONS = Array.from({ length: 18 }, (_, i) => i + 1);
 
-// SORT_FIELDS drives the mobile "Sort by" Select below (issue 122 acceptance
-// criterion 4: mobile keeps the full sort capability, not a stripped-down
-// view of it) - see sortFields.js for why it's shared with usePlayerPool's
-// own `?sort=` URL validation rather than defined here.
+// SORT_FIELDS drives both the mobile "Sort by" Select below and the desktop
+// table's TableSortLabel header row (issue 122 acceptance criterion 4:
+// mobile keeps the full sort capability, not a stripped-down view of it; issue
+// #163: the desktop headers used to hardcode this same key/label pairing a
+// second time, free to drift from usePlayerPool's `?sort=` URL validation -
+// see sortFields.js for why the list lives there instead of here) so all
+// three - validation, the mobile select, and the desktop headers - read one
+// list and can't drift apart again.
 //
-// Known duplication (code-review finding, deferred rather than expanding
-// this PR further): the desktop table's six TableSortLabel headers below
-// hardcode this same key/label pairing individually inline in their own
-// JSX. Unifying the two would mean making the header row itself
-// data-driven off this same list, which touches that stable, already
-// well-tested markup - a follow-up, not a change to make alongside a
-// layout PR.
+// RIGHT_ALIGNED_SORT_KEYS below is presentation-only (which sortable columns
+// are numeric and get the right-aligned, AbbreviationTooltip-wrapped header
+// treatment) - not a second list of sortable fields, since it's keyed off
+// SORT_FIELDS' own keys rather than repeating them.
+const RIGHT_ALIGNED_SORT_KEYS = new Set(['bye_week', 'adp', 'position_rank', 'proj']);
+
+// Keyed lookup onto SORT_FIELDS (code-review finding on issue #163: the
+// header row below places each SortableHeaderCell by key rather than by
+// SORT_FIELDS' array position/slice, so reordering SORT_FIELDS - which only
+// needs to stay meaningful for the mobile "Sort by" Select's option order -
+// can't silently desync the desktop headers from the TableBody's own,
+// independently fixed column sequence).
+const sortFieldsByKey = Object.fromEntries(SORT_FIELDS.map((field) => [field.key, field]));
 
 // Applies to every numeric column (Bye, ADP, Pos rank, 17-game pace): fixed-
 // width digit glyphs so a column of numbers lines up instead of drifting with
@@ -110,6 +120,28 @@ function rowStateFor(player, { draftedIds, canManualPickBase, tablePickUnavailab
   const overlap = (byeOverlapByWeek.get(player.bye_week) || []).filter((p) => p.id !== player.id);
   const queued = queue.some((p) => p.id === player.id);
   return { isDrafted, canManualPick, pickUnavailable, overlap, queued };
+}
+
+/** One desktop sortable column header, driven off a single SORT_FIELDS entry
+ * (issue #163) - active/direction/onSort/touch-target behaviour identical to
+ * what the six hardcoded headers had. Numeric columns (RIGHT_ALIGNED_SORT_KEYS)
+ * right-align and wrap their label in AbbreviationTooltip, matching every
+ * other numeric header (and body cell) in this table; Name and NFL Team show
+ * their label plain, same as before. */
+function SortableHeaderCell({ field, sort, dir, onSort }) {
+  const alignRight = RIGHT_ALIGNED_SORT_KEYS.has(field.key);
+  return (
+    <TableCell sx={headCellSx} align={alignRight ? 'right' : undefined}>
+      <TableSortLabel
+        active={sort === field.key}
+        direction={sort === field.key ? dir : 'asc'}
+        onClick={() => onSort(field.key)}
+        sx={MIN_TOUCH_TARGET_SX}
+      >
+        {alignRight ? <AbbreviationTooltip term={field.label} /> : field.label}
+      </TableSortLabel>
+    </TableCell>
+  );
 }
 
 /** Draft/Queue action row, identical gating logic and shared with the table's action cell. */
@@ -546,67 +578,21 @@ function PlayerPoolTable({
         <Table stickyHeader sx={stripedRowsSx}>
           <TableHead>
             <TableRow>
-              <TableCell sx={headCellSx}>
-                <TableSortLabel
-                  active={sort === 'name'}
-                  direction={sort === 'name' ? dir : 'asc'}
-                  onClick={() => onSort('name')}
-                  sx={MIN_TOUCH_TARGET_SX}
-                >
-                  Name
-                </TableSortLabel>
-              </TableCell>
+              {/* Column order is fixed markup here, same as the equally-fixed
+                  TableBody row below it - each SortableHeaderCell is looked
+                  up by key rather than taken from SORT_FIELDS' array
+                  position, so reordering SORT_FIELDS (its order only has to
+                  stay meaningful for the mobile "Sort by" Select) can't
+                  silently reorder these headers out of step with the body's
+                  independently-fixed column sequence. Position and Actions
+                  are the two non-sortable columns and aren't in SORT_FIELDS. */}
+              <SortableHeaderCell field={sortFieldsByKey.name} sort={sort} dir={dir} onSort={onSort} />
               <TableCell sx={headCellSx}>Position</TableCell>
-              <TableCell sx={headCellSx}>
-                <TableSortLabel
-                  active={sort === 'nfl_team'}
-                  direction={sort === 'nfl_team' ? dir : 'asc'}
-                  onClick={() => onSort('nfl_team')}
-                  sx={MIN_TOUCH_TARGET_SX}
-                >
-                  NFL Team
-                </TableSortLabel>
-              </TableCell>
-              <TableCell sx={headCellSx} align="right">
-                <TableSortLabel
-                  active={sort === 'bye_week'}
-                  direction={sort === 'bye_week' ? dir : 'asc'}
-                  onClick={() => onSort('bye_week')}
-                  sx={MIN_TOUCH_TARGET_SX}
-                >
-                  <AbbreviationTooltip term="Bye" />
-                </TableSortLabel>
-              </TableCell>
-              <TableCell sx={headCellSx} align="right">
-                <TableSortLabel
-                  active={sort === 'adp'}
-                  direction={sort === 'adp' ? dir : 'asc'}
-                  onClick={() => onSort('adp')}
-                  sx={MIN_TOUCH_TARGET_SX}
-                >
-                  <AbbreviationTooltip term="ADP" />
-                </TableSortLabel>
-              </TableCell>
-              <TableCell sx={headCellSx} align="right">
-                <TableSortLabel
-                  active={sort === 'position_rank'}
-                  direction={sort === 'position_rank' ? dir : 'asc'}
-                  onClick={() => onSort('position_rank')}
-                  sx={MIN_TOUCH_TARGET_SX}
-                >
-                  <AbbreviationTooltip term="Pos rank" />
-                </TableSortLabel>
-              </TableCell>
-              <TableCell sx={headCellSx} align="right">
-                <TableSortLabel
-                  active={sort === 'proj'}
-                  direction={sort === 'proj' ? dir : 'asc'}
-                  onClick={() => onSort('proj')}
-                  sx={MIN_TOUCH_TARGET_SX}
-                >
-                  <AbbreviationTooltip term="17-game pace" />
-                </TableSortLabel>
-              </TableCell>
+              <SortableHeaderCell field={sortFieldsByKey.nfl_team} sort={sort} dir={dir} onSort={onSort} />
+              <SortableHeaderCell field={sortFieldsByKey.bye_week} sort={sort} dir={dir} onSort={onSort} />
+              <SortableHeaderCell field={sortFieldsByKey.adp} sort={sort} dir={dir} onSort={onSort} />
+              <SortableHeaderCell field={sortFieldsByKey.position_rank} sort={sort} dir={dir} onSort={onSort} />
+              <SortableHeaderCell field={sortFieldsByKey.proj} sort={sort} dir={dir} onSort={onSort} />
               <TableCell sx={stickyActionHeadSx} align="center">
                 Actions
               </TableCell>
