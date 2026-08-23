@@ -33,9 +33,10 @@ export const colorTokens = {
     danger: '#c62828',
     warning: '#8a5a00',
     // Opaque (not alpha) so the ratio against each surface it can sit on is
-    // fixed and verifiable in tokens.contrast.test.js. An alpha composites
-    // to a different color over each surface, which is hard to verify and
-    // easy to regress. This is `accent` with the alpha dropped. See #155.
+    // fixed: one measurement covers every surface, where an alpha would need
+    // one per backdrop it composites over (tokens.contrast.test.js can measure
+    // those since #203, but the ring wants a single answer). This is `accent`
+    // with the alpha dropped. See #155.
     'focus-ring': '#1e5bb8',
     overlay: 'rgba(15, 20, 25, 0.5)',
     // Fantasy position palette (data encoding). Light theme: saturated, dark
