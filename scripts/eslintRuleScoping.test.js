@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const path = require('node:path');
 const { ESLint } = require('eslint');
 
@@ -42,21 +43,41 @@ const TESTING_LIBRARY_RULE = 'testing-library/render-result-naming-convention';
 const BASE_RULE = 'no-unused-vars';
 
 const eslint = new ESLint({ cwd: REPO_ROOT });
-const configFor = (filePath) => eslint.calculateConfigForFile(filePath);
+
+// calculateConfigForFile resolves purely by path SHAPE -- it never touches the
+// disk, and happily answers for a path that does not exist. That is what makes
+// these checks fast, but it also means the four paths above are shapes rather
+// than fixtures: rename them all away and the scoping assertions would still
+// pass while proving nothing about this repo. Anchor them to reality first.
+test('the representative files these assertions stand on still exist', () => {
+  for (const filePath of [
+    SERVER_TEST_FILE,
+    SERVER_SOURCE_FILE,
+    CLIENT_TEST_FILE,
+    CLIENT_SOURCE_FILE,
+  ]) {
+    assert.ok(
+      fs.existsSync(filePath),
+      `${path.relative(REPO_ROOT, filePath)} is gone, so the path shape it ` +
+        'represents is no longer evidence about this repo; repoint it at a ' +
+        'current file of the same shape.'
+    );
+  }
+});
 
 test('testing-library rules do not reach a server test file', async () => {
-  const config = await configFor(SERVER_TEST_FILE);
+  const config = await eslint.calculateConfigForFile(SERVER_TEST_FILE);
   assert.equal(config.rules[TESTING_LIBRARY_RULE], undefined);
 });
 
 test('no testing-library rule at all reaches a server test file', async () => {
-  const config = await configFor(SERVER_TEST_FILE);
+  const config = await eslint.calculateConfigForFile(SERVER_TEST_FILE);
   const leaked = Object.keys(config.rules).filter((rule) => rule.startsWith('testing-library/'));
   assert.deepEqual(leaked, []);
 });
 
 test('client test files still get the testing-library rules', async () => {
-  const config = await configFor(CLIENT_TEST_FILE);
+  const config = await eslint.calculateConfigForFile(CLIENT_TEST_FILE);
   assert.deepEqual(config.rules[TESTING_LIBRARY_RULE], ['error']);
 });
 
@@ -79,27 +100,33 @@ test('a deliberate violation in a client test is still reported', async () => {
 });
 
 test('testing-library rules do not reach a client source file either', async () => {
-  const config = await configFor(CLIENT_SOURCE_FILE);
+  const config = await eslint.calculateConfigForFile(CLIENT_SOURCE_FILE);
   assert.equal(config.rules[TESTING_LIBRARY_RULE], undefined);
 });
 
 // Over-scoping is the natural way to reach "0 errors" and it breaks silently.
 // Everything below is the mirror direction: server/ must still be linted.
 
+// Assert the rule is ON, not which severity the preset picked. Pinning 'warn'
+// would redden this guard the day react-app bumps the rule to 'error', for a
+// reason that has nothing to do with rule scoping.
+const isEnabled = (entry) => {
+  const severity = Array.isArray(entry) ? entry[0] : entry;
+  return severity !== undefined && severity !== 'off' && severity !== 0;
+};
+
 test('the base no-unused-vars rule still applies to a server test file', async () => {
-  const config = await configFor(SERVER_TEST_FILE);
-  assert.ok(config.rules[BASE_RULE], 'no-unused-vars is not configured for server tests');
-  assert.equal(config.rules[BASE_RULE][0], 'warn');
+  const config = await eslint.calculateConfigForFile(SERVER_TEST_FILE);
+  assert.ok(isEnabled(config.rules[BASE_RULE]), 'no-unused-vars is off for server tests');
 });
 
 test('the base no-unused-vars rule still applies to a server source file', async () => {
-  const config = await configFor(SERVER_SOURCE_FILE);
-  assert.ok(config.rules[BASE_RULE], 'no-unused-vars is not configured for server sources');
-  assert.equal(config.rules[BASE_RULE][0], 'warn');
+  const config = await eslint.calculateConfigForFile(SERVER_SOURCE_FILE);
+  assert.ok(isEnabled(config.rules[BASE_RULE]), 'no-unused-vars is off for server sources');
 });
 
 test('server files keep the node env so no-undef does not fire on node globals', async () => {
-  const config = await configFor(SERVER_TEST_FILE);
+  const config = await eslint.calculateConfigForFile(SERVER_TEST_FILE);
   assert.equal(config.env.node, true);
 });
 
