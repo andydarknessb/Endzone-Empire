@@ -95,8 +95,13 @@ test('renders all six tabs, defaulting to General Settings', () => {
   expect(screen.getByRole('checkbox', { name: 'Lock Transactions' })).toBeInTheDocument();
 });
 
-test('calls out immediate general-setting effects and destructive team removal', () => {
+test('calls out immediate general-setting effects and destructive team removal', async () => {
   renderTools({ league: league({ is_public: true, join_approval: true }) });
+  // is_public + join_approval mounts the join-requests panel, which fires its
+  // own GET on mount (unrelated to what this test asserts). Let that settle
+  // inside act before asserting, or its setJoinRequests(...) update lands
+  // after the test has already finished reading the screen.
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
 
   expect(screen.getByText(/Applies immediately\. Freezes adds/)).toBeInTheDocument();
   expect(screen.getByText('Destructive actions')).toBeInTheDocument();
@@ -837,6 +842,10 @@ test("a fantasy tab left selected does not survive a switch to a pick'em-only le
       <CommissionerTools leagueId={1} league={league()} teams={teams} viewerTeamId={1} onRefresh={jest.fn()} />
     </StableShell>
   );
+  // MUI's Tabs indicator repositions via a MutationObserver that fires
+  // asynchronously after mount, outside render()'s own synchronous act()
+  // flush. Let it settle before interacting so its update lands inside act.
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
   await userEvent.click(screen.getByRole('tab', { name: 'Scoring Settings' }));
   expect(screen.getByRole('button', { name: 'Save Scoring Settings' })).toBeInTheDocument();
 
