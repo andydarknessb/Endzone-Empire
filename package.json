@@ -86,8 +86,11 @@
     "load:k6:admin-health": "k6 run load-tests/admin-dashboard-health.js",
     "infra:activate-k6": "node scripts/activate-k6.js",
     "test:load-pipeline": "node scripts/run-load-triage.js",
-    "test:jest-discovery": "node --test scripts/jestTestMatch.test.js"
+    "test:jest-discovery": "node --test scripts/jestTestMatch.test.js",
+    "check:dom-dedupe": "npm run test:check-dom-dedupe && node scripts/ci/check-dom-dedupe.js",
+    "test:check-dom-dedupe": "node --test scripts/ci/check-dom-dedupe.test.js"
   },
+  "//devDependencies-testing-library-dom": "@testing-library/dom is pinned so @testing-library/react and @testing-library/user-event share one installed copy; a second copy re-splits user-event's act()-aware config and every user-event interaction dispatches outside act() with no test failing. Do not remove or loosen this pin without running `npm run check:dom-dedupe` first. See #219 (the original defect) and #224 (the guard, not yet wired into CI).",
   "devDependencies": {
     "@playwright/test": "^1.61.1",
     "react-scripts": "^5.0.1",
