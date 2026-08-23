@@ -47,6 +47,36 @@ test('names the creator commissioner and a co-commissioner co-commissioner, from
   expect(screen.queryByText('Commissioner')).not.toBeInTheDocument();
 });
 
+// #188 follow-up. In compact mode the whole card is one link, so every chip's
+// text is concatenated into its accessible name and the role chip announces
+// indistinguishably from "PPR" - one more league fact rather than a statement
+// about the reader. The labelling fix is only finished once the role reads as
+// a role out loud.
+test('announces the role as a statement about the reader, not as another league fact', () => {
+  const { unmount } = renderWithProviders(
+    <LeagueCard league={{ ...league, is_owner: true, is_commissioner: true }} compact />
+  );
+  expect(screen.getByRole('link')).toHaveAccessibleName(/You are the Commissioner/);
+
+  unmount();
+  renderWithProviders(
+    <LeagueCard league={{ ...league, is_owner: false, is_commissioner: true }} compact />
+  );
+  expect(screen.getByRole('link')).toHaveAccessibleName(/You are the Co-Commissioner/);
+});
+
+// Every card in a list carried the identical name "League actions", so a
+// screen-reader user moving through /league heard the same button over and
+// over with nothing to say which league it belonged to. Pre-existing, folded
+// in here because it is the same accessible-name pass as the chip above.
+test('names the league in the actions button, so a list of cards is navigable', () => {
+  renderWithProviders(
+    <LeagueCard league={{ ...league, is_owner: true }} onDelete={jest.fn()} />
+  );
+
+  expect(screen.getByRole('button', { name: 'League actions for Sunday Ballers' })).toBeInTheDocument();
+});
+
 test('offers the delete action to the creator only', async () => {
   const onDelete = jest.fn();
   const { unmount } = renderWithProviders(
@@ -54,20 +84,20 @@ test('offers the delete action to the creator only', async () => {
   );
   // Deleting a league is one of the powers that stays with the creator alone,
   // so a co-commissioner gets no actions menu at all.
-  expect(screen.queryByRole('button', { name: 'League actions' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /^League actions for / })).not.toBeInTheDocument();
 
   unmount();
   renderWithProviders(
     <LeagueCard league={{ ...league, is_owner: true }} onDelete={onDelete} />
   );
-  expect(screen.getByRole('button', { name: 'League actions' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /^League actions for / })).toBeInTheDocument();
 });
 
 test('requires confirmation before deleting a league', async () => {
   const onDelete = jest.fn();
   renderWithProviders(<LeagueCard league={{ ...league, is_owner: true }} onDelete={onDelete} />);
 
-  await userEvent.click(screen.getByRole('button', { name: 'League actions' }));
+  await userEvent.click(screen.getByRole('button', { name: /^League actions for / }));
   await userEvent.click(screen.getByRole('menuitem', { name: 'Delete' }));
   expect(screen.getByRole('dialog')).toHaveTextContent('Delete Sunday Ballers?');
   expect(onDelete).not.toHaveBeenCalled();

@@ -6,6 +6,7 @@ import {
   IconButton, Menu, MenuItem, Stack, Typography,
 } from '@mui/material';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
+import { visuallyHidden } from '@mui/utils';
 import Countdown from '../Countdown/Countdown';
 import { deriveLeaguePhase, LEAGUE_PHASE, LEAGUE_PHASE_META } from '../../lib/leaguePhase';
 import { isPickemOnly } from '../../lib/leagueType';
@@ -46,7 +47,23 @@ function LeagueCard({ league, onDelete, compact = false }) {
           <Chip size="small" variant="outlined" label={league.scoring_preset.replace('_', ' ').toUpperCase()} />
         )}
         {(isOwner || league.is_commissioner === true) && (
-          <Chip size="small" color="primary" variant="outlined" label={isOwner ? 'Commissioner' : 'Co-Commissioner'} />
+          // In compact mode the whole card is one link, so every chip's text is
+          // concatenated into its accessible name and this one would announce
+          // indistinguishably from "PPR" - one more league fact rather than a
+          // statement about the reader. The visually-hidden prefix makes the
+          // role read as a role out loud while the chip looks unchanged
+          // (the repo's own convention: see Countdown.jsx, PlayerPoolTable.jsx).
+          <Chip
+            size="small"
+            color="primary"
+            variant="outlined"
+            label={(
+              <>
+                <Box component="span" sx={visuallyHidden}>You are the </Box>
+                {isOwner ? 'Commissioner' : 'Co-Commissioner'}
+              </>
+            )}
+          />
         )}
         {phase === LEAGUE_PHASE.PRE_DRAFT && league.draft_date && (
           <Countdown variant="chip" date={league.draft_date} timeZone={league.draft_timezone} />
@@ -66,7 +83,7 @@ function LeagueCard({ league, onDelete, compact = false }) {
           <Stack direction="row" alignItems="flex-start">
             <Box sx={{ flexGrow: 1, minWidth: 0 }}>{content}</Box>
             {isOwner && onDelete && (
-              <IconButton aria-label="League actions" size="small" onClick={(event) => setAnchorEl(event.currentTarget)} sx={{ m: 1 }}>
+              <IconButton aria-label={`League actions for ${league.name}`} size="small" onClick={(event) => setAnchorEl(event.currentTarget)} sx={{ m: 1 }}>
                 <MoreVertIcon />
               </IconButton>
             )}

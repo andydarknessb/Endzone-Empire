@@ -425,31 +425,43 @@ function GeneralSettingsPanel({ leagueId, league, teams, viewerTeamId, isOwner, 
         </Box>
       )}
 
-      {removableTeams.length > 0 && (
-        <Paper variant="outlined" sx={{ p: 2, borderColor: 'error.main' }}>
-          <Typography variant="overline" color="error.main">Destructive actions</Typography>
-          <Typography variant="subtitle2" sx={{ mb: 1 }}>Remove a team</Typography>
-          <List dense sx={{ bgcolor: 'background.default', borderRadius: 1 }}>
-            {removableTeams.map((team) => (
-              <ListItem
-                key={team.id}
-                secondaryAction={
-                  <IconButton
-                    edge="end"
-                    aria-label={`Remove ${team.name}`}
-                    color="error"
-                    onClick={() => setRemoveTarget(team)}
-                  >
-                    <DeleteIcon fontSize="small" />
-                  </IconButton>
-                }
-              >
-                <ListItemText primary={team.name} secondary={team.owner} />
-              </ListItem>
-            ))}
-          </List>
-        </Paper>
-      )}
+      {/* Rendered whenever the viewer may remove teams at all, not only when
+          the list has something in it (#188). Two rules keep a team off this
+          list, and hiding the whole section when they empty it - a two-team
+          league of the viewer's and the creator's does exactly that - took the
+          overline, the subheading and the list out of the DOM together, so
+          someone who used this section last week found no trace of it and no
+          reason. The caption below states the rule the list cannot show. */}
+      <Paper variant="outlined" sx={{ p: 2, borderColor: 'error.main' }}>
+        <Typography variant="overline" color="error.main">Destructive actions</Typography>
+        <Typography variant="subtitle2" sx={{ mb: 1 }}>Remove a team</Typography>
+        {/* The server's own refusal, restated rather than reworded: removeTeam
+            raises exactly this on a 409, and that 409 was the only place the
+            rule was ever stated to a user. Keeping the wording identical means
+            the person who hits it by another route reads the same sentence. */}
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+          Your own team and the league creator&apos;s team can&apos;t be removed.
+        </Typography>
+        <List dense sx={{ bgcolor: 'background.default', borderRadius: 1 }}>
+          {removableTeams.map((team) => (
+            <ListItem
+              key={team.teamId}
+              secondaryAction={
+                <IconButton
+                  edge="end"
+                  aria-label={`Remove ${team.name}`}
+                  color="error"
+                  onClick={() => setRemoveTarget(team)}
+                >
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+              }
+            >
+              <ListItemText primary={team.name} secondary={team.owner} />
+            </ListItem>
+          ))}
+        </List>
+      </Paper>
 
       <Dialog open={!!removeTarget} onClose={() => setRemoveTarget(null)}>
         <DialogTitle>Remove {removeTarget?.name}?</DialogTitle>

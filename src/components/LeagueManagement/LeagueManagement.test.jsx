@@ -87,7 +87,7 @@ test('the Delete action only appears for leagues the user owns', async () => {
 
   await screen.findByText('Mine');
   // Only the owned league's card renders the "..." actions menu at all.
-  const menuTriggers = screen.getAllByRole('button', { name: 'League actions' });
+  const menuTriggers = screen.getAllByRole('button', { name: /^League actions for / });
   expect(menuTriggers).toHaveLength(1);
 
   await userEvent.click(menuTriggers[0]);
@@ -299,7 +299,7 @@ test('deleting a league calls the delete endpoint and refetches', async () => {
   renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
   await screen.findByText('Sunday Ballers');
 
-  await userEvent.click(screen.getByRole('button', { name: 'League actions' }));
+  await userEvent.click(screen.getByRole('button', { name: /^League actions for / }));
   await userEvent.click(screen.getByRole('menuitem', { name: 'Delete' }));
   await userEvent.click(screen.getByRole('button', { name: 'Delete League' }));
 
@@ -313,7 +313,7 @@ test('canceling the delete confirmation dialog leaves the league intact', async 
   renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
   await screen.findByText('Sunday Ballers');
 
-  await userEvent.click(screen.getByRole('button', { name: 'League actions' }));
+  await userEvent.click(screen.getByRole('button', { name: /^League actions for / }));
   await userEvent.click(screen.getByRole('menuitem', { name: 'Delete' }));
   expect(await screen.findByRole('heading', { name: /delete sunday ballers\?/i })).toBeInTheDocument();
 

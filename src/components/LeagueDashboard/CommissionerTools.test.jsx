@@ -197,6 +197,59 @@ test("offers a co-commissioner no Remove button for the creator's team", () => {
   expect(screen.getByRole('button', { name: "Remove Carol's Team" })).toBeInTheDocument();
 });
 
+// #188 follow-up. Filtering the creator's team out of the removal list is
+// right, but the 409 it used to produce ("the league creator's team can't be
+// removed") was the ONLY place that rule was ever stated to a user. Hiding the
+// button without saying why leaves a co-commissioner looking for a team that
+// is simply absent - and because the whole Paper was gated on the list being
+// non-empty, in a two-team league the overline, the subheading and the list
+// vanished from the DOM together, so there was no trace of the section at all.
+test('states the creator-team rule instead of silently omitting the team', () => {
+  const twoTeams = [
+    { id: 1, teamId: 1, name: "Alice's Team", owner: 'alice' },
+    { id: 2, teamId: 2, name: "Bob's Team", owner: 'bob' },
+  ];
+  // Bob is a co-commissioner; Alice created the league. Nothing is removable:
+  // Bob's own team by the first rule, Alice's by the second.
+  renderTools({
+    viewerTeamId: 2,
+    teams: twoTeams,
+    league: league({ ownerTeamId: 1, ownerTeamName: "Alice's Team" }),
+  });
+
+  expect(screen.getByText('Remove a team')).toBeInTheDocument();
+  expect(screen.getByText(/the league creator's team can't be removed/i)).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: "Remove Alice's Team" })).not.toBeInTheDocument();
+});
+
+// The rule is stated whenever the section is, not only when the list empties:
+// a co-commissioner who CAN remove someone still needs to know why one name is
+// missing from the list in front of them.
+test('states the rule alongside a non-empty removal list too', () => {
+  const threeTeams = [
+    { id: 1, teamId: 1, name: "Alice's Team", owner: 'alice' },
+    { id: 2, teamId: 2, name: "Bob's Team", owner: 'bob' },
+    { id: 3, teamId: 3, name: "Carol's Team", owner: 'carol' },
+  ];
+  renderTools({
+    viewerTeamId: 2,
+    teams: threeTeams,
+    league: league({ ownerTeamId: 1, ownerTeamName: "Alice's Team" }),
+  });
+
+  expect(screen.getByRole('button', { name: "Remove Carol's Team" })).toBeInTheDocument();
+  expect(screen.getByText(/the league creator's team can't be removed/i)).toBeInTheDocument();
+});
+
+// The list row's React key moved to `teamId` with the filter above it, or
+// the file contradicts itself (#188). There is no test for it: a React key
+// is not observable from the DOM, and the one probe that exists - React's
+// own "unique key prop" warning - is emitted at most once per component per
+// run, so a test asserting on it passes or fails depending on which other
+// test rendered this panel first. A green that depends on file order would
+// certify nothing, which is the failure this whole sweep is about. The
+// change is verified by reading it.
+
 // --- Roster Settings ---
 
 test('Roster Settings renders configured slots and separates drafted spots from IR', async () => {
