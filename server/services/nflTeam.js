@@ -1,6 +1,15 @@
 /**
- * ONE NFL team vocabulary for JavaScript, mirroring the database's
+ * The NFL team vocabulary for JavaScript, mirroring the database's
  * `fn_normalize_nfl_team(text)` exactly (#227).
+ *
+ * NOT YET THE ONLY ONE, and saying so here is cheaper than discovering it.
+ * `scoring.service`'s `normalizeTeamAbbr` still resolves a team its own way
+ * for the live box-score path: it takes the full-name table from this module
+ * but short-circuits on `/^[A-Z]{2,3}$/`, so it passes `WSH` through
+ * un-aliased where this module folds it to `WAS`. That is harmless where it
+ * is used - both sides of that comparison are Tank01's own spelling - and it
+ * is not a kickoff-keyed rule, so #227 left it alone deliberately rather than
+ * by oversight. Do not read this file as having already won.
  *
  * THE PROBLEM IT ANSWERS. Team identity is written into this database in
  * three vocabularies and no column says which one it is holding:
@@ -46,7 +55,7 @@
 
 // Full NFL team name -> canonical abbreviation. Mirrors the `full_names`
 // VALUES list in server/db/migrations/20260719000003_view_matchup_nfl_games.js.
-const NFL_TEAM_FULL_NAMES = {
+const NFL_TEAM_FULL_NAMES = Object.freeze({
   'ARIZONA CARDINALS': 'ARI', 'ATLANTA FALCONS': 'ATL', 'BALTIMORE RAVENS': 'BAL',
   'BUFFALO BILLS': 'BUF', 'CAROLINA PANTHERS': 'CAR', 'CHICAGO BEARS': 'CHI',
   'CINCINNATI BENGALS': 'CIN', 'CLEVELAND BROWNS': 'CLE', 'DALLAS COWBOYS': 'DAL',
@@ -58,18 +67,18 @@ const NFL_TEAM_FULL_NAMES = {
   'NEW YORK JETS': 'NYJ', 'PHILADELPHIA EAGLES': 'PHI', 'PITTSBURGH STEELERS': 'PIT',
   'SAN FRANCISCO 49ERS': 'SF', 'SEATTLE SEAHAWKS': 'SEA', 'TAMPA BAY BUCCANEERS': 'TB',
   'TENNESSEE TITANS': 'TEN', 'WASHINGTON COMMANDERS': 'WAS',
-};
+});
 
 // Legacy / alternate abbreviation -> canonical abbreviation. Mirrors the
 // `aliases` VALUES list in the same migration.
-const NFL_TEAM_ALIASES = {
+const NFL_TEAM_ALIASES = Object.freeze({
   // Washington has cycled through several Tank01/legacy codes
   WSH: 'WAS', WFT: 'WAS',
   GNB: 'GB', KAN: 'KC', JAC: 'JAX', NWE: 'NE',
   NOR: 'NO', TAM: 'TB', SFO: 'SF',
   // pre-relocation abbreviations that may still linger in stale rows
   SD: 'LAC', OAK: 'LV', STL: 'LAR', LA: 'LAR',
-};
+});
 
 /**
  * A team string in ANY of the three vocabularies -> the one canonical
@@ -95,19 +104,8 @@ function normalizeNflTeam(rawTeam) {
   return NFL_TEAM_FULL_NAMES[value] || NFL_TEAM_ALIASES[value] || value;
 }
 
-/**
- * Do these two team strings name the same NFL team? The predicate `players`
- * and `nfl_games` should always have been compared with. Two unknowns match
- * only when they are spelled the same; a blank matches nothing at all.
- */
-function sameNflTeam(a, b) {
-  const left = normalizeNflTeam(a);
-  return left !== null && left === normalizeNflTeam(b);
-}
-
 module.exports = {
   NFL_TEAM_FULL_NAMES,
   NFL_TEAM_ALIASES,
   normalizeNflTeam,
-  sameNflTeam,
 };

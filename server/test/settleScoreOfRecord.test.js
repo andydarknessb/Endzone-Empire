@@ -1056,7 +1056,7 @@ test('#190 the kickoff question goes through lineup.service\'s shared predicate'
   assert.ok(scheduleReads.length > 0, 'the schedule is consulted');
   for (const call of scheduleReads) {
     assert.match(call.text, /^SELECT "nfl_team", "kickoff_at" FROM "nfl_games"/,
-      'every schedule read on this path is lineup.service\'s weekKickoffs, not a second one grown here');
+      'every schedule read on this path is lineup.service\'s weekKickoffs, reached through playerKickoffs, not a second one grown here');
     assert.deepEqual(call.params, [SEASON, WEEK]);
   }
   const [tenureRead] = world.fake.matching(/FROM "roster_tenures"/);

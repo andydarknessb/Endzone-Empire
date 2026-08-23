@@ -422,6 +422,26 @@ async function restoreInterruptedStash(client, { league, teamId, playerId, slot,
  */
 
 /**
+ * A player's schedule key, and the one thing that must not fail quietly.
+ *
+ * The team half is ordinary: normalise it, or `null` when he has none. The id
+ * half is a GUARD, because every answer below is keyed by player id and the
+ * four callers build their `{ id, nflTeam }` list from three different row
+ * shapes - `players.id` in `getLineup`, `lineup_entries.player_id` in
+ * `setLineup`, a bare `playerId` on the drop path. A caller that reaches for
+ * the wrong field gets `undefined` ids, every lookup misses, and the answer
+ * comes back EMPTY: nothing locked, nobody excluded. That is silent, and it is
+ * bit-for-bit the failure #227 exists to end - so it is made loud here rather
+ * than left to be noticed in a settled week.
+ */
+function scheduleKeyFor(player) {
+  if (player.id === null || player.id === undefined) {
+    throw new Error('lineup.service: a player in the kickoff question has no id');
+  }
+  return normalizeNflTeam(player.nflTeam);
+}
+
+/**
  * The normalised NFL teams whose game for (season, week) has kicked off.
  * Private on purpose: this is the schedule side of the comparison, and
  * handing it out is how the module got #227 in the first place.
@@ -451,7 +471,7 @@ async function lockedPlayerIds(client, { season, week, now = new Date(), players
   const kickedOff = await kickedOffTeams(client, { season, week, now });
   const locked = new Set();
   for (const player of players || []) {
-    const team = normalizeNflTeam(player.nflTeam);
+    const team = scheduleKeyFor(player);
     if (team !== null && kickedOff.has(team)) locked.add(player.id);
   }
   return locked;
@@ -497,7 +517,7 @@ async function playerKickoffs(client, { season, week, players }) {
   const kickoffs = await weekKickoffs(client, { season, week });
   const byPlayer = new Map();
   for (const player of players || []) {
-    const team = normalizeNflTeam(player.nflTeam);
+    const team = scheduleKeyFor(player);
     if (team === null) continue;
     const kickoff = kickoffs.get(team);
     if (kickoff !== undefined) byPlayer.set(player.id, kickoff);
@@ -850,7 +870,6 @@ module.exports = {
   interruptedStashFields,
   restoreInterruptedStash,
   lockedPlayerIds,
-  playerKickoffs,
   playersNotHeldAtKickoff,
   annotateLineupEntries,
   getLineup,

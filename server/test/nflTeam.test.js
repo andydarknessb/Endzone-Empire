@@ -24,8 +24,13 @@ const {
   NFL_TEAM_FULL_NAMES,
   NFL_TEAM_ALIASES,
   normalizeNflTeam,
-  sameNflTeam,
 } = require('../services/nflTeam');
+
+/** Reads the way the consumers do: two team strings, one yes-or-no. */
+const sameTeam = (a, b) => {
+  const left = normalizeNflTeam(a);
+  return left !== null && left === normalizeNflTeam(b);
+};
 
 const MIGRATION = path.join(
   __dirname, '..', 'db', 'migrations', '20260719000003_view_matchup_nfl_games.js'
@@ -42,9 +47,9 @@ test('a full team name resolves to the abbreviation the schedule uses', () => {
 test('alias codes collapse onto the canonical abbreviation in both directions', () => {
   assert.equal(normalizeNflTeam('WSH'), 'WAS');
   assert.equal(normalizeNflTeam('WAS'), 'WAS');
-  assert.ok(sameNflTeam('WSH', 'WAS'), 'neither spelling is privileged');
-  assert.ok(sameNflTeam('WAS', 'WSH'));
-  assert.ok(sameNflTeam('Washington Commanders', 'WSH'));
+  assert.ok(sameTeam('WSH', 'WAS'), 'neither spelling is privileged');
+  assert.ok(sameTeam('WAS', 'WSH'));
+  assert.ok(sameTeam('Washington Commanders', 'WSH'));
   // Pre-relocation codes still lingering in stale rows.
   assert.equal(normalizeNflTeam('OAK'), 'LV');
   assert.equal(normalizeNflTeam('SD'), 'LAC');
@@ -56,8 +61,8 @@ test('an unknown team passes through rather than folding onto a real one', () =>
   // team would be worse than leaving it alone, and is how a normalisation
   // turns "no game this week" into a kickoff.
   assert.equal(normalizeNflTeam('Ghosts'), 'GHOSTS');
-  assert.ok(sameNflTeam('Ghosts', 'ghosts'));
-  assert.ok(!sameNflTeam('Ghosts', 'DEN'));
+  assert.ok(sameTeam('Ghosts', 'ghosts'));
+  assert.ok(!sameTeam('Ghosts', 'DEN'));
 });
 
 test('a missing team matches nothing, including another missing team', () => {
@@ -66,13 +71,19 @@ test('a missing team matches nothing, including another missing team', () => {
   // recorded must never be treated as team-mates who kicked off together.
   for (const blank of [null, undefined, '', '   ']) {
     assert.equal(normalizeNflTeam(blank), null);
-    assert.ok(!sameNflTeam(blank, blank));
-    assert.ok(!sameNflTeam(blank, 'DEN'));
-    assert.ok(!sameNflTeam('DEN', blank));
+    assert.ok(!sameTeam(blank, blank));
+    assert.ok(!sameTeam(blank, 'DEN'));
+    assert.ok(!sameTeam('DEN', blank));
   }
 });
 
-test('the JS mirror and fn_normalize_nfl_team still say the same thing', () => {
+test('the JS tables still match the VALUES lists fn_normalize_nfl_team is built from', () => {
+  // Precisely that, and not more: this compares the two SOURCE TABLES, not the
+  // behaviour of the two functions. The lookup logic around them - upper/trim,
+  // full names before aliases, unknown passes through - is asserted against
+  // the SQL's shape by the four tests above, by reading it rather than by
+  // running it. Behavioural parity with a live Postgres is not claimed here,
+  // and the only way to claim it would be a database this suite must not have.
   const sql = fs.readFileSync(MIGRATION, 'utf8');
 
   /**

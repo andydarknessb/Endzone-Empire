@@ -31,6 +31,7 @@ const {
   getLineup,
   setLineup,
   removeLineupEntries,
+  lockedPlayerIds,
 } = require('../services/lineup.service');
 
 const SEASON = 2026;
@@ -191,6 +192,32 @@ test('#227 getLineup reports a kicked-off DEF unit as locked to the manager', as
   const byId = new Map(lineup.entries.map((entry) => [entry.id, entry]));
   assert.equal(byId.get(DEF_UNIT.player_id).locked, true, 'his game has started');
   assert.equal(byId.get(ALIAS_QB.player_id).locked, false, 'his has not');
+  fake.assertClean();
+});
+
+test('#227 a player list with no id is refused, not answered with an empty set', async (t) => {
+  // The guard on the shape, and it is not defensive padding. Four call sites
+  // build `{ id, nflTeam }` from three different row shapes - `players.id`,
+  // `lineup_entries.player_id`, a bare `playerId` - and reaching for the wrong
+  // one yields undefined ids, every lookup misses, and the predicate returns
+  // EMPTY. Nothing locked, nobody excluded, no error: that is #227's own
+  // failure mode rebuilt in the fix for it. It has to be loud.
+  const fake = lineupWorld({
+    entries: [{ ...DEF_UNIT, slot: 'DEF' }],
+    kickedOff: ['DEN'],
+  }).install(t);
+  const client = await fake.connect();
+
+  await assert.rejects(
+    lockedPlayerIds(client, {
+      season: SEASON,
+      week: WEEK,
+      // What a caller that mapped `row.id` off a row keyed `player_id` gets.
+      players: [{ id: undefined, nflTeam: 'Denver Broncos' }],
+    }),
+    /has no id/
+  );
+  client.release();
   fake.assertClean();
 });
 
