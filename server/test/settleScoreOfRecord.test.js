@@ -4,7 +4,6 @@ const express = require('express');
 const request = require('supertest');
 const { createFakePool } = require('./helpers/fakePool');
 const { tenureHandlers, tenure } = require('./helpers/tenureFakes');
-const pool = require('../modules/pool');
 const {
   benchAcquiredPlayer,
   removeLineupEntries,
@@ -1092,26 +1091,22 @@ test('#190 advance-week asks for settle semantics, pinned to the week it is clos
   app.use(express.json());
   app.use('/api/scoring', require('../routes/scoring.router'));
 
-  t.mock.method(pool, 'query', async (sql) => {
-    const text = String(sql).replace(/\s+/g, ' ').trim();
-    if (/"pickem_only" FROM "leagues"/.test(text)) return { rows: [{ pickem_only: false }] };
-    if (/SELECT 1 FROM "leagues"/.test(text)) return { rows: [{ ok: 1 }] }; // commissioner
-    if (/"current_season", "current_week"/.test(text)) {
-      // The handler also selects the phase columns now (#194); this league is
-      // mid-season with its draft done, which is the only state in which
-      // advance-week does anything at all.
-      return {
-        rows: [{
-          current_season: SEASON,
-          current_week: WEEK,
-          pickem_only: false,
-          draft_status: 'complete',
-          season_status: 'regular',
-        }],
-      };
-    }
-    throw new Error(`unexpected query: ${text}`);
-  });
+  createFakePool([
+    [/"pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
+    [/^SELECT 1 FROM "leagues"/, () => ({ rows: [{ ok: 1 }] })], // commissioner
+    // The handler also selects the phase columns now (#194); this league is
+    // mid-season with its draft done, which is the only state in which
+    // advance-week does anything at all.
+    [/"current_season", "current_week"/, () => ({
+      rows: [{
+        current_season: SEASON,
+        current_week: WEEK,
+        pickem_only: false,
+        draft_status: 'complete',
+        season_status: 'regular',
+      }],
+    })],
+  ]).install(t);
 
   const scoreCalls = [];
   t.mock.method(scoring, 'scoreMatchups', async (args) => {
