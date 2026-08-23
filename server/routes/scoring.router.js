@@ -433,10 +433,17 @@ router.post('/league/:id/advance-week', async (req, res) => {
       [leagueId]
     );
     const { current_season, current_week } = leagueResult.rows[0];
+    // The score of record, so SETTLE semantics rather than the live path
+    // (#190): the week as played, with no re-materialization and no join to
+    // whatever the roster looks like now. Pinned to the (season, week) read
+    // above, never to current_week afterwards - finalizeWeekAndAdvance moves
+    // it. Score still comes BEFORE finalize: finalize seeds the playoff
+    // bracket from computeStandings over these very scores.
     const scoredResult = await scoring.scoreMatchups({
       leagueId,
       season: current_season,
       week: current_week,
+      settle: true,
     });
     const advance = await season.finalizeWeekAndAdvance({ leagueId });
     // Post-week analytics in the background — display data, never worth

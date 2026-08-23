@@ -59,6 +59,8 @@ const QB_A = 1; // Team A's QB, 8.0 points, plays for the Chiefs
 const QB_B = 3; // Team B's QB, 10.0 points, plays for the Bills
 const ACQUIRED = 4; // RB, 30.0 points, plays for the Eagles
 const BYE_MAN = 5; // RB, 12.0 points, whose NFL team has NO game row this week
+const QB_C = 6; // Team C's QB, 20.0 points (seeding fixture only)
+const QB_D = 7; // Team D's QB, 5.0 points (seeding fixture only)
 
 // The one timeline every test reads. Every NFL game in the fixture kicks off
 // at KICKOFF, so "before" and "after" mean before and after the week's games.
@@ -76,6 +78,8 @@ const NFL_TEAM = new Map([
   [QB_B, 'Bills'],
   [ACQUIRED, 'Eagles'],
   [BYE_MAN, 'Ghosts'], // deliberately absent from nfl_games
+  [QB_C, 'Chiefs'],
+  [QB_D, 'Chiefs'],
 ]);
 
 const POSITION = new Map([
@@ -83,6 +87,8 @@ const POSITION = new Map([
   [QB_B, 'QB'],
   [ACQUIRED, 'RB'],
   [BYE_MAN, 'RB'],
+  [QB_C, 'QB'],
+  [QB_D, 'QB'],
 ]);
 
 const WEEK_STATS = new Map([
@@ -90,6 +96,8 @@ const WEEK_STATS = new Map([
   [QB_B, { passingYards: 250 }], // 10.0
   [ACQUIRED, { rushingYards: 300 }], // 30.0
   [BYE_MAN, { rushingYards: 120 }], // 12.0
+  [QB_C, { passingYards: 500 }], // 20.0
+  [QB_D, { passingYards: 125 }], // 5.0
 ]);
 
 function createWorld({
@@ -420,10 +428,12 @@ test('#190 best ball: a player acquired AFTER his game is excluded from the scor
  * Standard-league acquisition, with #97 / PR #102 preserved           *
  * ------------------------------------------------------------------ */
 
-test('#190 standard: a post-game acquisition is excluded, and still benches into the next week', async (t) => {
+test('#190 standard: a post-game acquisition is excluded even from a STARTING slot', async (t) => {
   // He started at RB for team B back in week 7, so materializeLineup's
   // copy-forward hands him a STARTING slot in week 8 - which is exactly what
   // a standard league counts. Without the settle rule he is paid for it.
+  // This is the standard-league twin of the best-ball test above: best ball
+  // needs no such help, which is why the two leagues need separate fixtures.
   const world = createWorld({
     lineupEntries: [
       { team_id: TEAM_A, player_id: QB_A, season: SEASON, week: WEEK, slot: 'QB', ir_attested: false },
@@ -444,8 +454,28 @@ test('#190 standard: a post-game acquisition is excluded, and still benches into
   await advanceWeek(world.state);
 
   assert.equal(awayScoreOf(world.state), 10, 'the starting slot is not enough: he was acquired after kickoff');
+  world.fake.assertClean();
+});
 
-  // #97 / PR #102: the acquisition still owns a bench spot in the new week.
+test('#190 standard: excluding a post-game acquisition still leaves him benched next week', async (t) => {
+  // #97 / PR #102: an acquisition lands on the bench, and the settle pass
+  // must not cost him that. Kept separate from the test above because that
+  // one gives him week-7 history on purpose, and materializeLineup's
+  // copy-forward would then carry the RB slot into week 9 - which is the
+  // copy-forward's own behaviour, not anything #190 decides.
+  const world = createWorld();
+  world.fake.install(t);
+
+  await acquire(world.fake, world.state);
+  assert.equal(
+    world.entriesFor(TEAM_B, SEASON, WEEK).find((e) => e.player_id === ACQUIRED).slot,
+    'BENCH',
+    'the acquisition benches him in the closing week'
+  );
+
+  await advanceWeek(world.state);
+  assert.equal(awayScoreOf(world.state), 10, 'and a benched acquisition scores nothing either way');
+
   const client = await world.fake.connect();
   await materializeLineup(client, { leagueId: LEAGUE_ID, teamId: TEAM_B, season: SEASON, week: WEEK + 1 });
   client.release();
@@ -525,6 +555,20 @@ test('#190 the playoff bracket is seeded from the SETTLED scores, not the live o
       { id: TEAM_C, name: 'Team C', owner_id: 103 },
       { id: TEAM_D, name: 'Team D', owner_id: 104 },
     ],
+    // C and D field real starters: the settle pass scores EVERY matchup in
+    // the week, so a hand-written score on their row would just be overwritten.
+    teamPlayers: [
+      { team_id: TEAM_A, player_id: QB_A, created_at: BEFORE_KICKOFF },
+      { team_id: TEAM_B, player_id: QB_B, created_at: BEFORE_KICKOFF },
+      { team_id: TEAM_C, player_id: QB_C, created_at: BEFORE_KICKOFF },
+      { team_id: TEAM_D, player_id: QB_D, created_at: BEFORE_KICKOFF },
+    ],
+    lineupEntries: [
+      { team_id: TEAM_A, player_id: QB_A, season: SEASON, week: WEEK, slot: 'QB', ir_attested: false },
+      { team_id: TEAM_B, player_id: QB_B, season: SEASON, week: WEEK, slot: 'QB', ir_attested: false },
+      { team_id: TEAM_C, player_id: QB_C, season: SEASON, week: WEEK, slot: 'QB', ir_attested: false },
+      { team_id: TEAM_D, player_id: QB_D, season: SEASON, week: WEEK, slot: 'QB', ir_attested: false },
+    ],
     matchups: [
       {
         id: 90, league_id: LEAGUE_ID, season: SEASON, week: WEEK,
@@ -534,13 +578,12 @@ test('#190 the playoff bracket is seeded from the SETTLED scores, not the live o
       {
         id: 91, league_id: LEAGUE_ID, season: SEASON, week: WEEK,
         home_team_id: TEAM_C, away_team_id: TEAM_D, final: false,
-        home_score: 20, away_score: 5, is_playoff: false, is_consolation: false, playoff_round: null,
+        home_score: 0, away_score: 0, is_playoff: false, is_consolation: false, playoff_round: null,
       },
     ],
   });
   world.fake.install(t);
 
-  // Teams C and D field nobody, so the settle pass leaves their 20-5 alone.
   await drop(world.fake, world.state);
   const { advance } = await advanceWeek(world.state);
 
