@@ -943,6 +943,42 @@ test('#190 the settle pass neither materializes nor joins the live roster', asyn
   world.fake.assertClean();
 });
 
+test('#190 a team with no rows for the week settles at 0 rather than materializing one', async (t) => {
+  // The documented price of not re-materializing, pinned rather than only
+  // described. Before #190 the advance would have built this team a
+  // carried-forward or default-bench lineup and scored it; the settle pass
+  // counts the week's existing rows, and there are none.
+  //
+  // This is deliberate, not an oversight: re-materializing IS the bug, since
+  // it is what hands a post-game acquisition a row. In practice the
+  // scheduler has already materialized the week - it live-scores every
+  // league whose week has had a kickoff in the last 8 hours - so this
+  // reaches 0 only for a week with no synced schedule that no manager ever
+  // opened. If that trade is ever revisited, this test is the one to read.
+  const world = createWorld({
+    lineupEntries: [
+      { team_id: TEAM_A, player_id: QB_A, season: SEASON, week: WEEK, slot: 'QB', ir_attested: false },
+    ],
+  });
+  world.fake.install(t);
+
+  assert.deepEqual(world.entriesFor(TEAM_B, SEASON, WEEK), [],
+    'team B never opened its lineup and the week was never materialized for it');
+  assert.ok(
+    world.state.teamPlayers.some((tp) => tp.team_id === TEAM_B && tp.player_id === QB_B),
+    'though it does hold a scoring player, which the live path would have seated'
+  );
+
+  await scoreMatchups({ leagueId: LEAGUE_ID, season: SEASON, week: WEEK, settle: true });
+
+  assert.equal(awayScoreOf(world.state), 0,
+    'no rows for the week means nothing to count: the settle pass does not build him a lineup');
+  assert.equal(homeScoreOf(world.state), 8, 'and the team that did play is scored normally');
+  assert.equal(world.fake.matching(/^INSERT INTO "lineup_entries"/).length, 0,
+    'and no row was written into the week while settling it');
+  world.fake.assertClean();
+});
+
 test('#190 the settle population keeps dropped players in', async (t) => {
   // THE GUARANTEE, stated as behaviour rather than as SQL. A player dropped
   // after his game must still be counted, and this fails whenever that stops

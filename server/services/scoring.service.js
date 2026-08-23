@@ -1621,9 +1621,13 @@ async function generateMatchups({ leagueId, season, week }) {
 /**
  * Score every matchup for a league week: each team's score is the sum of its
  * STARTERS' fantasy points for that week (bench and IR don't count), computed
- * from raw stats under the LEAGUE'S scoring rules. Lineups are materialized
- * first so teams that never touched theirs still get their carried-forward
- * (or default-bench) lineup. Transactional per league.
+ * from raw stats under the LEAGUE'S scoring rules. Transactional per league.
+ *
+ * Materializing first - so a team that never touched its lineup still gets a
+ * carried-forward or default-bench one - is the LIVE population's behaviour
+ * and only its own. Do not read it as a property of this function: the other
+ * two populations exist precisely because re-materializing a closed week is
+ * what hands a post-game acquisition a row.
  *
  * THREE populations, not two. Which one a call gets is decided by the week's
  * finality and by the `settle` option, never inferred from anything else:
@@ -1664,13 +1668,8 @@ async function generateMatchups({ leagueId, season, week }) {
  * movement as a stat correction.
  *
  * What makes one rule sufficient here, where it was not before, is that the
- * exclusion now reads a recorded fact (`roster_tenures`) instead of the
- * current roster. Re-scoring a settled week returns the settled score by
- * construction, whatever has happened to the roster since - including the
- * case that killed the alternative fix, where the excluded pickup is later
- * CUT. A roster-reading rule stops firing when his roster row goes and hands
- * his points back; a tenure-reading rule does not, because cutting him closes
- * a tenure rather than erasing the one that failed to cover kickoff.
+ * exclusion reads a recorded fact rather than the current roster. That
+ * argument belongs with the predicate and is made once, on `heldRows` below.
  *
  * So do not reintroduce a `!isFinal` guard on the exclusion, and do not add a
  * second population that happens to agree with this one. Both have been tried
