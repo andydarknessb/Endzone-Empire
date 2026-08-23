@@ -5,6 +5,7 @@ const {
   teamIdentityOf,
   withTeamIdentity,
   teamIdentityColumns,
+  teamIdentityJoin,
   lookupTeam,
   viewerTeamIdOf,
 } = require('../services/teamIdentity');
@@ -48,6 +49,24 @@ test('withTeamIdentity adds Team identity beside the fields an entry already car
 test('teamIdentityColumns aliases the wire field names, whatever the table alias is', () => {
   assert.equal(teamIdentityColumns(), '"teams"."id" AS "teamId", "teams"."name" AS "teamName"');
   assert.equal(teamIdentityColumns('author_team'), '"author_team"."id" AS "teamId", "author_team"."name" AS "teamName"');
+});
+
+test('teamIdentityColumns mints the prefixed names too, so they cannot drift by hand', () => {
+  assert.equal(
+    teamIdentityColumns('owner_team', 'owner'),
+    '"owner_team"."id" AS "ownerTeamId", "owner_team"."name" AS "ownerTeamName"'
+  );
+});
+
+test('teamIdentityJoin always carries both legs, so identity cannot cross leagues', () => {
+  const sql = teamIdentityJoin('"chat_messages"."league_id"', '"chat_messages"."user_id"');
+  assert.match(sql, /^LEFT JOIN "teams" AS "teams"/, 'LEFT, so an author who left the league still reads back');
+  assert.match(sql, /"teams"\."league_id" = "chat_messages"\."league_id"/);
+  assert.match(sql, /"teams"\."owner_id" = "chat_messages"\."user_id"/);
+  assert.match(
+    teamIdentityJoin('"leagues"."id"', '"leagues"."owner_id"', 'owner_team'),
+    /^LEFT JOIN "teams" AS "owner_team"/
+  );
 });
 
 test('lookupTeam reads one manager\'s team in one league', async (t) => {

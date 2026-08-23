@@ -25,7 +25,7 @@ const {
   revokeCoCommissioner,
 } = require('../services/leagueRole.service');
 const { isMember, joinLeague } = require('../services/leagueMembership.service');
-const { teamIdentityColumns, viewerTeamIdOf } = require('../services/teamIdentity');
+const { teamIdentityColumns, teamIdentityJoin, viewerTeamIdOf } = require('../services/teamIdentity');
 const { assertFantasyLeague } = require('../services/leagueType');
 const { parseSettingsPatch, updateLeagueSettings, LeagueSettingsError } = require('../services/leagueSettings.service');
 
@@ -312,11 +312,9 @@ router.get('/:id', async (req, res) => {
     // been removed from their own league leaves no team behind.
     const leagueResult = await pool.query(
       `SELECT "leagues".*, "users"."username" AS "owner_username",
-              "owner_team"."id" AS "ownerTeamId", "owner_team"."name" AS "ownerTeamName"
+              ${teamIdentityColumns('owner_team', 'owner')}
          FROM "leagues" JOIN "users" ON "users"."id" = "leagues"."owner_id"
-         LEFT JOIN "teams" AS "owner_team"
-           ON "owner_team"."league_id" = "leagues"."id"
-          AND "owner_team"."owner_id" = "leagues"."owner_id"
+         ${teamIdentityJoin('"leagues"."id"', '"leagues"."owner_id"', 'owner_team')}
         WHERE "leagues"."id" = $1`,
       [leagueId]
     );
@@ -613,8 +611,9 @@ router.get('/:id/matchups', async (req, res) => {
 // #108). The join is LEFT so a message from a manager who has since left the
 // league still reads back rather than dropping out of the history; its Team
 // identity is simply null. This response is a bare array with no root to
-// carry `viewerTeamId`, so a viewer takes theirs from the league detail
-// response the same page loads and compares `message.teamId` against it.
+// carry `viewerTeamId`, so a viewer takes theirs from the `league:join`
+// acknowledgement the chat panel already makes, and compares `message.teamId`
+// against it.
 router.get('/:id/chat', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
@@ -628,8 +627,7 @@ router.get('/:id/chat', async (req, res) => {
                 "chat_messages"."user_id", "users"."username",
                 ${teamIdentityColumns()}
          FROM "chat_messages" JOIN "users" ON "users"."id" = "chat_messages"."user_id"
-         LEFT JOIN "teams" ON "teams"."league_id" = "chat_messages"."league_id"
-                          AND "teams"."owner_id" = "chat_messages"."user_id"
+         ${teamIdentityJoin('"chat_messages"."league_id"', '"chat_messages"."user_id"')}
          WHERE "chat_messages"."league_id" = $1
            AND NOT EXISTS (
              SELECT 1 FROM "user_blocks"

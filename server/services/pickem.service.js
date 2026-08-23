@@ -2,7 +2,7 @@ const pool = require('../modules/pool');
 const { logTransaction } = require('./activity.service');
 const { RECAPS_TABLE_SQL, isMissingRecapStorage } = require('../modules/recapStorage');
 const { isPickemOnly } = require('./leagueType');
-const { teamIdentityColumns } = require('./teamIdentity');
+const { teamIdentityColumns, teamIdentityJoin } = require('./teamIdentity');
 
 /**
  * League Pick'em — pick the winner of every NFL game, every week.
@@ -616,8 +616,7 @@ async function getWeekView({ leagueId, userId, season, week, mode, now = new Dat
             "users"."username", ${teamIdentityColumns()}
        FROM "pickem_picks"
        JOIN "users" ON "users"."id" = "pickem_picks"."user_id"
-       LEFT JOIN "teams" ON "teams"."league_id" = "pickem_picks"."league_id"
-                        AND "teams"."owner_id" = "pickem_picks"."user_id"
+       ${teamIdentityJoin('"pickem_picks"."league_id"', '"pickem_picks"."user_id"')}
       WHERE "pickem_picks"."league_id" = $1
         AND "pickem_picks"."season" = $2
         AND "pickem_picks"."week" = $3

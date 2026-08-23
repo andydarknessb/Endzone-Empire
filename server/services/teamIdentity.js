@@ -20,6 +20,13 @@
  *
  * Two naming rules keep the expanded contract learnable in one go:
  *
+ * 0. What moves here is the identifying half of Team identity: the Team ID
+ *    and the Team name. CONTEXT.md's Team identity entry also covers the
+ *    avatar, and the surfaces that render one (league detail's teams,
+ *    pick'em standings, rosters) already carry it; #113 and #114 ask their
+ *    consumers for Team names and Team IDs only, so no contract here starts
+ *    carrying an avatar it did not carry before.
+ *
  * 1. Team identity is always `teamId` and `teamName`, camelCase, on every
  *    surface, even where the fields around it are snake_case columns. One
  *    name per concept is what makes #113 and #114 mechanical, and camelCase
@@ -35,14 +42,18 @@
  *    already answer it that way).
  *
  *    `viewerTeamId` rides only on per-viewer channels: a REST response, or
- *    the `draft:join` acknowledgement. It deliberately never rides on a
- *    broadcast Socket.IO payload, because one `draft:state`, `draft:picked`,
- *    `draft:presence` or `chat:message` payload is sent to the whole league
- *    room and cannot be true for every recipient at once. A broadcast
- *    carries Team identity only, and the client compares it against the
- *    `viewerTeamId` it was given on the per-viewer channel. Chat history is
- *    a bare JSON array with no root to hang a field on, so its viewer takes
- *    `viewerTeamId` from the league detail response the same page loads.
+ *    the acknowledgement to `league:join` / `draft:join`. It deliberately
+ *    never rides on a broadcast Socket.IO payload, because one `draft:state`,
+ *    `draft:picked`, `draft:presence` or `chat:message` payload is sent to
+ *    the whole league room and cannot be true for every recipient at once. A
+ *    broadcast carries Team identity only, and the client compares it against
+ *    the `viewerTeamId` it was given on the per-viewer channel.
+ *
+ *    Chat history is the one surface with no root to hang the field on: it
+ *    is a bare JSON array. Its viewer gets `viewerTeamId` from the join
+ *    acknowledgement instead, which is why `league:join` answers it too and
+ *    not just `draft:join`: the chat panel joins the league room and never
+ *    reads league detail, so that ack is its only per-viewer channel.
  */
 
 /**
@@ -71,9 +82,34 @@ function withTeamIdentity(entry, teamRow) {
 /**
  * The SELECT fragment that puts Team identity on the wire under its contract
  * names. `alias` is the table alias the `teams` row is joined under.
+ *
+ * `prefix` is for the one case where a payload already spends the bare names
+ * on something else: the league object's own `teamId` would read as the
+ * LEAGUE's team, so its creator's identity is `ownerTeamId` / `ownerTeamName`
+ * instead. The prefixed names are minted here rather than hand-written at the
+ * call site, so they cannot drift from the bare ones either.
  */
-function teamIdentityColumns(alias = 'teams') {
-  return `"${alias}"."id" AS "teamId", "${alias}"."name" AS "teamName"`;
+function teamIdentityColumns(alias = 'teams', prefix = null) {
+  const id = prefix ? `${prefix}TeamId` : 'teamId';
+  const name = prefix ? `${prefix}TeamName` : 'teamName';
+  return `"${alias}"."id" AS "${id}", "${alias}"."name" AS "${name}"`;
+}
+
+/**
+ * The LEFT JOIN that reaches a manager's team in one league, for a table that
+ * records who did something by account. Both legs matter: without the
+ * `league_id` one a manager's team in a DIFFERENT league would answer, which
+ * is exactly the identity leak this migration exists to close. It is written
+ * once here so no call site can forget it.
+ *
+ * LEFT, always: an author who has since left the league keeps their row in
+ * chat history, Pick history and the co-commissioner roster, and reads back
+ * with null Team identity rather than dropping out of the result.
+ */
+function teamIdentityJoin(leagueIdColumn, ownerIdColumn, alias = 'teams') {
+  return `LEFT JOIN "teams" AS "${alias}"
+            ON "${alias}"."league_id" = ${leagueIdColumn}
+           AND "${alias}"."owner_id" = ${ownerIdColumn}`;
 }
 
 /**
@@ -104,6 +140,7 @@ module.exports = {
   teamIdentityOf,
   withTeamIdentity,
   teamIdentityColumns,
+  teamIdentityJoin,
   lookupTeam,
   viewerTeamIdOf,
 };

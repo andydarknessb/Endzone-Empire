@@ -4,7 +4,6 @@ const { setIo } = require('./io');
 const { requireSocketAuth } = require('./auth');
 const { draftPlayer, DraftError } = require('../services/draft.service');
 const { teamForPick } = require('../services/draftOrder.service');
-const { isMember } = require('../services/leagueMembership.service');
 const {
   teamIdentityColumns,
   teamIdentityOf,
@@ -44,11 +43,12 @@ function attachDraftSocket(httpServer) {
         return ack && ack({ error: 'leagueId (integer) required' });
       }
       try {
-        if (!(await isMember(pool, leagueId, socket.user.id))) {
+        const viewerTeam = await lookupTeam(pool, { leagueId, userId: socket.user.id });
+        if (!viewerTeam) {
           return ack && ack({ error: 'you are not in this league' });
         }
         socket.join(`league:${leagueId}`);
-        ack && ack({ ok: true });
+        ack && ack(joinAck(viewerTeam));
       } catch (error) {
         console.error('league:join failed', error);
         ack && ack({ error: 'failed to join league room' });
@@ -60,15 +60,19 @@ function attachDraftSocket(httpServer) {
         return ack && ack({ error: 'leagueId (integer) required' });
       }
       try {
-        if (!(await isMember(pool, leagueId, socket.user.id))) {
+        // The viewer's team IS their membership (ADR 0002), so one read
+        // answers both "may they join the room" and "which Team are they".
+        const viewerTeam = await lookupTeam(pool, { leagueId, userId: socket.user.id });
+        if (!viewerTeam) {
           return ack && ack({ error: 'you are not in this league' });
         }
         socket.join(`league:${leagueId}`);
-        const viewerTeam = await lookupTeam(pool, { leagueId, userId: socket.user.id });
         const state = await getDraftState(leagueId);
+        // Acknowledge before the first snapshot, so a client knows which Team
+        // is its own before it has any Team identity to compare against.
+        ack && ack(joinAck(viewerTeam));
         socket.emit('draft:state', state);
         socket.to(`league:${leagueId}`).emit('draft:presence', presencePayload(socket.user, viewerTeam));
-        ack && ack(draftJoinAck(viewerTeam));
       } catch (error) {
         console.error('draft:join failed', error);
         ack && ack({ error: 'failed to join draft room' });
@@ -159,14 +163,19 @@ async function closeDraftSocket(io) {
 }
 
 /**
- * The `draft:join` acknowledgement. It is answered to one socket, so it is
- * where the draft's viewer-relative field lives: every `draft:state`,
- * `draft:picked`, `draft:presence` and `chat:message` payload after it is
- * broadcast to the whole league room and cannot say anything true about one
- * recipient (#112, parent #108). A client holds this `viewerTeamId` and
- * compares it against the `teamId` on everything that follows.
+ * The acknowledgement to `league:join` and `draft:join`. It is answered to
+ * one socket, so it is where this room's viewer-relative field lives: every
+ * `draft:state`, `draft:picked`, `draft:presence` and `chat:message` payload
+ * after it is broadcast to the whole league room and cannot say anything
+ * true about one recipient (#112, parent #108). A client holds this
+ * `viewerTeamId` and compares it against the `teamId` on everything that
+ * follows.
+ *
+ * Both joins answer it, because both rooms have a viewer: the chat panel
+ * joins with `league:join` and never reads league detail, so this ack is its
+ * only route to knowing which Team is its own.
  */
-function draftJoinAck(viewerTeam) {
+function joinAck(viewerTeam) {
   return { ok: true, viewerTeamId: teamIdentityOf(viewerTeam).teamId };
 }
 
@@ -224,7 +233,7 @@ module.exports = {
   attachDraftSocket,
   closeDraftSocket,
   getDraftState,
-  draftJoinAck,
+  joinAck,
   presencePayload,
   chatMessagePayload,
 };

@@ -1,7 +1,7 @@
 const pool = require('../modules/pool');
 const { logTransaction, notify } = require('./activity.service');
 const { MembershipError, requireMember } = require('./leagueMembership.service');
-const { teamIdentityColumns } = require('./teamIdentity');
+const { teamIdentityColumns, teamIdentityJoin } = require('./teamIdentity');
 
 /** Every current commissioner's user id: the owner plus any co-commissioners. */
 async function listCommissionerUserIds(db, leagueId, ownerId) {
@@ -91,9 +91,7 @@ async function listCoCommissioners(db, leagueId) {
             ${teamIdentityColumns()}
        FROM "league_commissioners"
        JOIN "users" ON "users"."id" = "league_commissioners"."user_id"
-       LEFT JOIN "teams"
-         ON "teams"."league_id" = "league_commissioners"."league_id"
-        AND "teams"."owner_id" = "league_commissioners"."user_id"
+       ${teamIdentityJoin('"league_commissioners"."league_id"', '"league_commissioners"."user_id"')}
       WHERE "league_commissioners"."league_id" = $1
       ORDER BY "league_commissioners"."created_at", "league_commissioners"."user_id"`,
     [leagueId]

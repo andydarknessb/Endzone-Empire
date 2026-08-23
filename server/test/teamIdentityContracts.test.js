@@ -7,7 +7,7 @@ const { signToken } = require('../modules/auth');
 const leagueRouter = require('../routes/league.router');
 const {
   getDraftState,
-  draftJoinAck,
+  joinAck,
   presencePayload,
   chatMessagePayload,
 } = require('../modules/draftSocket');
@@ -282,12 +282,15 @@ test('draft:picked: the Pick outcome names the Team that made it', async (t) => 
   fake.assertClean();
 });
 
-test('draft:join acknowledges the viewer with their own Team ID', () => {
-  assert.deepEqual(draftJoinAck({ id: VIEWER.teamId, name: VIEWER.teamName }), {
+test('league:join and draft:join both acknowledge the viewer with their own Team ID', () => {
+  // The chat panel joins with league:join and never reads league detail, so
+  // this ack is the only per-viewer channel chat has; the draft room's is the
+  // same ack. One shape answers both.
+  assert.deepEqual(joinAck({ id: VIEWER.teamId, name: VIEWER.teamName }), {
     ok: true,
     viewerTeamId: VIEWER.teamId,
   });
-  assert.deepEqual(draftJoinAck(null), { ok: true, viewerTeamId: null });
+  assert.deepEqual(joinAck(null), { ok: true, viewerTeamId: null });
 });
 
 test('draft:presence carries the joining manager\'s Team identity beside their account', () => {
