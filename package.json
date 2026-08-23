@@ -84,7 +84,8 @@
     "load:k6:notification-burst": "k6 run scripts/k6-notification-burst.js",
     "load:k6:admin-health": "k6 run load-tests/admin-dashboard-health.js",
     "infra:activate-k6": "node scripts/activate-k6.js",
-    "test:load-pipeline": "node scripts/run-load-triage.js"
+    "test:load-pipeline": "node scripts/run-load-triage.js",
+    "test:jest-discovery": "node --test scripts/jestTestMatch.test.js"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
@@ -94,6 +95,7 @@
     "@testing-library/react": "^14.3.1",
     "@testing-library/user-event": "^14.6.1",
     "axios-mock-adapter": "^2.1.0",
+    "jest-util": "^27.5.1",
     "nodemon": "^3.1.9",
     "redux-mock-store": "^1.5.5",
     "source-map-explorer": "^2.5.3",
