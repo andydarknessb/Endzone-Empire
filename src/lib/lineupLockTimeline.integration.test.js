@@ -113,8 +113,34 @@ function createDatabaseFixture() {
         if (!state.rostered.delete(playerId)) return { rowCount: 0, rows: [] };
         return { rowCount: 1, rows: [{ id: playerId }] };
       }
-      if (sql.includes('SELECT "waiver_period_hours" FROM "leagues"')) {
-        return { rows: [{ waiver_period_hours: 24 }] };
+      if (sql.includes('SELECT "id", "waiver_period_hours"')) {
+        return {
+          rows: [{
+            id: league.id,
+            waiver_period_hours: 24,
+            current_season: league.season,
+            current_week: league.week,
+          }],
+        };
+      }
+      // #197: the drop takes the departing player's unlocked lineup rows
+      // with his roster row, and records what it interrupted on the hold.
+      if (sql.includes('SELECT "slot", "ir_attested" FROM "lineup_entries"')) {
+        const slot = state.slots.get(values[1]);
+        return { rows: slot ? [{ slot, ir_attested: false }] : [] };
+      }
+      if (sql.includes('SELECT "nfl_team" FROM "players"')) {
+        const row = playerRows.find((player) => player.player_id === values[0]);
+        return { rows: row ? [{ nfl_team: row.nfl_team }] : [] };
+      }
+      if (sql.includes('DELETE FROM "lineup_entries"')) {
+        // Player B is dropped a minute after Player A kicks off but before
+        // his own game, so his current-week row goes with him ($5 true).
+        const [, playerId, , , removeCurrentWeek] = values;
+        if (removeCurrentWeek && state.slots.delete(playerId)) {
+          return { rowCount: 1, rows: [] };
+        }
+        return { rowCount: 0, rows: [] };
       }
       if (sql.includes('INSERT INTO "waiver_players"')) {
         state.waiverPlayers.add(values[1]);
