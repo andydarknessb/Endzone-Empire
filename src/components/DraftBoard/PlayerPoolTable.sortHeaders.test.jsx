@@ -3,6 +3,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PlayerPoolTable from './PlayerPoolTable';
 import { SORT_FIELDS } from './sortFields';
+import { STAT_DEFINITIONS } from '../common/AbbreviationTooltip';
 
 // Parity guard for issue #163: the desktop table's TableSortLabel headers
 // used to hardcode the same six key/label pairs SORT_FIELDS already owns
@@ -71,22 +72,43 @@ test('every SORT_FIELDS key has exactly one desktop sortable header, and every d
   }
 
   const expectedKeys = SORT_FIELDS.map((field) => field.key);
-  // Exact set comparison, not a "contains" check, in both directions: a key
-  // added to SORT_FIELDS with no header shrinks renderedKeys below
-  // expectedKeys, and a hardcoded header for a key not in SORT_FIELDS grows
-  // renderedKeys past it - either way this fails.
-  expect(new Set(renderedKeys)).toEqual(new Set(expectedKeys));
-  // Guards against a duplicate header for the same key masking a missing one.
-  expect(renderedKeys).toHaveLength(expectedKeys.length);
+  // Ordered array comparison, not a Set: a Set is membership-only, so it
+  // passes unchanged if two headers are transposed - exactly the desync
+  // this PR's second commit (looking each header up by key rather than by
+  // SORT_FIELDS array position) exists to prevent (code-review finding on
+  // #163). Order equality also covers both membership directions a Set
+  // comparison would: a key added to SORT_FIELDS with no header shortens
+  // renderedKeys, and a hardcoded header for a key not in SORT_FIELDS (or a
+  // duplicate header for one already present) lengthens or mismatches it -
+  // either way this fails.
+  expect(renderedKeys).toEqual(expectedKeys);
 });
 
-test('every desktop sortable header shows the label SORT_FIELDS assigns its key', () => {
+test('every desktop sortable header shows the label SORT_FIELDS assigns its key, in SORT_FIELDS order', () => {
   render(<PlayerPoolTable {...baseProps} />);
 
   const headerRow = screen.getAllByRole('row')[0];
   const sortButtons = within(headerRow).getAllByRole('button');
   const renderedLabels = sortButtons.map((button) => button.textContent);
 
-  expect(new Set(renderedLabels)).toEqual(new Set(SORT_FIELDS.map((field) => field.label)));
-  expect(renderedLabels).toHaveLength(SORT_FIELDS.length);
+  // Ordered, not a Set, for the same reason as the key-parity test above.
+  expect(renderedLabels).toEqual(SORT_FIELDS.map((field) => field.label));
+});
+
+// Code-review finding (issue #211): AbbreviationTooltip isn't decoration on
+// these four numeric headers - its aria-label IS the header's accessible
+// name (the plain-text `label` prop the header shows visually is the same
+// string either way, so a header silently missing its tooltip wrapper would
+// look correct here and still lose its definition for a screen-reader user).
+// RIGHT_ALIGNED_SORT_KEYS in PlayerPoolTable.jsx isn't derived from
+// SORT_FIELDS, so this asserts the four current entries directly rather than
+// trying to derive the set.
+test('every numeric desktop sort header keeps its AbbreviationTooltip accessible name', () => {
+  render(<PlayerPoolTable {...baseProps} />);
+
+  const headerRow = screen.getAllByRole('row')[0];
+  ['Bye', 'ADP', 'Pos rank', '17-game pace'].forEach((term) => {
+    const expectedName = `${term}: ${STAT_DEFINITIONS[term]}`;
+    expect(within(headerRow).getByRole('button', { name: expectedName })).toBeInTheDocument();
+  });
 });
