@@ -525,7 +525,43 @@ test("the preview names the commissioner by Team, never by the account name stil
   expect(card).not.toHaveTextContent(/alice\b/i);
 });
 
-test("a commissioner with no Team row shows the seat count alone, and still no account name", async () => {
+// #209: occupancy and attribution used to share one text node ("3/12 teams
+// · run by Gridiron Gang"), so a screen reader announced two unrelated facts
+// as a single joined claim. The maintainer's ruling (binding, issue #209) is
+// option 1: no wording changes at all - the two elements carry the exact
+// same words as before, split at the block boundary that already existed
+// visually. These two tests assert the STRUCTURE, distinct from the
+// wording tests above which stay green in intent unchanged.
+test("occupancy and attribution render as two separate block elements, not one joined sentence", async () => {
+  mockGets({ preview: previewFor() });
+
+  renderWithProviders(<LeagueManagement />, {
+    state: { user: { id: 1 } },
+    path: '/league/join',
+    route: '/league/join?code=e402e816',
+  });
+
+  const card = await screen.findByTestId('invite-preview');
+  const occupancy = screen.getByText(/3\/12 teams/);
+  const attribution = screen.getByText(/run by Gridiron Gang/i);
+
+  // Different nodes, and each carries only its own fact - a reader landing
+  // on either element hears one claim, never both joined.
+  expect(occupancy).not.toBe(attribution);
+  expect(occupancy).not.toHaveTextContent(/run by/i);
+  expect(attribution).not.toHaveTextContent(/teams/i);
+  // Both are block-level (Typography renders body2 as <p>): the boundary
+  // between them is what assistive technology announces as a break.
+  expect(occupancy.tagName).toBe('P');
+  expect(attribution.tagName).toBe('P');
+  // Testing Library queries can't express "count the paragraph children of
+  // this node" - node access is the only way to check the structure itself
+  // rather than just the text it contains.
+  // eslint-disable-next-line testing-library/no-node-access
+  expect(card.querySelectorAll('p')).toHaveLength(2);
+});
+
+test("a commissioner with no Team row shows the seat count alone, in one element, not a dangling second one", async () => {
   mockGets({ preview: previewFor({ ownerTeamName: null }) });
 
   renderWithProviders(<LeagueManagement />, {
@@ -541,6 +577,80 @@ test("a commissioner with no Team row shows the seat count alone, and still no a
   expect(card).not.toHaveTextContent(/run by/i);
   expect(card).not.toHaveTextContent(/alice\b/i);
   expect(card).not.toHaveTextContent(/teams\s*·/);
+  // Not just "no text" - no second, empty block left behind either. An
+  // empty live-region child is still a node a screen reader can land on.
+  // eslint-disable-next-line testing-library/no-node-access
+  expect(card.querySelectorAll('p')).toHaveLength(1);
+});
+
+// #209's second problem: the card appeared with no live region and no
+// association to the field, so a screen-reader user who pastes a code hears
+// nothing. Matches the role=status + aria-live=polite convention #215
+// already established for the Draft room's readiness announcement.
+test("the preview card is a polite live region once it appears", async () => {
+  mockGets({ preview: previewFor() });
+
+  renderWithProviders(<LeagueManagement />, {
+    state: { user: { id: 1 } },
+    path: '/league/join',
+    route: '/league/join?code=e402e816',
+  });
+
+  // findByRole, not getByTestId then read the attribute off it: this fails
+  // if the card lacks role="status" at the moment it becomes findable, which
+  // is the exact regression #209 exists to close.
+  const region = await screen.findByRole('status');
+  expect(region).toHaveAttribute('data-testid', 'invite-preview');
+  expect(region).toHaveAttribute('aria-live', 'polite');
+});
+
+test("the card is genuinely inserted into the DOM when the preview arrives, not rendered all along and merely revealed", async () => {
+  // A live region only gets announced by observing MUTATIONS to DOM it is
+  // already watching - present-but-hidden-then-shown-via-CSS is a different
+  // failure mode this ticket also has to rule out. A MutationObserver
+  // attached to the join form (mounted from the first render, well before
+  // any preview exists) is the same mechanism assistive technology's own
+  // accessibility-tree updates key off, so recording an addedNodes entry for
+  // the card is evidence the insertion is real, not just that the node can
+  // eventually be found.
+  //
+  // The insertion happens across the debounced fetch's `await`, so a
+  // callback that accumulates records is required rather than polling
+  // takeRecords() afterward - a no-op callback would let the delivery
+  // microtask drain (and discard) the queue in between, reporting zero
+  // records even though the insertion genuinely happened.
+  mockGets({ preview: previewFor() });
+
+  renderWithProviders(<LeagueManagement />, {
+    state: { user: { id: 1 } },
+    path: '/league/join',
+    route: '/league/join?code=e402e816',
+  });
+
+  // Testing Library has no query for "the form this field lives in", and a
+  // MutationObserver needs a real DOM node to attach to - only one form is
+  // ever mounted at a time (Create XOR Join), so this is unambiguous.
+  // eslint-disable-next-line testing-library/no-node-access
+  const form = document.querySelector('form');
+  expect(form).toContainElement(screen.getByLabelText(/Invite code/i));
+  expect(screen.queryByTestId('invite-preview')).not.toBeInTheDocument();
+
+  // An accumulating callback, not a no-op + takeRecords() after the await
+  // below. Tried that first: it silently returned 0 records every time,
+  // because the mutation's delivery microtask fires (and drains the queue
+  // into the no-op) before control returns here. A test built that way would
+  // have passed while observing nothing.
+  const capturedRecords = [];
+  const observer = new MutationObserver((records) => capturedRecords.push(...records));
+  observer.observe(form, { childList: true, subtree: true });
+
+  const card = await screen.findByTestId('invite-preview');
+  observer.disconnect();
+
+  const cardWasInserted = capturedRecords.some((record) =>
+    Array.from(record.addedNodes).some((node) => node === card || (node.contains && node.contains(card)))
+  );
+  expect(cardWasInserted).toBe(true);
 });
 
 test('a failed preview (unknown code) shows no card and leaves Join usable', async () => {
