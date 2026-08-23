@@ -30,7 +30,9 @@ const league = (overrides = {}) => ({
   ...overrides,
 });
 
-const openNewLeague = () => userEvent.click(screen.getByRole('button', { name: 'New league' }));
+// Accepts an optional userEvent instance so a caller with its own setup()
+// (e.g. a fake-timers session) can reuse this instead of re-inlining it.
+const openNewLeague = (user = userEvent) => user.click(screen.getByRole('button', { name: 'New league' }));
 
 afterEach(() => {
   jest.clearAllMocks();
@@ -181,10 +183,10 @@ test('creating a public, approval-required, best-ball, PPR league with a draft d
   // controls, including the Draft time zone Autocomplete), which made it
   // exceed 15s under parallel worker load (#149) even though it only takes
   // ~1-2s alone. Fake timers keep MUI's ripple/transition timeouts from
-  // costing real wall-clock time; IS_REACT_ACT_ENVIRONMENT=false stops the
-  // resulting (harmless) "not wrapped in act(...)" warnings, which are
-  // expensive to construct (each walks the full fiber tree for a component
-  // stack), not just noisy; pointerEventsCheck skips a getComputedStyle
+  // costing real wall-clock time; IS_REACT_ACT_ENVIRONMENT=false suppresses
+  // most of the resulting (harmless) "not wrapped in act(...)" warnings,
+  // which are expensive to construct (each walks the full fiber tree for a
+  // component stack), not just noisy; pointerEventsCheck skips a getComputedStyle
   // walk up the ancestor chain on every click. Both are restored in
   // `finally` regardless of outcome. See listIanaTimeZones mock above for
   // why the zone picker itself is cheap here.
@@ -201,7 +203,7 @@ test('creating a public, approval-required, best-ball, PPR league with a draft d
 
     renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
     await screen.findByText(/you aren't in any leagues yet/i);
-    await user.click(screen.getByRole('button', { name: 'New league' }));
+    await openNewLeague(user);
 
     // Typing semantics (per-keystroke state) aren't under test here, only
     // the posted value, so a single change event stands in for 21 keystrokes.
