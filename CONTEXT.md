@@ -60,7 +60,10 @@ league holds none)
 
 **Commissioner**:
 A manager authorized to administer a league, either its creator or someone the
-creator has granted the role. A few powers stay with the creator alone.
+creator has granted the role, a co-commissioner. Two powers stay with the
+creator alone: deleting the league, and granting or revoking the role. One
+protection stands alongside them: the creator's team cannot be removed by
+anyone. Separately, no commissioner of either kind may remove their own team.
 _Avoid_: admin, owner, moderator
 
 **League phase**:
@@ -230,16 +233,21 @@ slot)
 Which team holds which slot in a draft: the sequence the first round follows,
 from which the draft rotation derives every later round. Settled before the
 draft starts and unchanged once it has. A manager's upcoming picks are
-positions in this order, not a separate thing.
+positions in this order, not a separate thing, and neither is the live
+near-term view of it: a panel showing which picks come next is this order
+windowed at the current pick, derived and never stored. "Upcoming" is copy
+over this concept, not a concept of its own.
 _Avoid_: draft rotation (that is how turns come around, snake or linear), pick
 order, slot order
 
 **Readiness**:
 Which teams have declared themselves ready for a pending draft, counted
-against the league's size. A fact of the pending lobby only; it has no meaning
-once the draft starts. A team that has not declared is Not ready, and once
-most teams are ready that group, not the ready one, is the exception worth
-naming.
+against the Teams in the league, not against its configured size: a Team that
+has not joined has not declined to be ready, and an empty slot cannot appear
+in either list. That the league is not yet full is a separate fact. A fact of
+the pending lobby only; it has no meaning once the draft starts. A team that
+has not declared is Not ready, and once most teams are ready that group, not
+the ready one, is the exception worth naming.
 _Avoid_: holdout (Holdout ledger is an Evaluation term), ready status, lobby
 status
 

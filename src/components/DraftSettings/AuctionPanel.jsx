@@ -41,7 +41,7 @@ export default function AuctionPanel({ league, teams, frozen, onSave, saving, on
   const bidSecondsError = integerRangeError(bidSeconds, { label: 'Bid seconds', min: 5, max: 60 });
   const hasInvalidNumber = Boolean(budgetError || nominationSecondsError || bidSecondsError);
   const customOrderIsCurrent = customOrder.length === teams.length && customOrder.every((id) => teams.some((team) => String(team.id) === String(id)));
-  const rows = customOrder.map((id) => teams.find((team) => String(team.id) === String(id))).filter(Boolean).map((team) => ({ id: team.id, label: team.name || `Team ${team.id}`, secondary: team.owner }));
+  const rows = customOrder.map((id) => teams.find((team) => String(team.id) === String(id))).filter(Boolean).map((team) => ({ id: team.id, label: team.name || `Team ${team.id}` }));
   const insufficientTeams = teams.length < 2;
   return (
     <Stack spacing={2}>

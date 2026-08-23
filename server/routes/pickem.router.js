@@ -82,7 +82,7 @@ router.get('/league/:leagueId/week/:week', async (req, res) => {
     return res.status(400).json({ error: `week must be between 1 and ${REG_SEASON_WEEKS}` });
   }
   try {
-    await requireMember(pool, { leagueId, userId: req.user.id });
+    const viewerTeam = await requireMember(pool, { leagueId, userId: req.user.id });
     const settings = await pickem.getSettings(leagueId);
     if (!settings.enabled) {
       return res.status(403).json({
@@ -98,7 +98,9 @@ router.get('/league/:leagueId/week/:week', async (req, res) => {
       week,
       mode: settings.mode,
     });
-    res.json(view);
+    // viewerTeamId answers "which of these participants is me" without any
+    // consumer holding another manager's account ID (#112, parent #108).
+    res.json({ ...view, viewerTeamId: viewerTeam.id });
   } catch (error) {
     fail(res, error, "failed to load the Pick'em week");
   }
@@ -139,10 +141,11 @@ router.get('/league/:leagueId/standings', async (req, res) => {
     return res.status(400).json({ error: 'season must be a positive integer' });
   }
   try {
-    await requireMember(pool, { leagueId, userId: req.user.id });
+    const viewerTeam = await requireMember(pool, { leagueId, userId: req.user.id });
     const league = await pickem.loadLeague(pool, leagueId);
     const season = requestedSeason || league.current_season;
-    res.json(await pickem.getStandings({ leagueId, season }));
+    const standings = await pickem.getStandings({ leagueId, season });
+    res.json({ ...standings, viewerTeamId: viewerTeam.id });
   } catch (error) {
     fail(res, error, "failed to load Pick'em standings");
   }

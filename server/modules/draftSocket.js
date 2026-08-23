@@ -4,7 +4,12 @@ const { setIo } = require('./io');
 const { requireSocketAuth } = require('./auth');
 const { draftPlayer, DraftError } = require('../services/draft.service');
 const { teamForPick } = require('../services/draftOrder.service');
-const { isMember } = require('../services/leagueMembership.service');
+const {
+  teamIdentityColumns,
+  teamIdentityOf,
+  withTeamIdentity,
+  lookupTeam,
+} = require('../services/teamIdentity');
 const { getCorsOptions } = require('./clientOrigins');
 const { createAdapter } = require('@socket.io/redis-adapter');
 const { createRedisSubscriber, getRedisClient } = require('./redis');
@@ -38,11 +43,12 @@ function attachDraftSocket(httpServer) {
         return ack && ack({ error: 'leagueId (integer) required' });
       }
       try {
-        if (!(await isMember(pool, leagueId, socket.user.id))) {
+        const viewerTeam = await lookupTeam(pool, { leagueId, userId: socket.user.id });
+        if (!viewerTeam) {
           return ack && ack({ error: 'you are not in this league' });
         }
         socket.join(`league:${leagueId}`);
-        ack && ack({ ok: true });
+        ack && ack(joinAck(viewerTeam));
       } catch (error) {
         console.error('league:join failed', error);
         ack && ack({ error: 'failed to join league room' });
@@ -54,18 +60,19 @@ function attachDraftSocket(httpServer) {
         return ack && ack({ error: 'leagueId (integer) required' });
       }
       try {
-        if (!(await isMember(pool, leagueId, socket.user.id))) {
+        // The viewer's team IS their membership (ADR 0002), so one read
+        // answers both "may they join the room" and "which Team are they".
+        const viewerTeam = await lookupTeam(pool, { leagueId, userId: socket.user.id });
+        if (!viewerTeam) {
           return ack && ack({ error: 'you are not in this league' });
         }
         socket.join(`league:${leagueId}`);
         const state = await getDraftState(leagueId);
+        // Acknowledge before the first snapshot, so a client knows which Team
+        // is its own before it has any Team identity to compare against.
+        ack && ack(joinAck(viewerTeam));
         socket.emit('draft:state', state);
-        socket.to(`league:${leagueId}`).emit('draft:presence', {
-          userId: socket.user.id,
-          username: socket.user.username,
-          joined: true,
-        });
-        ack && ack({ ok: true });
+        socket.to(`league:${leagueId}`).emit('draft:presence', presencePayload(socket.user, viewerTeam));
       } catch (error) {
         console.error('draft:join failed', error);
         ack && ack({ error: 'failed to join draft room' });
@@ -83,19 +90,23 @@ function attachDraftSocket(httpServer) {
       }
       const text = message.trim().slice(0, 500);
       try {
+        // Read the author's Team BEFORE the insert: a lookup that failed
+        // after it would leave the message persisted but never broadcast,
+        // and tell the sender it failed.
+        const authorTeam = await lookupTeam(pool, { leagueId, userId: socket.user.id });
         const result = await pool.query(
           `INSERT INTO "chat_messages" ("league_id", "user_id", "message")
            VALUES ($1, $2, $3) RETURNING "id", "created_at"`,
           [leagueId, socket.user.id, text]
         );
-        io.to(`league:${leagueId}`).emit('chat:message', {
+        io.to(`league:${leagueId}`).emit('chat:message', chatMessagePayload({
           id: result.rows[0].id,
           leagueId,
-          userId: socket.user.id,
-          username: socket.user.username,
+          user: socket.user,
+          team: authorTeam,
           message: text,
-          created_at: result.rows[0].created_at,
-        });
+          createdAt: result.rows[0].created_at,
+        }));
         ack && ack({ ok: true });
       } catch (error) {
         console.error('chat:send failed', error);
@@ -151,6 +162,39 @@ async function closeDraftSocket(io) {
   if (io.redisSubscriber?.isOpen) await io.redisSubscriber.quit();
 }
 
+/**
+ * The acknowledgement to `league:join` and `draft:join`. It is answered to
+ * one socket, so it is where this room's viewer-relative field lives: every
+ * `draft:state`, `draft:picked`, `draft:presence` and `chat:message` payload
+ * after it is broadcast to the whole league room and cannot say anything
+ * true about one recipient (#112, parent #108). A client holds this
+ * `viewerTeamId` and compares it against the `teamId` on everything that
+ * follows.
+ *
+ * Both joins answer it, because both rooms have a viewer: the chat panel
+ * joins with `league:join` and never reads league detail, so this ack is its
+ * only route to knowing which Team is its own.
+ */
+function joinAck(viewerTeam) {
+  return { ok: true, viewerTeamId: teamIdentityOf(viewerTeam).teamId };
+}
+
+/** The `draft:presence` payload: who joined the room, by Team and by account. */
+function presencePayload(user, team) {
+  return { ...withTeamIdentity({ userId: user.id, username: user.username }, team), joined: true };
+}
+
+/** The `chat:message` payload: one message, attributed by Team and by account. */
+function chatMessagePayload({ id, leagueId, user, team, message, createdAt }) {
+  return {
+    id,
+    leagueId,
+    ...withTeamIdentity({ userId: user.id, username: user.username }, team),
+    message,
+    created_at: createdAt,
+  };
+}
+
 /** Full draft-room snapshot: league, teams in draft order, picks so far, on the clock. */
 async function getDraftState(leagueId) {
   const leagueResult = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
@@ -160,15 +204,20 @@ async function getDraftState(leagueId) {
 
   const teamsResult = await pool.query(
     `SELECT "teams"."id", "teams"."name", "teams"."draft_position", "teams"."autodraft",
-            "teams"."draft_ready", "teams"."owner_id", "users"."username" AS "owner"
+            "teams"."draft_ready", "teams"."owner_id", ${teamIdentityColumns()},
+            "users"."username" AS "owner"
      FROM "teams" JOIN "users" ON "users"."id" = "teams"."owner_id"
      WHERE "league_id" = $1 ORDER BY "draft_position" NULLS LAST, "teams"."id"`,
     [leagueId]
   );
+  // A pick's own `name` is the PLAYER's, so the Team that made it needs its
+  // own contract fields rather than a second bare `name` (#112, parent #108).
   const picksResult = await pool.query(
     `SELECT "draft_picks"."pick_number", "draft_picks"."team_id", "draft_picks"."is_keeper",
+            ${teamIdentityColumns()},
             "players"."id" AS "player_id", "players"."name", "players"."position", "players"."nfl_team"
      FROM "draft_picks" JOIN "players" ON "players"."id" = "draft_picks"."player_id"
+     LEFT JOIN "teams" ON "teams"."id" = "draft_picks"."team_id"
      WHERE "draft_picks"."league_id" = $1 ORDER BY "pick_number"`,
     [leagueId]
   );
@@ -180,4 +229,11 @@ async function getDraftState(leagueId) {
   return { league, teams, picks: picksResult.rows, onTheClock };
 }
 
-module.exports = { attachDraftSocket, closeDraftSocket, getDraftState };
+module.exports = {
+  attachDraftSocket,
+  closeDraftSocket,
+  getDraftState,
+  joinAck,
+  presencePayload,
+  chatMessagePayload,
+};

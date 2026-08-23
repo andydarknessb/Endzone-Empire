@@ -403,8 +403,19 @@ function LeagueManagement() {
               <Paper variant="outlined" sx={{ p: 1.5 }} data-testid="invite-preview">
                 <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{preview.name}</Typography>
                 <LeagueTypeChips league={preview} sx={{ my: 1 }} />
+                {/*
+                  The commissioner is named by their TEAM, never by their
+                  account (#181). Whoever is reading this pasted an invite
+                  code, so they are by definition not a member of the league,
+                  and CONTEXT.md's Team identity rule keeps a manager's account
+                  identifier out of another manager's view. The payload still
+                  carries `ownerUsername` until #115 removes it; nothing here
+                  reads it, and a missing Team name drops the clause rather
+                  than falling back to it.
+                */}
                 <Typography variant="body2" color="text.secondary">
-                  {preview.teamCount}/{preview.maxTeams} teams · run by {preview.ownerUsername}
+                  {preview.teamCount}/{preview.maxTeams} teams
+                  {preview.ownerTeamName ? ` · run by ${preview.ownerTeamName}` : ''}
                 </Typography>
                 {preview.alreadyMember && (
                   <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>

@@ -20,9 +20,16 @@ export function clearLeagueCache(leagueId) {
 }
 
 /**
- * Shared GET /api/league/:id. Returns the league row and its teams (the
- * league's membership), so no page needs a second request for the same
- * payload.
+ * Shared GET /api/league/:id. Returns the league row, its teams (the league's
+ * membership) and the viewer's own Team, so no page needs a second request for
+ * the same payload.
+ *
+ * `viewerTeamId` sits at the root of the response rather than on the league or
+ * on a team, because it is the one field there that is true of the reader and
+ * not of the league (#113, contract #112). It is what answers "which of these
+ * is me": `team.teamId === viewerTeamId`, never a comparison of account ids.
+ * Both write-throughs below rebuild the cached value, so both have to carry it
+ * through even though neither is about it.
  */
 export function useLeague(leagueId) {
   const key = leagueId != null ? keyFor(leagueId) : null;
@@ -53,6 +60,11 @@ export function useLeague(leagueId) {
     setResource(keyFor(leagueId), {
       league: { ...(current?.league || {}), ...changes },
       teams: current?.teams ?? [],
+      // setResource replaces the cached entry whole, so a write-through that
+      // omits this drops it to null for every mount sharing the cache key
+      // until the next refetch — silently unguarding the removable-teams
+      // filter in CommissionerTools (#185) for up to a full TTL.
+      viewerTeamId: current?.viewerTeamId ?? null,
     });
   }, [leagueId]);
 
@@ -77,12 +89,18 @@ export function useLeague(leagueId) {
     setResource(keyFor(leagueId), {
       league: current.league ?? null,
       teams: updater(current.teams ?? []),
+      // Same reasoning as updateLeague above: preserve it or the replace wipes it.
+      viewerTeamId: current.viewerTeamId ?? null,
     });
   }, [leagueId]);
 
   return {
     league: data?.league ?? null,
     teams: data?.teams ?? [],
+    // Which Team is the viewer's own, per-viewer and never a broadcast field
+    // (#112, contract in src/lib/teamIdentity.js). Every "which of these is
+    // me" comparison against `teams` reads this, never a username.
+    viewerTeamId: data?.viewerTeamId ?? null,
     loading,
     error,
     refetch,

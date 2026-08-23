@@ -53,6 +53,6 @@ a:hover {
 
 /* One consistent, visible focus ring for keyboard users across both themes. */
 :focus-visible {
-  outline: 2px solid var(--focus-ring, rgba(30, 91, 184, 0.55));
+  outline: 2px solid var(--focus-ring, #1e5bb8);
   outline-offset: 2px;
 }

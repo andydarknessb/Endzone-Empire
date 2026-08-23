@@ -25,6 +25,7 @@ const {
   revokeCoCommissioner,
 } = require('../services/leagueRole.service');
 const { isMember, joinLeague } = require('../services/leagueMembership.service');
+const { teamIdentityColumns, teamIdentityJoin, viewerTeamIdOf } = require('../services/teamIdentity');
 const { assertFantasyLeague } = require('../services/leagueType');
 const { parseSettingsPatch, updateLeagueSettings, LeagueSettingsError } = require('../services/leagueSettings.service');
 
@@ -305,9 +306,15 @@ router.get('/:id', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
   try {
+    // The creator's Team identity rides beside their account identity (#112,
+    // parent #108): the league is a shared surface, so a consumer must be
+    // able to name the creator by Team. LEFT JOIN because a creator who has
+    // been removed from their own league leaves no team behind.
     const leagueResult = await pool.query(
-      `SELECT "leagues".*, "users"."username" AS "owner_username"
+      `SELECT "leagues".*, "users"."username" AS "owner_username",
+              ${teamIdentityColumns('owner_team', 'owner')}
          FROM "leagues" JOIN "users" ON "users"."id" = "leagues"."owner_id"
+         ${teamIdentityJoin('"leagues"."id"', '"leagues"."owner_id"', 'owner_team')}
         WHERE "leagues"."id" = $1`,
       [leagueId]
     );
@@ -323,6 +330,7 @@ router.get('/:id', async (req, res) => {
               "teams"."faab_remaining", "teams"."locked", "teams"."draft_ready",
               "teams"."avatar_url", "teams"."avatar_static_url",
               "teams"."owner_id",
+              ${teamIdentityColumns()},
               "users"."username" AS "owner",
               COUNT("team_players"."id")::int AS "roster_count",
               COALESCE(SUM(CASE WHEN "matchups"."home_team_id" = "teams"."id" THEN "matchups"."home_score"
@@ -346,7 +354,13 @@ router.get('/:id', async (req, res) => {
     league.co_commissioners = await listCoCommissioners(pool, leagueId);
     // Only a commissioner should see the invite code
     if (!league.is_commissioner) delete league.invite_code;
-    res.json({ league, teams: teamsResult.rows });
+    // viewerTeamId is how a consumer answers "which of these is me" without
+    // holding another manager's account ID (#112): teamId === viewerTeamId.
+    res.json({
+      viewerTeamId: viewerTeamIdOf(teamsResult.rows, req.user.id),
+      league,
+      teams: teamsResult.rows,
+    });
   } catch (error) {
     console.error('Error fetching league details', error);
     res.status(500).json({ error: 'failed to fetch league details' });
@@ -593,6 +607,13 @@ router.get('/:id/matchups', async (req, res) => {
 });
 
 // GET /api/league/:id/chat — last 50 chat messages, oldest first
+// Chat authors are identified by Team beside their account (#112, parent
+// #108). The join is LEFT so a message from a manager who has since left the
+// league still reads back rather than dropping out of the history; its Team
+// identity is simply null. This response is a bare array with no root to
+// carry `viewerTeamId`, so a viewer takes theirs from the `league:join`
+// acknowledgement the chat panel already makes, and compares `message.teamId`
+// against it.
 router.get('/:id/chat', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
@@ -603,8 +624,10 @@ router.get('/:id/chat', async (req, res) => {
     const result = await pool.query(
       `SELECT * FROM (
          SELECT "chat_messages"."id", "chat_messages"."message", "chat_messages"."created_at",
-                "chat_messages"."user_id", "users"."username"
+                "chat_messages"."user_id", "users"."username",
+                ${teamIdentityColumns()}
          FROM "chat_messages" JOIN "users" ON "users"."id" = "chat_messages"."user_id"
+         ${teamIdentityJoin('"chat_messages"."league_id"', '"chat_messages"."user_id"')}
          WHERE "chat_messages"."league_id" = $1
            AND NOT EXISTS (
              SELECT 1 FROM "user_blocks"

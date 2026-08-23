@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { useSelector } from 'react-redux';
 import {
   Container,
   Typography,
@@ -30,6 +29,7 @@ import apiClient from '../../api/apiClient';
 import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../lib/teamProfileEvents';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import { useLeague } from '../../hooks/useLeague';
+import { isLeagueCreator } from '../../lib/teamIdentity';
 import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import TradeProposalCard from './TradeProposalCard';
@@ -218,13 +218,12 @@ function SummaryChipRow({ label, ids, roster }) {
 
 function TradeCenter() {
   const { leagueId } = useParams();
-  const user = useSelector((store) => store.user);
   const notify = useSnackbar();
 
   const [trades, setTrades] = useState(null);
   const [myTeamId, setMyTeamId] = useState(null);
   const [rosters, setRosters] = useState([]);
-  const { league, loading: leagueLoading, error: leagueError } = useLeague(leagueId);
+  const { league, viewerTeamId, loading: leagueLoading, error: leagueError } = useLeague(leagueId);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -398,7 +397,9 @@ function TradeCenter() {
   const myRoster = rosters.find((r) => r.teamId === myTeamId);
   const otherTeams = rosters.filter((r) => r.teamId !== myTeamId);
   const theirRoster = rosters.find((r) => r.teamId === selectedTeamId);
-  const isCommissioner = !!(league && user && (league.is_commissioner || league.owner_id === user.id));
+  // The creator's Team against the reader's own, both from league detail
+  // (#113): the same question as before, with no account id in the client.
+  const isCommissioner = !!(league && (league.is_commissioner || isLeagueCreator(league, viewerTeamId)));
 
   const pendingTrades = (trades || []).filter((t) => ACTIVE_STATUSES.has(t.status));
   const completedTrades = (trades || []).filter((t) => !ACTIVE_STATUSES.has(t.status));

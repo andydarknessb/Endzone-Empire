@@ -232,18 +232,18 @@ describe('rearmDeadline', () => {
 });
 
 describe('toBoardShape', () => {
-  it('adapts to the snake_case props DraftBoardMatrix already speaks', () => {
+  it('adapts to the Team identity props DraftBoardMatrix speaks', () => {
     let state = newSim({ totalTeams: 4, userSlot: 1, clockSeconds: 0 }, tinyPool());
     state = applyPick(state, { playerId: 1, now: NOW });
     state = applyPick(state, { playerId: 3, now: NOW });
 
     const board = toBoardShape(state);
-    expect(board.teams[0]).toEqual({ id: 1, name: 'You', draft_position: 1 });
+    expect(board.teams[0]).toEqual({ teamId: 1, teamName: 'You', draft_position: 1 });
     expect(board.draftRounds).toBe(15);
-    expect(board.onTheClock).toEqual({ id: 3, name: 'Team 3' });
+    expect(board.onTheClock).toEqual({ teamId: 3, teamName: 'Team 3' });
     // Newest pick first, matching the live draft room the matrix was built for.
     expect(board.picks[0]).toEqual({
-      pick_number: 2, team_id: 2, player_id: 3,
+      pick_number: 2, teamId: 2, player_id: 3,
       name: 'Cann Arm', position: 'QB', nfl_team: 'SF',
     });
     expect(board.picks[1].pick_number).toBe(1);

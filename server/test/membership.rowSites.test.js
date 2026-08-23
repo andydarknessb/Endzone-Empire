@@ -210,7 +210,12 @@ test('lineup service: getLineup refuses a non-member; setLineup locks the member
   const calls = fakeDb(t, {
     member: TEAM,
     // Stop right after the gate: the first roster read answers with an error we can recognise.
-    overrides: [[/FROM "team_players"/, () => { throw new Error('stop after gate'); }]],
+    // #106 put a finality probe ahead of that read, so answer it "not frozen"
+    // (this is a live week) and the team_players read is reached as before.
+    overrides: [
+      [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+      [/FROM "team_players"/, () => { throw new Error('stop after gate'); }],
+    ],
   });
   await assert.rejects(
     lineup.setLineup({ leagueId: 3, userId: CALLER, moves: [{ playerId: 1, slot: 'QB' }] }),

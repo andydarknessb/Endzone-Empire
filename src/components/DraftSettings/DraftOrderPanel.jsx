@@ -19,7 +19,7 @@ export default function DraftOrderPanel({ league, teams, frozen, onSave, onSetOr
     onDirtyChange(orderChanged || overridesChanged);
   }, [league.draft_order_overrides, onDirtyChange, order, overrides, teams]);
   const teamMap = useMemo(() => new Map(teams.map((team) => [String(team.id), team])), [teams]);
-  const labels = (ids) => ids.map((id) => teamMap.get(String(id))).filter(Boolean).map((team) => ({ id: team.id, label: team.name || `Team ${team.id}`, secondary: team.owner }));
+  const labels = (ids) => ids.map((id) => teamMap.get(String(id))).filter(Boolean).map((team) => ({ id: team.id, label: team.name || `Team ${team.id}` }));
   const saveOverrides = () => onSave({ draftOrderOverrides: Object.keys(overrides).length ? overrides : null }, 'Round overrides saved');
   const setRound = (round, rows) => setOverrides((current) => ({ ...current, [round]: rows.map((row) => Number(row.id)) }));
   const insufficientTeams = teams.length < 2;

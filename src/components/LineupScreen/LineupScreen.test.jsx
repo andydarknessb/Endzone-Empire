@@ -222,13 +222,17 @@ test('suggestions panel shows projected vs optimal totals and a suggestion with 
   renderScreen();
 
   await screen.findByText('Justin Jefferson');
-  expect(screen.getByText(/Projected 110\.4 pts/)).toBeInTheDocument();
-  expect(screen.getByText(/Optimal 118\.2 pts/)).toBeInTheDocument();
+  // Each suggestions-panel assertion awaits its own element: the panel
+  // renders from a separate, later-resolving advice fetch, so it must not be
+  // assumed present just because a lineup-fetch element (Justin Jefferson,
+  // above) has already rendered.
+  expect(await screen.findByText(/Projected 110\.4 pts/)).toBeInTheDocument();
+  expect(await screen.findByText(/Optimal 118\.2 pts/)).toBeInTheDocument();
   expect(
-    screen.getByText(/Start Saquon Barkley \(17\.9 proj\) over\s*Justin Jefferson \(10\.2 proj\)/)
+    await screen.findByText(/Start Saquon Barkley \(17\.9 proj\) over\s*Justin Jefferson \(10\.2 proj\)/)
   ).toBeInTheDocument();
-  expect(screen.getByText(/vs NYG, 22\.1 pts\s*allowed to FLEX/)).toBeInTheDocument();
-  expect(screen.getByText('+7.7')).toBeInTheDocument();
+  expect(await screen.findByText(/vs NYG, 22\.1 pts\s*allowed to FLEX/)).toBeInTheDocument();
+  expect(await screen.findByText('+7.7')).toBeInTheDocument();
 });
 
 test('clicking Apply on a suggestion swaps the two players and saves via the normal lineup save path', async () => {
@@ -238,7 +242,10 @@ test('clicking Apply on a suggestion swaps the two players and saves via the nor
   renderScreenWithToasts();
   await screen.findByText('Justin Jefferson');
 
-  await userEvent.click(screen.getByRole('button', { name: 'Apply' }));
+  // Apply lives in the suggestions panel, which renders from a separate,
+  // later-resolving advice fetch — await it directly rather than assuming it
+  // arrived alongside the lineup-fetch text above.
+  await userEvent.click(await screen.findByRole('button', { name: 'Apply' }));
 
   await waitFor(() =>
     expect(apiClient.put).toHaveBeenCalledWith('/api/team/lineup', {
@@ -777,11 +784,13 @@ test('the summary header shows projected/optimal totals and the (+gain) button e
   renderScreen();
   await screen.findByText('Justin Jefferson');
 
+  // The header's totals come from the same later-resolving advice fetch as
+  // the suggestions panel, so await them directly rather than a neighbour.
   expect(
-    within(screen.getByTestId('lineup-summary-header')).getByText(/Projected 110\.4/)
+    await within(screen.getByTestId('lineup-summary-header')).findByText(/Projected 110\.4/)
   ).toBeInTheDocument();
   expect(
-    within(screen.getByTestId('lineup-summary-header')).getByText(/Optimal 118\.2/)
+    await within(screen.getByTestId('lineup-summary-header')).findByText(/Optimal 118\.2/)
   ).toBeInTheDocument();
 
   // Collapse the panel, then use the summary header's gain button to reopen it.
@@ -807,7 +816,10 @@ test('best ball: keeps starters automatic while allowing an eligible bench playe
   renderScreenWithToasts();
   await screen.findByText('Patrick Mahomes');
 
-  expect(screen.getByTestId('best-ball-alert')).toHaveTextContent(
+  // best_ball comes from a separate league fetch, not the lineup fetch
+  // awaited above, so await the alert directly. This also settles `bestBall`
+  // before the row eligibility checks below, which are computed from it.
+  expect(await screen.findByTestId('best-ball-alert')).toHaveTextContent(
     'Best ball: your optimal lineup is computed automatically each week.'
   );
   expect(screen.queryByTestId('lineup-advice-panel')).not.toBeInTheDocument();
@@ -848,7 +860,10 @@ test('best ball: renders the full bench pool and lets an unlocked IR occupant re
   renderScreenWithToasts();
   await screen.findByText('Recovered Receiver');
 
-  expect(screen.getByTestId('slot-row-BENCH-4')).toBeInTheDocument();
+  // Bench row count factors in best_ball, from the separate league fetch —
+  // await this row directly rather than assuming it settled alongside the
+  // lineup-fetch text above.
+  expect(await screen.findByTestId('slot-row-BENCH-4')).toBeInTheDocument();
   await userEvent.click(screen.getByTestId('slot-row-IR-0'));
   await userEvent.click(screen.getByTestId('slot-row-BENCH-empty-4'));
 
@@ -869,6 +884,10 @@ test('best ball: a recovered stash remains locked after kickoff', async () => {
 
   renderScreenWithToasts();
   await screen.findByText('Recovered Receiver');
+  // The locked-in-best-ball click branch reads `bestBall` from the separate
+  // league fetch; await its own element first so the click below runs after
+  // that value has actually settled, not while it still defaults to false.
+  await screen.findByTestId('best-ball-alert');
 
   await userEvent.click(screen.getByTestId('slot-row-IR-0'));
 
@@ -887,6 +906,10 @@ test('best ball: quick-pick offers only unlocked players from the opposite manag
 
   renderScreen();
   await screen.findByText('Recovered Receiver');
+  // Quick-pick eligibility reads `bestBall` from the separate league fetch;
+  // await its own element first so the click below runs after that value
+  // has actually settled, not while it still defaults to false.
+  await screen.findByTestId('best-ball-alert');
 
   await userEvent.click(screen.getByTestId('slot-row-BENCH-empty-1'));
   const menu = await screen.findByRole('menu');
@@ -1008,7 +1031,10 @@ test('a non-best-ball league still shows the suggestions panel and no info alert
   await screen.findByText('Justin Jefferson');
 
   expect(screen.queryByTestId('best-ball-alert')).not.toBeInTheDocument();
-  expect(screen.getByTestId('lineup-advice-panel')).toBeInTheDocument();
+  // The advice panel renders from a separate, later-resolving advice fetch —
+  // await it directly rather than assuming it arrived alongside the
+  // lineup-fetch text above.
+  expect(await screen.findByTestId('lineup-advice-panel')).toBeInTheDocument();
 });
 
 test('shows injury badges and projected points on lineup rows', async () => {

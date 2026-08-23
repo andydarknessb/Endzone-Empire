@@ -241,30 +241,136 @@ async function discoverLeagues({ userId, search, scoring, openSlots, sort, type 
 }
 
 /**
+ * The invite preview's payload contract (#181).
+ *
+ * This is an ALLOWLIST, and the direction is the point. The preview reads the
+ * SHARED Discover-card row (`selectLeagueCards`, widened by `extraColumns`)
+ * and answers a manager who pasted an invite code and is by definition NOT a
+ * member of the league. Under the previous "spread the row, delete the fields
+ * we thought of" shape, publication to that non-member was the DEFAULT: every
+ * column added to the Discover card projection reached the invite preview the
+ * day it landed, and nothing failed. Here a field is published only because it
+ * is named below, and `server/test/invitePreviewShape.test.js` pins the exact
+ * key set so a new column fails loudly instead of shipping silently.
+ *
+ * Adding a name to this list is a deliberate act of publication to a
+ * non-member. Account identity never qualifies: per CONTEXT.md's Team identity
+ * rule, a manager's account identifier stays in their own account chrome, and
+ * a non-member reading an invite preview sees the commissioner's Team name
+ * (`ownerTeamName`) and not their username (#184 records the rule).
+ *
+ * Same guarantee, and the same reason for it, as the public presenter board's
+ * allowlist in draft.router.js (#173 / #199).
+ */
+const PREVIEW_FIELDS = [
+  'id',
+  'name',
+  'maxTeams',
+  'teamCount',
+  'scoringPreset',
+  'bestBall',
+  'pickemOnly',
+  'pickemEnabled',
+  'joinApproval',
+  'draftDate',
+  'createdAt',
+  'alreadyMember',
+  'myRequestStatus',
+  'openSlots',
+  'isPublic',
+  // The commissioner's ACCOUNT name. Still shipped only because #181 is the
+  // expand half of an expand/contract pair; no client reads it (#181 moved the
+  // one reader to ownerTeamName, with no fallback), and #115 deletes this
+  // entry and its key in the pinning test. Nothing new may read it.
+  'ownerUsername',
+  // The commissioner's TEAM name in this league: what a non-member is shown.
+  'ownerTeamName',
+  // Joinability's answer. Its three inputs (draft_status, season_status,
+  // pickem_only) are read below and deliberately absent from this list.
+  'joinable',
+  'joinReason',
+];
+
+/**
+ * A new object carrying `fields` and nothing else. A field the source lacks is
+ * answered with null rather than omitted, so the key set is a property of the
+ * list and not of whatever the row happened to hold, and a client can read
+ * every field unconditionally.
+ */
+function allowlisted(source, fields) {
+  if (!source) return null;
+  const published = {};
+  for (const field of fields) {
+    published[field] = source[field] === undefined ? null : source[field];
+  }
+  return published;
+}
+
+/**
  * What an invite link reveals before joining: the Discover card for the
- * league behind `code`, plus who runs it, whether it is public, and whether
- * it will accept a team (`joinable`, with `joinReason` naming why not:
+ * league behind `code`, plus the Team that runs it, whether it is public, and
+ * whether it will accept a team (`joinable`, with `joinReason` naming why not:
  * 'draft-started' | 'season-complete'). Null when no league has that code.
- * Never returns the code itself, and never a computed phase or the raw draft
- * and season statuses: those are the joinability answer's inputs, read here
- * and dropped (the client keys its warning on `joinReason` alone).
+ *
+ * The response is PREVIEW_FIELDS and nothing else, built fresh rather than by
+ * stripping the row, so it never carries the invite code itself, never a
+ * computed phase or the raw draft and season statuses (those are the
+ * joinability answer's inputs, read here and never published; the client keys
+ * its warning on `joinReason` alone), and never a column the Discover card
+ * projection grows later.
+ *
+ * `ownerTeamName` is the Team of the league's CREATOR in this league (the
+ * `teams` row on `leagues.owner_id`), which is what #181 and #184 call the
+ * commissioner's Team name. Precisely the creator, not a co-commissioner:
+ * CONTEXT.md defines Commissioner as either, and this names the one whose
+ * league it is. Null for a legacy league whose creator has no team row: null,
+ * never a fallback to their account name, per CONTEXT.md's Team identity rule.
  */
 async function previewLeagueByInviteCode({ code, userId }) {
   const rows = await selectLeagueCards({
     whereClause: '"leagues"."invite_code" = $2',
     params: [userId, code],
+    /*
+     * `ownerTeamName` is read by a correlated subselect, and BOTH its legs
+     * matter: without the league_id one, the creator's team in a DIFFERENT
+     * league would answer. That is the rule teamIdentity.teamIdentityJoin()
+     * exists to state once, and this is a subselect rather than that helper
+     * for two reasons. selectLeagueCards takes `extraColumns` only, so there
+     * is no hook for a join, and widening the SHARED Discover-card query is
+     * the exact thing this change exists to stop; a LEFT JOIN there would
+     * also multiply rows under the COUNT(DISTINCT "teams"."id") the card
+     * aggregates. teamIdentityColumns('owner_team', 'owner') was the other
+     * candidate: it mints `ownerTeamId` alongside `ownerTeamName`, and #181
+     * asks for the name alone, so taking it would publish a field nobody
+     * asked for.
+     *
+     * No LIMIT: "teams" is UNIQUE (league_id, owner_id) ("one team per user
+     * per league", initial schema), so this matches at most one row by
+     * construction. Were that constraint ever dropped, a second row should
+     * fail this query loudly rather than let a LIMIT pick one arbitrarily.
+     */
     extraColumns: `,
        "leagues"."is_public" AS "isPublic",
        "leagues"."draft_status" AS "draft_status",
        "leagues"."season_status" AS "season_status",
        "leagues"."pickem_only" AS "pickem_only",
-       (SELECT "users"."username" FROM "users" WHERE "users"."id" = "leagues"."owner_id") AS "ownerUsername"`,
+       (SELECT "users"."username" FROM "users" WHERE "users"."id" = "leagues"."owner_id") AS "ownerUsername",
+       (SELECT "owner_team"."name" FROM "teams" "owner_team"
+         WHERE "owner_team"."league_id" = "leagues"."id"
+           AND "owner_team"."owner_id" = "leagues"."owner_id") AS "ownerTeamName"`,
   });
   const row = rows[0];
   if (!row) return null;
-  const { draft_status, season_status, pickem_only, ...preview } = row;
+  // Named explicitly rather than passed the whole row: these three are the
+  // only columns joinability reads, and they are read here precisely so they
+  // are never published.
+  const { draft_status, season_status, pickem_only } = row;
   const answer = joinability({ draft_status, season_status, pickem_only });
-  return { ...preview, joinable: answer.joinable, joinReason: answer.joinable ? null : answer.reason };
+  return allowlisted({
+    ...row,
+    joinable: answer.joinable,
+    joinReason: answer.joinable ? null : answer.reason,
+  }, PREVIEW_FIELDS);
 }
 
 /**

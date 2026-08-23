@@ -1,6 +1,7 @@
 const pool = require('../modules/pool');
 const { logTransaction, notify } = require('./activity.service');
 const { MembershipError, requireMember } = require('./leagueMembership.service');
+const { teamIdentityColumns, teamIdentityJoin } = require('./teamIdentity');
 
 /** Every current commissioner's user id: the owner plus any co-commissioners. */
 async function listCommissionerUserIds(db, leagueId, ownerId) {
@@ -36,12 +37,20 @@ async function notifyCommissioners(db, { leagueId, ownerId, type, message, data 
  *   action should authorize through `isLeagueCommissioner` or
  *   `commissionerPredicate`, so adding a co-commissioner grants powers
  *   everywhere at once instead of one endpoint at a time.
- * - "Owner" is the creator alone. Two things stay owner-only and must keep
- *   checking `owner_id` directly: deleting the league, and granting/revoking
- *   co-commissioners.
+ * - "Owner" is the creator alone. Three things stay owner-shaped and must
+ *   keep comparing `owner_id` directly: deleting the league, granting or
+ *   revoking co-commissioners, and protecting the creator's Team from
+ *   removal.
  *
  * Invariant: a commissioner is always a member. Removing a Team already
- * revokes any co-commissioner grant, and the creator's Team cannot be removed.
+ * revokes any co-commissioner grant. Two separate rules bound removal, and
+ * only the second of them is an `owner_id` comparison:
+ *
+ * - No commissioner of either kind may remove their own Team. That compares
+ *   the target against the CALLER, never against the owner; see
+ *   commissioner.service's removeTeam.
+ * - Whoever the caller is, the creator's Team cannot be removed.
+ *
  * The next role-shaped question belongs here, not in a new predicate.
  */
 
@@ -77,12 +86,20 @@ async function isLeagueOwner(db, leagueId, userId) {
   return !!result.rows[0];
 }
 
-/** The co-commissioners of a league, oldest grant first. */
+/**
+ * The co-commissioners of a league, oldest grant first. The roster is
+ * league-shared (every member reads it on league detail), so each entry
+ * carries Team identity beside its account fields (#112, parent #108). The
+ * join is LEFT because a co-commissioner grant outlives the team briefly
+ * when a commissioner removes the team before revoking the role.
+ */
 async function listCoCommissioners(db, leagueId) {
   const result = await db.query(
-    `SELECT "league_commissioners"."user_id", "users"."username"
+    `SELECT "league_commissioners"."user_id", "users"."username",
+            ${teamIdentityColumns()}
        FROM "league_commissioners"
        JOIN "users" ON "users"."id" = "league_commissioners"."user_id"
+       ${teamIdentityJoin('"league_commissioners"."league_id"', '"league_commissioners"."user_id"')}
       WHERE "league_commissioners"."league_id" = $1
       ORDER BY "league_commissioners"."created_at", "league_commissioners"."user_id"`,
     [leagueId]
