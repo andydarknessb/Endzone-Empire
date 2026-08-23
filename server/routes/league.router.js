@@ -428,7 +428,13 @@ router.post('/:id/start-draft', async (req, res) => {
   }
 });
 
-// DELETE /api/league/:id — owner deletes the league
+// DELETE /api/league/:id — owner deletes the league.
+//
+// Sanctioned direct owner_id comparison, the first of the three
+// leagueRole.service's header enumerates: this power does not delegate, so a
+// co-commissioner is refused here exactly as a member is. The WHERE clause IS
+// the gate rather than a filter in front of one - no row deleted means the
+// caller was not the creator - which is why the 403 is decided on rowCount.
 router.delete('/:id', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });

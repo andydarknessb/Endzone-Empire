@@ -127,6 +127,10 @@ async function grantCoCommissioner({ leagueId, userId, targetUserId }) {
   try {
     await client.query('BEGIN');
     const league = await requireOwner(client, { leagueId, userId, forUpdate: true });
+    // Sanctioned direct owner_id comparison, the second of the three in the
+    // header: granting the role. The creator already holds it, so they can
+    // never be a grantee, and the comparison genuinely is about the owner
+    // rather than about the caller.
     if (targetUserId === league.owner_id) {
       throw new MembershipError(400, 'the league owner is already the commissioner');
     }
