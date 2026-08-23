@@ -22,23 +22,44 @@ That is the mechanism that made the presenter board public: `router.get(
 '/board/:token', ...)` sits at draft.router.js:96, and `router.use(requireAuth)`
 at line 125. Nothing about the route's name says so.
 
-The classifier is proven against four shapes before the inventory trusts it:
+The classifier is proven against six shapes before the inventory trusts it:
 a route registered ahead of a router-level guard, a per-route guard with no
 router-level one, a path-scoped `router.use(path, guard)` that protects no
-sibling, and the guard itself actually refusing a request.
+sibling, a `router.route(path)` chain whose methods are guarded differently
+from one another, a guard registered behind a terminal handler so that it never
+runs, and the guard itself actually refusing a request. The fourth and fifth
+were added by **#241**: both had been classifying an anonymous route as
+guarded, which kept it out of the audited set entirely. The sixth is the
+original refusal check and predates them.
 
-It has one structural blind spot, closed **at the app level** by two assertions
-beside it rather than by the classifier: middleware that is neither a route nor
-a router (`app.use(path, fn)`) has no `.route` and no nested stack, so
-`app.use('/exports', express.static('server/data'))` would be an anonymous
-surface the walk never sees. Every static mount and every non-root `app.use`
-**on the app** is therefore pinned by name.
+It has one structural blind spot, closed by three assertions beside it rather
+than by the classifier: middleware that is neither a route nor a router
+(`use(path, fn)`) has no `.route` and no nested stack, so `use('/exports',
+express.static('server/data'))` would be an anonymous surface the walk never
+sees. **Closed by #241 at every router level, not only the app's**, where it
+originally stopped: the enumeration recurses into mounted routers and records
+each layer's full mount path.
 
-The router-level equivalent is NOT closed. `router.use('/exports',
-express.static(...))` inside a router escapes both the classifier and that
-pin, because `classifyRoutes` drops such a layer and the pin reads only
-`app._router.stack`. Nothing does that today; it is filed rather than fixed
-here.
+Recursing brings 17 pre-existing router-level layers into view - each router's
+own `requireAuth`, `requirePlatformAdmin`, the public rate limiter and the two
+`requireFantasyLeague()` mounts - so the pins are written to distinguish a
+harmful mount from those 17 by three properties rather than by a pattern over
+their names. Fifteen of the 17 are root-mounted and drop out by position; the
+two `requireFantasyLeague()` mounts own a path and are listed, on the same
+footing as the app-level rate limiters:
+
+- **by name**, every `express.static` anywhere in the tree;
+- **by position**, every middleware mounted at a path, at any level. Root
+  mounted middleware is excluded because it owns no path of its own;
+- **by arity**, every middleware that cannot call `next` and therefore answers
+  rather than passing on. This is what makes the exclusion above honest, and it
+  is the only one that reaches a responder mounted at a *router's* root.
+
+What that still misses is stated in the test: a three-argument middleware at a
+router root that responds anyway is indistinguishable, from a mounted stack,
+from the guards it sits among. The path list is also expected to change when
+the app legitimately adds a path-mounted middleware; the failure is the prompt
+to make that decision deliberately.
 
 The name-keying has a blind spot too: `express-async-errors` wraps every
 handler, so the classifier matches on the Layer's recorded handler NAME rather
@@ -81,9 +102,17 @@ between that and the response.
 **Socket.IO.** `attachDraftSocket` installs `requireSocketAuth` as the only
 handshake middleware, ahead of every `socket.on(...)` handler, and it refuses
 both a tokenless handshake and one carrying a token it cannot verify. There is
-no anonymous socket surface. Asserted, not read off the source. (The engine.io
-transport underneath it does answer an anonymous `GET /socket.io/` before
-Express runs - see "found and deliberately not changed".)
+no anonymous socket surface. Asserted, not read off the source. **Asserted over
+every namespace since #241**, where it previously read `io.sockets._fns` - the
+default namespace alone. Handshake middleware belongs to a namespace, so
+`io.of('/admin')` would have carried its own empty middleware list and reported
+nothing: with one added, the old check still answered "the guard is present and
+it is the real one". The check now enumerates `io._nsps` and pins the whole map,
+and asserts `parentNsps` is empty, since a namespace named by a regexp or a
+function creates its children per connection and cannot be enumerated this way.
+(The engine.io transport underneath it does answer an anonymous
+`GET /socket.io/` before Express runs - see "found and deliberately not
+changed".)
 
 ## Routes that turned out NOT to be anonymous
 
