@@ -100,7 +100,13 @@ for (const event of JOIN_EVENTS) {
     // an unanswered query would produce, and it must not be able to pass here.
     // deepEqual (not a property check) is also what proves no viewerTeamId or
     // isCommissioner leaked to a non-member.
-    assert.deepEqual(ack, { error: 'you are not in this league' });
+    // The CODE is what the client discriminates on (#230), never the text:
+    // this is the one refusal that clears the viewer's Team identity and
+    // commissioner flag, and it has to be told apart from the other two
+    // without matching a message string. Still deepEqual on the WHOLE
+    // object - loosening it to a property check to accommodate the new
+    // field would reopen the masking trap the exactness exists to close.
+    assert.deepEqual(ack, { error: 'you are not in this league', code: 'not_a_member' });
     // Membership IS the Team (ADR 0002), so a non-member is never asked the
     // role question at all.
     assert.equal(fake.matching(/FROM "leagues"/).length, 0, 'no role question for a non-member');
@@ -179,7 +185,7 @@ for (const [label, leagueId] of [
 
     const ack = await harness.emit(client, 'draft:join', { leagueId });
 
-    assert.deepEqual(ack, { error: 'leagueId (integer) required' });
+    assert.deepEqual(ack, { error: 'leagueId (integer) required', code: 'invalid_request' });
     assert.equal(fake.calls.length, 0, 'an invalid leagueId never reaches the database');
   });
 }
