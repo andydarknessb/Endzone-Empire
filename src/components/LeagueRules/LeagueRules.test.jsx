@@ -1,16 +1,16 @@
 import React from 'react';
-import { screen, waitFor, within, act } from '@testing-library/react';
+import { screen, within, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import { clearLeagueCache } from '../../hooks/useLeague';
 import { clearPickemSettingsCache, setPickemSettings } from '../../hooks/usePickemSettings';
 import LeagueRules from './LeagueRules';
+import apiClient from '../../api/apiClient';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn() },
 }));
-import apiClient from '../../api/apiClient';
 
 const SCORING_DEFAULTS = {
   passing: { yards: 0.04, touchdowns: 4, interceptions: -2 },
@@ -214,7 +214,7 @@ describe('LeagueRules', () => {
     expect(await screen.findByText(/Unable to load scoring rules: offline/)).toBeInTheDocument();
 
     await act(async () => { await userEvent.click(screen.getByRole('tab', { name: 'Roster' })); });
-    await waitFor(() => expect(screen.getByText('7 roster spots + up to 1 IR')).toBeInTheDocument());
+    await screen.findByText('7 roster spots + up to 1 IR');
   });
 });
 

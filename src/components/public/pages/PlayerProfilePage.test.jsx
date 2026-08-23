@@ -151,7 +151,7 @@ test('honors a shared ?season= URL for a season the player lacks with a not-avai
   renderPage('/players/42?season=2024');
   await screen.findByRole('heading', { name: 'Alpha Back' });
 
-  await waitFor(() => expect(screen.getByText(/No 2024 data for Alpha Back/)).toBeInTheDocument());
+  await screen.findByText(/No 2024 data for Alpha Back/);
   // Not a mismatched-season view: no game table, and the unavailable season
   // is never offered as a toggle button.
   expect(screen.queryByRole('table', { name: 'Game log' })).not.toBeInTheDocument();
@@ -262,7 +262,7 @@ test('switching to the pending upcoming season renders a not-started state, not 
 
   fireEvent.click(screen.getByRole('button', { name: /2026/ }));
 
-  await waitFor(() => expect(screen.getByText(/season hasn.t started yet/i)).toBeInTheDocument());
+  await screen.findByText(/season hasn.t started yet/i);
   // No stat cards / game table in the pending state.
   expect(screen.queryByText(/Weekly breakdown is partial/)).not.toBeInTheDocument();
   expect(screen.queryByRole('table', { name: 'Game log' })).not.toBeInTheDocument();

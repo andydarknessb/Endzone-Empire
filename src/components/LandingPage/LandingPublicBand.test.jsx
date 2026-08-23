@@ -1,9 +1,9 @@
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
-
-jest.mock('../../api/publicApiClient', () => ({ __esModule: true, default: { get: jest.fn() } }));
 import publicApiClient from '../../api/publicApiClient';
 import LandingPublicBand from './LandingPublicBand';
+
+jest.mock('../../api/publicApiClient', () => ({ __esModule: true, default: { get: jest.fn() } }));
 
 function mockEndpoints({ rankings, recaps, fail = false }) {
   publicApiClient.get.mockImplementation((url) => {

@@ -6,12 +6,12 @@ import { clearLeagueCache } from '../../hooks/useLeague';
 import { clearPickemStandingsCache } from '../../hooks/usePickemStandings';
 import { clearPickemSettingsCache } from '../../hooks/usePickemSettings';
 import LeaguePickem from './LeaguePickem';
+import apiClient from '../../api/apiClient';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn() },
 }));
-import apiClient from '../../api/apiClient';
 
 const LEAGUE_ID = 7;
 const hoursFromNow = (hours) => new Date(Date.now() + hours * 3600 * 1000).toISOString();

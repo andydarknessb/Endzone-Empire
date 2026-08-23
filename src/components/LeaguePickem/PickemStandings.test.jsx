@@ -1,15 +1,15 @@
 import React from 'react';
-import { screen, waitFor, within } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import PickemStandings from './PickemStandings';
+import apiClient from '../../api/apiClient';
+import { clearPickemStandingsCache } from '../../hooks/usePickemStandings';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn() },
 }));
-import apiClient from '../../api/apiClient';
-import { clearPickemStandingsCache } from '../../hooks/usePickemStandings';
 
 // The standings response as the server sends it: Team identity on every row,
 // the account fields the expand step left in place (#112) which this table
@@ -138,5 +138,5 @@ test('a failed load offers a retry', async () => {
   apiClient.get.mockResolvedValue({ data: STANDINGS });
   await user.click(screen.getByRole('button', { name: /Retry standings/i }));
 
-  await waitFor(() => expect(screen.getByRole('table')).toBeInTheDocument());
+  await screen.findByRole('table');
 });
