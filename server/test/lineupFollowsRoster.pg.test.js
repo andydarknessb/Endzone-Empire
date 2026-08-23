@@ -285,7 +285,14 @@ if (!ENABLED) {
 
     for (const name of ['KickedOff', 'Open', 'Bye']) {
       const outcome = await removeLineupEntries(pool, {
-        league, teamId: teamA, playerId: playerIds[name],
+        league,
+        teamId: teamA,
+        playerId: playerIds[name],
+        // Held since long before the week, so the spare's second condition
+        // (#190: the departing tenure must itself have begun by kickoff) is
+        // satisfied and this stays a test of the kickoff question alone.
+        // The condition's own cases live in lineup.service.test.js.
+        tenureStartedAt: new Date(`${SEASON}-09-01T00:00:00Z`),
       });
       assert.equal(
         outcome.removedCurrentWeek,
