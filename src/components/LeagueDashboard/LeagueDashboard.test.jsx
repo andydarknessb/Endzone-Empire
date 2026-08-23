@@ -58,8 +58,10 @@ const renderDashboardWithToasts = (leagueId = 1) =>
 
 const leagueResponse = (overrides = {}) => ({
   data: {
-    // The viewer holds Team 1, and Team 1 is the league creator's: the
-    // viewer-relative field lives at the response root (#113, contract #112).
+    // Alice (user id 1, the default signed-in user below) owns team 1, so
+    // team 1 is the viewer's own, and team 1 is also the league creator's.
+    // The server derives it (#112); the viewer-relative field lives at the
+    // response root, and the fixture mirrors that rather than a username.
     viewerTeamId: 1,
     league: {
       id: 1,

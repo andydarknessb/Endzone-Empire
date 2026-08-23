@@ -54,8 +54,6 @@ const teams = [
   { id: 2, name: "Bob's Team", owner: 'bob', faab_remaining: 60, locked: false },
 ];
 
-const user = { id: 1, username: 'alice' };
-
 const mockGetByUrl = (overrides = {}) => {
   apiClient.get.mockImplementation((url) => {
     for (const [key, value] of Object.entries(overrides)) {
@@ -74,7 +72,7 @@ const renderTools = (props = {}) =>
         leagueId={1}
         league={league()}
         teams={teams}
-        user={user}
+        viewerTeamId={1}
         onRefresh={jest.fn()}
         {...props}
       />
@@ -104,6 +102,29 @@ test('calls out immediate general-setting effects and destructive team removal',
   expect(screen.getByText('Destructive actions')).toBeInTheDocument();
   expect(screen.getByText('Remove a team')).toBeInTheDocument();
   expect(screen.getByText('Approve and deny decisions apply immediately.')).toBeInTheDocument();
+});
+
+// The removable-teams guard answers "which of these is me" by Team ID, not by
+// the owner username string (#185). Both cases below assert list membership
+// (which control is offered, not just that the section renders) and would
+// fail against a username comparison: the first because a stale/renamed
+// owner string no longer matches the signed-in username, the second because
+// #115 drops the owner field from league-shared team rows entirely, which
+// makes `undefined !== username` true for every team.
+test("excludes the viewer's own team by Team ID even once its owner string is stale (a username change)", () => {
+  const staleOwnerTeams = teams.map((t) => (t.id === 1 ? { ...t, owner: 'alice_old_handle' } : t));
+  renderTools({ viewerTeamId: 1, teams: staleOwnerTeams });
+
+  expect(screen.queryByRole('button', { name: "Remove Alice's Team" })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: "Remove Bob's Team" })).toBeInTheDocument();
+});
+
+test("excludes the viewer's own team by Team ID once the owner username field is gone from the payload (#115 shape)", () => {
+  const teamsWithoutOwner = teams.map(({ owner, ...rest }) => rest);
+  renderTools({ viewerTeamId: 1, teams: teamsWithoutOwner });
+
+  expect(screen.queryByRole('button', { name: "Remove Alice's Team" })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: "Remove Bob's Team" })).toBeInTheDocument();
 });
 
 // --- Roster Settings ---
@@ -813,7 +834,7 @@ const StableShell = ({ children }) => (
 test("a fantasy tab left selected does not survive a switch to a pick'em-only league (hash-only navigation keeps the component mounted)", async () => {
   const { rerender } = render(
     <StableShell>
-      <CommissionerTools leagueId={1} league={league()} teams={teams} user={user} onRefresh={jest.fn()} />
+      <CommissionerTools leagueId={1} league={league()} teams={teams} viewerTeamId={1} onRefresh={jest.fn()} />
     </StableShell>
   );
   await userEvent.click(screen.getByRole('tab', { name: 'Scoring Settings' }));
@@ -821,7 +842,7 @@ test("a fantasy tab left selected does not survive a switch to a pick'em-only le
 
   rerender(
     <StableShell>
-      <CommissionerTools leagueId={2} league={pickemLeague({ id: 2 })} teams={teams} user={user} onRefresh={jest.fn()} />
+      <CommissionerTools leagueId={2} league={pickemLeague({ id: 2 })} teams={teams} viewerTeamId={1} onRefresh={jest.fn()} />
     </StableShell>
   );
 

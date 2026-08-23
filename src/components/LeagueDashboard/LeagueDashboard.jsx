@@ -654,7 +654,7 @@ function LeagueDashboard() {
           leagueId={leagueId}
           league={league}
           teams={teams}
-          user={user}
+          viewerTeamId={viewerTeamId}
           isOwner={isOwner}
           onRefresh={refresh}
         />

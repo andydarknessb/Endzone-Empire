@@ -58,9 +58,13 @@ export function useLeague(leagueId) {
     if (leagueId == null || !changes) return;
     const current = dataRef.current || read(keyFor(leagueId))?.data;
     setResource(keyFor(leagueId), {
-      viewerTeamId: current?.viewerTeamId ?? null,
       league: { ...(current?.league || {}), ...changes },
       teams: current?.teams ?? [],
+      // setResource replaces the cached entry whole, so a write-through that
+      // omits this drops it to null for every mount sharing the cache key
+      // until the next refetch — silently unguarding the removable-teams
+      // filter in CommissionerTools (#185) for up to a full TTL.
+      viewerTeamId: current?.viewerTeamId ?? null,
     });
   }, [leagueId]);
 
@@ -83,15 +87,19 @@ export function useLeague(leagueId) {
     const current = dataRef.current || entry?.data;
     if (!current) return;
     setResource(keyFor(leagueId), {
-      viewerTeamId: current.viewerTeamId ?? null,
       league: current.league ?? null,
       teams: updater(current.teams ?? []),
+      // Same reasoning as updateLeague above: preserve it or the replace wipes it.
+      viewerTeamId: current.viewerTeamId ?? null,
     });
   }, [leagueId]);
 
   return {
     league: data?.league ?? null,
     teams: data?.teams ?? [],
+    // Which Team is the viewer's own, per-viewer and never a broadcast field
+    // (#112, contract in src/lib/teamIdentity.js). Every "which of these is
+    // me" comparison against `teams` reads this, never a username.
     viewerTeamId: data?.viewerTeamId ?? null,
     loading,
     error,
