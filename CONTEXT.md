@@ -6,9 +6,6 @@ NFL statistics. Two things sit alongside the game itself and carry their own
 vocabulary: the projection engine that advises managers, and the evaluation
 apparatus that decides whether that engine is allowed to change.
 
-For what production currently contains, so a query against it is read
-correctly, see `docs/agents/production-data-state.md`.
-
 ## Language
 
 ### League and membership
