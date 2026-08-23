@@ -77,6 +77,25 @@ test('a standings row runs its Team name through the same former-manager label a
   expect(within(table).queryByText('abe')).not.toBeInTheDocument();
 });
 
+test("marks the viewer's own row and leaves the others unmarked", async () => {
+  apiClient.get.mockResolvedValue({ data: STANDINGS });
+  renderWithProviders(<PickemStandings leagueId={7} season={2026} />);
+
+  await screen.findByRole('table');
+  // STANDINGS.viewerTeamId is 92, which is the second row's teamId.
+  expect(screen.getByTestId('pickem-standings-row-92')).toHaveAttribute('data-viewer-team', 'true');
+  expect(screen.getByTestId('pickem-standings-row-21')).not.toHaveAttribute('data-viewer-team');
+});
+
+test('marks no row when viewerTeamId is null', async () => {
+  apiClient.get.mockResolvedValue({ data: { ...STANDINGS, viewerTeamId: null } });
+  renderWithProviders(<PickemStandings leagueId={7} season={2026} />);
+
+  await screen.findByRole('table');
+  expect(screen.getByTestId('pickem-standings-row-21')).not.toHaveAttribute('data-viewer-team');
+  expect(screen.getByTestId('pickem-standings-row-92')).not.toHaveAttribute('data-viewer-team');
+});
+
 test('names the scoring mode and the tie rule', async () => {
   apiClient.get.mockResolvedValue({ data: STANDINGS });
   renderWithProviders(<PickemStandings leagueId={7} />);
