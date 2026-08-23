@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 const express = require('express');
+const request = require('supertest');
 const { requireAuth, requireSocketAuth } = require('../modules/auth');
 
 /**
@@ -69,6 +70,53 @@ function isRootMiddleware(layer) {
 }
 
 /**
+ * Could this layer hand the request on to the next one?
+ *
+ * A function that does not DECLARE a `next` parameter cannot call one, so it
+ * is the end of its chain: everything registered behind it is dead code.
+ * Arity is the only decidable form of that question from a mounted stack, and
+ * it survives `express-async-errors` - the wrapper it installs is built with
+ * the same arity as the function it wraps (verified against the installed
+ * express 4.22.2 and express-async-errors 3.1.1, not read off the docs).
+ *
+ * SCOPE: this is sound in one direction only. A layer that declares `next`
+ * MIGHT still answer and never call it - `requireAuth` itself does exactly
+ * that when it refuses - so a three-argument handler that responds is read
+ * here as "could continue". That direction is the safe one for a guard placed
+ * BEFORE it. The unsafe residue is a three-argument handler that responds
+ * followed by a guard, which still reads as guarded; nothing in the app has
+ * that shape, and closing it would need the handler's behaviour rather than
+ * its signature.
+ */
+function canContinue(layer) {
+  return layer.handle.length >= 3;
+}
+
+/**
+ * Is `requireAuth` in the chain Express would actually run for THIS method of
+ * this route?
+ *
+ * Two things make that narrower than "is the guard anywhere in the stack",
+ * and the route classifier got both wrong before #241:
+ *
+ * 1. METHOD. All of a `Route`'s handlers live on one `Route.stack`, each layer
+ *    tagged with `.method` (undefined for `route.all`, which runs for every
+ *    method). Express dispatches by that tag. So `route('/t').get(open)
+ *    .post(requireAuth, h)` has a guard in its stack that GET never meets.
+ * 2. ORDER. Express runs the matching layers left to right and stops at the
+ *    one that answers, so a guard behind a terminal handler - `router.get(
+ *    '/x', handler, requireAuth)` - never runs at all.
+ */
+function guardsMethod(route, method) {
+  for (const layer of route.stack) {
+    if (layer.method && layer.method !== method) continue;
+    if (isAuthGuard(layer)) return true;
+    if (!canContinue(layer)) return false;
+  }
+  return false;
+}
+
+/**
  * Every route in `router`, each tagged with whether `requireAuth` is in the
  * chain Express would run for it. Order matters and is the whole point: a
  * root-mounted `requireAuth` protects only the routes registered AFTER it.
@@ -87,11 +135,10 @@ function classifyRoutes(router, prefix = '') {
       }
       continue;
     }
-    const perRoute = layer.route.stack.some(isAuthGuard);
     for (const method of Object.keys(layer.route.methods)) {
       found.push({
         signature: `${method.toUpperCase()} ${prefix}${layer.route.path}`,
-        guarded: guardedFromHere || perRoute,
+        guarded: guardedFromHere || guardsMethod(layer.route, method),
       });
     }
   }
@@ -103,9 +150,11 @@ function classifyApp(app) {
   const found = [];
   for (const layer of app._router.stack) {
     if (layer.route) {
-      const perRoute = layer.route.stack.some(isAuthGuard);
       for (const method of Object.keys(layer.route.methods)) {
-        found.push({ signature: `${method.toUpperCase()} ${layer.route.path}`, guarded: perRoute });
+        found.push({
+          signature: `${method.toUpperCase()} ${layer.route.path}`,
+          guarded: guardsMethod(layer.route, method),
+        });
       }
       continue;
     }
@@ -177,6 +226,55 @@ test('the classifier honours a per-route requireAuth, with no router-level guard
 
   assert.deepEqual(anonymous(app), ['GET /api/players/open']);
   assert.deepEqual(guarded(app), ['DELETE /api/players/closed', 'GET /api/players/closed']);
+});
+
+test('the classifier judges each method of a route() chain by its own handlers (#241)', () => {
+  // In Express 4 every method handler of one `router.route(path)` lives on ONE
+  // `Route.stack`, tagged with `.method`; dispatch filters by that tag. A
+  // classifier that asks the whole stack whether a guard is anywhere in it
+  // answers the same for every method, so one guarded method launders its
+  // anonymous siblings into the guarded column and out of the audit.
+  const router = express.Router();
+  router.route('/thing')
+    .get((_req, res) => res.json({ everything: true }))
+    .post(requireAuth, (_req, res) => res.json({}));
+
+  const app = express();
+  app.use('/api/y', router);
+
+  assert.deepEqual(anonymous(app), ['GET /api/y/thing']);
+  assert.deepEqual(guarded(app), ['POST /api/y/thing']);
+});
+
+test('a guard registered AFTER the terminal handler guards nothing (#241)', () => {
+  // The file's whole thesis is that ORDER decides. It has to hold inside a
+  // route's own handler list too: Express runs them left to right, and a
+  // handler that answers never calls `next`, so a guard behind it is dead
+  // code. Reading it as a guard is the same laundering as above, one
+  // argument along.
+  const router = express.Router();
+  router.get('/x', (_req, res) => res.json({ everything: true }), requireAuth);
+
+  const app = express();
+  app.use('/api/y', router);
+
+  assert.deepEqual(anonymous(app), ['GET /api/y/x']);
+  assert.deepEqual(guarded(app), []);
+});
+
+test('and that route really does answer an anonymous caller (#241)', async () => {
+  // The classification above is only worth asserting if the request itself
+  // gets through, so the shape is served here rather than reasoned about:
+  // no Authorization header, 200, and the payload the handler wrote.
+  const router = express.Router();
+  router.get('/x', (_req, res) => res.json({ everything: true }), requireAuth);
+
+  const app = express();
+  app.use('/api/y', router);
+
+  const response = await request(app).get('/api/y/x');
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body, { everything: true });
 });
 
 test('the classifier reports a path-scoped guard as no guard at all for its siblings', () => {
