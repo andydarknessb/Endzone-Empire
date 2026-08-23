@@ -81,10 +81,14 @@ const dropLeague = {
   current_week: CURRENT_WEEK,
 };
 
-function managerDropWorld({ kickedOff = [], interrupted = null, removals = [], holds = [] } = {}) {
+function managerDropWorld({
+  kickedOff = [], interrupted = null, removals = [], holds = [], bestBall = false,
+} = {}) {
   return createFakePool([
     [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10, owner_id: 7, locked: false }] })],
-    [/^SELECT "id", "waiver_period_hours"/, () => ({ rows: [dropLeague] })],
+    [/^SELECT "id", "waiver_period_hours"/, () => ({
+      rows: [{ ...dropLeague, best_ball: bestBall }],
+    })],
     [/^DELETE FROM "team_players"/, () => ({ rows: [{ id: 99 }], rowCount: 1 })],
     [/^SELECT "slot", "ir_attested" FROM "lineup_entries"/, () => ({
       rows: interrupted ? [interrupted] : [],
@@ -159,10 +163,11 @@ test('manager drop: nothing is recorded when he held no current-week row', async
   fake.assertClean();
 });
 
-test('manager drop: a bench row is a lineup row, best ball included', async (t) => {
+test('manager drop: a best-ball bench entry is a lineup entry and goes like any other', async (t) => {
   const holds = [];
   const removals = [];
   const fake = managerDropWorld({
+    bestBall: true,
     kickedOff: [],
     interrupted: { slot: 'BENCH', ir_attested: false },
     holds,
@@ -172,10 +177,10 @@ test('manager drop: a bench row is a lineup row, best ball included', async (t) 
 
   await dropPlayer({ leagueId: 5, userId: 7, playerId: 21 });
 
-  // Best ball scores the bench, so a stale bench row is exactly as wrong
-  // there as a stale starter row is anywhere else. The removal does not ask
-  // what slot he was in, and the recorded slot is not an IR stash, so an
-  // undo will bench him.
+  // Best ball scores the bench, so a stranded bench entry is exactly as
+  // wrong there as a stranded starter entry is anywhere else. The removal
+  // does not ask what slot he was in, and the recorded slot is not an IR
+  // stash, so an undo will bench him.
   assertRemoval(removals[0], { teamId: 10, playerId: 21, currentWeekToo: true });
   assert.deepEqual(holds[0].params, [5, 21, 24, 10, 'BENCH', false]);
   fake.assertClean();
@@ -351,7 +356,7 @@ const tradeArgs = {
   ]),
 };
 
-test('trade: the giving team loses the roster row and its unlocked lineup rows', async (t) => {
+test('trade: the giving team loses the roster row and its unlocked lineup entries', async (t) => {
   const removals = [];
   const fake = tradeWorld({ kickedOff: ['KC'], removals }).install(t);
   const { executeTrade } = require('../services/trade.service');
@@ -564,6 +569,143 @@ test('keeper-pruning rollover: the archived season is what is cleaned, at its ow
   const pruned = removals.find((removal) => removal.params[1] === 21);
   assert.deepEqual(pruned.params, [10, 21, CURRENT_SEASON, 18, false]);
   fake.assertClean();
+});
+
+// --- why a settled week keeps its entries, demonstrated not asserted -------
+//
+// removeLineupEntries spares the current week when the team's own matchup is
+// already final, as well as when the player's game has kicked off. That is
+// only safe if a RETAINED entry cannot itself move a settled score, and only
+// worth doing if a REMOVED one can. Both halves are properties of
+// scoring.service, so both are shown here against it rather than argued.
+//
+// The mechanism is scoring.service's finality rule (#106): a live week joins
+// lineup_entries to team_players, so a departed player stops counting at
+// once; a FINAL week omits that join and scores from the entries alone, which
+// is what makes a stat-correction re-score idempotent. That same omission is
+// why deleting an entry out of a settled week silently changes its score.
+
+const SCORING_LEAGUE = {
+  id: 5,
+  current_season: CURRENT_SEASON,
+  current_week: CURRENT_WEEK,
+  best_ball: false,
+  roster_slots: [
+    { key: 'QB', label: 'QB', count: 1, eligiblePositions: ['QB'] },
+    { key: 'RB', label: 'RB', count: 1, eligiblePositions: ['RB'] },
+  ],
+  bench_slots: 5,
+  ir_slots: 1,
+  scoring_rules: null,
+};
+const STATS = new Map([[81, { passingYards: 250 }], [82, { rushingYards: 300 }]]);
+
+/**
+ * A scoreMatchups world over ONE final matchup. `entries` is the week's
+ * lineup card for team 10, mutable so a test can take a row away and
+ * re-score. The two scoring fakes read the STATEMENT to decide what to
+ * return - whether it joins team_players, and whether it excludes the bench
+ * and IR slots - so removing either clause from the real SQL changes what
+ * these tests see instead of leaving them green.
+ */
+function scoringWorld({ bestBall = false, entries }) {
+  const scored = {};
+  const rowsFor = (text) => {
+    const joinsRoster = /"team_players"/.test(text);
+    const excludesBenchAndIr = /"slot" NOT IN \('BENCH', 'IR'\)/.test(text);
+    return entries
+      .filter((entry) => !joinsRoster || entry.rostered)
+      .filter((entry) => !excludesBenchAndIr || (entry.slot !== 'BENCH' && entry.slot !== 'IR'));
+  };
+  const fake = createFakePool([
+    [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ ...SCORING_LEAGUE, best_ball: bestBall }] })],
+    [/^SELECT \* FROM "matchups"/, () => ({
+      rows: [{
+        id: 90, league_id: 5, season: CURRENT_SEASON, week: CURRENT_WEEK,
+        home_team_id: 10, away_team_id: 11, final: true, home_score: 0, away_score: 0,
+      }],
+    })],
+    [/^SELECT "lineup_entries"\."player_id", "lineup_entries"\."slot"/, (text, [teamId]) => ({
+      rows: teamId !== 10 ? [] : rowsFor(text).map((entry) => ({
+        player_id: entry.playerId,
+        slot: entry.slot,
+        position: entry.position,
+        stats: STATS.get(entry.playerId) || null,
+      })),
+    })],
+    [/^SELECT "player_stats"\."stats"/, (text, [teamId]) => ({
+      // An inner join on player_stats drops a player with no stats row.
+      rows: teamId !== 10 ? [] : rowsFor(text)
+        .map((entry) => STATS.get(entry.playerId))
+        .filter(Boolean)
+        .map((stats) => ({ stats })),
+    })],
+    [/^UPDATE "matchups" SET "home_score"/, (text, [homeScore]) => {
+      scored.home = Number(homeScore);
+      return { rows: [] };
+    }],
+  ]);
+  return { fake, scored };
+}
+
+const scoreFinalWeek = async () => {
+  const { scoreMatchups } = require('../services/scoring.service');
+  await scoreMatchups({ leagueId: 5, season: CURRENT_SEASON, week: CURRENT_WEEK });
+};
+
+test('a settled week scores a departed starter from his entry, so keeping it holds the score still', async (t) => {
+  // Player 81 started and scored; he has since left the roster. The week is
+  // final, so scoring reads his entry without asking the roster.
+  const entries = [{ playerId: 81, position: 'QB', slot: 'QB', rostered: false }];
+  const world = scoringWorld({ entries });
+  world.fake.install(t);
+
+  await scoreFinalWeek();
+  assert.equal(world.scored.home, 10, 'the score of record, computed with his entry present');
+
+  await scoreFinalWeek();
+  assert.equal(world.scored.home, 10, 're-scoring a settled week is idempotent while the entry stands');
+
+  // The control, and the reason the guard exists: take that entry away, as
+  // an unguarded removal would, and the settled score silently changes.
+  entries.length = 0;
+  await scoreFinalWeek();
+  assert.equal(world.scored.home, 0, 'removing it out of a settled week rewrites the score');
+});
+
+test('an IR entry never scores, in either format', async (t) => {
+  // The fact the undo restore rests on: restoreInterruptedStash writes into
+  // a final week, and is safe to do so ONLY because the slot it restores is
+  // always IR. If an IR entry ever starts scoring, that write starts moving
+  // settled scores, and this is where that shows up first.
+  const irOnly = () => [{ playerId: 82, position: 'RB', slot: 'IR', rostered: true }];
+
+  const standard = scoringWorld({ entries: irOnly() });
+  standard.fake.install(t);
+  await scoreFinalWeek();
+  assert.equal(standard.scored.home, 0, 'a standard lineup excludes IR in the SQL');
+  t.mock.restoreAll();
+
+  const bestBall = scoringWorld({ bestBall: true, entries: irOnly() });
+  bestBall.fake.install(t);
+  await scoreFinalWeek();
+  assert.equal(bestBall.scored.home, 0, 'best ball drops IR from its candidate pool');
+});
+
+test('a settled week does score a retained BENCH entry in best ball, which is why it is retained', async (t) => {
+  // Best ball scores the bench, so a bench entry is not inert there: it is
+  // part of the settled score, and removing it would move that score exactly
+  // as removing a starter would in a standard league.
+  const entries = [{ playerId: 82, position: 'RB', slot: 'BENCH', rostered: false }];
+  const world = scoringWorld({ bestBall: true, entries });
+  world.fake.install(t);
+
+  await scoreFinalWeek();
+  assert.equal(world.scored.home, 30);
+
+  entries.length = 0;
+  await scoreFinalWeek();
+  assert.equal(world.scored.home, 0);
 });
 
 test('trade: a player traded away after his game kicked off keeps his current-week row', async (t) => {

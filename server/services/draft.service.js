@@ -356,8 +356,7 @@ async function dropPlayer({ leagueId, userId, playerId }) {
       playerId,
       waiverPeriodHours: league.waiver_period_hours,
       droppedByTeamId: team.id,
-      interruptedSlot: interrupted ? interrupted.slot : null,
-      interruptedIrAttested: Boolean(interrupted && interrupted.ir_attested),
+      ...lineupService.interruptedStashFields(interrupted),
     });
     await logTransaction(client, {
       leagueId,

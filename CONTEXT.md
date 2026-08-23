@@ -333,11 +333,9 @@ _Avoid_: roster, starting roster
 One player's slot on one team's lineup card for one week. A lineup entry
 follows the roster: when a team loses a player, his entries for future weeks
 are removed, and his current-week entry is removed unless his game has already
-kicked off, in which case it stays as the record of the week as played. A week
-the team's own matchup has already settled keeps its entries on the same
-grounds, whatever the schedule says about kickoff. A surviving entry therefore
-means the player was on that roster at kickoff. Only undoing a drop puts an
-entry back, in the slot the drop interrupted.
+kicked off, in which case it stays as the record of the week as played. A
+surviving entry therefore means the player was on that roster at kickoff. Only
+undoing a drop puts an entry back, in the slot the drop interrupted.
 _Avoid_: lineup row, stale row
 
 **Slot**:

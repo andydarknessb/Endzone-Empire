@@ -1139,17 +1139,30 @@ test('restoreInterruptedStash materializes the week, then puts him back in the r
   fake.assertClean();
 });
 
-test('restoreInterruptedStash writes nothing into a week that is already final (#106)', async () => {
+test('restoreInterruptedStash still writes the row when the week has gone final', async () => {
+  // The one write a final week does not refuse (#106). Capacity has already
+  // been credited for this stash by the time the restore runs, so declining
+  // to write it would leave the player on a roster that is only legal
+  // because of a stash that does not exist - reachable when a matchup is
+  // finalized between the drop and the undo. It cannot change a settled
+  // score: the restored slot is always IR, and IR never scores.
+  const inserts = [];
   const fake = createFakePool([
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [{ 1: 1 }] })],
+    [/^INSERT INTO "lineup_entries"/, (text, params) => {
+      inserts.push(params);
+      return { rows: [] };
+    }],
   ]);
   const client = await fake.connect();
 
   await restoreInterruptedStash(client, {
-    league: removalLeague, teamId: 10, playerId: 21, slot: 'IR', irAttested: false,
+    league: removalLeague, teamId: 10, playerId: 21, slot: 'IR', irAttested: true,
   });
   client.release();
 
-  assert.equal(fake.matching(/^INSERT INTO "lineup_entries"/).length, 0);
+  // materializeLineup still refuses the frozen week, so the only write is
+  // the restore itself.
+  assert.deepEqual(inserts, [[5, 10, 21, 2026, 9, 'IR', true]]);
   fake.assertClean();
 });

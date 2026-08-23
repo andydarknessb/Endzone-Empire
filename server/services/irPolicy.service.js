@@ -1,7 +1,6 @@
 const { draftRosterSize, irSlotCount } = require('./rosterShape');
 
 const IR_ELIGIBLE_DESIGNATIONS = new Set(['O', 'IR']);
-const IR_SLOT = 'IR';
 
 /**
  * The current IR stashes, shared by the enforcement scan and the capacity
@@ -133,7 +132,9 @@ async function interruptedStash(client, { leagueId, teamId, playerId }) {
     [leagueId, playerId, teamId]
   );
   const record = result.rows[0];
-  if (!record || record.interrupted_slot !== IR_SLOT) return null;
+  // Only a stash is ever restored, which is also what makes the restore safe
+  // to write into a settled week: an IR entry never scores in any format.
+  if (!record || record.interrupted_slot !== 'IR') return null;
   const attested = Boolean(record.interrupted_ir_attested);
   if (!attested && !isIrEligible(record.injury_status)) return null;
   return { slot: record.interrupted_slot, irAttested: attested };

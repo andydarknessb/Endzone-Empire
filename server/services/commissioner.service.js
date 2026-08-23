@@ -663,8 +663,7 @@ async function forceTransaction({ leagueId, userId, teamId, action, playerId }) 
         playerId,
         waiverPeriodHours: league.waiver_period_hours,
         droppedByTeamId: teamId,
-        interruptedSlot: interrupted ? interrupted.slot : null,
-        interruptedIrAttested: Boolean(interrupted && interrupted.ir_attested),
+        ...lineupService.interruptedStashFields(interrupted),
       });
     }
 

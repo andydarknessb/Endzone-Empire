@@ -353,7 +353,7 @@ test('IR flag push reaches only managers who keep irAlerts enabled', async (t) =
 
 // --- undo restores only a still-valid stash ----------------------------------
 
-test('undoRestoresStash reads the record the drop left, not a lineup row', async () => {
+test('undoRestoresStash reads the record the drop left, not a lineup entry', async () => {
   const log = [];
   const fake = createFakePool([
     interruptedRecord(

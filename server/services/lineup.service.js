@@ -299,6 +299,18 @@ async function currentWeekEntry(client, { league, teamId, playerId }) {
 }
 
 /**
+ * A `currentWeekEntry` result as the waiver hold's interrupted-stash fields
+ * (#197). One mapping, shared by the two drops that are undoable, so "he had
+ * no current-week entry" is spelled the same way at both.
+ */
+function interruptedStashFields(entry) {
+  return {
+    interruptedSlot: entry ? entry.slot : null,
+    interruptedIrAttested: Boolean(entry && entry.ir_attested),
+  };
+}
+
+/**
  * Undoing a drop puts the player back in the slot the drop interrupted,
  * recorded on his waiver hold at drop time (#197). The row itself is gone -
  * the drop deleted it - so the undo recreates it rather than finding it.
@@ -306,14 +318,24 @@ async function currentWeekEntry(client, { league, teamId, playerId }) {
  * Materialize first, for the same reason `benchAcquiredPlayer` does: the week
  * must be complete before it can be the next copy-forward's source. Then the
  * recorded slot and attestation are written over whatever materialization
- * left him in. A final week is frozen and takes neither (#106).
+ * left him in.
+ *
+ * This is the one write that a FINAL week does not refuse (#106), and it is
+ * deliberate. `rosterCapacity` has already credited the restored stash by
+ * the time we get here, so declining to write the row would put the player
+ * back on a roster that is only legal because of a stash that does not
+ * exist - reachable whenever a matchup is finalized between the drop and the
+ * undo. Writing it cannot change a settled score either: the recorded slot
+ * is always IR (`interruptedStash` restores nothing else) and an IR row
+ * never scores, in any format. The undo is the exact inverse of a removal
+ * that happened in this same week, not a new acquisition, which is what
+ * #106's freeze is there to keep out.
  *
  * Only `undoDrop` calls this, and only when `undoRestoresStash` says the
  * recorded stash is still valid; every other acquisition benches the player.
  */
 async function restoreInterruptedStash(client, { league, teamId, playerId, slot, irAttested }) {
   const { id: leagueId, current_season: season, current_week: week } = league;
-  if (await isFinalWeekForTeam(client, { leagueId, teamId, season, week })) return;
   await materializeLineup(client, { leagueId, teamId, season, week });
   await client.query(
     `INSERT INTO "lineup_entries" ("league_id", "team_id", "player_id", "season", "week", "slot", "ir_attested")
@@ -617,6 +639,7 @@ module.exports = {
   benchAcquiredPlayer,
   removeLineupEntries,
   currentWeekEntry,
+  interruptedStashFields,
   restoreInterruptedStash,
   lockedNflTeams,
   annotateLineupEntries,
