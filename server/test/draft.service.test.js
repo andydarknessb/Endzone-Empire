@@ -410,6 +410,28 @@ test('undoDrop: the stash his drop interrupted still grants its spot on the way 
   fake.assertClean();
 });
 
+test('undoDrop: the interrupted-stash record is read twice, deliberately', async (t) => {
+  const fake = undoWorld({
+    stashed: 0,
+    interrupted: { interrupted_slot: 'IR', interrupted_ir_attested: false, injury_status: 'O' },
+  }).install(t);
+  recordBenching(t, fake);
+  recordRestoring(t);
+
+  await undoDrop({ leagueId: 1, userId: 7, playerId: 500 });
+
+  // Once inside rosterCapacity (through restoredPlayerIds) and once here for
+  // the restore decision. Collapsing the two means handing the resolved
+  // record to rosterCapacity, which would give up the property that it
+  // re-derives the restored credit itself instead of believing its caller
+  // (#222). The read is a primary-key lookup in an open transaction and the
+  // league row is held FOR UPDATE, so the two cannot disagree.
+  //
+  // If you are here to remove one of them, that is the trade to argue with.
+  assert.equal(fake.matching(/^SELECT "waiver_players"\."interrupted_slot"/).length, 2);
+  fake.assertClean();
+});
+
 test('undoDrop: an attested stash comes back attested', async (t) => {
   const fake = undoWorld({
     stashed: 0,

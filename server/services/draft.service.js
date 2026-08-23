@@ -429,6 +429,16 @@ async function undoDrop({ leagueId, userId, playerId }) {
     // Read before the waiver hold is deleted below: the hold carries the
     // record of what the drop interrupted, and there is no longer a
     // surviving lineup row to fall back on (#197).
+    //
+    // This is the second read of that record in this function - `capacity`
+    // above resolved it too, through `rosterCapacity`'s restoredPlayerIds -
+    // and the duplication is kept on purpose (#222). Threading the record
+    // into `rosterCapacity` would save one lookup by a primary key inside an
+    // open transaction, and cost the property that makes that function safe:
+    // it re-derives the restored credit itself rather than believing a
+    // caller, so no call site can inflate a roster limit by asserting a stash
+    // that is not there. That is worth more than the read. The league row is
+    // held FOR UPDATE, so the two reads cannot disagree.
     const restored = await interruptedStash(client, { leagueId, teamId: team.id, playerId });
 
     const playerResult = await client.query(
