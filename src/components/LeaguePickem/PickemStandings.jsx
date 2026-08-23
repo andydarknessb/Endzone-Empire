@@ -16,7 +16,7 @@ import {
 } from '@mui/material';
 import TeamAvatar from '../common/TeamAvatar';
 import { usePickemStandings } from '../../hooks/usePickemStandings';
-import { teamDisplayName } from '../../lib/teamIdentity';
+import { teamNameLabel, teamRowKey } from '../../lib/teamIdentity';
 
 /**
  * Season Pick'em leaderboard, computed on read by the server. Same table
@@ -87,13 +87,15 @@ export default function PickemStandings({ leagueId, season, week }) {
           <TableBody>
             {data.standings.map((row, index) => {
               const isViewer = viewerTeamId != null && row.teamId === viewerTeamId;
-              // A row whose Team is gone has no ID to key on either, so its
-              // position stands in; the table is rebuilt whole on every load.
-              const name = teamDisplayName(row.teamName);
+              const name = teamNameLabel(row.teamName);
+              // One value keys the row and addresses it, so a departed
+              // manager's row is not `former-0` in one place and `null` in
+              // the other.
+              const rowKey = teamRowKey(row.teamId, index);
               return (
                 <TableRow
-                  key={row.teamId == null ? `former-${index}` : row.teamId}
-                  data-testid={`pickem-standings-row-${row.teamId}`}
+                  key={rowKey}
+                  data-testid={`pickem-standings-row-${rowKey}`}
                   data-viewer-team={isViewer || undefined}
                   sx={{
                     ...(isViewer && {

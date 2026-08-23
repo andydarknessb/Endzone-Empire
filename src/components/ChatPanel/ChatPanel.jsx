@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Paper, Typography, Box, TextField, Button, Alert } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import { createDraftSocket, onReconnect } from '../../api/socket';
-import { teamDisplayName } from '../../lib/teamIdentity';
+import { teamNameLabel } from '../../lib/teamIdentity';
 
 /**
  * League chat with unread tracking. The panel stays mounted (and its socket
@@ -18,7 +18,7 @@ import { teamDisplayName } from '../../lib/teamIdentity';
  *
  *  - Messages are attributed by `teamName`. A manager who has left the league
  *    keeps their history and reads back with null Team identity, which
- *    `teamDisplayName` names rather than printing blank.
+ *    `teamNameLabel` names rather than printing blank.
  *  - "Is this mine" is `message.teamId === viewerTeamId`. The viewer's own
  *    Team ID cannot ride on `chat:message`, which is one payload broadcast to
  *    the whole league room, and chat history is a bare array with no root to
@@ -167,7 +167,7 @@ function ChatPanel({ leagueId, open = true, onUnreadChange = null }) {
           messages.map((m) => (
             <Box key={m.id} sx={{ mb: 1 }}>
               <Typography variant="body2">
-                <strong>{teamDisplayName(m.teamName)}</strong> {m.message}
+                <strong>{teamNameLabel(m.teamName)}</strong> {m.message}
               </Typography>
               <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                 {new Date(m.created_at).toLocaleTimeString()}

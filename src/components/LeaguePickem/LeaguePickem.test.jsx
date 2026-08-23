@@ -84,6 +84,10 @@ const weekView = (overrides = {}) => ({
       },
     ],
   },
+  // The week response carries the viewer's Team ID at its root because a REST
+  // response is a per-viewer channel. The board has nothing to do with it:
+  // the server already splits `myPicks` from `othersPicks`, so it is here to
+  // mirror the wire, not because anything reads it.
   viewerTeamId: 9,
   ...overrides,
 });

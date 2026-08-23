@@ -16,7 +16,7 @@ import {
 import LockIcon from '@mui/icons-material/Lock';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
-import { teamDisplayName } from '../../lib/teamIdentity';
+import { teamNameLabel, teamRowKey } from '../../lib/teamIdentity';
 
 function kickoffLabel(iso) {
   if (!iso) return '';
@@ -161,14 +161,11 @@ export default function PickemGameRow({
           </Typography>
           {othersPicks.map((other, index) => {
             // Team identity, never the account that made the pick (#114,
-            // parent #108). A manager who has left the league keeps their
-            // picks and reads back with null Team identity, which leaves no
-            // ID to key on either, so the position in the revealed list
-            // stands in; the list is rebuilt whole on every load.
-            const name = teamDisplayName(other.teamName);
+            // parent #108).
+            const name = teamNameLabel(other.teamName);
             return (
               <Chip
-                key={other.teamId == null ? `former-${index}` : other.teamId}
+                key={teamRowKey(other.teamId, index)}
                 size="small"
                 variant="outlined"
                 label={

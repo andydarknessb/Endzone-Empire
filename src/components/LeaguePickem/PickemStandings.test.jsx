@@ -78,7 +78,13 @@ test('marks nobody when the response carries no viewerTeamId', async () => {
   expect(within(table).queryByText('You')).not.toBeInTheDocument();
 });
 
-test('a standings row with no Team name reads as a former manager, not as blank', async () => {
+// Unlike chat history and revealed picks, a standings row cannot actually
+// lose its Team: `getStandings` reads `FROM "teams"`, so a departed manager
+// has no row to produce at all. The table still runs its name through the
+// shared label, so that every league-shared surface answers a missing Team
+// the same way and this one does not become the exception if that query ever
+// widens to a LEFT join.
+test('a standings row runs its Team name through the same former-manager label as every other surface', async () => {
   apiClient.get.mockResolvedValue({
     data: {
       ...STANDINGS,
