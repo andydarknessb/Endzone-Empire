@@ -180,7 +180,9 @@ test('the login key set is the allowlist, not the row: a narrower row still answ
 
   assert.equal(res.status, 200, JSON.stringify(res.body));
   assert.deepEqual(Object.keys(res.body.user).sort(), USER_KEYS);
+  assert.equal(res.body.user.email, null, 'a column the query stopped selecting answers null');
   assertPublishesNoSecret(res.body);
+  fake.assertClean();
 });
 
 test('POST /login refusals publish exactly an error, and never say which half was wrong', async (t) => {
