@@ -19,13 +19,13 @@ const draftState = {
     pick_deadline_at: '2099-09-01T12:01:00.000Z',
   },
   teams: [
-    { id: 1, name: 'North Stars', draft_position: 1 },
-    { id: 2, name: 'South Stars', draft_position: 2 },
+    { teamId: 1, teamName: 'North Stars', draft_position: 1 },
+    { teamId: 2, teamName: 'South Stars', draft_position: 2 },
   ],
   picks: [
-    { pick_number: 1, team_id: 1, player_id: 10, name: 'Josh Allen', position: 'QB', nfl_team: 'BUF', is_keeper: false },
+    { pick_number: 1, teamId: 1, teamName: 'North Stars', player_id: 10, name: 'Josh Allen', position: 'QB', nfl_team: 'BUF', is_keeper: false },
   ],
-  onTheClock: { id: 2, name: 'South Stars' },
+  onTheClock: { teamId: 2, teamName: 'South Stars' },
 };
 
 beforeEach(() => {

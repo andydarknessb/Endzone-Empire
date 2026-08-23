@@ -37,7 +37,7 @@ function DraftStatusBar({
         {reconnecting && <Chip label="Reconnecting…" color="default" size="small" variant="outlined" />}
         {onTheClock ? (
           <Chip
-            label={`On the clock: ${onTheClock.name} (${onTheClock.owner})`}
+            label={`On the clock: ${onTheClock.teamName}`}
             color="primary"
             sx={{ fontWeight: 'bold' }}
           />

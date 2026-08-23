@@ -42,17 +42,22 @@ function reducer(state, action) {
     }
     case 'picked': {
       const { data } = action;
+      // A Pick is attributed by Team (#113, contract #112): `teamId` and
+      // `teamName` come straight off the broadcast, and `by` - which carried
+      // the picking manager's account id and username - is reduced to the one
+      // thing about it that is not account identity, the autopick flag.
       const pick = {
         pick_number: data.pickNumber,
-        team_id: data.teamId,
+        teamId: data.teamId,
+        teamName: data.teamName ?? null,
         player_id: data.player.id,
         name: data.player.name,
         position: data.player.position,
         nfl_team: data.player.nfl_team,
-        by: data.by,
+        auto: !!data.by?.auto,
       };
       const nextOnTheClock = data.nextTeamId
-        ? state.teams.find((t) => t.id === data.nextTeamId) || null
+        ? state.teams.find((t) => t.teamId === data.nextTeamId) || null
         : null;
 
       // Server sends the new deadline directly; fall back to a client-side
@@ -110,10 +115,22 @@ function reducer(state, action) {
  * teams/league/deadline needed. The on-clock edge is detected separately,
  * off the derived `isMyTurn` value, so it doesn't need a stale-closure-prone
  * team lookup inside the long-lived socket handlers either.
+ *
+ * It also owns the viewer-relative half of the Team identity contract (#113,
+ * contract #112): `viewerTeamId` is the viewer's own Team on this league, and
+ * it can only come from the `draft:join` acknowledgement, which is answered to
+ * one socket. It deliberately never rides on `draft:state`, `draft:picked` or
+ * `draft:presence`, because one of those payloads is broadcast to the whole
+ * league room and no viewer-relative field on it could be true for every
+ * recipient. The server answers the ack BEFORE the first snapshot, so this
+ * hook knows its own Team before it holds any Team identity to compare it
+ * against, and "which one of these is me" is `entry.teamId === viewerTeamId`
+ * rather than any comparison of account ids.
  */
-export default function useDraftSocket(leagueId, userId, { onPickLanded } = {}) {
+export default function useDraftSocket(leagueId, { onPickLanded } = {}) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const [error, setError] = useState(null);
+  const [viewerTeamId, setViewerTeamId] = useState(null);
   const [reconnecting, setReconnecting] = useState(false);
   const [onClockAlertOpen, setOnClockAlertOpen] = useState(false);
   const socketRef = useRef(null);
@@ -127,6 +144,11 @@ export default function useDraftSocket(leagueId, userId, { onPickLanded } = {}) 
   }, [onPickLanded]);
 
   useEffect(() => {
+    // Which Team the viewer holds is a fact about THIS league, so it is torn
+    // down with the socket that answered it. Nothing can match a stale one
+    // (a Team ID is unique across leagues), but leaving it standing would
+    // mean the hook briefly reported a Team for a league it had left.
+    setViewerTeamId(null);
     const newSocket = createDraftSocket();
     socketRef.current = newSocket;
 
@@ -135,7 +157,10 @@ export default function useDraftSocket(leagueId, userId, { onPickLanded } = {}) 
     // (the resync mechanism for whatever happened while we were offline).
     const joinDraftRoom = () => {
       newSocket.emit('draft:join', { leagueId: Number(leagueId) }, (resp) => {
-        if (resp?.error) setError(resp.error);
+        if (resp?.error) return setError(resp.error);
+        // Re-read on every join, not just the first: a reconnect re-runs this
+        // and the answer is the authority on which Team the viewer is.
+        setViewerTeamId(resp?.viewerTeamId ?? null);
       });
     };
 
@@ -184,9 +209,9 @@ export default function useDraftSocket(leagueId, userId, { onPickLanded } = {}) 
 
   const isMyTurn = !!(
     state.onTheClock &&
-    userId != null &&
-    state.onTheClock.owner_id != null &&
-    state.onTheClock.owner_id === userId
+    viewerTeamId != null &&
+    state.onTheClock.teamId != null &&
+    state.onTheClock.teamId === viewerTeamId
   );
 
   // Fires the "you're on the clock" alert exactly once per turn: only on the
@@ -214,6 +239,7 @@ export default function useDraftSocket(leagueId, userId, { onPickLanded } = {}) 
     teams: state.teams,
     picks: state.picks,
     onTheClock: state.onTheClock,
+    viewerTeamId,
     secondsLeft: state.secondsLeft,
     reconnecting,
     isMyTurn,

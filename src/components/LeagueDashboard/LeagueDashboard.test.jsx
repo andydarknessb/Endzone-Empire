@@ -59,21 +59,22 @@ const renderDashboardWithToasts = (leagueId = 1) =>
 const leagueResponse = (overrides = {}) => ({
   data: {
     // Alice (user id 1, the default signed-in user below) owns team 1, so
-    // team 1 is the viewer's own — the server derives this server-side
-    // (#112); the fixture mirrors that shape rather than a username field.
+    // team 1 is the viewer's own, and team 1 is also the league creator's.
+    // The server derives it (#112); the viewer-relative field lives at the
+    // response root, and the fixture mirrors that rather than a username.
     viewerTeamId: 1,
     league: {
       id: 1,
       name: 'Sunday Ballers',
       draft_status: 'pending',
-      owner_id: 1,
+      ownerTeamId: 1,
       roster_limit: 15,
       max_teams: 10,
       invite_code: 'abc123',
       ...overrides,
     },
     teams: [
-      { id: 1, name: "Alice's Team", owner: 'alice', roster_count: 3, total_points: 42.5 },
+      { teamId: 1, teamName: "Alice's Team", id: 1, name: "Alice's Team", owner: 'alice', roster_count: 3, total_points: 42.5 },
     ],
   },
 });
@@ -95,6 +96,8 @@ const standingsResponse = (overrides = {}) => ({
       {
         teamId: 1,
         name: "Alice's Team",
+        // The server still sends this in the expand phase; the point is that
+        // no league surface renders it any more (#113, contracted by #115).
         owner: 'alice',
         wins: 2,
         losses: 1,
@@ -199,8 +202,13 @@ test('renders league name, status chips, and the standings table', async () => {
   // Pre-draft: Draft roster size, live-derived (roster_limit minus ir_slots).
   expect(screen.getByText('Draft roster size: 15')).toBeInTheDocument();
   expect(screen.getByText('Teams: 1/10')).toBeInTheDocument();
-  expect(screen.getByText("Alice's Team")).toBeInTheDocument();
-  expect(screen.getByText('alice')).toBeInTheDocument();
+  expect(screen.getAllByText("Alice's Team").length).toBeGreaterThan(0);
+  // The standings identify participants by Team and nothing else: the Owner
+  // column beside it printed every other manager's username (#113 criterion
+  // 4). The row still arrives carrying `owner`; nothing renders it.
+  expect(screen.queryByRole('columnheader', { name: 'Owner' })).not.toBeInTheDocument();
+  const standingsRow = screen.getByRole('row', { name: /Alice's Team/ });
+  expect(within(standingsRow).queryByText('alice')).not.toBeInTheDocument();
 });
 
 // --- Draft roster size / Draft rounds chip (#162) ---
@@ -525,7 +533,7 @@ test('disables Start Draft for a salary-cap auction with an explanatory tooltip'
 
 test('does not show "Start Draft" for a non-owner', async () => {
   mockGetByUrl({
-    '/api/league/1': leagueResponse({ owner_id: 99 }),
+    '/api/league/1': leagueResponse({ ownerTeamId: 99 }),
     '/api/user': userResponse(),
     '/standings': standingsResponse(),
   });
@@ -538,7 +546,7 @@ test('does not show "Start Draft" for a non-owner', async () => {
 
 test('does not show "Start Draft" once the draft is no longer pending', async () => {
   mockGetByUrl({
-    '/api/league/1': leagueResponse({ draft_status: 'active', owner_id: 1 }),
+    '/api/league/1': leagueResponse({ draft_status: 'active', ownerTeamId: 1 }),
     '/api/user': userResponse(),
     '/standings': standingsResponse(),
   });
@@ -590,7 +598,7 @@ test('week and season-status chips render from the league row once the draft is 
 
 test('Advance Week is visible for the owner when draft is complete and season is not complete, posts, and refetches on click', async () => {
   const advanced = (week) => leagueResponse({
-    draft_status: 'complete', season_status: 'regular', current_week: week, owner_id: 1,
+    draft_status: 'complete', season_status: 'regular', current_week: week, ownerTeamId: 1,
   });
   const gets = {
     '/api/league/1': advanced(3),
@@ -622,7 +630,7 @@ test('Advance Week is visible for the owner when draft is complete and season is
 
 test('Advance Week is absent for non-owners', async () => {
   mockGetByUrl({
-    '/api/league/1': leagueResponse({ draft_status: 'complete', season_status: 'regular', current_week: 3, owner_id: 99 }),
+    '/api/league/1': leagueResponse({ draft_status: 'complete', season_status: 'regular', current_week: 3, ownerTeamId: 99 }),
     '/api/user': userResponse(),
     '/standings': standingsResponse({ league: { season_status: 'regular', current_week: 3 } }),
   });
@@ -635,7 +643,7 @@ test('Advance Week is absent for non-owners', async () => {
 
 test('Advance Week is absent when draft_status is pending', async () => {
   mockGetByUrl({
-    '/api/league/1': leagueResponse({ draft_status: 'pending', owner_id: 1 }),
+    '/api/league/1': leagueResponse({ draft_status: 'pending', ownerTeamId: 1 }),
     '/api/user': userResponse(),
     '/standings': standingsResponse(),
   });
@@ -648,7 +656,7 @@ test('Advance Week is absent when draft_status is pending', async () => {
 
 test('Advance Week is absent once the season is complete', async () => {
   mockGetByUrl({
-    '/api/league/1': leagueResponse({ draft_status: 'complete', season_status: 'complete', current_week: 14, owner_id: 1 }),
+    '/api/league/1': leagueResponse({ draft_status: 'complete', season_status: 'complete', current_week: 14, ownerTeamId: 1 }),
     '/api/user': userResponse(),
     '/standings': standingsResponse({ league: { season_status: 'regular', current_week: 3 } }),
   });
@@ -663,7 +671,7 @@ test('the standings response no longer overrides the league row: phase reads the
   // A standings row claiming the season is complete must not flip the header
   // chip or hide Advance Week when the league row says regular season.
   mockGetByUrl({
-    '/api/league/1': leagueResponse({ draft_status: 'complete', season_status: 'regular', current_week: 5, owner_id: 1 }),
+    '/api/league/1': leagueResponse({ draft_status: 'complete', season_status: 'regular', current_week: 5, ownerTeamId: 1 }),
     '/api/user': userResponse(),
     '/standings': standingsResponse({ league: { season_status: 'complete', current_week: 17 } }),
   });
@@ -681,7 +689,7 @@ test('the standings response no longer overrides the league row: phase reads the
 
 test('Commissioner Tools panel is hidden from a plain member', async () => {
   mockGetByUrl({
-    '/api/league/1': leagueResponse({ owner_id: 99, is_commissioner: false }),
+    '/api/league/1': leagueResponse({ ownerTeamId: 99, is_commissioner: false }),
     '/api/user': userResponse(),
     '/standings': standingsResponse(),
   });
@@ -694,7 +702,7 @@ test('Commissioner Tools panel is hidden from a plain member', async () => {
 
 test('a co-commissioner gets Commissioner Tools and Draft Settings, but not the co-commissioner list', async () => {
   mockGetByUrl({
-    '/api/league/1': leagueResponse({ owner_id: 99, is_commissioner: true }),
+    '/api/league/1': leagueResponse({ ownerTeamId: 99, is_commissioner: true }),
     '/api/user': userResponse(),
     '/standings': standingsResponse(),
   });
@@ -710,7 +718,7 @@ test('a co-commissioner gets Commissioner Tools and Draft Settings, but not the 
 
 test('the owner also sees the co-commissioner controls', async () => {
   mockGetByUrl({
-    '/api/league/1': leagueResponse({ owner_id: 1, is_commissioner: true }),
+    '/api/league/1': leagueResponse({ ownerTeamId: 1, is_commissioner: true }),
     '/api/user': userResponse(),
     '/standings': standingsResponse(),
   });
@@ -722,7 +730,7 @@ test('the owner also sees the co-commissioner controls', async () => {
 
 test('every member sees the read-only League Rules link', async () => {
   mockGetByUrl({
-    '/api/league/1': leagueResponse({ owner_id: 99, is_commissioner: false }),
+    '/api/league/1': leagueResponse({ ownerTeamId: 99, is_commissioner: false }),
     '/api/user': userResponse(),
     '/standings': standingsResponse(),
   });
@@ -755,7 +763,7 @@ test('Lock Transactions toggles via the commissioner endpoint', async () => {
 
 test('removing another owner\'s team calls the commissioner endpoint after confirming', async () => {
   const withOtherTeam = leagueResponse();
-  withOtherTeam.data.teams.push({ id: 2, name: "Bob's Team", owner: 'bob', roster_count: 0, total_points: 0 });
+  withOtherTeam.data.teams.push({ teamId: 2, teamName: "Bob's Team", id: 2, name: "Bob's Team", owner: 'bob', roster_count: 0, total_points: 0 });
   mockGetByUrl({
     '/api/league/1': withOtherTeam,
     '/api/user': userResponse(),
@@ -783,7 +791,7 @@ test('removing another owner\'s team calls the commissioner endpoint after confi
 
 test('cancelling the remove-team dialog does not call the API', async () => {
   const withOtherTeam = leagueResponse();
-  withOtherTeam.data.teams.push({ id: 2, name: "Bob's Team", owner: 'bob', roster_count: 0, total_points: 0 });
+  withOtherTeam.data.teams.push({ teamId: 2, teamName: "Bob's Team", id: 2, name: "Bob's Team", owner: 'bob', roster_count: 0, total_points: 0 });
   mockGetByUrl({
     '/api/league/1': withOtherTeam,
     '/api/user': userResponse(),
@@ -928,7 +936,7 @@ test('does not show the join-request queue for a private league', async () => {
 
 test('does not show the join-request queue for a non-owner even on a public approval league', async () => {
   mockGetByUrl({
-    '/api/league/1': leagueResponse({ is_public: true, join_approval: true, owner_id: 99 }),
+    '/api/league/1': leagueResponse({ is_public: true, join_approval: true, ownerTeamId: 99 }),
     '/api/user': userResponse(),
     '/standings': standingsResponse(),
   });

@@ -5,6 +5,7 @@ import { Alert, Box, Container, Paper, Stack, Typography } from '@mui/material';
 import Countdown from '../Countdown/Countdown';
 import DraftBoardMatrix from '../DraftBoard/DraftBoardMatrix';
 import { draftRounds } from '../../lib/rosterShape';
+import { teamNameLabel } from '../../lib/teamIdentity';
 
 // Presenter links are intentionally anonymous: do not use apiClient here,
 // because its 401 interceptor can attempt an authenticated token refresh.
@@ -37,10 +38,6 @@ function DraftPresenter() {
 
   const picksNewestFirst = useMemo(
     () => [...(draftState?.picks || [])].sort((a, b) => b.pick_number - a.pick_number),
-    [draftState]
-  );
-  const teamNames = useMemo(
-    () => new Map((draftState?.teams || []).map((team) => [team.id, team.name])),
     [draftState]
   );
 
@@ -90,7 +87,7 @@ function DraftPresenter() {
                 {isActive ? 'On the clock' : 'Draft status'}
               </Typography>
               <Typography variant="h3" sx={{ fontSize: { xs: '1.6rem', md: '2.5rem' }, fontWeight: 'bold' }}>
-                {isActive && onTheClock ? `${onTheClock.name} is on the clock` : league.draft_status}
+                {isActive && onTheClock ? `${onTheClock.teamName} is on the clock` : league.draft_status}
               </Typography>
             </Box>
             {isActive && !league.draft_paused && league.pick_deadline_at ? (
@@ -136,7 +133,7 @@ function DraftPresenter() {
                 {picksNewestFirst.slice(0, 5).map((pick) => (
                   <Box key={pick.pick_number} sx={{ minWidth: { xs: 180, md: 240 } }}>
                     <Typography variant="overline" sx={{ color: 'text.secondary' }}>
-                      Pick {pick.pick_number} · {teamNames.get(pick.team_id) || 'Team'}
+                      Pick {pick.pick_number} · {teamNameLabel(pick.teamName)}
                     </Typography>
                     <Typography variant="h5" noWrap title={pick.name}>{pick.name}</Typography>
                     <Typography variant="body1" sx={{ color: 'text.secondary' }}>

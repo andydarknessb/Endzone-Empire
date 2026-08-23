@@ -22,6 +22,7 @@ import RosterPanel from '../RosterPanel/RosterPanel';
 import RosterNeedsStrip from '../RosterPanel/RosterNeedsStrip';
 import { pickActionExists, pickTemporarilyUnavailable, PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
+import { teamNameLabel } from '../../lib/teamIdentity';
 
 /** Draft-room rail: my queue (with a quick-draft button on my turn), draft
  * order (with autodraft toggles), my roster, and pick history.
@@ -41,7 +42,7 @@ function DraftRail({
   teams,
   onTheClock,
   isCommissioner,
-  userId,
+  viewerTeamId,
   draftStatus,
   draftType,
   onToggleAutodraft,
@@ -67,7 +68,10 @@ function DraftRail({
   // column, so the caller passes a smaller bound for that region instead.
   queueMaxHeight = draftStatus === 'active' ? 'calc(100vh - 164px)' : '80vh',
 }) {
-  const myTeam = teams.find((team) => team.owner_id === userId);
+  // "Which one of these is me" is the viewer-relative contract (#113): the
+  // viewer's own Team ID, answered on the draft:join acknowledgement, against
+  // each entry's Team ID. Never a comparison of account ids.
+  const myTeam = viewerTeamId == null ? undefined : teams.find((team) => team.teamId === viewerTeamId);
   const readyCount = teams.filter((team) => team.draft_ready).length;
   const slotTags = rosterView ? rosterView.slotTags : null;
 
@@ -100,11 +104,21 @@ function DraftRail({
                 → {slotTags.get(pick.pick_number).slotLabel}
               </Typography>
             )}
-            {pick.by && (
-              <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
-                by {pick.by.auto ? 'AUTO' : pick.by.username}
-              </Typography>
-            )}
+            {/* Every Pick is attributed by Team (#113). Before the contract
+                landed a Pick could not name its Team at all - its own `name`
+                is the PLAYER's - so only picks that arrived live carried an
+                attribution, and it was the picking manager's username.
+
+                teamNameLabel is defensive here rather than load-bearing: the
+                contract lets any LEFT-joined Team identity read back null,
+                but a Pick's cannot today, because draft_picks.team_id is NOT
+                NULL and cascades, so removing a team removes its picks
+                outright. If that ever changes this renders a former manager
+                instead of a blank line. */}
+            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
+              by {teamNameLabel(pick.teamName)}
+              {pick.auto ? ' · AUTO' : ''}
+            </Typography>
           </Paper>
         ))
       )}
@@ -230,7 +244,7 @@ function DraftRail({
             {readyCount} of {teams.length} managers ready
           </Typography>
           <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-            {teams.map((team) => <Chip key={team.id} size="small" color={team.draft_ready ? 'success' : 'default'} label={`${team.name}: ${team.draft_ready ? 'Ready' : 'Not ready'}`} />)}
+            {teams.map((team) => <Chip key={team.teamId} size="small" color={team.draft_ready ? 'success' : 'default'} label={`${team.teamName}: ${team.draft_ready ? 'Ready' : 'Not ready'}`} />)}
           </Box>
         </Paper>
       )}
@@ -246,18 +260,19 @@ function DraftRail({
           </Typography>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
             {teams.map((team) => {
-              const canToggle = (isCommissioner || team.owner_id === userId) && draftStatus !== 'complete';
-              const onClock = onTheClock && onTheClock.id === team.id;
+              const isViewer = viewerTeamId != null && team.teamId === viewerTeamId;
+              const canToggle = (isCommissioner || isViewer) && draftStatus !== 'complete';
+              const onClock = onTheClock && onTheClock.teamId === team.teamId;
               return (
                 <Box
-                  key={team.id}
+                  key={team.teamId}
                   sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', minHeight: 44 }}
                 >
                   <Typography variant="body2" sx={{ minWidth: 22, color: 'text.secondary' }}>
                     {team.draft_position != null ? `${team.draft_position}.` : '-'}
                   </Typography>
                   <Typography variant="body2" sx={{ fontWeight: onClock ? 'bold' : 'normal', flexGrow: 1 }}>
-                    {team.name}
+                    {team.teamName}
                     {onClock && ' ⏱'}
                   </Typography>
                   {team.autodraft && <Chip size="small" color="warning" label="AUTO" />}
@@ -269,8 +284,8 @@ function DraftRail({
                         <Switch
                           size="small"
                           checked={!!team.autodraft}
-                          onChange={(e) => onToggleAutodraft(team.id, e.target.checked)}
-                          inputProps={{ 'aria-label': `Autodraft for ${team.name}` }}
+                          onChange={(e) => onToggleAutodraft(team.teamId, e.target.checked)}
+                          inputProps={{ 'aria-label': `Autodraft for ${team.teamName}` }}
                         />
                       }
                       label={

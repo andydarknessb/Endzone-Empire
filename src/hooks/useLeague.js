@@ -20,9 +20,16 @@ export function clearLeagueCache(leagueId) {
 }
 
 /**
- * Shared GET /api/league/:id. Returns the league row and its teams (the
- * league's membership), so no page needs a second request for the same
- * payload.
+ * Shared GET /api/league/:id. Returns the league row, its teams (the league's
+ * membership) and the viewer's own Team, so no page needs a second request for
+ * the same payload.
+ *
+ * `viewerTeamId` sits at the root of the response rather than on the league or
+ * on a team, because it is the one field there that is true of the reader and
+ * not of the league (#113, contract #112). It is what answers "which of these
+ * is me": `team.teamId === viewerTeamId`, never a comparison of account ids.
+ * Both write-throughs below rebuild the cached value, so both have to carry it
+ * through even though neither is about it.
  */
 export function useLeague(leagueId) {
   const key = leagueId != null ? keyFor(leagueId) : null;

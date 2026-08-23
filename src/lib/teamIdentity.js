@@ -13,11 +13,29 @@
  *
  * That leaves one gap the contract deliberately leaves to the client. The
  * server's joins are LEFT on purpose, so a manager who has left the league
- * keeps everything they authored: chat messages and pick'em picks (#114),
- * Pick history and co-commissioner grants (#113). All of it reads back with
- * `teamName: null`. Rendering that straight prints nothing (a blank label
- * that looks broken) or the string "null", so a null Team name reads as
- * "Former manager" instead, on every surface without exception.
+ * keeps what they authored: chat messages and pick'em picks (#114), and
+ * co-commissioner grants (#113). All three read back with `teamName: null`,
+ * because `chat_messages` and `pickem_picks` reference users and
+ * `league_commissioners` is keyed on (league, user) with no reference to
+ * teams at all, so nothing about them is removed when a team is. Rendering
+ * that null straight prints nothing (a blank label that looks broken) or the
+ * string "null", so a null Team name reads as "Former manager" instead, on
+ * every surface that can receive one.
+ *
+ * Pick history is NOT one of those cases, though an earlier version of this
+ * comment said it was. `draft_picks.team_id` is notNullable and CASCADEs on
+ * team deletion, and removing a team is a hard DELETE, so a removed manager's
+ * picks are deleted with them and a Pick can never reach a client with a null
+ * Team. The reason is recorded here rather than just the fact, so that nobody
+ * notices the LEFT join on picks, assumes this comment drifted, and restores
+ * the line. See #195, which owns the underlying defect: deleting those picks
+ * silently rewrites a completed draft's record.
+ *
+ * "Every surface that can receive one" is the whole of the rule and not a
+ * softening of it. A label is for identity that is genuinely absent; a
+ * CURRENT team always has a name, so routing its render through this would
+ * turn a data bug into a plausible-looking "Former manager" that nobody
+ * investigates, which is the failure this label exists to prevent.
  *
  * This module belongs to no one surface. Anything added here should read as
  * something a league, Draft, chat or pick'em consumer could all call.
@@ -45,4 +63,21 @@ export function teamNameLabel(teamName) {
  */
 export function teamRowKey(teamId, index) {
   return teamId == null ? `former-${index}` : teamId;
+}
+
+/**
+ * Whether the viewer is the one who created this league, asked the only way
+ * the contract allows: the league names its creator's Team (`ownerTeamId`),
+ * the per-viewer channel names the reader's own, and the two are compared.
+ * Never `user.id === league.owner_id`, which is what this replaces.
+ *
+ * The null guard is the whole reason this is a function rather than a
+ * comparison written out at each call site. A league whose creator has left
+ * it answers `ownerTeamId: null`, and a reader with no Team on this league is
+ * `viewerTeamId: null`; without the guard those two nulls would match and
+ * every such reader would be handed the creator's powers.
+ */
+export function isLeagueCreator(league, viewerTeamId) {
+  if (viewerTeamId == null || !league) return false;
+  return league.ownerTeamId === viewerTeamId;
 }

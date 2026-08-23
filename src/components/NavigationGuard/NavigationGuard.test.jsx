@@ -186,16 +186,19 @@ describe('guarded POP traversal (deterministic fake timers)', () => {
 
 const leagueResponse = () => ({
   data: {
+    // The viewer holds Team 1, the league creator's, so the Draft Settings
+    // route guard lets them in (#113, contract #112).
+    viewerTeamId: 1,
     league: {
-      id: 1, name: 'Sunday Ballers', owner_id: 1, draft_status: 'pending', draft_type: 'snake',
+      id: 1, name: 'Sunday Ballers', ownerTeamId: 1, draft_status: 'pending', draft_type: 'snake',
       draft_rotation: 'snake', min_teams: 2, roster_limit: 4,
       roster_slots: [{ key: 'QB', label: 'QB', count: 1, eligiblePositions: ['QB'] }],
       bench_slots: 1, ir_slots: 0, position_caps: {}, pick_time_seconds: 60, autodraft_delay_seconds: 10,
       keepers_enabled: true, keeper_count: 2, keeper_lock_at: null,
     },
     teams: [
-      { id: 1, name: "Alice's Team", owner: 'alice', draft_position: 1, faab_remaining: 100, locked: false, draft_ready: true, roster_count: 0, total_points: '0' },
-      { id: 2, name: "Bob's Team", owner: 'bob', draft_position: 2, faab_remaining: 100, locked: false, draft_ready: false, roster_count: 0, total_points: '0' },
+      { id: 1, teamId: 1, name: "Alice's Team", teamName: "Alice's Team", owner: 'alice', draft_position: 1, faab_remaining: 100, locked: false, draft_ready: true, roster_count: 0, total_points: '0' },
+      { id: 2, teamId: 2, name: "Bob's Team", teamName: "Bob's Team", owner: 'bob', draft_position: 2, faab_remaining: 100, locked: false, draft_ready: false, roster_count: 0, total_points: '0' },
     ],
   },
 });
