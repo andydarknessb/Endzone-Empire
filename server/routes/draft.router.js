@@ -38,9 +38,11 @@ router.get('/board/:token', async (req, res) => {
     // strip anything that identifies a real account.
     delete state.league.owner_id;
     delete state.league.invite_code;
-    state.teams = state.teams.map(({ owner_id, ...team }) => team);
+    // The `owner` key is the manager account USERNAME (getDraftState selects
+    // it as "users"."username" AS "owner"), so it is stripped with owner_id.
+    state.teams = state.teams.map(({ owner_id, owner, ...team }) => team);
     if (state.onTheClock) {
-      const { owner_id, ...clock } = state.onTheClock;
+      const { owner_id, owner, ...clock } = state.onTheClock;
       state.onTheClock = clock;
     }
     res.json(state);
