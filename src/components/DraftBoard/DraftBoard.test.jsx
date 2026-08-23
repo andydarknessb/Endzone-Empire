@@ -33,6 +33,7 @@ function makeFakeSocket() {
   const managerHandlers = {};
   const socket = {
     viewerTeamId: null,
+    isCommissioner: false,
     on: jest.fn((event, cb) => {
       handlers[event] = cb;
     }),
@@ -43,7 +44,7 @@ function makeFakeSocket() {
     },
     emit: jest.fn((event, payload, ack) => {
       if (event === 'draft:join' && typeof ack === 'function') {
-        ack({ ok: true, viewerTeamId: socket.viewerTeamId });
+        ack({ ok: true, viewerTeamId: socket.viewerTeamId, isCommissioner: socket.isCommissioner });
       }
     }),
     disconnect: jest.fn(),
@@ -63,10 +64,22 @@ function makeFakeSocket() {
  * acknowledgement before it sends the first snapshot, so this always runs
  * before a `draft:state` trigger.
  */
-const connectAsTeam = (teamId) => {
+const connectAsTeam = (teamId, { isCommissioner = false } = {}) => {
   fakeSocket.viewerTeamId = teamId;
+  // Set on every connect, never left standing from an earlier one: one test
+  // can render the room twice off the same fake socket, and a role that
+  // leaked from the first render would answer for the second.
+  fakeSocket.isCommissioner = isCommissioner;
   act(() => fakeSocket.trigger('connect'));
 };
+
+/**
+ * Connect as a manager the server has answered "you are a commissioner of
+ * this league" (#178). That answer is the ack's alone: the room reads no
+ * `owner_id` and no signed-in account id, so a test that wants the
+ * commissioner controls has to connect, exactly as the app does.
+ */
+const connectAsCommissioner = (teamId = null) => connectAsTeam(teamId, { isCommissioner: true });
 
 const playersPage = (players = [{ id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'Kansas City Chiefs' }]) => ({
   data: { players, totalPages: 1 },
@@ -914,9 +927,80 @@ test('move up and remove reorder the queue and persist it', async () => {
   );
 });
 
-test('Randomize Draft order shows only for the commissioner pre-draft and POSTs', async () => {
-  const { unmount } = renderBoardWithToasts(1, { user: { id: 7, username: 'commish' } });
+// --- who gets the commissioner controls (#178) ---
+//
+// The room asks the join acknowledgement and nothing else. Before #178 it
+// asked the draft:state snapshot for `is_commissioner` (a field a bare
+// `SELECT * FROM leagues` never has) and fell back to comparing the
+// snapshot's owner_id against the signed-in account, so a co-commissioner
+// was silently refused controls they hold everywhere else.
+
+test('a co-commissioner who does not own the league gets the Draft room controls', async () => {
+  renderBoard(1, { user: { id: 8, username: 'cocommish' } });
   await screen.findByText('Patrick Mahomes');
+  connectAsCommissioner(2);
+  act(() =>
+    // owner_id is somebody else's, and this viewer still holds the controls.
+    fakeSocket.trigger('draft:state', stateEvent(activeLeague({
+      draft_status: 'pending',
+      owner_id: 7,
+    }), { onTheClock: null }))
+  );
+
+  expect(screen.getByRole('button', { name: 'Randomize Draft order' })).toBeInTheDocument();
+});
+
+test('the league owner gets the controls from the acknowledgement, not from owner_id', async () => {
+  // The regression guard for deleting the owner_id fallback. #115 removes
+  // account identity from league-shared payloads, so this snapshot is the
+  // one the room will be handed then: no owner_id at all. The controls have
+  // to survive that, and they can only survive it via the ack.
+  renderBoard(1, { user: { id: 7, username: 'commish' } });
+  await screen.findByText('Patrick Mahomes');
+  connectAsCommissioner(1);
+  const { owner_id: _ownerId, ...leagueWithoutOwner } = activeLeague({ draft_status: 'pending' });
+  act(() =>
+    fakeSocket.trigger('draft:state', stateEvent(leagueWithoutOwner, { onTheClock: null }))
+  );
+
+  expect(screen.getByRole('button', { name: 'Randomize Draft order' })).toBeInTheDocument();
+});
+
+test('the owner gets no controls when the acknowledgement never grants them', async () => {
+  // The other half of the same guard: if the flag goes missing the room must
+  // fail closed, and it must not quietly re-derive the answer from the fact
+  // that this viewer's account id matches the snapshot's owner_id.
+  renderBoard(1, { user: { id: 7, username: 'commish' } });
+  await screen.findByText('Patrick Mahomes');
+  connectAsTeam(1); // connected, acknowledged, not a commissioner
+  act(() =>
+    fakeSocket.trigger('draft:state', stateEvent(activeLeague({
+      draft_status: 'pending',
+      owner_id: 7,
+    }), { onTheClock: null }))
+  );
+
+  expect(screen.queryByRole('button', { name: 'Randomize Draft order' })).not.toBeInTheDocument();
+});
+
+test('an ordinary manager gets no commissioner controls', async () => {
+  renderBoard(1, { user: { id: 9, username: 'manager' } });
+  await screen.findByText('Patrick Mahomes');
+  connectAsTeam(3);
+  act(() =>
+    fakeSocket.trigger('draft:state', stateEvent(activeLeague({
+      draft_status: 'pending',
+      owner_id: 7,
+    }), { onTheClock: null }))
+  );
+
+  expect(screen.queryByRole('button', { name: 'Randomize Draft order' })).not.toBeInTheDocument();
+});
+
+test('Randomize Draft order shows only for the commissioner pre-draft and POSTs', async () => {
+  const { unmount } = renderBoardWithToasts(1);
+  await screen.findByText('Patrick Mahomes');
+  connectAsCommissioner();
   act(() =>
     fakeSocket.trigger('draft:state', stateEvent(activeLeague({
       draft_status: 'pending',
@@ -931,9 +1015,10 @@ test('Randomize Draft order shows only for the commissioner pre-draft and POSTs'
   expect(await screen.findByText('Draft order randomized')).toBeInTheDocument();
   unmount();
 
-  // Non-owner never sees the button
-  renderBoard(1, { user: { id: 8, username: 'notcommish' } });
+  // A manager the ack did not name a commissioner never sees the button
+  renderBoard(1);
   await screen.findByText('Patrick Mahomes');
+  connectAsTeam(2);
   act(() =>
     fakeSocket.trigger('draft:state', stateEvent(activeLeague({
       draft_status: 'pending',
@@ -944,8 +1029,9 @@ test('Randomize Draft order shows only for the commissioner pre-draft and POSTs'
 });
 
 test('Pause Draft POSTs the toggled paused flag for the commissioner during an active draft', async () => {
-  renderBoard(1, { user: { id: 7, username: 'commish' } });
+  renderBoard(1);
   await screen.findByText('Patrick Mahomes');
+  connectAsCommissioner();
   act(() =>
     fakeSocket.trigger('draft:state', stateEvent(activeLeague({ owner_id: 7 })))
   );
@@ -957,8 +1043,9 @@ test('Pause Draft POSTs the toggled paused flag for the commissioner during an a
 });
 
 test('commissioner confirms undo before posting the last-pick rollback', async () => {
-  renderBoardWithToasts(1, { user: { id: 99, username: 'commish' } });
+  renderBoardWithToasts(1);
   await screen.findByText('Patrick Mahomes');
+  connectAsCommissioner();
   act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ owner_id: 99, current_pick: 1 }), {
     picks: [{ pick_number: 1, player_id: 10, name: 'Josh Allen', position: 'QB', nfl_team: 'BUF', is_keeper: false }],
   })));
@@ -972,8 +1059,9 @@ test('commissioner confirms undo before posting the last-pick rollback', async (
 });
 
 test('undo is disabled when the most recent reached pick is a keeper', async () => {
-  renderBoard(1, { user: { id: 99, username: 'commish' } });
+  renderBoard(1);
   await screen.findByText('Patrick Mahomes');
+  connectAsCommissioner();
   act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ owner_id: 99, current_pick: 1 }), {
     picks: [{ pick_number: 1, player_id: 10, name: 'Josh Allen', position: 'QB', nfl_team: 'BUF', is_keeper: true }],
   })));
@@ -983,8 +1071,9 @@ test('undo is disabled when the most recent reached pick is a keeper', async () 
 });
 
 test('reset draft requires the exact league name before calling the destructive endpoint', async () => {
-  renderBoardWithToasts(1, { user: { id: 99, username: 'commish' } });
+  renderBoardWithToasts(1);
   await screen.findByText('Patrick Mahomes');
+  connectAsCommissioner();
   act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ owner_id: 99 }))));
 
   await userEvent.click(screen.getByRole('button', { name: 'Reset draft' }));
@@ -999,8 +1088,9 @@ test('reset draft requires the exact league name before calling the destructive 
 test('commissioner copies a presenter link generated by the share-token endpoint', async () => {
   Object.assign(navigator, { clipboard: { writeText: jest.fn().mockResolvedValue() } });
   apiClient.post.mockResolvedValue({ data: { url: 'http://localhost:3000/#/present/example-token' } });
-  renderBoardWithToasts(1, { user: { id: 99, username: 'commish' } });
+  renderBoardWithToasts(1);
   await screen.findByText('Patrick Mahomes');
+  connectAsCommissioner();
   act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ owner_id: 99 }))));
 
   await userEvent.click(screen.getByRole('button', { name: 'Presenter link' }));
@@ -1612,13 +1702,13 @@ test('keeps the roster section out of the DOM until the league shape arrives', a
 describe('accessible structure', () => {
   /** A commissioner who also owns a team, active draft with the league's own
    * roster shape, so every optional panel (commissioner controls, roster,
-   * live banner) mounts at once. The viewer holds Team A through the join
-   * acknowledgement, and is the league's commissioner by account (the one
-   * check on this page that is still an account comparison - see #178). */
+   * live banner) mounts at once. Both viewer-relative facts come from the
+   * join acknowledgement (#178): the viewer holds Team A, and the server has
+   * told them they are a commissioner here. */
   const showFullBoard = async () => {
     renderBoard(1, { user: { id: 5, username: 'alice' } });
     await screen.findByText('Patrick Mahomes');
-    connectAsTeam(1);
+    connectAsCommissioner(1);
     act(() => fakeSocket.trigger('draft:state', stateEvent(rosterLeague({
       owner_id: 5,
       pick_deadline_at: new Date(Date.now() + 30000).toISOString(),

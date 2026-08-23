@@ -1,0 +1,113 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const { createFakePool, select } = require('./helpers/fakePool');
+const { viewerContext, joinAck } = require('../modules/draftSocket');
+
+/**
+ * #178: the Draft room's commissioner controls are gated on a per-viewer
+ * flag the SERVER computes, and the join acknowledgement is where it travels.
+ *
+ * Two rules are under test, and they are the two ways this can go wrong:
+ *
+ * 1. A commissioner is the owner OR a `league_commissioners` row
+ *    (leagueRole.service's header, CONTEXT.md's co-commissioner entry). A
+ *    co-commissioner must answer true, so the room can never fall back to
+ *    the owner-only comparison it used to make on the client.
+ * 2. An ordinary manager must answer false. The flag decides what a viewer
+ *    is offered, so being generous with it is the worse failure of the two.
+ *
+ * `draft:state` cannot carry this: it is broadcast to the whole league room
+ * and no viewer-relative field on it can be true for every recipient (#112,
+ * parent #108). The ack is answered to one socket, which is why it already
+ * carries `viewerTeamId` and why it carries this beside it.
+ */
+
+const LEAGUE_ID = 1;
+const OWNER = { userId: 7, teamId: 71, teamName: 'Founding Fathers' };
+const CO_COMMISSIONER = { userId: 8, teamId: 81, teamName: 'Second Chair' };
+const MEMBER = { userId: 9, teamId: 91, teamName: 'Just Here To Draft' };
+
+const EVERYONE = [OWNER, CO_COMMISSIONER, MEMBER];
+
+/**
+ * A league whose commissioners are exactly the owner plus `coCommissioners`.
+ * The commissioner answer comes from the REAL predicate SQL: the handler
+ * only plays the rows Postgres would return for it, so a call site that
+ * asked an owner-only question would still be visible in `fake.calls`.
+ */
+function leagueWorld({ coCommissioners = [] } = {}) {
+  const commissioners = new Set([OWNER.userId, ...coCommissioners]);
+  return createFakePool([
+    [select('teams'), (text, [leagueId, userId]) => {
+      const manager = EVERYONE.find((m) => m.userId === userId);
+      return { rows: manager && leagueId === LEAGUE_ID ? [{ id: manager.teamId, name: manager.teamName }] : [] };
+    }],
+    [select('leagues'), (text, [leagueId, userId]) => ({
+      rows: leagueId === LEAGUE_ID && commissioners.has(userId) ? [{ '?column?': 1 }] : [],
+    })],
+  ]);
+}
+
+const contextFor = (fake, userId) => viewerContext(fake, { leagueId: LEAGUE_ID, userId });
+
+test('the join ack tells the league owner they are a commissioner', async () => {
+  const fake = leagueWorld();
+
+  const viewer = await contextFor(fake, OWNER.userId);
+
+  assert.deepEqual(joinAck(viewer), {
+    ok: true,
+    viewerTeamId: OWNER.teamId,
+    isCommissioner: true,
+  });
+});
+
+test('the join ack tells a co-commissioner they are a commissioner', async () => {
+  const fake = leagueWorld({ coCommissioners: [CO_COMMISSIONER.userId] });
+
+  const viewer = await contextFor(fake, CO_COMMISSIONER.userId);
+
+  assert.deepEqual(joinAck(viewer), {
+    ok: true,
+    viewerTeamId: CO_COMMISSIONER.teamId,
+    isCommissioner: true,
+  });
+});
+
+test('the join ack tells an ordinary manager they are not a commissioner', async () => {
+  const fake = leagueWorld({ coCommissioners: [CO_COMMISSIONER.userId] });
+
+  const viewer = await contextFor(fake, MEMBER.userId);
+
+  assert.deepEqual(joinAck(viewer), {
+    ok: true,
+    viewerTeamId: MEMBER.teamId,
+    isCommissioner: false,
+  });
+});
+
+test('the commissioner question is asked of league_commissioners, not of owner_id alone', async () => {
+  // The defect this ticket closes was an owner-only comparison wearing a
+  // commissioner's name. An implementation that reverted to one would still
+  // pass the three role tests above IF its fixture happened to make the
+  // owner the only commissioner, so the shape of the question is asserted
+  // here rather than left to the answers.
+  const fake = leagueWorld({ coCommissioners: [CO_COMMISSIONER.userId] });
+
+  await contextFor(fake, CO_COMMISSIONER.userId);
+
+  const [asked] = fake.matching(/FROM "leagues"/);
+  assert.ok(asked, 'the viewer context asks the league a commissioner question');
+  assert.match(asked.text, /"league_commissioners"/);
+  assert.deepEqual(asked.params, [LEAGUE_ID, CO_COMMISSIONER.userId]);
+});
+
+test('a manager who holds no Team in the league gets no viewer context at all', async () => {
+  // Membership IS the Team (ADR 0002), so the same read answers "may they
+  // join" and "which Team are they". A non-member never reaches an ack.
+  const fake = leagueWorld();
+
+  assert.equal(await contextFor(fake, 404), null);
+  assert.equal(fake.matching(/FROM "leagues"/).length, 0, 'no role question for a non-member');
+});
+

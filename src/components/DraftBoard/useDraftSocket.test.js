@@ -41,10 +41,13 @@ afterEach(() => {
 const teamA = { id: 1, teamId: 1, teamName: 'Team A', name: 'Team A' };
 const teamB = { id: 2, teamId: 2, teamName: 'Team B', name: 'Team B' };
 
-/** Answers the `draft:join` acknowledgement the way the server does. */
-function ackJoin(viewerTeamId) {
+/**
+ * Answers the `draft:join` acknowledgement the way the server does. `rest`
+ * carries the other per-viewer fields on it, `isCommissioner` today (#178).
+ */
+function ackJoin(viewerTeamId, rest = {}) {
   const call = fakeSocket.emit.mock.calls.find(([event]) => event === 'draft:join');
-  act(() => call[2]({ ok: true, viewerTeamId }));
+  act(() => call[2]({ ok: true, viewerTeamId, ...rest }));
 }
 
 test('joins the draft room on connect and emits pick over the socket', () => {
@@ -259,6 +262,85 @@ test('drops the viewer Team when the league changes, rather than carrying it acr
   rerender({ leagueId: 2 });
 
   expect(result.current.viewerTeamId).toBe(null);
+});
+
+// --- the viewer's commissioner role (#178) ---
+//
+// The ack is the ONLY source of this flag: the Draft room no longer falls
+// back to comparing the snapshot's owner_id against the signed-in account,
+// so anything that loses the flag takes a commissioner's controls away mid
+// draft. These tests pin the two directions that matters in.
+
+test('surfaces the commissioner flag the acknowledgement carries', () => {
+  const { result } = renderHook(() => useDraftSocket(1));
+
+  act(() => fakeSocket.trigger('connect'));
+  ackJoin(1, { isCommissioner: true });
+
+  expect(result.current.isCommissioner).toBe(true);
+});
+
+test('an ordinary manager is not a commissioner', () => {
+  const { result } = renderHook(() => useDraftSocket(1));
+
+  act(() => fakeSocket.trigger('connect'));
+  ackJoin(1, { isCommissioner: false });
+
+  expect(result.current.isCommissioner).toBe(false);
+});
+
+test('an acknowledgement with no commissioner flag reads as false, never as undefined', () => {
+  // Only the server may say yes. A missing field is an older or a partial
+  // ack, and the safe reading of it is "no", not a value that renders a
+  // control by being truthy somewhere downstream.
+  const { result } = renderHook(() => useDraftSocket(1));
+
+  act(() => fakeSocket.trigger('connect'));
+  ackJoin(1);
+
+  expect(result.current.isCommissioner).toBe(false);
+});
+
+test('a reconnect re-asks for the commissioner flag and takes the new answer', () => {
+  // Every join re-reads it, exactly as viewerTeamId does, so a socket drop
+  // mid-draft cannot silently strip a commissioner of their controls - and a
+  // grant revoked while they were offline is honoured on the way back in.
+  let reconnectHandler;
+  onReconnect.mockImplementation((socket, handler) => {
+    reconnectHandler = handler;
+    return () => {};
+  });
+  const { result } = renderHook(() => useDraftSocket(1));
+
+  act(() => fakeSocket.trigger('connect'));
+  ackJoin(1, { isCommissioner: true });
+  expect(result.current.isCommissioner).toBe(true);
+
+  act(() => fakeSocket.trigger('disconnect'));
+  expect(result.current.isCommissioner).toBe(true); // a blip is not a demotion
+
+  act(() => reconnectHandler());
+  const joins = fakeSocket.emit.mock.calls.filter(([event]) => event === 'draft:join');
+  expect(joins).toHaveLength(2);
+  act(() => joins[1][2]({ ok: true, viewerTeamId: 1, isCommissioner: false }));
+  expect(result.current.isCommissioner).toBe(false);
+});
+
+test('drops the commissioner flag when the league changes, rather than carrying it across', () => {
+  const { result, rerender } = renderHook(({ leagueId }) => useDraftSocket(leagueId), {
+    initialProps: { leagueId: 1 },
+  });
+
+  act(() => fakeSocket.trigger('connect'));
+  ackJoin(1, { isCommissioner: true });
+  expect(result.current.isCommissioner).toBe(true);
+
+  // Commissioner of one league says nothing about the next one.
+  fakeSocket = makeFakeSocket();
+  createDraftSocket.mockReturnValue(fakeSocket);
+  rerender({ leagueId: 2 });
+
+  expect(result.current.isCommissioner).toBe(false);
 });
 
 test('disconnects the socket on unmount', () => {

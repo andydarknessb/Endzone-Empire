@@ -126,11 +126,21 @@ function reducer(state, action) {
  * hook knows its own Team before it holds any Team identity to compare it
  * against, and "which one of these is me" is `entry.teamId === viewerTeamId`
  * rather than any comparison of account ids.
+ *
+ * `isCommissioner` is the room's other per-viewer fact and travels the same
+ * way, on the same ack, for the same reason (#178): the server decides it
+ * with the predicate every commissioner-gated route authorizes with, so the
+ * owner and a co-commissioner answer alike. The room reads it and nothing
+ * else - there is no client-side fallback to fall back to - which makes
+ * re-reading it on EVERY join, not just the first, the load-bearing part: a
+ * dropped socket mid-draft must not quietly take a commissioner's controls
+ * away.
  */
 export default function useDraftSocket(leagueId, { onPickLanded } = {}) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const [error, setError] = useState(null);
   const [viewerTeamId, setViewerTeamId] = useState(null);
+  const [isCommissioner, setIsCommissioner] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
   const [onClockAlertOpen, setOnClockAlertOpen] = useState(false);
   const socketRef = useRef(null);
@@ -149,6 +159,10 @@ export default function useDraftSocket(leagueId, { onPickLanded } = {}) {
     // (a Team ID is unique across leagues), but leaving it standing would
     // mean the hook briefly reported a Team for a league it had left.
     setViewerTeamId(null);
+    // Same reasoning, and the same tear-down: holding a commissioner's role
+    // over from the league just left would offer this viewer controls on a
+    // league where they may hold none.
+    setIsCommissioner(false);
     const newSocket = createDraftSocket();
     socketRef.current = newSocket;
 
@@ -159,8 +173,11 @@ export default function useDraftSocket(leagueId, { onPickLanded } = {}) {
       newSocket.emit('draft:join', { leagueId: Number(leagueId) }, (resp) => {
         if (resp?.error) return setError(resp.error);
         // Re-read on every join, not just the first: a reconnect re-runs this
-        // and the answer is the authority on which Team the viewer is.
+        // and the answer is the authority on which Team the viewer is and on
+        // whether they may act as commissioner here. Strictly `=== true`: an
+        // ack that says nothing about the role is not a grant of it.
         setViewerTeamId(resp?.viewerTeamId ?? null);
+        setIsCommissioner(resp?.isCommissioner === true);
       });
     };
 
@@ -240,6 +257,7 @@ export default function useDraftSocket(leagueId, { onPickLanded } = {}) {
     picks: state.picks,
     onTheClock: state.onTheClock,
     viewerTeamId,
+    isCommissioner,
     secondsLeft: state.secondsLeft,
     reconnecting,
     isMyTurn,

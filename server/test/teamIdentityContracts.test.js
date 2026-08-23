@@ -286,11 +286,19 @@ test('league:join and draft:join both acknowledge the viewer with their own Team
   // The chat panel joins with league:join and never reads league detail, so
   // this ack is the only per-viewer channel chat has; the draft room's is the
   // same ack. One shape answers both.
-  assert.deepEqual(joinAck({ id: VIEWER.teamId, name: VIEWER.teamName }), {
+  // `isCommissioner` rides beside it on the same ack for the same reason
+  // (#178): both are facts about the one socket being answered. This test
+  // owns the viewerTeamId half; draftJoinCommissioner.test.js owns the other.
+  assert.deepEqual(joinAck({ viewerTeam: { id: VIEWER.teamId, name: VIEWER.teamName }, isCommissioner: false }), {
     ok: true,
     viewerTeamId: VIEWER.teamId,
+    isCommissioner: false,
   });
-  assert.deepEqual(joinAck(null), { ok: true, viewerTeamId: null });
+  assert.deepEqual(joinAck({ viewerTeam: null, isCommissioner: false }), {
+    ok: true,
+    viewerTeamId: null,
+    isCommissioner: false,
+  });
 });
 
 test('draft:presence carries the joining manager\'s Team identity beside their account', () => {
