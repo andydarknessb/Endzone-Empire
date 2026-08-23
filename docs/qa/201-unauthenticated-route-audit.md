@@ -83,13 +83,24 @@ Worth recording, because two of them read like public surfaces:
    `result.rows[0]` with the hash `delete`d off afterwards. Nothing had leaked:
    the delete runs before the response on every path. The shape was the defect,
    and the same allowlist now serves register and refresh.
-2. **Seven raw row passthroughs in `publicRead.service.js` now `?? null`.**
-   `name`, `position`, `nflTeam`, `photoUrl`, `injuryStatus` on a ranking row
-   and `photoUrl`, `jerseyNumber`, `injuryStatus`, `injuryDetail`, `news` on a
-   profile answered `undefined` when the row lacked the column, and
+2. **Twenty-four raw row passthroughs in `publicRead.service.js` now `?? null`**,
+   across all four serializers that read a database row directly:
+
+   | Serializer | Fields |
+   | --- | --- |
+   | `serializeRankingRow` | `playerId`, `name`, `position`, `nflTeam`, `photoUrl`, `injuryStatus` |
+   | `serializePlayerProfile` | `playerId`, `name`, `position`, `nflTeam`, `photoUrl`, `jerseyNumber`, `injuryStatus`, `injuryDetail`, `news` |
+   | `serializeDraftPoolRow` | `playerId` |
+   | `serializeRecapListRow` and `serializeRecapDetail` | `gameId`, `homeTeam`, `awayTeam`, `finalAt` each |
+
+   Each answered `undefined` when the row lacked the column, and
    `JSON.stringify` drops the KEY. That makes the key set a property of the
    query rather than of the serializer, which is the rule #181 and #199 both
-   pin. No field a client reads changed value: absent became null.
+   pin (`allowlisted()` in draft.router.js null-fills identically). No field a
+   client reads changed value: every one of these columns is named in the
+   query that feeds it, so Postgres already returned `null` and the wire bytes
+   are unchanged for a real row. Only the absent-column case moves, from a
+   missing key to `null`.
 
 ## Found and deliberately not changed
 

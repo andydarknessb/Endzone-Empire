@@ -285,12 +285,12 @@ async function getRankings({ position = 'ALL', season, week, limit = 50 } = {}) 
 function serializeRankingRow({ rank, row, projectedPoints, seasonPoints, lastWeekPoints, trend, byeWeek = null }) {
   return {
     rank,
-    playerId: row.id,
     // `?? null` on every raw passthrough, so the key set is a property of THIS
     // serializer rather than of whatever columns the row happened to carry: a
     // query that stops selecting a column answers null here instead of
     // silently dropping the key from a payload clients read unconditionally.
     // Same rule as the invite preview (#181) and the presenter board (#199).
+    playerId: row.id ?? null,
     name: row.name ?? null,
     position: row.position ?? null,
     nflTeam: row.nfl_team ?? null,
@@ -449,8 +449,8 @@ async function getPlayerProfile(playerId, { season } = {}) {
 
 function serializePlayerProfile({ player, season, seasons, seasonSummary, weeklyLogPartial, recentRows, posRank }) {
   return {
-    playerId: player.id,
-    // `?? null` on every raw passthrough — see serializeRankingRow.
+    // `?? null` on every raw passthrough - see serializeRankingRow.
+    playerId: player.id ?? null,
     name: player.name ?? null,
     position: player.position ?? null,
     nflTeam: player.nfl_team ?? null,
@@ -604,7 +604,7 @@ async function getDraftPool({ includeIdp = false } = {}) {
 
 function serializeDraftPoolRow({ row, projectedPoints, byeWeek }) {
   return {
-    playerId: row.id,
+    playerId: row.id ?? null,
     name: row.name,
     position: row.position,
     nflTeam: row.nfl_team,
