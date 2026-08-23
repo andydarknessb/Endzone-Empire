@@ -70,6 +70,7 @@
     "test:check-color-literals": "node --test scripts/check-color-literals.test.js",
     "test:holdout-pg": "node --test server/test/holdout.pg.test.js",
     "test:draft-rounds-pg": "node --test server/test/draftRoundsBackfill.pg.test.js",
+    "test:team-names-pg": "node --test server/test/teamNamesBackfill.pg.test.js",
     "test:backtest-pg": "node --test server/test/backtestSnapshotClient.pg.test.js server/test/backtestGate1Role.pg.test.js",
     "test:security": "playwright test --config=playwright.security.config.js",
     "test:e2e:auth-offline": "playwright test --config=playwright.e2e.config.js tests/e2e/auth-offline.spec.ts",

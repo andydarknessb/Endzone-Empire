@@ -95,7 +95,7 @@ test('fantasy create: pickem_only false, no pickem_settings row, no season seed'
   const res = await request(app)
     .post('/api/league')
     .set('Authorization', authed())
-    .send({ name: 'Gridiron', maxTeams: 10 });
+    .send({ name: 'Gridiron', teamName: "Commish's Crew", maxTeams: 10 });
   assert.equal(res.status, 201);
   assert.equal(res.body.pickem_only, false);
   const leagueInsert = statementsMatching(calls, /INSERT INTO "leagues"/)[0];
@@ -107,10 +107,24 @@ test('fantasy create: pickem_only false, no pickem_settings row, no season seed'
   assert.equal(statementsMatching(calls, /FROM "nfl_games"/).length, 0);
   assert.equal(statementsMatching(calls, /^COMMIT$/).length, 1);
   // The creator's Team goes through the membership write like every other
-  // join path: the default name, and draft_position 1 on an empty league.
+  // join path: the required name it sent, and draft_position 1 on an empty
+  // league.
   const teamInserts = statementsMatching(calls, /INSERT INTO "teams"/);
   assert.equal(teamInserts.length, 1);
-  assert.deepEqual(teamInserts[0].params, [77, CREATOR, "commish's Team", 1]);
+  assert.deepEqual(teamInserts[0].params, [77, CREATOR, "Commish's Crew", 1]);
+});
+
+test('fantasy create: a missing Team name is refused 400 and nothing commits', async (t) => {
+  const calls = mockClient(t);
+  const res = await request(app)
+    .post('/api/league')
+    .set('Authorization', authed())
+    .send({ name: 'Gridiron', maxTeams: 10 });
+  assert.equal(res.status, 400, JSON.stringify(res.body));
+  assert.equal(res.body.error, 'Team name is required');
+  assert.equal(statementsMatching(calls, /INSERT INTO "teams"/).length, 0);
+  assert.equal(statementsMatching(calls, /^COMMIT$/).length, 0);
+  assert.equal(statementsMatching(calls, /^ROLLBACK$/).length, 1);
 });
 
 test("'both' create: pickem_settings written in the transaction with the chosen mode, no seed", async (t) => {
@@ -118,8 +132,8 @@ test("'both' create: pickem_settings written in the transaction with the chosen 
   const res = await request(app)
     .post('/api/league')
     .set('Authorization', authed())
-    .send({ name: 'Double Duty', leagueType: 'both', pickemMode: 'confidence' });
-  assert.equal(res.status, 201);
+    .send({ name: 'Double Duty', teamName: 'Two-Way Titans', leagueType: 'both', pickemMode: 'confidence' });
+  assert.equal(res.status, 201, JSON.stringify(res.body));
   assert.equal(res.body.pickem_only, false);
   const settingsInserts = statementsMatching(calls, /INSERT INTO "pickem_settings"/);
   assert.equal(settingsInserts.length, 1);
@@ -133,7 +147,7 @@ test('pick\'em create: pickem_only true, settings row, and season/week seeded fr
   const res = await request(app)
     .post('/api/league')
     .set('Authorization', authed())
-    .send({ name: 'Office Pool', leagueType: 'pickem', maxTeams: 50 });
+    .send({ name: 'Office Pool', teamName: 'Pool Shark', leagueType: 'pickem', maxTeams: 50 });
   assert.equal(res.status, 201);
   const leagueInsert = statementsMatching(calls, /INSERT INTO "leagues"/)[0];
   assert.equal(leagueInsert.params[12], true);
@@ -159,7 +173,7 @@ test('pick\'em create with an empty schedule table: no seed UPDATE, column defau
   const res = await request(app)
     .post('/api/league')
     .set('Authorization', authed())
-    .send({ name: 'Preseason Pool', leagueType: 'pickem' });
+    .send({ name: 'Preseason Pool', teamName: 'Early Bird', leagueType: 'pickem' });
   assert.equal(res.status, 201);
   assert.equal(statementsMatching(calls, /^UPDATE "leagues" SET "current_season"/).length, 0);
   assert.equal(res.body.current_week, 1);
@@ -170,12 +184,12 @@ test('pick\'em create honors the 50 cap at the route; fantasy still rejects 50 n
   const pickem = await request(app)
     .post('/api/league')
     .set('Authorization', authed())
-    .send({ name: 'Big Pool', leagueType: 'pickem', maxTeams: 50 });
+    .send({ name: 'Big Pool', teamName: 'Pool Champ', leagueType: 'pickem', maxTeams: 50 });
   assert.equal(pickem.status, 201);
   const fantasy = await request(app)
     .post('/api/league')
     .set('Authorization', authed())
-    .send({ name: 'Big League', maxTeams: 50 });
+    .send({ name: 'Big League', teamName: 'Big Ballers', maxTeams: 50 });
   assert.equal(fantasy.status, 400);
   assert.match(fantasy.body.error, /between 2 and 20/);
 });
@@ -187,7 +201,7 @@ test('a failure inside the transaction rolls the whole create back', async (t) =
   const res = await request(app)
     .post('/api/league')
     .set('Authorization', authed())
-    .send({ name: 'Doomed Pool', leagueType: 'pickem' });
+    .send({ name: 'Doomed Pool', teamName: 'Doomed FC', leagueType: 'pickem' });
   assert.equal(res.status, 500);
   assert.equal(statementsMatching(calls, /^ROLLBACK$/).length, 1);
   assert.equal(statementsMatching(calls, /^COMMIT$/).length, 0);
@@ -212,7 +226,7 @@ test('create with a draftDate and a validated draftTimezone stores both', async 
   const res = await request(app)
     .post('/api/league')
     .set('Authorization', authed())
-    .send({ name: 'Zoned', maxTeams: 10, draftDate, draftTimezone: 'America/New_York' });
+    .send({ name: 'Zoned', teamName: 'Zoned FC', maxTeams: 10, draftDate, draftTimezone: 'America/New_York' });
   assert.equal(res.status, 201);
   assert.equal(res.body.draft_timezone, 'America/New_York');
   const leagueInsert = statementsMatching(calls, /INSERT INTO "leagues"/)[0];
