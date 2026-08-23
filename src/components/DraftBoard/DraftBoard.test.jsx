@@ -1709,17 +1709,16 @@ describe('accessible structure', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Mobile tab-card layout (issue #122): below the medium breakpoint, three
-// persistent tabs (Players/Board/Draft) replace desktop's dual-pane
-// workspace, each its own single scroll region.
-// ---------------------------------------------------------------------------
-
-describe('mobile layout (issue #122)', () => {
-  // Same matchMedia-mock convention used elsewhere in this codebase (see
-  // PlayerQuickView.test.jsx, PowerRankings.test.jsx): jsdom has no real
-  // media-query engine, so every query the component asks resolves to this
-  // one flag regardless of its breakpoint text.
+/**
+ * Put the describe that calls this below the medium breakpoint.
+ *
+ * The matchMedia-mock convention used elsewhere in this codebase (see
+ * PlayerQuickView.test.jsx, PowerRankings.test.jsx): jsdom has no real
+ * media-query engine, so every query the component asks resolves to this one
+ * flag regardless of its breakpoint text. Its absence is how this file says
+ * "desktop" - MUI's useMediaQuery falls back to false without it.
+ */
+const mockMobileViewport = () => {
   beforeEach(() => {
     window.matchMedia = jest.fn().mockImplementation((query) => ({
       matches: true,
@@ -1735,6 +1734,16 @@ describe('mobile layout (issue #122)', () => {
   afterEach(() => {
     delete window.matchMedia;
   });
+};
+
+// ---------------------------------------------------------------------------
+// Mobile tab-card layout (issue #122): below the medium breakpoint, three
+// persistent tabs (Players/Board/Draft) replace desktop's dual-pane
+// workspace, each its own single scroll region.
+// ---------------------------------------------------------------------------
+
+describe('mobile layout (issue #122)', () => {
+  mockMobileViewport();
 
   const showMobileActiveDraft = async () => {
     renderBoard(1, { user: { id: 5, username: 'alice' } });
@@ -1811,35 +1820,22 @@ describe('mobile layout (issue #122)', () => {
 describe('readiness live region (issue #164)', () => {
   // The mobile/tablet layout is the one that mounts a single region per tab
   // (issue #122 / PR #158), so it is the layout that unmounted the rail - and
-  // the live region inside it - on every switch. Same matchMedia-mock
-  // convention as the mobile block above.
-  beforeEach(() => {
-    window.matchMedia = jest.fn().mockImplementation((query) => ({
-      matches: true,
-      media: query,
-      onchange: null,
-      addListener: jest.fn(),
-      removeListener: jest.fn(),
-      addEventListener: jest.fn(),
-      removeEventListener: jest.fn(),
-      dispatchEvent: jest.fn(),
-    }));
-  });
-  afterEach(() => {
-    delete window.matchMedia;
-  });
+  // the live region inside it - on every switch. The one desktop test below
+  // opts back out.
+  mockMobileViewport();
 
-  /** A pending lobby whose viewer holds Team A: Readiness composes into
-   * `pending` alone (railComposition.js) and the panel renders only for a
-   * viewer who holds a Team, so this is the one state the region speaks in. */
-  const showPendingLobby = async (readyTeamIds = [2]) => {
+  /** A pending lobby whose viewer holds Team A, with Team B ready: Readiness
+   * composes into `pending` alone (railComposition.js) and the panel renders
+   * only for a viewer who holds a Team, so this is the one state the region
+   * speaks in. */
+  const showPendingLobby = async (leagueOverrides = {}) => {
     renderBoard(1, { user: { id: 5, username: 'alice' } });
     await screen.findByText('Patrick Mahomes');
     connectAsTeam(1);
-    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ draft_status: 'pending' }), {
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ draft_status: 'pending', ...leagueOverrides }), {
       teams: [
-        { teamId: 1, teamName: 'Team A', draft_ready: readyTeamIds.includes(1) },
-        { teamId: 2, teamName: 'Team B', draft_ready: readyTeamIds.includes(2) },
+        { teamId: 1, teamName: 'Team A', draft_ready: false },
+        { teamId: 2, teamName: 'Team B', draft_ready: true },
       ],
       onTheClock: null,
     })));
@@ -1857,6 +1853,11 @@ describe('readiness live region (issue #164)', () => {
     expect(screen.getByRole('status')).toBe(before);
 
     await userEvent.click(screen.getByRole('tab', { name: 'Draft' }));
+    expect(screen.getByRole('status')).toBe(before);
+
+    // And back to the tab the room opened on, which is the switch the issue
+    // describes: "the rail is rendered only while the players tab is active".
+    await userEvent.click(screen.getByRole('tab', { name: 'Players' }));
     expect(screen.getByRole('status')).toBe(before);
     expect(before).toHaveTextContent('1 of 2 managers ready');
   });
@@ -1883,10 +1884,18 @@ describe('readiness live region (issue #164)', () => {
   });
 
   test('is the only readiness announcement in the room - the rail shows the count without repeating it', async () => {
-    await showPendingLobby();
+    // With a draft date, so the countdown's own status region (Countdown.jsx,
+    // issue #117) is in the room too. The invariant is one region announcing
+    // READINESS, not one region in the document: a bare count of role=status
+    // would pass here only for as long as no other announcement exists, and
+    // would then fail for a reason that has nothing to do with readiness.
+    await showPendingLobby({ draft_date: '2099-09-01T17:00:00.000Z' });
     await userEvent.click(screen.getByRole('tab', { name: 'Draft' }));
 
-    expect(screen.getAllByRole('status')).toHaveLength(1);
+    const announcing = screen.getAllByRole('status')
+      .filter((region) => region.textContent.includes('managers ready'));
+    expect(announcing).toHaveLength(1);
+
     const readiness = screen.getByRole('region', { name: 'Readiness' });
     const visibleCount = within(readiness).getByText('1 of 2 managers ready');
     expect(visibleCount).not.toHaveAttribute('aria-live');

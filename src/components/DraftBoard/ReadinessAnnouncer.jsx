@@ -2,6 +2,7 @@ import React from 'react';
 import { Box } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { readinessSummaryFor } from './readinessSummary';
+import { railCompositionFor, RAIL_PANELS } from './railComposition';
 
 /**
  * The Draft room's readiness announcement (issue #164), separate from the
@@ -30,21 +31,24 @@ import { readinessSummaryFor } from './readinessSummary';
  * the sentence to sighted managers, without a live region of its own, and
  * this exists purely to be announced.
  *
- * Mounted for the pending lobby rather than literally forever. Readiness is a
- * fact of the pending draft and has no meaning once picking starts
- * (CONTEXT.md: Readiness; railComposition.js composes it into `pending`
- * alone), and the panel it mirrors renders only for a viewer who holds a
+ * Mounted for as long as the room has readiness to announce, rather than
+ * literally forever. The two conditions are the panel's own: WHICH statuses
+ * have a Readiness panel at all is `railCompositionFor` and nothing else
+ * (issue #123 - that module declares itself the single statement of the
+ * rule, so this asks it rather than restating "pending" and drifting from
+ * it), and the panel additionally renders only for a viewer who holds a
  * Team, since readiness is a declaration about a Team. A region kept mounted
  * through an active draft could never speak, and would sit beside
  * LiveDraftBanner's own status region saying nothing. What matters for this
  * issue is that nothing about the mount depends on the selected tab: the
  * remaining mount/unmount edges are draft-status and Team-membership changes,
- * which are page-level facts a manager changes once, not something they cross
+ * which are page-level facts a manager crosses once, not something they cross
  * every time they look at the board.
  */
 function ReadinessAnnouncer({ teams = [], viewerTeamId = null, draftStatus = null }) {
+  const roomHasReadiness = railCompositionFor(draftStatus).includes(RAIL_PANELS.READINESS);
   const holdsTeam = viewerTeamId != null && teams.some((team) => team.teamId === viewerTeamId);
-  if (draftStatus !== 'pending' || !holdsTeam) return null;
+  if (!roomHasReadiness || !holdsTeam) return null;
 
   // Derived from the ready count and the team count and nothing else, so a
   // socket frame that carries neither renders the identical string and React
