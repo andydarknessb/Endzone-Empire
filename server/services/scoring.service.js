@@ -1634,6 +1634,23 @@ async function generateMatchups({ leagueId, season, week }) {
  * - no `nfl_games` row: a bye, or a schedule not synced yet. There is no
  *   kickoff for him to be after, so nothing is excluded — the same reading
  *   `lockedNflTeams` gives an empty schedule ("nothing is locked").
+ *
+ * KNOWN LIMIT, shared with the lock rule and deliberately not fixed here.
+ * The `nfl_team` join is raw equality, exactly as `lineup.service`'s
+ * `lockedNflTeams` compares and as #197's cleanup migration joins. But
+ * `nfl_games` keys teams by Tank01 abbreviation while `players.nfl_team`
+ * holds FULL TEAM NAMES for DEF units, and the two vocabularies also differ
+ * on alias codes (Tank01's WSH vs. WAS) — see `bye.service.computeByeWeeks`,
+ * which had to reach for `fn_normalize_nfl_team()` on both sides for exactly
+ * this reason. So a DEF unit matches no game row here and is never excluded.
+ *
+ * Normalizing ONLY here would be worse than leaving it. A DEF is never
+ * `locked` either, so `removeLineupEntries` always deletes his current-week
+ * row on a drop, post-game included: fixing the acquisition half alone would
+ * leave the drop half broken and the two halves disagreeing about the same
+ * player. The fix belongs in one place, on `lockedNflTeams` and this query
+ * together, which is a change to #197's family rather than to #190's scope.
+ * If you normalize one of these, normalize all of them.
  */
 async function playersAcquiredAfterKickoff(client, { teamId, season, week }) {
   const result = await client.query(
