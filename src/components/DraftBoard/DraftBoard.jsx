@@ -26,6 +26,7 @@ import DraftDayControls from './DraftDayControls';
 import DraftPickConfirmDialog from './DraftPickConfirmDialog';
 import { pickActionExists, pickTemporarilyUnavailable, PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
 import { upcomingTeamsFor } from './upcomingTeams';
+import { viewerPicksFor } from './viewerPicks';
 import { assignRosterSlots } from '../../lib/rosterAssignment';
 import {
   turnSummaryFor, pickLabelFor, teamsInDraftOrder, draftOrderIsSettled,
@@ -500,6 +501,12 @@ function DraftBoard() {
     // The next three picks after the one on the clock, for the active rail's
     // compact Upcoming strip. Empty for a draft whose order is not settled.
     upcoming: upcomingTeamsFor({ league, teams, picks, rounds }),
+    // The same order read viewer-relatively: which of the picks still to come
+    // are this manager's own. Empty on the same conditions, plus for a
+    // spectator holding no Team here.
+    viewerPicks: viewerPicksFor({
+      league, teams, picks, rounds, viewerTeamId,
+    }),
   };
 
   // Board is the team-by-round matrix; Pick history is the chronological view
