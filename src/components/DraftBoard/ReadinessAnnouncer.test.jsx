@@ -53,16 +53,28 @@ test('says nothing to a viewer whose Team is not in the frame it was handed', ()
   expect(screen.queryByRole('status')).not.toBeInTheDocument();
 });
 
-test('re-renders with an unchanged count without replacing the text', () => {
-  // Snapshot frames arrive far more often than readiness changes. React
-  // leaves an identical text node alone, so an unchanged frame is not a
-  // change any assistive technology is asked to announce.
+test('leaves the region untouched by a frame that does not move the count', () => {
+  // Snapshot frames arrive far more often than readiness changes, and what an
+  // assistive technology announces is a MUTATION of the region - so "does the
+  // DOM under it change" is the question, not "does it still read the same".
+  // A new teams array with the same counts is exactly the tick this must
+  // stay silent for.
   const { rerender } = render(<ReadinessAnnouncer {...base} />);
-  const textNode = screen.getByRole('status').firstChild;
+  const region = screen.getByRole('status');
 
-  rerender(<ReadinessAnnouncer {...base} teams={lobby(3, 8)} />);
-  expect(screen.getByRole('status').firstChild).toBe(textNode);
+  const observer = new MutationObserver(() => {});
+  observer.observe(region, { childList: true, characterData: true, subtree: true });
+  try {
+    rerender(<ReadinessAnnouncer {...base} teams={lobby(3, 8)} />);
+    expect(observer.takeRecords()).toHaveLength(0);
 
-  rerender(<ReadinessAnnouncer {...base} teams={lobby(4, 8)} />);
-  expect(screen.getByRole('status')).toHaveTextContent('4 of 8 managers ready');
+    // And a frame that does move it mutates the same region rather than
+    // building a new one.
+    rerender(<ReadinessAnnouncer {...base} teams={lobby(4, 8)} />);
+    expect(observer.takeRecords().length).toBeGreaterThan(0);
+    expect(screen.getByRole('status')).toBe(region);
+    expect(region).toHaveTextContent('4 of 8 managers ready');
+  } finally {
+    observer.disconnect();
+  }
 });
