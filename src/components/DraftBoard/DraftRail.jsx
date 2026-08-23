@@ -1,4 +1,6 @@
-import React, { useId } from 'react';
+import React, {
+  useId, useState, useRef, useEffect, useLayoutEffect,
+} from 'react';
 import {
   Paper,
   Box,
@@ -12,6 +14,8 @@ import {
   Accordion,
   AccordionSummary,
   AccordionDetails,
+  LinearProgress,
+  Popover,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
@@ -22,7 +26,51 @@ import RosterPanel from '../RosterPanel/RosterPanel';
 import RosterNeedsStrip from '../RosterPanel/RosterNeedsStrip';
 import { pickActionExists, pickTemporarilyUnavailable, PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
 import { railCompositionFor, RAIL_PANELS } from './railComposition';
+import { readinessSummaryFor, READINESS_LIST } from './readinessSummary';
+import { teamsInDraftOrder } from '../../lib/draftTurns';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
+
+/**
+ * Hand focus somewhere deliberate when a focusable thing disappears out from
+ * under the person using it.
+ *
+ * The rail is driven by a socket, so its controls come and go in response to
+ * what OTHER managers do. Two of them can vanish mid-interaction: the
+ * Readiness exception list, when the last manager declares ready, and the
+ * viewer's picks popover, when their last pick lands. The browser's answer in
+ * both cases is to drop focus to `<body>`, which restarts the next Tab at the
+ * top of the document and announces nothing at all - and the manager most
+ * likely to be holding the Readiness trigger is precisely the one watching the
+ * lobby fill, so the bad case is the expected one rather than an edge.
+ *
+ * `present` going true -> false is the signal. Focus is only moved if it was
+ * actually inside the subtree that went away, tracked by the returned
+ * focus/blur handlers: a manager whose focus is elsewhere in the rail when the
+ * lobby fills must not have it yanked to a heading. React's synthetic focus
+ * events bubble through the React tree rather than the DOM, so these still see
+ * focus land inside a portalled popover.
+ *
+ * `useLayoutEffect` rather than `useEffect` so the move happens in the same
+ * commit as the removal, with no frame in which focus is on nothing.
+ */
+function useFocusRescue(present, fallbackRef) {
+  const heldFocus = useRef(false);
+  const wasPresent = useRef(present);
+
+  useLayoutEffect(() => {
+    const vanished = wasPresent.current && !present;
+    wasPresent.current = present;
+    if (vanished && heldFocus.current) {
+      heldFocus.current = false;
+      if (fallbackRef.current) fallbackRef.current.focus();
+    }
+  }, [present, fallbackRef]);
+
+  return {
+    onFocus: () => { heldFocus.current = true; },
+    onBlur: () => { heldFocus.current = false; },
+  };
+}
 
 /** Draft-room rail, composed from the draft's status (issue #123 acceptance
  * criteria 1-4).
@@ -66,6 +114,11 @@ function DraftRail({
   // The next three picks after the one on the clock (see upcomingTeams.js).
   // Empty whenever the Draft order is not settled enough to read.
   upcoming = [],
+  // The viewer's OWN remaining Pick numbers - `next` for the inline strip,
+  // `all` for the popover behind it (see viewerPicks.js). Both empty whenever
+  // the Draft order is not settled enough to read, which includes every
+  // pending lobby.
+  viewerPicks = { all: [], next: [] },
   // How far from the top of its scrolling ancestor the queue panel sticks.
   // Embedded in the page (mobile's single scroll region, or the pre-#122
   // desktop layout) it must clear LiveDraftBanner, which is itself sticky at
@@ -87,7 +140,11 @@ function DraftRail({
   // viewer's own Team ID, answered on the draft:join acknowledgement, against
   // each entry's Team ID. Never a comparison of account ids.
   const myTeam = viewerTeamId == null ? undefined : teams.find((team) => team.teamId === viewerTeamId);
-  const readyCount = teams.filter((team) => team.draft_ready).length;
+  const readiness = readinessSummaryFor(teams);
+  // The Draft order is a sequence of slots, so it is rendered as one wherever
+  // it appears, and the sort is src/lib/draftTurns.js's rather than whatever
+  // order the last socket frame happened to carry.
+  const orderedTeams = teamsInDraftOrder(teams);
 
   // Stable heading ids for this instance, so each panel's Paper/section can be
   // named via aria-labelledby instead of duplicating its visible title text.
@@ -96,6 +153,34 @@ function DraftRail({
   const readinessHeadingId = useId();
   const upcomingHeadingId = useId();
   const orderDisclosureId = useId();
+  const readinessListId = useId();
+  const autodraftHelpId = useId();
+  const myPicksHeadingId = useId();
+  const allPicksHeadingId = useId();
+
+  // The complete list of the viewer's picks. Anchored state rather than a
+  // controlled `open` flag alone because MUI positions the Popover against the
+  // element it was opened from.
+  const [allPicksAnchor, setAllPicksAnchor] = useState(null);
+  const allPicksOpen = Boolean(allPicksAnchor);
+
+  // Where focus goes when one of the two vanishing controls takes it with it.
+  // The panel's own heading in each case: it names where the manager still is,
+  // which is the question losing focus leaves them with.
+  const readinessHeadingRef = useRef(null);
+  const upcomingHeadingRef = useRef(null);
+  const hasExceptionList = readiness.listKind !== READINESS_LIST.NONE;
+  const hasViewerPicks = viewerPicks.all.length > 0;
+  const readinessFocus = useFocusRescue(hasExceptionList, readinessHeadingRef);
+  const myPicksFocus = useFocusRescue(hasViewerPicks, upcomingHeadingRef);
+
+  // The anchor outlives the element it points at when the picks group unmounts
+  // with the popover open, so drop it rather than leave a detached node to be
+  // measured against if the group ever comes back (a commissioner correcting a
+  // pick, or a corrected socket frame).
+  useEffect(() => {
+    if (!hasViewerPicks && allPicksAnchor) setAllPicksAnchor(null);
+  }, [hasViewerPicks, allPicksAnchor]);
 
   const queuePanel = (
     <Paper
@@ -118,8 +203,13 @@ function DraftRail({
         My Queue
       </Typography>
       {queue.length === 0 ? (
+        // Names the action a manager takes rather than where the players are.
+        // "below" is only true in one of the three layouts this rail renders
+        // in (issue #124 acceptance criterion 6): on mobile the pool is behind
+        // the Players tab, and on desktop since #122 it is a separate
+        // scrolling region beside this one.
         <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-          Queue is empty. Add players from the list below.
+          Queue is empty. Choose Queue on a player to add them here.
         </Typography>
       ) : (
         queue.map((player, index) => {
@@ -206,12 +296,32 @@ function DraftRail({
   );
 
   // Readiness: which teams have declared themselves ready, counted against the
-  // league's size. A team that has not declared is Not ready (CONTEXT.md:
-  // Readiness). Renders only for a viewer who holds a Team, since its own
-  // control is a declaration about that Team.
+  // Teams in the league rather than its configured size. A team that has not
+  // declared is Not ready; a team that has not JOINED has not declined to be
+  // ready and cannot appear in either list (CONTEXT.md: Readiness). Renders
+  // only for a viewer who holds a Team, since its own control is a
+  // declaration about that Team.
+  //
+  // The count and the bar say the same thing twice on purpose: the bar is the
+  // glanceable reading and the sentence is the exact one, and a bar alone
+  // cannot distinguish 4 of 8 from 50 of 100. What is gone is the row of one
+  // chip per Team, which grew with the league and said "Not ready" eleven
+  // times to communicate one number. Which Teams are worth naming, and whether
+  // any are, is readinessSummary.js and nothing here (issue #124 acceptance
+  // criteria 1-2).
+  const readinessCountText = `${readiness.readyCount} of ${readiness.total} managers ready`;
   const readinessPanel = myTeam ? (
     <Paper component="section" aria-labelledby={readinessHeadingId} sx={{ p: 2, mb: 3 }}>
-      <Typography id={readinessHeadingId} variant="h6" component="h2" sx={{ mb: 1 }}>
+      {/* tabIndex -1: not in the tab order, but focusable for the rescue
+          above when the exception list is removed while holding focus. */}
+      <Typography
+        id={readinessHeadingId}
+        variant="h6"
+        component="h2"
+        ref={readinessHeadingRef}
+        tabIndex={-1}
+        sx={{ mb: 1 }}
+      >
         Readiness
       </Typography>
       <FormControlLabel
@@ -219,35 +329,108 @@ function DraftRail({
         control={<Switch checked={!!myTeam.draft_ready} onChange={(event) => onToggleReady(event.target.checked)} inputProps={{ 'aria-label': 'I am ready for the draft' }} />}
         label="I'm ready"
       />
-      <Typography role="status" aria-live="polite" variant="caption" sx={{ display: 'block', color: 'text.secondary', mb: 1 }}>
-        {readyCount} of {teams.length} managers ready
+      <Typography role="status" aria-live="polite" variant="caption" sx={{ display: 'block', color: 'text.secondary', mb: 0.5 }}>
+        {readinessCountText}
       </Typography>
-      <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-        {teams.map((team) => <Chip key={team.teamId} size="small" color={team.draft_ready ? 'success' : 'default'} label={`${team.teamName}: ${team.draft_ready ? 'Ready' : 'Not ready'}`} />)}
-      </Box>
+      <LinearProgress
+        variant="determinate"
+        value={readiness.percentReady}
+        aria-label="Managers ready"
+        // aria-valuenow is the rounded percentage MUI derives from `value`,
+        // which is the bar's width and not the league's state: 38 does not say
+        // 3 of 8, and at some league sizes two different counts round to the
+        // same percent. valuetext carries the reading itself.
+        aria-valuetext={readinessCountText}
+        sx={{ height: 8, borderRadius: 'var(--radius-sm)', mb: 1 }}
+      />
+      {hasExceptionList && (
+        <Accordion
+          {...readinessFocus}
+          defaultExpanded={false}
+          disableGutters
+          elevation={0}
+          // Unmounted while collapsed: the names are the exception list, not
+          // hidden content the panel keeps ready, and a collapsed list of
+          // fourteen Teams is fourteen nodes of nothing in a live lobby.
+          TransitionProps={{ unmountOnExit: true }}
+          sx={{ bgcolor: 'transparent', '&::before': { display: 'none' } }}
+        >
+          <AccordionSummary
+            id={readinessListId}
+            aria-controls={`${readinessListId}-content`}
+            expandIcon={<ExpandMoreIcon />}
+            sx={MIN_TOUCH_TARGET_SX}
+          >
+            <Typography variant="body2">{readiness.listLabel}</Typography>
+          </AccordionSummary>
+          {/* No `id` here. MUI already renders the region this names, and puts
+              the summary's own `aria-controls` value on it, so repeating that
+              id on the details would put it in the document twice and leave
+              aria-controls resolving by document order. */}
+          <AccordionDetails sx={{ px: 0, pt: 0 }}>
+            <Box component="ul" role="list" sx={{ listStyle: 'none', p: 0, m: 0 }}>
+              {readiness.listedTeams.map((team) => (
+                // Keyed by Team ID, never by name: duplicate Team names are
+                // valid identity (CONTEXT.md: Team) and would collapse into
+                // one row under a name key.
+                <Box component="li" role="listitem" key={team.teamId}>
+                  <Typography variant="body2">{team.teamName}</Typography>
+                </Box>
+              ))}
+            </Box>
+          </AccordionDetails>
+        </Accordion>
+      )}
     </Paper>
   ) : null;
 
   // Draft order: which team holds which slot (CONTEXT.md: Draft order). The
   // list itself is shared by the two places a status can meet it - its own
   // panel while the draft is pending, and the disclosure inside Upcoming once
-  // it is live - so the Auto-draft switches, their help caption and the rule
+  // it is live - so the Autodraft switches, their help caption and the rule
   // about who may touch them are written once.
   const orderListBody = (
     <>
-      <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2 }}>
-        Turn on <strong>Auto-draft</strong> to let the system pick automatically for a team (best available by
+      {/* The autodraft help is referenced by every switch below through
+          aria-describedby rather than standing on its own above them (issue
+          #124 acceptance criterion 6). Visually it still reads once, because
+          repeating it per row would be worse; what changes is that a screen
+          reader now hears it on the control it explains instead of it having
+          been read out minutes earlier, if at all. */}
+      <Typography id={autodraftHelpId} variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2 }}>
+        Turn on <strong>Autodraft</strong> to let the system pick automatically for a team (best available by
         ADP) when it's on the clock. It also switches on by itself after a team misses two picks.
       </Typography>
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-        {teams.map((team) => {
+      <Box component="ul" role="list" sx={{ display: 'flex', flexDirection: 'column', gap: 1, listStyle: 'none', p: 0, m: 0 }}>
+        {orderedTeams.map((team) => {
+          // "Which one of these is me" is the viewer-relative contract (#113):
+          // the viewer's own Team ID against each entry's, never an account
+          // comparison.
           const isViewer = viewerTeamId != null && team.teamId === viewerTeamId;
           const canToggle = (isCommissioner || isViewer) && draftStatus !== 'complete';
           const onClock = onTheClock && onTheClock.teamId === team.teamId;
           return (
             <Box
+              component="li"
+              role="listitem"
               key={team.teamId}
-              sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', minHeight: 44 }}
+              sx={{
+                display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', minHeight: 44,
+                // The accent is the glanceable half of the You marker and is
+                // never the whole of it: the row also carries the word, so the
+                // marker survives greyscale, a colour-vision difference, and a
+                // forced-colours mode that discards the tint (issue #124
+                // acceptance criterion 3). The same accent-soft fill already
+                // marks the queue's next-up row in this file, so this
+                // introduces no foreground-over-background pairing the app did
+                // not already have.
+                ...(isViewer ? {
+                  bgcolor: 'var(--accent-soft)',
+                  borderLeft: '3px solid var(--accent)',
+                  borderRadius: 'var(--radius-sm)',
+                  pl: 1,
+                } : {}),
+              }}
             >
               <Typography variant="body2" sx={{ minWidth: 22, color: 'text.secondary' }}>
                 {team.draft_position != null ? `${team.draft_position}.` : '-'}
@@ -256,6 +439,18 @@ function DraftRail({
                 {team.teamName}
                 {onClock && ' ⏱'}
               </Typography>
+              {/* Default colour, not `primary`. A primary outlined Chip paints
+                  its label `--accent`, and this Chip sits on the row's own
+                  `--accent-soft` fill: composited over `--surface` that is
+                  4.27:1 in dark theme, under AA's 4.5 for text this size. The
+                  default label is `--text-primary`, which is 10.73:1 dark and
+                  15.56:1 light on the same fill, and is the pairing the
+                  queue's next-up row in this file already uses. Neither ratio
+                  is checked by tokens.contrast.test.js: it cannot take an
+                  alpha token at all (#203), so accent-soft can never appear in
+                  its pairings and a green run says nothing here. Both were
+                  computed by hand against the composited colour. */}
+              {isViewer && <Chip size="small" variant="outlined" label="You" />}
               {team.autodraft && <Chip size="small" color="warning" label="AUTO" />}
               {canToggle && (
                 <FormControlLabel
@@ -266,12 +461,15 @@ function DraftRail({
                       size="small"
                       checked={!!team.autodraft}
                       onChange={(e) => onToggleAutodraft(team.teamId, e.target.checked)}
-                      inputProps={{ 'aria-label': `Autodraft for ${team.teamName}` }}
+                      inputProps={{
+                        'aria-label': `Autodraft for ${team.teamName}`,
+                        'aria-describedby': autodraftHelpId,
+                      }}
                     />
                   }
                   label={
                     <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                      Auto-draft
+                      Autodraft
                     </Typography>
                   }
                 />
@@ -326,7 +524,7 @@ function DraftRail({
   // The full Draft order sits behind a disclosure inside this panel rather
   // than as a panel of its own. Compact is the point of the strip (spec #108
   // story 56: the next three visible, the complete list available
-  // accessibly), but the complete list is also where the per-team Auto-draft
+  // accessibly), but the complete list is also where the per-team Autodraft
   // switches live, and those are how a manager who stepped away turns
   // autodraft back off - the panel's own caption says it switches on by
   // itself after two missed picks. Collapsed by default, so it costs nothing
@@ -334,7 +532,14 @@ function DraftRail({
   // composition's H2s are its panels, and this is a control within one.
   const upcomingPanel = teams.length > 0 ? (
     <Paper component="section" aria-labelledby={upcomingHeadingId} sx={{ p: 2, mb: 3 }}>
-      <Typography id={upcomingHeadingId} variant="h6" component="h2" sx={{ mb: 1 }}>
+      <Typography
+        id={upcomingHeadingId}
+        variant="h6"
+        component="h2"
+        ref={upcomingHeadingRef}
+        tabIndex={-1}
+        sx={{ mb: 1 }}
+      >
         Upcoming
       </Typography>
       {upcoming.length === 0 && (
@@ -377,7 +582,100 @@ function DraftRail({
         ))}
       </Box>
 
-      <Accordion defaultExpanded={false} disableGutters elevation={0} sx={{ mt: 1, bgcolor: 'transparent', '&::before': { display: 'none' } }}>
+      {/* The viewer-relative reading of the same order the strip above states
+          league-wide: which of those upcoming picks are mine (issue #124
+          acceptance criterion 4). It grows from the Draft order disclosure
+          below rather than standing as a panel of its own, because a manager's
+          upcoming picks ARE positions in the Draft order and not a separate
+          thing (CONTEXT.md: Draft order). Inline and never behind the
+          disclosure: the next three are the whole point of the strip, and a
+          wait a manager has to open something to learn is one they estimate
+          wrong instead. Absent entirely for a spectator, and for a manager
+          whose picks are all made - viewerPicks.js answers empty rather than
+          guessing, and a group heading over nothing is worse than no group. */}
+      {hasViewerPicks && (
+        <Box
+          {...myPicksFocus}
+          role="group"
+          aria-labelledby={myPicksHeadingId}
+          sx={{
+            mt: 1.5, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap',
+          }}
+        >
+          <Typography id={myPicksHeadingId} variant="caption" sx={{ color: 'text.secondary' }}>
+            My picks
+          </Typography>
+          <Typography variant="body2" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+            {viewerPicks.next.map((pick) => pick.pickLabel).join(' · ')}
+          </Typography>
+          <Button
+            size="small"
+            onClick={(event) => setAllPicksAnchor(event.currentTarget)}
+            aria-haspopup="dialog"
+            aria-expanded={allPicksOpen}
+            aria-controls={allPicksOpen ? `${allPicksHeadingId}-popover` : undefined}
+            sx={MIN_TOUCH_TARGET_SX}
+          >
+            All {viewerPicks.all.length} of my picks
+          </Button>
+          <Popover
+            id={`${allPicksHeadingId}-popover`}
+            open={allPicksOpen}
+            anchorEl={allPicksAnchor}
+            onClose={() => setAllPicksAnchor(null)}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+            // role and name on the Paper itself, so the thing that opens is a
+            // named dialog rather than an unlabelled box. MUI's Modal beneath
+            // it is what makes the popover keyboard-operable at all: Escape
+            // closes it and focus returns to the trigger.
+            slotProps={{
+              paper: {
+                role: 'dialog',
+                'aria-labelledby': allPicksHeadingId,
+                sx: { p: 2, maxWidth: 280 },
+              },
+            }}
+          >
+            <Typography id={allPicksHeadingId} variant="subtitle2" component="h3" sx={{ mb: 1 }}>
+              All my picks
+            </Typography>
+            <Box
+              component="ul"
+              role="list"
+              sx={{
+                listStyle: 'none', p: 0, m: 0, display: 'flex', flexWrap: 'wrap', gap: 1,
+              }}
+            >
+              {viewerPicks.all.map((pick) => (
+                <Box
+                  component="li"
+                  role="listitem"
+                  key={pick.pickNumber}
+                  sx={{
+                    px: 1, py: 0.5, borderRadius: 'var(--radius-sm)', bgcolor: 'action.hover',
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
+                  <Typography component="span" variant="body2">{pick.pickLabel}</Typography>
+                </Box>
+              ))}
+            </Box>
+          </Popover>
+        </Box>
+      )}
+
+      <Accordion
+        defaultExpanded={false}
+        disableGutters
+        elevation={0}
+        // Unmounted while collapsed, so "costs nothing until it is wanted"
+        // (#123) is true of the DOM and not only of the pixels: a fourteen-Team
+        // order carries fourteen rows and up to fourteen switches, and left
+        // mounted they are fourteen list items and fourteen controls that
+        // assistive technology and keyboard order have to account for.
+        TransitionProps={{ unmountOnExit: true }}
+        sx={{ mt: 1, bgcolor: 'transparent', '&::before': { display: 'none' } }}
+      >
         {/* The id is what names the role="region" MUI builds internally: it
             reads the FIRST child's `id` for the region's aria-labelledby.
             Without one that nested region is announced unnamed, inside a
@@ -394,7 +692,10 @@ function DraftRail({
         >
           <Typography variant="body2">Full Draft order</Typography>
         </AccordionSummary>
-        <AccordionDetails id={`${orderDisclosureId}-content`} sx={{ px: 0 }}>{orderListBody}</AccordionDetails>
+        {/* Likewise no `id`: MUI's own region already carries the summary's
+            aria-controls value (this one came in with #123 and is corrected
+            here rather than left standing beside the identical new one). */}
+        <AccordionDetails sx={{ px: 0 }}>{orderListBody}</AccordionDetails>
       </Accordion>
     </Paper>
   ) : null;

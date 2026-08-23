@@ -106,13 +106,14 @@ test('Readiness disappears once the draft starts', () => {
   expect(screen.queryByRole('region', { name: 'Readiness' })).not.toBeInTheDocument();
 });
 
-test('the not-yet-ready group is named Not ready', () => {
+test('Readiness counts ready Teams against the league size', () => {
   render(<DraftRail {...baseProps} draftStatus="pending" upcoming={[]} />);
 
   const readiness = screen.getByRole('region', { name: 'Readiness' });
-  expect(within(readiness).getByText('Ridge Runners: Not ready')).toBeInTheDocument();
-  expect(within(readiness).getByText('Harbor Hawks: Ready')).toBeInTheDocument();
   expect(within(readiness).getByText('1 of 2 managers ready')).toBeInTheDocument();
+  // Which Teams that count names, and under which word, is issue #124's
+  // question - see DraftRail.managerContext.test.jsx. The chip-per-Team row
+  // this test used to assert on is what #124 replaced.
 });
 
 test('full Pick history is gone from the rail in every status', () => {
@@ -187,7 +188,7 @@ test('the full Draft order is reachable from Upcoming, collapsed until asked for
   expect(within(upcoming).getByText(/Turn on/)).toBeInTheDocument();
 });
 
-test('the Auto-draft switches survive the move into that disclosure', async () => {
+test('the Autodraft switches survive the move into that disclosure', async () => {
   // They are the only client surface that posts to the autodraft endpoint,
   // and the draft's own copy says autodraft switches itself on after two
   // missed picks - so this is how a manager who stepped away turns it off.
