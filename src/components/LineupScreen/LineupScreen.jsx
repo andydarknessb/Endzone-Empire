@@ -225,23 +225,24 @@ function LineupScreen() {
   const { league, loading: leagueLoading } = useLeague(leagueId);
   const bestBall = !!league?.best_ball;
 
-  // Tracks which leagueId's request has actually settled at least once, so
-  // the advice effect below can wait for a real answer instead of treating
-  // "not loaded yet" as "not best ball" (issue #167). Deliberately a ref
-  // updated during render (not state written from an effect): the goal is
-  // to unblock the advice decision in the SAME render where the league
-  // request settles, not one render later. It's also deliberately not just
-  // "!leagueLoading" used directly as an effect dependency: useLeague's
-  // shared cache does a stale-while-revalidate refresh (loading flips true,
-  // then false again, with the same settled data) whenever another mount on
-  // this league invalidates it or its TTL lapses, and re-running the advice
-  // decision on every one of those cycles would trade the original wasted
-  // request for a new one fired on every background refresh. Once a
-  // leagueId has settled once, further loading flickers for that same id
-  // leave the ref unchanged, so they don't retrigger anything below.
-  const resolvedLeagueIdRef = useRef(null);
-  if (!leagueLoading) resolvedLeagueIdRef.current = leagueId;
-  const leagueKnown = resolvedLeagueIdRef.current === leagueId;
+  // Whether the league is actually known, so the advice effect below can
+  // wait for a real answer instead of treating "not loaded yet" as "not
+  // best ball" (issue #167). Deliberately not just "!leagueLoading":
+  // useLeague's shared cache does a stale-while-revalidate refresh (loading
+  // flips true, then false again, with the same settled data) whenever
+  // another mount on this league invalidates it or its TTL lapses, without
+  // clearing `league` for the duration — so `league != null` alone already
+  // stays true straight through a revalidation of an already-resolved
+  // league, and re-running the advice decision on every one of those cycles
+  // would trade the original wasted request for a new one fired on every
+  // background refresh. This also self-corrects when `leagueId` itself
+  // changes: useLeague's internal key-switch effect resets `league` to null
+  // before the new id's request starts, so a stale `league` from the
+  // previous id cannot make this look "known" for the new one beyond the
+  // one transient render the underlying hook itself briefly shows stale
+  // data for on any key switch (a pre-existing characteristic of
+  // useResource, not specific to this gate).
+  const leagueKnown = !leagueLoading || league != null;
 
   useEffect(() => {
     fetchLineup();
