@@ -105,11 +105,31 @@ test('a column added to the Discover card projection is not published by the inv
   }
 });
 
-test('the key set holds when the owner has no Team: ownerTeamName answers null, it does not drop out', async (t) => {
+test('a league creator with no Team row previews ownerTeamName: null, never a fallback', async (t) => {
+  // What the database actually answers when the subselect matches no row.
   fakeDb(t, wideRow({ ownerTeamName: null }));
   const preview = await previewLeagueByInviteCode({ code: 'e402e816', userId: 9 });
   assert.equal(preview.ownerTeamName, null);
   assert.deepEqual(Object.keys(preview).sort(), [...PREVIEW_KEYS].sort());
+});
+
+test('an allowlisted field the row does not carry AT ALL answers null rather than dropping out', async (t) => {
+  // The other half of that contract, and the one worth pinning: the key set is
+  // a property of PREVIEW_FIELDS, not of whatever the row happened to hold, so
+  // a client can read every field unconditionally. `null` in the fixture above
+  // cannot test this -- the key is present there, so the null-fill branch never
+  // runs and the assertion passes against an implementation that has no such
+  // branch at all (verified by mutation). Absent keys are what bite.
+  const row = wideRow();
+  delete row.ownerTeamName;
+  delete row.myRequestStatus;
+  delete row.scoringPreset;
+  fakeDb(t, row);
+  const preview = await previewLeagueByInviteCode({ code: 'e402e816', userId: 9 });
+  assert.deepEqual(Object.keys(preview).sort(), [...PREVIEW_KEYS].sort());
+  assert.equal(preview.ownerTeamName, null);
+  assert.equal(preview.myRequestStatus, null);
+  assert.equal(preview.scoringPreset, null);
 });
 
 test("the preview carries the commissioner's Team name", async (t) => {

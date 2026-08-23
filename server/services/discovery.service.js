@@ -319,15 +319,36 @@ function allowlisted(source, fields) {
  * its warning on `joinReason` alone), and never a column the Discover card
  * projection grows later.
  *
- * `ownerTeamName` is the commissioner's Team in THIS league, which is the
- * `teams` row whose owner is the league's owner. It is null for a legacy
- * league whose owner has no team row: null, never a fallback to their account
- * name, per CONTEXT.md's Team identity rule.
+ * `ownerTeamName` is the Team of the league's CREATOR in this league (the
+ * `teams` row on `leagues.owner_id`), which is what #181 and #184 call the
+ * commissioner's Team name. Precisely the creator, not a co-commissioner:
+ * CONTEXT.md defines Commissioner as either, and this names the one whose
+ * league it is. Null for a legacy league whose creator has no team row: null,
+ * never a fallback to their account name, per CONTEXT.md's Team identity rule.
  */
 async function previewLeagueByInviteCode({ code, userId }) {
   const rows = await selectLeagueCards({
     whereClause: '"leagues"."invite_code" = $2',
     params: [userId, code],
+    /*
+     * `ownerTeamName` is read by a correlated subselect, and BOTH its legs
+     * matter: without the league_id one, the creator's team in a DIFFERENT
+     * league would answer. That is the rule teamIdentity.teamIdentityJoin()
+     * exists to state once, and this is a subselect rather than that helper
+     * for two reasons. selectLeagueCards takes `extraColumns` only, so there
+     * is no hook for a join, and widening the SHARED Discover-card query is
+     * the exact thing this change exists to stop; a LEFT JOIN there would
+     * also multiply rows under the COUNT(DISTINCT "teams"."id") the card
+     * aggregates. teamIdentityColumns('owner_team', 'owner') was the other
+     * candidate: it mints `ownerTeamId` alongside `ownerTeamName`, and #181
+     * asks for the name alone, so taking it would publish a field nobody
+     * asked for.
+     *
+     * No LIMIT: "teams" is UNIQUE (league_id, owner_id) ("one team per user
+     * per league", initial schema), so this matches at most one row by
+     * construction. Were that constraint ever dropped, a second row should
+     * fail this query loudly rather than let a LIMIT pick one arbitrarily.
+     */
     extraColumns: `,
        "leagues"."is_public" AS "isPublic",
        "leagues"."draft_status" AS "draft_status",
@@ -336,11 +357,7 @@ async function previewLeagueByInviteCode({ code, userId }) {
        (SELECT "users"."username" FROM "users" WHERE "users"."id" = "leagues"."owner_id") AS "ownerUsername",
        (SELECT "owner_team"."name" FROM "teams" "owner_team"
          WHERE "owner_team"."league_id" = "leagues"."id"
-           AND "owner_team"."owner_id" = "leagues"."owner_id"
-         LIMIT 1) AS "ownerTeamName"`,
-    // teams is UNIQUE (league_id, owner_id) ("one team per user per league",
-    // initial schema), so that subselect can already match at most one row:
-    // the LIMIT 1 is belt-and-braces and never picks arbitrarily between two.
+           AND "owner_team"."owner_id" = "leagues"."owner_id") AS "ownerTeamName"`,
   });
   const row = rows[0];
   if (!row) return null;
