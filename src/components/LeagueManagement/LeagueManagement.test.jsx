@@ -450,10 +450,14 @@ test('an empty or out-of-range team count blocks Create League with a visible re
   expect(apiClient.post).not.toHaveBeenCalled();
 });
 
+// `ownerUsername` is still on the wire (#115 removes it) and the preview card
+// must never render it: the viewer holding an invite code is by definition not
+// a member, so the commissioner is named by their Team (#181).
 const previewFor = (overrides = {}) => ({
   id: 7, name: "Office Pick'em", maxTeams: 12, teamCount: 3, scoringPreset: null, bestBall: false,
   pickemOnly: true, pickemEnabled: true, joinApproval: false, draftDate: null, alreadyMember: false,
-  myRequestStatus: null, isPublic: false, ownerUsername: 'alice', openSlots: true, joinable: true, joinReason: null,
+  myRequestStatus: null, isPublic: false, ownerUsername: 'alice', ownerTeamName: 'Gridiron Gang',
+  openSlots: true, joinable: true, joinReason: null,
   ...overrides,
 });
 
@@ -479,9 +483,43 @@ test("an invite deep link previews the league before joining: name, league type 
   expect(await screen.findByText("Office Pick'em")).toBeInTheDocument();
   expect(screen.getByText("Pick'em")).toBeInTheDocument();
   expect(screen.getByText(/3\/12 teams/)).toBeInTheDocument();
-  expect(screen.getByText(/run by alice/i)).toBeInTheDocument();
+  expect(screen.getByText(/run by Gridiron Gang/i)).toBeInTheDocument();
   expect(apiClient.get).toHaveBeenCalledWith('/api/league/preview?code=e402e816');
   expect(screen.getByRole('button', { name: 'Join League' })).toBeEnabled();
+});
+
+test("the preview names the commissioner by Team, never by the account name still on the wire", async () => {
+  mockGets({ preview: previewFor() });
+
+  renderWithProviders(<LeagueManagement />, {
+    state: { user: { id: 1 } },
+    path: '/league/join',
+    route: '/league/join?code=e402e816',
+  });
+
+  const card = await screen.findByTestId('invite-preview');
+  expect(card).toHaveTextContent('run by Gridiron Gang');
+  // The payload still carries ownerUsername until #115 drops it. Nothing may
+  // render it, and there is no fallback to it anywhere in the card.
+  expect(card).not.toHaveTextContent(/alice\b/i);
+});
+
+test("a commissioner with no Team row shows the seat count alone, and still no account name", async () => {
+  mockGets({ preview: previewFor({ ownerTeamName: null }) });
+
+  renderWithProviders(<LeagueManagement />, {
+    state: { user: { id: 1 } },
+    path: '/league/join',
+    route: '/league/join?code=e402e816',
+  });
+
+  const card = await screen.findByTestId('invite-preview');
+  expect(card).toHaveTextContent('3/12 teams');
+  // No dangling "run by", no middot with nothing after it, and above all no
+  // fallback to the username: a missing Team name drops the clause entirely.
+  expect(card).not.toHaveTextContent(/run by/i);
+  expect(card).not.toHaveTextContent(/alice\b/i);
+  expect(card).not.toHaveTextContent(/teams\s*·/);
 });
 
 test('a failed preview (unknown code) shows no card and leaves Join usable', async () => {
