@@ -122,6 +122,17 @@
         "extends": [
           "react-app/jest"
         ]
+      },
+      {
+        "files": [
+          "server/**/*.js"
+        ],
+        "parserOptions": {
+          "sourceType": "script"
+        },
+        "rules": {
+          "strict": "off"
+        }
       }
     ]
   },

@@ -50,8 +50,19 @@ const SERVER_SOURCE_FILE = path.join(REPO_ROOT, 'server', 'services', 'draft.ser
 const CLIENT_TEST_FILE = path.join(REPO_ROOT, 'src', 'components', 'App', 'App.test.jsx');
 const CLIENT_SOURCE_FILE = path.join(REPO_ROOT, 'src', 'components', 'App', 'App.jsx');
 
+// A server file that actually carries a `'use strict'` directive (#246). The
+// assertions below are about what the config does to that directive, so this
+// one has to be a file where the directive is really present, not a shape.
+const SERVER_STRICT_DIRECTIVE_FILE = path.join(
+  REPO_ROOT,
+  'server',
+  'scripts',
+  'run-backtest-package.js'
+);
+
 const TESTING_LIBRARY_RULE = 'testing-library/render-result-naming-convention';
 const BASE_RULE = 'no-unused-vars';
+const STRICT_RULE = 'strict';
 
 const eslint = new ESLint({ cwd: REPO_ROOT });
 
@@ -66,6 +77,7 @@ test('the representative files these assertions stand on still exist', () => {
     SERVER_SOURCE_FILE,
     CLIENT_TEST_FILE,
     CLIENT_SOURCE_FILE,
+    SERVER_STRICT_DIRECTIVE_FILE,
   ]) {
     assert.ok(
       fs.existsSync(filePath),
@@ -150,5 +162,106 @@ test('a deliberate violation in a server file is still reported', async () => {
     ruleIds.includes(BASE_RULE),
     `server/ produced no ${BASE_RULE} report, so the override is too broad and ` +
       `the lint check is decorative; got: ${ruleIds.join(', ') || '(nothing)'}`
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Issue #246: the same failure shape as #207, one preset layer down.
+//
+// `eslint-config-react-app` is a create-react-app config. Its base
+// (eslint-config-react-app/base.js) sets `parserOptions.sourceType: 'module'`
+// for every file it sees, and its index sets `strict: ['warn', 'never']`.
+// Together those say "this tree is ES modules, so a 'use strict' directive is
+// dead weight" -- true of `src/`, false of `server/`, which is CommonJS run
+// straight by node. There is no `"type": "module"` in package.json, no
+// `import`/`export` anywhere under `server/`, and CommonJS is NOT implicitly
+// strict, so the 21 `'use strict'` directives in the server tree are load
+// bearing. The preset reported all 21 as unnecessary.
+//
+// The wrong repair is the one `--fix` offers: strip all 21 directives, which
+// silently moves those files into sloppy mode. The right one is to tell the
+// config the truth about the tree -- `sourceType: 'script'` -- and to turn off
+// a rule that has no setting matching this repo's policy.
+//
+// On WHY the rule is off rather than retuned, since "off" deserves an argument:
+// ESLint's `strict` rule offers 'never' (ban the directive everywhere),
+// 'global'/'safe' (REQUIRE one per file), and 'function' (require one per
+// function). It has no "permitted, not required" mode, which is what this tree
+// actually practises: 21 files opt in, the rest do not. Measured on the server
+// tree at the time of #246: 'never' reported 21, 'global' and 'safe' reported
+// 354, 'function' reported 4905. Every non-off setting demands a sweeping code
+// change in service of a stylistic preference nobody here has adopted. The rule
+// is therefore scoped off for `server/**/*.js` and left ON everywhere else,
+// which the mirror assertions further down pin in place.
+// ---------------------------------------------------------------------------
+
+test('the representative server file still carries the directive #246 is about', () => {
+  const source = fs.readFileSync(SERVER_STRICT_DIRECTIVE_FILE, 'utf8');
+  assert.match(
+    source,
+    /^'use strict';$/m,
+    `${path.relative(REPO_ROOT, SERVER_STRICT_DIRECTIVE_FILE)} no longer has a ` +
+      "'use strict' directive, so it cannot stand for what #246 fixed; repoint " +
+      'this at a server file that does.'
+  );
+});
+
+test('server files are parsed as CommonJS scripts, not ES modules', async () => {
+  const config = await eslint.calculateConfigForFile(SERVER_SOURCE_FILE);
+  assert.equal(config.parserOptions.sourceType, 'script');
+});
+
+test('server test files are parsed as CommonJS scripts too', async () => {
+  const config = await eslint.calculateConfigForFile(SERVER_TEST_FILE);
+  assert.equal(config.parserOptions.sourceType, 'script');
+});
+
+test('the strict rule does not reach server files', async () => {
+  const config = await eslint.calculateConfigForFile(SERVER_STRICT_DIRECTIVE_FILE);
+  assert.ok(
+    !isEnabled(config.rules[STRICT_RULE]),
+    `${STRICT_RULE} is still on for server/, so the CommonJS 'use strict' ` +
+      'directives are still being reported as mistakes'
+  );
+});
+
+test("a 'use strict' directive in a server file is reported by nothing", async () => {
+  const source = ["'use strict';", '', 'module.exports = { ok: true };', ''].join('\n');
+  const [result] = await eslint.lintText(source, { filePath: SERVER_SOURCE_FILE });
+  const ruleIds = result.messages.map((message) => message.ruleId);
+  assert.deepEqual(
+    ruleIds,
+    [],
+    `a CommonJS file with a 'use strict' directive should lint clean; got: ${ruleIds.join(', ')}`
+  );
+});
+
+// Mirror direction. Scoping `strict` off for the whole repo would also make the
+// four assertions above pass, and would be exactly the silent under-lint #207
+// warned about. `src/` is genuinely ES modules, so there the preset's opinion
+// holds and a stray directive must still be reported.
+
+test('the strict rule is still on for client source files', async () => {
+  const config = await eslint.calculateConfigForFile(CLIENT_SOURCE_FILE);
+  assert.ok(
+    isEnabled(config.rules[STRICT_RULE]),
+    `${STRICT_RULE} is off for src/, so the server override is too broad`
+  );
+});
+
+test('client files are still parsed as ES modules', async () => {
+  const config = await eslint.calculateConfigForFile(CLIENT_SOURCE_FILE);
+  assert.equal(config.parserOptions.sourceType, 'module');
+});
+
+test("a deliberate 'use strict' in a client file is still reported", async () => {
+  const [result] = await eslint.lintText("'use strict';\n\nexport const ok = true;\n", {
+    filePath: path.join(REPO_ROOT, 'src', 'lib', 'eslintScopingFixture.js'),
+  });
+  const ruleIds = result.messages.map((message) => message.ruleId);
+  assert.ok(
+    ruleIds.includes(STRICT_RULE),
+    `src/ produced no ${STRICT_RULE} report, so the server override reaches the ` +
+      `client tree; got: ${ruleIds.join(', ') || '(nothing)'}`
   );
 });
