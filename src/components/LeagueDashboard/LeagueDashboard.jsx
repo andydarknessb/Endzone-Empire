@@ -351,10 +351,11 @@ function LeagueDashboard() {
         />
         {/* Draft-preparation fact, so it speaks before and during the draft
             and goes quiet once the draft is done (2026-08-22 ruling on #162):
-            pre-draft reads the live Draft roster size the Draft room shows a
-            pending draft; drafting reads the fixed Draft rounds (ADR 0005)
-            the Draft room and Board read once picks are underway. Phase
-            comes from the shared derivation, never a local guess. */}
+            pre-draft reads the live Draft roster size the Draft room shows
+            for a pending draft; drafting reads the fixed Draft rounds
+            (ADR 0005) the Draft room and Board read once picks are
+            underway. Phase comes from the shared derivation, never a local
+            guess. */}
         {preDraft && <Chip label={`Draft roster size: ${draftRosterSize(league)}`} />}
         {drafting && <Chip label={`Draft rounds: ${draftRounds(league)}`} />}
         <Chip
