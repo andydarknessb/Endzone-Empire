@@ -23,8 +23,16 @@ const keys = (value) => Object.keys(value).sort();
  *
  * `withheld({ user_id: 9, email: 'a@b.c' })` answers `{ decoys, assertWithheld }`:
  * spread `decoys` into every fixture row, then call `assertWithheld(body)`.
- * Both the KEYS and the string VALUES are checked, because a serializer that
- * renamed a field on its way out would pass the first and fail the second.
+ *
+ * Every decoy gets a KEY check. Only STRING-valued decoys also get a value
+ * check, which is what catches a serializer that renamed a field on its way
+ * out. Non-string decoys - ids, booleans, null - deliberately do not: `9` or
+ * `false` occurs legitimately all over a payload, so searching for it would
+ * fail on innocent data rather than on a rename. The consequence is worth
+ * stating plainly because it bounds the guarantee: a decoy whose rename must
+ * be caught by VALUE has to be given a distinctive string. The identity and
+ * secret decoys that matter here (usernames, emails, tokens, invite codes,
+ * password hashes, the next-quarter-column stand-in) all are.
  */
 function withheld(decoys) {
   return {

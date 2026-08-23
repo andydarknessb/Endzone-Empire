@@ -27,19 +27,28 @@ a route registered ahead of a router-level guard, a per-route guard with no
 router-level one, a path-scoped `router.use(path, guard)` that protects no
 sibling, and the guard itself actually refusing a request.
 
-It has one structural blind spot, closed by two assertions beside it rather
-than by the classifier: app-level middleware that is neither a route nor a
-router (`app.use(path, fn)`) has no `.route` and no nested stack, so
+It has one structural blind spot, closed **at the app level** by two assertions
+beside it rather than by the classifier: middleware that is neither a route nor
+a router (`app.use(path, fn)`) has no `.route` and no nested stack, so
 `app.use('/exports', express.static('server/data'))` would be an anonymous
-surface the walk never sees. Every static mount, and every non-root
-`app.use`, is therefore pinned by name.
+surface the walk never sees. Every static mount and every non-root `app.use`
+**on the app** is therefore pinned by name.
+
+The router-level equivalent is NOT closed. `router.use('/exports',
+express.static(...))` inside a router escapes both the classifier and that
+pin, because `classifyRoutes` drops such a layer and the pin reads only
+`app._router.stack`. Nothing does that today; it is filed rather than fixed
+here.
 
 The name-keying has a blind spot too: `express-async-errors` wraps every
 handler, so the classifier matches on the Layer's recorded handler NAME rather
 than on function identity, and a second function called `requireAuth` would
 launder its routes into the guarded column. A recursive scan of `server/`
-asserts that the name is defined in exactly one file, and that every router
-takes it from there - whether it destructures or reaches for a member.
+asserts the name is defined in exactly one file - that is the guarantee that
+carries the classifier. A second, weaker check asserts that each router in
+`server/routes/` imports it from there; that one reads a flat directory rather
+than recursing, and its member-access pattern does not match an inline
+`require('...').requireAuth`. Both limits are stated in the test.
 
 ## Every route reachable without a session
 
@@ -118,6 +127,13 @@ Worth recording, because two of them read like public surfaces:
    are unchanged for a real row. Only the absent-column case moves, from a
    missing key to `null`.
 
+   **Coverage of that change is per-serializer, not per-key.** Each of the four
+   serializers has at least one field pinned by a fixture whose row OMITS the
+   column (absent, not null - `null ?? null` is null either way, so a
+   null-valued fixture would pass against an implementation that never had the
+   operator). Not every one of the 27 fields has its own case. The pattern is
+   what is pinned; a deliberate place to stop, recorded rather than implied.
+
 ## Found and deliberately not changed
 
 - **`GET /api/health` publishes three raw `err.message` values verbatim** to
@@ -132,19 +148,23 @@ Worth recording, because two of them read like public surfaces:
   Changing any of them changes a field the monitor reads, which the issue put
   out of scope. Their KEY sets are pinned; the values are the exposure.
 
-- **The SPA holds a second anonymous data plane that is not an Express route
-  at all.** `src/api/supabaseClient.js` builds a Supabase client from
-  `REACT_APP_SUPABASE_ANON_KEY`, which ships in the public bundle, and
-  `netlify.toml` allows `https://*.supabase.co` in the production CSP. That is
-  a PostgREST and Realtime endpoint reachable with no Endzone session, on
-  another host, whose disclosure is bounded by RLS policies and table GRANTs
-  rather than by anything in this repo - a policy list, which is a denylist's
-  cousin. The file's own comment scopes the intent to `live_game_states`
-  under a public-read policy. Whether the `anon` role can in fact read
-  anything else is the same question #201 asks, one layer down, and it cannot
-  be answered from this repo: it needs the project's grants and policies read,
-  which is a database session an IC may not open. **Recommend a follow-up
-  ticket.**
+- **A second anonymous data plane, governed outside this repository (#240).**
+  `src/api/supabaseClient.js` builds a Supabase client with the publishable
+  `anon` key, and `netlify.toml` allows `https://*.supabase.co` in the
+  production CSP. **The key being in the public bundle is by design and is not
+  a finding:** a publishable key is meant to be public and Supabase's security
+  model assumes an attacker holds it. Nothing is disclosed by its presence.
+  What the key reaches is a PostgREST and Realtime endpoint on another host,
+  reachable with no Endzone session, whose disclosure is bounded by RLS
+  policies and table GRANTs held in the Supabase project rather than by any
+  allowlist in this repo. `supabaseClient.js` scopes the intent to
+  `live_game_states` under a public-read policy. The open question is only
+  this: **do RLS and GRANTs actually confine `anon` to that policy, or can
+  `anon` read something else?** That is #201's question one layer down, in a
+  different system, and it cannot be answered from this repository - it needs
+  the project's policies and grants read, and if the answer is bad the
+  remediation is an RLS or GRANT change. Both belong to whoever owns that
+  database. Filed as #240 rather than audited here.
 
 - **`/socket.io/` answers an anonymous caller before Express sees it.**
   engine.io is attached to the same listener, so

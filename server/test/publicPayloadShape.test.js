@@ -441,6 +441,56 @@ test('a recap whose stored document is empty still publishes the same key set', 
   assert.equal(res.body.narrative, '');
 });
 
+/** The four columns the two recap serializers read straight off the row. */
+const RECAP_IDENTITY_COLUMNS = ['tank01_game_id', 'home_team', 'away_team', 'final_at'];
+
+/** A recap row with those columns ABSENT, not null. See the test below for why. */
+function recapRowWithoutIdentityColumns() {
+  const row = recapRow();
+  for (const column of RECAP_IDENTITY_COLUMNS) delete row[column];
+  return row;
+}
+
+test('a recap row that OMITS its identity columns still publishes every key', async (t) => {
+  // NOT the same case as "stored document is empty" above. That one empties
+  // the stored JSON DOCUMENT (`row.data = {}`) and never drops a COLUMN, so it
+  // cannot reach these four fields at all: every `?? null` in the two recap
+  // serializers could be deleted with that test still green. These are the
+  // widest-input serializers on the router, and this was their only uncovered
+  // change.
+  //
+  // The columns must be ABSENT rather than null. `null ?? null` is null either
+  // way, so a fixture that NULLS them passes against an implementation that
+  // never had the operator - the assertion would read as proof and be none.
+  fakePool(t, [
+    [/FROM "private"\."game_recaps" WHERE "tank01_game_id" = \$1/, { rows: [recapRowWithoutIdentityColumns()] }],
+  ]);
+  const res = await request(makeApp()).get('/api/public/recaps/20260112_KC@BUF');
+
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.deepEqual(keys(res.body), RECAP_DETAIL_KEYS);
+  for (const field of ['gameId', 'homeTeam', 'awayTeam', 'finalAt']) {
+    assert.equal(res.body[field], null, `${field} answers null rather than dropping out`);
+  }
+});
+
+test('a recaps[] entry whose row OMITS its identity columns still publishes every key', async (t) => {
+  // The list serializer is a separate function with the same four
+  // passthroughs, so it needs its own case rather than inheriting the one
+  // above.
+  fakePool(t, [
+    [/FROM "private"\."game_recaps"/, { rows: [recapRowWithoutIdentityColumns()] }],
+  ]);
+  const res = await request(makeApp()).get('/api/public/recaps');
+
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(res.body.recaps.length, 1);
+  assert.deepEqual(keys(res.body.recaps[0]), RECAP_LIST_KEYS);
+  for (const field of ['gameId', 'homeTeam', 'awayTeam', 'finalAt']) {
+    assert.equal(res.body.recaps[0][field], null, `${field} answers null rather than dropping out`);
+  }
+});
+
 // ---------------------------------------------------------------------------
 // The refusals.
 // ---------------------------------------------------------------------------

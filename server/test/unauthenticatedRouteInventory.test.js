@@ -125,6 +125,13 @@ function classifyApp(app) {
  * express.static('server/data'))` is the shape to fear) would contribute
  * nothing to the inventory and fail no assertion in it. They are enumerated
  * separately and pinned by name below.
+ *
+ * SCOPE, because this reads broader than it is: only the APP level is covered.
+ * `classifyRoutes` drops a layer with no `.route` and no `.handle.stack` on its
+ * `continue`, and this function reads `app._router.stack` alone, so the same
+ * middleware mounted INSIDE a router - `router.use('/exports',
+ * express.static(...))` - escapes every assertion in this file. Nothing does
+ * that today. Closing it is its own ticket, not a property to claim here.
  */
 function terminalMiddleware(app) {
   return app._router.stack
@@ -384,10 +391,17 @@ test('no router binds the name requireAuth to anything but the real guard', () =
   // modules/auth.js is where it is supposed to be defined, and the only place.
   assert.deepEqual(declaresOwn, ['modules/auth.js']);
 
-  // And every router takes it from there, however it imports it - a namespace
-  // import (`const auth = require('./elsewhere'); router.use(auth.requireAuth)`)
-  // would bind the name without destructuring, so the check is on the member
-  // access as well as on the destructure.
+  // And every router in server/routes/ takes it from there, by either of the
+  // two import shapes below.
+  //
+  // SCOPE, twice over. This half is NOT recursive: it reads the flat
+  // server/routes/ directory, so a router placed anywhere else is unchecked
+  // (every router is a flat file there today). And the member-access pattern
+  // matches an identifier before the dot, so it catches
+  // `const auth = require('../modules/auth'); auth.requireAuth` but NOT an
+  // inline `require('../modules/guards').requireAuth`, where the character
+  // before the dot is `)`. The recursive `declaresOwn` scan above is the
+  // stronger guarantee and is the one that carries the classifier.
   const routesDir = path.join(serverDir, 'routes');
   const importsElsewhere = [];
   for (const file of fs.readdirSync(routesDir).filter((n) => n.endsWith('.js'))) {
