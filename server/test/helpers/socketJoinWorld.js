@@ -35,10 +35,12 @@
  * running the SQL. Evidence about the ANSWER comes from that; evidence about
  * the QUESTION comes from `fake.calls`, which the suite reads back.
  *
- * That sibling fixture is a hand-written duplicate of this one - same manager
- * ids, same Team names, same `{ coCommissioners }` signature - and NOTHING
- * keeps the two in step (#260). Read the "NOT ENFORCED" note in
- * socketJoinEndToEnd.test.js's header before changing anything here.
+ * `draftJoinCommissioner.test.js`'s unit suite imports `leagueWorld` and the
+ * actor constants from here rather than declaring its own (#260): the same
+ * manager ids, the same Team names and the same `{ coCommissioners }`
+ * signature by construction, not by two authors happening to agree. Read
+ * socketJoinEndToEnd.test.js's header for what that buys the harness's
+ * mutation control.
  */
 const { createFakePool, select } = require('./fakePool');
 

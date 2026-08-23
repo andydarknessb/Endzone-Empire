@@ -34,18 +34,17 @@ const {
  *   directly, so the handler's wire payload and `joinAck`'s output cannot
  *   drift apart without a failure. Only one test does it; the rest pin
  *   literals, or they would all be tautologies.
- * - NOT ENFORCED, and do not read this header as promising otherwise. This
- *   file's `leagueWorld` (helpers/socketJoinWorld.js) and
- *   `draftJoinCommissioner.test.js`'s own `leagueWorld` duplicate the same
- *   manager ids, the same Team names and the same `{ coCommissioners }`
- *   signature by hand. NOTHING keeps them in step. Change one and the other
- *   goes on passing against different facts, and the disagreement surfaces
- *   as two suites that each look right alone. That matters more than an
- *   ordinary duplicate: `draftJoinCommissioner` staying green under the
- *   mutation is the CONTROL that makes this suite's red meaningful, and a
- *   control is only worth something while it is describing the same world.
- *   Folding them together was left out of #231 deliberately, as an edit to a
- *   suite outside its scope. Filed as #260.
+ * - STRUCTURAL, not merely expected. This file's `leagueWorld` and
+ *   `draftJoinCommissioner.test.js`'s are the same function, both imported
+ *   from `helpers/socketJoinWorld.js`: the same manager ids, the same Team
+ *   names and the same `{ coCommissioners }` signature by construction, not
+ *   by two authors happening to agree. Drift between the two suites' worlds
+ *   is no longer possible - there is only one world to edit. That matters
+ *   more than an ordinary duplicate would: `draftJoinCommissioner` staying
+ *   green under the mutation is the CONTROL that makes this suite's red
+ *   meaningful, and a control is only worth something while it is describing
+ *   the same world. Folding them together was left out of #231 deliberately,
+ *   as an edit to a suite outside its scope, then done in #260.
  *
  * That distinction is the point of writing it down. A reader who knows the
  * gap can check it; a reader who trusts a guarantee that does not exist
