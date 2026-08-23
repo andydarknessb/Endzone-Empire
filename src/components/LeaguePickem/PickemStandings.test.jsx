@@ -13,9 +13,8 @@ import { clearPickemStandingsCache } from '../../hooks/usePickemStandings';
 
 // The standings response as the server sends it: Team identity on every row,
 // the account fields the expand step left in place (#112) which this table
-// must no longer read, and `viewerTeamId` at the root, which nothing reads
-// yet. The last is here to mirror the wire, not because the table uses it:
-// marking the viewer's own row is a separate affordance, not this migration.
+// must no longer read, and `viewerTeamId` at the root, which marks row 92
+// (teamId 92) as the viewer's own (#182).
 const STANDINGS = {
   season: 2026,
   mode: 'confidence',
