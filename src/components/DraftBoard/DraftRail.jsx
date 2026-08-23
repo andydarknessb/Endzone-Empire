@@ -449,13 +449,15 @@ function DraftRail({
                   its label `--accent`, and this Chip sits on the row's own
                   `--accent-soft` fill: composited over `--surface` that is
                   4.27:1 in dark theme, under AA's 4.5 for text this size. The
-                  default label is `--text-primary`, which is 10.73:1 dark and
-                  15.56:1 light on the same fill, and is the pairing the
-                  queue's next-up row in this file already uses. Neither ratio
-                  is checked by tokens.contrast.test.js: it cannot take an
-                  alpha token at all (#203), so accent-soft can never appear in
-                  its pairings and a green run says nothing here. Both were
-                  computed by hand against the composited colour. */}
+                  default label is `--text-primary`, which is 10.75:1 dark and
+                  14.04:1 light on the same fill, and is the pairing the
+                  queue's next-up row in this file already uses. Since #203
+                  tokens.contrast.test.js composites alpha over a named
+                  backdrop, and text-primary/accent-soft over surface is one of
+                  the pairings it asserts, so the chosen ratio is now guarded
+                  rather than hand-computed. The rejected `--accent` label is
+                  not listed there: it is the option this comment argues
+                  against, not a pairing the app ships. */}
               {isViewer && <Chip size="small" variant="outlined" label="You" />}
               {team.autodraft && <Chip size="small" color="warning" label="AUTO" />}
               {canToggle && (

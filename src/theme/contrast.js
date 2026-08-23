@@ -18,45 +18,39 @@ const HEX_BODY = /^([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 const RGB_FUNCTION = /^rgba?\(([^)]*)\)$/i;
 const NUMBER = /^[+-]?(\d+\.?\d*|\.\d+)$/;
 
-function invalid(value) {
+function invalidColorError(value) {
   return new Error(
     `contrast: expected a hex or rgb()/rgba() color, got "${value}"`
   );
 }
 
-function toChannel(part, value) {
-  if (!NUMBER.test(part)) throw invalid(value);
+/** One rgb()/rgba() argument: 0-255 for a channel, 0-1 for the alpha. */
+function toNumberInRange(part, max, value) {
+  if (!NUMBER.test(part)) throw invalidColorError(value);
   const n = Number(part);
-  if (n < 0 || n > 255) throw invalid(value);
-  return n;
-}
-
-function toAlpha(part, value) {
-  if (!NUMBER.test(part)) throw invalid(value);
-  const n = Number(part);
-  if (n < 0 || n > 1) throw invalid(value);
+  if (n < 0 || n > max) throw invalidColorError(value);
   return n;
 }
 
 /** Parse any supported color into { r, g, b, a }, with a defaulting to 1. */
 function parseColor(value) {
-  if (typeof value !== 'string') throw invalid(value);
+  if (typeof value !== 'string') throw invalidColorError(value);
   const raw = value.trim();
 
   const fn = raw.match(RGB_FUNCTION);
   if (fn) {
     const parts = fn[1].split(',').map((part) => part.trim());
-    if (parts.length !== 3 && parts.length !== 4) throw invalid(value);
+    if (parts.length !== 3 && parts.length !== 4) throw invalidColorError(value);
     return {
-      r: toChannel(parts[0], value),
-      g: toChannel(parts[1], value),
-      b: toChannel(parts[2], value),
-      a: parts.length === 4 ? toAlpha(parts[3], value) : 1,
+      r: toNumberInRange(parts[0], 255, value),
+      g: toNumberInRange(parts[1], 255, value),
+      b: toNumberInRange(parts[2], 255, value),
+      a: parts.length === 4 ? toNumberInRange(parts[3], 1, value) : 1,
     };
   }
 
   let h = raw.replace('#', '');
-  if (!HEX_BODY.test(h)) throw invalid(value);
+  if (!HEX_BODY.test(h)) throw invalidColorError(value);
   if (h.length === 3) {
     h = h.split('').map((ch) => ch + ch).join('');
   }
