@@ -322,9 +322,12 @@ describe('help sits with the control it explains', () => {
 
     const queue = screen.getByRole('region', { name: 'My Queue' });
     const copy = within(queue).getByText(/Queue is empty/).textContent;
+    // The exact string, and nothing after it. A follow-up
+    // `expect(copy).not.toMatch(/below|above|right|left/)` was here and has
+    // been removed: once the copy is pinned verbatim, no implementation can
+    // reach that line and fail it, so it read as a guarantee against layout
+    // words while guaranteeing nothing. The word this test exists to keep out
+    // is kept out by the assertion below being exact.
     expect(copy).toBe('Queue is empty. Choose Queue on a player to add them here.');
-    // Layout words are what break when the same copy is reused in the mobile
-    // single-column tab, where nothing is "below" anything.
-    expect(copy).not.toMatch(/\b(below|above|right|left|beside)\b/i);
   });
 });
