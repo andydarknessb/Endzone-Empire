@@ -289,7 +289,11 @@ function DraftRail({
           >
             <Typography variant="body2">{readiness.listLabel}</Typography>
           </AccordionSummary>
-          <AccordionDetails id={`${readinessListId}-content`} sx={{ px: 0, pt: 0 }}>
+          {/* No `id` here. MUI already renders the region this names, and puts
+              the summary's own `aria-controls` value on it, so repeating that
+              id on the details would put it in the document twice and leave
+              aria-controls resolving by document order. */}
+          <AccordionDetails sx={{ px: 0, pt: 0 }}>
             <Box component="ul" role="list" sx={{ listStyle: 'none', p: 0, m: 0 }}>
               {readiness.listedTeams.map((team) => (
                 // Keyed by Team ID, never by name: duplicate Team names are
@@ -595,7 +599,10 @@ function DraftRail({
         >
           <Typography variant="body2">Full Draft order</Typography>
         </AccordionSummary>
-        <AccordionDetails id={`${orderDisclosureId}-content`} sx={{ px: 0 }}>{orderListBody}</AccordionDetails>
+        {/* Likewise no `id`: MUI's own region already carries the summary's
+            aria-controls value (this one came in with #123 and is corrected
+            here rather than left standing beside the identical new one). */}
+        <AccordionDetails sx={{ px: 0 }}>{orderListBody}</AccordionDetails>
       </Accordion>
     </Paper>
   ) : null;

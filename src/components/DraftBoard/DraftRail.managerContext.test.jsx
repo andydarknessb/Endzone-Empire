@@ -268,6 +268,40 @@ describe("the manager's own Pick numbers", () => {
   });
 });
 
+describe('the rail\'s ids are unique, because ARIA resolves them by id', () => {
+  // MUI's Accordion renders its own <div role="region" id={summary aria-controls}>
+  // around whatever it is given, so an AccordionDetails carrying that same id
+  // puts it in the document twice. Every aria-controls and aria-labelledby in
+  // this rail is resolved by id, and a duplicate makes which element they
+  // resolve to a matter of document order rather than intent (axe:
+  // duplicate-id-aria).
+  const duplicateIds = (root) => {
+    const seen = new Map();
+    root.querySelectorAll('[id]').forEach((node) => {
+      seen.set(node.id, (seen.get(node.id) || 0) + 1);
+    });
+    return [...seen.entries()].filter(([, count]) => count > 1).map(([id]) => id);
+  };
+
+  test('with the Readiness exception list open', async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <DraftRail {...baseProps} draftStatus="pending" upcoming={[]} teams={lobby(2, 6)} />
+    );
+    await user.click(screen.getByRole('button', { name: 'Ready managers (2)' }));
+
+    expect(duplicateIds(container)).toEqual([]);
+  });
+
+  test('with the full Draft order disclosure open', async () => {
+    const user = userEvent.setup();
+    const { container } = render(<DraftRail {...baseProps} draftStatus="active" viewerPicks={VIEWER_PICKS} />);
+    await user.click(screen.getByRole('button', { name: 'Full Draft order' }));
+
+    expect(duplicateIds(container)).toEqual([]);
+  });
+});
+
 describe('help sits with the control it explains', () => {
   test('every Auto-draft switch is described by the autodraft help', () => {
     render(<DraftRail {...baseProps} draftStatus="pending" upcoming={[]} isCommissioner />);
