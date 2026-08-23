@@ -55,7 +55,19 @@ const BYE_WEEK_OPTIONS = Array.from({ length: 18 }, (_, i) => i + 1);
 // RIGHT_ALIGNED_SORT_KEYS below is presentation-only (which sortable columns
 // are numeric and get the right-aligned, AbbreviationTooltip-wrapped header
 // treatment) - not a second list of sortable fields, since it's keyed off
-// SORT_FIELDS' own keys rather than repeating them.
+// SORT_FIELDS' own keys rather than repeating them. That said, it is its own
+// hand-maintained membership list, and the "can't drift apart again"
+// guarantee above is about the key/label pairing only - it does nothing to
+// protect this Set. A numeric SORT_FIELDS key missing here doesn't just
+// render left-aligned: AbbreviationTooltip is what supplies that header's
+// accessible name, so the header renders unwrapped and a screen-reader user
+// gets a bare abbreviation with no definition, silently (issue #211). Tests
+// assert the accessible name of all four current members (Bye, ADP, Pos
+// rank, 17-game pace), so dropping any one of them fails a test; a separate
+// test catches a stray key added here that isn't a SORT_FIELDS key (a dead
+// entry, never rendered, rather than a crash). Neither test derives this
+// list from SORT_FIELDS - adding a new numeric SORT_FIELDS entry still means
+// remembering to add its key here and a matching accessible-name assertion.
 const RIGHT_ALIGNED_SORT_KEYS = new Set(['bye_week', 'adp', 'position_rank', 'proj']);
 
 // Keyed lookup onto SORT_FIELDS (code-review finding on issue #163: the
