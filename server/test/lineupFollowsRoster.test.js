@@ -21,6 +21,7 @@ const assert = require('node:assert/strict');
 const express = require('express');
 const request = require('supertest');
 const { createFakePool } = require('./helpers/fakePool');
+const { tenureHandlers } = require('./helpers/tenureFakes');
 
 const CURRENT_SEASON = 2026;
 const CURRENT_WEEK = 9;
@@ -42,18 +43,36 @@ const app = express();
 app.use(express.json());
 app.use('/api/draft', require('../routes/draft.router'));
 
+// A kicked-off game is in the past and an open one is not. Real instants,
+// because the tenure predicate compares against them (#228).
+const KICKED_OFF_AT = new Date(Date.now() - 3 * 60 * 60 * 1000);
+const NOT_YET_AT = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
+// Long enough before kickoff that "held since before the game" is unambiguous.
+const HELD_SINCE = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
 /**
  * The reads `removeLineupEntries` makes, as fake-pool handlers. `kickedOff`
  * is the set of NFL teams whose game for the week has started; the departing
  * player is on MIN unless a test says otherwise.
+ *
+ * `tenures` defaults to one open tenure held since well before kickoff, which
+ * is what every pre-#228 fixture here silently assumed: these suites are about
+ * WHICH ROWS GO when a player leaves, not about whether he was ever here. A
+ * test that cares about the tenure passes its own (see the post-kickoff
+ * acquisition case).
  */
-function removalHandlers({ nflTeam = 'MIN', kickedOff = [], removals = [] } = {}) {
+function removalHandlers({
+  nflTeam = 'MIN', kickedOff = [], removals = [], tenures = [],
+} = {}) {
+  const schedule = Object.fromEntries(kickedOff.map((team) => [team, KICKED_OFF_AT]));
+  if (!schedule[nflTeam]) schedule[nflTeam] = NOT_YET_AT;
   return [
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
     [/^SELECT "nfl_team" FROM "players"/, () => ({ rows: [{ nfl_team: nflTeam }] })],
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({
       rows: kickedOff.map((team) => ({ nfl_team: team })),
     })],
+    ...tenureHandlers({ schedule, tenures, heldSince: HELD_SINCE }),
     [/^DELETE FROM "lineup_entries"/, (text, params) => {
       removals.push({ text, params });
       return { rows: [], rowCount: 1 };
@@ -608,6 +627,8 @@ const STATS = new Map([[81, { passingYards: 250 }], [82, { rushingYards: 300 }]]
  * and IR slots - so removing either clause from the real SQL changes what
  * these tests see instead of leaving them green.
  */
+const SCORING_NFL_TEAM = 'SCT';
+
 function scoringWorld({ bestBall = false, entries }) {
   const scored = {};
   const rowsFor = (text) => {
@@ -630,16 +651,23 @@ function scoringWorld({ bestBall = false, entries }) {
         player_id: entry.playerId,
         slot: entry.slot,
         position: entry.position,
+        nfl_team: SCORING_NFL_TEAM,
         stats: STATS.get(entry.playerId) || null,
       })),
     })],
-    [/^SELECT "player_stats"\."stats"/, (text, [teamId]) => ({
+    [/^SELECT "lineup_entries"\."player_id", "players"\."nfl_team", "player_stats"\."stats"/, (text, [teamId]) => ({
       // An inner join on player_stats drops a player with no stats row.
       rows: teamId !== 10 ? [] : rowsFor(text)
-        .map((entry) => STATS.get(entry.playerId))
-        .filter(Boolean)
-        .map((stats) => ({ stats })),
+        .filter((entry) => STATS.get(entry.playerId))
+        .map((entry) => ({
+          player_id: entry.playerId,
+          nfl_team: SCORING_NFL_TEAM,
+          stats: STATS.get(entry.playerId),
+        })),
     })],
+    // Everyone here was held all along: these tests are about which entries
+    // survive a departure, not about who was on the roster at kickoff (#228).
+    ...tenureHandlers({ schedule: { [SCORING_NFL_TEAM]: KICKED_OFF_AT }, heldSince: HELD_SINCE }),
     [/^UPDATE "matchups" SET "home_score"/, (text, [homeScore]) => {
       scored.home = Number(homeScore);
       return { rows: [] };

@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { byeWeekFromPlayedWeeks, REG_SEASON_WEEKS } = require('../services/bye.service');
 const { dropPlayer } = require('../services/draft.service');
 const { createFakePool } = require('./helpers/fakePool');
+const { tenureHandlers, tenure } = require('./helpers/tenureFakes');
 const {
   slotEligible,
   validateLineup,
@@ -937,18 +938,30 @@ test('benchAcquiredPlayer leaves a surviving starter row as played', async () =>
 // roster at kickoff", which is what every reader of the week as played
 // assumes.
 
+const REMOVAL_KICKED_OFF_AT = new Date('2026-11-01T17:00:00Z');
+const REMOVAL_NOT_YET_AT = new Date('2026-11-08T17:00:00Z');
+const REMOVAL_HELD_SINCE = new Date('2026-09-01T00:00:00Z');
+
 /**
  * A removal world. `nflTeam` is the departing player's team, `kickedOff` the
  * NFL teams whose game for the week has started, `final` whether the team's
  * own matchup for the week is already final (#106).
+ *
+ * `tenures` is the departing player's history with this team (#228). It
+ * defaults to one open tenure held since well before kickoff, because these
+ * tests are about WHICH WEEKS a departure takes; the tenure cases have their
+ * own tests below.
  */
-function removalWorld({ nflTeam = 'MIN', kickedOff = [], final = false } = {}) {
+function removalWorld({ nflTeam = 'MIN', kickedOff = [], final = false, tenures = [] } = {}) {
+  const schedule = Object.fromEntries(kickedOff.map((team) => [team, REMOVAL_KICKED_OFF_AT]));
+  if (!schedule[nflTeam]) schedule[nflTeam] = REMOVAL_NOT_YET_AT;
   return createFakePool([
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: final ? [{ 1: 1 }] : [] })],
     [/^SELECT "nfl_team" FROM "players"/, () => ({ rows: [{ nfl_team: nflTeam }] })],
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({
       rows: kickedOff.map((nfl_team) => ({ nfl_team })),
     })],
+    ...tenureHandlers({ schedule, tenures, heldSince: REMOVAL_HELD_SINCE }),
     [/^DELETE FROM "lineup_entries"/, () => ({ rows: [], rowCount: 1 })],
   ]);
 }
@@ -993,6 +1006,105 @@ test('removeLineupEntries: a post-kickoff departure keeps the current week and s
   // played keeps his row and therefore his points.
   const [remove] = fake.matching(/^DELETE FROM "lineup_entries"/);
   assert.deepEqual(remove.params, [10, 21, 2026, 9, false]);
+  fake.assertClean();
+});
+
+// --- the spare predicate reads the tenure (#228) -----------------------------
+//
+// #197 made a surviving current-week row mean "he was on this roster at
+// kickoff". Kickoff alone cannot carry that claim: a player acquired AFTER his
+// game was played is locked by the schedule while having been held for none of
+// it. These are the #190 case table asked of the OTHER consumer of the same
+// predicate, so the two cannot drift apart.
+
+test('removeLineupEntries: a post-kickoff ACQUISITION does not get to keep the row', async () => {
+  // Held only from after his game. Locked, but never held at kickoff, so the
+  // row is not evidence of a week he played here and goes with him.
+  const fake = removalWorld({
+    nflTeam: 'MIN',
+    kickedOff: ['MIN'],
+    tenures: [tenure(10, 21, new Date('2026-11-02T00:00:00Z'))],
+  });
+  const client = await fake.connect();
+
+  const result = await removeFor(client);
+  client.release();
+
+  assert.equal(result.removedCurrentWeek, true);
+  const [remove] = fake.matching(/^DELETE FROM "lineup_entries"/);
+  // Still ONE statement, spared or not, by the bound parameter (#197).
+  assert.deepEqual(remove.params, [10, 21, 2026, 9, true]);
+  assert.match(remove.text, /\("week" > \$4 OR \("week" = \$4 AND \$5::boolean\)\)/);
+  fake.assertClean();
+});
+
+test('removeLineupEntries: held at kickoff, dropped after the game and re-added, keeps the row', async () => {
+  // Two tenures; the first covers kickoff. The #229 case at this consumer.
+  const fake = removalWorld({
+    nflTeam: 'MIN',
+    kickedOff: ['MIN'],
+    tenures: [
+      tenure(10, 21, new Date('2026-09-01T00:00:00Z'), new Date('2026-11-01T20:00:00Z')),
+      tenure(10, 21, new Date('2026-11-02T00:00:00Z')),
+    ],
+  });
+  const client = await fake.connect();
+
+  const result = await removeFor(client);
+  client.release();
+
+  assert.equal(result.removedCurrentWeek, false);
+  fake.assertClean();
+});
+
+test('removeLineupEntries: the tenure boundary is inclusive at kickoff', async () => {
+  // Acquired exactly AT kickoff counts as held, so the row stays. Pins `<=`
+  // on this consumer as well as on the scoring one: one predicate, and if it
+  // is mutated both suites must move together.
+  const fake = removalWorld({
+    nflTeam: 'MIN',
+    kickedOff: ['MIN'],
+    tenures: [tenure(10, 21, REMOVAL_KICKED_OFF_AT)],
+  });
+  const client = await fake.connect();
+
+  const result = await removeFor(client);
+  client.release();
+
+  assert.equal(result.removedCurrentWeek, false);
+  fake.assertClean();
+});
+
+test('removeLineupEntries: a final week keeps its rows even for a post-kickoff acquisition (#106 still wins)', async () => {
+  // The tenure says the row could go; #106 says a settled week is never
+  // written into. Finality wins, and that conjunct must survive #228.
+  const fake = removalWorld({
+    nflTeam: 'MIN',
+    kickedOff: ['MIN'],
+    final: true,
+    tenures: [tenure(10, 21, new Date('2026-11-02T00:00:00Z'))],
+  });
+  const client = await fake.connect();
+
+  const result = await removeFor(client);
+  client.release();
+
+  assert.equal(result.removedCurrentWeek, false);
+  fake.assertClean();
+});
+
+test('removeLineupEntries: a departure before kickoff never asks about tenure at all', async () => {
+  // Only a kicked-off game can spare the row, so the tenure question is not
+  // worth asking before then - and a pre-kickoff drop keeps exactly the reads
+  // it has always made.
+  const fake = removalWorld({ nflTeam: 'MIN', kickedOff: ['KC'] });
+  const client = await fake.connect();
+
+  await removeFor(client);
+  client.release();
+
+  assert.equal(fake.matching(/FROM "roster_tenures"/).length, 0);
+  assert.equal(fake.matching(/^SELECT "nfl_team", "kickoff_at" FROM "nfl_games"/).length, 0);
   fake.assertClean();
 });
 

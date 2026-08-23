@@ -243,15 +243,22 @@ async function benchAcquiredPlayer(client, { league, teamId, playerId }) {
  *
  *   - every FUTURE week, always: he is not on the roster, so the row is noise
  *     that no reader should ever see;
- *   - the CURRENT week, unless his NFL game for it has already kicked off, by
- *     the same predicate the lineup lock uses (`lockedNflTeams`), so no game
- *     row that week means not locked;
+ *   - the CURRENT week, unless BOTH his NFL game for it has already kicked
+ *     off (by the same predicate the lineup lock uses, `lockedNflTeams`, so
+ *     no game row that week means not locked) AND a tenure of this team
+ *     covered that kickoff (#228);
  *   - PAST weeks, never: they are the record of the week as played (#106).
  *
  * A surviving current-week row therefore means "he was on this roster at
  * kickoff", which is what every reader of a played week assumes. Deleting it
  * unconditionally would be the same disappearance #190 exists to prevent: a
  * starter dropped on Sunday night would lose his row and with it his points.
+ *
+ * The tenure half is what makes that sentence true rather than nearly true.
+ * Kickoff alone spares the row of a player acquired AFTER his game was
+ * played and dropped again, leaving behind evidence of a week he did not
+ * play here; the #197 invariant then quietly means "his team's schedule had
+ * started", which is not the same claim and not the one readers rely on.
  *
  * A week the team's own matchup has already settled is likewise left alone,
  * for the reason #106 gives - its rows are the record, not a working lineup,
@@ -275,8 +282,26 @@ async function removeLineupEntries(client, { league, teamId, playerId, now = new
     `SELECT "nfl_team" FROM "players" WHERE "id" = $1`,
     [playerId]
   );
+  const nflTeam = playerResult.rows[0]?.nfl_team;
   const locked = await lockedNflTeams(client, { season, week, now });
-  const removeCurrentWeek = !locked.has(playerResult.rows[0]?.nfl_team)
+  // Spared only if his game had kicked off AND a tenure of this team covered
+  // that kickoff. "Kicked off" alone is what #197 shipped, and it is not
+  // enough: a player acquired AFTER his game had already been played is
+  // locked by the schedule while having been held for none of it, so his row
+  // would survive as evidence of a week he did not play here (#190). The
+  // tenure just closed by this drop is still visible - the trigger closed it
+  // at `now()`, after kickoff - so it answers for the tenure that is ending.
+  const kickedOff = locked.has(scheduleTeamFor(nflTeam));
+  // Only a kicked-off game can spare the row, so the tenure is only worth
+  // asking about once that is true. A departure before kickoff keeps exactly
+  // the reads it has always made. `sparedByKickoff` therefore already implies
+  // `kickedOff`, and re-testing it below would be dead.
+  const sparedByKickoff = kickedOff && !(await playersNotHeldAtKickoff(client, {
+    teamId, season, week, players: [{ id: playerId, nflTeam }],
+  })).has(playerId);
+  // Finality still wins over both (#106): a settled week's rows are the record,
+  // and a DELETE into one is a write like any other, whatever the tenure says.
+  const removeCurrentWeek = !sparedByKickoff
     && !(await isFinalWeekForTeam(client, { leagueId, teamId, season, week }));
   // One statement either way: the current week is spared by the bound
   // parameter, not by a second query, so there is a single predicate to read
@@ -366,6 +391,101 @@ async function lockedNflTeams(client, { season, week, now = new Date() }) {
   return new Set(result.rows.map((r) => r.nfl_team));
 }
 
+/**
+ * The NFL team whose game a player is scheduled in, from the team stored on
+ * the player. ONE definition, and the reason it exists is #227.
+ *
+ * It is an identity today, which is exactly why it needs a name and this
+ * comment rather than being inlined at each call site. A DEF unit's stored
+ * `players.nfl_team` does not match the schedule's spelling in `nfl_games`,
+ * so every consumer that maps a player onto his game for a week is wrong in
+ * the same way, and they must stop being wrong together. Every such consumer
+ * in this module routes through here:
+ *
+ *   - the lineup lock's three membership tests against `lockedNflTeams` -
+ *     `annotateLineupEntries` (what the manager sees), `setLineup` (whether a
+ *     move is refused), and `removeLineupEntries` (whether a departing
+ *     player's current-week row is spared);
+ *   - the score-of-record exclusion below, which decides whether a settled
+ *     week counts him at all.
+ *
+ * So fixing #227 here fixes all of them at once. Fixing it at any one call
+ * site would fix that site and leave the others quietly broken, which is the
+ * shape of failure #228 exists to end. Note that `lockedNflTeams` itself does
+ * NOT map: it returns the schedule's own spelling, because it is the schedule
+ * side of the comparison. The mapping belongs on the PLAYER side, which is
+ * the side that is wrong.
+ */
+function scheduleTeamFor(nflTeam) {
+  return nflTeam;
+}
+
+/**
+ * The week's kickoffs, by schedule team. The only read of `nfl_games` on the
+ * scoring path: the scoring service asks this module rather than joining the
+ * schedule itself, so there is one place that knows how a week's games are
+ * found and one place for #227 to change.
+ *
+ * A team absent from the result has no game that week - a bye, or a schedule
+ * that was never synced. Both are answered the same way everywhere: nothing
+ * is concluded from the absence.
+ */
+async function weekKickoffs(client, { season, week }) {
+  const result = await client.query(
+    `SELECT "nfl_team", "kickoff_at" FROM "nfl_games"
+     WHERE "season" = $1 AND "week" = $2`,
+    [season, week]
+  );
+  return new Map(result.rows.map((row) => [row.nfl_team, row.kickoff_at]));
+}
+
+/**
+ * Of these players, the ones this team held NO tenure over at their own
+ * game's kickoff (#228). The one reusable read behind both consumers of the
+ * fact: the score-of-record exclusion and the `removeLineupEntries` spare.
+ *
+ * "Held at kickoff K" is `acquired_at <= K AND (released_at IS NULL OR
+ * released_at > K)`. A tenure that began exactly at kickoff counts; one that
+ * ended exactly at kickoff does not.
+ *
+ * TWO ABSENCES, BOTH DELIBERATE ANSWERS RATHER THAN GAPS.
+ *
+ * A player with NO GAME ROW that week is never returned - he is not in the
+ * question at all, because a bye or an unsynced schedule is not evidence that
+ * anyone failed to hold him. That is structural here rather than a rule: he
+ * never enters the `unnest`, so no predicate can exclude him.
+ *
+ * A player with NO TENURE covering kickoff IS returned, and note what that
+ * now means. Under the old roster-reading rules a missing row meant "he is
+ * gone", which is why cutting a post-kickoff pickup made the rule stop firing
+ * and handed his points back. A missing TENURE means something else entirely:
+ * not "he is gone" but "no tenure of this team covered that kickoff". Cutting
+ * him does not erase the tenure, it closes it, so the answer does not move.
+ *
+ * The team's tenures are asked about as they stand NOW, which is safe for the
+ * same reason: tenures are append-and-close, never rewritten.
+ */
+async function playersNotHeldAtKickoff(client, { teamId, season, week, players }) {
+  const kickoffs = await weekKickoffs(client, { season, week });
+  const scheduled = players
+    .map((player) => ({ id: player.id, kickoff: kickoffs.get(scheduleTeamFor(player.nflTeam)) }))
+    .filter((player) => player.kickoff !== undefined);
+  if (scheduled.length === 0) return new Set();
+  const result = await client.query(
+    `SELECT "kickoffs"."player_id"
+       FROM unnest($2::int[], $3::timestamptz[]) AS "kickoffs"("player_id", "kickoff_at")
+      WHERE NOT EXISTS (
+              SELECT 1 FROM "roster_tenures"
+               WHERE "roster_tenures"."team_id" = $1
+                 AND "roster_tenures"."player_id" = "kickoffs"."player_id"
+                 AND "roster_tenures"."acquired_at" <= "kickoffs"."kickoff_at"
+                 AND ("roster_tenures"."released_at" IS NULL
+                      OR "roster_tenures"."released_at" > "kickoffs"."kickoff_at"))`,
+    [teamId, scheduled.map((p) => p.id), scheduled.map((p) => p.kickoff)]
+  );
+  return new Set(result.rows.map((row) => row.player_id));
+}
+
 /** Pure: add schedule-derived lock and bye metadata to lineup entries. */
 function annotateLineupEntries(entries, { locked, byeByTeam, selectedWeek }) {
   return entries.map((row) => {
@@ -373,7 +493,7 @@ function annotateLineupEntries(entries, { locked, byeByTeam, selectedWeek }) {
     return {
       ...row,
       bye_week: byeWeek,
-      locked: locked.has(row.nfl_team),
+      locked: locked.has(scheduleTeamFor(row.nfl_team)),
       onBye: byeWeek === selectedWeek,
       valid_stash: row.slot === IR && isValidStash(row),
     };
@@ -534,9 +654,9 @@ async function setLineup({ leagueId, userId, week, moves }) {
         && move.slot === BENCH
         && !isValidStash(entry);
       resolvesLockedZeroBenchStash ||= resolvesStaleIrStash
-        && locked.has(entry.nfl_team)
+        && locked.has(scheduleTeamFor(entry.nfl_team))
         && league.bench_slots === 0;
-      if (!resolvesStaleIrStash && locked.has(entry.nfl_team)) {
+      if (!resolvesStaleIrStash && locked.has(scheduleTeamFor(entry.nfl_team))) {
         throw new LineupError(409, 'that player is locked; his game has started', 'LINEUP_LOCKED');
       }
       entry.slot = move.slot;
@@ -649,6 +769,7 @@ module.exports = {
   interruptedStashFields,
   restoreInterruptedStash,
   lockedNflTeams,
+  playersNotHeldAtKickoff,
   annotateLineupEntries,
   getLineup,
   setLineup,

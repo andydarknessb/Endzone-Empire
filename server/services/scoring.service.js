@@ -2,7 +2,10 @@ const axios = require('axios');
 const pool = require('../modules/pool');
 const { isTransientDatabaseError } = require('../modules/dbRetry');
 const { tank01Get } = require('../modules/tank01Client');
-const { materializeLineup, optimalLineup, parseLineupSettings, POSITION_GROUPS } = require('./lineup.service');
+const {
+  materializeLineup, optimalLineup, parseLineupSettings, POSITION_GROUPS,
+  playersNotHeldAtKickoff,
+} = require('./lineup.service');
 const { getIo } = require('../modules/io');
 const { fantasySideWhereSql } = require('./leagueType');
 
@@ -1648,6 +1651,33 @@ async function scoreMatchups({ leagueId, season, week, plays = [] }) {
       `SELECT * FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 FOR UPDATE`,
       [leagueId, season, week]
     );
+    /**
+     * The rows that count. On a FINAL week a lineup row counts only if a
+     * tenure of this team covered its player's kickoff (#228): the week's
+     * card is the record of what was played, and a player acquired after his
+     * game had already been played was not part of it however he came to have
+     * a row.
+     *
+     * Only final weeks. A live week already answers this a different and
+     * correct way, by joining the CURRENT roster, so a dropped player stops
+     * scoring immediately; re-deciding it here would change live scoring,
+     * which is out of scope for #228.
+     *
+     * Note what is NOT here: no `nfl_games` join. The kickoff question belongs
+     * to the module that owns the schedule and the lineup lock, so #227 has
+     * one place to fix rather than one per consumer.
+     */
+    const heldRows = async (rows, teamId, isFinal) => {
+      if (!isFinal || rows.length === 0) return rows;
+      const notHeld = await playersNotHeldAtKickoff(client, {
+        teamId,
+        season,
+        week,
+        players: rows.map((row) => ({ id: row.player_id, nflTeam: row.nfl_team })),
+      });
+      return rows.filter((row) => !notHeld.has(row.player_id));
+    };
+
     const teamScore = async (teamId, isFinal) => {
       if (!isFinal) {
         await materializeLineup(client, { leagueId, teamId, season, week });
@@ -1661,7 +1691,7 @@ async function scoreMatchups({ leagueId, season, week, plays = [] }) {
         // occupants remain stashed and do not participate in scoring.
         const r = await client.query(
           `SELECT "lineup_entries"."player_id", "lineup_entries"."slot",
-                  "players"."position", "player_stats"."stats"
+                  "players"."position", "players"."nfl_team", "player_stats"."stats"
            FROM "lineup_entries"
            ${currentRosterJoin}
            JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
@@ -1671,7 +1701,8 @@ async function scoreMatchups({ leagueId, season, week, plays = [] }) {
              AND "lineup_entries"."week" = $3`,
           [teamId, season, week]
         );
-        const candidateRows = r.rows.filter((row) => row.slot !== 'IR');
+        const candidateRows = (await heldRows(r.rows, teamId, isFinal))
+          .filter((row) => row.slot !== 'IR');
         const candidates = candidateRows.map((row) => ({ playerId: row.player_id, position: row.position }));
         const pointsFor = new Map(
           candidateRows.map((row) => [row.player_id, calculateFantasyPoints(row.stats, rules)])
@@ -1680,9 +1711,10 @@ async function scoreMatchups({ leagueId, season, week, plays = [] }) {
         return optimalLineup(candidates, rosterSlots, pointsFor).total;
       }
       const r = await client.query(
-        `SELECT "player_stats"."stats"
+        `SELECT "lineup_entries"."player_id", "players"."nfl_team", "player_stats"."stats"
          FROM "lineup_entries"
          ${currentRosterJoin}
+         JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
          JOIN "player_stats" ON "player_stats"."player_id" = "lineup_entries"."player_id"
            AND "player_stats"."season" = $2 AND "player_stats"."week" = $3
          WHERE "lineup_entries"."team_id" = $1 AND "lineup_entries"."season" = $2
@@ -1690,7 +1722,8 @@ async function scoreMatchups({ leagueId, season, week, plays = [] }) {
            AND "lineup_entries"."slot" NOT IN ('BENCH', 'IR')`,
         [teamId, season, week]
       );
-      const total = r.rows.reduce((sum, row) => sum + calculateFantasyPoints(row.stats, rules), 0);
+      const counted = await heldRows(r.rows, teamId, isFinal);
+      const total = counted.reduce((sum, row) => sum + calculateFantasyPoints(row.stats, rules), 0);
       return Math.round(total * 100) / 100;
     };
     const scored = [];
