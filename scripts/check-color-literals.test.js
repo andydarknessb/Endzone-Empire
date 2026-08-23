@@ -49,6 +49,17 @@ test('a leading block comment does not shield a color literal in the code that f
   assert.match(lines[0], /#fff123/);
 });
 
+// AC1's last clause: a color literal on the code portion of a line that
+// also carries a trailing comment (including one with a bare issue
+// reference) IS flagged — the comment doesn't shield code earlier on the
+// same line, any more than a leading comment shields code after it.
+test('a color literal is flagged even when the same line carries a trailing comment with an issue reference', () => {
+  const text = "const c = '#fff123'; // fixes #122";
+  const lines = violationLines(text);
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /#fff123/);
+});
+
 // 4. A literal inside ANY comment shape is NOT flagged — deliberate behavior
 // change from the prior exemption-based checker, which only special-cased
 // digit-only issue references and only recognized `//` and `*`-continuation
@@ -177,6 +188,40 @@ test('division is not mistaken for a regex literal', () => {
   const lines = violationLines(text);
   assert.equal(lines.length, 1);
   assert.match(lines[0], /#123abc/);
+});
+
+// An apostrophe inside ordinary JSX text (e.g. "can't") is not a real
+// string opener. Without a bound, the quote scan runs past it looking for
+// the next matching `'` anywhere later in the file, copying through
+// everything in between unstripped — including a real comment, whose bare
+// issue reference then gets misread as a hex color on the *scanner's* next
+// pass. A JS/CSS string can't contain a raw newline, so a `'`/`"` with no
+// closing partner before the next newline isn't a string opener at all.
+test('an apostrophe in JSX text does not swallow a later comment as string content', () => {
+  const text = [
+    'export function Panel() {',
+    '  return (',
+    "    <Typography>Informational: locked players can't be swapped.</Typography>",
+    '  );',
+    '}',
+    '',
+    '// Colour hint for #147 follow-up work',
+    'const OK = 1;',
+  ].join('\n');
+  assert.deepEqual(violationLines(text, '.jsx'), []);
+});
+
+// A JSX closing tag's `/` (as in `</a>`) sits right after `<`, which is an
+// "expression allowed" character under the generic punctuation fallback —
+// without excluding it, that `/` gets read as the start of a regex literal,
+// consuming up to the tag's own or the next element's `/` and leaving the
+// string/comment scan desynced for the rest of the line.
+test('a JSX closing tag is not misread as the start of a regex literal', () => {
+  const text = [
+    '<a href="/terms">Terms</a> and <a href="/privacy">Privacy</a>',
+    '<label htmlFor="email"> {/* see #147 */}',
+  ].join('\n');
+  assert.deepEqual(violationLines(text, '.jsx'), []);
 });
 
 // var() fallbacks stay exempt (unrelated to comment-stripping, but a

@@ -80,14 +80,23 @@ function isAllowlisted(relPosix) {
 //     the same block-comment handling as any other block comment
 //   - single/double-quoted strings and template literals are scanned as
 //     opaque units so a `//` inside one (e.g. `'http://example.com'`) is
-//     never misread as the start of a line comment
+//     never misread as the start of a line comment. A single/double-quoted
+//     string is only recognized as such when a matching closing quote
+//     appears before the next newline (real JS/CSS strings can't contain a
+//     raw newline) — otherwise the quote is just an apostrophe in ordinary
+//     text (e.g. JSX content like "can't") and is left as an ordinary
+//     character, so it can't swallow a real comment later in the file
+//     while "looking for" a closing quote that was never a string's to
+//     begin with
 //   - regex literals (e.g. `/[/*]/`) are scanned as opaque units too, so a
 //     `/*`-like sequence inside a character class can't be misread as the
-//     start of a block comment on the scan's next pass
+//     start of a block comment on the scan's next pass. A `/` right after
+//     `<` is never treated as a regex start, since that's a JSX closing tag
+//     (`</a>`), not an expression position
 // For .css, only `/* ... */` block comments apply (CSS has no `//` line
-// comments); quoted strings are still scanned as opaque units so a `/*`
-// inside a quoted `content:`/`url()` value can't be misread as a comment
-// start.
+// comments); quoted strings are still scanned as opaque units, with the
+// same newline-bounded rule above, so a `/*` inside a quoted
+// `content:`/`url()` value can't be misread as a comment start.
 //
 // Line breaks are always preserved (stripped characters become spaces, not
 // removed) so line numbers in the reported violations stay accurate.
@@ -102,12 +111,30 @@ function stripComments(text, ext) {
     const c2 = i + 1 < n ? text[i + 1] : '';
 
     if (c === '"' || c === "'") {
+      // A JS/CSS string literal can't contain a raw, unescaped newline (a
+      // `\` immediately before one is a legal line continuation and is
+      // already swallowed by the backslash-skip below, so it never reaches
+      // this check). Without this bound, an apostrophe in ordinary JSX text
+      // (e.g. "can't") reads as a string opener and the scan runs to the
+      // next quote anywhere later in the file — silently copying through,
+      // unstripped, any real comment that happens to fall in between. If no
+      // closing quote turns up before a raw newline (or EOF), this wasn't a
+      // string opener at all — emit it as a single ordinary character
+      // instead of consuming anything.
       const quote = c;
       let j = i + 1;
-      while (j < n && text[j] !== quote) {
+      let closed = false;
+      while (j < n) {
+        if (text[j] === quote) { closed = true; break; }
+        if (text[j] === '\n') break;
         j += text[j] === '\\' ? 2 : 1;
       }
-      j = Math.min(j + 1, n);
+      if (!closed) {
+        out += c;
+        i += 1;
+        continue;
+      }
+      j += 1;
       out += text.slice(i, j);
       i = j;
       continue;
@@ -184,6 +211,13 @@ function isRegexContext(out) {
   if (j < 0) return true; // start of file
   const ch = out[j];
   if (/[)\]}]/.test(ch)) return false;
+  // A `<` immediately before this `/` is a JSX closing tag (`</a>`), not an
+  // expression position — without this, `<` falls through to the "any
+  // other punctuation" case below and the `/` of `</...>` gets read as a
+  // regex-literal start, consuming up to the tag's next `/` (its own
+  // self-closing or the next element) and leaving quote/comment scanning
+  // desynced for everything after it on that line.
+  if (ch === '<') return false;
   if (/[A-Za-z0-9_$]/.test(ch)) {
     let k = j;
     while (k >= 0 && /[A-Za-z0-9_$]/.test(out[k])) k--;
@@ -272,11 +306,4 @@ module.exports = {
   stripComments,
   hasColorLiteral,
   findViolations,
-  isAllowlisted,
-  isRegexContext,
-  scanRegexLiteral,
-  ALLOWLIST,
-  HEX,
-  FUNC,
-  NAMED,
 };
