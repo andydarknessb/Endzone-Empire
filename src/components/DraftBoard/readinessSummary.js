@@ -49,6 +49,7 @@ export const READINESS_LIST = {
  * @returns {{
  *   readyCount: number, total: number, percentReady: number,
  *   listKind: string, listedTeams: Array, listLabel: (string|null),
+ *   countText: string,
  * }}
  */
 export function readinessSummaryFor(teams = []) {
@@ -63,6 +64,14 @@ export function readinessSummaryFor(teams = []) {
   const readyCount = ready.length;
 
   const percentReady = total === 0 ? 0 : Math.round((readyCount / total) * 100);
+
+  // The exact reading, in one place. Three surfaces say this sentence - the
+  // rail's visible caption, the progress bar's aria-valuetext, and the Draft
+  // room's persistent live region (issue #164) - and the live region is in a
+  // different component from the other two, so a template literal per caller
+  // is how they would quietly drift into announcing one wording and showing
+  // another.
+  const countText = `${readyCount} of ${total} managers ready`;
 
   // At or below half, name the ready group; above it, name the Not ready one.
   const atOrBelowHalf = readyCount * 2 <= total;
@@ -83,7 +92,7 @@ export function readinessSummaryFor(teams = []) {
     : `${listKind === READINESS_LIST.READY ? 'Ready' : 'Not ready'} managers (${listedTeams.length})`;
 
   return {
-    readyCount, total, percentReady, listKind, listedTeams, listLabel,
+    readyCount, total, percentReady, listKind, listedTeams, listLabel, countText,
   };
 }
 

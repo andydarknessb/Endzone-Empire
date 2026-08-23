@@ -309,7 +309,13 @@ function DraftRail({
   // times to communicate one number. Which Teams are worth naming, and whether
   // any are, is readinessSummary.js and nothing here (issue #124 acceptance
   // criteria 1-2).
-  const readinessCountText = `${readiness.readyCount} of ${readiness.total} managers ready`;
+  // Shown, not announced. The announcement is the Draft room's own persistent
+  // region (ReadinessAnnouncer, issue #164): this rail is mounted per tab
+  // below the medium breakpoint, so a live region in here is destroyed and
+  // rebuilt on every tab switch, and a live region rebuilt around its text is
+  // not a change any assistive technology was observing. The sentence itself
+  // comes from readinessSummary so the two cannot drift.
+  const readinessCountText = readiness.countText;
   const readinessPanel = myTeam ? (
     <Paper component="section" aria-labelledby={readinessHeadingId} sx={{ p: 2, mb: 3 }}>
       {/* tabIndex -1: not in the tab order, but focusable for the rescue
@@ -329,7 +335,7 @@ function DraftRail({
         control={<Switch checked={!!myTeam.draft_ready} onChange={(event) => onToggleReady(event.target.checked)} inputProps={{ 'aria-label': 'I am ready for the draft' }} />}
         label="I'm ready"
       />
-      <Typography role="status" aria-live="polite" variant="caption" sx={{ display: 'block', color: 'text.secondary', mb: 0.5 }}>
+      <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mb: 0.5 }}>
         {readinessCountText}
       </Typography>
       <LinearProgress

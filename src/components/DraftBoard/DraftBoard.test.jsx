@@ -1794,3 +1794,119 @@ describe('mobile layout (issue #122)', () => {
     expect(screen.getByText('Patrick Mahomes')).toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Readiness live region (issue #164): one region, mounted for the pending
+// lobby rather than for whichever tab happens to be showing.
+//
+// The whole ticket is the difference between "a status region exists after
+// the switch" and "it is the SAME region". Assistive technology announces
+// CHANGES to a region it is already observing; a region inserted into the DOM
+// already containing its text is generally not announced at all. So every
+// assertion below that matters compares node identity (`toBe`) across the
+// switch - an assertion that merely found a region afterwards would pass
+// against the broken code too, because a freshly mounted one is present.
+// ---------------------------------------------------------------------------
+
+describe('readiness live region (issue #164)', () => {
+  // The mobile/tablet layout is the one that mounts a single region per tab
+  // (issue #122 / PR #158), so it is the layout that unmounted the rail - and
+  // the live region inside it - on every switch. Same matchMedia-mock
+  // convention as the mobile block above.
+  beforeEach(() => {
+    window.matchMedia = jest.fn().mockImplementation((query) => ({
+      matches: true,
+      media: query,
+      onchange: null,
+      addListener: jest.fn(),
+      removeListener: jest.fn(),
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn(),
+      dispatchEvent: jest.fn(),
+    }));
+  });
+  afterEach(() => {
+    delete window.matchMedia;
+  });
+
+  /** A pending lobby whose viewer holds Team A: Readiness composes into
+   * `pending` alone (railComposition.js) and the panel renders only for a
+   * viewer who holds a Team, so this is the one state the region speaks in. */
+  const showPendingLobby = async (readyTeamIds = [2]) => {
+    renderBoard(1, { user: { id: 5, username: 'alice' } });
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1);
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ draft_status: 'pending' }), {
+      teams: [
+        { teamId: 1, teamName: 'Team A', draft_ready: readyTeamIds.includes(1) },
+        { teamId: 2, teamName: 'Team B', draft_ready: readyTeamIds.includes(2) },
+      ],
+      onTheClock: null,
+    })));
+  };
+
+  test('is the same DOM node before and after switching mobile tabs away and back', async () => {
+    await showPendingLobby();
+
+    const before = screen.getByRole('status');
+    expect(before).toHaveTextContent('1 of 2 managers ready');
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
+    // Present on a tab that does not render the rail at all - which is the
+    // point: the region does not belong to the rail any more.
+    expect(screen.getByRole('status')).toBe(before);
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Draft' }));
+    expect(screen.getByRole('status')).toBe(before);
+    expect(before).toHaveTextContent('1 of 2 managers ready');
+  });
+
+  test('updates its text in place when readiness changes while the rail is unmounted', async () => {
+    await showPendingLobby();
+    const region = screen.getByRole('status');
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
+    expect(screen.queryByRole('region', { name: 'Readiness' })).not.toBeInTheDocument();
+
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ draft_status: 'pending' }), {
+      teams: [
+        { teamId: 1, teamName: 'Team A', draft_ready: true },
+        { teamId: 2, teamName: 'Team B', draft_ready: true },
+      ],
+      onTheClock: null,
+    })));
+
+    // Same node, new text: a change to a region already being observed, which
+    // is the shape assistive technology announces.
+    expect(screen.getByRole('status')).toBe(region);
+    expect(region).toHaveTextContent('2 of 2 managers ready');
+  });
+
+  test('is the only readiness announcement in the room - the rail shows the count without repeating it', async () => {
+    await showPendingLobby();
+    await userEvent.click(screen.getByRole('tab', { name: 'Draft' }));
+
+    expect(screen.getAllByRole('status')).toHaveLength(1);
+    const readiness = screen.getByRole('region', { name: 'Readiness' });
+    const visibleCount = within(readiness).getByText('1 of 2 managers ready');
+    expect(visibleCount).not.toHaveAttribute('aria-live');
+    expect(visibleCount).not.toHaveAttribute('role', 'status');
+  });
+
+  test('persists across the desktop Board tab too, where the rail is also unmounted', async () => {
+    // The issue records desktop as unaffected because the rail is always
+    // mounted there. It is not: the Board tab of a draft that is not yet
+    // complete renders the matrix alone, with no rail column beside it, so
+    // desktop lost the region on that switch exactly as mobile did. Removing
+    // matchMedia is how this file says "desktop" - MUI's useMediaQuery falls
+    // back to false without it.
+    delete window.matchMedia;
+    await showPendingLobby();
+
+    const before = screen.getByRole('status');
+    await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
+
+    expect(screen.queryByRole('region', { name: 'Readiness' })).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toBe(before);
+  });
+});
