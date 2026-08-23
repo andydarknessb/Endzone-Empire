@@ -34,6 +34,11 @@
  * answers from a JS Set, playing the rows Postgres would return without
  * running the SQL. Evidence about the ANSWER comes from that; evidence about
  * the QUESTION comes from `fake.calls`, which the suite reads back.
+ *
+ * That sibling fixture is a hand-written duplicate of this one - same manager
+ * ids, same Team names, same `{ coCommissioners }` signature - and NOTHING
+ * keeps the two in step (#260). Read the "NOT ENFORCED" note in
+ * socketJoinEndToEnd.test.js's header before changing anything here.
  */
 const { createFakePool, select } = require('./fakePool');
 
