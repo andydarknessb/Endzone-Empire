@@ -84,7 +84,11 @@ describe('registerUser drops the previous session caches', () => {
     gen.next({ data: { token: 'jwt-new', user: { id: 9, username: 'bob' } } }); // token stored, caches dropped, SET_USER
 
     expect(deleted).toEqual(['api-cache-v1']);
-    const { result } = renderHook(() => useLeague(1));
+    const { result, unmount } = renderHook(() => useLeague(1));
     expect(result.current.league).toBeNull();
+    // afterEach's clearLeagueCache() reloads whatever is still mounted on the
+    // key (#35): take this hook instance down first so that reload doesn't
+    // outlive the test.
+    unmount();
   });
 });
