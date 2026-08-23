@@ -68,11 +68,23 @@ const weekView = (overrides = {}) => ({
   mode: 'straight',
   games: [openGame(), lockedGame()],
   myPicks: [],
+  // Revealed picks carry Team identity beside the account fields the expand
+  // step left in place (#112); the board must read only the Team half, so the
+  // fixture keeps a username the assertions then refuse to find on screen.
   othersPicks: {
     'DAL|WAS': [
-      { userId: 5, username: 'rival', gameKey: 'DAL|WAS', pickedTeam: 'DAL', confidence: null },
+      {
+        userId: 5,
+        username: 'rival',
+        teamId: 55,
+        teamName: 'Rivals',
+        gameKey: 'DAL|WAS',
+        pickedTeam: 'DAL',
+        confidence: null,
+      },
     ],
   },
+  viewerTeamId: 9,
   ...overrides,
 });
 
@@ -161,10 +173,40 @@ test('a locked game is not editable and reveals the rest of the league\'s picks'
   await screen.findByRole('button', { name: 'BUF' });
   expect(screen.getByRole('button', { name: 'DAL' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'WAS' })).toBeDisabled();
-  expect(screen.getByText(/rival: DAL/)).toBeInTheDocument();
+  // Revealed by Team, never by the account that made the pick.
+  expect(screen.getByText(/Rivals: DAL/)).toBeInTheDocument();
+  expect(screen.queryByText(/rival: DAL/)).not.toBeInTheDocument();
   expect(screen.getByText('WAS won')).toBeInTheDocument();
   // The unlocked game leaks nothing.
-  expect(screen.queryByText(/rival: MIA/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Rivals: MIA/)).not.toBeInTheDocument();
+});
+
+test('a revealed pick from a manager who has left the league names no account', async () => {
+  // The pick outlives the membership (the server joins teams LEFT), so its
+  // Team identity reads back null and there is no username to fall back to.
+  mockRequests({
+    view: weekView({
+      othersPicks: {
+        'DAL|WAS': [
+          {
+            userId: 5,
+            username: 'ghost',
+            teamId: null,
+            teamName: null,
+            gameKey: 'DAL|WAS',
+            pickedTeam: 'DAL',
+            confidence: null,
+          },
+        ],
+      },
+    }),
+  });
+  renderPage();
+
+  await screen.findByRole('button', { name: 'BUF' });
+  expect(screen.getByText('Former manager: DAL')).toBeInTheDocument();
+  expect(screen.queryByText(/ghost/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/null/)).not.toBeInTheDocument();
 });
 
 test('picking a team and saving posts only the unlocked games', async () => {
