@@ -303,3 +303,156 @@ test('a broadcast Draft payload never carries a viewer-relative field', () => {
   assert.equal('viewerTeamId' in payload, false);
   assert.equal('isViewer' in payload, false);
 });
+
+// ------------------------------------------------------------------------ chat
+
+test('chat history: every message is attributed by Team beside its account fields', async (t) => {
+  const fake = createFakePool([
+    [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ '?column?': 1 }] })],
+    [/FROM "chat_messages"/, () => ({
+      rows: [{
+        id: 5,
+        message: 'good luck everyone',
+        created_at: '2026-09-01T00:00:00.000Z',
+        user_id: OTHER.userId,
+        username: `u${OTHER.userId}`,
+        teamId: OTHER.teamId,
+        teamName: OTHER.teamName,
+      }],
+    })],
+  ]).install(t);
+
+  const res = await request(app)
+    .get(`/api/league/${LEAGUE_ID}/chat`)
+    .set('Authorization', authed(VIEWER.userId));
+
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  const [message] = res.body;
+  assert.equal(message.teamId, OTHER.teamId);
+  assert.equal(message.teamName, OTHER.teamName);
+  assert.equal(message.user_id, OTHER.userId, 'the legacy author account fields survive');
+  assert.equal(message.username, `u${OTHER.userId}`);
+  const [chatQuery] = fake.matching(/FROM "chat_messages"/);
+  assert.match(chatQuery.text, /"teams"\."id" AS "teamId", "teams"\."name" AS "teamName"/);
+  // A LEFT JOIN, so a message from a manager who has since left the league
+  // still reads back rather than vanishing from the history.
+  assert.match(chatQuery.text, /LEFT JOIN "teams"/);
+});
+
+test('chat:message carries the author\'s Team identity beside their account', () => {
+  assert.deepEqual(
+    chatMessagePayload({
+      id: 5,
+      leagueId: LEAGUE_ID,
+      user: { id: OTHER.userId, username: 'u43' },
+      team: { id: OTHER.teamId, name: OTHER.teamName },
+      message: 'good luck everyone',
+      createdAt: '2026-09-01T00:00:00.000Z',
+    }),
+    {
+      id: 5,
+      leagueId: LEAGUE_ID,
+      userId: OTHER.userId,
+      username: 'u43',
+      teamId: OTHER.teamId,
+      teamName: OTHER.teamName,
+      message: 'good luck everyone',
+      created_at: '2026-09-01T00:00:00.000Z',
+    }
+  );
+});
+
+// -------------------------------------------------------------------- pick'em
+
+const pickemApp = express();
+pickemApp.use(express.json());
+pickemApp.use('/api/pickem', require('../routes/pickem.router'));
+
+const KICKED_OFF = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+const PICKEM_LEAGUE = { id: LEAGUE_ID, current_season: 2026, pickem_only: false };
+
+function pickemFake(t, entries) {
+  return createFakePool([
+    // requireMember answers with the viewer's own team row.
+    [/^SELECT \* FROM "teams" WHERE "league_id" = \$1 AND "owner_id" = \$2/, () => ({
+      rows: [{ id: VIEWER.teamId, name: VIEWER.teamName, league_id: LEAGUE_ID, owner_id: VIEWER.userId }],
+    })],
+    [/FROM "pickem_settings"/, () => ({ rows: [{ enabled: true, mode: 'straight' }] })],
+    [/FROM "leagues"/, () => ({ rows: [PICKEM_LEAGUE] })],
+    [/FROM "nfl_games"/, () => ({
+      rows: [
+        { week: 1, nfl_team: 'BUF', opponent: 'MIA', kickoff_at: KICKED_OFF, home_away: 'home' },
+        { week: 1, nfl_team: 'MIA', opponent: 'BUF', kickoff_at: KICKED_OFF, home_away: 'away' },
+      ],
+    })],
+    [/FROM "live_game_states"/, () => ({ rows: [] })],
+    [/"game_recaps"/, () => ({ rows: [] })],
+    ...entries,
+  ]).install(t);
+}
+
+test("pick'em week view: another manager's pick is attributed by Team", async (t) => {
+  const fake = pickemFake(t, [
+    [/FROM "pickem_picks"/, () => ({
+      rows: [{
+        user_id: OTHER.userId,
+        username: `u${OTHER.userId}`,
+        teamId: OTHER.teamId,
+        teamName: OTHER.teamName,
+        team_pair: 'BUF|MIA',
+        picked_team: 'BUF',
+        confidence: null,
+      }],
+    })],
+  ]);
+
+  const res = await request(pickemApp)
+    .get(`/api/pickem/league/${LEAGUE_ID}/week/1`)
+    .set('Authorization', authed(VIEWER.userId));
+
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  const [entry] = res.body.othersPicks['BUF|MIA'];
+  assert.equal(entry.teamId, OTHER.teamId);
+  assert.equal(entry.teamName, OTHER.teamName);
+  assert.equal(entry.userId, OTHER.userId, 'the legacy account fields survive');
+  assert.equal(entry.username, `u${OTHER.userId}`);
+  assert.equal(res.body.viewerTeamId, VIEWER.teamId);
+  const [picksQuery] = fake.matching(/FROM "pickem_picks"/);
+  assert.match(picksQuery.text, /"teams"\."id" AS "teamId", "teams"\."name" AS "teamName"/);
+});
+
+test("pick'em standings: every row carries Team ID beside its Team name and account", async (t) => {
+  const fake = pickemFake(t, [
+    [/FROM "pickem_picks"/, () => ({ rows: [] })],
+    [/FROM "teams"/, () => ({
+      rows: [
+        {
+          user_id: VIEWER.userId, username: `u${VIEWER.userId}`,
+          team_id: VIEWER.teamId, team_name: VIEWER.teamName,
+          avatar_url: null, avatar_static_url: null,
+        },
+        {
+          user_id: OTHER.userId, username: `u${OTHER.userId}`,
+          team_id: OTHER.teamId, team_name: OTHER.teamName,
+          avatar_url: null, avatar_static_url: null,
+        },
+      ],
+    })],
+  ]);
+
+  const res = await request(pickemApp)
+    .get(`/api/pickem/league/${LEAGUE_ID}/standings`)
+    .set('Authorization', authed(VIEWER.userId));
+
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.deepEqual(
+    res.body.standings.map((row) => [row.teamId, row.teamName, row.userId, row.username]),
+    [
+      [VIEWER.teamId, VIEWER.teamName, VIEWER.userId, `u${VIEWER.userId}`],
+      [OTHER.teamId, OTHER.teamName, OTHER.userId, `u${OTHER.userId}`],
+    ]
+  );
+  assert.equal(res.body.viewerTeamId, VIEWER.teamId);
+  const [membersQuery] = fake.matching(/^SELECT "teams"\."owner_id" AS "user_id"/);
+  assert.match(membersQuery.text, /"teams"\."id" AS "team_id"/);
+});

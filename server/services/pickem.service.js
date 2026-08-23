@@ -2,6 +2,7 @@ const pool = require('../modules/pool');
 const { logTransaction } = require('./activity.service');
 const { RECAPS_TABLE_SQL, isMissingRecapStorage } = require('../modules/recapStorage');
 const { isPickemOnly } = require('./leagueType');
+const { teamIdentityColumns } = require('./teamIdentity');
 
 /**
  * League Pick'em — pick the winner of every NFL game, every week.
@@ -612,9 +613,11 @@ async function getWeekView({ leagueId, userId, season, week, mode, now = new Dat
   const stored = await pool.query(
     `SELECT "pickem_picks"."user_id", "pickem_picks"."team_pair",
             "pickem_picks"."picked_team", "pickem_picks"."confidence",
-            "users"."username"
+            "users"."username", ${teamIdentityColumns()}
        FROM "pickem_picks"
        JOIN "users" ON "users"."id" = "pickem_picks"."user_id"
+       LEFT JOIN "teams" ON "teams"."league_id" = "pickem_picks"."league_id"
+                        AND "teams"."owner_id" = "pickem_picks"."user_id"
       WHERE "pickem_picks"."league_id" = $1
         AND "pickem_picks"."season" = $2
         AND "pickem_picks"."week" = $3
@@ -642,7 +645,14 @@ async function getWeekView({ leagueId, userId, season, week, mode, now = new Dat
     }
     if (!lockedKeys.has(row.team_pair)) continue;
     if (!othersPicks[row.team_pair]) othersPicks[row.team_pair] = [];
-    othersPicks[row.team_pair].push({ userId: row.user_id, username: row.username, ...pick });
+    // Team identity beside the author's account fields (#112, parent #108).
+    othersPicks[row.team_pair].push({
+      userId: row.user_id,
+      username: row.username,
+      teamId: row.teamId ?? null,
+      teamName: row.teamName ?? null,
+      ...pick,
+    });
   }
 
   return { season, week, mode, games, myPicks, othersPicks };
@@ -724,7 +734,7 @@ async function getStandings({ leagueId, season, db = pool, games = null }) {
   const settings = await getSettings(leagueId, db);
   const members = await db.query(
     `SELECT "teams"."owner_id" AS "user_id", "users"."username",
-            "teams"."name" AS "team_name",
+            "teams"."id" AS "team_id", "teams"."name" AS "team_name",
             "teams"."avatar_url", "teams"."avatar_static_url"
        FROM "teams"
        JOIN "users" ON "users"."id" = "teams"."owner_id"
@@ -743,6 +753,9 @@ async function getStandings({ leagueId, season, db = pool, games = null }) {
     members: members.rows.map((row) => ({
       userId: row.user_id,
       username: row.username,
+      // A standings row named its Team but never its Team ID, so a consumer
+      // could only match a participant by account (#112, parent #108).
+      teamId: row.team_id ?? null,
       teamName: row.team_name,
       avatarUrl: row.avatar_url,
       avatarStaticUrl: row.avatar_static_url,
