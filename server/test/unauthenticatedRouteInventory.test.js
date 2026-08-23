@@ -166,27 +166,66 @@ function classifyApp(app) {
 }
 
 /**
- * App-level middleware that is neither a route nor a router: `app.use(fn)` and
- * `app.use(path, fn)`.
+ * Every middleware in the mounted tree that is neither a route nor a router:
+ * `use(fn)` and `use(path, fn)`, at the app level and at every router level
+ * below it, each with the FULL path it is mounted at.
  *
  * `classifyApp` cannot see these - they have no `.route` and no `.handle.stack`
- * - so an anonymous surface mounted that way (`app.use('/exports',
+ * - so an anonymous surface mounted that way (`use('/exports',
  * express.static('server/data'))` is the shape to fear) would contribute
  * nothing to the inventory and fail no assertion in it. They are enumerated
- * separately and pinned by name below.
+ * separately and pinned by the three assertions further down: by name for a
+ * static mount, by path for anything owning one, and by arity for anything
+ * that answers.
  *
- * SCOPE, because this reads broader than it is: only the APP level is covered.
- * `classifyRoutes` drops a layer with no `.route` and no `.handle.stack` on its
- * `continue`, and this function reads `app._router.stack` alone, so the same
- * middleware mounted INSIDE a router - `router.use('/exports',
- * express.static(...))` - escapes every assertion in this file. Nothing does
- * that today. Closing it is its own ticket, not a property to claim here.
+ * Until #241 this read `app._router.stack` alone, and the same middleware
+ * inside a router escaped every assertion in this file. Recursing brings 17
+ * existing router-level layers into view - the routers' own `requireAuth`,
+ * `requirePlatformAdmin`, the rate limiters, the two `requireFantasyLeague()`
+ * mounts - so the three pins below are written to separate a harmful mount
+ * from those 17 rather than to list them.
+ *
+ * SCOPE. Two things still escape. A middleware attached to a Router that is
+ * never mounted is not in this tree and is not reachable either. And a
+ * root-mounted, three-argument middleware inside a router that answers instead
+ * of calling `next` is seen here but sorted as benign, because no pin can tell
+ * it from the guards it looks exactly like; see the arity assertion below.
  */
 function terminalMiddleware(app) {
-  return app._router.stack
-    .filter((layer) => !layer.route && !(layer.handle && Array.isArray(layer.handle.stack)))
-    .map((layer) => `${layer.name} ${mountPathOf(layer) || '/'}`);
+  const rows = [];
+  const walk = (stack, prefix) => {
+    for (const layer of stack) {
+      if (layer.route) continue;
+      if (layer.handle && Array.isArray(layer.handle.stack)) {
+        walk(layer.handle.stack, prefix + mountPathOf(layer));
+        continue;
+      }
+      rows.push({
+        name: layer.name,
+        at: prefix + mountPathOf(layer),
+        rooted: isRootMiddleware(layer),
+        answers: !canContinue(layer),
+      });
+    }
+  };
+  walk(app._router.stack, '');
+  return rows;
 }
+
+/** One terminal middleware, as `name mount-path`, for an assertion to read. */
+const describeMount = (row) => `${row.name} ${row.at || '/'}`;
+
+/** Every `express.static` in the tree, wherever it is mounted. */
+const staticMounts = (app) =>
+  terminalMiddleware(app).filter((row) => row.name === 'serveStatic').map(describeMount);
+
+/** Every terminal middleware mounted at a PATH rather than at a root. */
+const pathMounts = (app) =>
+  terminalMiddleware(app).filter((row) => !row.rooted).map(describeMount);
+
+/** Every terminal middleware that answers the request instead of handing it on. */
+const responders = (app) =>
+  terminalMiddleware(app).filter((row) => row.answers).map(describeMount);
 
 const signatures = (app, wanted) =>
   classifyApp(app).filter((r) => r.guarded === wanted).map((r) => r.signature).sort();
@@ -292,6 +331,52 @@ test('the classifier reports a path-scoped guard as no guard at all for its sibl
   assert.deepEqual(anonymous(app), ['GET /api/draft/queue']);
 });
 
+test('a static mount INSIDE a router is pinned by name, like an app-level one (#241)', async () => {
+  // The shape #241 was filed for. `router.use('/exports', express.static(dir))`
+  // has no `.route` and no nested stack, so the route classifier drops it -
+  // and before #241 the compensating pin read `app._router.stack` alone, so a
+  // router put its directory on the internet with every assertion in this file
+  // still green. Both halves are asserted here: the walk finds nothing, and
+  // the pin names it.
+  const router = express.Router();
+  router.use('/exports', express.static(__dirname));
+  router.get('/ok', (_req, res) => res.json({}));
+
+  const app = express();
+  app.use('/api/y', router);
+
+  assert.deepEqual(staticMounts(app), ['serveStatic /api/y/exports']);
+
+  // ...and it really does serve, which is why the pin has to see it: this file
+  // reads back over HTTP with no session.
+  const response = await request(app).get('/api/y/exports/unauthenticatedRouteInventory.test.js');
+  assert.equal(response.status, 200);
+  assert.match(response.text, /the inventory of routes reachable WITHOUT a session/i);
+  assert.deepEqual(anonymous(app), ['GET /api/y/ok'], 'the route walk never sees the directory');
+});
+
+test('a router-level middleware that ANSWERS is pinned even at the router root (#241)', async () => {
+  // The residue the two pins above cannot reach. A terminal middleware mounted
+  // at a router's ROOT is excluded from the path pin by the same rule the app
+  // level uses - root-mounted middleware runs everywhere and exposes no path
+  // of its own - but that rule assumes it hands the request on. One that
+  // answers instead is a surface covering everything below the router's mount,
+  // under no route name at all. It is separated by whether it CAN call `next`.
+  const router = express.Router();
+  router.use((_req, res) => res.json({ everything: true }));
+
+  const app = express();
+  app.use('/api/y', router);
+
+  assert.deepEqual(responders(app), ['<anonymous> /api/y']);
+  assert.deepEqual(staticMounts(app), [], 'not a static mount, so the pin above never sees it');
+  assert.deepEqual(pathMounts(app), [], 'and it is root-mounted, so the path pin never sees it');
+
+  const response = await request(app).get('/api/y/anything-at-all');
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body, { everything: true });
+});
+
 test('the guard the classifier looks for is the one that actually refuses a request', () => {
   // The classifier keys on a name, so the name has to belong to a function
   // that really rejects: otherwise "guarded" is a label, not a fact.
@@ -377,33 +462,69 @@ test('only four routers hold an anonymous route at all', () => {
   assert.deepEqual([...mounts].sort(), ['/api/auth', '/api/draft', '/api/health', '/api/public']);
 });
 
-test('no app-level middleware serves a directory except the SPA shell', () => {
+test('no middleware anywhere in the tree serves a directory except the SPA shell', () => {
   // `express.static` is the one middleware that turns a mount path into a
-  // readable directory, and `app.use(path, express.static(dir))` is invisible
-  // to the route classifier above: no `.route`, no nested stack. So it is
-  // asserted directly, wherever it is mounted.
+  // readable directory, and it is invisible to the route classifier above: no
+  // `.route`, no nested stack. So it is asserted directly, wherever it is
+  // mounted - app or router, root or path (#241).
   const { app } = require('../server');
-  const staticMounts = terminalMiddleware(app).filter((row) => row.startsWith('serveStatic '));
-  assert.deepEqual(staticMounts, ['serveStatic /'], 'the only static mount is build/ at the root');
+  assert.deepEqual(staticMounts(app), ['serveStatic /'], 'the only static mount is build/ at the root');
 });
 
-test('no app-level middleware is mounted at a path without a decision here', () => {
-  // Everything `app.use(path, fn)` installs, other than the routers. Each is a
-  // cross-cutting concern with no payload of its own; the list is pinned so
-  // that mounting a NEW responder at a path is a failure naming the path,
-  // rather than a surface the route classifier structurally cannot see.
-  // Root-mounted middleware (cors, helmet, compression, the body parsers, the
-  // error handlers) is excluded: it cannot expose a path on its own.
+test('no middleware anywhere in the tree is mounted at a path without a decision here', () => {
+  // Everything `use(path, fn)` installs, other than the routers, at any level.
+  // Each is a cross-cutting concern with no payload of its own; the list is
+  // pinned so that mounting a NEW responder at a path is a failure naming the
+  // path, rather than a surface the route classifier structurally cannot see.
+  //
+  // WHY THIS LIST IS EXACT RATHER THAN FILTERED, since #241 made it reach into
+  // routers and a reader meeting a hardcoded list deserves the reason. There
+  // are 34 terminal middlewares in this tree and 17 of them sit at router
+  // level; every one of the 17 is a guard or a rate limiter, and a harmful
+  // mount would look like them in every respect a filter can read - same
+  // `use(...)` call, same layer shape, and a name it chooses for itself. So
+  // there is no pattern that excludes the benign 17 and is guaranteed to keep
+  // the harmful 18th. What separates them is not a name but a POSITION: these
+  // are the mounts that own a path.
+  //
+  // The 17 are excluded by the rule this assertion already used at app level -
+  // root-mounted middleware runs for everything below it and owns no path of
+  // its own - and the assumption inside that rule, that such a middleware
+  // hands the request on, is not assumed here: it is asserted separately
+  // below, by arity.
+  //
+  // This list is therefore EXPECTED to change when the app legitimately adds a
+  // path-mounted middleware. Adding the new line is the decision; the failure
+  // is the prompt to make it deliberately.
   const { app } = require('../server');
-  const mounted = terminalMiddleware(app).filter((row) => !row.endsWith(' /'));
-  assert.deepEqual(mounted, [
+  assert.deepEqual(pathMounts(app), [
     '<anonymous> /api',                       // Cache-Control: private, no-store
     'rateLimitMiddleware /api',               // generalApiLimiter
     'rateLimitMiddleware /api/auth/login/?(?=/|$)|^/api/auth/register/?(?=/|$)|^/api/auth/forgot-password',
     'rateLimitMiddleware /api/auth/refresh',  // refreshLimiter
+    '<anonymous> /api/scoring/league(?:/([^/]+?))',  // requireFantasyLeague(), scoring.router
+    '<anonymous> /api/draft/league(?:/([^/]+?))',    // requireFantasyLeague(), draft.router
     '<anonymous> /api/public',                // the public CDN Cache-Control
     '<anonymous> /api',                       // the API 404
   ]);
+});
+
+test('only one middleware in the tree answers a request rather than passing it on', () => {
+  // The complement of the pin above, and the reason that one may exclude
+  // root-mounted middleware without hand-waving (#241). A terminal middleware
+  // is safe to exclude because it hands the request on; one that ANSWERS is a
+  // surface covering everything below its mount, under no route name at all,
+  // and `router.use((req, res) => res.json(...))` puts one at a router root
+  // where the path pin will not look.
+  //
+  // "Answers" is read as "does not declare a `next` parameter, so it cannot
+  // call one" - see canContinue. That is one-directional: the 33 layers not
+  // listed here all COULD hand the request on, which is not the same as
+  // proving they do. `requireAuth` is itself an example of one that answers
+  // sometimes, and that is the residue this pin does not cover: a
+  // three-argument middleware that responds anyway is invisible to it.
+  const { app } = require('../server');
+  assert.deepEqual(responders(app), ['<anonymous> /api'], 'the API 404 is the only one');
 });
 
 test('the only anonymous non-API route is the static SPA shell', () => {
