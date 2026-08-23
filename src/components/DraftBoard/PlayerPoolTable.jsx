@@ -32,7 +32,7 @@ import { visuallyHidden } from '@mui/utils';
 import InjuryBadge from '../InjuryBadge/InjuryBadge';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import PositionChip from '../PlayerQuickView/PositionChip';
-import { STAT_DEFINITIONS } from '../common/AbbreviationTooltip';
+import { STAT_DEFINITIONS, ABBREVIATION_STYLE } from '../common/AbbreviationTooltip';
 import ColumnGuide from './ColumnGuide';
 import { pickActionExists, pickTemporarilyUnavailable, PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
 import { SORT_FIELDS } from './sortFields';
@@ -208,7 +208,7 @@ function SortableHeaderCell({ field, sort, dir, onSort }) {
       {alignRight ? (
         <Box
           component="span"
-          sx={{ cursor: 'help', textDecoration: 'underline dotted', textUnderlineOffset: 3 }}
+          sx={{ ...ABBREVIATION_STYLE }}
         >
           {field.label}
         </Box>

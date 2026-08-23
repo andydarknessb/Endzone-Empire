@@ -1,6 +1,19 @@
 import React from 'react';
 import { Box, Tooltip } from '@mui/material';
 
+// The visual treatment that marks a term as "has a definition on hover/
+// focus": a help cursor plus a dotted underline offset from the text. Shared
+// with SortableHeaderCell's inline numeric-header label in PlayerPoolTable.jsx
+// (issue #255) - that header can't nest this component's own focusable span
+// without giving numeric headers a second Tab stop (issue #212), so it
+// spreads this constant into its own Box instead of restating the three
+// properties by hand.
+export const ABBREVIATION_STYLE = Object.freeze({
+  cursor: 'help',
+  textDecoration: 'underline dotted',
+  textUnderlineOffset: 3,
+});
+
 export const STAT_DEFINITIONS = Object.freeze({
   PMR: 'Players remaining: starters whose NFL games have not finished.',
   PF: 'Points for: total fantasy points scored by this team.',
@@ -22,7 +35,7 @@ function AbbreviationTooltip({ term, label = term }) {
         component="span"
         tabIndex={0}
         aria-label={`${label}: ${definition || term}`}
-        sx={{ cursor: 'help', textDecoration: 'underline dotted', textUnderlineOffset: 3 }}
+        sx={ABBREVIATION_STYLE}
       >
         {label}
       </Box>
