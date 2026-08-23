@@ -26,11 +26,22 @@ const { ESLint } = require('eslint');
 // still get the testing-library rules AND that `server/` is still linted by
 // the base rules and can still be made to fail on demand.
 //
-// NOTE (#207): nothing runs this file automatically yet. CI has no eslint step
-// (only `lint:colors`), `npm test`'s pinned testMatch covers `src/` only, and
-// #207 was scoped to the `eslintConfig` block of package.json, so adding a
-// `test:eslint-scoping` script was out of bounds. Run it with
-// `node --test scripts/eslintRuleScoping.test.js`. Wiring it up is a follow-up.
+// READ THIS BEFORE TRUSTING THIS FILE (#207).
+//
+// NO CI STEP RUNS THESE ASSERTIONS. Run them deliberately:
+//
+//     npm run test:eslint-scoping
+//
+// The script makes this guard RUNNABLE, not RUN. As of #207 no workflow in
+// .github/workflows/ invokes eslint at all: ci.yml's only lint step is
+// `npm run lint:colors`, which is the bespoke color-literal checker in
+// scripts/check-color-literals.js, not eslint. `npm test`'s pinned testMatch
+// covers `src/` only, so it never reaches this file either.
+//
+// So: ten passing assertions below are evidence only for whoever actually ran
+// them. Do not read the presence of this file as proof that the rule scoping
+// is protected -- until an eslint step exists in CI, nothing enforces it on a
+// pull request. Wiring one up is a follow-up ticket.
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 
