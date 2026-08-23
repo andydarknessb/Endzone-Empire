@@ -8,6 +8,7 @@ const {
 } = require('./lineup.service');
 const { getIo } = require('../modules/io');
 const { fantasySideWhereSql } = require('./leagueType');
+const { seasonEngineAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('./leaguePhase');
 
 // Default fantasy scoring rules, grouped by category (NFL.com-style
 // defaults) — half-PPR. Tiered stats (FG distance, TD-length bonus,
@@ -1574,6 +1575,20 @@ async function generateMatchups({ leagueId, season, week }) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    // #194: this is the third path that inserts matchups, so it carries the
+    // same phase refusal as the season engine's own two entry points. Read
+    // through this transaction's client for the same reason they do.
+    const leagueResult = await client.query(
+      `SELECT "pickem_only", "draft_status", "season_status" FROM "leagues" WHERE "id" = $1`,
+      [leagueId]
+    );
+    if (!seasonEngineAvailable(leagueResult.rows[0])) {
+      // Thrown, not rolled back here: this function's own catch rolls back
+      // and rethrows, and rolling back twice is an error in its own right.
+      const err = new Error(SEASON_BEFORE_DRAFT_MESSAGE);
+      err.statusCode = 409;
+      throw err;
+    }
     const existing = await client.query(
       `SELECT 1 FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 LIMIT 1`,
       [leagueId, season, week]
