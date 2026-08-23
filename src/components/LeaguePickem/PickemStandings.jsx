@@ -26,11 +26,15 @@ import { teamNameLabel, teamRowKey } from '../../lib/teamIdentity';
  * usePickemStandings cache, so the dashboard and the Pick'em page one click
  * later cost the server one computation, not two.
  *
- * Participants are Teams here, not accounts (#114, parent #108): the table
- * shows `teamName` and marks the viewer's own row by comparing `teamId`
- * against the `viewerTeamId` at the root of the response. A REST response is
- * a per-viewer channel, so that field can be trusted to be about this reader;
- * without it nobody is marked, rather than guessing from an account.
+ * Participants are Teams here, not accounts (#114, parent #108): a row shows
+ * its `teamName`, and is keyed and addressed by its `teamId`. Nothing here
+ * reads an account field, and there is deliberately no fallback to one when
+ * the Team name is missing.
+ *
+ * The response also carries `viewerTeamId` at its root, which nothing in this
+ * table reads yet. That is the expand step working as designed rather than a
+ * gap: #112 landed the field ahead of any consumer, and marking the viewer's
+ * own row is a new affordance rather than part of this migration.
  */
 export default function PickemStandings({ leagueId, season, week }) {
   const { data, error, refetch } = usePickemStandings(leagueId, season);
@@ -52,7 +56,6 @@ export default function PickemStandings({ leagueId, season, week }) {
   if (!data) return <Skeleton variant="rounded" height={280} />;
 
   const confidence = data.mode === 'confidence';
-  const viewerTeamId = data.viewerTeamId ?? null;
 
   return (
     <Box>
@@ -86,25 +89,13 @@ export default function PickemStandings({ leagueId, season, week }) {
           </TableHead>
           <TableBody>
             {data.standings.map((row, index) => {
-              const isViewer = viewerTeamId != null && row.teamId === viewerTeamId;
               const name = teamNameLabel(row.teamName);
               // One value keys the row and addresses it, so a departed
               // manager's row is not `former-0` in one place and `null` in
               // the other.
               const rowKey = teamRowKey(row.teamId, index);
               return (
-                <TableRow
-                  key={rowKey}
-                  data-testid={`pickem-standings-row-${rowKey}`}
-                  data-viewer-team={isViewer || undefined}
-                  sx={{
-                    ...(isViewer && {
-                      bgcolor: 'var(--accent-soft)',
-                      borderLeft: '3px solid',
-                      borderLeftColor: 'primary.main',
-                    }),
-                  }}
-                >
+                <TableRow key={rowKey} data-testid={`pickem-standings-row-${rowKey}`}>
                   <TableCell>{row.rank}</TableCell>
                   <TableCell>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -115,7 +106,6 @@ export default function PickemStandings({ leagueId, season, week }) {
                         size={28}
                       />
                       <Typography variant="body2">{name}</Typography>
-                      {isViewer && <Chip size="small" label="You" />}
                     </Box>
                   </TableCell>
                   {week != null && (

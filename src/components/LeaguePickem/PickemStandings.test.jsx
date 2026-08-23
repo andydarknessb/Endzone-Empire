@@ -12,9 +12,10 @@ import apiClient from '../../api/apiClient';
 import { clearPickemStandingsCache } from '../../hooks/usePickemStandings';
 
 // The standings response as the server sends it: Team identity on every row,
-// `viewerTeamId` at the root because a REST response is a per-viewer channel,
-// and the account fields the expand step left in place (#112) which this
-// table must no longer read.
+// the account fields the expand step left in place (#112) which this table
+// must no longer read, and `viewerTeamId` at the root, which nothing reads
+// yet. The last is here to mirror the wire, not because the table uses it:
+// marking the viewer's own row is a separate affordance, not this migration.
 const STANDINGS = {
   season: 2026,
   mode: 'confidence',
@@ -54,28 +55,6 @@ test('names each participant by Team and never by their account', async () => {
   // Rows are addressed by Team too, so nothing keys off the account.
   expect(screen.getByTestId('pickem-standings-row-21')).toBeInTheDocument();
   expect(screen.getByTestId('pickem-standings-row-92')).toBeInTheDocument();
-});
-
-test('marks the viewer\'s own row from viewerTeamId, without any account comparison', async () => {
-  apiClient.get.mockResolvedValue({ data: STANDINGS });
-  renderWithProviders(<PickemStandings leagueId={7} season={2026} />);
-
-  const table = await screen.findByRole('table');
-  const rows = within(table).getAllByRole('row').slice(1);
-  expect(rows[0]).not.toHaveAttribute('data-viewer-team');
-  expect(rows[1]).toHaveAttribute('data-viewer-team', 'true');
-  expect(within(rows[1]).getByText('You')).toBeInTheDocument();
-});
-
-test('marks nobody when the response carries no viewerTeamId', async () => {
-  const { viewerTeamId, ...withoutViewer } = STANDINGS;
-  apiClient.get.mockResolvedValue({ data: withoutViewer });
-  renderWithProviders(<PickemStandings leagueId={7} season={2026} />);
-
-  const table = await screen.findByRole('table');
-  const rows = within(table).getAllByRole('row').slice(1);
-  for (const row of rows) expect(row).not.toHaveAttribute('data-viewer-team');
-  expect(within(table).queryByText('You')).not.toBeInTheDocument();
 });
 
 // Unlike chat history and revealed picks, a standings row cannot actually
