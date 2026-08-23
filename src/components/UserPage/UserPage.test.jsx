@@ -39,9 +39,14 @@ afterEach(() => {
   jest.clearAllMocks();
 });
 
-test('shows skeleton cards (not the empty state) while leagues are loading', () => {
+test('shows skeleton cards (not the empty state) while leagues are loading', async () => {
   apiClient.get.mockReturnValue(new Promise(() => {})); // never resolves
   renderWithProviders(<UserPage />, { state: baseState });
+  // The lazy PublicHighlights chunk resolves independently of apiClient (a
+  // real dynamic import, not a mocked fetch) and only on the first mount in
+  // this file. Let it settle so its Suspense ping doesn't land on a later
+  // test that happens to yield first.
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
 
   expect(screen.getAllByTestId('league-skeleton').length).toBeGreaterThan(0);
   expect(screen.queryByTestId('leagues-empty-state')).not.toBeInTheDocument();
@@ -50,6 +55,12 @@ test('shows skeleton cards (not the empty state) while leagues are loading', () 
 test('renders the title and a welcome message with the username', async () => {
   apiClient.get.mockResolvedValue({ data: [] });
   renderWithProviders(<UserPage />, { state: baseState });
+  // UserPage unconditionally mounts the news/activity widgets and the lazy
+  // PublicHighlights section, each firing its own fetch on mount regardless
+  // of what this test asserts. Neither assertion below needs a fetch to
+  // settle, but the test needs to let those settle before it ends, or their
+  // state updates land after Jest has moved on to the next test.
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
 
   expect(screen.getByText('Endzone Empire')).toBeInTheDocument();
   expect(screen.getByText('Welcome, alice!')).toBeInTheDocument();
@@ -58,6 +69,8 @@ test('renders the title and a welcome message with the username', async () => {
 test("the hero names weekly picks alongside the fantasy features, so a pick'em-only manager is not promised rosters", async () => {
   apiClient.get.mockResolvedValue({ data: [] });
   renderWithProviders(<UserPage />, { state: baseState });
+  // See the comment above: let the always-present background fetches settle.
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
 
   const hero = within(screen.getByTestId('dashboard-hero'));
   expect(hero.getByText(/drafts, matchups, waivers, trades, and weekly picks, all in one place./)).toBeInTheDocument();
