@@ -742,7 +742,7 @@ async function upsertPicks({ leagueId, userId, season, week, picks, now = new Da
  * final standings inside its completion transaction), and `games` lets a
  * caller that already holds the season slate skip re-deriving it.
  */
-async function getStandings({ leagueId, season, db = pool, games = null }) {
+async function loadStandings({ leagueId, season, db, games, includeFormerPickers }) {
   const settings = await getSettings(leagueId, db);
   const members = await db.query(
     `SELECT "teams"."owner_id" AS "user_id", "users"."username",
@@ -761,8 +761,7 @@ async function getStandings({ leagueId, season, db = pool, games = null }) {
   );
   const slate = games || (await getSeasonSlate({ season, db }));
 
-  const standings = computePickemStandings({
-    members: members.rows.map((row) => ({
+  const participants = members.rows.map((row) => ({
       userId: row.user_id,
       username: row.username,
       // A standings row named its Team but never its Team ID, so a consumer
@@ -771,7 +770,25 @@ async function getStandings({ leagueId, season, db = pool, games = null }) {
       teamName: row.team_name,
       avatarUrl: row.avatar_url,
       avatarStaticUrl: row.avatar_static_url,
-    })),
+    }));
+  if (includeFormerPickers) {
+    const currentManagerIds = new Set(participants.map((member) => String(member.userId)));
+    for (const pick of stored.rows) {
+      if (currentManagerIds.has(String(pick.user_id))) continue;
+      currentManagerIds.add(String(pick.user_id));
+      participants.push({
+        userId: pick.user_id,
+        username: '',
+        teamId: null,
+        teamName: null,
+        avatarUrl: null,
+        avatarStaticUrl: null,
+      });
+    }
+  }
+
+  const standings = computePickemStandings({
+    members: participants,
     games: slate,
     picks: stored.rows.map((row) => ({
       userId: row.user_id,
@@ -783,6 +800,18 @@ async function getStandings({ leagueId, season, db = pool, games = null }) {
     mode: settings.mode,
   });
   return { season, mode: settings.mode, standings };
+}
+
+async function getStandings({ leagueId, season, db = pool, games = null }) {
+  return loadStandings({ leagueId, season, db, games, includeFormerPickers: false });
+}
+
+/**
+ * Retain every season picker long enough to determine whether a removed Team
+ * would have won. Null Team identity is rejected only in the champion set.
+ */
+async function getCompletionStandings({ leagueId, season, db = pool, games = null }) {
+  return loadStandings({ leagueId, season, db, games, includeFormerPickers: true });
 }
 
 module.exports = {
@@ -809,4 +838,5 @@ module.exports = {
   getWeekView,
   upsertPicks,
   getStandings,
+  getCompletionStandings,
 };

@@ -146,6 +146,11 @@ jobs:
       - run: npm run test:team-names-pg
         env:
           TEAM_NAMES_PG_TESTS: "1"
+      # Pick'em season result (#292): real uniqueness and JSON outcome guards,
+      # plus durable readback after its projected trophy and Team are deleted.
+      - run: npm run test:pickem-season-result-pg
+        env:
+          PICKEM_SEASON_RESULT_PG_TESTS: "1"
       # A lineup entry follows the roster (#197): the stale-row cleanup
       # migration's WHERE clause, and the runtime operation that maintains
       # the same rule from now on, checked against real rows. The mocked
