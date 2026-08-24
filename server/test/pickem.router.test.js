@@ -383,6 +383,52 @@ test('standings default to the league\'s current season and score every member',
   assert.match(scheduleSql, /fn_normalize_nfl_team\("nfl_team"\)/);
 });
 
+test('standings return competition ranks for Pick\'em-only and side-game leagues', async (t) => {
+  let pickemOnly = true;
+  mockPool(t, [
+    [/SELECT "id", "name", "current_season"/, () => ({
+      rows: [{ id: 3, name: 'Ballers', current_season: 2026, current_week: 1, pickem_only: pickemOnly }],
+    })],
+    [/FROM "teams" JOIN "users"/, () => ({
+      rows: [
+        { user_id: MEMBER, username: 'zoe', team_name: 'Mine', avatar_url: null, avatar_static_url: null },
+        { user_id: 5, username: 'abe', team_name: 'Theirs', avatar_url: null, avatar_static_url: null },
+        { user_id: 7, username: 'mia', team_name: 'Third', avatar_url: null, avatar_static_url: null },
+      ],
+    })],
+    [/SELECT "user_id", "week", "team_pair"/, () => ({
+      rows: [
+        { user_id: MEMBER, week: 1, team_pair: 'BUF|MIA', picked_team: 'BUF', confidence: null },
+        { user_id: MEMBER, week: 1, team_pair: 'DAL|WAS', picked_team: 'WAS', confidence: null },
+        { user_id: 5, week: 1, team_pair: 'BUF|MIA', picked_team: 'BUF', confidence: null },
+        { user_id: 5, week: 1, team_pair: 'DAL|WAS', picked_team: 'WAS', confidence: null },
+        { user_id: 7, week: 1, team_pair: 'BUF|MIA', picked_team: 'BUF', confidence: null },
+        { user_id: 7, week: 1, team_pair: 'DAL|WAS', picked_team: 'DAL', confidence: null },
+      ],
+    })],
+    [/FROM "live_game_states"/, () => ({
+      rows: [
+        { week: 1, home_team: 'BUF', away_team: 'MIA', game_status: 'final',
+          current_score_home: 31, current_score_away: 10 },
+        { week: 1, home_team: 'DAL', away_team: 'WAS', game_status: 'final',
+          current_score_home: 10, current_score_away: 20 },
+      ],
+    })],
+  ]);
+
+  for (pickemOnly of [true, false]) {
+    const res = await request(app)
+      .get('/api/pickem/league/3/standings').set('Authorization', authed());
+
+    assert.equal(res.status, 200);
+    assert.deepEqual(
+      res.body.standings.map((row) => [row.rank, row.teamName, row.points, row.correct]),
+      [[1, 'Theirs', 2, 2], [1, 'Mine', 2, 2], [3, 'Third', 1, 1]],
+      pickemOnly ? "Pick'em-only" : 'side game'
+    );
+  }
+});
+
 test('an explicit non-numeric season is rejected', async () => {
   const res = await request(app)
     .get('/api/pickem/league/3/standings?season=abc').set('Authorization', authed());
