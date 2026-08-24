@@ -78,6 +78,7 @@
     "test:pickem-season-result-pg": "node --test server/test/pickemSeasonResult.pg.test.js",
     "test:pickem-season-result-import-pg": "node --test server/test/pickemSeasonResultImport.pg.test.js",
     "test:pickem-season-result-operator-pg": "node --test server/test/pickemSeasonResultOperator.pg.test.js",
+    "test:pickem-history-pg": "node --test server/test/pickemHistory.pg.test.js",
     "test:backtest-pg": "node --test server/test/backtestSnapshotClient.pg.test.js server/test/backtestGate1Role.pg.test.js",
     "test:security": "playwright test --config=playwright.security.config.js",
     "test:e2e:auth-offline": "playwright test --config=playwright.e2e.config.js tests/e2e/auth-offline.spec.ts",

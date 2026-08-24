@@ -163,6 +163,11 @@ jobs:
       - run: npm run test:pickem-season-result-operator-pg
         env:
           PICKEM_SEASON_RESULT_OPERATOR_PG_TESTS: "1"
+      # Pick'em history cutover (#295): archive backfill, survival without a
+      # live Team/account display, and database-enforced outcome consistency.
+      - run: npm run test:pickem-history-pg
+        env:
+          PICKEM_HISTORY_PG_TESTS: "1"
       # A lineup entry follows the roster (#197): the stale-row cleanup
       # migration's WHERE clause, and the runtime operation that maintains
       # the same rule from now on, checked against real rows. The mocked

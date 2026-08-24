@@ -926,10 +926,13 @@ router.get('/:id/history', async (req, res) => {
     }
     const historyResult = await pool.query(
       `SELECT "league_history"."season", "league_history"."standings",
+              "league_history"."pickem_result",
+              "leagues"."pickem_only",
               "league_history"."champion_team_id", "teams"."name" AS "champion_name",
               "teams"."avatar_url" AS "champion_avatar_url",
               "teams"."avatar_static_url" AS "champion_avatar_static_url"
        FROM "league_history"
+       JOIN "leagues" ON "leagues"."id" = "league_history"."league_id"
        LEFT JOIN "teams" ON "teams"."id" = "league_history"."champion_team_id"
        WHERE "league_history"."league_id" = $1
        ORDER BY "league_history"."season" DESC`,
@@ -938,6 +941,13 @@ router.get('/:id/history', async (req, res) => {
     const trophies = require('../services/trophy.service');
     const seasons = [];
     for (const row of historyResult.rows) {
+      const pickemResult = row.pickem_result && typeof row.pickem_result === 'string'
+        ? JSON.parse(row.pickem_result)
+        : row.pickem_result;
+      const champions = pickemResult && Array.isArray(pickemResult.champions)
+        ? pickemResult.champions
+        : null;
+      const firstPickemChampion = champions && champions[0];
       let seasonTrophies = [];
       let trophiesErrored = false;
       try {
@@ -965,14 +975,27 @@ router.get('/:id/history', async (req, res) => {
 
       seasons.push({
         season: row.season,
-        champion: row.champion_team_id
-          ? {
-              teamId: row.champion_team_id,
-              name: row.champion_name,
-              avatarUrl: row.champion_avatar_url,
-              avatarStaticUrl: row.champion_avatar_static_url,
-            }
-          : null,
+        outcome: pickemResult ? pickemResult.outcome : null,
+        champions,
+        // Deprecated compatibility projection. Declaration order has no
+        // championship significance; new consumers use `champions`.
+        champion: pickemResult
+          ? (firstPickemChampion
+              ? {
+                  teamId: firstPickemChampion.teamId,
+                  name: firstPickemChampion.teamName,
+                  avatarUrl: firstPickemChampion.avatarUrl,
+                  avatarStaticUrl: firstPickemChampion.avatarStaticUrl,
+                }
+              : null)
+          : (!row.pickem_only && row.champion_team_id
+              ? {
+                  teamId: row.champion_team_id,
+                  name: row.champion_name,
+                  avatarUrl: row.champion_avatar_url,
+                  avatarStaticUrl: row.champion_avatar_static_url,
+                }
+              : null),
         standings: row.standings,
         trophies: seasonTrophies,
         trophiesErrored,

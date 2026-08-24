@@ -64,6 +64,7 @@ test('recovery dry-run reports the exact missing-to-declared change without writ
 
 test('recovery apply commits the result, reconciled trophy, and audit together', async () => {
   let stored = null;
+  let archivedResult = null;
   const trophies = [];
   const audits = [];
   const db = createFakePool([
@@ -83,6 +84,11 @@ test('recovery apply commits the result, reconciled trophy, and audit together',
         declared_at: '2027-01-12T06:00:00.000Z',
       };
       return { rows: [stored] };
+    }],
+    [update('league_history'), (text, params) => {
+      archivedResult = JSON.parse(params[0]);
+      assert.deepEqual(params.slice(1), [7, 2026]);
+      return { rows: [] };
     }],
     [remove('trophies'), () => ({ rows: [] })],
     [select('teams'), () => ({ rows: [{ id: 71 }] })],
@@ -171,6 +177,7 @@ test('recovery apply commits the result, reconciled trophy, and audit together',
     label: "2026 Pick'em Champion",
     data: { points: 19, correct: 16, mode: 'straight' },
   }]);
+  assert.deepEqual(archivedResult, expectedAfter);
   assert.deepEqual(
     db.calls.filter(({ text }) => /^(BEGIN|COMMIT|ROLLBACK)$/.test(text)).map(({ text }) => text),
     ['BEGIN', 'COMMIT']
@@ -267,6 +274,7 @@ test('correction dry-run reports an exact before/after plan without writing', as
 
 test('correction apply replaces the result and records immutable before/after evidence', async () => {
   const audits = [];
+  let archivedResult = null;
   let stored = {
     league_id: 8,
     season: 2026,
@@ -300,6 +308,11 @@ test('correction apply replaces the result and records immutable before/after ev
         provenance: JSON.parse(params[3]),
       };
       return { rows: [stored] };
+    }],
+    [update('league_history'), (text, params) => {
+      archivedResult = JSON.parse(params[0]);
+      assert.deepEqual(params.slice(1), [8, 2026]);
+      return { rows: [] };
     }],
     [remove('trophies'), () => ({ rows: [] })],
     [insert('pickem_season_result_audits'), (text, params) => {
@@ -368,6 +381,7 @@ test('correction apply replaces the result and records immutable before/after ev
     awarded: [],
   });
   assert.equal(db.matching(insert('trophies')).length, 0);
+  assert.deepEqual(archivedResult, after);
   assert.deepEqual(
     db.calls.filter(({ text }) => /^(BEGIN|COMMIT|ROLLBACK)$/.test(text)).map(({ text }) => text),
     ['BEGIN', 'COMMIT']

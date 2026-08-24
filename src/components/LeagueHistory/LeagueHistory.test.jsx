@@ -1,8 +1,9 @@
 import React from 'react';
-import { screen, within } from '@testing-library/react';
+import { act, screen, within } from '@testing-library/react';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import LeagueHistory from './LeagueHistory';
+import { publishTeamProfileUpdate } from '../../lib/teamProfileEvents';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
@@ -224,4 +225,63 @@ test("a pick'em season's standings render points and correct picks instead of a 
   const banner = within(panel).getByTestId('champion-banner-2026');
   expect(banner).toHaveTextContent('171 points');
   expect(banner).not.toHaveTextContent('record');
+});
+
+test("a Pick'em history panel displays every archived co-champion instead of the singular compatibility field", async () => {
+  apiClient.get.mockResolvedValue({
+    data: {
+      seasons: [{
+        season: 2026,
+        outcome: 'champions',
+        champions: [
+          { teamId: 10, teamName: 'Archived Aces', avatarUrl: null, avatarStaticUrl: null, points: 171, correct: 120, mode: 'straight' },
+          { teamId: 99, teamName: 'Departed Champs', avatarUrl: null, avatarStaticUrl: null, points: 171, correct: 120, mode: 'straight' },
+        ],
+        champion: { teamId: 777, name: 'Deprecated Wrong Winner' },
+        standings: [
+          { teamId: 11, name: 'Drifted Leader', rank: 1, points: 180, correct: 121, pushes: 0 },
+          { teamId: 10, name: 'Archived Aces', rank: 2, points: 171, correct: 120, pushes: 0 },
+        ],
+        trophies: [],
+        draftGrades: null,
+      }],
+    },
+  });
+
+  renderHistory();
+
+  const panel = await screen.findByTestId('season-panel-2026');
+  const banner = within(panel).getByTestId('champion-banner-2026');
+  expect(banner).toHaveTextContent('Co-Champions');
+  expect(banner).toHaveTextContent('Archived Aces');
+  expect(banner).toHaveTextContent('Departed Champs');
+  expect(banner).toHaveTextContent('171 points');
+  expect(panel).not.toHaveTextContent('Deprecated Wrong Winner');
+
+  act(() => publishTeamProfileUpdate({ leagueId: 1, teamId: 10, name: 'Anonymized Current Team' }));
+  expect(panel).not.toHaveTextContent('Anonymized Current Team');
+  expect(panel).toHaveTextContent('Archived Aces');
+});
+
+test("a declared Pick'em no-champion season is explicit rather than reported as missing", async () => {
+  apiClient.get.mockResolvedValue({
+    data: {
+      seasons: [{
+        season: 2026,
+        outcome: 'no_champion',
+        champions: [],
+        champion: null,
+        standings: [],
+        trophies: [],
+        draftGrades: null,
+      }],
+    },
+  });
+
+  renderHistory();
+
+  const panel = await screen.findByTestId('season-panel-2026');
+  expect(panel).toHaveTextContent('No champion');
+  expect(panel).not.toHaveTextContent('No champion recorded');
+  expect(within(panel).queryByTestId('champion-banner-2026')).not.toBeInTheDocument();
 });

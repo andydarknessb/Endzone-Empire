@@ -66,6 +66,10 @@ if (!ENABLED) {
       [leagueId, userId]
     );
     teamId = team.rows[0].id;
+    await pool.query(
+      `INSERT INTO "league_history" ("league_id", "season") VALUES ($1, $2)`,
+      [leagueId, SEASON]
+    );
   });
 
   test.after(async () => {
@@ -102,6 +106,13 @@ if (!ENABLED) {
       evidenceSource: 'support-case-pg-294',
       operatorId: userId,
     });
+    assert.deepEqual(
+      (await pool.query(
+        `SELECT "pickem_result" FROM "league_history" WHERE "league_id" = $1 AND "season" = $2`,
+        [leagueId, SEASON]
+      )).rows[0].pickem_result,
+      recovery.after
+    );
 
     const recoveryRetry = await recover({ ...recoveryInput, apply: true });
     assert.equal(recoveryRetry.applied, false);
@@ -148,6 +159,13 @@ if (!ENABLED) {
     assert.deepEqual(correction.after.champions, correctedChampions);
     assert.deepEqual(correction.audit.before, recovery.after);
     assert.deepEqual(correction.audit.after, correction.after);
+    assert.deepEqual(
+      (await pool.query(
+        `SELECT "pickem_result" FROM "league_history" WHERE "league_id" = $1 AND "season" = $2`,
+        [leagueId, SEASON]
+      )).rows[0].pickem_result,
+      correction.after
+    );
 
     const correctionRetry = await correct({ ...correctionInput, apply: true });
     assert.equal(correctionRetry.idempotent, true);
@@ -195,6 +213,13 @@ if (!ENABLED) {
     await pool.query('DROP TRIGGER "pickem_result_operator_test_fail" ON "pickem_season_result_audits"');
     await pool.query('DROP FUNCTION "pickem_result_operator_test_fail"()');
     assert.deepEqual(await resultOf({ db: pool, leagueId, season: SEASON }), correction.after);
+    assert.deepEqual(
+      (await pool.query(
+        `SELECT "pickem_result" FROM "league_history" WHERE "league_id" = $1 AND "season" = $2`,
+        [leagueId, SEASON]
+      )).rows[0].pickem_result,
+      correction.after
+    );
     assert.equal((await auditTrailOf({ db: pool, leagueId, season: SEASON })).length, 2);
     assert.deepEqual(
       (await pool.query(

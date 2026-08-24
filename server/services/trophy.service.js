@@ -329,21 +329,6 @@ async function reconcilePickemChampionTrophies({ client, leagueId, season, champ
   });
 }
 
-/**
- * The team ids season completion crowned as pick'em champion(s), in award
- * order. Empty when nothing was crowned (no picks resolved, or the winner
- * had no teams row). Pool or client.
- */
-async function getPickemChampionTeamIds({ db = pool, leagueId, season }) {
-  const result = await db.query(
-    `SELECT "team_id" FROM "trophies"
-     WHERE "league_id" = $1 AND "season" = $2 AND "week" = 0 AND "type" = 'pickem_champion'
-     ORDER BY "id"`,
-    [leagueId, season]
-  );
-  return result.rows.map((row) => row.team_id);
-}
-
 /** All trophies a team has earned, newest first. */
 async function getTeamTrophies({ teamId }) {
   const result = await pool.query(
@@ -379,7 +364,6 @@ module.exports = {
   awardPickemChampions,
   reconcilePickemChampionTrophies,
   notifyAwardedOwners,
-  getPickemChampionTeamIds,
   getTeamTrophies,
   getLeagueTrophies,
 };

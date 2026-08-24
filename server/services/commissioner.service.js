@@ -16,13 +16,14 @@ const { isIrEligible, rosterCapacity } = require('./irPolicy.service');
 const lineupService = require('./lineup.service');
 const { isPickemOnly } = require('./leagueType');
 const { getStandings: getPickemStandings, getSeasonSlate } = require('./pickem.service');
-const { pickemChampions } = require('./pickemSeason.service');
-const { getPickemChampionTeamIds } = require('./trophy.service');
+const { OUTCOME: PICKEM_RESULT_OUTCOME, resultOf: pickemSeasonResultOf } = require('./pickemSeasonResult.service');
 
 class CommissionerError extends Error {
-  constructor(statusCode, message) {
+  constructor(statusCode, message, { code, ...details } = {}) {
     super(message);
     this.statusCode = statusCode;
+    if (code) this.code = code;
+    Object.assign(this, details);
   }
 }
 
@@ -319,6 +320,20 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
       // closed. There is no roster to keep anything from.
       throw new CommissionerError(409, "this is a pick'em league; it has no rosters or keepers");
     }
+    const pickemResult = pickemOnly
+      ? await pickemSeasonResultOf({ db: client, leagueId, season: league.current_season })
+      : null;
+    if (pickemResult?.outcome === PICKEM_RESULT_OUTCOME.MISSING) {
+      throw new CommissionerError(
+        409,
+        `Pick'em season result is missing for league ${leagueId}, season ${league.current_season}`,
+        {
+          code: 'PICKEM_SEASON_RESULT_MISSING',
+          leagueId,
+          season: Number(league.current_season),
+        }
+      );
+    }
 
     const teamsResult = await client.query(
       `SELECT "id", "name", "owner_id" FROM "teams" WHERE "league_id" = $1`,
@@ -330,14 +345,10 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
     let championTeamId;
     let championUserId;
     if (pickemOnly) {
-      // A pick'em-only league has no matchups or rosters: the season record
-      // is the pick'em standings, the champion is whoever season completion
-      // crowned (the pickem_champion trophy rows, first of the co-champions
-      // on a tie), and those rows are the awards. Reading the empty matchup
-      // table here would have crowned standings[0] of an all-zero table, an
-      // arbitrary team. The declared champion is read back rather than
-      // recomputed: a recap landing after completion must not make history
-      // name a different winner than the trophy and the notification did.
+      // A pick'em-only league has no matchups or rosters. Its current table is
+      // archived as standings, while the immutable season result supplies the
+      // complete historical champion set. Trophies remain display projections
+      // and never participate in this decision.
       // The season's games are read on the pool, not this client: the recap
       // probe inside getSeasonSlate swallows a missing-table error, which
       // inside an open transaction would poison every statement after it.
@@ -351,20 +362,14 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
         return { ...row, teamId: team ? team.id : null, name: team ? team.name : row.teamName };
       });
       rosters = [];
-      const declared = await getPickemChampionTeamIds({
-        db: client, leagueId, season: league.current_season,
-      });
-      if (declared.length > 0) {
-        championTeamId = declared[0];
-        championUserId =
-          teamsResult.rows.find((team) => team.id === championTeamId)?.owner_id || null;
-      } else {
-        // Nothing was crowned (no picks resolved, or the winner had no teams
-        // row): the best answer left is the leader as the table stands.
-        const champion = pickemChampions(final.standings)[0] || null;
-        championUserId = champion ? champion.userId : null;
-        championTeamId = teamByOwner.get(championUserId)?.id || null;
-      }
+      const firstChampion = pickemResult.outcome === PICKEM_RESULT_OUTCOME.CHAMPIONS
+        ? pickemResult.champions[0]
+        : null;
+      const currentChampionTeam = firstChampion
+        ? teamsResult.rows.find((team) => team.id === firstChampion.teamId)
+        : null;
+      championTeamId = currentChampionTeam ? currentChampionTeam.id : null;
+      championUserId = currentChampionTeam ? currentChampionTeam.owner_id : null;
     } else {
       const matchupsResult = await client.query(
         `SELECT * FROM "matchups" WHERE "league_id" = $1 AND "season" = $2`,
@@ -426,14 +431,15 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
 
     await client.query(
       `INSERT INTO "league_history"
-         ("league_id", "season", "champion_team_id", "champion_user_id", "standings", "rosters", "awards")
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ("league_id", "season", "champion_team_id", "champion_user_id", "standings", "rosters", "awards", "pickem_result")
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        ON CONFLICT ("league_id", "season")
        DO UPDATE SET "champion_team_id" = EXCLUDED."champion_team_id",
                      "champion_user_id" = EXCLUDED."champion_user_id",
                      "standings" = EXCLUDED."standings",
                      "rosters" = EXCLUDED."rosters",
-                     "awards" = EXCLUDED."awards"`,
+                     "awards" = EXCLUDED."awards",
+                     "pickem_result" = EXCLUDED."pickem_result"`,
       [
         leagueId,
         league.current_season,
@@ -442,6 +448,7 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
         JSON.stringify(standings),
         JSON.stringify(rosters),
         JSON.stringify(awardsResult.rows),
+        pickemResult ? JSON.stringify(pickemResult) : null,
       ]
     );
 

@@ -385,6 +385,15 @@ async function dryRunOperatorChange({ db, operation, metadata, planned, validate
   return operatorOutcome({ operation, dryRun: true, before, after: planned });
 }
 
+async function syncArchivedResult({ db, result }) {
+  await db.query(
+    `UPDATE "league_history"
+        SET "pickem_result" = $1
+      WHERE "league_id" = $2 AND "season" = $3`,
+    [JSON.stringify(result), result.leagueId, result.season]
+  );
+}
+
 async function applyOperatorChange({
   db,
   operation,
@@ -404,9 +413,13 @@ async function applyOperatorChange({
       operation,
       metadata,
     });
-    if (retry) return retry;
+    if (retry) {
+      await syncArchivedResult({ db: client, result: retry.after });
+      return retry;
+    }
     validateCurrent(before);
     const after = await persist(client, planned);
+    await syncArchivedResult({ db: client, result: after });
     const awarded = await reconcilePickemChampionTrophies({
       client,
       leagueId: metadata.leagueId,
