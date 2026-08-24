@@ -398,6 +398,35 @@ test('computePickemStandings ranks by points, then correct picks, then username'
   );
 });
 
+test('computePickemStandings gives co-champions competition ranks', () => {
+  const games = [
+    finalGame('BUF|MIA', 'BUF', 'MIA', 30, 10, 1),
+    finalGame('DEN|KC', 'KC', 'DEN', 28, 7, 1),
+  ];
+  const standings = pickem.computePickemStandings({
+    members: [
+      { userId: 1, username: 'zoe' },
+      { userId: 2, username: 'abe' },
+      { userId: 3, username: 'mia' },
+    ],
+    games,
+    picks: [
+      { userId: 1, week: 1, gameKey: 'BUF|MIA', pickedTeam: 'BUF' },
+      { userId: 1, week: 1, gameKey: 'DEN|KC', pickedTeam: 'KC' },
+      { userId: 2, week: 1, gameKey: 'BUF|MIA', pickedTeam: 'BUF' },
+      { userId: 2, week: 1, gameKey: 'DEN|KC', pickedTeam: 'KC' },
+      { userId: 3, week: 1, gameKey: 'BUF|MIA', pickedTeam: 'BUF' },
+      { userId: 3, week: 1, gameKey: 'DEN|KC', pickedTeam: 'DEN' },
+    ],
+    mode: 'straight',
+  });
+
+  assert.deepEqual(
+    standings.map((row) => [row.rank, row.username, row.points, row.correct]),
+    [[1, 'abe', 2, 2], [1, 'zoe', 2, 2], [3, 'mia', 1, 1]]
+  );
+});
+
 test('computePickemStandings carries per-week points for the standings UI', () => {
   const standings = pickem.computePickemStandings({
     members: [{ userId: 2, username: 'abe' }, { userId: 9, username: 'zoe' }],

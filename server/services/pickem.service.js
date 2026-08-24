@@ -441,7 +441,14 @@ function computePickemStandings({ members = [], games = [], picks = [], mode = '
       b.correct - a.correct ||
       String(a.username || '').localeCompare(String(b.username || ''))
   );
-  return rows.map((row, index) => ({ ...row, rank: index + 1 }));
+  let rank = 0;
+  return rows.map((row, index) => {
+    const previous = rows[index - 1];
+    if (!previous || row.points !== previous.points || row.correct !== previous.correct) {
+      rank = index + 1;
+    }
+    return { ...row, rank };
+  });
 }
 
 /* ------------------------------------------------------------------ *
