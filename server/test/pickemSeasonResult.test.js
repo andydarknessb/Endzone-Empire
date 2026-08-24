@@ -15,6 +15,7 @@ function resultWorld() {
         outcome: params[2],
         scoring_mode: params[3],
         champions: JSON.parse(params[4]),
+        provenance: { source: 'season_completion' },
         declared_at: '2027-01-11T06:00:00.000Z',
       };
       return { rows: [stored] };
@@ -77,6 +78,7 @@ test('declare snapshots the champion and resultOf reads the declared result', as
     outcome: 'champions',
     mode: 'straight',
     champions: [champion],
+    provenance: { source: 'season_completion' },
     declaredAt: '2027-01-11T06:00:00.000Z',
     awarded: [{ type: 'pickem_champion', teamId: 10, label: "2026 Pick'em Champion" }],
   });
@@ -86,6 +88,7 @@ test('declare snapshots the champion and resultOf reads the declared result', as
     outcome: 'champions',
     mode: 'straight',
     champions: [champion],
+    provenance: { source: 'season_completion' },
     declaredAt: '2027-01-11T06:00:00.000Z',
   });
   assert.deepEqual(world.trophies, [{
@@ -126,6 +129,7 @@ test('resultOf distinguishes a declared no-champion season from a missing result
     outcome: 'no_champion',
     mode: 'confidence',
     champions: [],
+    provenance: { source: 'season_completion' },
     declaredAt: '2027-01-11T06:00:00.000Z',
     awarded: [],
   });
@@ -137,6 +141,7 @@ test('resultOf distinguishes a declared no-champion season from a missing result
       outcome: 'no_champion',
       mode: 'confidence',
       champions: [],
+      provenance: { source: 'season_completion' },
       declaredAt: '2027-01-11T06:00:00.000Z',
     }
   );
@@ -148,6 +153,7 @@ test('resultOf distinguishes a declared no-champion season from a missing result
     outcome: 'missing',
     mode: null,
     champions: [],
+    provenance: null,
     declaredAt: null,
   });
   assert.deepEqual(declaredWorld.trophies, []);
