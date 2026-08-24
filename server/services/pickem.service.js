@@ -391,6 +391,10 @@ function scorePickemWeek({ games = [], picks = [], mode = 'straight' }) {
  * Order: total points desc, then correct picks desc, then username, so the
  * result is deterministic even before a single game is final.
  */
+function comparePickemStandingScore(a, b) {
+  return b.points - a.points || b.correct - a.correct;
+}
+
 function computePickemStandings({ members = [], games = [], picks = [], mode = 'straight' }) {
   const gamesByWeek = new Map();
   for (const game of games || []) {
@@ -437,14 +441,16 @@ function computePickemStandings({ members = [], games = [], picks = [], mode = '
   });
   rows.sort(
     (a, b) =>
-      b.points - a.points ||
-      b.correct - a.correct ||
+      comparePickemStandingScore(a, b) ||
       String(a.username || '').localeCompare(String(b.username || ''))
   );
+  if (rows[0]?.points === 0 && rows[0]?.correct === 0) {
+    return rows.map((row, index) => ({ ...row, rank: index + 1 }));
+  }
   let rank = 0;
   return rows.map((row, index) => {
     const previous = rows[index - 1];
-    if (!previous || row.points !== previous.points || row.correct !== previous.correct) {
+    if (!previous || comparePickemStandingScore(previous, row) !== 0) {
       rank = index + 1;
     }
     return { ...row, rank };

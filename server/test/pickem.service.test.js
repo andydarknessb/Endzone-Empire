@@ -427,6 +427,21 @@ test('computePickemStandings gives co-champions competition ranks', () => {
   );
 });
 
+test('computePickemStandings keeps all-zero standings sequential', () => {
+  const standings = pickem.computePickemStandings({
+    members: [
+      { userId: 1, username: 'zoe' },
+      { userId: 2, username: 'abe' },
+      { userId: 3, username: 'mia' },
+    ],
+  });
+
+  assert.deepEqual(
+    standings.map((row) => [row.rank, row.username, row.points, row.correct]),
+    [[1, 'abe', 0, 0], [2, 'mia', 0, 0], [3, 'zoe', 0, 0]]
+  );
+});
+
 test('computePickemStandings carries per-week points for the standings UI', () => {
   const standings = pickem.computePickemStandings({
     members: [{ userId: 2, username: 'abe' }, { userId: 9, username: 'zoe' }],
