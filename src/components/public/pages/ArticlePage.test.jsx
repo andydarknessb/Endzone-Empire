@@ -70,15 +70,15 @@ test('navigating to a related article loads its body and rebuilds the table of c
   );
   await screen.findByRole('heading', { name: 'How to build tiers' });
 
-  // The related strip links to the waiver article; this is an in-app hop, so
-  // the page keeps its component instance and only the slug changes.
-  await user.click(screen.getByRole('link', { name: /Winning the Waiver Wire/ }));
+  // The related strip links to the newest recap; this is an in-app hop, so the
+  // page keeps its component instance and only the slug changes.
+  await user.click(screen.getByRole('link', { name: /NFL Preseason Week 2 Recap/ }));
 
-  expect(await screen.findByRole('heading', { name: 'Priority (rolling waivers)' })).toBeInTheDocument();
+  expect(await screen.findByRole('heading', { name: 'The Scoreboard' })).toBeInTheDocument();
   // The nav is re-queried inside waitFor: it empties (unmounts) while the new
   // body loads and comes back built from the new article's headings.
   await waitFor(() => {
-    expect(screen.getByRole('navigation', { name: 'Table of contents' })).toHaveTextContent('FAAB (free-agent budget)');
+    expect(screen.getByRole('navigation', { name: 'Table of contents' })).toHaveTextContent('Fantasy Stock Risers');
   });
   expect(screen.getByRole('navigation', { name: 'Table of contents' })).not.toHaveTextContent('How to build tiers');
 });
