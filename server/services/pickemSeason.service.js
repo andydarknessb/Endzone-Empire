@@ -1,8 +1,12 @@
 const pool = require('../modules/pool');
-const { REG_SEASON_WEEKS, winnerOf, getSeasonSlate, getStandings } = require('./pickem.service');
+const {
+  REG_SEASON_WEEKS,
+  winnerOf,
+  getSeasonSlate,
+  getCompletionStandings,
+} = require('./pickem.service');
 const { notifyAwardedOwners } = require('./trophy.service');
 const {
-  PickemSeasonResultError,
   declare: declareSeasonResult,
   pickemChampions,
 } = require('./pickemSeasonResult.service');
@@ -234,34 +238,6 @@ async function hasPicksThisSeason(db, leagueId, season) {
 }
 
 /**
- * A removed Team must not make its manager's picks disappear from the final
- * answer. getStandings intentionally lists current members only, so completion
- * fails closed when any season picker no longer has the Team identity needed
- * for a historical declaration.
- */
-async function requirePickerTeamIdentity(db, leagueId, season) {
-  const missing = await db.query(
-    `SELECT DISTINCT "pickem_picks"."user_id"
-       FROM "pickem_picks"
-       LEFT JOIN "teams"
-         ON "teams"."league_id" = "pickem_picks"."league_id"
-        AND "teams"."owner_id" = "pickem_picks"."user_id"
-      WHERE "pickem_picks"."league_id" = $1
-        AND "pickem_picks"."season" = $2
-        AND "teams"."id" IS NULL
-      LIMIT 1`,
-    [leagueId, season]
-  );
-  if (missing.rows[0]) {
-    throw new PickemSeasonResultError(
-      409,
-      'PICKEM_SEASON_RESULT_IDENTITY_REQUIRED',
-      "Pick'em season has picks without required historical Team identity"
-    );
-  }
-}
-
-/**
  * One season's `[{ week, lastKickoffAt }]` for deriveNflWeek. Accepts a pool
  * or a checked-out client.
  */
@@ -400,8 +376,7 @@ async function completeOnePickemSeason({ league, season, seasonGames }) {
       await client.query('ROLLBACK');
       return null;
     }
-    await requirePickerTeamIdentity(client, league.id, season);
-    const { standings, mode } = await getStandings({
+    const { standings, mode } = await getCompletionStandings({
       leagueId: league.id, season, db: client, games: seasonGames,
     });
     const declaration = await declareSeasonResult({

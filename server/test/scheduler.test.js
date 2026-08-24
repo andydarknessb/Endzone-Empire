@@ -279,11 +279,6 @@ function pickemSeasonWorld(t, { league, teams, picks, live, games }) {
     [/FROM "live_game_states"/, () => ({ rows: live })],
     [/FROM "private"\."game_recaps"/, () => ({ rows: [] })],
     [/SELECT 1 FROM "pickem_picks"/, () => ({ rows: picks.length > 0 ? [{ '?column?': 1 }] : [] })],
-    [/SELECT DISTINCT "pickem_picks"\."user_id" FROM "pickem_picks" LEFT JOIN "teams"/, () => {
-      const owners = new Set(teams.filter((team) => team.owner_id != null).map((team) => team.owner_id));
-      const orphaned = picks.find((pick) => !owners.has(pick.user_id));
-      return { rows: orphaned ? [{ user_id: orphaned.user_id }] : [] };
-    }],
     [/FROM "pickem_settings"/, () => ({ rows: [{ enabled: true, mode: 'straight' }] })],
     [/FROM "teams" JOIN "users"/, () => ({
       rows: teams.filter((team) => team.owner_id != null).map((team) => ({
@@ -474,6 +469,27 @@ test('a champion missing required historical identity aborts completion', async 
   assert.deepEqual(world.notifications, []);
   assert.ok(world.calls.some((call) => call.text === 'ROLLBACK'));
   assert.ok(!world.calls.some((call) => call.text === 'COMMIT'));
+});
+
+test('a former picker missing Team identity does not block a current Team champion', async (t) => {
+  const world = pickemSeasonWorld(t, {
+    league: { id: 1, name: 'Former Picker Pool', current_season: 2026, current_week: 18, season_status: 'regular', created_at: '2026-08-01T00:00:00.000Z' },
+    teams: [{ id: 10, owner_id: 100, username: 'alice', name: 'Sunday Ballers' }],
+    picks: [
+      { user_id: 100, week: 18, team_pair: 'BUF|MIA', picked_team: 'BUF', confidence: null },
+      { user_id: 100, week: 18, team_pair: 'DAL|WAS', picked_team: 'WAS', confidence: null },
+      { user_id: 101, week: 18, team_pair: 'BUF|MIA', picked_team: 'MIA', confidence: null },
+      { user_id: 101, week: 18, team_pair: 'DAL|WAS', picked_team: 'DAL', confidence: null },
+    ],
+    live: FINALS,
+  });
+
+  const completed = await scheduler.runPickemSeasonCompletion({ now: new Date('2027-01-11T06:00:00Z') });
+
+  assert.deepEqual(completed[0].champions.map((champion) => champion.teamId), [10]);
+  assert.equal(world.league.season_status, 'complete');
+  assert.deepEqual(world.result.champions.map((champion) => champion.teamId), [10]);
+  assert.ok(world.calls.some((call) => call.text === 'COMMIT'));
 });
 
 test('a league-wide notification failure rolls back result, status, and trophies together', async (t) => {
