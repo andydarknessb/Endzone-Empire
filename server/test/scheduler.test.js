@@ -279,6 +279,11 @@ function pickemSeasonWorld(t, { league, teams, picks, live, games }) {
     [/FROM "live_game_states"/, () => ({ rows: live })],
     [/FROM "private"\."game_recaps"/, () => ({ rows: [] })],
     [/SELECT 1 FROM "pickem_picks"/, () => ({ rows: picks.length > 0 ? [{ '?column?': 1 }] : [] })],
+    [/SELECT DISTINCT "pickem_picks"\."user_id" FROM "pickem_picks" LEFT JOIN "teams"/, () => {
+      const owners = new Set(teams.filter((team) => team.owner_id != null).map((team) => team.owner_id));
+      const orphaned = picks.find((pick) => !owners.has(pick.user_id));
+      return { rows: orphaned ? [{ user_id: orphaned.user_id }] : [] };
+    }],
     [/FROM "pickem_settings"/, () => ({ rows: [{ enabled: true, mode: 'straight' }] })],
     [/FROM "teams" JOIN "users"/, () => ({
       rows: teams.filter((team) => team.owner_id != null).map((team) => ({
@@ -362,7 +367,7 @@ test('runPickemSeasonCompletion run twice completes the season and writes the ch
 
   assert.equal(first.length, 1);
   assert.equal(first[0].leagueId, 1);
-  assert.deepEqual(first[0].champions.map((c) => c.userId), [100]);
+  assert.deepEqual(first[0].champions.map((c) => c.teamId), [10]);
   assert.deepEqual(second, [], 'a completed league is not a candidate again');
   assert.equal(world.statusUpdates, 1);
   assert.equal(world.league.season_status, 'complete');
@@ -376,8 +381,6 @@ test('runPickemSeasonCompletion run twice completes the season and writes the ch
     outcome: 'champions',
     scoring_mode: 'straight',
     champions: [{
-      userId: 100,
-      username: 'alice',
       teamId: 10,
       teamName: 'Sunday Ballers',
       avatarUrl: null,
@@ -435,7 +438,7 @@ test('co-champions are declared completely and each gets a Co-Champion trophy', 
   });
   const completed = await scheduler.runPickemSeasonCompletion({ now: new Date('2027-01-11T06:00:00Z') });
 
-  assert.deepEqual(completed[0].champions.map((c) => c.userId), [100, 101]);
+  assert.deepEqual(completed[0].champions.map((c) => c.teamId), [10, 11]);
   assert.deepEqual(world.result.champions.map((champion) => champion.teamId), [10, 11]);
   assert.deepEqual(world.trophies, [
     {
@@ -455,26 +458,13 @@ test('co-champions are declared completely and each gets a Co-Champion trophy', 
 test('a champion missing required historical identity aborts completion', async (t) => {
   const world = pickemSeasonWorld(t, {
     league: { id: 1, name: 'Broken Pool', current_season: 2026, current_week: 18, season_status: 'regular', created_at: '2026-08-01T00:00:00.000Z' },
-    teams: [{ id: 10, owner_id: 100, username: 'alice', name: 'Sunday Ballers' }],
+    teams: [],
     picks: [
       { user_id: 100, week: 18, team_pair: 'BUF|MIA', picked_team: 'BUF', confidence: null },
       { user_id: 100, week: 18, team_pair: 'DAL|WAS', picked_team: 'WAS', confidence: null },
     ],
     live: FINALS,
   });
-  world.handlers.unshift([
-    /FROM "teams" JOIN "users"/,
-    () => ({ rows: [{
-      user_id: 100,
-      username: 'alice',
-      team_id: null,
-      team_name: 'Sunday Ballers',
-      avatar_url: null,
-      avatar_static_url: null,
-    }] }),
-    'client',
-  ]);
-
   const completed = await scheduler.runPickemSeasonCompletion({ now: new Date('2027-01-11T06:00:00Z') });
 
   assert.deepEqual(completed, []);

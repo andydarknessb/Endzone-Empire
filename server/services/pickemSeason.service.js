@@ -1,7 +1,11 @@
 const pool = require('../modules/pool');
 const { REG_SEASON_WEEKS, winnerOf, getSeasonSlate, getStandings } = require('./pickem.service');
 const { notifyAwardedOwners } = require('./trophy.service');
-const { declare: declareSeasonResult, pickemChampions } = require('./pickemSeasonResult.service');
+const {
+  PickemSeasonResultError,
+  declare: declareSeasonResult,
+  pickemChampions,
+} = require('./pickemSeasonResult.service');
 const { notifyLeague } = require('./activity.service');
 const { pickemOnlyWhereSql } = require('./leagueType');
 
@@ -190,7 +194,7 @@ const MAX_NAMED_CHAMPIONS = 3;
 function seasonOverMessage(champions) {
   const winners = champions || [];
   if (winners.length === 0) return "The pick'em season is over.";
-  const names = winners.map((row) => row.teamName || row.username || `Manager ${row.userId}`);
+  const names = winners.map((row) => row.teamName || `Team ${row.teamId}`);
   const points = Number(winners[0].points) || 0;
   const tally = `${points} ${points === 1 ? 'point' : 'points'}`;
   if (names.length === 1) return `The pick'em season is over. ${names[0]} wins with ${tally}.`;
@@ -227,6 +231,34 @@ async function hasPicksThisSeason(db, leagueId, season) {
     [leagueId, season]
   );
   return Boolean(result.rows[0]);
+}
+
+/**
+ * A removed Team must not make its manager's picks disappear from the final
+ * answer. getStandings intentionally lists current members only, so completion
+ * fails closed when any season picker no longer has the Team identity needed
+ * for a historical declaration.
+ */
+async function requirePickerTeamIdentity(db, leagueId, season) {
+  const missing = await db.query(
+    `SELECT DISTINCT "pickem_picks"."user_id"
+       FROM "pickem_picks"
+       LEFT JOIN "teams"
+         ON "teams"."league_id" = "pickem_picks"."league_id"
+        AND "teams"."owner_id" = "pickem_picks"."user_id"
+      WHERE "pickem_picks"."league_id" = $1
+        AND "pickem_picks"."season" = $2
+        AND "teams"."id" IS NULL
+      LIMIT 1`,
+    [leagueId, season]
+  );
+  if (missing.rows[0]) {
+    throw new PickemSeasonResultError(
+      409,
+      'PICKEM_SEASON_RESULT_IDENTITY_REQUIRED',
+      "Pick'em season has picks without required historical Team identity"
+    );
+  }
 }
 
 /**
@@ -368,6 +400,7 @@ async function completeOnePickemSeason({ league, season, seasonGames }) {
       await client.query('ROLLBACK');
       return null;
     }
+    await requirePickerTeamIdentity(client, league.id, season);
     const { standings, mode } = await getStandings({
       leagueId: league.id, season, db: client, games: seasonGames,
     });
@@ -385,7 +418,7 @@ async function completeOnePickemSeason({ league, season, seasonGames }) {
       message: seasonOverMessage(champions),
       data: {
         season,
-        champions: champions.map((row) => ({ userId: row.userId, points: row.points, correct: row.correct })),
+        champions: champions.map((row) => ({ teamId: row.teamId, points: row.points, correct: row.correct })),
       },
     });
     await client.query('COMMIT');

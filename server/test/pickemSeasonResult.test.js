@@ -63,8 +63,6 @@ test('declare snapshots the champion and resultOf reads the declared result', as
   });
 
   const champion = {
-    userId: 100,
-    username: 'alice',
     teamId: 10,
     teamName: 'Sunday Ballers',
     avatarUrl: 'https://cdn.example/team.png',
@@ -155,7 +153,7 @@ test('resultOf distinguishes a declared no-champion season from a missing result
   assert.deepEqual(declaredWorld.trophies, []);
 });
 
-test('declare refuses a champion whose historical Team or manager identity is incomplete', async () => {
+test('declare refuses a champion whose historical Team identity is incomplete', async () => {
   const complete = {
     rank: 1,
     userId: 300,
@@ -170,8 +168,6 @@ test('declare refuses a champion whose historical Team or manager identity is in
   const incomplete = [
     ['Team id', { teamId: null }],
     ['Team name', { teamName: '   ' }],
-    ['manager id', { userId: null }],
-    ['manager display identity', { username: '' }],
   ];
 
   for (const [label, missing] of incomplete) {
@@ -259,7 +255,10 @@ test('declare refuses an invalid scoring mode or incomplete scoring snapshot bef
   const invalid = [
     ['mode', 'weekly', champion],
     ['points', 'straight', { ...champion, points: undefined }],
+    ['null points', 'straight', { ...champion, points: null }],
+    ['blank points', 'straight', { ...champion, points: '   ' }],
     ['correct picks', 'straight', { ...champion, correct: -1 }],
+    ['null correct picks', 'straight', { ...champion, correct: null }],
   ];
 
   for (const [label, mode, row] of invalid) {

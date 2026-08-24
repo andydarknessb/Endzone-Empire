@@ -27,10 +27,17 @@ function pickemChampions(standings) {
 }
 
 function scoringSnapshot(row) {
-  const points = Number(row && row.points);
-  const correct = Number(row && row.correct);
+  const rawPoints = row && row.points;
+  const rawCorrect = row && row.correct;
+  const points = Number(rawPoints);
+  const correct = Number(rawCorrect);
   if (
-    !Number.isInteger(points) || points < 0
+    rawPoints == null || rawCorrect == null
+    || (typeof rawPoints === 'string' && !rawPoints.trim())
+    || (typeof rawCorrect === 'string' && !rawCorrect.trim())
+    || (typeof rawPoints !== 'number' && typeof rawPoints !== 'string')
+    || (typeof rawCorrect !== 'number' && typeof rawCorrect !== 'string')
+    || !Number.isInteger(points) || points < 0
     || !Number.isInteger(correct) || correct < 0
   ) {
     throw new PickemSeasonResultError(
@@ -43,24 +50,19 @@ function scoringSnapshot(row) {
 }
 
 function snapshotChampion(row, mode) {
-  const userId = Number(row.userId);
   const teamId = Number(row.teamId);
   const { points, correct } = scoringSnapshot(row);
   if (
-    !Number.isInteger(userId) || userId <= 0
-    || !Number.isInteger(teamId) || teamId <= 0
-    || typeof row.username !== 'string' || !row.username.trim()
+    !Number.isInteger(teamId) || teamId <= 0
     || typeof row.teamName !== 'string' || !row.teamName.trim()
   ) {
     throw new PickemSeasonResultError(
       409,
       'PICKEM_SEASON_RESULT_IDENTITY_REQUIRED',
-      "Pick'em champion is missing required historical Team or manager identity"
+      "Pick'em champion is missing required historical Team identity"
     );
   }
   return {
-    userId,
-    username: row.username,
     teamId,
     teamName: row.teamName,
     avatarUrl: row.avatarUrl ?? null,
@@ -92,8 +94,6 @@ function sameChampions(left, right) {
   return left.every((champion, index) => {
     const other = right[index];
     return other
-      && Number(champion.userId) === Number(other.userId)
-      && champion.username === other.username
       && Number(champion.teamId) === Number(other.teamId)
       && champion.teamName === other.teamName
       && (champion.avatarUrl ?? null) === (other.avatarUrl ?? null)
