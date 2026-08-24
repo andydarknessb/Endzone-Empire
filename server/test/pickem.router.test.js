@@ -422,8 +422,8 @@ test('standings return competition ranks for Pick\'em-only and side-game leagues
 
     assert.equal(res.status, 200);
     assert.deepEqual(
-      res.body.standings.map((row) => [row.rank, row.username, row.points, row.correct]),
-      [[1, 'abe', 2, 2], [1, 'zoe', 2, 2], [3, 'mia', 1, 1]],
+      res.body.standings.map((row) => [row.rank, row.teamName, row.points, row.correct]),
+      [[1, 'Theirs', 2, 2], [1, 'Mine', 2, 2], [3, 'Third', 1, 1]],
       pickemOnly ? "Pick'em-only" : 'side game'
     );
   }
