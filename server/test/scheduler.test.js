@@ -225,11 +225,30 @@ test('runPickemWeekSync moves a league with no picks out of a finished season on
 function pickemSeasonWorld(t, { league, teams, picks, live, games }) {
   const state = {
     league: { ...league },
+    result: null,
     trophies: [],
     notifications: [],
     statusUpdates: 0,
   };
   const trophyKeys = new Set();
+  let transactionSnapshot = null;
+  const snapshotState = () => ({
+    league: { ...state.league },
+    result: state.result == null ? null : structuredClone(state.result),
+    trophies: structuredClone(state.trophies),
+    notifications: structuredClone(state.notifications),
+    statusUpdates: state.statusUpdates,
+    trophyKeys: [...trophyKeys],
+  });
+  const restoreState = (snapshot) => {
+    state.league = snapshot.league;
+    state.result = snapshot.result;
+    state.trophies.splice(0, state.trophies.length, ...snapshot.trophies);
+    state.notifications.splice(0, state.notifications.length, ...snapshot.notifications);
+    state.statusUpdates = snapshot.statusUpdates;
+    trophyKeys.clear();
+    for (const key of snapshot.trophyKeys) trophyKeys.add(key);
+  };
   const nflGames = games || [
     { week: 18, nfl_team: 'BUF', opponent: 'MIA', kickoff_at: '2027-01-10T18:00:00.000Z' },
     { week: 18, nfl_team: 'MIA', opponent: 'BUF', kickoff_at: '2027-01-10T18:00:00.000Z' },
@@ -237,6 +256,19 @@ function pickemSeasonWorld(t, { league, teams, picks, live, games }) {
     { week: 18, nfl_team: 'WAS', opponent: 'DAL', kickoff_at: '2027-01-10T21:25:00.000Z' },
   ];
   const handlers = [
+    [/^BEGIN$/, () => {
+      transactionSnapshot = snapshotState();
+      return { rows: [] };
+    }, 'client'],
+    [/^COMMIT$/, () => {
+      transactionSnapshot = null;
+      return { rows: [] };
+    }, 'client'],
+    [/^ROLLBACK$/, () => {
+      if (transactionSnapshot) restoreState(transactionSnapshot);
+      transactionSnapshot = null;
+      return { rows: [] };
+    }, 'client'],
     [/FROM "leagues" WHERE "pickem_only" = true AND "season_status" <> 'complete'/, () =>
       ({ rows: state.league.season_status === 'complete' ? [] : [state.league] })],
     [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [state.league] })],
@@ -250,7 +282,7 @@ function pickemSeasonWorld(t, { league, teams, picks, live, games }) {
     [/FROM "pickem_settings"/, () => ({ rows: [{ enabled: true, mode: 'straight' }] })],
     [/FROM "teams" JOIN "users"/, () => ({
       rows: teams.filter((team) => team.owner_id != null).map((team) => ({
-        user_id: team.owner_id, username: team.username, team_name: team.name,
+        user_id: team.owner_id, username: team.username, team_id: team.id, team_name: team.name,
         avatar_url: null, avatar_static_url: null,
       })),
     })],
@@ -260,9 +292,19 @@ function pickemSeasonWorld(t, { league, teams, picks, live, games }) {
       state.statusUpdates += 1;
       return { rows: [{ id: state.league.id }] };
     }],
-    [/SELECT "id", "owner_id" FROM "teams" WHERE "league_id"/, () => ({
-      rows: teams.filter((team) => team.owner_id != null).map((team) => ({ id: team.id, owner_id: team.owner_id })),
-    })],
+    [/^INSERT INTO "pickem_season_results"/, (text, params) => {
+      if (state.result) return { rows: [] };
+      state.result = {
+        league_id: params[0],
+        season: params[1],
+        outcome: params[2],
+        scoring_mode: params[3],
+        champions: JSON.parse(params[4]),
+        declared_at: '2027-01-11T06:00:00.000Z',
+      };
+      return { rows: [state.result] };
+    }],
+    [/^SELECT .* FROM "pickem_season_results"/, () => ({ rows: state.result ? [state.result] : [] })],
     [/INSERT INTO "trophies"/, (text, params) => {
       const key = params.slice(0, 5).join(':');
       if (trophyKeys.has(key)) return { rows: [] };
@@ -328,6 +370,24 @@ test('runPickemSeasonCompletion run twice completes the season and writes the ch
     leagueId: 1, teamId: 10, season: 2026, week: 0, type: 'pickem_champion',
     label: "2026 Pick'em Champion", data: { points: 2, correct: 2, mode: 'straight' },
   }]);
+  assert.deepEqual(world.result, {
+    league_id: 1,
+    season: 2026,
+    outcome: 'champions',
+    scoring_mode: 'straight',
+    champions: [{
+      userId: 100,
+      username: 'alice',
+      teamId: 10,
+      teamName: 'Sunday Ballers',
+      avatarUrl: null,
+      avatarStaticUrl: null,
+      points: 2,
+      correct: 2,
+      mode: 'straight',
+    }],
+    declared_at: '2027-01-11T06:00:00.000Z',
+  });
   const leagueWide = world.notifications.filter((n) => n.type === 'season');
   assert.deepEqual(leagueWide.map((n) => n.userId).sort(), [100, 101]);
   assert.equal(leagueWide[0].message, "The pick'em season is over. Sunday Ballers wins with 2 points.");
@@ -345,6 +405,7 @@ test('runPickemSeasonCompletion run twice completes the season and writes the ch
   assert.equal(clientCalls[0], 'BEGIN');
   assert.equal(clientCalls[clientCalls.length - 1], 'COMMIT');
   assert.ok(!clientCalls.some((text) => /game_recaps|FROM "nfl_games"|FROM "live_game_states"/.test(text)));
+  assert.ok(clientCalls.some((text) => /^INSERT INTO "pickem_season_results"/.test(text)));
   assert.ok(clientCalls.some((text) => /^UPDATE "leagues" SET "season_status" = 'complete'/.test(text)));
   assert.ok(clientCalls.some((text) => /INSERT INTO "trophies"/.test(text)));
   const trophyNotice = world.calls.find((c) => /INSERT INTO "notifications"/.test(c.text) && c.params[2] === 'trophy');
@@ -353,7 +414,7 @@ test('runPickemSeasonCompletion run twice completes the season and writes the ch
   assert.ok(world.calls.indexOf(trophyNotice) > commitAt, 'owner notification is post-commit');
 });
 
-test('co-champions each get a Co-Champion trophy; a winner with no teams row is skipped, not thrown on', async (t) => {
+test('co-champions are declared completely and each gets a Co-Champion trophy', async (t) => {
   const world = pickemSeasonWorld(t, {
     league: { id: 1, name: 'Office Pool', current_season: 2026, current_week: 18, season_status: 'regular', created_at: '2026-08-01T00:00:00.000Z' },
     teams: [
@@ -372,25 +433,107 @@ test('co-champions each get a Co-Champion trophy; a winner with no teams row is 
     ],
     live: FINALS,
   });
-  // Bob's teams row is gone by the time trophies are mapped (a removed member
-  // whose picks survived): the members query still lists him via the world's
-  // teams list, but the trophy mapping does not.
+  const completed = await scheduler.runPickemSeasonCompletion({ now: new Date('2027-01-11T06:00:00Z') });
+
+  assert.deepEqual(completed[0].champions.map((c) => c.userId), [100, 101]);
+  assert.deepEqual(world.result.champions.map((champion) => champion.teamId), [10, 11]);
+  assert.deepEqual(world.trophies, [
+    {
+      leagueId: 1, teamId: 10, season: 2026, week: 0, type: 'pickem_champion',
+      label: "2026 Pick'em Co-Champion", data: { points: 2, correct: 2, mode: 'straight' },
+    },
+    {
+      leagueId: 1, teamId: 11, season: 2026, week: 0, type: 'pickem_champion',
+      label: "2026 Pick'em Co-Champion", data: { points: 2, correct: 2, mode: 'straight' },
+    },
+  ]);
+  assert.equal(world.league.season_status, 'complete');
+  const leagueWide = world.notifications.filter((n) => n.type === 'season');
+  assert.equal(leagueWide[0].message, "The pick'em season is over. Sunday Ballers and Bob Squad share the title with 2 points.");
+});
+
+test('a champion missing required historical identity aborts completion', async (t) => {
+  const world = pickemSeasonWorld(t, {
+    league: { id: 1, name: 'Broken Pool', current_season: 2026, current_week: 18, season_status: 'regular', created_at: '2026-08-01T00:00:00.000Z' },
+    teams: [{ id: 10, owner_id: 100, username: 'alice', name: 'Sunday Ballers' }],
+    picks: [
+      { user_id: 100, week: 18, team_pair: 'BUF|MIA', picked_team: 'BUF', confidence: null },
+      { user_id: 100, week: 18, team_pair: 'DAL|WAS', picked_team: 'WAS', confidence: null },
+    ],
+    live: FINALS,
+  });
   world.handlers.unshift([
-    /SELECT "id", "owner_id" FROM "teams" WHERE "league_id"/,
-    () => ({ rows: [{ id: 10, owner_id: 100 }, { id: 12, owner_id: 102 }] }),
+    /FROM "teams" JOIN "users"/,
+    () => ({ rows: [{
+      user_id: 100,
+      username: 'alice',
+      team_id: null,
+      team_name: 'Sunday Ballers',
+      avatar_url: null,
+      avatar_static_url: null,
+    }] }),
     'client',
   ]);
 
   const completed = await scheduler.runPickemSeasonCompletion({ now: new Date('2027-01-11T06:00:00Z') });
 
-  assert.deepEqual(completed[0].champions.map((c) => c.userId), [100, 101]);
-  assert.deepEqual(world.trophies, [{
-    leagueId: 1, teamId: 10, season: 2026, week: 0, type: 'pickem_champion',
-    label: "2026 Pick'em Co-Champion", data: { points: 2, correct: 2, mode: 'straight' },
-  }]);
-  assert.equal(world.league.season_status, 'complete', 'the missing trophy did not abort completion');
-  const leagueWide = world.notifications.filter((n) => n.type === 'season');
-  assert.equal(leagueWide[0].message, "The pick'em season is over. Sunday Ballers and Bob Squad share the title with 2 points.");
+  assert.deepEqual(completed, []);
+  assert.equal(world.league.season_status, 'regular');
+  assert.equal(world.result, null);
+  assert.deepEqual(world.trophies, []);
+  assert.deepEqual(world.notifications, []);
+  assert.ok(world.calls.some((call) => call.text === 'ROLLBACK'));
+  assert.ok(!world.calls.some((call) => call.text === 'COMMIT'));
+});
+
+test('a league-wide notification failure rolls back result, status, and trophies together', async (t) => {
+  const world = pickemSeasonWorld(t, {
+    league: { id: 1, name: 'Atomic Pool', current_season: 2026, current_week: 18, season_status: 'regular', created_at: '2026-08-01T00:00:00.000Z' },
+    teams: [{ id: 10, owner_id: 100, username: 'alice', name: 'Sunday Ballers' }],
+    picks: [
+      { user_id: 100, week: 18, team_pair: 'BUF|MIA', picked_team: 'BUF', confidence: null },
+      { user_id: 100, week: 18, team_pair: 'DAL|WAS', picked_team: 'WAS', confidence: null },
+    ],
+    live: FINALS,
+  });
+  world.handlers.unshift([
+    /^INSERT INTO "notifications"/,
+    () => { throw new Error('notification write failed'); },
+    'client',
+  ]);
+
+  const completed = await scheduler.runPickemSeasonCompletion({ now: new Date('2027-01-11T06:00:00Z') });
+
+  assert.deepEqual(completed, []);
+  assert.equal(world.league.season_status, 'regular');
+  assert.equal(world.result, null);
+  assert.deepEqual(world.trophies, []);
+  assert.deepEqual(world.notifications, []);
+  assert.equal(world.statusUpdates, 0);
+  assert.ok(world.calls.some((call) => call.text === 'ROLLBACK'));
+  assert.ok(!world.calls.some((call) => call.text === 'COMMIT'));
+});
+
+test('completion declares an explicit no-champion result when every manager finishes at zero', async (t) => {
+  const world = pickemSeasonWorld(t, {
+    league: { id: 1, name: 'Zero Pool', current_season: 2026, current_week: 18, season_status: 'regular', created_at: '2026-08-01T00:00:00.000Z' },
+    teams: [{ id: 10, owner_id: 100, username: 'alice', name: 'Sunday Ballers' }],
+    picks: [{ user_id: 100, week: 18, team_pair: 'BUF|MIA', picked_team: 'MIA', confidence: null }],
+    live: FINALS,
+  });
+
+  const completed = await scheduler.runPickemSeasonCompletion({ now: new Date('2027-01-11T06:00:00Z') });
+
+  assert.equal(completed.length, 1);
+  assert.deepEqual(completed[0].champions, []);
+  assert.equal(world.league.season_status, 'complete');
+  assert.equal(world.result.outcome, 'no_champion');
+  assert.deepEqual(world.result.champions, []);
+  assert.deepEqual(world.trophies, []);
+  assert.deepEqual(
+    world.notifications.filter((notification) => notification.type === 'season').map((notification) => notification.message),
+    ["The pick'em season is over."]
+  );
 });
 
 test('zombie guard: a league with no picks this season, or created after week 18 kicked off, never completes', async (t) => {

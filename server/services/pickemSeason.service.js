@@ -1,6 +1,7 @@
 const pool = require('../modules/pool');
 const { REG_SEASON_WEEKS, winnerOf, getSeasonSlate, getStandings } = require('./pickem.service');
-const { awardPickemChampions, notifyAwardedOwners } = require('./trophy.service');
+const { notifyAwardedOwners } = require('./trophy.service');
+const { declare: declareSeasonResult, pickemChampions } = require('./pickemSeasonResult.service');
 const { notifyLeague } = require('./activity.service');
 const { pickemOnlyWhereSql } = require('./leagueType');
 
@@ -178,27 +179,6 @@ function pickemSeasonComplete({ week18Games, now, graceHours = FINALIZATION_GRAC
   }
   if (lastKickoff === null) return false;
   return at.getTime() > lastKickoff + Number(graceHours) * HOUR_MS;
-}
-
-/**
- * Pure: every standings row tied with the leader on (points, correct), or
- * nobody when the leader has no points and no correct picks. Ties are
- * co-champions by product decision; the username sort inside
- * computePickemStandings is a display order, never a tie-break for the
- * title. The nobody case matters because computePickemStandings lists every
- * member, zero-filled, and completion only needs one pick to exist this
- * season: without it one losing pick would crown the whole league.
- *
- * @param {Array} standings computePickemStandings rows, leader first
- */
-function pickemChampions(standings) {
-  const rows = standings || [];
-  if (rows.length === 0) return [];
-  const leader = rows[0];
-  if (!(Number(leader.points) > 0) && !(Number(leader.correct) > 0)) return [];
-  return rows.filter(
-    (row) => Number(row.points) === Number(leader.points) && Number(row.correct) === Number(leader.correct)
-  );
 }
 
 /**
@@ -391,14 +371,14 @@ async function completeOnePickemSeason({ league, season, seasonGames }) {
     const { standings, mode } = await getStandings({
       leagueId: league.id, season, db: client, games: seasonGames,
     });
-    const champions = pickemChampions(standings);
+    const declaration = await declareSeasonResult({
+      db: client, leagueId: league.id, season, standings, mode,
+    });
+    const champions = declaration.champions;
     await client.query(
       `UPDATE "leagues" SET "season_status" = 'complete', "updated_at" = now() WHERE "id" = $1`,
       [league.id]
     );
-    const awarded = await awardPickemChampions({
-      client, leagueId: league.id, season, champions, mode,
-    });
     await notifyLeague(client, {
       leagueId: league.id,
       type: 'season',
@@ -412,14 +392,8 @@ async function completeOnePickemSeason({ league, season, seasonGames }) {
     outcome = {
       leagueId: league.id,
       season,
-      champions: champions.map((row) => ({
-        userId: row.userId,
-        teamName: row.teamName,
-        username: row.username,
-        points: row.points,
-        correct: row.correct,
-      })),
-      awarded,
+      champions,
+      awarded: declaration.awarded,
     };
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});

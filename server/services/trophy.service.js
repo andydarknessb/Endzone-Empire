@@ -263,32 +263,28 @@ async function notifyAwardedOwners({ leagueId, awarded }) {
  * a tie on (points, correct) makes co-champions, and the trophies unique key
  * includes team_id for exactly this, so there is no singular-champion DELETE
  * here (contrast rolloverSeason's fantasy champion). Idempotent through
- * award()'s ON CONFLICT DO NOTHING. A winner with no teams row in the league
- * is skipped rather than thrown on: a missing trophy must never abort season
- * completion. Owner notifications are the caller's, post-commit
+ * award()'s ON CONFLICT DO NOTHING. Champion snapshots already carry the
+ * historical Team id resolved by the transaction-consistent standings read.
+ * Missing Team identity is therefore an invalid declaration rather than a
+ * trophy mapping to skip. Owner notifications are the caller's, post-commit
  * (notifyAwardedOwners).
  *
  * @param {object} input
  * @param {object} input.client    transaction client
  * @param {number} input.leagueId
  * @param {number} input.season
- * @param {Array}  input.champions pickemChampions rows: `[{ userId, points, correct }]`
+ * @param {Array}  input.champions declared snapshots: `[{ teamId, points, correct }]`
  * @param {string} input.mode      the league's pick'em scoring mode
  * @returns {Array} `[{ type, teamId, label }]` newly awarded
  */
 async function awardPickemChampions({ client, leagueId, season, champions, mode }) {
   const winners = champions || [];
   if (winners.length === 0) return [];
-  const teams = await client.query(
-    `SELECT "id", "owner_id" FROM "teams" WHERE "league_id" = $1`,
-    [leagueId]
-  );
-  const teamByOwner = new Map(teams.rows.map((team) => [team.owner_id, team.id]));
   const label = `${season} Pick'em ${winners.length > 1 ? 'Co-Champion' : 'Champion'}`;
   const awarded = [];
   for (const winner of winners) {
-    const teamId = teamByOwner.get(winner.userId);
-    if (!teamId) continue;
+    const teamId = winner.teamId;
+    if (!teamId) throw new Error("Pick'em champion is missing historical Team identity");
     const newlyAwarded = await award(client, {
       leagueId, teamId, season, week: 0,
       type: 'pickem_champion', label,
