@@ -7,6 +7,14 @@ const OUTCOME = Object.freeze({
   NO_CHAMPION: 'no_champion',
   MISSING: 'missing',
 });
+const OPERATION = Object.freeze({
+  RECOVERY: 'recovery',
+  CORRECTION: 'correction',
+});
+const OPERATOR_SOURCE = Object.freeze({
+  [OPERATION.RECOVERY]: 'operator_recovery',
+  [OPERATION.CORRECTION]: 'operator_correction',
+});
 const SCORING_MODES = new Set(['straight', 'confidence']);
 
 function positiveInteger(value) {
@@ -287,27 +295,13 @@ async function requirePickemLeague({ db, leagueId, lock = false }) {
   }
 }
 
-function recoveryAfter(metadata, proposed, declaredAt = null) {
+function operatorAfter({ metadata, proposed, operation, declaredAt = null }) {
   return operatorResult({
     leagueId: metadata.leagueId,
     season: metadata.season,
     proposed,
     provenance: {
-      source: 'operator_recovery',
-      evidenceSource: metadata.source,
-      operatorId: metadata.operatorId,
-    },
-    declaredAt,
-  });
-}
-
-function correctionAfter(metadata, proposed, declaredAt) {
-  return operatorResult({
-    leagueId: metadata.leagueId,
-    season: metadata.season,
-    proposed,
-    provenance: {
-      source: 'operator_correction',
+      source: OPERATOR_SOURCE[operation],
       evidenceSource: metadata.source,
       operatorId: metadata.operatorId,
     },
@@ -382,6 +376,62 @@ async function inTransaction(db, work) {
   } finally {
     client.release();
   }
+}
+
+async function dryRunOperatorChange({ db, operation, metadata, planned, validateCurrent }) {
+  await requirePickemLeague({ db, leagueId: metadata.leagueId });
+  const before = await resultOf({ db, leagueId: metadata.leagueId, season: metadata.season });
+  validateCurrent(before);
+  return operatorOutcome({ operation, dryRun: true, before, after: planned });
+}
+
+async function applyOperatorChange({
+  db,
+  operation,
+  metadata,
+  planned,
+  fingerprint,
+  validateCurrent,
+  persist,
+}) {
+  return inTransaction(db, async (client) => {
+    await requirePickemLeague({ db: client, leagueId: metadata.leagueId, lock: true });
+    const before = await resultOf({ db: client, leagueId: metadata.leagueId, season: metadata.season });
+    const retry = await repeatedRequest({
+      db: client,
+      fingerprint,
+      current: before,
+      operation,
+      metadata,
+    });
+    if (retry) return retry;
+    validateCurrent(before);
+    const after = await persist(client, planned);
+    const awarded = await reconcilePickemChampionTrophies({
+      client,
+      leagueId: metadata.leagueId,
+      season: metadata.season,
+      champions: after.champions,
+      mode: after.mode,
+    });
+    const audit = await insertAudit({
+      db: client,
+      metadata,
+      operation,
+      before,
+      after,
+      fingerprint,
+    });
+    return operatorOutcome({
+      operation,
+      dryRun: false,
+      applied: true,
+      before,
+      after,
+      audit,
+      awarded,
+    });
+  });
 }
 
 async function insertAudit({ db, metadata, operation, before, after, fingerprint }) {
@@ -481,83 +531,61 @@ async function auditTrailOf({ db = pool, leagueId, season }) {
 async function recover({ db = pool, apply = false, proposed, ...input }) {
   const shouldApply = requireApplyFlag(apply);
   const metadata = operatorMetadata(input);
-  const planned = recoveryAfter(metadata, proposed);
-  const fingerprint = requestFingerprint({ operation: 'recovery', metadata, proposed: planned });
+  const operation = OPERATION.RECOVERY;
+  const planned = operatorAfter({ metadata, proposed, operation });
+  const fingerprint = requestFingerprint({ operation, metadata, proposed: planned });
   if (!shouldApply) {
-    await requirePickemLeague({ db, leagueId: metadata.leagueId });
-    const before = await resultOf({ db, leagueId: metadata.leagueId, season: metadata.season });
-    ensureMissingForRecovery(before, metadata);
-    return operatorOutcome({
-      operation: 'recovery',
-      dryRun: true,
-      before,
-      after: planned,
+    return dryRunOperatorChange({
+      db,
+      operation,
+      metadata,
+      planned,
+      validateCurrent: (before) => ensureMissingForRecovery(before, metadata),
     });
   }
 
-  return inTransaction(db, async (client) => {
-    await requirePickemLeague({ db: client, leagueId: metadata.leagueId, lock: true });
-    const before = await resultOf({ db: client, leagueId: metadata.leagueId, season: metadata.season });
-    const retry = await repeatedRequest({
-      db: client,
-      fingerprint,
-      current: before,
-      operation: 'recovery',
-      metadata,
-    });
-    if (retry) return retry;
-    ensureMissingForRecovery(before, metadata);
-    const inserted = await client.query(
-      `INSERT INTO "pickem_season_results"
-         ("league_id", "season", "outcome", "scoring_mode", "champions", "provenance")
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING "league_id", "season", "outcome", "scoring_mode", "champions", "provenance", "declared_at"`,
-      [
-        metadata.leagueId,
-        metadata.season,
-        planned.outcome,
-        planned.mode,
-        JSON.stringify(planned.champions),
-        JSON.stringify(planned.provenance),
-      ]
-    );
-    const after = fromRow(inserted.rows[0]);
-    const awarded = await reconcilePickemChampionTrophies({
-      client,
-      leagueId: metadata.leagueId,
-      season: metadata.season,
-      champions: after.champions,
-      mode: after.mode,
-    });
-    const audit = await insertAudit({
-      db: client,
-      metadata,
-      operation: 'recovery',
-      before,
-      after,
-      fingerprint,
-    });
-    return operatorOutcome({
-      operation: 'recovery',
-      dryRun: false,
-      applied: true,
-      before,
-      after,
-      audit,
-      awarded,
-    });
+  return applyOperatorChange({
+    db,
+    operation,
+    metadata,
+    planned,
+    fingerprint,
+    validateCurrent: (before) => ensureMissingForRecovery(before, metadata),
+    persist: async (client, result) => {
+      const inserted = await client.query(
+        `INSERT INTO "pickem_season_results"
+           ("league_id", "season", "outcome", "scoring_mode", "champions", "provenance")
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING "league_id", "season", "outcome", "scoring_mode", "champions", "provenance", "declared_at"`,
+        [
+          metadata.leagueId,
+          metadata.season,
+          result.outcome,
+          result.mode,
+          JSON.stringify(result.champions),
+          JSON.stringify(result.provenance),
+        ]
+      );
+      return fromRow(inserted.rows[0]);
+    },
   });
 }
 
 async function correct({ db = pool, apply = false, expected, proposed, ...input }) {
   const shouldApply = requireApplyFlag(apply);
   const metadata = operatorMetadata(input);
-  const plannedFromRequest = correctionAfter(metadata, proposed, expected && expected.declaredAt);
+  const operation = OPERATION.CORRECTION;
+  const planned = operatorAfter({
+    metadata,
+    proposed,
+    operation,
+    declaredAt: expected && expected.declaredAt,
+  });
   const fingerprint = requestFingerprint({
-    operation: 'correction',
+    operation,
     metadata,
     expected,
-    proposed: plannedFromRequest,
+    proposed: planned,
   });
   const requireExpected = (before) => {
     if (before.outcome === OUTCOME.MISSING) {
@@ -577,69 +605,39 @@ async function correct({ db = pool, apply = false, expected, proposed, ...input 
   };
 
   if (!shouldApply) {
-    await requirePickemLeague({ db, leagueId: metadata.leagueId });
-    const before = await resultOf({ db, leagueId: metadata.leagueId, season: metadata.season });
-    requireExpected(before);
-    return operatorOutcome({
-      operation: 'correction',
-      dryRun: true,
-      before,
-      after: plannedFromRequest,
+    return dryRunOperatorChange({
+      db,
+      operation,
+      metadata,
+      planned,
+      validateCurrent: requireExpected,
     });
   }
 
-  return inTransaction(db, async (client) => {
-    await requirePickemLeague({ db: client, leagueId: metadata.leagueId, lock: true });
-    const before = await resultOf({ db: client, leagueId: metadata.leagueId, season: metadata.season });
-    const retry = await repeatedRequest({
-      db: client,
-      fingerprint,
-      current: before,
-      operation: 'correction',
-      metadata,
-    });
-    if (retry) return retry;
-    requireExpected(before);
-    const planned = plannedFromRequest;
-    const updated = await client.query(
-      `UPDATE "pickem_season_results"
-          SET "outcome" = $1, "scoring_mode" = $2, "champions" = $3, "provenance" = $4
-        WHERE "league_id" = $5 AND "season" = $6
-      RETURNING "league_id", "season", "outcome", "scoring_mode", "champions", "provenance", "declared_at"`,
-      [
-        planned.outcome,
-        planned.mode,
-        JSON.stringify(planned.champions),
-        JSON.stringify(planned.provenance),
-        metadata.leagueId,
-        metadata.season,
-      ]
-    );
-    const after = fromRow(updated.rows[0]);
-    const awarded = await reconcilePickemChampionTrophies({
-      client,
-      leagueId: metadata.leagueId,
-      season: metadata.season,
-      champions: after.champions,
-      mode: after.mode,
-    });
-    const audit = await insertAudit({
-      db: client,
-      metadata,
-      operation: 'correction',
-      before,
-      after,
-      fingerprint,
-    });
-    return operatorOutcome({
-      operation: 'correction',
-      dryRun: false,
-      applied: true,
-      before,
-      after,
-      audit,
-      awarded,
-    });
+  return applyOperatorChange({
+    db,
+    operation,
+    metadata,
+    planned,
+    fingerprint,
+    validateCurrent: requireExpected,
+    persist: async (client, result) => {
+      const updated = await client.query(
+        `UPDATE "pickem_season_results"
+            SET "outcome" = $1, "scoring_mode" = $2, "champions" = $3, "provenance" = $4
+          WHERE "league_id" = $5 AND "season" = $6
+        RETURNING "league_id", "season", "outcome", "scoring_mode", "champions", "provenance", "declared_at"`,
+        [
+          result.outcome,
+          result.mode,
+          JSON.stringify(result.champions),
+          JSON.stringify(result.provenance),
+          metadata.leagueId,
+          metadata.season,
+        ]
+      );
+      return fromRow(updated.rows[0]);
+    },
   });
 }
 

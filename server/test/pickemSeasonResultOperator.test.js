@@ -434,11 +434,17 @@ test('auditTrailOf returns the append order with actor, reason, source, and snap
   }]);
 });
 
-test('recovery and correction require scalar operator metadata before any database read', async () => {
+test('recovery and correction require scalar operator metadata, reason, and source before reading', async () => {
   const proposed = { outcome: 'champions', mode: 'straight', champions: [champion] };
   const attempts = [
     ['recovery operator identity', recover, {
       leagueId: 10, season: 2026, operatorId: [9004], reason: 'Verified', source: 'case-10', proposed,
+    }],
+    ['recovery blank reason', recover, {
+      leagueId: 10, season: 2026, operatorId: 9004, reason: '   ', source: 'case-10', proposed,
+    }],
+    ['correction missing reason', correct, {
+      leagueId: 10, season: 2026, operatorId: 9004, source: 'case-10', expected: {}, proposed,
     }],
     ['correction source', correct, {
       leagueId: 10, season: 2026, operatorId: 9004, reason: 'Verified', source: '   ',
