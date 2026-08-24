@@ -1,12 +1,28 @@
+const crypto = require('node:crypto');
 const pool = require('../modules/pool');
-const { awardPickemChampions } = require('./trophy.service');
+const { awardPickemChampions, reconcilePickemChampionTrophies } = require('./trophy.service');
 
 const OUTCOME = Object.freeze({
   CHAMPIONS: 'champions',
   NO_CHAMPION: 'no_champion',
   MISSING: 'missing',
 });
+const OPERATION = Object.freeze({
+  RECOVERY: 'recovery',
+  CORRECTION: 'correction',
+});
+const OPERATOR_SOURCE = Object.freeze({
+  [OPERATION.RECOVERY]: 'operator_recovery',
+  [OPERATION.CORRECTION]: 'operator_correction',
+});
 const SCORING_MODES = new Set(['straight', 'confidence']);
+
+function positiveInteger(value) {
+  if (typeof value !== 'number' && typeof value !== 'string') return null;
+  if (typeof value === 'string' && !value.trim()) return null;
+  const number = Number(value);
+  return Number.isInteger(number) && number > 0 ? number : null;
+}
 
 class PickemSeasonResultError extends Error {
   constructor(statusCode, code, message) {
@@ -50,11 +66,13 @@ function scoringSnapshot(row) {
 }
 
 function snapshotChampion(row, mode) {
-  const teamId = Number(row.teamId);
+  const teamId = positiveInteger(row.teamId);
   const { points, correct } = scoringSnapshot(row);
   if (
-    !Number.isInteger(teamId) || teamId <= 0
+    !teamId
     || typeof row.teamName !== 'string' || !row.teamName.trim()
+    || (row.avatarUrl != null && typeof row.avatarUrl !== 'string')
+    || (row.avatarStaticUrl != null && typeof row.avatarStaticUrl !== 'string')
   ) {
     throw new PickemSeasonResultError(
       409,
@@ -106,6 +124,350 @@ function sameChampions(left, right) {
       && Number(champion.correct) === Number(other.correct)
       && champion.mode === other.mode;
   });
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map((key) => (
+      `${JSON.stringify(key)}:${canonicalJson(value[key])}`
+    )).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function requestFingerprint({ operation, metadata, expected = null, proposed }) {
+  return crypto.createHash('sha256').update(canonicalJson({
+    operation,
+    leagueId: metadata.leagueId,
+    season: metadata.season,
+    operatorId: metadata.operatorId,
+    reason: metadata.reason,
+    source: metadata.source,
+    expected,
+    proposed,
+  })).digest('hex');
+}
+
+function sameResult(left, right) {
+  return Boolean(left && right)
+    && Number(left.leagueId) === Number(right.leagueId)
+    && Number(left.season) === Number(right.season)
+    && left.outcome === right.outcome
+    && left.mode === right.mode
+    && sameChampions(left.champions || [], right.champions || [])
+    && canonicalJson(left.provenance) === canonicalJson(right.provenance)
+    && left.declaredAt === right.declaredAt;
+}
+
+function fromAuditRow(row) {
+  if (!row) return null;
+  const before = typeof row.before_result === 'string'
+    ? JSON.parse(row.before_result)
+    : row.before_result;
+  const after = typeof row.after_result === 'string'
+    ? JSON.parse(row.after_result)
+    : row.after_result;
+  return {
+    id: Number(row.id),
+    leagueId: Number(row.league_id),
+    season: Number(row.season),
+    operation: row.operation,
+    operatorId: Number(row.operator_id),
+    reason: row.reason,
+    source: row.source,
+    before,
+    after,
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
+  };
+}
+
+function requiredOperatorText(value, field) {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new PickemSeasonResultError(
+      400,
+      'PICKEM_SEASON_RESULT_OPERATOR_INPUT_REQUIRED',
+      `Pick'em season result ${field} is required`
+    );
+  }
+  return value.trim();
+}
+
+function requireApplyFlag(value) {
+  if (typeof value !== 'boolean') {
+    throw new PickemSeasonResultError(
+      400,
+      'PICKEM_SEASON_RESULT_OPERATOR_INPUT_REQUIRED',
+      "Pick'em season result apply must be true or false"
+    );
+  }
+  return value;
+}
+
+function operatorMetadata({ leagueId, season, operatorId, reason, source }) {
+  const normalizedLeagueId = positiveInteger(leagueId);
+  const normalizedSeason = positiveInteger(season);
+  const normalizedOperatorId = positiveInteger(operatorId);
+  if (!normalizedLeagueId || !normalizedSeason || !normalizedOperatorId) {
+    throw new PickemSeasonResultError(
+      400,
+      'PICKEM_SEASON_RESULT_OPERATOR_INPUT_REQUIRED',
+      "Pick'em season result recovery requires league, season, and operator identity"
+    );
+  }
+  return {
+    leagueId: normalizedLeagueId,
+    season: normalizedSeason,
+    operatorId: normalizedOperatorId,
+    reason: requiredOperatorText(reason, 'reason'),
+    source: requiredOperatorText(source, 'source'),
+  };
+}
+
+function operatorResult({ leagueId, season, proposed, provenance, declaredAt = null }) {
+  const outcome = proposed && proposed.outcome;
+  const mode = proposed && proposed.mode;
+  const rows = proposed && proposed.champions;
+  if (!SCORING_MODES.has(mode) || !Array.isArray(rows)) {
+    throw new PickemSeasonResultError(
+      400,
+      'PICKEM_SEASON_RESULT_INVALID',
+      "Pick'em operator result requires a supported mode and champion array"
+    );
+  }
+  if (rows.some((row) => !row || row.mode !== mode)) {
+    throw new PickemSeasonResultError(
+      400,
+      'PICKEM_SEASON_RESULT_INVALID',
+      "Pick'em operator champion modes must match the result mode"
+    );
+  }
+  let champions;
+  try {
+    champions = rows.map((row) => snapshotChampion(row, mode));
+  } catch (error) {
+    if (!(error instanceof PickemSeasonResultError)) throw error;
+    throw new PickemSeasonResultError(
+      400,
+      'PICKEM_SEASON_RESULT_INVALID',
+      "Pick'em operator result contains an invalid champion snapshot"
+    );
+  }
+  const teamIds = new Set(champions.map((champion) => champion.teamId));
+  const tied = champions.length < 2 || champions.every((champion) => (
+    champion.points === champions[0].points && champion.correct === champions[0].correct
+  ));
+  if (teamIds.size !== champions.length || !tied) {
+    throw new PickemSeasonResultError(
+      400,
+      'PICKEM_SEASON_RESULT_INVALID',
+      "Pick'em operator co-champions must be unique and tied on points and correct picks"
+    );
+  }
+  if (
+    (outcome !== OUTCOME.CHAMPIONS && outcome !== OUTCOME.NO_CHAMPION)
+    || (outcome === OUTCOME.CHAMPIONS && champions.length === 0)
+    || (outcome === OUTCOME.NO_CHAMPION && champions.length !== 0)
+  ) {
+    throw new PickemSeasonResultError(
+      400,
+      'PICKEM_SEASON_RESULT_INVALID',
+      "Pick'em operator result outcome does not match its champion set"
+    );
+  }
+  return { leagueId, season, outcome, mode, champions, provenance, declaredAt };
+}
+
+async function requirePickemLeague({ db, leagueId, lock = false }) {
+  const league = await db.query(
+    `SELECT "id", "pickem_only" FROM "leagues" WHERE "id" = $1${lock ? ' FOR UPDATE' : ''}`,
+    [leagueId]
+  );
+  if (!league.rows[0]) {
+    throw new PickemSeasonResultError(404, 'PICKEM_SEASON_RESULT_LEAGUE_NOT_FOUND', 'League not found');
+  }
+  if (!league.rows[0].pickem_only) {
+    throw new PickemSeasonResultError(
+      409,
+      'PICKEM_SEASON_RESULT_INVALID_STATE',
+      "Pick'em season result recovery applies only to pick'em-only leagues"
+    );
+  }
+}
+
+function operatorAfter({ metadata, proposed, operation, declaredAt = null }) {
+  return operatorResult({
+    leagueId: metadata.leagueId,
+    season: metadata.season,
+    proposed,
+    provenance: {
+      source: OPERATOR_SOURCE[operation],
+      evidenceSource: metadata.source,
+      operatorId: metadata.operatorId,
+    },
+    declaredAt,
+  });
+}
+
+function ensureMissingForRecovery(before, metadata) {
+  if (before.outcome !== OUTCOME.MISSING) {
+    throw new PickemSeasonResultError(
+      409,
+      'PICKEM_SEASON_RESULT_INVALID_STATE',
+      `Pick'em season result already exists for league ${metadata.leagueId}, season ${metadata.season}`
+    );
+  }
+}
+
+async function auditForRequest({ db, fingerprint }) {
+  const result = await db.query(
+    `SELECT "id", "league_id", "season", "operation", "operator_id", "reason", "source",
+            "before_result", "after_result", "created_at"
+       FROM "pickem_season_result_audits"
+      WHERE "request_fingerprint" = $1`,
+    [fingerprint]
+  );
+  return fromAuditRow(result.rows[0]);
+}
+
+function operatorOutcome({
+  operation,
+  dryRun,
+  applied = false,
+  idempotent = false,
+  before,
+  after,
+  audit = null,
+  awarded = [],
+}) {
+  return { operation, dryRun, applied, idempotent, before, after, audit, awarded };
+}
+
+async function repeatedRequest({ db, fingerprint, current, operation, metadata }) {
+  const audit = await auditForRequest({ db, fingerprint });
+  if (!audit) return null;
+  if (!sameResult(current, audit.after)) {
+    throw new PickemSeasonResultError(
+      409,
+      'PICKEM_SEASON_RESULT_STALE',
+      `Pick'em season result changed after ${operation} for league ${metadata.leagueId}, season ${metadata.season}`
+    );
+  }
+  return operatorOutcome({
+    operation,
+    dryRun: false,
+    idempotent: true,
+    before: audit.before,
+    after: current,
+    audit,
+  });
+}
+
+async function inTransaction(db, work) {
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    const value = await work(client);
+    await client.query('COMMIT');
+    return value;
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function dryRunOperatorChange({ db, operation, metadata, planned, validateCurrent }) {
+  await requirePickemLeague({ db, leagueId: metadata.leagueId });
+  const before = await resultOf({ db, leagueId: metadata.leagueId, season: metadata.season });
+  validateCurrent(before);
+  return operatorOutcome({ operation, dryRun: true, before, after: planned });
+}
+
+async function syncArchivedResult({ db, result }) {
+  await db.query(
+    `UPDATE "league_history"
+        SET "pickem_result" = $1
+      WHERE "league_id" = $2 AND "season" = $3`,
+    [JSON.stringify(result), result.leagueId, result.season]
+  );
+}
+
+async function applyOperatorChange({
+  db,
+  operation,
+  metadata,
+  planned,
+  fingerprint,
+  validateCurrent,
+  persist,
+}) {
+  return inTransaction(db, async (client) => {
+    await requirePickemLeague({ db: client, leagueId: metadata.leagueId, lock: true });
+    const before = await resultOf({ db: client, leagueId: metadata.leagueId, season: metadata.season });
+    const retry = await repeatedRequest({
+      db: client,
+      fingerprint,
+      current: before,
+      operation,
+      metadata,
+    });
+    if (retry) {
+      await syncArchivedResult({ db: client, result: retry.after });
+      return retry;
+    }
+    validateCurrent(before);
+    const after = await persist(client, planned);
+    await syncArchivedResult({ db: client, result: after });
+    const awarded = await reconcilePickemChampionTrophies({
+      client,
+      leagueId: metadata.leagueId,
+      season: metadata.season,
+      champions: after.champions,
+      mode: after.mode,
+    });
+    const audit = await insertAudit({
+      db: client,
+      metadata,
+      operation,
+      before,
+      after,
+      fingerprint,
+    });
+    return operatorOutcome({
+      operation,
+      dryRun: false,
+      applied: true,
+      before,
+      after,
+      audit,
+      awarded,
+    });
+  });
+}
+
+async function insertAudit({ db, metadata, operation, before, after, fingerprint }) {
+  const inserted = await db.query(
+    `INSERT INTO "pickem_season_result_audits"
+       ("league_id", "season", "operation", "operator_id", "reason", "source",
+        "before_result", "after_result", "request_fingerprint")
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+     RETURNING "id", "league_id", "season", "operation", "operator_id", "reason", "source",
+               "before_result", "after_result", "created_at"`,
+    [
+      metadata.leagueId,
+      metadata.season,
+      operation,
+      metadata.operatorId,
+      metadata.reason,
+      metadata.source,
+      JSON.stringify(before),
+      JSON.stringify(after),
+      fingerprint,
+    ]
+  );
+  return fromAuditRow(inserted.rows[0]);
 }
 
 async function resultOf({ db = pool, leagueId, season }) {
@@ -167,4 +529,138 @@ async function declare({ db, leagueId, season, standings, mode }) {
   return { ...result, awarded };
 }
 
-module.exports = { PickemSeasonResultError, OUTCOME, pickemChampions, declare, resultOf };
+async function auditTrailOf({ db = pool, leagueId, season }) {
+  const result = await db.query(
+    `SELECT "id", "league_id", "season", "operation", "operator_id", "reason", "source",
+            "before_result", "after_result", "created_at"
+       FROM "pickem_season_result_audits"
+      WHERE "league_id" = $1 AND "season" = $2
+      ORDER BY "id"`,
+    [leagueId, season]
+  );
+  return result.rows.map(fromAuditRow);
+}
+
+async function recover({ db = pool, apply = false, proposed, ...input }) {
+  const shouldApply = requireApplyFlag(apply);
+  const metadata = operatorMetadata(input);
+  const operation = OPERATION.RECOVERY;
+  const planned = operatorAfter({ metadata, proposed, operation });
+  const fingerprint = requestFingerprint({ operation, metadata, proposed: planned });
+  if (!shouldApply) {
+    return dryRunOperatorChange({
+      db,
+      operation,
+      metadata,
+      planned,
+      validateCurrent: (before) => ensureMissingForRecovery(before, metadata),
+    });
+  }
+
+  return applyOperatorChange({
+    db,
+    operation,
+    metadata,
+    planned,
+    fingerprint,
+    validateCurrent: (before) => ensureMissingForRecovery(before, metadata),
+    persist: async (client, result) => {
+      const inserted = await client.query(
+        `INSERT INTO "pickem_season_results"
+           ("league_id", "season", "outcome", "scoring_mode", "champions", "provenance")
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING "league_id", "season", "outcome", "scoring_mode", "champions", "provenance", "declared_at"`,
+        [
+          metadata.leagueId,
+          metadata.season,
+          result.outcome,
+          result.mode,
+          JSON.stringify(result.champions),
+          JSON.stringify(result.provenance),
+        ]
+      );
+      return fromRow(inserted.rows[0]);
+    },
+  });
+}
+
+async function correct({ db = pool, apply = false, expected, proposed, ...input }) {
+  const shouldApply = requireApplyFlag(apply);
+  const metadata = operatorMetadata(input);
+  const operation = OPERATION.CORRECTION;
+  const planned = operatorAfter({
+    metadata,
+    proposed,
+    operation,
+    declaredAt: expected && expected.declaredAt,
+  });
+  const fingerprint = requestFingerprint({
+    operation,
+    metadata,
+    expected,
+    proposed: planned,
+  });
+  const requireExpected = (before) => {
+    if (before.outcome === OUTCOME.MISSING) {
+      throw new PickemSeasonResultError(
+        409,
+        'PICKEM_SEASON_RESULT_INVALID_STATE',
+        `Pick'em season result is missing for league ${metadata.leagueId}, season ${metadata.season}`
+      );
+    }
+    if (!sameResult(before, expected)) {
+      throw new PickemSeasonResultError(
+        409,
+        'PICKEM_SEASON_RESULT_STALE',
+        `Pick'em season result changed before correction for league ${metadata.leagueId}, season ${metadata.season}`
+      );
+    }
+  };
+
+  if (!shouldApply) {
+    return dryRunOperatorChange({
+      db,
+      operation,
+      metadata,
+      planned,
+      validateCurrent: requireExpected,
+    });
+  }
+
+  return applyOperatorChange({
+    db,
+    operation,
+    metadata,
+    planned,
+    fingerprint,
+    validateCurrent: requireExpected,
+    persist: async (client, result) => {
+      const updated = await client.query(
+        `UPDATE "pickem_season_results"
+            SET "outcome" = $1, "scoring_mode" = $2, "champions" = $3, "provenance" = $4
+          WHERE "league_id" = $5 AND "season" = $6
+        RETURNING "league_id", "season", "outcome", "scoring_mode", "champions", "provenance", "declared_at"`,
+        [
+          result.outcome,
+          result.mode,
+          JSON.stringify(result.champions),
+          JSON.stringify(result.provenance),
+          metadata.leagueId,
+          metadata.season,
+        ]
+      );
+      return fromRow(updated.rows[0]);
+    },
+  });
+}
+
+module.exports = {
+  PickemSeasonResultError,
+  OUTCOME,
+  pickemChampions,
+  declare,
+  resultOf,
+  auditTrailOf,
+  recover,
+  correct,
+};

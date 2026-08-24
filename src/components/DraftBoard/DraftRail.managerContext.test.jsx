@@ -111,7 +111,7 @@ describe('Readiness reads as progress rather than a chip per manager', () => {
     const readiness = readinessRegion();
     const named = lobby(3, 8)
       .map((team) => team.teamName)
-      .filter((name) => within(readiness).queryByText(new RegExp(name)) !== null);
+      .filter((name) => within(readiness).queryByText(name) !== null);
     expect(named).toEqual([]);
   });
 });

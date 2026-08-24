@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const path = require('path');
 
 const harness = require('../scripts/measure-candidate-arms');
+const candidateB = require('../scripts/measure-candidate-b');
 const policy = require('../../scripts/backtest/lib/policy');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
@@ -71,6 +72,13 @@ test('--out takes a DIRECTORY and the filename is never operator input', () => {
     /is not a directory inside this repository/s
   );
   assert.throws(() => harness.resolveOutFile('.'), /is not a directory inside this repository/s);
+});
+
+test('Candidate B reuses the validated output directory with its fixed basename', () => {
+  assert.equal(
+    candidateB.resolveOutputPath('backtest-artifacts/holdout-confirm-2026'),
+    path.join(REPO_ROOT, 'backtest-artifacts', 'holdout-confirm-2026', 'candidate-b.json')
+  );
 });
 
 // ---------------------------------------------------------------------------

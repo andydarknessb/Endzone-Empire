@@ -26,7 +26,10 @@
 
 set -euo pipefail
 
-: "${SENTRY_CRON_PING_URL:?set SENTRY_CRON_PING_URL (see header)}"
+if [ -z "${SENTRY_CRON_PING_URL:-}" ]; then
+  echo "set SENTRY_CRON_PING_URL (see header)" >&2
+  exit 1
+fi
 
 curl --fail --silent --show-error \
   --request POST "$SENTRY_CRON_PING_URL" \

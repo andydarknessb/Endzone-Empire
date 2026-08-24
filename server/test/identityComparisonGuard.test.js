@@ -17,6 +17,7 @@ const {
   SERVER_ROOTS,
   check,
   findComparisons,
+  scan,
 } = require('../../scripts/check-identity-comparisons');
 
 test('every server identity comparison is allowlisted with a rule', () => {
@@ -54,6 +55,13 @@ test('the server scan actually reaches the source tree', () => {
   assert.ok(unlisted.some((v) => v.includes('server/services/commissioner.service.js')));
   assert.ok(unlisted.some((v) => v.includes('server/services/leagueRole.service.js')));
   assert.ok(unlisted.some((v) => v.startsWith('server/routes/league.router.js')));
+});
+
+test('the scanner refuses a root outside its fixed source-tree allowlist', () => {
+  assert.throws(
+    () => scan(['../'], { includeUsername: false }),
+    /scan root is not allowed/
+  );
 });
 
 test('an allowlist entry describing no code is reported as stale', () => {

@@ -275,12 +275,17 @@ async function notifyAwardedOwners({ leagueId, awarded }) {
  * @param {number} input.season
  * @param {Array}  input.champions declared snapshots: `[{ teamId, points, correct }]`
  * @param {string} input.mode      the league's pick'em scoring mode
+ * @param {number} [input.declaredChampionCount] complete historical winner count when
+ *   only currently existing Teams are being projected
  * @returns {Array} `[{ type, teamId, label }]` newly awarded
  */
-async function awardPickemChampions({ client, leagueId, season, champions, mode }) {
+async function awardPickemChampions({
+  client, leagueId, season, champions, mode, declaredChampionCount,
+}) {
   const winners = champions || [];
   if (winners.length === 0) return [];
-  const label = `${season} Pick'em ${winners.length > 1 ? 'Co-Champion' : 'Champion'}`;
+  const championCount = declaredChampionCount ?? winners.length;
+  const label = `${season} Pick'em ${championCount > 1 ? 'Co-Champion' : 'Champion'}`;
   const awarded = [];
   for (const winner of winners) {
     const teamId = winner.teamId;
@@ -296,18 +301,32 @@ async function awardPickemChampions({ client, leagueId, season, champions, mode 
 }
 
 /**
- * The team ids season completion crowned as pick'em champion(s), in award
- * order. Empty when nothing was crowned (no picks resolved, or the winner
- * had no teams row). Pool or client.
+ * Rebuild the recipient-facing Pick'em champion trophies from an audited
+ * result. Historical Team snapshots remain authoritative; a Team that no
+ * longer exists simply has no live trophy projection.
  */
-async function getPickemChampionTeamIds({ db = pool, leagueId, season }) {
-  const result = await db.query(
-    `SELECT "team_id" FROM "trophies"
-     WHERE "league_id" = $1 AND "season" = $2 AND "week" = 0 AND "type" = 'pickem_champion'
-     ORDER BY "id"`,
+async function reconcilePickemChampionTrophies({ client, leagueId, season, champions, mode }) {
+  await client.query(
+    `DELETE FROM "trophies"
+      WHERE "league_id" = $1 AND "season" = $2 AND "week" = 0
+        AND "type" = 'pickem_champion'`,
     [leagueId, season]
   );
-  return result.rows.map((row) => row.team_id);
+  const snapshots = champions || [];
+  if (snapshots.length === 0) return [];
+  const teams = await client.query(
+    `SELECT "id" FROM "teams" WHERE "league_id" = $1 AND "id" = ANY($2::int[])`,
+    [leagueId, snapshots.map((champion) => champion.teamId)]
+  );
+  const currentTeamIds = new Set(teams.rows.map((row) => Number(row.id)));
+  return awardPickemChampions({
+    client,
+    leagueId,
+    season,
+    champions: snapshots.filter((champion) => currentTeamIds.has(Number(champion.teamId))),
+    mode,
+    declaredChampionCount: snapshots.length,
+  });
 }
 
 /** All trophies a team has earned, newest first. */
@@ -343,8 +362,8 @@ module.exports = {
   comebackTeam,
   awardWeeklyTrophies,
   awardPickemChampions,
+  reconcilePickemChampionTrophies,
   notifyAwardedOwners,
-  getPickemChampionTeamIds,
   getTeamTrophies,
   getLeagueTrophies,
 };

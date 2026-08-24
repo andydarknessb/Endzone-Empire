@@ -88,6 +88,12 @@ const EXTENSIONS = new Set(['.js', '.jsx']);
 
 const SERVER_ROOTS = ['server/routes', 'server/services', 'server/modules'];
 const CLIENT_ROOTS = ['src'];
+const ROOT_DIRECTORIES = Object.freeze({
+  'server/routes': path.join(REPO, 'server', 'routes'),
+  'server/services': path.join(REPO, 'server', 'services'),
+  'server/modules': path.join(REPO, 'server', 'modules'),
+  src: path.join(REPO, 'src'),
+});
 
 /**
  * One comparison the codebase is allowed to make, and the rule it implements.
@@ -362,7 +368,9 @@ function findComparisons(rawText, { includeUsername, ext = '.js' }) {
 function scan(roots, { includeUsername }) {
   const byFile = new Map();
   for (const root of roots) {
-    for (const file of walk(path.join(REPO, root))) {
+    const directory = ROOT_DIRECTORIES[root];
+    if (!directory) throw new Error(`identity comparison scan root is not allowed: ${root}`);
+    for (const file of walk(directory)) {
       const rel = toPosix(path.relative(REPO, file));
       if (isTestFile(rel)) continue;
       const raw = fs.readFileSync(file, 'utf8');
