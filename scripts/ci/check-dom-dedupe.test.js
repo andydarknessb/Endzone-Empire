@@ -87,24 +87,22 @@ test('evaluate: zero paths is a violation, not a silent pass', () => {
   assert.deepEqual(evaluate([]), { ok: false, count: 0 });
 });
 
-test('buildViolationMessage: names every path and its version', () => {
+test('buildViolationMessage: names every installed path without reading beneath subprocess output', () => {
   const paths = [
     '/repo/node_modules/@testing-library/dom',
     '/repo/node_modules/@testing-library/react/node_modules/@testing-library/dom',
   ];
-  const versionOf = (p) => (p.includes('react') ? '10.4.1' : '9.3.4');
-  const message = buildViolationMessage(paths, versionOf);
-  assert.match(message, /\/repo\/node_modules\/@testing-library\/dom @ 9\.3\.4/);
+  const message = buildViolationMessage(paths);
+  assert.match(message, /\/repo\/node_modules\/@testing-library\/dom/);
   assert.match(
     message,
-    /react\/node_modules\/@testing-library\/dom @ 10\.4\.1/
+    /react\/node_modules\/@testing-library\/dom/
   );
 });
 
 test('buildViolationMessage: references both #219 (the original defect) and #224 (this guard)', () => {
   const message = buildViolationMessage(
-    ['/repo/node_modules/@testing-library/dom', '/repo/other/@testing-library/dom'],
-    () => '9.3.4'
+    ['/repo/node_modules/@testing-library/dom', '/repo/other/@testing-library/dom']
   );
   assert.match(message, /#219/);
   assert.match(message, /#224/);
@@ -112,14 +110,13 @@ test('buildViolationMessage: references both #219 (the original defect) and #224
 
 test('buildViolationMessage: warns against an npm overrides entry as the fix', () => {
   const message = buildViolationMessage(
-    ['/repo/node_modules/@testing-library/dom', '/repo/other/@testing-library/dom'],
-    () => '9.3.4'
+    ['/repo/node_modules/@testing-library/dom', '/repo/other/@testing-library/dom']
   );
   assert.match(message, /overrides/);
 });
 
 test('buildViolationMessage: zero copies gets a distinct, actionable message instead of the two-copy explanation', () => {
-  const message = buildViolationMessage([], () => '9.3.4');
+  const message = buildViolationMessage([]);
   assert.match(message, /No installed copy/);
   assert.match(message, /npm ci/);
   assert.doesNotMatch(message, /Two or more copies/);

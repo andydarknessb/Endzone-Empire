@@ -36,8 +36,6 @@
  * proposed `test-build` step. Wiring it in is deliberately left to the
  * maintainer, since `.github/workflows/**` is out of scope here.
  */
-const fs = require('fs');
-const path = require('path');
 const { spawnSync } = require('child_process');
 
 const PACKAGE_NAME = '@testing-library/dom';
@@ -73,24 +71,14 @@ function evaluate(paths) {
   return { ok: paths.length === 1, count: paths.length };
 }
 
-// Best-effort version lookup for a diagnostic message: read the
-// installed copy's own package.json. Never throws — a copy this script
-// can't introspect still gets reported, just without a version.
-function readInstalledVersion(installPath) {
-  try {
-    const pkg = JSON.parse(fs.readFileSync(path.join(installPath, 'package.json'), 'utf8'));
-    return pkg.version || 'unknown';
-  } catch {
-    return 'unknown';
-  }
-}
-
-function buildViolationMessage(paths, versionOf = readInstalledVersion) {
+// The package paths themselves are the actionable diagnostic. Reading a
+// package.json beneath subprocess output would turn display data into a path.
+function buildViolationMessage(paths) {
   const lines = [
     `\n❌ Expected exactly one installed copy of ${PACKAGE_NAME}, found ${paths.length}:\n`,
   ];
   paths.forEach((p) => {
-    lines.push(`  ${p} @ ${versionOf(p)}`);
+    lines.push(`  ${p}`);
   });
 
   if (paths.length === 0) {
@@ -121,14 +109,17 @@ function buildViolationMessage(paths, versionOf = readInstalledVersion) {
 }
 
 function main() {
-  // On Windows, npm is a .cmd shim: Node refuses to spawn a .cmd file
-  // directly without a shell (EINVAL), so `shell: true` is required there.
-  // It is not needed for the arguments themselves — every argument below
-  // is a fixed string literal, none of it is untrusted input.
+  // npm sets npm_execpath for every package script. Execute that JavaScript
+  // through the already-running Node binary so Windows never needs cmd.exe.
+  const npmExecPath = process.env.npm_execpath;
+  if (!npmExecPath) {
+    console.error('\nERROR: npm_execpath is missing; run this guard through `npm run check:dom-dedupe`.\n');
+    process.exit(1);
+  }
   const result = spawnSync(
-    'npm',
-    ['ls', PACKAGE_NAME, '--all', '--parseable'],
-    { encoding: 'utf8', shell: process.platform === 'win32' } // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process, javascript.lang.security.audit.spawn-shell-true.spawn-shell-true
+    process.execPath,
+    [npmExecPath, 'ls', PACKAGE_NAME, '--all', '--parseable'],
+    { encoding: 'utf8', shell: false }
   );
 
   if (result.error) {
