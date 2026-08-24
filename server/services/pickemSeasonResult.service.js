@@ -76,6 +76,9 @@ function snapshotChampion(row, mode) {
 function fromRow(row) {
   if (!row) return null;
   const champions = Array.isArray(row.champions) ? row.champions : JSON.parse(row.champions || '[]');
+  const provenance = row.provenance && typeof row.provenance === 'string'
+    ? JSON.parse(row.provenance)
+    : row.provenance;
   const declaredAt = row.declared_at instanceof Date
     ? row.declared_at.toISOString()
     : row.declared_at;
@@ -85,6 +88,7 @@ function fromRow(row) {
     outcome: row.outcome,
     mode: row.scoring_mode,
     champions,
+    provenance,
     declaredAt,
   };
 }
@@ -106,7 +110,7 @@ function sameChampions(left, right) {
 
 async function resultOf({ db = pool, leagueId, season }) {
   const result = await db.query(
-    `SELECT "league_id", "season", "outcome", "scoring_mode", "champions", "declared_at"
+    `SELECT "league_id", "season", "outcome", "scoring_mode", "champions", "provenance", "declared_at"
        FROM "pickem_season_results"
       WHERE "league_id" = $1 AND "season" = $2`,
     [leagueId, season]
@@ -117,6 +121,7 @@ async function resultOf({ db = pool, leagueId, season }) {
     outcome: OUTCOME.MISSING,
     mode: null,
     champions: [],
+    provenance: null,
     declaredAt: null,
   };
 }
@@ -137,7 +142,7 @@ async function declare({ db, leagueId, season, standings, mode }) {
        ("league_id", "season", "outcome", "scoring_mode", "champions")
      VALUES ($1, $2, $3, $4, $5)
      ON CONFLICT ("league_id", "season") DO NOTHING
-     RETURNING "league_id", "season", "outcome", "scoring_mode", "champions", "declared_at"`,
+     RETURNING "league_id", "season", "outcome", "scoring_mode", "champions", "provenance", "declared_at"`,
     [leagueId, season, outcome, mode, JSON.stringify(champions)]
   );
   const result = fromRow(inserted.rows[0]);
