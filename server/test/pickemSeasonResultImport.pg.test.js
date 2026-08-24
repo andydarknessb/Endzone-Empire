@@ -278,9 +278,9 @@ if (!ENABLED) {
           avatarUrl: null, avatarStaticUrl: null,
         }]),
         JSON.stringify([{
-          team_id: incompleteTeamId, season: SEASON, week: null, type: 'pickem_champion',
+          team_id: [incompleteTeamId], season: SEASON, week: 0, type: 'pickem_champion',
           label: `${SEASON} Pick'em Champion`,
-          data: { points: 6, correct: 6, mode: 'straight' },
+          data: { points: false, correct: 6, mode: 'straight' },
           awarded_at: '2082-01-10T04:00:00.000Z',
         }]),
       ]

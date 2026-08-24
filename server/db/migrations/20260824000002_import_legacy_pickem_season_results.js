@@ -2,14 +2,19 @@ const MODES = new Set(['straight', 'confidence']);
 const ARCHIVED_SOURCE = 'legacy_league_history_awards';
 const LIVE_SOURCE = 'legacy_live_trophies';
 
+function numericPrimitive(value) {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string' && value.trim()) return Number(value);
+  return null;
+}
+
 function positiveInteger(value) {
-  const number = Number(value);
+  const number = numericPrimitive(value);
   return Number.isInteger(number) && number > 0 ? number : null;
 }
 
 function nonnegativeInteger(value) {
-  if (value == null || (typeof value === 'string' && !value.trim())) return null;
-  const number = Number(value);
+  const number = numericPrimitive(value);
   return Number.isInteger(number) && number >= 0 ? number : null;
 }
 
@@ -73,6 +78,18 @@ function championSnapshot({ awards, season, identityFor }) {
   return { champions, mode, teamIds };
 }
 
+function legacyChampionResultCandidate({ leagueId, season, snapshot, provenance, declaredAt }) {
+  return {
+    league_id: Number(leagueId),
+    season: Number(season),
+    outcome: 'champions',
+    scoring_mode: snapshot.mode,
+    champions: JSON.stringify(snapshot.champions),
+    provenance: JSON.stringify(provenance),
+    declared_at: declaredAt,
+  };
+}
+
 function archivedCandidate(row) {
   if (!Array.isArray(row.awards)) return { hasEvidence: true, candidate: null };
   const awards = row.awards.filter((award) => award && award.type === 'pickem_champion');
@@ -101,15 +118,13 @@ function archivedCandidate(row) {
 
   return {
     hasEvidence: true,
-    candidate: {
-      league_id: Number(row.league_id),
-      season: Number(row.season),
-      outcome: 'champions',
-      scoring_mode: snapshot.mode,
-      champions: JSON.stringify(snapshot.champions),
-      provenance: JSON.stringify({ source: ARCHIVED_SOURCE, leagueHistoryId: Number(row.history_id) }),
-      declared_at: row.created_at,
-    },
+    candidate: legacyChampionResultCandidate({
+      leagueId: row.league_id,
+      season: row.season,
+      snapshot,
+      provenance: { source: ARCHIVED_SOURCE, leagueHistoryId: Number(row.history_id) },
+      declaredAt: row.created_at,
+    }),
   };
 }
 
@@ -131,18 +146,16 @@ function liveCandidate(rows) {
     return !latest || awardedAt > latest ? awardedAt : latest;
   }, null);
   if (!declaredAt || Number.isNaN(declaredAt.getTime())) return null;
-  return {
-    league_id: Number(rows[0].league_id),
+  return legacyChampionResultCandidate({
+    leagueId: rows[0].league_id,
     season,
-    outcome: 'champions',
-    scoring_mode: snapshot.mode,
-    champions: JSON.stringify(snapshot.champions),
-    provenance: JSON.stringify({
+    snapshot,
+    provenance: {
       source: LIVE_SOURCE,
       trophyIds: rows.map((row) => Number(row.trophy_id)),
-    }),
-    declared_at: declaredAt,
-  };
+    },
+    declaredAt,
+  });
 }
 
 function resultKey(leagueId, season) {
