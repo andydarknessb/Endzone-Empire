@@ -304,10 +304,10 @@ test('league:join and draft:join both acknowledge the viewer with their own Team
 
 test('a REFUSED league:join or draft:join carries a code, and no viewer-relative field at all', () => {
   // #230. The two joins refuse in three ways and the client has to tell them
-  // apart, because only one of them - not_a_member - says the viewer holds no
+  // apart, because only one of them - NOT_A_MEMBER - says the viewer holds no
   // Team here and is therefore the only one on which the room may clear their
   // Team identity and commissioner flag. The message text cannot carry that:
-  // it is copy, and join_failed's text names the room it failed to join, so
+  // it is copy, and JOIN_FAILED's text names the room it failed to join, so
   // matching on text is two strings for one condition. The code is the
   // contract; these are the three, and there is no fourth.
   //
@@ -315,10 +315,10 @@ test('a REFUSED league:join or draft:join carries a code, and no viewer-relative
   // path is proven through a real connection in socketJoinEndToEnd.test.js,
   // for both joins - the same division of labour as the ack above.
   const refusals = [
-    joinError({ code: 'invalid_request', message: 'leagueId (integer) required' }),
-    joinError({ code: 'not_a_member', message: 'you are not in this league' }),
-    joinError({ code: 'join_failed', message: 'failed to join draft room' }),
-    joinError({ code: 'join_failed', message: 'failed to join league room' }),
+    joinError({ code: 'INVALID_REQUEST', message: 'leagueId (integer) required' }),
+    joinError({ code: 'NOT_A_MEMBER', message: 'you are not in this league' }),
+    joinError({ code: 'JOIN_FAILED', message: 'failed to join draft room' }),
+    joinError({ code: 'JOIN_FAILED', message: 'failed to join league room' }),
   ];
 
   for (const refusal of refusals) {
