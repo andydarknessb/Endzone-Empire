@@ -54,11 +54,17 @@ function grantWorld(grants) {
     }],
     // Inside the transaction: staged, and real only once COMMIT lands.
     [GRANT_DELETE, (text, params) => {
-      // Anchored at both ends on purpose. The fake removes rows by user id
-      // whatever the SQL says, so a WHERE clause that scoped the revocation
-      // to one league would otherwise still look like it removed every
-      // grant. "EVERY co-commissioner grant held by that user" is the
-      // criterion, and this is the only thing holding the statement to it.
+      // Anchored at BOTH ends on purpose, and the reason generalizes: an
+      // unanchored pattern over generated SQL asserts a LOWER BOUND, not an
+      // equality. It says the statement CONTAINS this clause, and
+      // containment is satisfied by anything more restrictive - so the
+      // assertion is weakest in exactly the direction a scoping bug travels,
+      // toward doing LESS than intended. That is the direction that matters
+      // for a revocation. /WHERE "user_id" = \$1/ unanchored is happily
+      // satisfied by `WHERE "user_id" = $1 AND "league_id" = 3`, and the
+      // fake removes rows by params[0] whatever the SQL says, so neither
+      // half of this test could see the narrowing. The criterion is EVERY
+      // grant the account holds; anchoring is what holds the statement to it.
       assert.match(
         text,
         /^DELETE FROM "league_commissioners" WHERE "user_id" = \$1$/,
