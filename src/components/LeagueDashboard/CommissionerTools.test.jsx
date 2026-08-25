@@ -68,6 +68,14 @@ const teams = [
   { id: 2, teamId: 2, name: "Bob's Team", owner: 'bob', faab_remaining: 60, locked: false },
 ];
 
+// #179: a name/owner pair distinct from `teams` above (the name shares no
+// substring with the owner username), shared by the migration tests below
+// that assert a Team name renders while the owner username never does.
+const usernameDistinctTeams = [
+  { id: 1, teamId: 1, name: 'Gridiron Gurus', owner: 'quarterback_kelly', owner_id: 1, faab_remaining: 100, locked: false },
+  { id: 2, teamId: 2, name: 'End Zone Elites', owner: 'runningback_ray', owner_id: 2, faab_remaining: 60, locked: false },
+];
+
 const mockGetByUrl = (overrides = {}) => {
   apiClient.get.mockImplementation((url) => {
     for (const [key, value] of Object.entries(overrides)) {
@@ -126,6 +134,22 @@ test('calls out immediate general-setting effects and destructive team removal',
   expect(screen.getByText('Destructive actions')).toBeInTheDocument();
   expect(screen.getByText('Remove a team')).toBeInTheDocument();
   expect(screen.getByText('Approve and deny decisions apply immediately.')).toBeInTheDocument();
+});
+
+// #179: the join-request queue proposes a Team, not an account, and a request
+// carries no Team ID yet - it is identified by the proposed Team name alone
+// (CONTEXT.md's Admission entry), never by the requester's username.
+test('the join-request queue identifies each request by proposed Team name only, never the username', async () => {
+  mockGetByUrl({
+    'join-requests': {
+      data: [{ id: 5, username: 'wideout_wendy', team_name: "Wendy's Wideouts", created_at: '2026-08-20T12:00:00.000Z' }],
+    },
+  });
+  renderTools({ league: league({ is_public: true, join_approval: true }) });
+  await flush();
+
+  expect(await screen.findByText(/Wendy's Wideouts/)).toBeInTheDocument();
+  expect(screen.queryByText(/wideout_wendy/)).not.toBeInTheDocument();
 });
 
 // The removable-teams guard answers "which of these is me" by Team ID, not by
@@ -236,6 +260,18 @@ test('states the rule alongside a non-empty removal list too', () => {
 
   expect(screen.getByRole('button', { name: "Remove Carol's Team" })).toBeInTheDocument();
   expect(screen.getByText(/the league creator's team can't be removed/i)).toBeInTheDocument();
+});
+
+// #179: commissioner-only chrome is a Team identity surface like any other
+// (CONTEXT.md), so the remove-a-team list may name a team but never the
+// account username behind it.
+test('the remove-a-team list identifies each team by name only, never the owner username', () => {
+  renderTools({ viewerTeamId: 99, teams: usernameDistinctTeams });
+
+  expect(screen.getByText('Gridiron Gurus')).toBeInTheDocument();
+  expect(screen.getByText('End Zone Elites')).toBeInTheDocument();
+  expect(screen.queryByText('quarterback_kelly')).not.toBeInTheDocument();
+  expect(screen.queryByText('runningback_ray')).not.toBeInTheDocument();
 });
 
 // The list row's React key moved to `teamId` with the filter above it, or
@@ -809,6 +845,17 @@ test('Lock Specific Team toggles a single team without touching the league-wide 
   expect(onRefresh).toHaveBeenCalled();
 });
 
+// #179: same rule for the Team lock list.
+test('Lock Specific Team identifies each team by name only, never the owner username', async () => {
+  renderTools({ teams: usernameDistinctTeams });
+  await userEvent.click(screen.getByRole('tab', { name: 'System Overrides' }));
+
+  expect(screen.getByText('Gridiron Gurus')).toBeInTheDocument();
+  expect(screen.getByText('End Zone Elites')).toBeInTheDocument();
+  expect(screen.queryByText('quarterback_kelly')).not.toBeInTheDocument();
+  expect(screen.queryByText('runningback_ray')).not.toBeInTheDocument();
+});
+
 // --- Co-commissioners (owner-only) ---
 
 const withOwnerIds = [
@@ -942,7 +989,7 @@ test('the owner promotes a member by user id and refreshes', async () => {
   renderTools({ isOwner: true, teams: withOwnerIds, onRefresh });
 
   await userEvent.click(screen.getByRole('combobox', { name: 'Add a co-commissioner' }));
-  await userEvent.click(await screen.findByRole('option', { name: /bob/ }));
+  await userEvent.click(await screen.findByRole('option', { name: "Bob's Team" }));
   await userEvent.click(screen.getByRole('button', { name: 'Promote' }));
 
   await waitFor(() =>
@@ -956,8 +1003,19 @@ test('the owner is never offered as a co-commissioner candidate', async () => {
 
   await userEvent.click(screen.getByRole('combobox', { name: 'Add a co-commissioner' }));
 
-  expect(await screen.findByRole('option', { name: /bob/ })).toBeInTheDocument();
-  expect(screen.queryByRole('option', { name: /alice/ })).not.toBeInTheDocument();
+  expect(await screen.findByRole('option', { name: "Bob's Team" })).toBeInTheDocument();
+  expect(screen.queryByRole('option', { name: "Alice's Team" })).not.toBeInTheDocument();
+});
+
+// #179: the promote picker showed "{username} · {team name}"; a shared
+// surface may never carry the username half.
+test('the promote picker lists Team names only, never the owner username', async () => {
+  renderTools({ isOwner: true, teams: usernameDistinctTeams });
+
+  await userEvent.click(screen.getByRole('combobox', { name: 'Add a co-commissioner' }));
+
+  expect(await screen.findByRole('option', { name: 'End Zone Elites' })).toBeInTheDocument();
+  expect(screen.queryByText(/runningback_ray/)).not.toBeInTheDocument();
 });
 
 test('an existing co-commissioner is listed and can be revoked after confirming', async () => {

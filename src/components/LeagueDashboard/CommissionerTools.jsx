@@ -280,7 +280,7 @@ function CoCommissionerCard({ leagueId, league, teams, onRefresh, notify }) {
           >
             {eligible.map((team) => (
               <MenuItem key={team.owner_id} value={team.owner_id}>
-                {team.owner} · {team.name}
+                {team.name}
               </MenuItem>
             ))}
           </Select>
@@ -517,7 +517,7 @@ function GeneralSettingsPanel({ leagueId, league, teams, viewerTeamId, isOwner, 
                 </IconButton>
               }
             >
-              <ListItemText primary={team.name} secondary={team.owner} />
+              <ListItemText primary={team.name} />
             </ListItem>
           ))}
         </List>
@@ -555,7 +555,7 @@ function GeneralSettingsPanel({ leagueId, league, teams, viewerTeamId, isOwner, 
               {joinRequests.map((request) => (
                 <Box key={request.id} sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
                   <Typography sx={{ flexGrow: 1 }}>
-                    {request.username} · {request.team_name} · {new Date(request.created_at).toLocaleString()}
+                    {request.team_name} · {new Date(request.created_at).toLocaleString()}
                   </Typography>
                   <Button size="small" variant="contained" color="success" onClick={() => handleDecideJoinRequest(request.id, true)}>
                     Approve
@@ -1516,7 +1516,7 @@ function TeamLockList({ leagueId, teams, notify, onRefresh }) {
               />
             }
           >
-            <ListItemText primary={team.name} secondary={team.owner} />
+            <ListItemText primary={team.name} />
           </ListItem>
         ))}
       </List>
