@@ -184,7 +184,7 @@ function extractPrecedingClaimExpr(text, beforeIndex) {
 
 function extractCitations(text) {
   const citations = [];
-  const pattern = /([A-Za-z0-9_.\/\\-]*[A-Za-z0-9_-]\.js):(\d+)(?:-(\d+))?/g;
+  const pattern = /([A-Za-z0-9_./\\-]*[A-Za-z0-9_-]\.js):(\d+)(?:-(\d+))?/g;
   let match;
   while ((match = pattern.exec(text)) !== null) {
     const before = text.slice(Math.max(0, match.index - 80), match.index);
