@@ -65,7 +65,14 @@ test('PUT keepers: a round past the draft roster size is refused, naming that bo
   assert.equal(res.status, 400, JSON.stringify(res.body));
   assert.match(res.body.error, /between 1 and 19/);
   assert.match(res.body.error, /draft roster size/);
-  assert.ok(!fake.calls.some((c) => /^INSERT INTO "keepers"/.test(c.text)), 'nothing was written');
+  // #274. Saving keepers is a replace-all: the handler DELETEs the league's
+  // whole slate before it re-INSERTs. The INSERT count alone left the
+  // destructive half unobserved, and the destructive half is the damaging
+  // one. Move the validation guard down by a single statement, below the
+  // DELETE, and the slate is wiped, the ROLLBACK hides it, and the response
+  // is a byte-identical 400. Both counts, so a moved guard cannot pass.
+  assert.equal(fake.matching(remove('keepers')).length, 0, 'the keeper slate was not deleted');
+  assert.equal(fake.matching(insert('keepers')).length, 0, 'no keeper was written');
   fake.assertClean();
 });
 
