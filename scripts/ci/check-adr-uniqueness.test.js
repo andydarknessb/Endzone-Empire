@@ -6,6 +6,7 @@ const {
   findGaps,
   evaluate,
   buildViolationMessage,
+  buildSuccessMessage,
 } = require('./check-adr-uniqueness');
 
 // These tests exercise the pure logic only: parsing a pre-captured list of
@@ -142,4 +143,40 @@ test('buildViolationMessage: names the missing number for a gap', () => {
   const result = evaluate(entries);
   const message = buildViolationMessage(result);
   assert.match(message, /0002/);
+});
+
+test('buildSuccessMessage: a clean set with nothing ignored says nothing about ignored files', () => {
+  const { entries, ignored } = parseAdrEntries(['0001-a.md', '0002-b.md']);
+  const message = buildSuccessMessage(entries, ignored);
+  assert.match(message, /2 ADRs, 0001-0002/);
+  assert.doesNotMatch(message, /[Ii]gnored/);
+});
+
+// This is the case pl-endzone's review caught: parseAdrEntries silently
+// skips anything that doesn't match the pattern (a wrong extension, an
+// underscore instead of a hyphen, a space), and a bare "N ADRs, 0001-000N"
+// success line is indistinguishable from that same line printed over a
+// directory that also holds an (invisible) unnumbered decision record. The
+// success message must name what it skipped, not just what it counted.
+test('buildSuccessMessage: ignored files are named on an otherwise-clean run', () => {
+  const { entries, ignored } = parseAdrEntries([
+    '0001-a.md',
+    '0002-b.md',
+    '0009-my-decision.markdown',
+    '0009_my_decision.md',
+    '0009 - my decision.md',
+  ]);
+  const message = buildSuccessMessage(entries, ignored);
+  assert.match(message, /2 ADRs, 0001-0002/);
+  assert.match(message, /Ignored 3 files/);
+  assert.match(message, /0009-my-decision\.markdown/);
+  assert.match(message, /0009_my_decision\.md/);
+  assert.match(message, /0009 - my decision\.md/);
+});
+
+test('buildSuccessMessage: exactly one ignored file uses singular phrasing', () => {
+  const { entries, ignored } = parseAdrEntries(['0001-a.md', 'README.md']);
+  const message = buildSuccessMessage(entries, ignored);
+  assert.match(message, /Ignored 1 file /);
+  assert.doesNotMatch(message, /Ignored 1 files/);
 });

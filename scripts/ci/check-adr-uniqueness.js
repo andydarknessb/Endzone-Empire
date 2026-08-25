@@ -12,9 +12,31 @@
  * happened twice in one week in this repo -- see the issue for both
  * instances, one of which (two ADR 0005s, plus a 0006 collision) is sitting
  * unpushed on local main right now, deliberately left for that work's own
- * push to renumber. This script is the thing that is supposed to catch it
- * before merge instead of a reviewer happening to hold two PRs in mind at
- * once.
+ * push to renumber.
+ *
+ * BE HONEST ABOUT WHAT THIS CATCHES AND WHEN, NOT JUST THAT IT CATCHES:
+ * `actions/checkout` on a `pull_request` trigger checks out the MERGE ref
+ * (PR head merged into the target branch), not the PR head by itself --
+ * confirmed against this repo's own CI run, which checked out
+ * "refs/remotes/pull/338/merge". That makes this guard's actual coverage a
+ * function of when that merge ref gets built and re-evaluated, not a flat
+ * "catches it before merge":
+ *   1. Both colliding PRs are open and neither has merged yet: neither PR's
+ *      merge ref contains the other's addition, so THIS GUARD DOES NOT FIRE
+ *      on either PR. It cannot see a collision that only exists across two
+ *      still-open branches.
+ *   2. The first PR merges, and the second PR's checks re-run afterward for
+ *      any reason (a new push, a manual re-run, a required-checks refresh):
+ *      the second PR's merge ref now contains both additions, and THIS
+ *      GUARD FIRES on the second PR before it can merge. This is the case
+ *      it actually catches.
+ *   3. The first PR merges, and the second PR merges on stale checks that
+ *      never re-ran against the new base: nothing fires on either PR.
+ *      THE FAILURE SURFACES LATER, on the next push build against the
+ *      target branch itself, after both collisions are already merged.
+ * So: this guard is real protection for case 2, and no protection at all
+ * for cases 1 and 3. It narrows the window a collision can hide in; it
+ * does not close it.
  *
  * UNIQUE *AND* GAPLESS, BOTH ENFORCED, AND WHY: a decision log must not
  * silently lose entries. A superseded ADR is marked Superseded IN PLACE --
@@ -155,6 +177,30 @@ function buildViolationMessage(result) {
   return lines.join('\n');
 }
 
+// A green run still owes the reader what it DID NOT count, not only what it
+// did: parseAdrEntries silently skips any file that doesn't match
+// ADR_FILENAME_PATTERN (docs/adr/0009-my-decision.markdown, or
+// 0009_my_decision.md, or "0009 - my decision.md" would all be skipped),
+// and a bare "8 ADRs, 0001-0008" success line can't be told apart from a
+// 9th, unnumbered decision record sitting right next to it, invisible.
+// When anything was ignored, the success message names it, so "clean" and
+// "clean, but see what I couldn't parse" don't look identical.
+function buildSuccessMessage(entries, ignored) {
+  const numbers = entries.map((e) => e.number).sort((a, b) => a - b);
+  const range =
+    numbers.length > 0 ? `${pad4(numbers[0])}-${pad4(numbers[numbers.length - 1])}` : '(none)';
+  const lines = [`✅ docs/adr/ is unique and gapless: ${entries.length} ADRs, ${range}.`];
+
+  if (ignored.length > 0) {
+    lines.push(
+      `ℹ Ignored ${ignored.length} file${ignored.length > 1 ? 's' : ''} in docs/adr/ that ` +
+        `did not match ${ADR_FILENAME_PATTERN}: ${ignored.join(', ')}`
+    );
+  }
+
+  return lines.join('\n');
+}
+
 function main() {
   let filenames;
   try {
@@ -165,7 +211,7 @@ function main() {
     return;
   }
 
-  const { entries } = parseAdrEntries(filenames);
+  const { entries, ignored } = parseAdrEntries(filenames);
   const result = evaluate(entries);
 
   if (!result.ok) {
@@ -174,10 +220,7 @@ function main() {
     return;
   }
 
-  const numbers = entries.map((e) => e.number).sort((a, b) => a - b);
-  const range =
-    numbers.length > 0 ? `${pad4(numbers[0])}-${pad4(numbers[numbers.length - 1])}` : '(none)';
-  console.log(`✅ docs/adr/ is unique and gapless: ${entries.length} ADRs, ${range}.`);
+  console.log(buildSuccessMessage(entries, ignored));
 }
 
 if (require.main === module) {
@@ -190,4 +233,5 @@ module.exports = {
   findGaps,
   evaluate,
   buildViolationMessage,
+  buildSuccessMessage,
 };
