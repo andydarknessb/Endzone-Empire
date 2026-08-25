@@ -1,12 +1,34 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
 const {
   resolveSearchRoot,
+  resolveInstallRoot,
   parseInstalledCopies,
   evaluate,
   buildViolationMessage,
 } = require('./check-dom-dedupe');
+
+// Build a throwaway directory tree for the resolveInstallRoot walk-up tests.
+// mkdtempSync's own path can contain a symlink on some platforms (macOS
+// /var -> /private/var), so realpath it once and anchor every assertion to the
+// realpath'd base, matching what resolveInstallRoot returns after path.resolve.
+function makeTempRoot() {
+  return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'domdedupe-')));
+}
+
+// Install a fake @testing-library/dom under <dir>/node_modules so the walk-up
+// sees a real package.json there, without spawning npm.
+function installPackage(dir) {
+  const pkgDir = path.join(dir, 'node_modules', '@testing-library', 'dom');
+  fs.mkdirSync(pkgDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(pkgDir, 'package.json'),
+    JSON.stringify({ name: '@testing-library/dom', version: '9.3.4' })
+  );
+}
 
 // These tests exercise the pure logic only: parsing pre-captured
 // `npm ls --parseable --long` text and deciding what it means. Nothing here
@@ -161,6 +183,61 @@ test('resolveSearchRoot: returns the checkout root two levels above scripts/ci, 
   }
 });
 
+// --- resolveInstallRoot: the walk-up that finds the tree the tests will use ---
+
+test('resolveInstallRoot: package installed in the search root itself returns the search root', () => {
+  const root = makeTempRoot();
+  try {
+    installPackage(root);
+    assert.equal(resolveInstallRoot(root), root);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('resolveInstallRoot: package only in an ancestor (nested worktree, no node_modules) returns that ancestor', () => {
+  const parent = makeTempRoot();
+  try {
+    installPackage(parent);
+    const nested = path.join(parent, '.claude', 'worktrees', 'wt');
+    fs.mkdirSync(nested, { recursive: true });
+    // The worktree has no node_modules of its own; Node would resolve
+    // @testing-library/dom from the parent checkout, and so must the guard.
+    assert.equal(resolveInstallRoot(nested), parent);
+  } finally {
+    fs.rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('resolveInstallRoot: package nowhere up the tree returns null (fail-closed input)', () => {
+  const root = makeTempRoot();
+  try {
+    const nested = path.join(root, 'a', 'b');
+    fs.mkdirSync(nested, { recursive: true });
+    // No node_modules anywhere in this subtree; the walk-up bottoms out at the
+    // filesystem root without finding the package.
+    assert.equal(resolveInstallRoot(nested), null);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('resolveInstallRoot: the NEAREST ancestor wins when more than one has the package', () => {
+  const outer = makeTempRoot();
+  try {
+    installPackage(outer);
+    const inner = path.join(outer, 'inner');
+    fs.mkdirSync(inner, { recursive: true });
+    installPackage(inner);
+    const nested = path.join(inner, 'sub', 'dir');
+    fs.mkdirSync(nested, { recursive: true });
+    // Node stops at the first node_modules it finds walking up; so must we.
+    assert.equal(resolveInstallRoot(nested), inner);
+  } finally {
+    fs.rmSync(outer, { recursive: true, force: true });
+  }
+});
+
 // --- buildViolationMessage: message content per shape, and it must regress ---
 
 const SEARCH_ROOT = '/repo';
@@ -245,4 +322,50 @@ test('buildViolationMessage: is a pure function of (copies, searchRoot) - same i
     buildViolationMessage(copies, SEARCH_ROOT),
     buildViolationMessage(copies, SEARCH_ROOT)
   );
+});
+
+// --- buildViolationMessage: naming both roots when they differ (#352) ---
+
+test('buildViolationMessage: when the resolved root differs from the search root, both are named', () => {
+  // A split that lives in the parent checkout, surfaced from a nested worktree
+  // that has no node_modules of its own: the guard searched from the worktree
+  // but resolved (and ran npm ls) against the parent. The reader must see both.
+  const copies = [
+    { path: '/parent/node_modules/@testing-library/dom', version: '10.4.1' },
+    {
+      path: '/parent/node_modules/@testing-library/react/node_modules/@testing-library/dom',
+      version: '9.3.4',
+    },
+  ];
+  const message = buildViolationMessage(copies, '/worktree', '/parent');
+  assert.match(message, /found 2/);
+  // Both roots are named, under labels that say which is which.
+  assert.match(message, /Searched from: \/worktree/);
+  assert.match(message, /Resolved against: \/parent/);
+  // The two-copy explanation still stands.
+  assert.match(message, /outside act\(\)/);
+});
+
+test('buildViolationMessage: when the resolved root equals the search root, it is named once, not doubled', () => {
+  const copies = [
+    { path: '/repo/node_modules/@testing-library/dom', version: '10.4.1' },
+    { path: '/repo/other/@testing-library/dom', version: '9.3.4' },
+  ];
+  // Passing the same value for both (the healthy main-checkout shape) must not
+  // introduce the "resolved against" phrasing - that wording is reserved for
+  // the genuinely-different case so it stays meaningful.
+  const message = buildViolationMessage(copies, SEARCH_ROOT, SEARCH_ROOT);
+  assert.match(message, /Searched: \/repo/);
+  assert.doesNotMatch(message, /Resolved against:/);
+  assert.doesNotMatch(message, /Searched from:/);
+});
+
+test('buildViolationMessage: found-0 with a null resolved root keeps the npm ci advice and names only the search root', () => {
+  // When nothing resolves from any ancestor, main() passes installRoot=null.
+  // This is the ONLY branch that keeps the `npm ci` remediation.
+  const message = buildViolationMessage([], SEARCH_ROOT, null);
+  assert.match(message, /found 0/);
+  assert.match(message, /Searched: \/repo/);
+  assert.match(message, /npm ci/);
+  assert.doesNotMatch(message, /Resolved against:/);
 });
