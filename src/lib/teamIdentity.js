@@ -42,10 +42,11 @@
  *
  * `TEAM_IDENTITY_FIELDS` is the client half of the contract's enforcement
  * (#200): the same two wire keys the server exports, frozen, and the single
- * source of the strings `teamId` / `teamName` on this side. `teamIdentityOf`
- * reads a payload entry through it, so a consumer names Team identity by the
- * shared list rather than by hand, and teamIdentityFields.test.js pins this
- * array equal to the server's so the two mirrors cannot drift.
+ * source of the strings `teamId` / `teamName` on this side - they appear here
+ * once and nowhere else in this module. teamIdentityFields.test.js pins this
+ * array equal to the server's, so the two mirrors cannot drift; the consumers
+ * that move onto Team identity (#115 children) read the wire keys from it
+ * rather than restating them.
  */
 
 /**
@@ -54,21 +55,6 @@
  * pinned equal by a contract test.
  */
 export const TEAM_IDENTITY_FIELDS = Object.freeze(['teamId', 'teamName']);
-
-/**
- * Read Team identity off a league-shared payload entry, by the shared field
- * list rather than by re-spelling the keys at the call site. Missing input (or
- * a departed manager's null identity) reads back as nulls, never absent keys,
- * so a consumer can destructure it unconditionally and hand `teamName` to
- * `teamNameLabel`.
- */
-export function teamIdentityOf(entry) {
-  const [idField, nameField] = TEAM_IDENTITY_FIELDS;
-  return {
-    teamId: entry == null || entry[idField] == null ? null : entry[idField],
-    teamName: entry == null || entry[nameField] == null ? null : entry[nameField],
-  };
-}
 
 /** What any league-shared surface calls someone whose Team is gone. */
 export const FORMER_MANAGER_LABEL = 'Former manager';
