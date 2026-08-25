@@ -104,10 +104,10 @@ function assertStillPresent(obj, fields) {
   }
 }
 
-/** A key that must never ride on this broadcast (today or after #344). */
+/** A key that must never appear on this payload (today or after #344). */
 function assertForbidden(obj, fields) {
   for (const field of fields) {
-    assert.equal(field in obj, false, `${field} must not ride on this broadcast`);
+    assert.equal(field in obj, false, `${field} must not appear on this payload`);
   }
 }
 
