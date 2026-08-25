@@ -25,6 +25,13 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run lint:colors
+      # #307: two branches can each take the next free docs/adr/ number off
+      # the same base at the same time; the file paths differ, so git never
+      # conflicts and both PRs go green. This runs the guard's own test file
+      # (scripts/ci/check-adr-uniqueness.test.js) plus the guard itself
+      # (scripts/ci/check-adr-uniqueness.js), which fails on a duplicate
+      # numeric prefix or a gap in the sequence.
+      - run: npm run check:adr-uniqueness
       # The holdout-confirm-2026 study captures against these constants; an
       # unintended change (even a key-order change) silently drops captured
       # weeks. Deliberate changes update the pin in the same commit.
