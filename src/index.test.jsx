@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, screen } from '@testing-library/react';
+import { act } from '@testing-library/react';
 
 // index.js renders the real store + App tree. The store itself is
 // side-effect-free to construct (verified in redux/store.test.js), but App
@@ -19,8 +19,5 @@ test('mounts the app into #react-root without throwing', () => {
     });
   }).not.toThrow();
 
-  // Finding #react-root is already covered above: index.js passes it straight
-  // to createRoot, which throws on a missing container. What is left to show
-  // is that the tree actually rendered.
-  expect(screen.getByTestId('mock-app')).toHaveTextContent('mounted');
+  expect(document.getElementById('react-root')).toHaveTextContent('mounted');
 });

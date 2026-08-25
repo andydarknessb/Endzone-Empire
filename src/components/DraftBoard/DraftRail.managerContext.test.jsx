@@ -392,10 +392,12 @@ describe('help sits with the control it explains', () => {
     expect(switches).toHaveLength(2);
 
     for (const control of switches) {
-      // toHaveAccessibleDescription is satisfied by a title attribute too, so
-      // it alone would not hold the mechanism the old check asserted. Keep
-      // both: the description reaches the reader, and it arrives via
-      // aria-describedby rather than a tooltip.
+      // Two matchers because one is not enough on its own:
+      // toHaveAccessibleDescription is also satisfied by a title, and the
+      // attribute check alone says nothing about what the description reads.
+      // Together they hold the old check for the wiring this switch ships,
+      // which carries no title - and they still catch a stale reference,
+      // since a dangling aria-describedby falls back to no description.
       expect(control).toHaveAttribute('aria-describedby');
       expect(control).toHaveAccessibleDescription(/Turn on Autodraft/);
     }
