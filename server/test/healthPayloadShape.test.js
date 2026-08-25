@@ -7,6 +7,13 @@ const holdout = require('../services/holdout.service');
 
 const { createFakePool } = require('./helpers/fakePool');
 const { keys, NEXT_QUARTER } = require('./helpers/payloadShape');
+const scheduler = require('../modules/scheduler');
+const liveGameEngine = require('../modules/liveGameEngine');
+const { ERROR_CATEGORIES } = require('../modules/errorCategory');
+
+// The published error fields must always be null (healthy) or a member of this
+// fixed enum - never the raw error string (#242).
+const CATEGORY_ENUM = new Set(Object.values(ERROR_CATEGORIES));
 
 /**
  * The payload contract of every unauthenticated /api/health/* route (#201).
@@ -315,5 +322,104 @@ test('a third field on the holdout service result does not reach the composite',
 
   assert.deepEqual(keys(res.body.holdout), ['obligations', 'ok']);
   assert.ok(!JSON.stringify(res.body).includes('a_field_added_next_quarter'));
+  fake.assertClean();
+});
+
+// ---------------------------------------------------------------------------
+// #242 - the three anonymous error fields carry a category, never the string.
+//
+// These are VALUE-shape assertions, the guard the #201 audit called for and
+// the key-set pins above could not give: a hostile message seeded into each
+// field's source must come out as a member of the fixed enum, and none of its
+// substrings (a connection string, an upstream host, a file path) may survive
+// anywhere in the serialized body.
+// ---------------------------------------------------------------------------
+
+// A message engineered to carry everything a raw err.message might leak.
+const HOSTILE_DB = 'connect ECONNREFUSED postgres://app:hunter2@db.internal:5432/prod';
+const HOSTILE_UPSTREAM = 'timeout of 2000ms exceeded calling https://api.tank01.example/getNFLScoresOnly';
+const HOSTILE_PATH = 'ENOENT: no such file, open /var/secrets/service-account.json';
+const HOSTILE_NEEDLES = [
+  'hunter2', 'db.internal', 'ECONNREFUSED', '5432',
+  'api.tank01.example', '/var/secrets', 'service-account.json',
+];
+
+function assertNoHostileSubstring(body) {
+  const published = JSON.stringify(body);
+  for (const needle of HOSTILE_NEEDLES) {
+    assert.ok(!published.includes(needle), `${needle} does not reach the anonymous payload`);
+  }
+}
+
+test('GET /worker: a healthy worker publishes null for lastError, worker.ok true', async (t) => {
+  const fake = healthPool({ workers: [wideWorkerRow({ last_error: null })] }).install(t);
+  const res = await request(app).get('/api/health/worker');
+  assert.equal(res.status, 200);
+  assert.equal(res.body.workers[0].lastError, null);
+  assert.equal(res.body.ok, true);
+  fake.assertClean();
+});
+
+test('GET /worker: a hostile last_error becomes a category, leaking none of it, and ok is false', async (t) => {
+  const fake = healthPool({ workers: [wideWorkerRow({ last_error: HOSTILE_DB })] }).install(t);
+  const res = await request(app).get('/api/health/worker');
+  assert.equal(res.status, 503, 'a categorized error still fails the check');
+  assert.ok(CATEGORY_ENUM.has(res.body.workers[0].lastError), 'lastError is an enum category');
+  assert.equal(res.body.ok, false, 'worker.ok truthiness derivation is unchanged');
+  assertNoHostileSubstring(res.body);
+  fake.assertClean();
+});
+
+test('GET /: healthy scheduler and liveGameEngine publish null error fields', async (t) => {
+  // Real getters, module state null: the healthy end of the value contract.
+  delete process.env.REDIS_URL;
+  const fake = healthPool().install(t);
+  stubHoldout(t);
+  const res = await request(app).get('/api/health');
+  assert.equal(res.body.scheduler.lastTickError, null);
+  assert.equal(res.body.liveGameEngine.lastError, null);
+  fake.assertClean();
+});
+
+test('GET /: hostile scheduler and liveGameEngine errors become categories, leaking neither', async (t) => {
+  delete process.env.REDIS_URL;
+  const fake = healthPool().install(t);
+  stubHoldout(t);
+  // The router reads these through the module object, so the getters are a
+  // mockable seam (unlike the load-time-destructured redis/quota clients).
+  t.mock.method(scheduler, 'getSchedulerStatus', () => ({
+    lastTickAt: '2026-08-25T00:00:00.000Z',
+    lastTickError: HOSTILE_DB,
+    lastSyncAt: null,
+  }));
+  t.mock.method(liveGameEngine, 'getLiveGameEngineStatus', () => ({
+    lastRunAt: '2026-08-25T00:00:00.000Z',
+    lastError: HOSTILE_UPSTREAM,
+    clockSource: 'espn',
+    configuredClockSource: 'espn',
+    lastSourceUsed: null,
+    espnConsecutiveFailures: 0,
+    quotaMode: null,
+  }));
+
+  const res = await request(app).get('/api/health');
+
+  assert.ok(CATEGORY_ENUM.has(res.body.scheduler.lastTickError), 'scheduler.lastTickError is a category');
+  assert.ok(CATEGORY_ENUM.has(res.body.liveGameEngine.lastError), 'liveGameEngine.lastError is a category');
+  // Key sets stay exactly as the pins above require, values and all.
+  assert.deepEqual(keys(res.body.scheduler), ['lastSyncAt', 'lastTickAt', 'lastTickError']);
+  assert.deepEqual(keys(res.body.liveGameEngine), [
+    'clockSource', 'configuredClockSource', 'espnConsecutiveFailures',
+    'lastError', 'lastRunAt', 'lastSourceUsed', 'quotaMode',
+  ]);
+  assertNoHostileSubstring(res.body);
+  fake.assertClean();
+});
+
+test('GET /worker: a file-path error message also leaks nothing', async (t) => {
+  const fake = healthPool({ workers: [wideWorkerRow({ last_error: HOSTILE_PATH })] }).install(t);
+  const res = await request(app).get('/api/health/worker');
+  assert.ok(CATEGORY_ENUM.has(res.body.workers[0].lastError));
+  assertNoHostileSubstring(res.body);
   fake.assertClean();
 });

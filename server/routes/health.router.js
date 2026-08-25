@@ -1,10 +1,14 @@
 const express = require('express');
 const pool = require('../modules/pool');
-const { getSchedulerStatus } = require('../modules/scheduler');
-const { getLiveGameEngineStatus } = require('../modules/liveGameEngine');
+// Required as module objects (not destructured at load) so their status getters
+// stay a mockable seam and, more to the point, so this router is the single
+// boundary that classifies their error field before it reaches the wire (#242).
+const scheduler = require('../modules/scheduler');
+const liveGameEngine = require('../modules/liveGameEngine');
 const { getRuntimeState } = require('../modules/runtimeState');
 const { getRedisClient } = require('../modules/redis');
 const { getQuotaState } = require('../modules/tank01Client');
+const { classifyError } = require('../modules/errorCategory');
 
 const router = express.Router();
 const WORKER_STALE_MS = Number(process.env.WORKER_STALE_MS || 15 * 60 * 1000);
@@ -80,7 +84,10 @@ async function workerStatus() {
     const workers = result.rows.map((row) => ({
       name: row.worker_name,
       lastSeenAt: row.last_seen_at,
-      lastError: row.last_error,
+      // The raw message stays in worker_heartbeats.last_error for operators; the
+      // anonymous payload carries only its category. `ok` below still keys off
+      // truthiness, so null (healthy) vs a non-null category is unchanged.
+      lastError: classifyError(row.last_error),
       release: row.release_sha,
       stale: now - new Date(row.last_seen_at).getTime() > WORKER_STALE_MS,
     }));
@@ -91,6 +98,20 @@ async function workerStatus() {
   } catch (error) {
     return { ok: false, workers: [], unavailable: true };
   }
+}
+
+/**
+ * Republish a module status snapshot with its raw error message replaced by a
+ * stable category. Spread-then-override so the key set is untouched: only the
+ * value of the one error field changes. Used for the composite route's
+ * `scheduler` and `liveGameEngine` sections (#242).
+ */
+function publishSchedulerStatus(status) {
+  return { ...status, lastTickError: classifyError(status.lastTickError) };
+}
+
+function publishLiveGameEngineStatus(status) {
+  return { ...status, lastError: classifyError(status.lastError) };
 }
 
 router.get('/livez', (req, res) => {
@@ -166,8 +187,10 @@ router.get('/', async (req, res) => {
     worker,
     quota,
     holdout,
-    scheduler: getSchedulerStatus(),
-    liveGameEngine: getLiveGameEngineStatus(),
+    // Spread keeps each status's key set exactly as pinned; only the error
+    // field is rewritten from a raw message to its category (#242).
+    scheduler: publishSchedulerStatus(scheduler.getSchedulerStatus()),
+    liveGameEngine: publishLiveGameEngineStatus(liveGameEngine.getLiveGameEngineStatus()),
     uptimeSec: Math.round(process.uptime()),
     release: process.env.RENDER_GIT_COMMIT || process.env.APP_RELEASE || null,
   });
