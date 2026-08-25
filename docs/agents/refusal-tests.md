@@ -202,6 +202,20 @@ one people skip, because it feels like testing something you already
 believe: **the mutant against the OLD assertions**. Without it you have a
 new test that passes and no evidence the old one was insufficient.
 
+Delete the guard, do not just disable the refusal. Removing the throw
+outright makes the call succeed, which any test catches and which
+therefore proves nothing about your new assertion. The mutation this rule
+is about keeps the refusal and moves it: same status, same body, work
+already done.
+
+And check that your assertion is actually in the file. #274's own audit
+edited one test with a scripted string replace that silently matched
+nothing (CRLF) while its script reported success. The suite still passed,
+which was consistent both with the assertion being present and with it
+never having been added. A tool that cannot report its own failure is the
+same defect as a test that cannot report the bug: prefer one that throws
+on a miss, and grep for the call site afterwards.
+
 This is the demonstration from #274, on
 `PUT /api/draft/league/:id/keepers`. Saving keepers is a replace-all: the
 handler `DELETE`s the league's whole slate, then re-`INSERT`s. The test
