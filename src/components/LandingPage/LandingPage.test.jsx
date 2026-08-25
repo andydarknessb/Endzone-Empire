@@ -22,6 +22,13 @@ test('"Log In" links to the login page', () => {
   expect(screen.getByRole('link', { name: 'Log In' })).toHaveAttribute('href', '/login');
 });
 
+test('the hero surfaces NFL pick\'em leagues as a second, discoverable option', () => {
+  renderWithProviders(<LandingPage />);
+  expect(screen.getByText(/turns armchair quarterbacks into legendary/i)).toBeInTheDocument();
+  expect(screen.getByText(/NFL pick'em league/i)).toBeInTheDocument();
+  expect(screen.getByText(/no draft, no rosters/i)).toBeInTheDocument();
+});
+
 test('renders the feature grid covering the core product areas', () => {
   renderWithProviders(<LandingPage />);
   [

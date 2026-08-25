@@ -111,6 +111,10 @@ function LandingPage() {
               The app that turns armchair quarterbacks into legendary league managers, all season
               long. Draft, manage, and battle your way to a championship.
             </Typography>
+            <Typography variant="body1" component="p" sx={{ color: 'text.secondary', maxWidth: 640 }}>
+              Prefer just picking winners? Run an NFL pick&apos;em league instead · no draft, no
+              rosters.
+            </Typography>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ pt: 2 }}>
               <Button
                 component={RouterLink}
