@@ -16,14 +16,21 @@
  *   2. Ordering. holdout.pg.test.js inserts append-only ledger rows that by
  *      design cannot be deleted, and the empty-ledger rollback smoke earlier in
  *      migration-smoke must keep passing, so holdout runs LAST -- after the
- *      backtest and roster-tenure files that seed and delete a far-future
- *      season. The rule: every file in sorted order, except that RUN_LAST
- *      basenames move to the end. Plain sorted order already puts every
- *      seed-and-delete file ahead of holdout; RUN_LAST only pins the tail.
+ *      backtest, roster-tenure and lineup files that seed and delete a
+ *      far-future season. The rule: every file in sorted order, except that
+ *      RUN_LAST basenames move to the end. RUN_LAST is load-bearing, not
+ *      decorative: holdout.pg.test.js sorts alphabetically AHEAD of the
+ *      rosterTenures and lineupFollowsRoster seed-and-delete files, so plain
+ *      sorted order would run it too early; force-appending RUN_LAST is what
+ *      actually keeps it last.
  *
  *   3. Per-file env gates still work locally. Each file self-skips unless
  *      PG_TESTS=1 or its own *_PG_TESTS variable is set, so the existing
  *      test:*-pg scripts keep running their file(s) on their own variable.
+ *
+ * No per-test --test-timeout is passed, matching the plain `node --test <file>`
+ * the enumerated steps used before: these tests do real seeding and their
+ * durations vary widely, and the GitHub Actions job timeout is the backstop.
  *
  * The glob is resolved here rather than in package.json so the command does not
  * depend on the shell, exactly as scripts/run-server-tests.js does.

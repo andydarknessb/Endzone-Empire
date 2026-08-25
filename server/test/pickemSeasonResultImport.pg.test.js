@@ -3,6 +3,11 @@
  * season results (#293). The migration is rolled back so fixtures are seeded
  * against the exact pre-import schema, then reapplied and observed only
  * through the immutable result boundary.
+ *
+ * Seeds archived awards and live trophy evidence, then proves precedence,
+ * provenance, co-champions, ambiguity refusal, and conflict-safe reruns:
+ * properties only a real Postgres, with the real uniqueness and outcome
+ * constraints, can enforce.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');

@@ -2,6 +2,11 @@
  * Disposable-PostgreSQL coverage for audited Pick'em result recovery and
  * correction (#294). Refuses every DATABASE_URL* variable so this cannot run
  * against the shared application database.
+ *
+ * Covers the recovery/correction dry-run and apply behaviour, stable retries,
+ * stale refusal, trophy reconciliation, rollback, and the database-enforced
+ * append-only audit evidence: only a real Postgres runs the triggers that make
+ * the audit trail append-only.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');

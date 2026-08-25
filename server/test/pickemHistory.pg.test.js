@@ -1,6 +1,10 @@
 /**
  * Disposable-PostgreSQL coverage for the Pick'em history archive migration
  * (#295). Refuses DATABASE_URL* so it cannot touch the shared database.
+ *
+ * Covers the archive backfill, survival without a live Team or account display,
+ * and database-enforced outcome consistency: the constraint holds even after
+ * the projected Team and account rows are gone, which only real Postgres proves.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
