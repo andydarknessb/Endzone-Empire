@@ -98,7 +98,7 @@
     "test:check-dom-dedupe": "node --test scripts/ci/check-dom-dedupe.test.js",
     "test:eslint-scoping": "node --test scripts/eslintRuleScoping.test.js"
   },
-  "//devDependencies-testing-library-dom": "@testing-library/dom is pinned so @testing-library/react and @testing-library/user-event share one installed copy; a second copy re-splits user-event's act()-aware config and every user-event interaction dispatches outside act() with no test failing. Do not remove or loosen this pin without running `npm run check:dom-dedupe` first. See #219 (the original defect) and #224 (the guard, not yet wired into CI).",
+  "//devDependencies-testing-library-dom": "@testing-library/dom is pinned so @testing-library/react and @testing-library/user-event share one installed copy; a second copy re-splits user-event's act()-aware config and every user-event interaction dispatches outside act() with no test failing. Do not remove or loosen this pin without running `npm run check:dom-dedupe` first. See #219 (the original defect), #224 (the guard), and #313 (the guard runs in the test-build CI job, so loosening this pin without a shared version fails CI, not just the manual check).",
   "devDependencies": {
     "@playwright/test": "^1.61.1",
     "react-scripts": "^5.0.1",

@@ -186,6 +186,22 @@ test('buildViolationMessage: a null version renders as "unknown", never as the l
   assert.doesNotMatch(message, /@null/);
 });
 
+test('buildViolationMessage: a single copy never prints the "two or more copies" explanation', () => {
+  // main() only reaches this function under !ok (count 0 or >=2), so a
+  // one-element array is not reachable today. Guard against a future caller or
+  // a refactor of the ok check emitting the multi-copy prose for a healthy
+  // single install: the explanation branch is gated on length >= 2.
+  const message = buildViolationMessage(
+    [{ path: '/repo/node_modules/@testing-library/dom', version: '9.3.4' }],
+    SEARCH_ROOT
+  );
+  assert.doesNotMatch(message, /Two or more copies/);
+  assert.doesNotMatch(message, /outside act\(\)/);
+  // It still names what it found, without a misleading cause.
+  assert.match(message, /found 1/);
+  assert.match(message, /@testing-library\/dom@9\.3\.4/);
+});
+
 test('buildViolationMessage: is a pure function of (copies, searchRoot) - same inputs, identical sentence', () => {
   // The determinism the second AC asks for lives here: given the same tree
   // state and the same resolved root, the message is byte-for-byte identical

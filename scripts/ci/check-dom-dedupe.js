@@ -156,7 +156,7 @@ function buildViolationMessage(copies, searchRoot) {
         `${PACKAGE_NAME} may actually have been removed from devDependencies ` +
         '(see #219 and #224 for why it must stay pinned there).\n'
     );
-  } else {
+  } else if (copies.length >= 2) {
     lines.push(
       '\nTwo or more copies means @testing-library/user-event and ' +
         '@testing-library/react no longer share one @testing-library/dom install. ' +
