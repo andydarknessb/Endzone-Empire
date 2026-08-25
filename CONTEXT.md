@@ -530,7 +530,8 @@ own game's kickoff.
 Engine, unqualified, always means this one, here and throughout Evaluation. The
 machinery that moves a league through its own lifecycle is named for what it
 does instead: draft workflow, pick'em season workflow, live scoring, rollover,
-season operations.
+season operations. Only the last has an entry of its own, because it is the
+only one that groups things a reader would not otherwise group.
 
 **Endzone Forecast**:
 The name the product gives its projection engine: what managers see on the

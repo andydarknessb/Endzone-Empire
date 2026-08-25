@@ -135,8 +135,8 @@ test('startDraft rolls back without writes when keepers exceed the current per-t
 });
 
 // #194: season operations now refuse to schedule a season for a league still
-// pre-draft or drafting, and this path enters them INSIDE the start
-// transaction. It survives that gate only because the draft_status =
+// pre-draft or drafting, and this path calls generateRegularSeason INSIDE the
+// start transaction. It survives that gate only because the draft_status =
 // 'complete' UPDATE runs first, so the phase read on this same client sees
 // 'complete'. Nothing in draftStart.service states that order, so pin it:
 // reordering those two statements would break every keeper-filled draft start.
