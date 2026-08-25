@@ -70,8 +70,16 @@ test('reducing keeper count below existing assignments rolls back with a clear c
 
   assert.equal(response.status, 409);
   assert.match(response.body.error, /team 11 has 2/);
-  assert.ok(tx.calls.includes('ROLLBACK'));
-  assert.ok(!tx.calls.some((sql) => sql.startsWith('UPDATE "leagues"')));
+  assert.ok(tx.calls.includes('ROLLBACK')); // complementary only
+  // #274. The UPDATE was covered; the DELETE was not, and the DELETE is the
+  // destructive half - it is what erases the keeper assignments this refusal
+  // exists to protect. transactionClient answers it, so a guard moved below
+  // it wiped the slate and still returned this identical 409.
+  assert.deepEqual(
+    tx.calls.filter((sql) => /^(UPDATE "leagues"|DELETE FROM "keepers")/.test(sql)),
+    [],
+    'neither the settings write nor the keeper wipe ran'
+  );
 });
 
 test('a valid keeper-count update preserves assignments and commits', async (t) => {

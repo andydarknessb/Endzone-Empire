@@ -260,10 +260,15 @@ test("scoring: a GET under /league/:id still answers for a pick'em-only league (
 // --- draft.router blanket mount -------------------------------------------
 
 test("draft: POST order (a write under /league/:id) 409s for a pick'em-only league", async (t) => {
-  mockPool(t, { pickemOnly: true });
+  const calls = mockPool(t, { pickemOnly: true });
   const res = await request(routes)
     .post('/api/draft/league/3/order').set('Authorization', authed()).send({ randomize: true });
   expectPickemOnly409(res, 'draft order');
+  // #274, matching the start-draft sibling below: the route opens its own
+  // transaction before writing draft positions, so a transaction that never
+  // began is proof no write inside it could have run.
+  assert.equal(calls.filter((c) => c.text === 'BEGIN').length, 0, 'no transaction was opened');
+  assert.equal(calls.filter((c) => /^UPDATE "teams"/.test(c.text)).length, 0, 'no draft position moved');
 });
 
 test("draft: GET keepers under /league/:id still answers for a pick'em-only league (writesOnly)", async (t) => {
@@ -376,10 +381,19 @@ test("league: PUT with a keeper setting (the transactional FOR UPDATE path) roll
 });
 
 test("league: PUT with a scoring preset names scoringPreset (what was sent), not the derived scoringRules", async (t) => {
-  putPool(t, { pickemOnly: true });
+  const calls = putPool(t, { pickemOnly: true });
   const res = await request(routes).put('/api/league/3').set('Authorization', authed()).send({ scoringPreset: 'ppr' });
   assert.equal(res.status, 409, JSON.stringify(res.body));
   assert.equal(res.body.error, "these settings do not apply to a pick'em league: scoringPreset");
+  // #274. This is the one refusal in this file with no incidental protection:
+  // putPool registers a WORKING UPDATE "leagues" handler, so a guard moved
+  // below the write applied the fantasy-only setting to a pick'em league,
+  // then threw the same 409. Its three siblings already assert this.
+  assert.equal(
+    calls.filter((c) => c.text.startsWith('UPDATE "leagues"')).length,
+    0,
+    'no UPDATE ran'
+  );
 });
 
 test("league: PUT with only name succeeds for a pick'em-only league", async (t) => {
@@ -479,11 +493,21 @@ const COMMISSIONER_FANTASY_WRITES = [
 ];
 
 test("commissioner: the six fantasy mutations 409 for a pick'em-only league", async (t) => {
-  mockPool(t, { pickemOnly: true });
+  const calls = mockPool(t, { pickemOnly: true });
   for (const [method, path, body] of COMMISSIONER_FANTASY_WRITES) {
     const res = await request(routes)[method](path).set('Authorization', authed()).send(body);
     expectPickemOnly409(res, `${method.toUpperCase()} ${path}`);
   }
+  // #274. Six distinct write paths refused in one loop - lineup_entries,
+  // matchup scores, transactions_locked, team lock, FAAB and force-transaction
+  // - and the loop asserted only six response bodies. One sweep covers all of
+  // them, and names what ran if any of them does.
+  assert.deepEqual(
+    calls.filter((c) => /^(INSERT INTO|UPDATE|DELETE FROM) /.test(c.text)).map((c) => c.text),
+    [],
+    'not one of the six mutations reached a write'
+  );
+  assert.equal(calls.filter((c) => c.text === 'BEGIN').length, 0, 'and none opened a transaction');
 });
 
 test('commissioner: the same six pass through for a fantasy league (reach the service)', async (t) => {

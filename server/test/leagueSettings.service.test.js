@@ -78,6 +78,29 @@ function fakeDb({
   return db;
 }
 
+/**
+ * #274: a settings refusal must prove it changed nothing.
+ *
+ * The fake above ANSWERS both writes - DELETE FROM "keepers" and
+ * UPDATE "leagues" - so a guard moved below them runs for real, gets rolled
+ * back, and throws a byte-identical LeagueSettingsError. Several tests here
+ * leaned on `db.firstWord().at(-1) === 'ROLLBACK'`, which is the no-COMMIT
+ * trap wearing a different hat: ['BEGIN','SELECT','DELETE','UPDATE','ROLLBACK']
+ * also ends in ROLLBACK.
+ *
+ * Not applicable to the guard-in-WHERE refusals (the race losers), where the
+ * UPDATE is SUPPOSED to run and the freeze predicate spliced into it is the
+ * thing to assert. Those are handled at their own sites.
+ *
+ * deepEqual against [] rather than a count of 0 because the failure then names
+ * the statements that ran instead of only counting them.
+ */
+const assertNoSettingsWrite = (db) => assert.deepEqual(
+  db.texts().filter((t) => /^(UPDATE "leagues"|DELETE FROM "keepers")/.test(t)),
+  [],
+  'the refusal wrote nothing'
+);
+
 const patchOf = (body) => {
   const parsed = parseSettingsPatch(body);
   assert.equal(parsed.error, undefined, parsed.error);
@@ -308,6 +331,7 @@ test('a throwing client.release() does not replace a refusal either: the 409 sti
   const error = await refusal(db, { keeperCount: 1 });
   assert.equal(error.statusCode, 409);
   assert.equal(db.firstWord().at(-1), 'ROLLBACK');
+  assertNoSettingsWrite(db);
 });
 test('a refusal whose ROLLBACK throws still surfaces the intended 4xx, not a 500 (#68)', async (t) => {
   const db = fakeDb({ status: statusRow({ keeper_count: 2 }), assignmentCounts: [{ team_id: 11, count: 2 }] });
@@ -321,12 +345,14 @@ test('a refusal whose ROLLBACK throws still surfaces the intended 4xx, not a 500
   assert.equal(error.statusCode, 409, 'the keeper conflict 409 survives the failed ROLLBACK');
   assert.equal(db.firstWord().filter((w) => w === 'ROLLBACK').length, 1, 'no second ROLLBACK from the outer catch');
   assert.equal(db.released(), 1);
+  assertNoSettingsWrite(db);
 });
 test('a post-draft bare-preset save is refused naming scoringPreset, what was sent, not the materialized scoringRules (#70)', async () => {
   const db = fakeDb({ status: statusRow({ draft_status: 'active' }) });
   const error = await refusal(db, { scoringPreset: 'ppr' });
   assert.equal(error.statusCode, 409);
   assert.equal(error.message, 'these settings are locked once the draft starts: scoringPreset');
+  assertNoSettingsWrite(db);
 });
 
 test('the race-loser 409 names keys as sent too, matching the pre-check (#70)', async () => {
@@ -334,6 +360,17 @@ test('the race-loser 409 names keys as sent too, matching the pre-check (#70)', 
   const error = await refusal(db, { scoringPreset: 'ppr', playoffTeams: 4 });
   assert.equal(error.statusCode, 409);
   assert.equal(error.message, 'these settings are locked once the draft starts: scoringPreset, playoffTeams');
+  // #274, and deliberately NOT a zero count: this is the guard-in-WHERE shape,
+  // where the UPDATE is supposed to run and the refusal is derived from it
+  // matching no row. A zero here would fail on a correct build.
+  //
+  // What made the test unfalsifiable instead: the fake returns updateRows: []
+  // unconditionally, so the 409 came from the fixture rather than from the
+  // statement's scoping, and DELETING `AND ${settingsUnfrozenWhereSql()}` from
+  // the production UPDATE - which is exactly what would let a frozen save land
+  // - left this test green. Pin the predicate, since that is the guard.
+  assert.deepEqual(db.firstWord(), ['SELECT', 'UPDATE']);
+  assert.match(db.calls[1].text, /AND \("pickem_only" = true OR "draft_status" = 'pending'\)/);
 });
 
 test('the status read includes season_status, the column deriveLeaguePhase declares it reads (#70)', async () => {
@@ -353,6 +390,7 @@ test('a null stored roster_limit falls back to the limit the current shape deriv
   const error = await refusal(db, { keeperCount: 50 });
   assert.equal(error.statusCode, 400);
   assert.equal(error.message, 'keeperCount cannot exceed the draft roster size (6)', 'starters 3 + bench 3, the IR slot excluded, not null');
+  assertNoSettingsWrite(db);
 });
 
 // The keeper and draft-order bounds are the draft roster size (starters +
@@ -362,6 +400,7 @@ test('keeperCount is bounded by the draft roster size, not the IR-inclusive rost
   const error = await refusal(db, { keeperCount: 20 });
   assert.equal(error.statusCode, 400);
   assert.equal(error.message, 'keeperCount cannot exceed the draft roster size (19)');
+  assertNoSettingsWrite(db);
 });
 
 test('a keeperCount equal to the draft roster size is accepted', async () => {
@@ -374,6 +413,7 @@ test('a zero-IR league keeps the whole roster limit as its keeperCount bound', a
   const db = fakeDb({ status: statusRow({ roster_limit: 15, ir_slots: 0 }) });
   const error = await refusal(db, { keeperCount: 16 });
   assert.equal(error.message, 'keeperCount cannot exceed the draft roster size (15)');
+  assertNoSettingsWrite(db);
 });
 
 test('IR slots arriving in the same patch leave the draft roster size where it was', async () => {
@@ -388,6 +428,7 @@ test('IR slots arriving in the same patch leave the draft roster size where it w
   const error = await refusal(db, { irSlots: 2, keeperCount: 20 });
   assert.equal(error.statusCode, 400);
   assert.equal(error.message, 'keeperCount cannot exceed the draft roster size (19)');
+  assertNoSettingsWrite(db);
 });
 
 test('a draft order override past the last drafted round is refused', async () => {
@@ -395,6 +436,7 @@ test('a draft order override past the last drafted round is refused', async () =
   const error = await refusal(db, { draftOrderOverrides: { 20: [11, 12] } });
   assert.equal(error.statusCode, 400);
   assert.match(error.message, /must be 1-19/);
+  assertNoSettingsWrite(db);
 });
 
 // --- AC4 (issue #118 / ADR 0005): a roster-shape save that would strand an
@@ -432,6 +474,7 @@ test('a roster-shape shrink names every offending keeper, not just the first (AC
   const error = await refusal(db, { benchSlots: 1 });
   assert.match(error.message, /team 12 round 5/);
   assert.match(error.message, /team 11 round 4/);
+  assertNoSettingsWrite(db);
 });
 
 test('a roster-shape shrink that leaves keepers disabled is not policed against stale rounds (they are cleared instead)', async () => {
@@ -490,6 +533,7 @@ test('a roster-shape shrink is refused when an existing (unprovided) draftOrderO
   const error = await refusal(db, { benchSlots: 1 });
   assert.equal(error.statusCode, 400);
   assert.match(error.message, /must be 1-2/);
+  assertNoSettingsWrite(db);
 });
 
 test('draftOrderOverrides plus a custom-nomination auctionSettings read the teams once, not twice (#70)', async () => {
@@ -525,6 +569,7 @@ test('adding DP-only slots while dpEnabled is off is refused the same way (#70 i
   });
   assert.equal(error.statusCode, 400);
   assert.match(error.message, /enable dpEnabled or remove those slots/);
+  assertNoSettingsWrite(db);
 });
 
 test('the consistent combinations pass: disable with no DP slots, enable with DP slots, both changed in one request (#70 item 3)', async () => {

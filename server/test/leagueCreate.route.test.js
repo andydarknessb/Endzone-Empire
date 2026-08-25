@@ -180,18 +180,26 @@ test('pick\'em create with an empty schedule table: no seed UPDATE, column defau
 });
 
 test('pick\'em create honors the 50 cap at the route; fantasy still rejects 50 naming 20', async (t) => {
-  mockClient(t);
+  const calls = mockClient(t);
   const pickem = await request(app)
     .post('/api/league')
     .set('Authorization', authed())
     .send({ name: 'Big Pool', teamName: 'Pool Champ', leagueType: 'pickem', maxTeams: 50 });
   assert.equal(pickem.status, 201);
+  // #274: snapshot after the accepted half, so the count below is scoped to
+  // the refused half. Two requests share one call log here, which is exactly
+  // the situation in which a bare "zero inserts" assertion would be false for
+  // the wrong reason.
+  const afterAccepted = calls.length;
   const fantasy = await request(app)
     .post('/api/league')
     .set('Authorization', authed())
     .send({ name: 'Big League', teamName: 'Big Ballers', maxTeams: 50 });
   assert.equal(fantasy.status, 400);
   assert.match(fantasy.body.error, /between 2 and 20/);
+  const refusedHalf = calls.slice(afterAccepted);
+  assert.equal(statementsMatching(refusedHalf, /INSERT INTO "leagues"/).length, 0, 'no league was created');
+  assert.equal(statementsMatching(refusedHalf, /INSERT INTO "teams"/).length, 0, 'and no team');
 });
 
 test('a failure inside the transaction rolls the whole create back', async (t) => {
