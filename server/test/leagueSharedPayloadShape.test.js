@@ -327,9 +327,10 @@ test("pick'em standings: a row is Team identity and score, not the manager accou
 });
 
 // ================================================================= rosters
-// GET /api/league/:id/rosters  ->  [{ teamId, teamName, ownerId, avatarUrl, avatarStaticUrl, players }]
-// Built from an explicit literal; #343 removes the `ownerId` line (the roster's
-// camelCase spelling of another manager's `owner_id`).
+// GET /api/league/:id/rosters  ->  [{ teamId, teamName, avatarUrl, avatarStaticUrl, players }]
+// Built from an explicit literal; the `ownerId` line (the roster's camelCase
+// spelling of another manager's `owner_id`) is gone (#343), and `owner_id`
+// leaves the SELECT too - this endpoint has no viewer-relative field to feed.
 
 async function getRosters(t) {
   t.mock.method(projectionService, 'getWeekProjections', async () => new Map());
@@ -350,13 +351,8 @@ async function getRosters(t) {
 }
 
 const ROSTER_ENTRY_CLEAN = ['avatarStaticUrl', 'avatarUrl', 'players', 'teamId', 'teamName'];
-const ROSTER_ENTRY_FORBIDDEN = ['ownerId'];
 
-test('rosters: a team entry STILL carries ownerId today', async (t) => {
-  for (const team of await getRosters(t)) assertStillPresent(team, ROSTER_ENTRY_FORBIDDEN);
-});
-
-test('rosters: a team entry is Team identity and its players, not the manager account', { todo: '#343 removes rosters ownerId' }, async (t) => {
+test('rosters: a team entry is Team identity and its players, not the manager account', async (t) => {
   for (const team of await getRosters(t)) assertExactKeys(team, ROSTER_ENTRY_CLEAN);
 });
 

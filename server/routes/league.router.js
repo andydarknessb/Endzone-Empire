@@ -548,7 +548,7 @@ router.get('/:id/rosters', async (req, res) => {
     });
 
     const result = await pool.query(
-      `SELECT "teams"."id" AS "team_id", "teams"."name" AS "team_name", "teams"."owner_id",
+      `SELECT "teams"."id" AS "team_id", "teams"."name" AS "team_name",
               "teams"."avatar_url", "teams"."avatar_static_url",
               "players"."id", "players"."name", "players"."position", "players"."nfl_team"
        FROM "teams"
@@ -562,9 +562,12 @@ router.get('/:id/rosters', async (req, res) => {
     for (const row of result.rows) {
       if (!teams.has(row.team_id)) {
         teams.set(row.team_id, {
+          // A roster entry names its team by Team identity only; the manager's
+          // account id (`ownerId`) is gone (#343, #115). Nothing in this
+          // endpoint needs it - there is no viewer-relative field here - so it
+          // leaves the SELECT as well as the serialization.
           teamId: row.team_id,
           teamName: row.team_name,
-          ownerId: row.owner_id,
           avatarUrl: row.avatar_url,
           avatarStaticUrl: row.avatar_static_url,
           players: [],
