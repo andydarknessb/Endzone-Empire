@@ -33,29 +33,18 @@
  * database, a restored backup - which would get two different answers to the
  * same question.
  *
- * ONE CASE RUNS THE OTHER WAY, AND THE HEADING ABOVE DOES NOT COVER IT.
- * "Under-deletion, therefore self-correcting" is true of the divergence just
- * described; it is not true of the deploy straddle, which is the runtime
- * OVER-deleting. The tenure backfill opens one tenure per CURRENT roster row
- * (20260823000003), so a tenure that had already CLOSED when it ran is
- * unrecorded and is not reconstructed (ADR 0006). In the first week after
- * deploy that leaves one reachable sequence: a player is held through his
- * kickoff, dropped before the migration runs, then re-added and dropped again
- * after it. His only recorded tenure is the new one, which begins after the
- * kickoff, so the current-week spare does not fire and the runtime REMOVES
- * the row his game had earned him - a row that is the record of a week he did
- * play here (#106).
- *
- * Unlike the under-deletion above, this does not self-correct: nothing later
- * puts the row back. It is bounded instead by time. It needs a drop that
- * predates the migration, so it cannot outlive the first week that starts
- * after deploy - past that point every kickoff in question is later than the
- * migration and every tenure covering one is recorded, which is the same
- * boundary the migration's own header draws when it says history starts here.
- * That window is long closed, and production exposure was nil for the reason
- * recorded at #205: zero rows. Stated so the asymmetry reads as known rather
- * than as an oversight. Not worth code, and any code would have to invent the
- * closed tenures ADR 0006 declines to invent.
+ * ONE CASE RUNS THE OTHER WAY, so "under-deletion, therefore self-correcting"
+ * covers the divergence above but not the deploy straddle. The backfill opens
+ * one tenure per CURRENT roster row (20260823000003), so a tenure already
+ * CLOSED when it ran is unrecorded and is not reconstructed (ADR 0006): a
+ * player held through his kickoff, dropped before the migration, then re-added
+ * and dropped again after it, is judged on his new tenure alone, which begins
+ * after the kickoff - so the spare does not fire and the runtime OVER-deletes
+ * the row recording a week he did play (#106). Nothing puts that row back, but
+ * it needs a drop predating the migration, so it cannot outlive the first week
+ * starting after deploy - the boundary that migration's header calls history
+ * starting here. Window long closed, production exposure nil at zero rows
+ * (#205). Noted so the asymmetry reads as known, not as an oversight.
  *
  * So what these tests assert together is narrower than it was: the two agree
  * for every player whose tenure history is known, which is every player the

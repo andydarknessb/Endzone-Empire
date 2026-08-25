@@ -172,22 +172,43 @@ function createWorld({
      * way rather than on "no handler matched", which would only have told us
      * the SQL changed.
      */
-    [/FROM "lineup_entries"/, (text, [teamId, , week]) => ({
-      rows: state.lineupEntries
-        .filter((e) => e.team_id === teamId && e.week === week)
-        .map((e) => ({
-          player_id: e.player_id,
-          slot: e.slot,
-          // The best-ball population selects `players`.`position` as well, to
-          // fill slots optimally. Everyone here is an RB, so the optimal
-          // lineup is "every candidate that survives the exclusion" and the
-          // score reads as a sum of who counted, exactly as on the standard
-          // path.
-          position: 'RB',
-          nfl_team: nflTeamOf(e.player_id),
-          stats: { rushingYards: POINTS.get(e.player_id) || 0 },
-        })),
-    })],
+    [/FROM "lineup_entries"/, (text, [teamId, , week]) => {
+      /*
+       * THE SLOT FILTER IS READ OUT OF THE STATEMENT, for the same reason the
+       * tenure handler reads its comparison operators out of one. The two
+       * populations disagree about the bench: the standard path excludes it in
+       * SQL (`slot NOT IN ('BENCH', 'IR')`), and best ball selects every row
+       * and drops only IR in JS, because there every active player is a
+       * candidate.
+       *
+       * A handler that ignored the clause would answer both populations with
+       * the bench included, and a bench case would then score the same on
+       * either branch - so a best-ball fixture could not tell "bench rows are
+       * candidates" from "the fake never filtered". It could only be caught by
+       * the SQL-text guard below, which reports WHICH STATEMENT WAS EMITTED
+       * rather than what the code decided, and is the weaker evidence of the
+       * two (see the tenure-fakes header). Lifting the clause instead keeps
+       * the failure behavioural: run the best-ball case on the standard branch
+       * and the SCORE moves.
+       */
+      const excludesBench = /"slot" NOT IN \('BENCH', 'IR'\)/.test(text);
+      return {
+        rows: state.lineupEntries
+          .filter((e) => e.team_id === teamId && e.week === week)
+          .filter((e) => !excludesBench || (e.slot !== 'BENCH' && e.slot !== 'IR'))
+          .map((e) => ({
+            player_id: e.player_id,
+            slot: e.slot,
+            // Best ball also selects `players`.`position`, to fill slots
+            // optimally. Everyone here is an RB, so the optimal lineup is
+            // "every candidate that survives the exclusion" and the score
+            // reads as a sum of who counted, exactly as on the standard path.
+            position: 'RB',
+            nfl_team: nflTeamOf(e.player_id),
+            stats: { rushingYards: POINTS.get(e.player_id) || 0 },
+          })),
+      };
+    }],
     [/^UPDATE "matchups" SET "home_score"/, (text, [home, away, id]) => {
       const m = state.matchups.find((x) => x.id === id);
       m.home_score = home;
@@ -473,6 +494,14 @@ test('#261 best ball: a post-kickoff pickup is excluded from a COLD final week',
   //        proved nothing about tenure;
   //   60.0 is reachable only if bench rows ARE candidates AND the post-kickoff
   //        one was dropped by the tenure predicate.
+  //
+  // Both wrong readings are REACHABLE, which is what makes listing them worth
+  // anything. Verified by running each: deleting the best-ball held-rows
+  // filter scores 90.0, and flipping this world to `bestBall: false` scores
+  // 20.0. That second one only became a real check when the population
+  // handler above started lifting the bench clause out of the statement -
+  // before that it answered both branches with the bench included, 20.0 was
+  // unreachable, and this list was describing an intent rather than a fixture.
   const { fake, state } = createWorld({
     bestBall: true,
     starters: [1, 2, 3],

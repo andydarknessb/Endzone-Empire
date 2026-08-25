@@ -486,9 +486,9 @@ async function lockedPlayerIds(client, { season, week, now = new Date(), players
  * for one team under two spellings, and the moment that team first took the
  * field is the honest answer to every question asked of this map.
  */
-async function weekKickoffs(client, { season, week, cache = null }) {
+async function weekKickoffs(client, { season, week, kickoffCache = null }) {
   const key = `${season}:${week}`;
-  if (cache && cache.has(key)) return cache.get(key);
+  if (kickoffCache && kickoffCache.has(key)) return kickoffCache.get(key);
   const result = await client.query(
     `SELECT "nfl_team", "kickoff_at" FROM "nfl_games"
      WHERE "season" = $1 AND "week" = $2`,
@@ -503,7 +503,7 @@ async function weekKickoffs(client, { season, week, cache = null }) {
       byTeam.set(team, row.kickoff_at);
     }
   }
-  if (cache) cache.set(key, byTeam);
+  if (kickoffCache) kickoffCache.set(key, byTeam);
   return byTeam;
 }
 
@@ -517,7 +517,7 @@ async function weekKickoffs(client, { season, week, cache = null }) {
  * that knows how a week's games are found and one place for #227 to change.
  */
 async function playerKickoffs(client, { season, week, players, kickoffCache = null }) {
-  const kickoffs = await weekKickoffs(client, { season, week, cache: kickoffCache });
+  const kickoffs = await weekKickoffs(client, { season, week, kickoffCache });
   const byPlayer = new Map();
   for (const player of players || []) {
     const team = scheduleKeyFor(player);

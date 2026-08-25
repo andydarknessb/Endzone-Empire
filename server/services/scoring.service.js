@@ -1710,6 +1710,12 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
       `SELECT * FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 FOR UPDATE`,
       [leagueId, season, week]
     );
+    // The week's schedule is one answer shared by every team in this pass, so
+    // it is fetched once and memoised here rather than once per team per
+    // matchup (#261). Scoped to this call deliberately: the schedule is only
+    // stable within one pass, so a longer-lived cache would be correct until
+    // the first time a sync-schedule run landed mid-pass.
+    const kickoffCache = new Map();
     /**
      * The rows that count when a week is scored AS PLAYED. A lineup row
      * counts only if a tenure of this team covered its player's kickoff
@@ -1736,11 +1742,6 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
      * to the module that owns the schedule and the lineup lock, so #227 has
      * one place to fix rather than one per consumer.
      */
-    // The week's schedule is the same for every team in this pass, so it is
-    // fetched once and shared. Scoped to this call: the schedule is only
-    // stable within one pass, and a longer-lived cache would go stale the
-    // moment a sync-schedule run landed between passes (#261).
-    const kickoffCache = new Map();
     const heldRows = async (rows, teamId, asPlayed) => {
       if (!asPlayed || rows.length === 0) return rows;
       const notHeld = await playersNotHeldAtKickoff(client, {
