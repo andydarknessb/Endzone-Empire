@@ -52,7 +52,8 @@ test('opens the authenticated mobile navigation drawer and closes it after navig
   await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
 
   await user.click(screen.getByRole('button', { name: /open navigation menu/i }));
-  const drawerHome = screen.getAllByRole('link', { name: 'Home' }).find((link) => link.closest('.MuiDrawer-root'));
+  const drawer = screen.getByTestId('mobile-nav-drawer');
+  const drawerHome = within(drawer).getByRole('link', { name: 'Home' });
   expect(drawerHome).toHaveAttribute('href', '/user');
 
   await user.click(drawerHome);

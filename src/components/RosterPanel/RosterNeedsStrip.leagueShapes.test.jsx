@@ -32,11 +32,9 @@ const pick = (pickNumber, position) => ({
 
 /**
  * The Need chips, in the order the strip renders them. A non-clickable MUI
- * Chip carries no role, so there is no query for it but its own class.
+ * Chip carries no role, so the strip gives each one a stable test id.
  */
-const needLabels = () => Array.from(
-  screen.getByLabelText('Roster needs').querySelectorAll('.MuiChip-label')
-).map((node) => node.textContent);
+const needLabels = () => screen.getAllByTestId('roster-need-chip').map((chip) => chip.textContent);
 
 const renderShape = (props) => render(
   <RosterNeedsStrip picks={[]} benchCount={0} irCount={0} irDraftable={false} maxChips={99} {...props} />

@@ -56,8 +56,11 @@ test('"Mark all read" marks all read and clears the badge', async () => {
 
   await waitFor(() => expect(apiClient.put).toHaveBeenCalledWith('/api/notifications/read'));
   // MUI's Badge keeps the last non-zero content in the DOM for its exit transition,
-  // so assert on the "invisible" class rather than the text disappearing.
+  // so assert on the "invisible" class rather than the text disappearing. The
+  // subject here is the styled node itself, not anything a user or a screen
+  // reader can address, so there is no query that reaches it.
   await waitFor(() =>
+    // eslint-disable-next-line testing-library/no-node-access
     expect(document.querySelector('.MuiBadge-badge')).toHaveClass('MuiBadge-invisible')
   );
 });

@@ -12,7 +12,9 @@ import useLiveGameRealtime from '../../hooks/useLiveGameRealtime';
 export default function LiveGameStatus({ gameId }) {
   const { state, loading, error } = useLiveGameRealtime(gameId);
 
-  if (loading) return <Skeleton variant="rounded" height={64} />;
+  // The skeleton is a decorative placeholder with no text, role or name, so
+  // data-testid is the only seam a test has for it (same as page-skeleton).
+  if (loading) return <Skeleton variant="rounded" height={64} data-testid="live-game-skeleton" />;
   if (error) return <Alert severity="error">{error}</Alert>;
   if (!state) return null;
 

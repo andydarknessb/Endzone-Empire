@@ -280,6 +280,9 @@ test('standings table renders W-L-T, PF, PA, and a streak chip (no redundant pla
   const pointsForHeader = screen.getByLabelText(/PF: Points for:/i);
   expect(screen.getByLabelText(/PA: Points against:/i)).toBeInTheDocument();
   expect(pointsForHeader.closest('table')).toHaveStyle({ minWidth: '680px' });
+  // The subject of this assertion is computed styling on the scroll container,
+  // which carries no role and no accessible name of its own.
+  // eslint-disable-next-line testing-library/no-node-access
   expect(pointsForHeader.closest('.MuiTableContainer-root')).toHaveStyle({
     maxWidth: '100%',
     overflowX: 'auto',

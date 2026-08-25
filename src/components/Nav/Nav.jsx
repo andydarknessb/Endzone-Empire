@@ -249,7 +249,10 @@ function Nav() {
 
       {/* Mobile navigation drawer */}
       <Drawer anchor="left" open={drawerOpen} onClose={() => setDrawerOpen(false)}>
-        <Box sx={{ width: 260 }} role="presentation">
+        {/* role="presentation": this Box is layout only, so data-testid is
+            the seam a test uses to tell the drawer's copy of a link from the
+            top bar's. */}
+        <Box sx={{ width: 260 }} role="presentation" data-testid="mobile-nav-drawer">
           <Typography variant="h6" component="div" sx={{ p: 2, color: 'var(--accent)', fontWeight: 700 }}>
             Endzone Empire
           </Typography>

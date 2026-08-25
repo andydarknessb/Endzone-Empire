@@ -103,6 +103,9 @@ function RosterNeedsStrip({
           flexWrap="wrap" useFlexGap sx={{ mt: 1 }}
         >
           <Typography variant="caption" sx={{ color: 'text.secondary' }}>Need</Typography>
+          {/* data-testid is a test-only seam: a non-clickable Chip carries no
+              role, so which needs are listed, and in what order, is otherwise
+              only reachable through the chip's styling class. */}
           {visibleChips.map((slot) => (
             <Chip
               key={`${slot.slotKey}-${slot.slotLabel}`}
@@ -110,10 +113,11 @@ function RosterNeedsStrip({
               variant="outlined"
               color={severity ? 'warning' : 'default'}
               label={slot.count > 1 ? `${slot.slotLabel} ×${slot.count}` : slot.slotLabel}
+              data-testid="roster-need-chip"
             />
           ))}
           {hiddenChips > 0 && (
-            <Chip size="small" variant="outlined" label={`+${hiddenChips} more`} />
+            <Chip size="small" variant="outlined" label={`+${hiddenChips} more`} data-testid="roster-need-chip" />
           )}
         </Stack>
       )}
