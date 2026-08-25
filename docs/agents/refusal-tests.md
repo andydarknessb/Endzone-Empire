@@ -223,7 +223,7 @@ never having been added, and the green was read as confirmation. A tool
 that cannot report its own failure is the same defect as a test that
 cannot report the bug.
 
-Two rules come out of that, and they generalize past this document:
+Three rules come out of that, and they generalize past this document:
 
 - **A tool must fail loudly.** In that same audit the scripted inserts
   threw on a miss and the one-off convenience edit logged success
@@ -234,12 +234,37 @@ Two rules come out of that, and they generalize past this document:
   validates the instrument. When a number or a green tick feeds a
   conclusion, take one independent reading of something it must agree
   with, and treat any disagreement as a stop.
+- **Read every claim against its neighbour.** A heading against its
+  section, a test name against its assertions, a comment against the code
+  under it, an imperative against the paragraph explaining it. Each half
+  can be locally fluent and correct, and only holding the two together
+  shows they point opposite ways. This document shipped with an
+  instruction to delete a guard sitting directly above three sentences
+  explaining why deleting one proves nothing.
 
-The second rule has teeth beyond assertions. The same audit reported its
-own diff as +1093/-139 by summing per-commit insertions and deletions;
-the actual diff was +1045/-91, because lines the branch added and later
-removed cancel in the net and double-count in the sum. Right data, wrong
-operation, plausible answer, and nothing about the number announced it.
+The three catch different things, which is why you want all three: a
+second instrument catches a broken tool, a second reader catches a wrong
+belief, and reading-against-neighbour catches an inconsistency that two
+readers would each rationalize separately.
+
+The second rule has teeth beyond assertions. The same audit twice
+reported its own diff size by summing per-commit insertions and
+deletions, which is not the net diff: a line the branch adds and later
+removes counts once in each column of the sum and cancels in the net. The
+overstatement was symmetric, the same count too many in both directions,
+and it looked entirely plausible.
+
+Two things about that are worth keeping. Its cause was structural rather
+than careless, so no amount of re-reading the number would have found it;
+`git diff --shortstat` would have, in one command. And the competing
+explanation offered at the time, that the figure was merely taken before
+a later commit, predicted the same symmetric gap - so the number could
+not discriminate between the two, and the weaker hypothesis was written
+down as a diagnosis anyway. When two explanations both fit, the
+observation is not yet evidence for either.
+
+(Deliberately no figures here. Quoting them would date this paragraph the
+moment the branch moved again, which is the failure it is describing.)
 
 This is the demonstration from #274, on
 `PUT /api/draft/league/:id/keepers`. Saving keepers is a replace-all: the
