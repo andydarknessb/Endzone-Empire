@@ -219,6 +219,12 @@ The 400 body was byte-identical in both guard positions. Anyone reasoning
 from the response alone, which is precisely what the old test did, cannot
 tell a league whose keeper slate survived from one whose slate was wiped.
 
+A second mutation from the same ticket shows why the count is worth
+preferring. Moving `setLineup`'s `validateLineup` guard below its
+slot-write loop failed with `3 !== 0`. That does not merely say the guard
+failed; it says execution got **three writes** past it. A boolean would
+have said `false !== true`.
+
 ## Scope
 
 This applies to refusals that protect a state change. It does not apply
