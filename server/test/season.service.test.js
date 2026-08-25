@@ -138,8 +138,8 @@ test('computeStandings: unfinished and playoff games are excluded', () => {
 // --- getStandings ---
 
 const serviceTeams = [
-  { id: 1, name: 'A', owner: 'owner-a', avatar_url: null, avatar_static_url: null },
-  { id: 2, name: 'B', owner: 'owner-b', avatar_url: null, avatar_static_url: null },
+  { id: 1, name: 'A', avatar_url: null, avatar_static_url: null },
+  { id: 2, name: 'B', avatar_url: null, avatar_static_url: null },
 ];
 
 test('getStandings: single-season league preserves record, rank, points, and streak', async (t) => {
