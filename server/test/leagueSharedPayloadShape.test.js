@@ -96,9 +96,12 @@ function assertStillPresent(obj, fields) {
 // ============================================================ league detail
 // GET /api/league/:id  ->  { viewerTeamId, league, teams }
 
-// A `teams` row exactly as the league-detail query projects it today: the
-// team's own columns and Team identity, plus the two account fields #343
-// removes. The route spreads this row and adds `is_co_commissioner`.
+// A `teams` row exactly as the league-detail query projects it: the team's
+// own columns and Team identity. `owner_id` stays in the SELECT (and so on
+// this raw row) because viewerTeamIdOf() resolves the caller's team from it;
+// the route strips it from the serialized entry. The `owner` username alias is
+// no longer selected at all (#343, #115). The route spreads this row and adds
+// `is_co_commissioner`.
 const teamRow = ({ userId, teamId, teamName }) => ({
   id: teamId,
   name: teamName,
@@ -108,25 +111,23 @@ const teamRow = ({ userId, teamId, teamName }) => ({
   draft_ready: true,
   avatar_url: null,
   avatar_static_url: null,
-  owner_id: userId, // #343 removes
+  owner_id: userId, // stays in SELECT for viewerTeamId; stripped from serialization
   teamId,
   teamName,
-  owner: `u${userId}`, // #343 removes
   roster_count: 0,
   total_points: '0',
 });
 
 // A `leagues` row as the league-detail query projects it: a representative set
-// of the league's own columns, the creator's Team identity, and the one account
-// field #343 removes (`owner_username`). `owner_id` is the creator's own and
-// stays (#334's survey removes only `owner_username` from this object).
+// of the league's own columns and the creator's Team identity. The account
+// username alias (`owner_username`) is gone (#343). `owner_id` is the creator's
+// OWN account id and stays (#334's survey removed only `owner_username` here).
 const LEAGUE_ROW = {
   id: LEAGUE_ID,
   name: 'Sunday Ballers',
-  owner_id: VIEWER.userId,
+  owner_id: VIEWER.userId, // the creator's OWN account id, on `leagues.*`; stays
   current_season: 2026,
   invite_code: 'invite',
-  owner_username: 'u42', // #343 removes
   ownerTeamId: VIEWER.teamId,
   ownerTeamName: VIEWER.teamName,
 };
@@ -171,14 +172,9 @@ const TEAM_ENTRY_CLEAN = [
   'avatar_static_url', 'avatar_url', 'draft_position', 'draft_ready', 'faab_remaining',
   'id', 'is_co_commissioner', 'locked', 'name', 'roster_count', 'teamId', 'teamName', 'total_points',
 ];
-const TEAM_ENTRY_FORBIDDEN = ['owner_id', 'owner'];
-
-test('league detail: a teams[] entry STILL carries owner_id / owner today', async (t) => {
-  const body = await getLeagueDetail(t);
-  for (const team of body.teams) assertStillPresent(team, TEAM_ENTRY_FORBIDDEN);
-});
-
-test('league detail: a teams[] entry is Team identity and team attributes, no account fields', { todo: '#343 removes teams[].owner_id / owner (from the serialization, not the SELECT: viewerTeamId reads owner_id off the rows)' }, async (t) => {
+// owner_id stays in the SELECT (viewerTeamId reads it off the raw rows) and is
+// stripped from the serialization; owner is no longer selected (#343, #115).
+test('league detail: a teams[] entry is Team identity and team attributes, no account fields', async (t) => {
   const body = await getLeagueDetail(t);
   for (const team of body.teams) assertExactKeys(team, TEAM_ENTRY_CLEAN);
 });
@@ -188,14 +184,7 @@ const LEAGUE_OBJECT_CLEAN = [
   'co_commissioners', 'current_season', 'id', 'is_commissioner', 'name',
   'owner_id', 'ownerTeamId', 'ownerTeamName',
 ];
-const LEAGUE_OBJECT_FORBIDDEN = ['owner_username'];
-
-test('league detail: the league object STILL carries owner_username today', async (t) => {
-  const body = await getLeagueDetail(t, { isCommissioner: false });
-  assertStillPresent(body.league, LEAGUE_OBJECT_FORBIDDEN);
-});
-
-test('league detail: the league object names the creator by Team, not by account name', { todo: '#343 removes league.owner_username' }, async (t) => {
+test('league detail: the league object names the creator by Team, not by account name', async (t) => {
   const body = await getLeagueDetail(t, { isCommissioner: false });
   assertExactKeys(body.league, LEAGUE_OBJECT_CLEAN);
 });

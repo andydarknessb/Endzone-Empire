@@ -18,14 +18,18 @@ const { draftPlayer } = require('../services/draft.service');
 const lineupService = require('../services/lineup.service');
 
 /**
- * Contract tests for #112 (parent #108): the EXPAND step of the shared
- * identity migration. Every league-shared contract carries Team identity
- * (`teamId` + `teamName`) for each participant or author, and every
- * per-viewer channel carries `viewerTeamId`, BESIDE the account fields that
- * are still there. Nothing is removed here, so every assertion comes in
- * pairs: the new Team identity is present, and the legacy account field is
- * still present so no consumer is forced to migrate in this change (#115
- * removes them, once #113 and #114 have moved the consumers).
+ * Contract tests for the shared identity migration (#112 EXPAND, parent #108),
+ * now split by surface as the CONTRACT step lands:
+ *
+ *  - The authenticated REST surfaces (league detail, chat, pick'em) are
+ *    CONTRACTED by #343 (#115 child B): they carry Team identity (`teamId` +
+ *    `teamName`) and the viewer-relative fields ONLY, and the account fields
+ *    the EXPAND step left beside them are gone. Those tests assert the account
+ *    field is ABSENT; the exact key sets are pinned in
+ *    leagueSharedPayloadShape.test.js.
+ *  - The Draft / chat SOCKET payloads still carry the account fields beside
+ *    Team identity: their contraction is #344 (child C). Those tests still
+ *    assert the legacy field survives, and stay that way until #344.
  *
  * Four surfaces, in the order the issue names them: league detail, Draft
  * snapshots and events, chat, and pick'em.
@@ -52,9 +56,8 @@ const authed = (userId) => `Bearer ${signToken({ id: userId, username: `u${userI
 const LEAGUE_ROW = {
   id: LEAGUE_ID,
   name: 'Sunday Ballers',
-  owner_id: VIEWER.userId,
+  owner_id: VIEWER.userId, // the creator's OWN account id, stays on `leagues.*`
   invite_code: 'invite',
-  owner_username: 'u42',
   ownerTeamId: VIEWER.teamId,
   ownerTeamName: VIEWER.teamName,
 };
@@ -64,8 +67,7 @@ const teamRow = ({ userId, teamId, teamName }) => ({
   name: teamName,
   teamId,
   teamName,
-  owner_id: userId,
-  owner: `u${userId}`,
+  owner_id: userId, // stays in the SELECT for viewerTeamId; stripped from serialization
   draft_position: 1,
   faab_remaining: 100,
   locked: false,
@@ -76,7 +78,7 @@ const teamRow = ({ userId, teamId, teamName }) => ({
 
 function leagueDetailFake(t, { coCommissioners = [] } = {}) {
   return createFakePool([
-    [/AS "owner_username"/, () => ({ rows: [{ ...LEAGUE_ROW }] })],
+    [/AS "ownerTeamId"/, () => ({ rows: [{ ...LEAGUE_ROW }] })],
     [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ '?column?': 1 }] })],
     [/^SELECT 1 FROM "leagues"/, () => ({ rows: [{ '?column?': 1 }] })],
     [/FROM "league_commissioners"/, () => ({ rows: coCommissioners })],
@@ -84,7 +86,7 @@ function leagueDetailFake(t, { coCommissioners = [] } = {}) {
   ]).install(t);
 }
 
-test('league detail: every team carries Team identity beside its account fields', async (t) => {
+test('league detail: every team carries Team identity and no account fields', async (t) => {
   const fake = leagueDetailFake(t);
 
   const res = await request(app).get(`/api/league/${LEAGUE_ID}`).set('Authorization', authed(VIEWER.userId));
@@ -95,9 +97,11 @@ test('league detail: every team carries Team identity beside its account fields'
   assert.equal(mine.teamName, VIEWER.teamName);
   assert.equal(theirs.teamId, OTHER.teamId);
   assert.equal(theirs.teamName, OTHER.teamName);
-  // Beside, not instead of: the account fields a consumer reads today survive.
-  assert.equal(theirs.owner_id, OTHER.userId);
-  assert.equal(theirs.owner, `u${OTHER.userId}`);
+  // Instead of, not beside: another manager's account id and username are gone
+  // from the serialized entry (#343). owner_id still rides on the RAW row so
+  // viewerTeamId can resolve, but it is stripped before serialization.
+  assert.equal('owner_id' in theirs, false);
+  assert.equal('owner' in theirs, false);
   // The wire names come from the shared aliases, so they cannot drift.
   const [teamsQuery] = fake.matching(/COUNT\("team_players"\."id"\)/);
   assert.match(teamsQuery.text, /"teams"\."id" AS "teamId", "teams"\."name" AS "teamName"/);
@@ -142,8 +146,8 @@ test('league detail: the league creator and the co-commissioners carry Team iden
   assert.equal(res.status, 200, JSON.stringify(res.body));
   assert.equal(res.body.league.ownerTeamId, VIEWER.teamId);
   assert.equal(res.body.league.ownerTeamName, VIEWER.teamName);
-  assert.equal(res.body.league.owner_id, VIEWER.userId, 'the legacy creator account field survives');
-  assert.equal(res.body.league.owner_username, 'u42');
+  assert.equal(res.body.league.owner_id, VIEWER.userId, 'the creator\'s OWN account id survives on leagues.*');
+  assert.equal('owner_username' in res.body.league, false, 'the account username alias is gone (#343)');
   // This viewer is a commissioner (the fake answers the EXISTS predicate), so
   // the roster carries the account id that revoke is shaped around beside the
   // Team identity. The account NAME survives nowhere: #324 ruled that role
@@ -162,8 +166,9 @@ test('league detail: the league creator and the co-commissioners carry Team iden
     res.body.teams.map((team) => [team.teamId, team.is_co_commissioner]),
     [[VIEWER.teamId, false], [OTHER.teamId, true]]
   );
-  const [leagueQuery] = fake.matching(/AS "owner_username"/);
+  const [leagueQuery] = fake.matching(/AS "ownerTeamId"/);
   assert.match(leagueQuery.text, /AS "ownerTeamId"/);
+  assert.doesNotMatch(leagueQuery.text, /AS "owner_username"/, 'the username JOIN is gone (#343)');
   const [coCommissionerQuery] = fake.matching(/^SELECT "league_commissioners"\."user_id"/);
   assert.match(coCommissionerQuery.text, /"teams"\."id" AS "teamId", "teams"\."name" AS "teamName"/);
 });
