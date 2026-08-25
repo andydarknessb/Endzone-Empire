@@ -86,6 +86,16 @@ protection stands alongside them: the creator's team cannot be removed by
 anyone. Separately, no commissioner of either kind may remove their own team.
 _Avoid_: admin, owner, moderator
 
+**Grant**:
+The record that a manager holds co-commissioner power in one league. Only the
+creator makes one and only the creator revokes one; a grant also ends when its
+holder's team is removed or the account is deleted. It is identified by the
+Team it names and when it was made, not by the Team alone (Team names may
+repeat) and not by the account. A grant whose Team is gone still exists and is
+still revocable by a commissioner, but has no identity to show a member and is
+invisible to them.
+_Avoid_: role assignment, promotion, co-commissioner (the person, not the record)
+
 **League phase**:
 Where a league sits in its lifecycle: pre-draft, drafting, in-season, playoffs,
 complete. Derived from the league's draft status and season state, never a
