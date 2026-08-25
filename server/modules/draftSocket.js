@@ -24,7 +24,7 @@ const { createRedisSubscriber, getRedisClient } = require('./redis');
  * draft.service (single source of truth shared with the REST endpoint).
  *
  * A REFUSED 'league:join' or 'draft:join' acknowledges { error, code }, where
- * code is one of 'invalid_request', 'not_a_member' or 'join_failed' (#230).
+ * code is one of 'INVALID_REQUEST', 'NOT_A_MEMBER' or 'JOIN_FAILED' (#230).
  * The code is the discriminator, never the message text; joinError below says
  * why, and which single code a client may act on.
  */
@@ -46,24 +46,24 @@ function attachDraftSocket(httpServer) {
     // Generic league room join (live scores, chat) — no draft state attached
     socket.on('league:join', async ({ leagueId } = {}, ack) => {
       if (!Number.isInteger(leagueId)) {
-        return ack && ack(joinError({ code: 'invalid_request', message: 'leagueId (integer) required' }));
+        return ack && ack(joinError({ code: 'INVALID_REQUEST', message: 'leagueId (integer) required' }));
       }
       try {
         const viewer = await viewerContext(pool, { leagueId, userId: socket.user.id });
         if (!viewer) {
-          return ack && ack(joinError({ code: 'not_a_member', message: 'you are not in this league' }));
+          return ack && ack(joinError({ code: 'NOT_A_MEMBER', message: 'you are not in this league' }));
         }
         socket.join(`league:${leagueId}`);
         ack && ack(joinAck(viewer));
       } catch (error) {
         console.error('league:join failed', error);
-        ack && ack(joinError({ code: 'join_failed', message: 'failed to join league room' }));
+        ack && ack(joinError({ code: 'JOIN_FAILED', message: 'failed to join league room' }));
       }
     });
 
     socket.on('draft:join', async ({ leagueId } = {}, ack) => {
       if (!Number.isInteger(leagueId)) {
-        return ack && ack(joinError({ code: 'invalid_request', message: 'leagueId (integer) required' }));
+        return ack && ack(joinError({ code: 'INVALID_REQUEST', message: 'leagueId (integer) required' }));
       }
       try {
         // The viewer's team IS their membership (ADR 0002), so the team read
@@ -71,7 +71,7 @@ function attachDraftSocket(httpServer) {
         // team, no context, no join.
         const viewer = await viewerContext(pool, { leagueId, userId: socket.user.id });
         if (!viewer) {
-          return ack && ack(joinError({ code: 'not_a_member', message: 'you are not in this league' }));
+          return ack && ack(joinError({ code: 'NOT_A_MEMBER', message: 'you are not in this league' }));
         }
         socket.join(`league:${leagueId}`);
         const state = await getDraftState(leagueId);
@@ -83,7 +83,7 @@ function attachDraftSocket(httpServer) {
         socket.to(`league:${leagueId}`).emit('draft:presence', presencePayload(socket.user, viewer.viewerTeam));
       } catch (error) {
         console.error('draft:join failed', error);
-        ack && ack(joinError({ code: 'join_failed', message: 'failed to join draft room' }));
+        ack && ack(joinError({ code: 'JOIN_FAILED', message: 'failed to join draft room' }));
       }
     });
 
@@ -200,18 +200,24 @@ function joinAck({ viewerTeam, isCommissioner }) {
  * The refusal both joins answer with, and the only part of it a client may
  * branch on: the `code` (#230).
  *
- *   invalid_request  the payload carried no integer leagueId; nothing was read
- *   not_a_member     the viewer holds no Team in this league (ADR 0002)
- *   join_failed      the attempt threw
+ *   INVALID_REQUEST  the payload carried no integer leagueId; nothing was read
+ *   NOT_A_MEMBER     the viewer holds no Team in this league (ADR 0002)
+ *   JOIN_FAILED      the attempt threw
+ *
+ * The spelling is the repository convention and not a local choice: every
+ * error code this app emits is SCREAMING_SNAKE, HTTP body and socket ack
+ * alike (ADR 0008). These three shipped lowercase in #230 and were renamed in
+ * #265; a client reading an unknown code changes no state on it, which is
+ * what made renaming a shipped wire contract cost one stale deploy window.
  *
  * The message text is deliberately unchanged - it is copy, and clients already
  * render it - but it is not the contract, and it could never have been:
- * join_failed's text names the room it failed to join ('failed to join draft
+ * JOIN_FAILED's text names the room it failed to join ('failed to join draft
  * room' against 'failed to join league room'), so matching on text means
  * matching two strings for one condition, and a copy edit silently changes
  * behaviour.
  *
- * Only not_a_member is a statement about the viewer's STANDING in the league,
+ * Only NOT_A_MEMBER is a statement about the viewer's STANDING in the league,
  * so it is the only refusal on which a client clears their Team identity or
  * commissioner flag. The other two say the ATTEMPT failed, not that the viewer
  * lost anything - as does an acknowledgement from a server older than this

@@ -359,7 +359,7 @@ test('drops the commissioner flag when the league changes, rather than carrying 
 //
 // The room re-joins on every reconnect, so a refusal is the only news it
 // ever gets that the viewer no longer holds a Team here. Exactly one refusal
-// means that - not_a_member - and it is the only one that may clear the two
+// means that - NOT_A_MEMBER - and it is the only one that may clear the two
 // viewer-relative values. A transient failure must not: it arrives on a
 // reconnect blip, and clearing on it flickers a manager's own controls off
 // and back on. Triage rejected that as worse than a stale display.
@@ -370,7 +370,7 @@ test('drops the commissioner flag when the league changes, rather than carrying 
 // evidence about this behaviour in neither direction, and its green must not
 // be mistaken for cover.
 
-test('a not_a_member refusal clears the viewer’s Team and their commissioner flag', () => {
+test('a NOT_A_MEMBER refusal clears the viewer’s Team and their commissioner flag', () => {
   const { result } = renderHook(() => useDraftSocket(1));
 
   act(() => fakeSocket.trigger('connect'));
@@ -378,14 +378,14 @@ test('a not_a_member refusal clears the viewer’s Team and their commissioner f
   expect(result.current.viewerTeamId).toBe(1);
   expect(result.current.isCommissioner).toBe(true);
 
-  refuseJoin('you are not in this league', 'not_a_member');
+  refuseJoin('you are not in this league', 'NOT_A_MEMBER');
 
   expect(result.current.viewerTeamId).toBe(null);
   expect(result.current.isCommissioner).toBe(false);
   expect(result.current.error).toBe('you are not in this league');
 });
 
-test('a join_failed refusal surfaces the error and leaves both values standing', () => {
+test('a JOIN_FAILED refusal surfaces the error and leaves both values standing', () => {
   // The server threw. That says nothing about whether this viewer is still a
   // manager here, so the room keeps showing what it last knew.
   const { result } = renderHook(() => useDraftSocket(1));
@@ -393,7 +393,7 @@ test('a join_failed refusal surfaces the error and leaves both values standing',
   act(() => fakeSocket.trigger('connect'));
   ackJoin(1, { isCommissioner: true });
 
-  refuseJoin('failed to join draft room', 'join_failed');
+  refuseJoin('failed to join draft room', 'JOIN_FAILED');
 
   expect(result.current.viewerTeamId).toBe(1);
   expect(result.current.isCommissioner).toBe(true);
@@ -418,7 +418,51 @@ test('a refusal carrying NO code leaves both values standing, as an older server
   expect(result.current.error).toBe('you are not in this league');
 });
 
-test('a reconnect refused with not_a_member clears what the first join granted', () => {
+test('a refusal carrying an UNRECOGNISED code surfaces the error and leaves both values standing', () => {
+  // #265. The rename is only affordable because of this branch, so it is
+  // proven here rather than merely preserved. A code this client has never
+  // heard of is read exactly like a missing one: the error surfaces, and
+  // nothing that says who this viewer is goes away. Anything else, and a code
+  // added on the server alone would strip a manager's own controls off the
+  // screen on every reconnect until the client caught up.
+  const { result } = renderHook(() => useDraftSocket(1));
+
+  act(() => fakeSocket.trigger('connect'));
+  ackJoin(1, { isCommissioner: true });
+
+  refuseJoin('the draft room is closed for maintenance', 'ROOM_CLOSED');
+
+  expect(result.current.viewerTeamId).toBe(1);
+  expect(result.current.isCommissioner).toBe(true);
+  expect(result.current.error).toBe('the draft room is closed for maintenance');
+});
+
+test('a refusal carrying the pre-#265 lowercase not_a_member leaves both values standing', () => {
+  // The deploy skew #265 accepts, written down rather than assumed. A client
+  // and a server ship separately, so for one window this client meets a server
+  // still emitting the lowercase spelling. That refusal is now unrecognised,
+  // which lands it in the branch above: the room keeps showing a Team it has
+  // no fresh news about for that window, instead of clearing an identity on a
+  // code it cannot read. Stale beats wrongly cleared, and that trade is the
+  // whole reason renaming a shipped wire contract was affordable.
+  //
+  // This one has an expiry the test above does not: once both sides are past
+  // the rename, no server emits this string, and it becomes an ordinary
+  // unrecognised code. Delete it then, and keep the ROOM_CLOSED test, which
+  // is the branch itself rather than one window's instance of it.
+  const { result } = renderHook(() => useDraftSocket(1));
+
+  act(() => fakeSocket.trigger('connect'));
+  ackJoin(1, { isCommissioner: true });
+
+  refuseJoin('you are not in this league', 'not_a_member');
+
+  expect(result.current.viewerTeamId).toBe(1);
+  expect(result.current.isCommissioner).toBe(true);
+  expect(result.current.error).toBe('you are not in this league');
+});
+
+test('a reconnect refused with NOT_A_MEMBER clears what the first join granted', () => {
   // The shape the bug actually takes: the viewer was removed from the league
   // while sitting in the room, and finds out on the re-join a dropped socket
   // forces. Nothing else in the room ever revisits either value.
@@ -435,7 +479,7 @@ test('a reconnect refused with not_a_member clears what the first join granted',
   expect(result.current.isCommissioner).toBe(true); // a blip is not a removal
 
   act(() => reconnectHandler());
-  refuseJoin('you are not in this league', 'not_a_member');
+  refuseJoin('you are not in this league', 'NOT_A_MEMBER');
 
   expect(result.current.viewerTeamId).toBe(null);
   expect(result.current.isCommissioner).toBe(false);

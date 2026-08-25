@@ -106,7 +106,7 @@ for (const event of JOIN_EVENTS) {
     // without matching a message string. Still deepEqual on the WHOLE
     // object - loosening it to a property check to accommodate the new
     // field would reopen the masking trap the exactness exists to close.
-    assert.deepEqual(ack, { error: 'you are not in this league', code: 'not_a_member' });
+    assert.deepEqual(ack, { error: 'you are not in this league', code: 'NOT_A_MEMBER' });
     // Membership IS the Team (ADR 0002), so a non-member is never asked the
     // role question at all.
     assert.equal(fake.matching(/FROM "leagues"/).length, 0, 'no role question for a non-member');
@@ -189,7 +189,7 @@ for (const [label, leagueId] of [
 
       const ack = await harness.emit(client, event, { leagueId });
 
-      assert.deepEqual(ack, { error: 'leagueId (integer) required', code: 'invalid_request' });
+      assert.deepEqual(ack, { error: 'leagueId (integer) required', code: 'INVALID_REQUEST' });
       assert.equal(fake.calls.length, 0, 'an invalid leagueId never reaches the database');
     });
   }
@@ -203,7 +203,7 @@ for (const [event, message] of [
   ['draft:join', 'failed to join draft room'],
   ['league:join', 'failed to join league room'],
 ]) {
-  test(`${event} answers join_failed when the attempt throws, not a membership answer`, async (t) => {
+  test(`${event} answers JOIN_FAILED when the attempt throws, not a membership answer`, async (t) => {
     // This is the generic failure the header warns a fixture GAP produces,
     // and it is under test here rather than in the way: the throw is
     // deliberate, and the ack is still asserted whole. What the code buys is
@@ -224,7 +224,7 @@ for (const [event, message] of [
 
     const ack = await harness.emit(client, event, { leagueId: LEAGUE_ID });
 
-    assert.deepEqual(ack, { error: message, code: 'join_failed' });
+    assert.deepEqual(ack, { error: message, code: 'JOIN_FAILED' });
     assert.deepEqual(logged.mock.calls[0].arguments, [`${event} failed`, thrown]);
   });
 }

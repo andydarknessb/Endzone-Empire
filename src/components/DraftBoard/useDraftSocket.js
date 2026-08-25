@@ -141,8 +141,9 @@ function reducer(state, action) {
  * take a commissioner's controls away.
  *
  * A REFUSED join is read the same way, off its `code` and never its message:
- * only `not_a_member` clears these two, and every other refusal leaves them
- * standing (#230, and the join handler below for why).
+ * only `NOT_A_MEMBER` clears these two, and every other refusal - unknown
+ * codes and no code included - leaves them standing (#230, the codes renamed
+ * to SCREAMING_SNAKE in #265, and the join handler below for why).
  */
 export default function useDraftSocket(leagueId, { onPickLanded } = {}) {
   const [state, dispatch] = useReducer(reducer, initialState);
@@ -185,15 +186,20 @@ export default function useDraftSocket(leagueId, { onPickLanded } = {}) {
           // survive it, and nothing else does - never the message, which is
           // copy and differs per room on the generic failure (#230).
           //
-          // 'not_a_member' is the one refusal that is a statement about this
+          // 'NOT_A_MEMBER' is the one refusal that is a statement about this
           // viewer: they hold no Team in this league, so the Team and the
           // commissioner flag they were shown are now false and go. Every
-          // other refusal - and an ack with no code, which is what a server
-          // older than #230 sends - says the ATTEMPT failed, not that the
-          // viewer lost anything, and the room keeps what it last knew. This
-          // runs on every reconnect, so clearing on a transient failure would
-          // flicker a manager's own controls off and back on a blip.
-          if (resp.code === 'not_a_member') {
+          // other refusal - and an ack whose code this client does not
+          // recognise, or carries none at all, which is what a server older
+          // than #230 sends - says the ATTEMPT failed, not that the viewer
+          // lost anything, and the room keeps what it last knew. This runs on
+          // every reconnect, so clearing on a transient failure would flicker
+          // a manager's own controls off and back on a blip.
+          //
+          // That unrecognised-code branch is also what made #265's rename of
+          // these codes affordable; ADR 0008 carries the reasoning and the
+          // convention, and useDraftSocket.test.js pins both halves.
+          if (resp.code === 'NOT_A_MEMBER') {
             setViewerTeamId(null);
             setIsCommissioner(false);
           }

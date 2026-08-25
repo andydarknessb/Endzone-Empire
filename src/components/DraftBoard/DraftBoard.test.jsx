@@ -1114,7 +1114,7 @@ test('an ordinary manager gets no commissioner controls', async () => {
   expect(screen.queryByRole('button', { name: 'Randomize Draft order' })).not.toBeInTheDocument();
 });
 
-test('a not_a_member refusal takes the commissioner controls and the viewer’s own picks off the room', async () => {
+test('a NOT_A_MEMBER refusal takes the commissioner controls and the viewer’s own picks off the room', async () => {
   // #230. A viewer removed from the league while sitting in the draft room
   // learns of it on the re-join every reconnect makes, and this room is the
   // only thing that knows: it holds both viewer-relative values and nothing
@@ -1143,7 +1143,7 @@ test('a not_a_member refusal takes the commissioner controls and the viewer’s 
   expect(within(screen.getByRole('region', { name: 'Upcoming' }))
     .getByRole('group', { name: 'My picks' })).toBeInTheDocument();
 
-  refuseJoin('you are not in this league', 'not_a_member');
+  refuseJoin('you are not in this league', 'NOT_A_MEMBER');
 
   expect(screen.queryByRole('button', { name: 'Pause Draft' })).not.toBeInTheDocument();
   expect(screen.queryByLabelText('My Roster')).not.toBeInTheDocument();
@@ -1155,7 +1155,7 @@ test('a not_a_member refusal takes the commissioner controls and the viewer’s 
 });
 
 test('a transient refusal leaves the commissioner controls exactly where they were', async () => {
-  // The other half, and the one a refactor breaks: join_failed says the
+  // The other half, and the one a refactor breaks: JOIN_FAILED says the
   // ATTEMPT failed, not that this viewer stopped being a commissioner. This
   // path runs on every reconnect, so clearing here would flicker the controls
   // off and back on a blip - rejected at triage as worse than a stale display.
@@ -1168,7 +1168,7 @@ test('a transient refusal leaves the commissioner controls exactly where they we
     onTheClock: TEAM_A,
   })));
 
-  refuseJoin('failed to join draft room', 'join_failed');
+  refuseJoin('failed to join draft room', 'JOIN_FAILED');
 
   expect(screen.getByRole('button', { name: 'Pause Draft' })).toBeInTheDocument();
   expect(within(screen.getByLabelText('My Roster')).getByText('Bijan Robinson')).toBeInTheDocument();
