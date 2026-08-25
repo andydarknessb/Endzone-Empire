@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useDispatch } from 'react-redux';
 import {useSelector} from 'react-redux';
 import { Link } from 'react-router-dom';
+import { Button } from '@mui/material';
 import './LoginForm.css';
 
 function LoginForm() {
@@ -61,7 +62,9 @@ function LoginForm() {
         </label>
       </div>
       <div>
-        <input className="btn" type="submit" name="submit" value="Log In" />
+        <Button type="submit" name="submit" variant="contained" color="primary">
+          Log In
+        </Button>
       </div>
       <div>
         <Link to="/forgot-password">Forgot password?</Link>

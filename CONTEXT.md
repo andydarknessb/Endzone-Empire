@@ -6,6 +6,11 @@ NFL statistics. Two things sit alongside the game itself and carry their own
 vocabulary: the projection engine that advises managers, and the evaluation
 apparatus that decides whether that engine is allowed to change.
 
+## UI conventions
+
+MUI `<Button>` is the house button component; plain `.btn` classes are legacy
+(#309).
+
 ## Language
 
 ### League and membership

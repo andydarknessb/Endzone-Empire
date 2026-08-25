@@ -33,55 +33,11 @@
     text-align: center;
   }
 
-  .btn {
-    display: inline-block;
-    background: var(--accent);
-    color: var(--on-accent);
-    padding: 10px 20px;
-    border: none;
-    border-radius: var(--radius-sm);
-    text-transform: uppercase;
-    cursor: pointer;
-    transition: background-color var(--transition-base) ease;
-  }
-
-  .btn:hover {
-    background: var(--accent-hover);
-  }
-
   .RegisterForms {
     background: var(--surface);
     padding: 20px;
     border-radius: var(--radius-sm);
     box-shadow: var(--shadow-1);
-  }
-
-  .buttonContainer {
-    display: flex;
-    justify-content: center;
-    gap: 20px;
-    padding: 10px;
-  }
-
-  .buttonContainer button {
-    background: var(--accent);
-    color: var(--on-accent);
-    border: none;
-    border-radius: var(--radius-pill);
-    font-size: 1em;
-    font-weight: bold;
-    padding: 15px 30px;
-    text-transform: uppercase;
-    box-shadow: var(--shadow-2);
-    transition: all var(--transition-base) ease 0s;
-    cursor: pointer;
-  }
-
-  .buttonContainer button:hover {
-    background: var(--accent-hover);
-    box-shadow: var(--shadow-3);
-    color: var(--on-accent);
-    transform: translateY(-7px);
   }
 
   /* Responsive styles */

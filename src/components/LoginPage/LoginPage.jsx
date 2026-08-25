@@ -1,7 +1,7 @@
 import React from 'react';
 import LoginForm from '../LoginForm/LoginForm';
 import { useNavigate } from 'react-router-dom';
-import './LoginPage.css';
+import { Button } from '@mui/material';
 
 function LoginPage() {
   const navigate = useNavigate();
@@ -11,15 +11,15 @@ function LoginPage() {
       <LoginForm />
 
       <center>
-        <button
+        <Button
           type="button"
-          className="btn btn_asLink"
+          variant="text"
           onClick={() => {
             navigate('/registration');
           }}
         >
           Register
-        </button>
+        </Button>
       </center>
     </div>
   );

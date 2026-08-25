@@ -26,3 +26,12 @@ test('clicking "Login" navigates to /login', async () => {
 
   expect(mockNavigate).toHaveBeenCalledWith('/login');
 });
+
+test('the Login link-button is the house MUI Button, not the legacy .btn class', () => {
+  renderWithProviders(<RegisterPage />);
+
+  const loginButton = screen.getByRole('button', { name: 'Login' });
+  expect(loginButton.className).toMatch(/MuiButton-root/);
+  expect(loginButton.className).not.toMatch(/\bbtn\b/);
+  expect(loginButton.className).not.toMatch(/btn_asLink/);
+});

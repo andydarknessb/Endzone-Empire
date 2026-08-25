@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { useNavigate } from 'react-router-dom';
+import { Button } from '@mui/material';
 import RegisterForm from '../RegisterForm/RegisterForm';
 
 function RegisterPage() {
@@ -11,15 +12,15 @@ function RegisterPage() {
       <RegisterForm />
 
       <center>
-        <button
+        <Button
           type="button"
-          className="btn btn_asLink"
+          variant="text"
           onClick={() => {
             navigate('/login');
           }}
         >
           Login
-        </button>
+        </Button>
       </center>
     </div>
   );

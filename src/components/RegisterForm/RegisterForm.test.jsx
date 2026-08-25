@@ -14,6 +14,15 @@ test('renders the registration form fields and submit button', () => {
   expect(screen.getByRole('button', { name: 'Register' })).toBeInTheDocument();
 });
 
+test('the submit button is the house MUI Button, not the legacy .btn class', () => {
+  renderWithProviders(<RegisterForm />);
+
+  const submitButton = screen.getByRole('button', { name: 'Register' });
+  expect(submitButton).toHaveAttribute('type', 'submit');
+  expect(submitButton.className).toMatch(/MuiButton-root/);
+  expect(submitButton.className).not.toMatch(/\bbtn\b/);
+});
+
 test('shows the registrationMessage from redux state as an alert', () => {
   renderWithProviders(<RegisterForm />, {
     state: { errors: { registrationMessage: 'Choose a username and password!' } },
