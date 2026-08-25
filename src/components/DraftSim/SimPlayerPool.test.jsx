@@ -33,7 +33,7 @@ const PLAYERS = [
 describe('SimPlayerPool', () => {
   it('renders the stats table on desktop', () => {
     render(<SimPlayerPool players={PLAYERS} onDraft={jest.fn()} myTurn />);
-    expect(screen.getByRole('table')).toBeInTheDocument();
+    expect(screen.getByRole('table', { name: 'Available players' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Draft Jahmyr Gibbs' })).toBeEnabled();
   });
 

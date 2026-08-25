@@ -120,7 +120,7 @@ function SimPlayerPool({ players, includeIdp = false, onDraft, myTurn }) {
         </Stack>
       ) : (
         <TableContainer sx={{ maxHeight: 520, overflowX: 'auto' }}>
-          <Table size="small" stickyHeader>
+          <Table size="small" stickyHeader aria-label="Available players">
             <TableHead>
               <TableRow>
                 <TableCell>Player</TableCell>

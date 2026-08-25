@@ -337,7 +337,9 @@ function PowerRankings() {
             </Box>
           ) : (
             <TableContainer component={Paper}>
-              <Table>
+              {/* Reuses the page's own visible "Power Rankings" heading text
+                  rather than threading an id down to it. */}
+              <Table aria-label="Power Rankings">
                 <TableHead>
                   <TableRow>
                     <TableCell sortDirection={orderBy === 'rank' ? order : false}>

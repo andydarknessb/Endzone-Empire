@@ -207,11 +207,11 @@ function SeasonPanel({ season, defaultExpanded }) {
           </Box>
         )}
 
-        <Typography variant="subtitle1" sx={{ mb: 1 }}>
+        <Typography id={`season-${season.season}-standings-heading`} variant="subtitle1" sx={{ mb: 1 }}>
           Final Standings
         </Typography>
         <TableContainer component={Paper} sx={{ mb: 3 }}>
-          <Table size="small">
+          <Table size="small" aria-labelledby={`season-${season.season}-standings-heading`}>
             <TableHead>
               <TableRow>
                 <TableCell>Rank</TableCell>
@@ -297,11 +297,11 @@ function SeasonPanel({ season, defaultExpanded }) {
           draftGrades &&
           draftGrades.length > 0 && (
             <>
-              <Typography variant="subtitle1" sx={{ mb: 1 }}>
+              <Typography id={`season-${season.season}-draft-grades-heading`} variant="subtitle1" sx={{ mb: 1 }}>
                 Draft Grades
               </Typography>
               <TableContainer component={Paper}>
-                <Table size="small">
+                <Table size="small" aria-labelledby={`season-${season.season}-draft-grades-heading`}>
                   <TableHead>
                     <TableRow>
                       <TableCell>Rank</TableCell>
@@ -474,7 +474,11 @@ function LeagueHistory() {
           </Stack>
 
           <TableContainer component={Paper} sx={{ mb: 4 }} data-testid="history-mock-standings">
-            <Table size="small">
+            {/* No real heading sits over this placeholder preview yet (the
+                multi-season Hall of Fame it belongs to isn't built); reuse the
+                visible "All-Time Records" tab label rather than invent a new
+                user-heard string. */}
+            <Table size="small" aria-label="All-Time Records">
               <TableHead>
                 <TableRow>
                   <TableCell>Rank</TableCell>

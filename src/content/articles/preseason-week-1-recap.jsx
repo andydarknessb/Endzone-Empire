@@ -76,7 +76,7 @@ const Body = () => (
 
     {/* ---- SCOREBOARD ---- */}
     <H2>The Scoreboard</H2>
-    <Table>
+    <Table aria-labelledby="the-scoreboard">
       <THead>
         <TR><TH>Away</TH><TH>Score</TH><TH>Home</TH><TH>Score</TH></TR>
       </THead>

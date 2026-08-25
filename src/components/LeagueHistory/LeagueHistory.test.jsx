@@ -102,7 +102,7 @@ test('shows medal indicators for podium ranks in Final Standings', async () => {
   expect(panel).toHaveTextContent('🥈');
   expect(panel).toHaveTextContent('🥉');
   // Rank numbers remain present for screen readers alongside the decorative medals.
-  const table = within(panel).getByRole('table');
+  const table = within(panel).getByRole('table', { name: 'Final Standings' });
   expect(within(table).getByText('4')).toBeInTheDocument();
 });
 
@@ -213,7 +213,7 @@ test("a pick'em season's standings render points and correct picks instead of a 
   renderHistory();
 
   const panel = await screen.findByTestId('season-panel-2026');
-  const table = within(panel).getByRole('table');
+  const table = within(panel).getByRole('table', { name: 'Final Standings' });
   expect(within(table).getByText('Points')).toBeInTheDocument();
   expect(within(table).getByText('Correct')).toBeInTheDocument();
   expect(within(table).queryByText('W-L')).not.toBeInTheDocument();

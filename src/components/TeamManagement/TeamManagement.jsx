@@ -302,7 +302,11 @@ function TeamManagement() {
             </Stack>
           )}
           <TableContainer sx={{ overflowX: 'auto' }}>
-          <Table sx={{ minWidth: 760 }}>
+          {/* The "Current lineup" heading above only renders once loading
+              finishes and the roster is non-empty, so the table names itself
+              with that same visible string instead of pointing at an id that
+              is not always in the DOM. */}
+          <Table sx={{ minWidth: 760 }} aria-label="Current lineup">
             <TableHead>
               <TableRow>
                 <TableCell>Slot</TableCell>

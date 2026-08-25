@@ -60,7 +60,7 @@ test('desktop renders the sortable table with a focusable, named scroll region',
 
   const region = screen.getByRole('region', { name: 'Available Players' });
   expect(region).toHaveAttribute('tabIndex', '0');
-  expect(screen.getByRole('table')).toBeInTheDocument();
+  expect(screen.getByRole('table', { name: 'Available Players' })).toBeInTheDocument();
   expect(screen.getByRole('columnheader', { name: /Name/ })).toBeInTheDocument();
   // No player cards on desktop.
   expect(screen.queryByText('Bye: 12')).not.toBeInTheDocument();
