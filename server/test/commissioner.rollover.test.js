@@ -128,6 +128,13 @@ test("rolloverSeason archives every declared Pick'em co-champion without consult
       ARCHIVED_STANDINGS_KEYS,
       'archived row is Team identity + scoring totals, nothing more'
     );
+    // This list is hard-coded on purpose and is NOT the migration's
+    // FORBIDDEN_ACCOUNT_KEYS: it is a distinct contract for what the rollover
+    // WRITE path must never freeze, so it adds the Team display fields
+    // (teamName, avatarUrl, avatarStaticUrl) that rode the old member-row spread
+    // alongside the five account keys. It exists to fail if the write path
+    // regresses; importing a shared constant would make it a tautology. Do not
+    // merge it with the migration's list.
     for (const forbidden of ['userId', 'username', 'user_id', 'email', 'owner_id', 'teamName', 'avatarUrl', 'avatarStaticUrl']) {
       assert.equal(forbidden in row, false, `archived standings row must not carry ${forbidden}`);
     }

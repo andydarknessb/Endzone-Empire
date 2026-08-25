@@ -37,6 +37,16 @@
 // WHERE and the CHECK). Deriving all three from it keeps them in genuine
 // lockstep: a key added here is removed, detected and rejected together, so a
 // row can never be rewritten into a shape the constraint would still reject.
+//
+// This is the PRODUCTION source of truth for the forbidden keys. Three test
+// files (commissioner.rollover, leagueHistory.route, historyStandingsIdentity)
+// hard-code their OWN copies of this list on purpose and must not import this
+// one: their whole job is to fail when this list is wrong, and an assertion
+// that derived its expectation from the value under test could never do that.
+// The copies deliberately diverge (the route test also forbids
+// champion_user_id; the rollover test also forbids the teamName/avatarUrl/
+// avatarStaticUrl display fields), so they are four overlapping contracts, not
+// one list duplicated. Do not "DRY" them together.
 const FORBIDDEN_ACCOUNT_KEYS = ['userId', 'username', 'user_id', 'email', 'owner_id'];
 
 // e.g. `- 'userId' - 'username' - ...`: subtracts each key from a jsonb object.

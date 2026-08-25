@@ -98,7 +98,13 @@ if (!ENABLED) {
     assert.deepEqual(standings.map((row) => row.teamId), [11, 10, 12]);
     assert.deepEqual(standings.map((row) => row.name), ['Bob Squad', 'Sunday Ballers', 'Clean Team']);
 
-    // No account-identity key survives on any element.
+    // No account-identity key survives on any element. This list is hard-coded
+    // on purpose and MUST NOT be imported from the migration's
+    // FORBIDDEN_ACCOUNT_KEYS, even though it is byte-identical to it and tests
+    // that exact migration. This assertion exists to fail if the migration's
+    // list is ever wrong; deriving it from the value under test would make it a
+    // tautology that passes no matter what the migration strips. It is the most
+    // tempting DRY target in the change and the most destructive to collapse.
     for (const row of standings) {
       for (const forbidden of ['userId', 'username', 'user_id', 'email', 'owner_id']) {
         assert.equal(forbidden in row, false, `stripped element must not carry ${forbidden}`);

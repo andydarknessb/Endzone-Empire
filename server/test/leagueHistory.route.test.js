@@ -176,6 +176,13 @@ test("GET history never promotes an ambiguous Pick'em legacy pointer as a champi
 // this assertion reads; the exact-key-set assertion was demonstrated
 // non-vacuous by seeding a fixture row carrying `username` (see the PR body),
 // which makes it fail, proving the assertion is live rather than always-passing.
+//
+// This list is hard-coded on purpose and is NOT the migration's
+// FORBIDDEN_ACCOUNT_KEYS: it is the SERVED contract, so it adds champion_user_id
+// (account identity that lives in its own column and must stay off the wire).
+// It exists to fail if a forbidden key ever reaches the response; importing a
+// shared constant would make the assertion a tautology. Do not merge it with
+// the migration's list.
 const FORBIDDEN_ACCOUNT_KEYS = ['userId', 'username', 'user_id', 'email', 'owner_id', 'champion_user_id'];
 
 test('GET history serves standings by Team identity only, for both league types', async (t) => {
