@@ -23,6 +23,13 @@
  *   - a current-week row in a week the team's matchup has already settled.
  *   - anything for a player still on the roster.
  *
+ * Its rule is kickoff-only because it predates #228. After #228 the
+ * runtime rule is kickoff-and-tenure, so for a kicked-off stale row with
+ * no covering tenure this migration SPARES what the runtime would remove.
+ * That is under-deletion and self-correcting, it matched zero rows in
+ * production, and it is deliberate: a row with no tenure history at all
+ * is pre-migration garbage, ruled NOT to be treated as held (#252).
+ *
  * Measured effect on the production database, checked read-only at design
  * time on 2026-08-23: ZERO rows. `lineup_entries` holds no rows at all there
  * (nor does `team_players`), across 15 leagues, so this deletes nothing. It
