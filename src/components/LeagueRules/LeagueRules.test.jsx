@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen, within, act } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import { clearLeagueCache } from '../../hooks/useLeague';
@@ -126,15 +126,15 @@ describe('LeagueRules', () => {
     renderPage();
     await screen.findByRole('region', { name: 'Passing' });
 
-    await act(async () => { await userEvent.click(screen.getByRole('tab', { name: 'Roster' })); });
+    await userEvent.click(screen.getByRole('tab', { name: 'Roster' }));
     expect(screen.getByText('7 roster spots + up to 1 IR')).toBeInTheDocument();
     expect(screen.getByText('FLEX')).toBeInTheDocument();
 
-    await act(async () => { await userEvent.click(screen.getByRole('tab', { name: 'Waivers & Trades' })); });
+    await userEvent.click(screen.getByRole('tab', { name: 'Waivers & Trades' }));
     expect(screen.getByText('FAAB (Bidding)')).toBeInTheDocument();
     expect(screen.getByText('Week 11')).toBeInTheDocument();
 
-    await act(async () => { await userEvent.click(screen.getByRole('tab', { name: 'Playoffs & Season' })); });
+    await userEvent.click(screen.getByRole('tab', { name: 'Playoffs & Season' }));
     expect(screen.getByText('14 weeks')).toBeInTheDocument();
     expect(screen.getByText('Disabled')).toBeInTheDocument();
   });
@@ -213,7 +213,7 @@ describe('LeagueRules', () => {
 
     expect(await screen.findByText(/Unable to load scoring rules: offline/)).toBeInTheDocument();
 
-    await act(async () => { await userEvent.click(screen.getByRole('tab', { name: 'Roster' })); });
+    await userEvent.click(screen.getByRole('tab', { name: 'Roster' }));
     expect(await screen.findByText('7 roster spots + up to 1 IR')).toBeInTheDocument();
   });
 });

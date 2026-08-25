@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import MockAdapter from 'axios-mock-adapter';
 import apiClient from '../../api/apiClient';
@@ -16,15 +16,15 @@ let mock;
 let teamProfileUpdates;
 let handleTeamProfileUpdate;
 
-const setupUser = () => {
-  const user = userEvent.setup();
-  return Object.fromEntries(
-    ['click', 'type', 'upload'].map((method) => [
-      method,
-      (...args) => act(async () => { await user[method](...args); }),
-    ])
-  );
-};
+// Convention for this file (#263): userEvent calls are never re-wrapped in
+// act(). user-event already runs each interaction inside act() and drains the
+// queue before it resolves, and an outer act() would still be open while
+// user-event's own async wrapper clears IS_REACT_ACT_ENVIRONMENT, so every
+// update landing in that window is reported as "the current testing
+// environment is not configured to support act". Work that outlives an
+// interaction (the avatar POST and the toast behind it) is awaited at the call
+// site instead.
+const setupUser = () => userEvent.setup();
 
 beforeEach(() => {
   mock = new MockAdapter(apiClient);

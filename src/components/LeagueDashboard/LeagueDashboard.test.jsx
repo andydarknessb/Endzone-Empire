@@ -157,15 +157,17 @@ const leagueGetCount = (leagueId = 1) =>
 
 /**
  * Click something whose handler keeps working after the click itself resolves:
- * the POST, and then the un-awaited refresh() behind it. user-event does not
- * wrap its own waiting in act(), so those later updates would otherwise land
- * outside it and be reported as such.
+ * the POST, and then the un-awaited refresh() behind it.
+ *
+ * That later work is settled by awaiting its observable result at the call site
+ * (the request assertion, the toast, `settleRefresh`), not by holding an act()
+ * open across the click. An outer act() would still be open while user-event's
+ * own async wrapper clears IS_REACT_ACT_ENVIRONMENT, and every update landing
+ * in that window is reported as "the current testing environment is not
+ * configured to support act".
  */
 const clickAndSettle = async (element) => {
-  // The act() is for the work that follows the click, not for the click, which
-  // is why no-unnecessary-act does not apply here.
-  // eslint-disable-next-line testing-library/no-unnecessary-act
-  await act(async () => { await userEvent.click(element); });
+  await userEvent.click(element);
 };
 
 /**
