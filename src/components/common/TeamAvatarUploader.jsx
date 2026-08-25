@@ -181,11 +181,16 @@ function TeamAvatarUploader({ teamId, teamName, avatarUrl, avatarStaticUrl, onUp
           </IconButton>
         )}
       </Box>
+      {/* The picker is opened by the visible, named button above; this input
+          stays `hidden`, so it is out of the accessibility tree and has no
+          role or accessible name for a test to query. data-testid is the
+          test-only seam that reaches it, and nothing in the app reads it. */}
       <input
         ref={fileInputRef}
         type="file"
         accept="image/png,image/jpeg,image/webp,image/gif"
         hidden
+        data-testid="team-avatar-file-input"
         onChange={handleFileChange}
       />
       {error && (

@@ -17,9 +17,11 @@ import { SCORING_FORMATS, DEFAULT_FORMAT, formatLabel, pointsFor, hasFormatVaria
 import publicApiClient from '../../../api/publicApiClient';
 import { STAT_DEFINITIONS } from '../../common/AbbreviationTooltip';
 
-function StatCard({ label, value, tooltip }) {
+// `testId` is an optional test-only seam: a stat card is a layout container
+// with no role, so the value and its label share no queryable ancestor.
+function StatCard({ label, value, tooltip, testId }) {
   return (
-    <Card variant="outlined" sx={{ height: '100%' }}>
+    <Card variant="outlined" sx={{ height: '100%' }} data-testid={testId}>
       <CardContent sx={{ textAlign: 'center', py: 2 }}>
         <Typography variant="stat" component="div" sx={{ fontSize: '1.6rem', fontWeight: 800 }}>
           {value ?? '-'}
@@ -264,11 +266,12 @@ export function ProfileBody({
             <Grid xs={6} md={2.4}>
               <StatCard
                 label="Pos rank"
+                testId="pos-rank-stat-card"
                 value={player.posRank != null ? `#${player.posRank}` : null}
                 tooltip={STAT_DEFINITIONS['Pos rank']}
               />
             </Grid>
-            <Grid xs={6} md={2.4}><StatCard label="ADP" value={player.adp} tooltip={STAT_DEFINITIONS.ADP} /></Grid>
+            <Grid xs={6} md={2.4}><StatCard label="ADP" testId="adp-stat-card" value={player.adp} tooltip={STAT_DEFINITIONS.ADP} /></Grid>
           </Grid>
 
           {/* Full-season game log (the API's recentGames field is uncapped) */}

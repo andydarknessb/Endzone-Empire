@@ -354,6 +354,10 @@ describe('the rail\'s ids are unique, because ARIA resolves them by id', () => {
   // duplicate-id-aria).
   const duplicateIds = (root) => {
     const seen = new Map();
+    // The subject of this assertion is the DOM itself: enumerating every
+    // element that carries an id is not something a testing-library query can
+    // express, because the ids belong to no role and no accessible name.
+    // eslint-disable-next-line testing-library/no-node-access
     root.querySelectorAll('[id]').forEach((node) => {
       seen.set(node.id, (seen.get(node.id) || 0) + 1);
     });

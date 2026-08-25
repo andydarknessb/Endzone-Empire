@@ -62,10 +62,14 @@ const QUOTA_MODE_COLOR = {
   blocked: 'error',
 };
 
-function StatTile({ label, value, caption, tone }) {
+// `testId` is an optional test-only seam, the same one the panels below use:
+// a tile is a layout container with no role, so its label and its value have
+// no common ancestor a test can query by.
+function StatTile({ label, value, caption, tone, testId }) {
   return (
     <Grid xs={12} sm={6} md={3}>
       <Paper
+        data-testid={testId}
         sx={{
           p: 2,
           height: '100%',
@@ -214,6 +218,7 @@ function AdminDashboard() {
         <StatTile label="Uptime" value={humanizeUptime(uptimeSec)} />
         <StatTile
           label="Errors Since Boot"
+          testId="errors-since-boot-tile"
           value={errorInfo.errorsSinceBoot}
           tone={errorInfo.errorsSinceBoot > 0 ? 'error' : undefined}
           caption={

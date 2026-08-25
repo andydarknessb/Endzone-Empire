@@ -35,6 +35,17 @@ const league = (overrides = {}) => ({
   ...overrides,
 });
 
+// A discovery card is a layout container with no role of its own, so it
+// carries a stable test id; the card for a league is the one holding its name.
+async function leagueCard(name) {
+  await screen.findByText(name);
+  const card = screen
+    .getAllByTestId('league-discovery-card')
+    .find((item) => within(item).queryByText(name));
+  if (!card) throw new Error(`No discovery card found for ${name}`);
+  return card;
+}
+
 afterEach(() => {
   jest.clearAllMocks();
 });
@@ -199,14 +210,14 @@ test("a pick'em-only league is labelled Pick'em and shows no scoring preset or d
   });
   renderScreen();
 
-  const pool = (await screen.findByText('Office Pool')).closest('.MuiCard-root');
+  const pool = await leagueCard('Office Pool');
   expect(within(pool).getByText("Pick'em")).toBeInTheDocument();
   expect(within(pool).queryByText('Standard')).not.toBeInTheDocument();
   expect(within(pool).queryByText(/Draft/)).not.toBeInTheDocument();
   expect(within(pool).getByText(/12\/50 teams · 38 slots open/)).toBeInTheDocument();
   expect(within(pool).getByText('Pick winners every week · no draft')).toBeInTheDocument();
 
-  const fantasy = screen.getByText('Sunday Ballers').closest('.MuiCard-root');
+  const fantasy = await leagueCard('Sunday Ballers');
   expect(within(fantasy).queryByText("Pick'em")).not.toBeInTheDocument();
   expect(within(fantasy).getByText('PPR')).toBeInTheDocument();
   expect(within(fantasy).getByText(/^Draft: /)).toBeInTheDocument();
@@ -218,7 +229,7 @@ test("a full pick'em-only league reads the same as an open one (the slot count c
   });
   renderScreen();
 
-  const pool = (await screen.findByText('Office Pool')).closest('.MuiCard-root');
+  const pool = await leagueCard('Office Pool');
   expect(within(pool).getByText(/12\/12 teams · 0 slots open/)).toBeInTheDocument();
   expect(within(pool).getByText('Pick winners every week · no draft')).toBeInTheDocument();
   expect(within(pool).queryByText(/join any time|joins stay open/i)).not.toBeInTheDocument();
@@ -244,7 +255,7 @@ test("choosing League type = Pick'em refetches with type=pickem, hides Scoring a
   expect(screen.getByRole('option', { name: 'Newest' })).toBeInTheDocument();
   await userEvent.keyboard('{Escape}');
   // The pool row still renders its chip.
-  const card = screen.getByText('Office Pool').closest('.MuiCard-root');
+  const card = await leagueCard('Office Pool');
   expect(within(card).getByText("Pick'em")).toBeInTheDocument();
 });
 
@@ -307,7 +318,7 @@ test("the join dialog for a pick'em-only league explains what the team name is",
 test("a fantasy league that also plays pick'em shows both its scoring chip and a Pick'em chip, and lists under Fantasy football", async () => {
   apiClient.get.mockResolvedValue({ data: [league({ id: 6, name: 'Both League', pickemOnly: false, pickemEnabled: true, scoringPreset: 'ppr' })] });
   renderScreen();
-  const card = (await screen.findByText('Both League')).closest('.MuiCard-root');
+  const card = await leagueCard('Both League');
   expect(within(card).getByText('PPR')).toBeInTheDocument();
   expect(within(card).getByText("Pick'em")).toBeInTheDocument();
   expect(within(card).getByText(/^Draft: /)).toBeInTheDocument();
