@@ -212,9 +212,27 @@ And check that your assertion is actually in the file. #274's own audit
 edited one test with a scripted string replace that silently matched
 nothing (CRLF) while its script reported success. The suite still passed,
 which was consistent both with the assertion being present and with it
-never having been added. A tool that cannot report its own failure is the
-same defect as a test that cannot report the bug: prefer one that throws
-on a miss, and grep for the call site afterwards.
+never having been added, and the green was read as confirmation. A tool
+that cannot report its own failure is the same defect as a test that
+cannot report the bug.
+
+Two rules come out of that, and they generalize past this document:
+
+- **A tool must fail loudly.** In that same audit the scripted inserts
+  threw on a miss and the one-off convenience edit logged success
+  unconditionally. Only the one-off produced a wrong result. Loud failure
+  is not a nicety; it is the reason the rest of the diff was correct.
+- **What saves you is a second instrument, not more care.** A careful
+  measurement validates the operator's attention. A second measurement
+  validates the instrument. When a number or a green tick feeds a
+  conclusion, take one independent reading of something it must agree
+  with, and treat any disagreement as a stop.
+
+The second rule has teeth beyond assertions. The same audit reported its
+own diff as +1093/-139 by summing per-commit insertions and deletions;
+the actual diff was +1045/-91, because lines the branch added and later
+removed cancel in the net and double-count in the sum. Right data, wrong
+operation, plausible answer, and nothing about the number announced it.
 
 This is the demonstration from #274, on
 `PUT /api/draft/league/:id/keepers`. Saving keepers is a replace-all: the
