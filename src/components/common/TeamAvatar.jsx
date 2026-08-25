@@ -16,6 +16,14 @@ function TeamAvatar({ name, avatarUrl, avatarStaticUrl, size = 32 }) {
   const src = (prefersReducedMotion && avatarStaticUrl) || avatarUrl || undefined;
   return (
     <Avatar
+      // Deliberately no `alt`: MUI's Avatar resolves an <img> with an alt
+      // attribute (including alt="") to role "presentation", not "img". The
+      // aria-hidden="true" below already removes this subtree from the
+      // accessibility tree, so the missing alt isn't a defect to fix -
+      // adding one (even alt="") flips the resolved role and breaks the
+      // four `getByRole('img', { hidden: true })` queries that depend on
+      // it staying "img": TeamAvatar.test.jsx (three sites) and
+      // PowerRankings.test.jsx (one site). See #327.
       aria-hidden="true"
       src={src}
       imgProps={{ loading: 'lazy' }}
