@@ -293,7 +293,8 @@ test('updates a mounted ranking immediately when Profile Settings publishes a te
   expect(within(aliceRow).getByText('Bandits')).toBeInTheDocument();
   // TeamAvatar is aria-hidden by design (the team name sits right beside it),
   // so the image is queried with hidden: true rather than pretending it is in
-  // the accessibility tree.
+  // the accessibility tree. See the comment on Avatar in TeamAvatar.jsx
+  // (#327) for why it must stay without an `alt`.
   expect(within(aliceRow).getByRole('img', { hidden: true })).toHaveAttribute(
     'src',
     'https://cdn.example/bandits.png'

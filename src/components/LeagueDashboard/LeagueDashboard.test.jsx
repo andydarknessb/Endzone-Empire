@@ -279,7 +279,9 @@ test('standings table renders W-L-T, PF, PA, and a streak chip (no redundant pla
   expect(screen.getByText('W2')).toBeInTheDocument();
   const pointsForHeader = screen.getByLabelText(/PF: Points for:/i);
   expect(screen.getByLabelText(/PA: Points against:/i)).toBeInTheDocument();
-  expect(screen.getByRole('table')).toHaveStyle({ minWidth: '680px' });
+  // Named by the visible "Standings" heading via aria-labelledby (#327), not
+  // reached as "the only table on the page".
+  expect(screen.getByRole('table', { name: /standings/i })).toHaveStyle({ minWidth: '680px' });
   // The subject of this assertion is computed styling on the scroll container,
   // which carries no role and no accessible name of its own.
   // eslint-disable-next-line testing-library/no-node-access
