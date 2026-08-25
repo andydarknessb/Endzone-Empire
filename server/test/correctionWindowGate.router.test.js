@@ -32,7 +32,6 @@ const { signToken } = require('../modules/auth');
 const scoring = require('../services/scoring.service');
 const correction = require('../services/correction.service');
 const commissioner = require('../services/commissioner.service');
-const activity = require('../services/activity.service');
 const { CORRECTION_WINDOW_ERROR } = correction;
 
 const previousSecret = process.env.JWT_SECRET;
@@ -118,6 +117,11 @@ test('correct-week: refuses a manual score override outside the window and never
   // Same out-of-window request shape, but this one carries a manual score
   // override. The router calls the guard BEFORE branching on that, so this
   // must fail before commissioner.adjustMatchupScore is ever invoked.
+  //
+  // This spy's zero has its baseline further down, not here: the two
+  // adjustMatchupScore tests below call the real, unmocked function and
+  // observe ITS writes directly (update('matchups') / insert('transactions')
+  // going to 1), which is the same counter family reporting a real call.
   const fake = routerPool({ currentSeason: 2026, currentWeek: 5 }).install(t);
   const adjusted = spy(t, commissioner, 'adjustMatchupScore');
 
@@ -203,7 +207,6 @@ test('correct-week: adjustMatchupScore refuses a matchup whose OWN week is out o
     matchupSeason: 2026,
     matchupWeek: 6,
   }).install(t);
-  const logged = spy(t, activity, 'logTransaction');
 
   const res = await request(app)
     .post('/api/scoring/league/1/correct-week')
@@ -214,8 +217,12 @@ test('correct-week: adjustMatchupScore refuses a matchup whose OWN week is out o
   assert.equal(res.body.error, CORRECTION_WINDOW_ERROR.code);
   assert.equal(res.body.message, CORRECTION_WINDOW_ERROR.message);
   assert.equal(fake.matching(update('matchups')).length, 0, 'the score was never updated');
+  // `activity.logTransaction` is destructured into a local binding inside
+  // commissioner.service.js at require-time, so a mock on the exports
+  // property here would never observe that call — it would silently pass
+  // whether or not the write happened. The INSERT it performs is the real
+  // seam and is covered directly above via `insert('transactions')`.
   assert.equal(fake.matching(insert('transactions')).length, 0, 'no transaction log entry was written');
-  assert.equal(logged.length, 0);
   fake.assertClean();
 });
 
