@@ -32,8 +32,14 @@
  *    name per concept is what makes #113 and #114 mechanical, and camelCase
  *    is already this repo's wire convention for identity (the rosters
  *    endpoint, matchup detail, pick'em standings and power rankings all
- *    spell it that way). `teamIdentityColumns()` produces the SQL aliases so
- *    they cannot drift from the JS ones.
+ *    spell it that way). `TEAM_IDENTITY_FIELDS` is those two names, exported
+ *    and frozen, and it is the ENFORCEMENT of this rule rather than the
+ *    paragraph you are reading (#200, folded into #115): `teamIdentityColumns()`
+ *    mints the SQL aliases from it and `teamIdentityOf()` builds its object
+ *    from it, so neither can drift from the wire contract, and neither can
+ *    drift from the client mirror because `src/lib/teamIdentity.js` exports the
+ *    identical list and a test pins the two equal. Change the strings in one
+ *    place, here, or the contract tests go red.
  *
  * 2. The viewer's own Team is always `viewerTeamId`: the Team ID of the
  *    signed-in manager on THIS league, so "which one of these is me" is
@@ -66,17 +72,30 @@
  */
 
 /**
+ * The canonical Team identity wire keys, frozen so no caller can mutate the
+ * shared list, and the single source of the strings `teamId` / `teamName` in
+ * this module (#200). Its client mirror `src/lib/teamIdentity.js` exports the
+ * identical array; teamIdentityFields.test.js pins the two equal.
+ */
+const TEAM_IDENTITY_FIELDS = Object.freeze(['teamId', 'teamName']);
+
+/**
  * Shape one `teams` row as the Team identity a league-shared payload may
  * carry. Takes a `teams` row (or anything with its `id` and `name`), never a
  * pick or player row, whose `name` is a player's. Missing input is answered
  * with nulls rather than an omitted field, so a consumer can read the field
  * unconditionally.
+ *
+ * The output keys come from `TEAM_IDENTITY_FIELDS`, not from the strings
+ * spelled out again here, so the object this returns cannot name a field the
+ * contract does not.
  */
 function teamIdentityOf(teamRow) {
-  if (!teamRow) return { teamId: null, teamName: null };
+  const [idField, nameField] = TEAM_IDENTITY_FIELDS;
+  if (!teamRow) return { [idField]: null, [nameField]: null };
   return {
-    teamId: teamRow.id == null ? null : teamRow.id,
-    teamName: teamRow.name == null ? null : teamRow.name,
+    [idField]: teamRow.id == null ? null : teamRow.id,
+    [nameField]: teamRow.name == null ? null : teamRow.name,
   };
 }
 
@@ -99,9 +118,13 @@ function withTeamIdentity(entry, teamRow) {
  * call site, so they cannot drift from the bare ones either.
  */
 function teamIdentityColumns(alias = 'teams', prefix = null) {
-  const id = prefix ? `${prefix}TeamId` : 'teamId';
-  const name = prefix ? `${prefix}TeamName` : 'teamName';
-  return `"${alias}"."id" AS "${id}", "${alias}"."name" AS "${name}"`;
+  const [idField, nameField] = TEAM_IDENTITY_FIELDS;
+  // Prefixing turns `teamId` into `ownerTeamId`: the bare field with its first
+  // letter capitalised, so the prefixed alias is minted from the same source
+  // string as the bare one and cannot drift from it.
+  const withPrefix = (field) =>
+    prefix ? `${prefix}${field[0].toUpperCase()}${field.slice(1)}` : field;
+  return `"${alias}"."id" AS "${withPrefix(idField)}", "${alias}"."name" AS "${withPrefix(nameField)}"`;
 }
 
 /**
@@ -146,6 +169,7 @@ function viewerTeamIdOf(teams, userId) {
 }
 
 module.exports = {
+  TEAM_IDENTITY_FIELDS,
   teamIdentityOf,
   withTeamIdentity,
   teamIdentityColumns,
