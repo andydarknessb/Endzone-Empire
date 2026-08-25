@@ -44,18 +44,18 @@ test.describe('Team identity', () => {
     expect(body).not.toMatch(/\bnull\b/);
   };
 
-  test('pending: Readiness and Draft order name Teams, and the viewer is found by Team', async ({ page }) => {
+  test('pending: Readiness names its count, Draft order names Teams, and the viewer is found by Team', async ({ page }) => {
     await installDraftSocketHarness(page, PENDING_STATE);
     await installDraftRestApi(page, { league: PENDING_STATE.league, picks: [] });
     await gotoDraft(page);
     await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toBeVisible();
 
-    // Readiness counts every Team and names each one (CONTEXT.md: Readiness;
-    // the not-yet-ready group is Not ready).
+    // Readiness counts every Team (CONTEXT.md: Readiness). At 0 of 2 ready,
+    // readinessSummary's exception list is empty - nobody has declared yet,
+    // so #124's contract names no individual Team here, only the count; the
+    // Team-naming coverage below is Draft order's.
     const readiness = page.getByRole('region', { name: 'Readiness' });
     await expect(readiness).toBeVisible();
-    await expect(readiness.getByText('Ridge Runners: Not ready')).toBeVisible();
-    await expect(readiness.getByText('Harbor Hawks: Not ready')).toBeVisible();
     await expect(readiness.getByText('0 of 2 managers ready')).toBeVisible();
 
     // That panel renders at all only because the viewer was matched to a

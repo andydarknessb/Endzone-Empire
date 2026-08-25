@@ -91,11 +91,15 @@ jobs:
 
   browser-security:
     runs-on: ubuntu-latest
-    # Healthy runs finish in 2-5 minutes (npm ci ~25s, browser install 20-200s,
-    # test:security ~5s, auth-offline ~30s). Twice the install step has sat in
-    # apt-get for hours when the runner's Azure apt mirror stalled (runs
-    # 32166695949 and 32278921366), holding a runner until GitHub's 6-hour
-    # default. Fail fast instead; a rerun gets a fresh runner.
+    # Healthy runs finish in 3-8 minutes (npm ci ~25s, browser install
+    # 20-200s, test:security ~5s, then the full tests/e2e directory:
+    # auth-offline ~30s, draft-identity ~50s, draft-board ~2.5 min, all at
+    # one worker - the 8-minute end is that install's slow case plus the
+    # e2e suite, still comfortably under the 15-minute timeout below).
+    # Twice the install step has sat in apt-get for hours when the runner's
+    # Azure apt mirror stalled (runs 32166695949 and 32278921366), holding a
+    # runner until GitHub's 6-hour default. Fail fast instead; a rerun gets
+    # a fresh runner.
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -114,7 +118,11 @@ jobs:
         env:
           CI: "true"
           SECURITY_NETWORK_MODE: mock
-      - run: npm run test:e2e:auth-offline
+      # No file argument: every spec under tests/e2e runs, not just the ones
+      # named here by hand, so a spec added later is covered automatically
+      # (issue #365) instead of being orphaned the way draft-board and
+      # draft-identity were.
+      - run: npm run test:e2e
         env:
           CI: "true"
 
