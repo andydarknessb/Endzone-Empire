@@ -19,5 +19,13 @@ test('mounts the app into #react-root without throwing', () => {
     });
   }).not.toThrow();
 
+  // #react-root is a mount container: no role, no accessible name, correctly
+  // and permanently, because it's an implementation detail deliberately
+  // invisible to users. No semantic query can express "rendered into this
+  // specific element" - screen.getByTestId would pass even if index.js mounted
+  // into document.body instead, silently weakening what this test proves
+  // (see #326). Direct node access is the only way to assert what this test
+  // is actually named for.
+  // eslint-disable-next-line testing-library/no-node-access
   expect(document.getElementById('react-root')).toHaveTextContent('mounted');
 });
