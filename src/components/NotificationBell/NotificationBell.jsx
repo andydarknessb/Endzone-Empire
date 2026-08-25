@@ -84,7 +84,14 @@ function NotificationBell() {
   return (
     <>
       <IconButton color="inherit" aria-label="notifications" onClick={handleOpen} sx={MIN_TOUCH_TARGET_SX}>
-        <Badge badgeContent={unread} color="error">
+        {/* The badge itself is decoration on a button that already carries the
+            accessible name: it has no role and no name of its own, so the
+            test-only data-testid is the seam that reaches it. */}
+        <Badge
+          badgeContent={unread}
+          color="error"
+          slotProps={{ badge: { 'data-testid': 'notification-unread-badge' } }}
+        >
           <NotificationsActiveIcon />
         </Badge>
       </IconButton>

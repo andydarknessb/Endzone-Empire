@@ -50,6 +50,12 @@ test('beat 1 shows the runner, then cuts to the referee BOOM frame with name and
   expect(screen.getByTestId('tecmo-referee')).toBeInTheDocument();
   expect(screen.getByTestId('tecmo-goalpost')).toBeInTheDocument();
   expect(screen.queryByTestId('tecmo-runner')).not.toBeInTheDocument();
+
+  // The test ids are a test-only seam. The sprites stay decoration: hidden
+  // from the accessibility tree, and named by nothing a screen reader reads.
+  expect(screen.getByTestId('tecmo-referee')).toHaveAttribute('aria-hidden', 'true');
+  expect(screen.getByTestId('tecmo-goalpost')).toHaveAttribute('aria-hidden', 'true');
+  expect(screen.queryByLabelText(/runner|referee|goal ?post/i)).not.toBeInTheDocument();
 });
 
 test("the scorer's name renders in their team colors", () => {
