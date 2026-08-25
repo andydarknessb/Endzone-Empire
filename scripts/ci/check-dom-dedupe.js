@@ -20,79 +20,147 @@
  *
  * Method: `npm ls <pkg>` exits 0 on a tree with two legitimately resolved
  * copies (it only fails on invalid/missing/extraneous packages), so exit
- * code is not a usable signal — see #224. `npm ls <pkg> --parseable`
- * prints one line per distinct installed *path*, deduplicating identical
- * physical locations, regardless of how many consumers reference it. A
- * healthy tree prints exactly one path even when npm's tree view labels
- * the second and later consumers "deduped"; a split tree prints one path
- * per copy. This script counts those lines and treats any count other
- * than exactly one as a violation.
+ * code is not a usable signal — see #224. `npm ls <pkg> --parseable` prints
+ * one line per distinct installed *path*, deduplicating identical physical
+ * locations regardless of how many consumers reference it. A healthy tree
+ * prints exactly one path even when npm's tree view labels the second and
+ * later consumers "deduped"; a split tree prints one path per copy. This
+ * script counts those lines and treats any count other than exactly one as a
+ * violation. We add `--long`, which appends the resolved id to each line as
+ * `<path>:<name>@<version>`, so the diagnostic can name the version of every
+ * copy it found. Those versions are npm's own resolved answer carried on the
+ * same subprocess output — NOT a package.json this script opened. Reading a
+ * package.json beneath the subprocess output would reverse a deliberate
+ * decision (#224): it would turn display data back into a filesystem path to
+ * follow. `--long` keeps the physical-path count rule byte-for-byte and only
+ * adds display data, so the pass/fail rule is unchanged.
+ *
+ * Why NOT `npm ls --json` for the version: --json is a *tree* view, so on a
+ * healthy tree @testing-library/dom appears once under @testing-library/react
+ * AND once under @testing-library/user-event even though both share one
+ * physical copy. Counting those nodes would report two on a green tree. Only
+ * `--parseable` collapses to one line per physical install, which is the
+ * count this guard is defined on.
+ *
+ * Determinism (#313): the count and the message must not depend on which
+ * directory the guard was invoked from. `npm ls` resolves against the
+ * node_modules of its working directory, so running it from a git worktree
+ * that has never had `npm ci` (no node_modules) reports zero while running it
+ * from an installed checkout reports the real count — the same repo, a
+ * different answer, because it is a different question. We pin the working
+ * directory to the checkout that owns THIS script (two levels up from
+ * scripts/ci/) and name that search root in every message, so two runs from
+ * different directories on the same tree print identical sentences, and a
+ * zero result says where it looked instead of reading as "the dependency was
+ * dropped."
  *
  * Run: `npm run check:dom-dedupe`
  *
- * NOT YET WIRED INTO CI. This script exists, is documented, and is
- * runnable by hand or from a workflow step, but nothing invokes it
- * automatically today — see the PR that introduced it (#224) for the
- * proposed `test-build` step. Wiring it in is deliberately left to the
- * maintainer, since `.github/workflows/**` is out of scope here.
+ * Wired into CI (#313): the `test-build` job runs `npm run check:dom-dedupe`
+ * after `npm ci` and before the client test suite, so a re-split fails fast
+ * and names its cause here instead of surfacing later as an unrelated
+ * user-event test dispatching outside act(). The `.github/workflows/**` step
+ * itself is a carve-out path merged by the maintainer.
  */
 const { spawnSync } = require('child_process');
+const path = require('path');
 
 const PACKAGE_NAME = '@testing-library/dom';
 
-// Split `npm ls <pkg> --parseable` output into the set of distinct
-// installed paths it names. Blank lines (a trailing newline, or the
-// occasional blank line npm emits alongside a warning) are dropped.
-// Windows line endings are normalized so this behaves the same whether
-// npm's stdout used `\n` or `\r\n`.
+// Anchor the guard to the checkout that owns this script rather than
+// process.cwd(). scripts/ci/check-dom-dedupe.js sits two directories below
+// the repo root. Resolving from __dirname (not the current working
+// directory) is what makes the count and the message identical no matter
+// where the guard was invoked from — see the Determinism note above (#313).
+function resolveSearchRoot() {
+  return path.resolve(__dirname, '..', '..');
+}
+
+// Split `npm ls <pkg> --parseable --long` output into the set of distinct
+// installed copies it names, each as { path, version }. Blank lines (a
+// trailing newline, or the occasional blank line npm emits alongside a
+// warning) are dropped. Windows line endings are normalized so this behaves
+// the same whether npm's stdout used `\n` or `\r\n`.
 //
-// Paths are deduplicated case-insensitively on platforms whose default
-// filesystem is case-insensitive (Windows, macOS) — two differently-cased
-// spellings of the same physical directory are the same install, not two
-// copies, on those platforms. `caseInsensitive` defaults from
-// `process.platform` but is overridable so this stays testable without
+// Each --long line is `<physical-path>:<name>@<version>` (npm may append
+// further colon-delimited fields; the version is the first token after the
+// id). The physical path can itself contain `@testing-library/dom` as a
+// directory, but never the id separator `:<name>@`, since path separators are
+// `/` or `\` and the only colon in a path is a Windows drive letter — so the
+// last occurrence of `:<name>@` is unambiguously the field boundary.
+//
+// Copies are deduplicated by path, case-insensitively on platforms whose
+// default filesystem is case-insensitive (Windows, macOS) — two
+// differently-cased spellings of the same physical directory are the same
+// install, not two copies, on those platforms. `caseInsensitive` defaults
+// from `process.platform` but is overridable so this stays testable without
 // depending on the OS the tests happen to run on.
-function parseParseablePaths(stdout, caseInsensitive = process.platform !== 'linux') {
-  const seen = new Map(); // normalized key -> first-seen original spelling
+function parseInstalledCopies(stdout, caseInsensitive = process.platform !== 'linux') {
+  const marker = `:${PACKAGE_NAME}@`;
+  const seen = new Map(); // normalized path key -> { path, version } (first seen)
   String(stdout || '')
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
-    .forEach((p) => {
-      const key = caseInsensitive ? p.toLowerCase() : p;
-      if (!seen.has(key)) seen.set(key, p);
+    .forEach((line) => {
+      const at = line.lastIndexOf(marker);
+      let installPath;
+      let version;
+      if (at === -1) {
+        // No id suffix (plain --parseable output, or an unexpected shape).
+        // Treat the whole line as the path; the version is unknown rather
+        // than guessed.
+        installPath = line;
+        version = null;
+      } else {
+        installPath = line.slice(0, at);
+        version = line.slice(at + marker.length).split(':')[0] || null;
+      }
+      const key = caseInsensitive ? installPath.toLowerCase() : installPath;
+      if (!seen.has(key)) seen.set(key, { path: installPath, version });
     });
   return Array.from(seen.values());
 }
 
-// Decide whether a set of installed paths represents the healthy,
-// single-copy state this guard exists to enforce.
-function evaluate(paths) {
-  return { ok: paths.length === 1, count: paths.length };
+// Decide whether a set of installed copies represents the healthy,
+// single-copy state this guard exists to enforce. Exactly one physical copy
+// is the pass; zero and two-or-more are both violations. Fail-closed: zero
+// (cannot-look, or genuinely dropped) is NEVER a pass.
+function evaluate(copies) {
+  return { ok: copies.length === 1, count: copies.length };
 }
 
-// The package paths themselves are the actionable diagnostic. Reading a
-// package.json beneath subprocess output would turn display data into a path.
-function buildViolationMessage(paths) {
+// Build the failure diagnostic. It is a pure function of (copies, searchRoot),
+// so the same tree state and the same search root always produce the same
+// sentence. It names the count, the location it searched, and every copy it
+// found with that copy's resolved version (or, for zero, the absence and
+// where it looked).
+function buildViolationMessage(copies, searchRoot) {
   const lines = [
-    `\n❌ Expected exactly one installed copy of ${PACKAGE_NAME}, found ${paths.length}:\n`,
+    `\n❌ ${PACKAGE_NAME} dedupe check failed.`,
+    `Searched: ${searchRoot}`,
+    `   (via \`npm ls ${PACKAGE_NAME} --all --parseable --long\`, resolved against that directory's node_modules)`,
+    `Expected exactly one installed copy; found ${copies.length}${copies.length ? ':' : '.'}\n`,
   ];
-  paths.forEach((p) => {
-    lines.push(`  ${p}`);
+  copies.forEach(({ path: installPath, version }) => {
+    lines.push(`  ${installPath}  (${PACKAGE_NAME}@${version || 'unknown'})`);
   });
 
-  if (paths.length === 0) {
+  if (copies.length === 0) {
     lines.push(
-      `\nNo installed copy of ${PACKAGE_NAME} was found at all. Run \`npm ci\` (or ` +
-        '`npm install`) and re-run this check; if that still finds zero, ' +
-        `${PACKAGE_NAME} may have been dropped from devDependencies (see #219 and ` +
-        '#224 for why it needs to stay pinned there).\n'
+      `\nNo copy of ${PACKAGE_NAME} is installed under ${searchRoot}. That is the ` +
+        'normal state of a fresh checkout or a git worktree that has never had ' +
+        '`npm ci` run inside it, and it is NOT by itself evidence that the ' +
+        'dependency was dropped from the repo. Run `npm ci` in that directory and ' +
+        're-run this check. If npm ci still finds zero copies, then ' +
+        `${PACKAGE_NAME} may actually have been removed from devDependencies ` +
+        '(see #219 and #224 for why it must stay pinned there).\n'
     );
   } else {
     lines.push(
       '\nTwo or more copies means @testing-library/user-event and ' +
         '@testing-library/react no longer share one @testing-library/dom install. ' +
-        "user-event will read a config singleton @testing-library/react never " +
+        'user-event will read a config singleton @testing-library/react never ' +
         'configured, and every user-event interaction across the test suite will ' +
         'dispatch its events outside act(), silently, with no test failing (see ' +
         '#219 for the original defect and #224 for why this check exists). This ' +
@@ -116,14 +184,17 @@ function main() {
     console.error('\nERROR: npm_execpath is missing; run this guard through `npm run check:dom-dedupe`.\n');
     process.exit(1);
   }
+  // Resolve against the checkout that owns this script, not the invoking
+  // directory, so the answer is the same from anywhere (#313).
+  const searchRoot = resolveSearchRoot();
   const result = spawnSync(
     process.execPath,
-    [npmExecPath, 'ls', PACKAGE_NAME, '--all', '--parseable'],
-    { encoding: 'utf8', shell: false }
+    [npmExecPath, 'ls', PACKAGE_NAME, '--all', '--parseable', '--long'],
+    { encoding: 'utf8', shell: false, cwd: searchRoot }
   );
 
   if (result.error) {
-    console.error(`\n❌ Could not run "npm ls ${PACKAGE_NAME}": ${result.error.message}\n`);
+    console.error(`\n❌ Could not run "npm ls ${PACKAGE_NAME}" in ${searchRoot}: ${result.error.message}\n`);
     process.exit(1);
   }
 
@@ -132,11 +203,11 @@ function main() {
   // stdout is still the tree it managed to compute, so parse it
   // regardless of exit code rather than trusting the exit code itself —
   // that's the exact trap #224 documents for THIS package.
-  const paths = parseParseablePaths(result.stdout);
-  const { ok } = evaluate(paths);
+  const copies = parseInstalledCopies(result.stdout);
+  const { ok } = evaluate(copies);
 
   if (!ok) {
-    console.error(buildViolationMessage(paths));
+    console.error(buildViolationMessage(copies, searchRoot));
     // npm's own stderr (e.g. an ELSPROBLEMS "invalid" warning) can carry
     // context this script's own diagnostic doesn't have; surface it too
     // when npm produced any.
@@ -146,7 +217,11 @@ function main() {
     process.exit(1);
   }
 
-  console.log(`✅ Exactly one copy of ${PACKAGE_NAME} installed (${paths[0]}).`);
+  const only = copies[0];
+  console.log(
+    `✅ Exactly one copy of ${PACKAGE_NAME} installed under ${searchRoot}: ` +
+      `${only.path} (${PACKAGE_NAME}@${only.version || 'unknown'}).`
+  );
 }
 
 if (require.main === module) {
@@ -154,7 +229,8 @@ if (require.main === module) {
 }
 
 module.exports = {
-  parseParseablePaths,
+  resolveSearchRoot,
+  parseInstalledCopies,
   evaluate,
   buildViolationMessage,
 };
