@@ -345,6 +345,245 @@ test('rosterCapacity: a player both excluded and restored earns no restored cred
   fake.assertClean();
 });
 
+// --- both lists say the same thing about the same player (#277) --------------
+
+test('rosterCapacity: a repeated restored id earns one credit and costs one record read', async () => {
+  const holds = [];
+  const fake = capacityPool({
+    stashed: 0,
+    extra: [interruptedRecord(
+      { interrupted_slot: 'IR', interrupted_ir_attested: false, injury_status: 'O' },
+      holds
+    )],
+  });
+  const client = await fake.connect();
+
+  const capacity = await rosterCapacity(client, {
+    // Two IR slots, so a second credit would show as 16 rather than being
+    // swallowed by the cap. A one-slot league cannot tell the two apart.
+    league: { id: 5, roster_limit: 16, ir_slots: 2 },
+    teamId: 31,
+    restoredPlayerIds: [21, 21, 21],
+  });
+  client.release();
+
+  // One player, one interrupted stash, one spot - however often he is named.
+  assert.equal(capacity, 15);
+  // De-duplicated before the reads, not after, so the repeats cost nothing
+  // either: naming him three times asks the database once.
+  assert.equal(holds.length, 1);
+  assert.deepEqual(holds[0].params, [5, 21, 31]);
+  fake.assertClean();
+});
+
+test('rosterCapacity: the numeric and string forms of an id are the same player', async () => {
+  const holds = [];
+  const fake = capacityPool({
+    stashed: 0,
+    extra: [interruptedRecord(
+      { interrupted_slot: 'IR', interrupted_ir_attested: false, injury_status: 'O' },
+      holds
+    )],
+  });
+  const client = await fake.connect();
+
+  const capacity = await rosterCapacity(client, {
+    league: { id: 5, roster_limit: 16, ir_slots: 2 },
+    teamId: 31,
+    restoredPlayerIds: [21, '21'],
+  });
+  client.release();
+
+  assert.equal(capacity, 15);
+  assert.equal(holds.length, 1);
+  // Canonicalised to the number, so the read is the one the int column
+  // answers - a string id would deep-strict-compare unequal here.
+  assert.deepEqual(holds[0].params, [5, 21, 31]);
+  fake.assertClean();
+});
+
+test('rosterCapacity: an exclusion beats a restore in either representation', async () => {
+  const pairs = [
+    { excludePlayerIds: [21], restoredPlayerIds: ['21'] },
+    { excludePlayerIds: ['21'], restoredPlayerIds: [21] },
+  ];
+
+  for (const pair of pairs) {
+    const label = JSON.stringify(pair);
+    const holds = [];
+    let seen;
+    const fake = capacityPool({
+      stashed: 0,
+      onQuery: (text, params) => { seen = { text, params }; },
+      // A perfectly valid interrupted stash: validity is not the question
+      // here, whether the two lists agree he is one player is.
+      extra: [interruptedRecord(
+        { interrupted_slot: 'IR', interrupted_ir_attested: false, injury_status: 'O' },
+        holds
+      )],
+    });
+    const client = await fake.connect();
+
+    const capacity = await rosterCapacity(client, {
+      league: { id: 5, roster_limit: 16, ir_slots: 2 },
+      teamId: 31,
+      ...pair,
+    });
+    client.release();
+
+    assert.equal(capacity, 14, label);
+    // Settled before the record is read, so the read never happens.
+    assert.equal(holds.length, 0, label);
+    assert.equal(fake.matching(/FROM "waiver_players"/).length, 0, label);
+    // And the SQL arm is handed the same canonical number the filter used.
+    assert.deepEqual(seen.params, [31, ['O', 'IR'], [21]], label);
+    fake.assertClean();
+  }
+});
+
+test('rosterCapacity: duplicate exclusions reach SQL once', async () => {
+  let seen;
+  const fake = capacityPool({ stashed: 0, onQuery: (text, params) => { seen = { text, params }; } });
+  const client = await fake.connect();
+
+  await rosterCapacity(client, {
+    league: { id: 5, roster_limit: 16, ir_slots: 2 },
+    teamId: 31,
+    excludePlayerIds: [21, '21', 22, 22],
+  });
+  client.release();
+
+  // Exact, not a containment match: the whole parameter list is the claim.
+  assert.deepEqual(seen.params, [31, ['O', 'IR'], [21, 22]]);
+  fake.assertClean();
+});
+
+test('rosterCapacity: an unusable player id is refused before any query', async () => {
+  const unusable = [
+    0, -1, 1.5, -0, NaN, Infinity, -Infinity, Number.MAX_SAFE_INTEGER + 2,
+    null, undefined, true, false, {}, [21],
+    '', '   ', 'abc', '21px', '1.5', '-1', '0', '+21', ' 21', '0x15', '1e3',
+    // Past what the int4 `player_id` column can hold. Letting these through
+    // would hand Postgres a 22003 to raise, which is the cast deciding.
+    2147483648, '2147483648', 4294967296,
+    // Rendering this one for the error message must not throw an error of
+    // its own and bury the message that explains the refusal.
+    Object.create(null),
+  ];
+
+  for (const [index, value] of unusable.entries()) {
+    for (const key of ['excludePlayerIds', 'restoredPlayerIds']) {
+      // Not `String(value)`: one of the cases below is exactly the value
+      // that throws on being stringified, which would fail this test from
+      // inside its own label rather than on what it is asserting.
+      const label = `${key}: ${typeof value} ${index}`;
+      const fake = createFakePool();
+      const client = await fake.connect();
+
+      await assert.rejects(
+        () => rosterCapacity(client, {
+          league: { id: 5, roster_limit: 16, ir_slots: 2 },
+          teamId: 31,
+          [key]: [value],
+        }),
+        (error) => error instanceof TypeError && new RegExp(`^${key} `).test(error.message),
+        label
+      );
+      client.release();
+
+      // A validation boundary, not a filter: nothing is dropped and carried
+      // on with, and nothing is left for the ::int[] cast to decide.
+      assert.equal(fake.calls.length, 0, label);
+      fake.assertClean();
+    }
+  }
+});
+
+test('rosterCapacity: the largest id the column can hold is still a usable id', async () => {
+  let seen;
+  const fake = capacityPool({ stashed: 0, onQuery: (text, params) => { seen = { text, params }; } });
+  const client = await fake.connect();
+
+  await rosterCapacity(client, {
+    league: { id: 5, roster_limit: 16, ir_slots: 2 },
+    teamId: 31,
+    excludePlayerIds: [2147483647, '2147483647'],
+  });
+  client.release();
+
+  // The bound is int4's ceiling, not one below it, and both spellings of it
+  // are the same player.
+  assert.deepEqual(seen.params, [31, ['O', 'IR'], [2147483647]]);
+  fake.assertClean();
+});
+
+test('rosterCapacity: the refusal names the value it actually saw', async () => {
+  const fake = createFakePool();
+  const client = await fake.connect();
+
+  let message;
+  try {
+    await rosterCapacity(client, {
+      league: { id: 5, roster_limit: 16, ir_slots: 2 },
+      teamId: 31,
+      excludePlayerIds: [[21]],
+    });
+  } catch (error) { message = error.message; }
+  client.release();
+
+  // `String([21])` is '21', so rendering a caller's value through it would
+  // refuse a nested array with a message reading as though the integer 21
+  // were the problem. A refusal whose whole job is to say what it saw has to
+  // survive being handed something odd.
+  assert.match(message, /^excludePlayerIds /);
+  assert.match(message, /an array/);
+  assert.doesNotMatch(message, /got 21\b/);
+  assert.equal(fake.calls.length, 0);
+  fake.assertClean();
+});
+
+test('rosterCapacity: a zero-IR league refuses an unusable id just the same', async () => {
+  const fake = createFakePool();
+  const client = await fake.connect();
+
+  // The contract belongs to the parameter, not to the league. Whether
+  // ir_slots happens to short-circuit the count must not decide whether a
+  // caller hears about an id the function cannot use.
+  await assert.rejects(
+    () => rosterCapacity(client, {
+      league: { id: 5, roster_limit: 15, ir_slots: 0 },
+      teamId: 31,
+      excludePlayerIds: ['nope'],
+    }),
+    TypeError
+  );
+  client.release();
+
+  assert.equal(fake.calls.length, 0);
+  fake.assertClean();
+});
+
+test('rosterCapacity: a list that is not a list is refused', async () => {
+  for (const key of ['excludePlayerIds', 'restoredPlayerIds']) {
+    const fake = createFakePool();
+    const client = await fake.connect();
+
+    await assert.rejects(
+      () => rosterCapacity(client, {
+        league: { id: 5, roster_limit: 16, ir_slots: 2 },
+        teamId: 31,
+        [key]: 21,
+      }),
+      (error) => error instanceof TypeError && new RegExp(`^${key} `).test(error.message),
+      key
+    );
+    client.release();
+
+    assert.equal(fake.calls.length, 0, key);
+    fake.assertClean();
+  }
+});
+
 test('IR flag push reaches only managers who keep irAlerts enabled', async (t) => {
   const sends = [];
   t.mock.method(prefs, 'usersWanting', async (userIds, key) => {
