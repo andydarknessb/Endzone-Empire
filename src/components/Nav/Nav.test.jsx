@@ -52,8 +52,8 @@ test('opens the authenticated mobile navigation drawer and closes it after navig
   await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
 
   await user.click(screen.getByRole('button', { name: /open navigation menu/i }));
-  const drawer = screen.getByTestId('mobile-nav-drawer');
-  const drawerHome = within(drawer).getByRole('link', { name: 'Home' });
+  const drawerNav = screen.getByRole('navigation', { name: 'Navigation menu' });
+  const drawerHome = within(drawerNav).getByRole('link', { name: 'Home' });
   expect(drawerHome).toHaveAttribute('href', '/user');
 
   await user.click(drawerHome);
@@ -88,6 +88,25 @@ test('exposes the primary links as a named navigation landmark, not a bare div',
   await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
   const nav = screen.getByRole('navigation', { name: 'Primary navigation' });
   expect(within(nav).getByRole('link', { name: 'League' })).toBeInTheDocument();
+});
+
+test('the top bar and drawer navigation landmarks carry distinct accessible names (#322)', async () => {
+  const user = userEvent.setup();
+  renderWithProviders(<Nav />, { state: { user: { id: 1, username: 'alice' } } });
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
+
+  // The top bar's landmark, before the drawer ever opens.
+  expect(screen.getByRole('navigation', { name: 'Primary navigation' })).toBeInTheDocument();
+
+  // Opening the drawer mounts its own "Navigation menu" landmark. MUI's
+  // modal focus trap marks the rest of the page aria-hidden while it's
+  // open, so the top-bar landmark is the drawer's own name at this point -
+  // the two are asserted independently rather than as simultaneously
+  // accessible, which is what a distinct name buys either way: an unlabeled
+  // getByRole('navigation') would never have been ambiguous here.
+  await user.click(screen.getByRole('button', { name: 'open navigation menu' }));
+  const drawerNav = screen.getByRole('navigation', { name: 'Navigation menu' });
+  expect(within(drawerNav).getByRole('link', { name: 'League' })).toBeInTheDocument();
 });
 
 test('shows the notification bell when a user is logged in', async () => {
