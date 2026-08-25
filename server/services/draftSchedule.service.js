@@ -18,8 +18,9 @@ function scheduledDraftAction(league, teamCount, now) {
   if (league.draft_status !== 'pending' || !league.draft_date) return null;
   const ms = new Date(league.draft_date).getTime() - now.getTime();
   if (ms <= 0) {
-    // Auction drafts have no live scoring (`modules/liveGameEngine.js`) yet —
-    // don't retry every tick; flag it once like the understaffed case.
+    // Auction drafts have no live scoring (modules/liveGameEngine.js) yet —
+    // starting would always 501, so don't retry every tick; flag it once
+    // like the understaffed case.
     if (league.draft_type === 'auction') {
       return league.draft_autostart_failed ? null : 'auction_unsupported';
     }

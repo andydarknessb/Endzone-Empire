@@ -148,7 +148,7 @@ function weekBoundsFromKickoffs(rows) {
 /**
  * How long after week 18's last kickoff an unresolved game stops holding the
  * season open. Every game normally resolves within hours (live scoring
- * (`modules/liveGameEngine.js`), then the recap tier), so this only ever
+ * (modules/liveGameEngine.js), then the recap tier), so this only ever
  * fires for a game nothing marked final;
  * without it one such game would wedge the league out of a champion forever.
  */

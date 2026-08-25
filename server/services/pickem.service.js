@@ -147,7 +147,7 @@ function deriveSlateFromRows(gameRows, lgsRows) {
 
 /**
  * Pure: second winner tier. `private.game_recaps` keeps final scores long
- * after live scoring (`modules/liveGameEngine.js`) has stopped tracking a
+ * after live scoring (modules/liveGameEngine.js) has stopped tracking a
  * week, so a game the live table never marked final can still be graded.
  * Games already final are untouched.
  */
