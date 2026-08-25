@@ -250,10 +250,9 @@ function Nav() {
       {/* Mobile navigation drawer */}
       <Drawer anchor="left" open={drawerOpen} onClose={() => setDrawerOpen(false)}>
         {/* role="presentation": this Box is layout only. Its "Navigation
-            menu" nav landmark (below) is now distinctly named from the top
-            bar's "Primary navigation" one, so a test tells the drawer's copy
-            of a link from the top bar's by that role+name instead of a
-            testid seam (#322). */}
+            menu" nav landmark below (#322) is distinctly named from the top
+            bar's, so tests reach it by that role+name now instead of a
+            testid seam. */}
         <Box sx={{ width: 260 }} role="presentation">
           <Typography variant="h6" component="div" sx={{ p: 2, color: 'var(--accent)', fontWeight: 700 }}>
             Endzone Empire
