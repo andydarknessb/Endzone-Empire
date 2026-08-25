@@ -1,0 +1,40 @@
+name: Close merged issues
+
+# GitHub only honours closing keywords (`Closes #N`, `Fixes #N`, ...) when a
+# pull request merges into the DEFAULT branch. This repository's default
+# branch is main, but every PR merges into integration, so every closing
+# keyword written here was inert and issues stayed open with their work
+# merged (#330). This workflow makes the keyword mean what everyone already
+# reads it as meaning: on a merge into integration, the PR body's closing
+# keywords close the referenced issues, each with a comment naming the PR
+# and merge SHA. The parsing and the skip rules live in
+# scripts/ci/close-merged-issues.js and are pinned by its tests, which run
+# first here (same shape as check:adr-uniqueness) so a broken parser fails
+# the run instead of silently closing nothing.
+#
+# Merges into main are skipped by the script: native keywords fire there.
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [integration]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  close:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      # No npm ci: the script and its tests use Node built-ins only, and gh is
+      # preinstalled on GitHub-hosted runners.
+      - run: npm run close:merged-issues
+        env:
+          GH_TOKEN: ${{ github.token }}
