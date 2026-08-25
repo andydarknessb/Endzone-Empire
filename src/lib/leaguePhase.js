@@ -59,6 +59,31 @@ export function joinability(league) {
     : { joinable: false, reason: JOIN_REFUSAL_REASON.DRAFT_STARTED };
 }
 
+/** Why a league refuses a team removal. Cross-side contract, mirrored in the fixture. */
+export const REMOVE_REFUSAL_REASON = Object.freeze({
+  DRAFT_STARTED: 'draft-started',
+});
+
+/**
+ * Will this league let a team be removed right now? The mirror of `joinability`
+ * and the read side of CONTEXT.md's Removable term: a league with a fantasy
+ * side is removable only while pre-draft (once the draft has started, removing
+ * a team would rewrite its picks, rosters, schedule and lineups); a pick'em-only
+ * league has no draft and its teams stay removable in every phase. The
+ * commissioner-tools removal control keys its disabled state on this so the UI
+ * never offers a removal the server refuses for phase reasons. `{ removable:
+ * true }` or `{ removable: false, reason }`. Per-team gates (a commissioner
+ * never removes their own team, nor the creator's) are layered on top. A
+ * missing row fails closed with no reason.
+ */
+export function removability(league) {
+  if (!league) return { removable: false, reason: null };
+  if (isPickemOnly(league)) return { removable: true };
+  return deriveLeaguePhase(league) === LEAGUE_PHASE.PRE_DRAFT
+    ? { removable: true }
+    : { removable: false, reason: REMOVE_REFUSAL_REASON.DRAFT_STARTED };
+}
+
 /**
  * The game-integrity settings (wire keys of PUT /api/league/:id) that lock
  * once the draft starts; the same list the server refuses. Administrative
