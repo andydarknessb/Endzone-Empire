@@ -19,6 +19,16 @@
  * The rewrite is destructive by design: an account id must not be recoverable
  * from a snapshot. So `down` is a documented no-op. The rewrite is the only
  * place this happens; nothing cleans on read.
+ *
+ * Shape: `standings` is contractually an array of objects (the write path only
+ * ever produces one). The strip and the CHECK are deliberately aligned on that
+ * assumption - both act only on ARRAY values and only on OBJECT elements, and
+ * both leave any non-array value (object, scalar, JSON null) untouched. This is
+ * what makes the migration abort-proof on a hand-apply: strip and CHECK agree
+ * on every pre-existing shape, so no row is skipped by the rewrite yet rejected
+ * by the constraint. A non-array `standings` value is not this ticket's concern
+ * (it would already break the array-shaped read path); enforcing that shape is a
+ * separate constraint, out of scope here.
  */
 
 // The account-identity keys forbidden inside every standings element. This one
@@ -32,12 +42,31 @@ const FORBIDDEN_ACCOUNT_KEYS = ['userId', 'username', 'user_id', 'email', 'owner
 // e.g. `- 'userId' - 'username' - ...`: subtracts each key from a jsonb object.
 const REMOVE_KEYS_SQL = FORBIDDEN_ACCOUNT_KEYS.map((key) => `- '${key}'`).join(' ');
 
-// The jsonpath that matches an account-identity key on ANY element of the
-// standings array. `\\?` is a LITERAL question mark escaped for knex.raw, which
-// otherwise reads the jsonpath filter operator `?` as a positional binding and
-// corrupts the SQL. No user input, so it is inlined as a string literal below.
+// The jsonpath that matches an account-identity key on a direct OBJECT element
+// of the standings array. Both `\\?` are LITERAL question marks escaped for
+// knex.raw, which otherwise reads the jsonpath filter operator `?` as a
+// positional binding and corrupts the SQL. No user input, so it is inlined
+// below. Every clause is load-bearing; all four behaviours were measured on a
+// real postgres:17 so the strip and the CHECK agree on EVERY shape and the
+// migration can never abort on a pre-existing row (see the header note):
+//   - `strict` stops lax mode from flattening a NESTED ARRAY element. Under lax
+//     `$[*]`, `[[{"userId":1}]]` descends into the inner array and MATCHES,
+//     while the shallow `-` removal cannot touch an array element - detection
+//     and removal disagree, the row survives the strip and then fails the CHECK.
+//     `strict $[*]` yields the direct element only, so it does not match; both
+//     leave it alone.
+//   - `? (@.type() == "object")` filters to object elements BEFORE .keyvalue().
+//     Without it, `.keyvalue()` on a scalar element raises a hard 2203C error
+//     ("keyvalue() can only be applied to an object"), not a false - and under
+//     `strict` a bare scalar element would raise too.
+//   - detection is over TOP-LEVEL element keys only, exactly as shallow as the
+//     `-` removal chain, so the two never disagree: a key nested inside a value
+//     (e.g. {"meta":{"userId":1}}) is matched by neither and stripped by
+//     neither. Standings elements DO nest one object today - `weekly`, which is
+//     week -> points and carries no account keys - so top-level-only is both
+//     deliberate and sufficient for every shape this code writes.
 const FORBIDDEN_KEY_PREDICATE =
-  '$[*].keyvalue() \\? (' +
+  'strict $[*] \\? (@.type() == "object").keyvalue() \\? (' +
   FORBIDDEN_ACCOUNT_KEYS.map((key) => `@.key == "${key}"`).join(' || ') +
   ')';
 
@@ -50,14 +79,19 @@ exports.up = async function (knex) {
     UPDATE "league_history" AS "history"
        SET "standings" = COALESCE((
              SELECT jsonb_agg(
-                      ("element" ${REMOVE_KEYS_SQL})
+                      CASE WHEN jsonb_typeof("element") = 'object'
+                           THEN ("element" ${REMOVE_KEYS_SQL})
+                           ELSE "element" END
                       ORDER BY "ordinality"
                     )
                FROM jsonb_array_elements("history"."standings")
                  WITH ORDINALITY AS "elements"("element", "ordinality")
            ), '[]'::jsonb)
-     WHERE jsonb_typeof("history"."standings") = 'array'
-       AND jsonb_path_exists("history"."standings", '${FORBIDDEN_KEY_PREDICATE}')
+     WHERE CASE
+             WHEN jsonb_typeof("history"."standings") = 'array'
+               THEN jsonb_path_exists("history"."standings", '${FORBIDDEN_KEY_PREDICATE}')
+             ELSE false
+           END
     `
   );
 
@@ -74,7 +108,11 @@ exports.up = async function (knex) {
       ADD CONSTRAINT "league_history_standings_no_account_identity_check"
         CHECK (
           "standings" IS NULL
-          OR NOT jsonb_path_exists("standings", '${FORBIDDEN_KEY_PREDICATE}')
+          OR CASE
+               WHEN jsonb_typeof("standings") = 'array'
+                 THEN NOT jsonb_path_exists("standings", '${FORBIDDEN_KEY_PREDICATE}')
+               ELSE true
+             END
         )
     `
   );

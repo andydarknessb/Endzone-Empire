@@ -247,6 +247,16 @@ function SeasonPanel({ season, defaultExpanded }) {
                       )}
                       {team.rank}
                     </TableCell>
+                    {/*
+                      This map renders BOTH league types. For a pick'em archive,
+                      a null name is expected (the manager's Team was removed at
+                      or before rollover) and "Former manager" is the right
+                      label. A fantasy archive row's name comes from the live
+                      team rows at rollover and should NEVER be null, so a
+                      "Former manager" appearing in a fantasy history table is a
+                      data bug to investigate, not a departed manager. One shared
+                      map is correct here; do not branch the render.
+                    */}
                     <TableCell>{teamNameLabel(team.name)}</TableCell>
                     {pickem ? (
                       <>

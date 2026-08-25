@@ -171,9 +171,11 @@ test("GET history never promotes an ambiguous Pick'em legacy pointer as a champi
 // below are each forbidden on every row and, for champion_user_id, anywhere in
 // the response. The guarantee is enforced at WRITE time (the rollover builder
 // and the league_history_standings CHECK), not by cleaning on read; this test
-// pins the served contract that guarantee produces. Demonstrated red before the
-// write-path change by seeding a fixture row that still carried `username` (see
-// the PR body); it fails the exact-key-set assertion.
+// pins the served contract that guarantee produces. Because the route serves
+// the standings column verbatim, the fixture (not any write-path code) is what
+// this assertion reads; the exact-key-set assertion was demonstrated
+// non-vacuous by seeding a fixture row carrying `username` (see the PR body),
+// which makes it fail, proving the assertion is live rather than always-passing.
 const FORBIDDEN_ACCOUNT_KEYS = ['userId', 'username', 'user_id', 'email', 'owner_id', 'champion_user_id'];
 
 test('GET history serves standings by Team identity only, for both league types', async (t) => {

@@ -147,4 +147,54 @@ if (!ENABLED) {
       assert.equal('username' in row, false);
     }
   });
+
+  test('the guard tolerates non-array and mixed-element standings without aborting', async () => {
+    // The strip and CHECK act only on array-of-object standings; every other
+    // shape passes unrejected and unrewritten, so a hand-apply cannot abort on a
+    // pre-existing row. Each insert below exercises the live CHECK added by the
+    // migration; none may raise a 23514 rejection or a jsonpath 2203C error
+    // (".keyvalue() can only be applied to an object"), which an earlier version
+    // of the predicate did on a scalar value.
+    const accepted = [
+      JSON.stringify({ userId: 9, name: 'x' }), // bare object (not a standings array)
+      'null', // JSON null
+      JSON.stringify('hello'), // JSON string
+      '5', // JSON number
+      JSON.stringify([1, 2, 'x']), // array of scalars
+      JSON.stringify([{ teamId: 1, name: 'x' }, 7, 'z']), // mixed: clean object + scalars
+      // A key buried in a NESTED ARRAY element is outside the guard's shallow,
+      // strict-mode reach; detection and removal both miss it, so it neither
+      // aborts (lax mode would have matched it and then failed the CHECK) nor is
+      // rewritten. This is the exotic shape the strict `$[*]` exists to tame.
+      JSON.stringify([[{ userId: 9 }]]),
+    ];
+    let season = SEASON + 10;
+    for (const standings of accepted) {
+      await pool.query(
+        `INSERT INTO "league_history" ("league_id", "season", "standings", "rosters", "awards")
+         VALUES ($1, $2, $3::jsonb, '[]', '[]')`,
+        [leagueId, season, standings]
+      );
+      season += 1;
+    }
+
+    // Tolerance of odd shapes must not weaken the real guard: an account key on
+    // a direct OBJECT element inside an ARRAY is still rejected, wherever that
+    // element sits and whatever scalars share the array (order-independent under
+    // strict mode - a scalar-first array does not raise instead of rejecting).
+    for (const leak of [
+      JSON.stringify([{ teamId: 1, name: 'x', userId: 9 }, 7]),
+      JSON.stringify(['note', { teamId: 1, name: 'x', userId: 9 }]),
+    ]) {
+      await assert.rejects(
+        pool.query(
+          `INSERT INTO "league_history" ("league_id", "season", "standings", "rosters", "awards")
+           VALUES ($1, $2, $3::jsonb, '[]', '[]')`,
+          [leagueId, season, leak]
+        ),
+        (error) => error.code === '23514'
+      );
+      season += 1;
+    }
+  });
 }
