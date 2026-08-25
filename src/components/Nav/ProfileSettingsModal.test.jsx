@@ -76,7 +76,7 @@ test('avatar-only change enables the button and saves just the avatar', async ()
   const submit = screen.getByRole('button', { name: /^(Save|Rename)$/ });
   expect(submit).toBeDisabled();
 
-  const input = document.querySelector('input[type="file"]');
+  const input = screen.getByTestId('team-avatar-file-input');
   const file = new File(['bytes'], 'logo.png', { type: 'image/png' });
   await user.upload(input, file);
 
@@ -131,7 +131,7 @@ test('name and avatar changed together fire both requests', async () => {
   await selectLeague(user);
 
   await user.type(screen.getByLabelText('New Team Name'), 'Bandits');
-  const input = document.querySelector('input[type="file"]');
+  const input = screen.getByTestId('team-avatar-file-input');
   await user.upload(input, new File(['bytes'], 'logo.png', { type: 'image/png' }));
 
   await user.click(await screen.findByRole('button', { name: 'Save' }));
@@ -158,7 +158,7 @@ test('partial failure: avatar fails while name saves — reports both, dialog st
 
   await selectLeague(user);
   await user.type(screen.getByLabelText('New Team Name'), 'Bandits');
-  const input = document.querySelector('input[type="file"]');
+  const input = screen.getByTestId('team-avatar-file-input');
   await user.upload(input, new File(['bytes'], 'logo.png', { type: 'image/png' }));
 
   await user.click(await screen.findByRole('button', { name: 'Save' }));
@@ -208,7 +208,7 @@ test('staging a file, removing, then picking another file uploads the last file'
 
   await selectLeague(user);
 
-  const input = document.querySelector('input[type="file"]');
+  const input = screen.getByTestId('team-avatar-file-input');
   await user.upload(input, new File(['a'], 'first.png', { type: 'image/png' }));
   // Remove the just-staged file...
   await user.click(await screen.findByRole('button', { name: /Remove Alice's Team avatar/i }));

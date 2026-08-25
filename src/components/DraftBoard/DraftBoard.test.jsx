@@ -803,7 +803,7 @@ test("the queue's top-row Draft button is aria-disabled off-turn and fully enabl
   await screen.findByRole('button', { name: 'Bijan Robinson' });
   connectAsTeam(1);
 
-  const queuePanel = () => screen.getByText('My Queue').closest('.MuiPaper-root');
+  const queuePanel = () => screen.getByRole('region', { name: 'My Queue' });
 
   // Not my turn: the quick-draft button stays in the DOM (a manual Pick
   // still exists in this active, snake-type draft) but is focusable
@@ -864,7 +864,7 @@ test("the queue's top-row Draft button is aria-disabled on your turn while the d
     )
   );
 
-  const queuePanel = () => screen.getByText('My Queue').closest('.MuiPaper-root');
+  const queuePanel = () => screen.getByRole('region', { name: 'My Queue' });
   const pausedButton = within(queuePanel()).getByRole('button', { name: 'Draft' });
   expect(pausedButton).not.toBeDisabled();
   expect(pausedButton).toHaveAttribute('aria-disabled', 'true');
