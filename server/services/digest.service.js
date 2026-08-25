@@ -216,8 +216,8 @@ async function sendLineupReminders() {
         // bye rule here. `nfl_games` keys teams by Tank01 abbreviation (DEN,
         // WSH) while `players.nfl_team` holds a FULL TEAM NAME for every DEF
         // unit and the app's own WAS for Washington, so raw equality never
-        // matched a defense and told the manager his D/ST was on bye in all
-        // 17 weeks he plays (#287). `fn_normalize_nfl_team` on BOTH sides is
+        // matched a DEF unit and told the manager his defense was on bye in
+        // all 17 weeks it plays (#287). `fn_normalize_nfl_team` on BOTH sides is
         // the same fold `bye.service.computeByeWeeks` uses, and the functional
         // index `idx_players_nfl_team_normalized` backs the players side.
         // This is a SQL join, so it normalises in SQL; `services/nflTeam.js`

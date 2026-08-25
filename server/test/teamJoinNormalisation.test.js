@@ -31,7 +31,10 @@
  * The MEANING of `fn_normalize_nfl_team` comes from `services/nflTeam.js`,
  * the JS mirror whose agreement with the migration's VALUES lists is itself
  * guarded, by `test/nflTeam.test.js`. Nothing in this file re-states the
- * team vocabulary.
+ * team vocabulary. It inherits that module's ONE documented divergence from
+ * the SQL: an empty team folds to `null` here and to `''` in the database, so
+ * two blank teams match in Postgres and not in this fake. No fixture below
+ * has a blank team, and `players.nfl_team` is populated for every seeded row.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -63,15 +66,25 @@ const operand = (column) =>
  */
 function teamPredicateFrom(sql, columnA, columnB) {
   const text = flat(sql);
-  const forward = new RegExp(`${operand(columnA)}\\s*=\\s*${operand(columnB)}`);
-  const backward = new RegExp(`${operand(columnB)}\\s*=\\s*${operand(columnA)}`);
-  const match = text.match(forward) || text.match(backward);
-  if (!match) {
+  const either =
+    `${operand(columnA)}\\s*=\\s*${operand(columnB)}` +
+    `|${operand(columnB)}\\s*=\\s*${operand(columnA)}`;
+  // ALL of them, in either operand ordering. Taking the first match would let
+  // a normalised comparison earlier in the statement speak for a raw join
+  // predicate later in it, which is the one direction a scoping bug travels.
+  const matches = [...text.matchAll(new RegExp(either, 'g'))];
+  if (matches.length === 0) {
     throw new Error(
       `no predicate joining ${columnA} to ${columnB} in the statement under test: ${text}`
     );
   }
-  const [, first, second] = match;
+  if (matches.length > 1) {
+    throw new Error(
+      `${matches.length} predicates join ${columnA} to ${columnB}; this fake models one: ${text}`
+    );
+  }
+  const [, ...groups] = matches[0];
+  const [first, second] = groups.filter(Boolean);
   const sideA = first.includes(columnA) ? first : second;
   const sideB = sideA === first ? second : first;
   const fold = (side) =>
@@ -86,6 +99,18 @@ function teamPredicateFrom(sql, columnA, columnB) {
   };
 }
 
+/**
+ * The `nfl_games` row a player's week joins to under `sameTeam`, which both
+ * fakes below need and neither should spell twice.
+ */
+const gameFor = (games, { season, week, team }, sameTeam) =>
+  games.find(
+    (g) =>
+      Number(g.season) === Number(season) &&
+      Number(g.week) === Number(week) &&
+      sameTeam(g.nfl_team, team)
+  );
+
 /** Fails loudly rather than quietly joining on something else. */
 function requireInStatement(sql, pattern, what) {
   if (!pattern.test(flat(sql))) {
@@ -95,8 +120,10 @@ function requireInStatement(sql, pattern, what) {
 
 const GAMES_TEAM = '"nfl_games"."nfl_team"';
 const PLAYERS_TEAM = '"players"."nfl_team"';
-// The shape the bug wears, in the ordering both sites are written in.
-const RAW_PREDICATE = /"nfl_games"\."nfl_team" *= *"players"\."nfl_team"/;
+// The shape the bug wears, in EITHER operand ordering: the grep #287 asks the
+// next reader to run is written both ways round for the same reason.
+const RAW_PREDICATE =
+  /"nfl_games"\."nfl_team" *= *"players"\."nfl_team"|"players"\."nfl_team" *= *"nfl_games"\."nfl_team"/;
 
 // --- digest: on_bye ---------------------------------------------------------
 
@@ -119,12 +146,7 @@ const digestRows = (world) => (sql, params) => {
   const sameTeam = teamPredicateFrom(sql, GAMES_TEAM, PLAYERS_TEAM);
   const rows = world.entries.map((entry) => {
     const player = world.players.find((p) => p.id === entry.player_id);
-    const game = world.games.find(
-      (g) =>
-        Number(g.season) === Number(season) &&
-        Number(g.week) === Number(week) &&
-        sameTeam(g.nfl_team, player.nfl_team)
-    );
+    const game = gameFor(world.games, { season, week, team: player.nfl_team }, sameTeam);
     return {
       slot: entry.slot,
       ir_attested: entry.ir_attested || false,
@@ -193,9 +215,11 @@ const OUT_RECEIVER = {
 
 test('a DEF unit is not on bye in a week his team plays', async (t) => {
   const denverDefense = {
-    id: 902, name: 'Denver Broncos D/ST', position: 'DEF', nfl_team: 'Denver Broncos',
+    // `syncTeamDefenses` seeds a DEF unit with name = nfl_team, so both
+    // columns carry the full team name and neither carries a code.
+    id: 902, name: 'Denver Broncos', position: 'DEF', nfl_team: 'Denver Broncos',
   };
-  const { messages, statements } = digestWorld(t, {
+  const { fake, messages, statements } = digestWorld(t, {
     leagueId: 5101, teamId: 5201, ownerId: 5301, week: 3,
     players: [denverDefense, OUT_RECEIVER],
     entries: [
@@ -219,13 +243,19 @@ test('a DEF unit is not on bye in a week his team plays', async (t) => {
   assert.match(messages[0], /Hurt Receiver \(WR\) is Out/);
   assert.doesNotMatch(messages[0], /on bye/);
   assert.doesNotMatch(statements[0], RAW_PREDICATE);
+  fake.assertClean();
 });
 
+// The control, and the only test here that also passes on the raw
+// comparison: a join that matches nothing satisfies "on bye" by accident.
+// It earns its place by proving the harness can still say TRUE, so the
+// silence in its partner above is a real answer and not a broken fixture.
+// Keep the pair together.
 test('a DEF unit is on bye in his real bye week', async (t) => {
   const denverDefense = {
-    id: 912, name: 'Denver Broncos D/ST', position: 'DEF', nfl_team: 'Denver Broncos',
+    id: 912, name: 'Denver Broncos', position: 'DEF', nfl_team: 'Denver Broncos',
   };
-  const { messages } = digestWorld(t, {
+  const { fake, messages } = digestWorld(t, {
     leagueId: 5102, teamId: 5202, ownerId: 5302, week: 9,
     players: [denverDefense],
     entries: [{ player_id: 912, position: 'DEF', slot: 'DEF' }],
@@ -236,14 +266,15 @@ test('a DEF unit is on bye in his real bye week', async (t) => {
   const result = await sendLineupReminders();
 
   assert.equal(result.remindersSent, 1);
-  assert.match(messages[0], /Denver Broncos D\/ST \(DEF\) is on bye/);
+  assert.match(messages[0], /Denver Broncos \(DEF\) is on bye/);
+  fake.assertClean();
 });
 
 test('a WAS player matches a WSH-coded game row', async (t) => {
   const washingtonReceiver = {
     id: 922, name: 'Washington Receiver', position: 'WR', nfl_team: 'WAS',
   };
-  const { messages } = digestWorld(t, {
+  const { fake, messages } = digestWorld(t, {
     leagueId: 5103, teamId: 5203, ownerId: 5303, week: 4,
     players: [washingtonReceiver, OUT_RECEIVER],
     entries: [
@@ -262,6 +293,7 @@ test('a WAS player matches a WSH-coded game row', async (t) => {
   assert.equal(result.remindersSent, 1);
   assert.match(messages[0], /Hurt Receiver \(FLEX\) is Out/);
   assert.doesNotMatch(messages[0], /on bye/);
+  fake.assertClean();
 });
 
 // --- projection: getPositionDefense -----------------------------------------
@@ -292,7 +324,15 @@ function positionDefenseFake(world) {
       /"nfl_games"\."week" = "player_stats"\."week"/,
       'the week scope on the game join'
     );
-    const isInner = !/LEFT JOIN "nfl_games"/.test(flat(sql));
+    // The row-loss this test exists for depends on the join being INNER. A
+    // LEFT JOIN would keep an unmatched row under a null defense key instead
+    // of dropping it, which is different behaviour and would need a different
+    // test, so it is refused here rather than quietly modelled.
+    if (/LEFT JOIN "nfl_games"/.test(flat(sql))) {
+      throw new Error(
+        `getPositionDefense joins nfl_games INNER; this statement does not: ${flat(sql)}`
+      );
+    }
     const sameTeam = teamPredicateFrom(sql, GAMES_TEAM, PLAYERS_TEAM);
 
     const grouped = new Map();
@@ -301,22 +341,20 @@ function positionDefenseFake(world) {
       if (!(Number(stat.week) < Number(uptoWeek))) continue;
       seen.input += 1;
       const player = world.players.find((p) => p.id === stat.player_id);
-      const game = world.games.find(
-        (g) =>
-          Number(g.season) === Number(stat.season) &&
-          Number(g.week) === Number(stat.week) &&
-          sameTeam(g.nfl_team, player.nfl_team)
+      const game = gameFor(
+        world.games,
+        { season: stat.season, week: stat.week, team: player.nfl_team },
+        sameTeam
       );
       if (!game) {
         seen.dropped += 1;
-        if (isInner) continue;
-      } else {
-        seen.joined += 1;
+        continue;
       }
-      const key = `${game ? game.opponent : null} ${player.position}`;
+      seen.joined += 1;
+      const key = `${game.opponent} ${player.position}`;
       if (!grouped.has(key)) {
         grouped.set(key, {
-          defense: game ? game.opponent : null,
+          defense: game.opponent,
           position: player.position,
           points: 0,
           weeks: new Set(),

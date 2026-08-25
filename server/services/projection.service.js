@@ -208,6 +208,14 @@ async function getTradeProjectionMetrics({ playerIds, season, fromWeek, throughW
  * caller (`decision.service.startSitAdvice`) looks this map up with an
  * opponent read straight out of `nfl_games`, so both sides of that lookup
  * already speak the schedule's own vocabulary.
+ *
+ * One consequence to know about, shared with every other normalised join in
+ * the app: `nfl_games` is unique on the RAW `(season, week, nfl_team)`, so a
+ * legacy `WAS` row sitting beside a `WSH` row for one team-week would fold
+ * together and double-count here where the raw comparison matched at most
+ * one. Both writers coerce to Tank01 codes before insert, so it takes a
+ * third-party or hand-inserted row to arise, and losing every DEF unit
+ * entirely is the worse of the two failures by a distance.
  */
 async function getPositionDefense({ season, uptoWeek }) {
   const result = await pool.query(
