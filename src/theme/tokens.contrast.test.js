@@ -132,7 +132,7 @@ const PAIRINGS = [
   pairing('text-muted', 'accent-soft', AA_TEXT, 'muted cell text on an accent-tinted row', 'surface'),
   // #354 sweep: every other `accent-soft` consumer checked below sits on
   // `surface` (already covered by the two rows above) or has no text on it.
-  // Four do not:
+  // Five do not:
   //
   // GameCenter's LiveActionTicker (GameCenter.jsx) paints `accent-soft`
   // directly as its own Paper's background, and that Paper sits straight on
@@ -148,17 +148,21 @@ const PAIRINGS = [
   ),
   // The public strategy index's featured ArticleCard (ArticleCard.jsx,
   // rendered by StrategyIndexPage.jsx inside PublicLayout, whose root is
-  // `background.default` == `bg-page`) and DraftSim's selected-format Card
+  // `background.default` == `bg-page`), DraftSim's selected-format Card
   // (SimConfigForm.jsx, rendered inside DraftSimScreen's plain Container on
-  // `bg-page`) both paint `accent-soft` as the card's own background with no
-  // intervening surface, and both carry a `text.secondary` (`text-muted`)
-  // body/caption line. Same fg/bg/backdrop triple in both, so one row covers
-  // it; thin margin like the hero tint above (4.84:1 light, 5.73:1 dark).
+  // `bg-page`), and the mobile Power Rankings viewer-team Card
+  // (PowerRankings.jsx:293, direct child of the bare `Container` at :225 -
+  // no Paper in between, unlike the desktop table row below) all paint
+  // `accent-soft` as the card's own background with no intervening surface,
+  // and each carries a `text.secondary` (`text-muted`) body/caption line
+  // (PowerRankings.jsx:315). Same fg/bg/backdrop triple in all three, so one
+  // row covers it; thin margin like the hero tint above (4.84:1 light,
+  // 5.73:1 dark).
   pairing(
     'text-muted',
     'accent-soft',
     AA_TEXT,
-    'muted text on an accent-tinted card on the page (ArticleCard, SimConfigForm)',
+    'muted text on an accent-tinted card on the page (ArticleCard, SimConfigForm, Power Rankings mobile viewer card)',
     'bg-page'
   ),
   // DraftBoardMatrix's `pickLandedFlash` keyframe (DraftBoardMatrix.jsx) briefly
