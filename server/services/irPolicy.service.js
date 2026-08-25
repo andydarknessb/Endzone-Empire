@@ -264,6 +264,14 @@ async function flagRecoveredIrStashes(client, transitions) {
   )];
   if (transitionedPlayerIds.length === 0) return [];
 
+  // transitionedPlayerIds is TRUSTED, not validated: every id comes from
+  // transitions[].playerId, which the caller (scoring.service) reads off
+  // database rows, so the values are already integers in int4 range. That is
+  // why this array goes to ANY($1::int[]) raw while rosterCapacity lists
+  // in this same module are canonicalised before any query (#277): those
+  // accept caller-supplied lists, this one cannot receive one. If this
+  // function ever takes ids from a request, route them through the
+  // canonicaliser first (#318).
   const stashes = await client.query(
     `SELECT "lineup_entries"."player_id", "players"."name" AS "player_name",
             "players"."injury_status", "teams"."id" AS "team_id",
