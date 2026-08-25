@@ -320,10 +320,12 @@ router.get('/:id', async (req, res) => {
     // The league is a shared surface, so a consumer names the creator by Team
     // identity alone (#112, parent #108, contracted by #115). The account
     // username the EXPAND step served beside it (`owner_username`) is gone, and
-    // with it the users JOIN that supplied it; `leagues.owner_id` (the
-    // creator's OWN account id) stays on `leagues.*` because it is the caller's
-    // own on this surface, never another manager's. LEFT JOIN for Team identity
-    // because a creator removed from their own league leaves no team behind.
+    // with it the users JOIN that supplied it. `leagues.owner_id` stays on
+    // `leagues.*`: it is a league-level column (which account created the
+    // league), not another member's account identity fanned out per row the
+    // way `teams[].owner_id` was, and #334's survey scoped its removal out of
+    // #343 - only `owner_username` leaves this object here. LEFT JOIN for Team
+    // identity because a creator removed from their own league leaves no team.
     const leagueResult = await pool.query(
       `SELECT "leagues".*,
               ${teamIdentityColumns('owner_team', 'owner')}

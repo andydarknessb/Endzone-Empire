@@ -237,7 +237,6 @@ async function grantCoCommissioner({ leagueId, userId, targetTeamId }) {
     );
     if (!member.rows[0]) throw new MembershipError(400, 'that team is not a member of this league');
     const { owner_id: targetUserId, username } = member.rows[0];
-    const teamId = targetTeamId;
     // Sanctioned direct owner_id comparison, the second of the three in the
     // header: granting the role. The creator already holds it, so they can
     // never be a grantee, and the comparison genuinely is about the owner
@@ -256,7 +255,7 @@ async function grantCoCommissioner({ leagueId, userId, targetTeamId }) {
 
     await logTransaction(client, {
       leagueId,
-      teamId,
+      teamId: targetTeamId,
       type: 'commissioner',
       detail: { action: 'grant_co_commissioner', userId: targetUserId, username },
     });
