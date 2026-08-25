@@ -3,7 +3,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import configureMockStore from 'redux-mock-store';
 import { MemoryRouter } from 'react-router-dom';
-import userEventLibrary from '@testing-library/user-event';
+import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
@@ -14,12 +14,9 @@ jest.mock('../../api/apiClient', () => ({
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn() },
 }));
 
-const userEvent = Object.fromEntries(
-  ['click', 'clear', 'type'].map((method) => [
-    method,
-    (...args) => act(async () => { await userEventLibrary[method](...args); }),
-  ])
-);
+// userEvent calls below are awaited directly, never re-wrapped in act(): see
+// docs/adr/0007-user-event-is-never-wrapped-in-act.md. Work that outlives a
+// click (a save PUT, the refresh behind it) is awaited at the call site.
 
 // Settles background work that isn't tied to a mocked promise the test can
 // await directly: MUI's Tabs indicator, which repositions via a

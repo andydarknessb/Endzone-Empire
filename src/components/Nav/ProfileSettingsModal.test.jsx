@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import MockAdapter from 'axios-mock-adapter';
 import apiClient from '../../api/apiClient';
@@ -15,16 +15,6 @@ jest.mock('react-redux', () => ({
 let mock;
 let teamProfileUpdates;
 let handleTeamProfileUpdate;
-
-const setupUser = () => {
-  const user = userEvent.setup();
-  return Object.fromEntries(
-    ['click', 'type', 'upload'].map((method) => [
-      method,
-      (...args) => act(async () => { await user[method](...args); }),
-    ])
-  );
-};
 
 beforeEach(() => {
   mock = new MockAdapter(apiClient);
@@ -50,7 +40,7 @@ const league = {
 
 test('shows the avatar uploader for the selected league', async () => {
   mock.onGet('/api/league').reply(200, [league]);
-  const user = setupUser();
+  const user = userEvent.setup();
   render(<ProfileSettingsModal open onClose={jest.fn()} />);
 
   await user.click(await screen.findByLabelText('League'));
@@ -77,7 +67,7 @@ test('avatar-only change enables the button and saves just the avatar', async ()
   mock.onGet('/api/league').reply(200, [league]);
   mock.onPost('/api/team/5/avatar').reply(200, { id: 5, avatar_url: 'https://x/logo.png', avatar_static_url: null });
   const onClose = jest.fn();
-  const user = setupUser();
+  const user = userEvent.setup();
   render(<ProfileSettingsModal open onClose={onClose} />);
 
   await selectLeague(user);
@@ -113,7 +103,7 @@ test('name-only change still renames the team', async () => {
   mock.onGet('/api/league').reply(200, [league]);
   mock.onPut('/api/team/5').reply(200, { id: 5 });
   const onClose = jest.fn();
-  const user = setupUser();
+  const user = userEvent.setup();
   render(<ProfileSettingsModal open onClose={onClose} />);
 
   await selectLeague(user);
@@ -135,7 +125,7 @@ test('name and avatar changed together fire both requests', async () => {
   mock.onGet('/api/league').reply(200, [league]);
   mock.onPost('/api/team/5/avatar').reply(200, { id: 5, avatar_url: 'https://x/logo.png', avatar_static_url: null });
   mock.onPut('/api/team/5').reply(200, { id: 5 });
-  const user = setupUser();
+  const user = userEvent.setup();
   render(<ProfileSettingsModal open onClose={jest.fn()} />);
 
   await selectLeague(user);
@@ -159,7 +149,7 @@ test('partial failure: avatar fails while name saves — reports both, dialog st
   mock.onPost('/api/team/5/avatar').reply(500, { error: 'storage offline' });
   mock.onPut('/api/team/5').reply(200, { id: 5, name: 'Bandits' });
   const onClose = jest.fn();
-  const user = setupUser();
+  const user = userEvent.setup();
   render(
     <SnackbarProvider>
       <ProfileSettingsModal open onClose={onClose} />
@@ -189,7 +179,7 @@ test('partial failure: avatar fails while name saves — reports both, dialog st
 test('a rapid double-click fires only one save request', async () => {
   mock.onGet('/api/league').reply(200, [league]);
   mock.onPut('/api/team/5').reply(200, { id: 5, name: 'Bandits' });
-  const user = setupUser();
+  const user = userEvent.setup();
   render(<ProfileSettingsModal open onClose={jest.fn()} />);
 
   await selectLeague(user);
@@ -213,7 +203,7 @@ test('staging a file, removing, then picking another file uploads the last file'
   mock.onPost('/api/team/5/avatar').reply(200, { id: 5, avatar_url: 'https://x/second.png', avatar_static_url: null });
   mock.onDelete('/api/team/5/avatar').reply(200, { id: 5, avatar_url: null, avatar_static_url: null });
   const onClose = jest.fn();
-  const user = setupUser();
+  const user = userEvent.setup();
   render(<ProfileSettingsModal open onClose={onClose} />);
 
   await selectLeague(user);

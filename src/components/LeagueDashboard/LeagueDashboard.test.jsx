@@ -156,22 +156,13 @@ const leagueGetCount = (leagueId = 1) =>
   apiClient.get.mock.calls.filter(([url]) => url === `/api/league/${leagueId}`).length;
 
 /**
- * Click something whose handler keeps working after the click itself resolves:
- * the POST, and then the un-awaited refresh() behind it. user-event does not
- * wrap its own waiting in act(), so those later updates would otherwise land
- * outside it and be reported as such.
- */
-const clickAndSettle = async (element) => {
-  // The act() is for the work that follows the click, not for the click, which
-  // is why no-unnecessary-act does not apply here.
-  // eslint-disable-next-line testing-library/no-unnecessary-act
-  await act(async () => { await userEvent.click(element); });
-};
-
-/**
  * A commissioner action fires refresh() without awaiting it, so the toast lands
  * before the reload does. Assert the reload was actually issued and let it
  * settle, so the test observes the refreshed page rather than ending mid-flight.
+ *
+ * This, not an act() held open across the click, is how work that outlives an
+ * interaction is settled here: see
+ * docs/adr/0007-user-event-is-never-wrapped-in-act.md.
  */
 const settleRefresh = async (leagueId = 1) => {
   await waitFor(() => expect(leagueGetCount(leagueId)).toBeGreaterThanOrEqual(2));
@@ -392,7 +383,7 @@ test('an in-flight background reload keeps the dashboard mounted, drawer and all
 
   renderDashboard();
   await screen.findByText('Sunday Ballers');
-  await clickAndSettle(screen.getByRole('button', { name: 'Open league chat' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Open league chat' }));
   expect(await screen.findByRole('button', { name: 'Close chat' })).toBeInTheDocument();
 
   // The reload is still on the wire, which is the window the first-load-only
@@ -481,7 +472,7 @@ test('shows "Start Draft" only for the owner while the draft is pending, and sta
   await screen.findByText('Sunday Ballers');
 
   const startButton = screen.getByRole('button', { name: 'Start Draft' });
-  await clickAndSettle(startButton);
+  await userEvent.click(startButton);
 
   await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith('/api/league/1/start-draft'));
   expect(await screen.findByText('Draft started successfully!')).toBeInTheDocument();
@@ -616,7 +607,7 @@ test('Advance Week is visible for the owner when draft is complete and season is
   expect(screen.getByText('Week 3')).toBeInTheDocument();
 
   const advanceButton = screen.getByRole('button', { name: 'Advance Week' });
-  await clickAndSettle(advanceButton);
+  await userEvent.click(advanceButton);
 
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/scoring/league/1/advance-week')
@@ -750,7 +741,7 @@ test('Lock Transactions toggles via the commissioner endpoint', async () => {
   renderDashboardWithToasts();
   await screen.findByText('Sunday Ballers');
 
-  await clickAndSettle(screen.getByRole('checkbox', { name: 'Lock Transactions' }));
+  await userEvent.click(screen.getByRole('checkbox', { name: 'Lock Transactions' }));
 
   await waitFor(() =>
     expect(apiClient.put).toHaveBeenCalledWith('/api/commissioner/league/1/transactions-lock', {
@@ -780,7 +771,7 @@ test('removing another owner\'s team calls the commissioner endpoint after confi
   // A severe confirmation dialog guards the destructive action
   expect(await screen.findByText("Remove Bob's Team?")).toBeInTheDocument();
   expect(apiClient.delete).not.toHaveBeenCalled();
-  await clickAndSettle(screen.getByRole('button', { name: 'Remove Team' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Remove Team' }));
 
   await waitFor(() =>
     expect(apiClient.delete).toHaveBeenCalledWith('/api/commissioner/league/1/teams/2')
@@ -1093,7 +1084,7 @@ test('Start New Season appears only when the season is complete and POSTs the ro
   renderDashboardWithToasts();
   await screen.findByText('Sunday Ballers');
 
-  await clickAndSettle(screen.getByRole('button', { name: 'Start New Season' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Start New Season' }));
 
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/commissioner/league/1/rollover', {})
