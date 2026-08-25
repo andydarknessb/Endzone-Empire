@@ -1,7 +1,5 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
 const {
   TEAM_IDENTITY_FIELDS,
   teamIdentityOf,
@@ -16,34 +14,20 @@ const {
  * ticket the rule lived in prose in both `server/services/teamIdentity.js` and
  * its client mirror `src/lib/teamIdentity.js`, and only the server's SQL helper
  * actually enforced the spelling. `TEAM_IDENTITY_FIELDS` is now the single
- * source of those two strings in each module, and these tests are what make it
- * the enforcement rather than more prose:
+ * source of those two strings in each module. This suite owns the SERVER half:
  *
- *  - the server export is exactly the two wire keys, and frozen;
+ *  - the server export is exactly the two wire keys, and frozen; and
  *  - the SQL aliases and the identity object are MINTED from it, so neither can
- *    drift from the contract; and
- *  - the client mirror exports the identical list, so the two halves of the
- *    contract cannot drift from each other.
+ *    drift from the contract.
  *
- * The last check reads the client SOURCE rather than importing it: the client
- * module is ESM under a React build and this suite is CommonJS under
- * `node --test`, so a require would not resolve. Reading the source and pinning
- * the literal is the same technique teamIdentityContracts.test.js already uses
- * to assert the join-refusal codes against draftSocket.js' source, and it keeps
- * BOTH modules' equality assertions in the server suite so the client jest
- * count is untouched by this server-side ticket (#341 removes nothing).
+ * The cross-module equality - that the client mirror exports the identical list
+ * - is pinned on the CLIENT side, in src/lib/teamIdentity.test.js, which imports
+ * BOTH exports and compares them directly. That is stronger than reading the
+ * client source from here would be (a source read can pass silently against a
+ * comment decoy), and it needs no ESM/CJS bridge. Because that test asserts the
+ * client export against the same literal this one asserts the server export
+ * against, the two are pinned equal transitively as well.
  */
-
-const CLIENT_MODULE = path.join(__dirname, '..', '..', 'src', 'lib', 'teamIdentity.js');
-
-/** The array literal a module froze into TEAM_IDENTITY_FIELDS, read from source. */
-function fieldsFromSource(file) {
-  const source = fs.readFileSync(file, 'utf8');
-  const match = source.match(/TEAM_IDENTITY_FIELDS\s*=\s*Object\.freeze\(\[([^\]]*)\]\)/);
-  assert.ok(match, `${path.basename(file)} exports a frozen TEAM_IDENTITY_FIELDS array`);
-  // Cannot pass vacuously: an empty capture yields [], which is not the two.
-  return [...match[1].matchAll(/'([^']+)'|"([^"]+)"/g)].map((m) => m[1] ?? m[2]);
-}
 
 test('the server export is exactly the two Team identity wire keys, frozen', () => {
   assert.deepEqual(TEAM_IDENTITY_FIELDS, ['teamId', 'teamName']);
@@ -68,8 +52,4 @@ test('teamIdentityColumns mints its aliases from the exported list', () => {
     teamIdentityColumns('owner_team', 'owner'),
     new RegExp(`AS "owner${cap(idField)}", .* AS "owner${cap(nameField)}"`)
   );
-});
-
-test('the client mirror exports the identical list, so the two contracts cannot drift', () => {
-  assert.deepEqual(fieldsFromSource(CLIENT_MODULE), [...TEAM_IDENTITY_FIELDS]);
 });
