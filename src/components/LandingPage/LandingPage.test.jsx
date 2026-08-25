@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import LandingPage from './LandingPage';
 
@@ -20,6 +20,14 @@ test('"Get Started" links to the registration page', () => {
 test('"Log In" links to the login page', () => {
   renderWithProviders(<LandingPage />);
   expect(screen.getByRole('link', { name: 'Log In' })).toHaveAttribute('href', '/login');
+});
+
+test('the hero surfaces NFL pick\'em leagues as a second, discoverable option', () => {
+  renderWithProviders(<LandingPage />);
+  const hero = within(screen.getByTestId('landing-hero'));
+  expect(hero.getByText(/turns armchair quarterbacks into legendary/i)).toBeInTheDocument();
+  expect(hero.getByText(/NFL pick'em league/i)).toBeInTheDocument();
+  expect(hero.getByText(/no draft, no rosters/i)).toBeInTheDocument();
 });
 
 test('renders the feature grid covering the core product areas', () => {
