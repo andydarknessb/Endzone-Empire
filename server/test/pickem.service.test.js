@@ -43,7 +43,7 @@ test('deriveSlateFromRows pairs the two nfl_games rows and takes the EARLIER kic
 test('the slate is complete for a FUTURE week with no live_game_states rows at all', () => {
   const games = pickem.deriveSlateFromRows(
     nflGameRows(17, [['KC', 'DEN'], ['SF', 'SEA']]),
-    [] // the live engine has not written a single row for week 17 yet
+    [] // live scoring (modules/liveGameEngine.js) has not written a single row for week 17 yet
   );
   assert.equal(games.length, 2);
   for (const game of games) {

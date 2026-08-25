@@ -461,7 +461,7 @@ function createRecapQueue({
   };
 }
 
-// The process-wide singleton the live engine and sweep both feed.
+// The process-wide singleton that live scoring (modules/liveGameEngine.js) and sweep both feed.
 const recapQueue = createRecapQueue({
   worker: (gameId, opts) => generateForGame(gameId, opts),
 });
