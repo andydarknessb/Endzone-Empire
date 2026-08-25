@@ -934,10 +934,10 @@ function gamesNeedingBoxScore(rows) {
  * needs one (see gamesNeedingBoxScore) — every player in those games whose
  * external_id we know gets a player_stats upsert.
  *
- * The week's game list comes from live_game_states, which live scoring keeps
- * fresh for free off ESPN (modules/liveGameEngine.js), so the old always-on
- * `/getNFLGamesForWeek` call is now only a fallback for a week we have no live
- * rows for.
+ * The week's game list comes from live_game_states, which live scoring
+ * (modules/liveGameEngine.js) keeps fresh for free off ESPN, so the old
+ * always-on `/getNFLGamesForWeek` call is now only a fallback for a week we
+ * have no live rows for.
  *
  * Returns typed touchdown events (`plays`) for the live UI — see
  * applyGameBoxScore.
