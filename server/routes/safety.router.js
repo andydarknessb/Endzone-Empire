@@ -6,6 +6,10 @@ const { isLeagueCommissioner, commissionerPredicate } = require('../services/lea
 const router = express.Router();
 router.use(requireAuth);
 
+// Allowed as-is (#378 ruling): this is the caller's OWN block list, keyed on
+// the same user id the block/unblock writes below take. It is viewer-own
+// chrome, not a manager-shared surface, so it is not a Team identity leak.
+// The column list stays explicit anyway so the contract stays deliberate.
 router.get('/blocks', async (req, res) => {
   const result = await pool.query(
     `SELECT "users"."id", "users"."username", "user_blocks"."created_at"
@@ -82,15 +86,29 @@ router.get('/reports/:leagueId', async (req, res) => {
   if (!isCommissioner && !isPlatformAdmin(req.user.id)) {
     return res.status(403).json({ error: 'moderator access required' });
   }
+  // #378: no reporter/resolver identity in the served payload, for
+  // commissioners and platform admins alike (the ruling draws no
+  // distinction). The column list is explicit both in the query (so a
+  // future `content_reports` column can't reach the wire unnamed) and again
+  // here in JS (so a handler edit that reintroduces a spread is caught even
+  // if the SQL projection stays correct).
   const result = await pool.query(
-    `SELECT "content_reports".*, "users"."username" AS "reporter_username"
+    `SELECT "id", "league_id", "message_id", "reason", "status", "resolved_at", "created_at", "updated_at"
      FROM "content_reports"
-     JOIN "users" ON "users"."id" = "content_reports"."reporter_id"
-     WHERE "content_reports"."league_id" = $1
-     ORDER BY "content_reports"."created_at" DESC`,
+     WHERE "league_id" = $1
+     ORDER BY "created_at" DESC`,
     [leagueId]
   );
-  return res.json(result.rows);
+  return res.json(result.rows.map((row) => ({
+    id: row.id,
+    league_id: row.league_id,
+    message_id: row.message_id,
+    reason: row.reason,
+    status: row.status,
+    resolved_at: row.resolved_at,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  })));
 });
 
 router.put('/reports/:id', async (req, res) => {
