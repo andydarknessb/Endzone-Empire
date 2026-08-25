@@ -27,15 +27,32 @@
  * - Only the PR BODY is read, not commit messages, and not PR comments.
  * - Keywords inside fenced code blocks or inline code are ignored, so a PR
  *   that documents the convention (this one) does not trigger it.
- * - A merge into any branch other than `integration` is skipped. On `main`
- *   GitHub's native keywords already fire, and acting there too would leave
- *   a duplicate comment on every promoted issue.
+ * - A merge into any branch other than `integration` is skipped. The
+ *   workflow's `branches:` filter already excludes them, so this check is
+ *   defence in depth against that filter being edited; it matters because
+ *   on `main` GitHub's native keywords already fire, and acting there too
+ *   would leave a duplicate comment on every promoted issue.
  * - A closed-unmerged PR is skipped. An already-closed issue is a no-op
- *   (no comment). A reference that is a pull request, or does not exist, is
- *   reported and left alone. References to other repositories are logged
- *   and not acted on: the workflow token cannot write there anyway.
+ *   (no comment): the one legitimate no-op the brief names. A reference
+ *   that is a pull request, or does not exist, is an author error: it is
+ *   left alone but turns the run red, so a typo'd number cannot leave a
+ *   green run and an open issue. References to other repositories are
+ *   logged and not acted on: the workflow token cannot write there anyway.
  * - A failure on one issue does not stop the others; it is recorded and
  *   the process exits non-zero at the end so the workflow run shows red.
+ * - Same-repository PRs only. A PR from a fork gets a read-only token on
+ *   `pull_request` events, so its closures would fail (red run, issues left
+ *   open). This repository takes branch PRs, so that path is not exercised.
+ * - The tests run in ci.yml's test-build on every PR AND before the script
+ *   in this job. The PR-time run is the gate (a broken parser cannot
+ *   merge); the in-job run is a tripwire so the mutation never proceeds on
+ *   a parser whose tests fail on the runner.
+ *
+ * Why `gh api` rather than the `gh issue close --comment` the issue-tracker
+ * doc lists for hand closes: the script must first READ each issue to tell
+ * open from closed and issue from pull request, and `gh issue close` errors
+ * on an already-closed issue rather than treating it as the no-op the brief
+ * asks for. Three explicit REST calls keep each outcome distinguishable.
  *
  * Shape: three pure-ish layers behind one small interface so the behaviour
  * is testable without GitHub. `parseClosingReferences` (text -> numbers),
@@ -52,6 +69,12 @@ const execFileAsync = promisify(execFile);
 
 const TARGET_BRANCH = 'integration';
 
+// Outcomes that turn the run red. `already-closed` is the one no-op the
+// brief names as legitimate; a reference to a nonexistent number or to a
+// pull request is an author error that would otherwise leave a green run
+// and an open issue, the silent-green shape #330 exists to end.
+const FAILING_OUTCOMES = new Set(['error', 'missing', 'not-an-issue']);
+
 // The exact keyword list from GitHub's "Linking a pull request to an issue"
 // documentation. Order here is only for readability.
 const CLOSING_KEYWORDS = [
@@ -60,11 +83,14 @@ const CLOSING_KEYWORDS = [
   'resolve', 'resolves', 'resolved',
 ];
 
-// keyword, optional colon, whitespace, then exactly one reference in one of
-// GitHub's three forms. The reference must follow the keyword directly:
-// "Closes #1, #2" matches once, as it does on GitHub.
+// keyword, optional colon, same-line whitespace, then exactly one reference
+// in one of GitHub's three forms. The reference must follow the keyword
+// directly: "Closes #1, #2" matches once, as it does on GitHub. Whitespace
+// deliberately excludes newlines: `\s+` would let a sentence ending in
+// "fixed" close whatever `#N` opens the next line, a superset of GitHub's
+// grammar that can close an issue the author never linked.
 const REFERENCE_PATTERN = new RegExp(
-  String.raw`\b(?:${CLOSING_KEYWORDS.join('|')})\b:?\s+` +
+  String.raw`\b(?:${CLOSING_KEYWORDS.join('|')})\b:?[^\S\n]+` +
     String.raw`(?:` +
     String.raw`https?://github\.com/([\w.-]+)/([\w.-]+)/issues/(\d+)` + // 1,2,3: URL
     String.raw`|(?:([\w.-]+)/([\w.-]+))?#(\d+)` + // 4,5,6: [owner/repo]#N
@@ -82,9 +108,9 @@ function stripCode(body) {
 
 function parseClosingReferences(body, { owner, repo }) {
   const issues = new Set();
-  const foreign = [];
+  const foreignRefs = [];
   if (typeof body !== 'string' || body.length === 0) {
-    return { issues: [], foreign };
+    return { issues: [], foreignRefs };
   }
   const text = stripCode(body);
   const here = `${owner}/${repo}`.toLowerCase();
@@ -95,10 +121,10 @@ function parseClosingReferences(body, { owner, repo }) {
     if (target.toLowerCase() === here) {
       issues.add(number);
     } else {
-      foreign.push(`${target}#${number}`);
+      foreignRefs.push(`${target}#${number}`);
     }
   }
-  return { issues: [...issues].sort((a, b) => a - b), foreign };
+  return { issues: [...issues].sort((a, b) => a - b), foreignRefs };
 }
 
 function planClosures(event) {
@@ -119,25 +145,27 @@ function planClosures(event) {
   };
 
   if (!pr.merged) {
-    return { action: 'skip', reason: `PR #${pr.number} was closed but not merged`, pullRequest };
+    return { action: 'skip', reason: `PR #${pr.number} was closed but not merged`, pullRequest, repo };
   }
   if (pullRequest.base !== TARGET_BRANCH) {
     return {
       action: 'skip',
       reason: `PR #${pr.number} merged into ${pullRequest.base}, not ${TARGET_BRANCH}; only ${TARGET_BRANCH} merges are handled here`,
       pullRequest,
+      repo,
     };
   }
-  const { issues, foreign } = parseClosingReferences(pr.body, repo);
+  const { issues, foreignRefs } = parseClosingReferences(pr.body, repo);
   if (issues.length === 0) {
     return {
       action: 'skip',
       reason: `PR #${pr.number} body has no closing keyword referencing an issue in this repository`,
       pullRequest,
-      foreign,
+      repo,
+      foreignRefs,
     };
   }
-  return { action: 'close', issues, foreign, pullRequest };
+  return { action: 'close', issues, foreignRefs, pullRequest, repo };
 }
 
 function buildCloseComment({ number, mergeSha, url, base }) {
@@ -162,7 +190,9 @@ async function applyClosures(plan, api) {
       try {
         issue = await api.getIssue(number);
       } catch (err) {
-        if (err && (err.status === 404 || /HTTP 404/.test(err.message))) {
+        // `status` is set by ghApi from gh's "HTTP nnn" text; it is the one
+        // place that knowledge lives.
+        if (err && err.status === 404) {
           results.push({ number, outcome: 'missing' });
           continue;
         }
@@ -222,19 +252,18 @@ function readEvent(eventPath = process.env.GITHUB_EVENT_PATH) {
 // below is the only place process state is touched.
 async function main({ event = readEvent(), api } = {}) {
   const plan = planClosures(event);
-  for (const ref of plan.foreign || []) {
+  for (const ref of plan.foreignRefs || []) {
     console.log(`ignoring ${ref}: this workflow only closes issues in this repository`);
   }
   if (plan.action === 'skip') {
     console.log(`nothing to close: ${plan.reason}`);
     return 0;
   }
-  const { owner, name } = { owner: event.repository.owner.login, name: event.repository.name };
-  const results = await applyClosures(plan, api || ghApi({ owner, repo: name }));
+  const results = await applyClosures(plan, api || ghApi(plan.repo));
   let failed = 0;
   for (const result of results) {
     const line = `#${result.number}: ${result.outcome}${result.error ? ` (${result.error})` : ''}`;
-    if (result.outcome === 'error') {
+    if (FAILING_OUTCOMES.has(result.outcome)) {
       failed += 1;
       console.error(line);
     } else {

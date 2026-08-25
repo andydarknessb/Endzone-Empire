@@ -21,11 +21,9 @@ const REPO = { owner: 'andydarknessb', repo: 'Endzone-Empire' };
 // -----------------------------------------------------------------------
 
 test('parse: the nine keywords GitHub honours, in any case, each close', () => {
-  assert.deepEqual(CLOSING_KEYWORDS, [
-    'close', 'closes', 'closed',
-    'fix', 'fixes', 'fixed',
-    'resolve', 'resolves', 'resolved',
-  ]);
+  // The list is GitHub's, from "Linking a pull request to an issue"; the
+  // loop drives each through the parser rather than restating the constant.
+  assert.equal(CLOSING_KEYWORDS.length, 9);
   for (const [i, keyword] of CLOSING_KEYWORDS.entries()) {
     const n = 100 + i;
     for (const form of [keyword, keyword.toUpperCase(), keyword[0].toUpperCase() + keyword.slice(1)]) {
@@ -77,7 +75,7 @@ test('parse: references to other repositories are reported, not closed', () => {
   const body = 'Closes other-org/other-repo#7 and fixes https://github.com/x/y/issues/8';
   const result = parseClosingReferences(body, REPO);
   assert.deepEqual(result.issues, []);
-  assert.deepEqual(result.foreign, ['other-org/other-repo#7', 'x/y#8']);
+  assert.deepEqual(result.foreignRefs, ['other-org/other-repo#7', 'x/y#8']);
 });
 
 test('parse: duplicates collapse and the result is ascending', () => {
@@ -330,4 +328,29 @@ test('main: any per-issue error makes the run exit 1 after finishing the rest', 
 
 test('main: outside a pull_request job the missing payload is a thrown error, not a silent 0', async () => {
   await assert.rejects(main({ event: { action: 'closed' } }), /pull_request/);
+});
+
+test('parse: whitespace between keyword and reference must not cross a line break', () => {
+  // `\s+` would make "...which we fixed\n#13 tracks the rest" close #13.
+  // GitHub reads the keyword and reference on one line; so does this.
+  assert.deepEqual(parseClosingReferences('which we fixed\n#13 tracks the rest', REPO).issues, []);
+  assert.deepEqual(parseClosingReferences('Closes\t#14 and  resolves   #15', REPO).issues, [14, 15]);
+});
+
+test('plan: the plan carries the repository so the caller never re-derives it from the event', () => {
+  assert.deepEqual(planClosures(event()).repo, REPO);
+  assert.deepEqual(planClosures(event({ merged: false })).repo, REPO);
+});
+
+test('main: a missing or pull-request reference is left alone but reds the run', async () => {
+  // A typo'd number must not leave a green run and an open issue.
+  const api = fakeApi({ 7: { number: 7, state: 'open', pull_request: { url: 'x' } } });
+  assert.equal(await main({ event: event({ body: 'Closes #7' }), api }), 1);
+  assert.equal(await main({ event: event({ body: 'Closes #9999' }), api }), 1);
+  assert.deepEqual(api.calls.filter((c) => c[0] !== 'getIssue'), []);
+});
+
+test('main: an already-closed reference alone stays green', async () => {
+  const api = fakeApi({ 6: { number: 6, state: 'closed' } });
+  assert.equal(await main({ event: event({ body: 'Closes #6' }), api }), 0);
 });

@@ -8,11 +8,13 @@ name: Close merged issues
 # reads it as meaning: on a merge into integration, the PR body's closing
 # keywords close the referenced issues, each with a comment naming the PR
 # and merge SHA. The parsing and the skip rules live in
-# scripts/ci/close-merged-issues.js and are pinned by its tests, which run
-# first here (same shape as check:adr-uniqueness) so a broken parser fails
-# the run instead of silently closing nothing.
+# scripts/ci/close-merged-issues.js and are pinned by its tests. Those tests
+# gate at PR time in ci.yml's test-build (a broken parser cannot merge) and
+# re-run here as a tripwire before anything is written, so this job never
+# mutates the tracker on a parser whose tests fail on the runner.
 #
-# Merges into main are skipped by the script: native keywords fire there.
+# Only merges into integration reach here (the branches filter below); on
+# main GitHub's native keywords fire, so nothing is needed there.
 
 on:
   pull_request:
