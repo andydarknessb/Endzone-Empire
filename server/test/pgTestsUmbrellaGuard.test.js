@@ -26,11 +26,12 @@ function pgFiles() {
   return fs.readdirSync(TEST_DIR).filter((name) => name.endsWith('.pg.test.js')).sort();
 }
 
-// A pg file honours the umbrella iff its source mentions PG_TESTS -- the token
-// appears both in `process.env.PG_TESTS === '1' || ...` and in the skip
-// message, so a whole-word match is enough to prove it was wired.
+// A pg file honours the umbrella iff its ENABLED check actually reads
+// process.env.PG_TESTS. Matching `process.env.PG_TESTS` specifically, rather
+// than the bare token, means a file that only NAMES PG_TESTS in a skip message
+// while still gating on its own variable alone is caught, not passed.
 function honoursUmbrella(source) {
-  return /\bPG_TESTS\b/.test(source);
+  return /process\.env\.PG_TESTS\b/.test(source);
 }
 
 test('every server/test/*.pg.test.js references PG_TESTS', () => {
@@ -48,7 +49,7 @@ test('every server/test/*.pg.test.js references PG_TESTS', () => {
     'These pg test files do not reference PG_TESTS, so `npm run test:pg` would glob them '
     + 'in and they would silently self-skip, gating themselves out of migration-smoke. '
     + "Change each ENABLED check to `process.env.PG_TESTS === '1' || "
-    + "process.env.<OWN>_PG_TESTS === '1'` and mention PG_TESTS in the skip message.'"
+    + "process.env.<OWN>_PG_TESTS === '1'` and mention PG_TESTS in the skip message."
   );
 });
 
