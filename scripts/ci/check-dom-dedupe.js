@@ -212,7 +212,7 @@ function evaluate(copies) {
 // install). It is null only in the "resolves nowhere" found-0 case, which is
 // treated the same as coinciding for naming: only the search root is named.
 function buildViolationMessage(copies, searchRoot, installRoot = searchRoot) {
-  const rootsDiffer = installRoot != null && installRoot !== searchRoot;
+  const rootsDiffer = installRoot !== null && installRoot !== searchRoot;
   const lines = [`\n❌ ${PACKAGE_NAME} dedupe check failed.`];
   if (rootsDiffer) {
     // The search root had no install of its own, so Node - and this guard -
@@ -238,7 +238,23 @@ function buildViolationMessage(copies, searchRoot, installRoot = searchRoot) {
     lines.push(`  ${installPath}  (${PACKAGE_NAME}@${version || 'unknown'})`);
   });
 
-  if (copies.length === 0) {
+  if (copies.length === 0 && rootsDiffer) {
+    // Degenerate, effectively unreachable from main(): an ancestor install
+    // resolved (its package.json exists, so installRoot is non-null and differs
+    // from the worktree searchRoot) yet `npm ls` in it reported no copy. The
+    // `npm ci` remediation below would be actively wrong here - it would tell a
+    // reader in the worktree to install into the worktree when a real ancestor
+    // install already exists (#352 forbids exactly that advice from this case).
+    // Name the contradiction instead and defer to npm's own stderr.
+    lines.push(
+      `\nAn install of ${PACKAGE_NAME} was found under ${installRoot} (its package.json ` +
+        `exists there), but \`npm ls\` run in that directory reported no copy. That is an ` +
+        'unexpected, inconsistent tree state, not the normal "never installed" case, so ' +
+        `do NOT run \`npm ci\` in ${searchRoot}. Inspect ${installRoot}/node_modules and ` +
+        'the npm ls stderr below (see #219 and #224 for why this package must stay ' +
+        'deduped).\n'
+    );
+  } else if (copies.length === 0) {
     lines.push(
       `\nNo copy of ${PACKAGE_NAME} is installed under ${searchRoot}. That is the ` +
         'normal state of a fresh checkout or a git worktree that has never had ' +

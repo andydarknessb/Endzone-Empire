@@ -222,6 +222,31 @@ test('resolveInstallRoot: package nowhere up the tree returns null (fail-closed 
   }
 });
 
+test('resolveInstallRoot: a worktree whose node_modules is a symlink to an ancestor resolves to the worktree itself', (t) => {
+  const parent = makeTempRoot();
+  try {
+    installPackage(parent);
+    const worktree = path.join(parent, 'wt');
+    fs.mkdirSync(worktree, { recursive: true });
+    // Point <worktree>/node_modules at the parent's real node_modules. On
+    // Windows a directory symlink needs elevation, but a junction does not; use
+    // it there. If even that is refused, skip rather than fail on privilege.
+    const linkType = process.platform === 'win32' ? 'junction' : 'dir';
+    try {
+      fs.symlinkSync(path.join(parent, 'node_modules'), path.join(worktree, 'node_modules'), linkType);
+    } catch (err) {
+      t.skip(`cannot create a ${linkType} link here: ${err.code || err.message}`);
+      return;
+    }
+    // fs.existsSync follows the link, so the package resolves AT the worktree:
+    // search root == install root, and the tree is judged on its own (the guard
+    // then leans on the parser's INVALID four-field handling). Names one path.
+    assert.equal(resolveInstallRoot(worktree), worktree);
+  } finally {
+    fs.rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test('resolveInstallRoot: the NEAREST ancestor wins when more than one has the package', () => {
   const outer = makeTempRoot();
   try {
@@ -368,4 +393,23 @@ test('buildViolationMessage: found-0 with a null resolved root keeps the npm ci 
   assert.match(message, /Searched: \/repo/);
   assert.match(message, /npm ci/);
   assert.doesNotMatch(message, /Resolved against:/);
+});
+
+test('buildViolationMessage: found-0 with a resolved ANCESTOR root never advises `npm ci` in the worktree (#352)', () => {
+  // The degenerate combination: an ancestor install resolved (installRoot
+  // differs and is non-null) yet zero copies were parsed. The spec forbids the
+  // "run npm ci in that directory" advice from ever reaching a nested-worktree
+  // reader who is backed by an ancestor install, so this branch must NOT tell
+  // them to run npm ci in the worktree search root.
+  const message = buildViolationMessage([], '/worktree', '/parent');
+  assert.match(message, /found 0/);
+  // Both roots are still named.
+  assert.match(message, /Searched from: \/worktree/);
+  assert.match(message, /Resolved against: \/parent/);
+  // It must NOT hand out the fresh-checkout npm ci remediation against the
+  // worktree; that is the exact bad advice #352 removes from this case.
+  assert.doesNotMatch(message, /Run `npm ci` in that directory/);
+  assert.doesNotMatch(message, /never had\n?.*`npm ci` run inside it/);
+  // Instead it names the contradiction and points at the resolved install.
+  assert.match(message, /inconsistent tree state/);
 });
