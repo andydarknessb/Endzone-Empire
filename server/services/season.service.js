@@ -1,6 +1,6 @@
 const pool = require('../modules/pool');
 const { notifyLeague } = require('./activity.service');
-const { seasonEngineAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('./leaguePhase');
+const { seasonOperationsAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('./leaguePhase');
 
 class SeasonError extends Error {
   constructor(statusCode, message) {
@@ -192,7 +192,7 @@ async function generateRegularSeason({ leagueId }, existingClient = null) {
     );
     const league = leagueResult.rows[0];
     if (!league) throw new SeasonError(404, 'league not found');
-    // #194: the season engine is unavailable before the draft finishes.
+    // #194: season operations are unavailable before the draft finishes.
     // Derived from league phase, never a bare draft_status comparison.
     // NOTE: this reads the row the CALLER'S client just saw, which is what
     // lets draft completion through. Both completion paths (the final live
@@ -201,7 +201,7 @@ async function generateRegularSeason({ leagueId }, existingClient = null) {
     // transaction BEFORE calling in here, so this sees 'complete'. That
     // ordering is load-bearing: move the generateRegularSeason call above
     // the UPDATE on either path and every finished draft starts failing.
-    if (!seasonEngineAvailable(league)) throw new SeasonError(409, SEASON_BEFORE_DRAFT_MESSAGE);
+    if (!seasonOperationsAvailable(league)) throw new SeasonError(409, SEASON_BEFORE_DRAFT_MESSAGE);
     const teamsResult = await client.query(
       `SELECT "id" FROM "teams" WHERE "league_id" = $1 ORDER BY "draft_position" NULLS LAST, "id"`,
       [leagueId]
@@ -281,7 +281,7 @@ async function finalizeWeekAndAdvance({ leagueId }) {
     const league = leagueResult.rows[0];
     if (!league) throw new SeasonError(404, 'league not found');
     // Phase first, before anything is marked final or advanced (#194).
-    if (!seasonEngineAvailable(league)) throw new SeasonError(409, SEASON_BEFORE_DRAFT_MESSAGE);
+    if (!seasonOperationsAvailable(league)) throw new SeasonError(409, SEASON_BEFORE_DRAFT_MESSAGE);
     if (league.season_status === 'complete') throw new SeasonError(409, 'season is complete');
     const { current_season: season, current_week: week } = league;
 

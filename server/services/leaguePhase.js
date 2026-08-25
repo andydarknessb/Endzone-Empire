@@ -9,12 +9,12 @@
  * Phase answers league-level questions only: may a team join (`joinability`),
  * may these settings still change (`frozenSettingKeys` and its SQL twin
  * `settingsUnfrozenWhereSql`), is the season live (`fantasySeasonLiveWhereSql`),
- * may the season engine create or finalize season state
- * (`seasonEngineAvailable`, #194). The draft's own turn-by-turn state is DRAFT
- * STATUS, not phase: the draft engine, pick'em-season engine and rollover write
- * those columns and keep reading them raw. Every other reader asks here, the
- * season engine included: it writes none of these columns, it only refuses on
- * them.
+ * may season operations create or finalize season state
+ * (`seasonOperationsAvailable`, #194). The draft's own turn-by-turn state is
+ * DRAFT STATUS, not phase: the draft workflow, the pick'em season workflow and
+ * rollover write those columns and keep reading them raw. Every other reader
+ * asks here, season operations included: they write none of these columns,
+ * they only refuse on them.
  *
  * A pick'em-only league has no draft: it is in-season from creation until
  * its season completes, whatever draft_status says, and it is joinable for
@@ -108,17 +108,17 @@ function fantasySeasonLiveWhereSql(alias) {
 }
 
 /**
- * The manager-readable refusal when the season engine is asked to act before
+ * The manager-readable refusal when season operations are asked to act before
  * the draft is done. Plain words, no em-dash (house style).
  */
 const SEASON_BEFORE_DRAFT_MESSAGE =
   'the draft has not finished; schedule and scoring are available once it completes';
 
 /**
- * Pure: may the season engine create or finalize season state for this row?
+ * Pure: may season operations create or finalize season state for this row?
  * False only while a fantasy league is PRE_DRAFT or DRAFTING. `in-season`,
- * `playoffs` and `complete` all pass: what a COMPLETE season refuses is the
- * engine's own business, not a phase question. A pick'em-only league has no
+ * `playoffs` and `complete` all pass: what a COMPLETE season refuses is season
+ * operations' own business, not a phase question. A pick'em-only league has no
  * draft and is never in those two phases, so it always passes here; the
  * routers refuse it upstream in `requireFantasyLeague` regardless. A missing
  * row fails closed, as everywhere else in this module.
@@ -128,7 +128,7 @@ const SEASON_BEFORE_DRAFT_MESSAGE =
  * `deriveLeaguePhase` rather than comparing `draft_status` so the two cannot
  * disagree.
  */
-function seasonEngineAvailable(league) {
+function seasonOperationsAvailable(league) {
   const phase = deriveLeaguePhase(league);
   if (phase === null) return false;
   return phase !== LEAGUE_PHASE.PRE_DRAFT && phase !== LEAGUE_PHASE.DRAFTING;
@@ -187,7 +187,7 @@ module.exports = {
   joinRefusalMessage,
   joinableWhereSql,
   fantasySeasonLiveWhereSql,
-  seasonEngineAvailable,
+  seasonOperationsAvailable,
   SEASON_BEFORE_DRAFT_MESSAGE,
   frozenSettingKeys,
   settingsUnfrozenWhereSql,

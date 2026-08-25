@@ -1,5 +1,5 @@
 /**
- * #194: the season engine refuses to create or finalize season state for a
+ * #194: season operations refuse to create or finalize season state for a
  * fantasy league whose draft has not finished.
  *
  * These tests assert the ABSENCES as well as the status. A gate placed after
@@ -157,8 +157,8 @@ for (const draft_status of ['pending', 'active']) {
 }
 
 test('finalizeWeekAndAdvance: a complete season is still refused with its own message', async (t) => {
-  // Phase COMPLETE passes the new gate; what a finished season refuses is the
-  // engine's own rule and must be unchanged.
+  // Phase COMPLETE passes the new gate; what a finished season refuses is
+  // season operations' own rule and must be unchanged.
   const fake = seasonPool(league({ season_status: 'complete' })).install(t);
 
   await assert.rejects(

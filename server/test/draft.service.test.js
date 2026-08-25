@@ -487,12 +487,13 @@ test('undoDrop: a player who had no current-week row when he was dropped benches
 });
 
 // #194: the final live pick completes the draft and generates the season
-// schedule on ONE transaction, and the season engine now refuses a league that
+// schedule on ONE transaction, and season operations now refuse a league that
 // is still pre-draft or drafting. This path survives the gate only because the
 // UPDATE setting draft_status = 'complete' runs before generateRegularSeason is
-// called on that same client. The other completion tests above mock the engine
-// out, so nothing there would notice a reordering; this one runs the real
-// engine against a fake that honours the transaction's own write.
+// called on that same client. The other completion tests above mock season
+// operations out, so nothing there would notice a reordering; this one runs the
+// real generateRegularSeason against a fake that honours the transaction's own
+// write.
 test('draftPlayer: the completing pick schedules the season for real, gate and all (#194)', async (t) => {
   const row = { ...completionLeague, current_season: 2026, regular_season_weeks: 1 };
   const fake = createFakePool([

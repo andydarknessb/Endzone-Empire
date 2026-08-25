@@ -9,7 +9,7 @@ const {
 const { NFL_TEAM_FULL_NAMES: NFL_TEAM_NAME_TO_ABBR } = require('./nflTeam');
 const { getIo } = require('../modules/io');
 const { fantasySideWhereSql } = require('./leagueType');
-const { seasonEngineAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('./leaguePhase');
+const { seasonOperationsAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('./leaguePhase');
 
 // Default fantasy scoring rules, grouped by category (NFL.com-style
 // defaults) — half-PPR. Tiered stats (FG distance, TD-length bonus,
@@ -934,9 +934,10 @@ function gamesNeedingBoxScore(rows) {
  * needs one (see gamesNeedingBoxScore) — every player in those games whose
  * external_id we know gets a player_stats upsert.
  *
- * The week's game list comes from live_game_states, which the live engine keeps
- * fresh for free off ESPN, so the old always-on `/getNFLGamesForWeek` call is
- * now only a fallback for a week we have no live rows for.
+ * The week's game list comes from live_game_states, which live scoring
+ * (modules/liveGameEngine.js) keeps fresh for free off ESPN, so the old
+ * always-on `/getNFLGamesForWeek` call is now only a fallback for a week we
+ * have no live rows for.
  *
  * Returns typed touchdown events (`plays`) for the live UI — see
  * applyGameBoxScore.
@@ -952,9 +953,9 @@ async function syncWeekStats({ season, week, pauseMs = 0, api }) {
   if (stateRes.rows.length > 0) {
     targets = gamesNeedingBoxScore(stateRes.rows);
   } else {
-    // No live rows for this week (a historical week, or the engine hasn't run
-    // yet): fall back to one counted schedule call and treat every game as
-    // needing a fetch.
+    // No live rows for this week (a historical week, or live scoring has not
+    // run yet; see modules/liveGameEngine.js): fall back to one counted
+    // schedule call and treat every game as needing a fetch.
     const gamesResponse = await tank01Get('/getNFLGamesForWeek', {
       params: { week, seasonType: 'reg', season },
       transport: api, // tests inject; uncounted when present
@@ -1578,13 +1579,13 @@ async function generateMatchups({ leagueId, season, week }) {
   try {
     await client.query('BEGIN');
     // #194: this is the third path that inserts matchups, so it carries the
-    // same phase refusal as the season engine's own two entry points. Read
+    // same phase refusal as season operations' own two entry points. Read
     // through this transaction's client for the same reason they do.
     const leagueResult = await client.query(
       `SELECT "pickem_only", "draft_status", "season_status" FROM "leagues" WHERE "id" = $1`,
       [leagueId]
     );
-    if (!seasonEngineAvailable(leagueResult.rows[0])) {
+    if (!seasonOperationsAvailable(leagueResult.rows[0])) {
       // Thrown, not rolled back here: this function's own catch rolls back
       // and rethrows, and rolling back twice is an error in its own right.
       const err = new Error(SEASON_BEFORE_DRAFT_MESSAGE);
