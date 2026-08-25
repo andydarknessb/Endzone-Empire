@@ -38,7 +38,6 @@ function wideRow(overrides = {}) {
     myRequestStatus: null,
     openSlots: true,
     isPublic: false,
-    ownerUsername: 'alice',
     ownerTeamName: "Alice's Aces",
     draft_status: 'pending',
     season_status: 'regular',
@@ -46,6 +45,7 @@ function wideRow(overrides = {}) {
     // Not part of the contract, and none of them may reach a non-member.
     owner_id: 42,
     invite_code: 'e402e816',
+    ownerUsername: 'alice',
     ownerEmail: 'alice@example.com',
     commissionerUsername: 'alice',
     a_column_added_next_quarter: 'surprise',
@@ -78,9 +78,8 @@ const PREVIEW_KEYS = [
   'myRequestStatus',
   'openSlots',
   'isPublic',
-  // Still shipped, still unread by any client: #115 removes it. The client
-  // switched to ownerTeamName in #181 and has no fallback to this.
-  'ownerUsername',
+  // `ownerUsername`, the commissioner's ACCOUNT name, is gone (#115 / #379):
+  // the client switched to ownerTeamName in #181 and had no fallback to this.
   'ownerTeamName',
   'joinable',
   'joinReason',
@@ -95,7 +94,7 @@ test('the invite preview publishes exactly the allowlisted key set, however wide
 test('a column added to the Discover card projection is not published by the invite preview', async (t) => {
   fakeDb(t, wideRow());
   const preview = await previewLeagueByInviteCode({ code: 'e402e816', userId: 9 });
-  for (const field of ['owner_id', 'invite_code', 'ownerEmail', 'commissionerUsername', 'a_column_added_next_quarter']) {
+  for (const field of ['owner_id', 'invite_code', 'ownerUsername', 'ownerEmail', 'commissionerUsername', 'a_column_added_next_quarter']) {
     assert.equal(field in preview, false, `${field} is not published to a non-member`);
   }
   // By value too, so a rename cannot smuggle one through.

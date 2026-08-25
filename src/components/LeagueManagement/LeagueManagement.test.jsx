@@ -471,13 +471,13 @@ test('an empty or out-of-range team count blocks Create League with a visible re
   expect(apiClient.post).not.toHaveBeenCalled();
 });
 
-// `ownerUsername` is still on the wire (#115 removes it) and the preview card
-// must never render it: the viewer holding an invite code is by definition not
-// a member, so the commissioner is named by their Team (#181).
+// The preview never carries an account name at all (#115 / #379): the viewer
+// holding an invite code is by definition not a member, so the commissioner
+// is named by their Team (#181).
 const previewFor = (overrides = {}) => ({
   id: 7, name: "Office Pick'em", maxTeams: 12, teamCount: 3, scoringPreset: null, bestBall: false,
   pickemOnly: true, pickemEnabled: true, joinApproval: false, draftDate: null, alreadyMember: false,
-  myRequestStatus: null, isPublic: false, ownerUsername: 'alice', ownerTeamName: 'Gridiron Gang',
+  myRequestStatus: null, isPublic: false, ownerTeamName: 'Gridiron Gang',
   openSlots: true, joinable: true, joinReason: null,
   ...overrides,
 });
@@ -509,7 +509,7 @@ test("an invite deep link previews the league before joining: name, league type 
   expect(screen.getByRole('button', { name: 'Join League' })).toBeEnabled();
 });
 
-test("the preview names the commissioner by Team, never by the account name still on the wire", async () => {
+test("the preview names the commissioner by Team, never by an account name", async () => {
   mockGets({ preview: previewFor() });
 
   renderWithProviders(<LeagueManagement />, {
@@ -520,8 +520,8 @@ test("the preview names the commissioner by Team, never by the account name stil
 
   const card = await screen.findByTestId('invite-preview');
   expect(card).toHaveTextContent('run by Gridiron Gang');
-  // The payload still carries ownerUsername until #115 drops it. Nothing may
-  // render it, and there is no fallback to it anywhere in the card.
+  // Regression guard: nothing renders an account name, and there is no
+  // fallback to one anywhere in the card.
   expect(card).not.toHaveTextContent(/alice\b/i);
 });
 
