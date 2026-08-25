@@ -28,6 +28,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import EmojiEventsOutlined from '@mui/icons-material/EmojiEventsOutlined';
 import EmojiEvents from '@mui/icons-material/EmojiEvents';
 import { TROPHY_EMOJI } from '../TrophyCase/TrophyCase';
+import { teamNameLabel, teamRowKey } from '../../lib/teamIdentity';
 import { GRADE_COLORS } from '../DraftGradesCard/DraftGradesCard';
 import apiClient from '../../api/apiClient';
 import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../lib/teamProfileEvents';
@@ -231,11 +232,11 @@ function SeasonPanel({ season, defaultExpanded }) {
               </TableRow>
             </TableHead>
             <TableBody>
-              {standings.map((team) => {
+              {standings.map((team, index) => {
                 const medal = MEDAL_EMOJI[team.rank];
                 return (
                   <TableRow
-                    key={team.teamId}
+                    key={teamRowKey(team.teamId, index)}
                     sx={team.rank === 1 ? { '& .MuiTableCell-root': { fontWeight: 'bold' } } : undefined}
                   >
                     <TableCell>
@@ -246,7 +247,17 @@ function SeasonPanel({ season, defaultExpanded }) {
                       )}
                       {team.rank}
                     </TableCell>
-                    <TableCell>{team.name}</TableCell>
+                    {/*
+                      This map renders BOTH league types. For a pick'em archive,
+                      a null name is expected (the manager's Team was removed at
+                      or before rollover) and "Former manager" is the right
+                      label. A fantasy archive row's name comes from the live
+                      team rows at rollover and should NEVER be null, so a
+                      "Former manager" appearing in a fantasy history table is a
+                      data bug to investigate, not a departed manager. One shared
+                      map is correct here; do not branch the render.
+                    */}
+                    <TableCell>{teamNameLabel(team.name)}</TableCell>
                     {pickem ? (
                       <>
                         <TableCell align="right">{team.points}</TableCell>

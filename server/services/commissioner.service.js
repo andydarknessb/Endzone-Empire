@@ -372,9 +372,26 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
         leagueId, season: league.current_season, db: client, games: seasonGames,
       });
       const teamByOwner = new Map(teamsResult.rows.map((team) => [team.owner_id, team]));
+      // Build each archived row explicitly from Team identity plus the scoring
+      // totals. Do NOT spread the pick'em standings row: it carries the manager
+      // account join key (userId) and Team display fields (teamName/avatars)
+      // that would freeze account identity into a member-visible snapshot
+      // (#342, #115). A member whose Team is gone at rollover archives with
+      // teamId/name null, which the client renders as "Former manager".
       standings = final.standings.map((row) => {
         const team = teamByOwner.get(row.userId);
-        return { ...row, teamId: team ? team.id : null, name: team ? team.name : row.teamName };
+        return {
+          teamId: team ? team.id : null,
+          name: team ? team.name : null,
+          points: row.points,
+          correct: row.correct,
+          incorrect: row.incorrect,
+          pushes: row.pushes,
+          pending: row.pending,
+          made: row.made,
+          weekly: row.weekly,
+          rank: row.rank,
+        };
       });
       rosters = [];
       const firstChampion = pickemResult.outcome === PICKEM_RESULT_OUTCOME.CHAMPIONS
