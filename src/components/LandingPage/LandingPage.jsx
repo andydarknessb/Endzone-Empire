@@ -80,7 +80,7 @@ const FEATURES = [
 function LandingPage() {
   return (
     <Box className="landing-page">
-      <Box className="landing-hero" sx={{ py: { xs: 8, md: 12 } }}>
+      <Box className="landing-hero" data-testid="landing-hero" sx={{ py: { xs: 8, md: 12 } }}>
         <Container maxWidth="md">
           <Stack spacing={3} alignItems="center" textAlign="center">
             <Typography
