@@ -79,9 +79,14 @@ export const colorTokens = {
     // the underlying base pairing had never captured it. Lightened a second
     // time to #7eaaff so the hover composite clears AA too (#237); see
     // tokens.contrast.test.js for the asserted pairing and every other ratio
-    // this move touches.
+    // this move touches. That second lightening left `accent-hover` almost
+    // indistinguishable from `accent` (1.05:1, down from ~1.35:1): nothing
+    // asserted the resting/hover delta, so the regression shipped unnoticed.
+    // Lightened `accent-hover` to #a9c6ff to restore a ~1.34:1 delta while
+    // keeping `on-accent` on it near 10.88:1 and its own ratio against
+    // `surface-raised` near 8.23:1 (#267); see tokens.contrast.test.js.
     accent: '#7eaaff',
-    'accent-hover': '#7fb0ff',
+    'accent-hover': '#a9c6ff',
     'accent-soft': 'rgba(126, 170, 255, 0.16)',
     'on-accent': '#0b1220',
     secondary: '#7ee2a8',
