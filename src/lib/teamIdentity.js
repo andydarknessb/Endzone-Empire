@@ -39,7 +39,22 @@
  *
  * This module belongs to no one surface. Anything added here should read as
  * something a league, Draft, chat or pick'em consumer could all call.
+ *
+ * `TEAM_IDENTITY_FIELDS` is the client half of the contract's enforcement
+ * (#200): the same two wire keys the server exports, frozen, and the single
+ * source of the strings `teamId` / `teamName` on this side - they appear here
+ * once and nowhere else in this module. teamIdentityFields.test.js pins this
+ * array equal to the server's, so the two mirrors cannot drift; the consumers
+ * that move onto Team identity (#115 children) read the wire keys from it
+ * rather than restating them.
  */
+
+/**
+ * The canonical Team identity wire keys, frozen. Mirrors
+ * `server/services/teamIdentity.js`' export of the same name; the two are
+ * pinned equal by a contract test.
+ */
+export const TEAM_IDENTITY_FIELDS = Object.freeze(['teamId', 'teamName']);
 
 /** What any league-shared surface calls someone whose Team is gone. */
 export const FORMER_MANAGER_LABEL = 'Former manager';

@@ -1,4 +1,19 @@
-import { teamNameLabel, teamRowKey, isLeagueCreator, FORMER_MANAGER_LABEL } from './teamIdentity';
+import { teamNameLabel, teamRowKey, isLeagueCreator, FORMER_MANAGER_LABEL, TEAM_IDENTITY_FIELDS } from './teamIdentity';
+// The server mirror is a pure module (no requires), so importing it here to
+// compare the two exports directly is safe and cheap.
+// eslint-disable-next-line import/no-relative-packages
+const serverTeamIdentity = require('../../server/services/teamIdentity');
+
+test('TEAM_IDENTITY_FIELDS mirrors the server export exactly, by import not by source text (#341)', () => {
+  // The client half of "a test in each module asserts the two exports are equal"
+  // (#341 AC1). It imports BOTH exports and compares them, so a drift in either
+  // is a hard failure here - unlike a read of the source text, which a comment
+  // decoy could make pass silently. The server suite pins the server export to
+  // the same literal, so the two are pinned equal transitively as well.
+  expect([...TEAM_IDENTITY_FIELDS]).toEqual(['teamId', 'teamName']);
+  expect(Object.isFrozen(TEAM_IDENTITY_FIELDS)).toBe(true);
+  expect([...TEAM_IDENTITY_FIELDS]).toEqual([...serverTeamIdentity.TEAM_IDENTITY_FIELDS]);
+});
 
 test('a Team name is shown as it is', () => {
   expect(teamNameLabel('Anvils')).toBe('Anvils');
