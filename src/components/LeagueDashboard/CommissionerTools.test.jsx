@@ -894,15 +894,22 @@ test('a grant with no Team is still listed and still revocable', async () => {
 // name FOREVER. The username used to tell them apart for free. If both revoke
 // controls end up with one name, getByRole throws on the ambiguity and the
 // commissioner has the same problem the test does.
+//
+// The two grants share a DATE as well as a name, which is the fixture doing
+// the work: with different dates the accessible names differ on the date alone
+// and the ordinal revokeLabel adds could be deleted with this test still
+// green. Same name and same day is the only case that tests the thing the
+// ordinal is there for, and it is reachable - two promotions in one sitting.
 test('two co-commissioners with identically named Teams get distinguishable revoke controls', async () => {
   apiClient.delete.mockResolvedValue({ data: { coCommissioners: [] } });
+  const SAME_DAY = '2026-08-12T10:00:00.000Z';
   renderTools({
     isOwner: true,
     teams: withOwnerIds,
     league: league({
       co_commissioners: [
-        { user_id: 2, grantedAt: '2026-08-12T10:00:00.000Z', teamId: 2, teamName: 'The Ringers' },
-        { user_id: 3, grantedAt: '2026-08-19T10:00:00.000Z', teamId: 3, teamName: 'The Ringers' },
+        { user_id: 2, grantedAt: SAME_DAY, teamId: 2, teamName: 'The Ringers' },
+        { user_id: 3, grantedAt: SAME_DAY, teamId: 3, teamName: 'The Ringers' },
       ],
     }),
   });
@@ -916,7 +923,8 @@ test('two co-commissioners with identically named Teams get distinguishable revo
   for (const name of names) expect(name).toMatch(/^Remove The Ringers \(/);
 
   // And the grant date is on the row itself, so the disambiguation is visible
-  // and not only announced.
+  // and not only announced - here both rows show the same date, which is
+  // exactly why the accessible name cannot rest on it.
   expect(screen.getAllByText(/^Co-commissioner since /)).toHaveLength(2);
 
   // The second control revokes the SECOND grant, not the first with a matching

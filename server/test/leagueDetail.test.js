@@ -46,7 +46,13 @@ function mockLeagueDetail(t, { isCommissioner = true, coCommissioners = [] } = {
       seen.teamsQuery = text;
       return {
         rows: [{
+          // Both `id` and `teamId`, because GET /api/league/:id projects both:
+          // the raw column and the contract alias teamIdentityColumns() puts
+          // beside it. A fixture carrying only `id` would let a comparison
+          // against the legacy column pass while the contract one silently
+          // matched nothing - which is what the co-commissioner flag reads.
           id: 11,
+          teamId: 11,
           name: "Alice's Team",
           owner_id: 42,
           draft_position: 1,

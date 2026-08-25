@@ -39,12 +39,15 @@ export default function LeagueOfficials({ league }) {
   return (
     <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mb: 3 }}>
       <Typography variant="body2" color="text.secondary">Who can change these:</Typography>
-      {/* Unconditional: a league always has a creator (leagues.owner_id is
-          NOT NULL), so the only question is what to call them. A creator who
-          has left their own league has no Team, and is named a former manager
-          for exactly the same reason a co-commissioner in that position is -
-          gating the chip on the name instead would leave a league whose rules
-          nobody appears able to change. */}
+      {/* Unconditional, and deliberately NOT on the same terms as the grants
+          below: a league always has a creator (leagues.owner_id is NOT NULL)
+          and they always hold the role, so the only question is what to call
+          them. A creator who has left their own league has no Team and is
+          named a former manager, because gating this chip on the name would
+          leave a league whose rules nobody appears able to change. A grant in
+          that same position is filtered out just above instead, and the
+          asymmetry is the point: dropping the only creator hides the role,
+          dropping one grant of several does not. */}
       <Chip size="small" variant="outlined" label={`${teamNameLabel(league.ownerTeamName)} · commissioner`} />
       {coCommissioners.map((c, index) => (
         <Chip
