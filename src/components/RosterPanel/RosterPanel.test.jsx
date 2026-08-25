@@ -189,8 +189,9 @@ describe('regression guards for the suites this component lands in', () => {
   test('renders no bare number that could collide with another panel’s text', () => {
     renderPanel({ picks: [pick(1, 'QB')], rounds: 25 });
     // Anything a reader would see as nothing but a number. getByText matches
-    // on an element's whole text, so this covers the leaf elements the old
-    // querySelectorAll('*') sweep walked, and any wrapper around one.
+    // an element's own text nodes, so it picks out exactly the leaves the old
+    // querySelectorAll('*') sweep kept, plus mixed nodes whose own text is a
+    // bare number - never a wrapper that only contains one.
     const bare = screen.queryAllByText(/^\d+(\.\d+)?$/).map((el) => el.textContent.trim());
     // The only bare numbers this panel emits are R.PP pick labels, which are
     // always zero-padded to two decimal places. That is what keeps them clear

@@ -1510,6 +1510,9 @@ test('an already-drafted pool row hides both Draft and Queue entirely, keeping o
 
   const table = screen.getByRole('table');
   const row = within(table).getByRole('row', { name: /Patrick Mahomes/ });
+  // The old .closest('tr') started from the name button, so it asserted the
+  // name is a button in passing. Keep that explicit rather than lose it.
+  expect(within(row).getByRole('button', { name: 'Patrick Mahomes' })).toBeInTheDocument();
   expect(within(row).getByText('Drafted')).toBeInTheDocument();
   expect(within(row).queryByRole('button', { name: 'Draft' })).not.toBeInTheDocument();
   expect(within(row).queryByRole('button', { name: 'Queue' })).not.toBeInTheDocument();

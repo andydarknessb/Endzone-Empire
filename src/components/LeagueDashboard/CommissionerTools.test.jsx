@@ -861,6 +861,7 @@ test("names each grant's Team from the payload rather than re-joining on account
   const grantRow = screen
     .getAllByRole('listitem')
     .find((item) => within(item).queryByRole('button', { name: 'Remove bob as co-commissioner' }));
+  expect(grantRow).toBeDefined();
   expect(within(grantRow).getByText('Deputy FC')).toBeInTheDocument();
 });
 

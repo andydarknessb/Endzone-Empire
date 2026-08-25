@@ -106,7 +106,7 @@ test('mainContentId also marks the loading state as a <main> landmark, not just 
   expect(within(target).getByRole('progressbar')).toBeInTheDocument();
 });
 
-test('without mainContentId, nothing carries that id (every other FantasyOnly caller is unaffected)', async () => {
+test('without mainContentId, no main landmark is exposed (every other FantasyOnly caller is unaffected)', async () => {
   renderGuarded({ id: 7, name: 'Office Pool', pickem_only: true });
 
   await screen.findByText("This is a pick'em league. Drafts, rosters, and matchups are not part of it.");
