@@ -454,12 +454,18 @@ async function joinPublicLeague({ leagueId, userId, username, teamName }) {
 }
 
 /**
- * Commissioner queue: pending join requests for a league the caller is a
- * commissioner of. Each row is exactly `{ id, team_name, created_at }`
- * (#115 / #379) -- the requester's account name is never selected, so there
- * is nothing to strip: a request is actioned by its id and shown by its
- * proposed Team name, per CONTEXT.md's Team identity rule.
+ * The join-request queue's payload contract (#115 / #379): every pending
+ * request is served as exactly these three fields, never the requester's
+ * account name. Pinned the same way as PREVIEW_FIELDS above -- built fresh
+ * via `allowlisted()` rather than returned as `result.rows` straight from
+ * the query, so a row wider than this contract (a future column the SQL
+ * grows, or a join added back for an unrelated reason) still cannot reach
+ * the client. A request is actioned by its id and shown by its proposed
+ * Team name, per CONTEXT.md's Team identity rule.
  */
+const JOIN_REQUEST_FIELDS = ['id', 'team_name', 'created_at'];
+
+/** Commissioner queue: pending join requests for a league the caller is a commissioner of. */
 async function listJoinRequests({ leagueId, ownerId }) {
   const commish = await pool.query(
     `SELECT 1 FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)}`,
@@ -474,7 +480,7 @@ async function listJoinRequests({ leagueId, ownerId }) {
      ORDER BY "join_requests"."created_at" ASC`,
     [leagueId]
   );
-  return result.rows;
+  return result.rows.map((row) => allowlisted(row, JOIN_REQUEST_FIELDS));
 }
 
 /** Commissioner approves or denies a pending join request, transactionally. */
