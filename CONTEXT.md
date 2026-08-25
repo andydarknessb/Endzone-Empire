@@ -123,6 +123,19 @@ Whether one particular manager may join (already a member, league full,
 approval required, not public) is a separate question layered on top.
 _Avoid_: open (ambiguous with a public league or open slots), recruiting
 
+**Removable**:
+A league that will let a team be removed right now. A league with a fantasy
+side is removable only while pre-draft, the mirror of joinable: once the draft
+has started, its picks, rosters, schedule and lineups are a record that
+removing a team would rewrite, so the answer is no and nothing is deleted. A
+pick'em-only league has no draft and its teams stay removable. Derived from
+league phase, never stored, and it comes with a reason when it is false (the
+draft has started) so the disabled control can show it. Whether this
+particular team may be removed (a commissioner never removes their own) is a
+separate question layered on top.
+_Avoid_: deletable, locked, kickable, "can be dropped" (dropping is a roster
+move)
+
 **Admission**:
 Whether one particular manager may join a joinable league right now: they
 are not already a member and the league is not full. The same rule on every
