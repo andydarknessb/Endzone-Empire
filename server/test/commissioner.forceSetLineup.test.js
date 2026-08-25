@@ -221,7 +221,7 @@ function settledWeekWorld(t, { currentWeek = 9 } = {}) {
 }
 
 test('force-set refuses a settled week with a 409 naming the real reason', async (t) => {
-  const { fake } = settledWeekWorld(t);
+  const { fake, updates, inserts } = settledWeekWorld(t);
 
   await assert.rejects(
     forceSetLineup({
@@ -238,6 +238,13 @@ test('force-set refuses a settled week with a 409 naming the real reason', async
     }
   );
 
+  // #274. The test below already counts these, so between the two the site is
+  // covered - but only between the two: this one pinned the status and message
+  // and nothing else, and that one asserts no status at all. Neither was
+  // self-sufficient, and a split like that is easy to break by deleting either
+  // half. Both halves now stand alone.
+  assert.equal(inserts.length, 0, 'nothing was materialized into the settled week');
+  assert.equal(updates.length, 0, 'no move was persisted against it');
   fake.assertClean();
 });
 

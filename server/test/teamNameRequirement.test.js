@@ -166,10 +166,24 @@ test('decideJoinRequest (approve): a nameless join request cannot slip through -
     })],
     [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
     [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
+    // #274: both writes answered, so the counts below observe an absence
+    // rather than inherit fakePool's "unexpected query" throw.
+    [/^INSERT INTO "teams"/, () => ({ rows: [{ id: 99 }], rowCount: 1 })],
+    [/^UPDATE "join_requests"/, () => ({ rows: [], rowCount: 1 })],
   ]);
   await assert.rejects(
     decideJoinRequest({ leagueId: 7, ownerId: 100, requestId: 3, approve: true }),
     (error) => error instanceof MembershipError && error.statusCode === 400 && error.message === 'Team name is required'
+  );
+  // #274. The two A-class tests above use upserted() for exactly this; this one
+  // had no absence evidence at all. An approval that creates the Team and then
+  // refuses would leave a nameless Team behind on any path that did not roll
+  // back, and mark the request approved to boot.
+  assert.equal(fake.matching(/^INSERT INTO "teams"/).length, 0, 'no nameless Team was created');
+  assert.equal(
+    fake.matching(/^UPDATE "join_requests"/).length,
+    0,
+    'and the request was not marked approved'
   );
   fake.assertClean();
 });
