@@ -204,6 +204,12 @@ function joinAck({ viewerTeam, isCommissioner }) {
  *   NOT_A_MEMBER     the viewer holds no Team in this league (ADR 0002)
  *   JOIN_FAILED      the attempt threw
  *
+ * The spelling is the repository convention and not a local choice: every
+ * error code this app emits is SCREAMING_SNAKE, HTTP body and socket ack
+ * alike (ADR 0007). These three shipped lowercase in #230 and were renamed in
+ * #265; a client reading an unknown code changes no state on it, which is
+ * what made renaming a shipped wire contract cost one stale deploy window.
+ *
  * The message text is deliberately unchanged - it is copy, and clients already
  * render it - but it is not the contract, and it could never have been:
  * JOIN_FAILED's text names the room it failed to join ('failed to join draft
