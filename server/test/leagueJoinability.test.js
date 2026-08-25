@@ -183,7 +183,7 @@ test('denying a join request never consults joinability (a closed league can sti
 test('previewLeagueByInviteCode ships joinable + joinReason and none of the three raw inputs (dropped in the contract step)', async (t) => {
   const row = {
     id: 7, name: 'Office Pick\'em', maxTeams: 50, teamCount: 3, pickemOnly: true, pickemEnabled: true,
-    isPublic: false, ownerUsername: 'alice', draft_status: 'pending', season_status: 'complete', pickem_only: true,
+    isPublic: false, draft_status: 'pending', season_status: 'complete', pickem_only: true,
   };
   t.mock.method(pool, 'query', async () => ({ rows: [row] }));
   const preview = await previewLeagueByInviteCode({ code: 'e402e816', userId: 9 });
@@ -219,7 +219,7 @@ test('GET /preview: a completed pick\'em-only league previews as not joinable, s
   const row = {
     id: 7, name: 'Office Pick\'em', maxTeams: 50, teamCount: 3, scoringPreset: null, bestBall: false,
     pickemOnly: true, pickemEnabled: true, joinApproval: false, draftDate: null, createdAt: '2026-08-01T00:00:00.000Z',
-    alreadyMember: false, myRequestStatus: null, isPublic: false, ownerUsername: 'alice',
+    alreadyMember: false, myRequestStatus: null, isPublic: false,
     draft_status: 'pending', season_status: 'complete', pickem_only: true,
   };
   t.mock.method(pool, 'query', async (sql) => {
@@ -244,7 +244,7 @@ test('GET /preview: an in-season pick\'em-only league is joinable with no reason
   const base = {
     id: 7, name: 'x', maxTeams: 12, teamCount: 3, scoringPreset: null, bestBall: false, pickemEnabled: false,
     joinApproval: false, draftDate: null, createdAt: '2026-08-01T00:00:00.000Z', alreadyMember: false,
-    myRequestStatus: null, isPublic: false, ownerUsername: 'alice',
+    myRequestStatus: null, isPublic: false,
   };
   let row = { ...base, pickemOnly: true, draft_status: 'pending', season_status: 'regular', pickem_only: true };
   t.mock.method(pool, 'query', async () => ({ rows: [row] }));

@@ -42,7 +42,7 @@ const app = makeApp();
 const PICKEM_ROW = {
   id: 7, name: 'Office Pick\'em', maxTeams: 12, teamCount: 3, scoringPreset: null, bestBall: false,
   pickemOnly: true, pickemEnabled: true, joinApproval: false, draftDate: null, createdAt: '2026-08-01T00:00:00.000Z',
-  alreadyMember: false, myRequestStatus: null, isPublic: false, ownerUsername: 'alice',
+  alreadyMember: false, myRequestStatus: null, isPublic: false,
   ownerTeamName: 'Alice\'s Aces', draft_status: 'pending',
   season_status: 'regular', pickem_only: true,
 };
