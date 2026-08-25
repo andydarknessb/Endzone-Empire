@@ -26,7 +26,11 @@ jest.mock('../../api/apiClient', () => ({
 // — a hop queued during the run waits for the next pump. That one-hop-per-pump
 // control is what makes the guard's transient restorationPending window
 // observable deterministically (runAllTimers would drain the whole chain and
-// close the window before it could be asserted).
+// close the window before it could be asserted). Unlike the real-timer
+// `flush(times = 6)` #305 deleted from this file, every call site below
+// passes a hop count that is a known, commented quantity (see each call), not
+// a guess at how long an unspecified settle takes — #305 rules fake-timer
+// refactors out of scope for exactly this reason.
 const pump = async (times = 1) => {
   for (let i = 0; i < times; i += 1) {
     // eslint-disable-next-line no-await-in-loop

@@ -43,9 +43,12 @@ what keeps the same reasoning from re-deriving the same wrapper.
   awaiting the consequence is the defect; the wrapper only hid it behind a
   different message.
 - `act()` stays correct for what it is for: driving a non-user-event trigger
-  (a socket callback, `clearLeagueCache`). A settle that only exists because a
-  query can't observe the thing directly is itself the defect #305 closed: it
-  is a guessed hop count standing in for an awaited observable, not a
-  legitimate use of `act()`.
+  (a socket callback, `clearLeagueCache`), including a deterministic pump over
+  fake timers where each call site's hop count is a documented, understood
+  quantity (`NavigationGuard.test.jsx`'s `pump`, one jsdom history-traversal
+  hop per call). What #305 closed is the other shape: a real-timer loop
+  guessing *how many* `act()` + zero-timeout turns an unspecified settle
+  needs, with no per-call-site justification for the number chosen and
+  nothing awaited that the test can point to.
 - The full client suite reports zero warnings of either family, so a new one is
   legible the day it appears.

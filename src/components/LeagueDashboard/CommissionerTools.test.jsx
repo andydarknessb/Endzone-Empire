@@ -97,12 +97,11 @@ beforeEach(() => {
 
 test('renders all six tabs, defaulting to General Settings', async () => {
   renderTools();
-  // MUI's Tabs indicator repositions via a MutationObserver that fires
-  // asynchronously after mount (see the hash-only-navigation test below for
-  // the full explanation). Awaiting the test's own defaulting claim, rather
-  // than a guessed number of settle hops, is what lets that finish before
-  // this, the first test in the file, ends.
-  await waitFor(() => expect(screen.getByRole('tab', { name: 'General Settings' })).toHaveAttribute('aria-selected', 'true'));
+  // MUI's Tabs indicator repositions via a MutationObserver after mount (see
+  // the hash-only-navigation test below), but nothing here reads the
+  // indicator's position - every assertion below is synchronous with the
+  // initial render, so there is nothing for this test to await.
+  expect(screen.getByRole('tab', { name: 'General Settings' })).toHaveAttribute('aria-selected', 'true');
   expect(screen.getByRole('tab', { name: 'Roster Settings' })).toBeInTheDocument();
   expect(screen.getByRole('tab', { name: 'Scoring Settings' })).toBeInTheDocument();
   expect(screen.getByRole('tab', { name: 'Playoffs & Schedule' })).toBeInTheDocument();
@@ -115,10 +114,10 @@ test('calls out immediate general-setting effects and destructive team removal',
   renderTools({ league: league({ is_public: true, join_approval: true }) });
   // is_public + join_approval mounts the join-requests panel, which fires its
   // own GET on mount. Its setJoinRequests(...) update is unrelated to what
-  // this test asserts, but the panel it lands in is: await the section
-  // itself settling (its own mount-effect result) rather than guessing a
-  // hop count, or the update lands after the test has already returned.
-  expect(await screen.findByTestId('join-requests-section')).toBeInTheDocument();
+  // this test asserts, so the observable this awaits is the request itself
+  // landing (matching settleRefresh's pattern in LeagueDashboard.test.jsx),
+  // not a guessed hop count - or the update lands after the test returns.
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/1/join-requests'));
 
   expect(screen.getByText(/Applies immediately\. Freezes adds/)).toBeInTheDocument();
   expect(screen.getByText('Destructive actions')).toBeInTheDocument();
@@ -1198,9 +1197,12 @@ test("a fantasy tab left selected does not survive a switch to a pick'em-only le
       <CommissionerTools leagueId={2} league={pickemLeague({ id: 2 })} teams={teams} viewerTeamId={1} onRefresh={jest.fn()} />
     </StableShell>
   );
-  // The rerender swaps in a whole new tab set, so the fallback to General
-  // Settings below is this test's own claim to await, rather than a guessed
-  // number of settle hops for the indicator's MutationObserver.
+  // The rerender swaps in a whole new tab set, so this fallback to General
+  // Settings is this test's own claim to await - awaiting it (rather than a
+  // guessed settle-hop count) is also what gives MUI's Tabs component, whose
+  // own indicator-repositioning MutationObserver fires from this rerender
+  // too, the turn it needs to land its update inside act (verified: without
+  // this await, MUI's ForwardRef(Tabs) throws "not wrapped in act(...)").
   await waitFor(() => expect(screen.getByRole('tab', { name: 'General Settings' })).toHaveAttribute('aria-selected', 'true'));
   expect(screen.queryByRole('button', { name: 'Save Scoring Settings' })).not.toBeInTheDocument();
   expect(screen.getByText('Remove a team')).toBeInTheDocument(); // the General panel body is showing
