@@ -197,7 +197,7 @@ export default function useDraftSocket(leagueId, { onPickLanded } = {}) {
           // a manager's own controls off and back on a blip.
           //
           // That unrecognised-code branch is also what made #265's rename of
-          // these codes affordable; ADR 0007 carries the reasoning and the
+          // these codes affordable; ADR 0008 carries the reasoning and the
           // convention, and useDraftSocket.test.js pins both halves.
           if (resp.code === 'NOT_A_MEMBER') {
             setViewerTeamId(null);

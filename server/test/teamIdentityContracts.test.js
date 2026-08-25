@@ -358,7 +358,7 @@ test('every join refusal code the handlers emit is one of the three, spelled SCR
     'the join handlers emit exactly the three codes #230 defined, uppercase (#265)'
   );
   for (const code of emitted) {
-    // The convention itself (ADR 0007), not just these three values: every
+    // The convention itself (ADR 0008), not just these three values: every
     // error code this app emits is upper snake, HTTP body and socket ack alike.
     assert.match(code, /^[A-Z][A-Z0-9_]*$/, `${code} is not SCREAMING_SNAKE`);
   }
