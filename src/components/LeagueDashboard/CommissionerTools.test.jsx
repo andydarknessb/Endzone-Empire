@@ -860,9 +860,33 @@ test("names each grant's Team from the payload rather than re-joining on account
   // card read the payload rather than rebuilding a null.
   const grantRow = screen
     .getAllByRole('listitem')
-    .find((item) => within(item).queryByRole('button', { name: 'Remove bob as co-commissioner' }));
+    .find((item) => within(item).queryByRole('button', { name: 'Remove Deputy FC as co-commissioner' }));
   expect(grantRow).toBeDefined();
   expect(within(grantRow).getByText('Deputy FC')).toBeInTheDocument();
+  // #324: the roster is displayed by Team here too. This fixture still carries
+  // a username the payload no longer ships, so a card that renders one would
+  // show it - and none does.
+  expect(screen.queryByText('bob')).not.toBeInTheDocument();
+});
+
+// #324: a grant that outlived its Team has no Team identity to name it by, so
+// it leaves the member-visible roster on the rules page entirely. It cannot
+// leave HERE: this card is the only place the revoke lives, and the account id
+// the commissioner-conditional payload carries is what the revoke is built on.
+test('a grant with no Team is still listed and still revocable', async () => {
+  apiClient.delete.mockResolvedValue({ data: { coCommissioners: [] } });
+  renderTools({
+    isOwner: true,
+    teams: withOwnerIds,
+    league: league({ co_commissioners: [{ user_id: 2, teamId: null, teamName: null }] }),
+  });
+
+  await userEvent.click(screen.getByRole('button', { name: 'Remove Former manager as co-commissioner' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Remove' }));
+
+  await waitFor(() =>
+    expect(apiClient.delete).toHaveBeenCalledWith('/api/league/1/co-commissioners/2')
+  );
 });
 
 test('the owner promotes a member by user id and refreshes', async () => {
@@ -896,10 +920,10 @@ test('an existing co-commissioner is listed and can be revoked after confirming'
     isOwner: true,
     teams: withOwnerIds,
     onRefresh,
-    league: league({ co_commissioners: [{ user_id: 2, username: 'bob' }] }),
+    league: league({ co_commissioners: [{ user_id: 2, teamId: 2, teamName: "Bob's Team" }] }),
   });
 
-  await userEvent.click(screen.getByRole('button', { name: 'Remove bob as co-commissioner' }));
+  await userEvent.click(screen.getByRole('button', { name: "Remove Bob's Team as co-commissioner" }));
   await userEvent.click(screen.getByRole('button', { name: 'Remove' }));
 
   await waitFor(() =>
@@ -912,10 +936,10 @@ test('cancelling the revoke dialog leaves the co-commissioner in place', async (
   renderTools({
     isOwner: true,
     teams: withOwnerIds,
-    league: league({ co_commissioners: [{ user_id: 2, username: 'bob' }] }),
+    league: league({ co_commissioners: [{ user_id: 2, teamId: 2, teamName: "Bob's Team" }] }),
   });
 
-  await userEvent.click(screen.getByRole('button', { name: 'Remove bob as co-commissioner' }));
+  await userEvent.click(screen.getByRole('button', { name: "Remove Bob's Team as co-commissioner" }));
   await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 
   expect(apiClient.delete).not.toHaveBeenCalled();
@@ -925,7 +949,7 @@ test('an already-promoted member drops out of the candidate list', () => {
   renderTools({
     isOwner: true,
     teams: withOwnerIds,
-    league: league({ co_commissioners: [{ user_id: 2, username: 'bob' }] }),
+    league: league({ co_commissioners: [{ user_id: 2, teamId: 2, teamName: "Bob's Team" }] }),
   });
 
   expect(screen.getByRole('combobox', { name: 'Add a co-commissioner' })).toHaveAttribute('aria-disabled', 'true');

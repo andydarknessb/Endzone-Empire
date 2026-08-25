@@ -48,6 +48,7 @@ import {
 } from '../../lib/leagueRulesFormat';
 import { capForType, isPickemOnly, leagueTypeOf, MIN_TEAMS } from '../../lib/leagueType';
 import { deriveLeaguePhase, draftSettingsFrozen, LEAGUE_PHASE } from '../../lib/leaguePhase';
+import { teamNameLabel } from '../../lib/teamIdentity';
 
 const PLAYOFF_TEAM_OPTIONS = [4, 6, 8];
 const PLAYOFF_START_WEEK_OPTIONS = [14, 15, 16, 17, 18];
@@ -146,6 +147,13 @@ function CoCommissionerCard({ leagueId, league, teams, onRefresh, notify }) {
   // `c.user_id` against `teams[].owner_id`, re-deriving from account fields an
   // answer the payload carried (#188) - and overwriting the real `teamName`
   // with null whenever the rebuild missed.
+  //
+  // Since #324 the roster is DISPLAYED by Team here as well: the grant's
+  // `user_id` reaches this card only because it is commissioner-conditional
+  // payload, and only the revoke call is built from it. A team-less grant
+  // therefore has no name of its own and reads as a former manager - the one
+  // place it is still listed, because this card is the only place it can be
+  // revoked and it leaves the member-visible roster entirely.
   const coCommissioners = league.co_commissioners || [];
   // Sanctioned direct owner_id comparison: granting a co-commissioner is one
   // of the three owner-shaped actions leagueRole.service's header enumerates,
@@ -197,10 +205,10 @@ function CoCommissionerCard({ leagueId, league, teams, onRefresh, notify }) {
             <ListItem
               key={c.user_id}
               secondaryAction={
-                <Tooltip title={`Remove ${c.username} as co-commissioner`}>
+                <Tooltip title={`Remove ${teamNameLabel(c.teamName)} as co-commissioner`}>
                   <IconButton
                     edge="end"
-                    aria-label={`Remove ${c.username} as co-commissioner`}
+                    aria-label={`Remove ${teamNameLabel(c.teamName)} as co-commissioner`}
                     onClick={() => setRevokeTarget(c)}
                   >
                     {/* Not a delete: they keep their team, they just lose the
@@ -211,7 +219,7 @@ function CoCommissionerCard({ leagueId, league, teams, onRefresh, notify }) {
                 </Tooltip>
               }
             >
-              <ListItemText primary={c.username} secondary={c.teamName} />
+              <ListItemText primary={teamNameLabel(c.teamName)} />
             </ListItem>
           ))}
         </List>
@@ -247,7 +255,7 @@ function CoCommissionerCard({ leagueId, league, teams, onRefresh, notify }) {
       )}
 
       <Dialog open={!!revokeTarget} onClose={() => setRevokeTarget(null)}>
-        <DialogTitle>Remove {revokeTarget?.username} as co-commissioner?</DialogTitle>
+        <DialogTitle>Remove {teamNameLabel(revokeTarget?.teamName)} as co-commissioner?</DialogTitle>
         <DialogContent>
           <DialogContentText>
             They keep their team and stay in the league, but lose all commissioner powers.
