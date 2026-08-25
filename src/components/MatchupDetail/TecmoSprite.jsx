@@ -139,11 +139,16 @@ Sprite.propTypes = {
 // rowsToRects gets an empty kit and the H/J/P/A branches never match.
 const EMPTY_KIT = {};
 
-/** Touchdown referee, arms up; `frame` (0|1) picks the bounce pose. */
-export function RefereeSprite({ frame, className }) {
+/**
+ * Touchdown referee, arms up; `frame` (0|1) picks the bounce pose.
+ * `testId` is an optional test-only seam: the sprite stays `aria-hidden`, so a
+ * test that needs to see it has no role or accessible name to query it by.
+ */
+export function RefereeSprite({ frame, className, testId }) {
   return (
     <svg
       className={className}
+      data-testid={testId}
       viewBox="0 0 16 16"
       shapeRendering="crispEdges"
       aria-hidden="true"
@@ -157,13 +162,15 @@ export function RefereeSprite({ frame, className }) {
 RefereeSprite.propTypes = {
   frame: PropTypes.number.isRequired,
   className: PropTypes.string,
+  testId: PropTypes.string,
 };
 
-/** Static pixel goal post. */
-export function GoalPostSprite({ className }) {
+/** Static pixel goal post. `testId` is the same test-only seam as RefereeSprite. */
+export function GoalPostSprite({ className, testId }) {
   return (
     <svg
       className={className}
+      data-testid={testId}
       viewBox="0 0 16 16"
       shapeRendering="crispEdges"
       aria-hidden="true"
@@ -176,4 +183,5 @@ export function GoalPostSprite({ className }) {
 
 GoalPostSprite.propTypes = {
   className: PropTypes.string,
+  testId: PropTypes.string,
 };
