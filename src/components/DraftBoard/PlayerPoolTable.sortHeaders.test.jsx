@@ -5,7 +5,8 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PlayerPoolTable from './PlayerPoolTable';
 import { SORT_FIELDS, SORT_KEYS } from './sortFields';
-import { STAT_DEFINITIONS } from '../common/AbbreviationTooltip';
+import AbbreviationTooltip, { STAT_DEFINITIONS } from '../common/AbbreviationTooltip';
+import renderWithProviders from '../../test-utils/renderWithProviders';
 
 // Parity guard for issue #163: the desktop table's TableSortLabel headers
 // used to hardcode the same six key/label pairs SORT_FIELDS already owns
@@ -155,6 +156,36 @@ test('every numeric desktop sort header keeps its AbbreviationTooltip accessible
     const expectedName = `${term}: ${STAT_DEFINITIONS[term]}`;
     expect(within(headerRow).getByRole('button', { name: expectedName })).toBeInTheDocument();
   });
+});
+
+// Issue #255: SortableHeaderCell's numeric-header label used to hand-restate
+// AbbreviationTooltip's three-property hover/focus style (cursor: 'help',
+// textDecoration: 'underline dotted', textUnderlineOffset: 3) in its own sx
+// literal instead of sharing it, free to drift since nothing kept the two in
+// step. jsdom's getComputedStyle doesn't implement text-underline-offset (it
+// reads back as `undefined` even when the rule is present in the
+// stylesheet - confirmed against this exact Box while writing this test), so
+// a toHaveStyle-style computed-style assertion can't reliably pin this
+// property; the class name emotion generates for an sx object IS a hash of
+// its serialized CSS content, so two Boxes given byte-identical style content
+// resolve to the same emotion class regardless of where each sx literal
+// lives (verified against these two Boxes rendered separately while writing
+// this test). Comparing the numeric header label's emotion class against
+// AbbreviationTooltip's own (rendered here from AbbreviationTooltip itself,
+// not a copied string) pins them to one shared style definition: it goes red
+// if SortableHeaderCell's `sx={{ ...ABBREVIATION_STYLE }}` spread is removed
+// (no emotion class at all) or if either Box's style content diverges from
+// the other's.
+test('the numeric desktop sort header label renders with AbbreviationTooltip\'s own emotion style class', () => {
+  renderWithProviders(<AbbreviationTooltip term="ADP" label="ADP-tooltip-reference" />);
+  const tooltipLabel = screen.getByText('ADP-tooltip-reference');
+  const [, sharedClass] = tooltipLabel.className.match(/\bcss-(\S+)\b/);
+  expect(sharedClass).toBeTruthy();
+
+  render(<PlayerPoolTable {...baseProps} sort="name" />);
+  const headerRow = screen.getAllByRole('row')[0];
+  const headerLabel = within(headerRow).getByText('ADP');
+  expect(headerLabel.className.split(' ')).toContain(`css-${sharedClass}`);
 });
 
 // Code-review finding on issue #212: a numeric header's aria-label (set
