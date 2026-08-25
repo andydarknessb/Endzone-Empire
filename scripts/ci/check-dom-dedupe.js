@@ -42,38 +42,44 @@
  * `--parseable` collapses to one line per physical install, which is the
  * count this guard is defined on.
  *
- * Determinism (#313): `npm ls` resolves against the node_modules of its
- * working directory, so before this change the SAME checkout printed a
- * different sentence depending on which subdirectory you invoked the guard
- * from. We pin the working directory to the checkout that owns THIS script
- * (two levels up from scripts/ci/), which makes the count and the message
- * independent of the working directory WITHIN one checkout: run it from the
- * repo root or from scripts/ci/ or from anywhere below, and you get the same
- * answer about the same tree.
+ * Anchoring, in two steps (#313, then #352): `npm ls` reports only what is
+ * installed under ITS working directory's node_modules, so before #313 the
+ * SAME checkout printed a different sentence depending on which subdirectory
+ * you invoked the guard from. #313 pinned the SEARCH root to the checkout that
+ * owns THIS script (two levels up from scripts/ci/, via resolveSearchRoot),
+ * making the answer independent of the working directory WITHIN one checkout.
  *
- * What this deliberately does NOT do is force one canonical root across
- * checkouts. Every git worktree carries its own copy of this script, so the
- * anchor resolves to whatever checkout the running script lives in. A worktree
- * with no node_modules legitimately reports zero; the main checkout with a
- * split install legitimately reports two. Those are two different trees, so
- * two different sentences is correct, not a contradiction — forcing them to a
- * single root would make the guard lie about a real difference between the
- * installs. The fix for #313's "same tree, two sentences" complaint is not to
- * collapse the roots but to NAME the search root in every message, so a reader
- * can tell "found 0 under the worktree" apart from "found 2 under the main
- * checkout" instead of reading a bare "found 0" against a bare "found 2" and
- * concluding the dependency was dropped.
+ * #313 stopped there and let each checkout's search root also be its `npm ls`
+ * root. That is wrong for a nested git worktree with no node_modules of its
+ * own: Node's module resolution walks UP from the importing test file, so the
+ * tests there load @testing-library/dom from the PARENT checkout's install,
+ * but `npm ls` scoped to the worktree sees nothing and prints `found 0` for a
+ * perfectly healthy shared install — and a real split living in the parent is
+ * invisible from the worktree. #352 adds a second step: from the search root,
+ * resolveInstallRoot walks the ancestor chain the same way Node does and finds
+ * the nearest directory whose node_modules actually holds the package. That
+ * INSTALL root is where `npm ls` runs, so the guard always reports on the tree
+ * the tests will use. When the search root has its own install (the main
+ * checkout, CI, a worktree that ran `npm ci`), the two roots coincide and the
+ * behavior is byte-for-byte what #313 produced.
+ *
+ * When the two roots differ, every message (success and failure) names BOTH
+ * ("searched from X, resolved against Y") so a reader can tell "found 2 in the
+ * parent, reached from this worktree" apart from a split that lives in the
+ * worktree itself. Only when the package resolves NOWHERE up the chain does
+ * the guard fail-closed with `found 0` and the `npm ci` remediation; a nested
+ * worktree backed by an ancestor install never reaches that message.
  *
  * Symlinked worktrees (common here — many worktrees symlink node_modules to
- * the main checkout): npm resolves the symlink but evaluates the resolved copy
- * against the WORKTREE's package.json, so a copy can be counted correctly, be
- * flagged INVALID/extraneous by npm, and physically live under a different
- * checkout than the search root this message names. The count and the pass/
- * fail verdict stay right; the named root is the tree we asked about, not
- * necessarily the directory the bytes sit in. We do not resolve symlinks
- * (that would change the frozen pass/fail rule, #313); instead the failure
- * path surfaces npm's own stderr, which carries the INVALID/extraneous
- * markers that explain the discrepancy.
+ * the main checkout): the symlink makes the worktree its OWN install root
+ * (fs.existsSync follows the link), so search root and install root coincide
+ * and `npm ls` runs in the worktree. npm resolves the symlink but evaluates
+ * the resolved copy against the WORKTREE's package.json, emitting the INVALID
+ * four-field `--long` shape the parser already collapses to one physical copy;
+ * the guard passes, naming that one path. We do not resolve symlinks to their
+ * physical target (that would change the frozen pass/fail rule, #313); the
+ * failure path still surfaces npm's own stderr, which carries any
+ * INVALID/extraneous markers that explain a discrepancy.
  *
  * Run: `npm run check:dom-dedupe`
  *
@@ -85,6 +91,7 @@
  */
 const { spawnSync } = require('child_process');
 const path = require('path');
+const fs = require('fs');
 
 const PACKAGE_NAME = '@testing-library/dom';
 
@@ -98,6 +105,40 @@ const PACKAGE_NAME = '@testing-library/dom';
 // (#313).
 function resolveSearchRoot() {
   return path.resolve(__dirname, '..', '..');
+}
+
+// Find the tree the tests will actually use (#352). `npm ls` reports only what
+// is installed under ITS working directory's node_modules, but Node's module
+// resolution walks UP from the importing file: a nested git worktree with no
+// node_modules of its own resolves @testing-library/dom from the parent
+// checkout's install. Anchoring `npm ls` to the search root then reports
+// `found 0` for exactly that healthy shared-install case, and hides a real
+// split that lives in the parent. So, starting from the search root, walk the
+// ancestor chain the same way Node would and return the nearest directory
+// whose node_modules holds an installed copy of the package (its package.json
+// exists). That directory is where `npm ls` should run. Return null when no
+// ancestor has it installed — the genuine fail-closed "resolves nowhere" case.
+//
+// Synchronous fs checks only (no npm spawn) so this stays unit-testable
+// against temp-dir fixtures. fs.existsSync follows symlinks, so a worktree
+// whose node_modules is a symlink to the parent's resolves to the worktree
+// itself (search root == install root), which is the correct "judge this tree
+// on its own" behavior — npm ls then emits the INVALID four-field shape the
+// parser already collapses to one copy.
+function resolveInstallRoot(searchRoot) {
+  const pkgSegments = PACKAGE_NAME.split('/'); // ['@testing-library', 'dom']
+  const hasCopy = (dir) =>
+    fs.existsSync(path.join(dir, 'node_modules', ...pkgSegments, 'package.json'));
+  let dir = path.resolve(searchRoot);
+  let parent = path.dirname(dir);
+  while (parent !== dir) {
+    if (hasCopy(dir)) return dir;
+    dir = parent;
+    parent = path.dirname(dir);
+  }
+  // The loop stops before testing the filesystem root itself; test it too.
+  if (hasCopy(dir)) return dir;
+  return null;
 }
 
 // Split `npm ls <pkg> --parseable --long` output into the set of distinct
@@ -158,23 +199,62 @@ function evaluate(copies) {
   return { ok: copies.length === 1, count: copies.length };
 }
 
-// Build the failure diagnostic. It is a pure function of (copies, searchRoot),
-// so the same tree state and the same search root always produce the same
-// sentence. It names the count, the location it searched, and every copy it
-// found with that copy's resolved version (or, for zero, the absence and
-// where it looked).
-function buildViolationMessage(copies, searchRoot) {
-  const lines = [
-    `\n❌ ${PACKAGE_NAME} dedupe check failed.`,
-    `Searched: ${searchRoot}`,
-    `   (via \`npm ls ${PACKAGE_NAME} --all --parseable --long\`, resolved against that directory's node_modules)`,
-    `Expected exactly one installed copy; found ${copies.length}${copies.length ? ':' : '.'}\n`,
-  ];
+// Build the failure diagnostic. It is a pure function of (copies, searchRoot,
+// installRoot), so the same tree state and the same roots always produce the
+// same sentence. It names the count, the location it searched, the location it
+// actually resolved against when that differs (#352), and every copy it found
+// with that copy's resolved version (or, for zero, the absence and where it
+// looked).
+//
+// installRoot is the directory `npm ls` ran in (the nearest ancestor whose
+// node_modules holds the package). It defaults to searchRoot for the common
+// case where they coincide (the main checkout, CI, a worktree with its own
+// install). It is null only in the "resolves nowhere" found-0 case, which is
+// treated the same as coinciding for naming: only the search root is named.
+function buildViolationMessage(copies, searchRoot, installRoot = searchRoot) {
+  const rootsDiffer = installRoot !== null && installRoot !== searchRoot;
+  const lines = [`\n❌ ${PACKAGE_NAME} dedupe check failed.`];
+  if (rootsDiffer) {
+    // The search root had no install of its own, so Node - and this guard -
+    // resolved the package from an ancestor. Name both so the reader can tell
+    // "found 2 under the parent, reached from this worktree" apart from a
+    // split that lives in the worktree itself.
+    lines.push(
+      `Searched from: ${searchRoot}`,
+      `Resolved against: ${installRoot}`,
+      `   (${searchRoot} has no node_modules of its own; Node resolves ${PACKAGE_NAME} from the ` +
+        `nearest ancestor install, so \`npm ls ${PACKAGE_NAME} --all --parseable --long\` ran in ${installRoot})`
+    );
+  } else {
+    lines.push(
+      `Searched: ${searchRoot}`,
+      `   (via \`npm ls ${PACKAGE_NAME} --all --parseable --long\`, resolved against that directory's node_modules)`
+    );
+  }
+  lines.push(
+    `Expected exactly one installed copy; found ${copies.length}${copies.length ? ':' : '.'}\n`
+  );
   copies.forEach(({ path: installPath, version }) => {
     lines.push(`  ${installPath}  (${PACKAGE_NAME}@${version || 'unknown'})`);
   });
 
-  if (copies.length === 0) {
+  if (copies.length === 0 && rootsDiffer) {
+    // Degenerate, effectively unreachable from main(): an ancestor install
+    // resolved (its package.json exists, so installRoot is non-null and differs
+    // from the worktree searchRoot) yet `npm ls` in it reported no copy. The
+    // `npm ci` remediation below would be actively wrong here - it would tell a
+    // reader in the worktree to install into the worktree when a real ancestor
+    // install already exists (#352 forbids exactly that advice from this case).
+    // Name the contradiction instead and defer to npm's own stderr.
+    lines.push(
+      `\nAn install of ${PACKAGE_NAME} was found under ${installRoot} (its package.json ` +
+        `exists there), but \`npm ls\` run in that directory reported no copy. That is an ` +
+        'unexpected, inconsistent tree state, not the normal "never installed" case, so ' +
+        `do NOT run \`npm ci\` in ${searchRoot}. Inspect ${installRoot}/node_modules and ` +
+        'the npm ls stderr below (see #219 and #224 for why this package must stay ' +
+        'deduped).\n'
+    );
+  } else if (copies.length === 0) {
     lines.push(
       `\nNo copy of ${PACKAGE_NAME} is installed under ${searchRoot}. That is the ` +
         'normal state of a fresh checkout or a git worktree that has never had ' +
@@ -215,14 +295,29 @@ function main() {
   // Resolve against the checkout that owns this script, not the invoking
   // directory, so the answer is the same from anywhere (#313).
   const searchRoot = resolveSearchRoot();
+  // Then find the tree the tests will actually use: the nearest ancestor whose
+  // node_modules holds the package, the same way Node's module resolution walks
+  // up. From a nested worktree with no install of its own, this is the parent
+  // checkout, so the guard reports on the shared install the tests really load
+  // rather than printing `found 0` for a healthy tree (#352).
+  const installRoot = resolveInstallRoot(searchRoot);
+
+  if (installRoot === null) {
+    // The package resolves nowhere from the search root or any ancestor. This
+    // is the genuine fail-closed case, and the only one that keeps the
+    // `npm ci` remediation. There is no directory to run `npm ls` in.
+    console.error(buildViolationMessage([], searchRoot, null));
+    process.exit(1);
+  }
+
   const result = spawnSync(
     process.execPath,
     [npmExecPath, 'ls', PACKAGE_NAME, '--all', '--parseable', '--long'],
-    { encoding: 'utf8', shell: false, cwd: searchRoot }
+    { encoding: 'utf8', shell: false, cwd: installRoot }
   );
 
   if (result.error) {
-    console.error(`\n❌ Could not run "npm ls ${PACKAGE_NAME}" in ${searchRoot}: ${result.error.message}\n`);
+    console.error(`\n❌ Could not run "npm ls ${PACKAGE_NAME}" in ${installRoot}: ${result.error.message}\n`);
     process.exit(1);
   }
 
@@ -235,7 +330,7 @@ function main() {
   const { ok } = evaluate(copies);
 
   if (!ok) {
-    console.error(buildViolationMessage(copies, searchRoot));
+    console.error(buildViolationMessage(copies, searchRoot, installRoot));
     // npm's own stderr (e.g. an ELSPROBLEMS "invalid" warning) can carry
     // context this script's own diagnostic doesn't have; surface it too
     // when npm produced any.
@@ -246,8 +341,14 @@ function main() {
   }
 
   const only = copies[0];
+  // Name the resolved root when it differs from the search root, so a pass
+  // from a nested worktree self-explains which tree it judged (#352).
+  const where =
+    installRoot !== searchRoot
+      ? `under ${installRoot} (searched from ${searchRoot}, resolved against that ancestor)`
+      : `under ${searchRoot}`;
   console.log(
-    `✅ Exactly one copy of ${PACKAGE_NAME} installed under ${searchRoot}: ` +
+    `✅ Exactly one copy of ${PACKAGE_NAME} installed ${where}: ` +
       `${only.path} (${PACKAGE_NAME}@${only.version || 'unknown'}).`
   );
 }
@@ -258,6 +359,7 @@ if (require.main === module) {
 
 module.exports = {
   resolveSearchRoot,
+  resolveInstallRoot,
   parseInstalledCopies,
   evaluate,
   buildViolationMessage,
