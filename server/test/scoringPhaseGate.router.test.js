@@ -197,16 +197,16 @@ for (const route of ['advance-week', 'schedule', 'matchups']) {
     // deriveLeaguePhase reports a pickem-only league in-season, so the phase
     // gate would wave it through if this middleware ever stopped firing.
     //
-    // #274: the fixture below deliberately answers everything the three write
-    // paths need, INSERT included, so the counts that follow observe an
-    // absence rather than inherit fakePool's "unexpected query" throw. That
-    // throw would pass today and would vanish silently the moment anyone
-    // registered the handler for an unrelated convenience.
-    const fake = routerPool(league({ pickem_only: true, draft_status: 'pending' }), [
-      [/^SELECT 1 FROM "matchups"/, () => ({ rows: [] })],
-      [/FROM "teams"/, () => ({ rows: [{ id: 11 }, { id: 12 }] })],
-      [insert('matchups'), () => ({ rows: [], rowCount: 1 })],
-    ]).install(t);
+    // #274: the seam here is the COLLABORATOR, and only the collaborator.
+    // scoring.router.js issues no INSERT, UPDATE or DELETE of its own - every
+    // write on all three routes happens inside scoring.scoreMatchups,
+    // scoring.generateMatchups, season.generateRegularSeason or
+    // season.finalizeWeekAndAdvance. Since all four are stubbed below, no code
+    // path downstream of them can dispatch SQL at all, which means a
+    // fake.matching(insert('matchups')) count here would be pinned at 0 in the
+    // correct build AND in a mutated one. That is the unfalsifiable assertion
+    // this ticket exists to remove, so it is deliberately not written.
+    const fake = routerPool(league({ pickem_only: true, draft_status: 'pending' })).install(t);
     const scored = spy(t, scoring, 'scoreMatchups');
     const finalized = spy(t, season, 'finalizeWeekAndAdvance');
     const scheduled = spy(t, season, 'generateRegularSeason');
@@ -220,15 +220,12 @@ for (const route of ['advance-week', 'schedule', 'matchups']) {
     assert.equal(res.status, 409);
     assert.equal(res.body.code, PICKEM_ONLY_CODE);
     assert.notEqual(res.body.error, SEASON_BEFORE_DRAFT_MESSAGE);
-    // Every write any of the three routes could perform, counted at both
-    // seams: the outbound collaborator and the SQL the router issues itself.
+    // All four write-performing collaborators, counted. Between them they
+    // cover every mutation the three routes can reach.
     assert.equal(scored.length, 0, 'no scores were written');
     assert.equal(finalized.length, 0, 'the week was never finalized');
     assert.equal(scheduled.length, 0, 'no season was scheduled');
     assert.equal(generated.length, 0, 'no week was generated');
-    assert.equal(fake.matching(insert('matchups')).length, 0, 'no matchup was inserted');
-    assert.equal(fake.matching(update('matchups')).length, 0);
-    assert.equal(fake.matching(update('leagues')).length, 0);
     fake.assertClean();
   });
 }

@@ -647,7 +647,7 @@ test('putSettings toggles enabled without touching the mode, and logs it', async
 });
 
 // #274, documented exemption (no write assertion needed): the MODES.includes
-// check throws PICKEM_BAD_MODE at pickem.service.js:537, above the
+// check at pickem.service.js:538 throws PICKEM_BAD_MODE, above the
 // `await pool.connect()` on :541. No client is checked out, no BEGIN is
 // issued, no statement is dispatched. There is no mutable work behind this
 // refusal for a guard to sink below.

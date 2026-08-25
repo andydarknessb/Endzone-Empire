@@ -131,11 +131,13 @@ test('startDraft rolls back without writes when keepers exceed the current per-t
   assert.equal(fake.matching(update('leagues')).length, 0);
   assert.equal(fake.matching(insert('draft_picks')).length, 0);
   assert.equal(fake.matching(insert('team_players')).length, 0);
-  // #274: the fourth write site. UPDATE "teams" SET "autodraft" is gated on
-  // plan.autodraftAll and unreachable in this snake fixture, so it costs
-  // nothing to cover, and covering it means the absence set matches the
-  // service's write set rather than a subset someone happened to list.
-  assert.equal(fake.matching(update('teams')).length, 0);
+  // #274: the service's fourth write site, UPDATE "teams" SET "autodraft", is
+  // deliberately NOT counted here. It is gated on plan.autodraftAll, which is
+  // draft_type === 'autopick', and this fixture is a snake draft - so the
+  // statement is unreachable and a count of zero would pass in a correct build
+  // and in a mutated one alike. An assertion that cannot fail is the thing
+  // this ticket removes, not the thing it adds. Covering that write wants an
+  // autopick fixture, which is a different test.
   fake.assertClean();
 });
 

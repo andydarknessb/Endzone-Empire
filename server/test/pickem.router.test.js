@@ -372,7 +372,7 @@ test('a duplicate confidence in confidence mode is a 400 PICKEM_BAD_CONFIDENCE',
 });
 
 // #274, documented exemption (no write assertion needed): the router returns
-// this 400 from `if (!Array.isArray(picks))` at pickem.router.js:117, which
+// this 400 from `if (!Array.isArray(picks))` at pickem.router.js:118, which
 // sits before the try block and therefore before requireMember, loadLeague and
 // upsertPicks. No client is checked out and no statement is dispatched, so
 // there is no mutable work behind this refusal for a guard to sink below.

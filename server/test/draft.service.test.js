@@ -176,6 +176,19 @@ test('draftPlayer: rejects a manual (non-auto) pick in an active autopick-type d
       { id: 11, owner_id: 7, draft_position: 1, autodraft: true, locked: false },
       { id: 12, owner_id: 8, draft_position: 2, autodraft: true, locked: false },
     ] })],
+    // #274: the reads and writes a manual pick would need past this guard, so
+    // the counts below observe an absence rather than inherit fakePool's
+    // "unexpected query" throw.
+    [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB' }] })],
+    [select('draft_picks'), () => ({ rows: [] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 0 }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, () => ({ rows: [{ n: 0 }] })],
+    [select('waiver_players'), () => ({ rows: [] })],
+    [insert('draft_picks'), () => ({ rows: [], rowCount: 1 })],
+    [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
+    [insert('transactions'), () => ({ rows: [] })],
+    [update('leagues'), () => ({ rows: [], rowCount: 1 })],
+    [update('teams'), () => ({ rows: [], rowCount: 1 })],
   ]).install(t);
 
   await assert.rejects(
@@ -186,11 +199,12 @@ test('draftPlayer: rejects a manual (non-auto) pick in an active autopick-type d
       return true;
     }
   );
-  // #274. This fixture registers no write handlers, so a guard moved below
-  // the writes would today die on fakePool's "unexpected query" rather than
-  // on an assertion. That protection is incidental to the fixture being
-  // incomplete, it reports the wrong thing, and it evaporates the moment
-  // someone adds a handler for convenience. Assert the absence directly.
+  // #274. This fixture used to register no write handlers, so a guard moved
+  // below the writes died on fakePool's "unexpected query" rather than on an
+  // assertion. That protection was incidental to the fixture being
+  // incomplete, it reported the wrong thing, and it would have evaporated the
+  // moment someone added a handler for convenience. The writes are answered
+  // above now, so these counts are the assertion.
   assert.equal(fake.matching(insert('draft_picks')).length, 0, 'no pick was recorded');
   assert.equal(fake.matching(insert('team_players')).length, 0, 'no player was rostered');
   assert.equal(fake.matching(update('leagues')).length, 0, 'the clock did not advance');

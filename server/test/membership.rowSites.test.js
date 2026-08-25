@@ -69,9 +69,30 @@ function fakeDb(t, { member = null, overrides = [] } = {}) {
     // statements for an unrelated convenience - with no test turning red at
     // the moment the protection disappeared.
     //
-    // Answering every write permissively, last, removes that crutch: a guard
-    // moved below the work now runs to completion and the assertNoWrites()
-    // counts below are the only thing standing in its way.
+    // Answering every write permissively, last, removes that crutch for the
+    // WRITE verbs, so assertNoWrites() below is a real assertion rather than a
+    // decoration.
+    //
+    // Scoped honestly, because overclaiming here would be the same sin: this
+    // entry does not register the READS that sit between a gate and its first
+    // write, and several services have some. Fully load-bearing today are
+    // PUT /queue and the dropPlayer locked-team case, where nothing
+    // unregistered sits in between. At submitClaim, undoDrop and
+    // waiverSuggestions a moved gate still dies on an unregistered SELECT
+    // first, so those keep partial incidental protection and their counts are
+    // a floor rather than the whole proof. Registering those reads is the
+    // follow-up; it is per-service fixture work, not one line.
+    //
+    // On the migration rule in helpers/fakePool.js: adding this line is
+    // touching a hand-rolled fake, so the rule fires and this is a deliberate
+    // deviation from it rather than an oversight. Migrating would not be a
+    // like-for-like swap - this fake dispatches pool.query and a checked-out
+    // client through ONE function with no transaction state, while the helper
+    // enforces transactions and would start throwing on the BEGIN/COMMIT
+    // sequences all fourteen tests here rely on. That is a behaviour change to
+    // a suite this ticket is only meant to add assertions to. The one fake in
+    // this series that DID get migrated (commissionerAvatar.route.test.js) had
+    // no call log at all, so there was nothing to count without migrating.
     [/^(INSERT INTO|UPDATE|DELETE FROM) /, () => ({ rows: [], rowCount: 1 })],
   ];
   const handlers = [...overrides, ...defaults];
@@ -113,10 +134,17 @@ const rejectsAsNonMember = (promise) => assert.rejects(promise, (error) => {
 /**
  * #274: a membership refusal must prove the row site never wrote.
  *
- * Every site in this file refuses INSIDE an open transaction, several of them
+ * Seven of the eight sites refuse INSIDE an open transaction, several of them
  * only after a league read and a lock check, so "nothing has happened yet" is
  * not a defence: a requireMember moved below the write would write, roll back,
  * and rethrow the identical 403.
+ *
+ * waiverSuggestions is the exception and is worth knowing about rather than
+ * glossing: its requireMember runs on the POOL (decision.service.js:867),
+ * before pool.connect() and BEGIN. Its write still needs proving - the
+ * materializeLineup INSERT lives in a transaction it opens later - but the
+ * gate itself is not inside one, so do not reason about it from the rule
+ * above.
  *
  * The count is over every write verb rather than one table because these are
  * eight different services with eight different write sets, and the property
