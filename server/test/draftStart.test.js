@@ -134,12 +134,12 @@ test('startDraft rolls back without writes when keepers exceed the current per-t
   fake.assertClean();
 });
 
-// #194: the season engine now refuses to schedule a season for a league still
-// pre-draft or drafting, and this path calls it INSIDE the start transaction.
-// It survives that gate only because the draft_status = 'complete' UPDATE runs
-// first, so the engine's read on this same client sees 'complete'. Nothing in
-// draftStart.service states that order, so pin it: reordering those two
-// statements would break every keeper-filled draft start.
+// #194: season operations now refuse to schedule a season for a league still
+// pre-draft or drafting, and this path enters them INSIDE the start
+// transaction. It survives that gate only because the draft_status =
+// 'complete' UPDATE runs first, so the phase read on this same client sees
+// 'complete'. Nothing in draftStart.service states that order, so pin it:
+// reordering those two statements would break every keeper-filled draft start.
 test('startDraft marks the draft complete BEFORE it generates the season schedule (#194)', async (t) => {
   const fake = draftStartPool({
     league: { ...KEEPER_FILLED_LEAGUE, regular_season_weeks: 1 },
@@ -153,7 +153,7 @@ test('startDraft marks the draft complete BEFORE it generates the season schedul
   const completedAt = sql.findIndex((s) => update('leagues').test(s) && s.includes("'complete'"));
   const scheduledAt = sql.findIndex((s) => /"matchups"/.test(s));
   assert.notEqual(completedAt, -1, 'the draft was marked complete');
-  assert.notEqual(scheduledAt, -1, 'the season engine ran on this transaction');
+  assert.notEqual(scheduledAt, -1, 'season operations ran on this transaction');
   assert.ok(
     completedAt < scheduledAt,
     'draft_status must be set to complete before generateRegularSeason is called'

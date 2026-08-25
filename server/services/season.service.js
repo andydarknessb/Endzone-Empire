@@ -192,7 +192,7 @@ async function generateRegularSeason({ leagueId }, existingClient = null) {
     );
     const league = leagueResult.rows[0];
     if (!league) throw new SeasonError(404, 'league not found');
-    // #194: the season engine is unavailable before the draft finishes.
+    // #194: season operations are unavailable before the draft finishes.
     // Derived from league phase, never a bare draft_status comparison.
     // NOTE: this reads the row the CALLER'S client just saw, which is what
     // lets draft completion through. Both completion paths (the final live
