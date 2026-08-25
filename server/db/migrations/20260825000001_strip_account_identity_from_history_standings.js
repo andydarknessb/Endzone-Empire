@@ -21,17 +21,25 @@
  * place this happens; nothing cleans on read.
  */
 
-// The jsonpath that finds an account-identity key on ANY element of the
+// The account-identity keys forbidden inside every standings element. This one
+// array is the single source for BOTH the removal (the `-` chain that deletes
+// them) and the detection (the jsonpath that finds them, used by the strip
+// WHERE and the CHECK). Deriving all three from it keeps them in genuine
+// lockstep: a key added here is removed, detected and rejected together, so a
+// row can never be rewritten into a shape the constraint would still reject.
+const FORBIDDEN_ACCOUNT_KEYS = ['userId', 'username', 'user_id', 'email', 'owner_id'];
+
+// e.g. `- 'userId' - 'username' - ...`: subtracts each key from a jsonb object.
+const REMOVE_KEYS_SQL = FORBIDDEN_ACCOUNT_KEYS.map((key) => `- '${key}'`).join(' ');
+
+// The jsonpath that matches an account-identity key on ANY element of the
 // standings array. `\\?` is a LITERAL question mark escaped for knex.raw, which
 // otherwise reads the jsonpath filter operator `?` as a positional binding and
-// corrupts the SQL. The predicate is a fixed constant (no user input), so it is
-// inlined into a string literal in both statements below; keeping a single
-// source keeps the strip and the CHECK in lockstep, so a row can never be
-// rewritten into a shape the constraint would still reject.
+// corrupts the SQL. No user input, so it is inlined as a string literal below.
 const FORBIDDEN_KEY_PREDICATE =
   '$[*].keyvalue() \\? (' +
-  '@.key == "userId" || @.key == "username" || @.key == "user_id"' +
-  ' || @.key == "email" || @.key == "owner_id")';
+  FORBIDDEN_ACCOUNT_KEYS.map((key) => `@.key == "${key}"`).join(' || ') +
+  ')';
 
 exports.up = async function (knex) {
   // 1. Rewrite existing archives. Only rows that actually carry a forbidden key
@@ -42,7 +50,7 @@ exports.up = async function (knex) {
     UPDATE "league_history" AS "history"
        SET "standings" = COALESCE((
              SELECT jsonb_agg(
-                      ("element" - 'userId' - 'username' - 'user_id' - 'email' - 'owner_id')
+                      ("element" ${REMOVE_KEYS_SQL})
                       ORDER BY "ordinality"
                     )
                FROM jsonb_array_elements("history"."standings")
