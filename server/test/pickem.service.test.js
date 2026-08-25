@@ -367,35 +367,56 @@ test('an unresolved game counts as pending, not wrong', () => {
   );
 });
 
-test('computePickemStandings ranks by points, then correct picks, then username', () => {
+test('computePickemStandings ranks by points, then correct picks, then Team name', () => {
   const games = [
     finalGame('BUF|MIA', 'BUF', 'MIA', 30, 10, 1),
     finalGame('DAL|WAS', 'DAL', 'WAS', 3, 20, 1),
     finalGame('DEN|KC', 'KC', 'DEN', 28, 7, 2),
   ];
+  // Members carry Team identity now, not the account username (#343): the
+  // pipeline maps each teams row to { userId, teamId, teamName, ... }.
   const members = [
-    { userId: 1, username: 'zoe', teamName: 'Z' },
-    { userId: 2, username: 'abe', teamName: 'A' },
-    { userId: 3, username: 'mia', teamName: 'M' },
+    { userId: 1, teamName: 'Zebras' },
+    { userId: 2, teamName: 'Aces' },
+    { userId: 3, teamName: 'Mudcats' },
   ];
   const standings = pickem.computePickemStandings({
     members,
     games,
     mode: 'confidence',
     picks: [
-      // zoe: 3 points from ONE correct pick
+      // Zebras: 3 points from ONE correct pick
       { userId: 1, week: 1, gameKey: 'BUF|MIA', pickedTeam: 'BUF', confidence: 3 },
-      // abe: 3 points from TWO correct picks — wins the tiebreak
+      // Aces: 3 points from TWO correct picks — wins on correct picks
       { userId: 2, week: 1, gameKey: 'BUF|MIA', pickedTeam: 'BUF', confidence: 2 },
       { userId: 2, week: 2, gameKey: 'DEN|KC', pickedTeam: 'KC', confidence: 1 },
-      // mia: nothing right
+      // Mudcats: nothing right
       { userId: 3, week: 1, gameKey: 'DAL|WAS', pickedTeam: 'DAL', confidence: 3 },
     ],
   });
   assert.deepEqual(
-    standings.map((row) => [row.rank, row.username, row.points, row.correct]),
-    [[1, 'abe', 3, 2], [2, 'zoe', 3, 1], [3, 'mia', 0, 0]]
+    standings.map((row) => [row.rank, row.teamName, row.points, row.correct]),
+    [[1, 'Aces', 3, 2], [2, 'Zebras', 3, 1], [3, 'Mudcats', 0, 0]]
   );
+});
+
+test('computePickemStandings breaks a points-and-correct tie by Team name', () => {
+  const games = [finalGame('BUF|MIA', 'BUF', 'MIA', 30, 10, 1)];
+  // Zebras and Aces tie on points AND correct picks; the final tiebreak is
+  // Team name now (#343), so Aces sorts ahead of Zebras.
+  const standings = pickem.computePickemStandings({
+    members: [
+      { userId: 1, teamName: 'Zebras' },
+      { userId: 2, teamName: 'Aces' },
+    ],
+    games,
+    mode: 'straight',
+    picks: [
+      { userId: 1, week: 1, gameKey: 'BUF|MIA', pickedTeam: 'BUF' },
+      { userId: 2, week: 1, gameKey: 'BUF|MIA', pickedTeam: 'BUF' },
+    ],
+  });
+  assert.deepEqual(standings.map((row) => row.teamName), ['Aces', 'Zebras']);
 });
 
 test('computePickemStandings gives co-champions competition ranks', () => {
@@ -405,9 +426,9 @@ test('computePickemStandings gives co-champions competition ranks', () => {
   ];
   const standings = pickem.computePickemStandings({
     members: [
-      { userId: 1, username: 'zoe' },
-      { userId: 2, username: 'abe' },
-      { userId: 3, username: 'mia' },
+      { userId: 1, teamName: 'Zebras' },
+      { userId: 2, teamName: 'Aces' },
+      { userId: 3, teamName: 'Mudcats' },
     ],
     games,
     picks: [
@@ -422,29 +443,29 @@ test('computePickemStandings gives co-champions competition ranks', () => {
   });
 
   assert.deepEqual(
-    standings.map((row) => [row.rank, row.username, row.points, row.correct]),
-    [[1, 'abe', 2, 2], [1, 'zoe', 2, 2], [3, 'mia', 1, 1]]
+    standings.map((row) => [row.rank, row.teamName, row.points, row.correct]),
+    [[1, 'Aces', 2, 2], [1, 'Zebras', 2, 2], [3, 'Mudcats', 1, 1]]
   );
 });
 
 test('computePickemStandings keeps all-zero standings sequential', () => {
   const standings = pickem.computePickemStandings({
     members: [
-      { userId: 1, username: 'zoe' },
-      { userId: 2, username: 'abe' },
-      { userId: 3, username: 'mia' },
+      { userId: 1, teamName: 'Zebras' },
+      { userId: 2, teamName: 'Aces' },
+      { userId: 3, teamName: 'Mudcats' },
     ],
   });
 
   assert.deepEqual(
-    standings.map((row) => [row.rank, row.username, row.points, row.correct]),
-    [[1, 'abe', 0, 0], [2, 'mia', 0, 0], [3, 'zoe', 0, 0]]
+    standings.map((row) => [row.rank, row.teamName, row.points, row.correct]),
+    [[1, 'Aces', 0, 0], [2, 'Mudcats', 0, 0], [3, 'Zebras', 0, 0]]
   );
 });
 
 test('computePickemStandings carries per-week points for the standings UI', () => {
   const standings = pickem.computePickemStandings({
-    members: [{ userId: 2, username: 'abe' }, { userId: 9, username: 'zoe' }],
+    members: [{ userId: 2, teamName: 'Aces' }, { userId: 9, teamName: 'Zebras' }],
     games: [
       finalGame('BUF|MIA', 'BUF', 'MIA', 30, 10, 1),
       finalGame('DEN|KC', 'KC', 'DEN', 28, 7, 2),
@@ -455,23 +476,23 @@ test('computePickemStandings carries per-week points for the standings UI', () =
     ],
     mode: 'confidence',
   });
-  const abe = standings.find((row) => row.username === 'abe');
-  assert.deepEqual(abe.weekly, { 1: 5, 2: 2 });
-  assert.equal(abe.points, 7);
+  const aces = standings.find((row) => row.teamName === 'Aces');
+  assert.deepEqual(aces.weekly, { 1: 5, 2: 2 });
+  assert.equal(aces.points, 7);
   // A member with no picks still gets the empty map, never undefined.
-  assert.deepEqual(standings.find((row) => row.username === 'zoe').weekly, {});
+  assert.deepEqual(standings.find((row) => row.teamName === 'Zebras').weekly, {});
 });
 
 test('computePickemStandings lists members who never picked, at zero', () => {
   const standings = pickem.computePickemStandings({
-    members: [{ userId: 1, username: 'abe' }, { userId: 2, username: 'bo' }],
+    members: [{ userId: 1, teamName: 'Aces' }, { userId: 2, teamName: 'Bears' }],
     games: [finalGame('BUF|MIA', 'BUF', 'MIA', 30, 10)],
     picks: [{ userId: 1, week: 1, gameKey: 'BUF|MIA', pickedTeam: 'BUF' }],
     mode: 'straight',
   });
-  assert.deepEqual(standings.map((row) => [row.username, row.points, row.made]), [
-    ['abe', 1, 1],
-    ['bo', 0, 0],
+  assert.deepEqual(standings.map((row) => [row.teamName, row.points, row.made]), [
+    ['Aces', 1, 1],
+    ['Bears', 0, 0],
   ]);
 });
 
@@ -541,11 +562,14 @@ test('getWeekView hides unlocked picks and reveals locked ones', async (t) => {
     if (text.includes('"live_game_states"')) return { rows: [] };
     if (text.includes('FROM "pickem_picks"')) {
       return {
+        // user_id stays on the raw row so getWeekView can tell the viewer's own
+        // picks apart; it is not projected onto any othersPicks entry, and the
+        // author's username is no longer selected (#343).
         rows: [
-          { user_id: 9, team_pair: 'DAL|WAS', picked_team: 'DAL', confidence: 2, username: 'me', teamId: 90, teamName: 'My Team' },
-          { user_id: 9, team_pair: 'DEN|KC', picked_team: 'KC', confidence: 1, username: 'me', teamId: 90, teamName: 'My Team' },
-          { user_id: 5, team_pair: 'DAL|WAS', picked_team: 'WAS', confidence: 1, username: 'rival', teamId: 50, teamName: 'Rival Team' },
-          { user_id: 5, team_pair: 'DEN|KC', picked_team: 'DEN', confidence: 2, username: 'rival', teamId: 50, teamName: 'Rival Team' },
+          { user_id: 9, team_pair: 'DAL|WAS', picked_team: 'DAL', confidence: 2, teamId: 90, teamName: 'My Team' },
+          { user_id: 9, team_pair: 'DEN|KC', picked_team: 'KC', confidence: 1, teamId: 90, teamName: 'My Team' },
+          { user_id: 5, team_pair: 'DAL|WAS', picked_team: 'WAS', confidence: 1, teamId: 50, teamName: 'Rival Team' },
+          { user_id: 5, team_pair: 'DEN|KC', picked_team: 'DEN', confidence: 2, teamId: 50, teamName: 'Rival Team' },
         ],
       };
     }
@@ -561,10 +585,10 @@ test('getWeekView hides unlocked picks and reveals locked ones', async (t) => {
   ]);
   assert.equal(view.myPicks.length, 2, 'my own picks are always mine to see');
   assert.deepEqual(Object.keys(view.othersPicks), ['DAL|WAS']);
-  // Team identity rides beside the author's account fields (#112, parent #108).
+  // Another manager's pick names them by Team identity only (#343, #115).
   assert.deepEqual(view.othersPicks['DAL|WAS'], [
     {
-      userId: 5, username: 'rival', teamId: 50, teamName: 'Rival Team',
+      teamId: 50, teamName: 'Rival Team',
       gameKey: 'DAL|WAS', pickedTeam: 'WAS', confidence: 1,
     },
   ]);

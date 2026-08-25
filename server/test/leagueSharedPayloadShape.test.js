@@ -11,50 +11,39 @@ const scoringService = require('../services/scoring.service');
 const decisionService = require('../services/decision.service');
 
 /**
- * The absence tripwire for the shared-identity contraction (#341, #115 child A).
+ * The absence contract for the shared-identity contraction (#341 pinned it,
+ * #343 made it live; #115 child A/B).
  *
  * CONTEXT.md's Team identity rule is that a surface shared with other managers
  * names a participant by Team (`teamId` / `teamName`) and never by their account
  * (`owner_id`, `owner`, `owner_username`, `user_id`, `username`, the roster's
  * `ownerId`, and the matchup row's `home_owner_id` / `away_owner_id`). The
- * EXPAND step (#112) put Team identity BESIDE those account fields and left them
- * in place. They are removed by the sibling tickets:
+ * EXPAND step (#112) put Team identity BESIDE those account fields; they are
+ * removed by the sibling tickets:
  *
- *   #343 (child B) — the REST payloads guarded here.
+ *   #343 (child B) — the REST payloads guarded here. DONE: every guard below is
+ *                    a LIVE exact-key-set assertion of the post-removal shape.
  *   #344 (child C) — the Draft / chat Socket.IO payloads (not this file).
  *
- * Before this file the authenticated league-shared payloads had NO exact-key-set
- * pin, so a removal could land with nothing proving the field was gone and
- * nothing catching it come back (the ordering constraint #334 was split around).
- *
- * Each payload here has a PAIR of guards, and the pair is the mechanism:
- *
- *   1. A `todo` guard that asserts the key set the payload will carry AFTER #343.
- *      It fails today (the account field is still there), so it is marked `todo`
- *      naming #343: `node --test` runs it, prints the red diff, and still exits
- *      0. #343 turns it into a live guard by deleting the `todo` marker.
- *
- *   2. A NORMAL (non-todo) guard that asserts the account field is STILL PRESENT
- *      today. This is the loud half. A `todo` guard alone can go inert silently:
- *      a failing todo and a passing todo both roll into "todo N, exit 0", so if
- *      #343 removed the field and FORGOT its marker, CI would stay green and a
- *      later re-addition would too. The present-today guard closes that: the
- *      moment #343 removes the field this guard goes RED (a real failure, not a
- *      todo), which drags the author into THIS file to flip the paired todo. A
- *      forgotten marker is no longer a process promise; it is a red build.
+ * How this file came to be live: #341 shipped each REST guard as a PAIR — a
+ * `todo` guard asserting the post-#343 key set (red, exit 0) and a NORMAL guard
+ * asserting the account field was STILL PRESENT (so a removal that forgot to
+ * flip the todo would go loudly red instead of silently inert). #343 removed
+ * each field, deleted its present-today guard, and turned its `todo` guard into
+ * the live exact-key-set assertion you see below. The pairs are spent; what
+ * remains is the standing contract.
  *
  * Two response ROOTS are pinned as well, and their comments carry the rule the
- * whole tripwire depends on: an account field may leave the SERIALIZATION but
- * never the PROJECTION, because `viewerTeamId` is computed server-side from the
- * raw `owner_id` on the rows. If #343 narrows the SQL instead of the serializer,
- * `viewerTeamId` goes null for every viewer AND these fixtures (which carry the
- * account field on the raw row) would still show it on the wire, so the tripwire
- * would miss the change. The root guards pin `viewerTeamId` present so #343
- * cannot drop it, which is what forces the removal into the serializer.
+ * removal depended on: an account field may leave the SERIALIZATION but never
+ * the PROJECTION, because `viewerTeamId` is computed server-side from the raw
+ * `owner_id` / `home_owner_id` on the rows. Narrowing the SQL instead of the
+ * serializer would null `viewerTeamId` for every viewer AND (since these
+ * fixtures carry the account field on the raw row) still show it on the wire.
+ * The root guards pin `viewerTeamId` present so that removal stays in the
+ * serializer, where teams[] and matchup detail do it.
  *
- * The one guard with no `todo` and no present-today pair is the co-commissioner
- * roster as a plain member sees it: #324 already made that view Team-identity
- * only, so it is clean today and this pins that win against the sibling removals.
+ * The co-commissioner roster a plain member sees carries no root/serialization
+ * split: #324 made that view Team-identity only, and this pins that win.
  *
  * Caveat this narrows itself on: the guards drive the real routes against
  * hand-built fixtures declared to mirror each SELECT, not the live database, so
@@ -83,15 +72,8 @@ const VIEWER = { userId: 42, teamId: 11, teamName: 'Gridiron Ghosts' };
 const OTHER = { userId: 43, teamId: 12, teamName: 'Sunday Scaries' };
 const authed = (userId) => `Bearer ${signToken({ id: userId, username: `u${userId}` })}`;
 
-/** The exact-key-set assertion (#343's post-removal contract for the object). */
+/** The exact-key-set assertion: the post-removal contract for the object (#343). */
 const assertExactKeys = (obj, cleanKeys) => assert.deepEqual(Object.keys(obj).sort(), [...cleanKeys].sort());
-
-/** The present-today assertion: the account field(s) #343 removes are here NOW. */
-function assertStillPresent(obj, fields) {
-  for (const field of fields) {
-    assert.equal(field in obj, true, `${field} is still on the wire today; #343 removing it must turn this guard red`);
-  }
-}
 
 // ============================================================ league detail
 // GET /api/league/:id  ->  { viewerTeamId, league, teams }
@@ -279,13 +261,8 @@ async function getPickemWeek(t) {
 }
 
 const OTHERS_PICK_CLEAN = ['confidence', 'gameKey', 'pickedTeam', 'teamId', 'teamName'];
-const OTHERS_PICK_FORBIDDEN = ['userId', 'username'];
 
-test("pick'em week view: another manager's pick STILL carries userId / username today", async (t) => {
-  for (const entry of await getPickemWeek(t)) assertStillPresent(entry, OTHERS_PICK_FORBIDDEN);
-});
-
-test("pick'em week view: another manager's pick is Team identity only", { todo: '#343 removes othersPicks userId / username' }, async (t) => {
+test("pick'em week view: another manager's pick is Team identity only", async (t) => {
   for (const entry of await getPickemWeek(t)) assertExactKeys(entry, OTHERS_PICK_CLEAN);
 });
 
@@ -308,21 +285,12 @@ const STANDINGS_ROW_CLEAN = [
   'avatarStaticUrl', 'avatarUrl', 'correct', 'incorrect', 'made', 'pending',
   'points', 'pushes', 'rank', 'teamId', 'teamName', 'weekly',
 ];
-const STANDINGS_ROW_FORBIDDEN = ['userId', 'username'];
-
-test("pick'em standings: a row STILL carries userId / username today", async (t) => {
-  for (const row of await getPickemStandings(t)) assertStillPresent(row, STANDINGS_ROW_FORBIDDEN);
-});
-
-// NOTE for #343: the standings rows sort by `comparePickemStandingScore(a,b) ||
-// String(a.username||'').localeCompare(...)` (pickem.service.js), and the
-// docstring there promises "total points desc, then correct picks desc, then
-// username". The row is `{ ...member, ...total }`, so removing `username` from
-// the wire also removes it from that comparator, and tied groups then order
-// arbitrarily. That may well be the right call - the tiebreak arguably wants to
-// be Team name now - but it is a documented guarantee, so #343 must decide it
-// deliberately (re-point the tiebreak at teamName), not drop it by omission.
-test("pick'em standings: a row is Team identity and score, not the manager account", { todo: '#343 removes standings userId / username; re-point the username tiebreak at teamName' }, async (t) => {
+// The standings rows sort by `comparePickemStandingScore(a,b) ||
+// String(a.teamName||'').localeCompare(...)` (pickem.service.js): #343 removed
+// `username` from the standings, so the final tiebreak the docstring documents
+// is Team name now, not the author account. `userId` still rides internally as
+// the scoring join key and is stripped at the /standings route.
+test("pick'em standings: a row is Team identity and score, not the manager account", async (t) => {
   for (const row of await getPickemStandings(t)) assertExactKeys(row, STANDINGS_ROW_CLEAN);
 });
 

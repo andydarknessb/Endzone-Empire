@@ -48,10 +48,10 @@ test("rolloverSeason archives every declared Pick'em co-champion without consult
     })],
     // pick'em standings inputs (pickem.service.getStandings on this client)
     [/FROM "pickem_settings"/, () => ({ rows: [{ enabled: true, mode: 'straight' }] })],
-    [/FROM "teams" JOIN "users"/, () => ({
+    [/"owner_id" AS "user_id"/, () => ({
       rows: [
-        { user_id: 100, username: 'alice', team_name: 'Sunday Ballers', avatar_url: null, avatar_static_url: null },
-        { user_id: 101, username: 'bob', team_name: 'Bob Squad', avatar_url: null, avatar_static_url: null },
+        { user_id: 100, team_id: 100, team_name: 'Sunday Ballers', avatar_url: null, avatar_static_url: null },
+        { user_id: 101, team_id: 101, team_name: 'Bob Squad', avatar_url: null, avatar_static_url: null },
       ],
     })],
     [/FROM "pickem_picks" WHERE "league_id" = \$1 AND "season" = \$2$/, () => ({
@@ -197,8 +197,8 @@ test("rolloverSeason archives an explicit Pick'em no-champion result", async (t)
       rows: [{ id: 10, name: 'Sunday Ballers', owner_id: 100 }],
     })],
     [/FROM "pickem_settings"/, () => ({ rows: [{ enabled: true, mode: 'straight' }] })],
-    [/FROM "teams" JOIN "users"/, () => ({
-      rows: [{ user_id: 100, username: 'alice', team_name: 'Sunday Ballers', avatar_url: null, avatar_static_url: null }],
+    [/"owner_id" AS "user_id"/, () => ({
+      rows: [{ user_id: 100, team_id: 100, team_name: 'Sunday Ballers', avatar_url: null, avatar_static_url: null }],
     })],
     [/FROM "pickem_picks" WHERE "league_id" = \$1 AND "season" = \$2$/, () => ({ rows: [] })],
     [/FROM "nfl_games"/, () => ({ rows: [] })],

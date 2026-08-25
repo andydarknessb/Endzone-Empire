@@ -492,12 +492,14 @@ function pickemFake(t, entries) {
   ]).install(t);
 }
 
-test("pick'em week view: another manager's pick is attributed by Team", async (t) => {
+test("pick'em week view: another manager's pick is attributed by Team, not by account", async (t) => {
   const fake = pickemFake(t, [
+    // user_id stays on the raw row because getWeekView reads it to tell the
+    // viewer's own picks from everyone else's; it is not projected onto the
+    // othersPicks entry, and the username is no longer selected (#343).
     [/FROM "pickem_picks"/, () => ({
       rows: [{
         user_id: OTHER.userId,
-        username: `u${OTHER.userId}`,
         teamId: OTHER.teamId,
         teamName: OTHER.teamName,
         team_pair: 'BUF|MIA',
@@ -515,25 +517,29 @@ test("pick'em week view: another manager's pick is attributed by Team", async (t
   const [entry] = res.body.othersPicks['BUF|MIA'];
   assert.equal(entry.teamId, OTHER.teamId);
   assert.equal(entry.teamName, OTHER.teamName);
-  assert.equal(entry.userId, OTHER.userId, 'the legacy account fields survive');
-  assert.equal(entry.username, `u${OTHER.userId}`);
+  assert.equal('userId' in entry, false, 'the author account id is gone (#343)');
+  assert.equal('username' in entry, false, 'the author username is gone (#343)');
   assert.equal(res.body.viewerTeamId, VIEWER.teamId);
   const [picksQuery] = fake.matching(/FROM "pickem_picks"/);
   assert.match(picksQuery.text, /"teams"\."id" AS "teamId", "teams"\."name" AS "teamName"/);
+  assert.doesNotMatch(picksQuery.text, /JOIN "users"/, 'the username JOIN is gone (#343)');
 });
 
-test("pick'em standings: every row carries Team ID beside its Team name and account", async (t) => {
+test("pick'em standings: every row carries Team identity, not the manager account", async (t) => {
   const fake = pickemFake(t, [
     [/FROM "pickem_picks"/, () => ({ rows: [] })],
+    // owner_id AS user_id stays on the raw member row as the scoring join key;
+    // the username is no longer selected, and the /standings route strips
+    // userId before serializing (#343).
     [/FROM "teams"/, () => ({
       rows: [
         {
-          user_id: VIEWER.userId, username: `u${VIEWER.userId}`,
+          user_id: VIEWER.userId,
           team_id: VIEWER.teamId, team_name: VIEWER.teamName,
           avatar_url: null, avatar_static_url: null,
         },
         {
-          user_id: OTHER.userId, username: `u${OTHER.userId}`,
+          user_id: OTHER.userId,
           team_id: OTHER.teamId, team_name: OTHER.teamName,
           avatar_url: null, avatar_static_url: null,
         },
@@ -547,13 +553,18 @@ test("pick'em standings: every row carries Team ID beside its Team name and acco
 
   assert.equal(res.status, 200, JSON.stringify(res.body));
   assert.deepEqual(
-    res.body.standings.map((row) => [row.teamId, row.teamName, row.userId, row.username]),
+    res.body.standings.map((row) => [row.teamId, row.teamName]),
     [
-      [VIEWER.teamId, VIEWER.teamName, VIEWER.userId, `u${VIEWER.userId}`],
-      [OTHER.teamId, OTHER.teamName, OTHER.userId, `u${OTHER.userId}`],
+      [VIEWER.teamId, VIEWER.teamName],
+      [OTHER.teamId, OTHER.teamName],
     ]
   );
+  for (const row of res.body.standings) {
+    assert.equal('userId' in row, false, 'the manager account id is gone (#343)');
+    assert.equal('username' in row, false, 'the manager username is gone (#343)');
+  }
   assert.equal(res.body.viewerTeamId, VIEWER.teamId);
   const [membersQuery] = fake.matching(/^SELECT "teams"\."owner_id" AS "user_id"/);
   assert.match(membersQuery.text, /"teams"\."id" AS "team_id"/);
+  assert.doesNotMatch(membersQuery.text, /JOIN "users"/, 'the username JOIN is gone (#343)');
 });

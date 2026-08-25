@@ -77,7 +77,7 @@ function mockPool(t, overrides = []) {
     [/FROM "nfl_games"/, () => ({ rows: WEEK_ONE_SCHEDULE })],
     [/FROM "live_game_states"/, () => ({ rows: [] })],
     [/FROM "pickem_picks"/, () => ({ rows: [] })],
-    [/FROM "teams"\s+JOIN "users"/, () => ({ rows: [] })],
+    [/"owner_id" AS "user_id"/, () => ({ rows: [] })], // standings members query (#343: no users JOIN)
     [/game_recaps/, () => ({ rows: [] })],
   ]);
 }
@@ -405,10 +405,10 @@ test('picks must be an array', async () => {
 
 test('standings default to the league\'s current season and score every member', async (t) => {
   const calls = mockPool(t, [
-    [/FROM "teams" JOIN "users"/, () => ({
+    [/"owner_id" AS "user_id"/, () => ({
       rows: [
-        { user_id: MEMBER, username: 'u9', team_name: 'Mine', avatar_url: null, avatar_static_url: null },
-        { user_id: 5, username: 'rival', team_name: 'Theirs', avatar_url: null, avatar_static_url: null },
+        { user_id: MEMBER, team_id: 11, team_name: 'Mine', avatar_url: null, avatar_static_url: null },
+        { user_id: 5, team_id: 12, team_name: 'Theirs', avatar_url: null, avatar_static_url: null },
       ],
     })],
     [/SELECT "user_id", "week", "team_pair"/, () => ({
@@ -429,9 +429,15 @@ test('standings default to the league\'s current season and score every member',
   assert.equal(res.status, 200);
   assert.equal(res.body.season, 2026);
   assert.deepEqual(
-    res.body.standings.map((row) => [row.rank, row.username, row.points, row.correct]),
-    [[1, 'u9', 1, 1], [2, 'rival', 0, 0]]
+    res.body.standings.map((row) => [row.rank, row.teamName, row.points, row.correct]),
+    [[1, 'Mine', 1, 1], [2, 'Theirs', 0, 0]]
   );
+  // #343: a member-facing standings row names the manager by Team identity
+  // only; the account id and username are gone from the wire.
+  for (const row of res.body.standings) {
+    assert.equal('userId' in row, false);
+    assert.equal('username' in row, false);
+  }
   // The season-wide read still normalizes both schedule tables in SQL.
   const scheduleSql = calls.find((call) => /FROM "nfl_games"/.test(call.text)).text;
   assert.match(scheduleSql, /fn_normalize_nfl_team\("nfl_team"\)/);
@@ -443,11 +449,11 @@ test('standings return competition ranks for Pick\'em-only and side-game leagues
     [/SELECT "id", "name", "current_season"/, () => ({
       rows: [{ id: 3, name: 'Ballers', current_season: 2026, current_week: 1, pickem_only: pickemOnly }],
     })],
-    [/FROM "teams" JOIN "users"/, () => ({
+    [/"owner_id" AS "user_id"/, () => ({
       rows: [
-        { user_id: MEMBER, username: 'zoe', team_name: 'Mine', avatar_url: null, avatar_static_url: null },
-        { user_id: 5, username: 'abe', team_name: 'Theirs', avatar_url: null, avatar_static_url: null },
-        { user_id: 7, username: 'mia', team_name: 'Third', avatar_url: null, avatar_static_url: null },
+        { user_id: MEMBER, team_id: 11, team_name: 'Mine', avatar_url: null, avatar_static_url: null },
+        { user_id: 5, team_id: 12, team_name: 'Theirs', avatar_url: null, avatar_static_url: null },
+        { user_id: 7, team_id: 13, team_name: 'Third', avatar_url: null, avatar_static_url: null },
       ],
     })],
     [/SELECT "user_id", "week", "team_pair"/, () => ({
@@ -475,9 +481,12 @@ test('standings return competition ranks for Pick\'em-only and side-game leagues
       .get('/api/pickem/league/3/standings').set('Authorization', authed());
 
     assert.equal(res.status, 200);
+    // The Mine/Theirs tie (2 pts, 2 correct) breaks by Team name now (#343):
+    // 'Mine' sorts before 'Theirs', where the old username tiebreak put abe
+    // ('Theirs') first.
     assert.deepEqual(
       res.body.standings.map((row) => [row.rank, row.teamName, row.points, row.correct]),
-      [[1, 'Theirs', 2, 2], [1, 'Mine', 2, 2], [3, 'Third', 1, 1]],
+      [[1, 'Mine', 2, 2], [1, 'Theirs', 2, 2], [3, 'Third', 1, 1]],
       pickemOnly ? "Pick'em-only" : 'side game'
     );
   }
