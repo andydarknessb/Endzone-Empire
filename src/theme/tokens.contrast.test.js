@@ -8,6 +8,14 @@ import { contrastRatio } from './contrast';
 const AA_TEXT = 4.5;
 const AA_LARGE = 3.0;
 
+// Not a WCAG number: a project judgement about visible interactive feedback.
+// A resting color and its hover color that sit too close together mean a
+// button gives no visible signal on hover; #267 restored the delta after
+// #237 collapsed it to 1.05:1 while fixing a text-contrast failure, and nothing
+// caught that. This constant is the floor for that delta, not an accessibility
+// requirement.
+const HOVER_DELTA = 1.3;
+
 // A translucent token has no ratio on its own: it takes the color of whatever
 // it is laid over. `backdrop` is that solid color, and contrast.js composites
 // the pairing over it before measuring. Two backdrops are in play:
@@ -103,6 +111,17 @@ const PAIRINGS = [
   pairing('accent', 'accent-soft', AA_TEXT, 'nav link hover on the app bar', 'surface-raised'),
 ];
 
+// Kept out of PAIRINGS, with their own test title below, so a pass here can
+// never be misread as "meets AA": the first row (#267) is a project judgement
+// about visible hover feedback, not a standard. The second row is a genuine
+// legibility floor (WCAG's own large-text/UI-component threshold, AA_LARGE) -
+// it is grouped here only because it is the other half of the same button
+// hover state, not because it shares the first row's non-standard basis.
+const HOVER_PAIRINGS = [
+  pairing('accent', 'accent-hover', HOVER_DELTA, 'resting vs hover delta on the accent button'),
+  pairing('on-accent', 'accent-hover', AA_LARGE, 'button label on the hover fill'),
+];
+
 describe.each(['light', 'dark'])('%s theme contrast', (mode) => {
   // `on-overlay` and `scrim` are theme-independent (they always sit on a dark
   // veil), so they live in scaleTokens rather than the per-theme color map.
@@ -117,6 +136,15 @@ describe.each(['light', 'dark'])('%s theme contrast', (mode) => {
 
   test.each(PAIRINGS)(
     '$fg / $bg meets AA ($min:1) — $label',
+    ({ fg, bg, min, backdrop }) => {
+      const over = backdrop === undefined ? undefined : tokens[backdrop] ?? backdrop;
+      const ratio = contrastRatio(tokens[fg], tokens[bg], over);
+      expect(ratio).toBeGreaterThanOrEqual(min);
+    }
+  );
+
+  test.each(HOVER_PAIRINGS)(
+    '$fg / $bg clears ($min:1) — $label',
     ({ fg, bg, min, backdrop }) => {
       const over = backdrop === undefined ? undefined : tokens[backdrop] ?? backdrop;
       const ratio = contrastRatio(tokens[fg], tokens[bg], over);
