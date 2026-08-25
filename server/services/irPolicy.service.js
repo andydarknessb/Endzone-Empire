@@ -55,6 +55,61 @@ function injuryDesignationName(injuryDesignation) {
   return INJURY_DESIGNATION_NAMES[injuryDesignation] || injuryDesignation || 'healthy';
 }
 
+/** Digits and nothing else: no sign, no point, no exponent, no 0x, no space. */
+const PLAIN_DIGITS = /^[0-9]+$/;
+
+/** A caller's value as it should read back in an error message. */
+const describeValue = (value) => (
+  typeof value === 'string' ? `the string ${JSON.stringify(value)}` : `${String(value)} (${typeof value})`
+);
+
+/**
+ * One player id in canonical form: a positive safe integer, whether the
+ * caller wrote it as a number or as a string of digits.
+ *
+ * Anything else is refused rather than dropped. Silently skipping a bad id
+ * would answer a capacity question about a list the caller did not pass, and
+ * handing it to `::int[]` would let the cast decide - either way a roster
+ * limit moves with nothing to show for it, which is the whole failure mode
+ * this family of defects has. Nothing here is user input (every caller reads
+ * its ids from a database row or an already-validated route param), so a bad
+ * one is a programmer error and `TypeError` is the honest shape for it, not
+ * a status-carrying service error.
+ *
+ * Strings are held to plain digits on purpose. `Number` would also accept
+ * `'0x15'`, `' 21 '` and `'1e3'` as 21, 21 and 1000, none of which Postgres
+ * would accept as an `int`, and the point of this function is that the two
+ * arms of one count stop disagreeing.
+ */
+function canonicalPlayerId(value, listName) {
+  const id = typeof value === 'number' ? value
+    : typeof value === 'string' && PLAIN_DIGITS.test(value) ? Number(value)
+      : NaN;
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    throw new TypeError(
+      `${listName} takes positive integer player ids; got ${describeValue(value)}`
+    );
+  }
+  return id;
+}
+
+/**
+ * A player-id list in canonical form: positive integers, each named once, in
+ * the order first named.
+ *
+ * De-duplication belongs here, at the boundary, rather than at each point of
+ * use: a restored id named twice must cost one read and earn one spot, and
+ * collapsing after the reads would already have spent the second one.
+ */
+function canonicalPlayerIds(values, listName) {
+  if (!Array.isArray(values)) {
+    throw new TypeError(`${listName} takes an array of player ids; got ${describeValue(values)}`);
+  }
+  const canonical = new Set();
+  for (const value of values) canonical.add(canonicalPlayerId(value, listName));
+  return [...canonical];
+}
+
 /**
  * A team's **roster capacity**: how many players it may hold right now.
  * Draft roster size plus one per IR-eligible player currently stashed in an
@@ -86,15 +141,31 @@ function injuryDesignationName(injuryDesignation) {
  * and taking away again, and the exclusion is the half that has actually
  * happened by the time capacity is checked, so crediting the restore would
  * count one IR spot twice. Both arms of the count therefore honour the
- * exclusion - the SQL for the still-rostered stashes, this filter for the
- * restored one. Both lists are player ids as numbers: the overlap filter
- * compares them by identity, so a caller mixing `21` and `'21'` across the
- * two would defeat it where the SQL's `::int[]` cast would not.
+ * exclusion - the SQL for the still-rostered stashes, the overlap filter
+ * below for the restored one.
+ *
+ * Both lists are canonicalised on entry (see `canonicalPlayerIds`), which is
+ * what lets those two arms agree about what counts as the same player. Until
+ * #277 they did not: the SQL arm coerced through `::int[]`, so `21` and
+ * `'21'` were one player to it, while the overlap filter compared by
+ * identity and saw two - and a restored id named twice was credited twice,
+ * since a repeat that is not excluded passes the filter on every pass.
+ * Neither was reachable (`undoDrop` passes one numeric id), but this
+ * function's worth is that it re-derives the restored credit rather than
+ * believing its caller, and those were the two places it still believed it:
+ * about multiplicity, and about type.
  *
  * `league` must carry `id`, `roster_limit` and `ir_slots`; season and week
  * come from the team's league row inside the query, like the enforcement scan.
  */
 async function rosterCapacity(client, { league, teamId, excludePlayerIds = [], restoredPlayerIds = [] }) {
+  // Canonicalised before the zero-IR shortcut and before any read. The
+  // contract belongs to the parameter, not to the league: whether `ir_slots`
+  // happens to short-circuit the count must not decide whether a caller
+  // hears about an id this function cannot use.
+  const excluded = canonicalPlayerIds(excludePlayerIds, 'excludePlayerIds');
+  const restored = canonicalPlayerIds(restoredPlayerIds, 'restoredPlayerIds');
+
   const base = draftRosterSize(league);
   const irSlots = irSlotCount(league);
   if (irSlots === 0) return base;
@@ -104,14 +175,18 @@ async function rosterCapacity(client, { league, teamId, excludePlayerIds = [], r
         AND "lineup_entries"."team_id" = $1
         AND ("players"."injury_status" = ANY($2::text[]) OR "lineup_entries"."ir_attested")
         AND NOT ("lineup_entries"."player_id" = ANY($3::int[]))`,
-    [teamId, [...IR_ELIGIBLE_DESIGNATIONS], excludePlayerIds]
+    [teamId, [...IR_ELIGIBLE_DESIGNATIONS], excluded]
   );
   let stashed = stash.rows[0].n;
-  const excluded = new Set(excludePlayerIds);
-  for (const playerId of restoredPlayerIds) {
+  const excludedIds = new Set(excluded);
+  // `restored` is already de-duplicated, so this loop reads once per player
+  // rather than once per mention: a repeated id is one stash and one spot.
+  for (const playerId of restored) {
     // Filtered before the read, not after: an excluded id earns nothing
     // whatever its record says, so asking is wasted work as well as wrong.
-    if (excluded.has(playerId)) continue;
+    // Both sides are canonical, so this comparison is the one the other
+    // arm's `::int[]` cast already made.
+    if (excludedIds.has(playerId)) continue;
     if (await undoRestoresStash(client, { leagueId: league.id, teamId, playerId })) stashed += 1;
   }
   return base + Math.min(irSlots, stashed);
